@@ -137,8 +137,7 @@ class PersonalityFrame:
 def load_personality_config(root):
     rules = load_personality_rules(root / "assets/cody/personality.yaml")
     icons = rules["icons"]
-    profiles = {name: tuple(profile[key] for key in ("offset_x", "offset_y", "extent_per_scale"))
-                for name, profile in icons["anchors"].items()}
+    profiles = {name: dict(profile) for name, profile in icons["anchors"].items()}
     constants = {name.removesuffix("_ms") + "_us": icons["channel"][name] * 1000
                  for name in ("stability_ms", "fade_in_ms", "minimum_visible_ms", "fade_out_ms")}
     for name, value in icons["follow"].items():
@@ -453,14 +452,17 @@ class PersonalityPainter:
                      definitions["lobe.upper_left"]["position"][0]) * scene["scale"]
         if not math.isfinite(rest_span) or rest_span <= 0:
             raise ValueError("Personality rest lobe span rejected")
-        offset_x, offset_y, extent_per_scale = self.profiles[
+        profile = self.profiles[
             "sleep" if presentation == PersonalityPresentation.SLEEP else "main"]
         extent = max(self.config["minimum_extent"], min(self.config["maximum_base_extent"],
-                                                       nominal_scale * extent_per_scale))
+                                                       nominal_scale * profile["extent_per_scale"]))
         limit = extent * self.config["maximum_deformation_pixels"] / self.config["maximum_base_extent"]
         deformation = max(-limit, min(limit, ((upper_right[0] - upper_left[0]) / rest_span - 1) * extent))
-        target = (nose[0] + offset_x * scene["scale"], nose[1] + offset_y * scene["scale"],
-                  extent + deformation, extent - deformation)
+        # Match native fixed-pixel translation and scaling around the same center.
+        target = (nose[0] + profile["offset_x"] * scene["scale"] + profile["pixel_offset_x"],
+                  nose[1] + profile["offset_y"] * scene["scale"] + profile["pixel_offset_y"],
+                  (extent + deformation) * profile["size_multiplier"],
+                  (extent - deformation) * profile["size_multiplier"])
         key = (size, route, rotation)
         if self.lag.key is None or (not paused and self.lag.key != key):
             self.prime_follow(target)
@@ -472,7 +474,7 @@ class PersonalityPainter:
             raise ValueError("Personality filtered geometry rejected")
         x, y, width, height = values
         width, height = math.floor(width + .5), math.floor(height + .5)
-        if not 1 <= width <= 64 or not 1 <= height <= 64:
+        if not 1 <= width <= 192 or not 1 <= height <= 192:
             raise ValueError(f"Personality filtered extent rejected: {width} x {height}")
         self.last_frame = PersonalityFrame()
         if state.desired == PersonalityCue.NONE and state.phase == PersonalityPhase.HIDDEN:
@@ -482,7 +484,8 @@ class PersonalityPainter:
         left = math.floor(float_left + .5) if float_left >= 0 else math.ceil(float_left - .5)
         top = math.floor(float_top + .5) if float_top >= 0 else math.ceil(float_top - .5)
         admitted = 0 <= left and 0 <= top and left + width <= 466 and top + height <= 466
-        admitted = admitted and top + height + self.config["body_clearance_pixels"] <= body_top
+        if not profile["allow_body_overlap"]:
+            admitted = admitted and top + height + self.config["body_clearance_pixels"] <= body_top
         if admitted:
             farthest_y = max(abs(top + .5 - 233), abs(top + height - .5 - 233))
             chord = math.sqrt(233 ** 2 - farthest_y ** 2)

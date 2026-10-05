@@ -1,7 +1,7 @@
 {
   "schema": "cody.personality.generated.v2",
   "source": "assets/cody/personality.yaml",
-  "source_sha256": "91a3e8a6670852d86f04ce1697d27b1c554c7c939a59f2c70e2b3d9d8727f7dd",
+  "source_sha256": "0ef5c2319e02f02e03725516b12a606f8a19299a163f9c3383faf7e832e0fb51",
   "headers": [
     "assets/cody/personality/generated/personality_rules.hpp",
     "assets/cody/personality/generated/personality_catalog.hpp",
@@ -259,12 +259,20 @@
         "main": {
           "offset_x": 0.09,
           "offset_y": -1.14,
-          "extent_per_scale": 0.2
+          "extent_per_scale": 0.2,
+          "pixel_offset_x": 30,
+          "pixel_offset_y": 40,
+          "size_multiplier": 3,
+          "allow_body_overlap": true
         },
         "sleep": {
           "offset_x": 0.09,
           "offset_y": -1.14,
-          "extent_per_scale": 0.2
+          "extent_per_scale": 0.2,
+          "pixel_offset_x": 30,
+          "pixel_offset_y": 40,
+          "size_multiplier": 3,
+          "allow_body_overlap": true
         }
       },
       "low_battery": {

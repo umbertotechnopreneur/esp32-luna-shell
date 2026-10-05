@@ -3,9 +3,17 @@
 #include "personality_catalog.hpp"
 #include <cstdint>
 namespace CODY::PersonalityConfig {
-struct AnchorProfile { float offset_x; float offset_y; float extent_per_scale; };
-inline constexpr AnchorProfile main{0.09f, -1.14f, 0.2f};
-inline constexpr AnchorProfile sleep{0.09f, -1.14f, 0.2f};
+struct AnchorProfile {
+    float offset_x;
+    float offset_y;
+    float extent_per_scale;
+    float pixel_offset_x;
+    float pixel_offset_y;
+    float size_multiplier;
+    bool allow_body_overlap;
+};
+inline constexpr AnchorProfile main{0.09f, -1.14f, 0.2f, 30.0f, 40.0f, 3.0f, true};
+inline constexpr AnchorProfile sleep{0.09f, -1.14f, 0.2f, 30.0f, 40.0f, 3.0f, true};
 inline constexpr int64_t stability_us = 300000;
 inline constexpr int64_t fade_in_us = 400000;
 inline constexpr int64_t minimum_visible_us = 2500000;

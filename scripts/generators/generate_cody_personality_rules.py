@@ -50,9 +50,13 @@ def generated_personality_config(rules):
     lines = ["// Generated from assets/cody/personality.yaml; edit that source, then regenerate.",
              "#pragma once", '#include "personality_catalog.hpp"', "#include <cstdint>",
              "namespace CODY::PersonalityConfig {",
-             "struct AnchorProfile { float offset_x; float offset_y; float extent_per_scale; };"]
+             "struct AnchorProfile {", "    float offset_x;", "    float offset_y;",
+             "    float extent_per_scale;", "    float pixel_offset_x;", "    float pixel_offset_y;",
+             "    float size_multiplier;", "    bool allow_body_overlap;", "};"]
     for name, anchor in icons["anchors"].items():
-        values = ", ".join(cpp_float(anchor[key]) for key in ("offset_x", "offset_y", "extent_per_scale"))
+        values = ", ".join(cpp_float(anchor[key]) for key in (
+            "offset_x", "offset_y", "extent_per_scale", "pixel_offset_x", "pixel_offset_y", "size_multiplier"))
+        values += ", " + str(anchor["allow_body_overlap"]).lower()
         lines.append(f"inline constexpr AnchorProfile {name}{{{values}}};")
     for section, names in (("channel", ("stability", "fade_in", "minimum_visible", "fade_out")),
                            ("follow", ("position_window", "scale_window", "history_bucket"))):

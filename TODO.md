@@ -12,7 +12,15 @@ prove the written bytes; every open physical observation below remains open.
 - [ ] Remind the user after approval of the new boot behavior: update both Cody
   PDF atlases with the shortened 2 / 1.5 / 2-second cold-boot sequence and random
   returning-device Affection/Joy welcome, plus touch/icon/cycle corrections and
-  a final dated errata page. Preserve pairing and every previous PDF page.
+  enlarged/shifted icon placement and a final dated errata page. Preserve pairing
+  and every previous PDF page.
+- [ ] After fresh authorization, build/flash and review the icon readability
+  correction: threefold scale-dependent extent (Full 87 px, Greeting 78 px,
+  Medium 63 px, smaller eligible sizes at least 36 px), fixed +30/+40-pixel
+  center translation and intentional upper-body overlap. Micro remains hidden.
+  Check all eligible sizes, fourteen symbols, motion/rotation, circle/status/Back
+  separation and frame cost. Current correction has static review only; the
+  latest flashed image remains `09ea3b70`.
 - [ ] Physically review the new 300-ms caress thresholds, heart interruption,
   eye-tap Fear/Frustration variation under stress, existing icon SFX and random
   complete three-scene cycles. Build/flash does not prove these observations.
@@ -55,7 +63,7 @@ prove the written bytes; every open physical observation below remains open.
 - [ ] Validate the merged personality-icon implementation on the device:
   generated-palette/coverage contracts, all fourteen cues in Main
   and Sleep, suppression on other scenes and Micro, symbol readability, actual
-  jelly/vector clearance, circle/status/Back separation, configured face anchor,
+  upper-body overlay, circle/status/Back separation, configured face anchor,
   bounded follow under pause/wake/rotation, stable selection, fade/hold/release,
   canonical device-state gating and old/new damage erasure. Listen to/refine all
   fourteen original SFX and verify completed-frame triggering, busy drops,

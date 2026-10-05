@@ -13,7 +13,8 @@
 namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_personality";
-constexpr uint16_t kMaximumSpriteExtent = 64;
+// Source masters remain 64x64; the requested 3x presentation needs larger output bounds.
+constexpr uint16_t kMaximumSpriteExtent = 192;
 static_assert(PersonalityConfig::position_window_us > 0 &&
     PersonalityConfig::position_window_us <= PersonalityConfig::scale_window_us &&
     PersonalityConfig::scale_window_us <= 400000, "Following must settle within 400 active milliseconds");
@@ -347,7 +348,7 @@ bool overlaps(DamageRect first, DamageRect second)
 }
 
 // left: Candidate left edge; floating geometry is rejected before integer conversion.
-// top: Candidate upper edge, always above the current body crown.
+// top: Candidate upper edge in the same logical coordinates as the character.
 // width: Positive bounded whole-pixel sprite width.
 // height: Positive bounded whole-pixel sprite height.
 // exclusions: Borrowed visible route rectangles.
@@ -605,7 +606,10 @@ esp_err_t prepare_personality_frame(
     const float rest_span = (Data::points[to_index(PointId::LobeUpperRight)].x -
         Data::points[to_index(PointId::LobeUpperLeft)].x) * scene.scale;
     if (!std::isfinite(rest_span) || rest_span <= 0 || !std::isfinite(profile.offset_x) ||
-        !std::isfinite(profile.offset_y) || !std::isfinite(profile.extent_per_scale) || profile.extent_per_scale <= 0) {
+        !std::isfinite(profile.offset_y) || !std::isfinite(profile.extent_per_scale) || profile.extent_per_scale <= 0 ||
+        !std::isfinite(profile.pixel_offset_x) || std::abs(profile.pixel_offset_x) > 466 ||
+        !std::isfinite(profile.pixel_offset_y) || std::abs(profile.pixel_offset_y) > 466 ||
+        !std::isfinite(profile.size_multiplier) || profile.size_multiplier < 1 || profile.size_multiplier > 3) {
         ESP_LOGE(kTag, "Anchor profile/rest span rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
@@ -613,10 +617,12 @@ esp_err_t prepare_personality_frame(
         PersonalityConfig::maximum_base_extent;
     const float deformation = std::clamp(((upper_right.x - upper_left.x) / rest_span - 1.f) * extent,
         -deformation_limit, deformation_limit);
-    const float target_width = extent + deformation;
-    const float target_height = extent - deformation;
-    const float target_x = nose.x + profile.offset_x * scene.scale;
-    const float target_y = nose.y + profile.offset_y * scene.scale;
+    const float target_width = (extent + deformation) * profile.size_multiplier;
+    const float target_height = (extent - deformation) * profile.size_multiplier;
+    // Pixel translation is independent of character scale. Enlarging around the
+    // center preserves the exact requested movement of that center on every pose.
+    const float target_x = nose.x + profile.offset_x * scene.scale + profile.pixel_offset_x;
+    const float target_y = nose.y + profile.offset_y * scene.scale + profile.pixel_offset_y;
     if (!std::isfinite(target_x) || !std::isfinite(target_y) || !std::isfinite(body_top) ||
         !std::isfinite(target_x * PersonalityConfig::scale_window_us) ||
         !std::isfinite(target_y * PersonalityConfig::scale_window_us) ||
@@ -681,7 +687,10 @@ esp_err_t prepare_personality_frame(
     DamageRect admitted{};
     const float left = next.center_x - width * .5f;
     const float top = next.center_y - height * .5f;
-    if (std::round(top) + height + PersonalityConfig::body_clearance_pixels > body_top ||
+    const bool overlaps_body = std::round(top) + height + PersonalityConfig::body_clearance_pixels > body_top;
+    // Main/Sleep explicitly permit the icon over the upper body. Circle and
+    // navigation/status exclusions still apply to the full enlarged rectangle.
+    if ((!profile.allow_body_overlap && overlaps_body) ||
         !admit_bounds(left, top, width, height, exclusions, exclusion_count, admitted)) {
         // Layout admission is an expected presentation outcome, not a failed component operation.
         hide_current(next);

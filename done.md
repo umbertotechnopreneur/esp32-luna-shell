@@ -10,6 +10,17 @@ flash logs were regenerated.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Implemented the reported icon readability correction: Main/Sleep centers move
+  30 logical pixels right and 40 down, with threefold scale-dependent extent
+  (87 px at Full, 78 at Greeting, 63 at Medium; smaller eligible sizes at least
+  36 px). Micro and excluded routes still suppress icons. Shared validated YAML
+  drives native/generated profiles and Windows; both allow upper-body overlay
+  while retaining circle and status/Back admission. Source masters remain
+  64 x 64; bounded destination support is 192 x 192 without new framebuffers.
+  Static review only: no new build, tests, simulator, push or flash accompanied
+  this correction. Physical readability and frame cost remain in TODO; PDFs
+  await approval. The earlier flashed image is recorded separately below.
+
 - Implemented the follow-up touch/boot changes: recognized caresses request
   Affection through priority arbitration, without an extra icon repeat cooldown;
   gentler 300-ms/path thresholds retain speed, zone and acquisition guards.
