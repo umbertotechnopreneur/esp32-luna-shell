@@ -90,11 +90,6 @@ every open physical observation below remains open.
   The roughly 68-KiB recovery is a source estimate, not measured evidence.
   No checks, build, simulator, push or flash accompanied this implementation.
 
-- [ ] Remind the user after approval of the new boot behavior: update both Cody
-  PDF atlases with the shortened 2 / 1.5 / 2-second cold-boot sequence and random
-  returning-device Affection/Joy welcome, plus touch/icon/cycle corrections and
-  enlarged/shifted icon placement and a final dated errata page. Preserve pairing
-  and every previous PDF page.
 - [ ] After fresh authorization, build/flash and review the icon readability
   correction: threefold scale-dependent extent (Full 87 px, Greeting 78 px,
   Medium 63 px, smaller eligible sizes at least 36 px), fixed +30/+40-pixel

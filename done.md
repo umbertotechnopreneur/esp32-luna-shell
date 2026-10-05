@@ -23,6 +23,15 @@ flash logs were regenerated.
   package inputs and the user-provided Studio manifesto URL. Source integration
   received static review only. No tests/scans, simulator, firmware configure,
   build, size, flash, monitor or capture ran; physical behavior remains open.
+- Local implementation checkpoint: `3e97832`; no push accompanied the feature.
+- Revised both Obsidian atlases and their repository mirrors: Manga Status now
+  has 27 pages, Navigation 26. Preserved all 24/23 existing page content streams
+  and earlier errata; added B01 marketing identity, B02 startup sequence and a
+  final dated corrections page with original page/screen references and the
+  supplied manifesto link. All six added pages were rendered with Poppler and
+  visually reviewed before the local files were updated. Original backups,
+  renders and the document hash manifest are under
+  `artifacts/pdf-review/vibeware-boot-2026-10-06/`; this is document QA only.
 
 ## Cody atlas documentation revision — 2026-10-06
 
