@@ -52,7 +52,12 @@ Speech stays off in ordinary firmware. `-Feature tts-sd` selects English,
 Italian, Mandarin and Cantonese on microSD; `-Feature tts-flash` embeds English
 only. These features are available for `cody-companion` and `full`, with isolated
 configuration/build/dependency state. The menu exposes the same selection.
-All speech variants start silently; no scene or UI automatically speaks.
+`tts-sd` enables `CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN`: after mandatory startup,
+it queues the fixed Italian phrase "Ciao questa è una sintesi vocale di test 5
+ottobre 2026" once. `tts-flash` starts silently. The test symbol can be disabled
+independently. Synthesis runs on core 0; the Cody/LVGL render workers use core 1.
+No scene or UI automatically requests speech. The boot test requires the verified
+SD package, active power and nonzero saved volume; it bypasses clock/quiet hours.
 
 An explicitly selected package generator is `tts-assets`, with required
 `-ToolArguments @('--backend', 'sd')` or `@('--backend', 'flash')`. It writes

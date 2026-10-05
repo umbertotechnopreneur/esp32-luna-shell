@@ -4,6 +4,7 @@
 #include "LUNASHELL_tts_storage.h"
 #include "asset_registry.h"
 #include "native_engine.h"
+#include "bsp/runtime_cores.h"
 #include "mem_alloc.h"
 #include <atomic>
 #include <cerrno>
@@ -21,6 +22,15 @@ namespace {
 using namespace LUNASHELL;
 constexpr char TAG[] = "LUNASHELL_tts";
 constexpr size_t kMaximumTextBytes = 1024;
+static_assert(LUNASHELL_TTS_CORE_ID != LUNASHELL_RENDER_CORE_ID);
+static_assert(configNUMBER_OF_CORES == 2, "TTS requires a dedicated non-renderer core");
+enum class RequestPurpose : uint8_t { Explicit, ItalianBootTest };
+RequestPurpose s_request_purpose = RequestPurpose::Explicit;
+#if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
+bool s_boot_test_requested;
+constexpr int64_t kBootStorageWaitUs = 30000000;
+constexpr char kItalianBootText[] = "Ciao questa è una sintesi vocale di test 5 ottobre 2026";
+#endif
 #if CONFIG_LUNASHELL_TTS_DATA_SD
 constexpr SpeechStorage kSpeechStorage = SpeechStorage::Sd;
 #else
@@ -131,13 +141,21 @@ esp_err_t publish(SpeechState state, esp_err_t error)
 }
 
 // observation: Receives a coherent aged canonical view, never a sensor-side read.
-// Exception: Refuses standby, unknown/quiet time and unavailable SD without fallback.
+// Exception: Refuses standby and unavailable SD; normal requests also require allowed clock policy.
 esp_err_t read_policy(SpeechObservation &observation)
 {
     esp_err_t error = DeviceSnapshotService::instance().readSpeechObservation(observation);
     if (error != ESP_OK) return error;
-    if (observation.operating_state != DeviceOperatingState::Active ||
-        clock_cue_policy(observation.clock) != ClockCuePolicy::Allowed) return ESP_ERR_INVALID_STATE;
+    if (observation.operating_state != DeviceOperatingState::Active) return ESP_ERR_INVALID_STATE;
+    bool boot_test = false;
+#if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
+    boot_test = s_request_purpose == RequestPurpose::ItalianBootTest;
+#endif
+    // Only the explicitly enabled diagnostic phrase may run before clock sync
+    // or in quiet hours. Normal API requests retain their existing policy.
+    if (!boot_test && clock_cue_policy(observation.clock) != ClockCuePolicy::Allowed) {
+        return ESP_ERR_INVALID_STATE;
+    }
 #if CONFIG_LUNASHELL_TTS_DATA_SD
     const auto &storage = observation.storage;
     if (!storage.mounted || !storage.card_response_verified || storage.poisoned ||
@@ -233,6 +251,42 @@ void finish_request(SpeechState state, esp_err_t error)
     s_active_id = 0;
 }
 
+#if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
+// No parameters: waits only for the canonical storage owner's initial mount report.
+// Exception: Returns cancellation, power, publication, actual mount errors or a bounded timeout.
+esp_err_t wait_for_boot_storage()
+{
+    esp_err_t error = publish(SpeechState::WaitingForStorage, ESP_OK);
+    if (error != ESP_OK) return error;
+    const int64_t deadline = esp_timer_get_time() + kBootStorageWaitUs;
+    for (;;) {
+        if (s_cancel_id.load() == s_status.request_id) {
+            s_cancelled = true;
+            return ESP_ERR_INVALID_STATE;
+        }
+        SpeechObservation observation;
+        error = DeviceSnapshotService::instance().readSpeechObservation(observation);
+        if (error != ESP_OK) return error;
+        if (observation.operating_state != DeviceOperatingState::Active) {
+            s_suppressed = true;
+            return ESP_ERR_INVALID_STATE;
+        }
+        const auto &storage = observation.storage;
+        if (storage.mount_outcome != StorageMountOutcome::NotAttempted || storage.poisoned) {
+            // A completed failed mount is terminal for this one-shot request.
+            // No card insertion retry, format request or alternate medium is admitted.
+            return read_policy(observation);
+        }
+        if (storage.last_attempt_at_us > 0 && storage.last_error != ESP_OK &&
+            storage.last_error != ESP_ERR_INVALID_STATE) {
+            return storage.last_error;
+        }
+        if (esp_timer_get_time() >= deadline) return ESP_ERR_TIMEOUT;
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+#endif
+
 // No parameters: sole worker serializes the non-reentrant engine and its C allocator guard.
 // Exception: Failed engine initialization is retained until restart; absent SD may be retried explicitly.
 void execute_request()
@@ -240,8 +294,20 @@ void execute_request()
     s_callback_error = ESP_OK;
     s_cancelled = false;
     s_suppressed = false;
+    esp_err_t error = ESP_OK;
+#if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
+    if (s_request_purpose == RequestPurpose::ItalianBootTest) {
+        error = wait_for_boot_storage();
+        if (error != ESP_OK) {
+            const SpeechState state = s_cancelled ? SpeechState::Cancelled :
+                s_suppressed ? SpeechState::Suppressed : SpeechState::Failed;
+            finish_request(state, error);
+            return;
+        }
+    }
+#endif
     SpeechObservation observation;
-    esp_err_t error = read_policy(observation);
+    error = read_policy(observation);
     if (error == ESP_OK && s_cancel_id.load() == s_status.request_id) {
         s_cancelled = true;
         error = ESP_ERR_INVALID_STATE;
@@ -325,32 +391,11 @@ void speech_worker(void *context)
         execute_request();
     }
 }
-}
-
-namespace LUNASHELL {
-// No parameters: starts silently and leaves engine/data allocations lazy.
-// Exception: Publishes and returns optional startup worker/allocation errors.
-esp_err_t initialize_speech()
-{
-    std::lock_guard<std::mutex> lock(s_request_mutex);
-    if (s_initialization_attempted) return s_initialization_error;
-    s_initialization_attempted = true;
-    s_status.storage = kSpeechStorage;
-    s_initialization_error = publish(SpeechState::Idle, ESP_OK);
-    if (s_initialization_error == ESP_OK && xTaskCreateWithCaps(speech_worker, "LunaSpeech",
-        CONFIG_LUNASHELL_TTS_STACK_BYTES, nullptr, 3, &s_worker,
-        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
-        s_worker = nullptr;
-        s_initialization_error = ESP_ERR_NO_MEM;
-    }
-    if (s_initialization_error != ESP_OK) publish(SpeechState::Unavailable, s_initialization_error);
-    return s_initialization_error;
-}
-
 // request: Explicit validated UTF-8 request; a private bounded copy is made on admission.
 // request_id: Receives stable identity only after successful queue publication/notification.
+// purpose: Private identity; only the fixed boot diagnostic may bypass clock policy.
 // Exception: Returns rejected input, unsupported language, busy, lifecycle or publication failure.
-esp_err_t request_speech(const SpeechRequest &request, uint32_t &request_id)
+esp_err_t admit_speech(const SpeechRequest &request, uint32_t &request_id, RequestPurpose purpose)
 {
     request_id = 0;
     esp_err_t error = ESP_OK;
@@ -368,6 +413,15 @@ esp_err_t request_speech(const SpeechRequest &request, uint32_t &request_id)
         return error;
     }
     std::lock_guard<std::mutex> lock(s_request_mutex);
+#if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
+    if (purpose == RequestPurpose::ItalianBootTest) {
+        if (s_boot_test_requested) {
+            ESP_LOGE(TAG, "Italian boot speech rejected: already requested this boot");
+            return ESP_ERR_INVALID_STATE;
+        }
+        s_boot_test_requested = true;
+    }
+#endif
     if (s_initialization_error != ESP_OK) error = s_initialization_error;
     else if (s_worker == nullptr || s_busy || s_last_id == UINT32_MAX) error = ESP_ERR_INVALID_STATE;
     else if (s_publication_error.load() != ESP_OK) error = s_publication_error.load();
@@ -375,6 +429,7 @@ esp_err_t request_speech(const SpeechRequest &request, uint32_t &request_id)
         ESP_LOGE(TAG, "Speech admission rejected (%s)", esp_err_to_name(error));
         return error;
     }
+    s_request_purpose = purpose;
     s_request = request;
     memcpy(s_text, request.text, request.text_bytes);
     s_text[request.text_bytes] = 0;
@@ -404,6 +459,60 @@ esp_err_t request_speech(const SpeechRequest &request, uint32_t &request_id)
     request_id = s_active_id;
     return ESP_OK;
 }
+
+}
+
+namespace LUNASHELL {
+// No parameters: starts silently and leaves engine/data allocations lazy.
+// Exception: Publishes and returns optional startup worker/allocation errors.
+esp_err_t initialize_speech()
+{
+    std::lock_guard<std::mutex> lock(s_request_mutex);
+    if (s_initialization_attempted) return s_initialization_error;
+    s_initialization_attempted = true;
+    s_status.storage = kSpeechStorage;
+    s_initialization_error = publish(SpeechState::Idle, ESP_OK);
+    if (s_initialization_error == ESP_OK && xTaskCreatePinnedToCoreWithCaps(speech_worker, "LunaSpeech",
+        CONFIG_LUNASHELL_TTS_STACK_BYTES, nullptr, 3, &s_worker, LUNASHELL_TTS_CORE_ID,
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
+        s_worker = nullptr;
+        s_initialization_error = ESP_ERR_NO_MEM;
+    }
+    if (s_initialization_error != ESP_OK) {
+        publish(SpeechState::Unavailable, s_initialization_error);
+    } else {
+        ESP_LOGI(TAG, "Speech worker pinned to core %d; renderer core %d",
+                 LUNASHELL_TTS_CORE_ID, LUNASHELL_RENDER_CORE_ID);
+    }
+    return s_initialization_error;
+}
+
+// request: Explicit validated UTF-8 input; normal quiet-time policy always applies.
+// request_id: Receives admitted request identity, not a playback completion claim.
+// Exception: Returns original validation, lifecycle, busy or publication error.
+esp_err_t request_speech(const SpeechRequest &request, uint32_t &request_id)
+{
+    return admit_speech(request, request_id, RequestPurpose::Explicit);
+}
+
+#if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
+// No parameters: submits the fixed Italian diagnostic once after mandatory startup.
+// Exception: Returns original admission error; startup may continue after this optional failure.
+esp_err_t request_boot_speech_test()
+{
+    SpeechRequest request;
+    request.language = SpeechLanguage::Italian;
+    request.text = kItalianBootText;
+    request.text_bytes = sizeof(kItalianBootText) - 1;
+    uint32_t request_id = 0;
+    const esp_err_t error = admit_speech(request, request_id, RequestPurpose::ItalianBootTest);
+    if (error == ESP_OK) {
+        ESP_LOGI(TAG, "Italian boot speech queued: request=%lu; execution core=%d",
+                 static_cast<unsigned long>(request_id), LUNASHELL_TTS_CORE_ID);
+    }
+    return error;
+}
+#endif
 
 // request_id: Exact active request identity; a later request is never cancelled accidentally.
 // Exception: Returns unknown or completed identities; cancellation admission is not completion.

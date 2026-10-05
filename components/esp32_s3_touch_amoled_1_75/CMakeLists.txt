@@ -96,6 +96,14 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
             "${CMAKE_CURRENT_SOURCE_DIR}/patches/esp_lvgl_adapter_pause_recovery.patch"
         )
     endif()
+    if("lvgl__lvgl" IN_LIST _build_components)
+        # Config-guarded change for the pinned LVGL 9.5 FreeRTOS draw workers.
+        # Non-TTS builds retain upstream task creation and affinity.
+        bsp_apply_required_patches(
+            lvgl__lvgl
+            "${CMAKE_CURRENT_SOURCE_DIR}/patches/lvgl_tts_renderer_core.patch"
+        )
+    endif()
     if("waveshare__esp_lcd_touch_cst9217" IN_LIST _build_components)
         bsp_apply_required_patches(
             waveshare__esp_lcd_touch_cst9217

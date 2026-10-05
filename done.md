@@ -14,14 +14,26 @@ flash logs were regenerated.
   at `1fbc0d7b`; preserved the original worktree. Implemented default-off
   `CONFIG_LUNASHELL_BUILD_ENABLE_TTS`, isolated `tts-sd` and `tts-flash` variants
   for Cody/full, native pinned eSpeak C/Unicode sources, bounded UTF-8 request
-  and cancellation APIs, silent startup and canonical speech state publication.
+  and cancellation APIs, initially silent startup and canonical speech state publication.
 - Implemented registry ownership, guarded PSRAM-only engine allocation, a
   continuous session in the existing audio owner and owner-mediated SD package
   reads with exact size/SHA-256 verification on every request. SD stores English,
   Italian, Mandarin and Cantonese; flash embeds English only. Ordinary profiles
   exclude the component and its asset generation; SD embeds metadata only.
-  CLI/menu/configuration gates preserve explicit backend selection. No automatic
-  speech trigger or SD-to-flash fallback was introduced.
+  CLI/menu/configuration gates preserve explicit backend selection. No SD-to-flash
+  fallback was introduced.
+- Subsequently wired the requested fixed Italian phrase after mandatory boot in
+  `tts-sd`, gated separately by `CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN`:
+  "Ciao questa è una sintesi vocale di test 5 ottobre 2026". One-shot worker waits
+  only for the initial canonical SD report, with a 30-second deadline and real
+  failure publication. This diagnostic bypasses clock/quiet hours while normal
+  requests retain their policy; active power, storage integrity and saved volume
+  still apply. It replaces Cody's usual boot cue only while the test is enabled.
+- Pinned synthesis to core 0 and Cody/LVGL renderer tasks to core 1 using shared
+  constants, including a guarded patch for LVGL's otherwise unpinned software
+  draw workers. Single-core TTS is rejected. Default-off speech and flash-English
+  composition remain intact. Static review only; patch application, build,
+  scheduling performance and audible boot behavior are pending authorization.
 - Pinned principal source payload is 827,224 bytes for English or 3,111,550
   bytes for all four languages, excluding voice metadata/code/runtime memory.
   These are package metadata, not linked size or measured memory evidence.

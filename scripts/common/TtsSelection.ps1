@@ -27,6 +27,7 @@ function Assert-FirmwareTtsConfiguration {
         $expected.LUNASHELL_BUILD_ENABLE_AUDIO = $true
         $expected.LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311 = $true
         $expected.SPIRAM = $true
+        $expected.FREERTOS_UNICORE = $false
         $expected.FREERTOS_TASK_CREATE_ALLOW_EXT_MEM = $true
         $expected.LUNASHELL_BUILD_ENABLE_VOICE_AFE = $false
         $expected.LUNASHELL_BUILD_ENABLE_WAKE_WORD = $false
@@ -34,6 +35,10 @@ function Assert-FirmwareTtsConfiguration {
             $expected.LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE = $true
             $expected.MBEDTLS_SHA256_C = $true
         }
+    }
+    $italianBoot = [regex]::IsMatch($SdkconfigText, '(?m)^CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN=y\r?$')
+    if ($italianBoot -and -not $sd) {
+        throw "Italian boot speech requires the explicitly selected tts-sd feature."
     }
     foreach ($symbol in $expected.Keys) {
         $actual = [regex]::IsMatch($SdkconfigText, "(?m)^CONFIG_$symbol=y`r?$")

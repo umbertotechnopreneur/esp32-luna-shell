@@ -10,6 +10,13 @@ if(NOT CONFIG_IDF_TARGET_ESP32S3 OR NOT CONFIG_SPIRAM OR
    NOT CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311)
     message(FATAL_ERROR "TTS requires ESP32-S3, PSRAM and explicitly selected ES8311 output")
 endif()
+if(CONFIG_FREERTOS_UNICORE)
+    message(FATAL_ERROR "TTS must execute on a separate core from the renderer")
+endif()
+if(CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN AND
+   (NOT CONFIG_LUNASHELL_TTS_DATA_SD OR NOT CONFIG_LUNASHELL_TTS_LANGUAGE_ITALIAN))
+    message(FATAL_ERROR "Italian boot speech requires the explicitly selected SD/Italian package")
+endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD OR CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE)
     message(FATAL_ERROR "TTS plus wake-word/AFE is not an admitted clock/ownership combination")
 endif()

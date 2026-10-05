@@ -48,10 +48,40 @@ hashes, while disabled builds admit neither speech code nor package generation.
 `initialize_speech()`, `request_speech(request, request_id)`,
 `cancel_speech(request_id)`. Main startup creates the optional owner silently;
 engine initialization and package loading are lazy until the first request.
-No scene, UI, HTTP endpoint or connected assistant calls `request_speech`.
-Deciding when Luna speaks is deliberately still open.
+With `CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN`, mandatory startup then calls the
+one-shot `request_boot_speech_test()`. The `tts-sd` catalog variant enables that
+symbol; `tts-flash` and ordinary profiles do not. No scene, UI, HTTP endpoint or
+connected assistant automatically requests speech.
 
-A single worker serializes the non-reentrant engine. One request may be queued
+The exact diagnostic text is **Ciao questa è una sintesi vocale di test 5 ottobre
+2026**, spoken using the Italian voice. The date is literal supplied text, not a
+fabricated clock observation. The main startup task does not wait for synthesis.
+The speech worker waits at most 30 seconds for the storage owner's initial
+canonical mount report, publishes `WaitingForStorage`, then either proceeds or
+publishes the real failure/timeout. A completed failed mount ends this request;
+card insertion later does not schedule another boot phrase. In Cody, this test
+replaces the usual completed-boot audio cue so its deferred greeting cannot race
+for the codec. Disable the symbol to restore the ordinary silent TTS startup and
+usual Cody cue. Physical SD provisioning remains a separate pending operation.
+
+A single worker serializes the non-reentrant engine and is pinned to **core 0**.
+The native Cody frame owner stays on **core 1**. In TTS-enabled Luna UI builds,
+the official LVGL adapter task and LVGL FreeRTOS software draw workers are also
+pinned to core 1; pinning the adapter alone would leave raster workers unbound.
+A shared C-compatible [core contract](../../components/esp32_s3_touch_amoled_1_75/include/bsp/runtime_cores.h)
+prevents different owners from assigning conflicting cores. Single-core TTS
+configurations are rejected by Kconfig, CMake, CLI configuration checks and the
+source compile guard. This is task placement, not a measured latency guarantee;
+the cores still share PSRAM, buses and system services.
+
+The LVGL worker change is a config-guarded patch to the pinned
+[LVGL 9.5.0 FreeRTOS thread owner](https://github.com/lvgl/lvgl/blob/v9.5.0/src/osal/lv_freertos.c).
+It preserves upstream task creation in non-TTS builds; TTS uses the IDF task API's
+stack-byte convention and no unpinned retry. Patch application/build remain
+unverified. Adapter affinity uses the official
+[task configuration](https://github.com/espressif/esp-iot-solution/blob/master/components/display/tools/esp_lvgl_adapter/include/esp_lv_adapter.h).
+
+One request may be queued
 or active; another request is rejected. IDs are nonzero and never reused during
 a firmware lifetime. Admission copies at most 1,024 bytes of validated UTF-8,
 rejecting embedded NUL, control characters, malformed/overlong sequences,
@@ -68,8 +98,12 @@ package paths, without voice enumeration or an environment/filesystem fallback.
 storage, source PCM count/rate, timestamps, original engine status, filesystem
 errno and operation error. Canonical projections supply aged clock, power and
 storage observations; TTS never reads sensors/BSP directly. Unknown clock,
-quiet hours or non-active power suppress requests. During synthesis, each PCM
-callback checks current policy and cancellation again. Canonical publication
+quiet hours or non-active power suppress normal requests. Only the independently
+compiled fixed boot diagnostic bypasses clock/quiet-time gating, so the requested
+audible test can run before time synchronization. It still respects active power,
+verified storage/package, saved volume and audio ownership. Normal callers cannot
+select that private diagnostic purpose. During synthesis, each PCM callback checks
+current policy and cancellation again. Canonical publication
 failure follows the platform fatal invariant; policy-read failures stop the
 current request. Queue notification failure remains latched for later admissions.
 
@@ -181,7 +215,7 @@ and pinned definitions establish source support for the four chosen languages;
 pronunciation quality on this device is unverified. The disposable reference
 checkout under `artifacts/research/` is not required by the integration.
 
-[TODO.md](../../TODO.md) retains all final validation and trigger decisions.
+[TODO.md](../../TODO.md) retains all final validation and additional trigger decisions.
 Fresh exact-command authorization is required before each test/suite and before
 configure/build/size, simulator or physical operations. Required evidence covers
 normal/SD/flash linked and flash-list exclusion, source/package contracts,

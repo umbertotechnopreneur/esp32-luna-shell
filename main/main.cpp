@@ -584,5 +584,8 @@ extern "C" void app_main(void)
     startup_watch.progress("board service sampling");
 #endif
     startup_watch.complete();
+#if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
+    report_optional_startup_failure("Italian boot speech", LUNASHELL::request_boot_speech_test());
+#endif
     ESP_LOGI(kTag, "Firmware startup completed with application ready");
 }

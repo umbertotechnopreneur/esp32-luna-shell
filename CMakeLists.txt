@@ -190,3 +190,10 @@ foreach(brookesia_component ${brookesia_build_components})
         endif()
     endif()
 endforeach()
+
+if(CONFIG_LUNASHELL_BUILD_ENABLE_TTS AND CONFIG_LUNASHELL_BUILD_ENABLE_UI)
+    # Supply the shared core constants without a circular LVGL/BSP dependency.
+    idf_component_get_property(_tts_lvgl_library lvgl__lvgl COMPONENT_LIB)
+    target_include_directories(${_tts_lvgl_library} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/components/esp32_s3_touch_amoled_1_75/include")
+endif()

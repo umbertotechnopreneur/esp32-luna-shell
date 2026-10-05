@@ -20,10 +20,15 @@ bytes, not physical behavior; every open observation below remains open.
   card removal/changed package and terminal allocation failure. No generator,
   test, scan, configure/build/size, simulator or physical operation has run for
   this implementation. Existing main hardware evidence does not validate TTS.
-- [ ] Decide when Luna should speak and then wire the selected triggers. The
-  current API is explicit and startup is silent; no UI, scene, HTTP or assistant
-  automatically requests speech. SD provisioning and audible voice tuning
-  remain separate, explicitly authorized operations.
+- [ ] Validate the newly wired Italian boot phrase on `tts-sd`, one-shot admission,
+  bounded initial SD wait and real failures, test-symbol exclusion from flash,
+  diagnostic-only clock/quiet bypass and regular-request policy preservation.
+  Verify TTS on core 0 and every Cody/LVGL render worker on core 1, including
+  guarded LVGL patch application and actual simultaneous rendering/speech load.
+  No validation or physical listening has been performed.
+- [ ] Decide additional speech triggers beyond the requested Italian boot test.
+  No UI, scene, HTTP or assistant automatically requests speech. SD provisioning
+  and audible voice tuning remain separate, explicitly authorized operations.
 
 ## Cody integration and release gates
 

@@ -23,6 +23,11 @@ esp_err_t initialize_speech();
 // request_id: Receives a stable nonzero identity; admission is not playback completion.
 // Exception: Returns rejected format, language, lifecycle, busy or publication errors.
 esp_err_t request_speech(const SpeechRequest &request, uint32_t &request_id);
+#if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
+// No parameters: queues the fixed Italian boot phrase once; worker awaits the initial SD report.
+// Exception: Returns admission error; active power, card integrity and audio volume still apply.
+esp_err_t request_boot_speech_test();
+#endif
 // request_id: Exact current identity to cancel; never cancels a later request.
 // Exception: Returns an invalid identity/state or retained publication failure.
 esp_err_t cancel_speech(uint32_t request_id);

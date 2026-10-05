@@ -46,7 +46,7 @@ function Edit-DeviceMenuSettings([hashtable]$Settings) {
             '1' = @{ Emoji = '🪶'; Label = 'None'; Description = 'Default lightweight composition'; Value = 'none' }
             '2' = @{ Emoji = '📏'; Label = 'Distance'; Description = 'Reviewed distance variant'; Value = 'distance' }
             '3' = @{ Emoji = '🎙️'; Label = 'Wake word'; Description = 'Local recognition variant'; Value = 'wake-word' }
-            '4' = @{ Emoji = '💾'; Label = 'TTS on SD'; Description = 'English, Italian, Mandarin and Cantonese; starts silently'; Value = 'tts-sd' }
+            '4' = @{ Emoji = '💾'; Label = 'TTS on SD'; Description = 'English, Italian, Mandarin and Cantonese; Italian boot speech test'; Value = 'tts-sd' }
             '5' = @{ Emoji = '🔊'; Label = 'TTS in flash'; Description = 'English only; starts silently'; Value = 'tts-flash' }
         }
         $feature = Select-DeviceMenuItem 'EXPLICIT OPTIONAL FEATURE' $features

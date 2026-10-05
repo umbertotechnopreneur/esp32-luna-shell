@@ -8,7 +8,7 @@ enum class SpeechLanguage : uint8_t { English = 1, Italian = 2, Mandarin = 3, Ca
 enum class SpeechState : uint8_t {
     Disabled = 0, Idle = 1, Queued = 2, Preparing = 3, Synthesizing = 4,
     Playing = 5, Completed = 6, Cancelled = 7, Suppressed = 8, Failed = 9,
-    Unavailable = 10
+    Unavailable = 10, WaitingForStorage = 11
 };
 enum class SpeechStorage : uint8_t { None = 0, Flash = 1, Sd = 2 };
 struct SpeechSnapshot {

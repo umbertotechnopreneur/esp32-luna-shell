@@ -47,6 +47,7 @@
 #include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_platform.h"
 #include "bsp/display.h"
+#include "bsp/runtime_cores.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "esp_system.h"
@@ -77,7 +78,7 @@ constexpr uint32_t kDisplayLockTimeoutMs = 1000;
 // Keep headroom for nested helpers and register spills without spending internal RAM.
 constexpr uint32_t kWorkerStackBytes = 12288;
 // Keep the continuous frame owner away from the CPU0 radio/IP interrupt and task set.
-constexpr BaseType_t kRenderCoreId = 1;
+constexpr BaseType_t kRenderCoreId = LUNASHELL_RENDER_CORE_ID;
 constexpr int64_t kWorkerStackSamplePeriodUs = 2000000;
 // Target the requested 25 FPS cadence; the HUD still reports measured throughput.
 #if CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY

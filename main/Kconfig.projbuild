@@ -385,9 +385,11 @@ config LUNASHELL_BUILD_ENABLE_TTS
     bool "Enable optional local eSpeak speech service"
     depends on IDF_TARGET_ESP32S3 && SPIRAM && LUNASHELL_BUILD_ENABLE_AUDIO && LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
     depends on !LUNASHELL_BUILD_ENABLE_WAKE_WORD && !LUNASHELL_BUILD_ENABLE_VOICE_AFE
+    depends on !FREERTOS_UNICORE
     default n
     help
-        Explicit opt-in only. Starts silently; speech requires request_speech.
+        Explicit opt-in only. Synthesis runs on core 0; the renderer uses core 1.
+        The SD variant enables an independently gated Italian boot diagnostic.
         Use a tts-sd or tts-flash catalog variant to admit the engine component.
 
 choice LUNASHELL_TTS_DATA
@@ -413,6 +415,17 @@ config LUNASHELL_TTS_LANGUAGE_MANDARIN
 config LUNASHELL_TTS_LANGUAGE_CANTONESE
     bool
     default y if LUNASHELL_BUILD_ENABLE_TTS && LUNASHELL_TTS_DATA_SD
+
+config LUNASHELL_TTS_BOOT_TEST_ITALIAN
+    bool "Speak fixed Italian diagnostic after boot"
+    depends on LUNASHELL_BUILD_ENABLE_TTS && LUNASHELL_TTS_DATA_SD && LUNASHELL_TTS_LANGUAGE_ITALIAN
+    default n
+    help
+        Says: Ciao questa è una sintesi vocale di test 5 ottobre 2026
+        Queues once after mandatory startup, then waits at most 30 seconds for
+        the initial SD mount report on the non-renderer core. This diagnostic
+        bypasses clock/quiet-time policy, but respects active power, audio volume
+        and verified card/package ownership. It never formats or falls back.
 
 config LUNASHELL_TTS_ENGINE_HEAP_BYTES
     int "Maximum speech engine working heap in PSRAM"
