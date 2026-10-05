@@ -13,8 +13,8 @@
 namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_personality";
-// Source masters remain 64x64; the requested 3x presentation needs larger output bounds.
-constexpr uint16_t kMaximumSpriteExtent = 192;
+// The 64-pixel masters permit the requested 3.6x presentation without new buffers.
+constexpr uint16_t kMaximumSpriteExtent = 231;
 static_assert(PersonalityConfig::position_window_us > 0 &&
     PersonalityConfig::position_window_us <= PersonalityConfig::scale_window_us &&
     PersonalityConfig::scale_window_us <= 400000, "Following must settle within 400 active milliseconds");
@@ -609,7 +609,7 @@ esp_err_t prepare_personality_frame(
         !std::isfinite(profile.offset_y) || !std::isfinite(profile.extent_per_scale) || profile.extent_per_scale <= 0 ||
         !std::isfinite(profile.pixel_offset_x) || std::abs(profile.pixel_offset_x) > 466 ||
         !std::isfinite(profile.pixel_offset_y) || std::abs(profile.pixel_offset_y) > 466 ||
-        !std::isfinite(profile.size_multiplier) || profile.size_multiplier < 1 || profile.size_multiplier > 3) {
+        !std::isfinite(profile.size_multiplier) || profile.size_multiplier < 1 || profile.size_multiplier > 3.6f) {
         ESP_LOGE(kTag, "Anchor profile/rest span rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }

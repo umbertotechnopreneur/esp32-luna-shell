@@ -474,7 +474,7 @@ class PersonalityPainter:
             raise ValueError("Personality filtered geometry rejected")
         x, y, width, height = values
         width, height = math.floor(width + .5), math.floor(height + .5)
-        if not 1 <= width <= 192 or not 1 <= height <= 192:
+        if not 1 <= width <= 231 or not 1 <= height <= 231:
             raise ValueError(f"Personality filtered extent rejected: {width} x {height}")
         self.last_frame = PersonalityFrame()
         if state.desired == PersonalityCue.NONE and state.phase == PersonalityPhase.HIDDEN:

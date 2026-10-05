@@ -12,12 +12,12 @@ struct AnchorProfile {
     float size_multiplier;
     bool allow_body_overlap;
 };
-inline constexpr AnchorProfile main{0.09f, -1.14f, 0.2f, 30.0f, 40.0f, 3.0f, true};
-inline constexpr AnchorProfile sleep{0.09f, -1.14f, 0.2f, 30.0f, 40.0f, 3.0f, true};
+inline constexpr AnchorProfile main{0.09f, -1.14f, 0.2f, 30.0f, 40.0f, 3.6f, true};
+inline constexpr AnchorProfile sleep{0.09f, -1.14f, 0.2f, 30.0f, 40.0f, 3.6f, true};
 inline constexpr int64_t stability_us = 300000;
 inline constexpr int64_t fade_in_us = 400000;
 inline constexpr int64_t minimum_visible_us = 2500000;
-inline constexpr int64_t fade_out_us = 600000;
+inline constexpr int64_t fade_out_us = 400000;
 inline constexpr int64_t position_window_us = 360000;
 inline constexpr int64_t scale_window_us = 400000;
 inline constexpr int64_t history_bucket_us = 25000;
@@ -56,6 +56,6 @@ inline constexpr uint8_t low_battery_exit_percent = 20;
 } // namespace CODY::PersonalityConfig
 namespace CODY::PersonalityAudioConfig {
 inline constexpr bool enabled = true;
-inline constexpr int64_t cooldown_us = 2000000;
-inline constexpr int64_t request_expiry_us = 120000;
+inline constexpr int64_t cooldown_us = 0;
+inline constexpr int64_t request_expiry_us = 400000;
 } // namespace CODY::PersonalityAudioConfig

@@ -37,10 +37,16 @@ def check_typewriter_audio_source(root: Path) -> None:
     assert "kOriginalTap.front() == 0 && kOriginalTap.back() == 0" in cue
     assert "_binary_" not in cue and "esp_codec_dev" not in cue and "i2s_" not in cue
 
-    admission = function_body(owner, "LUNASHELL_audio_notify_typewriter")
+    glyph_admission = function_body(owner, "LUNASHELL_audio_notify_typewriter")
+    touch_admission = function_body(owner, "LUNASHELL_audio_notify_touch")
+    admission = function_body(owner, "notify_short_feedback")
     suspension = function_body(owner, "LUNASHELL_audio_set_typewriter_suspended")
     forbidden = r"\b(xSemaphoreTake|vTaskDelay|xTaskNotifyWait|malloc|calloc|realloc|esp_codec_dev_write)\s*\(|\bnew\s"
     assert re.search(forbidden, admission) is None
+    assert re.search(forbidden, glyph_admission) is None
+    assert re.search(forbidden, touch_admission) is None
+    assert "TypewriterEventKind::Glyph" in glyph_admission
+    assert "TypewriterEventKind::Touch" in touch_admission
     assert re.search(forbidden, suspension) is None
     claim = function_body(owner, "claim_typewriter_event")
     invalidation = function_body(owner, "invalidate_typewriter_events")
@@ -49,7 +55,11 @@ def check_typewriter_audio_source(root: Path) -> None:
     assert "portMUX_TYPE s_typewriter_mailbox_mux = portMUX_INITIALIZER_UNLOCKED" in owner
     assert "eSetBits" in admission and "s_typewriter_mailbox.pending = true" in admission
     assert "s_typewriter_mailbox.latest = event" in admission
-    assert "event = {requested_at_us, s_typewriter_mailbox.generation, s_typewriter_mailbox.sequence}" in admission
+    assert "event = {requested_at_us, generation, s_typewriter_mailbox.sequence, kind}" in admission
+    assert "s_typewriter_mailbox.touch_generation" in admission
+    assert "touch_waiting" in admission
+    assert "latest.kind != TypewriterEventKind::Touch" in suspension
+    assert "++s_typewriter_mailbox.touch_generation" in invalidation
     assert "++s_typewriter_mailbox.generation" in suspension
     assert "s_typewriter_mailbox.pending = false" in suspension
     assert "event = s_typewriter_mailbox.latest" in claim and "s_typewriter_mailbox.pending = false" in claim
@@ -80,8 +90,8 @@ def check_typewriter_audio_source(root: Path) -> None:
     assert "ClockCuePolicy::Allowed" in worker and "readClockObservation(clock)" in worker
     assert "xSemaphoreTake(mutex, 0)" in worker and "TYPEWRITER_MAX_AGE_US" in worker
     assert "claim_typewriter_event(event)" in worker
-    assert "observed_us - event.requested_at_us" in worker and "event.generation" in worker
-    assert "typewriter_event_current(generation)" in playback and "s_standby.load" in playback
+    assert "observed_us - event.requested_at_us" in worker and "volume_percent, event)" in worker
+    assert "typewriter_event_current(event)" in playback and "s_standby.load" in playback
     assert "esp_codec_dev_get_out_vol" in playback and "volume_percent == 0" in playback
     assert "esp_codec_dev_set_out_vol" not in playback
     assert "write_speaker_pcm_locked(" in playback and "write_speaker_pcm_locked(" in shared_playback

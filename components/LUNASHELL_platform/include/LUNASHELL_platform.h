@@ -478,6 +478,9 @@ esp_err_t LUNASHELL_audio_prepare_typewriter(const int16_t *samples, size_t samp
 // Queue admission is nonblocking and coalesces to one pending tap, capped at 20/s.
 // Exception: Returns admission or retained asynchronous audio errors, never audible-success proof.
 esp_err_t LUNASHELL_audio_notify_typewriter(uint32_t newly_visible_characters);
+// No parameters: requests one short feedback click for a physical contact edge.
+// Exception: Returns admission or retained playback errors without waiting for codec I/O.
+esp_err_t LUNASHELL_audio_notify_touch();
 // suspended: Clears pending requests before scene hide, navigation, or standby.
 // Exception: Returns a notification error; this operation never waits for codec I/O.
 esp_err_t LUNASHELL_audio_set_typewriter_suspended(bool suspended);

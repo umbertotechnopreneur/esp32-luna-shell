@@ -78,7 +78,7 @@ icons:
     stability_ms: 300
     fade_in_ms: 400
     minimum_visible_ms: 2500
-    fade_out_ms: 600
+    fade_out_ms: 400
     repeat_clock: active
   follow:
     # Finite history reaches a stationary target within 400 active milliseconds.
@@ -99,7 +99,7 @@ icons:
       extent_per_scale: 0.20
       pixel_offset_x: 30
       pixel_offset_y: 40
-      size_multiplier: 3
+      size_multiplier: 3.6
       allow_body_overlap: true
     sleep:
       offset_x: 0.09
@@ -107,7 +107,7 @@ icons:
       extent_per_scale: 0.20
       pixel_offset_x: 30
       pixel_offset_y: 40
-      size_multiplier: 3
+      size_multiplier: 3.6
       allow_body_overlap: true
   # Hysteresis uses valid current canonical measurements only.
   low_battery: {enter_percent: 15, exit_percent: 20}
@@ -116,8 +116,9 @@ icons:
 # Both this global switch and each catalog icon's sfx_enabled must be true.
 audio:
   enabled: true
-  cooldown_seconds: 2
-  request_expiry_ms: 120
+  # The visual channel already owns hysteresis and repeat cooldowns.
+  cooldown_seconds: 0
+  request_expiry_ms: 400
 
 # Dormant internal logic: no work-session adapter, icon delivery or UI yet.
 # An open Codex chat does not establish an active human work session.

@@ -78,16 +78,19 @@ StaticTask_t s_typewriter_task_control;
 // Application workers copy PCM through the codec; DMA buffers and TCBs stay internal.
 EXT_RAM_BSS_ATTR StackType_t s_typewriter_task_stack[TYPEWRITER_STACK_BYTES / sizeof(StackType_t)];
 std::atomic<TaskHandle_t> s_typewriter_task;
+enum class TypewriterEventKind : uint8_t { Glyph, Touch };
 struct TypewriterEvent {
     uint32_t requested_at_us = 0;
     uint32_t generation = 0;
     uint32_t sequence = 0;
+    TypewriterEventKind kind = TypewriterEventKind::Glyph;
 };
 struct TypewriterMailbox {
     bool pending = false;
     bool suspended = false;
     uint32_t generation = 0;
     uint32_t sequence = 0;
+    uint32_t touch_generation = 0;
     TypewriterEvent latest;
 };
 TypewriterMailbox s_typewriter_mailbox;
@@ -99,12 +102,13 @@ std::atomic<esp_err_t> s_typewriter_last_error{ESP_OK};
 EXT_RAM_BSS_ATTR std::array<int16_t, TYPEWRITER_MAX_TRANSPORT_SAMPLES> s_typewriter_transport_samples;
 #endif
 
-// Clear an old scene's pending cue without waiting for the transport owner.
+// No parameters: cancels scene and touch cues before the transport enters standby.
 void invalidate_typewriter_events()
 {
     portENTER_CRITICAL(&s_typewriter_mailbox_mux);
     s_typewriter_mailbox.pending = false;
     ++s_typewriter_mailbox.generation;
+    ++s_typewriter_mailbox.touch_generation;
     portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
 }
 
@@ -127,7 +131,8 @@ bool claim_typewriter_event(TypewriterEvent &event)
         event = s_typewriter_mailbox.latest;
         s_typewriter_mailbox.pending = false;
     }
-    const bool allowed = claimed && !s_typewriter_mailbox.suspended &&
+    const bool allowed = claimed &&
+        (event.kind == TypewriterEventKind::Touch || !s_typewriter_mailbox.suspended) &&
         !s_standby.load(std::memory_order_acquire);
     portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
     return allowed;
@@ -145,12 +150,13 @@ void drop_typewriter_event(const TypewriterEvent &event)
 }
 
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
-// generation: Epoch captured with the retired-frame event, never read from a newer payload.
-bool typewriter_event_current(uint32_t generation)
+// event: Immutable scene or touch epoch; navigation only invalidates scene glyphs.
+bool typewriter_event_current(const TypewriterEvent &event)
 {
     portENTER_CRITICAL(&s_typewriter_mailbox_mux);
-    const bool current = !s_typewriter_mailbox.suspended &&
-        generation == s_typewriter_mailbox.generation;
+    const bool current = event.kind == TypewriterEventKind::Touch
+        ? event.generation == s_typewriter_mailbox.touch_generation
+        : !s_typewriter_mailbox.suspended && event.generation == s_typewriter_mailbox.generation;
     portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
     return current;
 }
@@ -1287,13 +1293,13 @@ namespace {
 // played: True only after the real PCM write and mute restoration both succeed.
 // sample_rate_hz: Receives the current transport clock; no microphone is reconfigured.
 // volume_percent: Receives the existing codec volume, which this cue never overwrites.
-// generation: Scene admission generation captured when this event was dequeued.
+// event: Claimed scene or physical-touch payload, including its cancellation epoch.
 // Exception: Returns exact codec, AFE or snapshot failures; the caller owns the audio mutex.
 esp_err_t play_typewriter_tap_locked(bool &played, uint32_t &sample_rate_hz,
-                                    int &volume_percent, uint32_t generation)
+                                    int &volume_percent, const TypewriterEvent &event)
 {
     played = false;
-    if (s_standby.load(std::memory_order_acquire) || !typewriter_event_current(generation)) {
+    if (s_standby.load(std::memory_order_acquire) || !typewriter_event_current(event)) {
         return ESP_OK; // An explicitly suppressed cue was never submitted to the codec.
     }
     if (s_audio_state_poisoned.load(std::memory_order_acquire)) {
@@ -1342,6 +1348,11 @@ esp_err_t play_typewriter_tap_locked(bool &played, uint32_t &sample_rate_hz,
         s_typewriter_transport_samples[index] = static_cast<int16_t>(
             (first * static_cast<int32_t>(sample_rate_hz - fraction) + next * static_cast<int32_t>(fraction)) /
             static_cast<int32_t>(sample_rate_hz));
+        if (event.kind == TypewriterEventKind::Touch) {
+            // The quiet teletype impulse needs a little more presence for a single tap.
+            const int32_t feedback = s_typewriter_transport_samples[index] * 8;
+            s_typewriter_transport_samples[index] = static_cast<int16_t>(std::clamp(feedback, -32768, 32767));
+        }
     }
     if (error == ESP_OK) {
         const int unmute_result = esp_codec_dev_set_out_mute(s_speaker, false);
@@ -1433,7 +1444,7 @@ void typewriter_worker(void *context)
         uint32_t sample_rate_hz = s_typewriter_cue.sample_rate_hz;
         int volume_percent = 0;
         const uint32_t started_at_us = static_cast<uint32_t>(esp_timer_get_time());
-        error = play_typewriter_tap_locked(played, sample_rate_hz, volume_percent, event.generation);
+        error = play_typewriter_tap_locked(played, sample_rate_hz, volume_percent, event);
         if (error != ESP_OK) {
             retain_typewriter_failure(error, sample_rate_hz, volume_percent);
             audio_unlock(mutex);
@@ -1508,13 +1519,11 @@ extern "C" esp_err_t LUNASHELL_audio_prepare_typewriter(const int16_t *samples,
 #endif
 }
 
-// newly_visible_characters: New glyphs from the caller's complete displayed-frame delta.
+namespace {
+// kind: Distinguishes scene glyph progress from a physical touch contact edge.
 // Exception: Returns admission or retained asynchronous failure; never waits for audio I/O.
-extern "C" esp_err_t LUNASHELL_audio_notify_typewriter(uint32_t newly_visible_characters)
+esp_err_t notify_short_feedback(TypewriterEventKind kind)
 {
-    if (newly_visible_characters == 0) {
-        return ESP_OK; // No playback was requested for this unchanged frame.
-    }
     const TaskHandle_t worker = s_typewriter_task.load(std::memory_order_acquire);
     const uint32_t requested_at_us = static_cast<uint32_t>(esp_timer_get_time());
     TypewriterEvent event;
@@ -1523,11 +1532,17 @@ extern "C" esp_err_t LUNASHELL_audio_notify_typewriter(uint32_t newly_visible_ch
     // Publish pending, timestamp and epoch together. No scheduler or codec call
     // belongs in this bounded critical section shared with the consumer claim.
     portENTER_CRITICAL(&s_typewriter_mailbox_mux);
-    if (!s_typewriter_mailbox.suspended && !s_standby.load(std::memory_order_acquire)) {
+    if ((kind == TypewriterEventKind::Touch || !s_typewriter_mailbox.suspended) &&
+        !s_standby.load(std::memory_order_acquire)) {
         owner_unavailable = worker == nullptr;
-        if (!owner_unavailable) {
+        // A glyph update cannot overwrite a waiting physical contact click.
+        const bool touch_waiting = s_typewriter_mailbox.pending &&
+            s_typewriter_mailbox.latest.kind == TypewriterEventKind::Touch;
+        if (!owner_unavailable && (kind == TypewriterEventKind::Touch || !touch_waiting)) {
             ++s_typewriter_mailbox.sequence;
-            event = {requested_at_us, s_typewriter_mailbox.generation, s_typewriter_mailbox.sequence};
+            const uint32_t generation = kind == TypewriterEventKind::Touch
+                ? s_typewriter_mailbox.touch_generation : s_typewriter_mailbox.generation;
+            event = {requested_at_us, generation, s_typewriter_mailbox.sequence, kind};
             s_typewriter_mailbox.latest = event;
             s_typewriter_mailbox.pending = true;
             admitted = true;
@@ -1535,7 +1550,7 @@ extern "C" esp_err_t LUNASHELL_audio_notify_typewriter(uint32_t newly_visible_ch
     }
     portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
     if (owner_unavailable) {
-        ESP_LOGE(TAG, "Typewriter notification rejected before owner preparation");
+        ESP_LOGE(TAG, "Short feedback rejected before owner preparation: kind=%u", static_cast<unsigned>(kind));
         return ESP_ERR_INVALID_STATE;
     }
     if (!admitted) {
@@ -1548,6 +1563,24 @@ extern "C" esp_err_t LUNASHELL_audio_notify_typewriter(uint32_t newly_visible_ch
     }
     return s_typewriter_last_error.load(std::memory_order_acquire);
 }
+} // namespace
+
+// newly_visible_characters: New glyphs from the caller's complete displayed-frame delta.
+// Exception: Returns admission or retained asynchronous failure without codec I/O.
+extern "C" esp_err_t LUNASHELL_audio_notify_typewriter(uint32_t newly_visible_characters)
+{
+    if (newly_visible_characters == 0) {
+        return ESP_OK;
+    }
+    return notify_short_feedback(TypewriterEventKind::Glyph);
+}
+
+// No parameters: sends one physical contact click independently of scene text visibility.
+// Exception: Returns the original admission or retained asynchronous playback error.
+extern "C" esp_err_t LUNASHELL_audio_notify_touch()
+{
+    return notify_short_feedback(TypewriterEventKind::Touch);
+}
 
 // suspended: Changes only cue admission; the canonical standby API owns codec quiescence.
 // Exception: Returns exact owner-preparation errors; no allocation, blocking lock, or codec I/O occurs.
@@ -1555,7 +1588,9 @@ extern "C" esp_err_t LUNASHELL_audio_set_typewriter_suspended(bool suspended)
 {
     portENTER_CRITICAL(&s_typewriter_mailbox_mux);
     s_typewriter_mailbox.suspended = suspended;
-    s_typewriter_mailbox.pending = false;
+    if (s_typewriter_mailbox.latest.kind != TypewriterEventKind::Touch) {
+        s_typewriter_mailbox.pending = false;
+    }
     ++s_typewriter_mailbox.generation;
     portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
     if (s_typewriter_task.load(std::memory_order_acquire) == nullptr) {
@@ -1737,7 +1772,7 @@ esp_err_t play_personality_locked(const PersonalityAudioEvent &event,
     return error;
 }
 
-// event: One dispatched immutable symbol cue; it never waits behind another sound.
+// event: One dispatched immutable symbol cue with a bounded wait for a short tap to retire.
 // outcome: Receives a meaningful suppression/admission/completion state.
 // Exception: Returns genuine snapshot/codec errors and publishes them through the existing owner.
 esp_err_t handle_personality_event(const PersonalityAudioEvent &event, lunashell_audio_cue_state_t &outcome)
@@ -1755,14 +1790,17 @@ esp_err_t handle_personality_event(const PersonalityAudioEvent &event, lunashell
     if (error != ESP_OK) {
         return retain_personality_failure(error, event.sample_rate_hz, 0);
     }
-    if (LUNASHELL::clock_cue_policy(clock) != LUNASHELL::ClockCuePolicy::Allowed) {
+    const auto cue_policy = LUNASHELL::clock_cue_policy(clock);
+    if (cue_policy != LUNASHELL::ClockCuePolicy::Allowed) {
+        ESP_LOGI(TAG, "Personality cue=%lu suppressed: clock_policy=%u",
+            static_cast<unsigned long>(event.cue_id), static_cast<unsigned>(cue_policy));
         return ESP_OK;
     }
     SemaphoreHandle_t mutex = audio_mutex();
     if (mutex == nullptr) {
         return retain_personality_failure(ESP_ERR_NO_MEM, event.sample_rate_hz, 0);
     }
-    if (xSemaphoreTake(mutex, 0) != pdTRUE) {
+    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
         outcome = LUNASHELL_CUE_DROPPED_BUSY;
         return ESP_OK;
     }

@@ -131,7 +131,7 @@ void check_channel()
     require(scenario.frame.cue == PersonalityCue::Joy, "minimum visible hold preserves current symbol");
     step(scenario, "hold-complete", PersonalityCue::Confusion, 2100000);
     require(scenario.lag.phase == PersonalityPhase::FadeOut, "replacement waits for2500ms full-opacity hold");
-    step(scenario, "latest-during-out", PersonalityCue::Hunger, 300000);
+    step(scenario, "latest-during-out", PersonalityCue::Hunger, 200000);
     require(scenario.frame.cue == PersonalityCue::Joy && scenario.frame.opacity == 128,
         "replacement during fade does not interrupt current symbol");
     step(scenario, "new-target", PersonalityCue::Hunger, 300000);
@@ -151,7 +151,7 @@ void check_sleep_and_pause()
     step(scenario, "visible", PersonalityCue::Joy, 400000);
     step(scenario, "sleep-enter", PersonalityCue::None, 0, PersonalityPresentation::Sleep);
     require(scenario.lag.phase == PersonalityPhase::FadeOut, "Sleep bypasses current hold smoothly");
-    step(scenario, "sleep-new", PersonalityCue::None, 600000, PersonalityPresentation::Sleep);
+    step(scenario, "sleep-new", PersonalityCue::None, 400000, PersonalityPresentation::Sleep);
     step(scenario, "sleep-visible", PersonalityCue::None, 400000, PersonalityPresentation::Sleep);
     require(scenario.frame.cue == PersonalityCue::Sleep && scenario.frame.opacity == 255,
         "Sleep becomes visible after previous cue releases");
@@ -161,7 +161,7 @@ void check_sleep_and_pause()
         "paused redraw freezes hold, opacity and geometry despite wall-clock gap");
     step(scenario, "resume-exit", PersonalityCue::None, 0);
     require(scenario.lag.phase == PersonalityPhase::FadeOut, "paused Sleep exit survives until resume");
-    step(scenario, "released", PersonalityCue::None, 600000);
+    step(scenario, "released", PersonalityCue::None, 400000);
     require(scenario.frame.opacity == 0 && scenario.lag.phase == PersonalityPhase::Hidden,
         "Sleep release completes without minimum hold");
 }

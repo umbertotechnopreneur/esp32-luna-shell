@@ -671,6 +671,9 @@ uint32_t s_optional_typewriter_repeated_failures = 0;
 int64_t s_optional_typewriter_reminder_at_us = 0;
 bool s_personality_audio_prepared = false;
 bool s_personality_audio_suspended = false;
+CODY::PersonalityCue s_pending_personality_sound = CODY::PersonalityCue::None;
+int64_t s_pending_personality_sound_until_us = 0;
+uint32_t s_pending_personality_sound_sequence = 0;
 CODY::IdleSceneId s_retired_idle_scene = CODY::IdleSceneId::None;
 uint32_t s_retired_idle_generation = 0;
 bool s_idle_whistle_attempted = false;
@@ -718,7 +721,7 @@ void suspend_optional_personality_audio(bool suspended)
 }
 
 // previous: Last fully retired visual cue before this frame.
-// current: Newly retired visual cue; only its first visible frame can request a sound.
+// current: Newly retired visual cue; busy admission can retry during its 400-ms fade.
 // idle_view_visible: The completed frame actually rendered the character in Main.
 void notify_completed_personality(const CODY::PersonalityFrame &previous,
                                   const CODY::PersonalityFrame &current, bool idle_view_visible)
@@ -729,19 +732,58 @@ void notify_completed_personality(const CODY::PersonalityFrame &previous,
         s_state.response.idle_scene == CODY::IdleSceneId::Whistle && idle_view_visible;
     suspend_optional_personality_audio(!visible && !idle_whistle_visible);
     const bool appeared = visible && (previous.opacity == 0 || previous.cue != current.cue);
-    if (!s_personality_audio_prepared || !appeared) {
+    const int64_t now_us = esp_timer_get_time();
+    if (appeared) {
+        s_pending_personality_sound = current.cue;
+        s_pending_personality_sound_until_us = now_us + 400000;
+        s_pending_personality_sound_sequence = 0;
+    }
+    if (!visible || current.cue != s_pending_personality_sound ||
+        now_us >= s_pending_personality_sound_until_us) {
+        s_pending_personality_sound = CODY::PersonalityCue::None;
+    }
+    if (!s_personality_audio_prepared || s_pending_personality_sound == CODY::PersonalityCue::None) {
         return;
     }
     CODY::PersonalityAudioStatus status{};
+    if (s_pending_personality_sound_sequence != 0) {
+        const esp_err_t observation_error = CODY::get_personality_audio_status(status);
+        if (observation_error != ESP_OK) {
+            log_optional_personality_error(observation_error);
+            s_pending_personality_sound = CODY::PersonalityCue::None;
+            return;
+        }
+        if (status.request_sequence != s_pending_personality_sound_sequence || status.cue != current.cue) {
+            // Another explicit cue owns the shared mailbox; never replay a displaced request.
+            s_pending_personality_sound = CODY::PersonalityCue::None;
+            return;
+        }
+        if (status.state == CODY::PersonalityAudioState::Dispatched) {
+            return;
+        }
+        if (status.state != CODY::PersonalityAudioState::DroppedBusy) {
+            s_pending_personality_sound = CODY::PersonalityCue::None;
+            return;
+        }
+        s_pending_personality_sound_sequence = 0;
+    }
     const esp_err_t error = CODY::notify_personality_audio(current.cue, status);
-    ESP_LOGI(kTag, "Personality sound: cue=%u disposition=%u sequence=%lu error=%s",
-        static_cast<unsigned>(current.cue), static_cast<unsigned>(status.state),
-        static_cast<unsigned long>(status.request_sequence), esp_err_to_name(error));
+    const bool retry_busy = error == ESP_OK && status.state == CODY::PersonalityAudioState::DroppedBusy;
+    if (!retry_busy || appeared) {
+        ESP_LOGI(kTag, "Personality sound: cue=%u disposition=%u sequence=%lu error=%s",
+            static_cast<unsigned>(current.cue), static_cast<unsigned>(status.state),
+            static_cast<unsigned long>(status.request_sequence), esp_err_to_name(error));
+    }
+    if (error == ESP_OK && status.state == CODY::PersonalityAudioState::Dispatched) {
+        s_pending_personality_sound_sequence = status.request_sequence;
+    } else if (!retry_busy) {
+        s_pending_personality_sound = CODY::PersonalityCue::None;
+    }
     if (error != ESP_OK) {
         log_optional_personality_error(error);
     }
-    // Busy, cooldown and quiet/mute are explicit dispositions, never queued retries.
-    // The audio owner retains asynchronous completion/errors independently of the display.
+    // Keep only the current visible symbol for a bounded admission retry. A dispatched
+    // clip is never repeated, and changing/hiding the icon cancels its pending sound.
 }
 
 // visible: This completed frame actually presented the rig in the ordinary Idle view.
@@ -3221,6 +3263,14 @@ esp_err_t prepare_display_lifecycle(bool sleeping)
 esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
 {
     const bool pressed_edge = point.pressed && !s_state.touch_pressed;
+    if (pressed_edge && s_typewriter_audio_prepared && s_state.boot_phase == BootPhase::Ready &&
+        LUNASHELL_display_runtime_writes_allowed()) {
+        // A held finger and its motion samples produce no additional clicks.
+        const esp_err_t feedback_error = LUNASHELL_audio_notify_touch();
+        if (feedback_error != ESP_OK) {
+            log_optional_typewriter_result(feedback_error);
+        }
+    }
     if (s_state.raster_benchmark_active && point.pressed) {
         s_state.touch_pressed = point.pressed;
         return stop_raster_benchmark(false, "touch");

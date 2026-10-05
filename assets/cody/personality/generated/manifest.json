@@ -1,7 +1,7 @@
 {
   "schema": "cody.personality.generated.v2",
   "source": "assets/cody/personality.yaml",
-  "source_sha256": "0ef5c2319e02f02e03725516b12a606f8a19299a163f9c3383faf7e832e0fb51",
+  "source_sha256": "3c44edd225b498a8a9a33f56acab19311f1c3ebc4946ca4d4bb485d254f1e33b",
   "headers": [
     "assets/cody/personality/generated/personality_rules.hpp",
     "assets/cody/personality/generated/personality_catalog.hpp",
@@ -242,7 +242,7 @@
         "stability_ms": 300,
         "fade_in_ms": 400,
         "minimum_visible_ms": 2500,
-        "fade_out_ms": 600,
+        "fade_out_ms": 400,
         "repeat_clock": "active"
       },
       "follow": {
@@ -262,7 +262,7 @@
           "extent_per_scale": 0.2,
           "pixel_offset_x": 30,
           "pixel_offset_y": 40,
-          "size_multiplier": 3,
+          "size_multiplier": 3.6,
           "allow_body_overlap": true
         },
         "sleep": {
@@ -271,7 +271,7 @@
           "extent_per_scale": 0.2,
           "pixel_offset_x": 30,
           "pixel_offset_y": 40,
-          "size_multiplier": 3,
+          "size_multiplier": 3.6,
           "allow_body_overlap": true
         }
       },
@@ -282,8 +282,8 @@
     },
     "audio": {
       "enabled": true,
-      "cooldown_seconds": 2,
-      "request_expiry_ms": 120
+      "cooldown_seconds": 0,
+      "request_expiry_ms": 400
     },
     "wellbeing": {
       "enabled": false,

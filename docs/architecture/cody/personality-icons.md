@@ -42,7 +42,7 @@ visible timing is quantized by frame cadence, not by a count of frames.
 | Stable desired target before ordinary admission | 300 ms |
 | Fade in, smoothstep | 400 ms |
 | Minimum hold at full opacity | 2,500 ms |
-| Fade out, smoothstep | 600 ms |
+| Fade out, smoothstep | 400 ms |
 | Position-follow history window | 360 ms |
 | Scale-follow history window | 400 ms |
 | Maximum positional separation from current anchor | 4 pixels |
@@ -56,14 +56,14 @@ ordinary hold/fade policy.
 An explicit Sleeping expression in the main view, or `LifecyclePhase::Sleep`,
 owns `PersonalityCue::Sleep`. Eye openness and blink values never select it.
 Semantic Sleep bypasses the 300-ms stability wait. If another cue is visible,
-Sleep releases its hold and lets it fade out for 600 ms before Sleep fades in.
+Sleep releases its hold and lets it fade out for 400 ms before Sleep fades in.
 An entirely transparent prior cue can be replaced immediately. Leaving semantic
 Sleep fades its current opacity out without waiting for minimum hold. The release
 intent survives pause until the controller applies it. A manually selected Sleep
 symbol outside the semantic pose follows ordinary admission timing.
 
 Physical Sleep still closes the eyes over 400 ms and holds them for 300 ms before
-the power owner may continue standby. A 600-ms replacement plus a 400-ms entry
+the power owner may continue standby. A 400-ms replacement plus a 400-ms entry
 cannot finish within that 700-ms preparation. Power timing is not extended: the
 panel may turn off before a replacement sequence finishes. A sustained manual
 Sleeping pose can show the complete sequence. Boot/wake presentations disable
@@ -82,11 +82,12 @@ an icon extent per nominal character scale. The renderer scales around the
 icon's center, not a bottom edge or an automatically inferred body-top point.
 
 Main and Sleep share local offsets `(0.09, -1.14)` and base extent factor `0.20`.
-The 2026-10-05 readability correction moves their centers 30 logical pixels right
-and 40 pixels down, then enlarges the base extent threefold around that center.
-At nominal Full scale 145 the side increases from 29 to 87 pixels. Greeting
-uses 78 pixels and Medium 63; smaller eligible sizes retain the existing
-12-pixel base minimum, now displayed at 36 pixels. Micro still suppresses the
+The readability correction moves their centers 30 logical pixels right
+and 40 pixels down. The 2026-10-06 revision increases the previous threefold
+size by 20 percent, to a 3.6 multiplier around the same center.
+At nominal Full scale 145 the side rounds from 104.4 to 104 pixels. Greeting
+rounds to 94 pixels and Medium 76; smaller eligible sizes retain the existing
+12-pixel base minimum, now displayed at 43 pixels. Micro still suppresses the
 channel before geometry preparation. Scene permission remains independent of
 size, so an excluded onboarding/settings/header scene does not gain symbols.
 Sharing a center keeps a pose transition from relocating an already visible symbol.
@@ -95,13 +96,13 @@ The already evaluated face/body supply motion; no sensor is read by this layer.
 
 Small deformation follows the upper-lobe span with a 400-ms history window. Its
 bound is proportional to base extent: at most two pixels at a 58-pixel base,
-approximately one pixel at the default 29-pixel base. The final threefold
+approximately one pixel at the default 29-pixel base. The final 3.6-fold
 presentation multiplies that deformation too. Position follows the same
 evaluated face direction through a 360-ms window (about 180-ms mean lag), with
 a radial separation limit of four pixels from its current authored anchor.
 This limit applies before raster rounding; integer bounds can add up to about
 0.71 pixel of center quantization.
-The maximum destination support is 192 x 192; the source masters remain 64 x 64.
+The maximum destination support is 231 x 231; the source masters remain 64 x 64.
 
 The follower uses fixed 25-ms time buckets and time-weighted means. Expired
 history is discarded, so an input that stops changing reaches its target within
@@ -139,8 +140,8 @@ integer rounding and composites directly into the existing RGB565 tile.
 The fourteen 64 x 64 index/coverage pairs use 114,688 bytes, plus the exact
 512-byte RGB565 palette: 115,200 flash bytes before descriptors, alignment and
 code. There are no per-skin copies, new framebuffer or native per-frame heap
-allocations. The destination guard permits at most 36,864 pixels for one complete
-visible sprite frame; the default Full 87 x 87 profile covers 7,569 pixels before
+allocations. The destination guard permits at most 53,361 pixels for one complete
+visible sprite frame; the default Full 104 x 104 profile covers 10,816 pixels before
 deformation. This increases raster work without changing the source payload.
 The geometric follower stores seventeen fixed 24-byte buckets (408 bytes).
 A compile-time assertion limits the entire channel/follower state to 768 bytes;
@@ -169,8 +170,13 @@ platform audio owner handles codec access through a dormant 4-KiB worker stack,
 reusing its existing resampling scratch under the codec mutex. Render-side
 notification performs no codec I/O and never waits for playback.
 
-There is one in-flight attempt and no backlog: busy requests drop, actual starts
-have a two-second cooldown, and requests expire after 120 ms. Hidden scenes,
+There is one in-flight attempt and no backlog. The current visible icon can
+retry busy admission during its first 400 ms, including a worker-side busy
+outcome. Once dispatched, the runtime observes its sequence until playback
+starts or a terminal outcome occurs; it never plays the same appearance twice.
+The worker waits at most 50 ms for a short click to release the codec.
+The visual channel owns repeat cooldowns; there is no second global audio
+cooldown. Requests expire after 400 ms. Both fade-in and fade-out take 400 ms. Hidden scenes,
 display parking and teardown suspend/cancel the channel. Quiet hours and the
 current volume policy apply; zero volume suppresses playback and saved volume
 is unchanged. The owner temporarily releases and restores idle codec mute.
@@ -180,9 +186,15 @@ an optional audio failure does not stop character rendering.
 
 `CODY_personality_audio.hpp` exposes preparation, notification with explicit
 disposition, suspension, session-only global enable and retained status. Catalog
-entries also carry an authored enable flag. Dropped/suppressed attempts are not
-retried on later frames. Listening quality, physical latency, stack use, codec
+entries also carry an authored enable flag. Quiet/muted/failed attempts are not
+retried. Listening quality, physical latency, stack use, codec
 contention and PCM drain behavior remain unmeasured.
+
+Each physical press edge in the awake Ready UI also requests a 20-ms feedback
+click through the existing typewriter worker. Drag samples and a held contact
+do not retrigger it. Touch requests survive scene-text suspension, expire
+quickly, and are cancelled by transport standby. The click reuses the original
+flash impulse with a bounded gain; saved volume and canonical quiet policy apply.
 
 ## Petting experiment
 

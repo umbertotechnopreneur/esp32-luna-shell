@@ -933,6 +933,15 @@ flash logs were regenerated.
 
 ## Cody service documentation — 2026-10-04
 
+- 2026-10-06 implementation: added nonblocking 20-ms physical press feedback
+  through the existing audio worker, independent of scene text suspension.
+  Increased Main/Sleep manga symbols by 20 percent and set both fades to 400 ms.
+  Removed the redundant global SFX cooldown and added a bounded retry/sequence
+  observation for the currently visible icon when audio admission is busy.
+  Preserved canonical quiet policy, saved volume, standby cancellation and the
+  single shared codec owner. Build, tests and physical audio/visual evidence
+  remain pending for this checkpoint.
+
 - Created the ten-page English CCP Service Atlas with discovery/pairing,
   persistence, 100-PC identity filtering, liveness and security-boundary diagrams.
   Added Umberto Giacobbi and hello@umbertogiacobbi.biz to all five Cody PDFs,
