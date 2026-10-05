@@ -7,6 +7,25 @@ The merged Debug Cody image at `160a080a` was built and flashed twice on COM10
 on 2026-10-05, including once after power was restored. That proves the written
 bytes, not physical behavior; every open observation below remains open.
 
+## Optional local TTS on feat/luna-speak
+
+- [ ] Implement the [native eSpeak integration design](docs/architecture/text-to-speech.md)
+  with `CONFIG_LUNASHELL_BUILD_ENABLE_TTS` default off. Ordinary firmware must
+  exclude engine, data, task and buffers; the catalog, public CLI, generators
+  and flash list must all honor the opt-in and selected flash/SD backend.
+- [ ] Port curated English, Italian and Chinese Mandarin tables and synchronous
+  PCM generation to IDF 6.0.2. Add per-language compile-time asset exclusion
+  and bounded validated UTF-8 TTS input while retaining English ASCII Cody UI:
+  correct borrowed-table cleanup, allocation failures and error mapping; add
+  a bounded streaming session to the existing audio owner and canonical TTS
+  status. Implement SD loading only through its owner. No implicit backend
+  fallback, formatting, UI/LVGL admission or wake-word combination.
+- [ ] After implementation/static integration and fresh exact-command approval,
+  establish off/on exclusion, firmware/heap/stack/CPU budgets, continuous audio,
+  cancellation/standby and backend error handling. Physical audio quality,
+  card behavior and real-time synthesis remain unverified. The 2026-10-05
+  feasibility study ran no tests, scans, build, simulator or hardware operations.
+
 ## Cody integration and release gates
 
 - [ ] After fresh command-specific authorization, validate the 2026-10-05

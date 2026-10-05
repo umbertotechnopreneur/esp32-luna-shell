@@ -8,6 +8,19 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## Local TTS feasibility — 2026-10-05
+
+- Created `E:/ESP32 Luna Speaks` on `feat/luna-speak` from local `main`
+  at `1fbc0d7b`, preserving the original worktree. Recorded the native
+  [eSpeak design](docs/architecture/text-to-speech.md) after static review of
+  the audio/storage/build owners and pinned embedded reference sources.
+  The principal minimal-English files total 827,224 bytes; the requested
+  English/Italian/Mandarin principal data totals 2,547,979 bytes. This is file
+  metadata, not a firmware/RAM/performance result. Defined default-off
+  compilation and script/asset/flash exclusion requirements. No TTS engine,
+  feature switch or model is integrated; implementation and all validation
+  remain open in `TODO.md`. No tests/scans/build/simulator/hardware were run.
+
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
 - Implemented stronger shared mouth breathing and random Idle Yawn/Whistle/
