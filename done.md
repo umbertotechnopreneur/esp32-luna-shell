@@ -17,7 +17,11 @@ flash logs were regenerated.
   The reset preserves settings and uses the existing bounded SD/serial drain.
   Release excludes screenshot admission, shutter worker and PWR/BOOT software
   reset gestures while retaining ordinary standby/fullscreen controls.
-  Static review only; this gesture change is not yet built or flashed.
+  The resulting `61ab74a` Cody `tts-sd` Debug image subsequently built with eight
+  jobs and flashed on COM10; bootloader, partitions and app hashes verified,
+  then RTS reset completed. App is 4,212,592 bytes. Evidence:
+  `artifacts/build-cody-companion-tts-sd-debug/evidence/tts-debug-pwr-flash-20261005.log`.
+  No further boot capture, gesture test or Release build ran.
 - After SD reinsertion, the authorized COM10 reset completed on 2026-10-05.
   The user reported the startup sound and brief clicks, not an intelligible
   Italian sentence. A subsequent explicitly authorized 30-second reset/capture

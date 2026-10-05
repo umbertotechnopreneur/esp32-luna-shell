@@ -3,10 +3,11 @@
 Only open, actionable work belongs here. Deferred work is in
 [planned-todo.md](planned-todo.md); completed implementation/evidence is in
 [done.md](done.md). Authorization is governed solely by [AGENTS.md](AGENTS.md).
-The latest feature-worktree Debug Cody image at `58757005` (`tts-sd`) was built
-and flashed on COM10 on 2026-10-05. Its authorized 30-second boot capture
-completes mandatory startup without the prior allocation abort; SD initialization
-timed out before synthesis. Earlier ordinary Cody evidence belongs to
+The latest feature-worktree Debug Cody image at `61ab74a` (`tts-sd`) was built
+and flashed on COM10 on 2026-10-05, including Debug-only PWR gestures.
+Authorized 30-second boot captures of the earlier `58757005` image complete
+mandatory startup without the prior allocation abort; SD initialization
+still timed out after reinsertion, before synthesis. Earlier ordinary Cody evidence belongs to
 `09ea3b70` and `160a080a`. Verified flash hashes prove the written bytes;
 every open physical observation below remains open.
 
@@ -19,8 +20,9 @@ every open physical observation below remains open.
 - [ ] Validate Debug PWR single-click screenshot after the 500-ms decision
   window, double-click software reset without capture, long holds, acquisition
   failures and standby transitions. Release excludes screenshot admission,
-  shutter worker and button software resets. Static review only so far;
-  physical gesture verification and Release compilation remain open.
+  shutter worker and button software resets. Debug compilation and verified-hash
+  flash completed at `61ab74a`; physical gesture verification, a boot capture
+  of that image and Release compilation remain open.
 - [ ] Establish successful SD initialization with the prepared card.
   Corrected `58757005` completes boot, with native BSS/text/package directory
   in PSRAM and speech creation after mandatory owners. The first corrected
