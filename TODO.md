@@ -112,6 +112,12 @@ older host/build/flash evidence does not validate the current combined image.
   source fix releases the storage worker from power suspension after a clean
   transient wake failure so its existing retry/backoff can run, while preserving
   the original error. Validate mount, standby, wake, retry, access and free space.
+  Flashed Debug `f16043e0` retried cleanly three times after a reset but every
+  1-bit SDMMC probe failed during card OCR with `ESP_ERR_TIMEOUT`; the backoff
+  progressed through 15/30/60 seconds and no format was attempted. This confirms
+  retry execution and truthful unavailable state, but not the cause of the
+  transport failure or successful remount. Inspect card seating/power/signals and
+  reproduce one successful boot followed by standby/wake before changing policy.
 - [ ] Confirm flashed boot greeting C acoustics on `143fdb22`,
   chime-to-voice timing, trusted-clock/quiet policy and no ordinary standby-wake
   repeat. A/B/chime-only authoring alternatives remain available.

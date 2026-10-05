@@ -45,8 +45,21 @@ and referenced architecture/artifact records.
   visible icon. Added a clean transient SD-resume gate that releases power
   suspension for the existing owner retry/backoff while preserving the original
   error and keeping the logger mirror disabled. The board explicitly uses
-  `SDMMC_SLOT_NO_CD`; no card-presence GPIO participates. These latest changes
-  have static integration only pending merge, final checks, build and device proof.
+  `SDMMC_SLOT_NO_CD`; no card-presence GPIO participates. Integrated remote main
+  `06560c1d` and its bounded two-slot display DMA implementation in merge
+  `f16043e0`. The final `cody-runtime`, `cody-personality` and `display-dma` host
+  checks passed. Debug built successfully through the public console with eight
+  jobs (4,014,512-byte image, 73% app partition free), then flashed to COM10 with
+  verified hashes and hard reset. The reset capture confirms that exact app
+  version, two active six-row DMA slots, Wi-Fi/DHCP at `192.168.1.28` and normal
+  main-view throughput around 17.5-19.1 FPS. Total core0 usage remained about
+  96-98% and core1 about 0-2%; this is full-core utilization, not Cody task time.
+  Three physical SDMMC probes failed at card OCR with `ESP_ERR_TIMEOUT`, clean
+  cleanup and 15/30/60-second retry backoff, so card access/free space correctly
+  remained unavailable. The capture contained no touch event or wake after
+  standby, therefore heart/SFX and the new first-rejection evidence remain
+  physically unverified. Evidence is under
+  `artifacts/build-cody-companion-debug/evidence/final-*20261005.log`.
 
 - Investigated the reported caress freeze on device firmware `99342b7a`:
   the first capture attached after a retained touch `ESP_ERR_INVALID_RESPONSE`,
