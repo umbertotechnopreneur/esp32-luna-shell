@@ -1351,7 +1351,7 @@ esp_err_t play_typewriter_tap_locked(bool &played, uint32_t &sample_rate_hz,
         if (event.kind == TypewriterEventKind::Touch) {
             // The quiet teletype impulse needs a little more presence for a single tap.
             const int32_t feedback = s_typewriter_transport_samples[index] * 8;
-            s_typewriter_transport_samples[index] = static_cast<int16_t>(std::clamp(feedback, -32768, 32767));
+            s_typewriter_transport_samples[index] = static_cast<int16_t>(std::clamp<int32_t>(feedback, -32768, 32767));
         }
     }
     if (error == ESP_OK) {
