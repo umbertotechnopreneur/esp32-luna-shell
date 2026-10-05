@@ -47,7 +47,10 @@ constexpr TickType_t kUiQuiescenceTimeoutTicks = pdMS_TO_TICKS(1500);
 constexpr TickType_t kDebounceTicks = pdMS_TO_TICKS(30);
 constexpr TickType_t kBootArmReleaseTicks = pdMS_TO_TICKS(500);
 constexpr TickType_t kBootResetPressTicks = pdMS_TO_TICKS(3000);
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
 constexpr int64_t kPowerResetPressUs = 3000000;
+constexpr int64_t kPowerDoublePressWindowUs = 500000;
+#endif
 constexpr int64_t kPowerKeyFreshnessUs = 500000;
 constexpr uint32_t kTaskStackBytes = 8192;
 constexpr uint32_t kDisplayFadeDurationMs = LUNASHELL::power_policy::kDisplayFadeDurationMs;
@@ -275,7 +278,13 @@ enum class ButtonEvent : uint8_t {
 };
 
 ButtonState s_boot;
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
 LUNASHELL::ButtonHold s_power_reset_hold;
+bool s_power_single_press_pending;
+int64_t s_power_single_press_at_us;
+LUNASHELL::DeviceOperatingState s_power_single_press_state =
+    LUNASHELL::DeviceOperatingState::Active;
+#endif
 bool s_power_long_press_pending_release = false;
 
 const char *standby_trace_phase_name(StandbyTracePhase phase)
@@ -474,10 +483,11 @@ void publish_inputs()
     LUNASHELL::DeviceSnapshotService::instance().reportInputs(s_inputs);
 }
 
-// key: Physical button responsible for this explicit software restart.
-[[noreturn]] void restart_preserving_logs(const char *key)
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+// gesture: Exact validated Debug button gesture requesting this software restart.
+[[noreturn]] void restart_preserving_logs(const char *gesture)
 {
-    ESP_LOGW(kTag, "%s held for 3 seconds; software restart (settings preserved)", key);
+    ESP_LOGW(kTag, "%s: software restart (settings preserved)", gesture);
     LUNASHELL_logger_sd_status_t sd_status{};
     const esp_err_t status_error = LUNASHELL_logger_get_sd_status(&sd_status);
     if (status_error == ESP_OK && sd_status.enabled) {
@@ -498,6 +508,7 @@ void publish_inputs()
     vTaskDelay(pdMS_TO_TICKS(50));
     esp_restart();
 }
+#endif
 
 // error: Real transition or settings error published with the current power state.
 void publish_power(esp_err_t error)
@@ -2308,46 +2319,10 @@ void queue_leg_sound(const LegMotionReading &motion, int64_t now_us)
 }
 #endif
 
-// short_presses: Newly acquired discrete short-press IRQ count.
-// long_presses: Newly acquired long-press IRQ count; reset waits for a full hold.
-esp_err_t handle_power_key_events(
-    uint32_t short_presses,
-    uint32_t long_presses
-)
+// No parameters: dispatch one resolved short press to the active consumer or standby policy.
+// Exception: Returns the original consumer or standby transition error.
+esp_err_t dispatch_power_single_press()
 {
-    if (short_presses == 0U && long_presses == 0U) {
-        return ESP_OK;
-    }
-    if (UINT32_MAX - s_inputs.power_short_press_count < short_presses ||
-        UINT32_MAX - s_inputs.power_long_press_count < long_presses) {
-        ESP_LOGE(
-            kTag,
-            "PKEY counter overflow rejected: short=%lu long=%lu",
-            static_cast<unsigned long>(short_presses),
-            static_cast<unsigned long>(long_presses)
-        );
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    s_inputs.power_short_press_count += short_presses;
-    s_inputs.power_long_press_count += long_presses;
-    begin_motion_grace(esp_timer_get_time());
-
-    if (long_presses > 0U) {
-        ESP_LOGI(
-            kTag,
-            "PWR long press: release for standby, hold 3 seconds for software restart (count=%lu)",
-            static_cast<unsigned long>(long_presses)
-        );
-        // Do not park the owner at the PMIC's earlier long-IRQ threshold.
-        // It must keep acquiring release edges until the 3-second reset fires.
-        s_power_long_press_pending_release = true;
-        return ESP_OK;
-    }
-
-    if ((short_presses & 1U) == 0U) {
-        return ESP_OK;
-    }
     if (s_state == LUNASHELL::DeviceOperatingState::Active) {
         const auto callback = s_short_press_callback.load(std::memory_order_acquire);
         if (callback != nullptr) {
@@ -2371,11 +2346,112 @@ esp_err_t handle_power_key_events(
         }
     }
     ESP_LOGI(kTag, "PWR short press: toggling standby (count=%lu)",
-             static_cast<unsigned long>(short_presses));
+             static_cast<unsigned long>(s_inputs.power_short_press_count));
     return set_standby(
         s_state != LUNASHELL::DeviceOperatingState::Standby,
         LUNASHELL::DeviceStateReason::PowerButton
     );
+}
+
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+// now_us: Monotonic acquisition-loop time for the bounded double-press window.
+// new_short_press: A newly acquired completed click may resolve the previous expired click.
+// Exception: Returns the original single-press action error after the window expires.
+esp_err_t dispatch_expired_power_press(int64_t now_us, bool new_short_press)
+{
+    if (!s_power_single_press_pending) {
+        return ESP_OK;
+    }
+    if (s_state != s_power_single_press_state) {
+        s_power_single_press_pending = false;
+        ESP_LOGW(kTag, "Pending Debug PWR click cancelled after operating-state change");
+        return ESP_OK;
+    }
+    if (now_us - s_power_single_press_at_us <= kPowerDoublePressWindowUs) {
+        return ESP_OK;
+    }
+    // A fresh known hold may still become a long press; do not start a capture mid-hold.
+    if (!new_short_press && s_inputs.power_pressed_valid && s_inputs.power_pressed) {
+        return ESP_OK;
+    }
+    s_power_single_press_pending = false;
+    return dispatch_power_single_press();
+}
+#endif
+
+// short_presses: Newly acquired discrete short-press IRQ count.
+// long_presses: Newly acquired long-press IRQ count; release still enters standby.
+// acquisition_error: Real owner acquisition status; invalid input cancels pending Debug gestures.
+// Exception: Returns acquisition, counter, ambiguous-event or action errors without guessed gestures.
+esp_err_t handle_power_key_events(
+    uint32_t short_presses,
+    uint32_t long_presses,
+    esp_err_t acquisition_error
+)
+{
+    if (UINT32_MAX - s_inputs.power_short_press_count < short_presses ||
+        UINT32_MAX - s_inputs.power_long_press_count < long_presses) {
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+        s_power_single_press_pending = false;
+#endif
+        ESP_LOGE(kTag, "PKEY counter overflow rejected: short=%lu long=%lu",
+                 static_cast<unsigned long>(short_presses), static_cast<unsigned long>(long_presses));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    s_inputs.power_short_press_count += short_presses;
+    s_inputs.power_long_press_count += long_presses;
+    if (acquisition_error != ESP_OK) {
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+        if (s_power_single_press_pending) {
+            s_power_single_press_pending = false;
+            ESP_LOGE(kTag, "Pending Debug PWR click rejected: input acquisition failed (%s)",
+                     esp_err_to_name(acquisition_error));
+        }
+#endif
+        return acquisition_error;
+    }
+    const int64_t now_us = esp_timer_get_time();
+    if (short_presses != 0U || long_presses != 0U) {
+        begin_motion_grace(now_us);
+    }
+    if (long_presses > 0U) {
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+        s_power_single_press_pending = false;
+        ESP_LOGI(kTag, "PWR long press: release for standby; Debug 3-second hold restarts");
+#else
+        ESP_LOGI(kTag, "PWR long press: release for standby");
+#endif
+        s_power_long_press_pending_release = true;
+        return ESP_OK;
+    }
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+    if (short_presses > 1U) {
+        s_power_single_press_pending = false;
+        ESP_LOGE(kTag, "Debug PWR gesture rejected: batched clicks have ambiguous timing (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    const esp_err_t pending_error = dispatch_expired_power_press(now_us, short_presses != 0U);
+    if (pending_error != ESP_OK) {
+        return pending_error;
+    }
+    if (short_presses == 0U) {
+        return ESP_OK;
+    }
+    if (s_power_single_press_pending &&
+        now_us - s_power_single_press_at_us <= kPowerDoublePressWindowUs) {
+        s_power_single_press_pending = false;
+        restart_preserving_logs("Debug PWR double press");
+    }
+    s_power_single_press_pending = true;
+    s_power_single_press_at_us = now_us;
+    s_power_single_press_state = s_state;
+    s_last_activity_at_us = now_us;
+    ESP_LOGI(kTag, "Debug PWR short press: waiting 500 ms for a second click");
+    return ESP_OK;
+#else
+    return (short_presses & 1U) == 0U ? ESP_OK : dispatch_power_single_press();
+#endif
 }
 
 // No parameters: apply real inactivity, or the active scene's independent entry interval.
@@ -2538,7 +2614,9 @@ void power_task(void *argument)
             }
         }
         if (boot_event == ButtonEvent::LongPress) {
-            restart_preserving_logs("BOOT");
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+            restart_preserving_logs("Debug BOOT held for 3 seconds");
+#endif
         }
         if (now - last_policy_tick < kPolicyTicks) {
             vTaskDelay(power_poll_delay());
@@ -2580,7 +2658,7 @@ void power_task(void *argument)
             s_inputs.power_pressed_at_us = pkey_sample.pressed_at_us;
         }
         const esp_err_t pkey_transition_error =
-            handle_power_key_events(short_presses, long_presses);
+            handle_power_key_events(short_presses, long_presses, pkey_error);
         // Publish every acquisition, including failed samples: consumers must
         // not time a hold against stale health from a previous successful poll.
         publish_inputs();
@@ -2602,6 +2680,7 @@ void power_task(void *argument)
             key.power_button.last_success_at_us > 0 &&
             key_now_us >= key.power_button.last_success_at_us &&
             key_now_us - key.power_button.last_success_at_us <= kPowerKeyFreshnessUs;
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
         if (!key_current) {
             s_power_reset_hold.update(key.power_pressed, key.power_pressed_at_us,
                                       false, key_now_us, kPowerResetPressUs);
@@ -2609,8 +2688,9 @@ void power_task(void *argument)
         if (key_current && key.power_pressed_valid &&
             s_power_reset_hold.update(key.power_pressed, key.power_pressed_at_us,
                                       true, key_now_us, kPowerResetPressUs)) {
-            restart_preserving_logs("PWR");
+            restart_preserving_logs("Debug PWR held for 3 seconds");
         }
+#endif
         if (key_current && key.power_pressed_valid && !key.power_pressed && s_power_long_press_pending_release) {
             s_power_long_press_pending_release = false;
             const esp_err_t standby_error =

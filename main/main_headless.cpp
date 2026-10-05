@@ -15,6 +15,9 @@
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_logger.h"
 #include "LUNASHELL_platform.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+#include "LUNASHELL_tts.hpp"
+#endif
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 #include "CODY_companion.h"
 #include "CODY_boot_cues.h"
@@ -298,7 +301,17 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(CODY_companion_boot_completed());
     CODY_boot_cues_boot_checkpoint("ready frame / mandatory startup complete");
     ESP_ERROR_CHECK(CODY_companion_demo_start());
+#if !CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
     report_optional_startup_failure("Cody boot audio", CODY_boot_cues_play_eyes_open());
+#endif
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    // Mandatory display, power and radio owners receive their memory first.
+    // Speech remains optional and may publish a real startup allocation failure.
+    report_optional_startup_failure("text-to-speech", LUNASHELL::initialize_speech());
+#endif
+#if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
+    report_optional_startup_failure("Italian boot speech", LUNASHELL::request_boot_speech_test());
 #endif
     ESP_LOGI(kTag, "Standalone hardware startup completed");
     report_optional_startup_failure("boot log archival", LUNASHELL_logger_finish_boot_capture());

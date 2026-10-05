@@ -62,6 +62,8 @@ cannot accidentally reuse a Release build.
 | Sleep residency diagnostics | Callback counters available | Debug-only callback instrumentation disabled |
 | Repeated post-wake trace reports | Available | Disabled; retained failure trace remains available |
 | Cody frame diagnostics | Authored execution timings, frame distributions and FPS/CPU HUD | No collection/reporting of diagnostic frame distributions, raster stage profiling or HUD |
+| Cody PWR screenshot | One click waits 500 ms, then starts the existing countdown | Admission disabled; no shutter worker |
+| Button software reset | PWR double click within 500 ms or 3-second PWR/BOOT hold | Excluded; ordinary standby/fullscreen controls remain |
 | Cody static/parked worker | Existing 50 ms/200 ms waits; paused HUD refresh | 1000 ms functional gate checks; touch IRQ wakes immediately; unchanged paused frames do not redraw |
 | Active animation | Existing selected 40 ms or 33 ms target | Same target |
 | Compiler optimization | Existing performance optimization (`-O2`) | Same optimization for comparable rendering behavior |

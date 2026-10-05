@@ -173,3 +173,7 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE AND
    CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART)
     idf_component_optional_requires(PRIVATE LUNASHELL_tof400f)
 endif()
+
+if(CONFIG_LUNASHELL_TTS_DATA_SD)
+    idf_component_optional_requires(PRIVATE mbedtls)
+endif()

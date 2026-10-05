@@ -17,7 +17,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$BuildMode = "Debug",
 
-    [ValidateSet("none", "distance", "wake-word")]
+    [ValidateSet("none", "distance", "wake-word", "tts-sd", "tts-flash")]
     [string]$Feature = "none",
 
     # A reviewed board YAML selects its compiler profile before ESP-IDF runs.
@@ -237,6 +237,7 @@ if ($profileCatalog.schema_version -ne 1) {
     throw "Unsupported firmware profile catalog schema: $($profileCatalog.schema_version)"
 }
 . (Join-Path $PSScriptRoot '../common/BuildMode.ps1')
+. (Join-Path $PSScriptRoot '../common/TtsSelection.ps1')
 $modeSelection = Resolve-FirmwareBuildMode -Catalog $profileCatalog `
     -BuildMode $BuildMode -ExplicitSelection ($PSBoundParameters.ContainsKey('BuildMode'))
 $BuildMode = $modeSelection.Name
@@ -385,6 +386,7 @@ if ($ProfileComponentRoots.Count -eq 0 -or
 }
 $env:LUNASHELL_PROFILE_COMPONENT_ROOTS = $ProfileComponentRoots -join ';'
 $env:LUNASHELL_PROFILE_BUILD_KEY = $ProfileBuildKey
+$env:LUNASHELL_PROFILE_TTS_BACKEND = if ($Feature -eq "tts-sd") { "sd" } elseif ($Feature -eq "tts-flash") { "flash" } else { "none" }
 
 $ProfileComponentDirectories = @(
     $SelectedProfileVariant.component_dirs |
@@ -407,7 +409,11 @@ $ProfileCanonicalDependencyLockPath = Resolve-ProfileCatalogPath(
 $ProfileSdkconfigPath = Resolve-ArtifactPath(
     "$($SelectedProfileVariant.generated_sdkconfig)-$($modeSelection.ArtifactSuffix)"
 )
+# No parameters: selected generated configuration must match its explicit feature and board.
+# Throws before build/size/flash if the selected graph or generated settings disagree.
 function Assert-BoardSdkconfig {
+    Assert-FirmwareTtsConfiguration -SdkconfigText (Get-Content -Raw -LiteralPath $ProfileSdkconfigPath) `
+        -Feature $Feature -ComponentRoots $ProfileComponentRoots
     if ($null -eq $BoardModules) { return }
     if (-not (Test-Path -LiteralPath $ProfileSdkconfigPath -PathType Leaf)) {
         throw "Board sdkconfig not found: $ProfileSdkconfigPath"
@@ -1290,6 +1296,8 @@ function Get-SdkconfigDefaultsState {
     if (-not (Test-Path -LiteralPath $generatedSdkconfig -PathType Leaf)) {
         throw "Generated sdkconfig not found: $generatedSdkconfig"
     }
+    Assert-FirmwareTtsConfiguration -SdkconfigText (Get-Content -Raw -LiteralPath $generatedSdkconfig) `
+        -Feature $Feature -ComponentRoots $ProfileComponentRoots
     Assert-FirmwareBuildModeConfiguration `
         -SdkconfigText (Get-Content -Raw -LiteralPath $generatedSdkconfig) -BuildMode $BuildMode
     $sdkconfigHash = (

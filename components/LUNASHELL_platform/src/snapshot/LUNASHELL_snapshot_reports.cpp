@@ -1246,3 +1246,16 @@ void DeviceSnapshotService::reportPowerManagement(
 
 
 }  // namespace LUNASHELL
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+// speech: Owner-produced state with original request identity and actual timestamps.
+// Exception: Canonical publication failure follows the platform fatal invariant.
+esp_err_t LUNASHELL::DeviceSnapshotService::reportSpeech(const SpeechSnapshot &speech)
+{
+    const esp_err_t error = snapshot_detail::update_snapshot([&speech](DeviceSnapshot &snapshot) {
+        snapshot.speech = speech;
+    });
+    snapshot_detail::log_snapshot_publication_failure("speech", error);
+    return error;
+}
+#endif

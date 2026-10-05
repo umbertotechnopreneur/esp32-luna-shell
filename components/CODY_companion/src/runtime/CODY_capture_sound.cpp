@@ -19,7 +19,7 @@ namespace CODY {
 namespace {
 
 constexpr char kTag[] = "CODY_capture_sound";
-#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG && CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 constexpr uint32_t kSampleRateHz = 16000;
 constexpr size_t kSampleCount = 3200;
 constexpr int kVolumePercent = 65;
@@ -103,10 +103,13 @@ void capture_sound_worker(void *context)
 } // namespace
 
 // No parameters: prepare one dormant audio worker for the original shutter cue.
-// Exception: Returns the real worker allocation error.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED outside Debug or the real worker allocation error.
 esp_err_t prepare_capture_sound()
 {
-#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+#if !CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+    ESP_LOGE(kTag, "Shutter preparation rejected: Debug only (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#elif CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
     if (s_worker.load(std::memory_order_acquire) != nullptr) {
         return ESP_OK;
     }
@@ -128,7 +131,7 @@ esp_err_t prepare_capture_sound()
 // Exception: Returns the real notification or unavailable-route error.
 esp_err_t notify_capture_sound()
 {
-#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG && CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
     const TaskHandle_t worker = s_worker.load(std::memory_order_acquire);
     if (worker == nullptr) {
         ESP_LOGE(kTag, "Shutter worker is unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));

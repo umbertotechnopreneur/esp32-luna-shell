@@ -3,9 +3,53 @@
 Only open, actionable work belongs here. Deferred work is in
 [planned-todo.md](planned-todo.md); completed implementation/evidence is in
 [done.md](done.md). Authorization is governed solely by [AGENTS.md](AGENTS.md).
-The latest Debug Cody image at `09ea3b70` was built and flashed on COM10
-on 2026-10-05 after the earlier two flashes of `160a080a`. Verified flash hashes
-prove the written bytes; every open physical observation below remains open.
+The latest feature-worktree Debug Cody image at `61ab74a` (`tts-sd`) was built
+and flashed on COM10 on 2026-10-05, including Debug-only PWR gestures.
+Authorized 30-second boot captures of the earlier `58757005` image complete
+mandatory startup without the prior allocation abort; SD initialization
+still timed out after reinsertion, before synthesis. Earlier ordinary Cody evidence belongs to
+`09ea3b70` and `160a080a`. Verified flash hashes prove the written bytes;
+every open physical observation below remains open.
+
+## Optional local TTS on feat/luna-speak
+
+- [ ] Resolve SD card/transport nonresponse after reinsertion. The fresh authorized
+  30-second COM10 boot capture again shows two `sdmmc_init_ocr` timeouts;
+  speech request 1 fails before engine initialization. The user heard the
+  startup cue and brief clicks, but no Italian phrase is confirmed.
+- [ ] Validate Debug PWR single-click screenshot after the 500-ms decision
+  window, double-click software reset without capture, long holds, acquisition
+  failures and standby transitions. Release excludes screenshot admission,
+  shutter worker and button software resets. Debug compilation and verified-hash
+  flash completed at `61ab74a`; physical gesture verification, a boot capture
+  of that image and Release compilation remain open.
+- [ ] Establish successful SD initialization with the prepared card.
+  Corrected `58757005` completes boot, with native BSS/text/package directory
+  in PSRAM and speech creation after mandatory owners. The first corrected
+  30-second capture shows two card-init timeouts and a real failed speech request;
+  it does not establish mounted storage, synthesis or audible playback.
+- [ ] After fresh exact-command authorization, validate the
+  [implemented native integration](docs/architecture/text-to-speech.md): normal
+  builds exclude the engine/data/task; SD firmware includes no speech payload;
+  flash includes English only. Check isolated configuration/build/flash lists,
+  source contracts, package generation and SHA-256 rejection paths.
+- [ ] Establish firmware/PSRAM/stack/CPU budgets and continuous PCM performance
+  for the chosen variant. Validate UTF-8 in all four languages, language
+  rejection in flash, cancellation, clock policy, standby, codec lifecycle,
+  card removal/changed package and terminal allocation failure. The authorized
+  Cody `tts-sd` Debug configure/build/flash and SD package generation/copy completed
+  on 2026-10-05. Tests/scans, size reports, simulator and runtime measurements
+  remain open; existing main hardware evidence does not validate TTS.
+- [ ] Validate the newly wired Italian boot phrase on `tts-sd`, one-shot admission,
+  bounded initial SD wait and real failures, test-symbol exclusion from flash,
+  diagnostic-only clock/quiet bypass and regular-request policy preservation.
+  Verify TTS on core 0 and every Cody/LVGL render worker on core 1, including
+  guarded LVGL patch application and actual simultaneous rendering/speech load.
+  Cody `tts-sd` Debug compiles; physical listening and runtime/core observations
+  remain unverified. Full Luna/LVGL and flash-English builds remain open.
+- [ ] Decide additional speech triggers beyond the requested Italian boot test.
+  No UI, scene, HTTP or assistant automatically requests speech. Authorized SD
+  provisioning to G: completed; audible voice tuning remains open.
 
 ## Cody integration and release gates
 

@@ -6,6 +6,10 @@
 
 #pragma once
 
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
+
 #include "LUNASHELL_provisioning_state.hpp"
 
 #include <cstddef>
@@ -13,6 +17,9 @@
 
 #include "esp_err.h"
 #include "LUNASHELL_clock.hpp"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+#include "LUNASHELL_speech_state.hpp"
+#endif
 #include "LUNASHELL_power_policy.hpp"
 
 namespace LUNASHELL {
@@ -681,6 +688,9 @@ struct DeviceSnapshot {
     GpsSnapshot gps;
     AudioSnapshot audio;
     VoiceSnapshot voice;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    SpeechSnapshot speech;
+#endif
     CharacterInteractionSnapshot character_interaction;
     CharacterTouchSnapshot character_touch;
     CharacterLookSaveSnapshot character_look_save;
@@ -693,6 +703,14 @@ struct DeviceSnapshot {
     MemorySnapshot memory;
     ProcessorSnapshot processor;
 };
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+struct SpeechObservation {
+    ClockSnapshot clock;
+    StorageSnapshot storage;
+    DeviceOperatingState operating_state = DeviceOperatingState::Active;
+};
+#endif
 
 struct TouchActivityObservation {
     uint32_t sequence = 0;
@@ -762,6 +780,14 @@ public:
     [[nodiscard]]
     TouchActivityObservation touchActivityObservation() const noexcept;
     DeviceSnapshot snapshot() const;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    // observation: Coherent speech policy and card availability; never samples hardware.
+    // Exception: Returns the original canonical lock or release error.
+    esp_err_t readSpeechObservation(SpeechObservation &observation) const;
+    // speech: Actual service state, identity, timestamps and original error causes.
+    // Exception: Canonical publication failure follows the platform fatal invariant.
+    esp_err_t reportSpeech(const SpeechSnapshot &speech);
+#endif
     // observation: Canonical radio/session state and power state under one lock.
     esp_err_t readConnectivityObservation(ConnectivityObservation &observation) const;
     // observation: Receives battery, local calendar, Wi-Fi and BLE from one canonical lock.

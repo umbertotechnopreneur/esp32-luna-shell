@@ -47,6 +47,7 @@
 #include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_platform.h"
 #include "bsp/display.h"
+#include "bsp/runtime_cores.h"
 #include "esp_heap_caps.h"
 #include "esp_attr.h"
 #include "esp_timer.h"
@@ -78,7 +79,7 @@ constexpr uint32_t kDisplayLockTimeoutMs = 1000;
 // Keep headroom for nested helpers and register spills without spending internal RAM.
 constexpr uint32_t kWorkerStackBytes = 12288;
 // Keep the continuous frame owner away from the CPU0 radio/IP interrupt and task set.
-constexpr BaseType_t kRenderCoreId = 1;
+constexpr BaseType_t kRenderCoreId = LUNASHELL_RENDER_CORE_ID;
 constexpr int64_t kWorkerStackSamplePeriodUs = 2000000;
 // Target the requested 25 FPS cadence; the HUD still reports measured throughput.
 #if CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY
@@ -175,7 +176,7 @@ CODY::StatusOverlay s_cached_status_overlay;
 bool s_cached_status_visible = false;
 CODY::ScreenshotState s_cached_screenshot_state = CODY::ScreenshotState::Idle;
 CaptureVisual s_cached_capture_visual = CaptureVisual::None;
-std::atomic<bool> s_power_screenshot_enabled{true};
+std::atomic<bool> s_power_screenshot_enabled{LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled};
 std::atomic<bool> s_capture_sequence_active{false};
 std::atomic<bool> s_capture_request_pending{false};
 CODY::SceneFrame s_cached_scene;
@@ -607,6 +608,10 @@ esp_err_t handle_active_power_short_press(bool *claimed)
     if (claimed == nullptr) {
         ESP_LOGE(kTag, "PWR consumer output rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
+    }
+    if constexpr (!LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
+        *claimed = false;
+        return ESP_OK;
     }
     *claimed = s_power_screenshot_enabled.load(std::memory_order_acquire);
     if (!*claimed) return ESP_OK;
@@ -3815,10 +3820,12 @@ extern "C" esp_err_t CODY_companion_start(void)
         log_optional_personality_error(personality_audio_error);
     }
 #endif
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
     const esp_err_t capture_sound_error = CODY::prepare_capture_sound();
     if (capture_sound_error != ESP_OK) {
         return fail_consumer("Shutter audio preparation", capture_sound_error, false);
     }
+#endif
     if (s_state.onboarding.effective_first_boot) {
         const esp_err_t action_worker_error = CODY::onboarding_service_init();
         if (action_worker_error != ESP_OK) {
@@ -4045,9 +4052,14 @@ extern "C" esp_err_t CODY_companion_get_debug_readout_enabled(bool *enabled)
 }
 
 // enabled: Session flag for active PWR countdowns; an admitted capture completes.
-// Exception: Returns the real renderer state error.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED in Release or the real renderer state error.
 extern "C" esp_err_t CODY_companion_set_power_screenshot_enabled(bool enabled)
 {
+    if constexpr (!LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
+        ESP_LOGE(kTag, "PWR screenshot flag=%u rejected: Debug only (%s)",
+                 static_cast<unsigned>(enabled), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     const StartState state = s_start_state.load(std::memory_order_acquire);
     if (state != StartState::Running) {
         const esp_err_t error = state == StartState::Failed

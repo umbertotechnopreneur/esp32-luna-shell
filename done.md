@@ -8,6 +8,108 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## Optional local TTS implementation — 2026-10-05
+
+- Implemented Debug-only PWR double-click software restart within 500 ms.
+  The existing single-click screenshot waits for that window before its 3/2/1
+  countdown; separately acquired clicks are required, acquisition failures
+  cancel pending gestures, and ambiguous batched timing is rejected.
+  The reset preserves settings and uses the existing bounded SD/serial drain.
+  Release excludes screenshot admission, shutter worker and PWR/BOOT software
+  reset gestures while retaining ordinary standby/fullscreen controls.
+  The resulting `61ab74a` Cody `tts-sd` Debug image subsequently built with eight
+  jobs and flashed on COM10; bootloader, partitions and app hashes verified,
+  then RTS reset completed. App is 4,212,592 bytes. Evidence:
+  `artifacts/build-cody-companion-tts-sd-debug/evidence/tts-debug-pwr-flash-20261005.log`.
+  No further boot capture, gesture test or Release build ran.
+- After SD reinsertion, the authorized COM10 reset completed on 2026-10-05.
+  The user reported the startup sound and brief clicks, not an intelligible
+  Italian sentence. A subsequent explicitly authorized 30-second reset/capture
+  still shows `sdmmc_init_ocr` timeouts on both attempts, at 4.676 and 23.004 s;
+  speech request 1 fails with `ESP_ERR_TIMEOUT` at 4.688 s before engine
+  initialization. Mandatory boot and Cody rendering continue. Evidence:
+  `artifacts/build-cody-companion-tts-sd-debug/evidence/tts-sd-reinserted-audio-20261005.log`.
+- Created `E:/ESP32 Luna Speaks` on `feat/luna-speak` from local `main`
+  at `1fbc0d7b`; preserved the original worktree. Implemented default-off
+  `CONFIG_LUNASHELL_BUILD_ENABLE_TTS`, isolated `tts-sd` and `tts-flash` variants
+  for Cody/full, native pinned eSpeak C/Unicode sources, bounded UTF-8 request
+  and cancellation APIs, initially silent startup and canonical speech state publication.
+- Implemented registry ownership, guarded PSRAM-only engine allocation, a
+  continuous session in the existing audio owner and owner-mediated SD package
+  reads with exact size/SHA-256 verification on every request. SD stores English,
+  Italian, Mandarin and Cantonese; flash embeds English only. Ordinary profiles
+  exclude the component and its asset generation; SD embeds metadata only.
+  CLI/menu/configuration gates preserve explicit backend selection. No SD-to-flash
+  fallback was introduced.
+- Subsequently wired the requested fixed Italian phrase after mandatory boot in
+  `tts-sd`, gated separately by `CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN`:
+  "Ciao questa è una sintesi vocale di test 5 ottobre 2026". One-shot worker waits
+  only for the initial canonical SD report, with a 30-second deadline and real
+  failure publication. This diagnostic bypasses clock/quiet hours while normal
+  requests retain their policy; active power, storage integrity and saved volume
+  still apply. It replaces Cody's usual boot cue only while the test is enabled.
+- Pinned synthesis to core 0 and Cody/LVGL renderer tasks to core 1 using shared
+  constants, including a guarded patch for LVGL's otherwise unpinned software
+  draw workers. Single-core TTS is rejected. Default-off speech and flash-English
+  composition remain intact. The Cody SD Debug build subsequently completed;
+  LVGL patch application/build, scheduling performance and audible boot behavior
+  remain unverified.
+- Pinned principal source payload is 827,224 bytes for English or 3,111,550
+  bytes for all four languages, excluding voice metadata/code/runtime memory.
+  These are package metadata, not linked size or measured memory evidence.
+  [Implementation and usage](docs/architecture/text-to-speech.md).
+  Outstanding variant/test/runtime evidence remains in `TODO.md`; no upstream
+  publication was performed.
+- Authorized deployment preparation: generated the SD package through
+  `scripts/device.ps1 generate -Generator tts-assets`, copied 12 files plus the
+  manifest to `G:/LUNASHELL/tts/espeak-ng-data`, and verified every payload's
+  manifest SHA-256 on readback. Payload totals 3,112,743 bytes; preserved unrelated
+  SD content and did not format the card.
+- Corrected first IDF 6.0.2/GCC 15 compile/link causes in `57121ca2`: FreeRTOS
+  header order, native libc endian definitions, explicit intended fallthroughs,
+  bounded dictionary identities, checked number/phoneme formatting with actual
+  capacities, synchronous dispatch compilation, and exclusion of desktop dictionary
+  trace dependencies. Compiler diagnostics remain enabled. Cody `tts-sd` Debug
+  configured and built with eight jobs; the first linked app is 4,211,264 bytes.
+  Build evidence: `artifacts/build-cody-companion-tts-sd-debug/evidence/tts-sd-build-20261005.log`.
+  No standalone tests/scans, size command, simulator or listening test ran.
+- Authorized flash completed on COM10 (ESP32-S3, MAC `a4:cb:8f:db:42:d8`):
+  `scripts/device.ps1 flash -Profile cody-companion -Feature tts-sd -BuildMode Debug -Jobs 8 -Port COM10 -Baud 460800`.
+  Its required rebuild of `57121ca2` succeeded; deployed app is 4,211,408 bytes.
+  Esptool verified bootloader, partition-table and application hashes and issued
+  the RTS reset. The separately gated Italian boot phrase is enabled. Evidence:
+  `artifacts/build-cody-companion-tts-sd-debug/evidence/tts-sd-flash-20261005.log`
+  and `tts-sd-deploy-20261005.json` in the same directory. No monitor/capture was
+  started; SD mounting, audible playback and concurrent rendering remain unverified.
+- User reported a black screen after this deployment. Authorized reset/30-second
+  capture on COM10 confirms repeated `ESP_ERR_NO_MEM` aborts at
+  `main/main_headless.cpp:216`, `LUNASHELL_power_manager_init()`, before mandatory
+  startup completion or any boot speech request. Captured version `57121ca2`,
+  ELF SHA prefix `bbad4927a`, matches the deployed image. Evidence:
+  `artifacts/build-cody-companion-tts-sd-debug/evidence/tts-black-screen-boot.log`.
+  The mandatory power task requires an 8,192-byte internal stack; native engine
+  BSS occupied internal RAM despite the already external heap and worker stack.
+- Implemented the resulting correction: component-local IDF linker fragment
+  routes native engine BSS/COMMON to PSRAM, with Kconfig/CMake/CLI admission
+  requiring external BSS support. Public service synchronization and native
+  guard state stay internal. Both startup paths now create optional speech only
+  after their mandatory owners. Request text and SD package pointer storage also
+  reside in external BSS, alongside the already external package/heap/stack.
+  Static review only; this correction has not yet
+  been built, flashed or observed on the device.
+- Subsequently built/flashed correction `58757005` on COM10 through the same
+  eight-job `cody-companion`/`tts-sd` Debug flash command; all esptool written
+  hashes verified and RTS reset completed. App remains 4,211,408 bytes.
+  The authorized fresh 30-second boot capture matches ELF SHA prefix `98dc75b01`:
+  early free internal RAM is 105,119 bytes versus 88,703 (16,416 recovered),
+  mandatory power service and startup complete, the speech worker starts on core 0
+  after those owners, and Cody rendering continues without the previous abort.
+  SD card-init instead times out twice; speech request 1 correctly fails with
+  `ESP_ERR_TIMEOUT` before any engine initialization. User subsequently reported
+  reinserting the prepared card; mounting and audible playback need a new observation.
+  Evidence: `artifacts/build-cody-companion-tts-sd-debug/evidence/tts-psram-fix-flash-20261005.log`
+  and `tts-psram-fixed-boot.log` in the same directory.
+
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
 - Implemented the authorized PSRAM and best-effort logger revision: selected

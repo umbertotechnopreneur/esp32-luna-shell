@@ -1,0 +1,48 @@
+diff --git a/src/osal/lv_freertos.c b/src/osal/lv_freertos.c
+--- a/src/osal/lv_freertos.c
++++ b/src/osal/lv_freertos.c
+@@ -15,4 +15,7 @@
+ #include "lv_os_private.h"
+ #if LV_USE_OS == LV_OS_FREERTOS
+ 
++#if defined(ESP_PLATFORM) && CONFIG_LUNASHELL_BUILD_ENABLE_TTS
++#include "bsp/runtime_cores.h"
++#endif
+ #include "atomic.h"
+@@ -81,3 +84,10 @@
++// pxThread: Receives the task handle and owns its callback context.
++// name: Borrowed task name passed to FreeRTOS.
++// xSchedPriority: LVGL task priority relative to idle.
++// pvStartRoutine: Rendering entrypoint, executed only by the created task.
++// usStackSize: Requested stack bytes; IDF uses bytes instead of FreeRTOS words.
++// xAttr: Borrowed callback context retained by the thread owner.
++// Exception: Returns LV_RESULT_INVALID if task creation fails; no unpinned retry.
+ lv_result_t lv_thread_init(lv_thread_t * pxThread,  const char * const name,
+                            lv_thread_prio_t xSchedPriority,
+                            void (*pvStartRoutine)(void *), size_t usStackSize,
+@@ -85,6 +95,17 @@
+ {
+     pxThread->pTaskArg = xAttr;
+     pxThread->pvStartRoutine = pvStartRoutine;
++#if defined(ESP_PLATFORM) && CONFIG_LUNASHELL_BUILD_ENABLE_TTS
++    // Pin the software draw workers as well as the adapter-owned GUI task.
++    BaseType_t xTaskCreateStatus = xTaskCreatePinnedToCore(
++                                       prvRunThread,
++                                       name,
++                                       (configSTACK_DEPTH_TYPE)usStackSize,
++                                       (void *)pxThread,
++                                       tskIDLE_PRIORITY + xSchedPriority,
++                                       &pxThread->xTaskHandle,
++                                       LUNASHELL_RENDER_CORE_ID);
++#else
+     BaseType_t xTaskCreateStatus = xTaskCreate(
+                                        prvRunThread,
+                                        name,
+@@ -92,6 +113,7 @@
+                                        (void *)pxThread,
+                                        tskIDLE_PRIORITY + xSchedPriority,
+                                        &pxThread->xTaskHandle);
++#endif
+     /* Ensure that the FreeRTOS task was successfully created. */
+     if(xTaskCreateStatus != pdPASS) {
+         LV_LOG_ERROR("xTaskCreate failed!");

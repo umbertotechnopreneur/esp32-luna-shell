@@ -37,9 +37,25 @@ function Edit-DeviceMenuSettings([hashtable]$Settings) {
         '4' = @{ Emoji = '🎯'; Label = 'Firmware profile'; Description = $Settings.Profile; Value = 'Profile' }
         '5' = @{ Emoji = '📋'; Label = 'Board YAML'; Description = $Settings.BoardConfig; Value = 'BoardConfig' }
         '6' = @{ Emoji = '⚙️'; Label = 'Firmware build mode'; Description = $Settings.BuildMode; Value = 'BuildMode' }
+        '7' = @{ Emoji = '🔊'; Label = 'Optional firmware feature'; Description = $Settings.Feature; Value = 'Feature' }
     }
     $key = Select-DeviceMenuItem 'SESSION SETTINGS' $options
     if (-not $key) { return }
+    if ($key -eq 'Feature') {
+        $features = [ordered]@{
+            '1' = @{ Emoji = '🪶'; Label = 'None'; Description = 'Default lightweight composition'; Value = 'none' }
+            '2' = @{ Emoji = '📏'; Label = 'Distance'; Description = 'Reviewed distance variant'; Value = 'distance' }
+            '3' = @{ Emoji = '🎙️'; Label = 'Wake word'; Description = 'Local recognition variant'; Value = 'wake-word' }
+            '4' = @{ Emoji = '💾'; Label = 'TTS on SD'; Description = 'English, Italian, Mandarin and Cantonese; Italian boot speech test'; Value = 'tts-sd' }
+            '5' = @{ Emoji = '🔊'; Label = 'TTS in flash'; Description = 'English only; starts silently'; Value = 'tts-flash' }
+        }
+        $feature = Select-DeviceMenuItem 'EXPLICIT OPTIONAL FEATURE' $features
+        if ($feature) {
+            $Settings.Remove('BoardConfig')
+            $Settings.Feature = $feature
+        }
+        return
+    }
     if ($key -eq 'BuildMode') {
         $modes = [ordered]@{
             '1' = @{ Emoji = '🐞'; Label = 'Debug'; Description = 'Diagnostic logs; automatic Light-sleep disabled for USB debugging'; Value = 'Debug' }
@@ -99,7 +115,7 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
             'Choose when needed'
         }
         Write-Host "`n  CODY COMPANION  /  DEVELOPMENT CONSOLE" -ForegroundColor Cyan
-        Write-Host "  Firmware: $selector    Build mode: $($settings.BuildMode)    Port: $portDescription    Rotation: $($settings.Rotation) degrees" -ForegroundColor Gray
+        Write-Host "  Firmware: $selector    Build mode: $($settings.BuildMode)    Feature: $(if ($settings.Feature) { $settings.Feature } else { 'none' })    Port: $portDescription    Rotation: $($settings.Rotation) degrees" -ForegroundColor Gray
         Write-Host '  Output: artifacts/    Opening the menu does not access hardware.' -ForegroundColor DarkGray
         $main = [ordered]@{
             '1' = @{ Emoji = '🤖'; Label = 'Cody simulator'; Description = 'Rig, face, contour and debug overlay'; Value = 'simulator' }

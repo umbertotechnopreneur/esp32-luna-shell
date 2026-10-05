@@ -6,6 +6,10 @@
 
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#if CONFIG_LUNASHELL_TTS_DATA_SD
+#include "LUNASHELL_tts_storage.h"
+#include "psa/crypto.h"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -25,6 +29,9 @@
 #include "esp_timer.h"
 #include "esp_vfs_fat.h"
 #include "freertos/FreeRTOS.h"
+#if CONFIG_LUNASHELL_TTS_DATA_SD
+#include "freertos/semphr.h"
+#endif
 #include "freertos/event_groups.h"
 #include "freertos/idf_additions.h"
 #include "freertos/task.h"
@@ -1343,6 +1350,143 @@ esp_err_t poll_mounted_card(bool force_space_refresh = false)
 }
 
 // resume_error: Original failed card validation, never replaced by retry eligibility.
+#if CONFIG_LUNASHELL_TTS_DATA_SD
+struct TtsReadRequest {
+    lunashell_tts_storage_file_t *files;
+    size_t count;
+    bool verify_only;
+    esp_err_t error = ESP_ERR_INVALID_STATE;
+    int io_errno = 0;
+};
+std::mutex s_tts_client_mutex;
+StaticSemaphore_t s_tts_completion_control;
+SemaphoreHandle_t s_tts_completion;
+TtsReadRequest *s_tts_pending;
+
+// relative_path: Exact package-owned path; never accepts arbitrary card paths.
+bool valid_tts_path(const char *relative_path)
+{
+    constexpr const char *paths[] = {"phondata", "phontab", "phonindex", "intonations",
+        "en_dict", "it_dict", "cmn_dict", "yue_dict", "lang/gmw/en", "lang/roa/it",
+        "lang/sit/cmn", "lang/sit/yue"};
+    if (relative_path == nullptr) return false;
+    for (const char *path : paths) {
+        if (strcmp(path, relative_path) == 0) return true;
+    }
+    return false;
+}
+
+// request: Caller-owned buffers retained until owner completion, including failures.
+// Exception: Preserves read/close errno and SHA implementation failures.
+esp_err_t read_tts_package(TtsReadRequest &request)
+{
+    const psa_status_t initialization = psa_crypto_init();
+    if (initialization != PSA_SUCCESS) return static_cast<esp_err_t>(initialization);
+    for (size_t index = 0; index < request.count; ++index) {
+        const auto &asset = request.files[index];
+        char path[128];
+        const int length = snprintf(path, sizeof(path), "%s/LUNASHELL/tts/espeak-ng-data/%s",
+                                    BSP_SD_MOUNT_POINT, asset.relative_path);
+        if (length < 0 || static_cast<size_t>(length) >= sizeof(path)) return ESP_ERR_INVALID_SIZE;
+        errno = 0;
+        FILE *file = fopen(path, "rb");
+        if (file == nullptr) {
+            request.io_errno = errno;
+            ESP_LOGE(TAG, "Speech package open %s failed: errno=%d", asset.relative_path, request.io_errno);
+            return request.io_errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+        }
+        struct stat info{};
+        esp_err_t error = ESP_OK;
+        if (fstat(fileno(file), &info) != 0) {
+            request.io_errno = errno;
+            error = ESP_FAIL;
+        } else if (info.st_size < 0 || static_cast<size_t>(info.st_size) != asset.size) {
+            error = ESP_ERR_INVALID_SIZE;
+        }
+        psa_hash_operation_t hash = PSA_HASH_OPERATION_INIT;
+        if (error == ESP_OK) {
+            const psa_status_t status = psa_hash_setup(&hash, PSA_ALG_SHA_256);
+            if (status != PSA_SUCCESS) error = static_cast<esp_err_t>(status);
+        }
+        uint8_t verification_buffer[512];
+        size_t offset = 0;
+        while (error == ESP_OK && offset < asset.size) {
+            const size_t count = std::min<size_t>(sizeof(verification_buffer), asset.size - offset);
+            uint8_t *destination = request.verify_only ? verification_buffer : asset.destination + offset;
+            errno = 0;
+            const size_t received = fread(destination, 1, count, file);
+            if (received != count) {
+                request.io_errno = errno;
+                error = ferror(file) ? ESP_FAIL : ESP_ERR_INVALID_SIZE;
+                break;
+            }
+            const psa_status_t hash_error = psa_hash_update(&hash, destination, received);
+            if (hash_error != PSA_SUCCESS) error = static_cast<esp_err_t>(hash_error);
+            offset += received;
+        }
+        errno = 0;
+        if (fclose(file) != 0) {
+            const int close_errno = errno;
+            ESP_LOGE(TAG, "Speech package close %s failed: errno=%d", asset.relative_path, close_errno);
+            if (error == ESP_OK) {
+                request.io_errno = close_errno;
+                error = ESP_FAIL;
+            }
+        }
+        if (error == ESP_OK) {
+            uint8_t digest[32];
+            size_t digest_size = 0;
+            const psa_status_t hash_error = psa_hash_finish(&hash, digest, sizeof(digest), &digest_size);
+            if (hash_error != PSA_SUCCESS) error = static_cast<esp_err_t>(hash_error);
+            else if (digest_size != sizeof(digest) || memcmp(digest, asset.sha256, sizeof(digest)) != 0)
+                error = ESP_ERR_INVALID_CRC;
+        }
+        const psa_status_t abort_error = psa_hash_abort(&hash);
+        if (abort_error != PSA_SUCCESS) {
+            ESP_LOGE(TAG, "Speech package hash cleanup failed: psa=%ld", static_cast<long>(abort_error));
+            if (error == ESP_OK) error = static_cast<esp_err_t>(abort_error);
+        }
+        if (error != ESP_OK) {
+            ESP_LOGE(TAG, "Speech package read/integrity %s failed (%s), errno=%d",
+                     asset.relative_path, esp_err_to_name(error), request.io_errno);
+            return error;
+        }
+    }
+    return ESP_OK;
+}
+
+// No parameters: only the existing storage task executes removable-media reads.
+// Exception: Every queued caller is completed even when standby or removal wins.
+bool process_tts_package_request()
+{
+    TtsReadRequest *request = nullptr;
+    bool allowed = false;
+    {
+        std::lock_guard<std::mutex> lock(s_storage_mutex);
+        request = s_tts_pending;
+        if (request == nullptr) return false;
+        s_tts_pending = nullptr;
+        allowed = s_mounted && !s_terminal_failure && !s_power_suspended &&
+            !s_performance_suspended && s_last_mount_report.mounted &&
+            s_last_mount_report.card_response_verified && !s_last_mount_report.poisoned;
+        request->error = !s_mounted && s_last_mount_report.error != ESP_OK
+            ? s_last_mount_report.error : ESP_ERR_INVALID_STATE;
+    }
+    if (allowed) {
+        request->error = run_watched_storage_io(LUNASHELL_LIVENESS_STORAGE,
+            "speech package read", [request]() { return read_tts_package(*request); });
+    } else {
+        ESP_LOGE(TAG, "Speech package owner rejected lifecycle (%s)", esp_err_to_name(request->error));
+    }
+    // Returning while the owner still holds borrowed buffers would be unsafe.
+    if (xSemaphoreGive(s_tts_completion) != pdTRUE) {
+        ESP_LOGE(TAG, "Speech package completion semaphore failed");
+        ESP_ERROR_CHECK(ESP_FAIL);
+    }
+    return true;
+}
+#endif
+
 // Caller holds s_storage_mutex; only a clean transient unmount can resume probing.
 bool failed_power_resume_can_retry_locked(esp_err_t resume_error)
 {
@@ -1386,6 +1530,9 @@ void storage_task(void *argument)
             s_storage_events,
             kWorkerQuiescentBit
         );
+#if CONFIG_LUNASHELL_TTS_DATA_SD
+        if (process_tts_package_request()) continue;
+#endif
         {
             std::lock_guard<std::mutex> lock(s_storage_mutex);
             mounted = s_mounted;
@@ -2298,3 +2445,69 @@ extern "C" esp_err_t LUNASHELL_storage_set_power_suspended(bool suspended)
     );
     return ESP_OK;
 }
+
+#if CONFIG_LUNASHELL_TTS_DATA_SD
+// files: Exact manifest paths and caller buffers; retained until owner completion.
+// file_count: Reviewed package contains exactly twelve files.
+// verify_only: Verifies current card/package without overwriting borrowed tables.
+// io_errno: Receives original filesystem cause, zero for non-filesystem errors.
+// Exception: Returns actual admission, owner lifecycle, read and integrity failures.
+extern "C" esp_err_t LUNASHELL_storage_load_tts(lunashell_tts_storage_file_t *files,
+                                               size_t file_count, bool verify_only, int *io_errno)
+{
+    if (io_errno == nullptr) {
+        ESP_LOGE(TAG, "Speech package admission rejected: missing errno destination");
+        return ESP_ERR_INVALID_ARG;
+    }
+    *io_errno = 0;
+    if (files == nullptr || file_count != 12) {
+        ESP_LOGE(TAG, "Speech package manifest rejected: count=%u", static_cast<unsigned>(file_count));
+        return ESP_ERR_INVALID_ARG;
+    }
+    for (size_t index = 0; index < file_count; ++index) {
+        if (!valid_tts_path(files[index].relative_path) || (!verify_only && files[index].destination == nullptr) ||
+            files[index].sha256 == nullptr || files[index].size == 0) {
+            ESP_LOGE(TAG, "Speech package descriptor rejected at %u", static_cast<unsigned>(index));
+            return ESP_ERR_INVALID_ARG;
+        }
+        for (size_t previous = 0; previous < index; ++previous) {
+            if (strcmp(files[index].relative_path, files[previous].relative_path) == 0) {
+                ESP_LOGE(TAG, "Speech package duplicate path rejected: %s", files[index].relative_path);
+                return ESP_ERR_INVALID_ARG;
+            }
+        }
+    }
+    std::lock_guard<std::mutex> client_lock(s_tts_client_mutex);
+    TtsReadRequest request{files, file_count, verify_only};
+    {
+        std::lock_guard<std::mutex> lock(s_storage_mutex);
+        if (s_storage_task == nullptr || !s_mounted || s_terminal_failure ||
+            s_power_suspended || s_performance_suspended || s_tts_pending != nullptr) {
+            const esp_err_t error = !s_mounted && s_last_mount_report.error != ESP_OK
+                ? s_last_mount_report.error : ESP_ERR_INVALID_STATE;
+            ESP_LOGE(TAG, "Speech package admission rejected (%s)", esp_err_to_name(error));
+            return error;
+        }
+        if (s_tts_completion == nullptr) {
+            s_tts_completion = xSemaphoreCreateBinaryStatic(&s_tts_completion_control);
+            if (s_tts_completion == nullptr) {
+                ESP_LOGE(TAG, "Speech package completion allocation failed");
+                return ESP_ERR_NO_MEM;
+            }
+        }
+        s_tts_pending = &request;
+        if (xTaskNotifyGive(s_storage_task) != pdPASS) {
+            s_tts_pending = nullptr;
+            ESP_LOGE(TAG, "Speech package owner notification failed");
+            return ESP_FAIL;
+        }
+    }
+    // The watched owner bounds hardware I/O; no timeout may release borrowed buffers.
+    if (xSemaphoreTake(s_tts_completion, portMAX_DELAY) != pdTRUE) {
+        ESP_LOGE(TAG, "Speech package owner completion wait failed");
+        ESP_ERROR_CHECK(ESP_FAIL);
+    }
+    *io_errno = request.io_errno;
+    return request.error;
+}
+#endif

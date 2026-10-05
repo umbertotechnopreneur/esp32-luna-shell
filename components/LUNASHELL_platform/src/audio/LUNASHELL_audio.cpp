@@ -21,6 +21,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+#include "driver/i2s_common.h"
+#endif
 
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 #define LUNASHELL_AUDIO_HAS_OUTPUT 1
@@ -1931,3 +1934,174 @@ extern "C" esp_err_t LUNASHELL_audio_get_personality_status(lunashell_audio_cue_
     portEXIT_CRITICAL(&s_personality_mux);
     return status->last_error;
 }
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+namespace {
+struct SpeechAudioSession {
+    TaskHandle_t owner = nullptr;
+    uint32_t request_id = 0;
+    uint32_t source_rate = 0;
+    uint32_t transport_rate = 0;
+    uint32_t resample_phase = 0;
+    int volume_percent = 0;
+    bool previous_mute = true;
+};
+SpeechAudioSession s_speech_audio;
+std::atomic<TaskHandle_t> s_speech_owner;
+enum class SpeechPlaybackCue : uint32_t { Speech = 0x54545301U };
+constexpr uint32_t kSpeechPlaybackCue = static_cast<uint32_t>(SpeechPlaybackCue::Speech);
+}
+
+// source_rate_hz: Actual engine sample rate; current duplex clock remains authoritative.
+// request_id: Nonzero owner-produced identity, independent of application cue IDs.
+// Exception: Success holds the existing audio mutex; every failure releases it.
+extern "C" esp_err_t LUNASHELL_audio_begin_speech(uint32_t source_rate_hz, uint32_t request_id)
+{
+    if (source_rate_hz != 22050 || request_id == 0) {
+        return reject_playback("Speech format", ESP_ERR_INVALID_ARG, source_rate_hz, 0);
+    }
+    esp_err_t error = LUNASHELL_audio_init();
+    if (error != ESP_OK) return error;
+    SemaphoreHandle_t mutex = audio_mutex();
+    if (mutex == nullptr) return reject_playback("Speech mutex", ESP_ERR_NO_MEM, source_rate_hz, 0);
+    if (xSemaphoreTake(mutex, 0) != pdTRUE) {
+        return reject_playback("Speech route busy", ESP_ERR_TIMEOUT, source_rate_hz, 0);
+    }
+    SpeechAudioSession session;
+    session.request_id = request_id;
+    session.owner = xTaskGetCurrentTaskHandle();
+    session.source_rate = source_rate_hz;
+    session.transport_rate = s_microphone_open ? s_microphone_sample_rate_hz :
+        s_speaker_open ? s_speaker_sample_rate_hz : source_rate_hz;
+    if (s_standby.load() || s_audio_state_poisoned.load() ||
+        session.transport_rate < 8000 || session.transport_rate > 48000) {
+        error = ESP_ERR_INVALID_STATE;
+    } else {
+        error = configure_speaker_stream(session.transport_rate);
+    }
+    if (error == ESP_OK) {
+        error = static_cast<esp_err_t>(esp_codec_dev_get_out_vol(s_speaker, &session.volume_percent));
+    }
+    if (error == ESP_OK) {
+        error = static_cast<esp_err_t>(esp_codec_dev_get_out_mute(s_speaker, &session.previous_mute));
+    }
+    if (error == ESP_OK && (session.volume_percent < 1 || session.volume_percent > 100)) {
+        error = session.volume_percent == 0 ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_RESPONSE;
+    }
+    if (error == ESP_OK) {
+        error = static_cast<esp_err_t>(esp_codec_dev_set_out_mute(s_speaker, false));
+        if (error != ESP_OK) {
+            const int restore_error = esp_codec_dev_set_out_mute(s_speaker, session.previous_mute);
+            if (restore_error != ESP_CODEC_DEV_OK) {
+                s_audio_state_poisoned.store(true);
+                ESP_LOGE(TAG, "Speech unmute rollback failed: codec=%d", restore_error);
+            }
+        }
+    }
+    if (error != ESP_OK) {
+        audio_unlock(mutex);
+        return reject_playback("Speech admission", error, source_rate_hz, session.volume_percent);
+    }
+    s_speech_audio = session;
+    s_speech_owner.store(session.owner);
+    // Match the owner's codec settling policy once for the entire stream.
+    vTaskDelay(pdMS_TO_TICKS(100));
+    return ESP_OK;
+}
+
+// samples: Borrowed engine buffer, never retained beyond this synchronous call.
+// sample_count: Actual number of mono signed samples.
+// request_id: Exact active session; only its task may use the held owner mutex.
+// Exception: Returns original transport or canonical publication failure.
+extern "C" esp_err_t LUNASHELL_audio_write_speech(const int16_t *samples,
+                                                  size_t sample_count, uint32_t request_id)
+{
+    if (s_speech_owner.load() != xTaskGetCurrentTaskHandle() || samples == nullptr ||
+        sample_count == 0 || request_id != s_speech_audio.request_id) {
+        ESP_LOGE(TAG, "Speech write rejected: session identity or PCM format");
+        return ESP_ERR_INVALID_ARG;
+    }
+    // A rational sample-and-hold converter retains phase across engine blocks.
+    // It avoids reopening the shared microphone clock or allocating a second stream.
+    int16_t converted[320];
+    size_t used = 0;
+    for (size_t index = 0; index < sample_count; ++index) {
+        s_speech_audio.resample_phase += s_speech_audio.transport_rate;
+        while (s_speech_audio.resample_phase >= s_speech_audio.source_rate) {
+            s_speech_audio.resample_phase -= s_speech_audio.source_rate;
+            converted[used++] = samples[index];
+            if (used == 320) {
+                const esp_err_t error = write_speaker_pcm_locked(converted, used,
+                    s_speech_audio.transport_rate, s_speech_audio.volume_percent, kSpeechPlaybackCue);
+                if (error != ESP_OK) return error;
+                used = 0;
+            }
+        }
+    }
+    if (used == 0) return ESP_OK;
+    return write_speaker_pcm_locked(converted, used, s_speech_audio.transport_rate,
+                                   s_speech_audio.volume_percent, kSpeechPlaybackCue);
+}
+
+// request_id: Exact session currently held by this calling worker.
+// cause: Original synthesis/write/cancellation error, retained over secondary failures.
+// Exception: Cleanup failures are logged and returned when no prior cause exists.
+extern "C" esp_err_t LUNASHELL_audio_end_speech(uint32_t request_id, esp_err_t cause)
+{
+    if (s_speech_owner.load() != xTaskGetCurrentTaskHandle() || request_id != s_speech_audio.request_id) {
+        ESP_LOGE(TAG, "Speech finish rejected: session identity");
+        return ESP_ERR_INVALID_STATE;
+    }
+    const SpeechAudioSession session = s_speech_audio;
+    esp_err_t error = cause;
+    esp_err_t cleanup_error = ESP_OK;
+    if (cause != ESP_OK) {
+        // Stop queued speech before retiring the DMA ring after cancellation/error.
+        cleanup_error = static_cast<esp_err_t>(esp_codec_dev_set_out_mute(s_speaker, true));
+    }
+    if (cleanup_error == ESP_OK) {
+        // BSP uses I2S_CHANNEL_DEFAULT_CONFIG unchanged. Writing more than its
+        // ring capacity retires preceding speech PCM before restoring mute.
+        const i2s_chan_config_t dma = I2S_CHANNEL_DEFAULT_CONFIG(CONFIG_BSP_I2S_NUM, I2S_ROLE_MASTER);
+        // Two 16-bit slots bound the BSP duplex transport even for mono codec input.
+        size_t remaining = static_cast<size_t>(dma.dma_desc_num + 1U) * dma.dma_frame_num * 2U;
+        const int16_t silence[240]{};
+        while (remaining != 0 && cleanup_error == ESP_OK) {
+            const size_t count = std::min<size_t>(240, remaining);
+            cleanup_error = write_speaker_pcm_locked(silence, count, session.transport_rate,
+                                                    session.volume_percent, kSpeechPlaybackCue);
+            remaining -= count;
+        }
+    }
+    if (cleanup_error == ESP_OK) {
+        cleanup_error = static_cast<esp_err_t>(esp_codec_dev_set_out_mute(s_speaker, session.previous_mute));
+    }
+    if (cleanup_error != ESP_OK) {
+        // Ambiguous transport cannot safely restore an unmuted route or be reused.
+        s_audio_state_poisoned.store(true);
+        ESP_LOGE(TAG, "Speech drain/restoration failed: error=%ld", static_cast<long>(cleanup_error));
+        const int mute_error = esp_codec_dev_set_out_mute(s_speaker, true);
+        if (mute_error != ESP_CODEC_DEV_OK) ESP_LOGE(TAG, "Speech failure mute failed: codec=%d", mute_error);
+        if (error == ESP_OK) error = cleanup_error;
+    }
+    const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
+        false, 0, session.transport_rate, session.volume_percent, error, kSpeechPlaybackCue);
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(TAG, "Speech playback finish publication failed (%s)", esp_err_to_name(publication_error));
+        if (error == ESP_OK) error = publication_error;
+    }
+    s_speech_owner.store(nullptr);
+    s_speech_audio = {};
+    if (xSemaphoreGive(audio_mutex()) != pdTRUE) {
+        s_audio_state_poisoned.store(true);
+        ESP_LOGE(TAG, "Speech owner mutex release failed");
+        if (error == ESP_OK) error = ESP_FAIL;
+        const esp_err_t release_publication = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
+            false, 0, session.transport_rate, session.volume_percent, error, kSpeechPlaybackCue);
+        if (release_publication != ESP_OK) {
+            ESP_LOGE(TAG, "Speech mutex failure publication failed: error=%ld", static_cast<long>(release_publication));
+        }
+    }
+    return error;
+}
+#endif

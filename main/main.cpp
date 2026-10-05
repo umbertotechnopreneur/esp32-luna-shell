@@ -31,6 +31,9 @@
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_logger.h"
 #include "LUNASHELL_platform.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+#include "LUNASHELL_tts.hpp"
+#endif
 
 namespace {
 
@@ -592,6 +595,14 @@ extern "C" void app_main(void)
     startup_watch.progress("board service sampling");
 #endif
     startup_watch.complete();
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    // Mandatory UI, power and hardware owners receive their memory first.
+    // Speech remains optional and may publish a real startup allocation failure.
+    report_optional_startup_failure("text-to-speech", LUNASHELL::initialize_speech());
+#endif
+#if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
+    report_optional_startup_failure("Italian boot speech", LUNASHELL::request_boot_speech_test());
+#endif
     ESP_LOGI(kTag, "Firmware startup completed with application ready");
     report_optional_startup_failure("boot log archival", LUNASHELL_logger_finish_boot_capture());
 }

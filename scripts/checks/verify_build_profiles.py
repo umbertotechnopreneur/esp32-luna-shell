@@ -44,6 +44,7 @@ def main(argv=None) -> None:
     parser.add_argument("--variant", choices=(
         "headless", "display-touch", "cody-companion", "leg-edition", "ui-minimal",
         "connected", "full", "full-distance", "cody-companion-wake-word", "full-wake-word",
+        "cody-companion-tts-sd", "cody-companion-tts-flash", "full-tts-sd", "full-tts-flash",
     ))
     args = parser.parse_args(argv)
     catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
@@ -63,6 +64,10 @@ def main(argv=None) -> None:
         "full-distance",
         "cody-companion-wake-word",
         "full-wake-word",
+        "cody-companion-tts-sd",
+        "cody-companion-tts-flash",
+        "full-tts-sd",
+        "full-tts-flash",
     }:
         raise AssertionError("profile catalog variants are incomplete or unexpected")
 
@@ -95,6 +100,13 @@ def main(argv=None) -> None:
         roots = variant.get("component_roots")
         if not isinstance(roots, list) or "main" not in roots or len(roots) != len(set(roots)):
             raise AssertionError(f"variant {variant_name} has invalid component roots")
+        tts_enabled = identity[1] in {"tts-sd", "tts-flash"}
+        if ("LUNASHELL_tts" in roots) != tts_enabled:
+            raise AssertionError(f"{variant_name} must admit TTS only through explicit opt-in")
+        if tts_enabled and profile_name not in {"cody-companion", "full"}:
+            raise AssertionError(f"{variant_name} has an unsupported TTS composition")
+        if tts_enabled and f"config/sdkconfig/v1/features/{identity[1]}.defaults" not in defaults:
+            raise AssertionError(f"{variant_name} is missing its explicit backend defaults")
         if profile_name == "headless" and roots != ["main"]:
             raise AssertionError("headless must admit only the main transitive root")
         if profile_name in {"connected", "full"}:
@@ -134,6 +146,9 @@ def main(argv=None) -> None:
         ]
         if any(not (path / "CMakeLists.txt").is_file() for path in resolved_component_dirs):
             raise AssertionError(f"variant {variant_name} has a non-component directory")
+        tts_dir = (ROOT / "components/LUNASHELL_tts").resolve()
+        if (tts_dir in resolved_component_dirs) != tts_enabled:
+            raise AssertionError(f"{variant_name} must discover the TTS component only when selected")
         expected_base_dirs = {
             (ROOT / "main").resolve(),
             (ROOT / "components/LUNASHELL_logger").resolve(),

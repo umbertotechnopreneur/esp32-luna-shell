@@ -190,8 +190,13 @@ sensor polling is introduced. The HUD preference is session-scoped under the
 display lock and gated by scene `readout_visible`. Authored scenes admit the HUD
 unless a visible bottom action occupies its area; Release excludes it.
 
-The Debug Screenshot touch control is hidden and non-interactive. A short PWR
-press while Cody is active starts a session-enabled 3, 2, 1 countdown; the
+The Debug Screenshot touch control is hidden and non-interactive. One short PWR
+press while Cody is active waits 500 ms for a second click, then starts a
+session-enabled 3, 2, 1 countdown. Two separately acquired short clicks within
+that window request a software restart instead, preserving settings and using
+the existing bounded log drain. Failed acquisitions cancel the pending gesture;
+batched clicks without individual timing are rejected. Screenshot admission,
+shutter worker and button-triggered software restarts are Debug only. The
 session flag defaults on and can be changed through the Cody runtime API. Each
 number lasts one second after its frame retires. Cody clears the overlay in a
 completed frame before requesting the capture, so the numeral is absent from

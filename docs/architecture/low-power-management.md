@@ -149,7 +149,8 @@ closed by this software package.
 
 ## PWR software restart and retained log files
 
-Holding the physical PWR key continuously for 3 seconds requests `esp_restart()`
+In Debug, two separately acquired short PWR clicks within 500 ms, or holding
+the physical PWR key continuously for 3 seconds, request `esp_restart()`
 without resetting the AXP2101 or erasing NVS, settings, or log files. The existing
 hardware owner enables/decodes PWRON negative (press) and positive (release)
 edges, queues them before verified IRQ clear, and publishes the acquired level
@@ -162,14 +163,19 @@ bound. An unknown press start, failed/stale sample or early release cannot
 trigger reset; recovery requires a fresh release. A key held before initialization
 does not retrigger software resets. The PMIC's earlier long IRQ now waits for
 release to enter standby, leaving the owner running until the 3-second reset.
-In Cody, an active short PWR tap starts the 3, 2, 1 screenshot countdown while
-its session flag is enabled by default. The Cody worker refreshes PWR activity
+In Debug Cody, an active short PWR tap waits 500 ms to resolve a possible double
+click before starting the 3, 2, 1 screenshot countdown while its session flag is
+enabled by default. A double click restarts without admitting that screenshot.
+Failed acquisition cancels a pending click; multiple clicks delivered in one
+acquisition are rejected because their timing cannot be established.
+The Cody worker refreshes PWR activity
 during the countdown and save so inactivity cannot enter standby mid-capture.
 Disabling that flag restores the active short-tap standby behavior. A short PWR
-tap in software standby still wakes in one press. The 3-second PWR and BOOT
-restart paths retain their log-drain behavior.
-An acquired current PWR hold inhibits automatic inactivity sleep so Release
-cannot park the power worker in the middle of this gesture.
+tap in software standby still wakes in one press, after the same Debug window.
+Release excludes screenshot admission, its shutter worker and all button-triggered
+software resets; ordinary short PWR standby/wake and short BOOT fullscreen
+remain immediate. Debug 3-second PWR/BOOT restart paths retain their log drain.
+An acquired current PWR hold inhibits automatic inactivity sleep in either mode.
 
 The reset helper logs the reason, requests the existing bounded one-second SD
 writer drain/close when mirroring is enabled, flushes stdout, and gives USB 50 ms

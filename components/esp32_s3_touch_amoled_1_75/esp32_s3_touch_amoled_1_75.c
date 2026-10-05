@@ -43,6 +43,7 @@
 #endif
 #include "bsp/esp32_s3_touch_amoled_1_75.h"
 #include "bsp/display.h"
+#include "bsp/runtime_cores.h"
 #include "bsp/touch.h"
 #include "bsp_display_dma.h"
 
@@ -2916,7 +2917,9 @@ esp_err_t bsp_display_start(lv_display_t **out_display)
     return bsp_display_start_with_config(&cfg, out_display);
 }
 
-// Initialize the display and its adapter-owned LVGL worker.
+// cfg: Borrowed physical display and official LVGL adapter configuration.
+// out_display: Receives the initialized display only on successful startup.
+// Exception: Returns original adapter/display failures; no alternate renderer is started.
 esp_err_t bsp_display_start_with_config(
     const bsp_display_cfg_t *cfg,
     lv_display_t **out_display
@@ -2931,7 +2934,15 @@ esp_err_t bsp_display_start_with_config(
         ESP_LOGE(TAG, "Display is already initialized");
         return ESP_ERR_INVALID_STATE;
     }
-    esp_err_t result = esp_lv_adapter_init(&cfg->lv_adapter_cfg);
+    esp_lv_adapter_config_t adapter_config = cfg->lv_adapter_cfg;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    // The adapter default is unpinned. Optional speech requires an exclusive
+    // renderer core even for callers supplying their own display configuration.
+    adapter_config.task_core_id = LUNASHELL_RENDER_CORE_ID;
+    ESP_LOGI(TAG, "LVGL renderer pinned to core %d; speech reserved for core %d",
+             LUNASHELL_RENDER_CORE_ID, LUNASHELL_TTS_CORE_ID);
+#endif
+    esp_err_t result = esp_lv_adapter_init(&adapter_config);
     if (result != ESP_OK) {
         ESP_LOGE(TAG, "LVGL adapter initialization failed: %s", esp_err_to_name(result));
         return result;

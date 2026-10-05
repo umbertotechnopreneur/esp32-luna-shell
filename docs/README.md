@@ -25,7 +25,7 @@ ownership; Git and `done.md` retain history. Open verification belongs in `TODO.
 | Hardware data | [Snapshot](architecture/device-snapshot.md), [hardware API](architecture/hardware-api.md) |
 | Power | [Low-power policy](architecture/low-power-management.md), [release deep sleep](architecture/release-deep-sleep.md) |
 | Connectivity | [Pairing](architecture/connectivity-pairing.md), [HTTP API](architecture/http-device-api.md) |
-| Audio | [Wake-on-word](architecture/wake-on-word.md) |
+| Audio | [Wake-on-word](architecture/wake-on-word.md), [optional TTS feasibility and design](architecture/text-to-speech.md) |
 | Build selection | [Board configuration](architecture/board-build-configuration.md), [Debug/Release](architecture/firmware-build-modes.md) |
 | Release | [Open-source checklist](release/open-source-pre-release-checklist.md) |
 
