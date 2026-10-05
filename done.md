@@ -15,6 +15,11 @@ flash logs were regenerated.
   `none` built successfully with eight jobs at `0ea2613`; hardware playback
   and layout remain unobserved. Build evidence is retained below
   `artifacts/build-cody-companion-debug/evidence/touch-feedback-build.log`.
+- Final Cody Debug/`none` build and COM10 flash completed at `de9b8b18`.
+  The app is 4,027,456 bytes; bootloader, partition table and app hashes verified,
+  followed by RTS reset. No NVS erase or reprovisioning ran; no monitor/capture
+  or physical behavior check accompanied the flash. Final evidence:
+  `artifacts/build-cody-companion-debug/evidence/touch-feedback-flash-20261006.log`.
 - Implemented the Windows fake audio owner linking unchanged Cody C++
   personality/whistle/typewriter modules and their original PCM. Connected
   presented symbols, whistle generations, greeting glyphs and pointer taps to

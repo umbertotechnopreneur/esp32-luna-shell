@@ -48,7 +48,7 @@ class FakeAudioDriver:
                 winsound.PlaySound(None, 0)
             except (OSError, RuntimeError) as error:
                 self.last_error = error
-                LOG.error("Synthetic PC audio cancellation failed: %s", error)
+                LOG.error("Synthetic PC audio cancellation failed: %r", error)
 
     # self: PC output owner retaining optional failures without stopping Tk or touch.
     # operation: Export of the unchanged native Cody audio module.
@@ -91,7 +91,7 @@ class FakeAudioDriver:
             return 0
         except Exception as error:
             self.last_error = error
-            LOG.error("Synthetic PC audio admission failed: %s", error)
+            LOG.error("Synthetic PC audio admission failed: %r", error)
             return -1
 
     # self: One PC output voice; blocking playback lives only on this worker.
@@ -114,7 +114,7 @@ class FakeAudioDriver:
                 winsound.PlaySound(payload, flags | winsound.SND_NODEFAULT)
             except (OSError, RuntimeError) as error:
                 self.last_error = error
-                LOG.error("Synthetic PC audio playback failed: %s", error)
+                LOG.error("Synthetic PC audio playback failed: %r", error)
 
     # self: Host driver sharing the same sound selector and immutable PCM as firmware.
     # cue: Stable manga cue ID from the successfully displayed frame.
@@ -152,7 +152,7 @@ class FakeAudioDriver:
                 self._queue.put_nowait((str(path), False, time.monotonic(), self._generation))
         except (OSError, queue.Full) as error:
             self.last_error = error
-            LOG.error("Synthetic PC audio preview failed: %s", error)
+            LOG.error("Synthetic PC audio preview failed: %r", error)
 
     # self: Host output owner; queued cues cannot survive window destruction.
     def close(self):
@@ -162,4 +162,4 @@ class FakeAudioDriver:
             winsound.PlaySound(None, 0)
         except (OSError, RuntimeError) as error:
             self.last_error = error
-            LOG.error("Synthetic PC audio shutdown failed: %s", error)
+            LOG.error("Synthetic PC audio shutdown failed: %r", error)

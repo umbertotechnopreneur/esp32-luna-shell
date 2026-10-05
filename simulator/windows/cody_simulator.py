@@ -1828,7 +1828,7 @@ class CodyWindow:
                      f"happiness {self.happiness_state.happiness} / sadness {sadness(self.personality_rules, self.happiness_state)}\n"
                      f"Host presented {observed_fps:.1f} fps / tick {duration_ms:.1f} ms / interval {interval_seconds * 1000:.1f} ms / "
                      f"target {target_hz} Hz / frame {'UPDATED' if changed else 'UNCHANGED'} / ESP32 UNMEASURED\n"
-                     f"PC fake audio: {self.audio.last_error if self.audio.last_error is not None else 'READY'}"
+                     f"PC fake audio: {repr(self.audio.last_error) if self.audio.last_error is not None else 'READY'}"
             )
         # Boot artwork has no animation. Keep controls responsive without 60 full images/s.
         interval_ms = 1000 / target_hz if screen in ANIMATED_SCREENS else 100
