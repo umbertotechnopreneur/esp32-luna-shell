@@ -92,9 +92,23 @@ icons:
     maximum_deformation_pixels: 2.0
     body_clearance_pixels: 4.0
   anchors:
-    # Center offsets from Cody's evaluated Nose anchor in local scale units.
-    main: {offset_x: 0.09, offset_y: -1.14, extent_per_scale: 0.20}
-    sleep: {offset_x: 0.09, offset_y: -1.14, extent_per_scale: 0.20}
+    # Keep attachment to the face; apply screen-pixel translation after local scaling.
+    main:
+      offset_x: 0.09
+      offset_y: -1.14
+      extent_per_scale: 0.20
+      pixel_offset_x: 30
+      pixel_offset_y: 40
+      size_multiplier: 3
+      allow_body_overlap: true
+    sleep:
+      offset_x: 0.09
+      offset_y: -1.14
+      extent_per_scale: 0.20
+      pixel_offset_x: 30
+      pixel_offset_y: 40
+      size_multiplier: 3
+      allow_body_overlap: true
   # Hysteresis uses valid current canonical measurements only.
   low_battery: {enter_percent: 15, exit_percent: 20}
 
