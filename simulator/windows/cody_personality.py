@@ -168,7 +168,9 @@ class PersonalityPainter:
         self.images = {}
         directory = root / "assets/cody/personality-icons/generated"
         manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
-        palette_bytes = (root / manifest["palette_source"]).read_bytes()
+        # Palette provenance normalizes text line endings across Windows and Unix;
+        # sprite coverage and indexed binary hashes remain byte exact below.
+        palette_bytes = (root / manifest["palette_source"]).read_text(encoding="utf-8").encode("utf-8")
         if hashlib.sha256(palette_bytes).hexdigest() != manifest["palette_sha256"]:
             raise ValueError("Personality palette source hash mismatch")
         entries = json.loads(palette_bytes)["entries"]
