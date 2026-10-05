@@ -10,6 +10,17 @@ flash logs were regenerated.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Made the wake-word PSRAM policy explicit: PSRAM initialization/malloc,
+  external BSS/static stacks, a zero internal-preference threshold and at least
+  64 KiB reserved internal memory are enforced by feature defaults, CLI and
+  CMake. AFE keeps PSRAM-only aligned PCM/ring/feed/fetch stack allocations and
+  the vendor's MORE_PSRAM mode; stack sizes are named in IDF bytes. Only with
+  WoW enabled, playback stacks and playback/diagnostic PCM staging move another
+  12,640 authored bytes to external BSS. TCBs, synchronization and driver DMA
+  resources remain internal; immutable assets/models remain flash-backed.
+  Static review only: no configure, build, tests, linker/runtime verification,
+  flash or push. Memory placement and external-stack behavior remain in TODO.
+
 - Implemented the reported icon readability correction: Main/Sleep centers move
   30 logical pixels right and 40 down, with threefold scale-dependent extent
   (87 px at Full, 78 at Greeting, 63 at Medium; smaller eligible sizes at least

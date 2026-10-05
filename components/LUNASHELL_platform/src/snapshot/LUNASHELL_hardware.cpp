@@ -428,6 +428,10 @@ StackType_t s_imu_calibration_task_stack[3072];
 EXT_RAM_BSS_ATTR char s_gps_payload[GPS_MAX_PAYLOAD + 1];
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+// Diagnostic capture copies from the driver's DMA buffer into this task payload.
+EXT_RAM_BSS_ATTR
+#endif
 int16_t s_microphone_samples[1024];
 #endif
 

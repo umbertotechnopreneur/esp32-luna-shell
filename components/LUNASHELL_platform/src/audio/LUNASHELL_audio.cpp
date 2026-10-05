@@ -15,6 +15,7 @@
 
 #include "bsp/esp-bsp.h"
 #include "esp_codec_dev.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -71,6 +72,10 @@ struct TypewriterCue {
 };
 TypewriterCue s_typewriter_cue;
 StaticTask_t s_typewriter_task_control;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+// Only stack storage is external; the scheduler-owned TCB remains internal.
+EXT_RAM_BSS_ATTR
+#endif
 StackType_t s_typewriter_task_stack[TYPEWRITER_STACK_BYTES / sizeof(StackType_t)];
 std::atomic<TaskHandle_t> s_typewriter_task;
 struct TypewriterEvent {
@@ -91,6 +96,10 @@ portMUX_TYPE s_typewriter_mailbox_mux = portMUX_INITIALIZER_UNLOCKED;
 void invalidate_personality_events();
 std::atomic<esp_err_t> s_typewriter_last_error{ESP_OK};
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+// The blocking codec API copies this PCM into driver-owned DMA buffers.
+EXT_RAM_BSS_ATTR
+#endif
 std::array<int16_t, TYPEWRITER_MAX_TRANSPORT_SAMPLES> s_typewriter_transport_samples;
 #endif
 
@@ -1589,6 +1598,10 @@ portMUX_TYPE s_personality_mux = portMUX_INITIALIZER_UNLOCKED;
 std::atomic<TaskHandle_t> s_personality_task{nullptr};
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 StaticTask_t s_personality_task_control;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+// Playback does not write flash; keep synchronization and TCB state internal.
+EXT_RAM_BSS_ATTR
+#endif
 StackType_t s_personality_task_stack[PERSONALITY_STACK_BYTES / sizeof(StackType_t)];
 #endif
 

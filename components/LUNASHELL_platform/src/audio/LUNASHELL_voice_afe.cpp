@@ -6,6 +6,9 @@
 #if !CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
 #error "Disabled wake-word builds must exclude this translation unit"
 #endif
+#if !CONFIG_SPIRAM_BOOT_INIT || !CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+#error "Wake-word buffers and static worker stacks require initialized PSRAM and external-stack support"
+#endif
 #include "LUNASHELL_task_affinity.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_snapshot_internal.hpp"
@@ -36,8 +39,9 @@ namespace {
 constexpr char kTag[] = "LUNASHELL_voice_afe";
 constexpr uint32_t kVoiceSampleRateHz = 16000;
 constexpr size_t kReferenceRingFrames = 8000;
-constexpr size_t kFeedTaskStackWords = 4096;
-constexpr size_t kFetchTaskStackWords = 3072;
+// ESP-IDF task stack sizes are bytes, including the static task API.
+constexpr size_t kFeedTaskStackBytes = 4096;
+constexpr size_t kFetchTaskStackBytes = 3072;
 constexpr TickType_t kReferenceLockTimeout = pdMS_TO_TICKS(20);
 constexpr TickType_t kTaskCancellationTimeout = pdMS_TO_TICKS(1000);
 
@@ -711,6 +715,8 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
     config->aec_mode = kAecMode;
     // ESP-SR creates its own processing task; pinning only feed/fetch is insufficient.
     config->afe_perferred_core = LUNASHELL::task_affinity::kVoiceCoreId;
+    // Use the vendor's most external-memory-oriented mode. ESP-SR still owns
+    // internal-only inference resources; never relocate its opaque structures.
     config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
     s_afe_handle = esp_afe_handle_from_config(config);
     s_afe_data = s_afe_handle != nullptr
@@ -733,12 +739,12 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
     s_feed_task_handle.store(nullptr, std::memory_order_release);
     s_feed_task_stack = static_cast<StackType_t *>(heap_caps_aligned_alloc(
         16,
-        kFeedTaskStackWords * sizeof(StackType_t),
+        kFeedTaskStackBytes,
         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
     ));
     s_fetch_task_stack = static_cast<StackType_t *>(heap_caps_aligned_alloc(
         16,
-        kFetchTaskStackWords * sizeof(StackType_t),
+        kFetchTaskStackBytes,
         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
     ));
     if (s_feed_task_stack == nullptr || s_fetch_task_stack == nullptr) {
@@ -763,7 +769,7 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
     TaskHandle_t feed_task = xTaskCreateStaticPinnedToCore(
         voice_feed_task,
         "LUNASHELL_afe_feed",
-        kFeedTaskStackWords,
+        kFeedTaskStackBytes,
         nullptr,
         4,
         s_feed_task_stack,
@@ -789,7 +795,7 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
     TaskHandle_t fetch_task = xTaskCreateStaticPinnedToCore(
         voice_fetch_task,
         "LUNASHELL_afe_fetch",
-        kFetchTaskStackWords,
+        kFetchTaskStackBytes,
         nullptr,
         4,
         s_fetch_task_stack,

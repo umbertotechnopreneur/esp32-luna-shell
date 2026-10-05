@@ -58,7 +58,7 @@ function Assert-WakeWordVariant {
 # SdkconfigText is the actual generated configuration, not merely requested defaults.
 # ProjectRoot is the checkout owning the reviewed partition table and model.
 # Feature is the explicit selector; a mismatched cached configuration is rejected.
-# Throws for leaked engine/model selection, missing capabilities or renderer-core overlap.
+# Throws for leaked engine/model selection, missing PSRAM capabilities or renderer-core overlap.
 function Assert-WakeWordConfiguration {
     param([string]$SdkconfigText, [string]$ProjectRoot, [string]$Feature)
 
@@ -75,6 +75,12 @@ function Assert-WakeWordConfiguration {
         $expectedFlags.LUNASHELL_BUILD_VOICE_ENGINE_AVAILABLE = $true
         $expectedFlags.MODEL_IN_FLASH = $true
         $expectedFlags.FREERTOS_UNICORE = $false
+        $expectedFlags.SPIRAM = $true
+        $expectedFlags.SPIRAM_BOOT_INIT = $true
+        $expectedFlags.SPIRAM_USE_MALLOC = $true
+        $expectedFlags.SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY = $true
+        $expectedFlags.FREERTOS_SUPPORT_STATIC_ALLOCATION = $true
+        $expectedFlags.FREERTOS_TASK_CREATE_ALLOW_EXT_MEM = $true
     }
     foreach ($symbol in $expectedFlags.Keys) {
         $actual = [regex]::IsMatch($SdkconfigText, "(?m)^CONFIG_$symbol=y`r?$")
@@ -99,6 +105,13 @@ function Assert-WakeWordConfiguration {
         return
     }
     $expectedModelPath = (Join-Path $ProjectRoot 'assets/wake-word/models').Replace('\', '/')
+    if (-not [regex]::IsMatch($SdkconfigText, '(?m)^CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=0\r?$')) {
+        throw 'Wake word requires ordinary heap allocations to prefer PSRAM.'
+    }
+    $internalReserve = [regex]::Match($SdkconfigText, '(?m)^CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=(\d+)\r?$')
+    if (-not $internalReserve.Success -or [int]$internalReserve.Groups[1].Value -lt 65536) {
+        throw 'Wake word requires at least 64 KiB reserved internal RAM for DMA and internal-only allocations.'
+    }
     if (-not $modelMatch.Success -or $modelMatch.Groups[1].Value -cne $expectedModelPath) {
         throw 'Wake word requires this checkout''s reviewed external model directory.'
     }

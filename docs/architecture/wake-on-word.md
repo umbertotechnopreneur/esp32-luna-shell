@@ -134,6 +134,41 @@ so additional unpinned LVGL raster workers are not admitted. Startup logs the
 configured voice core. These are source-level scheduling constraints, not
 measured runtime latency, CPU load or memory-bus isolation.
 
+### PSRAM allocation policy
+
+Wake-word defaults explicitly require initialized PSRAM, malloc integration,
+external BSS and `CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM`. ESP-IDF 6.0.2
+already defaults that last option on for ESP32-S3; the feature pins it rather
+than relying on an inherited default. Both CMake and the public CLI reject
+configurations that omit these capabilities, prefer internal ordinary heap
+allocations, or reserve less than 64 KiB for internal-only allocations.
+
+Microphone input, interleaved AFE feed and the 8,000-frame AEC reference ring
+use aligned `MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT` allocations. Feed/fetch stacks
+also require PSRAM, with explicit 4,096/3,072-byte sizes; these application
+allocations fail with their original memory error instead of retrying in
+internal RAM. ESP-SR uses `AFE_MEMORY_ALLOC_MORE_PSRAM`, its most
+PSRAM-oriented documented mode, while retaining ownership of its opaque
+inference resources and any internal-only allocations.
+
+Only in a wake-word build, external BSS additionally holds the typewriter and
+personality playback stacks (4,096 bytes each), shared playback PCM staging
+(2,400 bytes), and diagnostic microphone PCM (2,048 bytes). This moves
+12,640 bytes of authored storage out of internal BSS for the supported audio
+profile; it is a source-size budget, not a measured heap saving. Blocking
+I2S reads/writes copy these application PCM buffers to/from driver-owned DMA
+buffers. Playback workers do not perform flash writes. Scheduler TCBs,
+semaphores, critical-section mailboxes and DMA descriptors remain internal.
+Read-only graphics/audio stay flash-backed; the policy does not enable a
+blanket read-only-data copy to PSRAM. The model remains stored in internal
+flash, with runtime weight placement owned by ESP-SR. The off build retains its existing storage
+placement; this policy adds no disabled-feature buffers or stacks.
+
+The policy follows the pinned [IDF 6.0.2 external RAM constraints](https://github.com/espressif/esp-idf/blob/v6.0.2/docs/en/api-guides/external-ram.rst)
+and [ESP-SR 2.4.6 allocation modes](https://github.com/espressif/esp-sr/blob/cfdbb52172d4f1b3e5f7469d6c3c6e5dd0738143/include/esp32s3/esp_afe_config.h).
+Compilation, linker placement, external-stack call paths and runtime memory
+headroom still require explicitly authorized validation.
+
 Inference and AFE processing are delegated to ESP-SR's target-specific
 ESP32-S3 native libraries (`libwakenet`, `libesp_audio_front_end` and their
 native DSP/neural kernels). The [ESP32-S3 technical reference](https://www.espressif.com/sites/default/files/documentation/esp32-s3_technical_reference_manual_en.pdf)

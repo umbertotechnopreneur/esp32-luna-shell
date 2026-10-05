@@ -193,7 +193,10 @@ prove the written bytes; every open physical observation below remains open.
   the public CLI, then perform the specifically authorized final validation.
   Review the sole wake-word off flag across source/dependency closure, generated
   defaults/partitions, model packing and flash inventory; verify voice CPU0 vs
-  renderer CPU1. The current trial only wakes settled software standby; active
+  renderer CPU1. Verify external BSS PCM/audio stacks, PSRAM-only AFE buffers,
+  external-stack cache safety and the 64 KiB internal reserve through linker
+  and runtime evidence; the 12,640-byte storage move is not measured heap gain.
+  The current trial only wakes settled software standby; active
   or pre-standby detections must not reset Cody/activity or replay into standby.
   Measure Sophia false positives, AEC during audio, standby wake, diagnostic/
   Performance Mode suspension/resume, CPU/PSRAM/current and real model/capture
