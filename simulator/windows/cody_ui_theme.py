@@ -191,6 +191,8 @@ def install_theme(root):
     )
     style.configure("Compact.TButton", font=FONTS["small"], padding=_spacing(root, (10, 6)))
     style.configure("Preset.TButton", font=FONTS["small"], padding=_spacing(root, (10, 6)))
+    style.configure("Link.TButton", background=PALETTE["background"], foreground=PALETTE["accent"],
+                    font=FONTS["small"], padding=_spacing(root, (6, 4)), borderwidth=0)
     style.configure(
         "Primary.TButton", background=PALETTE["accent"], foreground=PALETTE["background"],
         font=FONTS["value"], bordercolor=PALETTE["accent"],

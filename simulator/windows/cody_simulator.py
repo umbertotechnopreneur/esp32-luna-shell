@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 from dataclasses import replace
+from enum import Enum
 from secrets import randbits, randbelow
 import math
 import sys
 import time
+import webbrowser
 import tkinter as tk
 from pathlib import Path
 from tkinter import font as tkfont, ttk
@@ -59,6 +61,12 @@ BOOT_NAMES = {
     "boot-ready": "cody-ready-pearl.png",
 }
 LABEL_SCOPES = tuple(scope.value for scope in LabelScope)
+
+
+class StudioLink(str, Enum):
+    PROJECT = "https://github.com/umbertotechnopreneur/esp32-luna-shell"
+    WEBSITE = "https://umbertogiacobbi.biz"
+    MANIFESTO = "https://github.com/umbertotechnopreneur/VibeWare/blob/main/MANIFESTO.md"
 
 
 # value is a native RGB565 word, expanded without inventing extra indexed colors.
@@ -606,9 +614,10 @@ class CodyWindow:
         self.last_whistle_generation = None
         self.last_audio_screen = None
         self.last_audio_glyphs = 0
+        self.last_link_error = None
         self.jelly_study = renderer.jelly_study_enabled
         preview_name = 'PEARL JELLY / HOST ONLY' if self.jelly_study else 'Cody Alpha'
-        self.root.title(f"{renderer.rig['character']['name']} / {preview_name} / SYNTHETIC")
+        self.root.title(f"{renderer.rig['character']['name']} / VibeWare {preview_name} / SYNTHETIC")
         self.ui_colors = install_theme(root)
         self.screen = tk.StringVar(value=args.screen)
         self.rotation = tk.IntVar(value=args.rotation)
@@ -788,19 +797,45 @@ class CodyWindow:
     # self: Desktop controller owning the fixed studio header and quick switches.
     # preview_name: Human-readable identity of the selected host rendering mode.
     # Raises tk.TclError if Tk cannot construct the header.
+    # Raises OSError if the bundled approved logo cannot be read.
     def build_studio_header(self, preview_name):
         header = ttk.Frame(self.root, style="Studio.TFrame", padding=self.ui_pixels((20, 18, 20, 18)))
         header.grid(row=0, column=0, sticky="ew")
-        title = ttk.Frame(header, style="Studio.TFrame")
+        header.columnconfigure(0, weight=1)
+        identity = ttk.Frame(header, style="Studio.TFrame")
+        identity.grid(row=0, column=0, columnspan=2, sticky="w")
+        with Image.open(ROOT / "simulator/windows/assets/branding/vibeware-logo.png") as logo:
+            # Display scaling preserves the approved source canvas and pixel-art edges.
+            side = self.ui_pixels(80)
+            self.brand_logo = ImageTk.PhotoImage(logo.resize((side, side), Image.Resampling.NEAREST))
+        self.root.iconphoto(True, self.brand_logo)
+        ttk.Label(identity, image=self.brand_logo, style="Studio.TLabel").pack(side="left", padx=self.ui_pixels((0, 14)))
+        title = ttk.Frame(identity, style="Studio.TFrame")
         title.pack(side="left")
         ttk.Label(title, text="Cody Studio", style="Title.TLabel").pack(anchor="w")
         ttk.Label(title, text=preview_name + " / character playground", style="Subtitle.TLabel",
                   background=self.ui_colors["background"]).pack(anchor="w", pady=(2, 0))
+        links = ttk.Frame(header, style="Studio.TFrame")
+        links.grid(row=1, column=0, sticky="w", pady=self.ui_pixels((6, 0)))
+        for link, label in ((StudioLink.PROJECT, "GitHub"), (StudioLink.WEBSITE, "Website"),
+                            (StudioLink.MANIFESTO, "Manifesto")):
+            ttk.Button(links, text=label, style="Link.TButton",
+                       command=lambda target=link: self.open_studio_link(target)).pack(side="left", padx=self.ui_pixels((0, 8)))
         actions = ttk.Frame(header, style="Studio.TFrame")
-        actions.pack(side="right")
+        actions.grid(row=1, column=1, sticky="e", pady=self.ui_pixels((6, 0)))
         ttk.Label(actions, text="SYNTHETIC", style="Badge.TLabel").pack(side="left", padx=(0, 16))
         ttk.Checkbutton(actions, text="Animate", variable=self.playing, style="Toolbar.TCheckbutton").pack(side="left", padx=(0, 12))
         ttk.Checkbutton(actions, text="Rig", variable=self.debug, style="Toolbar.TCheckbutton").pack(side="left")
+
+    # self: Host controller retaining browser-launch errors in its visible status.
+    # link: Typed public destination opened only by an explicit user click.
+    def open_studio_link(self, link):
+        try:
+            if not webbrowser.open_new_tab(link.value):
+                raise RuntimeError(f"Browser rejected {link.name}: {link.value}")
+        except (OSError, webbrowser.Error, RuntimeError) as error:
+            self.last_link_error = error
+            print(f"[cody-ui] Open {link.name} failed: {error!r}", file=sys.stderr, flush=True)
 
     # self: Desktop controller retaining the permanent scene and orientation controls.
     # Raises tk.TclError if Tk cannot construct the inspector header.
@@ -1831,6 +1866,7 @@ class CodyWindow:
                      f"Host presented {observed_fps:.1f} fps / tick {duration_ms:.1f} ms / interval {interval_seconds * 1000:.1f} ms / "
                      f"target {target_hz} Hz / frame {'UPDATED' if changed else 'UNCHANGED'} / ESP32 UNMEASURED\n"
                      f"PC fake audio: {repr(self.audio.last_error) if self.audio.last_error is not None else 'READY'}"
+                     + (f"\nLINK ERROR: {self.last_link_error!r}" if self.last_link_error is not None else "")
             )
         # Boot artwork has no animation. Keep controls responsive without 60 full images/s.
         interval_ms = 1000 / target_hz if screen in ANIMATED_SCREENS else 100

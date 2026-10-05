@@ -199,6 +199,14 @@ are explicitly overridden. Character scene typography retains its authored
 device assets. Palette text provenance is normalized both by the generator
 and the Windows painter; indexed coverage and PCM binary hashes remain exact.
 
+The studio header bundles the approved VibeWare floppy PNG unchanged from
+`Obsidian/20_Execution/Projects/VibeWare/Branding/vibeware-logo.png`; the host
+copy, original MIT notice and provenance are under
+`simulator/windows/assets/branding/`. The buttons open the Cody GitHub project,
+`https://umbertogiacobbi.biz` and the published VibeWare `MANIFESTO.md` on GitHub
+only on a user click. The planned website manifesto is not used as a published
+destination. Browser launch failures remain in the simulator status/console.
+
 ## Device diagnostics
 
 Debug FPS uses completed frames over real elapsed time. CPU1/core0 and CPU2/core1

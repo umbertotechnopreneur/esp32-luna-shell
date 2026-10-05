@@ -24,14 +24,21 @@ flash logs were regenerated.
   personality/whistle/typewriter modules and their original PCM. Connected
   presented symbols, whistle generations, greeting glyphs and pointer taps to
   the existing PC playback backend. Generated boot WAVs share that owner.
-  The DLL compiled successfully; no simulator execution or PC listening check
-  ran. Documentation: `docs/architecture/cody/runtime.md`.
+  The DLL compiled successfully before the subsequent user-requested launch;
+  PC listening remains unverified. Documentation: `docs/architecture/cody/runtime.md`.
 - On the subsequent user-requested Windows launch, the painter stopped at
   stale palette provenance. Normalized its text source and regenerated the
   icon manifest; all sprite binaries remained unchanged. Added a first-frame
   presentation diagnostic, Consolas host UI fonts and equal inspector-tab
-  width/padding across selected states. Fresh interactive startup is recorded
-  separately; PC listening and physical-device behavior remain unverified.
+  width/padding across selected states. The authorized restart at `03c1fa3`
+  presented its first frame and retained an active animation callback without
+  further console exceptions during observation. PC listening and physical-device
+  behavior remain unverified.
+- Added the approved VibeWare logo and three user-click links: Cody GitHub,
+  the creator's website and the public GitHub manifesto. The source asset lives
+  at `Obsidian/20_Execution/Projects/VibeWare/Branding/vibeware-logo.png`;
+  the simulator bundles its unchanged PNG, licence and provenance independently
+  of OneDrive. Link navigation has not been exercised.
 - Authorized final checks: `storage-logger` and `radio-memory` passed.
   `cody-native` stopped before compilation because the host compiler was absent
   from PATH; installed MSVC was subsequently found. `snapshot-integrity` failed
