@@ -13,3 +13,6 @@ CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 
 # Local speech remains excluded unless an explicit feature is selected.
 # CONFIG_LUNASHELL_BUILD_ENABLE_TTS is not set
+
+# The public feature selector is the only admission path for local recognition.
+# CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD is not set

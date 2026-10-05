@@ -16,6 +16,7 @@
 #include <cstdint>
 
 #include "esp_err.h"
+#include "sdkconfig.h"
 #include "LUNASHELL_clock.hpp"
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
 #include "LUNASHELL_speech_state.hpp"
@@ -811,6 +812,7 @@ public:
 
     // voice: Receives canonical recognition state and the last historical event.
     esp_err_t readVoiceObservation(VoiceSnapshot &voice) const;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     // state: Confirmed AFE lifecycle state.
     // error: Original initialization, capture or inference error.
     // detected_at_us: Real Sophia detection time, or zero for a status-only update.
@@ -822,6 +824,7 @@ public:
     // Returns publication status, separate from the acquisition result.
     esp_err_t reportVoiceMicrophones(const AudioSnapshot &audio, int64_t sampled_at_us,
                                     esp_err_t error);
+#endif
     /** Sample only the fresh IMU/fusion geometry needed by the TOF worker. */
     esp_err_t sampleDistanceGeometry(DistanceGeometrySnapshot *geometry);
 

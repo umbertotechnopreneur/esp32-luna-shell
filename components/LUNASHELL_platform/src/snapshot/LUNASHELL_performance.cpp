@@ -27,7 +27,7 @@ const PerformanceStep kEnableSteps[] = {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
     {"SD logger", LUNASHELL_storage_set_performance_suspended},
 #endif
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     {"voice AFE", LUNASHELL_voice_afe_set_performance_suspended},
 #endif
     {
@@ -43,7 +43,7 @@ const PerformanceStep kDisableSteps[] = {
         "Full Snapshot",
         LUNASHELL_hardware_set_full_snapshot_performance_suspended,
     },
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     {"voice AFE", LUNASHELL_voice_afe_set_performance_suspended},
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE

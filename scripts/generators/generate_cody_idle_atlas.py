@@ -208,6 +208,7 @@ def box(document, x, y, width, height, heading, copy=""):
 
 # document: Current canvas.
 # start: First appended page number.
+# Exception: Propagates ReportLab rendering failures.
 def navigation_pages(document, start):
     page_frame(document, "Idle moments without leaving Idle", "A05 supplements base pages 02, 06, 10 and 11. Screen 16 retains its identity.", start, "NAVIGATION")
     box(document, 310, 120, 221, 76, "16 / Idle", "Breathing + current base expression")
@@ -231,7 +232,7 @@ def navigation_pages(document, start):
     page_frame(document, "Interrupt promptly and protect real work", "Transient gesture policy; no new settings writes and no extension of device inactivity.", start + 1, "NAVIGATION")
     rows = [
         ("Normal Idle", "Allow the three gestures only while the normal Main view is running, with a resting expression and no current personality symbol or caress."),
-        ("Touch, Sophia or activity", "Cancel the gesture as soon as the route/model consumes the real interaction. New motion-derived stress, microphone activity or other playback also takes priority."),
+        ("Touch or activity", "Cancel the gesture as soon as the route/model consumes the real interaction. New motion-derived stress, microphone activity or other playback also takes priority. The Sophia trial only wakes software standby."),
         ("Settings / setup / work", "Suppress scheduling outside screen 16. Never navigate away from a question, pairing attempt, working state, error, settings or Debug route to show a gesture."),
         ("Pause / Sleep / Wake", "Do not admit gestures while paused or during lifecycle transitions. Active-time clocks exclude parked time; no backlog or catch-up scene is created."),
         ("Whistle admission", "Only a completed visible pursed-mouth frame may request sound. Quiet hours, volume zero, disabled sounds, busy audio and cooldown suppress it; do not retry later."),

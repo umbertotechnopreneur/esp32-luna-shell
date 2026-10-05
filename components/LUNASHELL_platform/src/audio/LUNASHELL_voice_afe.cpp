@@ -3,6 +3,13 @@
  */
 
 #include "LUNASHELL_platform.h"
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+#error "Disabled wake-word builds must exclude this translation unit"
+#endif
+#if !CONFIG_SPIRAM_BOOT_INIT || !CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+#error "Wake-word buffers and static worker stacks require initialized PSRAM and external-stack support"
+#endif
+#include "LUNASHELL_task_affinity.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_snapshot_internal.hpp"
 #include "esp_timer.h"
@@ -32,8 +39,9 @@ namespace {
 constexpr char kTag[] = "LUNASHELL_voice_afe";
 constexpr uint32_t kVoiceSampleRateHz = 16000;
 constexpr size_t kReferenceRingFrames = 8000;
-constexpr size_t kFeedTaskStackWords = 4096;
-constexpr size_t kFetchTaskStackWords = 3072;
+// ESP-IDF task stack sizes are bytes, including the static task API.
+constexpr size_t kFeedTaskStackBytes = 4096;
+constexpr size_t kFetchTaskStackBytes = 3072;
 constexpr TickType_t kReferenceLockTimeout = pdMS_TO_TICKS(20);
 constexpr TickType_t kTaskCancellationTimeout = pdMS_TO_TICKS(1000);
 
@@ -618,6 +626,8 @@ esp_err_t apply_afe_standby_locked(bool standby)
 }  // namespace
 
 // Build the AFE and publish worker handles before opening the startup gate.
+// No parameters: starts the optional wake-word owner on the voice core.
+// Exception: Returns the original model, audio, allocation or task-start failure.
 extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
 {
     if (s_running.load(std::memory_order_acquire)) {
@@ -703,6 +713,10 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
     config->wakenet_init = false;
 #endif
     config->aec_mode = kAecMode;
+    // ESP-SR creates its own processing task; pinning only feed/fetch is insufficient.
+    config->afe_perferred_core = LUNASHELL::task_affinity::kVoiceCoreId;
+    // Use the vendor's most external-memory-oriented mode. ESP-SR still owns
+    // internal-only inference resources; never relocate its opaque structures.
     config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
     s_afe_handle = esp_afe_handle_from_config(config);
     s_afe_data = s_afe_handle != nullptr
@@ -725,12 +739,12 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
     s_feed_task_handle.store(nullptr, std::memory_order_release);
     s_feed_task_stack = static_cast<StackType_t *>(heap_caps_aligned_alloc(
         16,
-        kFeedTaskStackWords * sizeof(StackType_t),
+        kFeedTaskStackBytes,
         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
     ));
     s_fetch_task_stack = static_cast<StackType_t *>(heap_caps_aligned_alloc(
         16,
-        kFetchTaskStackWords * sizeof(StackType_t),
+        kFetchTaskStackBytes,
         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
     ));
     if (s_feed_task_stack == nullptr || s_fetch_task_stack == nullptr) {
@@ -752,14 +766,15 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
         s_initialization_result.store(ESP_ERR_NO_MEM, std::memory_order_release);
         return ESP_ERR_NO_MEM;
     }
-    TaskHandle_t feed_task = xTaskCreateStatic(
+    TaskHandle_t feed_task = xTaskCreateStaticPinnedToCore(
         voice_feed_task,
         "LUNASHELL_afe_feed",
-        kFeedTaskStackWords,
+        kFeedTaskStackBytes,
         nullptr,
         4,
         s_feed_task_stack,
-        &s_feed_task_control
+        &s_feed_task_control,
+        LUNASHELL::task_affinity::kVoiceCoreId
     );
     if (feed_task == nullptr) {
         ESP_LOGE(kTag, "AFE feed task creation failed");
@@ -777,14 +792,15 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
     }
     s_feed_task_handle.store(feed_task, std::memory_order_release);
 
-    TaskHandle_t fetch_task = xTaskCreateStatic(
+    TaskHandle_t fetch_task = xTaskCreateStaticPinnedToCore(
         voice_fetch_task,
         "LUNASHELL_afe_fetch",
-        kFetchTaskStackWords,
+        kFetchTaskStackBytes,
         nullptr,
         4,
         s_fetch_task_stack,
-        &s_fetch_task_control
+        &s_fetch_task_control,
+        LUNASHELL::task_affinity::kVoiceCoreId
     );
     if (fetch_task == nullptr) {
         ESP_LOGE(kTag, "AFE fetch task creation failed after feed task startup");
@@ -854,9 +870,10 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
     }
     ESP_LOGI(
         kTag,
-        "ESP-SR AFE ready: 16kHz format=%s type=SR profile=%s",
+        "ESP-SR AFE ready: 16kHz format=%s type=SR profile=%s feed/fetch/inference-core=%d",
         kAfeInputFormat,
-        kAfeMode == AFE_MODE_HIGH_PERF ? "high-perf" : "low-cost"
+        kAfeMode == AFE_MODE_HIGH_PERF ? "high-perf" : "low-cost",
+        LUNASHELL::task_affinity::kVoiceCoreId
     );
     return ESP_OK;
 }

@@ -160,20 +160,15 @@ esp_err_t DeviceSnapshotService::reportCharacterLookSave(const CharacterLookSave
     return publication_error != ESP_OK ? publication_error : ordering_error;
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
 // state: Confirmed AFE state, including optional startup failures.
 // error: Original operation error; a failed state never appears healthy.
 // detected_at_us: Confirmed Sophia event timestamp, zero for a heartbeat.
+// Exception: Returns rejected observations or the original snapshot publication failure.
 esp_err_t DeviceSnapshotService::reportVoice(VoiceState state, esp_err_t error,
                                            int64_t detected_at_us)
 {
     const int64_t now_us = esp_timer_get_time();
-#if !CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
-    if (detected_at_us != 0) {
-        ESP_LOGE(TAG, "Wake event rejected while the feature is disabled (%s)",
-                 esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-#endif
     const bool known_state = state == VoiceState::Disabled || state == VoiceState::Starting ||
         state == VoiceState::Listening || state == VoiceState::Paused || state == VoiceState::Failed;
     if (!known_state || detected_at_us < 0 || detected_at_us > now_us ||
@@ -215,6 +210,7 @@ esp_err_t DeviceSnapshotService::reportVoice(VoiceState state, esp_err_t error,
 // audio: Statistics computed from one successfully captured real microphone block.
 // sampled_at_us: Original capture completion timestamp.
 // error: Capture failure preserved independently of snapshot publication errors.
+// Exception: Returns rejected observations or the original snapshot publication failure.
 esp_err_t DeviceSnapshotService::reportVoiceMicrophones(const AudioSnapshot &audio,
                                                        int64_t sampled_at_us,
                                                        esp_err_t error)
@@ -260,6 +256,8 @@ esp_err_t DeviceSnapshotService::reportVoiceMicrophones(const AudioSnapshot &aud
     }
     return publication_error;
 }
+
+#endif
 
 // report: Hardware owner result, including partial cleanup and its real errors.
 void DeviceSnapshotService::reportStorage(

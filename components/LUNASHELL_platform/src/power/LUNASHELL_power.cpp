@@ -100,6 +100,7 @@ int16_t *s_leg_audio_buffer;
 std::atomic<int64_t> s_activity_at_us{0};
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
 uint64_t s_consumed_wake_word_sequence;
+int64_t s_wake_word_standby_entered_at_us;
 #endif
 std::atomic<LUNASHELL::DeviceStateReason> s_activity_reason{
     LUNASHELL::DeviceStateReason::Touch
@@ -209,7 +210,9 @@ struct StandbyResourceState {
     StandbyResourceStatus storage;
     StandbyResourceStatus imu_low_power;
     StandbyResourceStatus motion_wake_cadence;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     StandbyResourceStatus voice_afe;
+#endif
     StandbyResourceStatus base_audio;
     bool display_off = false;
     bool display_consistent = true;
@@ -675,11 +678,14 @@ void update_boot_arming(TickType_t now)
 using StandbyTransition = esp_err_t (*)(bool);
 
 // Keep the public audio flag aligned with both audio ownership layers.
+// No parameters: recompute suspension from the compiled resource owners.
 void refresh_audio_suspend_flag()
 {
     s_audio_suspended =
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
         (s_standby_resources.voice_afe.consistent &&
          s_standby_resources.voice_afe.applied) ||
+#endif
         (s_standby_resources.base_audio.consistent &&
          s_standby_resources.base_audio.applied);
 }
@@ -996,7 +1002,9 @@ bool standby_resources_match_target(
            storage_matches &&
            matches(s_standby_resources.imu_low_power) &&
            matches(s_standby_resources.motion_wake_cadence) &&
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
            audio_matches(s_standby_resources.voice_afe) &&
+#endif
            audio_matches(s_standby_resources.base_audio) &&
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
            matches(s_standby_resources.lvgl_paused) &&
@@ -1013,6 +1021,7 @@ bool standby_resources_match_target(
 
 // Move every active workload to its low-power state in dependency order.
 // best_effort: Whether rollback should continue after preserving the first failure.
+// Exception: Returns the first resource suspension failure.
 esp_err_t suspend_standby_resources(bool best_effort)
 {
     esp_err_t first_error = ESP_OK;
@@ -1069,12 +1078,14 @@ esp_err_t suspend_standby_resources(bool best_effort)
         s_standby_resources.motion_wake_cadence,
         set_motion_wake_standby
     );
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     step(
         "Voice AFE",
         s_standby_resources.voice_afe,
         LUNASHELL_voice_afe_set_standby,
         audio_standby_target(true)
     );
+#endif
     step(
         "Base audio transport",
         s_standby_resources.base_audio,
@@ -1135,6 +1146,7 @@ esp_err_t suspend_standby_resources(bool best_effort)
 // Restore producers before exposing the panel and preserve the first failure.
 // best_effort: Whether rollback should continue after preserving the first failure.
 // optional_errors: Receives real optional SD/radio failures, separate from mandatory recovery.
+// Exception: Returns the original mandatory recovery failure.
 esp_err_t resume_standby_resources(
     bool best_effort,
     OptionalResumeErrors &optional_errors
@@ -1202,11 +1214,13 @@ esp_err_t resume_standby_resources(
         s_standby_resources.base_audio,
         LUNASHELL_audio_set_standby
     );
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     step(
         "Voice AFE",
         s_standby_resources.voice_afe,
         LUNASHELL_voice_afe_set_standby
     );
+#endif
     step(
         "UI diagnostics and auto-rotation sampling",
         s_standby_resources.ui_sampling,
@@ -1681,6 +1695,7 @@ esp_err_t wait_for_ui_quiescence(
 // Coordinate UI quiescence and every hardware resource as one transaction.
 // standby: Target standby or active state for all mandatory resources.
 // reason: Real user/activity event that caused this transition.
+// Exception: Returns the original transition error, retaining rollback state and failures.
 esp_err_t set_standby(
     bool standby,
     LUNASHELL::DeviceStateReason reason
@@ -1802,6 +1817,9 @@ esp_err_t set_standby(
                 suspend_standby_resources(true);
             if (recovery_error == ESP_OK) {
                 s_state = LUNASHELL::DeviceOperatingState::Standby;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+                s_wake_word_standby_entered_at_us = esp_timer_get_time();
+#endif
                 s_display_stage =
                     LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::DisplayOff;
                 s_fullscreen_active = false;
@@ -1823,6 +1841,9 @@ esp_err_t set_standby(
         }
 
         s_state = LUNASHELL::DeviceOperatingState::Standby;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+        s_wake_word_standby_entered_at_us = esp_timer_get_time();
+#endif
         s_display_stage =
             LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::DisplayOff;
         s_fullscreen_active = false;
@@ -1889,6 +1910,9 @@ esp_err_t set_standby(
             suspend_standby_resources(true);
         if (rollback_error == ESP_OK) {
             s_state = LUNASHELL::DeviceOperatingState::Standby;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+            s_wake_word_standby_entered_at_us = esp_timer_get_time();
+#endif
             s_display_stage =
                 LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::DisplayOff;
             s_fullscreen_active = false;
@@ -2792,16 +2816,14 @@ void power_task(void *argument)
                 voice.last_error == ESP_OK && voice.detected_at_us > 0 &&
                 now_us >= voice.detected_at_us && now_us - voice.detected_at_us <= 2000000;
             if (current_detection) {
-                esp_err_t wake_error = ESP_OK;
-                if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
-                    wake_error = set_standby(false, LUNASHELL::DeviceStateReason::WakeWord);
-                } else if (s_state == LUNASHELL::DeviceOperatingState::Active) {
-                    s_last_activity_at_us = voice.detected_at_us;
-                    wake_error = restore_active_policy(LUNASHELL::DeviceStateReason::WakeWord,
-                                                       active_display_snapshot_diverged());
-                }
-                if (wake_error != ESP_OK) {
-                    ESP_LOGE(kTag, "Wake word power transition failed (%s)", esp_err_to_name(wake_error));
+                // Consume active/transition events too, but wake only from a
+                // detection acquired after this settled standby began.
+                if (s_state == LUNASHELL::DeviceOperatingState::Standby &&
+                    voice.detected_at_us >= s_wake_word_standby_entered_at_us) {
+                    const esp_err_t wake_error = set_standby(false, LUNASHELL::DeviceStateReason::WakeWord);
+                    if (wake_error != ESP_OK) {
+                        ESP_LOGE(kTag, "Wake word power transition failed (%s)", esp_err_to_name(wake_error));
+                    }
                 }
             }
         }

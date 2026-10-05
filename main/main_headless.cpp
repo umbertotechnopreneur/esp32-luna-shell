@@ -132,6 +132,7 @@ void report_optional_startup_failure(
 }  // namespace
 
 // No parameters: start the profile's owners in watchdog-tracked, fail-fast stages.
+// Exception: Startup-critical failures abort their stage; optional voice errors are published.
 extern "C" void app_main(void)
 {
     ESP_ERROR_CHECK(LUNASHELL_power_prepare_boot());
@@ -217,7 +218,7 @@ extern "C" void app_main(void)
     // Keep that ordering: restoring brightness earlier would expose stale pixels.
     ESP_ERROR_CHECK(LUNASHELL_power_restore_wake_display());
 #endif
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     report_optional_startup_failure("voice AFE", LUNASHELL_voice_afe_init());
     startup_watch.progress("voice AFE");
 #endif

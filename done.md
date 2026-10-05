@@ -126,6 +126,19 @@ flash logs were regenerated.
   roughly 68-KiB internal recovery remains unmeasured; no checks/build/size,
   simulator, push, flash or physical verification was run. Validation is in TODO.
 
+- Made the wake-word PSRAM policy explicit: PSRAM initialization/malloc,
+  external BSS/static stacks, a zero internal-preference threshold and at least
+  64 KiB reserved internal memory are enforced by feature defaults, CLI and
+  CMake. AFE keeps PSRAM-only aligned PCM/ring/feed/fetch stack allocations and
+  the vendor's MORE_PSRAM mode; stack sizes are named in IDF bytes. The branch
+  moved 12,640 authored bytes of playback stacks and playback/diagnostic PCM
+  staging to external BSS; main's independent shared-audio PSRAM revision now
+  provides the same placement for ordinary profiles too, without double counting.
+  TCBs, synchronization and driver DMA
+  resources remain internal; immutable assets/models remain flash-backed.
+  Static review only: no configure, build, tests, linker/runtime verification,
+  flash or push. Memory placement and external-stack behavior remain in TODO.
+
 - Implemented the reported icon readability correction: Main/Sleep centers move
   30 logical pixels right and 40 down, with threefold scale-dependent extent
   (87 px at Full, 78 at Greeting, 63 at Medium; smaller eligible sizes at least
@@ -837,6 +850,14 @@ flash logs were regenerated.
   model, canonical microphone/events, AEC/pause ownership and software wake.
   Locks, full firmware closure and physical behavior remain open.
   [Wake-on-word](docs/architecture/wake-on-word.md).
+
+- 2026-10-05 wake-word revision: made the AFE an internal dependency of the sole
+  opt-in flag, excluded disabled voice source/stubs/hooks/publication, added
+  wrapper/CMake gates for partition/model/dependency/flash admission, and pinned
+  acquisition/fetch/internal ESP-SR to CPU0 away from Cody/Luna rendering on CPU1.
+  Reduced the behavior to settled software-standby wake only, rejecting old
+  events; removed active-word Cody interaction. Implementation/static review
+  only; locks, compilation, tests/scans and physical evidence remain pending.
 
 ## Recorded validation boundaries
 

@@ -83,7 +83,7 @@ every open physical observation below remains open.
 - [ ] After fresh command-specific authorization, validate the 2026-10-05
   [idle scenes](docs/architecture/cody/idle-scenes.md): visible Stressed mouth
   breathing; random 20-40-second waits/no immediate repeats; Yawn, Whistle and
-  Greeting; touch/Sophia/held-touch/stress/route/pause/standby cancellation;
+  Greeting; touch/held-touch/stress/route/pause/standby cancellation;
   canonical own-whistle identity; quiet/mute/busy suppression and real errors;
   native/Windows visual parity and physical whistle acoustics. Code and PDF
   appendices received static review. Firmware checkpoint `09ea3b70` compiled and
@@ -246,6 +246,13 @@ every open physical observation below remains open.
   retention. [Clock and RTC](docs/architecture/cody/clock.md).
 - [ ] Resolve/review `cody-companion-wake-word` and `full-wake-word` locks through
   the public CLI, then perform the specifically authorized final validation.
+  Review the sole wake-word off flag across source/dependency closure, generated
+  defaults/partitions, model packing and flash inventory; verify voice CPU0 vs
+  renderer CPU1. Verify external BSS PCM/audio stacks, PSRAM-only AFE buffers,
+  external-stack cache safety and the 64 KiB internal reserve through linker
+  and runtime evidence; the 12,640-byte storage move is not measured heap gain.
+  The current trial only wakes settled software standby; active
+  or pre-standby detections must not reset Cody/activity or replay into standby.
   Measure Sophia false positives, AEC during audio, standby wake, diagnostic/
   Performance Mode suspension/resume, CPU/PSRAM/current and real model/capture
   failures. Other-board input integration is deferred.

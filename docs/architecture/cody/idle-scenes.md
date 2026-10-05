@@ -29,7 +29,7 @@ number unless a scheduling decision occurs.
 Only the normal Idle/Main view schedules gestures, including its automatic
 clock title. Setup, settings, explicit greeting, Debug, lifecycle transitions,
 paused animation, sleeping/working/stressed expression overrides and current
-personality/caress presentations are excluded. Touch/Sophia activity, a held
+personality/caress presentations are excluded. Touch activity, a held
 body touch, authored motion stress, microphone activity and unrelated speaker
 playback immediately release an active gesture. Active time excludes parked
 intervals. Scheduling never updates device activity, timeout preferences,

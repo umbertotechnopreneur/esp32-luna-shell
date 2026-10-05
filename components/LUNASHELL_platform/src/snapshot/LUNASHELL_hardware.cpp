@@ -5139,6 +5139,7 @@ void build_audio_spectrum(AudioSpectrumBands &spectrum, size_t channel_count)
 // phase: Diagnostic caller name used in error logs.
 // spectrum_requested: Whether the caller owns an explicit spectrum lease.
 // Reuse canonical AFE measurements while its owner has the capture route.
+// Exception: Returns original topology, capture or snapshot publication failures.
 esp_err_t sample_microphone(const char *phase, bool spectrum_requested)
 {
     const size_t channel_count = LUNASHELL_audio_input_channel_count();
@@ -5175,6 +5176,7 @@ esp_err_t sample_microphone(const char *phase, bool spectrum_requested)
     }
     const size_t frame_count =
         sizeof(s_microphone_samples) / sizeof(s_microphone_samples[0]) / channel_count;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     if (LUNASHELL_voice_afe_capture_active()) {
         // The AFE owner publishes its real levels. A refresh reads that same
         // canonical sample without retimestamping it or reopening the codec.
@@ -5201,6 +5203,7 @@ esp_err_t sample_microphone(const char *phase, bool spectrum_requested)
         ESP_LOGW(TAG, "Canonical AFE microphone sample unavailable (%s)", esp_err_to_name(sample_error));
         return sample_error;
     }
+#endif
 
     if (!s_microphone_ready) {
         const esp_err_t publication_error = update_snapshot(

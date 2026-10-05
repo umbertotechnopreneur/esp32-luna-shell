@@ -543,6 +543,7 @@ esp_err_t LUNASHELL_audio_capture_pcm16_channels(
     float gain_db
 );
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
 /**
  * Capture selected microphone channels as interleaved PCM16 at the dedicated
  * 16 kHz voice rate. This path is owned by the voice AFE worker.
@@ -555,10 +556,12 @@ esp_err_t LUNASHELL_audio_capture_voice_pcm16(
 
 /** Reconfigure the shared speaker/microphone route for the 16 kHz voice AFE. */
 esp_err_t LUNASHELL_audio_prepare_voice_route(void);
+#endif
 
 /** Atomically suspend or restore shared codec streams and the I2S transport. */
 esp_err_t LUNASHELL_audio_set_standby(bool standby);
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
 /** Start the optional ESP-SR speech-recognition AFE worker. */
 esp_err_t LUNASHELL_voice_afe_init(void);
 
@@ -584,6 +587,7 @@ esp_err_t LUNASHELL_voice_afe_push_speaker_pcm16(
     size_t sample_count,
     uint32_t sample_rate_hz
 );
+#endif
 
 typedef struct {
     /** Last completely committed target; authoritative only when state_known. */

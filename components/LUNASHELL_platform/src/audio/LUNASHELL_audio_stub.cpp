@@ -77,23 +77,6 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16_channels(
     return ESP_ERR_NOT_SUPPORTED;
 }
 
-extern "C" esp_err_t LUNASHELL_audio_capture_voice_pcm16(
-    int16_t *samples,
-    size_t frame_count,
-    uint8_t channel_count
-)
-{
-    (void)samples;
-    (void)frame_count;
-    (void)channel_count;
-    return ESP_ERR_NOT_SUPPORTED;
-}
-
-extern "C" esp_err_t LUNASHELL_audio_prepare_voice_route(void)
-{
-    return ESP_ERR_NOT_SUPPORTED;
-}
-
 extern "C" esp_err_t LUNASHELL_audio_set_standby(bool standby)
 {
     (void)standby;

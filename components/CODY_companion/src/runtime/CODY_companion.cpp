@@ -45,6 +45,7 @@
 #include "cody_ready_pearl.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_build_mode.hpp"
+#include "LUNASHELL_task_affinity.hpp"
 #include "LUNASHELL_platform.h"
 #include "bsp/display.h"
 #include "bsp/runtime_cores.h"
@@ -80,6 +81,10 @@ constexpr uint32_t kDisplayLockTimeoutMs = 1000;
 constexpr uint32_t kWorkerStackBytes = 12288;
 // Keep the continuous frame owner away from the CPU0 radio/IP interrupt and task set.
 constexpr BaseType_t kRenderCoreId = LUNASHELL_RENDER_CORE_ID;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+static_assert(kRenderCoreId == LUNASHELL::task_affinity::kCodyRenderCoreId,
+              "Shared voice and board renderer core assignments must agree");
+#endif
 constexpr int64_t kWorkerStackSamplePeriodUs = 2000000;
 // Target the requested 25 FPS cadence; the HUD still reports measured throughput.
 #if CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY

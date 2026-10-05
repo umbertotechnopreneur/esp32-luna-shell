@@ -1257,6 +1257,8 @@ std::expected<void, std::string> App::on_start(AppContext &context)
 }
 
 // Invalidate pending standby callbacks before pausing app-owned producers.
+// context: Active Brookesia application and GUI context.
+// Exception: Returns original producer/GUI failures; allocation failures may throw.
 std::expected<void, std::string> App::on_pause(AppContext &context)
 {
 #if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
@@ -1302,6 +1304,7 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
         gui_liveness_watch_active_,
         "diagnostic pause"
     );
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     if (audio_diagnostic_capture_active_) {
         const esp_err_t audio_result =
             LUNASHELL_voice_afe_set_diagnostic_suspended(false);
@@ -1317,6 +1320,7 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
             }
         }
     }
+#endif
     require_gui_watch_progress(
         gui_liveness_watch_active_,
         "audio diagnostic pause"
@@ -1379,6 +1383,8 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
 }
 
 // Reopen Brookesia input only after every resumed producer and GUI update agrees.
+// context: Active Brookesia application and GUI context.
+// Exception: Returns original resume/rollback failures; allocation failures may throw.
 std::expected<void, std::string> App::on_resume(AppContext &context)
 {
     bool watch_started_for_resume = false;
@@ -1435,6 +1441,7 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
         } else {
             audio_spectrum_diagnostic_active_ = false;
         }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
         if (audio_diagnostic_capture_active_) {
             const esp_err_t audio_result =
                 LUNASHELL_voice_afe_set_diagnostic_suspended(false);
@@ -1448,6 +1455,7 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
                 );
             }
         }
+#endif
     };
     const auto stop_full_snapshot_after_failure = []() {
         const esp_err_t result = LUNASHELL_hardware_stop_full_snapshot_monitor();
@@ -1560,6 +1568,8 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
 }
 
 // Block late input callbacks while the LUNASHELL app tears down its GUI ownership.
+// context: Active Brookesia application and GUI context.
+// Exception: Returns original shutdown failures; allocation failures may throw.
 std::expected<void, std::string> App::on_stop(AppContext &context)
 {
 #if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
@@ -1615,6 +1625,7 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
     } else {
         audio_spectrum_diagnostic_active_ = false;
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     if (audio_diagnostic_capture_active_) {
         const esp_err_t audio_result =
             LUNASHELL_voice_afe_set_diagnostic_suspended(false);
@@ -1630,6 +1641,7 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
             }
         }
     }
+#endif
     const esp_err_t full_snapshot_result =
         LUNASHELL_hardware_stop_full_snapshot_monitor();
     if (full_snapshot_result != ESP_OK) {
@@ -1777,6 +1789,9 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
     return {};
 }
 
+// context: Active Brookesia GUI context used to report rejected ownership changes.
+// screen: Typed route selecting the actual diagnostic acquisition streams.
+// Exception: Returns original sampler/AFE errors; allocation failures may throw.
 std::expected<void, std::string> App::apply_diagnostic_monitor(
     AppContext &context,
     Screen screen
@@ -1795,6 +1810,7 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
         (diagnostics_allowed && screen == Screen::Imu) ||
         screen == Screen::Leg;
     const bool enabled = audio_enabled || imu_enabled;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     const bool entering_audio =
         audio_enabled && !audio_diagnostic_capture_active_;
     const bool leaving_audio =
@@ -1825,12 +1841,14 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
         }
     }
 
+#endif
     // Stop diagnostic capture before the AFE can reclaim the microphones.
     const esp_err_t result = LUNASHELL_hardware_set_diagnostic_streams(
         imu_enabled,
         audio_enabled,
         audio_spectrum_enabled
     );
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     if (result != ESP_OK && entering_audio) {
         const esp_err_t rollback_result =
             LUNASHELL_voice_afe_set_diagnostic_suspended(false);
@@ -1842,6 +1860,7 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
             );
         }
     }
+#endif
     if (result != ESP_OK) {
         std::array<char, 128> details{};
         std::snprintf(
@@ -1865,6 +1884,7 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
         return std::unexpected(details.data());
     }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     if (leaving_audio) {
         const esp_err_t audio_result =
             LUNASHELL_voice_afe_set_diagnostic_suspended(false);
@@ -1904,6 +1924,7 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
         }
     }
 
+#endif
     if (enabled) {
         const DeviceSnapshot snapshot =
             DeviceSnapshotService::instance().snapshot();

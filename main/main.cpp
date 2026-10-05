@@ -310,6 +310,8 @@ bool start_brookesia()
     return false;
 }
 
+// No parameters: initialize the selected GUI runtime before optional voice startup.
+// Exception: Startup-critical failures abort their stage; optional voice errors are published.
 void brookesia_task()
 {
     if (!start_brookesia()) {
@@ -349,7 +351,7 @@ void brookesia_task()
         std::abort();
     }
 
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     // System Core owns the critical internal-memory reservations. Voice is
     // optional and starts only after the single-app UI is fully operational.
     report_optional_startup_failure("voice AFE", LUNASHELL_voice_afe_init());
