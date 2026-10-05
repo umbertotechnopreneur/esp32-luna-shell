@@ -11,6 +11,9 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -439,6 +442,23 @@ esp_err_t LUNASHELL_audio_set_startup_cue(const int16_t *samples, size_t sample_
 
 /** Return the number of physically selected microphone channels: 0, 1, or 2. */
 uint8_t LUNASHELL_audio_input_channel_count(void);
+
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+// source_rate_hz: Actual engine PCM16 rate; output preserves the current codec clock.
+// request_id: Exact nonzero speech request identity retained through the session.
+// Exception: Returns busy, lifecycle, volume or codec failures; success holds the owner mutex.
+esp_err_t LUNASHELL_audio_begin_speech(uint32_t source_rate_hz, uint32_t request_id);
+// samples: Borrowed signed mono PCM16, consumed before return.
+// sample_count: Exact engine buffer length.
+// request_id: Must match the session owned by the calling task.
+// Exception: Returns exact codec or publication errors.
+esp_err_t LUNASHELL_audio_write_speech(const int16_t *samples, size_t sample_count, uint32_t request_id);
+// request_id: Must match the session owned by the calling task.
+// cause: Original synthesis/cancellation cause preserved over cleanup failures.
+// Exception: Returns original operation failure or actual drain/restoration/publication failure.
+esp_err_t LUNASHELL_audio_end_speech(uint32_t request_id, esp_err_t cause);
+#endif
 
 /** Play mono signed PCM16 through the board speaker. */
 esp_err_t LUNASHELL_audio_play_pcm16(

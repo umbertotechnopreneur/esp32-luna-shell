@@ -1,327 +1,190 @@
 # Optional local text-to-speech
 
-Status: **feasibility and integration design, 2026-10-05**. The native eSpeak
-component, compile-time feature, asset pipeline and streaming service are not
-implemented. This guide does not establish ESP-IDF compatibility, runtime memory
-use, real-time synthesis or audible device behavior.
+Status: **implemented in source, 2026-10-05; validation pending**. Worktree:
+`E:/ESP32 Luna Speaks`, branch `feat/luna-speak`, based on `main` at `1fbc0d7b`.
+No TTS generator, tests/scans, configure/build/size, simulator, serial, flash,
+SD provisioning or listening test has run. Compatibility, linked size, real-time
+performance and physical sound remain unverified.
 
-The study branch is `feat/luna-speak` in `E:/ESP32 Luna Speaks`, based on local
-`main` at `1fbc0d7b`. Existing Luna and Cody builds must remain lightweight.
+## Composition and languages
 
-## Decision
+`CONFIG_LUNASHELL_BUILD_ENABLE_TTS` defaults to off. The native component and
+its generator are admitted only by an explicit catalog feature. Ordinary Luna
+and Cody profiles do not include the speech component, worker, buffers or data.
+An incompatible manually edited sdkconfig fails the configuration/script gate.
 
-A curated eSpeak NG port is a plausible offline candidate for ESP32-S3.
-Keep the synthesis engine in the optional firmware component. The requested
-storage choices are microSD with four languages or internal flash with English
-only. eSpeak uses formant synthesis, not a neural voice model.
-A slow, low-pitched voice is configurable, but HAL-like naturalness
-has not been established by listening.
-
-The requested languages are English, Italian, Chinese Mandarin and Cantonese.
-Mandarin and Cantonese remain distinct selectable languages. The upstream
-[language list](https://github.com/espeak-ng/espeak-ng/blob/master/docs/languages.md)
-and the pinned port's definitions include `en`, `it`, `cmn` and `yue`.
-Language support in those sources does not prove pronunciation quality on Luna.
-
-The SD variant uses a curated four-language package. Do not embed its tables,
-dictionaries or voice definitions in the app image, LittleFS or a new flash
-partition. The selected card/package is a required TTS dependency; an absent
-or invalid package makes TTS unavailable, without a flash fallback.
-
-The flash variant embeds only the curated English package in the optional
-component's read-only data. Italian, Mandarin and Cantonese dictionaries and
-voice definitions must be excluded from that build and rejected at the request
-boundary. Do not silently speak those requests in English.
-
-Both variants execute the engine on the ESP32 and need budgeted working RAM
-and PCM buffers. SD additionally requires table loading into RAM; flash tables
-can be borrowed once the native loader's ownership is corrected. No files have
-been written to the physical card and no firmware has been flashed.
-
-| Build selection | Data location | Languages | Principal data payload |
+| Selection | Data storage | Languages | Principal data bytes |
 | --- | --- | --- | --- |
-| TTS disabled (default) | None | None | 0 TTS data bytes |
-| TTS SD | microSD only | English, Italian, Mandarin, Cantonese | 3,111,550 bytes on SD |
-| TTS flash | Optional component's flash read-only data | English only | 827,224 bytes in the app image |
+| None, default | None | None | 0 speech payload by source composition |
+| `tts-sd` | microSD, loaded into PSRAM | English, Italian, Mandarin, Cantonese | 3,111,550 |
+| `tts-flash` | Optional app component's read-only data | English only | 827,224 |
 
-Payloads exclude voice metadata, engine code, alignment and runtime allocations;
-disabled-build exclusion is a required design invariant, not measured evidence.
+Counts come from the pinned package manifest; they exclude four/single voice-definition
+files, alignment, engine code and runtime allocations. No linked firmware size
+or disabled-build measurement is established. Mandarin (`cmn`) and Cantonese
+(`yue`) are distinct identities; Italian is `it`, English `en`. Flash rejects
+non-English requests with `ESP_ERR_NOT_SUPPORTED` and cannot embed their
+individual dictionaries or voice definitions.
 
-MicroSD is a separate explicit storage selection, useful for replaceable voice
-packages. It does not add working RAM or execute the synthesis engine. The
-documented board has microSD; an SSD interface/driver is not present in the
-reviewed inventory or firmware. An external SSD would be additional work.
+Both variants execute formant synthesis on the ESP32-S3; this is not a neural
+voice model. The shared phoneme tables remain common to English too. A slow,
+lower-pitched voice can be tuned later, but a HAL-like result is not established.
+The board has microSD, 16 MB flash and 8 MB PSRAM in the reviewed
+[hardware inventory](../../hardware-inventory.md). No SSD interface exists in
+this integration. SD supplies storage, not execution resources or extra RAM.
 
-## Evidence and limits
+Both Cody and full Luna have isolated SD/flash variants, generated sdkconfig,
+build directory and dependency lock. Physical hardware selection remains
+separate from UI selection: adding speech to Cody does not admit LVGL/Brookesia.
+The supported target is ESP-IDF 6.0.2 with the existing Brookesia 0.8 UI path.
+Wake-word/AFE plus TTS is rejected as an unreviewed combined composition.
+No speech partition or LittleFS speech image is created. English flash data is
+part of the optional application image; SD builds embed only file metadata and
+hashes, while disabled builds admit neither speech code nor package generation.
 
-Current local hardware/configuration references:
+## Native service and ownership
 
-- [Hardware inventory](../../hardware-inventory.md): ESP32-S3R8, 16 MB flash,
-  8 MB PSRAM, ES8311 speaker codec and user-added 8 GB microSD. These capacities
-  are documented topology, not current free-memory measurements.
-- [Board defaults](../../config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75.defaults):
-  octal PSRAM enabled, instruction fetch from PSRAM enabled, read-only data
-  retained in flash. Added engine code can therefore also consume PSRAM.
-- [Ordinary partitions](../../partitions.csv): 14,476 KiB factory app and
-  1,024 KiB LittleFS. Partition capacity is not the available app headroom.
-- [Wake-word partitions](../../config/partitions/wake-word.csv): separate
-  512 KiB ESP-SR `model` partition. This contains recognition data and is not
-  a TTS storage allocation.
+[Public API](../../components/LUNASHELL_tts/include/LUNASHELL_tts.hpp):
+`initialize_speech()`, `request_speech(request, request_id)`,
+`cancel_speech(request_id)`. Main startup creates the optional owner silently;
+engine initialization and package loading are lazy until the first request.
+No scene, UI, HTTP endpoint or connected assistant calls `request_speech`.
+Deciding when Luna speaks is deliberately still open.
 
-The reviewed embedded port is
-[pschatzmann/arduino-espeak-ng at 93b2651d324874e1e00077af008d8ab83ab32e73](https://github.com/pschatzmann/arduino-espeak-ng/tree/93b2651d324874e1e00077af008d8ab83ab32e73).
-Its author reports an Arduino ESP32 minimum example of 1,457,411 program bytes
-and 39,616 bytes of globals. These are external results, not the incremental
-cost on Luna, total runtime heap use or proof for ESP-IDF 6.0.2. The original
-eSpeak's approximate 2 MB claim is also not a Luna memory budget.
+A single worker serializes the non-reentrant engine. One request may be queued
+or active; another request is rejected. IDs are nonzero and never reused during
+a firmware lifetime. Admission copies at most 1,024 bytes of validated UTF-8,
+rejecting embedded NUL, control characters, malformed/overlong sequences,
+surrogates and invalid code points. The caller retains its input until admission
+returns; engine PCM pointers are borrowed only during the synchronous callback.
+Cody UI text remains English ASCII.
 
-Static file metadata from that pinned port gives the following principal files
-in `espeak-ng-data-min`:
+Requests select a typed language and bounded voice parameters: 80–450 words per
+minute, pitch/range 0–100; defaults are 145/40/20. Input enables UTF-8 only;
+SSML and phoneme command flags are not enabled. Voice selection uses exact
+package paths, without voice enumeration or an environment/filesystem fallback.
 
-| File | Bytes | Purpose |
-| --- | ---: | --- |
-| `phondata` | 554,740 | Phonetic synthesis data |
-| `phontab` | 58,652 | Phoneme tables |
-| `phonindex` | 43,316 | Phoneme indices |
-| `intonations` | 2,312 | Intonation tables |
-| `en_dict` | 168,204 | English pronunciation rules/dictionary |
-| **Principal binary total** | **827,224** | **About 808 KiB, excluding voice metadata and engine** |
+`DeviceSnapshotService` publishes the actual speech state, request/language,
+storage, source PCM count/rate, timestamps, original engine status, filesystem
+errno and operation error. Canonical projections supply aged clock, power and
+storage observations; TTS never reads sensors/BSP directly. Unknown clock,
+quiet hours or non-active power suppress requests. During synthesis, each PCM
+callback checks current policy and cancellation again. Canonical publication
+failure follows the platform fatal invariant; policy-read failures stop the
+current request. Queue notification failure remains latched for later admissions.
 
-The minimal English language definition adds 148 bytes; that checkout also
-contains two voice variants of 376 and 474 bytes. These files establish a
-candidate payload size, not completeness of a newly curated package. Keep data
-and engine revisions coupled; do not regenerate tables with an arbitrary host
-version or treat missing phonemes as an acceptable partial success.
+The existing audio owner holds its codec mutex across the entire stream. It
+preserves the current microphone/output clock, volume and previous mute state.
+A rational sample-and-hold conversion with persistent phase adapts 22,050 Hz
+engine PCM to that clock in bounded chunks. This inexpensive conversion has not
+been evaluated acoustically. There is no mute/settle delay between engine blocks
+and no second BSP/audio owner or unbounded PCM queue. Successful codec writes
+publish actual playback activity. A speech cue has its own stable identity,
+independent of personality sound IDs and speech request IDs.
 
-The selected four-language package has the following principal payload:
+At finish, the audio owner writes silence exceeding the BSP's configured DMA
+ring capacity before restoring mute; cancellation/error mutes before retirement.
+Failed drain/restoration poisons the route and retains the original failure.
+`Completed` follows engine completion, transport retirement and successful state
+publication; it does not prove that the physical speaker emitted the right sound.
+Cancellation is cooperative, with latency from synthesis blocks or an in-flight
+watched SD operation; instantaneous hardware interruption is not claimed.
 
-| Selected data | Bytes | Scope |
-| --- | ---: | --- |
-| Common principal tables | 659,020 | `phondata`, `phontab`, `phonindex`, `intonations` |
-| English `en_dict` | 168,204 | British English `en`; an American variant is optional |
-| Italian `it_dict` | 154,408 | `it` |
-| Mandarin `cmn_dict` | 1,566,347 | `cmn` |
-| Cantonese `yue_dict` | 563,571 | `yue`, separate from Mandarin |
-| **Four-language principal total** | **3,111,550** | **About 2.97 MiB / 3.11 MB before metadata and engine** |
+## Data package and memory
 
-These sizes come from the pinned checkout's full `espeak-ng-data` files.
-Package the matching language definitions and all required phoneme dependencies
-from that full data revision; do not simply add dictionaries to an unchecked
-English-only package. Mandarin accounts for most of the additional storage.
-The total cannot fit in the existing 1-MiB LittleFS even before GUI resources.
-The SD package avoids that flash data payload, but does not eliminate engine
-code or RAM costs. The alternative English-only flash payload is the
-827,224-byte principal set above, not all four dictionaries. No complete
-firmware/runtime budget or available app headroom has been measured.
+[Versioned input](../../assets/tts/espeak-ng/manifest.json) contains matched
+phondata/phontab/phonindex/intonations, four dictionaries and four definitions.
+Each entry records exact size, SHA-256 and language. The generator rejects an
+unexpected revision/path/language assignment and verifies selected source hashes.
+Flash generates arrays for common/English files only; SD generates pointer/hash
+metadata and an artifact-only card package. Build-local outputs are under the
+selected `artifacts/` build tree, never source assets or root build directories.
 
-## Compile-time opt-in and script contract
+The removable-storage owner is the only task that opens card files, always
+read-only below `LUNASHELL/tts/espeak-ng-data`. Its watched request verifies all
+twelve exact paths, sizes and SHA-256 using IDF 6's PSA crypto API. A stack-owned
+request and its destination buffers remain alive until owner completion; no
+caller timeout releases borrowed memory while I/O is still active. Standby,
+performance suspension, missing/unverified card and owner failures are rejected.
+It never mounts/formats another medium or falls back to flash.
 
-The required primary symbol is `CONFIG_LUNASHELL_BUILD_ENABLE_TTS`, with
-`default n`. This is a proposed symbol, not an available switch in this
-checkpoint. No ordinary profile, full-services profile or board YAML should
-implicitly enable it. Audio output being enabled must not select TTS.
-Language choices must also govern packaged assets: proposed symbols
-`CONFIG_LUNASHELL_TTS_LANGUAGE_ENGLISH`, `CONFIG_LUNASHELL_TTS_LANGUAGE_ITALIAN`,
-`CONFIG_LUNASHELL_TTS_LANGUAGE_MANDARIN` and
-`CONFIG_LUNASHELL_TTS_LANGUAGE_CANTONESE` exist only under enabled TTS.
-The SD feature's reviewed defaults select the requested four; flash defaults
-select only English. A flash build requesting another language must fail
-configuration rather than silently changing its selection. For either backend,
-an excluded language must contribute neither its dictionary nor voice metadata.
-Use a typed `SpeechLanguage` identity with stable English/Italian/Mandarin/
-Cantonese values; do not infer a voice from an array index or ambiguous `zh` alias.
+The first successful SD request loads the immutable pack into separately
+allocated PSRAM buffers. Later requests hash the current card's package again
+through a small owner scratch buffer, without overwriting borrowed engine data.
+A removed/replaced/altered package cannot be silently replaced by cached data.
+Card disappearance during synthesis stops when its canonical owner publishes
+that observation; polling/physical response latency remains to be measured.
 
-When TTS is disabled, exclude its component roots, source files, data headers,
-generated assets, dependency resolution, worker, buffers and initialization
-calls. Do not rely on a runtime toggle or linker garbage collection to make
-the normal build small. Keep physical output capability separate from UI;
-TTS must not admit LVGL or a Brookesia GUI adapter into native Cody builds.
+Flash tables/dictionaries are borrowed from the application image. The native
+allocator distinguishes exact registry pointers from owned allocations, so
+borrowed arrays are never freed. Engine allocations use PSRAM exclusively,
+including allocator headers in the configured budget; no internal DMA-memory
+fallback is attempted. Default engine budget is 1 MiB and worker stack 64 KiB in
+PSRAM, independently configurable within reviewed Kconfig ranges. These are
+limits/reservations, not measured high-water marks. SD also needs about 3.1 MB
+for immutable package data; existing UI/radio/runtime allocations still apply.
+Libc registry-stream bookkeeping and task control use their native allocators.
 
-Implementation must cover the entire selection path:
+An allocation failure escapes only the serialized C engine boundary; no C++
+object lifetime crosses that escape. A partial/damaged engine is retained and
+refused until firmware restart. Initialization failures are also terminal for
+that instance. Absent/bad SD data before engine initialization can be retried by
+a later explicit request. The snapshot keeps real failures throughout.
 
-1. Add an explicit feature selection to [device.ps1](../../scripts/device.ps1)
-   and [the firmware command](../../scripts/commands/firmware.ps1), with a
-   corresponding variant in the [profile catalog](../../config/sdkconfig/v1/catalog.json).
-   The current accepted features are `none`, `distance` and `wake-word`.
-   Proposed future selections are `-Feature tts-sd` and `-Feature tts-flash`;
-   neither is a runnable command today.
-2. Admit the optional native component before IDF component discovery, following
-   the catalog's roots/directories pattern. Add isolated defaults, dependency
-   lock, SDK configuration and build directory for the enabled variant.
-   A CMake conditional after discovery alone is insufficient.
-3. Add mutually exclusive `CONFIG_LUNASHELL_TTS_DATA_SD` and
-   `CONFIG_LUNASHELL_TTS_DATA_FLASH` choices under enabled TTS. Require already
-   selected compatible audio output in both cases and the SD service for SD
-   data. Do not enable hardware automatically. Reject invalid combinations,
-   including flash with any non-English language, rather than selecting another
-   backend or silently dropping a requested language.
-4. Gate asset generation in CMake and the wrapper on the same resolved feature
-   and storage choice. Generate build-local intermediates under `artifacts/`.
-   Select only the reviewed enabled languages, not the port's all-language
-   umbrella `src/espeak-ng-data.h`.
-5. For the SD backend, do not embed the package in the app or LittleFS,
-   or add a TTS entry to the firmware flash arguments. Generate an isolated SD
-   package only for enabled TTS and provision the card through an explicit
-   owner-controlled operation. Firmware flashing does not provision the card.
-   For flash, generate/include only the curated English arrays in the optional
-   component: they become part of that variant's app image, with no separate
-   TTS image or partition. Never reuse SD/all-language generated arrays.
-6. If a dedicated flash partition is later chosen, give only that enabled
-   variant its own partition CSV, generator target and flash entry. Ordinary
-   profiles must retain their current partition table and flash list. Do not
-   enlarge shared LittleFS or reuse the wake-word `model` partition silently.
-7. Build, size, flash, combo/recover and generators must use the selected
-   variant's artifacts. Reject SDK configuration/feature disagreement, stale
-   asset paths or partition mismatch before writing. Normal selection must
-   never pick a previous TTS variant just because its build directory exists.
+## Console usage, after authorization
 
-An ordinary app flash does not guarantee physical erasure of data written by an
-earlier experimental image. The requirement here is that disabled builds carry
-and flash no TTS payload. Erasing old bytes is a separately authorized operation;
-never add automatic erase or SD formatting to feature selection.
+These are examples for a future explicitly authorized operation, not commands
+executed by this implementation task. Start in the new worktree. Use the same
+profile/feature/build mode for configure, build, size and any later flash:
 
-## Execution path
-
-Proposed native path:
-
-```text
-Bounded validated UTF-8 request + explicit SpeechLanguage
-  -> one TTS worker and one serialized eSpeak context
-  -> text normalization / phonemes / formant synthesis
-  -> borrowed PCM16 blocks from the synchronous callback
-  -> bounded playback stream owned by LUNASHELL audio
-  -> existing esp_codec_dev / I2S / ES8311 / speaker
+```powershell
+.\scripts\device.ps1 set-target -Profile cody-companion -Feature tts-sd
+.\scripts\device.ps1 build -Profile cody-companion -Feature tts-sd -Jobs 8
+.\scripts\device.ps1 size -Profile cody-companion -Feature tts-sd
 ```
 
-Use `AUDIO_OUTPUT_SYNCHRONOUS` with `espeak_SetSynthCallback`; the owning
-FreeRTOS worker calls synthesis and receives PCM blocks. This avoids the
-desktop playback backend and a second asynchronous/threading owner. Copy a
-borrowed block into a bounded queue if consumption outlives the callback;
-never retain the engine's pointer after its callback returns.
+`-Feature tts-flash` selects English only; `-Profile full` selects the existing
+Luna UI composition. `-Feature none` keeps speech excluded. The interactive menu
+exposes the same optional feature setting and displays the active selection.
+`-BoardConfig` remains an independent profile selector and cannot be combined
+with `-Profile`/`-Feature`; these new variants are selected through the catalog.
 
-The port's example produces mono signed PCM16 at 22,050 Hz, matching the
-ordinary audio initialization in
-[LUNASHELL_audio.cpp](../../components/LUNASHELL_platform/src/audio/LUNASHELL_audio.cpp).
-Always use the rate returned by the initialized engine. TX and microphone RX
-share the codec clock. With Sophia/AFE active, the existing voice path requires
-16 kHz; TTS then needs a reviewed streaming resampler or an explicit microphone
-handoff. Never relabel 22,050-Hz samples as 16 kHz or independently retime TX.
-Combined TTS plus wake-word selection is separate integration work, not an
-implicitly supported catalog combination.
+Explicit package generation, without a firmware build or physical-card write:
 
-The existing `LUNASHELL_audio_play_pcm16` function accepts PCM but applies
-100-ms settling and 100-ms completion delays plus mute/unmute for every call.
-Calling it for each short TTS callback would create gaps. Extend the audio
-owner with a stream session that configures once, accepts bounded blocks,
-drains, then restores the previous policy once. Preserve its shared mutex,
-AEC reference feed, quiet/volume settings, standby, codec errors and canonical
-playback publication. Do not create another BSP/I2S/speaker owner.
+```powershell
+.\scripts\device.ps1 generate -Generator tts-assets -ToolArguments @('--backend', 'sd')
+```
 
-As a planning example, two 20-ms mono PCM16 buffers at 22,050 Hz contain 1,764
-bytes of sample payload; this is arithmetic, not the full TTS memory budget.
-Engine tables, translation state, phoneme queue, stack, allocator metadata and
-audio transport add costs. No total heap, stack or CPU figure is available yet.
-Synthesis must yield without starving display/radio/acquisition owners; affinity
-and priority require measurements with the complete selected firmware.
+The card-ready artifact is
+`artifacts/tts/sd/sd-root/LUNASHELL/tts/espeak-ng-data`. An authorized SD build
+also produces it under
+`artifacts/build-<profile>-tts-sd-<mode>/esp-idf/LUNASHELL_tts/tts-sd/sd-root`.
+Copying it to a physical SD card is a separate operation; none was performed.
+A firmware flash never provisions the SD card or selects a fallback data source.
+All build/flash commands retain the existing transient-artifact cleanup and
+configuration/dependency-lock checks from `scripts/device.ps1`.
 
-## SD and English-only flash loading
+## Provenance and outstanding evidence
 
-For the English-only flash backend, expose a curated immutable asset registry to a native loader or
-modify the engine loader to borrow validated flash tables. IDF maps linked
-read-only data for CPU reads; a dedicated raw partition would instead need a
-lifetime-owned mapping. LittleFS files are not direct pointers to flash tables.
-The current 1-MiB LittleFS is shared GUI package storage: the approximately
-2.97-MiB principal four-language payload exceeds its entire capacity. Use the
-English-only optional component's app read-only data for flash; retain the
-existing partition table. Flash is an explicit build choice, never an SD fallback.
+Imported sources and matching data are pinned to
+[pschatzmann/arduino-espeak-ng commit 93b2651](https://github.com/pschatzmann/arduino-espeak-ng/tree/93b2651d324874e1e00077af008d8ab83ab32e73),
+eSpeak NG 1.52-dev. Only explicit native synthesis/Unicode C sources are compiled;
+Arduino classes, AudioTools, POSIX emulation, desktop audio, pthread workers and
+runtime dictionary compilers are excluded. Native modifications are recorded in
+[ORIGIN.md](../../third_party/espeak-ng/ORIGIN.md). Original license notices and
+GPL/Apache/BSD/UCD license files accompany the sources. Optional linked firmware
+must satisfy the imported source licenses when distributed; the repository's
+own license does not replace them. No external release has been performed.
 
-For SD, extend the existing storage acquisition owner to verify and read a
-complete, versioned package. Load required random-access tables into explicitly
-budgeted PSRAM before synthesis. In the examined port, `ReadPhFile` and
-`LoadDictionary` read whole files when the memory mapping path is unavailable.
-SD storage therefore does not eliminate table copies. If all four languages'
-principal datasets are retained at once, they alone occupy about 2.97 MiB in PSRAM.
-A serialized language-switch lifecycle may retain fewer dictionaries, but
-must account for secondary-language dependencies and cannot assume that the
-engine holds only one dictionary. The exact runtime total remains unknown.
-Do not bypass the SD owner with consumer-side mounts/probes or permit card
-access while it is quiesced.
+The [upstream language list](https://github.com/espeak-ng/espeak-ng/blob/master/docs/languages.md)
+and pinned definitions establish source support for the four chosen languages;
+pronunciation quality on this device is unverified. The disposable reference
+checkout under `artifacts/research/` is not required by the integration.
 
-Backend selection is fixed by the build. Missing card, missing/corrupt file,
-wrong data version or failed allocation makes selected TTS unavailable, with
-the real error retained. Do not switch to flash, synthesize with partial data,
-substitute a default voice or format the card. Firmware can continue only when
-TTS is explicitly documented as optional and its failure is published.
-
-## Porting work that must precede use
-
-The Arduino port is evidence and reference source, not an IDF dependency to
-drop into the build. Its CMake project fetches an Arduino emulator and POSIX
-filesystem library; its audio adapter uses Arduino AudioTools. A native IDF
-component must have an explicit reviewed C-source list and native configuration,
-allocation, data loading and PCM callback paths, with those dependencies absent.
-
-Static source review identified concrete corrections required before integration:
-
-- `ReadPhFile` can borrow mapped tables, but `FreePhData` unconditionally frees
-  their pointers. Record owned versus borrowed storage and release only owned
-  allocations; keep flash/mapping lifetimes through engine termination.
-- The port's allocator attempts PSRAM then ordinary `malloc`. Select explicit
-  budgets/capabilities for table and working allocations so TTS cannot consume
-  internal DMA headroom silently when PSRAM is exhausted.
-- Some working-buffer allocations are followed by `assert`, including in
-  `phonemelist.c`, `translateword.c` and `voices.c`. Replace abort-on-allocation
-  behavior with propagated failures and defined partial-initialization cleanup.
-- File-loading error paths require exact short-read/corruption/error handling.
-  Preserve engine/filesystem detail when mapping it to `esp_err_t`; an engine
-  status is not automatically a valid ESP-IDF error code.
-- Keep one engine context/worker; several synthesis tables are shared global
-  state. Add bounded request IDs, cancellation, shutdown/drain and buffer
-  lifetimes before connecting scene text or UI actions.
-
-Publish request admission, synthesis, playback, cancellation and failure through
-an extension of `DeviceSnapshotService`. Admission and generated PCM do not
-prove audio playback completion. Cody/GUI consumers use that canonical state;
-they do not inspect codec/storage/sensors or invent talking/freshness state.
-The user explicitly requested Italian, Mandarin and Cantonese speech: the TTS request
-boundary therefore needs bounded, validated UTF-8 and an explicit language.
-Reject malformed encoding, overlong input and disabled/unknown languages with
-an original error; never truncate through a character, silently transliterate
-or fall back to English. This is a TTS input requirement, not authorization to
-localize Cody's existing English printable-ASCII UI/scene text. Keep runtime
-measurements behind the canonical snapshot's validity rules.
-
-The upstream engine/embedded port identifies GPL-3.0 licensing. Keep its source
-provenance and license notices in any later vendored component; this checkpoint
-adds no vendor code to the firmware.
-
-## Next implementation and validation boundary
-
-Implement the native optional component, curated four-language SD package and
-English-only flash registry, together with owner-controlled loading, isolated
-catalog/CLI variants and a continuous audio session. Keep TTS data out of
-firmware flash for SD and disabled builds; keep non-English data out of flash
-for every selected variant.
-Do not expose an enabled-but-nonfunctional firmware feature as completed work.
-
-After implementation and static cross-component review, request authorization
-for exact final commands through `scripts/device.ps1`. Required evidence will
-include disabled/enabled build and flash-list exclusion, app/PSRAM/stack budgets,
-continuous PCM, cancellation, standby, selected-backend failures and actual
-acoustics. No tests, configure/build/size, scans, simulator, hardware/serial,
-flash, SD provisioning or erase were performed in this study.
-
-## Source references
-
-- [eSpeak NG architecture and API](https://github.com/espeak-ng/espeak-ng),
-  [synchronous PCM callback contract](https://github.com/espeak-ng/espeak-ng/blob/master/src/include/espeak-ng/speak_lib.h).
-- Pinned embedded port:
-  [README](https://github.com/pschatzmann/arduino-espeak-ng/blob/93b2651d324874e1e00077af008d8ab83ab32e73/README.md),
-  [minimal data](https://github.com/pschatzmann/arduino-espeak-ng/tree/93b2651d324874e1e00077af008d8ab83ab32e73/espeak-ng-data-min),
-  [full data for language selection](https://github.com/pschatzmann/arduino-espeak-ng/tree/93b2651d324874e1e00077af008d8ab83ab32e73/espeak-ng-data),
-  [table loader](https://github.com/pschatzmann/arduino-espeak-ng/blob/93b2651d324874e1e00077af008d8ab83ab32e73/src/libespeak-ng/synthdata.c),
-  [dictionary loader](https://github.com/pschatzmann/arduino-espeak-ng/blob/93b2651d324874e1e00077af008d8ab83ab32e73/src/libespeak-ng/dictionary.c),
-  [allocator](https://github.com/pschatzmann/arduino-espeak-ng/blob/93b2651d324874e1e00077af008d8ab83ab32e73/src/libespeak-ng/mem_alloc.c),
-  [API adaptation](https://github.com/pschatzmann/arduino-espeak-ng/blob/93b2651d324874e1e00077af008d8ab83ab32e73/arduino/espeak.h).
-- Reference checkout only: `artifacts/research/luna-speak/arduino-espeak-ng`.
-  This ignored checkout is disposable; the pinned links above retain provenance.
+[TODO.md](../../TODO.md) retains all final validation and trigger decisions.
+Fresh exact-command authorization is required before each test/suite and before
+configure/build/size, simulator or physical operations. Required evidence covers
+normal/SD/flash linked and flash-list exclusion, source/package contracts,
+PSRAM/stack/CPU budget, continuous PCM, all four languages, cancellation,
+standby/policy, card/package errors and actual listening. No successful host
+assertion or build should be presented as proof of device audio behavior.

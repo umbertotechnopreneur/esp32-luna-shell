@@ -46,6 +46,22 @@ it does not fetch the reference. Without it, only dirty/untracked files are scan
 The menu accepts extra arguments as a JSON string array. CLI failures propagate
 to the caller; the menu preserves the failure before offering another selection.
 
+## Optional speech
+
+Speech stays off in ordinary firmware. `-Feature tts-sd` selects English,
+Italian, Mandarin and Cantonese on microSD; `-Feature tts-flash` embeds English
+only. These features are available for `cody-companion` and `full`, with isolated
+configuration/build/dependency state. The menu exposes the same selection.
+All speech variants start silently; no scene or UI automatically speaks.
+
+An explicitly selected package generator is `tts-assets`, with required
+`-ToolArguments @('--backend', 'sd')` or `@('--backend', 'flash')`. It writes
+only below `artifacts/`; it never provisions a physical card or flashes firmware.
+Ordinary builds do not invoke it. See the
+[TTS implementation guide](../docs/architecture/text-to-speech.md) for API,
+card paths, memory limits and pending validation. Existing command-specific
+approval requirements apply to generation/configuration/build and hardware use.
+
 ## Serial and stored logs
 
 ```powershell

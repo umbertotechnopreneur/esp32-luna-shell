@@ -14,6 +14,9 @@
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_logger.h"
 #include "LUNASHELL_platform.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+#include "LUNASHELL_tts.hpp"
+#endif
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 #include "CODY_companion.h"
 #include "CODY_boot_cues.h"
@@ -158,6 +161,10 @@ extern "C" void app_main(void)
     // Start the optional SD owner before display/Cody startup can fail. Its
     // worker mounts asynchronously and replays the logger's bounded boot buffer.
     report_optional_startup_failure("removable storage", LUNASHELL_storage_init());
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    // Create the optional owner silently. No scene or UI requests speech.
+    report_optional_startup_failure("text-to-speech", LUNASHELL::initialize_speech());
+#endif
     startup_watch.progress("removable storage");
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY || CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
     ESP_ERROR_CHECK(LUNASHELL_display_runtime_init());

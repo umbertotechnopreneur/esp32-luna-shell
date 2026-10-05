@@ -71,6 +71,7 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
             'cody-runtime-assets' = @{ Category = 'Cody assets'; Emoji = '🔊'; Description = 'Generate runtime settings and the two original synthesized boot cues.' }
             'cody-jelly' = @{ Category = 'Cody assets'; Emoji = '☁️'; Description = 'Package the pearl sprite and simulator bindings as flash-owned data.' }
             'cody-personality-icons' = @{ Category = 'Cody assets'; Emoji = '✨'; Description = 'Isolate 14 manga symbols into fixed-palette indexed and separate coverage flash sprites.' }
+            'tts-assets' = @{ Category = 'Luna assets'; Emoji = '🔊'; Description = 'Package optional pinned speech data: SD four languages or English-only flash.' }
             'cody-personality-audio' = @{ Category = 'Cody assets'; Emoji = '🎵'; Description = 'Synthesize 14 original short symbol cues, WAV previews and immutable PCM flash assets.' }
             'cody-scenes' = @{ Category = 'Cody assets'; Emoji = '🎬'; Description = 'Bake cloud/title scenes and glyphs; requires --font-path.' }
             'package-cody-boot' = @{ Category = 'Cody assets'; Emoji = '🌅'; Description = 'Convert existing boot images into indexed RGB565 firmware resources.' }

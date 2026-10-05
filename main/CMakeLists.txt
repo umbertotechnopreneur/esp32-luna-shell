@@ -64,3 +64,7 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_UI)
         idf_component_optional_requires(PUBLIC LUNASHELL_boot)
     endif()
 endif()
+
+if(CONFIG_LUNASHELL_BUILD_ENABLE_TTS)
+    idf_component_optional_requires(PRIVATE LUNASHELL_tts)
+endif()

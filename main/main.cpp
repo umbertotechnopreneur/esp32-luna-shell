@@ -30,6 +30,9 @@
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_logger.h"
 #include "LUNASHELL_platform.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+#include "LUNASHELL_tts.hpp"
+#endif
 
 namespace {
 
@@ -493,6 +496,10 @@ extern "C" void app_main(void)
     startup_watch.progress("boot audio");
 #endif
     report_optional_startup_failure("removable storage", LUNASHELL_storage_init());
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    // Create the optional owner silently. No scene or UI requests speech.
+    report_optional_startup_failure("text-to-speech", LUNASHELL::initialize_speech());
+#endif
     startup_watch.progress("removable storage");
     // Wi-Fi and BLE reserve a large part of internal SRAM on this S3. The
     // Settings action starts them explicitly after the UI is already usable.

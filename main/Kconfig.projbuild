@@ -381,6 +381,54 @@ config LUNASHELL_BUILD_VOICE_AFE_SR_PROFILE_HIGH_PERF
 
 endchoice
 
+config LUNASHELL_BUILD_ENABLE_TTS
+    bool "Enable optional local eSpeak speech service"
+    depends on IDF_TARGET_ESP32S3 && SPIRAM && LUNASHELL_BUILD_ENABLE_AUDIO && LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    depends on !LUNASHELL_BUILD_ENABLE_WAKE_WORD && !LUNASHELL_BUILD_ENABLE_VOICE_AFE
+    default n
+    help
+        Explicit opt-in only. Starts silently; speech requires request_speech.
+        Use a tts-sd or tts-flash catalog variant to admit the engine component.
+
+choice LUNASHELL_TTS_DATA
+    prompt "Speech data storage"
+    depends on LUNASHELL_BUILD_ENABLE_TTS
+    default LUNASHELL_TTS_DATA_SD
+config LUNASHELL_TTS_DATA_SD
+    bool "SD: English, Italian, Mandarin and Cantonese"
+    depends on LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
+config LUNASHELL_TTS_DATA_FLASH
+    bool "Internal flash: English only"
+endchoice
+
+config LUNASHELL_TTS_LANGUAGE_ENGLISH
+    bool
+    default y if LUNASHELL_BUILD_ENABLE_TTS
+config LUNASHELL_TTS_LANGUAGE_ITALIAN
+    bool
+    default y if LUNASHELL_BUILD_ENABLE_TTS && LUNASHELL_TTS_DATA_SD
+config LUNASHELL_TTS_LANGUAGE_MANDARIN
+    bool
+    default y if LUNASHELL_BUILD_ENABLE_TTS && LUNASHELL_TTS_DATA_SD
+config LUNASHELL_TTS_LANGUAGE_CANTONESE
+    bool
+    default y if LUNASHELL_BUILD_ENABLE_TTS && LUNASHELL_TTS_DATA_SD
+
+config LUNASHELL_TTS_ENGINE_HEAP_BYTES
+    int "Maximum speech engine working heap in PSRAM"
+    depends on LUNASHELL_BUILD_ENABLE_TTS
+    range 262144 2097152
+    default 1048576
+    help
+        Excludes immutable language data and the worker stack. Allocation failure
+        is terminal for this engine instance; firmware restart is required.
+
+config LUNASHELL_TTS_STACK_BYTES
+    int "Speech worker stack in PSRAM"
+    depends on LUNASHELL_BUILD_ENABLE_TTS
+    range 65536 131072
+    default 65536
+
 config LUNASHELL_BUILD_ENABLE_BOOT_AUDIO
     bool "Enable boot sound effect"
     depends on LUNASHELL_BUILD_ENABLE_AUDIO

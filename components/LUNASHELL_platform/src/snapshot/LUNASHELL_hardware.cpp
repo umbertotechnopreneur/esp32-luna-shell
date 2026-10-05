@@ -8701,3 +8701,24 @@ extern "C" esp_err_t LUNASHELL_rtc_write(const LUNASHELL_calendar_time_t *time)
     }
     return result;
 }
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+// observation: Coherent canonical policy; a failure never publishes a partial view.
+// Exception: Returns original snapshot lock or release failure.
+esp_err_t LUNASHELL::DeviceSnapshotService::readSpeechObservation(SpeechObservation &observation) const
+{
+    SpeechObservation copy;
+    esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "speech policy read");
+    if (error != ESP_OK) return error;
+    copy.clock = s_snapshot.clock;
+    copy.storage = s_snapshot.storage;
+    copy.operating_state = s_snapshot.power.state;
+    const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
+    error = give_snapshot_mutex("speech policy read");
+    if (error != ESP_OK) return error;
+    age_measured_sample(copy.clock, esp_timer_get_time(), ttl_us);
+    age_measured_sample(copy.storage, esp_timer_get_time(), ttl_us);
+    observation = copy;
+    return ESP_OK;
+}
+#endif

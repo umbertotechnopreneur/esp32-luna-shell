@@ -8,21 +8,27 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
-## Local TTS feasibility — 2026-10-05
+## Optional local TTS implementation — 2026-10-05
 
 - Created `E:/ESP32 Luna Speaks` on `feat/luna-speak` from local `main`
-  at `1fbc0d7b`, preserving the original worktree. Recorded the native
-  [eSpeak design](docs/architecture/text-to-speech.md) after static review of
-  the audio/storage/build owners and pinned embedded reference sources.
-  The principal minimal-English files total 827,224 bytes; the requested
-  English/Italian/Mandarin/Cantonese principal data totals 3,111,550 bytes,
-  including the 563,571-byte Cantonese dictionary. Defined SD storage for all
-  four languages and an explicit English-only flash alternative, with no TTS
-  data in disabled/SD firmware and no SD-to-flash fallback. This is file
-  metadata, not a firmware/RAM/performance result. Defined default-off
-  compilation and script/asset/flash exclusion requirements. No TTS engine,
-  feature switch or model is integrated; implementation and all validation
-  remain open in `TODO.md`. No tests/scans/build/simulator/hardware were run.
+  at `1fbc0d7b`; preserved the original worktree. Implemented default-off
+  `CONFIG_LUNASHELL_BUILD_ENABLE_TTS`, isolated `tts-sd` and `tts-flash` variants
+  for Cody/full, native pinned eSpeak C/Unicode sources, bounded UTF-8 request
+  and cancellation APIs, silent startup and canonical speech state publication.
+- Implemented registry ownership, guarded PSRAM-only engine allocation, a
+  continuous session in the existing audio owner and owner-mediated SD package
+  reads with exact size/SHA-256 verification on every request. SD stores English,
+  Italian, Mandarin and Cantonese; flash embeds English only. Ordinary profiles
+  exclude the component and its asset generation; SD embeds metadata only.
+  CLI/menu/configuration gates preserve explicit backend selection. No automatic
+  speech trigger or SD-to-flash fallback was introduced.
+- Pinned principal source payload is 827,224 bytes for English or 3,111,550
+  bytes for all four languages, excluding voice metadata/code/runtime memory.
+  These are package metadata, not linked size or measured memory evidence.
+  [Implementation and usage](docs/architecture/text-to-speech.md).
+  Static source review only: all generation, tests/scans, configure/build/size,
+  simulator, serial, flash, SD provisioning and audible behavior remain pending
+  in `TODO.md`. No upstream publication or hardware operation was performed.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 

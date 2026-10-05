@@ -9,27 +9,21 @@ bytes, not physical behavior; every open observation below remains open.
 
 ## Optional local TTS on feat/luna-speak
 
-- [ ] Implement the [native eSpeak integration design](docs/architecture/text-to-speech.md)
-  with `CONFIG_LUNASHELL_BUILD_ENABLE_TTS` default off. Ordinary firmware must
-  exclude engine, data, task and buffers; the catalog, public CLI, generators
-  and flash list must all honor the opt-in. Provide isolated SD (four-language)
-  and flash (English-only) selections; reject flash with non-English languages.
-  SD and disabled builds must carry/flash no TTS data. Embed only the curated
-  English payload in the optional app component for the flash variant.
-- [ ] Port curated English, Italian, Chinese Mandarin and Cantonese tables and
-  synchronous PCM generation to IDF 6.0.2. Add per-language compile-time asset exclusion
-  and bounded validated UTF-8 TTS input while retaining English ASCII Cody UI:
-  correct borrowed-table cleanup, allocation failures and error mapping; add
-  a bounded streaming session to the existing audio owner and canonical TTS
-  status. Generate the four-language SD package and load it only through the
-  storage owner; implement a separate English-only immutable flash registry
-  with correct borrowed-table lifetimes. No implicit backend
-  fallback, formatting, UI/LVGL admission or wake-word combination.
-- [ ] After implementation/static integration and fresh exact-command approval,
-  establish off/on exclusion, firmware/heap/stack/CPU budgets, continuous audio,
-  cancellation/standby and backend error handling. Physical audio quality,
-  card behavior and real-time synthesis remain unverified. The 2026-10-05
-  feasibility study ran no tests, scans, build, simulator or hardware operations.
+- [ ] After fresh exact-command authorization, validate the
+  [implemented native integration](docs/architecture/text-to-speech.md): normal
+  builds exclude the engine/data/task; SD firmware includes no speech payload;
+  flash includes English only. Check isolated configuration/build/flash lists,
+  source contracts, package generation and SHA-256 rejection paths.
+- [ ] Establish firmware/PSRAM/stack/CPU budgets and continuous PCM performance
+  for the chosen variant. Validate UTF-8 in all four languages, language
+  rejection in flash, cancellation, clock policy, standby, codec lifecycle,
+  card removal/changed package and terminal allocation failure. No generator,
+  test, scan, configure/build/size, simulator or physical operation has run for
+  this implementation. Existing main hardware evidence does not validate TTS.
+- [ ] Decide when Luna should speak and then wire the selected triggers. The
+  current API is explicit and startup is silent; no UI, scene, HTTP or assistant
+  automatically requests speech. SD provisioning and audible voice tuning
+  remain separate, explicitly authorized operations.
 
 ## Cody integration and release gates
 

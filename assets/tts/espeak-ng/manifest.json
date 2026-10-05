@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "source_revision": "93b2651d324874e1e00077af008d8ab83ab32e73",
+  "files": [
+    {
+      "path": "phondata",
+      "language": "Common",
+      "size": 554740,
+      "sha256": "a0b643b155cb6b12628d9e7865b57d9fca0d35844614f2594a5e009c80c80bb4"
+    },
+    {
+      "path": "phontab",
+      "language": "Common",
+      "size": 58652,
+      "sha256": "1b40690667e1e9aa1ba5e5234773c799e7e72ea751426e5150423d53c3f24fa2"
+    },
+    {
+      "path": "phonindex",
+      "language": "Common",
+      "size": 43316,
+      "sha256": "384e5fa6f714ba5356c58008249b78699c31c1ad044b243068d263fb806b7d73"
+    },
+    {
+      "path": "intonations",
+      "language": "Common",
+      "size": 2312,
+      "sha256": "031a105bf6bb2ebcd73a2c579ccfb42469b27266db0078af65ae298fd3588b21"
+    },
+    {
+      "path": "en_dict",
+      "language": "English",
+      "size": 168204,
+      "sha256": "1053f74a34af38abb6fbd64b7838dacbc655a687c48ce1bb663d364a127b05de"
+    },
+    {
+      "path": "it_dict",
+      "language": "Italian",
+      "size": 154408,
+      "sha256": "7ce5b6b4e2ee251516708584267a413a3c02b2fa07cb527a2eb421fbbb3b12cf"
+    },
+    {
+      "path": "cmn_dict",
+      "language": "Mandarin",
+      "size": 1566347,
+      "sha256": "2a41ddab7213d0284a984def6b40c72cbc40b346d3220db08c6ae324f46d59aa"
+    },
+    {
+      "path": "yue_dict",
+      "language": "Cantonese",
+      "size": 563571,
+      "sha256": "1d26afa203034698772107abfff1b53acbee30434700a4d2b75dee98951588f8"
+    },
+    {
+      "path": "lang/gmw/en",
+      "language": "English",
+      "size": 148,
+      "sha256": "4c8f40ba654a18e2e5d7837f55db5df294eba3a731cd861d421ea52516c16677"
+    },
+    {
+      "path": "lang/roa/it",
+      "language": "Italian",
+      "size": 116,
+      "sha256": "36f88c49bbe77221546f528f31632af1c29dcc265e945cd34f437ad85d99596c"
+    },
+    {
+      "path": "lang/sit/cmn",
+      "language": "Mandarin",
+      "size": 722,
+      "sha256": "2eaf92aebd2bfe7ffba48c6b962d455634e588c7998d53cc28ff99c74caf87b3"
+    },
+    {
+      "path": "lang/sit/yue",
+      "language": "Cantonese",
+      "size": 207,
+      "sha256": "47213479f76beb013ab7b3f4857a6896b5f4951dbdbe5a445a59de5e2f0111ee"
+    }
+  ]
+}
