@@ -860,7 +860,8 @@ esp_err_t compose_response(const ResponseConfig &config, const ResponseState &st
     const float gesture = state.idle_scene_weight;
     if (state.idle_scene == IdleSceneId::Whistle) {
         mouth += (.24f - mouth) * gesture;
-        mouth_width += (.42f - mouth_width) * gesture;
+        // The pursed pose targets the authored minimum, remaining inside rig bounds.
+        mouth_width += (mouth_minimum - mouth_width) * gesture;
     } else if (state.idle_scene == IdleSceneId::Greeting) {
         mouth += (.65f - mouth) * gesture;
         mouth_width += (1.1f - mouth_width) * gesture;

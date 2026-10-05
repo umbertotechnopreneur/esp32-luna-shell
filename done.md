@@ -39,6 +39,12 @@ flash logs were regenerated.
   at `Obsidian/20_Execution/Projects/VibeWare/Branding/vibeware-logo.png`;
   the simulator bundles its unchanged PNG, licence and provenance independently
   of OneDrive. Link navigation has not been exercised.
+- The user then reported a stopped preview during a Whistle gesture:
+  `mouth_width=0.49784793754180495` was rejected by the rig's 0.5 minimum.
+  Both native and Python response models targeted an invalid fixed 0.42 width.
+  Changed that target to the rig's authored minimum, retaining strict renderer
+  validation. Firmware rebuild/flash and formal regression checks of this
+  correction remain unperformed; the earlier flashed image is still `de9b8b18`.
 - Authorized final checks: `storage-logger` and `radio-memory` passed.
   `cody-native` stopped before compilation because the host compiler was absent
   from PATH; installed MSVC was subsequently found. `snapshot-integrity` failed

@@ -38,6 +38,8 @@ random gesture is due.
 
 - Yawn uses the existing broad opening and eyelid closure, with no sound.
 - Whistle narrows the mouth to a small opening after breathing composition.
+  Its width targets the rig's authored minimum (currently 0.5); it must not
+  interpolate toward a value outside the accepted facial-channel range.
   At its first completed visible frame with weight at least 0.8 it attempts one
   original 300-ms two-note sound, stored as immutable flash PCM.
 - Greeting adds a smile, viewer-right wink and cheek lift; it has no new text,

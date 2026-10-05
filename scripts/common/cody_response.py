@@ -748,7 +748,8 @@ def compose_response(rig, state, base_face, base_contour, placement, rotation, a
     gesture = state.idle_scene_weight
     if state.idle_scene == IdleSceneId.WHISTLE:
         face[mouth] += (.24 - face[mouth]) * gesture
-        face[FaceChannel.MOUTH_WIDTH] += (.42 - face[FaceChannel.MOUTH_WIDTH]) * gesture
+        # The pursed pose targets the authored minimum, remaining inside rig bounds.
+        face[FaceChannel.MOUTH_WIDTH] += (mouth_min - face[FaceChannel.MOUTH_WIDTH]) * gesture
     elif state.idle_scene == IdleSceneId.GREETING:
         face[mouth] += (.65 - face[mouth]) * gesture
         face[FaceChannel.MOUTH_WIDTH] += (1.1 - face[FaceChannel.MOUTH_WIDTH]) * gesture
