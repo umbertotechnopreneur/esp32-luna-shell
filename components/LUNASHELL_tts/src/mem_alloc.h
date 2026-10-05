@@ -32,6 +32,13 @@ extern "C" {
 // cause: Original native engine error; stops the serialized C call without unsafe recovery.
 // Exception: Poisons the engine and escapes only to its active C guard.
 void luna_espeak_fail(int cause);
+// destination: Caller-owned native text or phoneme buffer.
+// capacity: Actual destination capacity, including its terminator.
+// format: Constant printf format checked at the call site.
+// ...: Format arguments whose types must match the format.
+// Exception: Stops the guarded engine with the real formatting cause; never truncates silently.
+void luna_espeak_format(char *destination, size_t capacity, const char *format, ...)
+    __attribute__((format(printf, 3, 4)));
 #ifdef __cplusplus
 }
 #endif

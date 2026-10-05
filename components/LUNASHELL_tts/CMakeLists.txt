@@ -46,7 +46,7 @@ set(tts_core_names common dictionary encoding error espeak_api ieee80 intonation
     klatt langopts mnemonics numbers phoneme phonemelist readclause setlengths
     soundicon spect speech ssml synth_mbrola synthdata synthesize tr_languages
     translate translateword voices wavegen)
-set(tts_sources src/LUNASHELL_tts.cpp src/native_assets.c src/native_memory.c src/native_engine.c)
+set(tts_sources src/LUNASHELL_tts.cpp src/native_assets.c src/native_memory.c src/native_engine.c src/native_text.c)
 foreach(name IN LISTS tts_core_names)
     list(APPEND tts_sources "${tts_vendor}/libespeak-ng/${name}.c")
 endforeach()

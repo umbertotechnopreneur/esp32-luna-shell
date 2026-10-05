@@ -154,6 +154,7 @@ int ucd_ispunct(codepoint_t c)
 	return ucd_isgraph(c) && !ucd_isalnum(c);
 }
 
+// c: Unicode code point tested against the pinned whitespace categories.
 int ucd_isspace(codepoint_t c)
 {
 	switch (ucd_lookup_category(c))
@@ -181,6 +182,7 @@ int ucd_isspace(codepoint_t c)
 		case 0x85: /* U+0085 : NEXT LINE */
 			return 1;
 		}
+		__attribute__((fallthrough));
 	default:
 		return 0;
 	}

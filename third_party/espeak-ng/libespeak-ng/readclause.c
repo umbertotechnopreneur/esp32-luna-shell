@@ -51,7 +51,7 @@
 
 #define N_XML_BUF   500
 
-static void DecodeWithPhonemeMode(char *buf, char *phonemes, Translator *tr, Translator *tr2, unsigned int flags[]);
+static void DecodeWithPhonemeMode(char *buf, size_t capacity, char *phonemes, Translator *tr, Translator *tr2, unsigned int flags[]);
 static void TerminateBufWithSpaceAndZero(char *buf, int index, int *ungetc);
 
 static const char *xmlbase = ""; // base URL from <speak>
@@ -182,7 +182,12 @@ const char *WordToString2(char buf[5], unsigned int word)
 	return buf;
 }
 
-static const char *LookupSpecial(Translator *tr, const char *string, char *text_out)
+// tr: Translator providing the requested special-word dictionary entry.
+// string: Exact special-word lookup identity.
+// text_out: Caller-owned destination for the encoded pronunciation.
+// capacity: Actual destination size including the terminator.
+// Exception: Stops the guarded engine if the formatted pronunciation exceeds capacity.
+static const char *LookupSpecial(Translator *tr, const char *string, char *text_out, size_t capacity)
 {
 	unsigned int flags[2];
 	char phonemes[55];
@@ -190,12 +195,17 @@ static const char *LookupSpecial(Translator *tr, const char *string, char *text_
 
 	flags[0] = flags[1] = 0;
 	if (LookupDictList(tr, &string1, phonemes, flags, 0, NULL)) {
-		DecodeWithPhonemeMode(text_out, phonemes, tr, NULL, flags);
+		DecodeWithPhonemeMode(text_out, capacity, phonemes, tr, NULL, flags);
 		return text_out;
 	}
 	return NULL;
 }
 
+// buf: Caller-owned character-name destination with capacity 60 bytes.
+// tr: Selected language translator.
+// c: Unicode character whose pronunciation is requested.
+// only: Restricts lookup to the character entry instead of punctuation aliases.
+// Exception: Stops the guarded engine if the encoded character name cannot fit.
 static const char *LookupCharName(char buf[60], Translator *tr, int c, bool only)
 {
 	// Find the phoneme string (in ascii) to speak the name of character c
@@ -251,10 +261,10 @@ static const char *LookupCharName(char buf[60], Translator *tr, int c, bool only
 
 	if (phonemes[0]) {
 		if (lang_name) {
-			DecodeWithPhonemeMode(buf, phonemes, tr, translator2, flags);
+			DecodeWithPhonemeMode(buf, 60, phonemes, tr, translator2, flags);
 			SelectPhonemeTable(voice->phoneme_tab_ix); // revert to original phoneme table
 		} else {
-			DecodeWithPhonemeMode(buf, phonemes, tr, NULL, flags);
+			DecodeWithPhonemeMode(buf, 60, phonemes, tr, NULL, flags);
 		}
 	} else if (only == false)
 		strcpy(buf, "[\002(X1)(X1)(X1)]]");
@@ -262,6 +272,13 @@ static const char *LookupCharName(char buf[60], Translator *tr, int c, bool only
 	return buf;
 }
 
+// tr: Translator providing the punctuation pronunciation.
+// c1: Current punctuation code point.
+// c2_ptr: In/out cursor for the following character.
+// output: Caller-owned clause output buffer.
+// bufix: In/out clause write offset.
+// end_clause: Existing clause-ending decision.
+// Exception: Stops the guarded engine if a special pronunciation exceeds its scratch buffer.
 static int AnnouncePunctuation(Translator *tr, int c1, int *c2_ptr, char *output, int *bufix, int end_clause)
 {
 	// announce punctuation names
@@ -289,7 +306,7 @@ static int AnnouncePunctuation(Translator *tr, int c1, int *c2_ptr, char *output
 		UngetC(c2);
 	} else {
 		if ((c1 == '.') && (end_clause) && (c2 != '.')) {
-			if (LookupSpecial(tr, "_.p", ph_buf))
+			if (LookupSpecial(tr, "_.p", ph_buf, sizeof(ph_buf)))
 				punctname = ph_buf; // use word for 'period' instead of 'dot'
 		}
 		if (punctname == NULL)
@@ -464,6 +481,14 @@ static int CheckPhonemeMode(int option_phoneme_input, int phoneme_mode, int c1, 
     return phoneme_mode;
 }
 
+// tr: Selected language translator for the current clause.
+// buf: Caller-owned destination for the parsed clause.
+// charix: Caller-owned text-to-source index mapping.
+// charix_top: Receives the final source-index extent.
+// n_buf: Actual clause destination capacity.
+// tone_type: Receives the inferred clause intonation identity.
+// voice_change: Receives an explicitly parsed voice-change command.
+// Exception: Stops the guarded engine if a special pronunciation exceeds its scratch buffer.
 int ReadClause(Translator *tr, char *buf, short *charix, int *charix_top, int n_buf, int *tone_type, char *voice_change)
 {
 	/* Find the end of the current clause.
@@ -713,7 +738,7 @@ int ReadClause(Translator *tr, char *buf, short *charix, int *charix_top, int n_
 
 			if ((option_capitals == 2) && (sayas_mode == 0) && !iswupper(cprev)) {
 				char text_buf[30];
-				if (LookupSpecial(tr, "_cap", text_buf) != NULL) {
+				if (LookupSpecial(tr, "_cap", text_buf, sizeof(text_buf)) != NULL) {
 					j = strlen(text_buf);
 					if ((ix + j) < n_buf) {
 						strcpy(&buf[ix], text_buf);
@@ -1009,16 +1034,23 @@ static void TerminateBufWithSpaceAndZero(char *buf, int index, int *ungetc) {
 	}
 }
 
-static void DecodeWithPhonemeMode(char *buf, char *phonemes, Translator *tr, Translator *tr2, unsigned int flags[]) {
+// buf: Caller-owned destination for the encoded pronunciation.
+// capacity: Actual destination size including the terminator.
+// phonemes: Caller-owned internal phoneme string whose stress is adjusted.
+// tr: Primary translator and language identity.
+// tr2: Optional alternate translator for the explicitly selected character voice.
+// flags: Dictionary pronunciation flags.
+// Exception: Stops the guarded engine on formatting error or destination overflow.
+static void DecodeWithPhonemeMode(char *buf, size_t capacity, char *phonemes, Translator *tr, Translator *tr2, unsigned int flags[]) {
 	char phonemes2[55];
 	if (tr2 == NULL) {
 		SetWordStress(tr, phonemes, flags, -1, 0);
 		DecodePhonemes(phonemes, phonemes2);
-		sprintf(buf, "[\002%s]]", phonemes2);
+		luna_espeak_format(buf, capacity, "[\002%s]]", phonemes2);
 	} else {
 		SetWordStress(tr2, phonemes, flags, -1, 0);
 	    DecodePhonemes(phonemes, phonemes2);
 			char wbuf[5];
-	    sprintf(buf, "[\002_^_%s %s _^_%s]]", ESPEAKNG_DEFAULT_VOICE, phonemes2, WordToString2(wbuf, tr->translator_name));
+	    luna_espeak_format(buf, capacity, "[\002_^_%s %s _^_%s]]", ESPEAKNG_DEFAULT_VOICE, phonemes2, WordToString2(wbuf, tr->translator_name));
     }
 }

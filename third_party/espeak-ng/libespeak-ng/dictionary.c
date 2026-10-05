@@ -194,6 +194,10 @@ static void InitGroups(Translator *tr)
 	}
 }
 
+// tr: Translator receiving the verified dictionary and rule pointers.
+// name: Dictionary identity; must fit both native identity buffers without truncation.
+// no_error: Existing upstream flag controlling missing-file diagnostic output.
+// Exception: Returns dictionary errors or EINVAL/ENAMETOOLONG for rejected identities.
 int LoadDictionary(Translator *tr, const char *name, int no_error)
 {
 	int hash;
@@ -204,15 +208,30 @@ int LoadDictionary(Translator *tr, const char *name, int no_error)
 	int size;
 	char fname[sizeof(path_home)+20];
 
+	if (tr == NULL || name == NULL) {
+		fprintf(stderr, "LUNASHELL_tts: LoadDictionary rejected null identity/translator (cause=%d)\n", EINVAL);
+		return EINVAL;
+	}
+	const size_t name_length = strnlen(name, sizeof(dictionary_name));
+	if (name_length >= sizeof(dictionary_name) || name_length >= sizeof(tr->dictionary_name)) {
+		fprintf(stderr, "LUNASHELL_tts: LoadDictionary rejected oversized identity (cause=%d)\n", ENAMETOOLONG);
+		return ENAMETOOLONG;
+	}
 	if (dictionary_name != name)
-		strncpy(dictionary_name, name, 40); // currently loaded dictionary name
+		memmove(dictionary_name, name, name_length + 1);
 	if (tr->dictionary_name != name)
-		strncpy(tr->dictionary_name, name, 40);
+		memmove(tr->dictionary_name, name, name_length + 1);
 
 	// Load a pronunciation data file into memory
 	// bytes 0-3:  offset to rules data
 	// bytes 4-7:  number of hash table entries
-	sprintf(fname, "%s%c%s_dict", path_home, PATHSEP, name);
+	errno = 0;
+	const int path_length = snprintf(fname, sizeof(fname), "%s%c%s_dict", path_home, PATHSEP, name);
+	if (path_length < 0 || (size_t)path_length >= sizeof(fname)) {
+		const int cause = path_length < 0 ? (errno == 0 ? EILSEQ : errno) : ENAMETOOLONG;
+		fprintf(stderr, "LUNASHELL_tts: LoadDictionary path formatting failed (cause=%d)\n", cause);
+		return cause;
+	}
 
 	// Arduino memory hack using mem_map from https://github.com/pschatzmann/arduino-posix-fs
 	void* ptr = espeak_mem_map(fname, &size);
@@ -305,6 +324,9 @@ int HashDictionary(const char *string)
    outptr contains encoded phonemes, unrecognized phoneme stops the encoding
    bad_phoneme must point to char array of length 2 of more
  */
+// p: Input mnemonic cursor, advanced through the encoded phonemes.
+// outptr: Caller-owned output buffer for internal phoneme identities.
+// bad_phoneme: Optional output receiving the first unrecognized phoneme.
 const char *EncodePhonemes(const char *p, char *outptr, int *bad_phoneme)
 {
 	int ix;
@@ -338,6 +360,7 @@ const char *EncodePhonemes(const char *p, char *outptr, int *bad_phoneme)
 				p++;
 				break;
 			}
+			__attribute__((fallthrough));
 		default:
 			// lookup the phoneme mnemonic, find the phoneme with the highest number of
 			// matching characters
@@ -928,6 +951,11 @@ const char stress_phonemes[] = {
 	phonSTRESS_P, phonSTRESS_P2, phonSTRESS_TONIC
 };
 
+// tr: Selected language translator and its stress rules.
+// output: Caller-owned phoneme string, updated with the computed stress.
+// dictionary_flags: Optional dictionary-specified stress and pronunciation flags.
+// tonic: Requested tonic stress override.
+// control: Upstream stress-adjustment options for this word.
 void SetWordStress(Translator *tr, char *output, unsigned int *dictionary_flags, int tonic, int control)
 {
 	/* Guess stress pattern of word.  This is language specific
@@ -1043,7 +1071,7 @@ void SetWordStress(Translator *tr, char *output, unsigned int *dictionary_flags,
 		// stress on first syllable, unless it is a light syllable followed by a heavy syllable
 		if ((syllable_weight[1] > 0) || (syllable_weight[2] == 0))
 			break;
-		// fallthrough:
+		__attribute__((fallthrough));
 	case STRESSPOSN_2L:
 		// stress on second syllable
 		if ((stressed_syllable == 0) && (vowel_count > 2)) {
@@ -1493,6 +1521,14 @@ void AppendPhonemes(Translator *tr, char *string, int size, const char *ph)
 		strcat(string, ph);
 }
 
+// tr: Translator whose language rules are matched.
+// word: Input cursor advanced by the matched character group.
+// word_start: Beginning of the current word.
+// group_length: Initial byte length of the selected character group.
+// rule: Compiled dictionary rules for that group.
+// match_out: Best matching pronunciation and score.
+// word_flags: Word translation and suffix context.
+// dict_flags: Attributes already found in the dictionary.
 static void MatchRule(Translator *tr, char *word[], char *word_start, int group_length, char *rule, MatchRecord *match_out, int word_flags, int dict_flags)
 {
 	/* Checks a specified word against dictionary rules.
@@ -1519,7 +1555,9 @@ static void MatchRule(Translator *tr, char *word[], char *word_start, int group_
 	char *pre_ptr;
 	char *post_ptr;       // pointer to first character after group
 
+#if LUNASHELL_ESPEAK_DICTIONARY_TRACE
 	char *rule_start;     // start of current match template
+#endif
 	char *p;
 	int match_type;       // left, right, or consume
 	int syllable_count;
@@ -1537,10 +1575,11 @@ static void MatchRule(Translator *tr, char *word[], char *word_start, int group_
 
 	unsigned char condition_num;
 	char *common_phonemes; // common to a group of entries
-	char *group_chars;
 	char word_buf[N_WORD_BYTES];
 
-	group_chars = *word;
+#if LUNASHELL_ESPEAK_DICTIONARY_TRACE
+	char *group_chars = *word;
+#endif
 
 	if (rule == NULL) {
 		match_out->points = 0;
@@ -1576,7 +1615,9 @@ static void MatchRule(Translator *tr, char *word[], char *word_start, int group_
 		post_ptr = *word + group_length;
 
 		// work through next rule until end, or until no-match proved
+#if LUNASHELL_ESPEAK_DICTIONARY_TRACE
 		rule_start = rule;
+#endif
 
 		while (!failed) {
 			rb = *rule++;
@@ -2058,6 +2099,7 @@ static void MatchRule(Translator *tr, char *word[], char *word_start, int group_
 					total_consumed = consumed;
 				}
 
+#if LUNASHELL_ESPEAK_DICTIONARY_TRACE
 				if ((option_phonemes & espeakPHONEMES_TRACE) && (match.points > 0) && ((word_flags & FLAG_NO_TRACE) == 0)) {
 					// show each rule that matches, and it's points score
 					int pts;
@@ -2070,6 +2112,7 @@ static void MatchRule(Translator *tr, char *word[], char *word_start, int group_
 					DecodePhonemes(match.phonemes, decoded_phonemes);
 					fprintf(f_trans, "%3d\t%s [%s]\n", pts, DecodeRule(group_chars, group_length, rule_start, word_flags, output), decoded_phonemes);
 				}
+#endif
 			}
 		}
 
@@ -2439,6 +2482,13 @@ int TransposeAlphabet(Translator *tr, char *text)
 
     end_flags:  indicates whether this is a retranslation after removing a suffix
  */
+// tr: Translator owning the loaded dictionary.
+// word: Word key to look up.
+// word2: Following input used for multiword entries.
+// phonetic: Destination for the matching pronunciation.
+// flags: Output dictionary attributes and lookup context.
+// end_flags: Suffix retranslation context.
+// wtab: Optional word metadata for contextual matching.
 static const char *LookupDict2(Translator *tr, const char *word, const char *word2,
                                char *phonetic, unsigned int *flags, int end_flags, WORD_TAB *wtab)
 {
@@ -2457,17 +2507,23 @@ static const char *LookupDict2(Translator *tr, const char *word, const char *wor
 	int ix;
 	int c;
 	const char *word_end;
+#if LUNASHELL_ESPEAK_DICTIONARY_TRACE
 	const char *word1;
+#endif
 	int wflags = 0;
 	int lookup_symbol;
 	char word_buf[N_WORD_BYTES+1];
+#if LUNASHELL_ESPEAK_DICTIONARY_TRACE
 	char dict_flags_buf[80];
+#endif
 
 	if (wtab != NULL)
 		wflags = wtab->flags;
 
 	lookup_symbol = flags[1] & FLAG_LOOKUP_SYMBOL;
+#if LUNASHELL_ESPEAK_DICTIONARY_TRACE
 	word1 = word;
+#endif
 	if (tr->transpose_min > 0) {
 		strncpy0(word_buf, word, N_WORD_BYTES);
 		wlen = TransposeAlphabet(tr, word_buf); // bit 6 indicates compressed characters
@@ -2664,16 +2720,19 @@ static const char *LookupDict2(Translator *tr, const char *word, const char *wor
 		}
 
 		if (phoneme_len == 0) {
+#if LUNASHELL_ESPEAK_DICTIONARY_TRACE
 			if (option_phonemes & espeakPHONEMES_TRACE) {
 				print_dictionary_flags(flags, dict_flags_buf, sizeof(dict_flags_buf));
 				fprintf(f_trans, "Flags:  %s  %s\n", word1, dict_flags_buf);
 			}
+#endif
 			return 0; // no phoneme translation found here, only flags. So use rules
 		}
 
 		if (flags != NULL)
 			flags[0] |= FLAG_FOUND; // this flag indicates word was found in dictionary
 
+#if LUNASHELL_ESPEAK_DICTIONARY_TRACE
 		if (option_phonemes & espeakPHONEMES_TRACE) {
 			char ph_decoded[N_WORD_PHONEMES];
 			bool textmode;
@@ -2699,6 +2758,7 @@ static const char *LookupDict2(Translator *tr, const char *word, const char *wor
 				fprintf(f_trans, "' [%s]  %s\n", ph_decoded, dict_flags_buf);
 			}
 		}
+#endif
 
 		ix = utf8_in(&c, word);
 		if (flags != NULL && (word[ix] == 0) && !IsAlpha(c))

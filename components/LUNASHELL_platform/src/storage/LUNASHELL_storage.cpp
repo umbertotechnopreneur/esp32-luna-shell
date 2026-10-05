@@ -9,7 +9,6 @@
 #if CONFIG_LUNASHELL_TTS_DATA_SD
 #include "LUNASHELL_tts_storage.h"
 #include "psa/crypto.h"
-#include "freertos/semphr.h"
 #endif
 
 #include <algorithm>
@@ -30,6 +29,9 @@
 #include "esp_timer.h"
 #include "esp_vfs_fat.h"
 #include "freertos/FreeRTOS.h"
+#if CONFIG_LUNASHELL_TTS_DATA_SD
+#include "freertos/semphr.h"
+#endif
 #include "freertos/event_groups.h"
 #include "freertos/idf_additions.h"
 #include "freertos/task.h"

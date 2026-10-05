@@ -994,6 +994,10 @@ static int ScoreVoice(espeak_VOICE *voice_spec, const char *spec_language, int s
 	return score;
 }
 
+// voice_select: Requested language, age and voice metadata.
+// voices: Caller-owned array receiving the ordered voice candidates.
+// control: Existing voice-selection flags, including MBROLA visibility.
+// Exception: Stops the guarded engine on oversized language or native path identities.
 static int SetVoiceScores(espeak_VOICE *voice_select, espeak_VOICE **voices, int control)
 {
 	// control: bit0=1  include mbrola voices
@@ -1008,7 +1012,12 @@ static int SetVoiceScores(espeak_VOICE *voice_select, espeak_VOICE **voices, int
 	// count number of parts in the specified language
 	if ((voice_select->languages != NULL) && (voice_select->languages[0] != 0)) {
 		n_parts = 1;
-		lang_len = strlen(voice_select->languages);
+		lang_len = strnlen(voice_select->languages, sizeof(language));
+		if ((size_t)lang_len >= sizeof(language)) {
+			fprintf(stderr, "LUNASHELL_tts: SetVoiceScores rejected oversized language identity (cause=%d)\n", ENAMETOOLONG);
+			luna_espeak_fail(ENAMETOOLONG);
+			return 0;
+		}
 		for (ix = 0; (ix <= lang_len) && ((unsigned)ix < sizeof(language)); ix++) {
 			if ((language[ix] = tolower(voice_select->languages[ix])) == '-')
 				n_parts++;
@@ -1022,7 +1031,7 @@ static int SetVoiceScores(espeak_VOICE *voice_select, espeak_VOICE **voices, int
 		}
 
 		char buf[sizeof(path_home)+80];
-		sprintf(buf, "%s/voices/%s", path_home, language);
+		luna_espeak_format(buf, sizeof(buf), "%s/voices/%s", path_home, language);
 		if (GetFileLength(buf) == -EISDIR) {
 			// A subdirectory name has been specified.  List all the voices in that subdirectory
 			language[lang_len++] = PATHSEP;

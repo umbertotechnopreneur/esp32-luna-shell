@@ -104,9 +104,7 @@ void cancel_audio(void)
 // Exception: Returns callback cancellation/audio status to synthesis without declaring completion.
 static int dispatch_audio(short *outbuf, int length, espeak_EVENT *event)
 {
-#if USE_LIBPCAUDIO || USE_ASYNC
     int a_wave_can_be_played = 1;
-#endif
 #if USE_ASYNC
 	if ((my_mode & ENOUTPUT_MODE_SYNCHRONOUS) == 0)
 		a_wave_can_be_played = fifo_is_command_enabled();

@@ -467,6 +467,8 @@ static void SetupTranslator(Translator *tr, const short *lengths, const unsigned
 		memcpy(tr->stress_amps, amps, sizeof(tr->stress_amps));
 }
 
+// name: Language identity used to construct the native pronunciation rules.
+// Exception: Allocation failures escape through the sole worker's C engine guard.
 Translator *SelectTranslator(const char *name)
 {
 	int name2 = 0;
@@ -831,7 +833,7 @@ Translator *SelectTranslator(const char *name)
 		break;
 	case L('e', 't'): // Estonian
 		tr->encoding = ESPEAKNG_ENCODING_ISO_8859_4;
-		// fallthrough:
+		__attribute__((fallthrough));
 	case L('f', 'i'): // Finnish
 	{
 		tr->langopts.long_stop = 130;

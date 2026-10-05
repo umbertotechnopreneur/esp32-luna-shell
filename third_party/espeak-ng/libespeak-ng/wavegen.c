@@ -1049,6 +1049,8 @@ static void SetPitchFormants(void)
 	wvoice->height[1] = (wvoice->height2[1] * (256 - factor))/256;
 }
 
+// control: Embedded command identity with its existing relative-value flags.
+// value: Parsed command value applied to the current waveform state.
 void SetEmbedded(int control, int value)
 {
 	// there was an embedded command in the text at this point
@@ -1073,6 +1075,7 @@ void SetEmbedded(int control, int value)
 	{
 	case EMBED_T:
 		WavegenSetEcho(); // and drop through to case P
+		__attribute__((fallthrough));
 	case EMBED_P:
 		SetPitchFormants();
 		break;
@@ -1275,6 +1278,7 @@ void Write4Bytes(FILE *f, int value)
 	}
 }
 
+// No parameters: consumes the sole engine owner's waveform command queue.
 static int WavegenFill2(void)
 {
 	// Pick up next wavegen commands from the queue
@@ -1351,6 +1355,7 @@ static int WavegenFill2(void)
 			break;
 		case WCMD_SPECT2: // as WCMD_SPECT but stop any concurrent wave file
 			wdata.n_mix_wavefile = 0; // ... and drop through to WCMD_SPECT case
+			__attribute__((fallthrough));
 		case WCMD_SPECT:
 			echo_complete = echo_length;
 			result = Wavegen(length & 0xffff, q[1] >> 16, resume, (frame_t *)q[2], (frame_t *)q[3], wvoice);
