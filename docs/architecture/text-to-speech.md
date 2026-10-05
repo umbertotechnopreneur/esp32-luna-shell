@@ -11,22 +11,41 @@ The study branch is `feat/luna-speak` in `E:/ESP32 Luna Speaks`, based on local
 ## Decision
 
 A curated eSpeak NG port is a plausible offline candidate for ESP32-S3.
-Keep the synthesis engine in firmware; select internal flash or microSD for its
-phonetic and pronunciation data. eSpeak uses formant synthesis, not a neural
-voice model. A slow, low-pitched voice is configurable, but HAL-like naturalness
+Keep the synthesis engine in the optional firmware component. The requested
+storage choices are microSD with four languages or internal flash with English
+only. eSpeak uses formant synthesis, not a neural voice model.
+A slow, low-pitched voice is configurable, but HAL-like naturalness
 has not been established by listening.
 
-The requested languages are English, Italian and Chinese Mandarin. Mandarin is
-the working interpretation of "Chinese"; Cantonese is a distinct available
-upstream language, outside the selected package. The upstream
+The requested languages are English, Italian, Chinese Mandarin and Cantonese.
+Mandarin and Cantonese remain distinct selectable languages. The upstream
 [language list](https://github.com/espeak-ng/espeak-ng/blob/master/docs/languages.md)
-and the pinned port's definitions include `en`, `it` and `cmn`. Language support
-in those sources does not prove pronunciation quality on Luna.
+and the pinned port's definitions include `en`, `it`, `cmn` and `yue`.
+Language support in those sources does not prove pronunciation quality on Luna.
 
-Prefer immutable, curated three-language data embedded in the optional
-component's flash read-only section for the first integration. This keeps essential speech
-independent of a removable card and avoids filesystem-to-RAM copies of the
-large tables, once the loader's ownership rules have been corrected.
+The SD variant uses a curated four-language package. Do not embed its tables,
+dictionaries or voice definitions in the app image, LittleFS or a new flash
+partition. The selected card/package is a required TTS dependency; an absent
+or invalid package makes TTS unavailable, without a flash fallback.
+
+The flash variant embeds only the curated English package in the optional
+component's read-only data. Italian, Mandarin and Cantonese dictionaries and
+voice definitions must be excluded from that build and rejected at the request
+boundary. Do not silently speak those requests in English.
+
+Both variants execute the engine on the ESP32 and need budgeted working RAM
+and PCM buffers. SD additionally requires table loading into RAM; flash tables
+can be borrowed once the native loader's ownership is corrected. No files have
+been written to the physical card and no firmware has been flashed.
+
+| Build selection | Data location | Languages | Principal data payload |
+| --- | --- | --- | --- |
+| TTS disabled (default) | None | None | 0 TTS data bytes |
+| TTS SD | microSD only | English, Italian, Mandarin, Cantonese | 3,111,550 bytes on SD |
+| TTS flash | Optional component's flash read-only data | English only | 827,224 bytes in the app image |
+
+Payloads exclude voice metadata, engine code, alignment and runtime allocations;
+disabled-build exclusion is a required design invariant, not measured evidence.
 
 MicroSD is a separate explicit storage selection, useful for replaceable voice
 packages. It does not add working RAM or execute the synthesis engine. The
@@ -74,7 +93,7 @@ candidate payload size, not completeness of a newly curated package. Keep data
 and engine revisions coupled; do not regenerate tables with an arbitrary host
 version or treat missing phonemes as an acceptable partial success.
 
-The user's subsequent Italian and Chinese requirements change the payload:
+The selected four-language package has the following principal payload:
 
 | Selected data | Bytes | Scope |
 | --- | ---: | --- |
@@ -82,15 +101,18 @@ The user's subsequent Italian and Chinese requirements change the payload:
 | English `en_dict` | 168,204 | British English `en`; an American variant is optional |
 | Italian `it_dict` | 154,408 | `it` |
 | Mandarin `cmn_dict` | 1,566,347 | `cmn` |
-| **Three-language principal total** | **2,547,979** | **About 2.43 MiB / 2.55 MB before metadata and engine** |
+| Cantonese `yue_dict` | 563,571 | `yue`, separate from Mandarin |
+| **Four-language principal total** | **3,111,550** | **About 2.97 MiB / 3.11 MB before metadata and engine** |
 
 These sizes come from the pinned checkout's full `espeak-ng-data` files.
 Package the matching language definitions and all required phoneme dependencies
 from that full data revision; do not simply add dictionaries to an unchecked
 English-only package. Mandarin accounts for most of the additional storage.
 The total cannot fit in the existing 1-MiB LittleFS even before GUI resources.
-It could consume app flash or a separately selected partition, subject to the
-actual enabled firmware size. No app headroom has been measured.
+The SD package avoids that flash data payload, but does not eliminate engine
+code or RAM costs. The alternative English-only flash payload is the
+827,224-byte principal set above, not all four dictionaries. No complete
+firmware/runtime budget or available app headroom has been measured.
 
 ## Compile-time opt-in and script contract
 
@@ -99,12 +121,15 @@ The required primary symbol is `CONFIG_LUNASHELL_BUILD_ENABLE_TTS`, with
 checkpoint. No ordinary profile, full-services profile or board YAML should
 implicitly enable it. Audio output being enabled must not select TTS.
 Language choices must also govern packaged assets: proposed symbols
-`CONFIG_LUNASHELL_TTS_LANGUAGE_ENGLISH`, `CONFIG_LUNASHELL_TTS_LANGUAGE_ITALIAN`
-and `CONFIG_LUNASHELL_TTS_LANGUAGE_MANDARIN` exist only under enabled TTS.
-The explicit TTS feature's reviewed defaults should select the requested three;
+`CONFIG_LUNASHELL_TTS_LANGUAGE_ENGLISH`, `CONFIG_LUNASHELL_TTS_LANGUAGE_ITALIAN`,
+`CONFIG_LUNASHELL_TTS_LANGUAGE_MANDARIN` and
+`CONFIG_LUNASHELL_TTS_LANGUAGE_CANTONESE` exist only under enabled TTS.
+The SD feature's reviewed defaults select the requested four; flash defaults
+select only English. A flash build requesting another language must fail
+configuration rather than silently changing its selection. For either backend,
 an excluded language must contribute neither its dictionary nor voice metadata.
-Use a typed `SpeechLanguage` identity with stable English/Italian/Mandarin values;
-do not infer a voice from an array index or ambiguous `zh` alias.
+Use a typed `SpeechLanguage` identity with stable English/Italian/Mandarin/
+Cantonese values; do not infer a voice from an array index or ambiguous `zh` alias.
 
 When TTS is disabled, exclude its component roots, source files, data headers,
 generated assets, dependency resolution, worker, buffers and initialization
@@ -117,24 +142,30 @@ Implementation must cover the entire selection path:
 1. Add an explicit feature selection to [device.ps1](../../scripts/device.ps1)
    and [the firmware command](../../scripts/commands/firmware.ps1), with a
    corresponding variant in the [profile catalog](../../config/sdkconfig/v1/catalog.json).
-   The current accepted features are `none`, `distance` and `wake-word`;
-   `-Feature tts` is a future interface, not a runnable command today.
+   The current accepted features are `none`, `distance` and `wake-word`.
+   Proposed future selections are `-Feature tts-sd` and `-Feature tts-flash`;
+   neither is a runnable command today.
 2. Admit the optional native component before IDF component discovery, following
    the catalog's roots/directories pattern. Add isolated defaults, dependency
    lock, SDK configuration and build directory for the enabled variant.
    A CMake conditional after discovery alone is insufficient.
-3. Define explicit, mutually exclusive flash/SD data choices under the enabled
-   symbol. Require an already selected compatible audio output; do not turn on
-   audio hardware automatically. SD data additionally requires the selected SD
-   service. Reject invalid combinations rather than selecting another backend.
+3. Add mutually exclusive `CONFIG_LUNASHELL_TTS_DATA_SD` and
+   `CONFIG_LUNASHELL_TTS_DATA_FLASH` choices under enabled TTS. Require already
+   selected compatible audio output in both cases and the SD service for SD
+   data. Do not enable hardware automatically. Reject invalid combinations,
+   including flash with any non-English language, rather than selecting another
+   backend or silently dropping a requested language.
 4. Gate asset generation in CMake and the wrapper on the same resolved feature
    and storage choice. Generate build-local intermediates under `artifacts/`.
    Select only the reviewed enabled languages, not the port's all-language
    umbrella `src/espeak-ng-data.h`.
-5. For embedded flash arrays, data becomes part of the enabled app image only;
-   there is no separate TTS data image to flash. For SD, do not embed the package
-   in the app or LittleFS, or add a TTS entry to the firmware flash arguments.
-   Provision the card through an explicit owner-controlled operation.
+5. For the SD backend, do not embed the package in the app or LittleFS,
+   or add a TTS entry to the firmware flash arguments. Generate an isolated SD
+   package only for enabled TTS and provision the card through an explicit
+   owner-controlled operation. Firmware flashing does not provision the card.
+   For flash, generate/include only the curated English arrays in the optional
+   component: they become part of that variant's app image, with no separate
+   TTS image or partition. Never reuse SD/all-language generated arrays.
 6. If a dedicated flash partition is later chosen, give only that enabled
    variant its own partition CSV, generator target and flash entry. Ordinary
    profiles must retain their current partition table and flash list. Do not
@@ -193,21 +224,23 @@ audio transport add costs. No total heap, stack or CPU figure is available yet.
 Synthesis must yield without starving display/radio/acquisition owners; affinity
 and priority require measurements with the complete selected firmware.
 
-## Flash and SD loading
+## SD and English-only flash loading
 
-For flash, expose a curated immutable asset registry to a native loader or
+For the English-only flash backend, expose a curated immutable asset registry to a native loader or
 modify the engine loader to borrow validated flash tables. IDF maps linked
 read-only data for CPU reads; a dedicated raw partition would instead need a
 lifetime-owned mapping. LittleFS files are not direct pointers to flash tables.
 The current 1-MiB LittleFS is shared GUI package storage: the approximately
-2.43-MiB principal three-language payload exceeds its entire capacity.
+2.97-MiB principal four-language payload exceeds its entire capacity. Use the
+English-only optional component's app read-only data for flash; retain the
+existing partition table. Flash is an explicit build choice, never an SD fallback.
 
 For SD, extend the existing storage acquisition owner to verify and read a
 complete, versioned package. Load required random-access tables into explicitly
 budgeted PSRAM before synthesis. In the examined port, `ReadPhFile` and
 `LoadDictionary` read whole files when the memory mapping path is unavailable.
-SD storage therefore does not eliminate table copies. If all three principal
-datasets are retained at once, they alone occupy about 2.43 MiB in PSRAM.
+SD storage therefore does not eliminate table copies. If all four languages'
+principal datasets are retained at once, they alone occupy about 2.97 MiB in PSRAM.
 A serialized language-switch lifecycle may retain fewer dictionaries, but
 must account for secondary-language dependencies and cannot assume that the
 engine holds only one dictionary. The exact runtime total remains unknown.
@@ -250,7 +283,7 @@ Publish request admission, synthesis, playback, cancellation and failure through
 an extension of `DeviceSnapshotService`. Admission and generated PCM do not
 prove audio playback completion. Cody/GUI consumers use that canonical state;
 they do not inspect codec/storage/sensors or invent talking/freshness state.
-The user explicitly requested Italian and Chinese speech: the TTS request
+The user explicitly requested Italian, Mandarin and Cantonese speech: the TTS request
 boundary therefore needs bounded, validated UTF-8 and an explicit language.
 Reject malformed encoding, overlong input and disabled/unknown languages with
 an original error; never truncate through a character, silently transliterate
@@ -264,9 +297,11 @@ adds no vendor code to the firmware.
 
 ## Next implementation and validation boundary
 
-Implement the native optional component and curated three-language flash
-registry first, together with the catalog/CLI compile-time selection and a continuous audio
-session. SD packaging is a separate backend with explicit storage ownership.
+Implement the native optional component, curated four-language SD package and
+English-only flash registry, together with owner-controlled loading, isolated
+catalog/CLI variants and a continuous audio session. Keep TTS data out of
+firmware flash for SD and disabled builds; keep non-English data out of flash
+for every selected variant.
 Do not expose an enabled-but-nonfunctional firmware feature as completed work.
 
 After implementation and static cross-component review, request authorization

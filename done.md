@@ -15,7 +15,10 @@ flash logs were regenerated.
   [eSpeak design](docs/architecture/text-to-speech.md) after static review of
   the audio/storage/build owners and pinned embedded reference sources.
   The principal minimal-English files total 827,224 bytes; the requested
-  English/Italian/Mandarin principal data totals 2,547,979 bytes. This is file
+  English/Italian/Mandarin/Cantonese principal data totals 3,111,550 bytes,
+  including the 563,571-byte Cantonese dictionary. Defined SD storage for all
+  four languages and an explicit English-only flash alternative, with no TTS
+  data in disabled/SD firmware and no SD-to-flash fallback. This is file
   metadata, not a firmware/RAM/performance result. Defined default-off
   compilation and script/asset/flash exclusion requirements. No TTS engine,
   feature switch or model is integrated; implementation and all validation

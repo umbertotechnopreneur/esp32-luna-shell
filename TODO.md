@@ -12,13 +12,18 @@ bytes, not physical behavior; every open observation below remains open.
 - [ ] Implement the [native eSpeak integration design](docs/architecture/text-to-speech.md)
   with `CONFIG_LUNASHELL_BUILD_ENABLE_TTS` default off. Ordinary firmware must
   exclude engine, data, task and buffers; the catalog, public CLI, generators
-  and flash list must all honor the opt-in and selected flash/SD backend.
-- [ ] Port curated English, Italian and Chinese Mandarin tables and synchronous
-  PCM generation to IDF 6.0.2. Add per-language compile-time asset exclusion
+  and flash list must all honor the opt-in. Provide isolated SD (four-language)
+  and flash (English-only) selections; reject flash with non-English languages.
+  SD and disabled builds must carry/flash no TTS data. Embed only the curated
+  English payload in the optional app component for the flash variant.
+- [ ] Port curated English, Italian, Chinese Mandarin and Cantonese tables and
+  synchronous PCM generation to IDF 6.0.2. Add per-language compile-time asset exclusion
   and bounded validated UTF-8 TTS input while retaining English ASCII Cody UI:
   correct borrowed-table cleanup, allocation failures and error mapping; add
   a bounded streaming session to the existing audio owner and canonical TTS
-  status. Implement SD loading only through its owner. No implicit backend
+  status. Generate the four-language SD package and load it only through the
+  storage owner; implement a separate English-only immutable flash registry
+  with correct borrowed-table lifetimes. No implicit backend
   fallback, formatting, UI/LVGL admission or wake-word combination.
 - [ ] After implementation/static integration and fresh exact-command approval,
   establish off/on exclusion, firmware/heap/stack/CPU budgets, continuous audio,
