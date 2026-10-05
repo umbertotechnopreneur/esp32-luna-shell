@@ -70,6 +70,8 @@ constexpr uint32_t kDisplayLockTimeoutMs = 1000;
 // dd9f05d8's Debug worker/frame/coverage call chain alone occupied 8,176 bytes.
 // Keep headroom for nested helpers and register spills without spending internal RAM.
 constexpr uint32_t kWorkerStackBytes = 12288;
+// Keep the continuous frame owner away from the CPU0 radio/IP interrupt and task set.
+constexpr BaseType_t kRenderCoreId = 1;
 constexpr int64_t kWorkerStackSamplePeriodUs = 2000000;
 // Target the requested 25 FPS cadence; the HUD still reports measured throughput.
 #if CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY
@@ -3015,7 +3017,7 @@ void companion_worker(void *context)
 
 }  // namespace
 
-// Start the single companion owner; a failed stage keeps its original error.
+// No parameters: start the single companion owner on the dedicated render core.
 // Exception: Returns the original startup failure and publishes the failed stage.
 extern "C" esp_err_t CODY_companion_start(void)
 {
@@ -3163,14 +3165,15 @@ extern "C" esp_err_t CODY_companion_start(void)
     TaskHandle_t worker = nullptr;
     if (xTaskCreatePinnedToCoreWithCaps(
             companion_worker, "CODY_companion", kWorkerStackBytes,
-            nullptr, 2, &worker, kRasterBenchmarkEnabled ? 1 : tskNO_AFFINITY,
+            nullptr, 2, &worker, kRenderCoreId,
             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
         ) != pdPASS) {
         release_companion_resources();
         return fail_consumer("Worker creation", ESP_ERR_NO_MEM, false);
     }
-    ESP_LOGI(kTag, "Animated %s and real touch ready; frame-owned internal raster, active=%lu ms standby=%lu ms",
+    ESP_LOGI(kTag, "Animated %s and real touch ready; frame-owned internal raster on core %ld, active=%lu ms standby=%lu ms",
              s_state.deep_sleep_wake ? "35B / Wake -> 16 / Idle" : "01 Sleeping (2s fade) -> 02 Waking (4s) -> 03 Ready (4s)",
+             static_cast<long>(kRenderCoreId),
              static_cast<unsigned long>(kSamplePeriodMs),
              static_cast<unsigned long>(kStandbySamplePeriodMs));
     return ESP_OK;

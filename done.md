@@ -7,6 +7,11 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Assigned the continuous native Cody renderer to CPU1 and made the Cody profile's
+  CPU0 ownership explicit for startup, Wi-Fi, the Bluetooth controller, NimBLE and
+  lwIP. The single frame/display owner and unpinned bounded service workers are
+  unchanged. This checkpoint has static source review only; build and physical
+  per-core/frame/radio validation remain open in `TODO.md`.
 - Implemented native frame DMA overlap on `codex/cody-dma-double-buffer`: reborrow
   idle storage before every dirty tile, keep at most one color DMA outstanding,
   drain the final transfer before freeing memory, ending the watchdog and

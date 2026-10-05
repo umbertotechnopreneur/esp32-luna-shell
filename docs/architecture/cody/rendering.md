@@ -104,6 +104,21 @@ overlapping layers in original order inside each compact rectangle, using absolu
 canvas gradient/coverage coordinates. RGB565 transport byte order is converted in
 word pairs; native pixels are not copied out of a persistent packed framebuffer.
 
+### Core placement
+
+The Cody profile keeps startup, Wi-Fi, the Bluetooth controller, NimBLE and the
+lwIP TCP/IP task on CPU0. After the mandatory boot frame has completed on the
+startup caller, the single native `CODY_companion` frame owner is pinned to CPU1
+for ordinary rendering as well as diagnostic benchmarks. Snapshot, settings,
+power and other bounded workers remain unpinned unless their hardware contract
+requires otherwise.
+
+This placement isolates the continuous raster workload from the radio/IP task
+set; it does not split a frame across cores or add a second display owner. The
+renderer still owns evaluation, touch dispatch, rasterization and completed-frame
+state in order. Per-core load, frame latency and radio behavior require a fresh
+physical capture before claiming a performance improvement.
+
 Vector edges use four vertical coverage subsamples plus 1/256-pixel horizontal
 coverage, blending once; opaque full spans have a fast path. Fixed prepared debug
 stroke/marker geometry and bounded fill shortlists preserve order and identity.
@@ -234,8 +249,8 @@ settings. Touch, PWR capture, display revision, expression/face changes and powe
 lifecycle requests interrupt it; partial counts are not reported as a completed
 baseline. Exit restores the selected look, ordinary standby policy and a deferred
 first-run greeting. Sleep/Wake continues through its usual lifecycle. The worker
-is pinned to core 1 in this temporary benchmark configuration; CPU frequency is
-not locked or measured by the benchmark. Keep the configured clock, power mode,
+retains the ordinary CPU1 renderer affinity; CPU frequency is not locked or
+measured by the benchmark. Keep the configured clock, power mode,
 radio state, display rotation and logging sinks identical between captures.
 
 `benchmark.profile_blocks: false` is the baseline. It uses the ordinary fused C
@@ -337,7 +352,7 @@ skip interpolation and composition exactly. RGB565 arithmetic and byte swapping 
 original code. Packing, call overhead, tails and composition are all included in
 the coarse jelly/frame duration; detailed `prep` additionally includes gathering.
 SIMD uses task-owned CP3 state through the IDF port, without disabling interrupts
-or writing CPENABLE. The benchmark worker remains pinned to core 1. The original
+or writing CPENABLE. The render worker remains pinned to core 1. The original
 PIE ABI and arithmetic passed target parity before row trimming; the new
 coverage skip still needs a fresh physical pixel-parity run. The 16-pixel
 scratch size restores the original stack footprint.

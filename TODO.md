@@ -176,9 +176,12 @@ older host/build/flash evidence does not validate the current combined image.
   `artifacts/build-release-evidence/cody-{greeting-freeze,reboot-loop-live}.log`.
 - [ ] Meet sustained artwork/skeleton frame and CPU budgets. Establish a logged
   static-route baseline; measure stage distributions, payload bytes, DMA wait,
-  stack/radio headroom and concurrent standby/rotation/slow-DMA behavior.
+  stack/radio headroom and concurrent standby/rotation/slow-DMA behavior. Verify
+  the Cody CPU0 radio/IP and CPU1 renderer partition under idle, pairing, HTTP and
+  BLE telemetry load, including per-core utilization and frame latency.
   Validate compact/full pixel parity and old/new damage before ranking exact-pixel
-  CPU changes; asynchronous double-buffer DMA/multicore remain later stages.
+  CPU changes. The current affinity moves one frame owner; a deeper parallel
+  raster pipeline remains a later stage and must not create a second display owner.
   Existing narrow captures are not proof of the current image's target.
   [Rendering evidence](docs/architecture/cody/rendering.md).
 - [ ] Finish Cody Alpha physical checks: both boot cues' acoustics, real charge/
