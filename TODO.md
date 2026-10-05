@@ -3,18 +3,20 @@
 Only open, actionable work belongs here. Deferred work is in
 [planned-todo.md](planned-todo.md); completed implementation/evidence is in
 [done.md](done.md). Authorization is governed solely by [AGENTS.md](AGENTS.md).
-The latest feature-worktree Debug Cody image at `57121ca2` (`tts-sd`) was built
-and flashed on COM10 on 2026-10-05. Earlier ordinary Cody evidence belongs to
+The latest feature-worktree Debug Cody image at `58757005` (`tts-sd`) was built
+and flashed on COM10 on 2026-10-05. Its authorized 30-second boot capture
+completes mandatory startup without the prior allocation abort; SD initialization
+timed out before synthesis. Earlier ordinary Cody evidence belongs to
 `09ea3b70` and `160a080a`. Verified flash hashes prove the written bytes;
 every open physical observation below remains open.
 
 ## Optional local TTS on feat/luna-speak
 
-- [ ] Resolve the captured `57121ca2` boot regression: COM10 repeatedly aborts
-  with `ESP_ERR_NO_MEM` from `LUNASHELL_power_manager_init()` before startup
-  completes. Native engine BSS/COMMON now maps to PSRAM and optional speech
-  worker creation follows all mandatory startup owners. Static correction only;
-  rebuilding/flashing and a new bounded boot capture require authorization.
+- [ ] Verify SD initialization after the user reinserts the prepared card.
+  Corrected `58757005` completes boot, with native BSS/text/package directory
+  in PSRAM and speech creation after mandatory owners. The first corrected
+  30-second capture shows two card-init timeouts and a real failed speech request;
+  it does not establish mounted storage, synthesis or audible playback.
 - [ ] After fresh exact-command authorization, validate the
   [implemented native integration](docs/architecture/text-to-speech.md): normal
   builds exclude the engine/data/task; SD firmware includes no speech payload;

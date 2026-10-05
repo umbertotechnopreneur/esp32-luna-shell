@@ -2,14 +2,16 @@
 
 Status: **Cody SD Debug built/flashed and SD provisioned, 2026-10-05**. Worktree:
 `E:/ESP32 Luna Speaks`, branch `feat/luna-speak`; local `main` at `c8e73dec`
-was merged in `2166903b`. Firmware `57121ca2` was built with ESP-IDF 6.0.2 and
+was merged in `2166903b`. Firmware `58757005` was built with ESP-IDF 6.0.2 and
 flashed on COM10 with all written hashes verified, followed by an RTS reset.
 All four languages were copied to G: with SHA-256 readback verification.
 Tests/scans, size reports, simulator, other variants, runtime budgets and physical
 sound remain unverified. Deployment evidence is recorded in [done.md](../../done.md).
-The subsequent authorized boot capture found a real regression in that image:
-mandatory power-task creation returns `ESP_ERR_NO_MEM`, causing repeated reboot
-before speech is requested. The source correction below is awaiting rebuild/flash.
+The earlier `57121ca2` boot capture found mandatory power-task creation failing
+with `ESP_ERR_NO_MEM`, causing repeated reboot before speech was requested.
+The PSRAM correction in `58757005` is built/flashed: its authorized 30-second
+capture completes mandatory startup and keeps rendering without that abort.
+SD card initialization times out, so synthesis and audible playback remain open.
 
 ## Composition and languages
 
@@ -63,7 +65,9 @@ The bounded request text and SD package buffer directory also reside in PSRAM;
 the immutable package, synthesis heap, transient stack buffers and worker stack
 already use external memory. Small initialized native control values keep their
 original initialization; they cannot be placed in zero-initialized external BSS.
-The placement/startup correction has static review only, pending device validation.
+The corrected boot capture increases early free internal RAM from 88,703 to
+105,119 bytes (16,416 recovered) and confirms mandatory power/startup completion.
+This bounded observation does not establish speech load or longer-term budgets.
 With `CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN`, mandatory startup then calls the
 one-shot `request_boot_speech_test()`. The `tts-sd` catalog variant enables that
 symbol; `tts-flash` and ordinary profiles do not. No scene, UI, HTTP endpoint or

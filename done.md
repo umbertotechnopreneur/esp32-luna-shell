@@ -78,6 +78,18 @@ flash logs were regenerated.
   reside in external BSS, alongside the already external package/heap/stack.
   Static review only; this correction has not yet
   been built, flashed or observed on the device.
+- Subsequently built/flashed correction `58757005` on COM10 through the same
+  eight-job `cody-companion`/`tts-sd` Debug flash command; all esptool written
+  hashes verified and RTS reset completed. App remains 4,211,408 bytes.
+  The authorized fresh 30-second boot capture matches ELF SHA prefix `98dc75b01`:
+  early free internal RAM is 105,119 bytes versus 88,703 (16,416 recovered),
+  mandatory power service and startup complete, the speech worker starts on core 0
+  after those owners, and Cody rendering continues without the previous abort.
+  SD card-init instead times out twice; speech request 1 correctly fails with
+  `ESP_ERR_TIMEOUT` before any engine initialization. User subsequently reported
+  reinserting the prepared card; mounting and audible playback need a new observation.
+  Evidence: `artifacts/build-cody-companion-tts-sd-debug/evidence/tts-psram-fix-flash-20261005.log`
+  and `tts-psram-fixed-boot.log` in the same directory.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
