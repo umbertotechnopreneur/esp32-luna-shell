@@ -20,7 +20,7 @@ enum class StatusTone : uint8_t {
 // Prepared text and icon semantics contain no renderer or hardware ownership.
 struct StatusOverlay {
     char date[16] = "TIME";
-    char time[16] = "UNAVAILABLE";
+    char time[16] = "UNAVAILABLE"; // Current local HH:MM, or an explicit unavailable state.
     char battery[16] = "UNAVAILABLE";
     StatusTone clock_tone = StatusTone::Muted;
     StatusTone battery_tone = StatusTone::Muted;

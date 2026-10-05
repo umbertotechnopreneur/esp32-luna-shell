@@ -47,13 +47,17 @@ def main(argv=None) -> None:
         include_dirs = ("scripts/tests/cody_native", "components/CODY2D/include",
                         "components/LUNASHELL_platform/include", "assets/cody/scenes/generated",
                         "components/CODY_companion/include", "assets/cody/rig/generated",
-                        "assets/cody/appearance/jelly-scanline/generated")
+                        "assets/cody/appearance/jelly-scanline/generated",
+                        "assets/cody/personality-icons/generated")
+        include_dirs += ("assets/cody/personality/generated",)
         sources = ("scripts/tests/cody_native/raster_contract.cpp", "scripts/tests/scene_standby_policy.cpp",
                    "components/CODY2D/src/CODY2D.cpp",
                    "scripts/tests/cody_native/host_settings.cpp",
                    "components/CODY2D/src/CODY2D_paths.cpp", "components/CODY2D/src/CODY2D_text.cpp",
                    "components/CODY2D/src/CODY2D_controls.cpp", "components/CODY_companion/src/model/CODY_rig.cpp",
                    "components/CODY_companion/src/rendering/CODY_dirty_plan.cpp",
+                   "components/CODY_companion/src/rendering/CODY_personality.cpp",
+                   "assets/cody/personality-icons/generated/personality_icons.cpp",
                    "components/CODY_companion/src/rendering/CODY_jelly.cpp",
                    "components/CODY_companion/src/runtime/CODY_lifecycle.cpp",
                    "components/CODY_companion/src/scenes/CODY_scene.cpp",

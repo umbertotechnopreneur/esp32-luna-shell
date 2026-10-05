@@ -940,6 +940,15 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
     if (profile != nullptr) {
         const int64_t now_us = profile->now_us();
         profile->vector_us += now_us - stage_started_us;
+        stage_started_us = now_us;
+    }
+    result = draw_personality_rows(scene.personality, strip, first_row, first_column);
+    if (result != ESP_OK) {
+        return result;
+    }
+    if (profile != nullptr) {
+        const int64_t now_us = profile->now_us();
+        profile->personality_us += now_us - stage_started_us;
         profile->artwork_us += now_us - artwork_started_us;
         stage_started_us = now_us;
     }
@@ -983,6 +992,12 @@ esp_err_t rig_damage_bounds(const RigScene &scene, bool debug, DamageRect &bound
     float top = 466.f;
     float right = 0.f;
     float bottom = 0.f;
+    if (!scene.personality.bounds.empty()) {
+        left = scene.personality.bounds.left;
+        top = scene.personality.bounds.top;
+        right = scene.personality.bounds.right;
+        bottom = scene.personality.bounds.bottom;
+    }
 #if CODY_ENABLE_PEARL_JELLY
     if (!scene.jelly.valid) {
         ESP_LOGE(kTag, "Artwork bounds rejected: invalid jelly mapping (%s)",
@@ -990,10 +1005,10 @@ esp_err_t rig_damage_bounds(const RigScene &scene, bool debug, DamageRect &bound
         return ESP_ERR_INVALID_STATE;
     }
     if (!scene.jelly.bounds.empty()) {
-        left = scene.jelly.bounds.left;
-        top = scene.jelly.bounds.top;
-        right = scene.jelly.bounds.right;
-        bottom = scene.jelly.bounds.bottom;
+        left = std::min(left, static_cast<float>(scene.jelly.bounds.left));
+        top = std::min(top, static_cast<float>(scene.jelly.bounds.top));
+        right = std::max(right, static_cast<float>(scene.jelly.bounds.right));
+        bottom = std::max(bottom, static_cast<float>(scene.jelly.bounds.bottom));
     }
 #endif
     for (uint16_t index = 0; index < std::size(Data::paths); ++index) {

@@ -187,17 +187,25 @@ def main(argv=None):
         includes = ("scripts/tests/cody_native", "components/CODY2D/include", "components/CODY_companion/include",
                     "components/LUNASHELL_platform/include",
                     "assets/cody/rig/generated", "assets/cody/runtime/generated",
-                    "assets/cody/appearance/jelly-scanline/generated")
+                    "assets/cody/appearance/jelly-scanline/generated",
+                    "assets/cody/personality-icons/generated")
+        includes += ("assets/cody/personality/generated",)
         sources = ("scripts/tests/cody_native/runtime_contract.cpp", "components/CODY2D/src/CODY2D.cpp",
                        "scripts/tests/cody_native/host_settings.cpp",
+                       "scripts/tests/cody_native/host_diagnostics.cpp",
+                       "components/CODY_companion/src/diagnostics/CODY_debug_hud.cpp",
+                       "scripts/tests/cody_native/status_overlay_contract.cpp",
+                       "components/CODY_companion/src/diagnostics/CODY_status_overlay.cpp",
                        "components/CODY2D/src/CODY2D_paths.cpp", "components/CODY_companion/src/model/CODY_rig.cpp",
                        "components/CODY_companion/src/model/CODY_response.cpp", "components/CODY_companion/src/demos/CODY_demo.cpp",
                        "components/CODY_companion/src/diagnostics/CODY_benchmark.cpp", "components/CODY_companion/src/rendering/CODY_damage.cpp",
+                       "components/CODY_companion/src/rendering/CODY_personality.cpp",
+                       "assets/cody/personality-icons/generated/personality_icons.cpp",
                        "components/CODY_companion/src/rendering/CODY_jelly.cpp",
                        "assets/cody/appearance/jelly-scanline/generated/cody_jelly_data.cpp")
         executable = output / "runtime-contract.exe"
         command = compile_command(compiler, includes, sources, executable,
-                                  definitions=("CODY_ENABLE_PEARL_JELLY=1",))
+                                  definitions=("CODY_ENABLE_PEARL_JELLY=1",), cxx_standard=20)
         run_stage(command, output, "compile")
         native = run_stage([str(executable)], output, "runtime")
         compare_response(json.loads(native.stdout))
@@ -207,6 +215,8 @@ def main(argv=None):
                        "rolling stage statistics, percentiles and overlay separation", "shared eye hit targets and transient annoyance",
                        "dirty-region packing, stride guards, full redraw after cache invalidation and rig framebuffer parity",
                        "scanline stroke exact parity with exhaustive reference, round caps and clipped tiles",
+                       "native main HUD canonical CPU/IP/RAM/SD validity, lower-arc glyph rasterization and circular clipping",
+                       "native status overlay glyph and layout contract",
                        "original tiny typewriter cue, nonblocking coalesced admission, shared audio owner and stale-scene suppression"])
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"

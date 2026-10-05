@@ -56,6 +56,12 @@ normal vector path, never a fallback after renderer error.
 
 ## Snapshot-driven response
 
+One optional manga personality symbol now shares the evaluated pose and dirty
+frame ownership. Its fixed-palette masters, typed sizes, bounded delayed follow,
+canonical device-cue gating and source-only budgets are documented in
+[personality symbols](personality-icons.md). It adds no second full-canvas warp.
+
+
 Only `DeviceSnapshotService` supplies real firmware inputs, validity/health,
 errors and original timestamps. Cody never reads sensors/BSP/I2C directly or
 uses stale data as current. The response consumes acceleration, not gyro; its

@@ -1,0 +1,286 @@
+{
+  "version": 1,
+  "provenance": "Original analytic synthesis; no external recordings, models or samples.",
+  "sample_rate_hz": 16000,
+  "channels": 1,
+  "bits_per_sample": 16,
+  "generator": "scripts/device.ps1 generate -Generator cody-personality-audio",
+  "generator_sha256": "3ee2cc18c51d2acc06017f85b8f667e1004d41dc1cce5b65c9254b2f8df06431",
+  "listening_review": "Not performed; first authored pass for later listening and refinement.",
+  "total_pcm_bytes": 103360,
+  "clips": [
+    {
+      "id": 1,
+      "cue": "Sleep",
+      "file": "sleep.wav",
+      "recipe": "breath",
+      "description": "A soft rounded exhale with a falling airy tail.",
+      "duration_ms": 220,
+      "samples": 3520,
+      "pcm_bytes": 7040,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "4abc084c0371f23af7e6b8ccd09bdd67fa70b1a2a2c1f2146f302b031352f440",
+      "sha256_wav": "e40d7c768084fa0197c831c8ab6f7754609d063ca68e4190ca51b6a9732cf734"
+    },
+    {
+      "id": 2,
+      "cue": "Fear",
+      "file": "fear.wav",
+      "recipe": "shiver",
+      "description": "A tiny rising tremble, intentionally gentle rather than alarming.",
+      "duration_ms": 180,
+      "samples": 2880,
+      "pcm_bytes": 5760,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "8c371476782b65baed6e09525f0424ef14aa825d336bba36f4a4132615ef8372",
+      "sha256_wav": "ea46805379bea1e5a8136eafa715973e68f4115e21f8d322c8a00c302a9fce47"
+    },
+    {
+      "id": 3,
+      "cue": "Joy",
+      "file": "joy.wav",
+      "recipe": "sparkle",
+      "description": "Three light ascending bell sparkles.",
+      "duration_ms": 280,
+      "samples": 4480,
+      "pcm_bytes": 8960,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "2afc19f1958151f3b53d7e3f9cb22013d4d9fd04bd7e8b80242adcb679798f53",
+      "sha256_wav": "b8c9ed5e9ac9ce1802aaf39091c05cb8f0d4ec5d67aa465d8b3e84fa219d435b"
+    },
+    {
+      "id": 4,
+      "cue": "Hunger",
+      "file": "hunger.wav",
+      "recipe": "tummy",
+      "description": "A rounded two-pulse cartoon tummy wobble.",
+      "duration_ms": 240,
+      "samples": 3840,
+      "pcm_bytes": 7680,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "8821a98a95c0195e944d0525877385eadf29a4f0c4f284c131b5a122576e0d59",
+      "sha256_wav": "d107e5a9872f57b15983a0abdf59185f15b6ad8b9fea5d3548dfd7e2621ef6a4"
+    },
+    {
+      "id": 5,
+      "cue": "Thirst",
+      "file": "thirst.wav",
+      "recipe": "drop",
+      "description": "One small descending water plip.",
+      "duration_ms": 180,
+      "samples": 2880,
+      "pcm_bytes": 5760,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "d43c7759b7d0c754accd9eb5e2826c6877a86976ce07eca86a847135498f44d1",
+      "sha256_wav": "6ae1bac1fa3fa9d7d504e34f697c7ef31057f2636249652f5403df015cf3eba2"
+    },
+    {
+      "id": 6,
+      "cue": "Heat",
+      "file": "heat.wav",
+      "recipe": "heat",
+      "description": "A soft warm air puff with a descending pitch.",
+      "duration_ms": 220,
+      "samples": 3520,
+      "pcm_bytes": 7040,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "108aaa535f82d6aa13e423ed85f30ace10f448a3bd570186cb17355388dccd08",
+      "sha256_wav": "f809907511b7cb5954535dad462363df445ce0fa26863d4cd052d4d7ad8c9858"
+    },
+    {
+      "id": 7,
+      "cue": "Cold",
+      "file": "cold.wav",
+      "recipe": "cold",
+      "description": "Three faint icy glass ticks.",
+      "duration_ms": 240,
+      "samples": 3840,
+      "pcm_bytes": 7680,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "56e0934fe39bc6b83b71b19924c209e4cda4020a8e9f195804154804ae090813",
+      "sha256_wav": "ca7e8ad600d67f26626f9bafc9515e53711855e1087b2067adc363ee9a0331ba"
+    },
+    {
+      "id": 8,
+      "cue": "LowBattery",
+      "file": "low-battery.wav",
+      "recipe": "low",
+      "description": "Two soft descending rounded notes, not a critical alarm.",
+      "duration_ms": 250,
+      "samples": 4000,
+      "pcm_bytes": 8000,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "ba1419128c4fe28b5fbed61b54793934f642ab42092c514ba2d7edf1c106b8c3",
+      "sha256_wav": "b8e8517bfcfada62eb875d2239db0a3bdfc3108293ef2fc5f8ec67916b1e6795"
+    },
+    {
+      "id": 9,
+      "cue": "Charging",
+      "file": "charging.wav",
+      "recipe": "charge",
+      "description": "A restrained upward energy glint.",
+      "duration_ms": 230,
+      "samples": 3680,
+      "pcm_bytes": 7360,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "3b35045395d7d66013a42c3c65f90b42546abfd9588ae16126100268e03d32d8",
+      "sha256_wav": "82a8baa9d52442cb1294a5d6ac5368c7061b46668c582ff366fa29ecf546a5c2"
+    },
+    {
+      "id": 10,
+      "cue": "NoWifi",
+      "file": "no-wifi.wav",
+      "recipe": "offline",
+      "description": "Two light broken-link notes with a short silent gap.",
+      "duration_ms": 240,
+      "samples": 3840,
+      "pcm_bytes": 7680,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "ebf1b2db5b3caa2b41386101d372e28fb7ce847d2fdcada619656646c0d6d778",
+      "sha256_wav": "8c65701fc9f2a3584bf9e6d7ec743dc18701bcdd28851feef302591cb7c5871e"
+    },
+    {
+      "id": 11,
+      "cue": "Curiosity",
+      "file": "curiosity.wav",
+      "recipe": "plip",
+      "description": "An upward questioning plip.",
+      "duration_ms": 170,
+      "samples": 2720,
+      "pcm_bytes": 5440,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "112b1a1faff17ae47e4c64d6b80bd3edae2f40baade5ad0e00b47bd904151aee",
+      "sha256_wav": "12fda26ecb91579454d6c923fdf7d423d07b317253ed1b31adb7bd7c34c56d91"
+    },
+    {
+      "id": 12,
+      "cue": "Confusion",
+      "file": "confusion.wav",
+      "recipe": "wobble",
+      "description": "A small elastic pitch wobble.",
+      "duration_ms": 280,
+      "samples": 4480,
+      "pcm_bytes": 8960,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "5d2d395d7ef736fb668caca6edd293170bb93021f8ab0c319340b62de3f216d9",
+      "sha256_wav": "8682c99391318a6481a9fecc101d212b3f941746292de434c90ae18c13f92ad7"
+    },
+    {
+      "id": 13,
+      "cue": "Affection",
+      "file": "affection.wav",
+      "recipe": "heart",
+      "description": "A warm soft two-note heart chime.",
+      "duration_ms": 300,
+      "samples": 4800,
+      "pcm_bytes": 9600,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "01a0a490319cf50956c2e0a257502cfc30c955f68ed73e8a4526bcbb8421c2b6",
+      "sha256_wav": "4218811de29677bce89c1ac70b9bf952996965b8d1ecf4b0007574ef0a587f43"
+    },
+    {
+      "id": 14,
+      "cue": "Frustration",
+      "file": "frustration.wav",
+      "recipe": "huff",
+      "description": "A brief rounded puff and low elastic grumble.",
+      "duration_ms": 200,
+      "samples": 3200,
+      "pcm_bytes": 6400,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "3e71567c908f9f6af9e2f1232d762b3b319f474c5281d4be8b5d2df8148d5272",
+      "sha256_wav": "bb5beb6d31550381af012625c07a8a44390594d5589b610d8505c60663d536c1"
+    }
+  ],
+  "audition": {
+    "file": "audition-all-14.wav",
+    "gap_ms": 700,
+    "duration_ms": 12330,
+    "offsets": [
+      {
+        "cue": "Sleep",
+        "start_ms": 0,
+        "duration_ms": 220
+      },
+      {
+        "cue": "Fear",
+        "start_ms": 920,
+        "duration_ms": 180
+      },
+      {
+        "cue": "Joy",
+        "start_ms": 1800,
+        "duration_ms": 280
+      },
+      {
+        "cue": "Hunger",
+        "start_ms": 2780,
+        "duration_ms": 240
+      },
+      {
+        "cue": "Thirst",
+        "start_ms": 3720,
+        "duration_ms": 180
+      },
+      {
+        "cue": "Heat",
+        "start_ms": 4600,
+        "duration_ms": 220
+      },
+      {
+        "cue": "Cold",
+        "start_ms": 5520,
+        "duration_ms": 240
+      },
+      {
+        "cue": "LowBattery",
+        "start_ms": 6460,
+        "duration_ms": 250
+      },
+      {
+        "cue": "Charging",
+        "start_ms": 7410,
+        "duration_ms": 230
+      },
+      {
+        "cue": "NoWifi",
+        "start_ms": 8340,
+        "duration_ms": 240
+      },
+      {
+        "cue": "Curiosity",
+        "start_ms": 9280,
+        "duration_ms": 170
+      },
+      {
+        "cue": "Confusion",
+        "start_ms": 10150,
+        "duration_ms": 280
+      },
+      {
+        "cue": "Affection",
+        "start_ms": 11130,
+        "duration_ms": 300
+      },
+      {
+        "cue": "Frustration",
+        "start_ms": 12130,
+        "duration_ms": 200
+      }
+    ]
+  }
+}

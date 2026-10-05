@@ -17,11 +17,15 @@ struct FrameRateMeasurement {
 };
 
 struct DebugReadout {
-    char frame_rate[20] = "FPS N/A";
-    char processors[32] = "CPU1 N/A CPU2 N/A";
+    char frame_rate[20] = "FPS UNAVAILABLE";
+    char processors[40] = "CPU1 UNAVAILABLE CPU2 UNAVAILABLE";
+    char network[32] = "IP UNAVAILABLE";
+    char memory[48] = "RAM UNAVAILABLE PSRAM UNAVAILABLE";
+    char storage_state[40] = "SD UNCONFIRMED NO ACCESS";
+    char storage_free[32] = "SD FREE UNAVAILABLE";
 };
 
-// No parameters: the HUD owns its complete possible footprint below the safe square.
+// No parameters: the HUD owns the lower arc below the automatic greeting title.
 DamageRect debug_readout_damage_bounds();
 
 // measurement: Completed-frame counters owned by the single rendering worker.
@@ -32,7 +36,7 @@ void record_frame_rate(FrameRateMeasurement &measurement,
 
 // measurement: Measured completed frames; no requested refresh rate is displayed.
 // now_us: Observation timestamp used to reject an old FPS window.
-// readout: Receives text from the canonical processor snapshot and renderer timing.
+// readout: Receives bounded text from canonical diagnostics and renderer timing.
 esp_err_t prepare_debug_readout(const FrameRateMeasurement &measurement,
                                int64_t now_us, DebugReadout &readout);
 

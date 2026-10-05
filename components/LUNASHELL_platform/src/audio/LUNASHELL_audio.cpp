@@ -85,6 +85,8 @@ struct TypewriterMailbox {
 };
 TypewriterMailbox s_typewriter_mailbox;
 portMUX_TYPE s_typewriter_mailbox_mux = portMUX_INITIALIZER_UNLOCKED;
+// No parameters: cancels any symbol dispatch before the codec changes lifecycle ownership.
+void invalidate_personality_events();
 std::atomic<esp_err_t> s_typewriter_last_error{ESP_OK};
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 std::array<int16_t, TYPEWRITER_MAX_TRANSPORT_SAMPLES> s_typewriter_transport_samples;
@@ -1105,6 +1107,7 @@ extern "C" esp_err_t LUNASHELL_audio_prepare_voice_route(void)
 extern "C" esp_err_t LUNASHELL_audio_set_standby(bool standby)
 {
     invalidate_typewriter_events();
+    invalidate_personality_events();
     SemaphoreHandle_t mutex = audio_mutex();
     if (mutex == nullptr) {
         return ESP_ERR_NO_MEM;
@@ -1518,4 +1521,410 @@ extern "C" esp_err_t LUNASHELL_audio_set_typewriter_suspended(bool suspended)
         return ESP_ERR_INVALID_STATE;
     }
     return ESP_OK;
+}
+
+namespace {
+// Transport resource limits are independent of product authoring policy.
+constexpr uint32_t PERSONALITY_STACK_BYTES = 4096;
+struct PersonalityAudioEvent {
+    const int16_t *samples = nullptr;
+    size_t sample_count = 0;
+    uint32_t sample_rate_hz = 16000;
+    uint32_t cue_id = 0;
+    uint32_t generation = 0;
+    int64_t requested_at_us = 0;
+    int64_t request_expiry_us = 0;
+};
+struct PersonalityAudioMailbox {
+    PersonalityAudioEvent event;
+    lunashell_audio_cue_status_t status{LUNASHELL_CUE_IDLE, ESP_OK, 0, 0};
+    lunashell_personality_audio_policy_t policy{};
+    bool policy_configured = false;
+    uint32_t generation = 0;
+    bool pending = false;
+    bool in_flight = false;
+    bool suspended = false;
+    bool have_played = false;
+    int64_t last_started_us = 0;
+};
+PersonalityAudioMailbox s_personality_mailbox;
+portMUX_TYPE s_personality_mux = portMUX_INITIALIZER_UNLOCKED;
+std::atomic<TaskHandle_t> s_personality_task{nullptr};
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+StaticTask_t s_personality_task_control;
+StackType_t s_personality_task_stack[PERSONALITY_STACK_BYTES / sizeof(StackType_t)];
+#endif
+
+// No parameters: expire dispatched symbols before standby touches the transport.
+void invalidate_personality_events()
+{
+    portENTER_CRITICAL(&s_personality_mux);
+    ++s_personality_mailbox.generation;
+    portEXIT_CRITICAL(&s_personality_mux);
+}
+
+// error: Real preparation/admission/playback failure, retained without inventing completion.
+// sample_rate_hz: Actual attempted transport rate, or authored rate before transport admission.
+// volume_percent: Observed codec volume, or zero when codec policy was unavailable.
+esp_err_t retain_personality_failure(esp_err_t error, uint32_t sample_rate_hz, int volume_percent)
+{
+    portENTER_CRITICAL(&s_personality_mux);
+    s_personality_mailbox.status.state = LUNASHELL_CUE_FAILED;
+    s_personality_mailbox.status.last_error = error;
+    portEXIT_CRITICAL(&s_personality_mux);
+    ESP_LOGE(TAG, "Personality audio operation failed (%s)", esp_err_to_name(error));
+    publish_rejected_playback(error, sample_rate_hz, volume_percent);
+    return error;
+}
+
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+// generation: Dispatch ownership token invalidated by scene hide or standby.
+bool personality_event_current(uint32_t generation)
+{
+    portENTER_CRITICAL(&s_personality_mux);
+    const bool current = s_personality_mailbox.policy.enabled && !s_personality_mailbox.suspended &&
+        generation == s_personality_mailbox.generation;
+    portEXIT_CRITICAL(&s_personality_mux);
+    return current && !s_standby.load(std::memory_order_acquire);
+}
+
+// event: One immutable admitted symbol sound; audio mutex is already held.
+// outcome: Receives Completed or an explicit suppression outcome.
+// sample_rate_hz: Receives the unchanged duplex transport clock.
+// volume_percent: Receives the current codec volume; no volume setting is overwritten.
+// Exception: Returns actual codec, reference or snapshot failures.
+esp_err_t play_personality_locked(const PersonalityAudioEvent &event,
+    lunashell_audio_cue_state_t &outcome, uint32_t &sample_rate_hz, int &volume_percent)
+{
+    outcome = LUNASHELL_CUE_SUPPRESSED;
+    if (!personality_event_current(event.generation)) {
+        return ESP_OK;
+    }
+    if (!s_initialized.load(std::memory_order_acquire) || s_audio_state_poisoned.load(std::memory_order_acquire)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    sample_rate_hz = s_microphone_open ? s_microphone_sample_rate_hz : s_speaker_sample_rate_hz;
+    if (sample_rate_hz < 8000 || sample_rate_hz > 48000) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    esp_err_t error = configure_speaker_stream(sample_rate_hz);
+    if (error != ESP_OK) {
+        return error;
+    }
+    bool previous_mute = true;
+    const int volume_result = esp_codec_dev_get_out_vol(s_speaker, &volume_percent);
+    if (volume_result != ESP_CODEC_DEV_OK) {
+        return static_cast<esp_err_t>(volume_result);
+    }
+    const int mute_result = esp_codec_dev_get_out_mute(s_speaker, &previous_mute);
+    if (mute_result != ESP_CODEC_DEV_OK) {
+        return static_cast<esp_err_t>(mute_result);
+    }
+    if (volume_percent < 0 || volume_percent > 100) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    if (volume_percent == 0 || !personality_event_current(event.generation)) {
+        return ESP_OK;
+    }
+    if (esp_timer_get_time() - event.requested_at_us > event.request_expiry_us) {
+        outcome = LUNASHELL_CUE_EXPIRED;
+        return ESP_OK;
+    }
+    const int unmute_result = esp_codec_dev_set_out_mute(s_speaker, false);
+    error = static_cast<esp_err_t>(unmute_result);
+    const size_t output_samples = event.sample_count * sample_rate_hz / event.sample_rate_hz;
+    size_t offset = 0;
+    bool submitted = false;
+    bool cancelled = false;
+    while (error == ESP_OK && offset < output_samples) {
+        if (!personality_event_current(event.generation)) {
+            cancelled = true;
+            break;
+        }
+        // The codec mutex makes the existing typewriter scratch exclusive here too.
+        // Resampling in bounded chunks keeps the current microphone clock unchanged.
+        const size_t chunk_count = std::min<size_t>(320, output_samples - offset);
+        for (size_t index = 0; index < chunk_count; ++index) {
+            const uint32_t position = static_cast<uint32_t>(offset + index) * event.sample_rate_hz;
+            const size_t source = position / sample_rate_hz;
+            const uint32_t fraction = position % sample_rate_hz;
+            const size_t next = std::min(source + 1, event.sample_count - 1);
+            s_typewriter_transport_samples[index] = static_cast<int16_t>(
+                (static_cast<int32_t>(event.samples[source]) * static_cast<int32_t>(sample_rate_hz - fraction) +
+                 static_cast<int32_t>(event.samples[next]) * static_cast<int32_t>(fraction)) /
+                static_cast<int32_t>(sample_rate_hz));
+        }
+        if (!submitted) {
+            const int64_t started_at_us = esp_timer_get_time();
+            portENTER_CRITICAL(&s_personality_mux);
+            if (s_personality_mailbox.status.last_error == ESP_OK) {
+                s_personality_mailbox.status.state = LUNASHELL_CUE_PLAYING;
+            }
+            s_personality_mailbox.have_played = true;
+            s_personality_mailbox.last_started_us = started_at_us;
+            portEXIT_CRITICAL(&s_personality_mux);
+        }
+        error = write_speaker_pcm_locked(s_typewriter_transport_samples.data(), chunk_count,
+            sample_rate_hz, volume_percent);
+        submitted = true;
+        offset += chunk_count;
+    }
+    if (error == ESP_OK && submitted && !cancelled) {
+        // Wait only on the audio owner: the final DMA samples must retire before restoring mute.
+        const uint32_t clip_ms = static_cast<uint32_t>((output_samples * 1000 + sample_rate_hz - 1) / sample_rate_hz);
+        vTaskDelay(pdMS_TO_TICKS(clip_ms) + 1);
+    }
+    const int restore_result = esp_codec_dev_set_out_mute(s_speaker, previous_mute);
+    if (restore_result != ESP_CODEC_DEV_OK) {
+        ESP_LOGE(TAG, "Personality mute restoration failed (%d)", restore_result);
+        if (error == ESP_OK) {
+            error = static_cast<esp_err_t>(restore_result);
+        }
+    }
+    const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
+        false, 0, sample_rate_hz, volume_percent, error);
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(TAG, "Personality playback completion publication failed (%s)", esp_err_to_name(publication_error));
+        if (error == ESP_OK) {
+            error = publication_error;
+        }
+    }
+    if (error == ESP_OK && submitted && !cancelled) {
+        outcome = LUNASHELL_CUE_COMPLETED;
+    }
+    return error;
+}
+
+// event: One dispatched immutable symbol cue; it never waits behind another sound.
+// outcome: Receives a meaningful suppression/admission/completion state.
+// Exception: Returns genuine snapshot/codec errors and publishes them through the existing owner.
+esp_err_t handle_personality_event(const PersonalityAudioEvent &event, lunashell_audio_cue_state_t &outcome)
+{
+    outcome = LUNASHELL_CUE_SUPPRESSED;
+    if (!personality_event_current(event.generation)) {
+        return ESP_OK;
+    }
+    if (esp_timer_get_time() - event.requested_at_us > event.request_expiry_us) {
+        outcome = LUNASHELL_CUE_EXPIRED;
+        return ESP_OK;
+    }
+    LUNASHELL::ClockSnapshot clock;
+    esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readClockObservation(clock);
+    if (error != ESP_OK) {
+        return retain_personality_failure(error, event.sample_rate_hz, 0);
+    }
+    if (LUNASHELL::clock_cue_policy(clock) != LUNASHELL::ClockCuePolicy::Allowed) {
+        return ESP_OK;
+    }
+    SemaphoreHandle_t mutex = audio_mutex();
+    if (mutex == nullptr) {
+        return retain_personality_failure(ESP_ERR_NO_MEM, event.sample_rate_hz, 0);
+    }
+    if (xSemaphoreTake(mutex, 0) != pdTRUE) {
+        outcome = LUNASHELL_CUE_DROPPED_BUSY;
+        return ESP_OK;
+    }
+    if (esp_timer_get_time() - event.requested_at_us > event.request_expiry_us) {
+        audio_unlock(mutex);
+        outcome = LUNASHELL_CUE_EXPIRED;
+        return ESP_OK;
+    }
+    uint32_t sample_rate_hz = event.sample_rate_hz;
+    int volume_percent = 0;
+    error = play_personality_locked(event, outcome, sample_rate_hz, volume_percent);
+    if (error != ESP_OK) {
+        retain_personality_failure(error, sample_rate_hz, volume_percent);
+    }
+    audio_unlock(mutex);
+    return error;
+}
+
+// context: Unused; this sole worker owns asynchronous symbol playback within the audio owner.
+void personality_audio_worker(void *context)
+{
+    (void)context;
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        PersonalityAudioEvent event;
+        portENTER_CRITICAL(&s_personality_mux);
+        const bool pending = s_personality_mailbox.pending;
+        if (pending) {
+            event = s_personality_mailbox.event;
+            s_personality_mailbox.pending = false;
+        }
+        portEXIT_CRITICAL(&s_personality_mux);
+        if (!pending) {
+            continue;
+        }
+        lunashell_audio_cue_state_t outcome;
+        const esp_err_t error = handle_personality_event(event, outcome);
+        portENTER_CRITICAL(&s_personality_mux);
+        if (error != ESP_OK) {
+            s_personality_mailbox.status.state = LUNASHELL_CUE_FAILED;
+            s_personality_mailbox.status.last_error = error;
+        } else if (s_personality_mailbox.status.last_error == ESP_OK) {
+            s_personality_mailbox.status.state = outcome;
+        } else {
+            s_personality_mailbox.status.state = LUNASHELL_CUE_FAILED;
+        }
+        s_personality_mailbox.in_flight = false;
+        portEXIT_CRITICAL(&s_personality_mux);
+    }
+}
+#endif
+} // namespace
+
+// policy: Build-authored immutable admission settings, copied before worker creation.
+// Exception: Returns and retains invalid or changed policy and original preparation failures.
+extern "C" esp_err_t LUNASHELL_audio_prepare_personality(const lunashell_personality_audio_policy_t *policy)
+{
+    if (policy == nullptr || policy->cooldown_us < 0 || policy->request_expiry_us <= 0) {
+        ESP_LOGE(TAG, "Personality preparation policy rejected: present=%u cooldown=%lld expiry=%lld",
+            policy != nullptr, static_cast<long long>(policy == nullptr ? 0 : policy->cooldown_us),
+            static_cast<long long>(policy == nullptr ? 0 : policy->request_expiry_us));
+        return retain_personality_failure(ESP_ERR_INVALID_ARG, 16000, 0);
+    }
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    lunashell_audio_cue_status_t retained;
+    const esp_err_t retained_error = LUNASHELL_audio_get_personality_status(&retained);
+    if (retained_error != ESP_OK) {
+        return retained_error;
+    }
+    portENTER_CRITICAL(&s_personality_mux);
+    const bool already_configured = s_personality_mailbox.policy_configured;
+    const bool same_policy = !already_configured ||
+        (s_personality_mailbox.policy.enabled == policy->enabled &&
+         s_personality_mailbox.policy.cooldown_us == policy->cooldown_us &&
+         s_personality_mailbox.policy.request_expiry_us == policy->request_expiry_us);
+    if (!already_configured) {
+        s_personality_mailbox.policy = *policy;
+        s_personality_mailbox.policy_configured = true;
+        if (!policy->enabled) {
+            s_personality_mailbox.status.state = LUNASHELL_CUE_SUPPRESSED;
+        }
+    }
+    portEXIT_CRITICAL(&s_personality_mux);
+    if (!same_policy) {
+        ESP_LOGE(TAG, "Personality preparation cannot replace immutable admission policy");
+        return retain_personality_failure(ESP_ERR_INVALID_STATE, 16000, 0);
+    }
+    if (already_configured) {
+        if (s_personality_task.load(std::memory_order_acquire) == nullptr) {
+            ESP_LOGE(TAG, "Personality preparation already claimed without a ready worker");
+            return retain_personality_failure(ESP_ERR_INVALID_STATE, 16000, 0);
+        }
+        return LUNASHELL_audio_get_personality_status(&retained);
+    }
+    const TaskHandle_t worker = xTaskCreateStatic(personality_audio_worker, "audio_personality",
+        PERSONALITY_STACK_BYTES, nullptr, 2, s_personality_task_stack, &s_personality_task_control);
+    if (worker == nullptr) {
+        return retain_personality_failure(ESP_ERR_NO_MEM, 16000, 0);
+    }
+    s_personality_task.store(worker, std::memory_order_release);
+    return LUNASHELL_audio_get_personality_status(&retained);
+#else
+    return retain_personality_failure(ESP_ERR_NOT_SUPPORTED, 16000, 0);
+#endif
+}
+
+// samples: Immutable flash-owned original PCM, retained through dispatch and playback.
+// sample_count: Exact authored length, limited to 350 ms of mono PCM16.
+// sample_rate_hz: Exact authored format, 16000 Hz.
+// cue_id: Stable application symbol identity preserved through the worker.
+// status: Receives the request disposition without mistaking admission for completion.
+// Exception: Returns genuine argument/admission or retained asynchronous errors.
+extern "C" esp_err_t LUNASHELL_audio_notify_personality(const int16_t *samples, size_t sample_count,
+    uint32_t sample_rate_hz, uint32_t cue_id, lunashell_audio_cue_status_t *status)
+{
+    if (status == nullptr || samples == nullptr || sample_count == 0 || sample_count > 5600 ||
+        sample_rate_hz != 16000 || cue_id == 0) {
+        const esp_err_t error = retain_personality_failure(ESP_ERR_INVALID_ARG, sample_rate_hz, 0);
+        if (status != nullptr) {
+            portENTER_CRITICAL(&s_personality_mux);
+            *status = s_personality_mailbox.status;
+            portEXIT_CRITICAL(&s_personality_mux);
+        }
+        return error;
+    }
+    const TaskHandle_t worker = s_personality_task.load(std::memory_order_acquire);
+    if (worker == nullptr) {
+        const esp_err_t retained_error = LUNASHELL_audio_get_personality_status(status);
+        if (retained_error != ESP_OK) {
+            return retained_error;
+        }
+        const esp_err_t error = retain_personality_failure(ESP_ERR_INVALID_STATE, sample_rate_hz, 0);
+        const esp_err_t observation_error = LUNASHELL_audio_get_personality_status(status);
+        if (observation_error != error) {
+            ESP_LOGE(TAG, "Personality preparation failure observation changed (%s)", esp_err_to_name(observation_error));
+        }
+        return error;
+    }
+    const int64_t now_us = esp_timer_get_time();
+    bool dispatched = false;
+    portENTER_CRITICAL(&s_personality_mux);
+    *status = s_personality_mailbox.status;
+    status->cue_id = cue_id;
+    if (status->last_error != ESP_OK) {
+        // Retained failures remain visible until an explicit new preparation/recovery design exists.
+    } else if (!s_personality_mailbox.policy.enabled || s_personality_mailbox.suspended ||
+               s_standby.load(std::memory_order_acquire)) {
+        status->state = LUNASHELL_CUE_SUPPRESSED;
+    } else if (s_personality_mailbox.in_flight) {
+        status->state = LUNASHELL_CUE_DROPPED_BUSY;
+    } else if (s_personality_mailbox.have_played &&
+               now_us - s_personality_mailbox.last_started_us < s_personality_mailbox.policy.cooldown_us) {
+        status->state = LUNASHELL_CUE_DROPPED_COOLDOWN;
+    } else {
+        ++s_personality_mailbox.status.request_sequence;
+        s_personality_mailbox.status.cue_id = cue_id;
+        s_personality_mailbox.status.state = LUNASHELL_CUE_DISPATCHED;
+        s_personality_mailbox.event = {samples, sample_count, sample_rate_hz, cue_id,
+            s_personality_mailbox.generation, now_us, s_personality_mailbox.policy.request_expiry_us};
+        s_personality_mailbox.pending = true;
+        s_personality_mailbox.in_flight = true;
+        *status = s_personality_mailbox.status;
+        dispatched = true;
+    }
+    portEXIT_CRITICAL(&s_personality_mux);
+    if (dispatched && xTaskNotifyGive(worker) != pdPASS) {
+        portENTER_CRITICAL(&s_personality_mux);
+        s_personality_mailbox.pending = false;
+        s_personality_mailbox.in_flight = false;
+        portEXIT_CRITICAL(&s_personality_mux);
+        const esp_err_t error = retain_personality_failure(ESP_FAIL, sample_rate_hz, 0);
+        const esp_err_t retained_error = LUNASHELL_audio_get_personality_status(status);
+        if (retained_error != error) {
+            ESP_LOGE(TAG, "Personality notification failure observation changed (%s)", esp_err_to_name(retained_error));
+        }
+        return error;
+    }
+    return status->last_error;
+}
+
+// suspended: Invalidates the single dispatch without queuing it for resume.
+// Exception: Returns any retained owner error.
+extern "C" esp_err_t LUNASHELL_audio_set_personality_suspended(bool suspended)
+{
+    portENTER_CRITICAL(&s_personality_mux);
+    if (s_personality_mailbox.suspended != suspended) {
+        s_personality_mailbox.suspended = suspended;
+        ++s_personality_mailbox.generation;
+    }
+    const esp_err_t error = s_personality_mailbox.status.last_error;
+    portEXIT_CRITICAL(&s_personality_mux);
+    return error;
+}
+
+// status: Receives a coherent outcome and its retained real error.
+// Exception: Returns rejected output pointer or the original retained owner failure.
+extern "C" esp_err_t LUNASHELL_audio_get_personality_status(lunashell_audio_cue_status_t *status)
+{
+    if (status == nullptr) {
+        ESP_LOGE(TAG, "Personality status pointer rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    portENTER_CRITICAL(&s_personality_mux);
+    *status = s_personality_mailbox.status;
+    portEXIT_CRITICAL(&s_personality_mux);
+    return status->last_error;
 }

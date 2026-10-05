@@ -27,7 +27,8 @@ def main(argv=None) -> None:
         command = compile_command(
             compiler,
             ("scripts/tests/cody_native", "components/CODY2D/include",
-             "components/CODY_companion/include", "assets/cody/rig/generated"),
+             "components/CODY_companion/include", "assets/cody/rig/generated",
+             "assets/cody/personality/generated"),
             ("scripts/tests/cody_native/raster_benchmark_contract.cpp",
              "components/CODY_companion/src/diagnostics/CODY_raster_benchmark.cpp"),
             executable, definitions=("CODY_ENABLE_PEARL_JELLY=0",))

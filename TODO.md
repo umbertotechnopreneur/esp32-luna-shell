@@ -8,6 +8,67 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Cody integration and release gates
 
+- [ ] Diagnose the reported caress freeze on firmware `99342b7a`. The authorized
+  60-second COM10 capture without reset on 2026-10-05 attached after failure:
+  periodic snapshots continued, touch/display were already in error, and
+  rotation repeatedly reported pending/pressed contact with
+  `ESP_ERR_INVALID_RESPONSE`. No initial malformed packet or panic was captured.
+  Static review confirms a failed touch sample terminates the Cody consumer and
+  leaves subsequent IRQs pending. Subsequent reset captures reached ready
+  touch/display and normal inactivity standby without the reported error or a
+  recognized `Mood caress` event. The user reports a later stroke did not freeze
+  but showed no icon. Host personality/runtime checks passed; real contact
+  timing and the first rejected controller packet remain unresolved. Do not
+  treat a missing recognition log as proof of a layout fault
+  or silently relax driver acceptance. Source review found that the automatic
+  idle greeting retained a SceneFrame and incorrectly excluded carezze; the
+  narrowly scoped Greeting admission fix and contact-boundary diagnostics are
+  implemented, host integration passed and Debug `26dd7866` was built/flashed
+  on COM10. Debug `3898f3d2` also enables the measured main-screen HUD; the user
+  confirms it is visible. Acquired Main contacts are now admitted, but captured
+  strokes lasted about 127/451/167 ms and ended rejected, with no heart trigger.
+  These are below the configured 500-ms minimum. Typed first-rejection diagnostics
+  now distinguish zone exit, speed, acquisition gap and every other recognizer
+  guard, but require a new physical capture. Verify a continuous slower in-body
+  stroke and its synchronized Affection SFX;
+  do not claim icon performance from the HUD-only baseline. Evidence lives under
+  `artifacts/build-cody-companion-debug/evidence/caress-*.log`.
+
+- [ ] After fresh command-specific authorization, run the pure host
+  `scripts/device.ps1 check -Check cody-preview-raster` regression checks for
+  sparse coverage and RGB565 composition. DPI and renderer corrections have
+  static review only. The first Studio UI opened but the user reported blurred
+  Windows scaling and ~100 ms host ticks, then closed it; leave it closed until
+  a new restart is requested. Measure actual host timings and review DPI,
+  controls, per-tab scrolling and gesture feel only after separate authorization.
+  Different-DPI monitor transitions remain unimplemented.
+
+- [ ] Review petting interactively and on the physical display after the
+  2026-10-05 merged Debug build and focused host suite passed. Verify slow
+  strokes above eyes/below mouth, threshold feel, heart clearance and perceived
+  smoothness. When the Rig simulator is reopened, disable Debug geometry and select
+  symbol None for automatic hearts. Native/host gesture trace parity remains
+  unestablished. Confirm actual touch, busy-channel mood gain and park/resume
+  timing on hardware only after separate authorization. Facial influence and
+  persistence remain deferred; dormant wellbeing has no runtime adapter or UI.
+- [ ] Validate the personality-icons branch on the device:
+  generated-palette/coverage contracts, all fourteen cues in Main
+  and Sleep, suppression on other scenes and Micro, symbol readability, actual
+  jelly/vector clearance, circle/status/Back separation, configured face anchor,
+  bounded follow under pause/wake/rotation, stable selection, fade/hold/release,
+  canonical device-state gating and old/new damage erasure. Listen to/refine all
+  fourteen original SFX and verify completed-frame triggering, busy drops,
+  cooldown, quiet/zero-volume/standby, idle-mute restoration, expiry, retained
+  errors and codec contention. Profile
+  complete frame/DMA/CPU/stack costs; static area counts are not performance
+  evidence. Remote main `649cbc7f` renderer optimizations are integrated;
+  current combined build/flash evidence is tracked in Done and physical checks
+  still need separate authorization. The earlier 2026-10-05 merged Debug firmware build
+  and focused suite passed (1,041 native assertions, 122 controller parity
+  frames and 118 independent host assertions). The interactive simulator
+  opened after its boot-artwork references were corrected. Hardware execution,
+  interactive gesture evaluation and audio playback remain open.
+
 - [ ] Confirm normal-UI animation, touch/PWR capture and repeated rotation/standby
   wake cycles with native DMA overlap on the physical display. Actual-BSP host
   lifetime/allocator contracts and the fixed 100% device run passed on the DMA
@@ -46,7 +107,17 @@ older host/build/flash evidence does not validate the current combined image.
   After a full power cycle with the same readable card, the canonical snapshot
   reported mounted=yes, card-response=verified, attempts=1 and
   format-attempted=no; the owner confirmed a saved PWR screenshot. Reproduce the
-  intermittent failure before changing the SD driver or its mount policy.
+  intermittent failure before changing the SD driver or its mount policy. The
+  board uses `SDMMC_SLOT_NO_CD`, so no presence GPIO can remove the card. A pending
+  source fix releases the storage worker from power suspension after a clean
+  transient wake failure so its existing retry/backoff can run, while preserving
+  the original error. Validate mount, standby, wake, retry, access and free space.
+  Flashed Debug `f16043e0` retried cleanly three times after a reset but every
+  1-bit SDMMC probe failed during card OCR with `ESP_ERR_TIMEOUT`; the backoff
+  progressed through 15/30/60 seconds and no format was attempted. This confirms
+  retry execution and truthful unavailable state, but not the cause of the
+  transport failure or successful remount. Inspect card seating/power/signals and
+  reproduce one successful boot followed by standby/wake before changing policy.
 - [ ] Confirm flashed boot greeting C acoustics on `143fdb22`,
   chime-to-voice timing, trusted-clock/quiet policy and no ordinary standby-wake
   repeat. A/B/chime-only authoring alternatives remain available.

@@ -694,6 +694,14 @@ struct DeviceStatusObservation {
     BleSnapshot ble;
 };
 
+// One coherent projection for the native diagnostics HUD, without spectra or routes.
+struct DiagnosticsObservation {
+    WifiSnapshot wifi;
+    MemorySnapshot memory;
+    ProcessorSnapshot processor;
+    StorageSnapshot storage;
+};
+
 struct MotionPowerObservation {
     bool storage_available = false;
     BatterySnapshot battery;
@@ -741,6 +749,10 @@ public:
     // processor: Receives current/aged CPU fields under the canonical snapshot lock.
     // This read never samples FreeRTOS directly or starts another telemetry cache.
     esp_err_t readProcessorObservation(ProcessorSnapshot &processor) const;
+    // observation: Receives canonical Wi-Fi, memory, processors and removable storage.
+    // No renderer-side hardware reads or independent telemetry cache are introduced.
+    // Exception: Returns the original snapshot lock or release error without publishing a partial copy.
+    esp_err_t readDiagnosticsObservation(DiagnosticsObservation &observation) const;
     // frame: Last completed operation, including its timestamp and measured/error flags.
     // This projection never asks the display driver to acquire another measurement.
     esp_err_t readDisplayFrameObservation(DisplayFrameSnapshot &frame) const;

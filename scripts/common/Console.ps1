@@ -32,6 +32,8 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
         checks = @{
             'cody-alpha' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Cody Alpha contracts and optional preview artifacts.' }
             'cody-native' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Compile the portable C++ renderer and compare geometry with Python.' }
+            'cody-personality' = @{ Category = 'Cody and simulators'; Emoji = '✨'; Description = 'Native symbol timing, bounded follow, layout, dirty raster and simulator parity contracts.' }
+            'cody-preview-raster' = @{ Category = 'Cody and simulators'; Emoji = '🎨'; Description = 'Pure host sparse-coverage RGB565 regression checks; no GUI, device or benchmark.' }
             'cody-raster-benchmark' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Check finite benchmark windows and native profiled/fused pixel parity.' }
             'display-dma' = @{ Category = 'Snapshots, hardware and power'; Emoji = '🖥️'; Description = 'Execute native BSP slot, DMA completion, timeout and quarantine contracts on the host.' }
             'cody-response' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Deterministic touch, motion and expression response contracts.' }
@@ -68,6 +70,8 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
             'cody-rig' = @{ Category = 'Cody assets'; Emoji = '🤖'; Description = 'Compile a selected skin into immutable named firmware rig tables.' }
             'cody-runtime-assets' = @{ Category = 'Cody assets'; Emoji = '🔊'; Description = 'Generate runtime settings and the two original synthesized boot cues.' }
             'cody-jelly' = @{ Category = 'Cody assets'; Emoji = '☁️'; Description = 'Package the pearl sprite and simulator bindings as flash-owned data.' }
+            'cody-personality-icons' = @{ Category = 'Cody assets'; Emoji = '✨'; Description = 'Isolate 14 manga symbols into fixed-palette indexed and separate coverage flash sprites.' }
+            'cody-personality-audio' = @{ Category = 'Cody assets'; Emoji = '🎵'; Description = 'Synthesize 14 original short symbol cues, WAV previews and immutable PCM flash assets.' }
             'cody-scenes' = @{ Category = 'Cody assets'; Emoji = '🎬'; Description = 'Bake cloud/title scenes and glyphs; requires --font-path.' }
             'package-cody-boot' = @{ Category = 'Cody assets'; Emoji = '🌅'; Description = 'Convert existing boot images into indexed RGB565 firmware resources.' }
             'device-assets' = @{ Category = 'Luna assets'; Emoji = '📦'; Description = 'Generate the canonical boot/SFX package with rollback on failure.' }

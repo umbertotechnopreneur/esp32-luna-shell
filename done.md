@@ -17,6 +17,227 @@ and referenced architecture/artifact records.
   lwIP. The single frame/display owner and unpinned bounded service workers are
   unchanged. This checkpoint has static source review only; build and physical
   per-core/frame/radio validation remain open in `TODO.md`.
+- Corrected source admission for the automatic Idle clock greeting: its retained
+  Greeting SceneFrame no longer disables the main personality channel or
+  petting. Explicit onboarding greetings and other routes remain excluded.
+  Added bounded contact-start/exclusion/release logs for actual acquired input
+  so scene suppression and incomplete/rejected strokes can be distinguished.
+  The raw touch failure remains unresolved; driver acceptance/recovery has not
+  been relaxed. The real routine-Greeting geometry host integration check passed
+  (gesture, happiness, channel admission and actual heart raster), then Debug
+  `26dd7866` built successfully and flashed on COM10 with verified hashes.
+  Image size: 4,007,344 bytes; app partition 73% free. Physical recognition remains
+  open; see `caress-greeting-*` command/capture logs in the protected build evidence.
+
+- Enabled the existing measured Debug HUD in the main companion view after
+  retained pairing, including the automatic clock greeting. FPS counting,
+  text preparation and raster composition share the same route admission.
+  Main-view sleeping-face selection remains eligible; original onboarding,
+  footer, benchmark and session-preference guards are retained. CPU1/CPU2 use
+  existing canonical per-core runtime measurements without new polling. The
+  prepared next increment adds IPv4, free internal RAM/PSRAM and truthful SD
+  presence/access/free-space rows, plus a quieter date, larger `HH:MM` without
+  seconds and more legible battery/Wi-Fi/Bluetooth icons. Static review complete;
+  Debug `3898f3d2` built successfully (4,007,536-byte image, 73% app partition
+  free) and flashed on COM10 with verified hashes. The user confirmed seeing
+  FPS/CPU below Cody. The `caress-main-hud-device-20261005.log` capture records
+  ordinary main-view throughput around 16-18 FPS and total core0 usage around
+  75-80%, with core1 usually rounding to 0%. These samples do not establish
+  heart-icon cost: no Affection trigger was captured. Real acquired contacts
+  reached Main admission but ended rejected, with durations of about 127 ms,
+  451 ms and 167 ms, below the configured 500-ms minimum. The specific earlier
+  rejection cause was not published; contact timing alone cannot explain every
+  rejected gesture. SFX-on-appearance is already enabled in the YAML/runtime;
+  heart playback remains physically unverified until the icon is admitted.
+
+- Added typed first-rejection evidence for physical caresses without changing
+  gesture thresholds, plus one-shot SFX disposition logging at the first retired
+  visible icon. Added a clean transient SD-resume gate that releases power
+  suspension for the existing owner retry/backoff while preserving the original
+  error and keeping the logger mirror disabled. The board explicitly uses
+  `SDMMC_SLOT_NO_CD`; no card-presence GPIO participates. Integrated remote main
+  `06560c1d` and its bounded two-slot display DMA implementation in merge
+  `f16043e0`. The final `cody-runtime`, `cody-personality` and `display-dma` host
+  checks passed. Debug built successfully through the public console with eight
+  jobs (4,014,512-byte image, 73% app partition free), then flashed to COM10 with
+  verified hashes and hard reset. The reset capture confirms that exact app
+  version, two active six-row DMA slots, Wi-Fi/DHCP at `192.168.1.28` and normal
+  main-view throughput around 17.5-19.1 FPS. Total core0 usage remained about
+  96-98% and core1 about 0-2%; this is full-core utilization, not Cody task time.
+  Three physical SDMMC probes failed at card OCR with `ESP_ERR_TIMEOUT`, clean
+  cleanup and 15/30/60-second retry backoff, so card access/free space correctly
+  remained unavailable. The capture contained no touch event or wake after
+  standby, therefore heart/SFX and the new first-rejection evidence remain
+  physically unverified. Evidence is under
+  `artifacts/build-cody-companion-debug/evidence/final-*20261005.log`.
+
+- Investigated the reported caress freeze on device firmware `99342b7a`:
+  the first capture attached after a retained touch `ESP_ERR_INVALID_RESPONSE`,
+  while periodic firmware snapshots continued. Source review establishes that
+  an acquisition error terminates the Cody worker and leaves later IRQs pending;
+  it does not identify the original malformed packet. Reset captures booted to
+  ready touch/display and later entered normal inactivity standby without a
+  captured caress or panic. One live capture was interrupted when Codex restarted;
+  it is incomplete evidence. The user reports a later stroke neither froze nor
+  showed a heart; physical gesture recognition remains open in TODO.
+  `device.ps1 check -Check cody-personality` passed 1,041 native assertions,
+  122 controller parity frames and 118 host assertions. `cody-runtime` passed
+  500 model/host ticks after its obsolete screenshot hit-target expectation
+  was corrected to the already implemented hidden/noninteractive control.
+  Initial check attempts retained a missing compiler environment and that stale
+  expectation in their command logs; MSVC developer environment was restored.
+  Checks ran through the public CLI. Evidence and command logs are under
+  `artifacts/build-cody-companion-debug/evidence/caress-*`; transient host reports
+  under `artifacts/checks/` were removed by the subsequent authorized build cleanup.
+  That diagnostic checkpoint changed no firmware; the later Greeting fix and
+  build/flash are recorded above. The simulator remained closed.
+
+- Integrated remote main `649cbc7f` into `feat/personality-icons`, preserving
+  petting, happiness, symbol arbitration and the Studio DPI/renderer changes.
+  Ordinary S3 Pearl rendering now uses the upstream SIMD kernel and transparent
+  row/block skipping; automatic benchmark and detailed block profiling remain
+  disabled. Resolved native profiling conflicts and added missing personality
+  sources/includes to two host-check recipes. Static integration reviewed.
+  Debug firmware `99342b7a` built through `scripts/device.ps1 build` with eight
+  jobs and flashed through `scripts/device.ps1 flash` to the USB ESP32-S3 on
+  COM10; both commands returned success, all written hashes verified, and
+  esptool performed its final hard reset. App size is `0x3d2330` bytes
+  (4,006,704), with 73% of the app partition free. Evidence is in
+  `artifacts/build-cody-companion-debug/evidence/` as
+  `personality-simd-main-merge-build-20261005.log` and
+  `personality-simd-main-merge-flash-20261005.log`. No new tests, monitor,
+  capture or simulator session ran. Startup behavior and physical performance
+  of this combined image remain unverified.
+
+- The first Studio UI `679fbda2` opened and responded after the authorized
+  restart; the user reported blurred Windows text and ~100 ms host ticks, then
+  closed it. Implemented explicit PMv2 before Tk, actual startup DPI point/pixel
+  scaling and physical monitor work-area bounds, scanline edge buckets and sparse
+  coverage composition with C-backed
+  opaque copy and the original exact partial RGB565 blend. Visible inspector
+  readouts are capped at10Hz, status at5Hz; model/gesture clocks retain per-tick
+  advancement. Desktop redraw defaults to30Hz with an explicit15/25/30/60 limit;
+  native firmware cadence is unchanged. Added pure host raster regression check source through the public
+  CLI. Static review only for these corrections; no new suite, restart, benchmark,
+  firmware build or COM access. No claimed FPS/CPU improvement. Different-DPI
+  monitor transitions remain open.
+
+- Created requested pre-UI checkpoint `b4a7a75` on `feat/personality-icons`.
+  Refreshed the Windows inspector in source with a local Tkinter/ttk dark theme,
+  navy/teal palette, Segoe UI, image-backed switches and slim sliders. Added a
+  fixed studio header, grouped controls, independent tab scrolling, a wrapping
+  expression grid, target-value readouts and a two-line diagnostic footer.
+  Clean view/Face are initial desktop preferences; inspection remains explicit.
+  Firmware, native character geometry and model rules are unchanged. Static
+  integration review completed; subsequent startup is recorded above. No new
+  suite, build or COM access. Earlier build/parity results below belong to the
+  preceding UI revision.
+
+- Integrated remote `origin/main` at `4d026d13` into `feat/personality-icons`.
+  Preserved both personality/YAML work and upstream mouth/tongue, greeting,
+  pairing and BLE/display DMA fixes. Resolved the worker conflict using main's
+  atomic parked-frame observation while retaining happiness advancement,
+  audio suspension and transient heart cleanup. Both Done histories are kept.
+  Merge checkpoint `355c7f04` passed the authorized Debug build with eight jobs
+  on ESP-IDF6.0.2: image `0x3d02e0` bytes, 73% application partition free.
+  The authorized focused suite passed 1,041 native assertions, 122 native/Python
+  controller parity frames, 32 host petting, 32 happiness and 54 wellbeing
+  assertions, plus fourteen icon/audio contracts. Evidence is preserved under
+  `artifacts/build-cody-companion-debug/evidence/personality-host-20261005-merged-main/`
+  and `personality-main-merge-debug-build-20261005.log` in its parent.
+  Corrected the Windows simulator's obsolete blue boot PNG references to the
+  versioned pearl frames; the Rig window opened and was responding. That
+  host-only reference correction occurred after the suite and has startup
+  evidence, not another suite run. No COM access, flash or hardware validation.
+
+- Expanded build-time personality authoring to strict `cody.personality.v2`:
+  permanent typed event/zone/metric/icon IDs, `caress = 1` for both anatomical
+  zones, gesture/mood/channel/follow/anchor policies and global/per-cue SFX gates.
+  Generated four immutable headers through the public CLI. Added priority
+  arbitration (LowBattery900 > Affection200 > Charging100), smooth urgent
+  handoff, per-identity repeat cooldown retained across hidden scenes and
+  canonical low-battery hysteresis (enter15%, exit20%). Native/host fixtures
+  and simulator sources are integrated; the corrected suite passed as recorded above.
+
+- Authored commented dormant wellbeing policies with explicit session events,
+  minute-based fatigue, screen break 60min/5min, movement 30min and eye 20min/20s/
+  20ft. Recorded HSE/NHS/NEI sources. Water 60min is labeled a product default,
+  since NHS specifies no hourly cadence. Engine and delivery stay disabled;
+  pure native/host deadline logic is implemented without a runtime adapter
+  or visible reminders. This does not change the sole active happiness MVP.
+
+- The expanded focused suite compiled native portable sources on 2026-10-05
+  and ran 1,041 native assertions. Two handoff expectations incorrectly checked
+  rendered cue identity at zero opacity; corrected them to inspect the channel
+  identity and require an empty frame. This first attempt did not reach Python
+  parity or independent host fixtures; the corrected post-merge suite subsequently
+  passed as recorded above. Host controller state is616B,
+  including112B repeat timestamps, not a firmware stack result. Failed-run
+  report/trace retained under
+  `artifacts/build-cody-companion-debug/evidence/personality-host-20261005-first-attempt/`.
+
+- Added a source-reviewed single-value happiness MVP: canonical
+  `assets/cody/personality.yaml`, strict schema and immutable generated flash
+  rules (generation through `scripts/device.ps1` completed). Session happiness
+  starts at 50, recognized carezze add 10, and each 60 awake seconds subtracts
+  one point, with intentional 0/100 saturation and retained partial minutes.
+  Sadness is derived as 100 minus happiness. Facial/motion bindings remain
+  disabled. Native and synthetic host source expose values independently of
+  heart occupancy; the passing expanded suite, build and simulator startup are
+  recorded above. Physical hardware behavior remains unverified.
+
+- Added a source-reviewed gentle petting experiment on 2026-10-05 in normal Main view:
+  body-contained AboveEyes/BelowMouth zones, acquired-time/path/speed/gap
+  recognition, one reaction/contact and six-second cooldown. An idle symbol
+  channel admits a four-active-second Affection request; occupied channels
+  drop it, explicit selection remains authoritative, and existing fades/audio
+  admission/body drag remain in use. Native helper and Windows pointer preview
+  share authored thresholds. Added focused native and independent host gesture
+  fixtures; new gesture trace parity is not claimed.
+  Needs/mood/session state exploration is documented separately and deferred.
+  The expanded suite attempt is recorded above; no new firmware build,
+  interactive simulator execution or hardware action has run.
+
+- The earlier `cody-personality` suite passed before petting changes: 748 native
+  assertions, 86 native/Python parity frames and fourteen icon/fourteen audio
+  contracts. Preserved evidence:
+  `artifacts/build-cody-companion-debug/evidence/personality-host-20261004/report.json`.
+
+- Configured and built the personality implementation `2518f83a` as Debug with
+  ESP-IDF 6.0.2, `scripts/device.ps1` and eight jobs. Compilation/link succeeded;
+  binary is `0x3c5870` bytes with 73 percent application-partition free. Evidence:
+  `artifacts/build-cody-companion-debug/evidence/personality-icons-debug-build-20261004.log`.
+  Authored a focused `cody-personality` host suite covering actual controller,
+  finite following, Sleep/pause, dirty raster, native/simulator parity and icon/
+  sound asset contracts; corrected `cody-native` source linkage. The suite later
+  passed as recorded above; new petting tests await fresh command-specific
+  approval. No device upload/access for this branch.
+
+- Extended the personality channel to Main/full-size Sleep only, with one latest
+  target, 300-ms stability, 400-ms fade in, 2.5-second hold and 600-ms fade out.
+  Semantic Sleep has explicit priority/release; device invalidity clears false
+  facts. Configurable face anchoring, bounded geometric following, fixed chrome
+  exclusions and explicit blocked-layout status replace adaptive relocation.
+  Simulator source mirrors the channel. Created fourteen original 16-kHz mono
+  PCM SFX (103,360 sample bytes) and a 12.33-second audition reel through
+  `scripts/device.ps1 generate -Generator cody-personality-audio`. Completed
+  frames trigger an optional platform-owned worker with busy drops, expiry,
+  8-second cooldown and quiet/standby gates. Asset generation and static review
+  only; no listening, checks, builds, simulator or hardware validation.
+
+- Implemented the isolated `feat/personality-icons` worktree from `290b6da3`:
+  fourteen standalone ImageGen manga groups, deterministic non-reserved shared
+  palette indices with separate alpha coverage, individual indexed PNG/bin
+  assets, exact crop/component/hash provenance and internal-flash tables.
+  Generation ran through `scripts/device.ps1 generate -Generator
+  cody-personality-icons`; payload is 115,200 bytes plus descriptors/code.
+  Native rendering uses one selected typed cue, every existing size except
+  Micro, bounded above-body admission, 85-ms delayed position/squash and old/new
+  frame damage. Session narrative/device selectors keep device truth canonical.
+  Simulator source mirrors the feature and labels host device-cue previews
+  synthetic. Only generation and static source/artwork review were performed;
+  compilation, automated checks, simulator and physical behavior remain open.
+
 - Implemented native frame DMA overlap on `codex/cody-dma-double-buffer`: reborrow
   idle storage before every dirty tile, keep at most one color DMA outstanding,
   drain the final transfer before freeing memory, ending the watchdog and

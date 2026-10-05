@@ -15,3 +15,13 @@ and service APIs; does not admit LVGL. Public contracts remain in `include/`.
 Assets stay under `assets/cody`; generated resources are versioned firmware
 inputs. See [Cody architecture](../../docs/architecture/cody/README.md) for behavior
 and [the console](../../scripts/README.md) for authorized workflows.
+
+[`CODY_personality.hpp`](include/CODY_personality.hpp) exposes typed single-symbol
+session selection. Narrative requests are separate from fresh canonical device
+state. The main character view and full-size Sleep allow the above-body cue;
+other scenes disable it independently of the typed size. The configurable face
+anchor follows the evaluated character with bounded inertia. Optional original
+SFX use [`CODY_personality_audio.hpp`](include/CODY_personality_audio.hpp) and the
+existing platform audio owner, with no sound queue. The
+[personality rendering](../../docs/architecture/cody/personality-icons.md)
+documents layout admission and unmeasured resource/performance limits.

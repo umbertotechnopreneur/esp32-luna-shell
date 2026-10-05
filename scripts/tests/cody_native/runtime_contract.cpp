@@ -2,6 +2,8 @@
 #include "CODY_demo.hpp"
 #include "CODY_response.hpp"
 #include "CODY_damage.hpp"
+#include "CODY_debug_hud.hpp"
+#include "host_diagnostics.hpp"
 #include "cloud_rig_data.hpp"
 #include "runtime_settings.hpp"
 #include <cmath>
@@ -10,7 +12,11 @@
 #include <initializer_list>
 #include <vector>
 #include <algorithm>
+#include <cstring>
 #include "CODY2D_paths.hpp"
+
+// No parameters: shared status-overlay fixture reports its actual contract failures.
+int check_status_overlay_contract();
 
 namespace {
 // condition: Contract that must hold for the actual portable firmware implementation.
@@ -21,6 +27,134 @@ void require(bool condition, const char *message)
         std::fprintf(stderr, "Native runtime failure: %s\n", message);
         std::exit(1);
     }
+}
+
+// component: Host-only measured fixture used to exercise the actual HUD formatter.
+void diagnostics_current(LUNASHELL::ComponentSnapshot &component)
+{
+    component.health = LUNASHELL::DeviceHealth::Ready;
+    component.last_error = ESP_OK;
+    component.data_valid = true;
+    component.data_stale = false;
+    component.last_success_at_us = 2000000LL;
+}
+
+// No parameters: actual HUD formatting/rasterization is exercised with explicit host fixtures.
+// Exception: Native raster storage allocation may throw std::bad_alloc.
+void debug_hud_contracts()
+{
+    HostDiagnostics::observation = {};
+    HostDiagnostics::read_error = ESP_OK;
+    CODY::FrameRateMeasurement measurement;
+    CODY::DebugReadout unavailable;
+    require(CODY::prepare_debug_readout(measurement, 2000000LL, unavailable) == ESP_OK,
+            "unmeasured HUD state must format successfully");
+    require(std::strcmp(unavailable.frame_rate, "FPS UNAVAILABLE") == 0 &&
+            std::strcmp(unavailable.processors, "CPU1 UNAVAILABLE CPU2 UNAVAILABLE") == 0 &&
+            std::strcmp(unavailable.network, "IP UNAVAILABLE") == 0 &&
+            std::strcmp(unavailable.memory, "RAM UNAVAILABLE PSRAM UNAVAILABLE") == 0 &&
+            std::strcmp(unavailable.storage_state, "SD UNCONFIRMED NO ACCESS") == 0 &&
+            std::strcmp(unavailable.storage_free, "SD FREE UNAVAILABLE") == 0,
+            "HUD must not manufacture CPU, IP, memory, card presence or free space");
+
+    auto &observation = HostDiagnostics::observation;
+    diagnostics_current(observation.wifi);
+    observation.wifi.connected = true;
+    observation.wifi.ip_acquired = true;
+    std::snprintf(observation.wifi.ip_address, sizeof(observation.wifi.ip_address), "255.255.255.255");
+    diagnostics_current(observation.memory);
+    observation.memory.internal_free_bytes = 120 * 1024;
+    observation.memory.psram_free_bytes = 3 * 1024 * 1024;
+    diagnostics_current(observation.processor);
+    observation.processor.core_count = 2;
+    for (auto &core : observation.processor.cores) {
+        core.available = true;
+        core.utilization_available = true;
+    }
+    observation.processor.cores[0].utilization_percent = 75;
+    observation.processor.cores[1].utilization_percent = 0;
+    diagnostics_current(observation.storage);
+    observation.storage.mounted = true;
+    observation.storage.mount_outcome = LUNASHELL::StorageMountOutcome::Mounted;
+    observation.storage.card_response_verified = true;
+    observation.storage.capacity_bytes = 8ULL * 1024 * 1024 * 1024;
+    observation.storage.filesystem_total_bytes = 7ULL * 1024 * 1024 * 1024;
+    observation.storage.free_bytes = 3ULL * 1024 * 1024 * 1024;
+    for (int frame = 0; frame < 30; ++frame) {
+        CODY::record_frame_rate(measurement, 1000000LL + frame * 33333LL,
+                               frame == 29 ? 2000000LL : 1000000LL + (frame + 1) * 33333LL);
+    }
+    CODY::DebugReadout measured;
+    require(CODY::prepare_debug_readout(measurement, 2000000LL, measured) == ESP_OK &&
+            std::strcmp(measured.frame_rate, "FPS 30.0") == 0 &&
+            std::strcmp(measured.processors, "CPU1 75% CPU2 0%") == 0 &&
+            std::strcmp(measured.network, "IP 255.255.255.255") == 0 &&
+            std::strcmp(measured.memory, "RAM FREE 120K PSRAM 3072K") == 0 &&
+            std::strcmp(measured.storage_state, "SD PRESENT ACCESS OK") == 0 &&
+            std::strcmp(measured.storage_free, "SD FREE 3072MIB") == 0,
+            "HUD must preserve core identity and measured IP/memory/SD units");
+
+    const auto bounds = CODY::debug_readout_damage_bounds();
+    require(bounds.left == 0 && bounds.top == 390 && bounds.right == 466 && bounds.bottom == 445,
+            "HUD damage must cover the five lower-arc lines without the greeting title");
+    std::vector<uint16_t> pixels(466 * 466, 0);
+    CODY2D::Surface surface{pixels.data(), 466, 466, 466,
+                            static_cast<uint32_t>(pixels.size()), CODY2D::Rgb565ByteOrder::Native};
+    for (const CODY::DebugReadout &readout : {unavailable, measured}) {
+        std::fill(pixels.begin(), pixels.end(), 0);
+        require(CODY::draw_debug_readout_rows(readout, surface, 0, 0, 0) == ESP_OK,
+                "actual HUD glyph alphabet and each occupied circular chord must fit");
+        bool line_pixels[5] = {};
+        for (int y = 0; y < 466; ++y) {
+            for (int x = 0; x < 466; ++x) {
+                if (pixels[y * 466 + x] == 0) {
+                    continue;
+                }
+                require(y >= 390 && y < 445 &&
+                        (x - 233) * (x - 233) + (y - 233) * (y - 233) < 233 * 233,
+                        "every HUD pixel must be below the title and inside its local circle");
+                const int line = (y - 390) / 12;
+                require(line >= 0 && line < 5, "HUD row escaped its authored lower arc");
+                line_pixels[line] = true;
+            }
+        }
+        for (bool painted : line_pixels) {
+            require(painted, "all five diagnostic rows must rasterize visible glyphs");
+        }
+    }
+
+    observation.memory.data_stale = true;
+    observation.processor.data_stale = true;
+    observation.storage.data_stale = true;
+    CODY::DebugReadout stale;
+    require(CODY::prepare_debug_readout(measurement, 5000001LL, stale) == ESP_OK &&
+            std::strcmp(stale.frame_rate, "FPS UNAVAILABLE") == 0 &&
+            std::strcmp(stale.processors, "CPU1 STALE CPU2 STALE") == 0 &&
+            std::strcmp(stale.memory, "RAM STALE PSRAM STALE") == 0 &&
+            std::strcmp(stale.storage_free, "SD FREE STALE") == 0,
+            "stale acquired values must not remain numeric");
+    observation.storage.data_stale = false;
+    observation.storage.data_valid = false;
+    observation.storage.mounted = false;
+    observation.storage.last_error = ESP_FAIL;
+    require(CODY::prepare_debug_readout(measurement, 2000000LL, stale) == ESP_OK &&
+            std::strcmp(stale.storage_state, "SD PRESENT NO ACCESS") == 0 &&
+            std::strcmp(stale.storage_free, "SD FREE UNAVAILABLE") == 0,
+            "a verified response with failed FAT access must hide old free-space values");
+    observation.storage.card_response_verified = false;
+    require(CODY::prepare_debug_readout(measurement, 2000000LL, stale) == ESP_OK &&
+            std::strcmp(stale.storage_state, "SD UNCONFIRMED NO ACCESS") == 0,
+            "no response cannot prove absence on hardware without card detect");
+
+    observation.storage = {};
+    std::snprintf(observation.wifi.ip_address, sizeof(observation.wifi.ip_address), "999.1.1.1");
+    require(CODY::prepare_debug_readout(measurement, 2000000LL, stale) == ESP_ERR_INVALID_RESPONSE,
+            "invalid canonical IP must retain a real rejection error");
+    HostDiagnostics::read_error = ESP_ERR_TIMEOUT;
+    require(CODY::prepare_debug_readout(measurement, 2000000LL, stale) == ESP_ERR_TIMEOUT,
+            "canonical read failure must retain its original error");
+    HostDiagnostics::read_error = ESP_OK;
+    HostDiagnostics::observation = {};
 }
 
 // stamp: Source metadata in a host fixture; nothing here publishes to firmware snapshots.
@@ -394,17 +528,20 @@ void damage_contracts()
 } // namespace
 
 // No parameters: emit fifty seconds from the actual C++ model for independent Python parity.
+// Exception: Host framebuffer allocations may throw std::bad_alloc.
 int main()
 {
     require(CODY::rig_control_at({158, 47}) == CODY::RigControl::None &&
-            CODY::rig_control_at({233, 47}) == CODY::RigControl::Screenshot &&
+            CODY::rig_control_at({233, 47}) == CODY::RigControl::None &&
             CODY::rig_control_at({308, 47}) == CODY::RigControl::None,
-            "only the on-demand screenshot target remains active above the safe square");
+            "hidden top controls must not intercept character contacts");
     require(CODY::rig_control_at({40, 233}) == CODY::RigControl::None &&
             CODY::rig_control_at({426, 233}) == CODY::RigControl::None &&
             CODY::rig_control_at({233, 233}) == CODY::RigControl::None,
             "top controls must not steal lateral or character taps");
     benchmark_contracts();
+    debug_hud_contracts();
+    require(check_status_overlay_contract() == 0, "status overlay glyph/geometry contracts failed");
     demo_contracts();
     damage_contracts();
     stroke_contracts();

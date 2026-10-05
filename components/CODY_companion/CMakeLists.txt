@@ -21,14 +21,21 @@ idf_component_register(
         "src/model/CODY_expression_catalog.cpp"
         "src/runtime/CODY_settings.cpp"
         "src/runtime/CODY_capture_sound.cpp"
+        "src/runtime/CODY_personality_audio.cpp"
+        "../../assets/cody/personality-icons/audio/personality_audio.cpp"
         "src/scenes/CODY_typewriter_audio.cpp"
         "src/diagnostics/CODY_screenshot.cpp"
         "src/diagnostics/CODY_status_overlay.cpp"
         "src/diagnostics/CODY_debug_hud.cpp"
         "src/rendering/CODY_damage.cpp"
+        "src/rendering/CODY_personality.cpp"
+        "../../assets/cody/personality-icons/generated/personality_icons.cpp"
         "src/rendering/CODY_dirty_plan.cpp"
         "src/model/CODY_rig.cpp"
         "src/model/CODY_response.cpp"
+        "src/model/CODY_petting.cpp"
+        "src/model/CODY_happiness.cpp"
+        "src/model/CODY_wellbeing.cpp"
         "src/model/CODY_response_inputs.cpp"
         "src/diagnostics/CODY_benchmark.cpp"
         "src/diagnostics/CODY_raster_benchmark.cpp"
@@ -41,10 +48,12 @@ idf_component_register(
         "../../assets/cody/scenes/generated/scene_body_font.cpp"
         ${cody_jelly_sources}
         ${cody_onboarding_sources}
-    INCLUDE_DIRS "include"
+    INCLUDE_DIRS "include" "../../assets/cody/personality/generated"
     PRIV_INCLUDE_DIRS "../../assets/cody/boot/generated" "../../assets/cody/rig/generated" "../../assets/cody/runtime/generated"
         "../../assets/cody/scenes/generated"
         "../../assets/cody/appearance/jelly-scanline/generated"
+        "../../assets/cody/personality-icons/generated"
+        "../../assets/cody/personality-icons/audio"
     REQUIRES CODY2D LUNASHELL_platform heap
     PRIV_REQUIRES esp32_s3_touch_amoled_1_75 esp_timer esp_system
 )

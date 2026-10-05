@@ -168,7 +168,17 @@ by the owner on 2026-10-04; perceptual review is pending.
 Debug FPS uses completed frames over real elapsed time. CPU1/core0 and CPU2/core1
 come from canonical idle/IPC measurements with their own timestamps; invalid or
 stale data shows unavailable, never an estimated/clamped value. Measurement
-windows begin after startup at 04. The HUD preference is session-scoped under the
+windows begin after startup at 04 or in the ordinary main companion view when
+retained pairing skips that first-run greeting. The automatic Idle clock greeting
+and a manually selected sleeping face in the main view remain eligible. The
+five compact rows below the routine title show FPS/CPU, IPv4, free internal
+RAM/PSRAM, SD presence/access and free space. The upper overlay uses a quieter
+date, larger `HH:MM` without seconds and consistent battery, Wi-Fi and Bluetooth
+icons. Because this board has no card-detect pin, the SD row distinguishes a
+verified card response from `SD UNCONFIRMED`. Personality icons keep their
+independent anchor above the cloud. The CPU values
+represent total busy time per core, including tasks other than Cody. No extra
+sensor polling is introduced. The HUD preference is session-scoped under the
 display lock and gated by scene `readout_visible`. Authored scenes admit the HUD
 unless a visible bottom action occupies its area; Release excludes it.
 

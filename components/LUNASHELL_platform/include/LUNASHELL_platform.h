@@ -462,6 +462,50 @@ esp_err_t LUNASHELL_audio_notify_typewriter(uint32_t newly_visible_characters);
 // Exception: Returns a notification error; this operation never waits for codec I/O.
 esp_err_t LUNASHELL_audio_set_typewriter_suspended(bool suspended);
 
+typedef enum {
+    LUNASHELL_CUE_IDLE = 0,
+    LUNASHELL_CUE_DISPATCHED,
+    LUNASHELL_CUE_PLAYING,
+    LUNASHELL_CUE_COMPLETED,
+    LUNASHELL_CUE_DROPPED_BUSY,
+    LUNASHELL_CUE_DROPPED_COOLDOWN,
+    LUNASHELL_CUE_SUPPRESSED,
+    LUNASHELL_CUE_EXPIRED,
+    LUNASHELL_CUE_FAILED,
+    LUNASHELL_CUE_UNAVAILABLE,
+} lunashell_audio_cue_state_t;
+
+typedef struct {
+    lunashell_audio_cue_state_t state;
+    esp_err_t last_error;
+    uint32_t request_sequence;
+    uint32_t cue_id;
+} lunashell_audio_cue_status_t;
+
+typedef struct {
+    bool enabled;
+    int64_t cooldown_us;
+    int64_t request_expiry_us;
+} lunashell_personality_audio_policy_t;
+
+// policy: Immutable build-authored admission settings; copied before the dormant worker starts.
+// Exception: Returns and publishes invalid policy, changed preparation or worker preparation failures.
+esp_err_t LUNASHELL_audio_prepare_personality(const lunashell_personality_audio_policy_t *policy);
+// samples: Immutable flash-owned PCM retained for the firmware lifetime.
+// sample_count: Exact mono samples, bounded to 5600 (350 ms at 16 kHz).
+// sample_rate_hz: Exact authored rate, 16000 Hz.
+// cue_id: Opaque stable symbol identity for admission and completion observations.
+// status: Receives explicit admission disposition; Dispatched is not audible completion.
+// Exception: Returns rejected arguments or retained asynchronous errors.
+esp_err_t LUNASHELL_audio_notify_personality(const int16_t *samples, size_t sample_count,
+    uint32_t sample_rate_hz, uint32_t cue_id, lunashell_audio_cue_status_t *status);
+// suspended: Invalidates an outstanding dispatch; resumed requests never replay old sounds.
+// Exception: Returns a retained preparation/playback failure.
+esp_err_t LUNASHELL_audio_set_personality_suspended(bool suspended);
+// status: Receives the coherent retained outcome without claiming a playback occurred.
+// Exception: Returns the retained original asynchronous or preparation failure.
+esp_err_t LUNASHELL_audio_get_personality_status(lunashell_audio_cue_status_t *status);
+
 /** Capture mono signed PCM16 when the selected board exposes one microphone. */
 esp_err_t LUNASHELL_audio_capture_pcm16(
     int16_t *samples,

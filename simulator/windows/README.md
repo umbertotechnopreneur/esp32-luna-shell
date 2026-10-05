@@ -7,6 +7,89 @@ not establish native pixels, FPS, CPU load or audible quality.
 
 ## Cody
 
+The desktop inspector uses Tkinter/ttk with the local Cody Studio dark theme:
+navy surfaces, teal accents, Segoe UI text, thin sliders and switch controls.
+The fixed header keeps animation, rig inspection, scene and rotation accessible.
+Face, Shape, Inputs and Inspect each retain a separate scroll position, and
+expression presets wrap into a grid instead of overflowing the sidebar. Narrow
+windows stack the inspector below the preview. The initial view hides geometry
+overlays and opens Face, so the character and automatic caress experiment can
+be tried without first clearing the diagnostic view. Stable point names remain
+available under Inspect. These changes affect desktop widgets only.
+
+The first Studio UI at `679fbda2` opened after an authorized restart; the user
+reported blurry Windows scaling and about 100 ms host ticks, then closed it.
+The subsequent DPI/performance corrections have static source review only.
+Windows startup now explicitly requires Per Monitor v2 awareness before Tk,
+then sets point scaling from the actual window DPI. Custom indicators, sidebar
+dimensions, wrapping and spacing use that startup scale. Window dimensions are
+bounded by the monitor's physical work area; compact side-by-side layout is used
+when the stacked minimum cannot fit. The character's native
+466 x 466 geometry and pointer mapping stay independent of UI scaling. Moving
+between monitors with different DPI still needs a separate Tk scaling transition.
+
+The exact four-sample coverage accumulator buckets edges by scanline and emits
+disjoint coverage runs. Opaque RGB565 interiors use Pillow's C-backed copy; only
+partial pixels use the original native channel blend. Visible inspector text
+updates at most 10 Hz, status at 5 Hz; model, gesture and cue clocks still advance
+each tick. The footer reports observed host FPS separately from the target.
+The desktop frame limit defaults to30Hz (25Hz for the jelly study), with explicit
+15/25/30/60 choices in the inspector. This limits host redraw demand without
+changing firmware cadence or elapsed-time personality/gesture rules.
+No improvement in FPS or CPU use has been measured yet.
+
+A focused regression check is available through the public CLI, after explicit
+authorization. It opens no Tk window and runs no benchmark:
+
+```powershell
+.\scripts\device.ps1 check -Check cody-preview-raster
+```
+
+It compares final RGB pixels against the established per-pixel compositor across
+clipped/concave/fractional polygons and four opacities, plus analytic coverage,
+winding reversal and an independent per-pixel coverage oracle on 32 x 32 masks.
+Native firmware performance remains unmeasured.
+
+The Face panel offers one manga-symbol selector in the main `rig` presentation.
+The semantic `sleep` and `sleeping` presets select Sleep automatically; blinking
+or closing the eye sliders does not. Editing a face slider clears the selected
+preset identity. Greeting and boot artwork disable the symbol; Micro always
+suppresses it. Device-symbol choices remain explicitly synthetic host previews.
+
+The single-target channel uses a 300-ms stable request, 400-ms smooth fade-in,
+2,500-ms minimum full-opacity hold and 600-ms smooth fade-out. Intermediate
+requests are overwritten without a queue. A semantic Sleep preset starts its
+fade without the stability delay; a manually selected Sleep symbol in an ordinary
+pose retains that delay. Entering the Sleep preset releases any competing symbol
+without its minimum hold, completing the old symbol's fade-out before Sleep's
+fade-in. Leaving the semantic Sleep preset also releases it without waiting for
+the minimum hold. Pause freezes the channel and following time. The interactive
+Sleep preset can show the full transition; firmware power timing is unchanged
+and may turn the panel off before a competing-symbol transition completes.
+
+The simulator reads its stable IDs, priorities, gesture/mood rules, anchor
+profiles and timing directly from validated `assets/cody/personality.yaml`.
+Firmware receives generated immutable headers from the same source. The center follows
+the evaluated Nose anchor plus its configured local offset using a 360-ms finite
+history window; scale uses a 400-ms window. Seventeen fixed 25-ms geometry buckets
+hold duration-weighted target integrals. Older geometry is discarded completely,
+so a stationary target is reached within 400 ms of active time. Position lag is
+capped at four pixels radially; deformation is limited to two pixels at the
+largest base extent. Pause freezes these windows. This geometric history does
+not queue symbol requests. Symbols use the generated RGB565 palette/coverage data and the same
+integer sampling and opacity multiplication as native Cody. Pillow compositing
+remains a host preview rather than pixel-level hardware proof.
+
+The native status rectangle `(106,37)-(362,58)` is permanently reserved, along
+with Back. A symbol that cannot fit its authored position, the body's clearance
+or the circle reports `BLOCKED_BY_LAYOUT` in the host status line. It is hidden
+without shifting or shrinking abruptly; the next admitted presentation fades in
+again. The 2026-10-05 focused suite passed 122 native/Python controller parity
+frames, and the interactive Rig window opened using the versioned pearl boot
+artwork. Gesture feel, audio playback and hardware behavior remain unverified.
+Disable Debug geometry and select symbol None to try automatic caress hearts.
+See [personality symbols](../../docs/architecture/cody/personality-icons.md).
+
 ```powershell
 .\scripts\device.ps1 simulator
 .\scripts\device.ps1 simulator -Screen boot-waking -Rotation 180
