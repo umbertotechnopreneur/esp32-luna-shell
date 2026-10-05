@@ -1,10 +1,12 @@
 # Optional local text-to-speech
 
-Status: **implemented in source, 2026-10-05; validation pending**. Worktree:
-`E:/ESP32 Luna Speaks`, branch `feat/luna-speak`, based on `main` at `1fbc0d7b`.
-No TTS generator, tests/scans, configure/build/size, simulator, serial, flash,
-SD provisioning or listening test has run. Compatibility, linked size, real-time
-performance and physical sound remain unverified.
+Status: **Cody SD Debug built/flashed and SD provisioned, 2026-10-05**. Worktree:
+`E:/ESP32 Luna Speaks`, branch `feat/luna-speak`; local `main` at `c8e73dec`
+was merged in `2166903b`. Firmware `57121ca2` was built with ESP-IDF 6.0.2 and
+flashed on COM10 with all written hashes verified, followed by an RTS reset.
+All four languages were copied to G: with SHA-256 readback verification.
+Tests/scans, size reports, simulator, other variants, runtime budgets and physical
+sound remain unverified. Deployment evidence is recorded in [done.md](../../done.md).
 
 ## Composition and languages
 
@@ -20,8 +22,9 @@ An incompatible manually edited sdkconfig fails the configuration/script gate.
 | `tts-flash` | Optional app component's read-only data | English only | 827,224 |
 
 Counts come from the pinned package manifest; they exclude four/single voice-definition
-files, alignment, engine code and runtime allocations. No linked firmware size
-or disabled-build measurement is established. Mandarin (`cmn`) and Cantonese
+files, alignment, engine code and runtime allocations. The deployed Cody SD Debug
+app binary is 4,211,408 bytes; no disabled-build comparison or runtime memory
+measurement is established. Mandarin (`cmn`) and Cantonese
 (`yue`) are distinct identities; Italian is `it`, English `en`. Flash rejects
 non-English requests with `ESP_ERR_NOT_SUPPORTED` and cannot embed their
 individual dictionaries or voice definitions.
@@ -62,7 +65,8 @@ publishes the real failure/timeout. A completed failed mount ends this request;
 card insertion later does not schedule another boot phrase. In Cody, this test
 replaces the usual completed-boot audio cue so its deferred greeting cannot race
 for the codec. Disable the symbol to restore the ordinary silent TTS startup and
-usual Cody cue. Physical SD provisioning remains a separate pending operation.
+usual Cody cue. The authorized SD package copy to G: has completed; physical
+mounting and audible playback on the device remain unverified.
 
 A single worker serializes the non-reentrant engine and is pinned to **core 0**.
 The native Cody frame owner stays on **core 1**. In TTS-enabled Luna UI builds,
@@ -167,8 +171,8 @@ a later explicit request. The snapshot keeps real failures throughout.
 
 ## Console usage, after authorization
 
-These are examples for a future explicitly authorized operation, not commands
-executed by this implementation task. Start in the new worktree. Use the same
+Run these commands only when authorized. Cody SD Debug configure/build and
+flash and explicit SD generation have run; the size example has not. Use the same
 profile/feature/build mode for configure, build, size and any later flash:
 
 ```powershell
@@ -193,7 +197,10 @@ The card-ready artifact is
 `artifacts/tts/sd/sd-root/LUNASHELL/tts/espeak-ng-data`. An authorized SD build
 also produces it under
 `artifacts/build-<profile>-tts-sd-<mode>/esp-idf/LUNASHELL_tts/tts-sd/sd-root`.
-Copying it to a physical SD card is a separate operation; none was performed.
+Copying it to a physical SD card is a separate operation. On 2026-10-05 the
+authorized copy to `G:/LUNASHELL/tts/espeak-ng-data` wrote 12 payload files
+(3,112,743 bytes including voice definitions) plus their manifest. Every copied
+file matched its manifest SHA-256 on readback; unrelated card files were preserved.
 A firmware flash never provisions the SD card or selects a fallback data source.
 All build/flash commands retain the existing transient-artifact cleanup and
 configuration/dependency-lock checks from `scripts/device.ps1`.

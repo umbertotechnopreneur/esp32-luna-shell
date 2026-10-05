@@ -3,9 +3,10 @@
 Only open, actionable work belongs here. Deferred work is in
 [planned-todo.md](planned-todo.md); completed implementation/evidence is in
 [done.md](done.md). Authorization is governed solely by [AGENTS.md](AGENTS.md).
-The latest Debug Cody image at `09ea3b70` was built and flashed on COM10
-on 2026-10-05 after the earlier two flashes of `160a080a`. Verified flash hashes
-prove the written bytes; every open physical observation below remains open.
+The latest feature-worktree Debug Cody image at `57121ca2` (`tts-sd`) was built
+and flashed on COM10 on 2026-10-05. Earlier ordinary Cody evidence belongs to
+`09ea3b70` and `160a080a`. Verified flash hashes prove the written bytes;
+every open physical observation below remains open.
 
 ## Optional local TTS on feat/luna-speak
 
@@ -17,18 +18,20 @@ prove the written bytes; every open physical observation below remains open.
 - [ ] Establish firmware/PSRAM/stack/CPU budgets and continuous PCM performance
   for the chosen variant. Validate UTF-8 in all four languages, language
   rejection in flash, cancellation, clock policy, standby, codec lifecycle,
-  card removal/changed package and terminal allocation failure. No generator,
-  test, scan, configure/build/size, simulator or physical operation has run for
-  this implementation. Existing main hardware evidence does not validate TTS.
+  card removal/changed package and terminal allocation failure. The authorized
+  Cody `tts-sd` Debug configure/build/flash and SD package generation/copy completed
+  on 2026-10-05. Tests/scans, size reports, simulator and runtime measurements
+  remain open; existing main hardware evidence does not validate TTS.
 - [ ] Validate the newly wired Italian boot phrase on `tts-sd`, one-shot admission,
   bounded initial SD wait and real failures, test-symbol exclusion from flash,
   diagnostic-only clock/quiet bypass and regular-request policy preservation.
   Verify TTS on core 0 and every Cody/LVGL render worker on core 1, including
   guarded LVGL patch application and actual simultaneous rendering/speech load.
-  No validation or physical listening has been performed.
+  Cody `tts-sd` Debug compiles; physical listening and runtime/core observations
+  remain unverified. Full Luna/LVGL and flash-English builds remain open.
 - [ ] Decide additional speech triggers beyond the requested Italian boot test.
-  No UI, scene, HTTP or assistant automatically requests speech. SD provisioning
-  and audible voice tuning remain separate, explicitly authorized operations.
+  No UI, scene, HTTP or assistant automatically requests speech. Authorized SD
+  provisioning to G: completed; audible voice tuning remains open.
 
 ## Cody integration and release gates
 

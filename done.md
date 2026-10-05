@@ -32,15 +32,36 @@ flash logs were regenerated.
 - Pinned synthesis to core 0 and Cody/LVGL renderer tasks to core 1 using shared
   constants, including a guarded patch for LVGL's otherwise unpinned software
   draw workers. Single-core TTS is rejected. Default-off speech and flash-English
-  composition remain intact. Static review only; patch application, build,
-  scheduling performance and audible boot behavior are pending authorization.
+  composition remain intact. The Cody SD Debug build subsequently completed;
+  LVGL patch application/build, scheduling performance and audible boot behavior
+  remain unverified.
 - Pinned principal source payload is 827,224 bytes for English or 3,111,550
   bytes for all four languages, excluding voice metadata/code/runtime memory.
   These are package metadata, not linked size or measured memory evidence.
   [Implementation and usage](docs/architecture/text-to-speech.md).
-  Static source review only: all generation, tests/scans, configure/build/size,
-  simulator, serial, flash, SD provisioning and audible behavior remain pending
-  in `TODO.md`. No upstream publication or hardware operation was performed.
+  Outstanding variant/test/runtime evidence remains in `TODO.md`; no upstream
+  publication was performed.
+- Authorized deployment preparation: generated the SD package through
+  `scripts/device.ps1 generate -Generator tts-assets`, copied 12 files plus the
+  manifest to `G:/LUNASHELL/tts/espeak-ng-data`, and verified every payload's
+  manifest SHA-256 on readback. Payload totals 3,112,743 bytes; preserved unrelated
+  SD content and did not format the card.
+- Corrected first IDF 6.0.2/GCC 15 compile/link causes in `57121ca2`: FreeRTOS
+  header order, native libc endian definitions, explicit intended fallthroughs,
+  bounded dictionary identities, checked number/phoneme formatting with actual
+  capacities, synchronous dispatch compilation, and exclusion of desktop dictionary
+  trace dependencies. Compiler diagnostics remain enabled. Cody `tts-sd` Debug
+  configured and built with eight jobs; the first linked app is 4,211,264 bytes.
+  Build evidence: `artifacts/build-cody-companion-tts-sd-debug/evidence/tts-sd-build-20261005.log`.
+  No standalone tests/scans, size command, simulator or listening test ran.
+- Authorized flash completed on COM10 (ESP32-S3, MAC `a4:cb:8f:db:42:d8`):
+  `scripts/device.ps1 flash -Profile cody-companion -Feature tts-sd -BuildMode Debug -Jobs 8 -Port COM10 -Baud 460800`.
+  Its required rebuild of `57121ca2` succeeded; deployed app is 4,211,408 bytes.
+  Esptool verified bootloader, partition-table and application hashes and issued
+  the RTS reset. The separately gated Italian boot phrase is enabled. Evidence:
+  `artifacts/build-cody-companion-tts-sd-debug/evidence/tts-sd-flash-20261005.log`
+  and `tts-sd-deploy-20261005.json` in the same directory. No monitor/capture was
+  started; SD mounting, audible playback and concurrent rendering remain unverified.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
