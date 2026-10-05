@@ -10,6 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from enum import Enum
 import math
+import struct
 
 from scripts.common.cody_response_contract import Axis
 from scripts.common.cody_rig_types import ContourControl, FaceChannel
@@ -358,12 +359,20 @@ def select_idle_scene(state, random_value):
     return scene
 
 
+# value: A native float operation whose rounding affects idle-scene admission.
+# Raises OverflowError when the value cannot be represented by the firmware float.
+def native_float(value):
+    return struct.unpack("f", struct.pack("f", value))[0]
+
+
 # config: Existing authored delay, duration and cooldown.
 # busy: Presentation/activity priority gate, independent of sensor validity.
 # seconds: Active elapsed time; zero cannot schedule a new scene.
 # next_state: Transaction-local Windows model; never published into firmware.
 def advance_idle_scene(config, busy, seconds, next_state):
     idle = config["idle"]
+    # Firmware accumulates float32 clocks; double precision changes boundary frames.
+    seconds = native_float(seconds)
     if busy:
         if next_state.idle_scene != IdleSceneId.NONE:
             next_state.yawn_cooldown_seconds = idle["cooldown_seconds"]
@@ -377,14 +386,14 @@ def advance_idle_scene(config, busy, seconds, next_state):
         return
     if seconds == 0:
         return
-    next_state.yawn_cooldown_seconds = max(0, next_state.yawn_cooldown_seconds - seconds)
+    next_state.yawn_cooldown_seconds = max(0, native_float(next_state.yawn_cooldown_seconds - seconds))
     if next_state.idle_scene == IdleSceneId.NONE:
         if next_state.yawn_cooldown_seconds > 0:
             return
         if next_state.idle_seconds == 0:
-            next_state.idle_wait_fraction = (next_idle_random(next_state) & 0xFFFF) / 65535
-        delay = idle["after_seconds"] * (1 + next_state.idle_wait_fraction)
-        next_state.idle_seconds = min(delay, next_state.idle_seconds + seconds)
+            next_state.idle_wait_fraction = native_float((next_idle_random(next_state) & 0xFFFF) / 65535)
+        delay = native_float(native_float(idle["after_seconds"]) * native_float(1 + next_state.idle_wait_fraction))
+        next_state.idle_seconds = min(delay, native_float(next_state.idle_seconds + seconds))
         if next_state.idle_seconds < delay:
             return
         next_state.idle_scene = select_idle_scene(next_state, next_idle_random(next_state))
@@ -393,8 +402,8 @@ def advance_idle_scene(config, busy, seconds, next_state):
         next_state.idle_scene_seconds = 0
         next_state.idle_scene_weight = 0
         return
-    next_state.idle_scene_seconds += seconds
-    if next_state.idle_scene_seconds >= idle["duration_seconds"]:
+    next_state.idle_scene_seconds = native_float(next_state.idle_scene_seconds + seconds)
+    if next_state.idle_scene_seconds >= native_float(idle["duration_seconds"]):
         next_state.idle_scene = IdleSceneId.NONE
         next_state.idle_seconds = 0
         next_state.idle_scene_seconds = 0

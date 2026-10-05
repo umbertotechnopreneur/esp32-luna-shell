@@ -24,7 +24,8 @@ from scripts.tests.cody_wellbeing_contract import check_host_wellbeing
 def check_asset_contracts(root):
     directory = root / "assets/cody/personality-icons"
     icons = json.loads((directory / "generated/manifest.json").read_text(encoding="utf-8"))
-    palette_data = (root / icons["palette_source"]).read_bytes()
+    # Normalize only text line endings; binary sprite/audio hashes remain byte exact.
+    palette_data = (root / icons["palette_source"]).read_text(encoding="utf-8").encode("utf-8")
     assert hashlib.sha256(palette_data).hexdigest() == icons["palette_sha256"], "Canonical palette digest differs"
     palette = json.loads(palette_data)["entries"]
     assert [entry["index"] for entry in palette] == list(range(256)), "Canonical palette slots must be stable"

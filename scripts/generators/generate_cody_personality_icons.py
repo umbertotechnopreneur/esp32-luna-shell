@@ -89,7 +89,8 @@ def cpp_bytes(data):
 # Raises OSError for source/output failures and ValueError for malformed source identities/palette.
 def main():
     palette_path = ROOT / "assets/cody/palette/palette256.json"
-    palette_bytes = palette_path.read_bytes()
+    # Palette authoring is UTF-8 text; Windows line endings must not change provenance.
+    palette_bytes = palette_path.read_text(encoding="utf-8").encode("utf-8")
     palette = json.loads(palette_bytes)
     entries = palette["entries"]
     if len(entries) != 256 or [entry["index"] for entry in entries] != list(range(256)):
