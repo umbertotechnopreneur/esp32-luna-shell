@@ -6991,9 +6991,11 @@ esp_err_t DeviceSnapshotService::readVoiceObservation(VoiceSnapshot &voice) cons
 // sample_rate_hz: Actual playback sample rate.
 // volume_percent: Selected codec volume; invalid values are rejected without repair.
 // error: Original codec/playback failure, retained by the canonical snapshot.
+// cue_id: Stable application sound identity supplied by the write owner.
+// Exception: Returns actual publication errors; failed playback remains explicitly invalid.
 esp_err_t DeviceSnapshotService::reportPlayback(bool active, uint32_t mean_level,
                                                uint32_t sample_rate_hz,
-                                               int volume_percent, esp_err_t error)
+                                               int volume_percent, esp_err_t error, uint32_t cue_id)
 {
     if (error == ESP_OK && (sample_rate_hz == 0 || mean_level > 32768U ||
                            volume_percent < 0 || volume_percent > 100)) {
@@ -7008,6 +7010,7 @@ esp_err_t DeviceSnapshotService::reportPlayback(bool active, uint32_t mean_level
         return lock_error;
     }
     PlaybackSnapshot &playback = s_snapshot.audio.playback;
+    playback.cue_id = cue_id;
     const int64_t now_us = esp_timer_get_time();
     if (error == ESP_OK) {
         mark_sample_success(playback, now_us);

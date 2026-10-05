@@ -10,6 +10,15 @@ flash logs were regenerated.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Implemented stronger shared mouth breathing and random Idle Yawn/Whistle/
+  Greeting accents on 2026-10-05, preserving the screen-16 route and priorities.
+  Added the original bounded flash whistle to the existing optional audio owner
+  and published actual playback cue identity through the canonical snapshot.
+  The Windows model mirrors visual behavior and marks whistle audio device-only.
+  Updated both requested atlases with appendices and dated final errata, retaining
+  previous pages. Firmware, host/simulator and hardware validation remain pending
+  in `TODO.md`; this checkpoint claims static source review only.
+
 - Integrated the SIMD and DMA branches into `main` and removed their worktrees
   and local/remote branches on 2026-10-05. The preserved-evidence directories
   named in the historical records below were later removed by the authorized

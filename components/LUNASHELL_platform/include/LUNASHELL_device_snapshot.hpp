@@ -144,6 +144,8 @@ struct PlaybackSnapshot : ComponentSnapshot {
     uint32_t mean_level = 0;
     uint32_t sample_rate_hz = 0;
     uint8_t volume_percent = 0;
+    // Application cue identity from the successful write; zero means generic PCM.
+    uint32_t cue_id = 0;
 };
 
 struct AudioSnapshot {
@@ -829,8 +831,10 @@ public:
     // sample_rate_hz: Actual selected playback format.
     // volume_percent: Actual requested codec volume, in the supported 0..100 range.
     // error: Original playback or codec error; failures invalidate the level.
+    // cue_id: Stable application identity; zero for generic PCM.
+    // Exception: Returns original publication or rejected-value errors.
     esp_err_t reportPlayback(bool active, uint32_t mean_level, uint32_t sample_rate_hz,
-                            int volume_percent, esp_err_t error);
+                            int volume_percent, esp_err_t error, uint32_t cue_id = 0);
     // kind: Semantic target recognized from displayed geometry and an acquired touch.
     // sampled_at_us: Original report timestamp; duplicate/backward events are rejected.
     esp_err_t reportCharacterInteraction(CharacterInteractionSnapshot::Kind kind, int64_t sampled_at_us);

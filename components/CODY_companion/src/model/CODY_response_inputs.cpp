@@ -33,6 +33,7 @@ SampleStamp published_stamp(const LUNASHELL::ComponentSnapshot &component, bool 
 // inputs: Receives a hardware-only projection; failures preserve the caller's state.
 // clock: Optional caller-owned clock projection from that same locked snapshot.
 // Luna services are the only samplers. This adapter never calls refresh or a driver.
+// Exception: Returns the original snapshot read or ambiguous observation error.
 esp_err_t observe_response_inputs(ResponseInputs &inputs, LUNASHELL::ClockSnapshot *clock)
 {
     LUNASHELL::MotionPowerObservation observation;
@@ -77,6 +78,7 @@ esp_err_t observe_response_inputs(ResponseInputs &inputs, LUNASHELL::ClockSnapsh
         }
     }
     const auto &audio = observation.audio;
+    result.playback.cue_id = audio.playback.cue_id;
     result.microphone.stamp = published_stamp(audio.microphone, audio.channel_count > 0);
     result.playback.stamp = published_stamp(audio.playback, true);
     if (result.microphone.stamp.health == SampleHealth::Current) {

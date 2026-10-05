@@ -544,13 +544,16 @@ void apply_mouth_breathing(Channels &face, float breathing)
     const float inhalation = .5f + .5f * breathing;
     const float exhalation = 1 - inhalation;
     auto &mouth_open = face[FaceChannel::MouthOpen];
+    // Closed expressions need extra opening to make the breath readable.
+    // Fade that boost out before Worried's base opening, preserving its tongue gate.
+    const float reopening = .16f + .06f * std::max(0.f, 1 - mouth_open / .14f);
     // Close relative to the current expression, then reopen into its remaining
     // range. Afraid stays narrow and Happy stays more open throughout the cycle.
-    mouth_open *= 1 - .22f * exhalation;
-    mouth_open += (1 - mouth_open) * .16f * inhalation;
+    mouth_open *= 1 - .35f * exhalation;
+    mouth_open += (1 - mouth_open) * reopening * inhalation;
     auto &mouth_width = face[FaceChannel::MouthWidth];
     const float maximum_width = Data::channel_max[to_index(FaceChannel::MouthWidth)];
-    mouth_width += (maximum_width - mouth_width) * .035f * inhalation;
+    mouth_width += (maximum_width - mouth_width) * .045f * inhalation;
 }
 
 // channels: Independent finite controls, each inside its authored range.

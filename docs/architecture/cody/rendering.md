@@ -23,7 +23,9 @@ drawing, debug geometry and semantic hit testing consume the same evaluated pose
 
 The shared lip control points are 18 percent wider, preserving each preset's
 relative width and opening. The existing breathing clock now closes and opens
-the mouth around that preset and adds a small width pulse; it does not add a
+the mouth around that preset and adds a small width pulse; the 2026-10-05 revision
+uses 35-percent closing, 16-22-percent reopening and 4.5-percent width excursion so
+the closed-mouth Stressed preset also has a visible pulse. It does not add a
 timer or acquire measurements. A coral-pink tongue is a separate authored fill
 under the same mouth anchor and width/opening channels. It appears at opening
 0.28 and above, keeping Calm, Focused, Embarrassed and Worried tongue-free during
@@ -89,7 +91,9 @@ Drag uses canonical pressed/contact data, not measured force. Gesture impulses
 are consumed once even when reports arrive between frames; re-rendering does not
 repeat a tap. Evaluated body/eye hit regions exclude navigation. Eye taps close
 the relevant eyelid and affect brows; repeated taps restart the event. Active-time
-idle/yawn behavior is authored, with pause/standby excluded. YAML owns gains and
+idle gestures now choose Yawn, Whistle or Greeting randomly with no consecutive
+repeat; [idle scenes](idle-scenes.md) owns the timing, priorities and original
+optional whistle. Pause/standby are excluded. YAML owns gains and
 timings rather than duplicated tuning constants in this guide.
 
 ## Damage, tiles and DMA

@@ -33,6 +33,13 @@ class EyeId(str, Enum):
     RIGHT = "right"
 
 
+class IdleSceneId(int, Enum):
+    NONE = 0
+    YAWN = 0xC002
+    WHISTLE = 0xC003
+    GREETING = 0xC004
+
+
 @dataclass(frozen=True)
 class SampleStamp:
     health: SampleHealth = SampleHealth.UNAVAILABLE
@@ -72,6 +79,7 @@ class PlaybackSample:
     stamp: SampleStamp = field(default_factory=SampleStamp)
     active: bool = False
     mean_level: int = 0
+    cue_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -99,6 +107,7 @@ class ResponseInputs:
     last_interaction_at_us: int = 0
     eye_tap: EyeTapSample = field(default_factory=EyeTapSample)
     body_touch: BodyTouchSample = field(default_factory=BodyTouchSample)
+    idle_scene_allowed: bool = False
 
 
 @dataclass(frozen=True)
@@ -143,6 +152,13 @@ class ResponseState:
     yawn_cooldown_seconds: float = 0.0
     yawn_weight: float = 0.0
     yawning: bool = False
+    idle_scene: IdleSceneId = IdleSceneId.NONE
+    last_idle_scene: IdleSceneId = IdleSceneId.NONE
+    idle_scene_generation: int = 0
+    idle_random_state: int = 0x6D2B79F5
+    idle_wait_fraction: float = 0.0
+    idle_scene_seconds: float = 0.0
+    idle_scene_weight: float = 0.0
     eye_tap_status: SampleStamp = field(default_factory=SampleStamp)
     consumed_eye_tap_at_us: int = 0
     eye_hold_seconds: float = 0.0
@@ -274,10 +290,17 @@ def validate_response_state(state):
         "blink_elapsed_ms": (0, 4800),
         "attention": (0, 1), "speaking": (0, 1),
         "microphone_target": (0, 1), "playback_target": (0, 1),
-        "idle_seconds": (0, 600), "yawn_seconds": (0, 10),
+        "idle_seconds": (0, 1200), "yawn_seconds": (0, 10),
+        "idle_wait_fraction": (0, 1), "idle_scene_seconds": (0, 10), "idle_scene_weight": (0, 1),
         "yawn_cooldown_seconds": (0, 600), "yawn_weight": (0, 1),
         "eye_hold_seconds": (0, 3), "protective_eye_closure": (0, 1), "annoyance": (0, 1),
     }
+    if not isinstance(state.idle_scene, IdleSceneId) or not isinstance(state.last_idle_scene, IdleSceneId):
+        raise ValueError("response.state.idle_scene: unknown identity")
+    if type(state.idle_random_state) is not int or not 1 <= state.idle_random_state <= 0xFFFFFFFF:
+        raise ValueError("response.state.idle_random_state: expected nonzero uint32")
+    if type(state.idle_scene_generation) is not int or not 0 <= state.idle_scene_generation <= 0xFFFFFFFF:
+        raise ValueError("response.state.idle_scene_generation: expected uint32")
     for name, (minimum, maximum) in ranges.items():
         value = finite_number(getattr(state, name), f"response.state.{name}")
         if not minimum <= value <= maximum:
@@ -302,6 +325,77 @@ def validate_response_state(state):
         timestamp = getattr(state, name)
         if type(timestamp) is not int or timestamp < 0:
             raise ValueError(f"response.state.{name}: rejected timestamp {timestamp!r}")
+
+
+# state: Transaction-local state whose PRNG advances only at a scheduling decision.
+def next_idle_random(state):
+    value = state.idle_random_state
+    value ^= (value << 13) & 0xFFFFFFFF
+    value ^= value >> 17
+    value ^= (value << 5) & 0xFFFFFFFF
+    state.idle_random_state = value
+    return value
+
+
+# previous: Named prior scene; prevent consecutive repetition.
+# random_value: One uint32 draw with the same mapping as the native engine.
+def select_idle_scene(previous, random_value):
+    options = {
+        IdleSceneId.NONE: (IdleSceneId.YAWN, IdleSceneId.WHISTLE, IdleSceneId.GREETING),
+        IdleSceneId.YAWN: (IdleSceneId.WHISTLE, IdleSceneId.GREETING),
+        IdleSceneId.WHISTLE: (IdleSceneId.YAWN, IdleSceneId.GREETING),
+        IdleSceneId.GREETING: (IdleSceneId.YAWN, IdleSceneId.WHISTLE),
+    }[previous]
+    return options[random_value % len(options)]
+
+
+# config: Existing authored delay, duration and cooldown.
+# busy: Presentation/activity priority gate, independent of sensor validity.
+# seconds: Active elapsed time; zero cannot schedule a new scene.
+# next_state: Transaction-local Windows model; never published into firmware.
+def advance_idle_scene(config, busy, seconds, next_state):
+    idle = config["idle"]
+    if busy:
+        if next_state.idle_scene != IdleSceneId.NONE:
+            next_state.yawn_cooldown_seconds = idle["cooldown_seconds"]
+        next_state.idle_scene = IdleSceneId.NONE
+        next_state.idle_seconds = 0
+        next_state.idle_scene_seconds = 0
+        next_state.idle_scene_weight = 0
+        next_state.yawning = False
+        next_state.yawn_seconds = 0
+        next_state.yawn_weight = 0
+        return
+    if seconds == 0:
+        return
+    next_state.yawn_cooldown_seconds = max(0, next_state.yawn_cooldown_seconds - seconds)
+    if next_state.idle_scene == IdleSceneId.NONE:
+        if next_state.yawn_cooldown_seconds > 0:
+            return
+        if next_state.idle_seconds == 0:
+            next_state.idle_wait_fraction = (next_idle_random(next_state) & 0xFFFF) / 65535
+        delay = idle["after_seconds"] * (1 + next_state.idle_wait_fraction)
+        next_state.idle_seconds = min(delay, next_state.idle_seconds + seconds)
+        if next_state.idle_seconds < delay:
+            return
+        next_state.idle_scene = select_idle_scene(next_state.last_idle_scene, next_idle_random(next_state))
+        next_state.last_idle_scene = next_state.idle_scene
+        next_state.idle_scene_generation = (next_state.idle_scene_generation + 1) & 0xFFFFFFFF
+        next_state.idle_scene_seconds = 0
+        next_state.idle_scene_weight = 0
+        return
+    next_state.idle_scene_seconds += seconds
+    if next_state.idle_scene_seconds >= idle["duration_seconds"]:
+        next_state.idle_scene = IdleSceneId.NONE
+        next_state.idle_seconds = 0
+        next_state.idle_scene_seconds = 0
+        next_state.idle_scene_weight = 0
+        next_state.yawn_cooldown_seconds = idle["cooldown_seconds"]
+    else:
+        next_state.idle_scene_weight = math.sin(math.pi * next_state.idle_scene_seconds / idle["duration_seconds"]) ** 2
+    next_state.yawning = next_state.idle_scene == IdleSceneId.YAWN
+    next_state.yawn_seconds = next_state.idle_scene_seconds if next_state.yawning else 0
+    next_state.yawn_weight = next_state.idle_scene_weight if next_state.yawning else 0
 
 
 # config: Validated authored audio and inactivity settings.
@@ -347,38 +441,22 @@ def advance_audio_and_idle(config, state, inputs, seconds, now_us, next_state):
     else:
         next_state.playback_target = 0
     playing = next_state.playback_status.health == SampleHealth.CURRENT and playback.active
+    own_whistle = playing and playback.cue_id == IdleSceneId.WHISTLE
     attention_target = 0 if playing else next_state.microphone_target
     next_state.attention = blend_state(state.attention, attention_target, seconds, audio["attack_seconds"], audio["release_seconds"])
-    next_state.speaking = blend_state(state.speaking, next_state.playback_target, seconds, audio["attack_seconds"], audio["release_seconds"])
+    next_state.speaking = blend_state(state.speaking, 0 if own_whistle else next_state.playback_target, seconds, audio["attack_seconds"], audio["release_seconds"])
     interaction_at = inputs.last_interaction_at_us
     if type(interaction_at) is not int or not state.consumed_interaction_at_us <= interaction_at <= now_us:
         raise ValueError("interaction: rejected timestamp")
     interaction = interaction_at > state.consumed_interaction_at_us
     next_state.consumed_interaction_at_us = interaction_at
-    busy = interaction or next_state.stress >= idle["activity_stress_threshold"] or next_state.microphone_target >= idle["audio_activity_threshold"] or playing
-    next_state.yawn_cooldown_seconds = max(0, state.yawn_cooldown_seconds - seconds)
-    if busy:
-        next_state.idle_seconds = 0
-        next_state.yawning = False
-        next_state.yawn_seconds = 0
-        next_state.yawn_weight = blend_state(state.yawn_weight, 0, seconds, audio["attack_seconds"], audio["release_seconds"])
-        return
-    if not next_state.yawning:
-        next_state.yawn_weight = blend_state(state.yawn_weight, 0, seconds, audio["attack_seconds"], audio["release_seconds"])
-    next_state.idle_seconds = min(idle["after_seconds"], state.idle_seconds + seconds)
-    if not next_state.yawning and next_state.idle_seconds >= idle["after_seconds"] and next_state.yawn_cooldown_seconds == 0:
-        next_state.yawning = True
-        next_state.yawn_seconds = 0
-    if next_state.yawning:
-        next_state.yawn_seconds += seconds
-        if next_state.yawn_seconds >= idle["duration_seconds"]:
-            next_state.yawning = False
-            next_state.yawn_seconds = 0
-            next_state.idle_seconds = 0
-            next_state.yawn_weight = 0
-            next_state.yawn_cooldown_seconds = idle["cooldown_seconds"]
-        else:
-            next_state.yawn_weight = math.sin(math.pi * next_state.yawn_seconds / idle["duration_seconds"]) ** 2
+    if type(inputs.idle_scene_allowed) is not bool:
+        raise ValueError("response.idle_scene_allowed: expected bool")
+    touching = next_state.body_touch_status.health == SampleHealth.CURRENT and inputs.body_touch.pressed
+    busy = (not inputs.idle_scene_allowed or interaction or touching or
+            next_state.stress >= idle["activity_stress_threshold"] or
+            (not own_whistle and (next_state.microphone_target >= idle["audio_activity_threshold"] or playing)))
+    advance_idle_scene(config, busy, seconds, next_state)
 
 
 # config: Validated immutable response settings.
@@ -648,6 +726,17 @@ def compose_response(rig, state, base_face, base_contour, placement, rotation, a
         apply_mouth_breathing(face, breathing)
         breath = FaceChannel.BREATH
         face[breath] += (1 - abs(face[breath])) * breathing
+
+    gesture = state.idle_scene_weight
+    if state.idle_scene == IdleSceneId.WHISTLE:
+        face[mouth] += (.24 - face[mouth]) * gesture
+        face[FaceChannel.MOUTH_WIDTH] += (.42 - face[FaceChannel.MOUTH_WIDTH]) * gesture
+    elif state.idle_scene == IdleSceneId.GREETING:
+        face[mouth] += (.65 - face[mouth]) * gesture
+        face[FaceChannel.MOUTH_WIDTH] += (1.1 - face[FaceChannel.MOUTH_WIDTH]) * gesture
+        face[FaceChannel.EYE_RIGHT] *= 1 - .65 * gesture
+        cheek = FaceChannel.CHEEK_OPACITY
+        face[cheek] += (1 - face[cheek]) * .25 * gesture
 
     if len(placement) != 3:
         raise ValueError("Response placement requires x, y and scale")

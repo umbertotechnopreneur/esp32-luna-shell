@@ -734,10 +734,11 @@ namespace {
 // sample_count: Exact count, already validated by the public owner.
 // sample_rate_hz: Actual clock shared with the microphone when open.
 // volume_percent: Observed or explicitly selected codec output policy.
+// cue_id: Stable application sound identity, published only after successful writes.
 // Exception: Returns original AFE, codec write, or snapshot publication failures.
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 esp_err_t write_speaker_pcm_locked(const int16_t *samples, size_t sample_count,
-                                  uint32_t sample_rate_hz, int volume_percent)
+                                  uint32_t sample_rate_hz, int volume_percent, uint32_t cue_id = 0)
 {
     size_t offset = 0;
     while (offset < sample_count) {
@@ -764,7 +765,7 @@ esp_err_t write_speaker_pcm_locked(const int16_t *samples, size_t sample_count,
             absolute_sum += static_cast<uint32_t>(sample < 0 ? -sample : sample);
         }
         const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
-            true, absolute_sum / chunk_samples, sample_rate_hz, volume_percent, ESP_OK);
+            true, absolute_sum / chunk_samples, sample_rate_hz, volume_percent, ESP_OK, cue_id);
         if (publication_error != ESP_OK) {
             ESP_LOGE(TAG, "Speaker playback publication failed (%s)", esp_err_to_name(publication_error));
             return publication_error;
@@ -1665,7 +1666,7 @@ esp_err_t play_personality_locked(const PersonalityAudioEvent &event,
             portEXIT_CRITICAL(&s_personality_mux);
         }
         error = write_speaker_pcm_locked(s_typewriter_transport_samples.data(), chunk_count,
-            sample_rate_hz, volume_percent);
+            sample_rate_hz, volume_percent, event.cue_id);
         submitted = true;
         offset += chunk_count;
     }
@@ -1682,7 +1683,7 @@ esp_err_t play_personality_locked(const PersonalityAudioEvent &event,
         }
     }
     const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
-        false, 0, sample_rate_hz, volume_percent, error);
+        false, 0, sample_rate_hz, volume_percent, error, event.cue_id);
     if (publication_error != ESP_OK) {
         ESP_LOGE(TAG, "Personality playback completion publication failed (%s)", esp_err_to_name(publication_error));
         if (error == ESP_OK) {

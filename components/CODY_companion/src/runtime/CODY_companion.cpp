@@ -50,6 +50,7 @@
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "esp_system.h"
+#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
 #include "freertos/task.h"
@@ -642,6 +643,9 @@ uint32_t s_optional_typewriter_repeated_failures = 0;
 int64_t s_optional_typewriter_reminder_at_us = 0;
 bool s_personality_audio_prepared = false;
 bool s_personality_audio_suspended = false;
+CODY::IdleSceneId s_retired_idle_scene = CODY::IdleSceneId::None;
+uint32_t s_retired_idle_generation = 0;
+bool s_idle_whistle_attempted = false;
 esp_err_t s_optional_personality_error = ESP_OK;
 uint32_t s_optional_personality_repeated_failures = 0;
 int64_t s_optional_personality_reminder_at_us = 0;
@@ -687,12 +691,15 @@ void suspend_optional_personality_audio(bool suspended)
 
 // previous: Last fully retired visual cue before this frame.
 // current: Newly retired visual cue; only its first visible frame can request a sound.
+// idle_view_visible: The completed frame actually rendered the character in Main.
 void notify_completed_personality(const CODY::PersonalityFrame &previous,
-                                  const CODY::PersonalityFrame &current)
+                                  const CODY::PersonalityFrame &current, bool idle_view_visible)
 {
     const bool visible = current.status == CODY::PersonalityPresentationStatus::Visible &&
         current.opacity != 0;
-    suspend_optional_personality_audio(!visible);
+    const bool idle_whistle_visible = !s_state.animation_paused &&
+        s_state.response.idle_scene == CODY::IdleSceneId::Whistle && idle_view_visible;
+    suspend_optional_personality_audio(!visible && !idle_whistle_visible);
     const bool appeared = visible && (previous.opacity == 0 || previous.cue != current.cue);
     if (!s_personality_audio_prepared || !appeared) {
         return;
@@ -707,6 +714,36 @@ void notify_completed_personality(const CODY::PersonalityFrame &previous,
     }
     // Busy, cooldown and quiet/mute are explicit dispositions, never queued retries.
     // The audio owner retains asynchronous completion/errors independently of the display.
+}
+
+// visible: This completed frame actually presented the rig in the ordinary Idle view.
+void notify_completed_idle_scene(bool visible)
+{
+    const CODY::IdleSceneId current = visible && !s_state.animation_paused
+        ? s_state.response.idle_scene : CODY::IdleSceneId::None;
+    if (current != s_retired_idle_scene) {
+        s_retired_idle_scene = current;
+        ESP_LOGI(kTag, "Idle scene retired: identity=%lu", static_cast<unsigned long>(current));
+    }
+    if (s_state.response.idle_scene_generation != s_retired_idle_generation) {
+        s_retired_idle_generation = s_state.response.idle_scene_generation;
+        s_idle_whistle_attempted = false;
+    }
+    // Request once only when the pursed mouth is visible, never on an evaluated
+    // or partially transferred frame. A busy/suppressed clip is not replayed.
+    if (!s_personality_audio_prepared || s_idle_whistle_attempted ||
+        current != CODY::IdleSceneId::Whistle || s_state.response.idle_scene_weight < .8f) {
+        return;
+    }
+    s_idle_whistle_attempted = true;
+    CODY::PersonalityAudioStatus status{};
+    const esp_err_t error = CODY::notify_idle_whistle_audio(status);
+    ESP_LOGI(kTag, "Idle whistle: disposition=%u sequence=%lu error=%s",
+        static_cast<unsigned>(status.state), static_cast<unsigned long>(status.request_sequence),
+        esp_err_to_name(error));
+    if (error != ESP_OK) {
+        log_optional_personality_error(error);
+    }
 }
 
 // error: Actual audio admission/result; successful no-op frames never report recovery.
@@ -1613,6 +1650,17 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
         CODY::rebase_response_motion(previous_response);
     }
     CODY::ResponseState next_response{};
+    const bool ordinary_idle = next_lifecycle.phase == CODY::LifecyclePhase::Idle &&
+        (!next_scene.valid || s_state.routine_scene) && !s_state.resume_scene_pending;
+    const bool resting_expression = !s_state.expression_override ||
+        s_state.requested_expression == CODY::ExpressionId::Calm ||
+        s_state.requested_expression == CODY::ExpressionId::Happy ||
+        s_state.requested_expression == CODY::ExpressionId::Drowsy ||
+        s_state.requested_expression == CODY::ExpressionId::Curious;
+    inputs.idle_scene_allowed = ordinary_idle && !s_state.animation_paused && !s_state.rig_debug &&
+        resting_expression && s_state.affection_remaining_us == 0 &&
+        s_state.requested_personality == CODY::PersonalityCue::None &&
+        s_state.personality_lag.cue == CODY::PersonalityCue::None;
     // A publication can occur after frame_started_us while we wait for the snapshot.
     // Freshness uses the later observation time, not a potentially earlier frame clock.
     CODY::ResponseConfig rhythm_config = CODY::Data::response;
@@ -2511,7 +2559,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
         const CODY::PersonalityFrame previous_personality = s_state.retired_personality;
         s_state.retired_personality = frame_was_rig ? s_resources.rig->personality : CODY::PersonalityFrame{};
-        notify_completed_personality(previous_personality, s_state.retired_personality);
+        notify_completed_personality(previous_personality, s_state.retired_personality,
+                                     main_companion_view_active(frame_was_rig));
+        notify_completed_idle_scene(main_companion_view_active(frame_was_rig));
         s_cache_was_rig = frame_was_rig;
         s_cached_rig_debug = frame_debug;
         s_cached_selected_point = s_state.selected_point;
@@ -2658,6 +2708,7 @@ TouchAction classify_rig_touch(const LUNASHELL_touch_point_t &point)
 
 // No parameters: touch and automatic demo share the same clocks, buffers and model.
 // Caller owns the display/state lock; entering does not draw while another frame is active.
+// Exception: Returns the actual transient scene-policy error before changing the model.
 esp_err_t enter_animation_demo()
 {
     const esp_err_t policy_error = apply_scene_standby_policy({});
@@ -2675,6 +2726,7 @@ esp_err_t enter_animation_demo()
     s_state.contour = CODY::make_contour_state();
     s_state.face = CODY::Data::ready;
     s_state.response = CODY::make_response_state(CODY::Data::response);
+    s_state.response.idle_random_state = esp_random() | 1U;
     s_state.response_sources_logged = false;
     s_state.animation_sampled_us = 0;
     s_state.last_timing_log_us = 0;
@@ -3703,6 +3755,7 @@ extern "C" esp_err_t CODY_companion_start(void)
         }
     }
     s_state.response = CODY::make_response_state(CODY::Data::response);
+    s_state.response.idle_random_state = esp_random() | 1U;
     void *previous_rig_storage = heap_caps_malloc(
         sizeof(CODY::RigScene), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (previous_rig_storage == nullptr) {

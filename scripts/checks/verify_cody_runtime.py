@@ -1,5 +1,6 @@
 """Explicit host checks for native response/demo/statistics and authored boot cues."""
 from pathlib import Path
+from copy import deepcopy
 import argparse
 import hashlib
 import json
@@ -71,8 +72,13 @@ def check_boundaries():
 # Raises AssertionError for independent host/model divergence or lost idle/audio behavior.
 def compare_response(observed):
     rig, _ = load_contract()
-    config = rig["response"]
+    config = deepcopy(rig["response"])
+    # Accelerate only the fixture's artistic scheduling to cover several scenes.
+    config["idle"]["after_seconds"] = 5
+    config["idle"]["cooldown_seconds"] = 2
     state = make_response_state(config)
+    fixture_rig = deepcopy(rig)
+    fixture_rig["response"] = config
     placement = tuple(rig["default_transform"][name] for name in ("x", "y", "scale"))
     for tick, row in enumerate(observed):
         now = 1_000_000 + tick * 100_000
@@ -80,7 +86,7 @@ def compare_response(observed):
         power_stamp = current if tick < 400 else SampleStamp(SampleHealth.UNAVAILABLE, InputOrigin.SYNTHETIC, now, 0x103)
         means = (6000, 3000) if 80 <= tick < 100 else (0, 0)
         playing = 110 <= tick < 130
-        inputs = ResponseInputs(power=PowerSample(power_stamp, 100 if tick < 150 else 12),
+        inputs = ResponseInputs(idle_scene_allowed=True, power=PowerSample(power_stamp, 100 if tick < 150 else 12),
             microphone=MicrophoneSample(current, 2, means, means),
             playback=PlaybackSample(current, playing, 5000 if playing else 0),
             last_interaction_at_us=46_000_000 if tick >= 450 else 35_400_000 if tick >= 344 else 0,
@@ -89,10 +95,11 @@ def compare_response(observed):
             body_touch=BodyTouchSample(current, tick < 325, (60, -25), 0, 31_000_000)
                 if 300 <= tick < 336 else BodyTouchSample())
         state = advance_response(config, state, inputs, 100, now)
-        frame = compose_response(rig, state, rig["boot_channels"]["ready"],
+        frame = compose_response(fixture_rig, state, rig["boot_channels"]["ready"],
             contour_defaults(rig), placement, 0)
         expected = {"attention": state.attention, "speaking": state.speaking, "fatigue": state.fatigue,
             "idle": state.idle_seconds, "yawn": state.yawn_weight,
+            "idle_scene": state.idle_scene.value, "idle_scene_weight": state.idle_scene_weight,
             "mouth": frame.face[FaceChannel.MOUTH_OPEN], "eye": frame.face[FaceChannel.EYE_LEFT],
             "annoyance": state.annoyance, "closure": state.protective_eye_closure,
             "root_x": frame.current_root[0], "root_y": frame.current_root[1],
@@ -102,8 +109,16 @@ def compare_response(observed):
             if not math.isclose(row[name], value, rel_tol=0, abs_tol=.00015):
                 raise AssertionError(f"Native/Python tick={tick} {name}: {row[name]} vs {value}")
     assert len(observed) == 500
-    assert max(row["yawn"] for row in observed) > .99
-    assert observed[345]["yawn"] < observed[343]["yawn"]  # Activity releases smoothly.
+    assert max(row["idle_scene_weight"] for row in observed) > .99
+    assert observed[344]["idle_scene"] == 0 and observed[344]["idle_scene_weight"] == 0
+    entered_scenes = []
+    previous_scene = 0
+    for row in observed:
+        if row["idle_scene"] != 0 and row["idle_scene"] != previous_scene:
+            entered_scenes.append(row["idle_scene"])
+        previous_scene = row["idle_scene"]
+    assert len(entered_scenes) >= 2
+    assert all(first != second for first, second in zip(entered_scenes, entered_scenes[1:]))
     assert observed[120]["speaking"] > .5
     assert observed[95]["attention"] > .5
     assert observed[410]["fatigue"] == observed[499]["fatigue"]  # No manufactured charge recovery.

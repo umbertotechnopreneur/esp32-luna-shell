@@ -12,6 +12,8 @@ enum class SampleHealth : uint8_t { Unavailable, Current, Stale, Error };
 // The firmware input boundary deliberately has no synthetic source.
 enum class InputOrigin : uint8_t { Hardware };
 enum class EyeId : uint8_t { None, Left, Right };
+// Transient presentations within screen 16; these IDs never enter route history.
+enum class IdleSceneId : uint32_t { None = 0, Yawn = 0xC002, Whistle = 0xC003, Greeting = 0xC004 };
 
 struct AxisValues {
     float values[to_index(Axis::Count)] = {};
@@ -57,6 +59,7 @@ struct PlaybackSample {
     SampleStamp stamp{};
     bool active = false;
     uint32_t mean_level = 0;
+    uint32_t cue_id = 0;
 };
 
 struct BodyTouchSample {
@@ -75,6 +78,8 @@ struct ResponseInputs {
     PlaybackSample playback{};
     BodyTouchSample body_touch{};
     int64_t last_interaction_at_us = 0;
+    // Presentation policy supplied by the route owner, not a sensor reading.
+    bool idle_scene_allowed = false;
     struct EyeTap {
         SampleStamp stamp{};
         EyeId eye = EyeId::None;
@@ -203,6 +208,13 @@ struct ResponseState {
     float yawn_cooldown_seconds = 0;
     float yawn_weight = 0;
     bool yawning = false;
+    IdleSceneId idle_scene = IdleSceneId::None;
+    IdleSceneId last_idle_scene = IdleSceneId::None;
+    uint32_t idle_scene_generation = 0;
+    uint32_t idle_random_state = 0x6D2B79F5U;
+    float idle_wait_fraction = 0;
+    float idle_scene_seconds = 0;
+    float idle_scene_weight = 0;
     SampleStamp eye_tap_status{};
     int64_t consumed_eye_tap_at_us = 0;
     float eye_hold_seconds = 0;

@@ -175,12 +175,103 @@ CODY2D::Vec2 logical_vector(CODY2D::Vec2 vector, uint16_t rotation)
     }
 }
 
+// state: Transaction-local PRNG, seeded once by the runtime rather than per frame.
+uint32_t next_idle_random(ResponseState &state)
+{
+    uint32_t value = state.idle_random_state;
+    value ^= value << 13;
+    value ^= value >> 17;
+    value ^= value << 5;
+    state.idle_random_state = value;
+    return value;
+}
+
+// previous: Last completed or interrupted scene; prevent consecutive repetition.
+// random: One random draw, consumed only when a scene is admitted.
+IdleSceneId select_idle_scene(IdleSceneId previous, uint32_t random)
+{
+    const bool first = (random & 1U) == 0;
+    switch (previous) {
+    case IdleSceneId::Yawn: return first ? IdleSceneId::Whistle : IdleSceneId::Greeting;
+    case IdleSceneId::Whistle: return first ? IdleSceneId::Yawn : IdleSceneId::Greeting;
+    case IdleSceneId::Greeting: return first ? IdleSceneId::Yawn : IdleSceneId::Whistle;
+    case IdleSceneId::None:
+        switch (random % 3U) {
+        case 0: return IdleSceneId::Yawn;
+        case 1: return IdleSceneId::Whistle;
+        default: return IdleSceneId::Greeting;
+        }
+    }
+    return IdleSceneId::None; // Public state validation rejects unknown identities.
+}
+
+// config: Authored delay/duration/cooldown shared by the three idle presentations.
+// busy: Route, interaction, microphone, stress or unrelated playback takes priority.
+// seconds: Active elapsed time; paused/parked clocks cannot admit a scene.
+// next: Transaction-local state; no route, setting or inactivity timer is changed.
+void advance_idle_scene(const ResponseConfig &config, bool busy, float seconds, ResponseState &next)
+{
+    if (busy) {
+        if (next.idle_scene != IdleSceneId::None) {
+            next.yawn_cooldown_seconds = config.idle.cooldown_seconds;
+        }
+        next.idle_scene = IdleSceneId::None;
+        next.idle_seconds = 0;
+        next.idle_scene_seconds = 0;
+        next.idle_scene_weight = 0;
+        next.yawning = false;
+        next.yawn_seconds = 0;
+        next.yawn_weight = 0;
+        return;
+    }
+    if (seconds == 0) {
+        return;
+    }
+    next.yawn_cooldown_seconds = std::max(0.f, next.yawn_cooldown_seconds - seconds);
+    if (next.idle_scene == IdleSceneId::None) {
+        // Wait 1-2 authored intervals after the cooldown, rather than accumulating
+        // eligibility while another scene or the device's standby policy owns time.
+        if (next.yawn_cooldown_seconds > 0) {
+            return;
+        }
+        if (next.idle_seconds == 0) {
+            next.idle_wait_fraction = static_cast<float>(next_idle_random(next) & 0xFFFFU) / 65535.f;
+        }
+        const float delay = config.idle.after_seconds * (1 + next.idle_wait_fraction);
+        next.idle_seconds = std::min(delay, next.idle_seconds + seconds);
+        if (next.idle_seconds < delay) {
+            return;
+        }
+        next.idle_scene = select_idle_scene(next.last_idle_scene, next_idle_random(next));
+        next.last_idle_scene = next.idle_scene;
+        ++next.idle_scene_generation;
+        next.idle_scene_seconds = 0;
+        next.idle_scene_weight = 0;
+        return; // The entrance owns a complete new active-time interval.
+    }
+    next.idle_scene_seconds += seconds;
+    if (next.idle_scene_seconds >= config.idle.duration_seconds) {
+        next.idle_scene = IdleSceneId::None;
+        next.idle_seconds = 0;
+        next.idle_scene_seconds = 0;
+        next.idle_scene_weight = 0;
+        next.yawn_cooldown_seconds = config.idle.cooldown_seconds;
+    } else {
+        const float shape = std::sin(kTau * .5f * next.idle_scene_seconds / config.idle.duration_seconds);
+        next.idle_scene_weight = shape * shape;
+    }
+    next.yawning = next.idle_scene == IdleSceneId::Yawn;
+    next.yawn_seconds = next.yawning ? next.idle_scene_seconds : 0;
+    next.yawn_weight = next.yawning ? next.idle_scene_weight : 0;
+}
+
 // config: Authored audio/idle gains, validated with the rest of the skin.
 // previous: Previous committed targets and consumed publication timestamps.
 // inputs: One canonical observation bundle; current PCM levels are never guessed.
 // seconds: Active animation time, excluding standby.
 // now_us: Current observation clock used for freshness and interaction timestamps.
 // next: Transaction-local next model, committed by the public boundary on success.
+// Exception: Returns actual observation, level or timestamp rejection errors.
 esp_err_t advance_audio_and_idle(const ResponseConfig &config, const ResponseState &previous,
     const ResponseInputs &inputs, float seconds, int64_t now_us, ResponseState &next)
 {
@@ -237,10 +328,12 @@ esp_err_t advance_audio_and_idle(const ResponseConfig &config, const ResponseSta
     const bool playing = next.playback_status.health == SampleHealth::Current && inputs.playback.active;
     // Playback may be heard by the microphones. Keep those measurements intact,
     // but avoid treating our own cue as an independent attention stimulus.
+    const bool own_whistle = playing &&
+        inputs.playback.cue_id == static_cast<uint32_t>(IdleSceneId::Whistle);
     const float attention_target = playing ? 0 : next.microphone_target;
     next.attention = blend_state(previous.attention, attention_target, seconds,
                                  config.audio.attack_seconds, config.audio.release_seconds);
-    next.speaking = blend_state(previous.speaking, next.playback_target, seconds,
+    next.speaking = blend_state(previous.speaking, own_whistle ? 0 : next.playback_target, seconds,
                                 config.audio.attack_seconds, config.audio.release_seconds);
     if (inputs.last_interaction_at_us < previous.consumed_interaction_at_us ||
         inputs.last_interaction_at_us > now_us) {
@@ -248,45 +341,16 @@ esp_err_t advance_audio_and_idle(const ResponseConfig &config, const ResponseSta
     }
     const bool interaction = inputs.last_interaction_at_us > previous.consumed_interaction_at_us;
     next.consumed_interaction_at_us = inputs.last_interaction_at_us;
-    const bool busy = interaction || next.stress >= config.idle.activity_stress_threshold ||
-        next.microphone_target >= config.idle.audio_activity_threshold || playing;
-    next.yawn_cooldown_seconds = std::max(0.f, previous.yawn_cooldown_seconds - seconds);
-    if (busy) {
-        next.idle_seconds = 0;
-        next.yawning = false;
-        next.yawn_seconds = 0;
-        // Interruption releases the contribution smoothly instead of snapping the mouth shut.
-        next.yawn_weight = blend_state(previous.yawn_weight, 0, seconds,
-            config.audio.attack_seconds, config.audio.release_seconds);
-    } else {
-        if (!next.yawning) {
-            next.yawn_weight = blend_state(previous.yawn_weight, 0, seconds,
-                config.audio.attack_seconds, config.audio.release_seconds);
-        }
-        next.idle_seconds = std::min(config.idle.after_seconds, previous.idle_seconds + seconds);
-        if (!next.yawning && next.idle_seconds >= config.idle.after_seconds &&
-            next.yawn_cooldown_seconds == 0) {
-            next.yawning = true;
-            next.yawn_seconds = 0;
-        }
-        if (next.yawning) {
-            next.yawn_seconds += seconds;
-            if (next.yawn_seconds >= config.idle.duration_seconds) {
-                next.yawning = false;
-                next.yawn_seconds = 0;
-                next.idle_seconds = 0;
-                next.yawn_weight = 0;
-                next.yawn_cooldown_seconds = config.idle.cooldown_seconds;
-            } else {
-                const float shape = std::sin(kTau * .5f * next.yawn_seconds / config.idle.duration_seconds);
-                next.yawn_weight = shape * shape;
-            }
-        }
-    }
+    const bool touching = next.body_touch_status.health == SampleHealth::Current && inputs.body_touch.pressed;
+    const bool busy = !inputs.idle_scene_allowed || interaction || touching ||
+        next.stress >= config.idle.activity_stress_threshold ||
+        (!own_whistle && (next.microphone_target >= config.idle.audio_activity_threshold || playing));
+    advance_idle_scene(config, busy, seconds, next);
     return ESP_OK;
 }
 
 // state: Previously committed state to inspect before it can affect geometry.
+// Exception: Returns a logged invalid scalar, identity or dynamics error without repair.
 esp_err_t validate_response_state(const ResponseState &state)
 {
     const CheckedParameter scalars[] = {
@@ -300,7 +364,10 @@ esp_err_t validate_response_state(const ResponseState &state)
         {"state.speaking", state.speaking, 0, 1},
         {"state.microphone_target", state.microphone_target, 0, 1},
         {"state.playback_target", state.playback_target, 0, 1},
-        {"state.idle_seconds", state.idle_seconds, 0, 600},
+        {"state.idle_seconds", state.idle_seconds, 0, 1200},
+        {"state.idle_wait_fraction", state.idle_wait_fraction, 0, 1},
+        {"state.idle_scene_seconds", state.idle_scene_seconds, 0, 10},
+        {"state.idle_scene_weight", state.idle_scene_weight, 0, 1},
         {"state.yawn_seconds", state.yawn_seconds, 0, 10},
         {"state.yawn_cooldown_seconds", state.yawn_cooldown_seconds, 0, 600},
         {"state.yawn_weight", state.yawn_weight, 0, 1},
@@ -308,6 +375,15 @@ esp_err_t validate_response_state(const ResponseState &state)
         {"state.protective_eye_closure", state.protective_eye_closure, 0, 1},
         {"state.annoyance", state.annoyance, 0, 1},
     };
+    for (const auto identity : {state.idle_scene, state.last_idle_scene}) {
+        if (identity != IdleSceneId::None && identity != IdleSceneId::Yawn &&
+            identity != IdleSceneId::Whistle && identity != IdleSceneId::Greeting) {
+            return reject_value("state.idle_scene identity", static_cast<uint32_t>(identity));
+        }
+    }
+    if (state.idle_random_state == 0) {
+        return reject_value("state.idle_random_state", state.idle_random_state);
+    }
     for (const auto &parameter : scalars) {
         if (!std::isfinite(parameter.value) || parameter.value < parameter.minimum ||
             parameter.value > parameter.maximum) {
@@ -757,6 +833,19 @@ esp_err_t compose_response(const ResponseConfig &config, const ResponseState &st
         apply_mouth_breathing(result.face, breathing);
         auto &breath = result.face[FaceChannel::Breath];
         breath += (1 - std::fabs(breath)) * breathing;
+    }
+    // Idle accents compose after breathing so a whistle stays pursed. They use
+    // existing face controls and never add a second pose or navigation owner.
+    const float gesture = state.idle_scene_weight;
+    if (state.idle_scene == IdleSceneId::Whistle) {
+        mouth += (.24f - mouth) * gesture;
+        mouth_width += (.42f - mouth_width) * gesture;
+    } else if (state.idle_scene == IdleSceneId::Greeting) {
+        mouth += (.65f - mouth) * gesture;
+        mouth_width += (1.1f - mouth_width) * gesture;
+        result.face[FaceChannel::EyeRight] *= 1 - .65f * gesture;
+        auto &cheek = result.face[FaceChannel::CheekOpacity];
+        cheek += (1 - cheek) * .25f * gesture;
     }
     const auto &horizontal = state.body[to_index(Axis::X)];
     const auto &vertical = state.body[to_index(Axis::Y)];

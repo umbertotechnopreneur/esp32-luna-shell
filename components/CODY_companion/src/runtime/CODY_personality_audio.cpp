@@ -5,12 +5,43 @@
 #include "esp_log.h"
 
 #include <atomic>
+#include <array>
 
 namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_personality_audio";
 std::atomic<bool> s_enabled{true};
 std::atomic<bool> s_suspended{false};
+
+// No parameters: original two-note whistle, authored into flash at compile time.
+constexpr std::array<int16_t, 4800> make_idle_whistle()
+{
+    constexpr int16_t wave[] = {0, 1148, 2121, 2772, 3000, 2772, 2121, 1148,
+                               0, -1148, -2121, -2772, -3000, -2772, -2121, -1148};
+    std::array<int16_t, 4800> samples{};
+    uint32_t phase = 0;
+    for (size_t index = 0; index < samples.size(); ++index) {
+        // Each 140-ms chirp has a soft attack/release and a 20-ms silent gap.
+        const size_t note_position = index < 2400 ? index : index - 2400;
+        if (note_position >= 2240) {
+            continue;
+        }
+        const uint32_t note_sample = static_cast<uint32_t>(note_position);
+        const uint32_t frequency = index < 2400 ? 1500U + note_sample / 8U : 1850U - note_sample / 10U;
+        phase = (phase + frequency * 65536U / 16000U) & 0xFFFFU;
+        const uint32_t table_position = phase * 16U;
+        const size_t cell = table_position >> 16;
+        const uint32_t fraction = table_position & 0xFFFFU;
+        const int32_t value = (wave[cell] * static_cast<int32_t>(65536U - fraction) +
+            wave[(cell + 1) % 16] * static_cast<int32_t>(fraction)) / 65536;
+        const size_t attack = note_position < 320 ? note_position : 320;
+        const size_t release = 2240 - note_position < 320 ? 2240 - note_position : 320;
+        const size_t envelope = attack < release ? attack : release;
+        samples[index] = static_cast<int16_t>(value * static_cast<int32_t>(envelope) / 320);
+    }
+    return samples;
+}
+constexpr auto kIdleWhistle = make_idle_whistle();
 
 // source: Coherent outcome from the canonical asynchronous audio owner.
 // destination: Receives typed Cody identities without relying on catalog ordering.
@@ -30,7 +61,9 @@ void copy_status(const lunashell_audio_cue_status_t &source, PersonalityAudioSta
     }
     destination.last_error = source.last_error;
     destination.request_sequence = source.request_sequence;
-    destination.cue = static_cast<PersonalityCue>(source.cue_id);
+    const bool idle_whistle = source.cue_id == static_cast<uint32_t>(IdleSceneId::Whistle);
+    destination.cue = idle_whistle ? PersonalityCue::None : static_cast<PersonalityCue>(source.cue_id);
+    destination.idle_scene = idle_whistle ? IdleSceneId::Whistle : IdleSceneId::None;
 }
 } // namespace
 
@@ -59,7 +92,7 @@ esp_err_t notify_personality_audio(PersonalityCue cue, PersonalityAudioStatus &s
         }
     }
     if (selected == nullptr) {
-        status = {PersonalityAudioState::Failed, ESP_ERR_INVALID_ARG, 0, cue};
+        status = {PersonalityAudioState::Failed, ESP_ERR_INVALID_ARG, 0, cue, IdleSceneId::None};
         ESP_LOGE(kTag, "Unknown sound cue=%u rejected (%s)", static_cast<unsigned>(cue),
             esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
@@ -70,7 +103,7 @@ esp_err_t notify_personality_audio(PersonalityCue cue, PersonalityAudioStatus &s
             continue;
         }
         if (authored_rule != nullptr) {
-            status = {PersonalityAudioState::Failed, ESP_ERR_INVALID_STATE, 0, cue};
+            status = {PersonalityAudioState::Failed, ESP_ERR_INVALID_STATE, 0, cue, IdleSceneId::None};
             ESP_LOGE(kTag, "Ambiguous authored sound cue=%u rejected (%s)",
                 static_cast<unsigned>(cue), esp_err_to_name(ESP_ERR_INVALID_STATE));
             return ESP_ERR_INVALID_STATE;
@@ -78,7 +111,7 @@ esp_err_t notify_personality_audio(PersonalityCue cue, PersonalityAudioStatus &s
         authored_rule = &rule;
     }
     if (authored_rule == nullptr) {
-        status = {PersonalityAudioState::Failed, ESP_ERR_INVALID_STATE, 0, cue};
+        status = {PersonalityAudioState::Failed, ESP_ERR_INVALID_STATE, 0, cue, IdleSceneId::None};
         ESP_LOGE(kTag, "Missing authored sound cue=%u rejected (%s)",
             static_cast<unsigned>(cue), esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
@@ -95,6 +128,26 @@ esp_err_t notify_personality_audio(PersonalityCue cue, PersonalityAudioStatus &s
     lunashell_audio_cue_status_t owner{};
     const esp_err_t error = LUNASHELL_audio_notify_personality(selected->samples, selected->sample_count,
         selected->sample_rate_hz, static_cast<uint32_t>(cue), &owner);
+    copy_status(owner, status);
+    return error;
+}
+
+// status: Receives the one nonqueued whistle outcome from the existing audio owner.
+// Exception: Returns the original preparation, admission or retained playback error.
+esp_err_t notify_idle_whistle_audio(PersonalityAudioStatus &status)
+{
+    lunashell_audio_cue_status_t owner{};
+    if (!PersonalityAudioConfig::enabled || !s_enabled.load(std::memory_order_acquire)) {
+        const esp_err_t error = LUNASHELL_audio_get_personality_status(&owner);
+        copy_status(owner, status);
+        status.idle_scene = IdleSceneId::Whistle;
+        if (error == ESP_OK) {
+            status.state = PersonalityAudioState::Suppressed;
+        }
+        return error;
+    }
+    const esp_err_t error = LUNASHELL_audio_notify_personality(kIdleWhistle.data(), kIdleWhistle.size(),
+        16000, static_cast<uint32_t>(IdleSceneId::Whistle), &owner);
     copy_status(owner, status);
     return error;
 }

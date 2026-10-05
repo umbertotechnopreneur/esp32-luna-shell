@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CODY_personality.hpp"
+#include "CODY_response.hpp"
 
 namespace CODY {
 
@@ -14,6 +15,7 @@ struct PersonalityAudioStatus {
     esp_err_t last_error = ESP_OK;
     uint32_t request_sequence = 0;
     PersonalityCue cue = PersonalityCue::None;
+    IdleSceneId idle_scene = IdleSceneId::None;
 };
 
 // No parameters: passes immutable YAML policy to the optional owner without sound or codec I/O.
@@ -23,6 +25,9 @@ esp_err_t prepare_personality_audio();
 // status: Receives explicit dispatch/drop/suppression disposition; completion remains asynchronous.
 // Exception: Returns an invalid cue or retained owner error; no deferred retry is created.
 esp_err_t notify_personality_audio(PersonalityCue cue, PersonalityAudioStatus &status);
+// status: Receives one whistle admission outcome; existing quiet/volume policy applies.
+// Exception: Returns the original optional audio owner error without retrying.
+esp_err_t notify_idle_whistle_audio(PersonalityAudioStatus &status);
 // suspended: Cancels pending symbols when their scene hides or display parks.
 // Exception: Returns the original retained owner error.
 esp_err_t set_personality_audio_suspended(bool suspended);

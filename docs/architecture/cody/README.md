@@ -11,6 +11,7 @@ there is no legacy-framework compatibility path.
 | Guide | Current contract |
 | --- | --- |
 | [Runtime](runtime.md) | Startup, scenes, active clocks, standby, optional audio and device diagnostics |
+| [Idle scenes](idle-scenes.md) | Visible mouth breathing, random yawn/whistle/greeting accents and audio ownership |
 | [Onboarding](onboarding.md) | Screens 04–09, pairing/QR ownership and reusable look selector 11 |
 | [Rendering](rendering.md) | Authored rig, five jelly skins, snapshot response, damage/DMA ownership and memory |
 | [Clock](clock.md) | Trusted time, routines/quiet policy, RTC drift diagnostics and board limitations |

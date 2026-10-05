@@ -3,6 +3,7 @@
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
+import math
 import sys
 import unittest
 
@@ -13,6 +14,7 @@ from scripts.common.cody_response import (
     InputOrigin, MotionSample, PowerSample, ResponseInputs, SampleHealth, SampleStamp,
     BodyTouchSample, SpringState, advance_response, advance_spring, compose_response, logical_vector,
     make_response_state, rebase_response_motion,
+    IdleSceneId, PlaybackSample,
 )
 from scripts.common.cody_response_contract import Axis, validate_response_config
 from scripts.common.cody_rig_contract import contour_defaults, evaluate, load_contract, make_contour_state
@@ -42,6 +44,65 @@ class ResponseChecks(unittest.TestCase):
         self.config = self.rig["response"]
         self.initial = make_response_state(self.config)
         self.placement = tuple(self.rig["default_transform"][name] for name in ("x", "y", "scale"))
+
+    # self: Closed-mouth Stressed must still have a visible inhale/exhale difference.
+    def test_stressed_mouth_breathing_is_visible(self):
+        base = self.rig["expression_presets"]["stressed"]
+        low = deepcopy(self.initial)
+        high = deepcopy(self.initial)
+        low.breath_phase = 3 * math.pi / 2
+        high.breath_phase = math.pi / 2
+        exhale = compose_response(self.rig, low, base, contour_defaults(self.rig), self.placement, 0)
+        inhale = compose_response(self.rig, high, base, contour_defaults(self.rig), self.placement, 0)
+        self.assertGreater(inhale.face[FaceChannel.MOUTH_OPEN] - exhale.face[FaceChannel.MOUTH_OPEN], .20)
+
+    # self: Paused time and a non-Idle route must never accumulate idle eligibility.
+    def test_idle_gate_and_pause_do_not_schedule(self):
+        eligible = ResponseInputs(idle_scene_allowed=True)
+        parked = advance_response(self.config, self.initial, eligible, 120_000, 120_000_000, False)
+        self.assertEqual(parked.idle_scene, IdleSceneId.NONE)
+        self.assertEqual(parked.idle_seconds, 0)
+        blocked = advance_response(self.config, self.initial, ResponseInputs(), 120_000, 120_000_000)
+        self.assertEqual(blocked.idle_scene, IdleSceneId.NONE)
+        self.assertEqual(blocked.idle_seconds, 0)
+
+    # self: A held acquired touch and a new interaction both cancel an active gesture.
+    def test_idle_interaction_cancels_without_replay(self):
+        active = deepcopy(self.initial)
+        active.idle_scene = active.last_idle_scene = IdleSceneId.GREETING
+        active.idle_scene_seconds = 1
+        active.idle_scene_weight = .8
+        stamp = current_stamp(1_000_000)
+        for inputs in (
+            ResponseInputs(idle_scene_allowed=True, last_interaction_at_us=1_000_000),
+            ResponseInputs(idle_scene_allowed=True,
+                           body_touch=BodyTouchSample(stamp, True, (0, 0), 0, 900_000)),
+        ):
+            with self.subTest(inputs=inputs):
+                stopped = advance_response(self.config, active, inputs, 100, 1_000_000)
+                self.assertEqual(stopped.idle_scene, IdleSceneId.NONE)
+                self.assertEqual(stopped.idle_scene_weight, 0)
+                self.assertGreater(stopped.yawn_cooldown_seconds, 0)
+                self.assertEqual(stopped.last_idle_scene, IdleSceneId.GREETING)
+
+    # self: Only a current successfully published own-whistle identity can preserve the gesture.
+    def test_whistle_identity_and_validity_control_playback_priority(self):
+        active = deepcopy(self.initial)
+        active.idle_scene = active.last_idle_scene = IdleSceneId.WHISTLE
+        active.idle_scene_seconds = 1
+        active.idle_scene_weight = .8
+        stamp = current_stamp(1_000_000)
+        own = PlaybackSample(stamp, True, 3000, IdleSceneId.WHISTLE.value)
+        inputs = ResponseInputs(idle_scene_allowed=True, playback=own)
+        continuing = advance_response(self.config, active, inputs, 100, 1_000_000)
+        self.assertEqual(continuing.idle_scene, IdleSceneId.WHISTLE)
+        self.assertEqual(continuing.speaking, 0)
+        other = replace(inputs, playback=replace(own, cue_id=0))
+        stopped = advance_response(self.config, active, other, 100, 1_000_000)
+        self.assertEqual(stopped.idle_scene, IdleSceneId.NONE)
+        stale = advance_response(self.config, active, inputs, 100, 5_000_000)
+        self.assertEqual(stale.playback_status.health, SampleHealth.STALE)
+        self.assertEqual(stale.playback_target, 0)
 
     # self: Stronger authored gains amplify small real impulses without changing axis mapping.
     def test_more_pronounced_motion_remains_bounded(self):

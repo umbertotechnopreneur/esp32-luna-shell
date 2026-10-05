@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+from dataclasses import replace
+from secrets import randbits
 import math
 import sys
 import time
@@ -631,6 +633,7 @@ class CodyWindow:
         self.personality_sleep = False
         self.response_config = deepcopy(renderer.rig["response"])
         self.response_state = make_response_state(self.response_config)
+        self.response_state.idle_random_state = randbits(32) | 1
         self.stimulus_source = SyntheticStimulusSource()
         self.runtime_settings = load_settings(ROOT / "assets/cody/runtime.yaml")
         self.demo_enabled = tk.BooleanVar(value=False)
@@ -982,7 +985,7 @@ class CodyWindow:
         cues = self.add_section(stimuli, "Local sound previews", "These buttons use the PC speaker, never Cody's speaker.")
         for cue, label in (("audio_ready", "Preview audio-ready cue"), ("eyes_open", "Preview eyes-open strings")):
             ttk.Button(cues, text=label, command=lambda selected=cue: self.preview_cue(selected)).pack(fill="x", pady=3)
-        ttk.Button(stimuli, text="Interaction / cancel idle yawn", command=self.preview_interaction).pack(fill="x", pady=3)
+        ttk.Button(stimuli, text="Interaction / cancel idle scene", command=self.preview_interaction).pack(fill="x", pady=3)
         self.response_info = ttk.Label(stimuli, text="", style="Muted.TLabel", wraplength=self.ui_pixels(330))
         self.response_info.pack(fill="x", pady=8)
         ttk.Button(stimuli, text="Reset response model", command=self.reset_response).pack(fill="x")
@@ -1007,6 +1010,7 @@ class CodyWindow:
     # self: Preview controller receiving an explicit debug-only reset of model state.
     def reset_response(self):
         self.response_state = make_response_state(self.response_config)
+        self.response_state.idle_random_state = randbits(32) | 1
         self.response_frame = None
 
     # self: Preview controller that reads controls and obtains one synthetic snapshot.
@@ -1060,7 +1064,8 @@ class CodyWindow:
         self.response_info.configure(text=f"{status} / SYNTHETIC\n{motion_text}\n{power_text}\n"
             f"Microphone: {state.microphone_status.health.value}\nPlayback: {state.playback_status.health.value}\n"
             f"MODEL attention: {state.attention:.3f} / speaking: {state.speaking:.3f}\n"
-            f"MODEL idle: {state.idle_seconds:.1f}s / yawn: {state.yawn_weight:.3f}\n"
+            f"MODEL idle: {state.idle_seconds:.1f}s / scene: {state.idle_scene.name}\n"
+            f"MODEL scene weight: {state.idle_scene_weight:.3f} / whistle audio: DEVICE ONLY\n"
             f"MODEL annoyance: {state.annoyance:.3f} / eye closure: {state.protective_eye_closure:.3f}\n"
             f"MODEL stress: {state.stress:.3f}\nMODEL fatigue: {fatigue_text}{body_text}")
 
@@ -1675,6 +1680,10 @@ class CodyWindow:
             cloud = self.renderer.scene_painter.definition("greeting")["cloud"]
             transform = [cloud[key] for key in ("x", "y", "scale")]
         inputs = self.observe_stimuli(int(started * 1_000_000), rotation)
+        inputs = replace(inputs, idle_scene_allowed=(screen == Screen.RIG and self.playing.get() and
+            not self.debug.get() and self.face_preset_name in (None, "calm", "happy", "drowsy", "curious") and
+            not self.personality_sleep and selected_cue == PersonalityCue.NONE and
+            self.affection_remaining_us == 0))
         self.response_frame = None
         if screen in ANIMATED_SCREENS:
             if self.display_screen not in ANIMATED_SCREENS:

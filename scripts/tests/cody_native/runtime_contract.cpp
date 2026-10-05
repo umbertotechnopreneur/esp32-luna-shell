@@ -548,6 +548,10 @@ int main()
     fill_contracts();
     require(CODY::validate_response_config(CODY::Data::response) == ESP_OK, "generated response rejected");
     auto state = CODY::make_response_state(CODY::Data::response);
+    CODY::ResponseConfig fixture_config = CODY::Data::response;
+    // Match the host fixture's shortened schedule without changing authored device timing.
+    fixture_config.idle.after_seconds = 5;
+    fixture_config.idle.cooldown_seconds = 2;
     CODY::RigScene scene;
     require(CODY::evaluate_rig(CODY::Data::ready, {245, 221, 135}, scene) == ESP_OK,
             "shared interaction geometry unavailable");
@@ -568,6 +572,7 @@ int main()
     for (int tick = 0; tick < 500; ++tick) {
         const int64_t now_us = 1000000LL + tick * 100000LL;
         CODY::ResponseInputs inputs{};
+        inputs.idle_scene_allowed = true;
         current(inputs.power.stamp, now_us);
         inputs.power.level_percent = tick < 150 ? 100.f : 12.f;
         if (tick >= 400) {
@@ -594,17 +599,19 @@ int main()
             inputs.body_touch.displacement_px = {60, -25};
             inputs.body_touch.gesture_started_at_us = 31000000LL;
         }
-        require(CODY::advance_response(CODY::Data::response, state, inputs, 100, now_us, true, state) == ESP_OK,
+        require(CODY::advance_response(fixture_config, state, inputs, 100, now_us, true, state) == ESP_OK,
                 "response fixture update rejected");
         CODY::ResponseFrame frame{};
-        require(CODY::compose_response(CODY::Data::response, state, CODY::Data::ready,
+        require(CODY::compose_response(fixture_config, state, CODY::Data::ready,
             CODY::contour_defaults(), CODY::Data::placement, 0, true, frame) == ESP_OK,
             "response fixture composition rejected");
         std::printf("%s{\"tick\":%d,\"attention\":%.9g,\"speaking\":%.9g,\"fatigue\":%.9g,"
-            "\"idle\":%.9g,\"yawn\":%.9g,\"mouth\":%.9g,\"eye\":%.9g,\"annoyance\":%.9g,\"closure\":%.9g,"
+            "\"idle\":%.9g,\"yawn\":%.9g,\"idle_scene\":%lu,\"idle_scene_weight\":%.9g,"
+            "\"mouth\":%.9g,\"eye\":%.9g,\"annoyance\":%.9g,\"closure\":%.9g,"
             "\"root_x\":%.9g,\"root_y\":%.9g,\"depth\":%.9g,\"amplitude\":%.9g,\"fullness\":%.9g}",
             tick == 0 ? "" : ",\n", tick, state.attention, state.speaking, state.fatigue,
-            state.idle_seconds, state.yawn_weight, frame.face[CODY::FaceChannel::MouthOpen],
+            state.idle_seconds, state.yawn_weight, static_cast<unsigned long>(state.idle_scene),
+            state.idle_scene_weight, frame.face[CODY::FaceChannel::MouthOpen],
             frame.face[CODY::FaceChannel::EyeLeft], state.annoyance, state.protective_eye_closure,
             frame.current_root.x, frame.current_root.y, frame.depth_scale,
             frame.contour[CODY::ContourControl::Amplitude], frame.contour[CODY::ContourControl::Fullness]);

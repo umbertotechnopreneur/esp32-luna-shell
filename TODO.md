@@ -9,6 +9,14 @@ bytes, not physical behavior; every open observation below remains open.
 
 ## Cody integration and release gates
 
+- [ ] After fresh command-specific authorization, validate the 2026-10-05
+  [idle scenes](docs/architecture/cody/idle-scenes.md): visible Stressed mouth
+  breathing; random 20-40-second waits/no immediate repeats; Yawn, Whistle and
+  Greeting; touch/Sophia/held-touch/stress/route/pause/standby cancellation;
+  canonical own-whistle identity; quiet/mute/busy suppression and real errors;
+  native/Windows visual parity and physical whistle acoustics. Code and PDF
+  appendices have static review only; no firmware/host validation was run.
+
 - [ ] Diagnose the reported caress freeze and missing heart. Capture the first
   rejected controller packet or terminal touch/display transition, then verify
   one continuous in-body stroke above the 500-ms minimum and its synchronized
