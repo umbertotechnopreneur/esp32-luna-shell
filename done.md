@@ -10,6 +10,16 @@ flash logs were regenerated.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Implemented the follow-up touch/boot changes: recognized caresses request
+  Affection through priority arbitration, without an extra icon repeat cooldown;
+  gentler 300-ms/path thresholds retain speed, zone and acquisition guards.
+  Canonical eye taps request varying Fear/Frustration icons using prior stress;
+  existing original SFX retain completed-frame admission with a two-second audio
+  cooldown. Idle uses a complete three-scene random bag. Waking/Ready now take
+  1.5/2 seconds; returning devices receive random Affection/Joy after cold boot
+  without changing saved pairing/first-boot keys. PDFs await the user's approval.
+  Static review only so far; host and physical behavior remain pending in TODO.
+
 - Implemented stronger shared mouth breathing and random Idle Yawn/Whistle/
   Greeting accents on 2026-10-05, preserving the screen-16 route and priorities.
   Added the original bounded flash whistle to the existing optional audio owner

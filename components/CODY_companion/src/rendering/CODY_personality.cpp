@@ -448,13 +448,18 @@ esp_err_t update_personality_battery_latch(bool current_percentage, int percenta
 // affection_active: Current automatic caress lifetime, independent of an explicit Affection request.
 // desired: Receives the one selected target on success.
 // release_affection: Receives true when the auto request must stop requesting its heart.
+// eye_reaction: Latest acquired eye-contact symbol; only None, Fear and Frustration are accepted.
 // Exception: Returns invalid cue without changing outputs and logs the actual rejected identity.
 esp_err_t select_personality_target(PersonalityCue admitted_request, bool semantic_sleep,
-                                   bool affection_active, PersonalityCue &desired, bool &release_affection)
+                                   bool affection_active, PersonalityCue &desired, bool &release_affection,
+                                   PersonalityCue eye_reaction)
 {
-    if (!personality_cue_valid(admitted_request)) {
-        ESP_LOGE(kTag, "Target selection cue=%u rejected (%s)",
-                 static_cast<unsigned>(admitted_request), esp_err_to_name(ESP_ERR_INVALID_ARG));
+    if (!personality_cue_valid(admitted_request) ||
+        (eye_reaction != PersonalityCue::None && eye_reaction != PersonalityCue::Fear &&
+         eye_reaction != PersonalityCue::Frustration)) {
+        ESP_LOGE(kTag, "Target selection cue=%u eye=%u rejected (%s)",
+                 static_cast<unsigned>(admitted_request), static_cast<unsigned>(eye_reaction),
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
     PersonalityCue selected = admitted_request;
@@ -470,10 +475,19 @@ esp_err_t select_personality_target(PersonalityCue admitted_request, bool semant
                      static_cast<unsigned>(admitted_request), esp_err_to_name(ESP_ERR_INVALID_STATE));
             return ESP_ERR_INVALID_STATE;
         }
-        const uint16_t baseline_priority = baseline_rule == nullptr ? 0 : baseline_rule->priority;
+        uint16_t baseline_priority = baseline_rule == nullptr ? 0 : baseline_rule->priority;
+        const auto *eye_rule = cue_rule(eye_reaction);
+        if (eye_reaction != PersonalityCue::None && eye_rule == nullptr) {
+            ESP_LOGE(kTag, "Eye reaction authored rule missing (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (eye_rule != nullptr && eye_rule->priority > baseline_priority) {
+            selected = eye_reaction;
+            baseline_priority = eye_rule->priority;
+        }
         if (affection_active && affection_rule->priority > baseline_priority) {
             selected = PersonalityCue::Affection;
-        } else if (admitted_request != PersonalityCue::None) {
+        } else if (selected != PersonalityCue::None) {
             release = true;
         }
     }

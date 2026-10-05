@@ -1,7 +1,7 @@
 {
   "schema": "cody.personality.generated.v2",
   "source": "assets/cody/personality.yaml",
-  "source_sha256": "a3bdd51c4179324aff18596c1a490542f4ebfd07fcbfc8bac3cb20338f241f76",
+  "source_sha256": "91a3e8a6670852d86f04ce1697d27b1c554c7c939a59f2c70e2b3d9d8727f7dd",
   "headers": [
     "assets/cody/personality/generated/personality_rules.hpp",
     "assets/cody/personality/generated/personality_catalog.hpp",
@@ -97,9 +97,9 @@
         {
           "id": 2,
           "name": "fear",
-          "priority": 100,
-          "interrupts": false,
-          "repeat_cooldown_seconds": 15,
+          "priority": 300,
+          "interrupts": true,
+          "repeat_cooldown_seconds": 0,
           "sfx_enabled": true
         },
         {
@@ -186,16 +186,16 @@
           "id": 13,
           "name": "affection",
           "priority": 200,
-          "interrupts": false,
-          "repeat_cooldown_seconds": 15,
+          "interrupts": true,
+          "repeat_cooldown_seconds": 0,
           "sfx_enabled": true
         },
         {
           "id": 14,
           "name": "frustration",
-          "priority": 100,
-          "interrupts": false,
-          "repeat_cooldown_seconds": 15,
+          "priority": 300,
+          "interrupts": true,
+          "repeat_cooldown_seconds": 0,
           "sfx_enabled": true
         }
       ]
@@ -225,15 +225,15 @@
         "above_eyes",
         "below_mouth"
       ],
-      "minimum_contact_ms": 500,
+      "minimum_contact_ms": 300,
       "maximum_contact_ms": 3000,
       "maximum_sample_gap_ms": 250,
       "cooldown_seconds": 6,
       "affection_seconds": 4,
       "upper_margin_per_scale": 0.1,
       "lower_margin_per_scale": 0.08,
-      "minimum_path_per_scale": 0.16,
-      "minimum_displacement_per_scale": 0.08,
+      "minimum_path_per_scale": 0.12,
+      "minimum_displacement_per_scale": 0.04,
       "maximum_speed_per_scale": 2.0,
       "jitter_pixels": 1.5
     },
@@ -274,7 +274,7 @@
     },
     "audio": {
       "enabled": true,
-      "cooldown_seconds": 8,
+      "cooldown_seconds": 2,
       "request_expiry_ms": 120
     },
     "wellbeing": {

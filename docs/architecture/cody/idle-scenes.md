@@ -20,8 +20,9 @@ minimum wait; a session PRNG draws a wait between one and two such intervals.
 `duration_seconds` applies to each of the three gestures and `cooldown_seconds`
 separates a completed/interrupted gesture from the next wait. Current authored
 values give a 20-40-second eligible wait, a 3.2-second gesture and a 40-second
-cooldown. The next gesture is chosen from the other two identities, so immediate
-repetition is excluded. Firmware seeds once from ESP-IDF randomness; Windows
+cooldown. A session shuffle bag presents each of the three identities once
+in random order before refilling, excluding repetition across bag boundaries.
+Firmware seeds once from ESP-IDF randomness; Windows
 seeds its separate synthetic preview. Drawing another frame consumes no random
 number unless a scheduling decision occurs.
 

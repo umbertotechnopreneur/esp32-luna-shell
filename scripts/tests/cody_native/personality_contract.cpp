@@ -126,7 +126,7 @@ void check_channel()
     require(scenario.frame.opacity == 128, "fade-in midpoint has half opacity");
     step(scenario, "visible", PersonalityCue::Joy, 200000);
     require(scenario.frame.opacity == 255, "fade in completes in400ms");
-    step(scenario, "intermediate", PersonalityCue::Fear, 100000);
+    step(scenario, "intermediate", PersonalityCue::Curiosity, 100000);
     step(scenario, "replace-pending", PersonalityCue::Confusion, 300000);
     require(scenario.frame.cue == PersonalityCue::Joy, "minimum visible hold preserves current symbol");
     step(scenario, "hold-complete", PersonalityCue::Confusion, 2100000);
@@ -139,7 +139,7 @@ void check_channel()
         "only latest stable target survives fade-out");
     step(scenario, "new-visible", PersonalityCue::Hunger, 400000);
     require(scenario.frame.cue == PersonalityCue::Hunger && scenario.frame.opacity == 255,
-        "intermediate Fear and Confusion never replay");
+        "intermediate Curiosity and Confusion never replay");
 }
 
 // No parameters: semantic Sleep bypasses hold and release survives a paused zero-time transition.
@@ -351,7 +351,10 @@ PettingZone slow_stroke(const RigScene &scene, PettingState &state, int64_t at_u
     petting_sample(scene, state, 220, y, at_us, true, true);
     PettingZone zone{};
     for (int index = 1; index <= 6; ++index) {
-        zone = petting_sample(scene, state, 220.f + index * 4.f, y, at_us + index * 100000);
+        const PettingZone sample = petting_sample(scene, state, 220.f + index * 4.f, y, at_us + index * 100000);
+        if (sample != PettingZone::None) {
+            zone = sample;
+        }
     }
     return zone;
 }
@@ -626,7 +629,7 @@ void check_symbol_arbitration()
 
     Scenario urgent{"low-battery-affection"};
     step(urgent, "heart-request", PersonalityCue::Affection, 0);
-    step(urgent, "heart-stable", PersonalityCue::Affection, 300000);
+    step(urgent, "heart-stable", PersonalityCue::Affection, 0);
     step(urgent, "heart-half-in", PersonalityCue::Affection, 200000);
     const uint8_t before = urgent.frame.opacity;
     step(urgent, "low-battery-preempts", PersonalityCue::LowBattery, 0);
@@ -650,7 +653,7 @@ void check_symbol_arbitration()
 
     Scenario hold{"low-battery-hold"};
     step(hold, "heart-request", PersonalityCue::Affection, 0);
-    step(hold, "heart-stable", PersonalityCue::Affection, 300000);
+    step(hold, "heart-stable", PersonalityCue::Affection, 0);
     step(hold, "heart-visible", PersonalityCue::Affection, 400000);
     step(hold, "battery-releases-hold", PersonalityCue::LowBattery, 0);
     require(hold.lag.phase == PersonalityPhase::FadeOut && hold.frame.opacity == 255,
@@ -658,7 +661,7 @@ void check_symbol_arbitration()
 
     Scenario charging{"charging-after-affection"};
     step(charging, "heart-request", PersonalityCue::Affection, 0);
-    step(charging, "heart-stable", PersonalityCue::Affection, 300000);
+    step(charging, "heart-stable", PersonalityCue::Affection, 0);
     step(charging, "heart-visible", PersonalityCue::Affection, 400000);
     require(select_personality_target(PersonalityCue::Charging, false, true, desired, release) == ESP_OK,
             "charging baseline selects a portable waiting target");
@@ -808,29 +811,29 @@ int64_t repeat_interval(PersonalityCue cue)
 // No parameters: exact admission timestamps exercise repeat suppression without retaining old events.
 void check_repeat_suppression()
 {
-    Scenario repeat{"affection-repeat"};
-    step(repeat, "first-request", PersonalityCue::Affection, 0);
-    step(repeat, "first-admission", PersonalityCue::Affection, 300000);
-    const size_t slot = static_cast<size_t>(PersonalityCue::Affection) - 1U;
+    Scenario repeat{"joy-repeat"};
+    step(repeat, "first-request", PersonalityCue::Joy, 0);
+    step(repeat, "first-admission", PersonalityCue::Joy, 300000);
+    const size_t slot = static_cast<size_t>(PersonalityCue::Joy) - 1U;
     const int64_t first_stamp = repeat.lag.last_admitted_at_us[slot];
     require(first_stamp == 300001, "first zero-alpha admission starts the cue repeat interval");
-    step(repeat, "first-visible", PersonalityCue::Affection, 400000);
+    step(repeat, "first-visible", PersonalityCue::Joy, 400000);
     step(repeat, "release-target", PersonalityCue::None, 0);
     step(repeat, "finish-hold", PersonalityCue::None, 2500000);
     step(repeat, "hidden", PersonalityCue::None, 600000);
-    step(repeat, "repeat-request", PersonalityCue::Affection, 0);
+    step(repeat, "repeat-request", PersonalityCue::Joy, 0);
     require(repeat.frame.status == PersonalityPresentationStatus::SuppressedByCooldown &&
             repeat.lag.phase == PersonalityPhase::Hidden && repeat.frame.opacity == 0,
-            "repeated heart is explicitly suppressed without flashing or replaying a sprite");
+            "repeated ordinary cue is suppressed without flashing or replaying a sprite");
     const int64_t clock_before_pause = repeat.lag.active_elapsed_us;
-    step(repeat, "paused-cooldown", PersonalityCue::Affection, 20000000,
+    step(repeat, "paused-cooldown", PersonalityCue::Joy, 20000000,
          PersonalityPresentation::Main, true);
     require(repeat.lag.active_elapsed_us == clock_before_pause &&
             repeat.lag.last_admitted_at_us[slot] == first_stamp,
             "paused animation cannot pay a repeat cooldown using wall-clock time");
     step(repeat, "expire-auto-request", PersonalityCue::None, 0);
     require(repeat.frame.status == PersonalityPresentationStatus::Hidden &&
-            repeat.lag.desired == PersonalityCue::None, "expired auto event leaves no queued heart");
+            repeat.lag.desired == PersonalityCue::None, "expired request leaves no queued symbol");
     step(repeat, "disabled-route", PersonalityCue::None, 1000000, PersonalityPresentation::Disabled);
     require(repeat.lag.last_admitted_at_us[slot] == first_stamp && !repeat.lag.primed,
             "route disable clears presentation but retains per-cue repeat identity");
@@ -838,14 +841,14 @@ void check_repeat_suppression()
          PersonalityPresentation::Main, false, 0, 0, 0, 22);
     require(repeat.lag.last_admitted_at_us[slot] == first_stamp && !repeat.lag.primed,
             "Micro exclusion cannot reset repeat history");
-    step(repeat, "new-live-request", PersonalityCue::Affection, 0);
-    const int64_t until_ready = first_stamp - 1 + repeat_interval(PersonalityCue::Affection) -
+    step(repeat, "new-live-request", PersonalityCue::Joy, 0);
+    const int64_t until_ready = first_stamp - 1 + repeat_interval(PersonalityCue::Joy) -
         repeat.lag.active_elapsed_us;
-    require(until_ready > 300000, "fixture retains a real remaining authored heart cooldown");
-    step(repeat, "one-us-before-ready", PersonalityCue::Affection, until_ready - 1);
+    require(until_ready > 300000, "fixture retains a real remaining authored symbol cooldown");
+    step(repeat, "one-us-before-ready", PersonalityCue::Joy, until_ready - 1);
     require(repeat.frame.status == PersonalityPresentationStatus::SuppressedByCooldown,
             "new live target remains suppressed until the exact repeat boundary");
-    step(repeat, "repeat-boundary", PersonalityCue::Affection, 1);
+    step(repeat, "repeat-boundary", PersonalityCue::Joy, 1);
     require(repeat.lag.phase == PersonalityPhase::FadeIn && repeat.frame.opacity == 0 &&
             repeat.lag.last_admitted_at_us[slot] == repeat.lag.active_elapsed_us + 1,
             "eligible latest target re-enters gently and records its new admission");

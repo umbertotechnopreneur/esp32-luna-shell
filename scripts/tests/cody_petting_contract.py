@@ -39,16 +39,16 @@ def check_host_petting(root):
 
     recognizer = PettingRecognizer(config)
     results = slow_stroke(recognizer, scene, 1_000_000, 150.)
-    require(all(result == PettingZone.NONE for result in results[:-1]),
-            "Upper stroke must not recognize before both duration and travel qualify")
-    require(results[-1] == PettingZone.ABOVE_EYES, "Gentle upper-body stroke must recognize")
+    require(all(result == PettingZone.NONE for result in results[:4]),
+            "A short stroke must wait for sufficient duration and path")
+    require(results.count(PettingZone.ABOVE_EYES) == 1, "Gentle upper-body stroke must recognize once")
     require(recognizer.observe(scene, (248., 150.), True, False, 1_700_000) == PettingZone.NONE,
             "Same contact must not recognize twice")
     require(recognizer.observe(scene, (248., 150.), False, False, 1_800_000) == PettingZone.NONE
             and not recognizer.active, "Release must end the contact without a reaction")
     require(all(result == PettingZone.NONE for result in slow_stroke(recognizer, scene, 2_000_000, 290.)),
             "New contact during cooldown must remain suppressed")
-    require(slow_stroke(recognizer, scene, 8_000_000, 290.)[-1] == PettingZone.BELOW_MOUTH,
+    require(slow_stroke(recognizer, scene, 8_000_000, 290.).count(PettingZone.BELOW_MOUTH) == 1,
             "Gentle lower-body stroke must recognize after cooldown")
 
     recognizer = PettingRecognizer(config)

@@ -158,7 +158,7 @@ reusing its existing resampling scratch under the codec mutex. Render-side
 notification performs no codec I/O and never waits for playback.
 
 There is one in-flight attempt and no backlog: busy requests drop, actual starts
-have an eight-second cooldown, and requests expire after 120 ms. Hidden scenes,
+have a two-second cooldown, and requests expire after 120 ms. Hidden scenes,
 display parking and teardown suspend/cancel the channel. Quiet hours and the
 current volume policy apply; zero volume suppresses playback and saved volume
 is unchanged. The owner temporarily releases and restores idle codec mute.
@@ -184,23 +184,31 @@ the validated YAML. Above-eye and
 below-mouth margins are 0.10 and 0.08 times evaluated scale. This is gesture
 recognition from position/time, not pressure measurement.
 
-A contact must last at least 500 ms, accumulate at least 0.16 times its initial
-scale in path length and travel at least 0.08 times scale from its origin.
+A contact must last at least 300 ms, accumulate at least 0.12 times its initial
+scale in path length and travel at least 0.04 times scale from its origin.
 Segments faster than twice scale per second, report gaps over 250 ms, contact
 over three seconds, region changes and leaving the body reject that contact.
 Movement at most 1.5 pixels is treated as jitter. At Full scale 145 this is
-approximately 23 pixels of path, 12 pixels of displacement and a 290-pixel/s
+approximately 18 pixels of path, 6 pixels of displacement and a 290-pixel/s
 speed ceiling. These are initial thresholds requiring device tuning.
 
-Recognize once per contact with a six-second cooldown. If both the requested
-cue and the occupied channel permit it, request Affection for four active
-seconds, then release through the existing hold/fade policy. An occupied
-non-Affection channel drops the reaction; there is no delayed heart queue.
+Recognize once per contact with a six-second cooldown, then request Affection
+for four active seconds and release through the existing hold/fade policy.
+Affection interrupts ordinary lower-priority symbols instead of silently
+dropping the recognized stroke. Its icon has no second repeat cooldown;
+the gesture recognizer owns repeat admission. There is no delayed heart queue.
 The latest explicit baseline is preserved. YAML priority arbitration lets an
 admitted LowBattery900 release an automatic Affection200, while Charging100
 waits for its expiry. Urgent transitions bypass stability/hold but keep the
 smooth outgoing fade. Repeat admission cooldown and battery enter/exit
 hysteresis prevent chatter; see [personality behavior](personality-behavior.md).
+Acquired eye taps still close the eyes and add artistic stress. Main additionally
+requests Fear (the startled manga mark) or Frustration for four active seconds.
+The first choice favors Frustration under prior stress or a Stressed preset;
+successive contacts alternate these two identities. Both use priority 300 and
+interrupt lower-priority symbols, while Sleep and valid LowBattery retain
+precedence. Their existing original SFX follow completed visible frames, with
+the same busy/quiet/volume/expiry safeguards. No archive sample was imported.
 Sleep, scene changes, pause, orientation changes and display parking cancel
 the transient gesture. A visible Sleep handoff keeps the normal smooth
 heart fade-out before the Sleep fade-in; hidden or parked contacts do not replay.

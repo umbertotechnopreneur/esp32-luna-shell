@@ -159,6 +159,7 @@ class ResponseState:
     idle_wait_fraction: float = 0.0
     idle_scene_seconds: float = 0.0
     idle_scene_weight: float = 0.0
+    idle_remaining_scenes: int = 0
     eye_tap_status: SampleStamp = field(default_factory=SampleStamp)
     consumed_eye_tap_at_us: int = 0
     eye_hold_seconds: float = 0.0
@@ -299,6 +300,11 @@ def validate_response_state(state):
         raise ValueError("response.state.idle_scene: unknown identity")
     if type(state.idle_random_state) is not int or not 1 <= state.idle_random_state <= 0xFFFFFFFF:
         raise ValueError("response.state.idle_random_state: expected nonzero uint32")
+    previous_bit = {IdleSceneId.NONE: 0, IdleSceneId.YAWN: 1,
+                    IdleSceneId.WHISTLE: 2, IdleSceneId.GREETING: 4}[state.last_idle_scene]
+    if (type(state.idle_remaining_scenes) is not int or not 0 <= state.idle_remaining_scenes <= 7 or
+            state.idle_remaining_scenes & previous_bit):
+        raise ValueError("response.state.idle_remaining_scenes: invalid shuffle bag")
     if type(state.idle_scene_generation) is not int or not 0 <= state.idle_scene_generation <= 0xFFFFFFFF:
         raise ValueError("response.state.idle_scene_generation: expected uint32")
     for name, (minimum, maximum) in ranges.items():
@@ -337,16 +343,19 @@ def next_idle_random(state):
     return value
 
 
-# previous: Named prior scene; prevent consecutive repetition.
+# state: Session shuffle bag; consume all three named scenes before refilling.
 # random_value: One uint32 draw with the same mapping as the native engine.
-def select_idle_scene(previous, random_value):
-    options = {
-        IdleSceneId.NONE: (IdleSceneId.YAWN, IdleSceneId.WHISTLE, IdleSceneId.GREETING),
-        IdleSceneId.YAWN: (IdleSceneId.WHISTLE, IdleSceneId.GREETING),
-        IdleSceneId.WHISTLE: (IdleSceneId.YAWN, IdleSceneId.GREETING),
-        IdleSceneId.GREETING: (IdleSceneId.YAWN, IdleSceneId.WHISTLE),
-    }[previous]
-    return options[random_value % len(options)]
+def select_idle_scene(state, random_value):
+    if state.idle_remaining_scenes == 0:
+        state.idle_remaining_scenes = 7
+    options = [(scene, bit) for scene, bit in (
+        (IdleSceneId.YAWN, 1), (IdleSceneId.WHISTLE, 2), (IdleSceneId.GREETING, 4))
+        if state.idle_remaining_scenes & bit and scene != state.last_idle_scene]
+    if not options:
+        raise ValueError("Idle shuffle bag has no eligible scene")
+    scene, bit = options[random_value % len(options)]
+    state.idle_remaining_scenes &= ~bit
+    return scene
 
 
 # config: Existing authored delay, duration and cooldown.
@@ -378,7 +387,7 @@ def advance_idle_scene(config, busy, seconds, next_state):
         next_state.idle_seconds = min(delay, next_state.idle_seconds + seconds)
         if next_state.idle_seconds < delay:
             return
-        next_state.idle_scene = select_idle_scene(next_state.last_idle_scene, next_idle_random(next_state))
+        next_state.idle_scene = select_idle_scene(next_state, next_idle_random(next_state))
         next_state.last_idle_scene = next_state.idle_scene
         next_state.idle_scene_generation = (next_state.idle_scene_generation + 1) & 0xFFFFFFFF
         next_state.idle_scene_seconds = 0

@@ -53,14 +53,19 @@ class PersonalityPhase(IntEnum):
 # admitted_request: Typed synthetic cue; firmware gates device requests before this selection.
 # semantic_sleep: Explicit lifecycle/preset permission, independent of eyelid values.
 # affection_active: Whether a recognized contact still owns its temporary heart request.
+# eye_reaction: Latest synthetic Fear/Frustration reaction, using the firmware priorities.
 # Raises ValueError for invalid identity or untyped selection flags.
-def select_personality_target(admitted_request, semantic_sleep, affection_active):
+def select_personality_target(admitted_request, semantic_sleep, affection_active, eye_reaction=PersonalityCue.NONE):
     if (not isinstance(admitted_request, PersonalityCue) or type(semantic_sleep) is not bool or
-            type(affection_active) is not bool):
+            type(affection_active) is not bool or not isinstance(eye_reaction, PersonalityCue) or
+            eye_reaction not in (PersonalityCue.NONE, PersonalityCue.FEAR, PersonalityCue.FRUSTRATION)):
         raise ValueError("Personality target selection rejected")
     if semantic_sleep:
         return PersonalityCue.SLEEP, True
     requested_priority = 0 if admitted_request == PersonalityCue.NONE else CUE_RULES[admitted_request]["priority"]
+    if eye_reaction != PersonalityCue.NONE and CUE_RULES[eye_reaction]["priority"] > requested_priority:
+        admitted_request = eye_reaction
+        requested_priority = CUE_RULES[eye_reaction]["priority"]
     if affection_active and CUE_RULES[PersonalityCue.AFFECTION]["priority"] > requested_priority:
         return PersonalityCue.AFFECTION, False
     release_affection = affection_active and admitted_request != PersonalityCue.NONE

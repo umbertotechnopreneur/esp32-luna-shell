@@ -28,7 +28,7 @@ struct CueRule {
 };
 inline constexpr CueRule cue_rules[] = {
     {PersonalityCue::Sleep, 1000, true, 0, true},
-    {PersonalityCue::Fear, 100, false, 15000000, true},
+    {PersonalityCue::Fear, 300, true, 0, true},
     {PersonalityCue::Joy, 100, false, 15000000, true},
     {PersonalityCue::Hunger, 100, false, 15000000, true},
     {PersonalityCue::Thirst, 100, false, 15000000, true},
@@ -39,8 +39,8 @@ inline constexpr CueRule cue_rules[] = {
     {PersonalityCue::NoWifi, 100, false, 20000000, true},
     {PersonalityCue::Curiosity, 100, false, 15000000, true},
     {PersonalityCue::Confusion, 100, false, 15000000, true},
-    {PersonalityCue::Affection, 200, false, 15000000, true},
-    {PersonalityCue::Frustration, 100, false, 15000000, true},
+    {PersonalityCue::Affection, 200, true, 0, true},
+    {PersonalityCue::Frustration, 300, true, 0, true},
 };
 inline constexpr uint8_t cue_rule_count = 14;
 inline constexpr uint8_t low_battery_enter_percent = 15;
@@ -48,6 +48,6 @@ inline constexpr uint8_t low_battery_exit_percent = 20;
 } // namespace CODY::PersonalityConfig
 namespace CODY::PersonalityAudioConfig {
 inline constexpr bool enabled = true;
-inline constexpr int64_t cooldown_us = 8000000;
+inline constexpr int64_t cooldown_us = 2000000;
 inline constexpr int64_t request_expiry_us = 120000;
 } // namespace CODY::PersonalityAudioConfig

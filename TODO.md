@@ -9,6 +9,14 @@ bytes, not physical behavior; every open observation below remains open.
 
 ## Cody integration and release gates
 
+- [ ] Remind the user after approval of the new boot behavior: update both Cody
+  PDF atlases with the shortened 2 / 1.5 / 2-second cold-boot sequence and random
+  returning-device Affection/Joy welcome, plus touch/icon/cycle corrections and
+  a final dated errata page. Preserve pairing and every previous PDF page.
+- [ ] Physically review the new 300-ms caress thresholds, heart interruption,
+  eye-tap Fear/Frustration variation under stress, existing icon SFX and random
+  complete three-scene cycles. Build/flash does not prove these observations.
+
 - [ ] After fresh command-specific authorization, validate the 2026-10-05
   [idle scenes](docs/architecture/cody/idle-scenes.md): visible Stressed mouth
   breathing; random 20-40-second waits/no immediate repeats; Yawn, Whistle and

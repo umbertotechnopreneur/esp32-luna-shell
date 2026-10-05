@@ -1058,16 +1058,16 @@ void check_lifecycle_contract()
             state.phase == LifecyclePhase::BootWaking && state.phase_elapsed_us == 0, "local checkpoint releases waking phase");
     require(CODY::advance_lifecycle(state, 4000000, BootCheckpoint::Waking, state) == ESP_OK &&
             state.phase == LifecyclePhase::BootWaking && state.phase_elapsed_us == CODY::kBootWakingUs,
-            "waking lasts four seconds and cannot imply complete startup");
+            "waking holds after its shorter duration until real startup completes");
     require(CODY::advance_lifecycle(state, 0, BootCheckpoint::Ready, state) == ESP_OK &&
             state.phase == LifecyclePhase::BootReady && state.phase_elapsed_us == 0, "ready starts after actual startup succeeds");
-    require(CODY::advance_lifecycle(state, 3999999, BootCheckpoint::Ready, state) == ESP_OK &&
-            state.phase == LifecyclePhase::BootReady, "ready remains visible for four seconds");
+    require(CODY::advance_lifecycle(state, 1999999, BootCheckpoint::Ready, state) == ESP_OK &&
+            state.phase == LifecyclePhase::BootReady, "ready remains visible for two seconds");
     require(CODY::advance_lifecycle(state, 1, BootCheckpoint::Ready, state) == ESP_OK &&
             state.phase == LifecyclePhase::Idle, "after ready first setup may enter Hello; otherwise settle at Idle16");
     state = {};
     require(CODY::advance_lifecycle(state, 10000000, BootCheckpoint::Ready, state) == ESP_OK &&
-            state.phase == LifecyclePhase::Idle, "one large delta preserves the complete 2/4/4 timeline");
+            state.phase == LifecyclePhase::Idle, "one large delta preserves the shortened complete startup timeline");
     state = {LifecyclePhase::BootSleeping, 0, CODY::StartupPresentation::PanelFade};
     require(CODY::lifecycle_opacity(state) == 255,
             "software wake does not stack a character fade over the panel fade");
