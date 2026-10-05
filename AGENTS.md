@@ -118,7 +118,9 @@ instruction file; do not add parallel agent or Copilot contracts.
   build; never delete versioned assets as runtime cleanup.
 - Make focused local checkpoint commits at coherent implementation boundaries;
   preserve unrelated work. Push needs separate user authorization.
-- `TODO.md`: active open work. `planned-todo.md`: deferred work; move an item to
-  TODO when activated. `done.md`: compact completed implementation/evidence,
-  without claiming pending validation. Keep recurring lessons in `lessons.md`
-  and read them before boot/startup/Brookesia changes.
+- Keep one canonical root record for each purpose: `AGENTS.md` for repository
+  rules, `TODO.md` for active work, `planned-todo.md` for deferred work,
+  `done.md` for compact completed implementation/evidence and `lessons.md` for
+  recurring lessons. Move content into these files instead of adding nested or
+  alias `AGENTS.md`, `TASKS.md`, `TODO.md` or lessons files. Do not claim pending
+  validation as done; read `lessons.md` before boot/startup/Brookesia changes.

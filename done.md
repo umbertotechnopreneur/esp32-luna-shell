@@ -3,15 +3,31 @@
 This is a compact checkpoint record, not a release certificate. Open validation
 and implementation gaps remain in [TODO.md](TODO.md); deferred work is in
 [planned-todo.md](planned-todo.md). Historical revision details remain in Git
-and referenced architecture/artifact records.
+and referenced architecture records. Paths under ignored `artifacts/` directories
+below are historical provenance only: the explicitly requested full local cleanup
+on 2026-10-05 removed the earlier untracked evidence before the current build and
+flash logs were regenerated.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
 - Integrated the SIMD and DMA branches into `main` and removed their worktrees
-  and local/remote branches on 2026-10-05. Complete artifacts are retained locally
-  under `artifacts/build-preserved-evidence/cody-simd-perf-opt/` and
-  `artifacts/build-preserved-evidence/cody-dma-double-buffer/`. These directories
-  replace the original worktree artifact roots in the historical records below.
+  and local/remote branches on 2026-10-05. The preserved-evidence directories
+  named in the historical records below were later removed by the authorized
+  full local cleanup; their tracked summaries remain here and in architecture docs.
+- After the requested branch cleanup, only `main` remained locally and on
+  `origin`; this records the resulting ref state without asserting ancestry for
+  the deleted branch tips. After the clean checkout removed its
+  generated state, `device.ps1 set-target` recreated Debug `cody-companion` and
+  `device.ps1 flash -Port COM10 -Jobs 8` built commit `160a080a`. The 4,014,496-byte
+  app left 73% of the app partition free. Bootloader, partition table and app
+  hashes verified before the hard reset. After workstation power was restored,
+  the same public flash command completed again from the incremental build with
+  the same hashes and final reset. No monitor/capture or physical UI observation
+  accompanied either flash.
+- Audited the repository records after branch consolidation. One root `AGENTS.md`,
+  `lessons.md`, `TODO.md`, `planned-todo.md` and `done.md` remain canonical; no
+  nested instruction file or `TASKS.md` alias existed. Removed stale live-branch
+  wording from active work and marked cleaned ignored artifacts as historical.
 - Assigned the continuous native Cody renderer to CPU1 and made the Cody profile's
   CPU0 ownership explicit for startup, Wi-Fi, the Bluetooth controller, NimBLE and
   lwIP. The single frame/display owner and unpinned bounded service workers are

@@ -3,36 +3,19 @@
 Only open, actionable work belongs here. Deferred work is in
 [planned-todo.md](planned-todo.md); completed implementation/evidence is in
 [done.md](done.md). Authorization is governed solely by [AGENTS.md](AGENTS.md).
-Unless explicitly recorded in Done, recent increments have source review only;
-older host/build/flash evidence does not validate the current combined image.
+The merged Debug Cody image at `160a080a` was built and flashed twice on COM10
+on 2026-10-05, including once after power was restored. That proves the written
+bytes, not physical behavior; every open observation below remains open.
 
 ## Cody integration and release gates
 
-- [ ] Diagnose the reported caress freeze on firmware `99342b7a`. The authorized
-  60-second COM10 capture without reset on 2026-10-05 attached after failure:
-  periodic snapshots continued, touch/display were already in error, and
-  rotation repeatedly reported pending/pressed contact with
-  `ESP_ERR_INVALID_RESPONSE`. No initial malformed packet or panic was captured.
-  Static review confirms a failed touch sample terminates the Cody consumer and
-  leaves subsequent IRQs pending. Subsequent reset captures reached ready
-  touch/display and normal inactivity standby without the reported error or a
-  recognized `Mood caress` event. The user reports a later stroke did not freeze
-  but showed no icon. Host personality/runtime checks passed; real contact
-  timing and the first rejected controller packet remain unresolved. Do not
-  treat a missing recognition log as proof of a layout fault
-  or silently relax driver acceptance. Source review found that the automatic
-  idle greeting retained a SceneFrame and incorrectly excluded carezze; the
-  narrowly scoped Greeting admission fix and contact-boundary diagnostics are
-  implemented, host integration passed and Debug `26dd7866` was built/flashed
-  on COM10. Debug `3898f3d2` also enables the measured main-screen HUD; the user
-  confirms it is visible. Acquired Main contacts are now admitted, but captured
-  strokes lasted about 127/451/167 ms and ended rejected, with no heart trigger.
-  These are below the configured 500-ms minimum. Typed first-rejection diagnostics
-  now distinguish zone exit, speed, acquisition gap and every other recognizer
-  guard, but require a new physical capture. Verify a continuous slower in-body
-  stroke and its synchronized Affection SFX;
-  do not claim icon performance from the HUD-only baseline. Evidence lives under
-  `artifacts/build-cody-companion-debug/evidence/caress-*.log`.
+- [ ] Diagnose the reported caress freeze and missing heart. Capture the first
+  rejected controller packet or terminal touch/display transition, then verify
+  one continuous in-body stroke above the 500-ms minimum and its synchronized
+  Affection SFX. Current diagnostics distinguish zone exit, speed, acquisition
+  gap and the other recognizer guards; do not relax driver acceptance or infer
+  icon performance from the earlier HUD-only observation. Historical diagnosis,
+  fixes and now-removed local captures are summarized in [done.md](done.md).
 
 - [ ] After fresh command-specific authorization, run the pure host
   `scripts/device.ps1 check -Check cody-preview-raster` regression checks for
@@ -51,7 +34,7 @@ older host/build/flash evidence does not validate the current combined image.
   unestablished. Confirm actual touch, busy-channel mood gain and park/resume
   timing on hardware only after separate authorization. Facial influence and
   persistence remain deferred; dormant wellbeing has no runtime adapter or UI.
-- [ ] Validate the personality-icons branch on the device:
+- [ ] Validate the merged personality-icon implementation on the device:
   generated-palette/coverage contracts, all fourteen cues in Main
   and Sleep, suppression on other scenes and Micro, symbol readability, actual
   jelly/vector clearance, circle/status/Back separation, configured face anchor,
@@ -59,39 +42,23 @@ older host/build/flash evidence does not validate the current combined image.
   canonical device-state gating and old/new damage erasure. Listen to/refine all
   fourteen original SFX and verify completed-frame triggering, busy drops,
   cooldown, quiet/zero-volume/standby, idle-mute restoration, expiry, retained
-  errors and codec contention. Profile
-  complete frame/DMA/CPU/stack costs; static area counts are not performance
-  evidence. Remote main `649cbc7f` renderer optimizations are integrated;
-  current combined build/flash evidence is tracked in Done and physical checks
-  still need separate authorization. The earlier 2026-10-05 merged Debug firmware build
-  and focused suite passed (1,041 native assertions, 122 controller parity
-  frames and 118 independent host assertions). The interactive simulator
-  opened after its boot-artwork references were corrected. Hardware execution,
-  interactive gesture evaluation and audio playback remain open.
+  errors and codec contention. Profile complete frame/DMA/CPU/stack costs;
+  static area counts and successful flashing are not physical performance
+  evidence. Historical host results and merge evidence are in Done.
 
-- [ ] Confirm normal-UI animation, touch/PWR capture and repeated rotation/standby
-  wake cycles with native DMA overlap on the physical display. Actual-BSP host
-  lifetime/allocator contracts and the fixed 100% device run passed on the DMA
-  branch: two 12-row slots, mean 45,828 us, p95 46,667 us, 842/842 over 40 ms.
-  Raster remains about 35.1 ms; DMA overlap does not achieve the target alone.
-  The normal benchmark-disabled Debug image passed a 95-second boot/standby
-  capture; its connected startup admitted two 8-row slots under memory pressure.
-  This is boot/ownership evidence, not a timed normal-UI or touch-latency result.
+- [ ] Confirm normal-UI animation, touch/PWR response and repeated rotation/
+  standby wake cycles with native DMA overlap on the physical display. Measure
+  complete-frame and touch latency in the merged image; prior branch benchmarks
+  and boot captures establish ownership only and are retained in Done.
 - [ ] Validate the current face/pearl-boot/PWR-capture image:
   countdown timing, overlay-free BMP, original shutter cue,
   SD absent/failure feedback, Debug HUD placement, screen 04 open eyes and
-  screen 08 Retry on the physical display. The Debug build and flash passed;
-  physical behavior remains unverified.
+  screen 08 Retry on the physical display.
 - [ ] Capture repeated cold boots of the corrected image and at least two full
-  60-second standby/wake
-  cycles. Confirm no contiguous-DMA preflight rejection, teardown panic or
-  stale failed-wake trace is misreported as a new failure. The 2026-10-04 log
-  proves the prior firmware still rebooted; corrected `d766e08c` completed one
-  100-second boot/standby capture without panic, but the later passive monitor
-  exposed repeated BLE contiguous-DMA rejection and a touch critical-section
-  Interrupt-WDT during wake. Corrections were built/flashed as `9fde2b48`;
-  repeated wake cycles
-  and degraded-radio error/recovery publication remain unverified.
+  60-second standby/wake cycles. Confirm no contiguous-DMA preflight rejection,
+  teardown panic, touch critical-section watchdog or stale failed-wake trace is
+  reported as a new failure. Verify degraded-radio cleanup and error/recovery
+  publication; prior corrected-image captures are summarized in Done.
 - [ ] Verify 05/06 return to Welcome after 30 awake seconds and real pairing 07
   after 90 awake seconds without
   real touch/pairing progress, including animation pause, standby, late worker
@@ -102,66 +69,30 @@ older host/build/flash evidence does not validate the current combined image.
   the missing interval prevents cause attribution. The reset/reproduction log
   records clean standby at 64 s and touch wake at 179 s, confirmed by the owner.
   Do not treat that single success as a fix or hide terminal errors with restart.
-- [ ] Investigate intermittent SD transport after warm resets/reinsertion:
-  `bb8fd327` and an early `0a4f1b87` boot timed out during card OCR before FAT.
-  After a full power cycle with the same readable card, the canonical snapshot
-  reported mounted=yes, card-response=verified, attempts=1 and
-  format-attempted=no; the owner confirmed a saved PWR screenshot. Reproduce the
-  intermittent failure before changing the SD driver or its mount policy. The
-  board uses `SDMMC_SLOT_NO_CD`, so no presence GPIO can remove the card. A pending
-  source fix releases the storage worker from power suspension after a clean
-  transient wake failure so its existing retry/backoff can run, while preserving
-  the original error. Validate mount, standby, wake, retry, access and free space.
-  Flashed Debug `f16043e0` retried cleanly three times after a reset but every
-  1-bit SDMMC probe failed during card OCR with `ESP_ERR_TIMEOUT`; the backoff
-  progressed through 15/30/60 seconds and no format was attempted. This confirms
-  retry execution and truthful unavailable state, but not the cause of the
-  transport failure or successful remount. Inspect card seating/power/signals and
-  reproduce one successful boot followed by standby/wake before changing policy.
-- [ ] Confirm flashed boot greeting C acoustics on `143fdb22`,
-  chime-to-voice timing, trusted-clock/quiet policy and no ordinary standby-wake
-  repeat. A/B/chime-only authoring alternatives remain available.
+- [ ] Investigate intermittent SD transport after warm resets/reinsertion.
+  Reproduce one successful boot followed by standby/wake before changing policy;
+  inspect card seating, power and signals. Validate mount, retry/backoff, access
+  and free space while preserving the original OCR timeout. The board uses
+  `SDMMC_SLOT_NO_CD`, so do not invent card-presence GPIO or format implicitly.
+- [ ] Confirm boot greeting C acoustics, chime-to-voice timing, trusted-clock/
+  quiet policy and no ordinary standby-wake repeat. A/B/chime-only authoring
+  alternatives remain available.
 - [ ] Verify clean Retry from 08 returns to 05 after the teardown/admission split.
-  `a19e0093` boot capture confirmed SDK BLE startup succeeds, but first standby
-  rearm fails solely at the application's monolithic reserve (97,443 bytes
-  free, largest 21,504). Debug `bb8fd327` now reaches the real session QR (owner
-  confirmed), restores BLE after standby, rearms after inactivity closure and
-  starts a second session. Verify explicit Cancel/Retry and repeated cycles. Check
-  separate cleanup/reservation errors and actual SDK results; the old 30-KiB
-  contiguous requirement is not supported by the inspected SDK allocation path.
+  Exercise explicit Cancel/Retry, inactivity closure, standby rearm and repeated
+  sessions. Preserve separate cleanup/reservation errors and actual SDK results;
+  do not restore the disproven monolithic 30-KiB application guard.
 - [ ] Investigate the interrupted 130-second capture: COM10's stream closed
   after 43 seconds without a captured panic. The following 100-second capture
   completed; the first USB/host interruption's cause remains unidentified.
-- [ ] Optimize the raster in separate checkpoints, preserving exact output:
-  the fixed 100% jelly benchmark now measures a 6,235 us frame-mean gain over
-  the fresh C control, but remains 10,715 us above the 40 ms budget. Separate
-  jelly and face timings in the full UI before choosing another kernel.
-- [ ] Complete the finite raster validation on the combined main image. `4ac6c812`
-  passed Debug build/flash and one 100% coarse capture: fixed 63,000-pixel payload,
-  684 frames, full-window p95 57,611 us, first-run entry and normal completion
-  with policy/look restoration and deferred greeting. SIMD coarse captures at
-  50/75/100 percent are complete; detailed segmentation remains a separate,
-  intrusive experiment. Exercise touch/PWR/Sleep interruption. Combined Debug
-  and Release builds with the benchmark disabled pass at `e714737`; verify the
-  disabled benchmark on the device and build non-Pearl firmware separately.
-  Validate the implemented S3 interpolation kernel: `simd_verify` first checks
-  65,536 weight combinations and then compares live RGBA samples; `simd` and
-  `scalar` are separate timing captures. The S3 Debug build and corrected MSVC
-  host suite passed. The S3 verification run compared 30,267,144 live samples
-  across 489 measured frames with no mismatch. At 100% scale, the fresh A/B
-  improved frame mean by 1,104 us and p95 by 1,139 us, but all frames still
-  missed 40 ms. Detailed S3 profiling (intrusive) found preparation and RGB565
-  composition much larger than interpolation. The 64-pixel block regressed;
-  16-pixel blocks with generated row coverage now pass host parity and measured
-  50,715 us mean, 51,463 us p95 at 100%. The 75% and 50% SIMD-only captures
-  stayed under 40 ms throughout, with means of 33,888 us and 21,834 us.
-  SIMD is now selected for ordinary S3 rendering, with benchmark autostart off.
-  Confirm full-UI behavior and timings on the combined main image. The generated
-  coverage table and current SIMD path still need a fresh physical pixel-parity
-  run after this optimization; earlier S3 verification predates row trimming.
-  Add deterministic animated work after trustworthy timings; include
-  packing/alignment/tails and confirm gains in the full UI. Device clock,
-  radio state, logging overhead and complete cleanup remain validation concerns.
+- [ ] Continue raster optimization in separate checkpoints while preserving exact
+  output. First measure separate jelly, face, preparation, RGB565 composition and
+  complete-frame costs in the normal full UI; the 100% workload still misses the
+  40-ms target. Historical A/B measurements are retained in Done.
+- [ ] Complete finite raster validation on the merged main image: fresh physical
+  pixel parity after row trimming, 50/75/100% coarse timing, disabled-benchmark
+  behavior, non-Pearl firmware, and touch/PWR/Sleep interruption. Add deterministic
+  animated work only after trustworthy timings; include packing, alignment, tails,
+  device clock, radio state, logging overhead and cleanup.
   [Benchmark contract](docs/architecture/cody/rendering.md).
 - [ ] Validate asynchronous look selection: save success/failure/retry, busy
   Back/Done, route reset during writes, rotated touch, canonical errors and
@@ -242,9 +173,9 @@ older host/build/flash evidence does not validate the current combined image.
   evidence. Captures began after DISPLAY/TOUCH failure or did not reproduce it;
   later continuous frames/rotation and the user's working-device report do not
   identify the trigger. Keep open until explained or explicitly closed.
-  [Freeze evidence](docs/architecture/cody/rendering.md);
-  `artifacts/serial/cody-jelly-crash*.log` and
-  `artifacts/build-release-evidence/cody-{greeting-freeze,reboot-loop-live}.log`.
+  Historical evidence is summarized in Done; the ignored local captures were
+  removed by the authorized 2026-10-05 cleanup.
+  [Freeze evidence](docs/architecture/cody/rendering.md).
 - [ ] Meet sustained artwork/skeleton frame and CPU budgets. Establish a logged
   static-route baseline; measure stage distributions, payload bytes, DMA wait,
   stack/radio headroom and concurrent standby/rotation/slow-DMA behavior. Verify
@@ -264,9 +195,9 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Platform, ownership and tooling
 
-- [ ] Complete physical Debug/Release validation; Cody configuration/gates,
-  clean/incremental builds/size and host simulator checks passed on 2026-10-04.
-  Other firmware profiles are not covered by that result. Verify real
+- [ ] Complete physical Debug/Release validation. The merged Debug Cody image
+  `160a080a` was rebuilt and flashed twice on COM10 on 2026-10-05 with verified
+  hashes; Release and other firmware profiles are not covered. Verify real
   Sleep presentation, dark Wake before panel fade, rejected-entry rollback,
   PWR/IMU/touch wake, USB reconnect, radios and complete-board current.
   For Release Deep-sleep cover QMI revision/CmdDone protocol, held IRQ recovery,
@@ -291,7 +222,8 @@ older host/build/flash evidence does not validate the current combined image.
   menu/CLI routing, relocated imports, simulator captures, packaging/cleanup and
   diagnostic failure ownership. Cover deliberate COM selection before ESP-IDF,
   numeric/COM equivalence, cancellation, unavailable/ambiguous ports and retained
-  native errors. Physical serial behavior remains unverified.
+  native errors. Normal explicit COM10 flashing is verified; selection and failure
+  edge cases remain open.
 - [ ] Resolve/review the missing `display-touch` canonical lock after BSP gates
   change. The current Cody lock/native no-LVGL closure passed on 2026-10-04;
   still validate other UI/standalone builds and display-off

@@ -5,6 +5,10 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
 
 ## Ownership and truthful evidence
 
+- After branch/worktree consolidation, describe the merged capability and exact
+  commit rather than treating a deleted branch name as current state. Ignored
+  `artifacts/` paths are disposable, not durable evidence; retain lasting results
+  in tracked records and say when a later cleanup removed the local files.
 - Request admission, credentials, a successful strip write or watchdog progress
   is not operation completion. Pairing needs observed backend/session outcomes;
   display transitions need a retired complete frame; optional faults stay real.
