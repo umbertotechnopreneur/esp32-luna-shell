@@ -52,9 +52,11 @@ from runtime_paths import resolve_runtime_output  # noqa: E402
 from cody_ui_theme import FONTS, install_theme, scale_pixels  # noqa: E402
 from cody_ui_dpi import prepare_display, configure_tk_scaling, window_work_area  # noqa: E402
 from cody_ui_widgets import InspectorTab  # noqa: E402
+from vibeware_boot import VibeWareBoot  # noqa: E402
 
 SCREEN_NAMES = tuple(screen.value for screen in Screen)
 ANIMATED_SCREENS = (Screen.RIG, Screen.GREETING)
+TIMED_SCREENS = ANIMATED_SCREENS + (Screen.BOOT_VIBEWARE,)
 BOOT_NAMES = {
     "boot-sleep": "cody-sleep-pearl.png",
     "boot-waking": "cody-waking-pearl.png",
@@ -66,7 +68,7 @@ LABEL_SCOPES = tuple(scope.value for scope in LabelScope)
 class StudioLink(str, Enum):
     PROJECT = "https://github.com/umbertotechnopreneur/esp32-luna-shell"
     WEBSITE = "https://umbertogiacobbi.biz"
-    MANIFESTO = "https://github.com/umbertotechnopreneur/VibeWare/blob/main/MANIFESTO.md"
+    MANIFESTO = "https://umbertogiacobbi.biz/vibeware/manifesto"
 
 
 # value is a native RGB565 word, expanded without inventing extra indexed colors.
@@ -103,6 +105,7 @@ class CodyRenderer:
         self.rgb_palette = [rgb565(value) for value in self.native_palette]
         self.flat_palette = [channel for color in self.rgb_palette for channel in color]
         self.boot = {}
+        self.branding = None
         for screen, name in BOOT_NAMES.items():
             with Image.open(root / "assets/cody/boot" / name) as source:
                 # Exact source artwork is previewed; firmware's indexed RLE conversion is separate.
@@ -516,7 +519,12 @@ class CodyRenderer:
                 if content_visible:
                     self.scene_painter.paint_title(image, "greeting", scene_elapsed_ms)
         else:
-            image = self.boot[screen].copy()
+            if screen == Screen.BOOT_VIBEWARE:
+                if self.branding is None:
+                    self.branding = VibeWareBoot(self.root)
+                image = self.branding.image(personality_elapsed_ms)
+            else:
+                image = self.boot[screen].copy()
             if self.personality_painter is not None:
                 self.personality_painter.disable(personality_elapsed_ms)
         circular = Image.new("L", (SIZE, SIZE))
@@ -1137,7 +1145,7 @@ class CodyWindow:
             dy = frame.current_root[1] - frame.resting_root[1]
             vx, vy = frame.spring_velocity_px_per_second
             body_text = f"\nRoot: {dx:+.1f}, {dy:+.1f} px\nSpring v: {vx:+.1f}, {vy:+.1f} px/s\nDepth: {frame.depth_scale:.4f}"
-        status = "RUNNING" if screen in ANIMATED_SCREENS else "PAUSED / boot artwork"
+        status = "RUNNING" if screen in TIMED_SCREENS else "PAUSED / boot artwork"
         self.response_info.configure(text=f"{status} / SYNTHETIC\n{motion_text}\n{power_text}\n"
             f"Microphone: {state.microphone_status.health.value}\nPlayback: {state.playback_status.health.value}\n"
             f"MODEL attention: {state.attention:.3f} / speaking: {state.speaking:.3f}\n"
@@ -1690,6 +1698,10 @@ class CodyWindow:
     # Raises tk.TclError if a presentation control has become unavailable.
     def presentation_key(self, screen, rotation, layout, values, transform):
         common = (screen, rotation, layout)
+        if screen == Screen.BOOT_VIBEWARE:
+            if self.renderer.branding is None:
+                self.renderer.branding = VibeWareBoot(self.renderer.root)
+            return common + (self.renderer.branding.frame_index(self.elapsed_ms),)
         if screen not in ANIMATED_SCREENS:
             return common
         # Subpixel comparison only: leave the model's full-precision values alone.
@@ -1729,7 +1741,7 @@ class CodyWindow:
         rotation = self.rotation.get()
         show_names = self.names.get() and screen == Screen.RIG
         layout = PreviewLayout.fit(*self.pending_canvas_size, show_names)
-        active_ms = interval_seconds * 1000 if screen in ANIMATED_SCREENS else 0
+        active_ms = interval_seconds * 1000 if screen in TIMED_SCREENS else 0
         if screen == Screen.GREETING:
             if self.previous_animation_screen != screen:
                 self.scene_elapsed_ms = 0.0
@@ -1869,7 +1881,7 @@ class CodyWindow:
                      + (f"\nLINK ERROR: {self.last_link_error!r}" if self.last_link_error is not None else "")
             )
         # Boot artwork has no animation. Keep controls responsive without 60 full images/s.
-        interval_ms = 1000 / target_hz if screen in ANIMATED_SCREENS else 100
+        interval_ms = 1000 / target_hz if screen in TIMED_SCREENS else 100
         delay_ms = max(1, math.ceil(interval_ms - duration_ms))
         self.after_id = self.root.after(delay_ms, self.tick)
 
@@ -1940,7 +1952,7 @@ def main(argv=None):
                                 debug=False,guide=args.safe_guide,rotation=args.rotation,contour=contour,
                                 material_study=args.cloud_material_study,
                                 png_mesh_study=args.cloud_png_mesh_study, mesh_overlay=args.mesh_overlay,
-                                scene_elapsed_ms=args.at_ms)
+                                scene_elapsed_ms=args.at_ms, personality_elapsed_ms=args.at_ms)
         destination.parent.mkdir(parents=True,exist_ok=True)
         renderer.capture_sheet(image,f"{args.screen} / {args.rotation} deg / HOST PREVIEW").save(destination)
         print(destination)

@@ -5,7 +5,12 @@ set(LUNASHELL_boot_requires
 )
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_UI)
-    list(APPEND LUNASHELL_boot_srcs "src/ui/LUNASHELL_boot_ui.c")
+    list(APPEND LUNASHELL_boot_srcs
+        "src/ui/LUNASHELL_boot_ui.c"
+        "src/ui/VIBEWARE_boot_animation.c"
+        "src/ui/VIBEWARE_boot_ui_failure.cpp"
+        "../../assets/branding/VibeWare/generated/vibeware_boot_data.c"
+    )
     list(APPEND LUNASHELL_boot_requires esp32_s3_touch_amoled_1_75)
 else()
     list(APPEND LUNASHELL_boot_srcs "src/ui/LUNASHELL_boot_ui_stub.c")
@@ -21,6 +26,7 @@ endif()
 idf_component_register(
     SRCS ${LUNASHELL_boot_srcs}
     INCLUDE_DIRS "include"
+    PRIV_INCLUDE_DIRS "../../assets/branding/VibeWare/generated"
     REQUIRES ${LUNASHELL_boot_requires}
 )
 
@@ -29,15 +35,6 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_UI)
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_AUDIO)
     idf_component_optional_requires(PUBLIC esp_codec_dev)
-endif()
-
-if(CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_UI)
-    target_add_binary_data(
-        ${COMPONENT_LIB}
-        "${PROJECT_DIR}/assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.rgb565le.bin"
-        BINARY
-        RENAME_TO LUNASHELL_boot_rgb565
-    )
 endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_AUDIO)

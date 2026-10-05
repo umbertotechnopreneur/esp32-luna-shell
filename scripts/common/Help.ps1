@@ -103,7 +103,7 @@ function Show-DeviceHelp {
     Write-DeviceHelpEntry -Syntax '-BuildDir / -IdfPath / -ToolsPath' -Description 'Override the selected build directory or the ESP-IDF installation/tool paths.' -Width $width
 
     Write-DeviceHelpSection -Title 'Preview and connection options' -Icon '📐' -Width $width -Subsection
-    Write-DeviceHelpEntry -Syntax '-Screen / -Rotation / -AtMs / -SafeGuide' -Description 'Screens: rig, greeting, boot-sleep, boot-waking, boot-ready. Rotation: 0/90/180/270; AtMs: 1000 by default; SafeGuide shows the circular layout guide.' -Width $width
+    Write-DeviceHelpEntry -Syntax '-Screen / -Rotation / -AtMs / -SafeGuide' -Description 'Screens: rig, greeting, boot-vibeware, boot-sleep, boot-waking, boot-ready. Rotation: 0/90/180/270; AtMs: 1000 by default; SafeGuide shows the circular layout guide.' -Width $width
     Write-DeviceHelpEntry -Syntax '-Port / -Baud / -WaitSeconds' -Description 'Without Port, device actions ask you to choose a detected COM port. COM10 and 10 select the same port; explicit Port skips the prompt. Non-interactive calls require Port. Defaults: 115200 baud and a 30-second port wait.' -Width $width
     Write-DeviceHelpEntry -Syntax '-ResetBeforeMonitor' -Description 'For monitor and combo only: opt in to the monitor startup reset. By default, monitor attachment uses --no-reset; Baud is passed explicitly through --monitor-baud.' -Width $width
     Write-DeviceHelpEntry -Syntax '-DurationSeconds / -ResetBeforeCapture' -Description 'Capture defaults to 30 seconds; opt in to a reset before capture.' -Width $width

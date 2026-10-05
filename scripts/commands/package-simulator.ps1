@@ -11,7 +11,8 @@ $Scenarios = Join-Path $ProjectRoot "simulator/windows/scenarios"
 $BoardYaml = Join-Path $ProjectRoot "config\boards\waveshare-esp32s3-touch-amoled-1.75\ui-bootstrap.yaml"
 $ShellView = Join-Path $ProjectRoot "components\LUNASHELL_app\package_shell\res\root.json"
 $BoardValidator = Join-Path $ProjectRoot "scripts/common/board_config.py"
-$BootImage = Join-Path $ProjectRoot "assets\branding\LUNASHELL\generated\LUNASHELL-boot-466x466.png"
+$BrandingSource = Join-Path $ProjectRoot "assets/branding/VibeWare/source/vibeware-floppy-insert-transparent.gif"
+$BrandingManifest = Join-Path $ProjectRoot "assets/branding/VibeWare/generated/manifest.json"
 $MascotImage = Join-Path $ProjectRoot "assets\mascot\generated\luna-idle-head-170x198.png"
 $BootSound = Join-Path $ProjectRoot "assets\sfx\generated\lunashell-boot.wav"
 $SimulatorArtifacts = Resolve-ArtifactPath '' "artifacts/simulator/windows"
@@ -19,7 +20,7 @@ $Dist = Join-Path $SimulatorArtifacts "dist"
 $Work = Join-Path $SimulatorArtifacts "build"
 $Executable = Join-Path $Dist "ESP32LunaShellDeviceSimulator.exe"
 
-foreach ($requiredPath in @($Simulator, $Scenarios, $BootImage, $MascotImage, $BootSound, $BoardYaml, $ShellView, $BoardValidator)) {
+foreach ($requiredPath in @($Simulator, $Scenarios, $BrandingSource, $BrandingManifest, $MascotImage, $BootSound, $BoardYaml, $ShellView, $BoardValidator)) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
         throw "Required simulator input is missing: $requiredPath"
     }
@@ -49,7 +50,8 @@ if ($LASTEXITCODE -ne 0) {
     --workpath $Work `
     --specpath $Work `
     --paths $ProjectRoot `
-    --add-data "$BootImage;assets/branding/LUNASHELL/generated" `
+    --add-data "$BrandingSource;assets/branding/VibeWare/source" `
+    --add-data "$BrandingManifest;assets/branding/VibeWare/generated" `
     --add-data "$MascotImage;assets/mascot/generated" `
     --add-data "$BootSound;assets/sfx/generated" `
     --add-data "$Scenarios;scenarios" `

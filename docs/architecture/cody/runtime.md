@@ -8,12 +8,22 @@ damage/DMA contract and [onboarding](onboarding.md) for route gates.
 
 ## Startup and expression sequencing
 
-Cold boot or software reset follows Sleeping 01 → Waking 02 → Ready 03. The animated
+Cold boot or software reset first shows the approved VibeWare floppy insertion
+animation on black: 42 original frames with 3.5 seconds of authored visible dwell
+per cycle. Each native frame retires before its 80/90-ms dwell begins; transfers
+and intentional startup DMA parking can add wall time. The current cycle finishes
+only after the real Ready service checkpoint. The original Sleeping/Waking/Ready
+clocks remain frozen under the introduction, including first-run greeting timers.
+The unchanged GIF and shared flash RLE package live in
+`assets/branding/VibeWare/`; the native path adds no LVGL or GIF-decoder dependency.
+
+After the introduction, startup follows Sleeping 01 → Waking 02 → Ready 03. The animated
 character fades in over 2 seconds, then Waking receives 1.5 seconds and Ready
 receives 2 seconds (5.5 active seconds altogether, excluding real service waits).
 Real startup checkpoints gate advancement: a service wait does not consume the
-next phase's active duration. Startup shows only Cody, with no website branding
-or branding fade; the startup phases do not show the Debug HUD.
+next phase's active duration. The VibeWare introduction precedes Cody, with no
+Debug HUD or numeric progress invented from animation time. Actual deep-sleep
+and ordinary standby wake keep their existing lifecycle and omit the logo.
 
 Effective first setup enters Hello 04 with Happy and `Hi, I'm Cody!` at
 `(233,225,130)`. Its 13 characters use 70 ms each; after the complete text has

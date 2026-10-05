@@ -41,6 +41,8 @@ idf_component_register(
         "src/diagnostics/CODY_raster_benchmark.cpp"
         "src/demos/CODY_demo.cpp"
         "src/runtime/CODY_boot_cues.cpp"
+        "../LUNASHELL_boot/src/ui/VIBEWARE_boot_animation.c"
+        "../../assets/branding/VibeWare/generated/vibeware_boot_data.c"
         "../../assets/cody/boot/generated/cody_sleep_pearl.cpp"
         "../../assets/cody/boot/generated/cody_waking_pearl.cpp"
         "../../assets/cody/boot/generated/cody_ready_pearl.cpp"
@@ -54,6 +56,8 @@ idf_component_register(
         "../../assets/cody/appearance/jelly-scanline/generated"
         "../../assets/cody/personality-icons/generated"
         "../../assets/cody/personality-icons/audio"
+        "../LUNASHELL_boot/include"
+        "../../assets/branding/VibeWare/generated"
     REQUIRES CODY2D LUNASHELL_platform heap
     PRIV_REQUIRES esp32_s3_touch_amoled_1_75 esp_timer esp_system
 )

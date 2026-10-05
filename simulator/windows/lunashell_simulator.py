@@ -30,6 +30,7 @@ from device_model import (
     scenario_names,
 )
 from runtime_paths import resolve_runtime_output
+from vibeware_boot import VibeWareBoot
 
 
 DISPLAY_SIZE = 466
@@ -577,6 +578,9 @@ class LUNASHELLSimulator:
         self.safe_guide = False
         self.timeline_index = 0
         self.boot_image: tk.PhotoImage | None = None
+        self.boot_branding = None
+        self.boot_frame_index = 0
+        self.boot_animation_timer = None
         self.atmosphere_image = self._build_atmosphere()
         self.button_images = {
             (role, diameter): self._build_command_button(role, diameter)
@@ -632,10 +636,11 @@ class LUNASHELLSimulator:
         )
         return True
 
+    # self: Synthetic Windows UI owner; resources never enter firmware snapshots.
+    # play_sound: Explicit simulator sound preference.
+    # Raises OSError or ValueError for unavailable or inconsistent approved artwork.
     def _load_assets(self, play_sound: bool) -> None:
-        image_path = resource_path("assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.png")
-        if image_path.exists():
-            self.boot_image = tk.PhotoImage(file=image_path)
+        self.boot_branding = VibeWareBoot(resource_path("assets").parent)
         sound_path = resource_path("assets/sfx/generated/lunashell-boot.wav")
         if play_sound and sound_path.exists():
             winsound.PlaySound(str(sound_path), winsound.SND_FILENAME | winsound.SND_ASYNC)
@@ -1512,34 +1517,32 @@ class LUNASHELLSimulator:
             tags="ui",
         )
 
+    # self: Synthetic UI owner; retain the active frame when a guide redraw occurs.
+    # Raises tk.TclError for unavailable Canvas or timer resources.
     def show_boot(self) -> None:
+        if "SYNTHETIC" not in self.root.title():
+            self.root.title(self.root.title() + " / SYNTHETIC")
         self.screen = "boot"
         self._clear()
-        if self.boot_image is not None:
-            self.canvas.create_image(233, 233, image=self.boot_image, tags="ui")
-        else:
-            self.canvas.create_text(233, 135, text="ESP32 Luna Shell", fill=BLUE, font=(FONT_DISPLAY, 34), tags="ui")
-        self._draw_scenario_label()
-        self.canvas.create_rectangle(73, 222, 393, 374, fill=NAVY, outline=BLUE, width=1, tags="ui")
-        self.canvas.create_text(
-            87,
-            234,
-            anchor="nw",
-            width=292,
-            text=self.logger.snapshot(count=5, max_chars=58),
-            fill="#d8ecff",
-            font=("Consolas", 8),
-            tags=("ui", "boot_log"),
-        )
-        self.canvas.create_text(
-            233,
-            430,
-            text="TOUCH TO CONTINUE" if self.ready else "INITIALIZING",
-            fill=BLUE,
-            font=("Segoe UI", 11, "bold"),
-            tags=("ui", "continue"),
-        )
+        self.boot_image = ImageTk.PhotoImage(self.boot_branding.frames[self.boot_frame_index])
+        self.canvas.create_image(233, 233, image=self.boot_image, tags=("ui", "boot_branding"))
         self._draw_safe_guide()
+        if self.boot_animation_timer is None:
+            self.boot_animation_timer = self.root.after(
+                self.boot_branding.durations[self.boot_frame_index], self._advance_boot_branding)
+
+    # self: Synthetic boot owner; complete an original GIF cycle before automatic handoff.
+    # Raises tk.TclError if the destination UI has been destroyed.
+    def _advance_boot_branding(self) -> None:
+        self.boot_animation_timer = None
+        if self.screen != "boot":
+            return
+        if self.boot_frame_index + 1 == len(self.boot_branding.frames) and self.ready:
+            self.logger.info("VIBEWARE_boot", "Synthetic full cycle completed; opening Luna Shell")
+            self.show_home()
+            return
+        self.boot_frame_index = (self.boot_frame_index + 1) % len(self.boot_branding.frames)
+        self.show_boot()
 
     def _refresh_log(self) -> None:
         if self.screen == "boot":
@@ -1568,6 +1571,8 @@ class LUNASHELLSimulator:
         )
 
     # Present deterministic, snapshot-backed startup events without drivers.
+    # self: Synthetic scenario owner; startup readiness is independent of animation time.
+    # Raises tk.TclError when the window or scheduled callback becomes unavailable.
     def _advance_timeline(self) -> None:
         snapshot = self._snapshot()
         touch = snapshot["ui"]["touch"]
@@ -1620,7 +1625,7 @@ class LUNASHELLSimulator:
         events = [
             ("LUNASHELL_logger", "Canonical logger online: console + RAM ring"),
             ("LUNASHELL_main", self.scenario.sd_message),
-            ("LUNASHELL_boot", "Boot screen online: ESP32 Luna Shell + canonical live log"),
+            ("LUNASHELL_boot", "Synthetic VibeWare floppy boot online; logs remain outside the artwork"),
             ("LUNASHELL_main", touch_message),
             ("LUNASHELL_hw", self._battery_timeline_message()),
             ("LUNASHELL_hw", imu_message),
@@ -1638,25 +1643,20 @@ class LUNASHELLSimulator:
 
         self.ready = True
         if snapshot["last_update_complete"]:
-            completion = "Snapshot ready; touch to continue"
-            prompt = "TOUCH TO CONTINUE"
+            completion = "Synthetic snapshot ready; awaiting the complete VibeWare cycle"
         else:
             completion = (
-                "Snapshot incomplete; touch to inspect: "
+                "Synthetic snapshot incomplete; real scenario error retained: "
                 f"{snapshot['last_update_error']}"
             )
-            prompt = "TOUCH TO INSPECT"
         self.logger.info("LUNASHELL_boot", completion)
-        self.canvas.itemconfigure("continue", text=prompt)
 
+    # self: Synthetic navigation owner.
+    # event: Host mouse event, never a physical device observation.
+    # Raises tk.TclError or the original rejected synthetic action error.
     def _on_click(self, event: tk.Event) -> None:
         if self.screen == "boot":
-            if self.ready:
-                if self._apply_action("touch"):
-                    self.logger.info("LUNASHELL_boot", "Synthetic touch confirmed; opening ESP32 Luna Shell")
-                    self.show_home()
-            else:
-                self.logger.info("LUNASHELL_boot", "Synthetic touch received; startup still in progress")
+            self.logger.info("LUNASHELL_boot", "Synthetic touch received; full-cycle startup handoff owns this screen")
             return
 
         if self.idle_state == "standby":
@@ -5161,7 +5161,13 @@ class LUNASHELLSimulator:
             self.logger.info("LUNASHELL_nav", "Synthetic back navigation")
             self.show_home()
 
+    # self: Synthetic device owner; restart the logo without leaving an old timer active.
+    # Raises scenario or Tk errors without substituting a successful reboot.
     def reboot(self) -> None:
+        if self.boot_animation_timer is not None:
+            self.root.after_cancel(self.boot_animation_timer)
+            self.boot_animation_timer = None
+        self.boot_frame_index = 0
         source = self.engine.scenario.source
         self.engine = ScenarioEngine.from_scenario(source)
         self.scenario = ScenarioView(self.engine)

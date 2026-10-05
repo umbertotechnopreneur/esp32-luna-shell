@@ -32,6 +32,8 @@
 #include "CODY_screenshot.hpp"
 #include "CODY_capture_sound.hpp"
 #include "CODY_boot_cues.h"
+#include "VIBEWARE_boot_animation.h"
+#include "vibeware_boot_data.h"
 #include "CODY_status_overlay.hpp"
 #include "scene_data.hpp"
 #include "CODY_benchmark.hpp"
@@ -256,6 +258,9 @@ struct CompanionState {
     CODY::LifecycleState lifecycle{};
     uint32_t lifecycle_request = 0;
     bool deep_sleep_wake = false;
+    bool branding_complete = false;
+    uint16_t branding_frame = 0;
+    int64_t branding_frame_due_us = 0;
     CODY::ExpressionId requested_expression = CODY::ExpressionId::Calm;
     bool expression_override = false;
     bool greeting_entered = false;
@@ -2090,6 +2095,52 @@ CODY::RigControlState screenshot_control_state(CODY::ScreenshotState state)
     return CODY::RigControlState::Failed;
 }
 
+// frame_index: Original GIF ordinal whose immutable pixels are displayed.
+// Exception: Retains every decode, deadline, lease and transfer error for frame retirement.
+esp_err_t draw_branding_rows(uint16_t frame_index)
+{
+    for (uint16_t row = 0; row < kPanelHeight;) {
+        esp_err_t error = LUNASHELL_display_frame_check_deadline();
+        if (error != ESP_OK) {
+            return error;
+        }
+        void *storage = nullptr;
+        size_t capacity_bytes = 0;
+        error = LUNASHELL_display_frame_buffer(&storage, &capacity_bytes);
+        if (error != ESP_OK) {
+            return error;
+        }
+        const size_t capacity_rows = (capacity_bytes / (kPanelWidth * sizeof(uint16_t))) & ~size_t{1};
+        if (storage == nullptr || capacity_rows < 2 || capacity_rows > kPanelHeight ||
+            reinterpret_cast<uintptr_t>(storage) % alignof(uint16_t) != 0) {
+            ESP_LOGE(kTag, "VibeWare DMA slot rejected: bytes=%u (%s)",
+                static_cast<unsigned>(capacity_bytes), esp_err_to_name(ESP_ERR_INVALID_SIZE));
+            return ESP_ERR_INVALID_SIZE;
+        }
+        const uint16_t rows = static_cast<uint16_t>(std::min<size_t>(capacity_rows, kPanelHeight - row));
+        auto *pixels = static_cast<uint16_t *>(storage);
+        std::memset(pixels, 0, static_cast<size_t>(rows) * kPanelWidth * sizeof(uint16_t));
+        const uint16_t first = std::max<uint16_t>(row, VIBEWARE_BOOT_TOP);
+        const uint16_t end = std::min<uint16_t>(row + rows, VIBEWARE_BOOT_TOP + VIBEWARE_BOOT_HEIGHT);
+        if (first < end) {
+            const size_t offset = static_cast<size_t>(first - row) * kPanelWidth + VIBEWARE_BOOT_LEFT;
+            error = VIBEWARE_boot_decode_rows(frame_index, first - VIBEWARE_BOOT_TOP,
+                end - first, pixels + offset, kPanelWidth,
+                capacity_bytes / sizeof(uint16_t) - offset, true);
+            if (error != ESP_OK) {
+                return error;
+            }
+        }
+        // The next borrow cannot reuse an in-flight DMA slot; frame end retires the final one.
+        error = LUNASHELL_display_frame_submit_rgb565(0, row, kPanelWidth, row + rows, pixels);
+        if (error != ESP_OK) {
+            return error;
+        }
+        row += rows;
+    }
+    return ESP_OK;
+}
+
 // Hold the shared recursive panel lock across every strip so rotation and standby
 // cannot alter the panel/touch mapping in the middle of one complete redraw.
 // resume_animation: Skip parked time when restarting the animation clocks after standby.
@@ -2125,6 +2176,44 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     if (!LUNASHELL_display_runtime_writes_allowed()) {
         const bool parked = renderer_is_parked();
         return frame.finish({ESP_ERR_INVALID_STATE, parked, 0});
+    }
+    if (!s_state.branding_complete) {
+        const int64_t now_us = esp_timer_get_time();
+        uint16_t candidate = s_state.branding_frame;
+        const bool due = !resume_animation && s_state.branding_frame_due_us != 0 &&
+            now_us >= s_state.branding_frame_due_us;
+        if (due && candidate + 1 == VIBEWARE_BOOT_FRAME_COUNT &&
+            s_state.boot_phase == BootPhase::Ready) {
+            s_state.branding_complete = true;
+            s_state.animation_sampled_us = 0;
+            s_state.onboarding_sampled_us = 0;
+            s_resources.previous_frame_valid = false;
+            if (s_state.onboarding.effective_first_boot) {
+                s_greeting_due_us = now_us + CODY::SceneData::boot_delay_ms * 1000LL;
+                s_greeting_scheduled.store(true, std::memory_order_release);
+            }
+            ESP_LOGI(kTag, "VibeWare cycle retired; entering the existing Cody startup sequence");
+        } else {
+            if (due) {
+                candidate = static_cast<uint16_t>((candidate + 1) % VIBEWARE_BOOT_FRAME_COUNT);
+            }
+            const esp_err_t draw_error = draw_branding_rows(candidate);
+            const uint32_t revision = LUNASHELL_display_runtime_content_revision();
+            const DrawResult completed = frame.finish({draw_error, false, revision});
+            if (completed.error == ESP_OK) {
+                // Timings start after complete retirement, so every original frame gets its visible dwell.
+                if (s_state.branding_frame_due_us == 0 || due || resume_animation) {
+                    s_state.branding_frame_due_us = esp_timer_get_time() +
+                        VIBEWARE_boot_frames[candidate].duration_ms * 1000LL;
+                }
+                s_state.branding_frame = candidate;
+                s_state.next_frame_us = s_state.branding_frame_due_us;
+                s_state.animation_sampled_us = 0;
+                s_state.onboarding_sampled_us = 0;
+                s_state.frame_dirty.store(false, std::memory_order_release);
+            }
+            return completed;
+        }
     }
     const esp_err_t audio_resume_error = set_companion_typewriter_suspended(
         s_state.lifecycle.phase == CODY::LifecyclePhase::Sleep);
@@ -2784,7 +2873,7 @@ esp_err_t advance_boot_phase(BootPhase requested_phase, const char *operation)
         return result;
     }
     s_rendered_revision.store(draw.completed_revision, std::memory_order_release);
-    if (requested_phase == BootPhase::Ready && !s_state.deep_sleep_wake &&
+    if (requested_phase == BootPhase::Ready && s_state.branding_complete && !s_state.deep_sleep_wake &&
         s_state.onboarding.effective_first_boot) {
         s_greeting_due_us = esp_timer_get_time() + CODY::SceneData::boot_delay_ms * 1000LL;
         s_greeting_scheduled.store(true, std::memory_order_release);
@@ -3815,6 +3904,10 @@ extern "C" esp_err_t CODY_companion_start(void)
         return fail_consumer("Happiness configuration", happiness_error, false);
     }
     s_state.happiness_sampled_at_us = 0;
+    const esp_err_t branding_error = VIBEWARE_boot_validate();
+    if (branding_error != ESP_OK) {
+        return fail_consumer("VibeWare boot resource", branding_error, false);
+    }
     const esp_err_t asset_error = validate_boot_asset(
         CODY_asset::sleeping_pearl, "Sleeping boot asset"
     );
@@ -3921,6 +4014,8 @@ extern "C" esp_err_t CODY_companion_start(void)
     }
     s_state.rig_visible = true;
     s_state.deep_sleep_wake = esp_reset_reason() == ESP_RST_DEEPSLEEP;
+    // Deep-sleep Wake keeps its dark-panel lifecycle; branding belongs to cold boot/reset only.
+    s_state.branding_complete = s_state.deep_sleep_wake;
     s_state.lifecycle = s_state.deep_sleep_wake
         ? CODY::LifecycleState{CODY::LifecyclePhase::Wake, 0} : CODY::LifecycleState{};
     s_state.contour = CODY::make_contour_state();
@@ -3966,7 +4061,7 @@ extern "C" esp_err_t CODY_companion_start(void)
         return fail_consumer("Worker creation", ESP_ERR_NO_MEM, false);
     }
     ESP_LOGI(kTag, "Animated %s and real touch ready; frame-owned internal raster on core %ld, active=%lu ms standby=%lu ms",
-             s_state.deep_sleep_wake ? "35B / Wake -> 16 / Idle" : "01 Sleeping (2s fade) -> 02 Waking (1.5s) -> 03 Ready (2s)",
+             s_state.deep_sleep_wake ? "35B / Wake -> 16 / Idle" : "VibeWare floppy (3.5s cycles) -> 01 Sleeping (2s fade) -> 02 Waking (1.5s) -> 03 Ready (2s)",
              static_cast<long>(kRenderCoreId),
              static_cast<unsigned long>(kSamplePeriodMs),
              static_cast<unsigned long>(kStandbySamplePeriodMs));

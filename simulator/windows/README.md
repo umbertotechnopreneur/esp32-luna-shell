@@ -7,6 +7,15 @@ not establish native pixels, FPS, CPU load or audible quality.
 
 ## Cody
 
+The approved VibeWare floppy is available as `device.ps1 simulator -Screen
+boot-vibeware`. The 42-frame host preview retains the 3.5-second GIF timeline,
+black transparency composition, centered twofold pixel scale and shared cardinal
+rotation. `-AtMs` selects a still; `boot-screens` includes the new introduction.
+The Luna simulator also starts with this artwork and completes its current cycle
+after synthetic service readiness. No simulator was run for this implementation.
+The Studio manifesto link uses the user-provided
+`https://umbertogiacobbi.biz/vibeware/manifesto` without background navigation.
+
 The desktop inspector uses Tkinter/ttk with the local Cody Studio dark theme:
 navy surfaces, teal accents, Segoe UI text, thin sliders and switch controls.
 The fixed header keeps animation, rig inspection, scene and rotation accessible.

@@ -49,6 +49,7 @@ class Screen(str, Enum):
     BOOT_SLEEP = "boot-sleep"
     BOOT_WAKING = "boot-waking"
     BOOT_READY = "boot-ready"
+    BOOT_VIBEWARE = "boot-vibeware"
 
 
 class LabelScope(str, Enum):

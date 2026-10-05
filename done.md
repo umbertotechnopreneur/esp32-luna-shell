@@ -8,6 +8,22 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## VibeWare boot identity — 2026-10-06
+
+- Preserved the approved Obsidian press-kit GIF and generated 42 exact RGB565
+  frames with their original 3,500-ms cycle through `device.ps1 generate
+  -Generator vibeware-boot`. Twofold nearest-neighbor artwork is 256 x 292 at
+  (105, 87); deduplicated immutable pixel data occupies 630,600 bytes.
+- Implemented the first boot image on Cody's existing native DMA/frame owner
+  and Luna's LVGL boot owner, completing a cycle after real service readiness.
+  Existing Cody character phases follow the logo with their clocks preserved;
+  standby and deep-sleep wake omit the introduction. Rejected resources and
+  asynchronous LVGL failures retain real errors and canonical publication.
+- Added the Windows `boot-vibeware` preview, matching Luna simulator artwork,
+  package inputs and the user-provided Studio manifesto URL. Source integration
+  received static review only. No tests/scans, simulator, firmware configure,
+  build, size, flash, monitor or capture ran; physical behavior remains open.
+
 ## Cody atlas documentation revision — 2026-10-06
 
 - Updated both requested Obsidian atlases and their `docs/Cody` mirrors: Manga

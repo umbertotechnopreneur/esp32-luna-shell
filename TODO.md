@@ -13,6 +13,14 @@ every open physical observation below remains open.
 
 ## Tap, manga cues and Windows fake audio
 
+- [ ] After fresh command-specific authorization, validate the VibeWare boot
+  introduction on Cody and Luna: firmware build/size, original frame dwell,
+  full-cycle handoff, real startup failures and DMA parking, all cardinal
+  rotations, first setup/returning device and unchanged standby/deep-sleep wake.
+  Review both Windows previews and packaging when authorized. Generated pixel
+  data is 630,600 bytes; actual linked memory, FPS and physical appearance remain
+  unverified. Tests, scans, simulator, build, size and flash were not run.
+
 - [ ] Observe the updated tap, icon sound admission, 20% size increase and
   400-ms fades on the device; build/flash alone cannot establish these behaviors.
 - [ ] Compile/validate and load the newer Whistle-width correction and stronger

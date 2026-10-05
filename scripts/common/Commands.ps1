@@ -126,7 +126,7 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                 $audioTool = Find-DeviceTool 'generators' 'cody-simulator-audio'
                 Invoke-HostTool $audioTool.Path @() $Options.PythonExecutable
             }
-            $screens = if ($RequestedAction -eq 'boot-screens') { @('boot-sleep','boot-waking','boot-ready') }
+            $screens = if ($RequestedAction -eq 'boot-screens') { @('boot-vibeware','boot-sleep','boot-waking','boot-ready') }
                 elseif ($Options.ContainsKey('Screen')) { @($Options.Screen) } else { @('rig') }
             foreach ($screenName in $screens) {
                 $arguments = @('--screen',$screenName)
