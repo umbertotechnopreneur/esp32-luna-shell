@@ -26,6 +26,12 @@ flash logs were regenerated.
   the existing PC playback backend. Generated boot WAVs share that owner.
   The DLL compiled successfully; no simulator execution or PC listening check
   ran. Documentation: `docs/architecture/cody/runtime.md`.
+- On the subsequent user-requested Windows launch, the painter stopped at
+  stale palette provenance. Normalized its text source and regenerated the
+  icon manifest; all sprite binaries remained unchanged. Added a first-frame
+  presentation diagnostic, Consolas host UI fonts and equal inspector-tab
+  width/padding across selected states. Fresh interactive startup is recorded
+  separately; PC listening and physical-device behavior remain unverified.
 - Authorized final checks: `storage-logger` and `radio-memory` passed.
   `cody-native` stopped before compilation because the host compiler was absent
   from PATH; installed MSVC was subsequently found. `snapshot-integrity` failed

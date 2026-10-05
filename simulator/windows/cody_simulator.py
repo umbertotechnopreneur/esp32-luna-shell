@@ -47,7 +47,7 @@ from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
 )
 from runtime_paths import resolve_runtime_output  # noqa: E402
-from cody_ui_theme import install_theme, scale_pixels  # noqa: E402
+from cody_ui_theme import FONTS, install_theme, scale_pixels  # noqa: E402
 from cody_ui_dpi import prepare_display, configure_tk_scaling, window_work_area  # noqa: E402
 from cody_ui_widgets import InspectorTab  # noqa: E402
 
@@ -704,7 +704,7 @@ class CodyWindow:
         self.controls_host.rowconfigure(1, weight=1)
         self.controls_host.columnconfigure(0, weight=1)
         font = renderer.rig["style"]["host_font"]
-        self.label_font = tkfont.Font(root=root,family=font["family"],size=font["size"])
+        self.label_font = tkfont.Font(root=root,family=FONTS["mono"][0],size=font["size"])
         self.label_row_height = self.label_font.metrics("linespace")+6
         self.build_inspector_header()
         self.tabs = ttk.Notebook(self.controls_host)
@@ -1804,6 +1804,8 @@ class CodyWindow:
                 personality_paused=not self.playing.get(),
             )
             self.present_frame(image, layout, screen, rotation)
+            if self.last_presentation_key is None:
+                print("[cody-preview] First frame presented; animation callback active.", flush=True)
             self.present_audio(screen)
             self.completed_preview_frames += 1
             # Commit only after Tk accepted the image and its matching hit targets.

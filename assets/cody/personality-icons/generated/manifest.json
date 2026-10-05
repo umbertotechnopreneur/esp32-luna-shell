@@ -7,7 +7,7 @@
     971
   ],
   "palette_source": "assets/cody/palette/palette256.json",
-  "palette_sha256": "c4716a37d1b8f2b4eb42e8a3efa6a9ab005351d926af24227164b7f60451a21e",
+  "palette_sha256": "b1577f9b6f7395b1b81b2b9f32fb9b0c3b47052d98fb72c9d4d4f8d3919ce1ed",
   "quantization": "nearest squared sRGB distance; lowest non-reserved slot breaks ties; no dithering",
   "coverage": "separate unpremultiplied alpha8; no reserved transparency color",
   "component_policy": "explicit group windows; 4-connected alpha >= 8; minimum 100 pixels per 324x324 cell",

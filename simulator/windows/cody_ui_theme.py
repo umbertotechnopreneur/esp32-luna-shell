@@ -23,14 +23,14 @@ PALETTE = {
 }
 
 FONTS = {
-    "body": ("Segoe UI", 11),
-    "small": ("Segoe UI", 10),
-    "title": ("Segoe UI", 22, "bold"),
-    "subtitle": ("Segoe UI", 11),
-    "section": ("Segoe UI", 10, "bold"),
-    "value": ("Segoe UI", 10, "bold"),
-    "badge": ("Segoe UI", 9, "bold"),
-    "status": ("Segoe UI", 9),
+    "body": ("Consolas", 11),
+    "small": ("Consolas", 10),
+    "title": ("Consolas", 22, "bold"),
+    "subtitle": ("Consolas", 11),
+    "section": ("Consolas", 10, "bold"),
+    "value": ("Consolas", 10, "bold"),
+    "badge": ("Consolas", 9, "bold"),
+    "status": ("Consolas", 9),
     "mono": ("Consolas", 10),
 }
 
@@ -137,7 +137,7 @@ def install_theme(root):
     root.configure(background=PALETTE["background"])
 
     for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
-        tkfont.nametofont(name, root=root).configure(family="Segoe UI", size=11)
+        tkfont.nametofont(name, root=root).configure(family="Consolas", size=11)
 
     style.configure(
         ".", background=PALETTE["panel"], foreground=PALETTE["text"],
@@ -237,9 +237,13 @@ def install_theme(root):
     style.configure(
         "TNotebook.Tab", background=PALETTE["panel"], foreground=PALETTE["muted"],
         padding=_spacing(root, (16, 10)), font=FONTS["value"], borderwidth=0,
+        width=7, anchor="center", expand=(0, 0, 0, 0),
     )
     style.map(
         "TNotebook.Tab",
+        # Clam's inherited selected padding shrinks the active tab unless overridden.
+        padding=[("selected", _spacing(root, (16, 10)))],
+        expand=[("selected", (0, 0, 0, 0))],
         background=[("selected", PALETTE["card"]), ("active", PALETTE["button_hover"])],
         foreground=[("selected", PALETTE["accent"]), ("active", PALETTE["text"])],
         lightcolor=[("selected", PALETTE["card"])],

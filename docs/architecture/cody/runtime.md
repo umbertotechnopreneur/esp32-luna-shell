@@ -192,6 +192,13 @@ never published into firmware snapshots. Capture-only routes do not initialize
 the audio owner or play sound. DLL compilation does not establish audible output;
 interactive playback remains a separate authorized observation.
 
+Cody Studio uses Consolas for host controls and inspection labels. The four
+inspector tabs share a seven-character label width and identical padding in
+selected/unselected states; the Clam selected-tab padding/expansion defaults
+are explicitly overridden. Character scene typography retains its authored
+device assets. Palette text provenance is normalized both by the generator
+and the Windows painter; indexed coverage and PCM binary hashes remain exact.
+
 ## Device diagnostics
 
 Debug FPS uses completed frames over real elapsed time. CPU1/core0 and CPU2/core1
