@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "LUNASHELL_platform.h"
+#include "LUNASHELL_build_mode.hpp"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 
@@ -69,9 +70,14 @@ esp_err_t screenshot_error()
 }
 
 // No parameters: admit one new on-demand request when no capture or write is active.
-// Exception: Returns ESP_ERR_INVALID_STATE while a prior request is still active.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED outside Debug or ESP_ERR_INVALID_STATE while busy.
 esp_err_t request_screenshot()
 {
+    if constexpr (!LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
+        ESP_LOGE(kTag, "Screenshot request rejected: Debug only (%s)",
+                 esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     ScreenshotState current = s_state.load(std::memory_order_acquire);
     while (current != ScreenshotState::Capturing && current != ScreenshotState::Saving) {
         if (s_state.compare_exchange_weak(
@@ -106,6 +112,10 @@ esp_err_t begin_screenshot_capture(uint16_t width, uint16_t height,
                                    ScreenshotCapture &capture)
 {
     capture = {};
+    if constexpr (!LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
+        // No capture request is admitted in Release, so normal frames own no capture buffer.
+        return ESP_ERR_NOT_FOUND;
+    }
     if (!s_request_pending.exchange(false, std::memory_order_acq_rel)) {
         return ESP_ERR_NOT_FOUND;
     }

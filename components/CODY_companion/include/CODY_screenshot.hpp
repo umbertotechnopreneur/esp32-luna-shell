@@ -31,7 +31,7 @@ ScreenshotState screenshot_state();
 esp_err_t screenshot_error();
 
 // No parameters: admit one new on-demand request when no capture or write is active.
-// Exception: Returns ESP_ERR_INVALID_STATE while a prior request is still active.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED outside Debug or ESP_ERR_INVALID_STATE while busy.
 esp_err_t request_screenshot();
 
 // width: Complete logical canvas width.

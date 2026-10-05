@@ -10,6 +10,21 @@ flash logs were regenerated.
 
 ## Optional local TTS implementation — 2026-10-05
 
+- Implemented Debug-only PWR double-click software restart within 500 ms.
+  The existing single-click screenshot waits for that window before its 3/2/1
+  countdown; separately acquired clicks are required, acquisition failures
+  cancel pending gestures, and ambiguous batched timing is rejected.
+  The reset preserves settings and uses the existing bounded SD/serial drain.
+  Release excludes screenshot admission, shutter worker and PWR/BOOT software
+  reset gestures while retaining ordinary standby/fullscreen controls.
+  Static review only; this gesture change is not yet built or flashed.
+- After SD reinsertion, the authorized COM10 reset completed on 2026-10-05.
+  The user reported the startup sound and brief clicks, not an intelligible
+  Italian sentence. A subsequent explicitly authorized 30-second reset/capture
+  still shows `sdmmc_init_ocr` timeouts on both attempts, at 4.676 and 23.004 s;
+  speech request 1 fails with `ESP_ERR_TIMEOUT` at 4.688 s before engine
+  initialization. Mandatory boot and Cody rendering continue. Evidence:
+  `artifacts/build-cody-companion-tts-sd-debug/evidence/tts-sd-reinserted-audio-20261005.log`.
 - Created `E:/ESP32 Luna Speaks` on `feat/luna-speak` from local `main`
   at `1fbc0d7b`; preserved the original worktree. Implemented default-off
   `CONFIG_LUNASHELL_BUILD_ENABLE_TTS`, isolated `tts-sd` and `tts-flash` variants

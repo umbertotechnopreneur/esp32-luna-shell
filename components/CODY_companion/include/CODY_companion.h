@@ -35,11 +35,12 @@ esp_err_t CODY_companion_set_debug_readout_enabled(bool enabled);
 // enabled: Non-null output receiving the current session preference on success only.
 esp_err_t CODY_companion_get_debug_readout_enabled(bool *enabled);
 
-// enabled: Session flag for active short-PWR screenshot countdowns; Cody defaults on.
+// enabled: Debug session flag for active short-PWR screenshot countdowns; Debug defaults on.
 // Disabled mode restores the original active short-PWR standby behavior.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED in Release or the real renderer state error.
 esp_err_t CODY_companion_set_power_screenshot_enabled(bool enabled);
 
-// enabled: Receives the current session flag on success only.
+// enabled: Receives the current session flag on success only; always false in Release.
 esp_err_t CODY_companion_get_power_screenshot_enabled(bool *enabled);
 
 // enabled: Follow the pearl body's row deformation when true; keep the independent face when false.

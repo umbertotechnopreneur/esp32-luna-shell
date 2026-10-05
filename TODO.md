@@ -12,7 +12,16 @@ every open physical observation below remains open.
 
 ## Optional local TTS on feat/luna-speak
 
-- [ ] Verify SD initialization after the user reinserts the prepared card.
+- [ ] Resolve SD card/transport nonresponse after reinsertion. The fresh authorized
+  30-second COM10 boot capture again shows two `sdmmc_init_ocr` timeouts;
+  speech request 1 fails before engine initialization. The user heard the
+  startup cue and brief clicks, but no Italian phrase is confirmed.
+- [ ] Validate Debug PWR single-click screenshot after the 500-ms decision
+  window, double-click software reset without capture, long holds, acquisition
+  failures and standby transitions. Release excludes screenshot admission,
+  shutter worker and button software resets. Static review only so far;
+  physical gesture verification and Release compilation remain open.
+- [ ] Establish successful SD initialization with the prepared card.
   Corrected `58757005` completes boot, with native BSS/text/package directory
   in PSRAM and speech creation after mandatory owners. The first corrected
   30-second capture shows two card-init timeouts and a real failed speech request;
