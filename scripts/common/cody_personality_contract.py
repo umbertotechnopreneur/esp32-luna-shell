@@ -163,10 +163,15 @@ def validate_icons(icons):
     anchors = icons["anchors"]
     fields(anchors, ("main", "sleep"), "icons.anchors")
     for name, profile in anchors.items():
-        fields(profile, ("offset_x", "offset_y", "extent_per_scale"), f"icons.anchors.{name}")
+        fields(profile, ("offset_x", "offset_y", "extent_per_scale", "pixel_offset_x", "pixel_offset_y",
+                         "size_multiplier", "allow_body_overlap"), f"icons.anchors.{name}")
         number(profile["offset_x"], -4, 4, f"icons.anchors.{name}.offset_x")
         number(profile["offset_y"], -4, 4, f"icons.anchors.{name}.offset_y")
         number(profile["extent_per_scale"], .001, 1, f"icons.anchors.{name}.extent_per_scale")
+        number(profile["pixel_offset_x"], -466, 466, f"icons.anchors.{name}.pixel_offset_x")
+        number(profile["pixel_offset_y"], -466, 466, f"icons.anchors.{name}.pixel_offset_y")
+        number(profile["size_multiplier"], 1, 3, f"icons.anchors.{name}.size_multiplier")
+        boolean(profile["allow_body_overlap"], f"icons.anchors.{name}.allow_body_overlap")
     battery = icons["low_battery"]
     fields(battery, ("enter_percent", "exit_percent"), "icons.low_battery")
     enter = integer(battery["enter_percent"], 0, 100, "icons.low_battery.enter_percent")

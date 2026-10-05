@@ -3,9 +3,17 @@
 #include "personality_catalog.hpp"
 #include <cstdint>
 namespace CODY::PersonalityConfig {
-struct AnchorProfile { float offset_x; float offset_y; float extent_per_scale; };
-inline constexpr AnchorProfile main{0.09f, -1.14f, 0.2f};
-inline constexpr AnchorProfile sleep{0.09f, -1.14f, 0.2f};
+struct AnchorProfile {
+    float offset_x;
+    float offset_y;
+    float extent_per_scale;
+    float pixel_offset_x;
+    float pixel_offset_y;
+    float size_multiplier;
+    bool allow_body_overlap;
+};
+inline constexpr AnchorProfile main{0.09f, -1.14f, 0.2f, 30.0f, 40.0f, 3.0f, true};
+inline constexpr AnchorProfile sleep{0.09f, -1.14f, 0.2f, 30.0f, 40.0f, 3.0f, true};
 inline constexpr int64_t stability_us = 300000;
 inline constexpr int64_t fade_in_us = 400000;
 inline constexpr int64_t minimum_visible_us = 2500000;
@@ -28,7 +36,7 @@ struct CueRule {
 };
 inline constexpr CueRule cue_rules[] = {
     {PersonalityCue::Sleep, 1000, true, 0, true},
-    {PersonalityCue::Fear, 100, false, 15000000, true},
+    {PersonalityCue::Fear, 300, true, 0, true},
     {PersonalityCue::Joy, 100, false, 15000000, true},
     {PersonalityCue::Hunger, 100, false, 15000000, true},
     {PersonalityCue::Thirst, 100, false, 15000000, true},
@@ -39,8 +47,8 @@ inline constexpr CueRule cue_rules[] = {
     {PersonalityCue::NoWifi, 100, false, 20000000, true},
     {PersonalityCue::Curiosity, 100, false, 15000000, true},
     {PersonalityCue::Confusion, 100, false, 15000000, true},
-    {PersonalityCue::Affection, 200, false, 15000000, true},
-    {PersonalityCue::Frustration, 100, false, 15000000, true},
+    {PersonalityCue::Affection, 200, true, 0, true},
+    {PersonalityCue::Frustration, 300, true, 0, true},
 };
 inline constexpr uint8_t cue_rule_count = 14;
 inline constexpr uint8_t low_battery_enter_percent = 15;
@@ -48,6 +56,6 @@ inline constexpr uint8_t low_battery_exit_percent = 20;
 } // namespace CODY::PersonalityConfig
 namespace CODY::PersonalityAudioConfig {
 inline constexpr bool enabled = true;
-inline constexpr int64_t cooldown_us = 8000000;
+inline constexpr int64_t cooldown_us = 2000000;
 inline constexpr int64_t request_expiry_us = 120000;
 } // namespace CODY::PersonalityAudioConfig

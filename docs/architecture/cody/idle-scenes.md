@@ -20,8 +20,9 @@ minimum wait; a session PRNG draws a wait between one and two such intervals.
 `duration_seconds` applies to each of the three gestures and `cooldown_seconds`
 separates a completed/interrupted gesture from the next wait. Current authored
 values give a 20-40-second eligible wait, a 3.2-second gesture and a 40-second
-cooldown. The next gesture is chosen from the other two identities, so immediate
-repetition is excluded. Firmware seeds once from ESP-IDF randomness; Windows
+cooldown. A session shuffle bag presents each of the three identities once
+in random order before refilling, excluding repetition across bag boundaries.
+Firmware seeds once from ESP-IDF randomness; Windows
 seeds its separate synthetic preview. Drawing another frame consumes no random
 number unless a scheduling decision occurs.
 
@@ -68,8 +69,10 @@ atlases. Their original pages/addenda are retained, and each revised PDF ends
 with dated **Errata and corrections**. Repository copies are under `docs/Cody`;
 the requested originals remain in the Cody Companion Obsidian atlas folder.
 
-Implementation has static source review only. No tests, configure/build/size,
-simulator execution, serial or physical operation was performed for this change.
+After static source review, the requested public CLI flash compiled checkpoint
+`09ea3b70` with ESP-IDF 6.0.2 and eight jobs, then wrote it on COM10 with all three
+hash checks passing and a final reset. No tests, standalone size check, simulator,
+monitor/capture or physical visual/audio observation accompanied that operation.
 Appearance under stress, gesture cadence, interruption, native/host parity,
-quiet/mute suppression, flash budget and physical whistle acoustics await
+quiet/mute suppression and physical whistle acoustics await
 fresh command-specific authorization recorded in `TODO.md`.

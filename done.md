@@ -44,14 +44,44 @@ flash logs were regenerated.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Implemented the reported icon readability correction: Main/Sleep centers move
+  30 logical pixels right and 40 down, with threefold scale-dependent extent
+  (87 px at Full, 78 at Greeting, 63 at Medium; smaller eligible sizes at least
+  36 px). Micro and excluded routes still suppress icons. Shared validated YAML
+  drives native/generated profiles and Windows; both allow upper-body overlay
+  while retaining circle and status/Back admission. Source masters remain
+  64 x 64; bounded destination support is 192 x 192 without new framebuffers.
+  Static review only: no new build, tests, simulator, push or flash accompanied
+  this correction. Physical readability and frame cost remain in TODO; PDFs
+  await approval. The earlier flashed image is recorded separately below.
+
+- Implemented the follow-up touch/boot changes: recognized caresses request
+  Affection through priority arbitration, without an extra icon repeat cooldown;
+  gentler 300-ms/path thresholds retain speed, zone and acquisition guards.
+  Canonical eye taps request varying Fear/Frustration icons using prior stress;
+  existing original SFX retain completed-frame admission with a two-second audio
+  cooldown. Idle uses a complete three-scene random bag. Waking/Ready now take
+  1.5/2 seconds; returning devices receive random Affection/Joy after cold boot
+  without changing saved pairing/first-boot keys. PDFs await the user's approval.
+  Firmware checkpoint `09ea3b70` was pushed to `origin/main`, then the requested
+  `scripts/device.ps1 flash -Profile cody-companion -BuildMode Debug -Port COM10 -Jobs 8`
+  completed on 2026-10-05. The CLI performed transient cleanup and the required
+  automatic CMake/incremental build with ESP-IDF 6.0.2; the 4,027,072-byte app
+  leaves 73% of its partition free. Bootloader, partition-table and app hashes
+  verified before the final hard reset. Only those three flash regions were
+  written; the NVS pairing region was preserved. No tests, simulator, monitor,
+  capture or physical visual/audio observation was run. Those checks remain
+  pending in TODO; the flash log is under `artifacts/logs/flash.log`.
+
 - Implemented stronger shared mouth breathing and random Idle Yawn/Whistle/
   Greeting accents on 2026-10-05, preserving the screen-16 route and priorities.
   Added the original bounded flash whistle to the existing optional audio owner
   and published actual playback cue identity through the canonical snapshot.
   The Windows model mirrors visual behavior and marks whistle audio device-only.
   Updated both requested atlases with appendices and dated final errata, retaining
-  previous pages. Firmware, host/simulator and hardware validation remain pending
-  in `TODO.md`; this checkpoint claims static source review only.
+  previous pages. The firmware changes were subsequently compiled/flashed in
+  `09ea3b70` as recorded above. Host/simulator and physical behavior remain pending
+  in `TODO.md`; the initial checkpoint claimed static source review only.
 
 - Integrated the SIMD and DMA branches into `main` and removed their worktrees
   and local/remote branches on 2026-10-05. The preserved-evidence directories

@@ -3,9 +3,9 @@
 Only open, actionable work belongs here. Deferred work is in
 [planned-todo.md](planned-todo.md); completed implementation/evidence is in
 [done.md](done.md). Authorization is governed solely by [AGENTS.md](AGENTS.md).
-The merged Debug Cody image at `160a080a` was built and flashed twice on COM10
-on 2026-10-05, including once after power was restored. That proves the written
-bytes, not physical behavior; every open observation below remains open.
+The latest Debug Cody image at `09ea3b70` was built and flashed on COM10
+on 2026-10-05 after the earlier two flashes of `160a080a`. Verified flash hashes
+prove the written bytes; every open physical observation below remains open.
 
 ## Optional local TTS on feat/luna-speak
 
@@ -32,17 +32,35 @@ bytes, not physical behavior; every open observation below remains open.
 
 ## Cody integration and release gates
 
+- [ ] Remind the user after approval of the new boot behavior: update both Cody
+  PDF atlases with the shortened 2 / 1.5 / 2-second cold-boot sequence and random
+  returning-device Affection/Joy welcome, plus touch/icon/cycle corrections and
+  enlarged/shifted icon placement and a final dated errata page. Preserve pairing
+  and every previous PDF page.
+- [ ] After fresh authorization, build/flash and review the icon readability
+  correction: threefold scale-dependent extent (Full 87 px, Greeting 78 px,
+  Medium 63 px, smaller eligible sizes at least 36 px), fixed +30/+40-pixel
+  center translation and intentional upper-body overlap. Micro remains hidden.
+  Check all eligible sizes, fourteen symbols, motion/rotation, circle/status/Back
+  separation and frame cost. Current correction has static review only; the
+  latest flashed image remains `09ea3b70`.
+- [ ] Physically review the new 300-ms caress thresholds, heart interruption,
+  eye-tap Fear/Frustration variation under stress, existing icon SFX and random
+  complete three-scene cycles. Build/flash does not prove these observations.
+
 - [ ] After fresh command-specific authorization, validate the 2026-10-05
   [idle scenes](docs/architecture/cody/idle-scenes.md): visible Stressed mouth
   breathing; random 20-40-second waits/no immediate repeats; Yawn, Whistle and
   Greeting; touch/Sophia/held-touch/stress/route/pause/standby cancellation;
   canonical own-whistle identity; quiet/mute/busy suppression and real errors;
   native/Windows visual parity and physical whistle acoustics. Code and PDF
-  appendices have static review only; no firmware/host validation was run.
+  appendices received static review. Firmware checkpoint `09ea3b70` compiled and
+  flashed successfully on COM10; no host tests, simulator or physical behavior
+  observations were performed.
 
 - [ ] Diagnose the reported caress freeze and missing heart. Capture the first
   rejected controller packet or terminal touch/display transition, then verify
-  one continuous in-body stroke above the 500-ms minimum and its synchronized
+  one continuous in-body stroke above the current 300-ms minimum and its synchronized
   Affection SFX. Current diagnostics distinguish zone exit, speed, acquisition
   gap and the other recognizer guards; do not relax driver acceptance or infer
   icon performance from the earlier HUD-only observation. Historical diagnosis,
@@ -68,7 +86,7 @@ bytes, not physical behavior; every open observation below remains open.
 - [ ] Validate the merged personality-icon implementation on the device:
   generated-palette/coverage contracts, all fourteen cues in Main
   and Sleep, suppression on other scenes and Micro, symbol readability, actual
-  jelly/vector clearance, circle/status/Back separation, configured face anchor,
+  upper-body overlay, circle/status/Back separation, configured face anchor,
   bounded follow under pause/wake/rotation, stable selection, fade/hold/release,
   canonical device-state gating and old/new damage erasure. Listen to/refine all
   fourteen original SFX and verify completed-frame triggering, busy drops,

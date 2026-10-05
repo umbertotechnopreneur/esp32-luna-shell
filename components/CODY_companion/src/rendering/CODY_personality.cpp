@@ -13,7 +13,8 @@
 namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_personality";
-constexpr uint16_t kMaximumSpriteExtent = 64;
+// Source masters remain 64x64; the requested 3x presentation needs larger output bounds.
+constexpr uint16_t kMaximumSpriteExtent = 192;
 static_assert(PersonalityConfig::position_window_us > 0 &&
     PersonalityConfig::position_window_us <= PersonalityConfig::scale_window_us &&
     PersonalityConfig::scale_window_us <= 400000, "Following must settle within 400 active milliseconds");
@@ -347,7 +348,7 @@ bool overlaps(DamageRect first, DamageRect second)
 }
 
 // left: Candidate left edge; floating geometry is rejected before integer conversion.
-// top: Candidate upper edge, always above the current body crown.
+// top: Candidate upper edge in the same logical coordinates as the character.
 // width: Positive bounded whole-pixel sprite width.
 // height: Positive bounded whole-pixel sprite height.
 // exclusions: Borrowed visible route rectangles.
@@ -448,13 +449,18 @@ esp_err_t update_personality_battery_latch(bool current_percentage, int percenta
 // affection_active: Current automatic caress lifetime, independent of an explicit Affection request.
 // desired: Receives the one selected target on success.
 // release_affection: Receives true when the auto request must stop requesting its heart.
+// eye_reaction: Latest acquired eye-contact symbol; only None, Fear and Frustration are accepted.
 // Exception: Returns invalid cue without changing outputs and logs the actual rejected identity.
 esp_err_t select_personality_target(PersonalityCue admitted_request, bool semantic_sleep,
-                                   bool affection_active, PersonalityCue &desired, bool &release_affection)
+                                   bool affection_active, PersonalityCue &desired, bool &release_affection,
+                                   PersonalityCue eye_reaction)
 {
-    if (!personality_cue_valid(admitted_request)) {
-        ESP_LOGE(kTag, "Target selection cue=%u rejected (%s)",
-                 static_cast<unsigned>(admitted_request), esp_err_to_name(ESP_ERR_INVALID_ARG));
+    if (!personality_cue_valid(admitted_request) ||
+        (eye_reaction != PersonalityCue::None && eye_reaction != PersonalityCue::Fear &&
+         eye_reaction != PersonalityCue::Frustration)) {
+        ESP_LOGE(kTag, "Target selection cue=%u eye=%u rejected (%s)",
+                 static_cast<unsigned>(admitted_request), static_cast<unsigned>(eye_reaction),
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
     PersonalityCue selected = admitted_request;
@@ -470,10 +476,19 @@ esp_err_t select_personality_target(PersonalityCue admitted_request, bool semant
                      static_cast<unsigned>(admitted_request), esp_err_to_name(ESP_ERR_INVALID_STATE));
             return ESP_ERR_INVALID_STATE;
         }
-        const uint16_t baseline_priority = baseline_rule == nullptr ? 0 : baseline_rule->priority;
+        uint16_t baseline_priority = baseline_rule == nullptr ? 0 : baseline_rule->priority;
+        const auto *eye_rule = cue_rule(eye_reaction);
+        if (eye_reaction != PersonalityCue::None && eye_rule == nullptr) {
+            ESP_LOGE(kTag, "Eye reaction authored rule missing (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (eye_rule != nullptr && eye_rule->priority > baseline_priority) {
+            selected = eye_reaction;
+            baseline_priority = eye_rule->priority;
+        }
         if (affection_active && affection_rule->priority > baseline_priority) {
             selected = PersonalityCue::Affection;
-        } else if (admitted_request != PersonalityCue::None) {
+        } else if (selected != PersonalityCue::None) {
             release = true;
         }
     }
@@ -591,7 +606,10 @@ esp_err_t prepare_personality_frame(
     const float rest_span = (Data::points[to_index(PointId::LobeUpperRight)].x -
         Data::points[to_index(PointId::LobeUpperLeft)].x) * scene.scale;
     if (!std::isfinite(rest_span) || rest_span <= 0 || !std::isfinite(profile.offset_x) ||
-        !std::isfinite(profile.offset_y) || !std::isfinite(profile.extent_per_scale) || profile.extent_per_scale <= 0) {
+        !std::isfinite(profile.offset_y) || !std::isfinite(profile.extent_per_scale) || profile.extent_per_scale <= 0 ||
+        !std::isfinite(profile.pixel_offset_x) || std::abs(profile.pixel_offset_x) > 466 ||
+        !std::isfinite(profile.pixel_offset_y) || std::abs(profile.pixel_offset_y) > 466 ||
+        !std::isfinite(profile.size_multiplier) || profile.size_multiplier < 1 || profile.size_multiplier > 3) {
         ESP_LOGE(kTag, "Anchor profile/rest span rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
@@ -599,10 +617,12 @@ esp_err_t prepare_personality_frame(
         PersonalityConfig::maximum_base_extent;
     const float deformation = std::clamp(((upper_right.x - upper_left.x) / rest_span - 1.f) * extent,
         -deformation_limit, deformation_limit);
-    const float target_width = extent + deformation;
-    const float target_height = extent - deformation;
-    const float target_x = nose.x + profile.offset_x * scene.scale;
-    const float target_y = nose.y + profile.offset_y * scene.scale;
+    const float target_width = (extent + deformation) * profile.size_multiplier;
+    const float target_height = (extent - deformation) * profile.size_multiplier;
+    // Pixel translation is independent of character scale. Enlarging around the
+    // center preserves the exact requested movement of that center on every pose.
+    const float target_x = nose.x + profile.offset_x * scene.scale + profile.pixel_offset_x;
+    const float target_y = nose.y + profile.offset_y * scene.scale + profile.pixel_offset_y;
     if (!std::isfinite(target_x) || !std::isfinite(target_y) || !std::isfinite(body_top) ||
         !std::isfinite(target_x * PersonalityConfig::scale_window_us) ||
         !std::isfinite(target_y * PersonalityConfig::scale_window_us) ||
@@ -667,7 +687,10 @@ esp_err_t prepare_personality_frame(
     DamageRect admitted{};
     const float left = next.center_x - width * .5f;
     const float top = next.center_y - height * .5f;
-    if (std::round(top) + height + PersonalityConfig::body_clearance_pixels > body_top ||
+    const bool overlaps_body = std::round(top) + height + PersonalityConfig::body_clearance_pixels > body_top;
+    // Main/Sleep explicitly permit the icon over the upper body. Circle and
+    // navigation/status exclusions still apply to the full enlarged rectangle.
+    if ((!profile.allow_body_overlap && overlaps_body) ||
         !admit_bounds(left, top, width, height, exclusions, exclusion_count, admitted)) {
         // Layout admission is an expected presentation outcome, not a failed component operation.
         hide_current(next);

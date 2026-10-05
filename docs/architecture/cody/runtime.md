@@ -9,7 +9,8 @@ damage/DMA contract and [onboarding](onboarding.md) for route gates.
 ## Startup and expression sequencing
 
 Cold boot or software reset follows Sleeping 01 → Waking 02 → Ready 03. The animated
-character fades in over 2 seconds, then Waking and Ready receive 4 seconds each.
+character fades in over 2 seconds, then Waking receives 1.5 seconds and Ready
+receives 2 seconds (5.5 active seconds altogether, excluding real service waits).
 Real startup checkpoints gate advancement: a service wait does not consume the
 next phase's active duration. Startup shows only Cody, with no website branding
 or branding fade; the startup phases do not show the Debug HUD.
@@ -19,6 +20,11 @@ Effective first setup enters Hello 04 with Happy and `Hi, I'm Cody!` at
 actually retired to the panel it remains readable for one active second before
 05. There is no second bitmap intro. Otherwise the runtime proceeds to idle and
 the applicable [clock routine](clock.md), not the network introduction.
+Returning devices with validated first-boot false receive one four-second
+random Affection or Joy request on entering Idle, using the existing icon and
+completed-frame SFX owner. Urgent symbols and real interactions retain priority;
+hidden requests are dropped. No pairing or credential keys are rewritten by this
+presentation change. PDF boot-sequence revision awaits the user's approval.
 
 `cody_firstboot` is a validated persisted boolean. Only a genuinely absent key
 logs and persists the default `true`; invalid type/value or storage failure stops
@@ -53,7 +59,7 @@ radio recovery. Ordinary touch/motion publication cannot erase it. A subsequent
 standby reasserts radio shutdown through its owner after any explicit pairing.
 
 Software wake first renders Sleeping behind the dark panel, exposes it through
-the shared 800-ms panel fade, then gives Waking and Ready 4 seconds each. It does
+the shared 800-ms panel fade, then gives Waking 1.5 seconds and Ready 2 seconds. It does
 not multiply a second 2-second character fade over the panel fade. Route, pending
 operation, debug/pause state and scene entrance/text clocks stay in RAM; hidden
 routes do not update during the lifecycle wake sequence. Before showing the

@@ -28,7 +28,7 @@ catalog:
     - {id: 4, name: drink_water}
   icons:
     - {id: 1, name: sleep, priority: 1000, interrupts: true, repeat_cooldown_seconds: 0, sfx_enabled: true}
-    - {id: 2, name: fear, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
+    - {id: 2, name: fear, priority: 300, interrupts: true, repeat_cooldown_seconds: 0, sfx_enabled: true}
     - {id: 3, name: joy, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
     - {id: 4, name: hunger, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
     - {id: 5, name: thirst, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
@@ -39,8 +39,8 @@ catalog:
     - {id: 10, name: no_wifi, priority: 100, interrupts: false, repeat_cooldown_seconds: 20, sfx_enabled: true}
     - {id: 11, name: curiosity, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
     - {id: 12, name: confusion, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
-    - {id: 13, name: affection, priority: 200, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
-    - {id: 14, name: frustration, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
+    - {id: 13, name: affection, priority: 200, interrupts: true, repeat_cooldown_seconds: 0, sfx_enabled: true}
+    - {id: 14, name: frustration, priority: 300, interrupts: true, repeat_cooldown_seconds: 0, sfx_enabled: true}
 
 # The only currently active mood value. A caress never restarts its decay clock.
 happiness:
@@ -60,15 +60,15 @@ sadness:
 caress:
   event: caress
   zones: [above_eyes, below_mouth]
-  minimum_contact_ms: 500
+  minimum_contact_ms: 300
   maximum_contact_ms: 3000
   maximum_sample_gap_ms: 250
   cooldown_seconds: 6
   affection_seconds: 4
   upper_margin_per_scale: 0.10
   lower_margin_per_scale: 0.08
-  minimum_path_per_scale: 0.16
-  minimum_displacement_per_scale: 0.08
+  minimum_path_per_scale: 0.12
+  minimum_displacement_per_scale: 0.04
   maximum_speed_per_scale: 2.0
   jitter_pixels: 1.5
 
@@ -92,9 +92,23 @@ icons:
     maximum_deformation_pixels: 2.0
     body_clearance_pixels: 4.0
   anchors:
-    # Center offsets from Cody's evaluated Nose anchor in local scale units.
-    main: {offset_x: 0.09, offset_y: -1.14, extent_per_scale: 0.20}
-    sleep: {offset_x: 0.09, offset_y: -1.14, extent_per_scale: 0.20}
+    # Keep attachment to the face; apply screen-pixel translation after local scaling.
+    main:
+      offset_x: 0.09
+      offset_y: -1.14
+      extent_per_scale: 0.20
+      pixel_offset_x: 30
+      pixel_offset_y: 40
+      size_multiplier: 3
+      allow_body_overlap: true
+    sleep:
+      offset_x: 0.09
+      offset_y: -1.14
+      extent_per_scale: 0.20
+      pixel_offset_x: 30
+      pixel_offset_y: 40
+      size_multiplier: 3
+      allow_body_overlap: true
   # Hysteresis uses valid current canonical measurements only.
   low_battery: {enter_percent: 15, exit_percent: 20}
 
@@ -102,7 +116,7 @@ icons:
 # Both this global switch and each catalog icon's sfx_enabled must be true.
 audio:
   enabled: true
-  cooldown_seconds: 8
+  cooldown_seconds: 2
   request_expiry_ms: 120
 
 # Dormant internal logic: no work-session adapter, icon delivery or UI yet.

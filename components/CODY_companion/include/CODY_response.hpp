@@ -215,6 +215,7 @@ struct ResponseState {
     float idle_wait_fraction = 0;
     float idle_scene_seconds = 0;
     float idle_scene_weight = 0;
+    uint8_t idle_remaining_scenes = 0;
     SampleStamp eye_tap_status{};
     int64_t consumed_eye_tap_at_us = 0;
     float eye_hold_seconds = 0;

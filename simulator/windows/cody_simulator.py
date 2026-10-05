@@ -619,6 +619,9 @@ class CodyWindow:
         self.petting = PettingRecognizer(load_petting_config(ROOT))
         self.affection_remaining_us = 0
         self.affection_owns_channel = False
+        self.eye_reaction = PersonalityCue.NONE
+        self.last_eye_reaction = PersonalityCue.NONE
+        self.eye_reaction_remaining_us = 0
         self.petting_context = None
         self.petting_selected_cue = PersonalityCue.NONE
         self.personality_rules = load_personality_rules(ROOT / "assets/cody/personality.yaml")
@@ -1457,13 +1460,9 @@ class CodyWindow:
             self.advance_happiness_clock(sampled_us)
             event = PersonalityEvent[self.personality_rules["caress"]["event"].upper()]
             self.happiness_state = apply_event(self.personality_rules, self.happiness_state, event)
-            selected = PersonalityCue[self.personality_cue.get()]
-            painter = self.renderer.personality_painter
-            current = PersonalityCue.NONE if painter is None else painter.channel.cue
-            # A new contact cannot extend a heart behind a pending Charging or visible urgent cue.
-            if selected == PersonalityCue.NONE and current in (PersonalityCue.NONE, PersonalityCue.AFFECTION):
-                self.affection_remaining_us = self.petting.config["affection_us"]
-                self.affection_owns_channel = True
+            # Match firmware arbitration: normal symbols cannot drop an accepted stroke.
+            self.affection_remaining_us = self.petting.config["affection_us"]
+            self.affection_owns_channel = True
 
     # self: Synthetic mood owner with an independent awake clock.
     # sampled_us: Monotonic host time, including time during animation pause.
@@ -1478,7 +1477,12 @@ class CodyWindow:
     def cancel_transient_affection(self, preserve_fade=False):
         self.petting.cancel()
         self.affection_remaining_us = 0
+        self.eye_reaction_remaining_us = 0
         painter = self.renderer.personality_painter
+        if (not preserve_fade and self.eye_reaction != PersonalityCue.NONE and painter is not None and
+                painter.channel.cue == self.eye_reaction):
+            painter.disable(self.elapsed_ms)
+        self.eye_reaction = PersonalityCue.NONE
         if not preserve_fade:
             if self.affection_owns_channel and painter is not None and painter.channel.cue == PersonalityCue.AFFECTION:
                 painter.disable(self.elapsed_ms)
@@ -1487,7 +1491,8 @@ class CodyWindow:
     # self: Synthetic preview owner selecting urgent alerts or a finishing interaction.
     def effective_personality_cue(self):
         selected = PersonalityCue[self.personality_cue.get()]
-        desired, _ = select_personality_target(selected, self.personality_sleep, self.affection_remaining_us > 0)
+        desired, _ = select_personality_target(selected, self.personality_sleep,
+            self.affection_remaining_us > 0, self.eye_reaction)
         return desired
 
     # visible terminal errors stop the preview rather than retaining a false healthy state.
@@ -1674,7 +1679,17 @@ class CodyWindow:
             self.cancel_transient_affection(preserve_fade)
         else:
             self.affection_remaining_us = max(0, self.affection_remaining_us - int(active_ms * 1000))
+            self.eye_reaction_remaining_us = max(0, self.eye_reaction_remaining_us - int(active_ms * 1000))
+            if self.eye_reaction_remaining_us == 0:
+                self.eye_reaction = PersonalityCue.NONE
         self.petting_context = petting_context
+        desired, release_affection = select_personality_target(selected_cue, self.personality_sleep,
+            self.affection_remaining_us > 0, self.eye_reaction)
+        if release_affection:
+            self.affection_remaining_us = 0
+        if self.eye_reaction != PersonalityCue.NONE and desired != self.eye_reaction:
+            self.eye_reaction = PersonalityCue.NONE
+            self.eye_reaction_remaining_us = 0
         transform = [value.get() for value in self.transform]
         if screen == Screen.GREETING:
             cloud = self.renderer.scene_painter.definition("greeting")["cloud"]
@@ -1683,15 +1698,36 @@ class CodyWindow:
         inputs = replace(inputs, idle_scene_allowed=(screen == Screen.RIG and self.playing.get() and
             not self.debug.get() and self.face_preset_name in (None, "calm", "happy", "drowsy", "curious") and
             not self.personality_sleep and selected_cue == PersonalityCue.NONE and
-            self.affection_remaining_us == 0))
+            self.affection_remaining_us == 0 and self.eye_reaction_remaining_us == 0))
         self.response_frame = None
         if screen in ANIMATED_SCREENS:
             if self.display_screen not in ANIMATED_SCREENS:
                 self.response_state = rebase_response_motion(self.response_state)
             self.response_config["motion"]["sensitivity"] = self.motion_sensitivity.get()
             validate_response_config(self.response_config)
+            previous_response = self.response_state
             self.response_state = advance_response(self.response_config, self.response_state, inputs,
                                                    active_ms, int(started * 1_000_000), self.playing.get())
+            if (screen == Screen.RIG and not self.debug.get() and self.playing.get() and
+                    not self.personality_sleep and self.response_state.consumed_eye_tap_at_us >
+                    previous_response.consumed_eye_tap_at_us):
+                stressed = (self.face_preset_name == "stressed" or previous_response.stress >=
+                            self.response_config["idle"]["activity_stress_threshold"])
+                reaction = PersonalityCue.FRUSTRATION if secrets.randbelow(4) == 0 else PersonalityCue.FEAR
+                if stressed:
+                    reaction = PersonalityCue.FRUSTRATION if reaction == PersonalityCue.FEAR else PersonalityCue.FEAR
+                if reaction == self.last_eye_reaction:
+                    reaction = PersonalityCue.FRUSTRATION if reaction == PersonalityCue.FEAR else PersonalityCue.FEAR
+                self.eye_reaction = self.last_eye_reaction = reaction
+                self.eye_reaction_remaining_us = 4_000_000
+                _, release_affection = select_personality_target(selected_cue, False,
+                    self.affection_remaining_us > 0, reaction)
+                if release_affection:
+                    self.affection_remaining_us = 0
+                desired, _ = select_personality_target(selected_cue, False, False, reaction)
+                if desired != reaction:
+                    self.eye_reaction = PersonalityCue.NONE
+                    self.eye_reaction_remaining_us = 0
             self.response_frame = compose_response(self.renderer.rig, self.response_state, values, targets,
                                                    transform, rotation, self.playing.get())
             values = self.response_frame.face

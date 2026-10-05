@@ -186,23 +186,37 @@ uint32_t next_idle_random(ResponseState &state)
     return value;
 }
 
-// previous: Last completed or interrupted scene; prevent consecutive repetition.
+// state: Session shuffle bag; all three named scenes occur before another bag starts.
 // random: One random draw, consumed only when a scene is admitted.
-IdleSceneId select_idle_scene(IdleSceneId previous, uint32_t random)
+IdleSceneId select_idle_scene(ResponseState &state, uint32_t random)
 {
-    const bool first = (random & 1U) == 0;
-    switch (previous) {
-    case IdleSceneId::Yawn: return first ? IdleSceneId::Whistle : IdleSceneId::Greeting;
-    case IdleSceneId::Whistle: return first ? IdleSceneId::Yawn : IdleSceneId::Greeting;
-    case IdleSceneId::Greeting: return first ? IdleSceneId::Yawn : IdleSceneId::Whistle;
-    case IdleSceneId::None:
-        switch (random % 3U) {
-        case 0: return IdleSceneId::Yawn;
-        case 1: return IdleSceneId::Whistle;
-        default: return IdleSceneId::Greeting;
+    constexpr struct { IdleSceneId scene; uint8_t bit; } scenes[] = {
+        {IdleSceneId::Yawn, 1}, {IdleSceneId::Whistle, 2}, {IdleSceneId::Greeting, 4}
+    };
+    if (state.idle_remaining_scenes == 0) {
+        state.idle_remaining_scenes = 7;
+    }
+    uint32_t available = 0;
+    for (const auto &entry : scenes) {
+        if ((state.idle_remaining_scenes & entry.bit) != 0 && entry.scene != state.last_idle_scene) {
+            ++available;
         }
     }
-    return IdleSceneId::None; // Public state validation rejects unknown identities.
+    // A valid bag never leaves only the scene that was just consumed.
+    if (available == 0) {
+        return IdleSceneId::None;
+    }
+    uint32_t choice = random % available;
+    for (const auto &entry : scenes) {
+        if ((state.idle_remaining_scenes & entry.bit) != 0 && entry.scene != state.last_idle_scene) {
+            if (choice == 0) {
+                state.idle_remaining_scenes &= static_cast<uint8_t>(~entry.bit);
+                return entry.scene;
+            }
+            --choice;
+        }
+    }
+    return IdleSceneId::None;
 }
 
 // config: Authored delay/duration/cooldown shared by the three idle presentations.
@@ -242,7 +256,8 @@ void advance_idle_scene(const ResponseConfig &config, bool busy, float seconds, 
         if (next.idle_seconds < delay) {
             return;
         }
-        next.idle_scene = select_idle_scene(next.last_idle_scene, next_idle_random(next));
+        const uint32_t random = next_idle_random(next);
+        next.idle_scene = select_idle_scene(next, random);
         next.last_idle_scene = next.idle_scene;
         ++next.idle_scene_generation;
         next.idle_scene_seconds = 0;
@@ -383,6 +398,12 @@ esp_err_t validate_response_state(const ResponseState &state)
     }
     if (state.idle_random_state == 0) {
         return reject_value("state.idle_random_state", state.idle_random_state);
+    }
+    if (state.idle_remaining_scenes > 7 ||
+        (state.last_idle_scene == IdleSceneId::Yawn && (state.idle_remaining_scenes & 1U) != 0) ||
+        (state.last_idle_scene == IdleSceneId::Whistle && (state.idle_remaining_scenes & 2U) != 0) ||
+        (state.last_idle_scene == IdleSceneId::Greeting && (state.idle_remaining_scenes & 4U) != 0)) {
+        return reject_value("state.idle_remaining_scenes", state.idle_remaining_scenes);
     }
     for (const auto &parameter : scalars) {
         if (!std::isfinite(parameter.value) || parameter.value < parameter.minimum ||

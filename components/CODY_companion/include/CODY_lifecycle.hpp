@@ -11,8 +11,8 @@ enum class LifecyclePhase : uint8_t { BootSleeping, BootWaking, BootReady, Idle,
 enum class StartupPresentation : uint8_t { CharacterFade, PanelFade };
 
 inline constexpr uint32_t kBootSleepingUs = 2000000;
-inline constexpr uint32_t kBootWakingUs = 4000000;
-inline constexpr uint32_t kBootReadyUs = 4000000;
+inline constexpr uint32_t kBootWakingUs = 1500000;
+inline constexpr uint32_t kBootReadyUs = 2000000;
 inline constexpr uint32_t kPanelWakeSleepingUs = LUNASHELL::display_timing::kTransitionFadeMs * 1000U;
 
 struct LifecycleState {

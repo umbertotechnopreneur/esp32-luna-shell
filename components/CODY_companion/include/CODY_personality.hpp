@@ -108,9 +108,11 @@ bool personality_cue_is_device(PersonalityCue cue);
 // affection_active: Whether the current auto caress request still has active lifetime.
 // desired: Receives the single target; Charging waits behind active auto affection.
 // release_affection: Receives whether the admitted target cancels the auto request.
+// eye_reaction: None or the current acquired-eye Fear/Frustration request.
 // Exception: Returns invalid cue identity without modifying either output.
 esp_err_t select_personality_target(PersonalityCue admitted_request, bool semantic_sleep,
-                                   bool affection_active, PersonalityCue &desired, bool &release_affection);
+                                   bool affection_active, PersonalityCue &desired, bool &release_affection,
+                                   PersonalityCue eye_reaction = PersonalityCue::None);
 
 // nominal_scale: Finite authored scale before breathing, motion and entrance interpolation.
 // size: Receives the nearest existing presentation; Micro applies only at scale <= 22.

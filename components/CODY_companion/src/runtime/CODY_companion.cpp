@@ -184,6 +184,11 @@ struct CompanionState {
     CODY::PettingState petting{};
     int64_t affection_remaining_us = 0;
     bool affection_owns_channel = false;
+    CODY::PersonalityCue eye_reaction = CODY::PersonalityCue::None;
+    CODY::PersonalityCue last_eye_reaction = CODY::PersonalityCue::None;
+    int64_t eye_reaction_remaining_us = 0;
+    CODY::PersonalityCue welcome_cue = CODY::PersonalityCue::None;
+    int64_t welcome_remaining_us = 0;
     CODY::HappinessState happiness{};
     int64_t happiness_sampled_at_us = 0;
     CODY::PersonalityLag personality_lag{};
@@ -266,6 +271,14 @@ void cancel_transient_affection(bool preserve_visible_handoff = false)
 {
     CODY::cancel_petting(s_state.petting);
     s_state.affection_remaining_us = 0;
+    s_state.eye_reaction_remaining_us = 0;
+    s_state.welcome_cue = CODY::PersonalityCue::None;
+    s_state.welcome_remaining_us = 0;
+    if (!preserve_visible_handoff && s_state.eye_reaction != CODY::PersonalityCue::None &&
+        s_state.personality_lag.cue == s_state.eye_reaction) {
+        CODY::clear_personality_presentation(s_state.personality_lag);
+    }
+    s_state.eye_reaction = CODY::PersonalityCue::None;
     if (preserve_visible_handoff) {
         // Sleep owns the new target. Retain current-channel ownership so an actual
         // park, pause or orientation boundary can still discard an unfinished heart.
@@ -1659,7 +1672,8 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
         s_state.requested_expression == CODY::ExpressionId::Drowsy ||
         s_state.requested_expression == CODY::ExpressionId::Curious;
     inputs.idle_scene_allowed = ordinary_idle && !s_state.animation_paused && !s_state.rig_debug &&
-        resting_expression && s_state.affection_remaining_us == 0 &&
+        resting_expression && s_state.affection_remaining_us == 0 && s_state.eye_reaction_remaining_us == 0 &&
+        s_state.welcome_remaining_us == 0 &&
         s_state.requested_personality == CODY::PersonalityCue::None &&
         s_state.personality_lag.cue == CODY::PersonalityCue::None;
     // A publication can occur after frame_started_us while we wait for the snapshot.
@@ -1712,6 +1726,15 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     if (scene_policy_error != ESP_OK) {
         return scene_policy_error;
     }
+    if (s_state.lifecycle.phase == CODY::LifecyclePhase::BootReady &&
+        next_lifecycle.phase == CODY::LifecyclePhase::Idle && !s_state.onboarding.effective_first_boot) {
+        // Returning devices keep their stored onboarding/pairing decision.
+        // This is one visual greeting after real readiness, never a pairing reset.
+        s_state.welcome_cue = (esp_random() & 1U) == 0
+            ? CODY::PersonalityCue::Affection : CODY::PersonalityCue::Joy;
+        s_state.welcome_remaining_us = 4000000;
+        ESP_LOGI(kTag, "Returning-device welcome: cue=%u", static_cast<unsigned>(s_state.welcome_cue));
+    }
     s_state.contour = next_contour;
     s_state.lifecycle = next_lifecycle;
     s_state.scene = next_scene;
@@ -1725,6 +1748,31 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     log_response_source(CODY::StimulusId::SpeakerPlayback, s_state.response.playback_status,
                         next_response.playback_status, !s_state.response_sources_logged);
     s_state.response_sources_logged = true;
+    if (next_response.consumed_eye_tap_at_us > previous_response.consumed_eye_tap_at_us &&
+        main_companion_view_active(true) && !s_state.rig_debug && !s_state.animation_paused) {
+        // Use stress BEFORE this contact adds its protective stress impulse.
+        // Repeated contacts alternate symbols so the poke is not always identical.
+        const bool stressed_pose = s_state.expression_override &&
+            s_state.requested_expression == CODY::ExpressionId::Stressed;
+        const bool stressed = stressed_pose ||
+            previous_response.stress >= CODY::Data::response.idle.activity_stress_threshold;
+        CODY::PersonalityCue reaction = (esp_random() & 3U) == 0
+            ? CODY::PersonalityCue::Frustration : CODY::PersonalityCue::Fear;
+        if (stressed) {
+            reaction = reaction == CODY::PersonalityCue::Fear
+                ? CODY::PersonalityCue::Frustration : CODY::PersonalityCue::Fear;
+        }
+        if (reaction == s_state.last_eye_reaction) {
+            reaction = reaction == CODY::PersonalityCue::Fear
+                ? CODY::PersonalityCue::Frustration : CODY::PersonalityCue::Fear;
+        }
+        s_state.eye_reaction = reaction;
+        s_state.last_eye_reaction = reaction;
+        s_state.eye_reaction_remaining_us = 4000000;
+        ESP_LOGI(kTag, "Eye reaction: cue=%u prior_stress=%.3f stressed_pose=%u",
+            static_cast<unsigned>(reaction), static_cast<double>(previous_response.stress),
+            static_cast<unsigned>(stressed_pose));
+    }
     s_state.response = next_response;
     s_state.response_frame = response_frame;
     if (s_state.rendered_rotation_degrees != inputs.rendering_rotation_degrees) {
@@ -2187,9 +2235,19 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             const bool visible_sleep_handoff =
                 context.presentation == CODY::PersonalityPresentation::Sleep && !s_state.animation_paused;
             cancel_transient_affection(visible_sleep_handoff);
-        } else if (s_state.affection_remaining_us > 0) {
+        } else {
             s_state.affection_remaining_us -= std::min(s_state.affection_remaining_us,
                                                      s_state.personality_delta_us);
+            s_state.eye_reaction_remaining_us -= std::min(s_state.eye_reaction_remaining_us,
+                                                         s_state.personality_delta_us);
+            if (s_state.eye_reaction_remaining_us == 0) {
+                s_state.eye_reaction = CODY::PersonalityCue::None;
+            }
+            s_state.welcome_remaining_us -= std::min(s_state.welcome_remaining_us,
+                                                    s_state.personality_delta_us);
+            if (s_state.welcome_remaining_us == 0) {
+                s_state.welcome_cue = CODY::PersonalityCue::None;
+            }
         }
         const bool sleeping = context.presentation == CODY::PersonalityPresentation::Sleep;
         if (sleeping) {
@@ -2200,6 +2258,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_state.personality_was_sleep = sleeping;
         context.release_immediately = s_state.personality_release_sleep;
         CODY::PersonalityCue cue = sleeping ? CODY::PersonalityCue::Sleep : s_state.requested_personality;
+        if (!sleeping && cue == CODY::PersonalityCue::None && s_state.welcome_remaining_us > 0) {
+            cue = s_state.welcome_cue;
+        }
         if (context.presentation == CODY::PersonalityPresentation::Disabled) {
             cue = CODY::PersonalityCue::None;
         } else if (cue_error == ESP_OK) {
@@ -2210,10 +2271,21 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             if (cue_error == ESP_OK) {
                 bool release_affection = false;
                 cue_error = CODY::select_personality_target(cue, sleeping,
-                    s_state.affection_remaining_us > 0, cue, release_affection);
+                    s_state.affection_remaining_us > 0, cue, release_affection, s_state.eye_reaction);
                 if (cue_error == ESP_OK && release_affection) {
                     // Retain current opacity/ownership; the channel completes its smooth exit.
                     s_state.affection_remaining_us = 0;
+                }
+                if (cue_error == ESP_OK && s_state.eye_reaction != CODY::PersonalityCue::None &&
+                    cue != s_state.eye_reaction) {
+                    // Urgent device truth drops this contact rather than replaying it later.
+                    s_state.eye_reaction = CODY::PersonalityCue::None;
+                    s_state.eye_reaction_remaining_us = 0;
+                }
+                if (cue_error == ESP_OK && s_state.welcome_cue != CODY::PersonalityCue::None &&
+                    cue != s_state.welcome_cue) {
+                    s_state.welcome_cue = CODY::PersonalityCue::None;
+                    s_state.welcome_remaining_us = 0;
                 }
             }
         }
@@ -3012,17 +3084,11 @@ esp_err_t publish_body_gesture(const LUNASHELL_touch_point_t &point, bool presse
             ESP_LOGI(kTag, "Mood caress: happiness=%u sadness=%u",
                 static_cast<unsigned>(s_state.happiness.happiness),
                 static_cast<unsigned>(CODY::PersonalityData::happiness.maximum - s_state.happiness.happiness));
-            // No deferred reaction: an occupied symbol channel drops this contact's heart.
-            const bool channel_available = s_state.requested_personality == CODY::PersonalityCue::None &&
-                (s_state.personality_lag.cue == CODY::PersonalityCue::None ||
-                 s_state.personality_lag.cue == CODY::PersonalityCue::Affection);
-            if (channel_available) {
-                s_state.affection_remaining_us = CODY::PettingConfig::affection_us;
-                s_state.affection_owns_channel = true;
-                ESP_LOGI(kTag, "Caress zone=%u accepted: transient Affection", static_cast<unsigned>(zone));
-            } else {
-                ESP_LOGI(kTag, "Caress zone=%u recognized; heart suppressed by active symbol", static_cast<unsigned>(zone));
-            }
+            // Canonical admission and authored priorities decide on the next frame.
+            // A normal symbol must not silently discard a recognized caress.
+            s_state.affection_remaining_us = CODY::PettingConfig::affection_us;
+            s_state.affection_owns_channel = true;
+            ESP_LOGI(kTag, "Caress zone=%u accepted: transient Affection", static_cast<unsigned>(zone));
         }
     } else {
         const bool visible_sleep_handoff = personality_presentation(true) ==
@@ -3101,7 +3167,7 @@ esp_err_t apply_lifecycle_requests()
     // The existing face is the starting point for morphing, including closed
     // sleep eyes. Breathing/blink phases keep their owner across the transition.
     ESP_LOGI(kTag, "Atlas lifecycle: %s", sleeping ? "35A / Sleep" :
-        "01 Sleeping (800ms panel fade) -> 02 Waking (4s) -> 03 Ready (4s); resume retained scene");
+        "01 Sleeping (800ms panel fade) -> 02 Waking (1.5s) -> 03 Ready (2s); resume retained scene");
     return ESP_OK;
 }
 
@@ -3834,7 +3900,7 @@ extern "C" esp_err_t CODY_companion_start(void)
         return fail_consumer("Worker creation", ESP_ERR_NO_MEM, false);
     }
     ESP_LOGI(kTag, "Animated %s and real touch ready; frame-owned internal raster on core %ld, active=%lu ms standby=%lu ms",
-             s_state.deep_sleep_wake ? "35B / Wake -> 16 / Idle" : "01 Sleeping (2s fade) -> 02 Waking (4s) -> 03 Ready (4s)",
+             s_state.deep_sleep_wake ? "35B / Wake -> 16 / Idle" : "01 Sleeping (2s fade) -> 02 Waking (1.5s) -> 03 Ready (2s)",
              static_cast<long>(kRenderCoreId),
              static_cast<unsigned long>(kSamplePeriodMs),
              static_cast<unsigned long>(kStandbySamplePeriodMs));

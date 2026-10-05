@@ -74,26 +74,34 @@ wake may re-prime geometric following, but do not replay fade/hold clocks.
 
 ## Configurable facial anchor and layout
 
-`components/CODY_companion/include/CODY_personality_config.hpp` is the authored
-source for timing and Main/Sleep profiles. The simulator reads the same values.
+`assets/cody/personality.yaml` is the authored source for timing and Main/Sleep
+profiles. The generator emits `assets/cody/personality/generated/CODY_personality_config.hpp`;
+the simulator reads the same validated YAML values.
 Each profile defines rig-local X/Y offsets from the evaluated Nose anchor and
 an icon extent per nominal character scale. The renderer scales around the
 icon's center, not a bottom edge or an automatically inferred body-top point.
 
-The initial Main and Sleep profiles share offsets `(0.09, -1.14)` and extent
-factor `0.20`, approximately 29 pixels at nominal Full scale 145. Sharing a
-center keeps a pose transition from relocating an already visible symbol.
+Main and Sleep share local offsets `(0.09, -1.14)` and base extent factor `0.20`.
+The 2026-10-05 readability correction moves their centers 30 logical pixels right
+and 40 pixels down, then enlarges the base extent threefold around that center.
+At nominal Full scale 145 the side increases from 29 to 87 pixels. Greeting
+uses 78 pixels and Medium 63; smaller eligible sizes retain the existing
+12-pixel base minimum, now displayed at 36 pixels. Micro still suppresses the
+channel before geometry preparation. Scene permission remains independent of
+size, so an excluded onboarding/settings/header scene does not gain symbols.
+Sharing a center keeps a pose transition from relocating an already visible symbol.
 Separate profiles allow later art-direction adjustments without changing assets.
 The already evaluated face/body supply motion; no sensor is read by this layer.
 
 Small deformation follows the upper-lobe span with a 400-ms history window. Its
 bound is proportional to base extent: at most two pixels at a 58-pixel base,
-approximately one pixel at the default 29-pixel base. Position follows the same
+approximately one pixel at the default 29-pixel base. The final threefold
+presentation multiplies that deformation too. Position follows the same
 evaluated face direction through a 360-ms window (about 180-ms mean lag), with
 a radial separation limit of four pixels from its current authored anchor.
 This limit applies before raster rounding; integer bounds can add up to about
 0.71 pixel of center quantization.
-The maximum renderer support remains 64 x 64.
+The maximum destination support is 192 x 192; the source masters remain 64 x 64.
 
 The follower uses fixed 25-ms time buckets and time-weighted means. Expired
 history is discarded, so an input that stops changing reaches its target within
@@ -104,11 +112,14 @@ independent drifting motion. Pause contributes no elapsed time; a geometric
 reset primes the complete history at the current anchor. A large abrupt move
 can invoke the four-pixel tether, prioritizing attachment over inertia.
 
-The full status footprint `(106,37)-(362,58)` and full lateral Back target are
+The full status footprint returned by `status_overlay_damage_bounds()` and the lateral Back target are
 reserved even when chrome is transparent. Touch cannot resize or teleport the
 symbol. There is no adaptive shrinking, upward search or lateral relocation.
-The entire configured rectangle must fit the circle and stay above the actual
-jelly/vector silhouette with four pixels of clearance.
+The entire configured rectangle must fit the circle and avoid both exclusions.
+Main/Sleep explicitly allow the enlarged symbol to overlay Cody's upper body;
+the symbol is painted after the character so it remains visible. Profiles that
+disable body overlap retain the four-pixel silhouette clearance. Geometry is
+not relocated or shrunk when a pose lacks room.
 
 Ordinary lack of space produces `BlockedByLayout`, clears visible channel state,
 and leaves Cody rendering. Once space returns, the desired cue enters with a
@@ -128,8 +139,9 @@ integer rounding and composites directly into the existing RGB565 tile.
 The fourteen 64 x 64 index/coverage pairs use 114,688 bytes, plus the exact
 512-byte RGB565 palette: 115,200 flash bytes before descriptors, alignment and
 code. There are no per-skin copies, new framebuffer or native per-frame heap
-allocations. At most 4,096 destination pixels are sampled for one complete
-visible sprite frame; the initial 29 x 29 profile normally covers much less.
+allocations. The destination guard permits at most 36,864 pixels for one complete
+visible sprite frame; the default Full 87 x 87 profile covers 7,569 pixels before
+deformation. This increases raster work without changing the source payload.
 The geometric follower stores seventeen fixed 24-byte buckets (408 bytes).
 A compile-time assertion limits the entire channel/follower state to 768 bytes;
 preparation also takes one transient copy on the existing worker stack. Its work
@@ -158,7 +170,7 @@ reusing its existing resampling scratch under the codec mutex. Render-side
 notification performs no codec I/O and never waits for playback.
 
 There is one in-flight attempt and no backlog: busy requests drop, actual starts
-have an eight-second cooldown, and requests expire after 120 ms. Hidden scenes,
+have a two-second cooldown, and requests expire after 120 ms. Hidden scenes,
 display parking and teardown suspend/cancel the channel. Quiet hours and the
 current volume policy apply; zero volume suppresses playback and saved volume
 is unchanged. The owner temporarily releases and restores idle codec mute.
@@ -184,23 +196,31 @@ the validated YAML. Above-eye and
 below-mouth margins are 0.10 and 0.08 times evaluated scale. This is gesture
 recognition from position/time, not pressure measurement.
 
-A contact must last at least 500 ms, accumulate at least 0.16 times its initial
-scale in path length and travel at least 0.08 times scale from its origin.
+A contact must last at least 300 ms, accumulate at least 0.12 times its initial
+scale in path length and travel at least 0.04 times scale from its origin.
 Segments faster than twice scale per second, report gaps over 250 ms, contact
 over three seconds, region changes and leaving the body reject that contact.
 Movement at most 1.5 pixels is treated as jitter. At Full scale 145 this is
-approximately 23 pixels of path, 12 pixels of displacement and a 290-pixel/s
+approximately 18 pixels of path, 6 pixels of displacement and a 290-pixel/s
 speed ceiling. These are initial thresholds requiring device tuning.
 
-Recognize once per contact with a six-second cooldown. If both the requested
-cue and the occupied channel permit it, request Affection for four active
-seconds, then release through the existing hold/fade policy. An occupied
-non-Affection channel drops the reaction; there is no delayed heart queue.
+Recognize once per contact with a six-second cooldown, then request Affection
+for four active seconds and release through the existing hold/fade policy.
+Affection interrupts ordinary lower-priority symbols instead of silently
+dropping the recognized stroke. Its icon has no second repeat cooldown;
+the gesture recognizer owns repeat admission. There is no delayed heart queue.
 The latest explicit baseline is preserved. YAML priority arbitration lets an
 admitted LowBattery900 release an automatic Affection200, while Charging100
 waits for its expiry. Urgent transitions bypass stability/hold but keep the
 smooth outgoing fade. Repeat admission cooldown and battery enter/exit
 hysteresis prevent chatter; see [personality behavior](personality-behavior.md).
+Acquired eye taps still close the eyes and add artistic stress. Main additionally
+requests Fear (the startled manga mark) or Frustration for four active seconds.
+The first choice favors Frustration under prior stress or a Stressed preset;
+successive contacts alternate these two identities. Both use priority 300 and
+interrupt lower-priority symbols, while Sleep and valid LowBattery retain
+precedence. Their existing original SFX follow completed visible frames, with
+the same busy/quiet/volume/expiry safeguards. No archive sample was imported.
 Sleep, scene changes, pause, orientation changes and display parking cancel
 the transient gesture. A visible Sleep handoff keeps the normal smooth
 heart fade-out before the Sleep fade-in; hidden or parked contacts do not replay.
@@ -221,6 +241,12 @@ passed on 2026-10-05 and the Rig simulator opened; listening, interactive gestur
 evaluation and physical touch validation remain open.
 
 ## Validation and integration status
+
+The 2026-10-05 threefold size/placement correction has static source review only.
+Native and Windows use the same Main/Sleep profiles and retain Micro suppression.
+No new build, host suite, simulator execution or flash accompanied this change.
+Readability, movement clearance and the larger destination's frame cost remain
+pending device observations; earlier results below predate this correction.
 
 The Debug Cody firmware configured, compiled and linked successfully on
 2026-10-04 using ESP-IDF 6.0.2 and eight build jobs, at implementation checkpoint
