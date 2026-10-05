@@ -215,6 +215,42 @@ and referenced architecture/artifact records.
   synthetic. Only generation and static source/artwork review were performed;
   compilation, automated checks, simulator and physical behavior remain open.
 
+- Implemented native frame DMA overlap on `codex/cody-dma-double-buffer`: reborrow
+  idle storage before every dirty tile, keep at most one color DMA outstanding,
+  drain the final transfer before freeing memory, ending the watchdog and
+  committing geometry. Synchronous writes drain earlier DMA before reuse.
+  Native allocation prefers two 16-row slots within the previous 29,824-byte
+  budget; fragmented heaps may use independent blocks and shorter even rows,
+  retaining 4,096 bytes of aggregate headroom. Partial allocations are released
+  before degradation; uncertain DMA retains the complete lease until reset.
+  Actual capacity/completion error is published in the canonical frame snapshot.
+- Actual-BSP frame/callback/synchronous/allocator host contracts pass, including
+  the observed 12,800-byte second block, partial allocation, one-slot degradation,
+  payload immutability, lost/duplicate completion, failure drain and quarantine.
+  Native raster, SIMD model and finite benchmark contracts pass. Debug builds and
+  flash/hash verification pass through `device.ps1` with eight jobs. Evidence is
+  under the DMA worktree's `artifacts/build-cody-companion-debug/evidence/`, with
+  host reports in `host-checks/` and `display-dma-adaptive-host/`.
+- Fixed 100% SIMD device run at `a01aed4`: two 12-row slots (22,400 total DMA
+  bytes), 842 frames, identical 63,000-pixel payload, mean 45,828 us, p95 46,667 us,
+  maximum 47,607 us and 842/842 misses at 40 ms. The earlier one-slot run on the
+  same combined Cody source completed 753 frames: mean 51,542 us, p95 52,139 us,
+  maximum 52,726 us. DMA overlap recovers 5,714 us mean and 5,472 us p95;
+  raster stays 35,086 versus 35,112 us, transfer falls 12,508 to 6,761 us.
+  Evidence: `dma-benchmark-100.log` and `dma-adaptive-benchmark-100.log`.
+  No display completion/quarantine failure or panic was captured; normal idle
+  standby drained the renderer and rearmed the BLE reserve. SD transport timeouts
+  and I2S disable diagnostics were also observed, matching existing open issues.
+  Benchmark autostart/detail have been restored to false. Normal Debug and Release
+  builds pass at `6261cdb2`; only Debug was flashed, with hash verification. Its
+  95-second `dma-normal-boot.log` capture identifies that version, ordinary SIMD,
+  two 8-row startup slots, DISPLAY/TOUCH/WIFI/BLE ready and completed inactivity
+  standby with the BLE reserve restored. No benchmark entry, display fault or
+  panic was captured. Normal-route performance, visual/touch/PWR correctness and
+  repeated wake cycles remain unverified. The stored normal Debug SHA256 is
+  `6377266e447ea059f94b94406c07fca13c8335072e07f13ddb8cce84dada2bdf`;
+  Release is `7b8a8d5c282ff5157b1be7823409adc4e5b0ba9eab964478f015a5d6b6e6521f`.
+  `git diff --check` and the changed-files secret scan pass for this increment.
 - Integrated the selected 16-pixel SIMD and transparent row/block skips with
   current main's pairing, standby, mouth and boot-audio changes. Ordinary S3
   Pearl rendering now starts on SIMD in Debug and Release; portable host

@@ -17,6 +17,12 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
   Compare complete-frame/stage costs, payload and CPU together; a higher frame
   rate alone is not lower CPU. Establish an actually static route baseline.
   [Response and rendering](docs/architecture/cody/rendering.md).
+- A requested double DMA buffer is not evidence of overlap: inspect the admitted
+  slot count in the complete connected firmware. Aggregate free memory does not
+  guarantee two large contiguous blocks. Prefer bounded independently owned,
+  shorter paired-row slots when fragmentation requires it, preserve aggregate
+  headroom, and retain every block on ambiguous completion. Increased strip count
+  adds panel-command overhead; compare the completed frame against the target.
 
 ## Console and storage
 

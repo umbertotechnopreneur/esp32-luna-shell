@@ -69,6 +69,14 @@ older host/build/flash evidence does not validate the current combined image.
   opened after its boot-artwork references were corrected. Hardware execution,
   interactive gesture evaluation and audio playback remain open.
 
+- [ ] Confirm normal-UI animation, touch/PWR capture and repeated rotation/standby
+  wake cycles with native DMA overlap on the physical display. Actual-BSP host
+  lifetime/allocator contracts and the fixed 100% device run passed on the DMA
+  branch: two 12-row slots, mean 45,828 us, p95 46,667 us, 842/842 over 40 ms.
+  Raster remains about 35.1 ms; DMA overlap does not achieve the target alone.
+  The normal benchmark-disabled Debug image passed a 95-second boot/standby
+  capture; its connected startup admitted two 8-row slots under memory pressure.
+  This is boot/ownership evidence, not a timed normal-UI or touch-latency result.
 - [ ] Validate the current face/pearl-boot/PWR-capture image:
   countdown timing, overlay-free BMP, original shutter cue,
   SD absent/failure feedback, Debug HUD placement, screen 04 open eyes and

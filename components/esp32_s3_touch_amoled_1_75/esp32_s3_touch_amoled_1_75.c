@@ -155,6 +155,12 @@ typedef struct {
     uint32_t conversion_us;
     uint32_t submission_us;
     uint32_t completion_wait_us;
+    size_t render_slot;
+    size_t pending_slot;
+    bool transfer_pending;
+    uint16_t buffer_count;
+    uint16_t transfer_rows;
+    esp_err_t completion_error;
     esp_err_t error;
 } bsp_display_frame_t;
 static bsp_display_frame_t display_frame;
@@ -3786,6 +3792,7 @@ esp_err_t bsp_touch_read_point(bsp_touch_point_t *point)
 }
 
 // budget_ms: Complete-frame limit, independent of the number of strips.
+// Exception: Returns real lock/readiness/allocation errors without admitting a partial lease.
 esp_err_t bsp_display_frame_begin(uint32_t budget_ms)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
@@ -3808,7 +3815,8 @@ esp_err_t bsp_display_frame_begin(uint32_t budget_ms)
     display_frame.started_at_us = esp_timer_get_time();
     display_frame.deadline_us = display_frame.started_at_us + (int64_t)budget_ms * 1000;
     const esp_err_t lease_error = bsp_display_acquire_dma_pipeline(
-        BSP_DISPLAY_DMA_ROW_BYTES, BSP_DISPLAY_STANDALONE_DMA_TRANSFER_HEIGHT, 1U,
+        BSP_DISPLAY_DMA_ROW_BYTES, BSP_DISPLAY_STANDALONE_FRAME_SLOT_HEIGHT,
+        BSP_DISPLAY_DMA_PIPELINE_DEPTH,
         &display_frame.lease
     );
     if (lease_error != ESP_OK) {
@@ -3819,6 +3827,12 @@ esp_err_t bsp_display_frame_begin(uint32_t budget_ms)
     display_frame.conversion_us = 0;
     display_frame.submission_us = 0;
     display_frame.completion_wait_us = 0;
+    display_frame.render_slot = 0;
+    display_frame.pending_slot = 0;
+    display_frame.transfer_pending = false;
+    display_frame.buffer_count = (uint16_t)display_frame.lease.buffer_count;
+    display_frame.transfer_rows = (uint16_t)display_frame.lease.transfer_rows;
+    display_frame.completion_error = ESP_OK;
     display_frame.error = ESP_OK;
     __atomic_store_n(&display_frame.owner, xTaskGetCurrentTaskHandle(), __ATOMIC_RELEASE);
     // Keep this lock level until end: panel and touch stay in the same orientation.
@@ -3851,8 +3865,64 @@ esp_err_t bsp_display_frame_check_deadline(void)
 #endif
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+// error: Actual submission/completion failure; uncertain transfers retain their entire lease.
+// operation: Owner operation included in the failure log.
+static void bsp_display_frame_quarantine(esp_err_t error, const char *operation)
+{
+    if (display_frame.lease.data != NULL) {
+        display_dma_fault_lease = display_frame.lease;
+        __atomic_store_n(&display_dma_retained_bytes,
+            (uint32_t)(display_frame.lease.slot_stride_bytes * display_frame.lease.buffer_count),
+            __ATOMIC_RELEASE);
+        display_frame.lease = (bsp_display_dma_lease_t){0};
+    }
+    // Pending ownership moved to quarantine; this frame can never borrow it again.
+    display_frame.transfer_pending = false;
+    display_frame.completion_error = error;
+    __atomic_store_n(&display_dma_faulted, true, __ATOMIC_RELEASE);
+    if (display_frame.error == ESP_OK) {
+        display_frame.error = error;
+    }
+    ESP_LOGE(TAG, "%s failed; DMA retained until reset: bytes=%lu (%s)", operation,
+        (unsigned long)__atomic_load_n(&display_dma_retained_bytes, __ATOMIC_ACQUIRE),
+        esp_err_to_name(error));
+}
+
+// No parameters: retire the one queued transfer before reusing its slot or ending the frame.
+// Exception: Returns the real timeout/completion error and quarantines ambiguous ownership.
+static esp_err_t bsp_display_frame_retire_transfer(void)
+{
+    if (!display_frame.transfer_pending) {
+        return ESP_OK;
+    }
+    const int64_t completion_started_us = esp_timer_get_time();
+    const int64_t remaining_us = display_frame.deadline_us - completion_started_us;
+    TickType_t wait_ticks = remaining_us > 0
+        ? pdMS_TO_TICKS((uint32_t)((remaining_us + 999) / 1000)) : 0;
+    if (remaining_us > 0 && wait_ticks == 0) {
+        wait_ticks = 1;
+    }
+    esp_err_t error = ESP_OK;
+    if (xSemaphoreTake(display_completion, wait_ticks) != pdTRUE) {
+        error = ESP_ERR_TIMEOUT;
+    } else if (display_completion_fault) {
+        error = ESP_ERR_INVALID_STATE;
+    }
+    display_frame.completion_wait_us += (uint32_t)(esp_timer_get_time() - completion_started_us);
+    if (error != ESP_OK) {
+        display_frame.completion_error = error;
+        bsp_display_frame_quarantine(error, "Frame DMA completion");
+        return error;
+    }
+    display_frame.transfer_pending = false;
+    return ESP_OK;
+}
+#endif
+
 // pixels: Receives a proven-idle internal slot owned by the current frame.
 // capacity_bytes: Usable row bytes, excluding alignment padding and other slots.
+// Exception: Returns owner/deadline/completion errors without lending an active DMA slot.
 esp_err_t bsp_display_frame_buffer(void **pixels, size_t *capacity_bytes)
 {
     if (pixels == NULL || capacity_bytes == NULL) {
@@ -3866,13 +3936,23 @@ esp_err_t bsp_display_frame_buffer(void **pixels, size_t *capacity_bytes)
     if (error != ESP_OK) {
         return error;
     }
-    // Every write waits for completion before returning. A failed transfer
-    // moves this lease to quarantine, so it can never be borrowed again.
+    if (display_frame.transfer_pending && display_frame.render_slot == display_frame.pending_slot) {
+        const esp_err_t completion_error = bsp_display_frame_retire_transfer();
+        if (completion_error != ESP_OK) {
+            return completion_error;
+        }
+        const esp_err_t after_wait_error = bsp_display_frame_check_deadline();
+        if (after_wait_error != ESP_OK) {
+            return after_wait_error;
+        }
+    }
+    // A second slot lets the caller rasterize while the prior slot is on the wire.
+    // Low-memory one-slot leases retire first; neither mode overwrites active DMA.
     if (display_frame.lease.data == NULL || display_frame.lease.transfer_rows == 0) {
         ESP_LOGE(TAG, "Frame buffer unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
-    *pixels = display_frame.lease.data;
+    *pixels = bsp_display_dma_slot(&display_frame.lease, display_frame.render_slot);
     *capacity_bytes = BSP_DISPLAY_DMA_ROW_BYTES * display_frame.lease.transfer_rows;
     return ESP_OK;
 #else
@@ -3881,8 +3961,67 @@ esp_err_t bsp_display_frame_buffer(void **pixels, size_t *capacity_bytes)
 #endif
 }
 
+// x_start: First included physical column.
+// y_start: First included physical row.
+// x_end: Exclusive column, bounded by the panel.
+// y_end: Exclusive row, fitting one borrowed slot.
+// pixels: Current frame-borrowed slot, already encoded in panel RGB565 byte order.
+// Exception: Returns geometry/owner/submission/completion errors; failed DMA retains its lease.
+esp_err_t bsp_display_frame_submit_rgb565(
+    int x_start, int y_start, int x_end, int y_end, const void *pixels)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    const esp_err_t deadline_error = bsp_display_frame_check_deadline();
+    if (deadline_error != ESP_OK) {
+        return deadline_error;
+    }
+    const uint8_t *expected = bsp_display_dma_slot(&display_frame.lease, display_frame.render_slot);
+    if (pixels == NULL || pixels != expected || x_start < 0 || y_start < 0 ||
+        x_end > BSP_LCD_H_RES || y_end > BSP_LCD_V_RES ||
+        x_start >= x_end || y_start >= y_end ||
+        (size_t)(y_end - y_start) > display_frame.lease.transfer_rows ||
+        (display_frame.transfer_pending && display_frame.render_slot == display_frame.pending_slot)) {
+        ESP_LOGE(TAG, "Frame RGB565 submission rejected: [%d,%d,%d,%d] pixels=%p expected=%p (%s)",
+            x_start, y_start, x_end, y_end, pixels, expected, esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    // Keep at most one color transfer outstanding. Rasterization of this slot
+    // already overlapped the preceding DMA; the existing binary IRQ signal is exact.
+    const esp_err_t completion_error = bsp_display_frame_retire_transfer();
+    if (completion_error != ESP_OK) {
+        return completion_error;
+    }
+    const esp_err_t after_wait_error = bsp_display_frame_check_deadline();
+    if (after_wait_error != ESP_OK) {
+        return after_wait_error;
+    }
+    const int64_t submission_started_us = esp_timer_get_time();
+    const esp_err_t error = esp_lcd_panel_draw_bitmap(
+        panel_handle, x_start, y_start, x_end, y_end, pixels);
+    display_frame.submission_us += (uint32_t)(esp_timer_get_time() - submission_started_us);
+    if (error != ESP_OK) {
+        bsp_display_frame_quarantine(error, "Frame RGB565 submission");
+        return error;
+    }
+    display_frame.pending_slot = display_frame.render_slot;
+    display_frame.transfer_pending = true;
+    display_frame.render_slot = (display_frame.render_slot + 1U) % display_frame.lease.buffer_count;
+    ++display_frame.rectangles;
+    return ESP_OK;
+#else
+    (void)x_start;
+    (void)y_start;
+    (void)x_end;
+    (void)y_end;
+    (void)pixels;
+    ESP_LOGE(TAG, "Frame RGB565 submission unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
 // frame_error: First failure from geometry, raster or a completed transfer.
 // result: Nonnull output; a failed completion never becomes a successful frame.
+// Exception: Preserves render/deadline/DMA errors while releasing only a proven-idle lease.
 esp_err_t bsp_display_frame_end(esp_err_t frame_error, bsp_display_frame_result_t *result)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
@@ -3892,8 +4031,11 @@ esp_err_t bsp_display_frame_end(esp_err_t frame_error, bsp_display_frame_result_
                  esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
+    // Even a renderer error must retire previously queued pixels before release.
+    const esp_err_t completion_error = bsp_display_frame_retire_transfer();
     const esp_err_t deadline_error = bsp_display_frame_check_deadline();
-    const esp_err_t error = frame_error != ESP_OK ? frame_error : deadline_error;
+    const esp_err_t error = frame_error != ESP_OK ? frame_error :
+        (completion_error != ESP_OK ? completion_error : deadline_error);
     *result = (bsp_display_frame_result_t){
         .duration_us = (uint32_t)(esp_timer_get_time() - display_frame.started_at_us),
         .rectangles = display_frame.rectangles,
@@ -3901,6 +4043,9 @@ esp_err_t bsp_display_frame_end(esp_err_t frame_error, bsp_display_frame_result_
         .submission_us = display_frame.submission_us,
         .completion_wait_us = display_frame.completion_wait_us,
         .retained_dma_bytes = __atomic_load_n(&display_dma_retained_bytes, __ATOMIC_ACQUIRE),
+        .buffer_count = display_frame.buffer_count,
+        .transfer_rows = display_frame.transfer_rows,
+        .completion_error = display_frame.completion_error,
         .error = error,
     };
     // Uncertain DMA was moved to quarantine. Only a proven-idle lease reaches free.
@@ -3960,6 +4105,7 @@ static inline void bsp_display_copy_rgb565_to_panel_order(
 // pixels: Packed RGB565 data, owned by the caller throughout the call.
 // byte_order: Explicit source representation; invalid enum values are rejected.
 // clear_black: Initialize the dark panel using bounded zeroed strips without a framebuffer.
+// Exception: Drains prior frame DMA before synchronous reuse and retains uncertain transfers.
 static esp_err_t bsp_display_write_rgb565_internal(
     int x_start, int y_start, int x_end, int y_end, const void *pixels,
     bsp_display_rgb565_byte_order_t byte_order, bool clear_black
@@ -3994,7 +4140,11 @@ static esp_err_t bsp_display_write_rgb565_internal(
     bsp_display_dma_lease_t *lease = in_frame ? &display_frame.lease : &rectangle_lease;
     esp_err_t error = ESP_OK;
     if (in_frame) {
-        error = bsp_display_frame_check_deadline();
+        // A synchronous caller may reuse the first slot only after queued DMA retires.
+        error = bsp_display_frame_retire_transfer();
+        if (error == ESP_OK) {
+            error = bsp_display_frame_check_deadline();
+        }
     } else {
         const size_t rectangle_rows = (size_t)(y_end - y_start);
         const size_t transfer_rows = rectangle_rows < BSP_DISPLAY_STANDALONE_DMA_TRANSFER_HEIGHT
@@ -4008,10 +4158,16 @@ static esp_err_t bsp_display_write_rgb565_internal(
     const int64_t deadline_us = in_frame ? display_frame.deadline_us
         : esp_timer_get_time() + (int64_t)BSP_DISPLAY_DIRECT_TRANSFER_TIMEOUT_MS * 1000;
     const uint8_t *source = (const uint8_t *)pixels;
-    const bool source_in_slot = !clear_black &&
+    const bool source_in_first_slot = !clear_black &&
         (uintptr_t)source >= (uintptr_t)lease->data &&
-        (uintptr_t)source < (uintptr_t)lease->data + lease->slot_stride_bytes;
-    if (source_in_slot && (source != lease->data || !in_frame ||
+        (uintptr_t)source < (uintptr_t)lease->data +
+            lease->slot_stride_bytes;
+    const uint8_t *second_slot = bsp_display_dma_slot(lease, 1U);
+    const bool source_in_second_slot = !clear_black && second_slot != NULL &&
+        (uintptr_t)source >= (uintptr_t)second_slot &&
+        (uintptr_t)source < (uintptr_t)second_slot + lease->slot_stride_bytes;
+    if ((source_in_first_slot || source_in_second_slot) && (!in_frame ||
+        (source != lease->data && source != second_slot) ||
         (size_t)(y_end - y_start) > lease->transfer_rows)) {
         if (!in_frame) {
             bsp_display_release_dma_pipeline(lease);
@@ -4074,6 +4230,9 @@ static esp_err_t bsp_display_write_rgb565_internal(
         }
         if (error != ESP_OK) {
             // The pixels may still be on the road. Keep their buffer until reset.
+            if (in_frame) {
+                display_frame.completion_error = error;
+            }
             display_dma_fault_lease = *lease;
             __atomic_store_n(&display_dma_retained_bytes,
                 (uint32_t)(lease->slot_stride_bytes * lease->buffer_count), __ATOMIC_RELEASE);

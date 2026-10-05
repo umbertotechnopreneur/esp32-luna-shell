@@ -12,6 +12,9 @@ static const char *TAG = "BSP_display_dma";
 static bool display_dma_low_memory_reported;
 static bool display_dma_emergency_in_use;
 static uint32_t display_dma_dual_slot_count;
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+static uint32_t display_dma_dual_slot_failure_count;
+#endif
 static uint32_t display_dma_single_slot_count;
 static uint32_t display_dma_reduced_rows_count;
 static uint32_t display_dma_emergency_count;
@@ -54,6 +57,9 @@ void bsp_display_release_dma_pipeline(
         return;
     }
     if (lease->heap_owned) {
+        if (lease->second_data != NULL) {
+            heap_caps_free(lease->second_data);
+        }
         heap_caps_free(lease->data);
     } else if (lease->emergency) {
         display_dma_emergency_in_use = false;
@@ -61,7 +67,20 @@ void bsp_display_release_dma_pipeline(
     *lease = (bsp_display_dma_lease_t){0};
 }
 
-// UI flushes may request two transient slots; standalone frames reuse one.
+// lease: Owned pipeline, whose optional second native slot may be noncontiguous.
+// slot: Zero-based storage traversal index, bounded by the actual allocation.
+uint8_t *bsp_display_dma_slot(const bsp_display_dma_lease_t *lease, size_t slot)
+{
+    if (lease == NULL || lease->data == NULL || slot >= lease->buffer_count) {
+        return NULL;
+    }
+    if (slot == 1U && lease->second_data != NULL) {
+        return lease->second_data;
+    }
+    return lease->data + slot * lease->slot_stride_bytes;
+}
+
+// UI flushes and standalone frames may request two transient slots.
 // source_row_bytes: Nonzero RGB565 row length, bounded by the physical panel.
 // maximum_transfer_rows: Maximum rows in one slot, bounded by the panel transfer limit.
 // preferred_buffer_count: One or two independently aligned pipeline slots.
@@ -131,6 +150,63 @@ esp_err_t bsp_display_acquire_dma_pipeline(
             (unsigned long)largest_block
         );
     }
+
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    // Native frames need independent DMA slots, not one contiguous frame buffer.
+    // BLE/startup fragmentation must not force synchronous rendering when two
+    // smaller internal blocks fit with the same aggregate headroom and budget.
+    // Preserve overlap with shorter paired-row slots before degrading to one slot.
+    if (preferred_buffer_count == BSP_DISPLAY_DMA_PIPELINE_DEPTH) {
+        size_t paired_rows = maximum_transfer_rows & ~(size_t)1U;
+        for (; paired_rows >= 2U; paired_rows -= 2U) {
+            const size_t paired_stride = bsp_display_dma_aligned_size(source_row_bytes * paired_rows);
+            largest_block = heap_caps_get_largest_free_block(capabilities);
+            if (largest_block < paired_stride + BSP_DISPLAY_DMA_HEADROOM_BYTES ||
+                heap_caps_get_free_size(capabilities) <
+                    paired_stride * 2U + BSP_DISPLAY_DMA_HEADROOM_BYTES) {
+                continue;
+            }
+            uint8_t *first_slot = heap_caps_aligned_alloc(
+                BSP_DISPLAY_DMA_ALIGNMENT, paired_stride, capabilities);
+            if (first_slot == NULL) {
+                continue;
+            }
+            largest_block = heap_caps_get_largest_free_block(capabilities);
+            uint8_t *second_slot = NULL;
+            // Headroom is aggregate, not duplicated in each fragmented block.
+            if (largest_block >= paired_stride && heap_caps_get_free_size(capabilities) >=
+                paired_stride + BSP_DISPLAY_DMA_HEADROOM_BYTES) {
+                second_slot = heap_caps_aligned_alloc(
+                    BSP_DISPLAY_DMA_ALIGNMENT, paired_stride, capabilities);
+            }
+            if (second_slot == NULL) {
+                heap_caps_free(first_slot);
+                continue;
+            }
+            *out_lease = (bsp_display_dma_lease_t){
+                .data = first_slot,
+                .second_data = second_slot,
+                .slot_stride_bytes = paired_stride,
+                .buffer_count = BSP_DISPLAY_DMA_PIPELINE_DEPTH,
+                .transfer_rows = paired_rows,
+                .heap_owned = true,
+            };
+            ++display_dma_dual_slot_count;
+            if (paired_rows != maximum_transfer_rows && !display_dma_low_memory_reported) {
+                ESP_LOGW(TAG, "Native two-slot DMA uses reduced rows=%lu slot=%lu; aggregate headroom=%u",
+                    (unsigned long)paired_rows, (unsigned long)paired_stride,
+                    (unsigned int)BSP_DISPLAY_DMA_HEADROOM_BYTES);
+                display_dma_low_memory_reported = true;
+            }
+            return ESP_OK;
+        }
+        ++display_dma_dual_slot_failure_count;
+        if (bsp_display_should_log_count(display_dma_dual_slot_failure_count)) {
+            ESP_LOGW(TAG, "Native two-slot DMA unavailable: count=%lu largest=%lu; trying a single slot",
+                (unsigned long)display_dma_dual_slot_failure_count, (unsigned long)largest_block);
+        }
+    }
+#endif
 
     if (preferred_buffer_count > 1U) {
         largest_block = heap_caps_get_largest_free_block(capabilities);

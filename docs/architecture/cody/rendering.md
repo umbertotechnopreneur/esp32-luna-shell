@@ -104,7 +104,7 @@ mirrored. Exact navigation/footer exceptions belong in
 The renderer retains geometry of the last completed `RigScene`, not a full RGB
 pixel cache. Old/new contour, face, opacity, style and sprite footprints feed 233
 paired-row damage spans. Bands use conservative rectangles, half-open even bounds
-in both axes and normally a 32-row internal-DMA tile lease. A capacity below two
+in both axes and normally two 16-row internal-DMA slots. A capacity below two
 raster rows returns an error instead of transmitting an odd rectangle. Redraw all
 overlapping layers in original order inside each compact rectangle, using absolute
 canvas gradient/coverage coordinates. RGB565 transport byte order is converted in
@@ -113,13 +113,30 @@ word pairs; native pixels are not copied out of a persistent packed framebuffer.
 Vector edges use four vertical coverage subsamples plus 1/256-pixel horizontal
 coverage, blending once; opaque full spans have a fast path. Fixed prepared debug
 stroke/marker geometry and bounded fill shortlists preserve order and identity.
-The BSP panel clock is unchanged. No second asynchronous DMA/render worker has
-been added.
+The same render worker borrows an idle slot before each dirty tile and queues its
+panel-order pixels without waiting for that strip's completion. Rasterization of
+the next slot overlaps the previous DMA. Before submitting again, the BSP retires
+the earlier transfer; only one color transfer is outstanding, preserving the
+binary completion IRQ contract. Frame end drains the final transfer before
+releasing memory, ending the watchdog or committing geometry. Synchronous writes
+retain their original completion guarantee and drain prior frame DMA first.
+
+The two preferred slots total 29,824 internal DMA bytes, matching the previous
+32-row slot budget. Native frames can obtain two independently aligned 14,912-byte
+blocks when no contiguous 29,824-byte block fits. If the second block is smaller,
+try shorter paired-row slots while preserving 4,096 bytes of aggregate headroom.
+A failed second allocation releases the first before retrying or degrading.
+The GUI pipeline retains its contiguous allocation. The allocator may return one slot or fewer rows under memory
+pressure; that mode waits before lending the active slot again. Actual slot/row
+counts, completion error and retained bytes are published by the display owner
+in the canonical frame snapshot and copied into `DMA` diagnostic records. The
+BSP panel clock and worker count are unchanged. DMA completion wait now measures
+only transfer time not hidden by rasterization, rather than the entire wire time.
 
 Commit geometry/text/content references only after complete successful display
 retirement. A failed/partial frame invalidates the reference and forces a full
 redraw. Route/rotation/wake also invalidate appropriately. An ambiguous DMA timeout
-quarantines its buffer rather than freeing or claiming it for reuse while the
+quarantines the entire slot lease rather than freeing or claiming it for reuse while the
 device may still own it. The 500-ms completion deadline is an error bound, not FPS.
 The conservative geometry plan can transfer more than an exact pixel-difference
 cache; avoiding a framebuffer is an ownership/memory choice, not a measured gain.
@@ -174,6 +191,33 @@ animation evidence. DMA wait is blocked elapsed time, not CPU work; stage median
 do not sum into a frame percentile. The Pearl target is 40 ms (25 FPS), and its
 budget has the same value; neither establishes a measured frame rate or CPU
 reduction.
+
+`scripts/device.ps1 check -Check display-dma` extracts and executes the production
+native BSP frame, allocator, synchronous write and completion callback functions against a
+deterministic host transport. It checks payload immutability, slot alternation,
+fragmented two-slot allocation, partial-allocation cleanup, single-slot degradation,
+final/failed-frame drain, uncertain SDK submission,
+missing/duplicate completion, deadline and ownership rejection, and synchronous
+interleaving. Source integration checks require watchdog retirement after DMA and
+geometry commit after frame end. This validates ownership control flow, not the
+physical SPI peripheral, display appearance or measured performance.
+
+The 2026-10-05 100% device window on the DMA branch completed 842 frames at the
+same 63,000-pixel payload. The full connected firmware admitted two 12-row slots,
+22,400 bytes total: mean 45,828 us, nearest-rank p95 46,667 us, maximum 47,607 us.
+All frames still exceeded 40 ms. Its earlier automatic one-slot run measured
+51,542 us mean and 52,139 us p95. Raster costs were effectively unchanged
+(35,086 versus 35,112 us); transfer-stage time fell from 12,508 to 6,761 us.
+The 5,714-us mean gain therefore comes from transport overlap. CPU percentage
+is not reduced by this result; faster frame throughput can increase utilization.
+Evidence resides in the DMA worktree's
+`artifacts/build-cody-companion-debug/evidence/dma{,-adaptive}-benchmark-100.log`.
+These windows establish performance on the fixed route, not physical animation,
+touch latency or visual correctness in all routes. Normal UI verification remains
+separate. The benchmark-disabled Debug boot capture at `6261cdb2` admitted two
+8-row startup slots, completed initialization and inactivity standby, and showed
+no display fault or panic. This confirms adaptive capacity and retirement in
+ordinary startup, not the fixed route's timing in the complete UI.
 
 `assets/cody/runtime.yaml` selects a temporary fixed raster benchmark only when
 Debug execution timings and the native Pearl renderer are enabled. The worker
