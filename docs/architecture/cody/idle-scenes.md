@@ -69,8 +69,10 @@ atlases. Their original pages/addenda are retained, and each revised PDF ends
 with dated **Errata and corrections**. Repository copies are under `docs/Cody`;
 the requested originals remain in the Cody Companion Obsidian atlas folder.
 
-Implementation has static source review only. No tests, configure/build/size,
-simulator execution, serial or physical operation was performed for this change.
+After static source review, the requested public CLI flash compiled checkpoint
+`09ea3b70` with ESP-IDF 6.0.2 and eight jobs, then wrote it on COM10 with all three
+hash checks passing and a final reset. No tests, standalone size check, simulator,
+monitor/capture or physical visual/audio observation accompanied that operation.
 Appearance under stress, gesture cadence, interruption, native/host parity,
-quiet/mute suppression, flash budget and physical whistle acoustics await
+quiet/mute suppression and physical whistle acoustics await
 fresh command-specific authorization recorded in `TODO.md`.

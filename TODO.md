@@ -3,9 +3,9 @@
 Only open, actionable work belongs here. Deferred work is in
 [planned-todo.md](planned-todo.md); completed implementation/evidence is in
 [done.md](done.md). Authorization is governed solely by [AGENTS.md](AGENTS.md).
-The merged Debug Cody image at `160a080a` was built and flashed twice on COM10
-on 2026-10-05, including once after power was restored. That proves the written
-bytes, not physical behavior; every open observation below remains open.
+The latest Debug Cody image at `09ea3b70` was built and flashed on COM10
+on 2026-10-05 after the earlier two flashes of `160a080a`. Verified flash hashes
+prove the written bytes; every open physical observation below remains open.
 
 ## Cody integration and release gates
 
@@ -23,11 +23,13 @@ bytes, not physical behavior; every open observation below remains open.
   Greeting; touch/Sophia/held-touch/stress/route/pause/standby cancellation;
   canonical own-whistle identity; quiet/mute/busy suppression and real errors;
   native/Windows visual parity and physical whistle acoustics. Code and PDF
-  appendices have static review only; no firmware/host validation was run.
+  appendices received static review. Firmware checkpoint `09ea3b70` compiled and
+  flashed successfully on COM10; no host tests, simulator or physical behavior
+  observations were performed.
 
 - [ ] Diagnose the reported caress freeze and missing heart. Capture the first
   rejected controller packet or terminal touch/display transition, then verify
-  one continuous in-body stroke above the 500-ms minimum and its synchronized
+  one continuous in-body stroke above the current 300-ms minimum and its synchronized
   Affection SFX. Current diagnostics distinguish zone exit, speed, acquisition
   gap and the other recognizer guards; do not relax driver acceptance or infer
   icon performance from the earlier HUD-only observation. Historical diagnosis,
