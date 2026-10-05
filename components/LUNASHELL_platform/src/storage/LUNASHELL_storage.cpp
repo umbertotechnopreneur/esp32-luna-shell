@@ -299,17 +299,16 @@ esp_err_t write_screenshot_file(const ScreenshotWriteRequest &request)
     return ESP_OK;
 }
 
+// No parameters: optional logger I/O must never subscribe a device-reset watchdog.
 esp_err_t logger_watch_begin()
 {
-    return LUNASHELL_liveness_watch_begin(LUNASHELL_LIVENESS_LOGGER);
+    return ESP_OK;
 }
 
+// operation_result: Original optional write/read error, preserved for structured status.
 esp_err_t logger_watch_end(esp_err_t operation_result)
 {
-    return LUNASHELL_liveness_watch_end(
-        LUNASHELL_LIVENESS_LOGGER,
-        operation_result
-    );
+    return operation_result;
 }
 
 constexpr LUNASHELL_logger_io_watch_t kLoggerIoWatch{
@@ -636,6 +635,8 @@ LUNASHELL::StorageMountReport make_mount_report(
     return report;
 }
 
+// observed_status: Optional caller copy of the actual owner query.
+// Exception: Returns the original query or asynchronous mirror error.
 esp_err_t refresh_logger_status_locked(
     LUNASHELL_logger_sd_status_t *observed_status = nullptr
 )

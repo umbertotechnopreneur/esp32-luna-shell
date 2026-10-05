@@ -10,6 +10,20 @@ flash logs were regenerated.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Implemented the authorized PSRAM and best-effort logger revision: selected
+  task-only models, benchmark/canonical snapshot, PCM scratch and 20 KiB of
+  application worker stacks move to external BSS with original defaults.
+  DMA/control/ISR, NVS, pairing and flash-reading workers stay internal.
+  Logger callback pressure counts losses without stopping a healthy SD mirror;
+  optional startup/capture publication and logger I/O do not reset the device.
+  Boot retention frees after confirmed replay or archives asynchronously to
+  PSRAM; failed flush/allocation retains unconfirmed records and original errors.
+  Full Snapshot acquisition publishes actual loss/memory observations even
+  without SD, with coalesced warnings and freshness. Updated existing scheduling
+  contracts and architecture docs received static review only. The estimated
+  roughly 68-KiB internal recovery remains unmeasured; no checks/build/size,
+  simulator, push, flash or physical verification was run. Validation is in TODO.
+
 - Implemented the reported icon readability correction: Main/Sleep centers move
   30 logical pixels right and 40 down, with threefold scale-dependent extent
   (87 px at Full, 78 at Greeting, 63 at Medium; smaller eligible sizes at least

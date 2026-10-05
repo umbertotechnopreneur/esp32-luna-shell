@@ -107,6 +107,8 @@ def decode_retained_point(
     return None
 
 
+# No parameters: review storage ownership and optional, best-effort logging contracts.
+# Raises AssertionError or OSError when a required contract/source is unavailable.
 def main() -> int:
     logger = read("components/LUNASHELL_logger/src/LUNASHELL_logger.c")
     logger_header = read(
@@ -219,7 +221,7 @@ def main() -> int:
         "SD enqueue ownership release",
     )
     queue_failure_at = queue_capture.find(
-        "record_sd_failure_for_generation(\n                \"queue\""
+        "record_capture_loss(&s_queue_dropped_lines, ESP_ERR_NO_MEM)"
     )
     queue_notification_failure_at = queue_capture.find(
         "record_sd_failure_for_generation(\n                \"queue notification\""
@@ -230,27 +232,63 @@ def main() -> int:
     )
     require(
         0 <= queue_failure_at < queue_notification_failure_at < queue_release_at,
-        "producer failure publication must remain inside SD enqueue ownership",
+        "capture loss and real notification errors must precede ownership release",
     )
     format_slot_at = queue_capture.find("if (line == NULL)")
-    format_admission_at = queue_capture.find(
-        "begin_sd_enqueue(&sd_status, &sd_generation)",
-        format_slot_at,
-    )
-    format_failure_at = queue_capture.find(
-        "record_sd_failure_for_generation(",
-        format_admission_at,
-    )
-    format_release_at = queue_capture.find(
-        "end_sd_enqueue();",
-        format_failure_at,
+    format_end_at = queue_capture.find("va_copy(capture_args, args)", format_slot_at)
+    format_exhaustion = queue_capture[format_slot_at:format_end_at]
+    require_contains(
+        format_exhaustion,
+        "record_capture_loss(&s_format_dropped_lines, ESP_ERR_NO_MEM)",
+        "best-effort format loss",
     )
     require(
-        0 <= format_slot_at < format_admission_at < format_failure_at <
-        format_release_at < queue_failure_at,
-        "format-slot failure must use the same generation-bound ownership "
-        "barrier as queued producers",
+        "record_sd_failure" not in format_exhaustion
+        and '"queue",' not in queue_capture,
+        "format/queue pressure must not disable a healthy SD mirror",
     )
+    require_contains(queue_capture, "xQueueSend(s_write_queue, line, 0)", "zero-wait capture")
+    for forbidden in ("heap_caps_", "vTaskDelay(", "fwrite(", "fflush(", "s_boot_lines_external"):
+        require(forbidden not in queue_capture, f"capture callback must not perform {forbidden}")
+
+    replay = function_text(logger, "static bool replay_boot_log(", "boot backlog")
+    require(
+        replay.find('"boot batch flush"') < replay.find("s_boot_written = next_written"),
+        "boot replay cursor must not discard an unconfirmed batch",
+    )
+    require(
+        replay.find('"boot replay flush"') < replay.find("s_boot_lines = NULL")
+        < replay.find("heap_caps_free(completed_boot_lines)"),
+        "boot records must remain owned until replay flush succeeds",
+    )
+    finish_boot = function_text(
+        logger, "esp_err_t LUNASHELL_logger_finish_boot_capture(", "asynchronous boot sealing"
+    )
+    require(
+        "archive_boot_records(" not in finish_boot and "xSemaphoreTake(" not in finish_boot,
+        "boot sealing must not copy the archive or wait for storage",
+    )
+    for signature in ("esp_err_t logger_watch_begin(", "esp_err_t logger_watch_end("):
+        watch = function_text(storage, signature, "optional logger I/O")
+        require("LUNASHELL_liveness_" not in watch, "logger I/O must not reset the device through TWDT")
+    for entry in ("main/main.cpp", "main/main_headless.cpp"):
+        startup = read(entry)
+        require("ESP_ERROR_CHECK(LUNASHELL_logger_init())" not in startup,
+                f"optional logger startup must not abort {entry}")
+        require_contains(startup, "LUNASHELL_logger_finish_boot_capture()", entry)
+    snapshot_source = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp")
+    snapshot_reports = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_reports.cpp")
+    capture_report = function_text(
+        snapshot_reports, "esp_err_t DeviceSnapshotService::reportLoggerCapture(", "optional capture report"
+    )
+    require_contains(capture_report, "SnapshotPublicationPolicy::Optional", "nonfatal capture publication")
+    require_contains(snapshot_source,
+                     "policy == SnapshotPublicationPolicy::Optional\n        ? 0 : kSnapshotMutexTimeoutTicks",
+                     "zero-wait optional snapshot publication")
+    require_contains(snapshot_source, "refreshLoggerCapture()", "SD-independent capture acquisition")
+    require_contains(snapshot_source,
+                     "current.storage.logger_capture = staged.storage.logger_capture",
+                     "staged logger publication")
     generation_failure = function_text(
         logger,
         "static bool record_sd_failure_impl(",

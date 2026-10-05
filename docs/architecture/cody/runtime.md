@@ -163,7 +163,9 @@ logged/published without stopping this optional presentation effect.
 
 The authored fixed audio RAM budget is approximately 6.5 KiB: 4,096-byte task
 stack + 2,400-byte transport scratch + small fixed state, not measured linked-image
-RAM. Speaker loudness/gentleness remains a listening check. The separate ten
+RAM. The stack and PCM scratch now use external BSS in PSRAM, as does the
+separate 4-KiB personality-audio stack; task controls/mailboxes and codec DMA
+remain internal. Speaker loudness/gentleness remains a listening check. The separate ten
 [archive cue candidates](../../../assets/cody/audio/gentle-sfx/README.md) exist only
 as private `artifacts/audio/cody-gentle-sfx/` previews/audition/manifest. They are
 not firmware or automatic cues. Perpetual commercial-use licences were confirmed

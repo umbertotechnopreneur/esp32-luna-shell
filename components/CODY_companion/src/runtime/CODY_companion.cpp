@@ -48,6 +48,7 @@
 #include "LUNASHELL_platform.h"
 #include "bsp/display.h"
 #include "esp_heap_caps.h"
+#include "esp_attr.h"
 #include "esp_timer.h"
 #include "esp_system.h"
 #include "esp_random.h"
@@ -159,7 +160,7 @@ std::atomic<uint32_t> s_lifecycle_request{0};
 std::atomic<uint32_t> s_lifecycle_acknowledged{0};
 std::atomic<uint32_t> s_lifecycle_generation{0};
 // This bounded collector shares the display/state lock with completed frame publication.
-CODY::FrameBenchmark s_benchmark;
+EXT_RAM_BSS_ATTR CODY::FrameBenchmark s_benchmark;
 // Completed-frame geometry and controls share the display lock.
 // They are never advanced by a failed frame or a deferred touch event.
 bool s_cache_was_rig = false;
@@ -263,7 +264,10 @@ struct CompanionState {
     uint32_t rig_frame_count = 0;
     CODY::FrameRateMeasurement frame_rate{};
 };
-CompanionState s_state;
+// Preserve nonzero defaults without placing initialized data in the external BSS.
+// These are task-only display-lock users; IRQs never access the companion model.
+alignas(CompanionState) EXT_RAM_BSS_ATTR uint8_t s_state_storage[sizeof(CompanionState)]{};
+CompanionState &s_state = *new (s_state_storage) CompanionState{};
 
 // preserve_visible_handoff: Keep the current auto heart only for a visible semantic Sleep fade.
 void cancel_transient_affection(bool preserve_visible_handoff = false)
@@ -643,7 +647,8 @@ struct PausedSceneModel {
     bool valid = false;
 };
 // Preserve the compact artistic model, not another PSRAM geometry/framebuffer copy.
-PausedSceneModel s_paused_scene_model;
+alignas(PausedSceneModel) EXT_RAM_BSS_ATTR uint8_t s_paused_model_storage[sizeof(PausedSceneModel)]{};
+PausedSceneModel &s_paused_scene_model = *new (s_paused_model_storage) PausedSceneModel{};
 const CODY::SceneDefinition *s_standby_scene_definition = nullptr;
 const CODY::SceneDefinition *s_typewriter_scene_definition = nullptr;
 const char *s_typewriter_title_text = nullptr;

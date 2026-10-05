@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <new>
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY || \
     CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH || \
@@ -89,6 +90,7 @@ using LUNASHELL::snapshot_detail::log_snapshot_publication_failure;
 using LUNASHELL::snapshot_detail::kDiagnosticPeriodMinMs;
 using LUNASHELL::snapshot_detail::kDiagnosticPeriodMaxMs;
 using LUNASHELL::snapshot_detail::kImuSmoothingMaxPercent;
+using LUNASHELL::snapshot_detail::SnapshotPublicationPolicy;
 
 const char *TAG = "LUNASHELL_snapshot";
 constexpr char kDiagnosticPeriodSetting[] = "diag_ms";
@@ -403,7 +405,11 @@ struct OrientationState {
 
 OrientationState s_orientation;
 
-LUNASHELL::DeviceSnapshot s_snapshot;
+// Keep default field values: IDF initializes PSRAM before running C++ constructors.
+// Only task-context snapshot owners access this storage; locks and ISR latches stay internal.
+alignas(LUNASHELL::DeviceSnapshot) EXT_RAM_BSS_ATTR
+uint8_t s_snapshot_storage[sizeof(LUNASHELL::DeviceSnapshot)]{};
+LUNASHELL::DeviceSnapshot &s_snapshot = *new (s_snapshot_storage) LUNASHELL::DeviceSnapshot{};
 StaticSemaphore_t s_snapshot_mutex_control;
 SemaphoreHandle_t s_snapshot_mutex;
 std::atomic<uint32_t> s_touch_activity_sequence{0};
@@ -428,7 +434,8 @@ StackType_t s_imu_calibration_task_stack[3072];
 EXT_RAM_BSS_ATTR char s_gps_payload[GPS_MAX_PAYLOAD + 1];
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
-int16_t s_microphone_samples[1024];
+// Codec reads copy out of internal I2S DMA buffers into this application block.
+EXT_RAM_BSS_ATTR int16_t s_microphone_samples[1024];
 #endif
 
 struct AudioSpectrumBands {
@@ -501,7 +508,8 @@ esp_err_t give_refresh_mutex(
 }
 
 template <typename Update>
-esp_err_t update_snapshot(Update update);
+esp_err_t update_snapshot(
+    Update update, SnapshotPublicationPolicy policy = SnapshotPublicationPolicy::Required);
 
 
 void publish_imu_calibration_failure(
@@ -535,8 +543,11 @@ LUNASHELL::DeviceSnapshot *current_task_snapshot_stage()
     return s_snapshot_stage.load(std::memory_order_acquire);
 }
 
+// update: Synchronous stage or canonical mutation; never retained after this call.
+// policy: Optional logging publishes errors without invoking a fatal synchronization handler.
+// Exception: Returns actual optional mutex errors; required publication keeps its invariant.
 template <typename Update>
-esp_err_t update_snapshot(Update update)
+esp_err_t update_snapshot(Update update, SnapshotPublicationPolicy policy)
 {
     if (LUNASHELL::DeviceSnapshot *stage = current_task_snapshot_stage();
         stage != nullptr) {
@@ -548,14 +559,22 @@ esp_err_t update_snapshot(Update update)
     SemaphoreHandle_t mutex = ensure_snapshot_mutex();
     if (mutex == nullptr) {
         ESP_LOGE(TAG, "DeviceSnapshot update failed: mutex allocation failed");
+        if (policy == SnapshotPublicationPolicy::Optional) {
+            return ESP_ERR_NO_MEM;
+        }
         std::abort();
     }
-    if (xSemaphoreTake(mutex, kSnapshotMutexTimeoutTicks) != pdTRUE) {
+    const TickType_t wait_ticks = policy == SnapshotPublicationPolicy::Optional
+        ? 0 : kSnapshotMutexTimeoutTicks;
+    if (xSemaphoreTake(mutex, wait_ticks) != pdTRUE) {
         ESP_LOGE(
             TAG,
             "DeviceSnapshot update failed: mutex take timed out after %lu ms",
-            static_cast<unsigned long>(kSnapshotMutexTimeoutMs)
+            static_cast<unsigned long>(wait_ticks * portTICK_PERIOD_MS)
         );
+        if (policy == SnapshotPublicationPolicy::Optional) {
+            return ESP_ERR_TIMEOUT;
+        }
         std::abort();
     }
 
@@ -563,6 +582,9 @@ esp_err_t update_snapshot(Update update)
     advance_snapshot_sequence();
     if (xSemaphoreGive(mutex) != pdTRUE) {
         ESP_LOGE(TAG, "DeviceSnapshot update failed: mutex release rejected");
+        if (policy == SnapshotPublicationPolicy::Optional) {
+            return ESP_FAIL;
+        }
         std::abort();
     }
     return ESP_OK;
@@ -748,6 +770,9 @@ enum class SnapshotStageKind {
     Diagnostic,
 };
 
+// current: Canonical snapshot protected by the snapshot mutex.
+// staged: Measurements acquired by the current stage owner with original timestamps.
+// kind: Acquisition domain that determines which fields this stage may publish.
 void merge_snapshot_stage(
     LUNASHELL::DeviceSnapshot &current,
     const LUNASHELL::DeviceSnapshot &staged,
@@ -767,6 +792,9 @@ void merge_snapshot_stage(
         }
         if (stage_is_newer(staged.processor, current.processor)) {
             current.processor = staged.processor;
+        }
+        if (stage_is_newer(staged.storage.logger_capture, current.storage.logger_capture)) {
+            current.storage.logger_capture = staged.storage.logger_capture;
         }
     }
     if (stage_is_newer(staged.imu, current.imu)) {
@@ -1009,6 +1037,7 @@ void apply_measured_sample_aging(
     }
     age_measured_sample(snapshot.memory, now_us, ttl_us);
     age_measured_sample(snapshot.processor, now_us, ttl_us);
+    age_measured_sample(snapshot.storage.logger_capture, now_us, ttl_us);
 }
 
 esp_err_t publish_update_result(const char *reason, esp_err_t error)
@@ -6279,7 +6308,10 @@ esp_err_t sample_system_state()
 namespace LUNASHELL::snapshot_detail {
 // mutation: Synchronous update executed by the canonical snapshot owner.
 // context: Borrowed caller state; never stored beyond this call.
-esp_err_t apply_snapshot_mutation(SnapshotMutation mutation, void *context)
+// policy: Explicit required/optional publication selected by the component owner.
+// Exception: Returns actual callback or optional mutex failures.
+esp_err_t apply_snapshot_mutation(
+    SnapshotMutation mutation, void *context, SnapshotPublicationPolicy policy)
 {
     if (mutation == nullptr || context == nullptr) {
         ESP_LOGE(TAG, "Snapshot mutation rejected: callback=%s context=%p (%s)",
@@ -6287,7 +6319,8 @@ esp_err_t apply_snapshot_mutation(SnapshotMutation mutation, void *context)
         return ESP_ERR_INVALID_ARG;
     }
     // Keep staging and lock ownership here. Reporters never acquire their own sensor cache.
-    return ::update_snapshot([=](DeviceSnapshot &snapshot) { mutation(snapshot, context); });
+    return ::update_snapshot(
+        [=](DeviceSnapshot &snapshot) { mutation(snapshot, context); }, policy);
 }
 }  // namespace LUNASHELL::snapshot_detail
 
@@ -6535,6 +6568,7 @@ esp_err_t DeviceSnapshotService::initialize()
 
 // reason: Caller-owned diagnostic label for this serialized acquisition.
 // diagnostic_reuse_limit_ms: Bounded original-sample reuse window; zero disables reuse.
+// Exception: Returns acquisition/commit errors; optional logger faults remain in their component.
 esp_err_t DeviceSnapshotService::refresh(
     const char *reason,
     uint32_t diagnostic_reuse_limit_ms
@@ -6670,6 +6704,13 @@ esp_err_t DeviceSnapshotService::refresh(
         }
 #endif
         record_first_error(sample_system_state(), &aggregate);
+        // Logging is optional. Its own component returns and publishes real
+        // errors without turning sensor acquisition or startup into a failure.
+        const esp_err_t logger_capture_error = refreshLoggerCapture();
+        if (logger_capture_error != ESP_OK) {
+            ESP_LOGE(TAG, "Optional logger capture observation failed (%s)",
+                esp_err_to_name(logger_capture_error));
+        }
         record_first_error(publish_update_result(phase, aggregate), &aggregate);
         const esp_err_t commit_error = commit_snapshot_stage(
             staged_snapshot,

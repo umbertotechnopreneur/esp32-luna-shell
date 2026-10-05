@@ -30,6 +30,12 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
 
 ## Console and storage
 
+- Best-effort log pressure is a counted delivery loss, not a terminal SD failure.
+  Keep capture zero-wait and internal; archive only sealed records on the writer.
+  Advance boot replay only after confirmed flush and retain uncertain ownership
+  on real I/O failure. Optional logging must not subscribe a device-reset watchdog
+  or make startup depend on its own availability. Source estimates need a new
+  linked image and hardware watermarks before they become memory evidence.
 - Monitor can reset a continuously connected MCU; passive attach must not probe
   the port. COM numbers/list order are not identities. Classify missing ports
   by native codes, preserve exception/exit causes and acquire artifact ownership

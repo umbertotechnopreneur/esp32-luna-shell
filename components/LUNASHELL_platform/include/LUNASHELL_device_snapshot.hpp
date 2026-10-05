@@ -330,8 +330,27 @@ struct StorageMountReport {
     bool logger_mirror_enabled = false;
 };
 
+struct LoggerCaptureReport {
+    esp_err_t query_error = ESP_OK;
+    int64_t sampled_at_us = 0;
+    uint32_t boot_dropped_lines = 0;
+    uint32_t usb_dropped_lines = 0;
+    uint32_t format_dropped_lines = 0;
+    uint32_t queue_dropped_lines = 0;
+    uint32_t truncated_lines = 0;
+    uint32_t boot_retained_bytes = 0;
+    uint32_t boot_archive_bytes = 0;
+    esp_err_t capture_error = ESP_OK;
+    int64_t capture_error_at_us = 0;
+};
+
+struct LoggerCaptureSnapshot : ComponentSnapshot {
+    LoggerCaptureReport observation{};
+};
+
 struct StorageSnapshot : ComponentSnapshot {
     ComponentSnapshot logger_mirror;
+    LoggerCaptureSnapshot logger_capture;
     StorageMountOutcome mount_outcome = StorageMountOutcome::NotAttempted;
     StorageMountStage mount_stage = StorageMountStage::None;
     StorageCleanupStage cleanup_stage = StorageCleanupStage::None;
@@ -789,6 +808,9 @@ public:
         int64_t changed_at_us,
         uint32_t failure_count
     );
+    // report: Original owner query timestamp, counters, retained bytes and actual errors.
+    // Exception: Returns an invalid report or the real snapshot publication failure.
+    esp_err_t reportLoggerCapture(const LoggerCaptureReport &report);
     void reportDiagnosticPeriod(uint32_t sample_period_ms, esp_err_t error);
     void reportImuSmoothing(uint32_t imu_smoothing_percent, esp_err_t error);
     void reportFullSnapshotPeriod(
@@ -893,6 +915,9 @@ public:
     );
 
 private:
+    // No parameters: acquisition owner reads logger counters independently of SD availability.
+    // Exception: Returns the original logger query or snapshot publication error.
+    esp_err_t refreshLoggerCapture();
     DeviceSnapshotService() = default;
 };
 

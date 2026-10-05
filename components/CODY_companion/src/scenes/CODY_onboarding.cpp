@@ -7,6 +7,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <iterator>
+#include <new>
+
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#endif
 
 #include "CODY2D_controls.hpp"
 #include "CODY_jelly.hpp"
@@ -139,7 +144,13 @@ struct ContentView {
     char error_text[32]{};
     char debug_text[kContentLineCapacity][kDebugLineBytes]{};
 };
+#ifdef ESP_PLATFORM
+// IDF constructs the default view after PSRAM startup; host fixtures use ordinary RAM.
+alignas(ContentView) EXT_RAM_BSS_ATTR uint8_t s_view_storage[sizeof(ContentView)]{};
+ContentView &s_view = *new (s_view_storage) ContentView{};
+#else
 ContentView s_view;
+#endif
 Route s_route = Route::None;
 uint32_t s_generation = 1;
 std::atomic<uint32_t> s_presentation_generation{1};
@@ -186,11 +197,21 @@ GestureAxis s_swipe_axis = GestureAxis::Undecided;
 // display worker. Release/acquire transfers ownership; no per-frame queue allocation.
 TaskHandle_t s_worker = nullptr;
 StaticTask_t s_worker_control{};
+#ifdef ESP_PLATFORM
+// Actions request radio work and delegate all persisted writes to the internal NVS executor.
+EXT_RAM_BSS_ATTR StackType_t s_worker_stack[4096]{};
+#else
 StackType_t s_worker_stack[4096]{};
+#endif
 std::atomic<bool> s_work_busy{false};
 std::atomic<bool> s_result_ready{false};
 Command s_command{};
+#ifdef ESP_PLATFORM
+alignas(Result) EXT_RAM_BSS_ATTR uint8_t s_result_storage[sizeof(Result)]{};
+Result &s_result = *new (s_result_storage) Result{};
+#else
 Result s_result{};
+#endif
 QrModules *s_encoding_target = nullptr; // Only the action worker calls the QR library.
 
 // route: Stable route identity whose bounded local inactivity policy is requested.

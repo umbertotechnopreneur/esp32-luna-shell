@@ -24,8 +24,16 @@ extern "C" {
  *
  * Capture precedes best-effort USB output. A bounded boot backlog and the UI
  * ring retain diagnostics before the removable-storage owner enables SD.
+ * Initialization returns its real error; the startup orchestrator explicitly
+ * treats logging as optional. A boot-buffer failure leaves the core sinks usable.
  */
+// No parameters: initialize once and retain the original result for repeated requests.
+// Exception: Returns the actual driver/allocation error without resetting the device.
 esp_err_t LUNASHELL_logger_init(void);
+
+// No parameters: seal the boot backlog and request its asynchronous PSRAM archival.
+// Exception: Returns the real initialization/notification error; never waits for file I/O.
+esp_err_t LUNASHELL_logger_finish_boot_capture(void);
 
 /**
  * Enable SD mirroring after the card has been mounted.
@@ -51,9 +59,9 @@ esp_err_t LUNASHELL_logger_set_capture_suspended(bool suspended);
  * Liveness hooks supplied by the removable-storage owner.
  *
  * The logger component deliberately does not own the firmware watchdog. The
- * platform registers these hooks once, before SD mirroring can start, so the
- * writer can cover only real filesystem work and remain unsubscribed while it
- * is parked waiting for data.
+ * platform registers these hooks once before SD mirroring starts. Logger I/O is
+ * optional and must not subscribe a watchdog that resets the whole device.
+ * Ownership and original filesystem errors are retained independently.
  */
 typedef struct {
     esp_err_t (*begin)(void);
@@ -74,12 +82,21 @@ typedef struct {
     uint32_t persisted_write_sequence;
     uint32_t boot_dropped_lines;
     uint32_t usb_dropped_lines;
+    /** Loss counters do not disable a healthy best-effort SD sink. */
+    uint32_t format_dropped_lines;
+    uint32_t queue_dropped_lines;
+    uint32_t truncated_lines;
+    esp_err_t capture_error;
+    int64_t capture_error_at_us;
+    uint32_t boot_retained_bytes;
+    uint32_t boot_archive_bytes;
+    int64_t sampled_at_us;
 } LUNASHELL_logger_sd_status_t;
 
 /**
  * Return the current SD writer state, including asynchronous write failures.
  */
-// status receives writer health and the separately counted boot/USB capture losses.
+// status receives writer health, retained memory and independently counted sink losses.
 // Returns an argument/state error when status cannot be supplied.
 esp_err_t LUNASHELL_logger_get_sd_status(LUNASHELL_logger_sd_status_t *status);
 

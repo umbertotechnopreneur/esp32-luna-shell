@@ -182,9 +182,11 @@ IDs, not names/list order, are persistence identities. `cody_skin` persists Pear
 Mist only when missing; unknown ID, invalid type or failed read is an error,
 never repair.
 
-One copied stable-ID request enters the static 4-KiB action worker's single-slot
-mailbox. It performs admission, QR work and NVS writes outside the display worker;
-radio lifecycle remains with its owner. During Saving... the old preview stays
+One copied stable-ID request enters the static 4-KiB PSRAM action worker's
+single-slot mailbox. It performs admission/QR work outside the display worker
+and delegates persisted writes to the internal-stack settings executor;
+radio lifecycle remains with its owner. Views/result payload also use PSRAM;
+TCBs and mailbox synchronization remain internal. During Saving... the old preview stays
 active, navigation/second save are disabled and controls dim. The worker persists
 only. On success the display owner selects the skin between retired frames.
 
@@ -239,6 +241,9 @@ record through the internal-stack settings owner, and wipes attempt secrets at
 success, timeout or cancellation. A genuinely absent record is unpaired; wrong
 size, version, CRC or contents is a visible failure requiring explicit repair.
 The PC plugin listens on UDP 42118 and retains its independently generated PC ID.
+The CCP application worker's 8-KiB stack uses PSRAM. Its UDP/crypto work delegates
+all persisted writes to the existing internal settings executor; radio lifecycle
+and pairing-owner stacks retain their internal-memory ownership.
 The complete field order and proof inputs are versioned in
 [`plugins/cody-codex-plugin/protocol/CCP1.md`](../../../plugins/cody-codex-plugin/protocol/CCP1.md).
 

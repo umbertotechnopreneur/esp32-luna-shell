@@ -9,6 +9,17 @@ prove the written bytes; every open physical observation below remains open.
 
 ## Cody integration and release gates
 
+- [ ] After fresh command-specific authorization, validate the 2026-10-05 PSRAM
+  and best-effort logger revision. Prepared source contracts include
+  `scripts/device.ps1 check -Check storage-logger`; snapshot integrity and
+  portable Cody checks also remain pending. Build/map/size must establish actual
+  internal-RAM recovery and external BSS placement, then hardware review must
+  cover stack watermarks, queue pressure without mirror shutdown, SD absence,
+  disabled mirroring, replay/archival failures, canonical loss timestamps,
+  standby/readback ownership and optional logger failures without device reset.
+  The roughly 68-KiB recovery is a source estimate, not measured evidence.
+  No checks, build, simulator, push or flash accompanied this implementation.
+
 - [ ] Remind the user after approval of the new boot behavior: update both Cody
   PDF atlases with the shortened 2 / 1.5 / 2-second cold-boot sequence and random
   returning-device Affection/Joy welcome, plus touch/icon/cycle corrections and

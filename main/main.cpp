@@ -20,6 +20,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -367,7 +368,21 @@ extern "C" void app_main(void)
 {
     ESP_ERROR_CHECK(LUNASHELL_power_prepare_boot());
     ESP_ERROR_CHECK(LUNASHELL_memory_telemetry_init());
-    ESP_ERROR_CHECK(LUNASHELL_logger_init());
+    const esp_err_t logger_error = LUNASHELL_logger_init();
+    if (logger_error != ESP_OK) {
+        // Logging is optional: preserve its failure without stopping UI/hardware startup.
+        ESP_LOGE(kTag, "Optional logger initialization failed (%s); startup continues",
+            esp_err_to_name(logger_error));
+        LUNASHELL::LoggerCaptureReport failure;
+        failure.query_error = logger_error;
+        failure.sampled_at_us = esp_timer_get_time();
+        const esp_err_t publication_error =
+            LUNASHELL::DeviceSnapshotService::instance().reportLoggerCapture(failure);
+        if (publication_error != ESP_OK) {
+            ESP_LOGE(kTag, "Optional logger startup failure publication also failed (%s)",
+                esp_err_to_name(publication_error));
+        }
+    }
     LUNASHELL::build_mode::log_startup_mode();
     ESP_ERROR_CHECK(LUNASHELL_liveness_init());
     StartupWatch startup_watch;
@@ -578,4 +593,5 @@ extern "C" void app_main(void)
 #endif
     startup_watch.complete();
     ESP_LOGI(kTag, "Firmware startup completed with application ready");
+    report_optional_startup_failure("boot log archival", LUNASHELL_logger_finish_boot_capture());
 }

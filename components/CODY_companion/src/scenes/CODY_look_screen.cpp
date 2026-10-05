@@ -5,6 +5,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <new>
+
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#endif
 
 #include "CODY2D_controls.hpp"
 #include "CODY_jelly.hpp"
@@ -62,7 +67,13 @@ struct LookView {
 };
 
 // One active selector, reused by any host. All borrowed text outlives its frame.
+#ifdef ESP_PLATFORM
+// Preserve initialized controls/text while keeping their lifetime storage in PSRAM.
+alignas(LookView) EXT_RAM_BSS_ATTR uint8_t s_view_storage[sizeof(LookView)]{};
+LookView &s_view = *new (s_view_storage) LookView{};
+#else
 LookView s_view;
+#endif
 uint32_t s_revision = 0;
 uint32_t s_text_generation = 0;
 bool s_touch_active = false;

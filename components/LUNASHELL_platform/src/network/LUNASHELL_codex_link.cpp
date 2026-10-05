@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "esp_log.h"
+#include "esp_attr.h"
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -65,7 +66,8 @@ static_assert(sizeof(PersistedLink) == 56, "CCP persisted link must remain byte-
 
 std::mutex s_mutex;
 StaticTask_t s_worker_control{};
-StackType_t s_worker_stack[kWorkerStackSize]{};
+// CCP does socket/crypto work; all persisted writes run on the internal settings executor.
+EXT_RAM_BSS_ATTR StackType_t s_worker_stack[kWorkerStackSize]{};
 TaskHandle_t s_worker = nullptr;
 Command s_pending = Command::None;
 int s_socket = -1;

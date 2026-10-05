@@ -16,7 +16,9 @@ fusion.
 - `report*()` methods let subsystem owners publish state that cannot be sampled
   by the service directly, including display, SD, speaker, Wi-Fi, and BLE.
   Each report is a separate committed generation. Failure to publish a
-  generation is a fatal synchronization invariant, never a log-only event.
+  generation is normally a fatal synchronization invariant. Optional logger
+  capture reports explicitly use zero-wait publication and return/log the real
+  error without aborting the device; all required reporters retain the invariant.
 - Physical touch activity uses a lock-free monotonic sequence and timestamp.
   `snapshot()` folds that latch into each returned immutable copy, so the LVGL
   input callback never waits for a hardware refresh or reads the touch driver.
@@ -67,6 +69,7 @@ initiates hardware sampling.
 | Diagnostics | Full Snapshot cadence/worker state, Diagnostic Stream cadence/state, and IMU smoothing |
 | Power management | active/standby transition, PWR/BOOT/IMU/touch reason, audio suspension, Status Arc and Command Arc visibility, display idle stage, and the four independent inactivity settings |
 | UI/storage/radios | display, touch health, monotonic touch-activity sequence/timestamp, display power mode, applied/configured brightness, SD/logger mirror and card/transport state, Wi-Fi, BLE |
+| Logger capture | actual boot/USB/format/queue losses and truncations, retained boot bytes by memory domain, last capture error/time and original query timestamp |
 | Memory | aggregate heap occupancy; internal and PSRAM total/free/minimum/largest sizes plus allocated/free/total block counts; pressure flag; bounded allocation-failure aggregates |
 | Processor | native core count plus sampled task name, priority, and stack watermark |
 
@@ -86,6 +89,19 @@ is possible only after card initialization and an exact FatFs
 `FR_NO_FILESYSTEM` result. Poisoned or incomplete cleanup is published
 separately with its cleanup stage and error and is terminal for the current
 boot.
+
+`storage.logger_capture` is sampled by the Full Snapshot acquisition owner even
+when SD is unmounted or its worker is parked. `Ready` describes a successful,
+current counter query; historical delivery losses and their original error/time
+remain explicit in its observation. Mirror I/O health remains in `logger_mirror`.
+Failed queries publish the actual query error without replacing previous counters
+with zeros. Logger samples use the existing Full Snapshot freshness TTL.
+
+The canonical snapshot's lifetime storage is external BSS in PSRAM, constructed
+with its original nonzero defaults after IDF initializes external RAM. The static
+mutex, acquisition ownership/IRQ latches and flash-reading Full Snapshot stack
+remain internal. Staged merging publishes the logger component by its actual
+timestamp and preserves concurrent subsystem updates.
 
 The LC76G bridge is command-gated: address `0x54` is read only after a command
 to `0x50`. Backlogs are drained in fixed 4096-byte chunks into static storage,

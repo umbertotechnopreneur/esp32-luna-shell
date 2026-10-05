@@ -17,13 +17,32 @@ drop counter is exposed by `LUNASHELL_logger_get_sd_status` separately from real
 filesystem errors. The physical boot/display problem reported by the user has
 not been verified as resolved.
 
-The SD profile retains the first 128 captured records in 32 KiB of internal RAM.
-Internal memory permits capture during the existing NVS/cache-off boundaries.
-Profiles with SD disabled do not reserve this full backlog. Headless startup
+The SD profile temporarily allocates 32 KiB of internal RAM for its first 128
+captured records. The callback's live ring, format slots and zero-wait queue also
+remain internal; it never allocates, waits for capacity or accesses a PSRAM
+archive. Profiles with SD disabled do not allocate the boot backlog. Headless startup
 starts the asynchronous storage owner after initial hardware acquisition and
 before display/Cody startup. Once SD is mounted and mirroring is enabled, the
-writer replays early records in watched batches, flushes them, then consumes
-the ordinary queue. It does not wait for USB acknowledgement.
+writer replays early records in batches of at most eight, confirms each flush,
+then consumes the ordinary queue. Confirmed final replay detaches and frees the
+backlog. A failed batch keeps its unconfirmed records; an explicitly restarted
+mirror may repeat that uncertain batch. This is not exactly-once persistence.
+
+Both startup paths seal boot capture and notify the writer without waiting for
+file I/O. If a backlog remains, that sole writer moves the sealed records into
+an exactly sized PSRAM archive and releases the 32-KiB internal allocation, even
+with SD absent or mirroring disabled. Copying/allocation happen outside the log
+callback and critical sections. Allocation failure retains the original records
+and real error, without an allocation retry loop or stopping the device. Replay
+later frees the archive only after its final confirmed flush. All retention is
+volatile and is lost on reset or power loss.
+
+Format-slot exhaustion and a full queue count losses without disabling a healthy
+SD mirror. Truncation, boot overflow and USB drops have separate counters. Actual
+SD write/flush/notification failures still disable the affected sink and retain
+their original errors. Logger initialization is an explicitly optional startup
+stage: its real failure is returned and published without aborting Cody/UI startup;
+repeat initialization and failed status queries retain the original cause.
 
 The first mirror activation in a boot moves a nonempty existing
 `/sdcard/LUNASHELL/logs/LUNASHELL.log` to `LUNASHELL.log.1`. The current file also
@@ -37,7 +56,8 @@ Logging begins at application logger initialization. ROM/bootloader output
 cannot be captured by this hook. Early-buffer overflow is counted and persisted
 as `BOOT LOG INCOMPLETE`; record truncation retains `[TRUNCATED]`. The existing
 255-byte record bound and the final unflushed data before unexpected power loss
-remain explicit limits. No missing/corrupt preference or filesystem is repaired
+remain explicit limits. A successful stdio flush is not a guarantee against
+filesystem/card corruption from power loss. No missing/corrupt preference or filesystem is repaired
 implicitly, and no removable card is formatted by logging or readback.
 
 ## Read ownership and integrity
@@ -46,8 +66,22 @@ The native USB receiver accepts only fixed current/previous identities. It
 calls an immutable callback registered by the storage owner. Each read holds
 the storage mutex, rejects an unmounted/terminal/standby state, then takes the
 logger I/O mutex shared by writing, closing, rotation and readback. Only the
-bounded filesystem operation owns the logger watchdog. Both locks and the
-watch are released before sending a response over USB.
+bounded filesystem operation holds those ownership guards. Optional logger I/O
+does not subscribe a watchdog that resets the whole device. The registered owner
+hooks preserve the original operation result. Both locks are released before
+sending a response over USB. Stop/ownership waits remain bounded; a wedged driver
+cannot be forcibly cancelled or safely unmounted while ownership is uncertain.
+
+The canonical acquisition owner samples `storage.logger_capture` on every Full
+Snapshot refresh, independently of SD mount state. It publishes original query
+timestamps, all five loss counters, the last capture error/time, and retained
+internal/PSRAM boot bytes. Counter-query validity and SD mirror health are separate:
+valid counters do not claim that every log was delivered. Failed queries retain
+the previous observation with invalid/stale state. Consumers never query logger
+state directly. Cumulative losses produce a warning on first observation and at
+most once per 60 seconds, instead of a recursive warning for every dropped line.
+Optional capture publication uses a zero-wait snapshot lock and returns its real
+failure; required component publication keeps its existing fatal invariants.
 
 Read binding is established on every mount even when mirroring is disabled;
 it does not create files. An opaque, nonzero 32-bit revision is seeded per boot
@@ -102,5 +136,5 @@ The ordinary monitor now uses `--no-reset` and forwards its baud explicitly.
 `-ResetBeforeMonitor` requests ESP-IDF's startup reset when intentionally needed.
 Its inventory wait never opens a probe handle or stops an existing monitor.
 
-This implementation has static review only. No build, suite, simulator, flash,
+The 2026-10-05 PSRAM/best-effort revision has static source review only. No new build, suite, simulator, flash,
 download, monitor, SD mount, standby or physical boot behavior was validated.

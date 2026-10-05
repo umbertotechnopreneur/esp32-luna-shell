@@ -1,6 +1,7 @@
 #include "LUNASHELL_snapshot_internal.hpp"
 #include "LUNASHELL_snapshot_cadence.hpp"
 #include "LUNASHELL_sensor_fusion.hpp"
+#include "LUNASHELL_logger.h"
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -9,6 +10,9 @@
 
 namespace {
 constexpr char TAG[] = "LUNASHELL_snapshot";
+constexpr int64_t kLoggerLossReminderUs = 60000000;
+// The full acquisition mutex serializes this optional diagnostic reminder.
+int64_t s_logger_loss_notice_at_us;
 }
 
 namespace LUNASHELL::snapshot_detail {
@@ -408,6 +412,80 @@ void DeviceSnapshotService::reportStorageMirror(
         "Storage-mirror report",
         publication_error
     );
+}
+
+// No parameters: only the acquisition owner samples this optional runtime component.
+// Exception: Returns the actual query/publication error; retained losses remain structured state.
+esp_err_t DeviceSnapshotService::refreshLoggerCapture()
+{
+    LUNASHELL_logger_sd_status_t status{};
+    LoggerCaptureReport capture;
+    const esp_err_t query_error = LUNASHELL_logger_get_sd_status(&status);
+    capture.query_error = query_error;
+    capture.sampled_at_us = query_error == ESP_OK ? status.sampled_at_us : esp_timer_get_time();
+    if (query_error == ESP_OK) {
+        capture.boot_dropped_lines = status.boot_dropped_lines;
+        capture.usb_dropped_lines = status.usb_dropped_lines;
+        capture.format_dropped_lines = status.format_dropped_lines;
+        capture.queue_dropped_lines = status.queue_dropped_lines;
+        capture.truncated_lines = status.truncated_lines;
+        capture.boot_retained_bytes = status.boot_retained_bytes;
+        capture.boot_archive_bytes = status.boot_archive_bytes;
+        capture.capture_error = status.capture_error;
+        capture.capture_error_at_us = status.capture_error_at_us;
+    }
+    const esp_err_t publication_error = reportLoggerCapture(capture);
+    const bool capture_incomplete = query_error == ESP_OK &&
+        (capture.boot_dropped_lines != 0U || capture.usb_dropped_lines != 0U ||
+         capture.format_dropped_lines != 0U || capture.queue_dropped_lines != 0U ||
+         capture.truncated_lines != 0U || capture.capture_error != ESP_OK);
+    if (capture_incomplete && (s_logger_loss_notice_at_us == 0 ||
+        capture.sampled_at_us - s_logger_loss_notice_at_us >= kLoggerLossReminderUs)) {
+        s_logger_loss_notice_at_us = capture.sampled_at_us;
+        // Count every loss, but avoid a recursive warning for every full queue.
+        // These are actual cumulative observations, not synthetic recovery data.
+        ESP_LOGW(TAG,
+            "Log losses: boot=%lu usb=%lu fmt=%lu queue=%lu trunc=%lu "
+            "capture_error=%s at=%lld internal=%lu psram=%lu",
+            static_cast<unsigned long>(capture.boot_dropped_lines),
+            static_cast<unsigned long>(capture.usb_dropped_lines),
+            static_cast<unsigned long>(capture.format_dropped_lines),
+            static_cast<unsigned long>(capture.queue_dropped_lines),
+            static_cast<unsigned long>(capture.truncated_lines),
+            esp_err_to_name(capture.capture_error),
+            static_cast<long long>(capture.capture_error_at_us),
+            static_cast<unsigned long>(capture.boot_retained_bytes),
+            static_cast<unsigned long>(capture.boot_archive_bytes));
+    }
+    return query_error != ESP_OK ? query_error : publication_error;
+}
+
+// report: Original owner query timestamp, retained memory and cumulative sink losses.
+// Exception: Returns malformed observation or the original snapshot publication error.
+esp_err_t DeviceSnapshotService::reportLoggerCapture(const LoggerCaptureReport &report)
+{
+    if (report.sampled_at_us <= 0 || report.sampled_at_us > esp_timer_get_time()) {
+        ESP_LOGE(TAG, "Logger capture report rejected: timestamp=%lld (%s)",
+            static_cast<long long>(report.sampled_at_us), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    // snapshot: The current acquisition stage or exclusively owned canonical object.
+    const esp_err_t error = update_snapshot([&report](DeviceSnapshot &snapshot) {
+        auto &capture = snapshot.storage.logger_capture;
+        if (report.query_error == ESP_OK) {
+            capture.observation = report;
+            mark_sample_success(capture, report.sampled_at_us);
+            // A successful counter query is current data, even if a sink lost
+            // earlier records. Its historical error remains in the observation;
+            // Ready describes the query, never a guarantee of complete logging.
+        } else {
+            mark_sample_failure(capture, report.query_error, report.sampled_at_us);
+        }
+    }, SnapshotPublicationPolicy::Optional);
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Logger capture publication failed (%s)", esp_err_to_name(error));
+    }
+    return error;
 }
 
 // sample_period_ms: Requested diagnostic cadence, accepted only within its defined bounds.

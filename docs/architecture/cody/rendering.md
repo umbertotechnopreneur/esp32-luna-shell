@@ -171,6 +171,9 @@ cache; avoiding a framebuffer is an ownership/memory choice, not a measured gain
 | Jelly destination supports | 33×12 = 396 bytes per prepared scene in PSRAM |
 | Vector coverage scratch | 3,718 bounded bytes, not supersampled whole-frame storage |
 | Display worker | 12-KiB PSRAM stack; display buffers require their own internal DMA budget |
+| Application worker stacks | CCP 8 KiB, onboarding 4 KiB and two audio workers at 4 KiB each now reside in external BSS; TCBs/mailboxes remain internal |
+| Persistent task models | Companion/paused scene models, onboarding/Look views and result payload, frame benchmark and canonical snapshot reside in PSRAM with original defaults |
+| Application PCM scratch | 2,400-byte resampling buffer and 2,048-byte diagnostic microphone buffer reside in PSRAM; driver DMA stays internal |
 | Screenshot exception | 434,312-byte PSRAM buffer allocated only on explicit capture |
 
 These are authored payload/structure budgets, not a current linked-image size or
@@ -181,6 +184,15 @@ storage is bounded at 200 and the debug tangent cache at 124. Clipped fills shar
 the existing 256-intersection scratch between subject and containing polygon,
 without an additional raster array or mask allocation. Runtime stack, timing and
 physical appearance after this mouth change remain unverified.
+
+The 2026-10-05 PSRAM revision also releases the logger's temporary 32-KiB boot
+allocation after replay or archives sealed records to PSRAM. Relative to the
+previous map, roughly 36 KiB of selected application data/stacks plus 32 KiB of
+temporary boot retention can leave internal RAM at steady state. This roughly
+68-KiB estimate is not a new linker/heap measurement. PSRAM allocation failure
+retains the boot buffer and reduces that recovery. DMA, ISR/control state,
+pairing and the NVS/flash-reading workers remain internal; mbedTLS allocation
+policy is unchanged. Native Cody adds no persistent framebuffer cache.
 Texture data, five catalog entries and core graphics stay available without SD.
 Optional action/audio worker budgets are in [onboarding](onboarding.md) and
 [runtime](runtime.md); flash capacity cannot substitute for internal RAM.
