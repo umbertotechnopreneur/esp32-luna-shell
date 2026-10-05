@@ -7,6 +7,11 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Integrated the SIMD and DMA branches into `main` and removed their worktrees
+  and local/remote branches on 2026-10-05. Complete artifacts are retained locally
+  under `artifacts/build-preserved-evidence/cody-simd-perf-opt/` and
+  `artifacts/build-preserved-evidence/cody-dma-double-buffer/`. These directories
+  replace the original worktree artifact roots in the historical records below.
 - Assigned the continuous native Cody renderer to CPU1 and made the Cody profile's
   CPU0 ownership explicit for startup, Wi-Fi, the Bluetooth controller, NimBLE and
   lwIP. The single frame/display owner and unpinned bounded service workers are
@@ -26,7 +31,8 @@ and referenced architecture/artifact records.
   payload immutability, lost/duplicate completion, failure drain and quarantine.
   Native raster, SIMD model and finite benchmark contracts pass. Debug builds and
   flash/hash verification pass through `device.ps1` with eight jobs. Evidence is
-  under the DMA worktree's `artifacts/build-cody-companion-debug/evidence/`, with
+  under `artifacts/build-preserved-evidence/cody-dma-double-buffer/`, in
+  `build-cody-companion-debug/evidence/`, with
   host reports in `host-checks/` and `display-dma-adaptive-host/`.
 - Fixed 100% SIMD device run at `a01aed4`: two 12-row slots (22,400 total DMA
   bytes), 842 frames, identical 63,000-pixel payload, mean 45,828 us, p95 46,667 us,

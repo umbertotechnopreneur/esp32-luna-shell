@@ -177,6 +177,13 @@ Optional action/audio worker budgets are in [onboarding](onboarding.md) and
 
 ## Generation, host preview and performance evidence
 
+The SIMD and DMA work was integrated into `main`; its two worktrees and local/
+remote branches were removed on 2026-10-05. Their complete artifact directories
+are retained locally under `artifacts/build-preserved-evidence/`, in
+`cody-simd-perf-opt/` and `cody-dma-double-buffer/`. Historical `artifacts/...`
+paths from those worktrees now use the corresponding archive as their artifact
+root. These archives remain ignored by Git.
+
 Run asset preparation only through `scripts/device.ps1 generate` with the selected
 `cody-rig`, `cody-jelly` or `cody-scenes` generator. Scene definitions-only changes
 may use `--definitions-only`; font regeneration requires explicit `--font-path`,
@@ -219,8 +226,9 @@ All frames still exceeded 40 ms. Its earlier automatic one-slot run measured
 (35,086 versus 35,112 us); transfer-stage time fell from 12,508 to 6,761 us.
 The 5,714-us mean gain therefore comes from transport overlap. CPU percentage
 is not reduced by this result; faster frame throughput can increase utilization.
-Evidence resides in the DMA worktree's
-`artifacts/build-cody-companion-debug/evidence/dma{,-adaptive}-benchmark-100.log`.
+Evidence resides in main's local DMA archive:
+`artifacts/build-preserved-evidence/cody-dma-double-buffer/`, under
+`build-cody-companion-debug/evidence/dma{,-adaptive}-benchmark-100.log`.
 These windows establish performance on the fixed route, not physical animation,
 touch latency or visual correctness in all routes. Normal UI verification remains
 separate. The benchmark-disabled Debug boot capture at `6261cdb2` admitted two
