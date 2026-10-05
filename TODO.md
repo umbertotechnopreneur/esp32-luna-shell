@@ -11,6 +11,20 @@ still timed out after reinsertion, before synthesis. Earlier ordinary Cody evide
 `09ea3b70` and `160a080a`. Verified flash hashes prove the written bytes;
 every open physical observation below remains open.
 
+## Tap, manga cues and Windows fake audio
+
+- [ ] Observe the updated tap, icon sound admission, 20% size increase and
+  400-ms fades on the device; build/flash alone cannot establish these behaviors.
+- [ ] Execute/listen to the Windows fake audio path when explicitly authorized:
+  tap, each visible manga identity, whistle, greeting glyphs, generated boot
+  cues, cancellation and retained playback errors. DLL compilation passed;
+  interactive playback remains unobserved.
+- [ ] Validate the source corrections for palette text provenance and native
+  float32 idle clocks after fresh exact-command authorization. The last
+  `cody-personality` and `cody-runtime` runs failed before those corrections.
+  `cody-native` and corrected `snapshot-integrity` remain unverified; their
+  requested reruns were explicitly declined on 2026-10-06.
+
 ## Optional local TTS on feat/luna-speak
 
 - [ ] Resolve SD card/transport nonresponse after reinsertion. The fresh authorized

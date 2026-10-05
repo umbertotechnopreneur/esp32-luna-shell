@@ -58,8 +58,9 @@ Whistle uses the typed `IdleSceneId::Whistle` value at the API boundary. Measure
 levels are published only after successful writes. Cody reads this identity from
 the canonical observation, so its own whistle does not cancel the gesture or
 turn the pursed mouth into speech. Other playback still has priority. No consumer
-reads codecs or microphones. Windows mirrors visual dynamics and labels whistle
-audio as device-only; it does not pretend to play or publish firmware samples.
+reads codecs or microphones. Windows mirrors visual dynamics and requests the
+same native whistle PCM through its PC-only fake audio owner. It never publishes
+PC playback as firmware samples or physical-device evidence.
 
 ## Atlases and evidence
 

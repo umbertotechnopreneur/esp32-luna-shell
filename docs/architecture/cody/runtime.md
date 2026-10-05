@@ -171,6 +171,27 @@ as private `artifacts/audio/cody-gentle-sfx/` previews/audition/manifest. They a
 not firmware or automatic cues. Perpetual commercial-use licences were confirmed
 by the owner on 2026-10-04; perceptual review is pending.
 
+## Windows fake audio output
+
+The Windows interactive preview has a host-only fake output owner. The public
+`device.ps1 simulator` route first compiles `cody_fake_audio.dll` below
+`artifacts/build-cody-simulator-audio/`; the explicit generator is
+`device.ps1 generate -Generator cody-simulator-audio`. An installed Windows C++
+toolchain is required. No toolchain is installed automatically.
+
+The DLL links the unchanged Cody personality selector, whistle and typewriter
+modules to fake `LUNASHELL_audio_*` output functions. Python copies their actual
+PCM into WAV memory and uses the existing Windows `winsound` playback backend
+on one bounded worker. Presented symbols, the visible whistle generation,
+new greeting glyphs and pointer presses request sounds automatically. Boot
+artwork routes and manual previews use the existing generated boot WAVs.
+The PC sound toggle cancels pending clips; optional admission/playback failures
+remain visible in the simulator status and host log without stopping the UI.
+This is one output voice, with no mixer. PC playback is labelled synthetic and
+never published into firmware snapshots. Capture-only routes do not initialize
+the audio owner or play sound. DLL compilation does not establish audible output;
+interactive playback remains a separate authorized observation.
+
 ## Device diagnostics
 
 Debug FPS uses completed frames over real elapsed time. CPU1/core0 and CPU2/core1

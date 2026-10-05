@@ -8,6 +8,29 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## Tap, manga cues and Windows fake audio — 2026-10-06
+
+- Added independent physical tap feedback, manga symbols 20% larger, 400-ms
+  fade in/out and bounded visible-symbol sound retries. Cody Debug with feature
+  `none` built successfully with eight jobs at `0ea2613`; hardware playback
+  and layout remain unobserved. Build evidence is retained below
+  `artifacts/build-cody-companion-debug/evidence/touch-feedback-build.log`.
+- Implemented the Windows fake audio owner linking unchanged Cody C++
+  personality/whistle/typewriter modules and their original PCM. Connected
+  presented symbols, whistle generations, greeting glyphs and pointer taps to
+  the existing PC playback backend. Generated boot WAVs share that owner.
+  The DLL compiled successfully; no simulator execution or PC listening check
+  ran. Documentation: `docs/architecture/cody/runtime.md`.
+- Authorized final checks: `storage-logger` and `radio-memory` passed.
+  `cody-native` stopped before compilation because the host compiler was absent
+  from PATH; installed MSVC was subsequently found. `snapshot-integrity` failed
+  an obsolete mandatory-logger assertion, corrected in `45316e5`.
+  The user explicitly declined rerunning these two checks.
+  `cody-personality` stopped at a palette text hash dependent on Windows line
+  endings. `cody-runtime` compiled and failed idle-clock parity at tick 255.
+  Normalized text provenance and matched the Python idle clocks to native
+  float32 rounding; these corrections have not been retested.
+
 ## Optional local TTS implementation — 2026-10-05
 
 - Implemented Debug-only PWR double-click software restart within 500 ms.

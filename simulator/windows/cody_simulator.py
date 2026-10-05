@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 from dataclasses import replace
-from secrets import randbits
+from secrets import randbits, randbelow
 import math
 import sys
 import time
@@ -25,7 +25,7 @@ from scripts.common.cody_rig_types import (  # noqa: E402
 )
 from scripts.common.cody_response import (  # noqa: E402
     SampleHealth, advance_response, compose_response, effective_stamp, make_response_state, rebase_response_motion,
-    EyeId, hit_test_eye, hit_test_body,
+    EyeId, IdleSceneId, hit_test_eye, hit_test_body,
 )
 from scripts.common.cody_response_contract import Axis, validate_response_config  # noqa: E402
 from scripts.common.cody_navigation import load_navigation, control_contains, NavigationVisibility  # noqa: E402
@@ -37,11 +37,12 @@ from cody_cloud_material import paint_cloud_material  # noqa: E402
 from cody_png_mesh import PngMeshStudy  # noqa: E402
 from cody_jelly_scanline import JellyScanlineStudy  # noqa: E402
 from cody_personality import (  # noqa: E402
-    PersonalityCue, PersonalityPainter, PersonalityPresentation, select_personality_target,
+    PersonalityCue, PersonalityPainter, PersonalityPresentation, PersonalityPresentationStatus, select_personality_target,
 )
 from cody_petting import PettingRecognizer, PettingZone, load_petting_config  # noqa: E402
 from cody_happiness import initial_state, advance_happiness, apply_event, PersonalityEvent, sadness  # noqa: E402
 from cody_scene import ScenePainter  # noqa: E402
+from cody_fake_audio import FakeAudioDriver  # noqa: E402
 from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
 )
@@ -596,8 +597,15 @@ class CodyWindow:
     # Raises tk.TclError for failed widget construction or lost Tk ownership.
     # Raises OSError or AttributeError if required Windows monitor APIs are unavailable.
     # Raises RuntimeError if the window DPI context or work-area bounds are invalid.
+    # Raises OSError or RuntimeError if the fake audio DLL cannot be loaded/prepared.
     def __init__(self, root, renderer, args):
         self.root, self.renderer = root, renderer
+        self.audio = FakeAudioDriver(ROOT)
+        self.audio_enabled = tk.BooleanVar(value=True)
+        self.last_audio_cue = PersonalityCue.NONE
+        self.last_whistle_generation = None
+        self.last_audio_screen = None
+        self.last_audio_glyphs = 0
         self.jelly_study = renderer.jelly_study_enabled
         preview_name = 'PEARL JELLY / HOST ONLY' if self.jelly_study else 'Cody Alpha'
         self.root.title(f"{renderer.rig['character']['name']} / {preview_name} / SYNTHETIC")
@@ -986,6 +994,7 @@ class CodyWindow:
         self.playback_level = tk.DoubleVar(value=.18)
         self.add_slider(audio, "Playback PCM mean", 0, 1, self.playback_level)
         cues = self.add_section(stimuli, "Local sound previews", "These buttons use the PC speaker, never Cody's speaker.")
+        self.add_toggle(cues, "PC fake audio driver / synthetic", self.audio_enabled)
         for cue, label in (("audio_ready", "Preview audio-ready cue"), ("eyes_open", "Preview eyes-open strings")):
             ttk.Button(cues, text=label, command=lambda selected=cue: self.preview_cue(selected)).pack(fill="x", pady=3)
         ttk.Button(stimuli, text="Interaction / cancel idle scene", command=self.preview_interaction).pack(fill="x", pady=3)
@@ -995,11 +1004,41 @@ class CodyWindow:
 
     # self: Preview controller; this button plays a local authored WAV, never the device speaker.
     # cue: Stable identity of one of the two generated original boot cues.
-    # Raises OSError or RuntimeError if Windows cannot play the existing asset.
+    # Admission/playback failures remain visible through the fake driver.
     def preview_cue(self, cue):
-        import winsound
         path = ROOT / "assets/cody/runtime/generated" / f"cody-{cue}.wav"
-        winsound.PlaySound(str(path), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+        self.audio.set_enabled(self.audio_enabled.get())
+        self.audio.preview_file(path)
+
+    # self: Host controller; only a successfully presented frame may request scene audio.
+    # screen: Semantic identity accepted by Tk, sharing the displayed hit geometry.
+    # Raises ValueError for an invalid authored scene clock or identity.
+    def present_audio(self, screen):
+        self.audio.set_enabled(self.audio_enabled.get())
+        painter = self.renderer.personality_painter
+        frame = painter.last_frame if painter is not None else None
+        cue = (frame.cue if frame is not None and frame.opacity > 0 and
+               frame.status == PersonalityPresentationStatus.VISIBLE else PersonalityCue.NONE)
+        if cue != PersonalityCue.NONE and cue != self.last_audio_cue:
+            self.audio.personality(cue.value)
+        self.last_audio_cue = cue
+        if (screen == Screen.RIG and self.playing.get() and
+                self.response_state.idle_scene == IdleSceneId.WHISTLE and
+                self.response_state.idle_scene_weight >= .8 and
+                self.response_state.idle_scene_generation != self.last_whistle_generation):
+            self.audio.whistle()
+            self.last_whistle_generation = self.response_state.idle_scene_generation
+        if screen != self.last_audio_screen:
+            self.last_audio_glyphs = 0
+            if screen == Screen.BOOT_WAKING:
+                self.preview_cue("eyes_open")
+            elif screen == Screen.BOOT_READY:
+                self.preview_cue("audio_ready")
+        if screen == Screen.GREETING:
+            count = self.renderer.scene_painter.visible_characters("greeting", self.scene_elapsed_ms)
+            self.audio.typewriter(max(0, count - self.last_audio_glyphs))
+            self.last_audio_glyphs = count
+        self.last_audio_screen = screen
 
     # self: Preview controller publishing explicit activity through the synthetic snapshot owner.
     def preview_interaction(self):
@@ -1068,7 +1107,7 @@ class CodyWindow:
             f"Microphone: {state.microphone_status.health.value}\nPlayback: {state.playback_status.health.value}\n"
             f"MODEL attention: {state.attention:.3f} / speaking: {state.speaking:.3f}\n"
             f"MODEL idle: {state.idle_seconds:.1f}s / scene: {state.idle_scene.name}\n"
-            f"MODEL scene weight: {state.idle_scene_weight:.3f} / whistle audio: DEVICE ONLY\n"
+            f"MODEL scene weight: {state.idle_scene_weight:.3f} / whistle audio: PC FAKE DRIVER\n"
             f"MODEL annoyance: {state.annoyance:.3f} / eye closure: {state.protective_eye_closure:.3f}\n"
             f"MODEL stress: {state.stress:.3f}\nMODEL fatigue: {fatigue_text}{body_text}")
 
@@ -1158,11 +1197,12 @@ class CodyWindow:
                 tab.scroll(event.delta)
                 return "break"
 
-    # cancel the scheduled callback before destroying the interactive preview.
+    # self: Host controller; stop callbacks and PC playback before destroying the window.
     def close(self):
         if self.after_id is not None:
             self.root.after_cancel(self.after_id)
             self.after_id = None
+        self.audio.close()
         self.root.destroy()
 
     # self: Preview controller retaining the semantic selected expression identity.
@@ -1342,6 +1382,7 @@ class CodyWindow:
 
     # self: Preview controller using the same displayed geometry for touch and eye hits.
     # event: Desktop coordinates projected through the last displayed layout and rotation.
+    # Audio failures are retained by the optional fake driver without stopping touch handling.
     def touch(self, event):
         self.preview_interaction()
         self.body_drag_origin = None
@@ -1359,6 +1400,8 @@ class CodyWindow:
         x,y = logical
         if (x-233)**2+(y-233)**2>233**2:
             return
+        self.audio.set_enabled(self.audio_enabled.get())
+        self.audio.touch()
         if self.display_screen == Screen.BOOT_READY and 73<=x<393 and 73<=y<393:
             self.screen.set(Screen.RIG.value)
             return
@@ -1637,6 +1680,7 @@ class CodyWindow:
         )
 
     # self: Preview controller advancing sources, model, geometry and presentation once.
+    # Optional PC audio errors are retained without stopping visual/touch updates.
     # Raises ValueError or tk.TclError; tick exposes the original error and stops.
     def render_tick(self):
         started = time.perf_counter()
@@ -1713,7 +1757,7 @@ class CodyWindow:
                     previous_response.consumed_eye_tap_at_us):
                 stressed = (self.face_preset_name == "stressed" or previous_response.stress >=
                             self.response_config["idle"]["activity_stress_threshold"])
-                reaction = PersonalityCue.FRUSTRATION if secrets.randbelow(4) == 0 else PersonalityCue.FEAR
+                reaction = PersonalityCue.FRUSTRATION if randbelow(4) == 0 else PersonalityCue.FEAR
                 if stressed:
                     reaction = PersonalityCue.FRUSTRATION if reaction == PersonalityCue.FEAR else PersonalityCue.FEAR
                 if reaction == self.last_eye_reaction:
@@ -1760,6 +1804,7 @@ class CodyWindow:
                 personality_paused=not self.playing.get(),
             )
             self.present_frame(image, layout, screen, rotation)
+            self.present_audio(screen)
             self.completed_preview_frames += 1
             # Commit only after Tk accepted the image and its matching hit targets.
             self.last_presentation_key = presentation_key
@@ -1782,7 +1827,8 @@ class CodyWindow:
                 text=f"SYNTHETIC / symbol {personality_status} / "
                      f"happiness {self.happiness_state.happiness} / sadness {sadness(self.personality_rules, self.happiness_state)}\n"
                      f"Host presented {observed_fps:.1f} fps / tick {duration_ms:.1f} ms / interval {interval_seconds * 1000:.1f} ms / "
-                     f"target {target_hz} Hz / frame {'UPDATED' if changed else 'UNCHANGED'} / ESP32 UNMEASURED"
+                     f"target {target_hz} Hz / frame {'UPDATED' if changed else 'UNCHANGED'} / ESP32 UNMEASURED\n"
+                     f"PC fake audio: {self.audio.last_error if self.audio.last_error is not None else 'READY'}"
             )
         # Boot artwork has no animation. Keep controls responsive without 60 full images/s.
         interval_ms = 1000 / target_hz if screen in ANIMATED_SCREENS else 100

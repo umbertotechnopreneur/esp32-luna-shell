@@ -121,6 +121,11 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                 -StoredLog $storedLog -Destination $Options.OutputPath -ResponseTimeoutSeconds $responseTimeout
         }
         { $_ -in @('simulator','boot-screens') } {
+            if ($RequestedAction -eq 'simulator' -and -not $Options.OutputPath) {
+                # Compile only the host output owner; captures never initialize or play audio.
+                $audioTool = Find-DeviceTool 'generators' 'cody-simulator-audio'
+                Invoke-HostTool $audioTool.Path @() $Options.PythonExecutable
+            }
             $screens = if ($RequestedAction -eq 'boot-screens') { @('boot-sleep','boot-waking','boot-ready') }
                 elseif ($Options.ContainsKey('Screen')) { @($Options.Screen) } else { @('rig') }
             foreach ($screenName in $screens) {
