@@ -386,6 +386,7 @@ config LUNASHELL_BUILD_ENABLE_TTS
     depends on IDF_TARGET_ESP32S3 && SPIRAM && LUNASHELL_BUILD_ENABLE_AUDIO && LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
     depends on !LUNASHELL_BUILD_ENABLE_WAKE_WORD && !LUNASHELL_BUILD_ENABLE_VOICE_AFE
     depends on !FREERTOS_UNICORE
+    select SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
     default n
     help
         Explicit opt-in only. Synthesis runs on core 0; the renderer uses core 1.

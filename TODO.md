@@ -10,6 +10,11 @@ every open physical observation below remains open.
 
 ## Optional local TTS on feat/luna-speak
 
+- [ ] Resolve the captured `57121ca2` boot regression: COM10 repeatedly aborts
+  with `ESP_ERR_NO_MEM` from `LUNASHELL_power_manager_init()` before startup
+  completes. Native engine BSS/COMMON now maps to PSRAM and optional speech
+  worker creation follows all mandatory startup owners. Static correction only;
+  rebuilding/flashing and a new bounded boot capture require authorization.
 - [ ] After fresh exact-command authorization, validate the
   [implemented native integration](docs/architecture/text-to-speech.md): normal
   builds exclude the engine/data/task; SD firmware includes no speech payload;

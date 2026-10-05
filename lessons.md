@@ -58,6 +58,11 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
 
 ## Cache, memory and frame ownership
 
+- An optional engine's external heap/stack does not move its linked BSS out of
+  internal RAM. TTS `57121ca2` boot repeatedly failed creating the mandatory
+  8-KiB power task before speech was requested. Keep native cache-dependent BSS
+  in PSRAM through an explicit component linker fragment and create optional
+  workers after mandatory owners; compile/flash success alone cannot verify boot.
 - PSRAM-stack tasks cannot safely commit NVS/cache-disabling flash operations.
   Use the internal-stack settings/storage executors; do not shrink worker stacks
   without measurements. Delete capability-allocated tasks with the matching API.

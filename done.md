@@ -62,6 +62,22 @@ flash logs were regenerated.
   `artifacts/build-cody-companion-tts-sd-debug/evidence/tts-sd-flash-20261005.log`
   and `tts-sd-deploy-20261005.json` in the same directory. No monitor/capture was
   started; SD mounting, audible playback and concurrent rendering remain unverified.
+- User reported a black screen after this deployment. Authorized reset/30-second
+  capture on COM10 confirms repeated `ESP_ERR_NO_MEM` aborts at
+  `main/main_headless.cpp:216`, `LUNASHELL_power_manager_init()`, before mandatory
+  startup completion or any boot speech request. Captured version `57121ca2`,
+  ELF SHA prefix `bbad4927a`, matches the deployed image. Evidence:
+  `artifacts/build-cody-companion-tts-sd-debug/evidence/tts-black-screen-boot.log`.
+  The mandatory power task requires an 8,192-byte internal stack; native engine
+  BSS occupied internal RAM despite the already external heap and worker stack.
+- Implemented the resulting correction: component-local IDF linker fragment
+  routes native engine BSS/COMMON to PSRAM, with Kconfig/CMake/CLI admission
+  requiring external BSS support. Public service synchronization and native
+  guard state stay internal. Both startup paths now create optional speech only
+  after their mandatory owners. Request text and SD package pointer storage also
+  reside in external BSS, alongside the already external package/heap/stack.
+  Static review only; this correction has not yet
+  been built, flashed or observed on the device.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 

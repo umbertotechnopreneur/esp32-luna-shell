@@ -6,9 +6,10 @@ if(NOT CONFIG_LUNASHELL_BUILD_ENABLE_TTS)
     message(FATAL_ERROR "TTS component must be excluded from disabled profile roots")
 endif()
 if(NOT CONFIG_IDF_TARGET_ESP32S3 OR NOT CONFIG_SPIRAM OR
+   NOT CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY OR
    NOT CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM OR
    NOT CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311)
-    message(FATAL_ERROR "TTS requires ESP32-S3, PSRAM and explicitly selected ES8311 output")
+    message(FATAL_ERROR "TTS requires ESP32-S3, PSRAM with external BSS and explicitly selected ES8311 output")
 endif()
 if(CONFIG_FREERTOS_UNICORE)
     message(FATAL_ERROR "TTS must execute on a separate core from the renderer")
@@ -72,6 +73,7 @@ add_custom_command(OUTPUT "${tts_generated_source}"
     VERBATIM)
 list(APPEND tts_sources "${tts_generated_source}")
 idf_component_register(SRCS ${tts_sources}
+    LDFRAGMENTS linker.lf
     INCLUDE_DIRS include
     PRIV_INCLUDE_DIRS src "${tts_vendor}" "${tts_vendor}/libespeak-ng" "${tts_vendor}/ucd/include"
     REQUIRES LUNASHELL_platform esp_timer esp_system heap freertos)

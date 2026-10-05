@@ -27,6 +27,7 @@ function Assert-FirmwareTtsConfiguration {
         $expected.LUNASHELL_BUILD_ENABLE_AUDIO = $true
         $expected.LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311 = $true
         $expected.SPIRAM = $true
+        $expected.SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY = $true
         $expected.FREERTOS_UNICORE = $false
         $expected.FREERTOS_TASK_CREATE_ALLOW_EXT_MEM = $true
         $expected.LUNASHELL_BUILD_ENABLE_VOICE_AFE = $false

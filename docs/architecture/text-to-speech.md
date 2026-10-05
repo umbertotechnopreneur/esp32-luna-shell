@@ -7,6 +7,9 @@ flashed on COM10 with all written hashes verified, followed by an RTS reset.
 All four languages were copied to G: with SHA-256 readback verification.
 Tests/scans, size reports, simulator, other variants, runtime budgets and physical
 sound remain unverified. Deployment evidence is recorded in [done.md](../../done.md).
+The subsequent authorized boot capture found a real regression in that image:
+mandatory power-task creation returns `ESP_ERR_NO_MEM`, causing repeated reboot
+before speech is requested. The source correction below is awaiting rebuild/flash.
 
 ## Composition and languages
 
@@ -51,6 +54,16 @@ hashes, while disabled builds admit neither speech code nor package generation.
 `initialize_speech()`, `request_speech(request, request_id)`,
 `cancel_speech(request_id)`. Main startup creates the optional owner silently;
 engine initialization and package loading are lazy until the first request.
+Optional worker creation follows mandatory startup so it cannot consume those
+owners' initial task-allocation budget. Native engine BSS/COMMON uses an explicit
+IDF linker fragment to PSRAM; dynamic engine allocation alone did not relocate
+these globals. TTS requires external BSS support through Kconfig/CMake/CLI gates.
+Public service synchronization and the allocator guard stay in internal RAM.
+The bounded request text and SD package buffer directory also reside in PSRAM;
+the immutable package, synthesis heap, transient stack buffers and worker stack
+already use external memory. Small initialized native control values keep their
+original initialization; they cannot be placed in zero-initialized external BSS.
+The placement/startup correction has static review only, pending device validation.
 With `CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN`, mandatory startup then calls the
 one-shot `request_boot_speech_test()`. The `tts-sd` catalog variant enables that
 symbol; `tts-flash` and ordinary profiles do not. No scene, UI, HTTP endpoint or

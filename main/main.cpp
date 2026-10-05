@@ -496,10 +496,6 @@ extern "C" void app_main(void)
     startup_watch.progress("boot audio");
 #endif
     report_optional_startup_failure("removable storage", LUNASHELL_storage_init());
-#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
-    // Create the optional owner silently. No scene or UI requests speech.
-    report_optional_startup_failure("text-to-speech", LUNASHELL::initialize_speech());
-#endif
     startup_watch.progress("removable storage");
     // Wi-Fi and BLE reserve a large part of internal SRAM on this S3. The
     // Settings action starts them explicitly after the UI is already usable.
@@ -584,6 +580,11 @@ extern "C" void app_main(void)
     startup_watch.progress("board service sampling");
 #endif
     startup_watch.complete();
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    // Mandatory UI, power and hardware owners receive their memory first.
+    // Speech remains optional and may publish a real startup allocation failure.
+    report_optional_startup_failure("text-to-speech", LUNASHELL::initialize_speech());
+#endif
 #if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
     report_optional_startup_failure("Italian boot speech", LUNASHELL::request_boot_speech_test());
 #endif

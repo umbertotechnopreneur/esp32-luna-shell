@@ -34,3 +34,9 @@ The native configuration uses the toolchain's endian definitions without replaci
 them. These are source corrections, not a waiver of compiler diagnostics.
 Desktop dictionary trace blocks are excluded from the native build so that
 precompiled dictionary synthesis does not link the runtime dictionary compiler.
+
+After a captured boot failure creating the mandatory power task, the component's
+IDF linker fragment places native engine BSS/COMMON in PSRAM. Its sole worker
+already has a PSRAM stack and cannot execute with caches disabled. Public service
+synchronization and the native allocation guard remain in internal RAM. This
+placement is admitted only by the explicitly enabled speech component.

@@ -1,0 +1,38 @@
+# Only the serialized native engine accesses this state. It never runs with
+# caches disabled; its stack and allocator already require available PSRAM.
+# Keep public service synchronization, allocator guard and callback state internal.
+[scheme:lunashell_tts_engine_bss]
+entries:
+    bss -> extern_ram
+    common -> extern_ram
+
+[mapping:lunashell_tts_engine_bss]
+archive: libLUNASHELL_tts.a
+entries:
+    common (lunashell_tts_engine_bss)
+    dictionary (lunashell_tts_engine_bss)
+    encoding (lunashell_tts_engine_bss)
+    error (lunashell_tts_engine_bss)
+    espeak_api (lunashell_tts_engine_bss)
+    ieee80 (lunashell_tts_engine_bss)
+    intonation (lunashell_tts_engine_bss)
+    klatt (lunashell_tts_engine_bss)
+    langopts (lunashell_tts_engine_bss)
+    mnemonics (lunashell_tts_engine_bss)
+    numbers (lunashell_tts_engine_bss)
+    phoneme (lunashell_tts_engine_bss)
+    phonemelist (lunashell_tts_engine_bss)
+    readclause (lunashell_tts_engine_bss)
+    setlengths (lunashell_tts_engine_bss)
+    soundicon (lunashell_tts_engine_bss)
+    spect (lunashell_tts_engine_bss)
+    speech (lunashell_tts_engine_bss)
+    ssml (lunashell_tts_engine_bss)
+    synth_mbrola (lunashell_tts_engine_bss)
+    synthdata (lunashell_tts_engine_bss)
+    synthesize (lunashell_tts_engine_bss)
+    tr_languages (lunashell_tts_engine_bss)
+    translate (lunashell_tts_engine_bss)
+    translateword (lunashell_tts_engine_bss)
+    voices (lunashell_tts_engine_bss)
+    wavegen (lunashell_tts_engine_bss)

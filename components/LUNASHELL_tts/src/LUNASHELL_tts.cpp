@@ -11,6 +11,7 @@
 #include <cstring>
 #include <limits>
 #include <mutex>
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -45,7 +46,8 @@ uint32_t s_last_id;
 uint32_t s_active_id;
 std::atomic<uint32_t> s_cancel_id;
 SpeechRequest s_request;
-char s_text[kMaximumTextBytes + 1];
+// Text is accessed only by cache-enabled admission and the PSRAM speech worker.
+EXT_RAM_BSS_ATTR char s_text[kMaximumTextBytes + 1];
 SpeechSnapshot s_status;
 esp_err_t s_callback_error;
 bool s_cancelled;
@@ -55,7 +57,7 @@ int s_terminal_engine_error;
 std::atomic<esp_err_t> s_publication_error{ESP_OK};
 #if CONFIG_LUNASHELL_TTS_DATA_SD
 bool s_package_ready;
-uint8_t *s_package_buffers[12]{};
+EXT_RAM_BSS_ATTR uint8_t *s_package_buffers[12]{};
 #endif
 
 // language: Stable requested identity; the flash package admits only English.
