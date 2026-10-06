@@ -418,6 +418,17 @@ config LUNASHELL_TTS_LANGUAGE_CANTONESE
     bool
     default y if LUNASHELL_BUILD_ENABLE_TTS && LUNASHELL_TTS_DATA_SD
 
+config LUNASHELL_STORAGE_DEBUG_PROBE
+    bool "Log SD health and verify a bounded write every second"
+    depends on LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE && LUNASHELL_BUILD_MODE_DEBUG
+    default y
+    help
+        Requested SD/standby diagnostic, excluded from Release. The existing
+        storage owner overwrites /sdcard/LUNASHELL/.sd-debug-probe (at most 96
+        bytes), syncs and reads it back once per awake second. No formatting.
+        Standby/performance suspension prevents probe I/O. Heartbeats retain
+        original sample timestamps and do not infer presence from an absent CD pin.
+
 config LUNASHELL_TTS_BOOT_TEST_ITALIAN
     bool "Speak fixed Italian diagnostic after boot"
     depends on LUNASHELL_BUILD_ENABLE_TTS && LUNASHELL_TTS_DATA_SD && LUNASHELL_TTS_LANGUAGE_ITALIAN

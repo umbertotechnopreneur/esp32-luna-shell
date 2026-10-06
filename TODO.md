@@ -178,6 +178,12 @@ every open physical observation below remains open.
   records clean standby at 64 s and touch wake at 179 s, confirmed by the owner.
   Do not treat that single success as a fix or hide terminal errors with restart.
 - [ ] Investigate intermittent SD transport after warm resets/reinsertion.
+  On 2026-10-07 the user also reported failure after time powered on and suspected
+  standby. Debug one-second state/status/write/readback instrumentation is now
+  implemented in the existing SD owner; build, flash, capture and physical
+  reproduction of this diagnostic remain unauthorized/unrun. Compare a working
+  awake interval with standby/touch wake and the first original failure. The
+  diagnostic file is `/sdcard/LUNASHELL/.sd-debug-probe`; Release excludes it.
   Reproduce one successful boot followed by standby/wake before changing policy;
   inspect card seating, power and signals. Validate mount, retry/backoff, access
   and free space while preserving the original OCR timeout. The board uses

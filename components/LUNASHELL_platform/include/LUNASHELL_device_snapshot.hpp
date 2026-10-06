@@ -356,9 +356,58 @@ struct LoggerCaptureSnapshot : ComponentSnapshot {
     LoggerCaptureReport observation{};
 };
 
+enum class StorageDebugWriteStage : uint8_t {
+    NotAttempted,
+    Directory,
+    Open,
+    Write,
+    Sync,
+    Readback,
+    Close,
+    Complete,
+};
+
+// Debug acquisition belongs to the existing storage owner. Last I/O timestamps
+// remain unchanged during suspension; a heartbeat is not a new card sample.
+struct StorageDebugReport {
+    bool enabled = false;
+    bool mounted = false;
+    bool power_suspended = false;
+    bool performance_suspended = false;
+    bool terminal_failure = false;
+    bool waiting_for_format = false;
+    bool resume_pending = false;
+    bool logger_enabled = false;
+    bool probe_allowed = false;
+    uint32_t mount_attempt_count = 0;
+    esp_err_t mount_error = ESP_ERR_INVALID_STATE;
+    esp_err_t cleanup_error = ESP_OK;
+    int64_t heartbeat_at_us = 0;
+    esp_err_t previous_publication_error = ESP_OK;
+    bool status_attempted = false;
+    uint32_t status_mount_attempt_count = 0;
+    esp_err_t status_error = ESP_ERR_INVALID_STATE;
+    int64_t status_sampled_at_us = 0;
+    bool write_attempted = false;
+    bool write_blocked = false;
+    StorageDebugWriteStage write_stage = StorageDebugWriteStage::NotAttempted;
+    esp_err_t write_error = ESP_ERR_INVALID_STATE;
+    int write_errno = 0;
+    uint32_t write_sequence = 0;
+    uint32_t write_mount_attempt_count = 0;
+    uint32_t requested_bytes = 0;
+    uint32_t written_bytes = 0;
+    uint32_t read_bytes = 0;
+    int close_errno = 0;
+    int64_t write_started_at_us = 0;
+    int64_t write_completed_at_us = 0;
+    int64_t write_verified_at_us = 0;
+};
+
 struct StorageSnapshot : ComponentSnapshot {
     ComponentSnapshot logger_mirror;
     LoggerCaptureSnapshot logger_capture;
+    StorageDebugReport debug;
     StorageMountOutcome mount_outcome = StorageMountOutcome::NotAttempted;
     StorageMountStage mount_stage = StorageMountStage::None;
     StorageCleanupStage cleanup_stage = StorageCleanupStage::None;
@@ -829,6 +878,9 @@ public:
     esp_err_t sampleDistanceGeometry(DistanceGeometrySnapshot *geometry);
 
     void reportStorage(const StorageMountReport &report);
+    // report: Storage-owner heartbeat with unchanged original I/O timestamps.
+    // Exception: Returns the original snapshot publication failure.
+    esp_err_t reportStorageDebug(const StorageDebugReport &report);
     void reportStorageMirror(
         bool requested,
         bool enabled,

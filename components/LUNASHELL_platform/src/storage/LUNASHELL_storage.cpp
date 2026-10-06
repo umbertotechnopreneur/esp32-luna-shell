@@ -109,6 +109,16 @@ ScreenshotWriteRequest s_screenshot_request;
 bool s_screenshot_pending;
 bool s_screenshot_active;
 
+#if CONFIG_LUNASHELL_STORAGE_DEBUG_PROBE
+constexpr int64_t kStorageDebugPeriodUs = 1000000;
+constexpr char kStorageDebugDirectory[] = BSP_SD_MOUNT_POINT "/LUNASHELL";
+constexpr char kStorageDebugProbePath[] = BSP_SD_MOUNT_POINT "/LUNASHELL/.sd-debug-probe";
+// Only the acquisition task writes these observations; consumers use the snapshot.
+LUNASHELL::StorageDebugReport s_storage_debug;
+int64_t s_next_debug_heartbeat_us;
+int64_t s_next_debug_write_us;
+#endif
+
 // destination: Writable little-endian byte range.
 // value: Unsigned 16-bit value to encode.
 void write_little_endian_16(uint8_t *destination, uint16_t value)
@@ -1255,13 +1265,256 @@ esp_err_t invalidate_mounted_card(
     return primary_error;
 }
 
+#if CONFIG_LUNASHELL_STORAGE_DEBUG_PROBE
+// stage: Exact write/read stage whose name is emitted with the original error.
+// Exception: Rejects an unknown internal enum rather than guessing a stage.
+const char *storage_debug_write_stage_name(LUNASHELL::StorageDebugWriteStage stage)
+{
+    using Stage = LUNASHELL::StorageDebugWriteStage;
+    switch (stage) {
+    case Stage::NotAttempted: return "not-attempted";
+    case Stage::Directory: return "directory";
+    case Stage::Open: return "open";
+    case Stage::Write: return "write";
+    case Stage::Sync: return "sync";
+    case Stage::Readback: return "readback";
+    case Stage::Close: return "close";
+    case Stage::Complete: return "complete";
+    }
+    ESP_LOGE(TAG, "Unknown SD debug write stage: %u", static_cast<unsigned>(stage));
+    std::abort();
+}
+
+// No parameters: publish owner state once per second, including suspended waits.
+// Exception: Retains optional publication failures for the next successful report.
+void publish_storage_debug_heartbeat()
+{
+    const int64_t now_us = esp_timer_get_time();
+    if (now_us < s_next_debug_heartbeat_us) {
+        return;
+    }
+    s_next_debug_heartbeat_us = now_us + kStorageDebugPeriodUs;
+    LUNASHELL::StorageDebugReport report = s_storage_debug;
+    {
+        std::lock_guard<std::mutex> lock(s_storage_mutex);
+        report.enabled = true;
+        report.mounted = s_mounted;
+        report.power_suspended = s_power_suspended;
+        report.performance_suspended = s_performance_suspended;
+        report.terminal_failure = s_terminal_failure;
+        report.waiting_for_format = s_waiting_for_format_authorization;
+        report.resume_pending = s_power_resume_requested;
+        report.logger_enabled = s_logger_mirror_enabled;
+        report.mount_attempt_count = s_mount_attempt_count;
+        report.mount_error = s_last_mount_report.error;
+        report.cleanup_error = s_last_mount_report.cleanup_error;
+        report.probe_allowed = s_mounted && !s_power_suspended &&
+            !s_performance_suspended && !s_terminal_failure &&
+            !s_waiting_for_format_authorization && !s_power_resume_requested &&
+            !report.write_blocked;
+    }
+    report.heartbeat_at_us = now_us;
+    const esp_err_t publication_error =
+        LUNASHELL::DeviceSnapshotService::instance().reportStorageDebug(report);
+    s_storage_debug.previous_publication_error = publication_error;
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(TAG, "SD diagnostic owner could not publish heartbeat at_us=%lld (%s)",
+            static_cast<long long>(now_us), esp_err_to_name(publication_error));
+    }
+    const long long status_age_ms = report.status_attempted
+        ? static_cast<long long>((now_us - report.status_sampled_at_us) / 1000)
+        : -1;
+    const long long write_age_ms = report.write_attempted
+        ? static_cast<long long>((now_us - report.write_completed_at_us) / 1000)
+        : -1;
+    ESP_LOGI(TAG,
+        "SD DEBUG state at_us=%lld cd=NC mounted=%u standby=%u performance=%u "
+        "resume=%u terminal=%u format_wait=%u mirror=%u probe_allowed=%u attempt=%lu",
+        static_cast<long long>(now_us), static_cast<unsigned>(report.mounted),
+        static_cast<unsigned>(report.power_suspended), static_cast<unsigned>(report.performance_suspended),
+        static_cast<unsigned>(report.resume_pending), static_cast<unsigned>(report.terminal_failure),
+        static_cast<unsigned>(report.waiting_for_format), static_cast<unsigned>(report.logger_enabled),
+        static_cast<unsigned>(report.probe_allowed), static_cast<unsigned long>(report.mount_attempt_count));
+    // Keep each diagnostic record below the canonical logger's 256-byte slot.
+    ESP_LOGI(TAG, "SD DEBUG bus sample_attempt=%lu mount=%s cleanup=%s last_status=%s status_age_ms=%lld",
+        static_cast<unsigned long>(report.status_mount_attempt_count),
+        esp_err_to_name(report.mount_error), esp_err_to_name(report.cleanup_error),
+        report.status_attempted ? esp_err_to_name(report.status_error) : "UNAVAILABLE", status_age_ms);
+    ESP_LOGI(TAG, "SD DEBUG write seq=%lu sample_attempt=%lu blocked=%u last_write=%s stage=%s errno=%d bytes=%lu/%lu age_ms=%lld",
+        static_cast<unsigned long>(report.write_sequence),
+        static_cast<unsigned long>(report.write_mount_attempt_count),
+        static_cast<unsigned>(report.write_blocked),
+        report.write_attempted ? esp_err_to_name(report.write_error) : "UNAVAILABLE",
+        storage_debug_write_stage_name(report.write_stage), report.write_errno,
+        static_cast<unsigned long>(report.written_bytes), static_cast<unsigned long>(report.requested_bytes),
+        write_age_ms);
+}
+
+// error: Original filesystem/protocol error to retain.
+// operation_errno: Native errno from the failing call, zero for a non-errno rejection.
+// Exception: Logs and returns the supplied failure without changing mount policy.
+esp_err_t reject_storage_debug_write(esp_err_t error, int operation_errno)
+{
+    s_storage_debug.write_error = error;
+    s_storage_debug.write_errno = operation_errno;
+    ESP_LOGE(TAG, "SD debug probe '%s' failed at %s: error=%s errno=%d bytes=%lu/%lu",
+        kStorageDebugProbePath, storage_debug_write_stage_name(s_storage_debug.write_stage),
+        esp_err_to_name(error), operation_errno,
+        static_cast<unsigned long>(s_storage_debug.written_bytes),
+        static_cast<unsigned long>(s_storage_debug.requested_bytes));
+    return error;
+}
+
+// No parameters: overwrite only the dedicated bounded diagnostic file.
+// Exception: Returns original directory/open/write/sync/readback/close failures.
+esp_err_t write_storage_debug_probe()
+{
+    using Stage = LUNASHELL::StorageDebugWriteStage;
+    char expected[96] = {};
+    char observed[sizeof(expected)] = {};
+    const int length = std::snprintf(expected, sizeof(expected),
+        "VIBEWARE_SD_PROBE v=1 seq=%lu at_us=%lld\n",
+        static_cast<unsigned long>(s_storage_debug.write_sequence),
+        static_cast<long long>(s_storage_debug.write_started_at_us));
+    if (length <= 0 || static_cast<size_t>(length) >= sizeof(expected)) {
+        return reject_storage_debug_write(ESP_ERR_INVALID_SIZE, 0);
+    }
+    s_storage_debug.requested_bytes = static_cast<uint32_t>(length);
+    s_storage_debug.write_stage = Stage::Directory;
+    if (mkdir(kStorageDebugDirectory, 0775) != 0) {
+        const int directory_errno = errno;
+        if (directory_errno != EEXIST) {
+            return reject_storage_debug_write(ESP_FAIL, directory_errno);
+        }
+        struct stat directory_status = {};
+        if (stat(kStorageDebugDirectory, &directory_status) != 0) {
+            return reject_storage_debug_write(ESP_FAIL, errno);
+        }
+        if (!S_ISDIR(directory_status.st_mode)) {
+            return reject_storage_debug_write(ESP_ERR_INVALID_STATE, ENOTDIR);
+        }
+    }
+    s_storage_debug.write_stage = Stage::Open;
+    const int descriptor = open(kStorageDebugProbePath, O_RDWR | O_CREAT | O_TRUNC, 0600);
+    if (descriptor < 0) {
+        return reject_storage_debug_write(ESP_FAIL, errno);
+    }
+
+    esp_err_t result = ESP_OK;
+    s_storage_debug.write_stage = Stage::Write;
+    errno = 0;
+    const ssize_t written = write(descriptor, expected, static_cast<size_t>(length));
+    s_storage_debug.written_bytes = written > 0 ? static_cast<uint32_t>(written) : 0;
+    if (written != length) {
+        result = reject_storage_debug_write(ESP_FAIL, errno);
+    }
+    if (result == ESP_OK) {
+        s_storage_debug.write_stage = Stage::Sync;
+        if (fsync(descriptor) != 0) {
+            result = reject_storage_debug_write(ESP_FAIL, errno);
+        }
+    }
+    if (result == ESP_OK) {
+        s_storage_debug.write_stage = Stage::Readback;
+        errno = 0;
+        const ssize_t read_bytes = pread(descriptor, observed, static_cast<size_t>(length), 0);
+        const int read_errno = errno;
+        s_storage_debug.read_bytes = read_bytes > 0 ? static_cast<uint32_t>(read_bytes) : 0;
+        if (read_bytes != length) {
+            ESP_LOGE(TAG, "SD debug readback short/failed: read=%ld expected=%d errno=%d",
+                static_cast<long>(read_bytes), length, read_errno);
+            result = reject_storage_debug_write(ESP_FAIL, read_errno);
+        } else if (std::memcmp(expected, observed, static_cast<size_t>(length)) != 0) {
+            result = reject_storage_debug_write(ESP_ERR_INVALID_RESPONSE, 0);
+        }
+    }
+    // Always close our file; a second close failure must not replace the first cause.
+    if (result == ESP_OK) {
+        s_storage_debug.write_stage = Stage::Close;
+    }
+    if (close(descriptor) != 0) {
+        const int close_errno = errno;
+        s_storage_debug.close_errno = close_errno;
+        // IDF's FatFs VFS retires the descriptor even on f_close failure. Stop
+        // diagnostic writes after this failed close rather than guessing at recovery.
+        s_storage_debug.write_blocked = true;
+        if (result == ESP_OK) {
+            result = reject_storage_debug_write(ESP_FAIL, close_errno);
+        } else {
+            ESP_LOGE(TAG, "SD debug probe secondary close failed: errno=%d (%s)",
+                close_errno, esp_err_to_name(ESP_FAIL));
+        }
+    }
+    if (result == ESP_OK) {
+        s_storage_debug.write_stage = Stage::Complete;
+        s_storage_debug.write_verified_at_us = esp_timer_get_time();
+    }
+    return result;
+}
+
+// No parameters: only the storage owner admits an awake, mounted write sample.
+// Exception: Optional diagnostic failures remain separate from mount/error recovery.
+void sample_storage_debug_write()
+{
+    if (s_storage_debug.write_blocked) {
+        return;
+    }
+    const int64_t now_us = esp_timer_get_time();
+    if (now_us < s_next_debug_write_us) {
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(s_storage_mutex);
+        if (!s_mounted || s_power_suspended || s_power_resume_requested ||
+            s_performance_suspended || s_terminal_failure ||
+            s_waiting_for_format_authorization || s_last_mount_report.poisoned) {
+            return;
+        }
+    }
+    s_next_debug_write_us = now_us + kStorageDebugPeriodUs;
+    s_storage_debug.write_attempted = true;
+    ++s_storage_debug.write_sequence;
+    s_storage_debug.write_mount_attempt_count = s_mount_attempt_count;
+    s_storage_debug.write_stage = LUNASHELL::StorageDebugWriteStage::NotAttempted;
+    s_storage_debug.write_error = ESP_ERR_NOT_FINISHED;
+    s_storage_debug.write_errno = 0;
+    s_storage_debug.requested_bytes = 0;
+    s_storage_debug.written_bytes = 0;
+    s_storage_debug.read_bytes = 0;
+    s_storage_debug.close_errno = 0;
+    s_storage_debug.write_started_at_us = now_us;
+    s_storage_debug.write_error = run_watched_storage_io(
+        LUNASHELL_LIVENESS_STORAGE, "debug write/sync/readback", write_storage_debug_probe);
+    s_storage_debug.write_completed_at_us = esp_timer_get_time();
+    // The watchdog wrapper may reject admission before file I/O or retain its own error.
+    if (s_storage_debug.write_error != ESP_OK) {
+        ESP_LOGE(TAG, "SD debug write sample seq=%lu rejected/failed (%s)",
+            static_cast<unsigned long>(s_storage_debug.write_sequence),
+            esp_err_to_name(s_storage_debug.write_error));
+    }
+}
+#endif
+
+// force_space_refresh: Request an actual FAT space query after mount or wake.
+// Exception: Returns real status/filesystem/logger errors; invalidation retains cleanup errors.
 esp_err_t poll_mounted_card(bool force_space_refresh = false)
 {
+    bool status_invoked = false;
     const esp_err_t status_error = run_watched_storage_io(
         LUNASHELL_LIVENESS_STORAGE,
         "runtime card status",
-        []() { return bsp_sdcard_get_status(); }
+        // No parameters: record actual SDK entry separately from watchdog admission.
+        [&status_invoked]() {
+            status_invoked = true;
+            return bsp_sdcard_get_status();
+        }
     );
+#if CONFIG_LUNASHELL_STORAGE_DEBUG_PROBE
+    s_storage_debug.status_attempted = status_invoked;
+    s_storage_debug.status_mount_attempt_count = s_mount_attempt_count;
+    s_storage_debug.status_error = status_error;
+    s_storage_debug.status_sampled_at_us = status_invoked ? esp_timer_get_time() : 0;
+#endif
     if (status_error != ESP_OK) {
         return invalidate_mounted_card(
             status_error,
@@ -1269,6 +1522,10 @@ esp_err_t poll_mounted_card(bool force_space_refresh = false)
             false
         );
     }
+
+#if CONFIG_LUNASHELL_STORAGE_DEBUG_PROBE
+    sample_storage_debug_write();
+#endif
 
     LUNASHELL_logger_sd_status_t logger_status = {};
     esp_err_t logger_error = ESP_OK;
@@ -1500,15 +1757,36 @@ bool failed_power_resume_can_retry_locked(esp_err_t resume_error)
         !report.logger_mirror_enabled;
 }
 
+// timeout_ticks: Original retry, health-poll or indefinite suspension interval.
 // Mark every notification wait as quiescent for synchronous power handoff.
 void wait_for_storage_notification(TickType_t timeout_ticks)
 {
     (void)xEventGroupSetBits(s_storage_events, kWorkerQuiescentBit);
+#if CONFIG_LUNASHELL_STORAGE_DEBUG_PROBE
+    const TickType_t started_at = xTaskGetTickCount();
+    while (true) {
+        // Heartbeats do not touch SD or clear quiescence. Keep the original
+        // backoff deadline and let real notifications return immediately.
+        publish_storage_debug_heartbeat();
+        TickType_t wait_ticks = pdMS_TO_TICKS(kStorageHealthPollMs);
+        if (timeout_ticks != portMAX_DELAY) {
+            const TickType_t elapsed = xTaskGetTickCount() - started_at;
+            if (elapsed >= timeout_ticks) {
+                return;
+            }
+            wait_ticks = std::min(wait_ticks, timeout_ticks - elapsed);
+        }
+        if (ulTaskNotifyTake(pdTRUE, wait_ticks) != 0) {
+            return;
+        }
+    }
+#else
     (void)ulTaskNotifyTake(pdTRUE, timeout_ticks);
+#endif
 }
 
 // argument: Unused FreeRTOS task context.
-// Own SD/FatFs polling and park indefinitely while power is suspended.
+// Own SD/FatFs polling; Debug suspended heartbeats perform no card I/O.
 // Exception: Publishes original I/O/resume failures; retry eligibility never clears them.
 void storage_task(void *argument)
 {

@@ -8,6 +8,23 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## Requested SD/standby diagnostic implementation — 2026-10-07
+
+- Added a Debug-only, nominal one-second heartbeat in the existing storage
+  owner's polling/notification waits, with mounted/suspended/resume/terminal,
+  logger, mount/cleanup and original status/write errors plus sample ages.
+  State heartbeats remain available during standby and retry backoff without
+  reading the card, disturbing quiescence or shortening retry deadlines.
+- On awake, mounted, responding media, the same owner overwrites only the
+  bounded `/sdcard/LUNASHELL/.sd-debug-probe` record, syncs, reads back and compares
+  it. Real errno/stage/byte counts and close failures remain explicit; ambiguous
+  close stops further diagnostic writes. Canonical `storage.debug` holds these
+  observations; old success timestamps are not refreshed during suspension.
+- Confirmed configured `SDMMC_SLOT_NO_CD` and CLK/CMD/D0 GPIO2/1/3, consistent
+  with the local no-card-detect hardware inventory. This does not measure wiring
+  or identify the intermittent cause. Static source review only: no tests/scans,
+  configure/build/size, simulator, new flash, monitor or capture were run.
+
 ## VibeWare Cody firmware flash — 2026-10-07
 
 - On explicit user request, ran `scripts/device.ps1 flash -Profile

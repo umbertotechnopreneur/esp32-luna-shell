@@ -259,6 +259,24 @@ esp_err_t DeviceSnapshotService::reportVoiceMicrophones(const AudioSnapshot &aud
 
 #endif
 
+// report: Storage-owner heartbeat; timestamps distinguish old I/O from live state.
+// Exception: Returns the original optional publication failure without resetting the device.
+esp_err_t DeviceSnapshotService::reportStorageDebug(const StorageDebugReport &report)
+{
+    const esp_err_t publication_error = update_snapshot(
+        [report](DeviceSnapshot &snapshot) {
+            // This diagnostic never upgrades mount health or refreshes card data.
+            snapshot.storage.debug = report;
+        },
+        snapshot_detail::SnapshotPublicationPolicy::Optional
+    );
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(TAG, "SD debug heartbeat publication failed (%s)",
+            esp_err_to_name(publication_error));
+    }
+    return publication_error;
+}
+
 // report: Hardware owner result, including partial cleanup and its real errors.
 void DeviceSnapshotService::reportStorage(
     const StorageMountReport &report
