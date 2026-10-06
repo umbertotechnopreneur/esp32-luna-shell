@@ -31,8 +31,10 @@ def check_asset_contracts(root):
     assert [entry["index"] for entry in palette] == list(range(256)), "Canonical palette slots must be stable"
     expected_palette = struct.pack("<256H", *(int(entry["rgb565"], 16) for entry in palette))
     assert (directory / "generated/palette.rgb565.bin").read_bytes() == expected_palette, "Flash RGB565 palette differs"
-    assert hashlib.sha256((root / icons["source"]).read_bytes()).hexdigest() == icons["source_sha256"], "Image source differs"
+    source_data = (root / icons["source"]).read_text(encoding="utf-8").encode("utf-8")
+    assert hashlib.sha256(source_data).hexdigest() == icons["source_sha256"], "Image source differs"
     assert len(icons["icons"]) == 14, "Exactly14 icon identities are required"
+    assert icons["master_extent"] == 256, "Native masters must cover the maximum 231-pixel display extent"
     identities = {}
     slugs = set()
     for icon in icons["icons"]:
@@ -41,7 +43,8 @@ def check_asset_contracts(root):
         slugs.add(icon["id"])
         indices = (directory / f'generated/{icon["id"]}.indices.bin').read_bytes()
         coverage = (directory / f'generated/{icon["id"]}.coverage.bin').read_bytes()
-        assert len(indices) == len(coverage) == 4096, "Each64x64 master needs4096 indices and coverage values"
+        assert len(indices) == len(coverage) == 256 * 256, "Each256x256 master needs65536 indices and coverage values"
+        assert hashlib.sha256((root / icon["source"]).read_bytes()).hexdigest() == icon["source_sha256"], "Native ImageGen master differs"
         assert hashlib.sha256(indices).hexdigest() == icon["indices_sha256"], "Index digest differs"
         assert hashlib.sha256(coverage).hexdigest() == icon["coverage_sha256"], "Coverage digest differs"
         assert any(coverage), "Icon must contain visible artwork"

@@ -7,14 +7,15 @@ active at a time; `None` is the default session request.
 
 ![Quantized symbol masters](generated/preview.png)
 
-The preserved ImageGen sources and exact prompts are in `source/`. The final
-5 x 3 sheet has fourteen groups and an empty last cell. These are new standalone
-symbols derived from the Obsidian manga-status atlas; the historic four skin
-sheets/PDFs were not edited. Explicit per-cell group windows and retained
-4-connected alpha components isolate the intended symbols from gutter noise.
+The preserved ImageGen sources and exact prompts are in `source/`. On 2026-10-07
+all fourteen symbols were redrawn individually at maximum native square
+resolution, preserving the familiar identities from the original manga atlas.
+`source/masters-v2/` contains the native transparent masters; the original atlas
+and historic skin sheets/PDFs remain preserved. Retained
+4-connected alpha components isolate the intended symbols from detached noise.
 Intentional disconnected Z letters, question dot, hearts, rays, motion strokes
 and sparkles survive the authored area threshold. `generated/manifest.json`
-records the exact sheet size/hash, crop windows, component bounds/counts,
+records each native source size/hash, component bounds/counts,
 retention decisions, palette hash, used slots and output byte hashes.
 
 Regenerate only through the public device CLI:
@@ -23,8 +24,10 @@ Regenerate only through the public device CLI:
 ./scripts/device.ps1 generate -Generator cody-personality-icons -PythonExecutable <python-with-Pillow>
 ```
 
-Each 64 x 64 master has a 4,096-byte canonical palette-index plane and a
-separate 4,096-byte alpha8 coverage plane. The generator uses the exact 256
+Each 256 x 256 master has a 65,536-byte canonical palette-index plane and a
+separate 65,536-byte alpha8 coverage plane. This covers the renderer's maximum
+231-pixel destination without enlarging a low-resolution texture.
+The generator uses the exact 256
 slots in `assets/cody/palette/palette256.json`, retains their order and never
 selects a reserved slot. Nearest squared sRGB distance selects the lowest
 eligible slot on ties; there is no dithering or palette mutation. Transparent
@@ -39,8 +42,8 @@ is the authored RGB565 word, whereas PNG previews use the authored sRGB byte
 channels; alpha compositing can produce displayed colors outside the palette.
 
 The compiled source packages all fourteen immutable index/coverage planes and
-the exact 512-byte RGB565 palette in internal flash. Data payload is 115,200
-bytes (112.5 KiB), plus fourteen descriptors and alignment. No per-skin or
+the exact 512-byte RGB565 palette in internal flash. Data payload is 1,835,520
+bytes, plus fourteen descriptors and alignment. No per-skin or
 per-size texture copies, SD assets, runtime PNG decoding, sensor reads or
 per-frame heap allocations are introduced by the native cue renderer.
 
@@ -50,6 +53,7 @@ onboarding, settings, QR, boot and header scenes disable it. Original synthesize
 sound companions and a listening reel are in [audio](audio/README.md).
 The implementation and performance limits are documented in
 [personality rendering](../../../docs/architecture/cody/personality-icons.md).
-Generation, source/artwork review and the Debug firmware build were completed.
-The focused host suite is authored but awaits command-specific authorization;
-simulator execution, automatic checks and physical behavior remain unverified.
+The v2 source and generated artwork were reviewed. Focused host checks and a
+Debug firmware build/flash are authorized for this revision; their results are
+recorded in the repository's `done.md`. Physical readability remains unverified
+until observed on the device.

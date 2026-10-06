@@ -13,7 +13,7 @@
 namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_personality";
-// The 64-pixel masters permit the requested 3.6x presentation without new buffers.
+// The 256-pixel masters cover every admitted destination without magnifying pixels.
 constexpr uint16_t kMaximumSpriteExtent = 231;
 static_assert(PersonalityConfig::position_window_us > 0 &&
     PersonalityConfig::position_window_us <= PersonalityConfig::scale_window_us &&

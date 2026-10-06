@@ -137,12 +137,15 @@ participate in dirty comparison; both old and new footprints are erased/redrawn.
 Rasterization multiplies stored alpha8 coverage by the channel's opacity with
 integer rounding and composites directly into the existing RGB565 tile.
 
-The fourteen 64 x 64 index/coverage pairs use 114,688 bytes, plus the exact
-512-byte RGB565 palette: 115,200 flash bytes before descriptors, alignment and
+The fourteen 256 x 256 index/coverage pairs use 1,835,008 bytes, plus the exact
+512-byte RGB565 palette: 1,835,520 flash bytes before descriptors, alignment and
 code. There are no per-skin copies, new framebuffer or native per-frame heap
 allocations. The destination guard permits at most 53,361 pixels for one complete
 visible sprite frame; the default Full 104 x 104 profile covers 10,816 pixels before
-deformation. This increases raster work without changing the source payload.
+deformation. The 2026-10-07 ImageGen revision replaces the 64-pixel textures with
+256-pixel masters, covering every admitted destination without magnification.
+Native high-resolution originals and exact prompts are versioned separately;
+palette, runtime geometry, cue identities and audio recipes remain shared.
 The geometric follower stores seventeen fixed 24-byte buckets (408 bytes).
 A compile-time assertion limits the entire channel/follower state to 768 bytes;
 preparation also takes one transient copy on the existing worker stack. Its work
@@ -253,6 +256,11 @@ passed on 2026-10-05 and the Rig simulator opened; listening, interactive gestur
 evaluation and physical touch validation remain open.
 
 ## Validation and integration status
+
+The 2026-10-07 high-resolution revision has generated-artwork and static source
+review. Its focused host checks and Debug build/flash results are recorded in
+`done.md`; physical visual quality and performance require device observation.
+The historical results below belong to their named earlier revisions.
 
 The 2026-10-05 threefold size/placement correction has static source review only.
 Native and Windows use the same Main/Sleep profiles and retain Micro suppression.

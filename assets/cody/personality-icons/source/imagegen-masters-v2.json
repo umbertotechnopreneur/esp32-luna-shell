@@ -1,0 +1,94 @@
+{
+  "schema": "cody.imagegen-masters.v2",
+  "tool": "built-in image_gen",
+  "date": "2026-10-07",
+  "reference": "assets/cody/personality-icons/source/cody-manga-symbols-v1.png",
+  "requested_resolution": "maximum native square",
+  "firmware_extent": 256,
+  "icons": [
+    {
+      "id": "sleep",
+      "source": "assets/cody/personality-icons/source/masters-v2/sleep.png",
+      "prompt": "Use case: identity-preserve. Production SINGLE standalone manga status icon for Cody. Input is a style and identity reference atlas only. Extract and REDRAW just sleep: three ascending blue Z letters with a gold crescent moon. Only this ONE intentional grouped icon, preserve its exact familiar shapes, colors and bold pale white keyline from the atlas. Draw a clean sharp high-resolution new native master at the MAXIMUM available square resolution (at least 1024x1024 if available). Smooth antialiased outline, opaque clean filled shapes; bold simple 2D manga illustration. Center the complete group, occupy 75 percent of the square, leave a generous transparent margin; intentional disconnected parts must stay. Entire background truly transparent alpha=0. Absolutely no speckle, debris, distressed pixels, paint smudges, glow, grain or marks outside the intentional icon. Do NOT reproduce the sheet, other icons, text labels, grid, character, face or background. Production master for smooth downsampling to 256x256 embedded graphics.",
+      "sha256": "f0dfcb77506ca9300dedfd8ef723ec8901edb8986d2d0dc706773cb862a76a59"
+    },
+    {
+      "id": "fear",
+      "source": "assets/cody/personality-icons/source/masters-v2/fear.png",
+      "prompt": "Use case: identity-preserve. Production SINGLE standalone manga status icon for Cody. Input is a style and identity reference atlas only. Extract and REDRAW just fear: one blue sweat drop with white highlight and two short blue trembling strokes. Only this ONE intentional grouped icon, preserve its exact familiar shapes, colors and bold pale white keyline from the atlas. Draw a clean sharp high-resolution new native master at the MAXIMUM available square resolution (at least 1024x1024 if available). Smooth antialiased outline, opaque clean filled shapes; bold simple 2D manga illustration. Center the complete group, occupy 75 percent of the square, leave a generous transparent margin; intentional disconnected parts must stay. Entire background truly transparent alpha=0. Absolutely no speckle, debris, distressed pixels, paint smudges, glow, grain or marks outside the intentional icon. Do NOT reproduce the sheet, other icons, text labels, grid, character, face or background. Production master for smooth downsampling to 256x256 embedded graphics.",
+      "sha256": "caf59824b6a5732224494be00bfa5d64b3dde902ee56e53661977542fd1c7677"
+    },
+    {
+      "id": "joy",
+      "source": "assets/cody/personality-icons/source/masters-v2/joy.png",
+      "prompt": "Use case: identity-preserve. Production SINGLE standalone manga status icon for Cody. Input is a style and identity reference atlas only. Extract and REDRAW just joy: three gold four-point sparkles, one large and two smaller. Only this ONE intentional grouped icon, preserve its exact familiar shapes, colors and bold pale white keyline from the atlas. Draw a clean sharp high-resolution new native master at the MAXIMUM available square resolution (at least 1024x1024 if available). Smooth antialiased outline, opaque clean filled shapes; bold simple 2D manga illustration. Center the complete group, occupy 75 percent of the square, leave a generous transparent margin; intentional disconnected parts must stay. Entire background truly transparent alpha=0. Absolutely no speckle, debris, distressed pixels, paint smudges, glow, grain or marks outside the intentional icon. Do NOT reproduce the sheet, other icons, text labels, grid, character, face or background. Production master for smooth downsampling to 256x256 embedded graphics.",
+      "sha256": "a75164255c27f0a24dab2095dbb1209cb1b615ed1452ecd42512cac71d520327"
+    },
+    {
+      "id": "hunger",
+      "source": "assets/cody/personality-icons/source/masters-v2/hunger.png",
+      "prompt": "Use case: identity-preserve. Production SINGLE standalone manga status icon for Cody. Input is a style and identity reference atlas only. Extract and REDRAW just hunger: white rice bowl with blue rim, two brown chopsticks and two short gold emphasis marks. Only this ONE intentional grouped icon, preserve its exact familiar shapes, colors and bold pale white keyline from the atlas. Draw a clean sharp high-resolution new native master at the MAXIMUM available square resolution (at least 1024x1024 if available). Smooth antialiased outline, opaque clean filled shapes; bold simple 2D manga illustration. Center the complete group, occupy 75 percent of the square, leave a generous transparent margin; intentional disconnected parts must stay. Entire background truly transparent alpha=0. Absolutely no speckle, debris, distressed pixels, paint smudges, glow, grain or marks outside the intentional icon. Do NOT reproduce the sheet, other icons, text labels, grid, character, face or background. Production master for smooth downsampling to 256x256 embedded graphics.",
+      "sha256": "a6f8f78843862dfb3a6983b7f0cbace84a8665cff972a3ac9f792b5fe2fcafeb"
+    },
+    {
+      "id": "thirst",
+      "source": "assets/cody/personality-icons/source/masters-v2/thirst.png",
+      "prompt": "Use case: identity-preserve. Production SINGLE standalone manga status icon for Cody. Input is a style and identity reference atlas only. Extract and REDRAW just thirst: one glass of blue water with white rim and one blue droplet. Only this ONE intentional grouped icon, preserve its exact familiar shapes, colors and bold pale white keyline from the atlas. Draw a clean sharp high-resolution new native master at the MAXIMUM available square resolution (at least 1024x1024 if available). Smooth antialiased outline, opaque clean filled shapes; bold simple 2D manga illustration. Center the complete group, occupy 75 percent of the square, leave a generous transparent margin; intentional disconnected parts must stay. Entire background truly transparent alpha=0. Absolutely no speckle, debris, distressed pixels, paint smudges, glow, grain or marks outside the intentional icon. Do NOT reproduce the sheet, other icons, text labels, grid, character, face or background. Production master for smooth downsampling to 256x256 embedded graphics.",
+      "sha256": "9757858849da7ff54dee6a1f6c6eeecfa54cd4399b49dc61c7989a3acea61f5a"
+    },
+    {
+      "id": "heat",
+      "source": "assets/cody/personality-icons/source/masters-v2/heat.png",
+      "prompt": "Redraw this heat/overheating manga status icon as a very clean crisp flat-color transparent PNG at maximum native square resolution. Keep one golden yellow sun with 8 detached rounded rays, white sticker keyline, and exactly two coral-red curved rising heat strokes to its lower right. Perfectly solid smooth color fills, NO texture, speckles, grain, scratches, flecks, noise, paint or extra shapes. No lettering, no face, no shadow. Match this reference silhouette and playful manga status icon style. Reference has unintended noisy sun fill: replace sun interior with uniform golden-yellow. Transparent background.",
+      "sha256": "8143d7ab869d6ac262f6457e6c027447f000fb62e8cdcd7d3591f5497038f225"
+    },
+    {
+      "id": "cold",
+      "source": "assets/cody/personality-icons/source/masters-v2/cold.png",
+      "prompt": "Use case: identity-preserve. Production SINGLE standalone manga status icon for Cody. Input is a style and identity reference atlas only. Extract and REDRAW just cold: blue six-arm snowflake with two blue trembling strokes. Only this ONE intentional grouped icon, preserve its exact familiar shapes, colors and bold pale white keyline from the atlas. Draw a clean sharp high-resolution new native master at the MAXIMUM available square resolution (at least 1024x1024 if available). Smooth antialiased outline, opaque clean filled shapes; bold simple 2D manga illustration. Center the complete group, occupy 75 percent of the square, leave a generous transparent margin; intentional disconnected parts must stay. Entire background truly transparent alpha=0. Absolutely no speckle, debris, distressed pixels, paint smudges, glow, grain or marks outside the intentional icon. Do NOT reproduce the sheet, other icons, text labels, grid, character, face or background. Production master for smooth downsampling to 256x256 embedded graphics.",
+      "sha256": "c0ca2c8d0509e2bee83579c9d48f5ab1410ed642dd29591c4b6e47f6ba3277c4"
+    },
+    {
+      "id": "low-battery",
+      "source": "assets/cody/personality-icons/source/masters-v2/low-battery.png",
+      "prompt": "Use case: identity-preserve. Production SINGLE standalone manga status icon for Cody. Input is a style and identity reference atlas only. Extract and REDRAW just low-battery: horizontal white-keylined battery, almost empty dark interior with one coral red bar at left. Only this ONE intentional grouped icon, preserve its exact familiar shapes, colors and bold pale white keyline from the atlas. Draw a clean sharp high-resolution new native master at the MAXIMUM available square resolution (at least 1024x1024 if available). Smooth antialiased outline, opaque clean filled shapes; bold simple 2D manga illustration. Center the complete group, occupy 75 percent of the square, leave a generous transparent margin; intentional disconnected parts must stay. Entire background truly transparent alpha=0. Absolutely no speckle, debris, distressed pixels, paint smudges, glow, grain or marks outside the intentional icon. Do NOT reproduce the sheet, other icons, text labels, grid, character, face or background. Production master for smooth downsampling to 256x256 embedded graphics.",
+      "sha256": "7325f4d1ca836fa3a2d8e89731eaeda024be8350986270e3891b85a40a3e5a89"
+    },
+    {
+      "id": "charging",
+      "source": "assets/cody/personality-icons/source/masters-v2/charging.png",
+      "prompt": "Redraw this charging battery manga status icon as a clean crisp flat-color transparent PNG at maximum native square resolution. Horizontal battery shape with thick mint-turquoise casing and right-side terminal, white sticker keyline, solid dark blue-gray interior and one large golden-yellow lightning bolt centered. Perfectly uniform solid smooth fills, NO patches, stains, blobs, texture, grain, speckles, scratches, noise, shadows, extra shapes or lettering. Match reference proportions and playful manga status icon style. Reference contains an unintended dark stain inside battery: remove it completely leaving uniform interior. Transparent background.",
+      "sha256": "9a3b8f5230023e5350e30ef199e31b8b5c45c84577df0151f2c0451dee846461"
+    },
+    {
+      "id": "no-wifi",
+      "source": "assets/cody/personality-icons/source/masters-v2/no-wifi.png",
+      "prompt": "Use case: identity-preserve. Production SINGLE standalone manga status icon for Cody. Input is a style and identity reference atlas only. Extract and REDRAW just no-wifi: three white wifi arcs and a bottom dot crossed with a coral red diagonal slash. Only this ONE intentional grouped icon, preserve its exact familiar shapes, colors and bold pale white keyline from the atlas. Draw a clean sharp high-resolution new native master at the MAXIMUM available square resolution (at least 1024x1024 if available). Smooth antialiased outline, opaque clean filled shapes; bold simple 2D manga illustration. Center the complete group, occupy 75 percent of the square, leave a generous transparent margin; intentional disconnected parts must stay. Entire background truly transparent alpha=0. Absolutely no speckle, debris, distressed pixels, paint smudges, glow, grain or marks outside the intentional icon. Do NOT reproduce the sheet, other icons, text labels, grid, character, face or background. Production master for smooth downsampling to 256x256 embedded graphics.",
+      "sha256": "df24223f2844222af1e23ea0a6d6ae147845b844aae9f3da6864b443a04db3bb"
+    },
+    {
+      "id": "curiosity",
+      "source": "assets/cody/personality-icons/source/masters-v2/curiosity.png",
+      "prompt": "Use case: identity-preserve. Production SINGLE standalone manga status icon for Cody. Input is a style and identity reference atlas only. Extract and REDRAW just curiosity: one bold blue question mark with its detached dot. Only this ONE intentional grouped icon, preserve its exact familiar shapes, colors and bold pale white keyline from the atlas. Draw a clean sharp high-resolution new native master at the MAXIMUM available square resolution (at least 1024x1024 if available). Smooth antialiased outline, opaque clean filled shapes; bold simple 2D manga illustration. Center the complete group, occupy 75 percent of the square, leave a generous transparent margin; intentional disconnected parts must stay. Entire background truly transparent alpha=0. Absolutely no speckle, debris, distressed pixels, paint smudges, glow, grain or marks outside the intentional icon. Do NOT reproduce the sheet, other icons, text labels, grid, character, face or background. Production master for smooth downsampling to 256x256 embedded graphics.",
+      "sha256": "778c29bdf674cccb91227d5254049001f32bab390596cc2bebb76f6932fb27b6"
+    },
+    {
+      "id": "confusion",
+      "source": "assets/cody/personality-icons/source/masters-v2/confusion.png",
+      "prompt": "Use case: identity-preserve. Production SINGLE standalone manga status icon for Cody. Input is a style and identity reference atlas only. Extract and REDRAW just confusion: one thick violet spiral. Only this ONE intentional grouped icon, preserve its exact familiar shapes, colors and bold pale white keyline from the atlas. Draw a clean sharp high-resolution new native master at the MAXIMUM available square resolution (at least 1024x1024 if available). Smooth antialiased outline, opaque clean filled shapes; bold simple 2D manga illustration. Center the complete group, occupy 75 percent of the square, leave a generous transparent margin; intentional disconnected parts must stay. Entire background truly transparent alpha=0. Absolutely no speckle, debris, distressed pixels, paint smudges, glow, grain or marks outside the intentional icon. Do NOT reproduce the sheet, other icons, text labels, grid, character, face or background. Production master for smooth downsampling to 256x256 embedded graphics.",
+      "sha256": "349bf3b548dff7f6aaf24f76f741ee630dc70dc274cbdfa5fd9a41f09e91da71"
+    },
+    {
+      "id": "affection",
+      "source": "assets/cody/personality-icons/source/masters-v2/affection.png",
+      "prompt": "Use case: identity-preserve. Production SINGLE standalone manga status icon for Cody. Input is a style and identity reference atlas only. Extract and REDRAW just affection: two pink hearts, one large and one small. Only this ONE intentional grouped icon, preserve its exact familiar shapes, colors and bold pale white keyline from the atlas. Draw a clean sharp high-resolution new native master at the MAXIMUM available square resolution (at least 1024x1024 if available). Smooth antialiased outline, opaque clean filled shapes; bold simple 2D manga illustration. Center the complete group, occupy 75 percent of the square, leave a generous transparent margin; intentional disconnected parts must stay. Entire background truly transparent alpha=0. Absolutely no speckle, debris, distressed pixels, paint smudges, glow, grain or marks outside the intentional icon. Do NOT reproduce the sheet, other icons, text labels, grid, character, face or background. Production master for smooth downsampling to 256x256 embedded graphics.",
+      "sha256": "eede0aab6f54c54c687a0cb27df0d8211e7e1dd007b426db058972323199ccfb"
+    },
+    {
+      "id": "frustration",
+      "source": "assets/cody/personality-icons/source/masters-v2/frustration.png",
+      "prompt": "Use case: identity-preserve. Production SINGLE standalone manga status icon for Cody. Input is a style and identity reference atlas only. Extract and REDRAW just frustration: one coral red four-pronged manga anger vein with rounded arms. Only this ONE intentional grouped icon, preserve its exact familiar shapes, colors and bold pale white keyline from the atlas. Draw a clean sharp high-resolution new native master at the MAXIMUM available square resolution (at least 1024x1024 if available). Smooth antialiased outline, opaque clean filled shapes; bold simple 2D manga illustration. Center the complete group, occupy 75 percent of the square, leave a generous transparent margin; intentional disconnected parts must stay. Entire background truly transparent alpha=0. Absolutely no speckle, debris, distressed pixels, paint smudges, glow, grain or marks outside the intentional icon. Do NOT reproduce the sheet, other icons, text labels, grid, character, face or background. Production master for smooth downsampling to 256x256 embedded graphics.",
+      "sha256": "852f68eef242a2698e9a0a9d8065440d04ab6d4e00c2148fd6aae4bba0b043e6"
+    }
+  ]
+}

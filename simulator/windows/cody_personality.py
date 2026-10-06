@@ -168,6 +168,9 @@ class PersonalityPainter:
         self.images = {}
         directory = root / "assets/cody/personality-icons/generated"
         manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+        extent = manifest["master_extent"]
+        if extent != 256:
+            raise ValueError("Personality masters must match the 256-pixel firmware assets")
         # Palette provenance normalizes text line endings across Windows and Unix;
         # sprite coverage and indexed binary hashes remain byte exact below.
         palette_bytes = (root / manifest["palette_source"]).read_text(encoding="utf-8").encode("utf-8")
@@ -186,7 +189,7 @@ class PersonalityPainter:
                 raise ValueError(f"Duplicate/empty personality identity: {cue}")
             indices = (directory / f'{asset["id"]}.indices.bin').read_bytes()
             coverage = (directory / f'{asset["id"]}.coverage.bin').read_bytes()
-            if len(indices) != 4096 or len(coverage) != 4096:
+            if len(indices) != extent * extent or len(coverage) != extent * extent:
                 raise ValueError(f"Personality asset size mismatch: {cue.name}")
             if hashlib.sha256(indices).hexdigest() != asset["indices_sha256"] or \
                     hashlib.sha256(coverage).hexdigest() != asset["coverage_sha256"]:
@@ -196,7 +199,7 @@ class PersonalityPainter:
                 if alpha and entries[slot]["reserved"]:
                     raise ValueError(f"Reserved palette slot in personality cue: {cue.name}")
                 rgba.extend((*colors[slot], alpha))
-            self.images[cue] = Image.frombytes("RGBA", (64, 64), bytes(rgba))
+            self.images[cue] = Image.frombytes("RGBA", (extent, extent), bytes(rgba))
         if set(self.images) != set(PersonalityCue) - {PersonalityCue.NONE}:
             raise ValueError("Personality symbol catalog is incomplete")
 
@@ -526,7 +529,8 @@ class PersonalityPainter:
         rgba = bytearray()
         for y in range(frame.height):
             for x in range(frame.width):
-                red, green, blue, coverage = pixels[x * 64 // frame.width, y * 64 // frame.height]
+                red, green, blue, coverage = pixels[x * master.width // frame.width,
+                                                  y * master.height // frame.height]
                 alpha = (coverage * frame.opacity + 127) // 255
                 rgba.extend((red, green, blue, alpha))
         sprite = Image.frombytes("RGBA", (frame.width, frame.height), bytes(rgba))
