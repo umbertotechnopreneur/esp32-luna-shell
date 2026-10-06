@@ -55,6 +55,11 @@ if(NOT DEFINED LUNASHELL_BUILD_MODE OR
    NOT LUNASHELL_BUILD_MODE MATCHES "^(Debug|Release)$")
     message(FATAL_ERROR "Explicit firmware build mode is missing; use scripts/device.ps1")
 endif()
+# The panic component must be discovered before Kconfig can select UART dumps.
+# Debug/Release remains independent of hardware and UI profile selection.
+if(LUNASHELL_BUILD_MODE STREQUAL "Debug")
+    list(APPEND COMPONENTS espcoredump)
+endif()
 if(NOT DEFINED LUNASHELL_DEPENDENCIES_LOCK OR
    LUNASHELL_DEPENDENCIES_LOCK STREQUAL "")
     message(FATAL_ERROR
@@ -71,6 +76,11 @@ idf_build_set_property(
     "${LUNASHELL_DEPENDENCIES_LOCK}"
 )
 project(esp32_luna_shell)
+
+if(LUNASHELL_BUILD_MODE STREQUAL "Debug" AND
+   NOT CONFIG_ESP_COREDUMP_ENABLE_TO_UART)
+    message(FATAL_ERROR "Debug panic task-stack capture requires UART core dumps")
+endif()
 
 set(_tts_roots "$ENV{LUNASHELL_PROFILE_COMPONENT_ROOTS}")
 if("LUNASHELL_tts" IN_LIST _tts_roots)

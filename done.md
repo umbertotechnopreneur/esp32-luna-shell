@@ -84,6 +84,11 @@ flash logs were regenerated.
   covers one frame, including SPI submission whose upstream control-command
   queue wait can be unbounded. Current running-task backtrace does not locate
   the blocked renderer. Diagnostic build/capture and exact causes remain pending.
+- The first diagnostic configure did not discover the core-dump component,
+  leaving its defaults unknown. Compilation was cancelled before flashing;
+  Ninja/Xtensa compiler processes were confirmed stopped. Debug now explicitly
+  admits official `espcoredump` before Kconfig and rejects missing UART capture
+  after configuration. The working Sophia image remains on the device.
 
 ## SD mounted-card standby/touch-wake verification — 2026-10-07
 
