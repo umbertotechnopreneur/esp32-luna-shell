@@ -5,13 +5,16 @@ Only open, actionable work belongs here. Deferred work is in
 [done.md](done.md). Authorization is governed solely by [AGENTS.md](AGENTS.md).
 The latest feature-worktree Debug Cody image at `61ab74a` (`tts-sd`) was built
 and flashed on COM10 on 2026-10-05, including Debug-only PWR gestures.
-The latest main Debug Cody image is `2bd0626` (`wake-word`), built and flashed
+The latest main Debug Cody image is `c3dceaf` (`wake-word`), built and flashed
 on COM10 on 2026-10-07 with Sophia enabled, TTS excluded and prerecorded audio
-retained. All four flash hashes were verified. The runtime capture recorded
+retained. All four flash hashes were verified. Earlier runtime evidence recorded
 Sophia detection and software-standby wake; the owner confirmed speaking Sophia
-and seeing the display wake without touch. SD card-init timeout after reset and
-the intermittent display watchdog remain open; storage-resume success alone
-does not establish a mounted card. VibeWare first-boot branding remains present.
+and seeing the display wake without touch on that earlier image. The latest
+240-second capture and two 90-second repeats completed boot and standby without
+a display watchdog; fresh voice/touch wake and physical image review remain
+pending. SD card-init
+timeout after reset remains open; storage-resume success alone does not establish
+a mounted card. VibeWare first-boot branding remains present.
 Authorized 30-second boot captures of the earlier `58757005` image complete
 mandatory startup without the prior allocation abort; SD initialization
 still timed out after reinsertion, before synthesis. Earlier ordinary Cody evidence belongs to
@@ -30,7 +33,10 @@ every open physical observation below remains open.
   A complete checksum-validated matching `2bd0626` core proves Cody blocked in
   IDF LCD `spi_device_acquire_bus(portMAX_DELAY)` during branding. The new
   transport drains queued results with bounded waits and preserves real errors;
-  no timeout suppression is applied. Build/flash and physical verification pending.
+  no timeout suppression is applied. Debug build/COM10 flash passed at `c3dceaf`;
+  the 240-second boot/standby capture and two 90-second reset repeats recorded
+  no watchdog or QSPI errors (75 successful periodic frame samples total).
+  Physical output, renewed wake and longer stability remain pending.
 - [ ] Physically review the CST9217 two-contact correction after flash; the
   former one-contact limit rejected a legitimate two-contact report and aborted
   startup. Original Waveshare SensorLib also exposes missing report acknowledgment
@@ -41,8 +47,11 @@ every open physical observation below remains open.
   `lvgl-worker` watchdog. Debug now requests UART task-stack core dumps and
   scoped stock SD protocol logging during card initialization. No format,
   shared 3.3-V rail cycling, retry-success substitution or watchdog suppression
-  is implemented. Diagnostic image validation and cause identification remain
-  pending. Preserve verified Sophia wake and prerecorded audio.
+  is implemented. A matching checksum-validated core identified the infinite
+  SPI acquisition call, now removed from native transport. SD still never mounts
+  after warm reset with the restored original baseline; a freshly powered card
+  and subsequent warm-reset comparison remain required. Preserve Sophia wake
+  and prerecorded audio.
 
 ## Tap, manga cues and Windows fake audio
 
@@ -72,9 +81,10 @@ every open physical observation below remains open.
   tap, each visible manga identity, whistle, greeting glyphs, generated boot
   cues, cancellation and retained playback errors. DLL compilation passed;
   interactive startup has been observed; listening remains unverified.
-- [ ] Validate the source corrections for palette text provenance and native
-  float32 idle clocks after fresh exact-command authorization. The last
-  `cody-personality` and `cody-runtime` runs failed before those corrections.
+- [ ] Validate the remaining native float32 idle-clock corrections in
+  `cody-runtime` after fresh exact-command authorization. The latest focused
+  `cody-personality` suite passed on 2026-10-07, including palette provenance;
+  the last `cody-runtime` run failed before its corrections.
   `cody-native` and corrected `snapshot-integrity` remain unverified; their
   requested reruns were explicitly declined on 2026-10-06.
 

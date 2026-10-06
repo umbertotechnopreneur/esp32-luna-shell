@@ -10,6 +10,29 @@ flash logs were regenerated.
 
 ## Requested recognition-only voice selection — 2026-10-07
 
+- Queued-only QSPI and completed CST9217 protocol at `c3dceaf` compiled with
+  eight jobs on ESP-IDF 6.0.2 and flashed on COM10; all four hashes verified.
+  App: 6,697,616 bytes (`0x663290`), 53% application partition free; SHA-256
+  `4DDAC1F8A68CDCA61770CF9423B1F6EDBE8D4454CEACA80A1E07AF07A390F134`.
+  Preserved matching ELF SHA-256:
+  `8D8C527158372FEA0E6FCCEE4F04EF506C9DC00BF0490C9ADCD8A81E158EEB0C`.
+  Final build log: `artifacts/build-cody-companion-wake-word-evidence/evidence/queued-qspi-touch-final-flash-20261007.log`.
+  An earlier validation was intentionally cancelled before flash to correct
+  command-only SPI admission; Ninja/Xtensa termination was confirmed before
+  restarting. No warning suppression or successful partial build was claimed.
+
+- Three captures of `c3dceaf` completed with public CLI exit zero: 240 seconds,
+  then two 90-second reset/boot repeats. All reached inactivity standby, with
+  75 successful periodic DMA frame samples total, zero watchdog/panic/core dumps,
+  zero QSPI errors and zero rejected touch reports. These bounded observations
+  do not establish indefinite stability, physical pixel quality or voice/touch
+  wake on the new transport. SD initialization still timed out before mounting;
+  no write probe could run. Captures are retained under
+  `artifacts/build-cody-companion-wake-word-evidence/evidence/` as
+  `queued-qspi-touch-runtime-20261007.log`,
+  `queued-qspi-touch-repeat-1-20261007.log` and
+  `queued-qspi-touch-repeat-2-20261007.log`.
+
 - Captured and decoded a complete checksum-validated watchdog dump using the
   matching `2bd0626` ELF through `device.ps1 check -Check decode-core-dump`.
   Cody's thread is blocked in IDF LCD parameter transmission acquiring the SPI
@@ -20,11 +43,15 @@ flash logs were regenerated.
   waits and internal immutable descriptors. The unchanged CO5300 panel driver
   uses its original opcode/address/pixel wire format; real errors retain unsafe
   DMA ownership. This removes the observed infinite bus-acquisition call path;
-  final compilation and physical evidence remain pending.
+  final compilation/flash passed as recorded above. The subsequent 240-second
+  capture recorded 25 successful frame samples, no watchdog or QSPI errors,
+  and completed standby. Physical output and renewed wake remain unverified.
 - Compared original Waveshare Arduino SensorLib touch code and constants at
   the same pinned commit: two-finger capacity, report ACK D000/AB and normal-mode
   D109/readback 0002. Implemented the missing ACK and mode restoration while
-  retaining malformed-packet and original I2C errors. Device verification pending.
+  retaining malformed-packet and original I2C errors. The subsequent 240-second
+  capture initialized the controller without rejected reports. Physical
+  two-finger input and renewed touch wake remain unverified.
 
 - Compared the official Waveshare firmware and example BSPs at pinned source
   `e4344e70c2fa78a13e8a06566507f1ba8af6672a`; restored default SD host frequency
