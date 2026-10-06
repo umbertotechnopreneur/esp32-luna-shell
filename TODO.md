@@ -5,6 +5,9 @@ Only open, actionable work belongs here. Deferred work is in
 [done.md](done.md). Authorization is governed solely by [AGENTS.md](AGENTS.md).
 The latest feature-worktree Debug Cody image at `61ab74a` (`tts-sd`) was built
 and flashed on COM10 on 2026-10-05, including Debug-only PWR gestures.
+The latest main Debug Cody image is `6ae36bda` (`none`), built and flashed on
+COM10 on 2026-10-07 with VibeWare first-boot branding; all three flash hashes
+were verified and the flash command issued its final hard reset.
 Authorized 30-second boot captures of the earlier `58757005` image complete
 mandatory startup without the prior allocation abort; SD initialization
 still timed out after reinsertion, before synthesis. Earlier ordinary Cody evidence belongs to
@@ -18,15 +21,18 @@ every open physical observation below remains open.
   full-cycle handoff, real startup failures and DMA parking, all cardinal
   rotations, first setup/returning device and unchanged standby/deep-sleep wake.
   Review both Windows previews and packaging when authorized. Generated pixel
-  data is 630,600 bytes; actual linked memory, FPS and physical appearance remain
-  unverified. Tests, scans, simulator, build, size and flash were not run.
+  data is 630,600 bytes. Cody Debug compiled and flashed at `6ae36bda` on
+  2026-10-07; the application image is 4,661,360 bytes. Luna compilation, linked
+  memory analysis, FPS and physical appearance remain unverified. Tests, scans,
+  simulator, size, monitor and capture were not run.
 
 - [ ] Observe the updated tap, icon sound admission, 20% size increase and
   400-ms fades on the device; build/flash alone cannot establish these behaviors.
-- [ ] Compile/validate and load the newer Whistle-width correction and stronger
-  mouth breathing when requested. The flashed device still has `de9b8b18`;
+- [ ] Physically review the newer Whistle-width correction and stronger
+  mouth breathing. The main Debug image flashed on COM10 is now `6ae36bda`;
   thinner lip geometry, matched tongue and native/Python breathing changes are
-  implemented and the rig regenerated, without formal checks or firmware build.
+  implemented, the rig regenerated and Cody firmware compiled. Formal checks
+  and physical behavior remain unverified.
 - [ ] Execute/listen to the Windows fake audio path when explicitly authorized:
   tap, each visible manga identity, whistle, greeting glyphs, generated boot
   cues, cancellation and retained playback errors. DLL compilation passed;

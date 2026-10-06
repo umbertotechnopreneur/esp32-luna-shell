@@ -8,6 +8,27 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## VibeWare Cody firmware flash — 2026-10-07
+
+- On explicit user request, ran `scripts/device.ps1 flash -Profile
+  cody-companion -BuildMode Debug -Feature none -Port COM10 -Jobs 8` with the
+  shared transient-artifact cleanup and its required incremental build. ESP-IDF
+  6.0.2 compiled main image `6ae36bda`, including the VibeWare decoder/resources.
+- Application image: 4,661,360 bytes (`0x472070`), with 69% of the selected
+  application partition free according to the build's mandatory fit check.
+  ESP32-S3 `a4:cb:8f:db:42:d8` on COM10 accepted bootloader, partition table and
+  application; esptool verified all three written hashes and issued the final
+  RTS hard reset. The public command completed with exit code 0.
+- Application SHA-256:
+  `42e3a8516585a8ba59f3512dcc53b4669ebd0a899e6a19c6340e17e9cace7182`.
+- Log: `artifacts/build-cody-companion-debug/evidence/vibeware-boot-flash-20261007.log`.
+  Cleanup removed the earlier local
+  `artifacts/pdf-review/` evidence; final PDF files and their Obsidian source
+  manifest remain outside that transient directory.
+- No separate tests/scans, size report, simulator, Luna build, monitor or capture
+  ran. Written bytes are verified; startup success and physical animation,
+  timing, handoff and gestures remain unobserved.
+
 ## VibeWare boot identity — 2026-10-06
 
 - Preserved the approved Obsidian press-kit GIF and generated 42 exact RGB565
