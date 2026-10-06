@@ -188,13 +188,17 @@ every open physical observation below remains open.
   reset reproduced OCR timeout before standby, with the card still inserted.
   A touch contact-count rejection stopped the renderer in the working-card
   capture and prevented standby; an earlier Task-WDT named `lvgl-worker`.
-  Preserve these faults independently of the SD cause. A second reinsertion
-  awaits physical confirmation; a working-card standby failure remains
-  unreproduced. Compare a working
-  awake interval with standby/touch wake and the first original failure. The
+  Preserve these faults independently of the SD cause. A second confirmed
+  reinsertion and touch wake mounted the card; the next passive capture verified
+  one complete mounted-card standby/touch-wake cycle, with sequence 48 before
+  standby and 96 after wake, the same mount attempt 4 and no SD/runtime failure.
+  The owner confirmed SD visibility in Info. This Debug cycle passed; a
+  working-card standby failure remains unreproduced and the warm-reset OCR cause
+  remains open. Compare the first original failure with hardware power/signals
+  and SDK command outcomes, without inferring wiring failure from timeout. The
   diagnostic file is `/sdcard/LUNASHELL/.sd-debug-probe`; Release excludes it.
-  Reproduce one successful boot followed by standby/wake before changing policy;
-  inspect card seating, power and signals. Validate mount, retry/backoff, access
+  Extend physical evidence to repeated cycles and actual Release sleep before
+  changing recovery policy; inspect card seating, power and signals. Validate mount, retry/backoff, access
   and free space while preserving the original OCR timeout. The board uses
   `SDMMC_SLOT_NO_CD`, so do not invent card-presence GPIO or format implicitly.
 - [ ] Confirm boot greeting C acoustics, chime-to-voice timing, trusted-clock/

@@ -8,6 +8,34 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## SD mounted-card standby/touch-wake verification — 2026-10-07
+
+- The owner confirmed the second physical card reinsertion, then corrected the
+  display observation to off. A passive 180-second COM10 capture showed steady
+  firmware standby with SD polling suspended, not a new card probe or timeout.
+  Touch wake at 487.629 s restarted polling; mount attempt 4 succeeded at
+  487.782 s without formatting. Active transition at 488.596 s and subsequent
+  successful probe writes corroborated the owner's confirmed physical wake.
+- A second passive 180-second capture, without reset/reinsertion, recorded a
+  complete mounted-card cycle. Before standby the diagnostic reached sequence
+  48; standby entered at 550.380 s with the card retained and I/O suspended.
+  Physical touch requested wake at 615.405 s. Polling/mirroring resumed at
+  615.419 s; verified write sequence 49 was published at 615.788 s. The display
+  became active at 616.385 s, confirmed by the owner. Mount attempt remained 4:
+  this was resumed access to the same mount, not a replacement mount.
+- Successful writes reached sequence 96 before the next clean inactivity
+  standby at 678.319 s. The owner also reported the SD visible in Info. No SD
+  failure, consumer-stop, abort or Task-WDT event appeared in these two captures.
+  During standby the last successful I/O timestamps/sequence remained unchanged
+  and their sample ages increased; no suspended write was claimed as fresh.
+- Protected evidence: `artifacts/build-cody-companion-debug/evidence/`
+  `sd-second-reinsert-wake-20261007.log` and
+  `sd-mounted-standby-cycle-20261007.log`, with companion capture transcripts.
+  Loaded firmware remains `289dbe3a`; no new build/flash or SD format/erase ran.
+  Diagnostic writes remain enabled in Debug. This proves one complete working
+  card standby/wake cycle in Debug, whose automatic Light-sleep is disabled;
+  intermittent failure, warm-reset cause and Release/Deep-sleep remain unproven.
+
 ## SD/standby diagnostic baseline and reporting corrections — 2026-10-07
 
 - User granted exclusive device access and authorization for tests and flash.
