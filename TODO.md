@@ -290,6 +290,12 @@ every open physical observation below remains open.
   NTP failure/recovery, RTC offset/rate before correction, unset RTC reaching NTP,
   trusted SNTP-to-RTC persistence, offline reboot, oscillator-stop and backup
   retention. [Clock and RTC](docs/architecture/cody/clock.md).
+- [ ] On the 2026-10-07 user request, load Cody with local TTS excluded and
+  Sophia wake-on-word enabled, retaining existing SD contents. The loaded
+  `289dbe3a` Debug diagnostic image excludes both TTS and wake word; explicit
+  `-Feature wake-word` is required. Its defaults now also explicitly exclude
+  synthesized Italian boot speech. Dependency resolution, selected build/flash
+  and actual Sophia detection/standby wake remain unrun for this selection.
 - [ ] Resolve/review `cody-companion-wake-word` and `full-wake-word` locks through
   the public CLI, then perform the specifically authorized final validation.
   Review the sole wake-word off flag across source/dependency closure, generated

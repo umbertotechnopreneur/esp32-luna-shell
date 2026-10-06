@@ -8,6 +8,19 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## Requested recognition-only voice selection — 2026-10-07
+
+- Recorded the user's selection: exclude the local speech synthesizer while
+  enabling Sophia wake-on-word. Source review confirmed the currently loaded
+  `289dbe3a` image excludes both features; retaining voice wake therefore needs
+  the existing `cody-companion-wake-word` variant, not the ordinary `none` variant.
+- Wake-word defaults now explicitly exclude TTS and synthesized Italian boot
+  speech. Existing feature gates already reject a TTS component/backend in this
+  variant. Its reviewed Sophia model uses the internal model partition, with no
+  SD asset installation or deletion. Existing prerecorded PCM paths are separate
+  from synthesis. Source integration reviewed; selected checks, dependency-lock
+  resolution, new build/flash and physical recognition remain pending.
+
 ## SD mounted-card standby/touch-wake verification — 2026-10-07
 
 - The owner confirmed the second physical card reinsertion, then corrected the

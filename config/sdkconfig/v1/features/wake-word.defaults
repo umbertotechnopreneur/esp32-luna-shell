@@ -1,5 +1,8 @@
 # Opt-in shared platform feature; ordinary variants keep ESP-SR excluded.
 CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD=y
+# Recognition is selected independently from speech synthesis.
+# CONFIG_LUNASHELL_BUILD_ENABLE_TTS is not set
+# CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN is not set
 CONFIG_FREERTOS_UNICORE=n
 # Explicit PSRAM policy for AFE buffers, vendor allocations and static audio stacks.
 CONFIG_SPIRAM_BOOT_INIT=y

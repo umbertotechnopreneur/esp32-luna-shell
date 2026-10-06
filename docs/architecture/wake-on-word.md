@@ -16,6 +16,16 @@ Use `-Feature wake-word` with `-Profile cody-companion` or `-Profile full` throu
 folder and canonical dependency lock. Other profile/feature combinations fail
 at the catalog boundary instead of silently selecting another product.
 
+The requested voice selection is wake-on-word with local synthesis disabled.
+The wake-word defaults explicitly exclude `LUNASHELL_BUILD_ENABLE_TTS` and the
+Italian synthesized boot test; the public feature gate also rejects a TTS
+component/backend in this variant. Existing SD contents are not installed,
+rewritten or removed by selecting this firmware variant. The reviewed Sophia
+recognition weights live in the internal model partition. The `_tts_` substring
+in their upstream model name does not enable the local speech synthesizer.
+Prerecorded audio and synthesis are separate paths; selecting wake word does
+not itself change existing PCM playback.
+
 `CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD` is the sole public engine gate;
 `LUNASHELL_BUILD_ENABLE_VOICE_AFE` is hidden and derived from it. Disable the
 feature with `-Feature none` (also the CLI default). The disabled variant
