@@ -635,10 +635,11 @@ void check_symbol_arbitration()
     step(urgent, "low-battery-preempts", PersonalityCue::LowBattery, 0);
     require(urgent.lag.phase == PersonalityPhase::FadeOut && urgent.lag.cue == PersonalityCue::Affection &&
             urgent.frame.opacity == before, "urgent battery releases an incomplete heart fade without an opacity jump");
-    step(urgent, "heart-half-out", PersonalityCue::LowBattery, 300000);
+    // The authored fade-out is 400 ms; halfway retains half the departing opacity.
+    step(urgent, "heart-half-out", PersonalityCue::LowBattery, 200000);
     require(urgent.frame.cue == PersonalityCue::Affection && urgent.frame.opacity == 64,
             "urgent battery keeps one departing half-opacity heart sprite");
-    step(urgent, "battery-entry", PersonalityCue::LowBattery, 300000);
+    step(urgent, "battery-entry", PersonalityCue::LowBattery, 200000);
     require(urgent.lag.cue == PersonalityCue::LowBattery && urgent.frame.cue == PersonalityCue::None &&
             urgent.frame.opacity == 0 && urgent.frame.bounds.empty() &&
             urgent.lag.phase == PersonalityPhase::FadeIn, "urgent battery enters only after heart reaches zero");
@@ -675,10 +676,10 @@ void check_symbol_arbitration()
     step(charging, "heart-finishes-hold", desired, 500000);
     require(charging.lag.phase == PersonalityPhase::FadeOut && charging.frame.opacity == 255,
             "charging transition begins through a smooth existing heart fade");
-    step(charging, "heart-half-out", desired, 300000);
+    step(charging, "heart-half-out", desired, 200000);
     require(charging.frame.cue == PersonalityCue::Affection && charging.frame.opacity == 128,
             "waiting charge does not overlap the departing heart");
-    step(charging, "charge-entry", desired, 300000);
+    step(charging, "charge-entry", desired, 200000);
     require(charging.lag.cue == PersonalityCue::Charging && charging.frame.cue == PersonalityCue::None &&
             charging.frame.opacity == 0 && charging.frame.bounds.empty(),
             "charging enters at zero only after the heart fade completes");

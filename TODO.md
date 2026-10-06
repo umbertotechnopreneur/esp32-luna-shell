@@ -46,7 +46,8 @@ every open physical observation below remains open.
 
 - [ ] Review all fourteen regenerated 256-pixel manga symbols on the physical
   display. Native ImageGen masters, canonical palette packaging and Windows
-  texture loading are integrated; focused host checks and build/flash are next.
+  texture loading are integrated; focused host checks passed. Build/flash and
+  physical visual review remain pending.
 
 - [ ] After fresh command-specific authorization, validate the VibeWare boot
   introduction on Cody and Luna: firmware build/size, original frame dwell,

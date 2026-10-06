@@ -25,6 +25,13 @@ flash logs were regenerated.
   (1,835,520-byte data payload), with unchanged palette and geometry; Windows
   reads the same extent and bytes. Generated preview reviewed; device quality
   and compilation evidence are recorded after their actual completion.
+- The focused high-resolution personality suite passed through the public CLI
+  on 2026-10-07 using the existing Visual Studio host compiler: 1,142 native
+  assertions, 122 native/Python parity frames, and 118 independent host checks,
+  plus fourteen icon/audio contracts. Updated two stale 600-ms fade expectations
+  to the already-authored 400-ms fade-out. No firmware behavior was changed by
+  this fixture correction. Report: `artifacts/checks/cody-personality/report.json`;
+  capture: `artifacts/build-cody-companion-wake-word-evidence/evidence/icons-v2-check-pass-20261007.log`.
 
 - Recorded the user's selection: exclude the local speech synthesizer while
   enabling Sophia wake-on-word. Source review confirmed the previously loaded

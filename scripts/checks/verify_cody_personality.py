@@ -129,7 +129,7 @@ def main(argv=None):
         report["repeat_slots"] = fixture["repeat_slots"]
         report["repeat_bytes"] = fixture["repeat_bytes"]
         report["parity_frames"] = len(fixture["samples"])
-        report["contracts"] = ["400/600 ms fade and 2500 ms hold", "latest target without a queue",
+        report["contracts"] = ["400/400 ms fade and 2500 ms hold", "latest target without a queue",
             "semantic Sleep entry and paused release", "finite 360/400 ms following and 4 px radius",
             "irregular frame intervals and complete-window gaps", "nonfatal blocked layout and scene permission",
             "typed size mapping and Micro exclusion", "invalid input preserves controller state",
