@@ -765,8 +765,8 @@ esp_err_t bsp_sdcard_mount(
     }
 
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-    // The removable 1-bit bus uses conservative runtime clocking.
-    host.max_freq_khz = 10000;
+    // Use Waveshare's published host clock and the board's external pull-ups.
+    // A reduced runtime clock cannot repair a card stuck during 400 kHz OCR.
     sdcard_context.host = host;
 
     const sdmmc_slot_config_t slot_config = {
@@ -783,7 +783,7 @@ esp_err_t bsp_sdcard_mount(
         .cd = SDMMC_SLOT_NO_CD,
         .wp = SDMMC_SLOT_NO_WP,
         .width = 1,
-        .flags = SDMMC_SLOT_FLAG_INTERNAL_PULLUP,
+        .flags = 0,
     };
 
     out_result->stage = BSP_SDCARD_STAGE_HOST_INIT;

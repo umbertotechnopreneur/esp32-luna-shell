@@ -1028,7 +1028,11 @@ function Invoke-DeviceReset([string]$RequestedPort, [int]$RequestedBaud) {
     }
 }
 
-# Capture serial output for a bounded interval and always release the port.
+# RequestedPort: Exclusive Windows COM identity for this capture.
+# RequestedBaud: Serial line rate configured on the selected device.
+# Seconds: Bounded capture duration without changing firmware contents.
+# Destination: Optional exact capture file path under the caller's artifact directory.
+# Throws on port or file failure and always releases both owned resources.
 function Invoke-SerialCapture([string]$RequestedPort, [int]$RequestedBaud, [int]$Seconds, [string]$Destination) {
     $normalizedPort = Normalize-PortName $RequestedPort
     if ($Seconds -lt 1) {
@@ -1043,6 +1047,9 @@ function Invoke-SerialCapture([string]$RequestedPort, [int]$RequestedBaud, [int]
         [System.IO.Ports.StopBits]::One
     )
     $serial.ReadTimeout = 100
+    # A panic dump can burst faster than ordinary logs. Keep reading promptly;
+    # sleeping for the USB panic writer's entire 50 ms timeout loses dump bytes.
+    $serial.ReadBufferSize = 65536
     $writer = $null
 
     try {
@@ -1065,13 +1072,13 @@ function Invoke-SerialCapture([string]$RequestedPort, [int]$RequestedBaud, [int]
         while ((Get-Date) -lt $deadline) {
             $chunk = $serial.ReadExisting()
             if (-not [string]::IsNullOrEmpty($chunk)) {
-                [Console]::Write($chunk)
                 if ($null -ne $writer) {
                     $writer.Write($chunk)
                     $writer.Flush()
                 }
+                [Console]::Write($chunk)
             }
-            Start-Sleep -Milliseconds 50
+            Start-Sleep -Milliseconds 1
         }
     } catch {
         throw "Serial capture failed on $normalizedPort`: $($_.Exception.Message)"
