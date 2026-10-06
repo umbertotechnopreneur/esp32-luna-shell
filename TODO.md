@@ -183,7 +183,14 @@ every open physical observation below remains open.
   implemented in the existing SD owner. Authorized contract checks and the Debug
   build/flash passed; a 300-second capture showed OCR timeout before standby and
   the same timeout after the owner's confirmed touch wake. No mount or write was
-  observed, so a working-card standby failure remains unreproduced. Compare a working
+  observed in that baseline. A later owner-confirmed reinsertion mounted the
+  card and produced 126 successful write/sync/readback samples. The next warm
+  reset reproduced OCR timeout before standby, with the card still inserted.
+  A touch contact-count rejection stopped the renderer in the working-card
+  capture and prevented standby; an earlier Task-WDT named `lvgl-worker`.
+  Preserve these faults independently of the SD cause. A second reinsertion
+  awaits physical confirmation; a working-card standby failure remains
+  unreproduced. Compare a working
   awake interval with standby/touch wake and the first original failure. The
   diagnostic file is `/sdcard/LUNASHELL/.sd-debug-probe`; Release excludes it.
   Reproduce one successful boot followed by standby/wake before changing policy;

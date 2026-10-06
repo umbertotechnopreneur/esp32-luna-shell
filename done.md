@@ -30,8 +30,37 @@ flash logs were regenerated.
   readiness, and removed a card/FAT-validation claim when no card was mounted.
   Heartbeat admission now shares the polling tick clock: microsecond wake jitter
   had sometimes skipped an entire second. Original observation timestamps and
-  synchronous-I/O delays remain explicit. These corrections await their own
-  requested checks, build/flash and capture; the SD cause remains open.
+  synchronous-I/O delays remain explicit.
+- Correction checkpoint `289dbe3a`: both storage/logger and snapshot-integrity
+  public checks and `git diff --check` passed. Its eight-job Debug build/flash
+  passed on COM10 with all written hashes verified. Application: 4,665,328 bytes;
+  SHA-256 `409648f58c0677f4ead1a25b23298b1ce30933723b8d75c19b512a32d8fe926f`.
+  Flash/check transcripts use `sd-debug-corrected-*` under protected evidence.
+- The following 240-second capture recorded two restarts: a Task-WDT naming
+  `lvgl-worker` at 18.833 s in its first boot, then a mandatory boot-completion
+  abort after a real touch `ESP_ERR_INVALID_RESPONSE` in its second boot. The
+  third boot recorded contact count 2 with maximum 1 at 20.423 s, stopping the
+  Cody consumer. These faults do not establish an SD cause. Keep them explicit.
+- The owner physically extracted/reinserted the card and confirmed an active
+  display. In the third boot mount attempt 3 succeeded at 53.211 s, with 7,680 MB
+  capacity, 7,657 MB measured free space and mirrored logs. The diagnostic then
+  reached 126 successful bounded write/sync/readback samples, with the card still
+  mounted at 216.816 s. No formatting or alternate card-detect GPIO was used.
+  UI failure prevented standby at 80.418 s (`ESP_ERR_INVALID_RESPONSE`), so this
+  capture proves an awake write interval, not a mounted-card standby cycle.
+- A subsequent authorized 180-second reset/capture left the card inserted.
+  It reproduced OCR timeout on attempts 1, 2 and 3 before clean inactivity standby
+  at 64.903 s, with no further watchdog/abort or consumer-stop event in that
+  capture. State heartbeats during steady standby were one second apart;
+  synchronous initialization still delayed observations as documented. This
+  isolates a reproducible warm-reset initialization symptom; electrical cause
+  and a working-card standby/wake failure remain unproven. A second physical
+  reinsertion was requested but not yet confirmed when capture completed.
+- Preserved serial evidence:
+  `artifacts/build-cody-companion-debug/evidence/sd-debug-corrected-reinsert-20261007.log`
+  and `artifacts/build-cody-companion-debug/evidence/sd-debug-warm-reset-20261007.log`.
+  Final loaded image remains `289dbe3a`; SD formatting/erase and simulator checks
+  were not performed. Diagnostic implementation/evidence checkpoints are local.
 
 ## Requested SD/standby diagnostic implementation — 2026-10-07
 
