@@ -20,6 +20,20 @@ every open physical observation below remains open.
 
 ## SD reset and display-watchdog diagnosis
 
+- [ ] Validate the restored official Waveshare SD baseline (default host clock,
+  external pull-ups, one-bit GPIO 1/2/3) on a freshly powered card and subsequent
+  warm resets. The pinned original BSP was compared at
+  `e4344e70c2fa78a13e8a06566507f1ba8af6672a`. Captured ACMD41 responses remain
+  busy until card power removal; this is a pre-FAT failure, not evidence of a
+  disconnected presence pin. The board has no card-detect GPIO.
+- [ ] Obtain a complete matching-ELF display-watchdog core dump. The first UART
+  dumps were truncated/corrupt; three later captures did not reproduce the
+  watchdog, which does not prove correction. No timeout suppression is applied.
+  Corrected the host receive burst handling and base64 segment validation.
+- [ ] Physically review the CST9217 two-contact correction after flash; the
+  former one-contact limit rejected a legitimate two-contact report and aborted
+  startup. Malformed counts above the controller capacity still fail explicitly.
+
 - [ ] Close the two device faults explicitly requested on 2026-10-07: warm-reset
   SD card-init OCR timeout and an unfinished display frame triggering the
   `lvgl-worker` watchdog. Debug now requests UART task-stack core dumps and
@@ -29,6 +43,10 @@ every open physical observation below remains open.
   pending. Preserve verified Sophia wake and prerecorded audio.
 
 ## Tap, manga cues and Windows fake audio
+
+- [ ] Review all fourteen regenerated 256-pixel manga symbols on the physical
+  display. Native ImageGen masters, canonical palette packaging and Windows
+  texture loading are integrated; focused host checks and build/flash are next.
 
 - [ ] After fresh command-specific authorization, validate the VibeWare boot
   introduction on Cody and Luna: firmware build/size, original frame dwell,

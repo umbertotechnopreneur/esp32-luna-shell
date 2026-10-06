@@ -36,7 +36,10 @@ def select_dump(capture: str, index: int, elf: Path) -> tuple[str, str]:
         raise ValueError("Core dump has non-base64 content or interrupted capture")
     # Reject corrupt transfer bytes before passing the selected complete dump to
     # Espressif's checksum/target/ELF validator and GDB task-stack decoder.
-    base64.b64decode("".join(lines), validate=True)
+    for line in lines:
+        # IDF encodes each write independently; a segment's last line can have
+        # padding before the next segment begins. Validate the same line framing.
+        base64.b64decode(line, validate=True)
     return "\n".join(lines) + "\n", elf_hash
 
 

@@ -1,0 +1,14 @@
+diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
+--- a/esp_lcd_touch_cst9217.c
++++ b/esp_lcd_touch_cst9217.c
+@@ -29,7 +29,9 @@
+ 
+ /* CST9217 parameters */
+ #define CST9217_ACK_VALUE 0xAB
+-#define CST9217_MAX_TOUCH_POINTS 1
++// The fitted CST9217 reports two contacts. Read and validate the entire report;
++// a consumer requesting one primary contact does not change controller capacity.
++#define CST9217_MAX_TOUCH_POINTS 2
+ #define CST9217_DATA_LENGTH (CST9217_MAX_TOUCH_POINTS * 5 + 5)
+ 
+ /*******************************************************************************

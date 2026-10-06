@@ -108,6 +108,7 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
         bsp_apply_required_patches(
             waveshare__esp_lcd_touch_cst9217
             "${CMAKE_CURRENT_SOURCE_DIR}/patches/cst9217_fail_fast_reads.patch"
+            "${CMAKE_CURRENT_SOURCE_DIR}/patches/cst9217_two_contacts.patch"
         )
     endif()
 endif()

@@ -10,6 +10,22 @@ flash logs were regenerated.
 
 ## Requested recognition-only voice selection — 2026-10-07
 
+- Compared the official Waveshare firmware and example BSPs at pinned source
+  `e4344e70c2fa78a13e8a06566507f1ba8af6672a`; restored default SD host frequency
+  and external-pull-up slot flags. Protocol captures identify repeated ACMD41
+  busy responses before filesystem mounting; card reinsertion restored readiness
+  and 34 verified write/read probes in one capture. Warm-reset recovery remains
+  open. No formatting or shared power-rail cycling was introduced.
+- Corrected the controller capacity for the fitted CST9217 to two contacts,
+  retaining fail-fast packet validation and the UI's single-primary-contact
+  interface. This addresses a captured boot abort caused by a legitimate second
+  contact. Physical validation remains pending.
+- Preserved original manga artwork and regenerated fourteen individual native
+  ImageGen masters. Packaging now uses shared 256 x 256 indexed-alpha sprites
+  (1,835,520-byte data payload), with unchanged palette and geometry; Windows
+  reads the same extent and bytes. Generated preview reviewed; device quality
+  and compilation evidence are recorded after their actual completion.
+
 - Recorded the user's selection: exclude the local speech synthesizer while
   enabling Sophia wake-on-word. Source review confirmed the previously loaded
   `289dbe3a` image excludes both features; retaining voice wake therefore needs
