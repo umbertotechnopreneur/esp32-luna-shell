@@ -180,8 +180,10 @@ every open physical observation below remains open.
 - [ ] Investigate intermittent SD transport after warm resets/reinsertion.
   On 2026-10-07 the user also reported failure after time powered on and suspected
   standby. Debug one-second state/status/write/readback instrumentation is now
-  implemented in the existing SD owner; build, flash, capture and physical
-  reproduction of this diagnostic remain unauthorized/unrun. Compare a working
+  implemented in the existing SD owner. Authorized contract checks and the Debug
+  build/flash passed; a 300-second capture showed OCR timeout before standby and
+  the same timeout after the owner's confirmed touch wake. No mount or write was
+  observed, so a working-card standby failure remains unreproduced. Compare a working
   awake interval with standby/touch wake and the first original failure. The
   diagnostic file is `/sdcard/LUNASHELL/.sd-debug-probe`; Release excludes it.
   Reproduce one successful boot followed by standby/wake before changing policy;

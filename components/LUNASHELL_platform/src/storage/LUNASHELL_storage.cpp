@@ -115,7 +115,8 @@ constexpr char kStorageDebugDirectory[] = BSP_SD_MOUNT_POINT "/LUNASHELL";
 constexpr char kStorageDebugProbePath[] = BSP_SD_MOUNT_POINT "/LUNASHELL/.sd-debug-probe";
 // Only the acquisition task writes these observations; consumers use the snapshot.
 LUNASHELL::StorageDebugReport s_storage_debug;
-int64_t s_next_debug_heartbeat_us;
+TickType_t s_last_debug_heartbeat_tick;
+bool s_debug_heartbeat_valid;
 int64_t s_next_debug_write_us;
 #endif
 
@@ -1289,11 +1290,17 @@ const char *storage_debug_write_stage_name(LUNASHELL::StorageDebugWriteStage sta
 // Exception: Retains optional publication failures for the next successful report.
 void publish_storage_debug_heartbeat()
 {
-    const int64_t now_us = esp_timer_get_time();
-    if (now_us < s_next_debug_heartbeat_us) {
+    const TickType_t now_tick = xTaskGetTickCount();
+    const TickType_t heartbeat_ticks = pdMS_TO_TICKS(kStorageHealthPollMs);
+    if (s_debug_heartbeat_valid &&
+        now_tick - s_last_debug_heartbeat_tick < heartbeat_ticks) {
         return;
     }
-    s_next_debug_heartbeat_us = now_us + kStorageDebugPeriodUs;
+    // Use the wait's tick clock for admission: a wake a few microseconds early
+    // must not skip a whole second. Observations retain real microsecond times.
+    s_last_debug_heartbeat_tick = now_tick;
+    s_debug_heartbeat_valid = true;
+    const int64_t now_us = esp_timer_get_time();
     LUNASHELL::StorageDebugReport report = s_storage_debug;
     {
         std::lock_guard<std::mutex> lock(s_storage_mutex);
@@ -2489,6 +2496,8 @@ extern "C" esp_err_t LUNASHELL_storage_set_performance_suspended(bool suspended)
 }
 
 // Quiesce polling and mirroring transactionally without unmounting the card.
+// suspended: True to quiesce storage, false to resume its existing lifecycle.
+// Exception: Returns the original quiescence, validation or resume failure.
 extern "C" esp_err_t LUNASHELL_storage_set_power_suspended(bool suspended)
 {
     std::lock_guard<std::mutex> transition_lock(s_power_transition_mutex);
@@ -2717,7 +2726,7 @@ extern "C" esp_err_t LUNASHELL_storage_set_power_suspended(bool suspended)
 
     ESP_LOGI(
         TAG,
-        "SD power suspension inactive after card/FAT validation (mounted=%s user mirror=%s)",
+        "SD polling resumed (mounted=%s user mirror=%s)",
         mounted_snapshot ? "yes" : "no",
         mirror_requested_snapshot ? "enabled" : "disabled"
     );

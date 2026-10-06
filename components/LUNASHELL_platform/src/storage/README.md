@@ -26,6 +26,8 @@ Diagnostic failures do not substitute for the normal mount/recovery outcome.
 
 Suspended and retry waits still emit state heartbeats, preserving their original
 notification/backoff deadlines and quiescence acknowledgement. These heartbeats
+use the wait's tick clock to avoid skipping a second due to microsecond jitter;
+their published timestamps still come from the actual observation time. They
 perform no SD I/O and retain the previous I/O timestamps. `status_age_ms` and
 write `age_ms` identify old observations; `UNAVAILABLE` means no actual sample.
 Synchronous SDK/file calls can delay a heartbeat: the owner does not invent
@@ -38,3 +40,7 @@ The configured bus is 1-bit CLK/CMD/D0 on GPIO2/GPIO1/GPIO3 and uses
 it does not claim a physically absent card. Presence is established only by
 successful protocol communication. The local hardware inventory also records
 that this board has no SD card-detect pin.
+
+Wake logs report `storage_resume`, the service transition result. Only canonical
+mounted/status/write observations establish actual SD availability; successful
+service resumption does not establish that an unmounted card has initialized.

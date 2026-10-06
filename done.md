@@ -8,6 +8,31 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## SD/standby diagnostic baseline and reporting corrections — 2026-10-07
+
+- User granted exclusive device access and authorization for tests and flash.
+  Public `device.ps1 check -Check storage-logger` and `snapshot-integrity` passed.
+  Debug `cody-companion`, `Feature none`, eight-job build/flash on COM10 passed
+  for `10a7b8f8`; application size 4,665,632 bytes. Written hashes were verified.
+  Application SHA-256:
+  `bf18b138d4aca0c429fb7f4a1eb75ea593bd448ddbd280f982b05fb38f9e48bd`.
+- Completed a 300-second capture. At 39.097 s uptime SD was already unmounted
+  with `ESP_ERR_TIMEOUT`, before standby. Attempts 3 (56.426 s) and 4 (121.708 s)
+  failed at card initialization/OCR (`0x107`), with successful cleanup and no
+  format authorization. Standby entered at 64.896 s; physical touch woke the
+  screen, confirmed by the owner and the 119.285-s active transition. Another
+  standby entered at 180.948 s. No status/write samples occurred (`seq=0`);
+  this run cannot establish writable media or a working-card standby failure.
+- Preserved baseline capture under the active build's protected evidence path:
+  `artifacts/build-cody-companion-debug/evidence/sd-standby-debug-baseline-20261007.log`.
+  Companion checks/flash/capture transcripts use `sd-debug-*` in that directory.
+- Corrected wake logs to report service `storage_resume`, never inferred card
+  readiness, and removed a card/FAT-validation claim when no card was mounted.
+  Heartbeat admission now shares the polling tick clock: microsecond wake jitter
+  had sometimes skipped an entire second. Original observation timestamps and
+  synchronous-I/O delays remain explicit. These corrections await their own
+  requested checks, build/flash and capture; the SD cause remains open.
+
 ## Requested SD/standby diagnostic implementation — 2026-10-07
 
 - Added a Debug-only, nominal one-second heartbeat in the existing storage

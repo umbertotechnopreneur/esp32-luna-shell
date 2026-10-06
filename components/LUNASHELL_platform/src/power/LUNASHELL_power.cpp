@@ -2004,12 +2004,10 @@ esp_err_t set_standby(
     }
     ESP_LOGI(
         kTag,
-        "Device awake: reason=%s sequence=%lu storage=%s wireless=%s",
+        "Device awake: reason=%s sequence=%lu storage_resume=%s wireless=%s",
         device_state_reason_name(reason),
         static_cast<unsigned long>(s_transition_sequence),
-        optional_errors.storage == ESP_OK
-            ? "ready"
-            : esp_err_to_name(optional_errors.storage),
+        esp_err_to_name(optional_errors.storage),
         esp_err_to_name(optional_errors.wireless)
     );
     return optional_error;
