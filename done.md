@@ -70,6 +70,21 @@ flash logs were regenerated.
   both requested flash builds. Simulator/Release/full-profile/size analysis,
   broader checks and field endurance were not run.
 
+## Requested SD/reset and display-watchdog fault localization — 2026-10-07
+
+- User explicitly requested continuing until both remaining errors are
+  understood and closed. Added Debug UART core-dump selection with an internal
+  2-KiB panic stack, capturing task stacks without flash/SD persistence; Release
+  explicitly disables this diagnostic output. Added stock SD command/response
+  logging only around the existing card-init operation and restored both log
+  levels afterward, preserving the original returned protocol error.
+- Source review: the card has no detect GPIO or independent firmware-controlled
+  supply; VCC3V3 is shared with touch/IMU/audio amplifier. No shared-rail cycle
+  or implicit format is admissible as an inferred card reset. The display watch
+  covers one frame, including SPI submission whose upstream control-command
+  queue wait can be unbounded. Current running-task backtrace does not locate
+  the blocked renderer. Diagnostic build/capture and exact causes remain pending.
+
 ## SD mounted-card standby/touch-wake verification — 2026-10-07
 
 - The owner confirmed the second physical card reinsertion, then corrected the

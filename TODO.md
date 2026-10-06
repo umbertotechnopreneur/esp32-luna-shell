@@ -18,6 +18,16 @@ still timed out after reinsertion, before synthesis. Earlier ordinary Cody evide
 `09ea3b70` and `160a080a`. Verified flash hashes prove the written bytes;
 every open physical observation below remains open.
 
+## SD reset and display-watchdog diagnosis
+
+- [ ] Close the two device faults explicitly requested on 2026-10-07: warm-reset
+  SD card-init OCR timeout and an unfinished display frame triggering the
+  `lvgl-worker` watchdog. Debug now requests UART task-stack core dumps and
+  scoped stock SD protocol logging during card initialization. No format,
+  shared 3.3-V rail cycling, retry-success substitution or watchdog suppression
+  is implemented. Diagnostic image validation and cause identification remain
+  pending. Preserve verified Sophia wake and prerecorded audio.
+
 ## Tap, manga cues and Windows fake audio
 
 - [ ] After fresh command-specific authorization, validate the VibeWare boot

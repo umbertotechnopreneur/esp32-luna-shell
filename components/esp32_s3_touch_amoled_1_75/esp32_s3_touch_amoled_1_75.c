@@ -674,6 +674,32 @@ static esp_err_t bsp_sdcard_finish_mount_failure(
     return result->error;
 }
 
+// host: Prepared SDMMC host owned by this exact staged mount attempt.
+// card: Allocated state for the card being initialized, not a fallback card.
+// Exception: Returns the original IDF protocol error after restoring log policy.
+static esp_err_t bsp_sdcard_initialize_card(const sdmmc_host_t *host, sdmmc_card_t *card)
+{
+#if CONFIG_LUNASHELL_STORAGE_DEBUG_PROBE
+    // Trace the stock protocol only during initialization. These are owner
+    // operation logs; no extra transactions, presence inference or repair occur.
+    const esp_log_level_t command_level = esp_log_level_get("sdmmc_cmd");
+    const esp_log_level_t common_level = esp_log_level_get("sdmmc_common");
+    esp_log_level_set("sdmmc_cmd", ESP_LOG_VERBOSE);
+    esp_log_level_set("sdmmc_common", ESP_LOG_DEBUG);
+    ESP_LOGI(TAG, "SD protocol trace begin: slot=%d runtime_max=%d kHz", host->slot, host->max_freq_khz);
+#endif
+    const esp_err_t error = sdmmc_card_init(host, card);
+#if CONFIG_LUNASHELL_STORAGE_DEBUG_PROBE
+    esp_log_level_set("sdmmc_cmd", command_level);
+    esp_log_level_set("sdmmc_common", common_level);
+    ESP_LOGI(TAG, "SD protocol trace end: result=%s", esp_err_to_name(error));
+#endif
+    return error;
+}
+
+// request: Exact staged mount and any explicit single-use format authorization.
+// out_result: Receives the real failed stage, error and cleanup ownership.
+// Exception: Returns original protocol, filesystem, policy or cleanup failures.
 esp_err_t bsp_sdcard_mount(
     const bsp_sdcard_mount_request_t *request,
     bsp_sdcard_mount_result_t *out_result
@@ -786,7 +812,7 @@ esp_err_t bsp_sdcard_mount(
     sdcard_context.slot_initialized = true;
 
     out_result->stage = BSP_SDCARD_STAGE_CARD_INIT;
-    result = sdmmc_card_init(
+    result = bsp_sdcard_initialize_card(
         &sdcard_context.host,
         sdcard_context.card
     );
