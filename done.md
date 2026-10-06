@@ -30,6 +30,18 @@ flash logs were regenerated.
   64-KiB internal reserve; the actual component graph contains ESP-SR/DSP/FFT and
   no TTS component. Selected build/flash and physical wake remain pending.
   Resolver evidence is under `artifacts/build-cody-companion-wake-word-evidence/`.
+- Selected build-profile check and the first Debug build/COM10 flash passed:
+  app `cabb5f59`, 4,966,576 bytes; sole packed recognition model 291,168 bytes;
+  all four flash hashes verified. Runtime capture admitted the Sophia AFE, but
+  rejected 22.05 kHz boot playback and stopped inference when a prerecorded
+  clip held the shared capture/playback mutex longer than the 200-ms fetch wait.
+  Capture also retained watchdog resets and the existing pre-FAT SD timeout;
+  this image is not evidence of usable voice wake.
+- Audio integration now converts authored boot PCM in bounded chunks at the
+  fixed voice transport rate, supplies matching AEC samples, and keeps the
+  acknowledged sole AFE RX owner independent of TX playback waits. Stream close
+  and diagnostic capture reject active AFE ownership. Source review completed;
+  corrected-image build/flash and hardware recognition remain pending.
 
 ## SD mounted-card standby/touch-wake verification — 2026-10-07
 

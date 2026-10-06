@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <climits>
 #include <cstdlib>
 
 #include "bsp/esp-bsp.h"
@@ -192,9 +193,16 @@ void audio_unlock(SemaphoreHandle_t mutex)
     }
 }
 
-// Preserve the first exact codec error while closing every owned stream.
+// No parameters: closes owned streams only after the capture owner acknowledges pause.
+// Exception: Returns ownership rejection or the first exact codec close error.
 esp_err_t close_streams()
 {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    if (LUNASHELL_voice_afe_capture_active()) {
+        ESP_LOGE(TAG, "Closing duplex streams rejected: AFE capture is active");
+        return ESP_ERR_NOT_ALLOWED;
+    }
+#endif
     esp_err_t error = ESP_OK;
     if (s_speaker_open) {
         const int result = esp_codec_dev_close(s_speaker);
@@ -797,6 +805,60 @@ esp_err_t write_speaker_pcm_locked(const int16_t *samples, size_t sample_count,
     }
     return ESP_OK;
 }
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+// samples: Immutable prerecorded mono PCM16 at its authored rate.
+// sample_count: Validated source length; no source asset is modified.
+// source_rate_hz: Authored sample rate, admitted for bounded conversion.
+// transport_rate_hz: Existing duplex clock, unchanged while AFE captures.
+// volume_percent: Admitted codec volume for canonical playback reports.
+// Exception: Returns real format, codec, AEC reference or publication errors.
+esp_err_t write_prerecorded_pcm_locked(const int16_t *samples, size_t sample_count,
+    uint32_t source_rate_hz, uint32_t transport_rate_hz, int volume_percent)
+{
+    if (source_rate_hz == transport_rate_hz) {
+        return write_speaker_pcm_locked(samples, sample_count, transport_rate_hz, volume_percent);
+    }
+    if (source_rate_hz < 8000 || source_rate_hz > 48000 || transport_rate_hz != VOICE_SAMPLE_RATE_HZ ||
+        sample_count > SIZE_MAX / transport_rate_hz) {
+        ESP_LOGE(TAG, "Prerecorded conversion rejected: source=%lu transport=%lu samples=%u",
+            static_cast<unsigned long>(source_rate_hz), static_cast<unsigned long>(transport_rate_hz),
+            static_cast<unsigned>(sample_count));
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    const size_t output_samples = sample_count * transport_rate_hz / source_rate_hz;
+    if (output_samples == 0) {
+        ESP_LOGE(TAG, "Prerecorded conversion has no output samples");
+        return ESP_ERR_INVALID_SIZE;
+    }
+    ESP_LOGI(TAG, "Prerecorded transport conversion: %lu -> %lu Hz; samples=%u -> %u",
+        static_cast<unsigned long>(source_rate_hz), static_cast<unsigned long>(transport_rate_hz),
+        static_cast<unsigned>(sample_count), static_cast<unsigned>(output_samples));
+    size_t offset = 0;
+    while (offset < output_samples) {
+        // The speaker mutex also owns this bounded scratch buffer. Feed the same
+        // converted PCM to the speaker and AEC; never change the capture clock.
+        const size_t chunk_samples = std::min(VOICE_REFERENCE_CHUNK_SAMPLES, output_samples - offset);
+        for (size_t index = 0; index < chunk_samples; ++index) {
+            const uint64_t position = static_cast<uint64_t>(offset + index) * source_rate_hz;
+            const size_t source = position / transport_rate_hz;
+            const uint32_t fraction = position % transport_rate_hz;
+            const size_t next = std::min(source + 1, sample_count - 1);
+            const int64_t interpolated =
+                static_cast<int64_t>(samples[source]) * (transport_rate_hz - fraction) +
+                static_cast<int64_t>(samples[next]) * fraction;
+            s_typewriter_transport_samples[index] = static_cast<int16_t>(interpolated / transport_rate_hz);
+        }
+        const esp_err_t error = write_speaker_pcm_locked(s_typewriter_transport_samples.data(),
+            chunk_samples, transport_rate_hz, volume_percent);
+        if (error != ESP_OK) {
+            return error;
+        }
+        offset += chunk_samples;
+    }
+    return ESP_OK;
+}
+#endif
 #endif
 
 // error: Original failure; a secondary publication failure cannot replace it.
@@ -825,8 +887,8 @@ esp_err_t reject_playback(const char *operation, esp_err_t error,
 } // namespace
 
 // samples: Borrowed immutable mono PCM16; storage remains owned by the caller.
-// sample_count: Exact number of samples to write.
-// sample_rate_hz: Actual requested output sample rate.
+// sample_count: Exact authored source length.
+// sample_rate_hz: Authored sample rate; voice playback uses the fixed duplex clock.
 // volume_percent: Codec output volume in 0..100.
 // Exception: Returns original standby, codec, format or snapshot publication errors.
 extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
@@ -858,16 +920,6 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
         );
         return reject_playback("Playback volume", ESP_ERR_INVALID_ARG, sample_rate_hz, volume_percent);
     }
-#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
-    if (LUNASHELL_voice_afe_running() && sample_rate_hz != VOICE_SAMPLE_RATE_HZ) {
-        ESP_LOGE(
-            TAG,
-            "Voice AFE owns 16 kHz capture; playback rate %lu is unsupported",
-            static_cast<unsigned long>(sample_rate_hz)
-        );
-        return reject_playback("Playback AFE format", ESP_ERR_NOT_SUPPORTED, sample_rate_hz, volume_percent);
-    }
-#endif
     esp_err_t error = LUNASHELL_audio_init();
     if (error != ESP_OK) {
         return reject_playback("Playback initialization", error, sample_rate_hz, volume_percent);
@@ -889,7 +941,13 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
             sample_rate_hz, volume_percent);
     }
 
-    error = configure_speaker_stream(sample_rate_hz);
+    uint32_t transport_rate_hz = sample_rate_hz;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    if (s_microphone_open) {
+        transport_rate_hz = s_microphone_sample_rate_hz;
+    }
+#endif
+    error = configure_speaker_stream(transport_rate_hz);
     if (error == ESP_OK) {
         const int volume_result =
             esp_codec_dev_set_out_vol(s_speaker, volume_percent);
@@ -918,7 +976,11 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
     if (error == ESP_OK) {
         // The PA is enabled by the official BSP codec interface; allow its output to settle.
         vTaskDelay(pdMS_TO_TICKS(100));
-        error = write_speaker_pcm_locked(samples, sample_count, sample_rate_hz, volume_percent);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+        error = write_prerecorded_pcm_locked(samples, sample_count, sample_rate_hz, transport_rate_hz, volume_percent);
+#else
+        error = write_speaker_pcm_locked(samples, sample_count, transport_rate_hz, volume_percent);
+#endif
         vTaskDelay(pdMS_TO_TICKS(100));
     }
     const int mute_result = esp_codec_dev_set_out_mute(s_speaker, true);
@@ -932,7 +994,7 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
 
     const esp_err_t publication_error =
         LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
-            false, 0, sample_rate_hz, volume_percent, error);
+            false, 0, transport_rate_hz, volume_percent, error);
     if (publication_error != ESP_OK) {
         ESP_LOGE(TAG, "Playback final publication failed: %s", esp_err_to_name(publication_error));
         if (error == ESP_OK) {
@@ -942,7 +1004,8 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
 
     ESP_LOGI(
         TAG,
-        "Playback complete: rate=%lu samples=%u volume=%d result=%s",
+        "Playback complete: transport=%lu source=%lu samples=%u volume=%d result=%s",
+        static_cast<unsigned long>(transport_rate_hz),
         static_cast<unsigned long>(sample_rate_hz),
         static_cast<unsigned>(sample_count),
         volume_percent,
@@ -1016,6 +1079,12 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16(
 #endif
 }
 
+// samples: Caller-owned destination for diagnostic interleaved PCM16.
+// frame_count: Number of frames per channel requested by the diagnostic owner.
+// channel_count: Enabled diagnostic microphone topology.
+// sample_rate_hz: Requested diagnostic transport clock.
+// gain_db: Explicit diagnostic codec gain.
+// Exception: Returns original admission, initialization, mutex or codec failures.
 extern "C" esp_err_t LUNASHELL_audio_capture_pcm16_channels(
     int16_t *samples,
     size_t frame_count,
@@ -1035,6 +1104,12 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16_channels(
     if (samples == nullptr || frame_count == 0 || channel_count == 0 || channel_count > 2) {
         return ESP_ERR_INVALID_ARG;
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    if (LUNASHELL_voice_afe_capture_active()) {
+        ESP_LOGE(TAG, "Diagnostic PCM capture rejected: AFE owns the microphone");
+        return ESP_ERR_NOT_ALLOWED;
+    }
+#endif
     esp_err_t error = LUNASHELL_audio_init();
     if (error != ESP_OK) {
         return error;
@@ -1084,20 +1159,32 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16_channels(
 // samples: Caller-owned destination for real interleaved microphone PCM16.
 // frame_count: Number of frames per channel to read.
 // channel_count: Enabled acquisition topology, validated by the audio owner.
-// Exception: Returns the original capture error without substituting samples.
+// Exception: Returns real format, lifecycle or codec capture errors without substituting samples.
 extern "C" esp_err_t LUNASHELL_audio_capture_voice_pcm16(
     int16_t *samples,
     size_t frame_count,
     uint8_t channel_count
 )
 {
-    return LUNASHELL_audio_capture_pcm16_channels(
-        samples,
-        frame_count,
-        channel_count,
-        VOICE_SAMPLE_RATE_HZ,
-        24.0F
-    );
+    if (samples == nullptr || frame_count == 0 || channel_count != LUNASHELL_audio_input_channel_count() ||
+        channel_count == 0 || channel_count > 2 || frame_count > INT_MAX / sizeof(int16_t) / channel_count) {
+        ESP_LOGE(TAG, "Voice capture format rejected: frames=%u channels=%u", static_cast<unsigned>(frame_count), channel_count);
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_initialized.load(std::memory_order_acquire) || s_standby.load(std::memory_order_acquire) ||
+        s_audio_state_poisoned.load(std::memory_order_acquire)) {
+        ESP_LOGE(TAG, "Voice capture rejected by audio lifecycle state");
+        return ESP_ERR_INVALID_STATE;
+    }
+    // AFE is the sole RX owner. Its acknowledged pause precedes codec closure;
+    // route/gain preparation precedes feed startup. TX uses its own codec/I2S
+    // direction, so holding the speaker mutex here would starve inference during
+    // prerecorded clips and their DMA retirement waits.
+    const int result = esp_codec_dev_read(s_microphone, samples, frame_count * channel_count * sizeof(int16_t));
+    if (result != ESP_CODEC_DEV_OK) {
+        ESP_LOGE(TAG, "Voice microphone PCM read failed: codec_result=%d", result);
+    }
+    return static_cast<esp_err_t>(result);
 }
 
 // Reconfigure the active base route for the AFE-owned 16 kHz stream.

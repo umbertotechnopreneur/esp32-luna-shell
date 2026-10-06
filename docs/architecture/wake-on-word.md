@@ -23,8 +23,13 @@ component/backend in this variant. Existing SD contents are not installed,
 rewritten or removed by selecting this firmware variant. The reviewed Sophia
 recognition weights live in the internal model partition. The `_tts_` substring
 in their upstream model name does not enable the local speech synthesizer.
-Prerecorded audio and synthesis are separate paths; selecting wake word does
-not itself change existing PCM playback.
+Prerecorded audio and synthesis are separate paths. The audio owner converts
+the 22.05 kHz boot chime/greeting to the fixed 16 kHz duplex transport in bounded
+chunks, preserving its source asset and duration. Speaker and AEC receive the
+same converted samples. The sole AFE capture owner reads the prepared RX codec
+independently of the TX playback mutex, so clips and their DMA retirement waits
+cannot starve inference. Acknowledged AFE pause precedes stream closure;
+diagnostic PCM capture is rejected while AFE owns the microphone.
 
 `CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD` is the sole public engine gate;
 `LUNASHELL_BUILD_ENABLE_VOICE_AFE` is hidden and derived from it. Disable the
@@ -68,8 +73,9 @@ startup checks the actual driver's channel count before admitting capture.
 
 `N` is an unused ESP-SR input slot. `R` contains successfully written 16 kHz
 speaker samples, or silence while there is no playback. These internal AFE
-inputs are never published as sensor measurements. Cody's existing audio
-assets already use 16 kHz.
+inputs are never published as sensor measurements. Cody's scene/touch assets
+use 16 kHz; its boot chime/greeting is authored at 22.05 kHz and converted by
+the audio owner when the fixed voice transport is selected.
 
 ## Model storage and identity
 
