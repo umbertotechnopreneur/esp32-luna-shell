@@ -44,6 +44,16 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
   transmission. File revisions/CRCs prove transfer identity, not a freeze's cause.
   [Offline logging](docs/architecture/offline-logging-usb.md).
 
+## Continuous audio ownership
+
+- A working WakeNet startup does not prove continuous listening. A playback
+  mutex held across a clip or DMA-retirement delay can starve the microphone
+  feed beyond the inference fetch timeout. Keep the sole acknowledged AFE RX
+  owner independent of TX waits; pause acknowledgment must precede route close.
+  Convert authored boot PCM to the fixed duplex clock in bounded owner chunks
+  and supply identical speaker/AEC samples. Do not reconfigure capture clocks,
+  suppress fetch errors or remove prerecorded sound to conceal the conflict.
+
 ## Build graph and GUI lifetimes
 
 - ESP-IDF resolves components before Kconfig: variants need admitted roots,

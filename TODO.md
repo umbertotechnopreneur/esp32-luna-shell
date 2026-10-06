@@ -5,9 +5,13 @@ Only open, actionable work belongs here. Deferred work is in
 [done.md](done.md). Authorization is governed solely by [AGENTS.md](AGENTS.md).
 The latest feature-worktree Debug Cody image at `61ab74a` (`tts-sd`) was built
 and flashed on COM10 on 2026-10-05, including Debug-only PWR gestures.
-The latest main Debug Cody image is `6ae36bda` (`none`), built and flashed on
-COM10 on 2026-10-07 with VibeWare first-boot branding; all three flash hashes
-were verified and the flash command issued its final hard reset.
+The latest main Debug Cody image is `d4fafbca` (`wake-word`), built and flashed
+on COM10 on 2026-10-07 with Sophia enabled, TTS excluded and prerecorded audio
+retained. All four flash hashes were verified. The runtime capture recorded
+Sophia detection and software-standby wake; the owner confirmed speaking Sophia
+and seeing the display wake without touch. SD card-init timeout after reset and
+the intermittent display watchdog remain open; storage-resume success alone
+does not establish a mounted card. VibeWare first-boot branding remains present.
 Authorized 30-second boot captures of the earlier `58757005` image complete
 mandatory startup without the prior allocation abort; SD initialization
 still timed out after reinsertion, before synthesis. Earlier ordinary Cody evidence belongs to
@@ -29,7 +33,7 @@ every open physical observation below remains open.
 - [ ] Observe the updated tap, icon sound admission, 20% size increase and
   400-ms fades on the device; build/flash alone cannot establish these behaviors.
 - [ ] Physically review the newer Whistle-width correction and stronger
-  mouth breathing. The main Debug image flashed on COM10 is now `6ae36bda`;
+  mouth breathing. These changes were first flashed on main at `6ae36bda`;
   thinner lip geometry, matched tongue and native/Python breathing changes are
   implemented, the rig regenerated and Cody firmware compiled. Formal checks
   and physical behavior remain unverified.
@@ -290,16 +294,10 @@ every open physical observation below remains open.
   NTP failure/recovery, RTC offset/rate before correction, unset RTC reaching NTP,
   trusted SNTP-to-RTC persistence, offline reboot, oscillator-stop and backup
   retention. [Clock and RTC](docs/architecture/cody/clock.md).
-- [ ] On the 2026-10-07 user request, load Cody with local TTS excluded and
-  Sophia wake-on-word enabled, retaining existing SD contents. The loaded
-  `289dbe3a` Debug diagnostic image excludes both TTS and wake word; explicit
-  `-Feature wake-word` is required. Its defaults now also explicitly exclude
-  synthesized Italian boot speech. Cody wake-word dependency resolution and
-  static configuration/graph review passed; selected build/flash and actual
-  Sophia detection/standby wake remain unrun for this selection. Existing
-  prerecorded firmware audio is retained, as explicitly confirmed by the user.
-- [ ] Resolve/review `cody-companion-wake-word` and `full-wake-word` locks through
-  the public CLI, then perform the specifically authorized final validation.
+- [ ] Resolve/review the remaining `full-wake-word` lock through the public CLI,
+  then perform the specifically authorized final validation. Cody's wake-word
+  lock, Debug build/flash, boot playback and one physical Sophia standby wake
+  passed on 2026-10-07; see Done for the exact image and capture limitations.
   Review the sole wake-word off flag across source/dependency closure, generated
   defaults/partitions, model packing and flash inventory; verify voice CPU0 vs
   renderer CPU1. Verify external BSS PCM/audio stacks, PSRAM-only AFE buffers,

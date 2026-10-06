@@ -11,15 +11,14 @@ flash logs were regenerated.
 ## Requested recognition-only voice selection — 2026-10-07
 
 - Recorded the user's selection: exclude the local speech synthesizer while
-  enabling Sophia wake-on-word. Source review confirmed the currently loaded
+  enabling Sophia wake-on-word. Source review confirmed the previously loaded
   `289dbe3a` image excludes both features; retaining voice wake therefore needs
   the existing `cody-companion-wake-word` variant, not the ordinary `none` variant.
 - Wake-word defaults now explicitly exclude TTS and synthesized Italian boot
   speech. Existing feature gates already reject a TTS component/backend in this
   variant. Its reviewed Sophia model uses the internal model partition, with no
   SD asset installation or deletion. Existing prerecorded PCM paths are separate
-  from synthesis. Source integration reviewed; selected checks, dependency-lock
-  resolution, new build/flash and physical recognition remain pending.
+  from synthesis. Subsequent checks, build/flash and physical results are below.
 - User confirmed prerecorded firmware audio is retained and explicitly requested
   wake-word activation on `main`. Restored `_MODEL_INFO_` from 172-byte CRLF to
   its pinned 170-byte upstream content, verifying the original manifest SHA-256
@@ -28,7 +27,7 @@ flash logs were regenerated.
   -BuildMode Debug` resolved and published the missing Cody wake-word lock.
   Generated configuration enables Sophia, AFE and standby listening with a
   64-KiB internal reserve; the actual component graph contains ESP-SR/DSP/FFT and
-  no TTS component. Selected build/flash and physical wake remain pending.
+  no TTS component. Subsequent build/flash and physical results are below.
   Resolver evidence is under `artifacts/build-cody-companion-wake-word-evidence/`.
 - Selected build-profile check and the first Debug build/COM10 flash passed:
   app `cabb5f59`, 4,966,576 bytes; sole packed recognition model 291,168 bytes;
@@ -40,8 +39,36 @@ flash logs were regenerated.
 - Audio integration now converts authored boot PCM in bounded chunks at the
   fixed voice transport rate, supplies matching AEC samples, and keeps the
   acknowledged sole AFE RX owner independent of TX playback waits. Stream close
-  and diagnostic capture reject active AFE ownership. Source review completed;
-  corrected-image build/flash and hardware recognition remain pending.
+  and diagnostic capture reject active AFE ownership. Source integration reviewed.
+- Corrected Debug `d4fafbca` compiled and flashed on COM10 through the public
+  CLI with eight jobs. App: 4,967,648 bytes, SHA-256
+  `1ABEE710297B083340EBF05EECB37EF880423CC35D4A88B4E947881C4B6BCC24`.
+  Packed sole model: 291,168 bytes, SHA-256
+  `EB17437145A7434DE9FE7E47165147D26542115A8367719F04BEB6D0F9EDFB21`.
+  All four flash hashes verified; TTS remains outside the component graph.
+- Corrected runtime capture completed boot PCM playback at 16 kHz from its
+  authored 22.05 kHz source with `ESP_OK`; scene audio also played while AFE
+  continued publishing real microphone samples. After a display-watchdog reset
+  in the first captured boot, the next boot reached software standby at
+  65.111 s. Sophia was detected at 67.990 s; active transition completed at
+  69.000 s with reason `wake-word`, storage-resume and wireless `ESP_OK`.
+  The owner explicitly confirmed saying Sophia and display wake without touch.
+- The complete 180-second capture also recorded another standby at 130.732 s,
+  Sophia detection at 139.305 s and wake-word active transition at 140.422 s.
+  No AFE fetch failure or microphone-clock conflict occurred in the corrected
+  capture. Only the first utterance has explicit physical confirmation.
+- This proves one physical Sophia software-standby wake, not long-term voice
+  reliability, false-positive rate, Deep-sleep wake or SD recovery. The card
+  remained unmounted with pre-FAT `ESP_ERR_TIMEOUT`, including the probe after
+  voice wake; a successful storage-service resume is not card access success.
+  The first captured boot's `lvgl-worker` watchdog and counted logger truncation
+  remain open. The wake feature uses internal recognition models and excludes
+  synthesis; prerecorded firmware audio remains included.
+- Evidence: `artifacts/build-cody-companion-wake-word-evidence/evidence/`
+  `wake-no-tts-profile-check-20261007.log`, `wake-audio-fixed-flash-20261007.log`
+  and `wake-audio-fixed-runtime-20261007.log`. `git diff --check` passed before
+  both requested flash builds. Simulator/Release/full-profile/size analysis,
+  broader checks and field endurance were not run.
 
 ## SD mounted-card standby/touch-wake verification — 2026-10-07
 
