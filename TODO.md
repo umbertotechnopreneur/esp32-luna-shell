@@ -294,8 +294,10 @@ every open physical observation below remains open.
   Sophia wake-on-word enabled, retaining existing SD contents. The loaded
   `289dbe3a` Debug diagnostic image excludes both TTS and wake word; explicit
   `-Feature wake-word` is required. Its defaults now also explicitly exclude
-  synthesized Italian boot speech. Dependency resolution, selected build/flash
-  and actual Sophia detection/standby wake remain unrun for this selection.
+  synthesized Italian boot speech. Cody wake-word dependency resolution and
+  static configuration/graph review passed; selected build/flash and actual
+  Sophia detection/standby wake remain unrun for this selection. Existing
+  prerecorded firmware audio is retained, as explicitly confirmed by the user.
 - [ ] Resolve/review `cody-companion-wake-word` and `full-wake-word` locks through
   the public CLI, then perform the specifically authorized final validation.
   Review the sole wake-word off flag across source/dependency closure, generated

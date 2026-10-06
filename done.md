@@ -20,6 +20,16 @@ flash logs were regenerated.
   SD asset installation or deletion. Existing prerecorded PCM paths are separate
   from synthesis. Source integration reviewed; selected checks, dependency-lock
   resolution, new build/flash and physical recognition remain pending.
+- User confirmed prerecorded firmware audio is retained and explicitly requested
+  wake-word activation on `main`. Restored `_MODEL_INFO_` from 172-byte CRLF to
+  its pinned 170-byte upstream content, verifying the original manifest SHA-256
+  before writing; recognition weights and provenance checks were unchanged.
+- Public `device.ps1 update-lock -Profile cody-companion -Feature wake-word
+  -BuildMode Debug` resolved and published the missing Cody wake-word lock.
+  Generated configuration enables Sophia, AFE and standby listening with a
+  64-KiB internal reserve; the actual component graph contains ESP-SR/DSP/FFT and
+  no TTS component. Selected build/flash and physical wake remain pending.
+  Resolver evidence is under `artifacts/build-cody-companion-wake-word-evidence/`.
 
 ## SD mounted-card standby/touch-wake verification — 2026-10-07
 
