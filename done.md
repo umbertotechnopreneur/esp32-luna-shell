@@ -10,6 +10,22 @@ flash logs were regenerated.
 
 ## Requested recognition-only voice selection — 2026-10-07
 
+- Captured and decoded a complete checksum-validated watchdog dump using the
+  matching `2bd0626` ELF through `device.ps1 check -Check decode-core-dump`.
+  Cody's thread is blocked in IDF LCD parameter transmission acquiring the SPI
+  bus with `portMAX_DELAY`, during branding rows 464-465. Other running tasks
+  are not evidence of the blocked frame's cause. Preserved full decoder output:
+  `artifacts/build-cody-companion-wake-word-evidence/evidence/waveshare-core-decoded-20261007.log`.
+- Implemented native-only queued QSPI admission/result retirement with bounded
+  waits and internal immutable descriptors. The unchanged CO5300 panel driver
+  uses its original opcode/address/pixel wire format; real errors retain unsafe
+  DMA ownership. This removes the observed infinite bus-acquisition call path;
+  final compilation and physical evidence remain pending.
+- Compared original Waveshare Arduino SensorLib touch code and constants at
+  the same pinned commit: two-finger capacity, report ACK D000/AB and normal-mode
+  D109/readback 0002. Implemented the missing ACK and mode restoration while
+  retaining malformed-packet and original I2C errors. Device verification pending.
+
 - Compared the official Waveshare firmware and example BSPs at pinned source
   `e4344e70c2fa78a13e8a06566507f1ba8af6672a`; restored default SD host frequency
   and external-pull-up slot flags. Protocol captures identify repeated ACMD41
@@ -30,8 +46,19 @@ flash logs were regenerated.
   assertions, 122 native/Python parity frames, and 118 independent host checks,
   plus fourteen icon/audio contracts. Updated two stale 600-ms fade expectations
   to the already-authored 400-ms fade-out. No firmware behavior was changed by
-  this fixture correction. Report: `artifacts/checks/cody-personality/report.json`;
-  capture: `artifacts/build-cody-companion-wake-word-evidence/evidence/icons-v2-check-pass-20261007.log`.
+  this fixture correction. The mandatory pre-build cleanup removed the transient
+  full host report; its observed counts are retained in
+  `artifacts/build-cody-companion-wake-word-evidence/evidence/icons-v2-host-check-summary-20261007.json`
+  and the public CLI result in `icons-v2-check-pass-20261007.log` there.
+- Debug Cody wake-word at `2bd0626` compiled with eight jobs on ESP-IDF 6.0.2
+  and flashed on COM10; all four written hashes verified. App: 6,701,296 bytes
+  (`0x6640f0`), 53% application partition free; app SHA-256
+  `0928570DE02DDFF1E3FC5720E7D700F53F50CABE8128E34E48B75EF4D5E3F741`.
+  Matching preserved ELF SHA-256:
+  `17B2EA4A7820C59C3C9721EA0F819DDB29741B44A226558ACD30C59B34428CAE`.
+  The actual generated configuration enables wake-word/UART core dumps and
+  excludes TTS; managed CST9217 source contains the two-contact capacity.
+  Build/flash log: `artifacts/build-cody-companion-wake-word-evidence/evidence/waveshare-icons-v2-flash-20261007.log`.
 
 - Recorded the user's selection: exclude the local speech synthesizer while
   enabling Sophia wake-on-word. Source review confirmed the previously loaded

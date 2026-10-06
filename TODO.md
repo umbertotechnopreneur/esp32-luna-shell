@@ -5,7 +5,7 @@ Only open, actionable work belongs here. Deferred work is in
 [done.md](done.md). Authorization is governed solely by [AGENTS.md](AGENTS.md).
 The latest feature-worktree Debug Cody image at `61ab74a` (`tts-sd`) was built
 and flashed on COM10 on 2026-10-05, including Debug-only PWR gestures.
-The latest main Debug Cody image is `d4fafbca` (`wake-word`), built and flashed
+The latest main Debug Cody image is `2bd0626` (`wake-word`), built and flashed
 on COM10 on 2026-10-07 with Sophia enabled, TTS excluded and prerecorded audio
 retained. All four flash hashes were verified. The runtime capture recorded
 Sophia detection and software-standby wake; the owner confirmed speaking Sophia
@@ -26,13 +26,15 @@ every open physical observation below remains open.
   `e4344e70c2fa78a13e8a06566507f1ba8af6672a`. Captured ACMD41 responses remain
   busy until card power removal; this is a pre-FAT failure, not evidence of a
   disconnected presence pin. The board has no card-detect GPIO.
-- [ ] Obtain a complete matching-ELF display-watchdog core dump. The first UART
-  dumps were truncated/corrupt; three later captures did not reproduce the
-  watchdog, which does not prove correction. No timeout suppression is applied.
-  Corrected the host receive burst handling and base64 segment validation.
+- [ ] Validate the queued-only native QSPI correction for the display watchdog.
+  A complete checksum-validated matching `2bd0626` core proves Cody blocked in
+  IDF LCD `spi_device_acquire_bus(portMAX_DELAY)` during branding. The new
+  transport drains queued results with bounded waits and preserves real errors;
+  no timeout suppression is applied. Build/flash and physical verification pending.
 - [ ] Physically review the CST9217 two-contact correction after flash; the
   former one-contact limit rejected a legitimate two-contact report and aborted
-  startup. Malformed counts above the controller capacity still fail explicitly.
+  startup. Original Waveshare SensorLib also exposes missing report acknowledgment
+  and normal-mode restoration, now integrated. Malformed reports still fail.
 
 - [ ] Close the two device faults explicitly requested on 2026-10-07: warm-reset
   SD card-init OCR timeout and an unfinished display frame triggering the
@@ -46,8 +48,8 @@ every open physical observation below remains open.
 
 - [ ] Review all fourteen regenerated 256-pixel manga symbols on the physical
   display. Native ImageGen masters, canonical palette packaging and Windows
-  texture loading are integrated; focused host checks passed. Build/flash and
-  physical visual review remain pending.
+  texture loading are integrated; focused host checks and Debug build/COM10
+  flash passed at `2bd0626`. Physical visual review remains pending.
 
 - [ ] After fresh command-specific authorization, validate the VibeWare boot
   introduction on Cody and Luna: firmware build/size, original frame dwell,

@@ -20,6 +20,23 @@ animation and scene/source buffers. Input/transfer failures remain truthful.
 The configure-time CST9217 patch preserves original I2C errors and invalidates
 failed samples; patch drift stops configuration.
 
+On 2026-10-07 a checksum-validated core dump with matching `2bd0626` ELF
+identified the Cody worker blocked in `spi_device_acquire_bus(portMAX_DELAY)`
+inside IDF's LCD parameter transport during the final two branding rows. The
+standalone path now uses `bsp_display_qspi_io.c`: only queued SPI transactions,
+one internal descriptor, and a 100-ms admission/result bound. It drains the
+result queue before descriptor reuse, rather than treating the early color IRQ
+notification as descriptor retirement. CO5300 opcode/address occupy 8/24 bits
+on one wire; pixel payload uses four wires, retaining the original wire order.
+Real failures poison the transport and retain ambiguous ownership until reset.
+The Luna/LVGL path keeps its existing stock panel transport.
+
+The CST9217 protocol now follows the original Waveshare Arduino SensorLib:
+two-contact report capacity, D000/AB acknowledgment after a successful read,
+and D109 normal mode verified via register 0002 after configuration. Invalid
+acknowledgments/counts and failed I2C operations still return their real errors.
+Physical verification of these changes is tracked in the root `TODO.md`.
+
 ## Rotation and redraw
 
 `LUNASHELL_display_set_rotation_degrees()` applies and persists exactly

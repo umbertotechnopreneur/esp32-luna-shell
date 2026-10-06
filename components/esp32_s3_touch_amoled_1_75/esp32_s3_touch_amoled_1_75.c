@@ -43,6 +43,9 @@
 #endif
 #include "bsp/esp32_s3_touch_amoled_1_75.h"
 #include "bsp/display.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+#include "bsp/display_qspi_io.h"
+#endif
 #include "bsp/runtime_cores.h"
 #include "bsp/touch.h"
 #include "bsp_display_dma.h"
@@ -2329,6 +2332,7 @@ static bool IRAM_ATTR bsp_display_color_transfer_done(
 // config: Maximum pixel payload admitted to one SPI transfer.
 // ret_panel: Optional output for the initialized panel handle.
 // ret_io: Optional output for the initialized panel transport handle.
+// Exception: Returns real transport/panel initialization and cleanup failures.
 esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_handle_t *ret_panel, esp_lcd_panel_io_handle_t *ret_io)
 {
     esp_err_t ret = ESP_OK;
@@ -2389,12 +2393,14 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
     io_config.on_color_trans_done = bsp_display_color_transfer_done;
     io_config.user_ctx = display_completion;
 #endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    ret = esp_lcd_new_panel_io_spi(
+        (esp_lcd_spi_bus_handle_t)BSP_LCD_SPI_NUM, &io_config, &io_handle);
+#else
+    ret = bsp_display_new_qspi_io(BSP_LCD_SPI_NUM, &io_config, &io_handle);
+#endif
     ESP_GOTO_ON_ERROR(
-        esp_lcd_new_panel_io_spi(
-            (esp_lcd_spi_bus_handle_t)BSP_LCD_SPI_NUM,
-            &io_config,
-            &io_handle
-        ),
+        ret,
         fail,
         TAG,
         "LCD panel IO initialization failed"

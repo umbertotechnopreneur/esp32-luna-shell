@@ -1,0 +1,56 @@
+--- a/esp_lcd_touch_cst9217.c
++++ b/esp_lcd_touch_cst9217.c
+@@ -126,6 +126,7 @@
+  *******************************************************************************/
+ 
+ // tp: Initialized touch controller whose current hardware report is being read.
++// Exception: Retains I2C, acknowledgment and malformed-report errors.
+ static esp_err_t esp_lcd_touch_cst9217_read_data(esp_lcd_touch_handle_t tp)
+ {
+     uint8_t data[CST9217_DATA_LENGTH] = {0};
+@@ -138,6 +139,13 @@
+     ESP_GOTO_ON_ERROR(
+         cst9217_read_reg(tp, ESP_LCD_TOUCH_CST9217_DATA_REG, data, sizeof(data)),
+         err, TAG, "Read data failed");
++
++    // Waveshare SensorLib acknowledges every successfully fetched report before
++    // validating its contents; this releases the controller's report mailbox.
++    const uint8_t acknowledge[2] = {0x00, CST9217_ACK_VALUE};
++    ESP_RETURN_ON_ERROR(
++        esp_lcd_panel_io_tx_param(tp->io, 0xD0, acknowledge, sizeof(acknowledge)),
++        TAG, "Report acknowledgment failed");
+ 
+     // Preserve the controller's actual empty release frame. This exception
+     // never applies to a failed read or a partially malformed response.
+@@ -230,6 +238,8 @@
+     return ESP_OK;
+ }
+ 
++// tp: Initialized controller, before report interrupts are registered.
++// Exception: Configuration/mode reads and writes retain their original errors.
+ static esp_err_t cst9217_read_config(esp_lcd_touch_handle_t tp)
+ {
+     uint8_t data[4] = {0};
+@@ -261,6 +271,22 @@
+     uint32_t projectID = (data[1] << 8) | data[0];
+     ESP_LOGI(TAG, "Chip Type: 0x%04X, ProjectID: 0x%04lX", chipType, projectID);
+ 
++    // The original Arduino SensorLib returns from debug information to D109
++    // normal mode and verifies register 0002 before enabling report consumers.
++    const uint8_t normal_mode = 0x09;
++    ESP_RETURN_ON_ERROR(
++        esp_lcd_panel_io_tx_param(tp->io, 0xD1, &normal_mode, 1),
++        TAG, "Enter normal report mode failed");
++    ESP_RETURN_ON_ERROR(
++        cst9217_read_reg(tp, 0x0002, data, 2),
++        TAG, "Read report mode failed");
++    if (data[1] != normal_mode) {
++        ESP_LOGE(TAG, "Report mode rejected: actual=0x%02X expected=0x09 (%s)",
++                 data[1], esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
++        return ESP_ERR_INVALID_RESPONSE;
++    }
++    vTaskDelay(pdMS_TO_TICKS(10));
++
+     return ret;
+ }
+ 
