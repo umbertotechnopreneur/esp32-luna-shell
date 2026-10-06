@@ -1,7 +1,17 @@
-diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
 --- a/esp_lcd_touch_cst9217.c
 +++ b/esp_lcd_touch_cst9217.c
-@@ -47,6 +47,9 @@
+@@ -29,7 +29,9 @@
+ 
+ /* CST9217 parameters */
+ #define CST9217_ACK_VALUE 0xAB
+-#define CST9217_MAX_TOUCH_POINTS 1
++// The fitted CST9217 reports two contacts. Read and validate the entire report;
++// a consumer requesting one primary contact does not change controller capacity.
++#define CST9217_MAX_TOUCH_POINTS 2
+ #define CST9217_DATA_LENGTH (CST9217_MAX_TOUCH_POINTS * 5 + 5)
+ 
+ /*******************************************************************************
+@@ -47,6 +49,9 @@
   * Public API functions
   *******************************************************************************/
  
@@ -11,7 +21,7 @@ diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
  esp_err_t esp_lcd_touch_new_i2c_cst9217(const esp_lcd_panel_io_handle_t io, const esp_lcd_touch_config_t *config, esp_lcd_touch_handle_t *out_touch)
  {
      esp_err_t ret = ESP_OK;
-@@ -80,10 +83,6 @@
+@@ -80,10 +85,6 @@
          };
          ESP_GOTO_ON_ERROR(gpio_config(&int_gpio_config), err, TAG, "GPIO intr config failed");
  
@@ -22,7 +32,7 @@ diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
      }
  
      /* Initialize reset GPIO */
-@@ -102,6 +101,13 @@
+@@ -102,6 +103,13 @@
      /* Read chip configuration */
      ESP_GOTO_ON_ERROR(cst9217_read_config(cst9217), err, TAG, "Read config failed");
  
@@ -36,11 +46,12 @@ diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
      *out_touch = cst9217;
      return ESP_OK;
  
-@@ -117,22 +123,46 @@
+@@ -117,23 +125,55 @@
   * Private functions
   *******************************************************************************/
  
 +// tp: Initialized touch controller whose current hardware report is being read.
++// Exception: Retains I2C, acknowledgment and malformed-report errors.
  static esp_err_t esp_lcd_touch_cst9217_read_data(esp_lcd_touch_handle_t tp)
  {
      uint8_t data[CST9217_DATA_LENGTH] = {0};
@@ -54,6 +65,13 @@ diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
          cst9217_read_reg(tp, ESP_LCD_TOUCH_CST9217_DATA_REG, data, sizeof(data)),
          err, TAG, "Read data failed");
  
++    // Waveshare SensorLib acknowledges every successfully fetched report before
++    // validating its contents; this releases the controller's report mailbox.
++    const uint8_t acknowledge[2] = {0x00, CST9217_ACK_VALUE};
++    ESP_RETURN_ON_ERROR(
++        esp_lcd_panel_io_tx_param(tp->io, 0xD0, acknowledge, sizeof(acknowledge)),
++        TAG, "Report acknowledgment failed");
++
 +    // Preserve the controller's actual empty release frame. This exception
 +    // never applies to a failed read or a partially malformed response.
 +    bool empty_report = true;
@@ -76,17 +94,18 @@ diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
  
      uint8_t points = data[5] & 0x7F;
 -    points = (points > CST9217_MAX_TOUCH_POINTS) ? CST9217_MAX_TOUCH_POINTS : points;
+-
 +    if (points > CST9217_MAX_TOUCH_POINTS) {
 +        ESP_LOGE(TAG, "Read data rejected: contact count=%u maximum=%u (%s)", points, CST9217_MAX_TOUCH_POINTS, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
 +        return ESP_ERR_INVALID_RESPONSE;
 +    }
- 
++
 +    // Publish validated coordinates atomically. Even filtered logs can take
 +    // FreeRTOS mutexes, so this critical section performs only bounded RAM work.
      portENTER_CRITICAL(&tp->data.lock);
      tp->data.points = 0;
-@@ -143,24 +173,15 @@
-         if (status == 0x06) {
+     for (int i = 0; i < points; i++) {
+@@ -144,9 +184,6 @@
              tp->data.coords[i].x = ((p[1] << 4) | (p[3] >> 4));
              tp->data.coords[i].y = ((p[2] << 4) | (p[3] & 0x0F));
              tp->data.points++;
@@ -96,7 +115,7 @@ diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
          }
      }
      portEXIT_CRITICAL(&tp->data.lock);
- 
+@@ -154,13 +191,7 @@
      return ret;
  
  err:
@@ -111,7 +130,35 @@ diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
  }
  
  static bool esp_lcd_touch_cst9217_get_xy(esp_lcd_touch_handle_t tp, uint16_t *x, uint16_t *y, uint16_t *strength, uint8_t *point_num, uint8_t max_point_num)
-@@ -241,62 +262,38 @@
+@@ -207,6 +238,8 @@
+     return ESP_OK;
+ }
+ 
++// tp: Initialized controller, before report interrupts are registered.
++// Exception: Configuration/mode reads and writes retain their original errors.
+ static esp_err_t cst9217_read_config(esp_lcd_touch_handle_t tp)
+ {
+     uint8_t data[4] = {0};
+@@ -238,65 +271,57 @@
+     uint32_t projectID = (data[1] << 8) | data[0];
+     ESP_LOGI(TAG, "Chip Type: 0x%04X, ProjectID: 0x%04lX", chipType, projectID);
+ 
++    // The original Arduino SensorLib returns from debug information to D109
++    // normal mode and verifies register 0002 before enabling report consumers.
++    const uint8_t normal_mode = 0x09;
++    ESP_RETURN_ON_ERROR(
++        esp_lcd_panel_io_tx_param(tp->io, 0xD1, &normal_mode, 1),
++        TAG, "Enter normal report mode failed");
++    ESP_RETURN_ON_ERROR(
++        cst9217_read_reg(tp, 0x0002, data, 2),
++        TAG, "Read report mode failed");
++    if (data[1] != normal_mode) {
++        ESP_LOGE(TAG, "Report mode rejected: actual=0x%02X expected=0x09 (%s)",
++                 data[1], esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
++        return ESP_ERR_INVALID_RESPONSE;
++    }
++    vTaskDelay(pdMS_TO_TICKS(10));
++
      return ret;
  }
  

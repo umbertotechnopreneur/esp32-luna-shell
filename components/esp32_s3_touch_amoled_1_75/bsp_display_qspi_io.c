@@ -93,7 +93,8 @@ static esp_err_t queue_transaction(bsp_qspi_io_t *io, int command,
     }
     io->transaction.base.cmd = command < 0 ? 0 : ((uint32_t)command >> 24);
     io->transaction.base.addr = command < 0 ? 0 : ((uint32_t)command & UINT32_C(0x00FFFFFF));
-    io->transaction.base.tx_buffer = data;
+    // IDF requires NULL to omit the MOSI data phase for command-only transfers.
+    io->transaction.base.tx_buffer = bytes == 0 ? NULL : data;
     io->transaction.base.length = bytes * 8U;
     io->transaction.base.user = io;
     io->color_transaction = color;
