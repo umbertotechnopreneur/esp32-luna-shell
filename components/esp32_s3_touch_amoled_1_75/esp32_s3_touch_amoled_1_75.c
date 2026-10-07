@@ -677,6 +677,32 @@ static esp_err_t bsp_sdcard_finish_mount_failure(
     return result->error;
 }
 
+// host: Initialized SDMMC slot owned by this exact staged mount attempt.
+// Exception: Returns original clock-selection or clock-source preparation error.
+static esp_err_t bsp_sdcard_prepare_probing_clock(const sdmmc_host_t *host)
+{
+    // Resolving the probing frequency prevents IDF 6 from reprogramming clocks
+    // on each OCR command and undoing its continuous-clock request for ACMD41.
+    esp_err_t error = host->set_card_clk(host->slot, SDMMC_FREQ_PROBING);
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "SDMMC probing clock selection failed: %s", esp_err_to_name(error));
+        return error;
+    }
+
+    // In this SDK the official frequency query prepares the selected clock
+    // source through divider calculation. READY transactions need that source
+    // before querying hardware dividers; this value is calculated, not measured.
+    int computed_frequency_khz = 0;
+    error = host->get_real_freq(host->slot, &computed_frequency_khz);
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "SDMMC probing clock source preparation failed: %s", esp_err_to_name(error));
+        return error;
+    }
+    ESP_LOGI(TAG, "SDMMC probing clock selected: slot=%d requested=%d kHz computed=%d kHz",
+        host->slot, SDMMC_FREQ_PROBING, computed_frequency_khz);
+    return ESP_OK;
+}
+
 // host: Prepared SDMMC host owned by this exact staged mount attempt.
 // card: Allocated state for the card being initialized, not a fallback card.
 // Exception: Returns the original IDF protocol error after restoring log policy.
@@ -687,8 +713,10 @@ static esp_err_t bsp_sdcard_initialize_card(const sdmmc_host_t *host, sdmmc_card
     // operation logs; no extra transactions, presence inference or repair occur.
     const esp_log_level_t command_level = esp_log_level_get("sdmmc_cmd");
     const esp_log_level_t common_level = esp_log_level_get("sdmmc_common");
+    const esp_log_level_t host_level = esp_log_level_get("SD_HOST");
     esp_log_level_set("sdmmc_cmd", ESP_LOG_VERBOSE);
     esp_log_level_set("sdmmc_common", ESP_LOG_DEBUG);
+    esp_log_level_set("SD_HOST", ESP_LOG_DEBUG);
     ESP_LOGI(TAG, "SD protocol trace begin: slot=%d runtime_max=%d kHz sdio_probe=%s",
         host->slot, host->max_freq_khz,
 #if CONFIG_SD_ENABLE_SDIO_SUPPORT
@@ -702,6 +730,7 @@ static esp_err_t bsp_sdcard_initialize_card(const sdmmc_host_t *host, sdmmc_card
 #if CONFIG_LUNASHELL_STORAGE_DEBUG_PROBE
     esp_log_level_set("sdmmc_cmd", command_level);
     esp_log_level_set("sdmmc_common", common_level);
+    esp_log_level_set("SD_HOST", host_level);
     ESP_LOGI(TAG, "SD protocol trace end: result=%s", esp_err_to_name(error));
 #endif
     return error;
@@ -820,6 +849,15 @@ esp_err_t bsp_sdcard_mount(
         return bsp_sdcard_finish_mount_failure(out_result);
     }
     sdcard_context.slot_initialized = true;
+
+    // Card initialization still negotiates the supported runtime speed later.
+    result = bsp_sdcard_prepare_probing_clock(&sdcard_context.host);
+    if (result != ESP_OK) {
+        out_result->outcome =
+            BSP_SDCARD_MOUNT_OUTCOME_CARD_OR_TRANSPORT_FAILED;
+        out_result->error = result;
+        return bsp_sdcard_finish_mount_failure(out_result);
+    }
 
     out_result->stage = BSP_SDCARD_STAGE_CARD_INIT;
     result = bsp_sdcard_initialize_card(

@@ -23,11 +23,13 @@ every open physical observation below remains open.
 
 ## SD reset and display-watchdog diagnosis
 
-- [ ] Validate the Cody memory-only IDF protocol configuration
-  (`CONFIG_SD_ENABLE_SDIO_SUPPORT=n`) against startup/reset failure. The prior
-  image sends CMD52 and CMD5 before ACMD41; excluding unneeded SDIO discovery is
-  a controlled hypothesis, not an established timeout fix. Build/flash/capture
-  of this configuration remain pending. No more card swaps are requested.
+- [ ] Validate explicit 400-kHz probing-clock selection before card init.
+  Static review of IDF 6.0.2 shows unresolved slot frequency reconfigures the
+  clock before every command, re-enabling clock gating despite ACMD41's request
+  for continuous clocking. The owner now selects the official probing frequency
+  through the host API, preserving original errors and later runtime selection.
+  Build/flash and a targeted startup/reset comparison remain pending. No more
+  card swaps are requested. The memory-only SDIO exclusion alone was ineffective.
 
 - [ ] Validate the restored official Waveshare SD baseline (default host clock,
   external pull-ups, one-bit GPIO 1/2/3) on a freshly powered card and subsequent

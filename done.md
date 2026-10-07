@@ -10,6 +10,17 @@ flash logs were regenerated.
 
 ## Requested recognition-only voice selection — 2026-10-07
 
+- Cody memory-only protocol at `b9cfcb8` compiled/flashed on COM10 with verified
+  hashes: app 6,694,736 bytes; SHA-256
+  `2A5D9B15F6202574A4698AA093D3D033D6502EFDDC084FA20BC0274E5A47651A`;
+  matching preserved ELF `b9cfcb8.elf` SHA-256
+  `A194316D0CEB6317D049B0205C8EE7B405A2F0FAF7F94FEE3A3588E48EBF1BD0`.
+  The 45-second passive capture completed with `sdio_probe=disabled`, but OCR
+  still timed out. SDIO exclusion alone is disproven as the timeout remedy.
+  Evidence: `sd-memory-only-{flash,runtime}-20261007.log` in the protected
+  evidence directory. Configuration used the CLI-requested `set-target` recovery
+  after changed defaults made `reconfigure` reject the previous signature.
+
 - On `c3dceaf`, the owner confirmed renewed Sophia wake without touch; UART
   records matching WakeNet detection, successful wake and successful subsequent
   DMA frames. Card reinsertion restored mount attempt 5 and 49 verified writes.

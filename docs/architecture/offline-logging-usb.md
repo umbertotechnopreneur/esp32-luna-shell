@@ -7,6 +7,23 @@ owner with FAT long filenames. The common firmware defaults select native USB
 Serial/JTAG as the console so every supported profile has the explicit VFS
 dependency required by the logger's USB driver owner.
 
+## SD startup clocks
+
+After SDMMC slot initialization, the BSP selects the official 400-kHz probing
+frequency and queries its calculated frequency before initializing the card.
+The latter official host operation also prepares the clock-source identity in
+ESP-IDF 6.0.2. It is not a physical frequency measurement. Card initialization
+still negotiates the later supported runtime speed.
+
+An unresolved frequency makes this SDK reprogram the clock before every early
+command, re-enabling low-power clock gating even after ACMD41 requested
+continuous clocking. Explicit probing selection prevents that overwrite.
+Espressif's [ACMD41 clock correction](https://github.com/espressif/esp-idf/commit/7524f40)
+documents the continuous-clock requirement. Clock-selection/query failures
+retain their original error and slot-initialization stage; ordinary staged
+cleanup remains responsible for the attempt. Runtime verification is recorded
+in the root `done.md` and open limits in `TODO.md`.
+
 ## Recording and retention
 
 Application startup installs the canonical hook, starts its native USB receiver,
