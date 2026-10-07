@@ -22,7 +22,7 @@ function Get-FirmwareFeaturePartitionPath {
         if ($columns[0] -ieq 'model') {
             $modelCount++
             if (-not $wakeEnabled -or $columns[0] -cne 'model' -or
-                $columns[1] -cne 'data' -or $columns[4] -cne '512K') {
+                $columns[1] -cne 'data' -or $columns[4] -cne '1024K') {
                 throw "Feature $Feature rejected model partition: $line"
             }
         }
@@ -143,7 +143,7 @@ function Assert-WakeWordDependencyLock {
     }
 }
 
-# ProjectRoot owns the versioned model and provenance, not a runtime download.
+# ProjectRoot owns the versioned models and provenance, not a runtime download.
 # Throws on any extra, missing, renamed or modified weight before the upstream packer runs.
 function Get-ReviewedWakeWordModelDirectory {
     param([string]$ProjectRoot)
@@ -151,30 +151,47 @@ function Get-ReviewedWakeWordModelDirectory {
     $modelRoot = Join-Path $ProjectRoot 'assets/wake-word/models'
     $directories = @(Get-ChildItem -LiteralPath $modelRoot -Directory -Force)
     $unexpectedFiles = @(Get-ChildItem -LiteralPath $modelRoot -File -Force)
-    if ($directories.Count -ne 1 -or $directories[0].Name -cne 'wn9_sophia_tts_v1' -or
-        $unexpectedFiles.Count -ne 0) {
-        throw 'Wake-word packer input must contain only wn9_sophia_tts_v1.'
+    $expectedModels = [ordered]@{
+        wn9_sophia_tts_v1 = 'Sophia'
+        wn9_jarvis_tts = 'Jarvis'
+        wn9_computer_tts = 'Computer'
     }
     $source = Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot 'assets/wake-word/source.json') |
         ConvertFrom-Json -Depth 10
-    if ($source.model -cne 'wn9_sophia_tts_v1' -or $source.wake_word -cne 'Sophia' -or
+    if ($directories.Count -ne $expectedModels.Count -or $unexpectedFiles.Count -ne 0 -or
+        @($source.models.PSObject.Properties).Count -ne $expectedModels.Count -or
+        $source.repository -cne 'https://github.com/espressif/esp-sr' -or
         $source.commit -cne 'cfdbb52172d4f1b3e5f7469d6c3c6e5dd0738143') {
-        throw 'Wake-word source identity disagrees with the reviewed Sophia model.'
+        throw 'Wake-word packer input or source identity disagrees with the three reviewed models.'
     }
-    $modelDirectory = Join-Path $modelRoot 'wn9_sophia_tts_v1'
-    $entries = @(Get-ChildItem -LiteralPath $modelDirectory -Force)
-    if ($entries.Count -ne 3 -or @($source.files.PSObject.Properties).Count -ne 3) {
-        throw 'Wake-word model must contain exactly its three reviewed weight/metadata files.'
-    }
-    foreach ($name in @('_MODEL_INFO_', 'wn9_index', 'wn9_data')) {
-        $metadata = $source.files.PSObject.Properties[$name]
-        $file = Get-Item -LiteralPath (Join-Path $modelDirectory $name) -ErrorAction Stop
-        if ($null -eq $metadata -or $file.PSIsContainer -or $file.Length -ne $metadata.Value.bytes) {
-            throw "Wake-word weight identity or length rejected: $name"
+    foreach ($directory in $directories) {
+        if (@($expectedModels.Keys) -cnotcontains $directory.Name) {
+            throw "Wake-word packer input contains an unexpected model: $($directory.Name)"
         }
-        $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
-        if ($hash -cne ([string]$metadata.Value.sha256).ToUpperInvariant()) {
-            throw "Wake-word weight provenance rejected: $name"
+    }
+    foreach ($modelName in $expectedModels.Keys) {
+        $modelMetadata = $source.models.PSObject.Properties[$modelName]
+        if (@($source.models.PSObject.Properties.Name) -cnotcontains $modelName -or
+            $null -eq $modelMetadata -or
+            $modelMetadata.Value.wake_word -cne $expectedModels[$modelName] -or
+            @($modelMetadata.Value.files.PSObject.Properties).Count -ne 3) {
+            throw "Wake-word source identity rejected: $modelName"
+        }
+        $modelDirectory = Join-Path $modelRoot $modelName
+        $entries = @(Get-ChildItem -LiteralPath $modelDirectory -Force)
+        if ($entries.Count -ne 3) {
+            throw "Wake-word model must contain exactly three reviewed files: $modelName"
+        }
+        foreach ($fileName in @('_MODEL_INFO_', 'wn9_index', 'wn9_data')) {
+            $metadata = $modelMetadata.Value.files.PSObject.Properties[$fileName]
+            $file = Get-Item -LiteralPath (Join-Path $modelDirectory $fileName) -ErrorAction Stop
+            if ($null -eq $metadata -or $file.PSIsContainer -or $file.Length -ne $metadata.Value.bytes) {
+                throw "Wake-word weight identity or length rejected: $modelName/$fileName"
+            }
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+            if ($hash -cne ([string]$metadata.Value.sha256).ToUpperInvariant()) {
+                throw "Wake-word weight provenance rejected: $modelName/$fileName"
+            }
         }
     }
     return $modelRoot.Replace('\', '/')
@@ -208,8 +225,8 @@ function Assert-WakeWordFlashImages {
             throw "Packed wake-word flash image is missing: $imagePath"
         }
         $imageSize = (Get-Item -LiteralPath $imagePath).Length
-        if ($imageSize -le 0 -or $imageSize -gt 524288) {
-            throw "Packed wake-word flash image exceeds its 512 KiB partition or is empty: $imageSize bytes"
+        if ($imageSize -le 0 -or $imageSize -gt 1048576) {
+            throw "Packed wake-word flash image exceeds its 1024 KiB partition or is empty: $imageSize bytes"
         }
     }
 }

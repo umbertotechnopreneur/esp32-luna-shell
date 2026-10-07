@@ -1,7 +1,9 @@
 # Optional wake-on-word
 
 The shared Luna platform can recognize **Sophia** locally with ESP-SR 2.4.6
-and `wn9_sophia_tts_v1`. The current trial has exactly one behavioral consumer:
+and `wn9_sophia_tts_v1`. Jarvis (`wn9_jarvis_tts`) and Computer
+(`wn9_computer_tts`) are packaged but inactive; there is no user selector.
+The current trial has exactly one behavioral consumer:
 the power owner wakes a settled software standby. Active-device detections
 remain diagnostic events and do not change display policy, activity timers,
 Cody idle state or animations. Recording, transcription and host delivery
@@ -20,9 +22,9 @@ The requested voice selection is wake-on-word with local synthesis disabled.
 The wake-word defaults explicitly exclude `LUNASHELL_BUILD_ENABLE_TTS` and the
 Italian synthesized boot test; the public feature gate also rejects a TTS
 component/backend in this variant. Existing SD contents are not installed,
-rewritten or removed by selecting this firmware variant. The reviewed Sophia
+rewritten or removed by selecting this firmware variant. The reviewed
 recognition weights live in the internal model partition. The `_tts_` substring
-in their upstream model name does not enable the local speech synthesizer.
+in their upstream model names does not enable the local speech synthesizer.
 Prerecorded audio and synthesis are separate paths. The audio owner converts
 the 22.05 kHz boot chime/greeting to the fixed 16 kHz duplex transport in bounded
 chunks, preserving its source asset and duration. Speaker and AEC receive the
@@ -79,14 +81,14 @@ the audio owner when the fixed voice transport is selected.
 
 ## Model storage and identity
 
-The official, unmodified model is versioned under `assets/wake-word/models/`.
-Its source is pinned to the ESP-SR 2.4.6 source snapshot, with SHA-256 provenance
-and the original ESPRESSIF MIT License in the parent folder. The feature's
-partition table reserves 512 KiB for the internal `model` partition. It reduces
-the factory application from 14,476 KiB to 13,964 KiB and leaves the existing
-NVS, PHY and LittleFS placements unchanged. The packed image must be included
-in the authorized firmware flash; an application-only update cannot install
-the new partition contents.
+The three official, unmodified models are versioned under
+`assets/wake-word/models/`. Their source is pinned to the ESP-SR 2.4.6 source
+snapshot, with per-file SHA-256 provenance and the original ESPRESSIF MIT License
+in the parent folder. The feature's partition table reserves 1,024 KiB for the
+internal `model` partition. It reduces the factory application from 14,476 KiB
+to 13,452 KiB and leaves the existing NVS, PHY and LittleFS placements
+unchanged. The packed image must be included in the authorized firmware flash;
+an application-only update cannot install the new partition contents.
 
 The wrapper writes the checkout's absolute external-model path to a generated
 defaults overlay under `artifacts/feature-config/`, so spaces and different worktree
@@ -96,10 +98,12 @@ model selections must remain off; WebRTC NS/VAD add no model assets. Replacing
 weights requires an authorized clean feature build because the upstream
 packer tracks sdkconfig rather than every external weight file.
 
-Startup admits exactly one model with the exact name `wn9_sophia_tts_v1` and
-wake-word metadata `Sophia`. Missing/extra/incorrect models fail initialization
-and publish the original error. ESP-SR's one-based model and word indices are
-checked only at its API boundary, then mapped to `WakeWordId::Sophia`. Domain
+Startup admits exactly the three reviewed model identities and their exact
+Sophia, Jarvis and Computer wake-word metadata. Missing, extra, duplicate or
+incorrect models fail initialization and publish the error. The AFE selects
+only `wn9_sophia_tts_v1`; its second model slot stays empty. ESP-SR's one-based
+active-model and word indices are checked only at its API boundary, then mapped
+to `WakeWordId::Sophia`. Domain
 consumers never infer identity from array order. Detection events carry an
 original timestamp and a monotonically increasing sequence; a 1.5-second
 cooldown rejects repeated detections from the same utterance.
@@ -247,6 +251,12 @@ boundaries in code; no rectangular-board hardware behavior is claimed.
 
 ## Delivery and deferred validation (2026-10-04)
 
+The 2026-10-07 Jarvis/Computer extension added source assets and widened the
+model partition while keeping Sophia selected. It received static source review
+only. The three-model pack, build, flash and device startup require fresh
+authorization and evidence; earlier Sophia hardware evidence covers the former
+single-model image only.
+
 The 2026-10-05 revision in `feat/wake-on-word` tightened the single off flag,
 generator/dependency/flash admission and CPU placement, and reduced the trial
 to standby wake only. Implementation and static diff review only were performed
@@ -281,4 +291,4 @@ explicit approval after the exact commands have been announced.
 - [Pinned ESP-SR 2.4.6 AFE task-core configuration](https://github.com/espressif/esp-sr/blob/cfdbb52172d4f1b3e5f7469d6c3c6e5dd0738143/include/esp32s3/esp_afe_config.h).
 - [Espressif AFE initialization and fetch contract](https://docs.espressif.com/projects/esp-sr/en/latest/esp32s3/audio_front_end/README.html).
 - [Espressif model partition and packing workflow](https://docs.espressif.com/projects/esp-sr/en/latest/esp32s3/flash_model/README.html).
-- [Pinned ESP-SR 2.4.6 model source](https://github.com/espressif/esp-sr/tree/cfdbb52172d4f1b3e5f7469d6c3c6e5dd0738143/model/wakenet_model/wn9_sophia_tts_v1).
+- [Pinned ESP-SR 2.4.6 model source](https://github.com/espressif/esp-sr/tree/cfdbb52172d4f1b3e5f7469d6c3c6e5dd0738143/model/wakenet_model).

@@ -357,6 +357,10 @@ every open physical observation below remains open.
   then perform the specifically authorized final validation. Cody's wake-word
   lock, Debug build/flash, boot playback and one physical Sophia standby wake
   passed on 2026-10-07; see Done for the exact image and capture limitations.
+  The newly added Jarvis and Computer model assets, three-model pack, 1 MiB
+  partition and Sophia-only AFE selection have static review only. A fresh
+  authorized clean build must establish the packed image, partition layout and
+  startup behavior before any flash; physical recognition remains unverified.
   Review the sole wake-word off flag across source/dependency closure, generated
   defaults/partitions, model packing and flash inventory; verify voice CPU0 vs
   renderer CPU1. Verify external BSS PCM/audio stacks, PSRAM-only AFE buffers,

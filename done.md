@@ -10,6 +10,11 @@ flash logs were regenerated.
 
 ## Requested recognition-only voice selection — 2026-10-07
 
+- Added the pinned Espressif Jarvis and Computer WakeNet weights beside Sophia,
+  with per-file provenance, a 1 MiB model partition, exact three-model inventory
+  admission and Sophia as the sole active AFE model. No settings or user-facing
+  selector were added. Implementation and static source review only; model
+  packing, build, flash and physical behavior remain unverified for this change.
 - Explicit probing-clock preparation at `7408ca5` compiled with eight jobs and
   flashed on COM10; all four hashes verified. App 6,695,168 bytes, SHA-256
   `CDBCFC33D960A83DDA335DF619147FC5BEFF74353EDBD86EFFCB5310C02FC0BF`;

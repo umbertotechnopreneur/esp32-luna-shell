@@ -64,7 +64,17 @@ constexpr char kAfeInputFormat[] = "M";
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
 constexpr char kWakeModelName[] = "wn9_sophia_tts_v1";
-constexpr int kSoleWakeModelApiIndex = 1;
+struct ReviewedWakeModel {
+    const char *name;
+    const char *word;
+};
+constexpr ReviewedWakeModel kReviewedWakeModels[] = {
+    {kWakeModelName, "Sophia"},
+    {"wn9_jarvis_tts", "Jarvis"},
+    {"wn9_computer_tts", "Computer"},
+};
+constexpr int kReviewedWakeModelCount = 3;
+constexpr int kActiveWakeModelApiIndex = 1;
 constexpr int kSophiaWordApiIndex = 1;
 constexpr int64_t kDetectionCooldownUs = 1500000;
 srmodel_list_t *s_models;
@@ -165,7 +175,8 @@ void publish_microphones(const int16_t *samples, size_t frames, int64_t sampled_
 }
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
-// Load exactly the reviewed model; ESP-SR indices remain at this API boundary.
+// No parameters: loads the reviewed inventory while selecting only Sophia for inference.
+// Exception: Returns a missing-partition, model-load or inventory error.
 esp_err_t load_wake_model()
 {
     if (esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "model") == nullptr) {
@@ -177,22 +188,41 @@ esp_err_t load_wake_model()
         ESP_LOGE(kTag, "Wake model load failed (%s)", esp_err_to_name(ESP_FAIL));
         return ESP_FAIL;
     }
-    if (s_models->num != 1 || s_models->model_name == nullptr ||
-        s_models->model_name[0] == nullptr || std::strcmp(s_models->model_name[0], kWakeModelName) != 0) {
-        ESP_LOGE(kTag, "Wake model inventory rejected; expected only %s (%s)",
-                 kWakeModelName, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+    if (s_models->num != kReviewedWakeModelCount || s_models->model_name == nullptr) {
+        ESP_LOGE(kTag, "Wake model inventory rejected: expected %d models, found %d (%s)",
+                 kReviewedWakeModelCount, s_models->num, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
         return ESP_ERR_INVALID_RESPONSE;
     }
-    s_wake_model_name = s_models->model_name[0];
-    // Unlike the borrowed model name, ESP-SR allocates this metadata string.
-    char *words = esp_srmodel_get_wake_words(s_models, s_wake_model_name);
-    if (words == nullptr || std::strcmp(words, "Sophia") != 0) {
-        ESP_LOGE(kTag, "Wake word identity rejected: %s (%s)", words != nullptr ? words : "unavailable",
-                 esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+    // Model-list order is a storage detail; each expected identity must occur once.
+    for (const ReviewedWakeModel &expected : kReviewedWakeModels) {
+        int matches = 0;
+        char *matched_name = nullptr;
+        for (int index = 0; index < s_models->num; ++index) {
+            char *candidate = s_models->model_name[index];
+            if (candidate != nullptr && std::strcmp(candidate, expected.name) == 0) {
+                matched_name = candidate;
+                ++matches;
+            }
+        }
+        if (matches != 1) {
+            ESP_LOGE(kTag, "Wake model identity rejected: %s matches=%d (%s)",
+                     expected.name, matches, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+        // Unlike the borrowed model name, ESP-SR allocates this metadata string.
+        char *words = esp_srmodel_get_wake_words(s_models, matched_name);
+        if (words == nullptr || std::strcmp(words, expected.word) != 0) {
+            ESP_LOGE(kTag, "Wake word identity rejected: model=%s word=%s (%s)",
+                     expected.name, words != nullptr ? words : "unavailable",
+                     esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+            free(words);
+            return ESP_ERR_INVALID_RESPONSE;
+        }
         free(words);
-        return ESP_ERR_INVALID_RESPONSE;
+        if (std::strcmp(expected.name, kWakeModelName) == 0) {
+            s_wake_model_name = matched_name;
+        }
     }
-    free(words);
     return ESP_OK;
 }
 #endif
@@ -443,7 +473,7 @@ void voice_fetch_task(void *arg)
         int64_t detected_at_us = 0;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
         if (result->wakeup_state == WAKENET_DETECTED) {
-            if (result->wakenet_model_index != kSoleWakeModelApiIndex ||
+            if (result->wakenet_model_index != kActiveWakeModelApiIndex ||
                 result->wake_word_index != kSophiaWordApiIndex) {
                 ESP_LOGE(kTag, "Wake identity rejected: model=%d word=%d (%s)",
                          result->wakenet_model_index, result->wake_word_index,

@@ -1,20 +1,57 @@
 {
   "repository": "https://github.com/espressif/esp-sr",
   "commit": "cfdbb52172d4f1b3e5f7469d6c3c6e5dd0738143",
-  "model": "wn9_sophia_tts_v1",
-  "wake_word": "Sophia",
-  "files": {
-    "_MODEL_INFO_": {
-      "bytes": 170,
-      "sha256": "d50e96d85404a8b6e2b4d701e581ce2569ce35921efc21e0821db6236d92faf1"
+  "models": {
+    "wn9_sophia_tts_v1": {
+      "wake_word": "Sophia",
+      "files": {
+        "_MODEL_INFO_": {
+          "bytes": 170,
+          "sha256": "d50e96d85404a8b6e2b4d701e581ce2569ce35921efc21e0821db6236d92faf1"
+        },
+        "wn9_index": {
+          "bytes": 1200,
+          "sha256": "b463a5051d01bddc1f5723cddc8f3d5f11a6c750106694ca4aa0c8fdc235032c"
+        },
+        "wn9_data": {
+          "bytes": 289638,
+          "sha256": "6c87e5cc4d2bd95df5ff2e1658b64b3fc59e9fb162d53c582f76be5858f31eaf"
+        }
+      }
     },
-    "wn9_index": {
-      "bytes": 1200,
-      "sha256": "b463a5051d01bddc1f5723cddc8f3d5f11a6c750106694ca4aa0c8fdc235032c"
+    "wn9_jarvis_tts": {
+      "wake_word": "Jarvis",
+      "files": {
+        "_MODEL_INFO_": {
+          "bytes": 170,
+          "sha256": "ee752fe7bd3eaa78b94e723a4782c2000014508848a53e31222ebe52be2d7970"
+        },
+        "wn9_index": {
+          "bytes": 1200,
+          "sha256": "c5557ca5d1ec6943540a6abbb3ea235a693f4637369f92e873ff566b73a61cfd"
+        },
+        "wn9_data": {
+          "bytes": 289638,
+          "sha256": "221e5d90fb5ce2d14e851f4c9affc0271c5b02e55a10deb671a4243d3ccdcc3f"
+        }
+      }
     },
-    "wn9_data": {
-      "bytes": 289638,
-      "sha256": "6c87e5cc4d2bd95df5ff2e1658b64b3fc59e9fb162d53c582f76be5858f31eaf"
+    "wn9_computer_tts": {
+      "wake_word": "Computer",
+      "files": {
+        "_MODEL_INFO_": {
+          "bytes": 40,
+          "sha256": "c65dbc4e2d97369d330ab1eed3467c6036b6772b637dd98127c94418c6564e9b"
+        },
+        "wn9_index": {
+          "bytes": 1200,
+          "sha256": "c5557ca5d1ec6943540a6abbb3ea235a693f4637369f92e873ff566b73a61cfd"
+        },
+        "wn9_data": {
+          "bytes": 289638,
+          "sha256": "4d62d9e39aaa1b10195a0b7efb1f59a98bfd1aca98445e4723b66fbd8c1c9da4"
+        }
+      }
     }
   }
 }
