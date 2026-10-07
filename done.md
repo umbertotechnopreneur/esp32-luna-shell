@@ -10,6 +10,29 @@ flash logs were regenerated.
 
 ## Requested recognition-only voice selection — 2026-10-07
 
+- Explicit probing-clock preparation at `7408ca5` compiled with eight jobs and
+  flashed on COM10; all four hashes verified. App 6,695,168 bytes, SHA-256
+  `CDBCFC33D960A83DDA335DF619147FC5BEFF74353EDBD86EFFCB5310C02FC0BF`;
+  preserved matching `7408ca5.elf` SHA-256
+  `B40E4042D08C721F693EC19A435B21AF39B16EFF1BF88C9C2078AC08E76259B3`.
+  The 30-second passive capture completed without reset, spanning uptime about
+  27.168-56.650 seconds. The observed third attempt selected/calculated 400 kHz
+  and reconfigured the host clock once, instead of before every command, but
+  ACMD41 still returned `40ff8000`; no mount or write probe succeeded. The
+  capture ended before that attempt's final timeout. The previous attempt's
+  timeout was already published. Clock logs do not measure physical waveforms.
+  Evidence: `sd-probing-clock-{flash,startup}-20261007.log` in the protected
+  evidence directory. The planned reset of a working card was not performed
+  because mounting never succeeded. The device fault remains open.
+- Astra audited the original Waveshare sequence and exact IDF 6.0.2 host/protocol
+  path, then reassessed the failed corrected run. Published reset/busy reports
+  support analogies, not a proven device cause; no matching confirmed Waveshare
+  resolution was found. Debug automatic light sleep is disabled, and the SDK
+  already sends CMD0 on each attempt. Another delay, card swap or unchanged
+  reset loop lacks discriminating evidence. Further diagnosis requires observing
+  actual SD power and CLK/CMD across the reproduced working-to-reset transition.
+  Source references and limits are recorded in the storage architecture document.
+
 - Cody memory-only protocol at `b9cfcb8` compiled/flashed on COM10 with verified
   hashes: app 6,694,736 bytes; SHA-256
   `2A5D9B15F6202574A4698AA093D3D033D6502EFDDC084FA20BC0274E5A47651A`;

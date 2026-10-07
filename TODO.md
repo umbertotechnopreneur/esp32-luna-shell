@@ -5,14 +5,15 @@ Only open, actionable work belongs here. Deferred work is in
 [done.md](done.md). Authorization is governed solely by [AGENTS.md](AGENTS.md).
 The latest feature-worktree Debug Cody image at `61ab74a` (`tts-sd`) was built
 and flashed on COM10 on 2026-10-05, including Debug-only PWR gestures.
-The latest main Debug Cody image is `c3dceaf` (`wake-word`), built and flashed
+The latest main Debug Cody image is `7408ca5` (`wake-word`), built and flashed
 on COM10 on 2026-10-07 with Sophia enabled, TTS excluded and prerecorded audio
 retained. All four flash hashes were verified. Earlier runtime evidence recorded
 Sophia detection and software-standby wake; the owner confirmed speaking Sophia
-and seeing the display wake without touch on that earlier image. The latest
-240-second capture and two 90-second repeats completed boot and standby without
-a display watchdog; fresh voice/touch wake and physical image review remain
-pending. SD card-init
+and seeing the display wake without touch on `c3dceaf`. Its 240-second capture
+and two 90-second repeats completed boot and standby without a display watchdog.
+The latest 30-second passive capture verified the selected probing-clock path
+but recorded an unmounted SD with ACMD41 still busy. Fresh wake on `7408ca5`,
+longer display stability and physical image review remain pending. SD card-init
 timeout after reset remains open; storage-resume success alone does not establish
 a mounted card. VibeWare first-boot branding remains present.
 Authorized 30-second boot captures of the earlier `58757005` image complete
@@ -23,17 +24,24 @@ every open physical observation below remains open.
 
 ## SD reset and display-watchdog diagnosis
 
-- [ ] Validate explicit 400-kHz probing-clock selection before card init.
+- [ ] Resolve SD startup failure after explicit 400-kHz probing-clock selection.
   Static review of IDF 6.0.2 shows unresolved slot frequency reconfigures the
   clock before every command, re-enabling clock gating despite ACMD41's request
   for continuous clocking. The owner now selects the official probing frequency
   through the host API, preserving original errors and later runtime selection.
-  Build/flash and a targeted startup/reset comparison remain pending. No more
-  card swaps are requested. The memory-only SDIO exclusion alone was ineffective.
+  Build/COM10 flash passed at `7408ca5`. A 30-second passive capture showed only
+  one clock reconfiguration during the observed attempt, but ACMD41 stayed busy
+  and the SD remained unmounted. The capture ended before that attempt's final
+  result; a previous attempt's timeout was already published. No working-card
+  reset comparison was run because the mount precondition was absent. Astra's
+  source/research review found no evidence supporting another firmware change.
+  The next discriminating evidence is SD VDD and CLK/CMD across the known
+  working-to-reset transition. No more card swaps or unchanged reset loops are
+  requested. The memory-only SDIO exclusion alone was ineffective.
 
-- [ ] Validate the restored official Waveshare SD baseline (default host clock,
-  external pull-ups, one-bit GPIO 1/2/3) on a freshly powered card and subsequent
-  warm resets. The pinned original BSP was compared at
+- [ ] Explain the reproduced reset failure with the official Waveshare SD baseline
+  (default runtime clock, external pull-ups, one-bit GPIO 1/2/3). The pinned
+  original BSP was compared at
   `e4344e70c2fa78a13e8a06566507f1ba8af6672a`. Captured ACMD41 responses remain
   busy until card power removal; this is a pre-FAT failure, not evidence of a
   disconnected presence pin. The board has no card-detect GPIO.
@@ -44,7 +52,9 @@ every open physical observation below remains open.
   no timeout suppression is applied. Debug build/COM10 flash passed at `c3dceaf`;
   the 240-second boot/standby capture and two 90-second reset repeats recorded
   no watchdog or QSPI errors (75 successful periodic frame samples total).
-  Physical output, renewed wake and longer stability remain pending.
+  The owner subsequently confirmed Sophia wake without touch on `c3dceaf`,
+  matching UART detection/wake and completed DMA frames. Physical pixel review,
+  renewed touch wake and longer stability remain pending.
 - [ ] Physically review the CST9217 two-contact correction after flash; the
   former one-contact limit rejected a legitimate two-contact report and aborted
   startup. Original Waveshare SensorLib also exposes missing report acknowledgment
@@ -57,8 +67,8 @@ every open physical observation below remains open.
   shared 3.3-V rail cycling, retry-success substitution or watchdog suppression
   is implemented. A matching checksum-validated core identified the infinite
   SPI acquisition call, now removed from native transport. SD still never mounts
-  after warm reset with the restored original baseline; a freshly powered card
-  and subsequent warm-reset comparison remain required. Preserve Sophia wake
+  after warm reset with the restored original baseline; the remaining SD
+  comparison requires actual VDD/CLK/CMD evidence across reset. Preserve Sophia wake
   and prerecorded audio.
 
 ## Tap, manga cues and Windows fake audio

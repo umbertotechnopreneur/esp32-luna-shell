@@ -24,6 +24,25 @@ retain their original error and slot-initialization stage; ordinary staged
 cleanup remains responsible for the attempt. Runtime verification is recorded
 in the root `done.md` and open limits in `TODO.md`.
 
+The corrected device capture no longer reprograms the frequency before every
+command, but ACMD41 remains busy: this correction is insufficient to resolve
+the startup fault. A continuous-clock request log and calculated frequency do
+not establish the physical CLK waveform. Debug automatic light sleep is off;
+the current evidence does not justify a power-management change.
+
+An [ESP32-S3 reset report](https://github.com/espressif/esp-idf/issues/11438)
+describes a working card failing OCR after reset, with one-bit SDMMC and external
+pull-ups, on IDF 4.4.4. It is an analogy, not the same verified cause. A
+[first-person STM32 report](https://www.mikrocontroller.net/topic/424234#6502446)
+describes indefinite ACMD41 busy despite repeated CMD0 after an initial power-up
+sequence; waiting before the first command avoided it there. Our first attempt
+already occurs seconds into startup, so that report does not justify adding an
+arbitrary delay. No matching confirmed Waveshare resolution was found.
+The next discriminating evidence is simultaneous SD VDD and CLK/CMD observation
+across the known working-to-reset transition; unchanged reset loops or further
+card swaps do not distinguish power disturbance from actual clock loss or
+retained card state. No shared power rail is cycled by this implementation.
+
 ## Recording and retention
 
 Application startup installs the canonical hook, starts its native USB receiver,
