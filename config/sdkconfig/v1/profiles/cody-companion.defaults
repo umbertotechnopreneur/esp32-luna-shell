@@ -44,6 +44,9 @@ CONFIG_LUNASHELL_BUILD_ENABLE_RTC=y
 CONFIG_LUNASHELL_BUILD_ENABLE_GNSS=n
 # Offline diagnostics use the existing SD owner; an absent card remains optional.
 CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE=y
+# The removable slot serves memory cards, not SDIO peripherals. Keep the
+# official IDF memory-only sequence; omit unrelated CMD52 reset/CMD5 discovery.
+CONFIG_SD_ENABLE_SDIO_SUPPORT=n
 # The owned LUNASHELL directory/log filenames require FAT long-name support.
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE=n

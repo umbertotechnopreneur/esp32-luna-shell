@@ -10,6 +10,20 @@ flash logs were regenerated.
 
 ## Requested recognition-only voice selection — 2026-10-07
 
+- On `c3dceaf`, the owner confirmed renewed Sophia wake without touch; UART
+  records matching WakeNet detection, successful wake and successful subsequent
+  DMA frames. Card reinsertion restored mount attempt 5 and 49 verified writes.
+  An explicitly requested reset immediately reproduced ACMD41 busy/OCR timeout
+  before FAT mounting. Capture: `sd-working-card-reboot-20261007.log` under the
+  protected evidence directory. The following standby/alternate-card captures
+  were cancelled at the user's steering; cancellation is not a passed capture.
+- Audio silence reported by the owner matches deliberate suppression in the
+  current logs: boot quiet hours and personality `clock_policy=1`. Time service
+  uses saved `UTC0`, with valid RTC/SNTP near 04:38 UTC. Codec/PCM registration
+  succeeds. TTS exclusion did not remove the prerecorded cue registrations;
+  audible playback outside quiet hours remains unverified. No saved clock or
+  quiet-hours preference has been overwritten.
+
 - Queued-only QSPI and completed CST9217 protocol at `c3dceaf` compiled with
   eight jobs on ESP-IDF 6.0.2 and flashed on COM10; all four hashes verified.
   App: 6,697,616 bytes (`0x663290`), 53% application partition free; SHA-256

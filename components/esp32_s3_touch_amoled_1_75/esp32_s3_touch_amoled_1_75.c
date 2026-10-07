@@ -689,7 +689,14 @@ static esp_err_t bsp_sdcard_initialize_card(const sdmmc_host_t *host, sdmmc_card
     const esp_log_level_t common_level = esp_log_level_get("sdmmc_common");
     esp_log_level_set("sdmmc_cmd", ESP_LOG_VERBOSE);
     esp_log_level_set("sdmmc_common", ESP_LOG_DEBUG);
-    ESP_LOGI(TAG, "SD protocol trace begin: slot=%d runtime_max=%d kHz", host->slot, host->max_freq_khz);
+    ESP_LOGI(TAG, "SD protocol trace begin: slot=%d runtime_max=%d kHz sdio_probe=%s",
+        host->slot, host->max_freq_khz,
+#if CONFIG_SD_ENABLE_SDIO_SUPPORT
+        "enabled"
+#else
+        "disabled"
+#endif
+    );
 #endif
     const esp_err_t error = sdmmc_card_init(host, card);
 #if CONFIG_LUNASHELL_STORAGE_DEBUG_PROBE
