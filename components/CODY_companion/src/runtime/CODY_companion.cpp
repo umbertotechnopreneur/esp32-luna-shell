@@ -243,6 +243,11 @@ struct CompanionState {
     bool face_follows_body = false;
 #endif
     bool touch_pressed = false;
+    bool setup_hold_candidate = false;
+    bool setup_hold_opened = false;
+    LUNASHELL_touch_point_t setup_hold_origin{};
+    int64_t setup_hold_last_sample_us = 0;
+    uint16_t setup_hold_rotation_degrees = 0;
     bool navigation_touch_active = false;
     bool body_drag_active = false;
     LUNASHELL::CharacterTouchSnapshot body_drag{};
@@ -2188,7 +2193,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             s_state.animation_sampled_us = 0;
             s_state.onboarding_sampled_us = 0;
             s_resources.previous_frame_valid = false;
-            if (s_state.onboarding.effective_first_boot) {
+            if (s_state.onboarding.force_first_boot) {
                 s_greeting_due_us = now_us + CODY::SceneData::boot_delay_ms * 1000LL;
                 s_greeting_scheduled.store(true, std::memory_order_release);
             }
@@ -2874,7 +2879,7 @@ esp_err_t advance_boot_phase(BootPhase requested_phase, const char *operation)
     }
     s_rendered_revision.store(draw.completed_revision, std::memory_order_release);
     if (requested_phase == BootPhase::Ready && s_state.branding_complete && !s_state.deep_sleep_wake &&
-        s_state.onboarding.effective_first_boot) {
+        s_state.onboarding.force_first_boot) {
         s_greeting_due_us = esp_timer_get_time() + CODY::SceneData::boot_delay_ms * 1000LL;
         s_greeting_scheduled.store(true, std::memory_order_release);
         ESP_LOGI(kTag, "First-boot greeting scheduled %lu ms after completed ready frame",
@@ -2966,7 +2971,8 @@ esp_err_t apply_scene_requests()
             return route_lock_error;
         }
         const DisplayUnlockOnExit route_lock;
-        if (!CODY::lifecycle_is_resting(s_state.lifecycle) ||
+        if (s_state.boot_phase != BootPhase::Ready || !s_state.branding_complete ||
+            !CODY::lifecycle_is_resting(s_state.lifecycle) ||
             !LUNASHELL_display_runtime_writes_allowed()) {
             // Keep both the current route and any action-worker result intact
             // until Wake finishes. No hidden scene consumes or loses a mailbox.
@@ -3049,6 +3055,8 @@ esp_err_t apply_scene_requests()
                      s_state.scene.valid ? s_state.scene.definition->name : "idle animation");
         }
         if (route_changed) {
+            s_state.routine_scene = false;
+            s_state.routine_greeting_pending = false;
             s_state.frame_dirty.store(true, std::memory_order_release);
         }
     }
@@ -3347,6 +3355,78 @@ esp_err_t prepare_display_lifecycle(bool sleeping)
     return ESP_OK;
 }
 
+// point: Original acquired contact with its hardware-owner timestamp.
+// pressed_edge: Actual beginning of the contact, excluding wake/repeated reports.
+// eligible: True only while the visible character owns a resting, unobstructed route.
+// consumed: True after the menu opens and until this same contact actually releases.
+// Exception: Returns the original body hit-test, menu, policy or release-publication error.
+esp_err_t handle_setup_hold(const LUNASHELL_touch_point_t &point, bool pressed_edge,
+                            bool eligible, bool &consumed)
+{
+    consumed = false;
+    if (s_state.setup_hold_opened) {
+        consumed = true;
+        CODY::cancel_petting(s_state.petting);
+        if (!point.pressed) {
+            s_state.setup_hold_opened = false;
+            s_state.setup_hold_candidate = false;
+            if (s_state.body_drag_active) {
+                return publish_body_gesture(point, false); // Publish only the real release.
+            }
+        }
+        return ESP_OK;
+    }
+    if (!eligible || !point.pressed || !CODY::can_open_setup_menu()) {
+        s_state.setup_hold_candidate = false;
+        return ESP_OK;
+    }
+    if (pressed_edge) {
+        bool hit = false;
+        const esp_err_t error = CODY::hit_test_body(*s_resources.rig,
+            {static_cast<float>(point.x), static_cast<float>(point.y)}, hit);
+        if (error != ESP_OK) {
+            return error;
+        }
+        s_state.setup_hold_candidate = hit;
+        s_state.setup_hold_origin = point;
+        s_state.setup_hold_last_sample_us = point.sample_timestamp_us;
+        s_state.setup_hold_rotation_degrees = s_state.rendered_rotation_degrees;
+    }
+    if (!s_state.setup_hold_candidate) {
+        return ESP_OK;
+    }
+    const int dx = static_cast<int>(point.x) - s_state.setup_hold_origin.x;
+    const int dy = static_cast<int>(point.y) - s_state.setup_hold_origin.y;
+    const int64_t gap_us = point.sample_timestamp_us - s_state.setup_hold_last_sample_us;
+    if (dx * dx + dy * dy > 12 * 12 || gap_us < 0 || gap_us > 250000 ||
+        s_state.setup_hold_rotation_degrees != s_state.rendered_rotation_degrees) {
+        // Moving caresses/drags retain their original gesture. A discontinuity,
+        // standby or orientation change cannot accumulate a hidden long press.
+        s_state.setup_hold_candidate = false;
+        return ESP_OK;
+    }
+    s_state.setup_hold_last_sample_us = point.sample_timestamp_us;
+    if (point.sample_timestamp_us - s_state.setup_hold_origin.sample_timestamp_us < 1500000) {
+        return ESP_OK;
+    }
+    esp_err_t error = CODY::open_setup_menu(s_state.scene);
+    if (error == ESP_OK) {
+        error = apply_scene_standby_policy(s_state.scene);
+    }
+    if (error != ESP_OK) {
+        return error;
+    }
+    s_state.setup_hold_opened = true;
+    s_state.setup_hold_candidate = false;
+    s_state.routine_scene = false;
+    s_state.routine_greeting_pending = false;
+    cancel_transient_affection();
+    s_state.frame_dirty.store(true, std::memory_order_release);
+    consumed = true;
+    ESP_LOGI(kTag, "Setup menu opened by stationary character hold (1500 ms)");
+    return ESP_OK;
+}
+
 // point: Successfully acquired valid hardware sample, handled under the display lock.
 // Exception: Returns the real route, gesture, snapshot or rendering-state error.
 esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
@@ -3403,6 +3483,17 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         s_state.body_drag_active = false;
         CODY::cancel_petting(s_state.petting);
         return ESP_OK;
+    }
+    bool setup_consumed = false;
+    const bool setup_eligible = !debug_control_contact && !s_state.resume_scene_pending &&
+        s_state.rig_visible && s_resources.previous_frame_valid && s_cache_was_rig &&
+        s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed() &&
+        CODY::lifecycle_is_resting(s_state.lifecycle) &&
+        (!s_state.scene.valid || s_state.scene.intro_phase == CODY::SceneIntroPhase::Complete) &&
+        classify_rig_touch(point) == TouchAction::None;
+    const esp_err_t setup_error = handle_setup_hold(point, pressed_edge, setup_eligible, setup_consumed);
+    if (setup_error != ESP_OK || setup_consumed) {
+        return setup_error;
     }
     if (!debug_control_contact && !s_state.resume_scene_pending && s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed() &&
         CODY::lifecycle_is_resting(s_state.lifecycle)) {
@@ -3974,11 +4065,13 @@ extern "C" esp_err_t CODY_companion_start(void)
         return fail_consumer("Shutter audio preparation", capture_sound_error, false);
     }
 #endif
-    if (s_state.onboarding.effective_first_boot) {
-        const esp_err_t action_worker_error = CODY::onboarding_service_init();
-        if (action_worker_error != ESP_OK) {
-            return fail_consumer("Onboarding action worker", action_worker_error, false);
-        }
+    const esp_err_t action_worker_error = CODY::onboarding_service_init();
+    if (action_worker_error != ESP_OK) {
+        return fail_consumer("Onboarding action worker", action_worker_error, false);
+    }
+    if (!s_state.onboarding.force_first_boot || esp_reset_reason() == ESP_RST_DEEPSLEEP) {
+        CODY::request_saved_setup_startup();
+        s_state.routine_greeting_pending = false;
     }
     s_state.response = CODY::make_response_state(CODY::Data::response);
     s_state.response.idle_random_state = esp_random() | 1U;

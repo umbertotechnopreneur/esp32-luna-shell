@@ -1,5 +1,19 @@
 # Active work
 
+## Cody startup and setup access - 2026-10-09
+
+- [ ] After fresh command-specific authorization, validate missing Wi-Fi profile,
+  saved-profile reconnect/DHCP wait, invalid/stale snapshot, unpaired Yes/No,
+  paired reboot discovery and authenticated READY loss/recovery. Confirm No/Later
+  performs no NVS write or new CCP request and offers the choice on the next boot.
+- [ ] Validate first setup, forced-development replay, ordinary standby and actual
+  deep-sleep admission; verify no clock routine displaces a setup route.
+- [ ] Physically review the 1500-ms character hold, 12-pixel motion cancellation,
+  250-ms sample-gap cancellation, cardinal rotation, real release publication,
+  busy-route exclusion and menu Back/Connect Codex/Network setup. Check the two
+  independent capsules and the separate left Back inside the circular chords.
+- [ ] Firmware/simulator/check execution remains unapproved for this change.
+
 Only open, actionable work belongs here. Deferred work is in
 [planned-todo.md](planned-todo.md); completed implementation/evidence is in
 [done.md](done.md). Authorization is governed solely by [AGENTS.md](AGENTS.md).

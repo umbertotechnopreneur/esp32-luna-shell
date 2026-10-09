@@ -44,6 +44,9 @@ enum class AtlasScreenId : uint16_t {
     Idle16 = 16,
     Settings36 = 36,
     PairingDebug39 = 39,
+    CodexChoice40 = 40,
+    SetupMenu41 = 41,
+    NetworkWait42 = 42,
     Sleep35A = 350,
     Wake35B = 351,
 };

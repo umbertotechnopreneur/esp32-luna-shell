@@ -11,6 +11,7 @@ enum class SceneId : uint16_t {
     ScanToPair = 4, Pairing = 5, PairingFailed = 6, Online = 7, CodyLook = 8,
     DebugText = 9, MakeItYours = 10, Settings = 11, ConnectCodex = 12,
     SetupComplete = 13, LookingForPc = 14, Connected = 15,
+    CodexChoice = 16, SetupMenu = 17, NetworkWait = 18,
 };
 enum class SceneElementId : uint8_t { Cloud, Title, Content };
 enum class SceneIntroPhase : uint8_t { BitmapFadeOut, CloudFadeIn, Complete };

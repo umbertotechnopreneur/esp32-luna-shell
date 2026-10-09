@@ -217,8 +217,10 @@ to the shared selector 11. Their identities remain stable so later Settings host
 can reuse 36 and 11 without duplicating preference or look state.
 
 `CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX` is an explicit boolean. The Cody profile and
-Kconfig default currently set it to `y`, so Done from 11 enters screen 12; `n`
-skips to 13. With the gate enabled, screen 12 starts a five-minute CCP1 pairing
+Kconfig default currently set it to `y`, so Done from 11 evaluates the saved link
+and offers the explicit Yes/No choice on 40 when unpaired; `n` skips to 13.
+Yes enters 12; No returns to native Idle without an NVS write or CCP request.
+With the gate enabled, screen 12 starts a five-minute CCP1 pairing
 window and displays six characters from
 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`. The code never enters the canonical snapshot,
 HTTP, logs or a datagram. There is no Done button. Cody first persists the link
@@ -261,6 +263,54 @@ The future bidirectional context/status/message transport remains a separate
 product and security boundary.
 
 ## Input and public HTTP boundary
+
+### Startup admission and reversible setup - 2026-10-09
+
+The initial analysis omitted returning devices with Wi-Fi provisioned but no
+Codex association. The action worker now exists on every Cody startup. After the
+completed branding/character sequence (or actual deep-sleep Wake), one canonical
+connectivity observation selects the route, independently of `cody_firstboot`:
+
+- A valid observation with genuinely absent saved Wi-Fi credentials enters 04
+  and the existing 05-09 provisioning journey. A read failure is never absence.
+- Saved credentials without association/nonempty DHCP IP enter 42, No connection.
+  The Wi-Fi owner retains them and reconnects; Network setup explicitly reopens
+  04-09, while Later leaves Idle for this session. Invalid/stale observations show
+  UNAVAILABLE, keep the real canonical error and permit the same explicit choices.
+- Healthy Wi-Fi/IP with no retained `ccp_pairing` record enters 40, Connect Codex?
+  Yes admits 12. No retires the view without settings or network actions; there is
+  no persisted refusal, so a later boot offers the choice again.
+- A valid retained record adopts its current attempt and searches on 14. Only an
+  authenticated READY enters 15. Persisted identity does not certify current PC
+  presence. CRC/type/read failures remain errors, never unpaired defaults.
+
+This requires local Wi-Fi/IP, not a public Internet probe. Screen 09's online
+claim means LAN connectivity. `CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT=y` retains
+the deliberate development replay; the normal profile uses `n`. Ordinary standby
+retains its route and does not repeat startup admission. No new redundant paired
+boolean is persisted; the validated `ccp_pairing` record is authoritative.
+
+A stationary 1500-ms hold on the visible character opens 41, Setup, from stable
+Idle, PC-search/connected or terminal CCP-error routes. Motion beyond 12 pixels,
+a real sample gap over 250 ms, rotation or lifecycle interruption cancels the
+candidate. Busy work and live provisioning are excluded. The opening contact
+cannot activate a menu choice and its real release retains the acquisition
+timestamp. Connect Codex explicitly opens a fresh display-code attempt; Network
+setup reopens 04-09. Left Back returns to Idle. Opening/dismissing the menu clears
+no saved credentials, skin, pairing or first-boot key. Re-pairing replaces the
+device's association only after the existing successful handshake/persistence.
+
+PWR/BOOT retain their platform policy. PWR single toggles standby/wake except
+active Debug screenshot capture (enabled by default). PWR long release requests
+standby; Debug double within 500 ms or a continuous three-second PWR hold restarts.
+BOOT short restores a dim/sleeping panel first or toggles fullscreen/status arcs;
+BOOT held three seconds restarts only in Debug. These restart paths preserve NVS
+and logs. No button or new menu action implements factory erasure. A true factory
+reset still requires a separate explicit reset/erase operation and is outside
+this reversible setup change.
+
+Implementation and static integration review only. No firmware tests, scans,
+configure/build/size, simulator launch, physical input, flash or erase ran.
 
 Draw/hit-test geometry uses the shared 466×466 circle and 320×320 safe square.
 Released horizontal swipes inside the safe square invoke the same typed actions:

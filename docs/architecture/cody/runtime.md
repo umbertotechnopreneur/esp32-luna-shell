@@ -28,8 +28,10 @@ and ordinary standby wake keep their existing lifecycle and omit the logo.
 Effective first setup enters Hello 04 with Happy and `Hi, I'm Cody!` at
 `(233,225,130)`. Its 13 characters use 70 ms each; after the complete text has
 actually retired to the panel it remains readable for one active second before
-05. There is no second bitmap intro. Otherwise the runtime proceeds to idle and
-the applicable [clock routine](clock.md), not the network introduction.
+05. There is no second bitmap intro. Normal startup now selects network setup,
+the optional Codex choice (40), reconnect waiting (42), or authenticated PC search
+from the canonical saved-profile/link state; see [onboarding](onboarding.md).
+Only explicit development force-first-boot replays 04 regardless of that state.
 Returning devices with validated first-boot false receive one four-second
 random Affection or Joy request on entering Idle, using the existing icon and
 completed-frame SFX owner. Urgent symbols and real interactions retain priority;
@@ -78,8 +80,9 @@ retained route, reconcile the canonical pairing/Wi-Fi state. A BLE session close
 while asleep must not resurrect its old QR. Rebase the IMU response baseline.
 
 Cold boot/reset still uses normal startup and first-boot policy. Actual deep sleep
-resets RAM and starts Wake 35B → Idle 16 rather than the cold-boot introduction;
-there is no persisted route-resume contract. The power implementation and
+resets RAM and starts Wake 35B rather than the cold-boot introduction, then
+re-evaluates the same saved network/link admission. Ordinary standby resumes its
+retained route; there is no persisted route-resume contract. The power implementation and
 profile-specific silicon-sleep policy remain in
 [low-power management](../low-power-management.md) and
 [release deep sleep](../release-deep-sleep.md).

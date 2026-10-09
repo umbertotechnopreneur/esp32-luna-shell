@@ -8,6 +8,23 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## Cody startup admission and reversible setup implementation - 2026-10-09
+
+- Closed the original analysis gap: `cody_firstboot=false` no longer skips an
+  absent Codex association. Normal startup uses canonical Wi-Fi/IP and the valid
+  retained `ccp_pairing` record, with no redundant paired flag or Internet probe.
+- Added stable scenes/screens 40 (Connect Codex? Yes/No), 41 (Setup menu) and 42
+  (network wait). No/Later leaves native Idle without persistence/backend action;
+  saved pairing adopts its exact attempt and requires authenticated rediscovery.
+- Added a 1500-ms stationary character hold with movement, sample-gap, rotation,
+  lifecycle and busy-route gates. Setup reentry preserves saved state. PWR/BOOT
+  keep their original standby/capture/restart policy; no factory erase was added.
+- Regenerated scene definitions through the public generator while retaining
+  committed ASCII fonts. Static review covered mailbox/attempt ownership,
+  typewriter updates for both choices, startup/standby and settings boundaries.
+  No tests/scans, firmware build/size/configure, simulator or device operation ran.
+  Required runtime/physical verification remains in TODO.md.
+
 ## Cody branch starting points and onboarding source review - 2026-10-09
 
 - Local and remote tag listings were empty. Created annotated local tags

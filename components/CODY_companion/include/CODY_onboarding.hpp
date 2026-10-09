@@ -10,6 +10,16 @@ esp_err_t onboarding_service_init();
 // No parameters: bind the existing Hello scene to the first-setup journey.
 void begin_onboarding();
 
+// No parameters: evaluate saved setup after the existing startup sequence completes.
+void request_saved_setup_startup();
+
+// No parameters: only stable routes without pending work admit the setup gesture.
+bool can_open_setup_menu();
+
+// scene: Display-worker-owned frame receiving the reversible setup menu.
+// Exception: Returns the original scene/content preparation error.
+esp_err_t open_setup_menu(SceneFrame &scene);
+
 // No parameters: retire route identities and wipe the displayed session QR.
 void reset_onboarding();
 

@@ -90,7 +90,7 @@ retains the current scene; a deep-sleep reset does not retain RAM route state.
 See the Cody guides for exact timings, audio policy and backend success gates.
 
 Continued setup currently follows 09 Online -> 10 Make it yours -> 36 Settings
--> 11 skin selection -> 12 Codex pairing -> 13 setup confirmed -> 16 Idle for
+  -> 11 skin selection -> 40 optional Codex choice -> 12 Codex pairing -> 13 setup confirmed -> 16 Idle for
 ten active seconds -> 14 paired-PC search -> 15 CCP ready. Screen 10 lists
 preference categories; interactive preference editing remains deferred.
 Screen 11 already selects and persists a named skin, rather than a flat color.

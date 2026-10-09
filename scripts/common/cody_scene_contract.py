@@ -16,6 +16,8 @@ SCENE_IDENTITIES = {
     "make-it-yours": (10, "MakeItYours"), "settings": (11, "Settings"),
     "connect-codex": (12, "ConnectCodex"), "setup-complete": (13, "SetupComplete"),
     "looking-for-pc": (14, "LookingForPc"), "connected": (15, "Connected"),
+    "codex-choice": (16, "CodexChoice"), "setup-menu": (17, "SetupMenu"),
+    "network-wait": (18, "NetworkWait"),
 }
 
 

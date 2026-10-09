@@ -48,6 +48,9 @@ constexpr AtlasScreenDefinition kAtlasScreens[] = {
     {AtlasScreenId::Sleep35A, "35A", "Sleep", ExpressionId::Sleeping},
     {AtlasScreenId::Wake35B, "35B", "Wake", ExpressionId::Drowsy},
     {AtlasScreenId::Settings36, "36", "Settings", ExpressionId::Calm, SceneId::Settings},
+    {AtlasScreenId::CodexChoice40, "40", "Connect Codex?", ExpressionId::Calm, SceneId::CodexChoice},
+    {AtlasScreenId::SetupMenu41, "41", "Setup", ExpressionId::Calm, SceneId::SetupMenu},
+    {AtlasScreenId::NetworkWait42, "42", "No connection", ExpressionId::Afraid, SceneId::NetworkWait},
 #if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
     {AtlasScreenId::PairingDebug39, "39", "Pairing debug", ExpressionId::Calm, SceneId::DebugText},
 #endif
