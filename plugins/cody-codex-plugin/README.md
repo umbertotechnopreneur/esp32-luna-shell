@@ -100,3 +100,28 @@ state or contact a device. It has not been executed for this revision.
 Real plugin installation, lifetime across chats, private firewall behavior,
 multi-adapter broadcast, display-code pairing and reconnection still require
 explicitly authorized end-to-end observation.
+# CCP 0.3 chat activity milestone
+
+The MCP entrypoint now attaches to a single hidden, on-demand Windows broker.
+The broker owns UDP 42118; MCP transports renew independent leases on the
+DPAPI-authenticated loopback control port 42119. Closing one chat does not stop
+the others. The broker exits after 60 seconds without a live transport or hook.
+The existing protected pairing file and PC identity are preserved.
+
+Review and trust the bundled `hooks/hooks.json` in Codex before using activity.
+Install/enable alone does not trust hooks. A new prompt or session start registers
+the chat; `ccp_list_sessions` lists observed identities, and
+`ccp_select_session(device_id, session_id, project)` selects the user's exact chat.
+`project` is an explicit 1-24 character ASCII display label. No automatic first-chat
+selection, transcript reading, prompt storage or model-authored activity is used.
+Selection is volatile and must be repeated after a broker restart.
+
+Hooks send lifecycle metadata only. Working/editing/running observations expire
+after 120 seconds without a new event, becoming unavailable rather than remaining
+apparently current. A Stop event means response ready, never task success.
+`ccp_clear_session` removes the selection while retaining pairing.
+
+New firmware requests the authenticated activity capability in FIND; the broker
+returns nonce-bound ACTIVITY snapshots alongside READY. Selection tool success
+means accepted locally, not proof that the physical display has updated.
+Native presentation and physical verification are tracked in the root TODO.

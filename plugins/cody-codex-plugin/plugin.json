@@ -1,13 +1,14 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "cody-codex-plugin",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "CCP: discover and pair Cody on the local network from Codex.",
   "author": {
     "name": "Umberto Giacobbi"
   },
   "extensions": {
     "com.openai": {
+      "hooks": "./hooks/hooks.json",
       "interface": {
         "displayName": "CCP - Cody's Codex Plugin",
         "shortDescription": "Pair Cody with Codex on the local network.",

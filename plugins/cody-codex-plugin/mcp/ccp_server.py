@@ -20,13 +20,15 @@ import threading
 import time
 from typing import Any
 
+from ccp_activity import ActivityStore
+
 
 PROTOCOL = "CCP1"
 DEVICE_PORT = 42117
 PLUGIN_PORT = 42118
 MAX_DATAGRAM_BYTES = 512
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.2.0"
+SERVER_VERSION = "0.3.0"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CODE_PATTERN = re.compile(r"^[A-HJ-NP-Z2-9]{6}$")
 HEX_PATTERNS = {
@@ -432,8 +434,10 @@ def open_companion_listener() -> socket.socket:
 class CompanionResponder:
     # state: Persistent PC/device relationships shared with pairing tool calls.
     # listener: Exclusively bound socket transferred by the service after state loads.
-    def __init__(self, state: StateStore, listener: socket.socket) -> None:
+    # activity: Volatile explicit chat selections owned by this broker.
+    def __init__(self, state: StateStore, listener: socket.socket, activity: ActivityStore) -> None:
         self._state = state
+        self._activity = activity
         self._stop = threading.Event()
         self._socket = listener
         self._receive_error: OSError | None = None
@@ -483,8 +487,13 @@ class CompanionResponder:
     # Raises ValueError, RuntimeError, or OSError for rejected identity, proof, state, or send failures.
     def _handle_find(self, payload: bytes, source: tuple[str, int]) -> None:
         kind, fields = parse_datagram(payload)
-        if kind != "FIND" or set(fields) != {"device", "pc", "nonce", "proof"}:
+        if kind != "FIND":
             return
+        with_activity = set(fields) == {"device", "pc", "nonce", "activity", "proof"}
+        if not with_activity and set(fields) != {"device", "pc", "nonce", "proof"}:
+            raise ValueError("CCP FIND has unexpected or missing fields")
+        if with_activity and fields["activity"] != "1":
+            raise ValueError("Unsupported CCP activity capability")
         for name in ("device", "pc", "nonce", "proof"):
             if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
                 raise ValueError(f"CCP FIND field {name!r} is malformed")
@@ -494,7 +503,8 @@ class CompanionResponder:
         if link_key is None:
             return
         expected = make_proof(
-            link_key, "find", fields["device"], fields["pc"], fields["nonce"]
+            link_key, "find-activity" if with_activity else "find",
+            fields["device"], fields["pc"], fields["nonce"]
         )
         if not hmac.compare_digest(expected, fields["proof"]):
             raise ValueError("CCP FIND proof does not match the retained identity")
@@ -512,6 +522,16 @@ class CompanionResponder:
         )
         self._socket.sendto(response, source)
         self._state.mark_seen(fields["device"], source[0])
+        if with_activity:
+            activity = self._activity.snapshot(fields["device"])
+            values = [fields["device"], fields["pc"], fields["nonce"],
+                      activity["chat"], activity["revision"], activity["phase"],
+                      activity["project"] or "-"]
+            activity_proof = make_proof(link_key, "activity", *values)
+            payload = encode_datagram("ACTIVITY", list(zip(
+                ("device", "pc", "nonce", "chat", "revision", "phase", "project"), values
+            )) + [("proof", activity_proof)])
+            self._socket.sendto(payload, source)
 
 
 class CcpService:
@@ -525,7 +545,8 @@ class CcpService:
         listener = open_companion_listener()
         try:
             self.state = StateStore()
-            self.responder = CompanionResponder(self.state, listener)
+            self.activity = ActivityStore()
+            self.responder = CompanionResponder(self.state, listener, self.activity)
             self.responder.start()
         except BaseException:
             try:
@@ -828,9 +849,29 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
             raise ValueError("Connection status does not accept arguments")
         devices = service.state.public_status()
         return tool_result(
-            {"pc_id": service.state.pc_id, "devices": devices, "count": len(devices)},
+            {"pc_id": service.state.pc_id, "devices": devices, "count": len(devices),
+             "activity": {item["device_id"]: service.activity.snapshot(item["device_id"])
+                          for item in devices}},
             f"CCP retains {len(devices)} Cody pairing record(s).",
         )
+    if name == "ccp_list_sessions":
+        if arguments:
+            raise ValueError("Session listing does not accept arguments")
+        sessions = service.activity.list_sessions()
+        return tool_result({"sessions": sessions}, f"Observed {len(sessions)} chat(s) through Codex hooks.")
+    if name in {"ccp_select_session", "ccp_clear_session"}:
+        required = {"device_id", "session_id", "project"} if name == "ccp_select_session" else {"device_id"}
+        if set(arguments) != required or any(not isinstance(value, str) for value in arguments.values()):
+            raise ValueError("Chat selection arguments do not match the declared schema")
+        device_id = arguments["device_id"]
+        if not any(item["device_id"] == device_id for item in service.state.public_status()):
+            raise ValueError("Cody must already be paired before selecting a chat")
+        if name == "ccp_select_session":
+            service.activity.bind(device_id, arguments["session_id"], arguments["project"])
+        else:
+            service.activity.unbind(device_id)
+        return tool_result({"selected_locally": name == "ccp_select_session", "device_id": device_id},
+                           "CCP selection updated; display delivery awaits Cody's next authenticated poll.")
     raise ValueError(f"Unknown CCP tool: {name}")
 
 
@@ -951,7 +992,27 @@ def tool_catalog() -> list[dict[str, Any]]:
                 "openWorldHint": False,
             },
         },
+    ] + activity_tool_catalog()
+
+
+# No parameters: exposes explicit selection without any model-generated activity setter.
+def activity_tool_catalog() -> list[dict[str, Any]]:
+    device = {"type": "string", "pattern": "^[0-9a-f]{12}$"}
+    definitions = [
+        ("ccp_list_sessions", "List chats observed by trusted Codex hooks; no transcript contents.", {}),
+        ("ccp_select_session", "Follow the exact chat explicitly chosen by the user on one paired Cody.",
+         {"device_id": device, "session_id": {"type": "string", "maxLength": 128},
+          "project": {"type": "string", "minLength": 1, "maxLength": 24,
+                      "description": "User-facing printable ASCII project label; not chat identity."}}),
+        ("ccp_clear_session", "Stop following a chat on the selected Cody; retain its pairing.",
+         {"device_id": device}),
     ]
+    return [{"name": name, "description": description,
+             "inputSchema": {"type": "object", "properties": properties,
+                             "required": list(properties), "additionalProperties": False},
+             "annotations": {"readOnlyHint": name == "ccp_list_sessions",
+                             "destructiveHint": False, "openWorldHint": False}}
+            for name, description, properties in definitions]
 
 
 # response: JSON-RPC response written as exactly one stdout line.
@@ -960,17 +1021,18 @@ def write_response(response: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
-# No parameters: runs the MCP JSONL loop while the local responder remains active.
-# Raises RuntimeError or OSError when CCP cannot initialize its protected state or UDP listener.
+# No parameters: attaches this MCP transport to the single local background broker.
+# Raises RuntimeError or OSError when the protected broker cannot be reached.
 def run_stdio() -> int:
-    service = CcpService()
+    from ccp_runtime import BrokerClient
+    client = BrokerClient()
     try:
         for line in sys.stdin:
             try:
                 request = json.loads(line)
                 if not isinstance(request, dict):
                     raise ValueError("MCP request must be a JSON object")
-                response = handle_request(request, service)
+                response = client.request("mcp", request)
             except (json.JSONDecodeError, ValueError) as error:
                 response = {
                     "jsonrpc": "2.0",
@@ -980,23 +1042,28 @@ def run_stdio() -> int:
             if response is not None:
                 write_response(response)
     finally:
-        service.close()
+        client.close()
     return 0
 
 
 # argv: Optional explicit command-line values used by packaging or diagnostics.
+# Raises OSError, RuntimeError or ValueError when the requested runtime operation fails.
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="CCP - Cody's Codex Plugin MCP server")
-    parser.add_argument("--stdio", action="store_true", help="run the MCP STDIO transport")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--stdio", action="store_true", help="run the MCP STDIO transport")
+    mode.add_argument("--broker", action="store_true", help="own the local CCP runtime")
+    mode.add_argument("--hook", action="store_true", help="ingest one trusted Codex hook from stdin")
     arguments = parser.parse_args(argv)
-    if not arguments.stdio:
-        parser.error("--stdio is required")
-    return run_stdio()
+    if arguments.stdio:
+        return run_stdio()
+    from ccp_runtime import run_broker, run_hook
+    return run_broker() if arguments.broker else run_hook()
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, RuntimeError) as error:
+    except (OSError, RuntimeError, ValueError) as error:
         print(f"CCP startup failed: {error}", file=sys.stderr, flush=True)
         raise SystemExit(1) from error

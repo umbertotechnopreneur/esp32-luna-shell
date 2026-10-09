@@ -135,7 +135,7 @@ class CcpContractTests(unittest.TestCase):
         state.pc_id = "a" * 32
         link_key = bytes(range(32))
         state.link_key.return_value = link_key
-        responder = ccp.CompanionResponder(state, Mock())
+        responder = ccp.CompanionResponder(state, Mock(), ccp.ActivityStore())
         device_id = "abcdef012345"
         nonce = "b" * 32
         fields = [("device", device_id), ("pc", state.pc_id), ("nonce", nonce)]

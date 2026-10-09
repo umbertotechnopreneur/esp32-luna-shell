@@ -1,0 +1,92 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "timeout": 8,
+            "command": "python -B -c \"import os,runpy,sys; p=os.path.join(os.environ['PLUGIN_ROOT'],'mcp'); sys.path.insert(0,p); runpy.run_path(os.path.join(p,'ccp_server.py'),run_name='__main__')\" --hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "timeout": 8,
+            "command": "python -B -c \"import os,runpy,sys; p=os.path.join(os.environ['PLUGIN_ROOT'],'mcp'); sys.path.insert(0,p); runpy.run_path(os.path.join(p,'ccp_server.py'),run_name='__main__')\" --hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "timeout": 8,
+            "command": "python -B -c \"import os,runpy,sys; p=os.path.join(os.environ['PLUGIN_ROOT'],'mcp'); sys.path.insert(0,p); runpy.run_path(os.path.join(p,'ccp_server.py'),run_name='__main__')\" --hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "timeout": 8,
+            "command": "python -B -c \"import os,runpy,sys; p=os.path.join(os.environ['PLUGIN_ROOT'],'mcp'); sys.path.insert(0,p); runpy.run_path(os.path.join(p,'ccp_server.py'),run_name='__main__')\" --hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "timeout": 8,
+            "command": "python -B -c \"import os,runpy,sys; p=os.path.join(os.environ['PLUGIN_ROOT'],'mcp'); sys.path.insert(0,p); runpy.run_path(os.path.join(p,'ccp_server.py'),run_name='__main__')\" --hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "timeout": 8,
+            "command": "python -B -c \"import os,runpy,sys; p=os.path.join(os.environ['PLUGIN_ROOT'],'mcp'); sys.path.insert(0,p); runpy.run_path(os.path.join(p,'ccp_server.py'),run_name='__main__')\" --hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "timeout": 3,
+            "command": "python -B -c \"import os,runpy,sys; p=os.path.join(os.environ['PLUGIN_ROOT'],'mcp'); sys.path.insert(0,p); runpy.run_path(os.path.join(p,'ccp_server.py'),run_name='__main__')\" --hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "timeout": 8,
+            "command": "python -B -c \"import os,runpy,sys; p=os.path.join(os.environ['PLUGIN_ROOT'],'mcp'); sys.path.insert(0,p); runpy.run_path(os.path.join(p,'ccp_server.py'),run_name='__main__')\" --hook",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}
