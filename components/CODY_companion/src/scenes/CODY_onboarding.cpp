@@ -193,6 +193,7 @@ int64_t s_last_codex_change_us = -1;
 int64_t s_codex_idle_started_at_us = -1;
 bool s_codex_owned = false;
 bool s_codex_error_visible = false;
+bool s_codex_terminal_error = false;
 esp_err_t s_codex_visible_error = ESP_OK;
 char s_codex_code[7]{};
 esp_err_t s_visible_error = ESP_OK;
@@ -1282,6 +1283,7 @@ esp_err_t begin_codex_pairing(SceneFrame &scene)
         );
     }
     s_codex_error_visible = false;
+    s_codex_terminal_error = false;
     wipe(s_codex_code, sizeof(s_codex_code));
     error = enter_route(Route::ConnectCodex12, scene);
     if (error == ESP_OK) {
@@ -1575,6 +1577,7 @@ void reset_onboarding()
     s_codex_idle_started_at_us = -1;
     s_codex_owned = false;
     s_codex_error_visible = false;
+    s_codex_terminal_error = false;
     s_codex_visible_error = ESP_OK;
     wipe(s_codex_code, sizeof(s_codex_code));
     s_hello_completed_at_us = -1;
@@ -1611,7 +1614,7 @@ bool can_open_setup_menu()
         !s_work_busy.load(std::memory_order_acquire) && !s_pairing_owned &&
         (s_route == Route::None || s_route == Route::Idle16 ||
          s_route == Route::LookingForPc14 || s_route == Route::Connected15 ||
-         (s_route == Route::ConnectCodex12 && s_codex_error_visible));
+         (s_route == Route::ConnectCodex12 && s_codex_error_visible && s_codex_terminal_error));
 }
 
 // scene: Stable frame whose previous journey has no pending UI-owned work.
@@ -1898,6 +1901,11 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
     }
     const auto &pairing = observation.radios.pairing;
     const auto &codex_link = observation.radios.codex_link;
+    // A local code-copy/presentation failure can occur while backend commissioning
+    // is still live. Only an observed terminal owner state admits error-page reentry.
+    s_codex_terminal_error = codex_link.data_valid && !codex_link.data_stale &&
+        !codex_link.command_pending && !codex_link.pairing_window_active &&
+        (codex_link.state == CodexState::Failed || codex_link.state == CodexState::TimedOut);
     error = observe_pairing_progress(observation, inactivity_active_time_us);
     if (error != ESP_OK) {
         wipe(&result, sizeof(result));

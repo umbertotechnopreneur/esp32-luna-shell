@@ -33,6 +33,14 @@ To install on the selected Windows PC:
    supply the code currently shown on physical screen 12 to pair the device.
 4. Use the connection-status tool for authenticated presence after pairing.
 
+Cody now offers **Connect Codex?** on startup when local Wi-Fi/IP is ready but
+the device has no retained pairing. Choose **Yes** to display screen 12's code;
+**No** returns to Idle without saving a refusal or starting CCP. To reopen setup,
+hold the visible character still for 1.5 seconds and choose **Connect Codex** or
+**Network setup**. PWR/BOOT restart gestures preserve the saved pairing; they do
+not erase or reset it. An already paired Cody searches for its saved PC at boot
+and shows screen 15 only after an authenticated READY response.
+
 This is the repository-local marketplace workflow described in
 [official plugin packaging documentation](https://developers.openai.com/plugins/build/plugins).
 If the source needs explicit registration, `codex plugin marketplace add .`

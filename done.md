@@ -10,6 +10,13 @@ flash logs were regenerated.
 
 ## Cody startup admission and reversible setup implementation - 2026-10-09
 
+- Revised all five requested repository PDFs with the startup/setup correction
+  and a final dated Errata and corrections page explicitly naming the original
+  analysis gap. Preserved previous pages/errata and added installation correction
+  to the A5 quick start. Page totals: Navigation 29, Planning 29, Quick Start 6,
+  CCP Service 13, Codex Connection 17. All 16 added pages were rendered and
+  visually reviewed; originals and render output remain under artifacts/docs.
+
 - Closed the original analysis gap: `cody_firstboot=false` no longer skips an
   absent Codex association. Normal startup uses canonical Wi-Fi/IP and the valid
   retained `ccp_pairing` record, with no redundant paired flag or Internet probe.
