@@ -19,7 +19,14 @@ flash logs were regenerated.
   suggestion is an optical indication: card icons move down ten pixels, ordinary
   capsule icons six and compact/Options icons four. Two-line captions move down four pixels to
   preserve separation. Compact footer icons remain inside y=[390,434).
-  Static source review only so far; build/install and physical rendering pending.
+  Static source review completed before the authorized installation command:
+  `scripts/device.ps1 flash -Profile cody-companion -Feature wake-word -BuildMode
+  Debug -Jobs 8 -Port COM10`. Shared transient cleanup ran first. Build and flash
+  completed successfully at `004d44d6`, version `cody-12-g004d44d6`, with four
+  written-image hashes verified and final RTS reset. Application size reported by
+  the flash build is 6,717,760 bytes. Evidence: `artifacts/logs/flash.log`.
+  Sophia and prerecorded audio retained. No tests, simulator, standalone size
+  report or post-install serial capture were run; physical appearance is pending.
 
 - Completed both requested 90-second captures on COM10: passive current-state
   `artifacts/logs/cody-ccp-freeze.txt` and explicitly authorized reset/reproduction

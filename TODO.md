@@ -2,14 +2,15 @@
 
 ## Cody startup and setup access - 2026-10-09
 
-Latest installed Cody image: `010f76e0`, `cody-9-g010f76e0`, Debug wake-word/Sophia,
-eight-job build and COM10 flash successful. Approved UI and runtime touch isolation
-are installed; corrected physical behavior remains unobserved.
+Latest installed Cody image: `004d44d6`, `cody-12-g004d44d6`, Debug wake-word/Sophia,
+eight-job build and COM10 flash successful. Approved UI, runtime touch isolation
+and the antialiased/lower-icon refinement are installed; physical behavior and
+the new visual appearance remain unobserved.
 
 - [ ] Review the requested antialiased borders/icons and optically lower action
   icons on the display, including two-line card captions and compact QR/skin
-  footers. Source changes and static integration are complete; build/installation
-  and physical appearance for this refinement are not yet recorded.
+  footers. Source integration, eight-job build and COM10 installation succeeded;
+  physical appearance remains unobserved.
 
 - [ ] Resolve the reported Connect Codex -> Let's pair / Show QR transition.
   The initial passive capture lacked the press. A subsequent explicitly authorized
