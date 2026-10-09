@@ -1,0 +1,942 @@
+{
+  "schema_version": 1,
+  "selection_sha256": "4c5ae29a2f794c0828483b5bbe150e7bcace609d08557a82d4e6ec891ce6a61b",
+  "generator": "scripts/device.ps1 generate -Generator cody-codex-sfx",
+  "generator_sha256": "3db74e2a447d07c309da15e37c68a2cd7407075741295339010b8c7c90a39ecb",
+  "contract_sha256": "6412b910cd67cbb18f6a672906a272fa109726d5f9300f756ccefb058aae90d2",
+  "licensing": {
+    "status": "owner_confirmed_purchased_commercial",
+    "scope": "The owner confirmed purchased perpetual commercial-use SFX licences on 2026-10-04 and requested this selection on 2026-10-10. Licence documents were not present in the inspected archive; the PDF files are package indexes.",
+    "restriction": "Only transformed Cody cues are included. The purchased package terms remain authoritative; repository licensing does not relicense the original sample packs."
+  },
+  "channels": 1,
+  "encoding": "PCM16LE",
+  "listening_review": "Authored first pass; perceived sound and device playback have not been evaluated.",
+  "action_pcm_bytes": 90240,
+  "cues": [
+    {
+      "id": 1128464384,
+      "name": "BootRise",
+      "slug": "boot-rise",
+      "intent": "A warm three-part rising chime with a long soft tail, once at boot.",
+      "sample_rate_hz": 22050,
+      "sample_count": 39690,
+      "pcm_bytes": 79380,
+      "duration_ms": 1800.0,
+      "target_peak_dbfs": -13.0,
+      "linear_gain_after_mix": 4861.620397069442,
+      "peak_dbfs": -12.999812245955065,
+      "rms_dbfs": -24.83757160636121,
+      "pcm_sha256": "cd971ef8877bfa756fae37494516bbec33eb59bd283c0b773c4be817ce04c44d",
+      "layers": [
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 2200,
+          "offset_ms": 0,
+          "duration_ms": 1500,
+          "pitch_ratio": 0.75,
+          "gain": 0.8,
+          "highpass_hz": 140,
+          "lowpass_hz": 3400,
+          "fade_in_ms": 18,
+          "fade_out_ms": 430,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=2.200000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=140:p=2",
+            "lowpass=f=3400:p=2",
+            "aresample=22050",
+            "asetrate=16538",
+            "aresample=22050"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 3300,
+          "actual_pitch_ratio": 0.7500226757369615,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.475328027891416
+        },
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 2200,
+          "offset_ms": 190,
+          "duration_ms": 1350,
+          "pitch_ratio": 0.943874,
+          "gain": 0.65,
+          "highpass_hz": 140,
+          "lowpass_hz": 3400,
+          "fade_in_ms": 18,
+          "fade_out_ms": 400,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=2.200000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=140:p=2",
+            "lowpass=f=3400:p=2",
+            "aresample=22050",
+            "asetrate=20812",
+            "aresample=22050"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 2640,
+          "actual_pitch_ratio": 0.9438548752834467,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.477011016528863
+        },
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 2200,
+          "offset_ms": 420,
+          "duration_ms": 1380,
+          "pitch_ratio": 1.12373,
+          "gain": 0.55,
+          "highpass_hz": 140,
+          "lowpass_hz": 3400,
+          "fade_in_ms": 20,
+          "fade_out_ms": 470,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=2.200000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=140:p=2",
+            "lowpass=f=3400:p=2",
+            "aresample=22050",
+            "asetrate=24778",
+            "aresample=22050"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 2090,
+          "actual_pitch_ratio": 1.123718820861678,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.474754482781705
+        }
+      ],
+      "wav_sha256": "9da500b0ac09d52001b7d69599c02f10b3540e11ceb3179fdb9dc8e9d70d0825"
+    },
+    {
+      "id": 1128464385,
+      "name": "Working",
+      "slug": "working",
+      "intent": "Two rounded opening taps when a selected chat starts a new turn; never looped.",
+      "sample_rate_hz": 16000,
+      "sample_count": 3680,
+      "pcm_bytes": 7360,
+      "duration_ms": 230.0,
+      "target_peak_dbfs": -23.0,
+      "linear_gain_after_mix": 2729.0893549311827,
+      "peak_dbfs": -22.999239001376367,
+      "rms_dbfs": -42.51652152440036,
+      "pcm_sha256": "051d372d926042fc9379d421d70a9fd33ee533e0e0d03f3c6e5f8fec0b7c6373",
+      "layers": [
+        {
+          "source": "pop",
+          "window_start_ms": 0,
+          "window_end_ms": 600,
+          "offset_ms": 0,
+          "duration_ms": 130,
+          "pitch_ratio": 0.85,
+          "gain": 0.85,
+          "highpass_hz": 130,
+          "lowpass_hz": 2400,
+          "fade_in_ms": 7,
+          "fade_out_ms": 45,
+          "source_path": "SONY Loops/Home & Office/Cork Pop Quiet.wav",
+          "source_sha256": "4b03c524cbcc6b2033642a3606f48f98601060602313f6e80fdec28d132084bd",
+          "source_format": {
+            "duration_seconds": 0.628934,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.600000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=130:p=2",
+            "lowpass=f=2400:p=2",
+            "aresample=16000",
+            "asetrate=13600",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 3600,
+          "actual_pitch_ratio": 0.85,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 1.3984864998234932
+        },
+        {
+          "source": "pop",
+          "window_start_ms": 0,
+          "window_end_ms": 600,
+          "offset_ms": 90,
+          "duration_ms": 140,
+          "pitch_ratio": 1.16,
+          "gain": 0.7,
+          "highpass_hz": 130,
+          "lowpass_hz": 2400,
+          "fade_in_ms": 7,
+          "fade_out_ms": 50,
+          "source_path": "SONY Loops/Home & Office/Cork Pop Quiet.wav",
+          "source_sha256": "4b03c524cbcc6b2033642a3606f48f98601060602313f6e80fdec28d132084bd",
+          "source_format": {
+            "duration_seconds": 0.628934,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.600000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=130:p=2",
+            "lowpass=f=2400:p=2",
+            "aresample=16000",
+            "asetrate=18560",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 2480,
+          "actual_pitch_ratio": 1.16,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 1.4204124620814782
+        }
+      ],
+      "wav_sha256": "887120e65bd2e198d0cc8ca4d6e6b783b0983271829304d7b56c1a8f7265e52e"
+    },
+    {
+      "id": 1128464386,
+      "name": "Reading",
+      "slug": "reading",
+      "intent": "A small paper movement; asset reserved until an actual reading event exists.",
+      "sample_rate_hz": 16000,
+      "sample_count": 3360,
+      "pcm_bytes": 6720,
+      "duration_ms": 210.0,
+      "target_peak_dbfs": -26.0,
+      "linear_gain_after_mix": 1642.240208426483,
+      "peak_dbfs": -26.00153564352592,
+      "rms_dbfs": -51.649654769308746,
+      "pcm_sha256": "200133458e9d153f9c465916f47f4fc0c78ddfbf28e46910ee6f58934c33a423",
+      "layers": [
+        {
+          "source": "paper",
+          "window_start_ms": 0,
+          "window_end_ms": 2000,
+          "offset_ms": 0,
+          "duration_ms": 210,
+          "pitch_ratio": 1.0,
+          "gain": 1.0,
+          "highpass_hz": 180,
+          "lowpass_hz": 1700,
+          "fade_in_ms": 25,
+          "fade_out_ms": 75,
+          "source_path": "SONY Loops/Home & Office/Paper Movement Sweetener.wav",
+          "source_sha256": "82f6719a783d86db9bc3a62ee7b92a98a56956f1b95ac4d07e1ee22dc8e8df85",
+          "source_format": {
+            "duration_seconds": 43.19449,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=2.000000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=1700:p=2",
+            "aresample=16000",
+            "asetrate=16000",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 25760,
+          "actual_pitch_ratio": 1.0,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 34.0269989615784
+        }
+      ],
+      "wav_sha256": "8dbb6b5c3e4737564705decff140277ac3d9982fe344f286d61bd7a2d4465837"
+    },
+    {
+      "id": 1128464387,
+      "name": "Editing",
+      "slug": "editing",
+      "intent": "A softened short typing texture for entry into a real edit action.",
+      "sample_rate_hz": 16000,
+      "sample_count": 3840,
+      "pcm_bytes": 7680,
+      "duration_ms": 240.0,
+      "target_peak_dbfs": -25.0,
+      "linear_gain_after_mix": 1842.623820251217,
+      "peak_dbfs": -24.99849199481288,
+      "rms_dbfs": -46.43586474565307,
+      "pcm_sha256": "b3a0d7bebedf99a56d4143aa98d2ee3b49a855cd95f8bc11bb4b34fd1aac68bc",
+      "layers": [
+        {
+          "source": "typing",
+          "window_start_ms": 0,
+          "window_end_ms": 2000,
+          "offset_ms": 0,
+          "duration_ms": 240,
+          "pitch_ratio": 0.9,
+          "gain": 1.0,
+          "highpass_hz": 180,
+          "lowpass_hz": 2200,
+          "fade_in_ms": 12,
+          "fade_out_ms": 60,
+          "source_path": "SONY Loops/Home & Office/Computer Laptop Type.wav",
+          "source_sha256": "67c9cbf5fc6bce0090d54e5ebc67361b6536357eb6f060c959c93653ae8cf49f",
+          "source_format": {
+            "duration_seconds": 13.731701,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=2.000000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=2200:p=2",
+            "aresample=16000",
+            "asetrate=14400",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 14160,
+          "actual_pitch_ratio": 0.9,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 34.62318187076586
+        }
+      ],
+      "wav_sha256": "2dd4dda0f5dc3f2f068e85e94d04225485dfb22ed02ab60eff49a22ccb4efd72"
+    },
+    {
+      "id": 1128464388,
+      "name": "Running",
+      "slug": "running",
+      "intent": "A low-to-high triple pulse when a real command starts.",
+      "sample_rate_hz": 16000,
+      "sample_count": 4480,
+      "pcm_bytes": 8960,
+      "duration_ms": 280.0,
+      "target_peak_dbfs": -24.0,
+      "linear_gain_after_mix": 2578.0084217764997,
+      "peak_dbfs": -24.00218916664859,
+      "rms_dbfs": -42.0764964906978,
+      "pcm_sha256": "e1595001d66f19d6c05dba4d8a6630816ed6f3c120f4cea57f754bf8447865ba",
+      "layers": [
+        {
+          "source": "pop",
+          "window_start_ms": 0,
+          "window_end_ms": 600,
+          "offset_ms": 0,
+          "duration_ms": 110,
+          "pitch_ratio": 0.7,
+          "gain": 0.75,
+          "highpass_hz": 150,
+          "lowpass_hz": 2200,
+          "fade_in_ms": 7,
+          "fade_out_ms": 40,
+          "source_path": "SONY Loops/Home & Office/Cork Pop Quiet.wav",
+          "source_sha256": "4b03c524cbcc6b2033642a3606f48f98601060602313f6e80fdec28d132084bd",
+          "source_format": {
+            "duration_seconds": 0.628934,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.600000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=150:p=2",
+            "lowpass=f=2200:p=2",
+            "aresample=16000",
+            "asetrate=11200",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 4480,
+          "actual_pitch_ratio": 0.7,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 1.444204182035044
+        },
+        {
+          "source": "pop",
+          "window_start_ms": 0,
+          "window_end_ms": 600,
+          "offset_ms": 85,
+          "duration_ms": 110,
+          "pitch_ratio": 0.95,
+          "gain": 0.8,
+          "highpass_hz": 150,
+          "lowpass_hz": 2200,
+          "fade_in_ms": 7,
+          "fade_out_ms": 40,
+          "source_path": "SONY Loops/Home & Office/Cork Pop Quiet.wav",
+          "source_sha256": "4b03c524cbcc6b2033642a3606f48f98601060602313f6e80fdec28d132084bd",
+          "source_format": {
+            "duration_seconds": 0.628934,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.600000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=150:p=2",
+            "lowpass=f=2200:p=2",
+            "aresample=16000",
+            "asetrate=15200",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 3280,
+          "actual_pitch_ratio": 0.95,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 1.4465036352667824
+        },
+        {
+          "source": "pop",
+          "window_start_ms": 0,
+          "window_end_ms": 600,
+          "offset_ms": 170,
+          "duration_ms": 110,
+          "pitch_ratio": 1.22,
+          "gain": 0.65,
+          "highpass_hz": 150,
+          "lowpass_hz": 2200,
+          "fade_in_ms": 7,
+          "fade_out_ms": 40,
+          "source_path": "SONY Loops/Home & Office/Cork Pop Quiet.wav",
+          "source_sha256": "4b03c524cbcc6b2033642a3606f48f98601060602313f6e80fdec28d132084bd",
+          "source_format": {
+            "duration_seconds": 0.628934,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.600000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=150:p=2",
+            "lowpass=f=2200:p=2",
+            "aresample=16000",
+            "asetrate=19520",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 2480,
+          "actual_pitch_ratio": 1.22,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 1.4675174782081666
+        }
+      ],
+      "wav_sha256": "527e2749b190bc50cb79426d1b1d24f89ac257c8681419b577391aef05c3328e"
+    },
+    {
+      "id": 1128464389,
+      "name": "ResponseReady",
+      "slug": "response-ready",
+      "intent": "One clear, gentle chime for a completed assistant response; does not claim task success.",
+      "sample_rate_hz": 16000,
+      "sample_count": 5600,
+      "pcm_bytes": 11200,
+      "duration_ms": 350.0,
+      "target_peak_dbfs": -20.0,
+      "linear_gain_after_mix": 3276.7000000000003,
+      "peak_dbfs": -19.999469871546843,
+      "rms_dbfs": -26.475444674610525,
+      "pcm_sha256": "cfdaa936aac608be51d80dbae805a01e985e2e4942566e8e14cbcb0e09bb9d69",
+      "layers": [
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 0,
+          "duration_ms": 350,
+          "pitch_ratio": 1.06,
+          "gain": 1.0,
+          "highpass_hz": 180,
+          "lowpass_hz": 3200,
+          "fade_in_ms": 10,
+          "fade_out_ms": 160,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=3200:p=2",
+            "aresample=16000",
+            "asetrate=16960",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 2000,
+          "actual_pitch_ratio": 1.06,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.5167083346962436
+        }
+      ],
+      "wav_sha256": "47bdb1e8d9680a917d1400f96d9a4f5f64738838e325c9e5bb46056dedfb07a1"
+    },
+    {
+      "id": 1128464390,
+      "name": "Paused",
+      "slug": "paused",
+      "intent": "Two soft descending taps for pause or a wait for permission.",
+      "sample_rate_hz": 16000,
+      "sample_count": 4160,
+      "pcm_bytes": 8320,
+      "duration_ms": 260.0,
+      "target_peak_dbfs": -23.0,
+      "linear_gain_after_mix": 2729.0893549311827,
+      "peak_dbfs": -22.999239001376367,
+      "rms_dbfs": -42.23619241857213,
+      "pcm_sha256": "965b9a675b96eb5e29fbc13cf8dac5faaf733d53055b61f6426fd95b63334577",
+      "layers": [
+        {
+          "source": "pop",
+          "window_start_ms": 0,
+          "window_end_ms": 600,
+          "offset_ms": 0,
+          "duration_ms": 115,
+          "pitch_ratio": 1.0,
+          "gain": 0.85,
+          "highpass_hz": 150,
+          "lowpass_hz": 1700,
+          "fade_in_ms": 8,
+          "fade_out_ms": 45,
+          "source_path": "SONY Loops/Home & Office/Cork Pop Quiet.wav",
+          "source_sha256": "4b03c524cbcc6b2033642a3606f48f98601060602313f6e80fdec28d132084bd",
+          "source_format": {
+            "duration_seconds": 0.628934,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.600000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=150:p=2",
+            "lowpass=f=1700:p=2",
+            "aresample=16000",
+            "asetrate=16000",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 3040,
+          "actual_pitch_ratio": 1.0,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 1.451324297989193
+        },
+        {
+          "source": "pop",
+          "window_start_ms": 0,
+          "window_end_ms": 600,
+          "offset_ms": 140,
+          "duration_ms": 120,
+          "pitch_ratio": 0.72,
+          "gain": 0.75,
+          "highpass_hz": 150,
+          "lowpass_hz": 1700,
+          "fade_in_ms": 8,
+          "fade_out_ms": 50,
+          "source_path": "SONY Loops/Home & Office/Cork Pop Quiet.wav",
+          "source_sha256": "4b03c524cbcc6b2033642a3606f48f98601060602313f6e80fdec28d132084bd",
+          "source_format": {
+            "duration_seconds": 0.628934,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.600000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=150:p=2",
+            "lowpass=f=1700:p=2",
+            "aresample=16000",
+            "asetrate=11520",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 4400,
+          "actual_pitch_ratio": 0.72,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 1.4502966642741733
+        }
+      ],
+      "wav_sha256": "8baad24f9f5d89bee99926054b372dc3167f3fbabc32e6452cc168a140c78735"
+    },
+    {
+      "id": 1128464391,
+      "name": "Interrupted",
+      "slug": "interrupted",
+      "intent": "One rounded low stop cue for explicit interruption; no alarm.",
+      "sample_rate_hz": 16000,
+      "sample_count": 3680,
+      "pcm_bytes": 7360,
+      "duration_ms": 230.0,
+      "target_peak_dbfs": -23.0,
+      "linear_gain_after_mix": 2319.725951691505,
+      "peak_dbfs": -22.999239001376367,
+      "rms_dbfs": -42.61033699886359,
+      "pcm_sha256": "34df3a7e6857b74aedbe9895be46560d66dfe6d294ba144d1b31b8bedd5f6854",
+      "layers": [
+        {
+          "source": "pop",
+          "window_start_ms": 0,
+          "window_end_ms": 600,
+          "offset_ms": 0,
+          "duration_ms": 230,
+          "pitch_ratio": 0.58,
+          "gain": 1.0,
+          "highpass_hz": 130,
+          "lowpass_hz": 1500,
+          "fade_in_ms": 15,
+          "fade_out_ms": 110,
+          "source_path": "SONY Loops/Home & Office/Cork Pop Quiet.wav",
+          "source_sha256": "4b03c524cbcc6b2033642a3606f48f98601060602313f6e80fdec28d132084bd",
+          "source_format": {
+            "duration_seconds": 0.628934,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.600000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=130:p=2",
+            "lowpass=f=1500:p=2",
+            "aresample=16000",
+            "asetrate=9280",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 5280,
+          "actual_pitch_ratio": 0.58,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 1.4473770435515383
+        }
+      ],
+      "wav_sha256": "dfcbae3853ea0dbf9ba4a88e0340da615607e51db68152afdf0e4636069bd30d"
+    },
+    {
+      "id": 1128464392,
+      "name": "SessionEnded",
+      "slug": "session-ended",
+      "intent": "A lower, warm closing chime for a genuinely ended selected chat.",
+      "sample_rate_hz": 16000,
+      "sample_count": 5440,
+      "pcm_bytes": 10880,
+      "duration_ms": 340.0,
+      "target_peak_dbfs": -23.0,
+      "linear_gain_after_mix": 2319.725951691505,
+      "peak_dbfs": -22.999239001376367,
+      "rms_dbfs": -29.299239497751923,
+      "pcm_sha256": "36858f31bb5a3ff0dcd2e719a950952d562e3e07ae3534931c7b242cdc8ae25d",
+      "layers": [
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 0,
+          "duration_ms": 340,
+          "pitch_ratio": 0.65,
+          "gain": 1.0,
+          "highpass_hz": 150,
+          "lowpass_hz": 2400,
+          "fade_in_ms": 15,
+          "fade_out_ms": 180,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=150:p=2",
+            "lowpass=f=2400:p=2",
+            "aresample=16000",
+            "asetrate=10400",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 3200,
+          "actual_pitch_ratio": 0.65,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.482818177931683
+        }
+      ],
+      "wav_sha256": "cbff84b75fb42f054ab95dc6a0aa789aaf85b79461f348a470ed8f0f1b7e4230"
+    },
+    {
+      "id": 1128464393,
+      "name": "ConnectionLost",
+      "slug": "connection-lost",
+      "intent": "Two separated descending chimes when authenticated PC liveness is lost.",
+      "sample_rate_hz": 16000,
+      "sample_count": 5440,
+      "pcm_bytes": 10880,
+      "duration_ms": 340.0,
+      "target_peak_dbfs": -22.0,
+      "linear_gain_after_mix": 3253.469158401316,
+      "peak_dbfs": -21.999515337009644,
+      "rms_dbfs": -29.026130975518292,
+      "pcm_sha256": "e4a973d7f8b56753f3efd0b9cbc06dac870d85698a6c8a96f54d95139a66894f",
+      "layers": [
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 0,
+          "duration_ms": 140,
+          "pitch_ratio": 0.95,
+          "gain": 0.8,
+          "highpass_hz": 180,
+          "lowpass_hz": 2600,
+          "fade_in_ms": 8,
+          "fade_out_ms": 75,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=2600:p=2",
+            "aresample=16000",
+            "asetrate=15200",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 2240,
+          "actual_pitch_ratio": 0.95,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.523221348402456
+        },
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 195,
+          "duration_ms": 145,
+          "pitch_ratio": 0.71,
+          "gain": 0.75,
+          "highpass_hz": 180,
+          "lowpass_hz": 2600,
+          "fade_in_ms": 8,
+          "fade_out_ms": 80,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=2600:p=2",
+            "aresample=16000",
+            "asetrate=11360",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 3040,
+          "actual_pitch_ratio": 0.71,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.5225553038489545
+        }
+      ],
+      "wav_sha256": "393b64b3586e4e8654bc6c42fd9e7e7d5b636bf1d2981ae58a5a0eb2476867c2"
+    },
+    {
+      "id": 1128464394,
+      "name": "ConnectionRestored",
+      "slug": "connection-restored",
+      "intent": "Two joined rising chimes when authenticated PC liveness returns.",
+      "sample_rate_hz": 16000,
+      "sample_count": 5440,
+      "pcm_bytes": 10880,
+      "duration_ms": 340.0,
+      "target_peak_dbfs": -22.0,
+      "linear_gain_after_mix": 1877.0337687225947,
+      "peak_dbfs": -21.999515337009644,
+      "rms_dbfs": -31.709026952398936,
+      "pcm_sha256": "4d34ba193bf23b61b4b089e192eaba1e74ebb9ea3ef6a2142d1a8bde2e10a01a",
+      "layers": [
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 0,
+          "duration_ms": 200,
+          "pitch_ratio": 0.71,
+          "gain": 0.75,
+          "highpass_hz": 180,
+          "lowpass_hz": 2900,
+          "fade_in_ms": 10,
+          "fade_out_ms": 90,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=2900:p=2",
+            "aresample=16000",
+            "asetrate=11360",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 3040,
+          "actual_pitch_ratio": 0.71,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.516488862100128
+        },
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 115,
+          "duration_ms": 225,
+          "pitch_ratio": 0.95,
+          "gain": 0.85,
+          "highpass_hz": 180,
+          "lowpass_hz": 2900,
+          "fade_in_ms": 10,
+          "fade_out_ms": 110,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=2900:p=2",
+            "aresample=16000",
+            "asetrate=15200",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 2240,
+          "actual_pitch_ratio": 0.95,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.526435138951298
+        }
+      ],
+      "wav_sha256": "3684487c6cad685030ba067591cc12a9ca42f2ad0e094ced3354b2666e3003c2"
+    }
+  ],
+  "audition": {
+    "file": "artifacts/audio/cody-codex-sfx/cody-codex-sfx-audition.wav",
+    "gap_ms": 1000,
+    "offsets": [
+      {
+        "cue": "BootRise",
+        "start_ms": 1000,
+        "duration_ms": 1800.0
+      },
+      {
+        "cue": "Working",
+        "start_ms": 3800,
+        "duration_ms": 230.0
+      },
+      {
+        "cue": "Reading",
+        "start_ms": 5030,
+        "duration_ms": 210.0
+      },
+      {
+        "cue": "Editing",
+        "start_ms": 6240,
+        "duration_ms": 240.0
+      },
+      {
+        "cue": "Running",
+        "start_ms": 7480,
+        "duration_ms": 280.0
+      },
+      {
+        "cue": "ResponseReady",
+        "start_ms": 8760,
+        "duration_ms": 350.0
+      },
+      {
+        "cue": "Paused",
+        "start_ms": 10110,
+        "duration_ms": 260.0
+      },
+      {
+        "cue": "Interrupted",
+        "start_ms": 11370,
+        "duration_ms": 230.0
+      },
+      {
+        "cue": "SessionEnded",
+        "start_ms": 12600,
+        "duration_ms": 340.0
+      },
+      {
+        "cue": "ConnectionLost",
+        "start_ms": 13940,
+        "duration_ms": 340.0
+      },
+      {
+        "cue": "ConnectionRestored",
+        "start_ms": 15280,
+        "duration_ms": 340.0
+      }
+    ]
+  }
+}
