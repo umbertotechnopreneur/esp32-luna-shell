@@ -59,6 +59,14 @@ instruction file; do not add parallel agent or Copilot contracts.
 
 ## Code clarity
 
+- Cody action layout decision (2026-10-09): two actions use rounded gradient
+  cards side by side; three use the same pair plus one centered action below.
+  One action uses a centered wide capsule with its icon to the left of its label.
+  Apply semantic colors, restrained gradients and action icons to all Cody
+  screens. Preserve the separate lateral Back, QR quiet zones and local chords.
+  Approved references: `docs/Cody/ui-proposals/20261009/selected-multi-action.png`
+  and `selected-single-action.png` in the same directory.
+
 - Cody text is English, bounded printable ASCII; no Unicode/localization layer.
 - Use readable steps, descriptive names and helpers with one clear responsibility;
   no dense branches, unrelated one-line statements or speculative abstractions.

@@ -23,6 +23,9 @@ esp_err_t open_setup_menu(SceneFrame &scene);
 // No parameters: retire route identities and wipe the displayed session QR.
 void reset_onboarding();
 
+// No parameters: cancel gesture recognition after an invalid acquired report.
+void cancel_onboarding_touch();
+
 // scene: Current worker-owned scene, replaced only by a validated route.
 // completed_scene: Last fully retired scene; typewriter evaluation alone is not completion.
 // active_time_us: Existing animation clock, excluding pause and standby.

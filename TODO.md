@@ -3,10 +3,20 @@
 ## Cody startup and setup access - 2026-10-09
 
 - [ ] Resolve the reported Connect Codex -> Let's pair / Show QR transition.
-  The authorized 90-second passive capture confirmed LAN/DHCP, a setup timeout
-  returning to Welcome and standby, but contained no Connect Codex press.
-  The identified Welcome-tap Wi-Fi loop and excluded 04/05/06 hold routes are
-  corrected in source; physical confirmation and the initial selection remain open.
+  The initial passive capture lacked the press. A subsequent explicitly authorized
+  90-second reset/capture recorded Yes -> Connect Codex, then fifteen FF touch
+  bytes / invalid ACK stopping rendering. The Welcome escape and scoped malformed
+  runtime-report isolation are implemented; renewed physical behavior remains open.
+- [ ] Review the approved semantic gradient/icon layouts on Cody: horizontal
+  Yes/No and Network/Later, Setup left Connect Codex / right Network / centered
+  Options, and the single-action icon-left capsule. Verify Options -> 10 -> 36 ->
+  11 -> Setup, Back, rotations and QR quiet zones. Source integration and all five
+  revised PDFs are complete; physical UI review remains pending.
+- [ ] Identify why CST9217 returned fifteen FF bytes at 17112 ms after Yes on
+  `669a33e9`. Runtime malformed-report isolation preserves invalid snapshots,
+  interrupts gestures and waits for a real release. Verify rendering/standby
+  remain responsive and confirm real release re-admits input; no hardware cause
+  or corrected physical behavior is claimed yet.
 - [x] Installed the setup escape correction on COM10 after the successful
   eight-job Debug wake-word build at `669a33e9` (`cody-6-g669a33e9`). All four
   image hashes were verified and the device reset via RTS. Corrected physical

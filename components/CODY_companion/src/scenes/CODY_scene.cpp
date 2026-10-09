@@ -338,6 +338,7 @@ uint16_t scene_content_characters(const SceneFrame &frame, uint16_t length,
 
 // frame: Valid prepared scene whose content slot is updated after validation.
 // content: Immutable optional content, wholly below the title and within the circle.
+// Exception: Rejects invalid content/action/control rectangles before replacing the frame.
 esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content)
 {
     for (const auto &bounds : content.control_bounds) {
@@ -350,6 +351,13 @@ esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content)
     const bool empty = content.draw_rows == nullptr && content.state == nullptr &&
         content.bounds.left == 0 && content.bounds.top == 0 &&
         content.bounds.right == 0 && content.bounds.bottom == 0;
+    const auto &action = content.bottom_action_bounds;
+    const bool empty_action = action.left == 0 && action.top == 0 && action.right == 0 && action.bottom == 0;
+    if (!empty_action && (!inside_circle(action) || action.top < content.bounds.bottom ||
+        !content.bottom_action_visible || empty)) {
+        ESP_LOGE(kTag, "Scene bottom action bounds rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
     if (!frame.valid || !frame.title.valid || content.id != SceneElementId::Content ||
         (!empty && (content.draw_rows == nullptr || content.state == nullptr ||
          !inside_circle(content.bounds) || content.bounds.top < text_bounds(frame.title).bottom))) {
@@ -364,6 +372,7 @@ esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content)
 // previous: Last completely displayed text/content state, not a partially written frame.
 // current: Next prepared scene sharing the same stable scene identity.
 // plan: Existing cloud damage; text/content changes are accumulated, never cleared.
+// Exception: Returns invalid scene state, presentation or accumulated damage errors.
 esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &current, DirtyPlan &plan)
 {
     if (!previous.valid || !current.valid || current.definition == nullptr ||
@@ -416,10 +425,20 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
         old_content.revision != new_content.revision || old_content.state != new_content.state ||
         old_content.draw_rows != new_content.draw_rows || old_content.bounds.left != new_content.bounds.left ||
         old_content.bounds.top != new_content.bounds.top || old_content.bounds.right != new_content.bounds.right ||
-        old_content.bounds.bottom != new_content.bounds.bottom) {
+        old_content.bounds.bottom != new_content.bounds.bottom ||
+        old_content.bottom_action_bounds.left != new_content.bottom_action_bounds.left ||
+        old_content.bottom_action_bounds.top != new_content.bottom_action_bounds.top ||
+        old_content.bottom_action_bounds.right != new_content.bottom_action_bounds.right ||
+        old_content.bottom_action_bounds.bottom != new_content.bottom_action_bounds.bottom) {
         error = include_damage(plan, old_content.bounds);
         if (error == ESP_OK) {
             error = include_damage(plan, new_content.bounds);
+        }
+        if (error == ESP_OK) {
+            error = include_damage(plan, old_content.bottom_action_bounds);
+        }
+        if (error == ESP_OK) {
+            error = include_damage(plan, new_content.bottom_action_bounds);
         }
         if (error != ESP_OK) {
             return error;
@@ -443,6 +462,7 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
 // strip: Cloud-composited caller-owned RGB565 tile; this layer does not clear it.
 // first_row: Logical tile y origin shared by all layers.
 // first_column: Logical tile x origin shared by all layers.
+// Exception: Returns real scene, presentation or clipped content drawing failures.
 esp_err_t draw_scene_rows(const SceneFrame &frame, CODY2D::Surface strip,
                           uint16_t first_row, uint16_t first_column)
 {
@@ -461,27 +481,30 @@ esp_err_t draw_scene_rows(const SceneFrame &frame, CODY2D::Surface strip,
     if (error != ESP_OK || frame.content.draw_rows == nullptr) {
         return error;
     }
-    const DamageRect &bounds = frame.content.bounds;
-    if (first_row >= bounds.bottom || first_row + strip.height <= bounds.top ||
-        first_column >= bounds.right || first_column + strip.width <= bounds.left) {
-        return ESP_OK;
+    const DamageRect slots[]{frame.content.bounds, frame.content.bottom_action_bounds};
+    for (const auto &bounds : slots) {
+        if (first_row >= bounds.bottom || first_row + strip.height <= bounds.top ||
+            first_column >= bounds.right || first_column + strip.width <= bounds.left) {
+            continue;
+        }
+        // Borrow only each slot's intersection with the tile. The separated
+        // bottom action keeps every borrowed rectangle within its local chord.
+        const uint16_t top = std::max(first_row, bounds.top);
+        const uint16_t left = std::max(first_column, bounds.left);
+        const uint16_t bottom = std::min<uint16_t>(first_row + strip.height, bounds.bottom);
+        const uint16_t right = std::min<uint16_t>(first_column + strip.width, bounds.right);
+        const uint32_t offset = static_cast<uint32_t>(top - first_row) * strip.stride + left - first_column;
+        CODY2D::Surface content_strip = strip;
+        content_strip.pixels += offset;
+        content_strip.width = right - left;
+        content_strip.height = bottom - top;
+        content_strip.pixel_capacity -= offset;
+        const esp_err_t content_error = frame.content.draw_rows(frame.content.state, content_strip, top, left);
+        if (content_error != ESP_OK) {
+            ESP_LOGE(kTag, "Scene content draw failed (%s)", esp_err_to_name(content_error));
+            return content_error;
+        }
     }
-    // A content callback cannot paint outside its slot: lend only its intersection
-    // with this tile, retaining the caller's stride and byte-order contract.
-    const uint16_t top = std::max(first_row, bounds.top);
-    const uint16_t left = std::max(first_column, bounds.left);
-    const uint16_t bottom = std::min<uint16_t>(first_row + strip.height, bounds.bottom);
-    const uint16_t right = std::min<uint16_t>(first_column + strip.width, bounds.right);
-    const uint32_t offset = static_cast<uint32_t>(top - first_row) * strip.stride + left - first_column;
-    CODY2D::Surface content_strip = strip;
-    content_strip.pixels += offset;
-    content_strip.width = right - left;
-    content_strip.height = bottom - top;
-    content_strip.pixel_capacity -= offset;
-    const esp_err_t content_error = frame.content.draw_rows(frame.content.state, content_strip, top, left);
-    if (content_error != ESP_OK) {
-        ESP_LOGE(kTag, "Scene content draw failed (%s)", esp_err_to_name(content_error));
-    }
-    return content_error;
+    return ESP_OK;
 }
 } // namespace CODY

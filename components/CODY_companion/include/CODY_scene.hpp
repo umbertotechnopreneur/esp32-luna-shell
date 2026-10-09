@@ -52,6 +52,8 @@ struct SceneDefinition {
 struct SceneContent {
     SceneElementId id = SceneElementId::Content;
     DamageRect bounds{};
+    // Separate lower action slot: a broad card pair cannot borrow bottom-arc width.
+    DamageRect bottom_action_bounds{};
     const void *state = nullptr;
     uint32_t revision = 0;
     DamageRect control_bounds[2]{};

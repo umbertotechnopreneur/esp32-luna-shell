@@ -44,10 +44,11 @@ constexpr uint16_t kQrQuietModules = 4;
 constexpr CODY2D::Rect kInstallQrBounds{113, 140, 240, 240};
 constexpr CODY2D::Rect kSessionQrBounds{131, 182, 204, 204};
 constexpr uint16_t kSessionCaptionTop = 156;
-constexpr CODY2D::Rect kFooterBounds{113, 390, 240, 40};
-constexpr CODY2D::Rect kAlternativeBounds{113, 346, 240, 40};
-constexpr uint16_t kActionBlueTop = 0x765E;
-constexpr uint16_t kActionBlueBottom = 0x34FC;
+constexpr CODY2D::Rect kFooterBounds{123, 390, 220, 44};
+constexpr CODY2D::Rect kSingleActionBounds{113, 352, 240, 72};
+constexpr CODY2D::Rect kLeftCardBounds{73, 260, 154, 104};
+constexpr CODY2D::Rect kRightCardBounds{239, 260, 154, 104};
+constexpr CODY2D::Rect kOptionsBounds{153, 376, 160, 52};
 constexpr uint16_t kCaptionWidth = 232;
 #if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
 constexpr uint16_t kDebugTextWidth = 386;
@@ -85,7 +86,7 @@ enum class Work : uint8_t {
 enum class NavigationDirection : uint8_t { Previous, Next };
 enum class OnboardingAction : uint8_t {
     None, ShowQr, PairCody, Cancel, Retry, Continue, Next, Done, LetsGo,
-    AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later
+    AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later, Options
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
 
@@ -149,6 +150,12 @@ struct ContentView {
     CODY2D::CapsuleControl alternative{};
     uint16_t alternative_visible_characters = 0;
     OnboardingAction alternative_id = OnboardingAction::None;
+    CODY2D::TextLine action_second_line{};
+    CODY2D::TextLine alternative_second_line{};
+    uint16_t action_second_visible = 0;
+    uint16_t alternative_second_visible = 0;
+    CODY2D::CapsuleControl options{};
+    uint16_t options_visible_characters = 0;
     QrModules qr{};
     CODY2D::Rect qr_bounds{};
     char error_text[32]{};
@@ -162,6 +169,7 @@ ContentView &s_view = *new (s_view_storage) ContentView{};
 ContentView s_view;
 #endif
 Route s_route = Route::None;
+bool s_options_from_setup = false;
 bool s_startup_pending = false;
 esp_err_t s_startup_wifi_error = ESP_OK;
 uint32_t s_generation = 1;
@@ -682,6 +690,13 @@ bool uses_footer_action()
         s_route == Route::CodexChoice || s_route == Route::SetupMenu || s_route == Route::NetworkWait;
 }
 
+// No parameters: QR pages retain quiet-zone clearance above their compact action.
+CODY2D::Rect single_action_bounds()
+{
+    return s_route == Route::Install06 || s_route == Route::Pairing07 ?
+        kFooterBounds : kSingleActionBounds;
+}
+
 // action: Stable action identity; the returned English label has flash lifetime.
 // label: Receives the primary capsule caption, or null for no action.
 // Exception: Unknown identities are rejected rather than inferred from route order.
@@ -730,11 +745,119 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
     case OnboardingAction::Later:
         label = "Later";
         break;
+    case OnboardingAction::Options:
+        label = "Options";
+        break;
     default:
         ESP_LOGE(kTag, "Unknown navigation action %u (%s)", to_index(action), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
     return ESP_OK;
+}
+
+// action: Typed semantic purpose, independent of caption and storage order.
+// control: Receives native dark gradients, border and the matching action icon.
+void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
+{
+    control.top_color = 0x034C;
+    control.bottom_color = 0x0105;
+    control.border_color = 0x06D9;
+    control.icon_color = 0x87FA;
+    control.icon = CODY2D::ActionIcon::Arrow;
+    switch (action) {
+    case OnboardingAction::AcceptCodex:
+    case OnboardingAction::Done:
+        control.icon = CODY2D::ActionIcon::Check;
+        break;
+    case OnboardingAction::ConnectCodex:
+    case OnboardingAction::PairCody:
+        control.icon = CODY2D::ActionIcon::Link;
+        break;
+    case OnboardingAction::NetworkSetup:
+    case OnboardingAction::ShowQr:
+        control.top_color = 0x1190;
+        control.bottom_color = 0x0085;
+        control.border_color = 0x249F;
+        control.icon_color = 0x8E9F;
+        control.icon = action == OnboardingAction::ShowQr ? CODY2D::ActionIcon::Qr : CODY2D::ActionIcon::Wifi;
+        break;
+    case OnboardingAction::DeclineCodex:
+    case OnboardingAction::Later:
+    case OnboardingAction::Options:
+        control.top_color = 0x3187;
+        control.bottom_color = 0x10A3;
+        control.border_color = 0x5ACB;
+        control.icon_color = action == OnboardingAction::Options ? 0xFE55 : 0xCE79;
+        control.icon = action == OnboardingAction::Options ? CODY2D::ActionIcon::Gear : CODY2D::ActionIcon::Close;
+        break;
+    case OnboardingAction::Cancel:
+    case OnboardingAction::Retry:
+        control.top_color = 0x61C5;
+        control.bottom_color = 0x20A2;
+        control.border_color = 0xFC6A;
+        control.icon_color = 0xFE55;
+        control.icon = action == OnboardingAction::Retry ? CODY2D::ActionIcon::Retry : CODY2D::ActionIcon::Close;
+        break;
+    default:
+        break;
+    }
+}
+
+// action: Validated stable action identity.
+// label: Printable primary caption with an optional split at its first space.
+// bounds: Shared logical raster and hit rectangle.
+// enabled: Backend admission state.
+// card: True for the two-column icon-above-caption layout.
+// control: Receives the rounded gradient button and first caption line.
+// second: Receives a second line only for a two-word card caption.
+// Exception: Returns the real caption layout failure.
+esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rect bounds,
+                         bool enabled, bool card, CODY2D::CapsuleControl &control,
+                         CODY2D::TextLine &second)
+{
+    control = {bounds, {}, 0, 0, enabled};
+    second = {};
+    style_action(action, control);
+    control.corner_radius = card ? 28 : 0;
+    control.icon_center = {static_cast<int16_t>(card ? bounds.x + bounds.width / 2U : bounds.x + 27U),
+        static_cast<int16_t>(card ? bounds.y + 23U : bounds.y + bounds.height / 2U)};
+    if (label == nullptr) {
+        control.icon = CODY2D::ActionIcon::None;
+        return ESP_OK;
+    }
+    const auto &font = SceneData::body_font;
+    const char *space = card ? std::strchr(label, ' ') : nullptr;
+    const uint16_t length = static_cast<uint16_t>(space != nullptr ? space - label : std::strlen(label));
+    const uint16_t text_left = card ? bounds.x : bounds.x + 47U;
+    const uint16_t text_width = card ? bounds.width : bounds.width - 56U;
+    const uint16_t width = (length - 1U) * font.advance + font.width;
+    if (width > text_width || font.height > bounds.height) {
+        ESP_LOGE(kTag, "Action caption does not fit: %s (%s)", label, esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const uint16_t top = card ? bounds.y + (space != nullptr ? 44U : 57U) :
+        bounds.y + (bounds.height - font.height) / 2U;
+    const uint16_t caption_left = card ? text_left + (text_width - width) / 2U :
+        bounds.x + (bounds.width - width - 36U) / 2U + 36U;
+    if (!card) {
+        control.icon_center.x = static_cast<int16_t>(caption_left - 24U);
+    }
+    esp_err_t error = CODY2D::prepare_text_line(font, {label, length},
+        {static_cast<int16_t>(caption_left), static_cast<int16_t>(top)},
+        0xFFFF, control.caption);
+    if (error == ESP_OK && space != nullptr) {
+        const char *text = space + 1;
+        const uint16_t count = static_cast<uint16_t>(std::strlen(text));
+        const uint16_t line_width = (count - 1U) * font.advance + font.width;
+        if (line_width > bounds.width) {
+            ESP_LOGE(kTag, "Second action line does not fit: %s (%s)", text, esp_err_to_name(ESP_ERR_INVALID_SIZE));
+            return ESP_ERR_INVALID_SIZE;
+        }
+        error = CODY2D::prepare_text_line(font, {text, count},
+            {static_cast<int16_t>(bounds.x + (bounds.width - line_width) / 2U),
+             static_cast<int16_t>(bounds.y + 71U)}, 0xFFFF, second);
+    }
+    return error;
 }
 
 // action: Explicit route action; never inferred from an English label.
@@ -755,23 +878,14 @@ esp_err_t prepare_action(OnboardingAction action, bool enabled)
     }
     s_view.action_id = action;
     s_view.action_visible = action != OnboardingAction::None;
-    const auto bounds = uses_footer_action() ? kFooterBounds :
+    const bool card = s_route == Route::CodexChoice || s_route == Route::SetupMenu || s_route == Route::NetworkWait;
+    const auto bounds = card ? kRightCardBounds : uses_footer_action() ? single_action_bounds() :
         action == OnboardingAction::Cancel ? kBackBounds : kForwardBounds;
-    s_view.action = {bounds, {}, uses_footer_action() ? kActionBlueTop : NavigationData::top,
-        uses_footer_action() ? kActionBlueBottom : NavigationData::bottom, enabled};
-    if (label != nullptr && uses_footer_action()) {
-        const auto &font = SceneData::body_font;
-        const uint16_t length = static_cast<uint16_t>(std::strlen(label));
-        const uint16_t width = (length - 1U) * font.advance + font.width;
-        if (width > bounds.width || font.height > bounds.height) {
-            ESP_LOGE(kTag, "Action caption does not fit (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
-            return ESP_ERR_INVALID_SIZE;
-        }
-        error = CODY2D::prepare_text_line(font, {label, length},
-            {static_cast<int16_t>(bounds.x + (bounds.width - width) / 2U),
-             static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2U)},
-            0x0001, s_view.action.caption);
+    if (uses_footer_action()) {
+        return prepare_button(action, label, bounds, enabled, card,
+            s_view.action, s_view.action_second_line);
     }
+    s_view.action = {bounds, {}, NavigationData::top, NavigationData::bottom, enabled};
     return error;
 }
 
@@ -786,21 +900,8 @@ esp_err_t prepare_alternative(OnboardingAction action, bool enabled)
         return error;
     }
     s_view.alternative_id = action;
-    s_view.alternative = {kAlternativeBounds, {}, kActionBlueTop, kActionBlueBottom, enabled};
-    if (label == nullptr) {
-        return ESP_OK;
-    }
-    const auto &font = SceneData::body_font;
-    const uint16_t length = static_cast<uint16_t>(std::strlen(label));
-    const uint16_t width = (length - 1U) * font.advance + font.width;
-    if (width > kAlternativeBounds.width || font.height > kAlternativeBounds.height) {
-        ESP_LOGE(kTag, "Alternative caption does not fit (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
-        return ESP_ERR_INVALID_SIZE;
-    }
-    return CODY2D::prepare_text_line(font, {label, length},
-        {static_cast<int16_t>(kAlternativeBounds.x + (kAlternativeBounds.width - width) / 2U),
-         static_cast<int16_t>(kAlternativeBounds.y + (kAlternativeBounds.height - font.height) / 2U)},
-        0x0001, s_view.alternative.caption);
+    return prepare_button(action, label, kLeftCardBounds, enabled, true,
+        s_view.alternative, s_view.alternative_second_line);
 }
 
 // qr: Compact immutable module map from the encoder.
@@ -869,6 +970,10 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
             error = CODY2D::draw_text_rows(view.action.caption, view.action_visible_characters,
                 strip, first_row, first_column);
         }
+        if (error == ESP_OK && view.action_second_line.valid) {
+            error = CODY2D::draw_text_rows(view.action_second_line, view.action_second_visible,
+                strip, first_row, first_column);
+        }
     }
     if (error == ESP_OK && view.alternative_id != OnboardingAction::None) {
         CODY2D::CapsuleControl capsule = view.alternative;
@@ -876,6 +981,19 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
         error = CODY2D::draw_capsule_rows(capsule, strip, first_row, first_column);
         if (error == ESP_OK) {
             error = CODY2D::draw_text_rows(view.alternative.caption, view.alternative_visible_characters,
+                strip, first_row, first_column);
+        }
+        if (error == ESP_OK && view.alternative_second_line.valid) {
+            error = CODY2D::draw_text_rows(view.alternative_second_line, view.alternative_second_visible,
+                strip, first_row, first_column);
+        }
+    }
+    if (error == ESP_OK && view.options.caption.valid) {
+        CODY2D::CapsuleControl control = view.options;
+        control.caption = {};
+        error = CODY2D::draw_capsule_rows(control, strip, first_row, first_column);
+        if (error == ESP_OK) {
+            error = CODY2D::draw_text_rows(view.options.caption, view.options_visible_characters,
                 strip, first_row, first_column);
         }
     }
@@ -902,23 +1020,42 @@ esp_err_t attach_content(SceneFrame &scene)
         scene_content_characters(scene, s_view.action.caption.text.length, preceding) : 0;
     content_characters += s_view.action_visible_characters;
     preceding += s_view.action_visible ? s_view.action.caption.text.length : 0;
+    s_view.action_second_visible = s_view.action_second_line.valid ?
+        scene_content_characters(scene, s_view.action_second_line.text.length, preceding) : 0;
+    preceding += s_view.action_second_line.text.length;
+    content_characters += s_view.action_second_visible;
     s_view.alternative_visible_characters = s_view.alternative_id != OnboardingAction::None ?
         scene_content_characters(scene, s_view.alternative.caption.text.length, preceding) : 0;
     content_characters += s_view.alternative_visible_characters;
+    preceding += s_view.alternative.caption.text.length;
+    s_view.alternative_second_visible = s_view.alternative_second_line.valid ?
+        scene_content_characters(scene, s_view.alternative_second_line.text.length, preceding) : 0;
+    preceding += s_view.alternative_second_line.text.length;
+    content_characters += s_view.alternative_second_visible;
+    s_view.options_visible_characters = s_view.options.caption.valid ?
+        scene_content_characters(scene, s_view.options.caption.text.length, preceding) : 0;
+    content_characters += s_view.options_visible_characters;
+    const bool choice = s_view.alternative_id != OnboardingAction::None;
     const uint16_t top = s_route == Route::DebugText ? 130 :
         (s_route == Route::MakeItYours10 || s_route == Route::Settings36) ? 204 :
         s_route == Route::Install06 ? kInstallQrBounds.y :
         s_route == Route::Pairing07 ? kSessionCaptionTop :
-        s_route == Route::Invitation05 ? 230 : 346;
+        s_route == Route::Invitation05 ? 230 : 300;
     SceneContent content;
     content.bottom_action_visible = uses_footer_action() && s_view.action_visible;
     // The debug page uses the wider middle chord; normal setup routes keep the
     // QR/footer union used by their existing controls.
     content.bounds = s_route == Route::DebugText
         ? DamageRect{40, top, 426, 356}
-        : DamageRect{kFooterBounds.x, top,
-            static_cast<uint16_t>(kFooterBounds.x + kFooterBounds.width),
-            static_cast<uint16_t>(kFooterBounds.y + kFooterBounds.height)};
+        : choice ? DamageRect{73, 260, 393, 364}
+        : DamageRect{113, top, 353, static_cast<uint16_t>(content.bottom_action_visible ? s_view.action.bounds.y : 430)};
+    if (s_route == Route::SetupMenu) {
+        content.bottom_action_bounds = {153, 376, 313, 428};
+    } else if (content.bottom_action_visible && !choice) {
+        const auto &bounds = s_view.action.bounds;
+        content.bottom_action_bounds = {bounds.x, bounds.y,
+            static_cast<uint16_t>(bounds.x + bounds.width), static_cast<uint16_t>(bounds.y + bounds.height)};
+    }
     content.state = &s_view;
     content.revision = ++s_revision;
     content.control_revision = s_navigation_revision;
@@ -928,16 +1065,13 @@ esp_err_t attach_content(SceneFrame &scene)
         // Full-screen dismissal belongs to the route owner, not an invisible control.
     } else if (uses_footer_action() && s_view.action_visible) {
         if (s_view.alternative_id != OnboardingAction::None) {
-            content.control_bounds[0] = {kAlternativeBounds.x, kAlternativeBounds.y,
-                static_cast<uint16_t>(kAlternativeBounds.x + kAlternativeBounds.width),
-                static_cast<uint16_t>(kAlternativeBounds.y + kAlternativeBounds.height)};
+            content.control_bounds[0] = {73, 260, 227, 364};
         }
-        if (s_route == Route::SetupMenu) {
+        if (s_route == Route::SetupMenu || (s_options_from_setup &&
+            (s_route == Route::MakeItYours10 || s_route == Route::Settings36))) {
             content.control_bounds[0] = {10, 203, 70, 263};
         }
-        content.control_bounds[1] = {kFooterBounds.x, kFooterBounds.y,
-            static_cast<uint16_t>(kFooterBounds.x + kFooterBounds.width),
-            static_cast<uint16_t>(kFooterBounds.y + kFooterBounds.height)};
+        content.control_bounds[1] = choice ? DamageRect{239, 260, 393, 364} : content.bottom_action_bounds;
     } else {
         content.control_bounds[0] = {10, 203, 70, 263};
         content.control_bounds[1] = {396, 203, 456, 263};
@@ -1085,6 +1219,9 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     ++s_navigation_revision;
     ++s_text_generation;
     s_route = route;
+    if (route == Route::SetupMenu) {
+        s_options_from_setup = false;
+    }
     if (route == Route::Hello04) {
         s_hello_completed_at_us = -1;
         scene = prepared;
@@ -1116,7 +1253,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     } else if (route == Route::Failed08) {
         std::snprintf(s_view.error_text, sizeof(s_view.error_text), "Error: 0x%lx",
             static_cast<unsigned long>(s_visible_error));
-        error = prepare_caption(s_view.error_text, 348, s_view.lines[0]);
+        error = prepare_caption(s_view.error_text, 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::Retry, false); // The current observation gates retry or cleanup.
@@ -1125,7 +1262,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         // Returning from a child must re-evaluate the canonical connection,
         // even if it was already offline before the child was opened.
         s_online_presentation_current = false;
-        error = prepare_caption("Wi-Fi connected", 350, s_view.lines[0]);
+        error = prepare_caption("Wi-Fi connected", 300, s_view.lines[0]);
         s_view.line_count = 1;
 #if CODY_ENABLE_PEARL_JELLY
         if (error == ESP_OK) {
@@ -1166,40 +1303,45 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
             error = prepare_alternative(alternative,
                 alternative != OnboardingAction::ConnectCodex || kCodexIntegrationEnabled);
         }
+        if (error == ESP_OK && route == Route::SetupMenu) {
+            CODY2D::TextLine unused;
+            error = prepare_button(OnboardingAction::Options, "Options", kOptionsBounds,
+                true, false, s_view.options, unused);
+        }
     } else if (route == Route::ConnectCodex12) {
         const char *message = s_codex_code[0] == '\0'
             ? "Preparing secure code"
             : "Enter code in Codex";
-        error = prepare_caption(message, 346, s_view.lines[0]);
+        error = prepare_caption(message, 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK && s_codex_code[0] != '\0') {
-            error = prepare_caption(s_codex_code, 373, s_view.lines[1]);
+            error = prepare_caption(s_codex_code, 327, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::None, false);
         }
     } else if (route == Route::SetupComplete13) {
-        error = prepare_caption("Setup confirmed", 350, s_view.lines[0]);
+        error = prepare_caption("Setup confirmed", 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::LetsGo, true);
         }
     } else if (route == Route::LookingForPc14) {
-        error = prepare_caption("Looking for paired PC", 346, s_view.lines[0]);
+        error = prepare_caption("Looking for paired PC", 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption("Authenticated search", 373, s_view.lines[1]);
+            error = prepare_caption("Authenticated search", 327, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::None, false);
         }
     } else if (route == Route::Connected15) {
-        error = prepare_caption("Codex PC found", 346, s_view.lines[0]);
+        error = prepare_caption("Codex PC found", 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption("CCP is ready", 373, s_view.lines[1]);
+            error = prepare_caption("CCP is ready", 327, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
@@ -1236,7 +1378,7 @@ esp_err_t show_codex_error(SceneFrame &scene, esp_err_t error)
         "Error: 0x%lx",
         static_cast<unsigned long>(s_codex_visible_error)
     );
-    presentation_error = prepare_caption(s_view.error_text, 350, s_view.lines[0]);
+    presentation_error = prepare_caption(s_view.error_text, 300, s_view.lines[0]);
     s_view.line_count = 1;
     if (presentation_error == ESP_OK) {
         presentation_error = prepare_action(OnboardingAction::Retry, true);
@@ -1345,6 +1487,9 @@ esp_err_t enter_host_destination(SceneId destination, SceneFrame &scene)
         break;
     case SceneId::CodexChoice:
         route = Route::CodexChoice;
+        break;
+    case SceneId::SetupMenu:
+        route = Route::SetupMenu;
         break;
     case SceneId::SetupComplete:
         route = Route::SetupComplete13;
@@ -1551,9 +1696,18 @@ esp_err_t onboarding_service_init()
     return ESP_OK;
 }
 
-// No parameters: reset route ownership without stopping or inventing a radio session.
+// No parameters: cancel gesture recognition without synthesizing an acquired release.
+void cancel_onboarding_touch()
+{
+    s_swipe_active = false;
+    s_activity_touch_pressed = false;
+    cancel_look_touch();
+}
+
+// No parameters: retire routes and their QR state without erasing saved settings.
 void reset_onboarding()
 {
+    s_options_from_setup = false;
     ++s_generation;
     s_presentation_generation.store(s_generation, std::memory_order_release);
     s_route = Route::None;
@@ -1884,9 +2038,24 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         caption_changed = caption_changed || visible != s_view.action_visible_characters;
         preceding += s_view.action.caption.text.length;
     }
+    if (s_view.action_second_line.valid) {
+        const uint16_t visible = scene_content_characters(scene, s_view.action_second_line.text.length, preceding);
+        caption_changed = caption_changed || visible != s_view.action_second_visible;
+        preceding += s_view.action_second_line.text.length;
+    }
     if (s_view.alternative_id != OnboardingAction::None) {
         const uint16_t visible = scene_content_characters(scene, s_view.alternative.caption.text.length, preceding);
         caption_changed = caption_changed || visible != s_view.alternative_visible_characters;
+        preceding += s_view.alternative.caption.text.length;
+    }
+    if (s_view.alternative_second_line.valid) {
+        const uint16_t visible = scene_content_characters(scene, s_view.alternative_second_line.text.length, preceding);
+        caption_changed = caption_changed || visible != s_view.alternative_second_visible;
+        preceding += s_view.alternative_second_line.text.length;
+    }
+    if (s_view.options.caption.valid) {
+        const uint16_t visible = scene_content_characters(scene, s_view.options.caption.text.length, preceding);
+        caption_changed = caption_changed || visible != s_view.options_visible_characters;
     }
     if (caption_changed) {
         const esp_err_t caption_error = attach_content(scene);
@@ -2261,7 +2430,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                 error = set_scene_title(scene, {title, sizeof(title) - 1U});
                 if (error == ESP_OK) {
                     error = prepare_caption(wifi.data_valid && !wifi.data_stale ? "Wi-Fi disconnected" : "UNAVAILABLE",
-                        350, s_view.lines[0]);
+                        300, s_view.lines[0]);
                 }
             }
             if (error == ESP_OK) {
@@ -2284,6 +2453,7 @@ bool point_in_rect(CODY2D::Rect bounds, CODY2D::Point point)
 bool previous_navigation_available()
 {
     return s_route == Route::SetupMenu || s_route == Route::Install06 ||
+        (s_options_from_setup && (s_route == Route::MakeItYours10 || s_route == Route::Settings36)) ||
         (s_view.action_visible && s_view.action_id == OnboardingAction::Cancel);
 }
 
@@ -2300,6 +2470,7 @@ bool next_navigation_available()
 bool previous_control_visible()
 {
     return s_route == Route::SetupMenu ||
+        (s_options_from_setup && (s_route == Route::MakeItYours10 || s_route == Route::Settings36)) ||
         (previous_navigation_available() && s_route != Route::Install06 && !uses_footer_action());
 }
 
@@ -2340,6 +2511,13 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         reset_onboarding();
         return ESP_OK;
     }
+    if (back_hit && s_options_from_setup && s_route == Route::MakeItYours10) {
+        s_options_from_setup = false;
+        return enter_route(Route::SetupMenu, scene);
+    }
+    if (back_hit && s_options_from_setup && s_route == Route::Settings36) {
+        return enter_route(Route::MakeItYours10, scene);
+    }
     if (action_hit && s_route == Route::Invitation05) {
         esp_err_t error = enter_route(Route::Install06, scene);
         if (error == ESP_OK) {
@@ -2360,8 +2538,12 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return enter_route(Route::Settings36, scene);
     }
     if (action_hit && s_route == Route::Settings36) {
-        const SceneId done = kCodexIntegrationEnabled
-            ? SceneId::CodexChoice : SceneId::SetupComplete;
+        SceneId done = SceneId::SetupComplete;
+        if (s_options_from_setup) {
+            done = SceneId::SetupMenu;
+        } else if (kCodexIntegrationEnabled) {
+            done = SceneId::CodexChoice;
+        }
         return enter_look_route(scene, {SceneId::Settings, done});
     }
     if (action_hit && s_route == Route::ConnectCodex12) {
@@ -2508,6 +2690,10 @@ esp_err_t activate_setup_choice(SceneFrame &scene, OnboardingAction action)
         return error;
     }
     ESP_LOGI(kTag, "Setup choice activated: %s", label != nullptr ? label : "None");
+    if (action == OnboardingAction::Options) {
+        s_options_from_setup = true;
+        return enter_route(Route::MakeItYours10, scene);
+    }
     if (action == OnboardingAction::DeclineCodex || action == OnboardingAction::Later) {
         // No persistent refusal and no backend request. Next cold boot may ask again.
         scene = {};
@@ -2608,13 +2794,24 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
             const bool primary_hit = s_view.action_visible && CODY2D::capsule_contains(s_view.action, point);
             const bool alternative_hit = s_view.alternative_id != OnboardingAction::None &&
                 CODY2D::capsule_contains(s_view.alternative, point);
-            if (primary_hit || alternative_hit) {
+            const bool options_hit = s_view.options.caption.valid && CODY2D::capsule_contains(s_view.options, point);
+            if (primary_hit || alternative_hit || options_hit) {
                 consumed = true;
-                const auto &control = primary_hit ? s_view.action : s_view.alternative;
+                const CODY2D::CapsuleControl *control = &s_view.options;
+                OnboardingAction action = OnboardingAction::Options;
+                const char *slot = "options";
+                if (primary_hit) {
+                    control = &s_view.action;
+                    action = s_view.action_id;
+                    slot = "right";
+                } else if (alternative_hit) {
+                    control = &s_view.alternative;
+                    action = s_view.alternative_id;
+                    slot = "left";
+                }
                 ESP_LOGI(kTag, "Setup capsule pressed: x=%d y=%d slot=%s", point.x, point.y,
-                    primary_hit ? "footer" : "upper");
-                return control.enabled ? activate_setup_choice(scene,
-                    primary_hit ? s_view.action_id : s_view.alternative_id) : ESP_OK;
+                    slot);
+                return control->enabled ? activate_setup_choice(scene, action) : ESP_OK;
             }
         }
         const bool footer_hit = uses_footer_action() && s_view.action_visible &&

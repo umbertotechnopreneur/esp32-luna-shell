@@ -33,10 +33,25 @@ The complete bounding box also fits within the circle.
 
 The right navigation slot can host Cody's discreet forward chevron. Its circular
 60-pixel touch target stays separate from the QR and central content. The setup
-journey instead uses a captioned footer capsule: Show QR on 05, Pair Cody on 06,
+journey instead uses an icon-and-caption gradient footer: Show QR on 05, Pair Cody on 06,
 and Cancel on 07. These routes hide the lateral chevrons and their hit targets;
-06 still accepts a previous-route swipe. The footer bounds are (113, 390),
-240 x 40, with every corner inside the occupied circular chord.
+06 still accepts a previous-route swipe. The compact QR footer bounds are (123, 390),
+220 x 44, with every corner inside the occupied circular chord.
+
+The important Cody UI decision approved on 2026-10-09 is recorded in `AGENTS.md`:
+two actions use rounded cards side by side; three add one centered action below;
+one uses a centered wide capsule with icon left of its caption. Dark gradients,
+thin semantic borders and white ASCII captions apply across native setup screens.
+The reference images are in `docs/Cody/ui-proposals/20261009/`.
+The usual single action is (113,352,240,72); QR pages and the tall skin list retain
+the compact (123,390,220,44) variant. Scene content and the lower action have
+separate validated/clipped rectangles, rather than one rectangle borrowing width
+from a wider chord above. Retired-frame damage includes both old and new slots.
+The two card rectangles are (73,260,154,104) and (239,260,154,104), with 28-pixel
+corners. Their last-row extremes have squared distance 42,500 from the center,
+below radius squared 54,289. Options is (153,376,160,52); its extremes have
+squared distance 44,036. The compact footer extremes are 52,100. These are
+static geometry calculations, not simulator or physical touch evidence.
 
 The Cody Debug Screenshot control is hidden and non-interactive. Pause/Play and
 Skeleton retain their stable authored identities but set `visible_by_default`

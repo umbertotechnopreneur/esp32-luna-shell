@@ -19,8 +19,8 @@
 namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_look";
-constexpr uint16_t kBlueTop = 0x765E;
-constexpr uint16_t kBlueBottom = 0x34FC;
+constexpr uint16_t kSelectedTop = 0x034C;
+constexpr uint16_t kSelectedBottom = 0x0105;
 constexpr uint16_t kLookNeutralTop = 0x2946;
 constexpr uint16_t kLookNeutralBottom = 0x18C4;
 constexpr uint16_t kCaptionWidth = 232;
@@ -31,7 +31,7 @@ constexpr uint16_t kLookScrollBarLeft = 343;
 constexpr uint16_t kLookScrollBarWidth = 4;
 constexpr uint16_t kLookDragThreshold = 5;
 constexpr size_t kLookItemCapacity = 8;
-constexpr CODY2D::Rect kDoneBounds{113, 390, 240, 40};
+constexpr CODY2D::Rect kDoneBounds{123, 390, 220, 44};
 
 struct LookItem {
     const char *id = nullptr;
@@ -192,12 +192,22 @@ esp_err_t prepare_done_control(const char *label, bool enabled)
                  esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
-    CODY2D::CapsuleControl prepared{kDoneBounds, {}, kBlueTop, kBlueBottom, enabled};
+    CODY2D::CapsuleControl prepared{kDoneBounds, {}, kSelectedTop, kSelectedBottom, enabled};
+    prepared.border_color = 0x06D9;
+    prepared.icon_color = 0x87FA;
+    prepared.icon = enabled ? CODY2D::ActionIcon::Check : CODY2D::ActionIcon::None;
+    const uint16_t text_left = enabled ? kDoneBounds.x + (kDoneBounds.width - width - 36U) / 2U + 36U : kDoneBounds.x;
+    prepared.icon_center = {static_cast<int16_t>(text_left - 24U), 412};
+    const uint16_t text_width = enabled ? 164 : kDoneBounds.width;
+    if (width > text_width) {
+        ESP_LOGE(kTag, "Look footer icon/caption does not fit (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
     const esp_err_t error = CODY2D::prepare_text_line(font,
         {label, static_cast<uint16_t>(length)},
-        {static_cast<int16_t>(kDoneBounds.x + (kDoneBounds.width - width) / 2U),
+        {static_cast<int16_t>(enabled ? text_left : text_left + (text_width - width) / 2U),
          static_cast<int16_t>(kDoneBounds.y + (kDoneBounds.height - font.height) / 2U)},
-        0x0001, prepared.caption);
+        0xFFFF, prepared.caption);
     if (error == ESP_OK) {
         s_view.done = prepared;
     }
@@ -332,9 +342,10 @@ esp_err_t draw_look_list(const LookView &view, CODY2D::Surface strip,
         row.caption.origin.y = static_cast<int16_t>(row.caption.origin.y - view.look_scroll);
         row.caption.bounds.y = static_cast<uint16_t>(row.caption.bounds.y - view.look_scroll);
         const bool selected = std::strcmp(item.id, view.selected_look_id) == 0;
-        row.top_color = selected ? kBlueTop : kLookNeutralTop;
-        row.bottom_color = selected ? kBlueBottom : kLookNeutralBottom;
-        row.caption.color = selected ? 0x0001 : 0xFFFF;
+        row.top_color = selected ? kSelectedTop : kLookNeutralTop;
+        row.bottom_color = selected ? kSelectedBottom : kLookNeutralBottom;
+        row.border_color = selected ? 0x06D9 : 0x5ACB;
+        row.caption.color = 0xFFFF;
         // Keep full-label centering while the prepared immutable prefix types in.
         const CODY2D::TextLine caption = row.caption;
         row.caption = {};
@@ -428,7 +439,8 @@ esp_err_t attach_look_content(SceneFrame &scene, uint32_t control_revision)
     s_view.status_visible_characters = prefixes.status_characters;
     s_view.hint_visible_characters = prefixes.hint_characters;
     SceneContent content;
-    content.bounds = {113, 226, 353, 430};
+    content.bounds = {113, 226, 353, 386};
+    content.bottom_action_bounds = {123, 390, 343, 434};
     content.state = &s_view;
     content.revision = ++s_revision;
     content.control_revision = control_revision;

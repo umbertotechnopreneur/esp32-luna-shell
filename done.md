@@ -8,6 +8,42 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## Cody action language, Options and touch diagnosis - 2026-10-09
+
+- Completed both requested 90-second captures on COM10: passive current-state
+  `artifacts/logs/cody-ccp-freeze.txt` and explicitly authorized reset/reproduction
+  `artifacts/logs/cody-ccp-freeze-boot.txt`. The latter recorded Yes at 16497 ms,
+  Connect Codex at 16498 ms, then fifteen FF CST9217 bytes / ACK=FF (expected AB)
+  at 17112 ms. ESP_ERR_INVALID_RESPONSE stopped the display worker while LAN/IP
+  was ready. No panic/watchdog reset was observed in that capture. The underlying
+  FF report cause remains open; existing SD timeout is separately unresolved.
+- Implemented the documented optional runtime malformed-acquisition policy:
+  preserve the touch owner's real error and canonical invalid touch/body state;
+  discard queued gestures, cancel hold/swipe/caress, wait for an actual release,
+  and continue display completion. Startup, transport, lock, capacity and route
+  errors remain terminal. No fabricated release, sensor fallback or controller
+  reset. Static review only at this implementation checkpoint.
+- Generated four setup and four single-action ImageGen proposals. User approved
+  the pair of rounded gradient cards with centered Options below, and the single
+  icon-left capsule. Preserved all eight and both approved images in
+  `docs/Cody/ui-proposals/20261009/`, with single-action prompts/tool provenance.
+  Added the continuing two/three/single-action rule to the sole root AGENTS.md.
+- Native onboarding actions now share dark gradients, semantic borders, white
+  labels and typed flash-backed icons; Yes/No and Network/Later are horizontal.
+  Ordinary single actions use 240x72 capsules; QR and the tall skin list use
+  the 220x44 variant. Separate validated content/action slots retain clipping
+  and retired-frame damage without borrowing width from the circle's bottom arc.
+  Options opens 10 / Make it yours, 36 and 11 / skin, then returns to Setup.
+  Back retraces this context. QR/footer separation and existing saved data remain
+  intact. Regenerated scene definitions without modifying the ASCII glyph assets.
+- Appended three pages to each requested PDF: approved UI references and the
+  important decision, Options/touch explanation, final dated Errata and corrections
+  acknowledging the original analysis gaps. Preserved every preceding page content
+  stream and earlier errata. All fifteen added pages were rendered and visually
+  reviewed. Navigation/Planning 34 pages, A5 Quick Start 11, CCP Service 18,
+  Codex Connection 22. No firmware tests/scans/simulator or corrected-device input
+  validation ran for this checkpoint; installation evidence follows separately.
+
 ## Cody setup escape correction - 2026-10-09
 
 - The explicitly authorized 90-second passive COM10 capture completed without

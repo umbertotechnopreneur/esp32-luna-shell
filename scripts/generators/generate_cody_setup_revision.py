@@ -18,11 +18,13 @@ ROOT = Path(__file__).resolve().parents[2]
 REVISION = "09 October 2026"
 REVISION_ID = "CODY-SETUP-20261009"
 RECOVERY_REVISION_ID = "CODY-SETUP-RECOVERY-20261009"
+INTERFACE_REVISION_ID = "CODY-UI-DECISION-20261009"
 
 
 class RevisionKind(str, Enum):
     Startup = "startup"
     Recovery = "recovery"
+    Interface = "interface"
 
 INK = HexColor("#142737")
 MUTED = HexColor("#536776")
@@ -351,6 +353,122 @@ def recovery_errata_page(pdf, dimensions, label, number, original_count, setup_p
     pdf.showPage()
 
 
+# pdf: New revision canvas retaining the source document dimensions.
+# dimensions: Original page width and height.
+# label: Canonical document identity.
+# number: Continued physical page number.
+# Raises OSError for absent approved references and ValueError for layout overflow.
+def interface_page(pdf, dimensions, label, number):
+    width, height = dimensions
+    compact = width < 500
+    margin = 26 if compact else 34
+    heading(pdf, dimensions, label, "Cody action language", number,
+            "IMPORTANT UI DECISION / approved 09 October 2026 / binding for future screens",
+            INTERFACE_REVISION_ID)
+    image_size = 164 if compact else 218
+    image_top = 160
+    gap = (width - 2 * margin - 2 * image_size) / 3
+    images = ROOT / "docs/Cody/ui-proposals/20261009"
+    for offset, name in enumerate(("selected-multi-action.png", "selected-single-action.png")):
+        x = margin + gap + offset * (image_size + gap)
+        pdf.drawImage(str(images / name), x, height - image_top - image_size,
+                      image_size, image_size, preserveAspectRatio=True, mask="auto")
+    top = image_top + image_size + 12
+    size = 9 if compact else 11
+    rows = [
+        ("Layout rule", "Two actions: rounded cards side by side. Three: the same pair plus one centered "
+         "action below. One: a wide centered capsule with its icon left of the label."),
+        ("Shared visual language", "Dark restrained gradients, thin semantic borders, white labels and action "
+         "icons. Teal: affirmative/Codex; blue: network; graphite: No/Later/Options; amber: Retry/Cancel."),
+        ("Circular geometry", "Keep Back separate at the left. Share rendering and touch bounds in every "
+         "orientation. QR pages keep the quiet zone and use the compact single-action variant."),
+    ]
+    for title, body in rows:
+        top = paragraph(pdf, title, margin, top, width - 2 * margin, height, size + 1, True)
+        top = paragraph(pdf, body, margin, top + 2, width - 2 * margin, height, size) + 8
+    pdf.showPage()
+
+
+# pdf: New revision canvas.
+# dimensions: Original page size, including A5.
+# label: Canonical document identity.
+# number: Continued physical page number.
+# Raises ValueError for page overflow.
+def interface_flow_page(pdf, dimensions, label, number):
+    width, height = dimensions
+    compact = width < 500
+    margin = 26 if compact else 34
+    heading(pdf, dimensions, label, "Options and touch continuity", number,
+            "Setup keeps Network setup and Connect Codex distinct. Options opens screen 10.",
+            INTERFACE_REVISION_ID)
+    rows = [
+        ("41 / Setup", "Left card: Connect Codex. Right card: Network setup. Centered third action: Options. "
+         "Options opens 10 / Make it yours, then 36 and 11 / skin. Done returns to Setup; Back retraces this "
+         "local preferences path. No network or Codex association is erased or implicitly started."),
+        ("40 / Connect Codex? and 42 / No connection", "Yes/No and Network setup/Later are side by side, "
+         "with purpose-specific icons and colors. Their existing explicit backend admission stays intact. "
+         "Screen IDs 05-15 and 36 share the action styling where an action is present."),
+        ("Observed freeze / original cause", "An authorized 90-second reset/capture recorded Yes at 16497 ms, "
+         "entry to Connect Codex at 16498 ms, then a CST9217 report with fifteen FF bytes and ACK=FF at "
+         "17112 ms (expected AB). ESP_ERR_INVALID_RESPONSE stopped the renderer. LAN/IP was ready."),
+        ("Scoped runtime correction", "The touch owner still rejects malformed reports and publishes the "
+         "real error. After startup only, that acquisition error is optional for rendering. Discard queued "
+         "gesture reports, cancel the gesture and require a real acquired release before another press. "
+         "No release is invented. Startup, transport, lock and route failures remain terminal."),
+        ("Evidence boundary", "Native source integration and approved mockups are documented here. "
+         "The underlying cause of the FF report and corrected physical touch/standby behavior remain "
+         "unverified. A successful build/flash alone does not establish those outcomes."),
+    ]
+    top = 159
+    size = 8.7 if compact else 11
+    for title, body in rows:
+        top = paragraph(pdf, title, margin, top, width - 2 * margin, height, size + 1, True)
+        top = paragraph(pdf, body, margin, top + 2, width - 2 * margin, height, size) + 10
+    pdf.showPage()
+
+
+# pdf: Revision canvas; this page is always appended last.
+# dimensions: Original document page size.
+# label: Canonical atlas identity.
+# affected: Relevant original page/screen IDs.
+# number: Continued physical page number.
+# original_count: Number of preserved preceding pages, including older errata.
+# Raises ValueError for overflowing dated corrections.
+def interface_errata_page(pdf, dimensions, label, affected, number, original_count):
+    width, height = dimensions
+    margin = 26 if width < 500 else 34
+    heading(pdf, dimensions, label, "Errata and corrections", number,
+            "Revision date: " + REVISION + " / important UI decision and touch correction",
+            INTERFACE_REVISION_ID)
+    rows = [
+        ("Important design decision", "The user approved the two-column pair plus centered third action, "
+         "and the wide single action with icon to the left. These are binding layouts from this revision "
+         "onward. Gradients, icons and semantic colors are required across Cody screens."),
+        ("Affected original material", affected + " Also affected: screens 05-15, 35B, 36 and 40-42. "
+         "Earlier stacked-blue control illustrations are superseded only in their action layout/styling."),
+        ("Original analysis gaps", "The initial analysis omitted Options re-entry and did not distinguish "
+         "an optional malformed runtime touch report from renderer failure. This was a buco di analisi "
+         "iniziale. Options now opens 10 and returns to Setup after preferences/skin."),
+        ("Corrections and limits", "Yes/No become horizontal and semantic. The measured invalid touch "
+         "report retains its original error while rendering continues with interrupted gestures. "
+         "Hardware FF root cause and physical corrected behavior remain open."),
+        ("Preservation", f"All {original_count} preceding pages, earlier errata and unrelated content remain "
+         "unchanged. Approved images are design references, not physical device screenshots."),
+    ]
+    top = 159
+    size = 9 if width < 500 else 11
+    for title, body in rows:
+        top = paragraph(pdf, title, margin, top, width - 2 * margin, height, size + 1, True)
+        top = paragraph(pdf, body, margin, top + 2, width - 2 * margin, height, size) + 11
+    pdf.showPage()
+
+
+# revision: Explicit revision identity; no automatic migration or duplicate append.
+def selected_revision_id(revision):
+    return {RevisionKind.Startup: REVISION_ID, RevisionKind.Recovery: RECOVERY_REVISION_ID,
+            RevisionKind.Interface: INTERFACE_REVISION_ID}[revision]
+
+
 # name: One explicitly requested source PDF filename.
 # label: Canonical atlas label.
 # affected: Original affected page/screen IDs.
@@ -360,7 +478,7 @@ def recovery_errata_page(pdf, dimensions, label, number, original_count, setup_p
 def revise(name, label, affected, staging, revision):
     source = ROOT / "docs/cody" / name
     reader = PdfReader(source)
-    revision_id = RECOVERY_REVISION_ID if revision == RevisionKind.Recovery else REVISION_ID
+    revision_id = selected_revision_id(revision)
     if any(revision_id in (page.extract_text() or "") for page in reader.pages):
         raise ValueError(f"Revision {revision_id} already exists in {name}; do not duplicate it")
     dimensions = tuple(float(value) for value in (reader.pages[0].mediabox.width, reader.pages[0].mediabox.height))
@@ -373,7 +491,12 @@ def revise(name, label, affected, staging, revision):
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=dimensions, pageCompression=1)
     pdf.setAuthor("Umberto Giacobbi")
-    if revision == RevisionKind.Recovery:
+    if revision == RevisionKind.Interface:
+        interface_page(pdf, dimensions, label, original_count + 1)
+        interface_flow_page(pdf, dimensions, label, original_count + 2)
+        interface_errata_page(pdf, dimensions, label, affected, original_count + 3, original_count)
+        added = 2
+    elif revision == RevisionKind.Recovery:
         recovery_page(pdf, dimensions, label, original_count + 1)
         setup_page_number = original_count - (2 if "quickstart" in name else 1)
         recovery_errata_page(pdf, dimensions, label, original_count + 2, original_count, setup_page_number)
@@ -407,7 +530,7 @@ def main(argv=None):
     parser.add_argument("--staging", type=Path)
     args = parser.parse_args(argv)
     revision = RevisionKind(args.revision)
-    revision_id = RECOVERY_REVISION_ID if revision == RevisionKind.Recovery else REVISION_ID
+    revision_id = selected_revision_id(revision)
     staging = (args.staging or ROOT / "artifacts/docs" / revision_id.lower()).resolve()
     if not staging.is_relative_to((ROOT / "artifacts").resolve()):
         raise ValueError("PDF staging must stay under the repository artifacts directory")

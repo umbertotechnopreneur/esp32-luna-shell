@@ -131,6 +131,7 @@ enum class TouchPollStatus : uint8_t {
 struct TouchPollResult {
     TouchPollStatus status;
     esp_err_t error;
+    bool acquisition_failed = false;
 };
 
 // One report per polling band fits here. Preserve every press/release until the frame
@@ -143,12 +144,17 @@ struct PendingTouchReports {
 // point: Receives a real report, retaining its original timestamp and error.
 TouchPollResult read_touch_report(LUNASHELL_touch_point_t &point);
 // reports: Frame-local reports to dispatch after complete frame retirement.
-esp_err_t capture_pending_touch(PendingTouchReports &reports);
+TouchPollResult capture_pending_touch(PendingTouchReports &reports);
+// sample: Failed acquisition result retaining its original sensor error.
+bool optional_runtime_touch_failure(const TouchPollResult &sample);
+// error: Original invalid-report error already published by the acquisition owner.
+void interrupt_touch_gestures(esp_err_t error);
 // reports: Acquired reports in their original order, under the display lock.
 esp_err_t dispatch_pending_touch(const PendingTouchReports &reports);
 
 std::atomic<StartState> s_start_state{StartState::Idle};
 std::atomic<esp_err_t> s_terminal_error{ESP_OK};
+bool s_touch_contact_interrupted = false; // Worker-owned; never a fabricated release.
 struct CompanionResources {
     CODY::RigScene *previous_rig = nullptr;
     bool previous_frame_valid = false;
@@ -2745,10 +2751,15 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             (row + strip_rows >= next_touch_poll_row || row + strip_rows == kPanelHeight)) {
             ++timings.touch_polls;
             next_touch_poll_row = ((row + strip_rows) / kTouchPollRows + 1U) * kTouchPollRows;
-            const esp_err_t touch_error = capture_pending_touch(pending_touch);
-            if (touch_error != ESP_OK) {
-                result = fail_consumer("Touch report during frame", touch_error, true);
-                break;
+            const TouchPollResult touch = capture_pending_touch(pending_touch);
+            if (touch.status == TouchPollStatus::Failed) {
+                if (optional_runtime_touch_failure(touch)) {
+                    pending_touch.count = 0;
+                    interrupt_touch_gestures(touch.error);
+                } else {
+                    result = fail_consumer("Touch report during frame", touch.error, true);
+                    break;
+                }
             }
         }
     }
@@ -3441,6 +3452,16 @@ esp_err_t handle_setup_hold(const LUNASHELL_touch_point_t &point, bool pressed_e
 // Exception: Returns the real route, gesture, snapshot or rendering-state error.
 esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
 {
+    if (s_touch_contact_interrupted) {
+        // A damaged report cannot imply release. Require an actual acquired
+        // release before admitting a fresh press/hold/swipe on any route.
+        if (!point.pressed) {
+            s_touch_contact_interrupted = false;
+            s_state.touch_pressed = false;
+            s_state.setup_hold_opened = false;
+        }
+        return ESP_OK;
+    }
     const bool pressed_edge = point.pressed && !s_state.touch_pressed;
     if (pressed_edge && s_typewriter_audio_prepared && s_state.boot_phase == BootPhase::Ready &&
         LUNASHELL_display_runtime_writes_allowed()) {
@@ -3618,6 +3639,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
 }
 
 // point: Receives a real report, retaining its original timestamp and error.
+// Exception: Returns lock/acquisition failure distinctly from an absent report.
 TouchPollResult read_touch_report(LUNASHELL_touch_point_t &point)
 {
     const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
@@ -3632,29 +3654,54 @@ TouchPollResult read_touch_report(LUNASHELL_touch_point_t &point)
     }
     if (sample_error != ESP_OK || !point.valid) {
         return {TouchPollStatus::Failed,
-                sample_error != ESP_OK ? sample_error : ESP_ERR_INVALID_RESPONSE};
+                sample_error != ESP_OK ? sample_error : ESP_ERR_INVALID_RESPONSE, true};
     }
     return {TouchPollStatus::Reported, ESP_OK};
 }
 
 // reports: Frame-local reports to dispatch after complete frame retirement.
-esp_err_t capture_pending_touch(PendingTouchReports &reports)
+// Exception: Returns the original acquisition or capacity error as a failed result.
+TouchPollResult capture_pending_touch(PendingTouchReports &reports)
 {
     LUNASHELL_touch_point_t point{};
     const TouchPollResult sample = read_touch_report(point);
     if (sample.status == TouchPollStatus::NoReport) {
-        return ESP_OK; // No read took place; no measurement was published.
+        return sample; // No read took place; no measurement was published.
     }
     if (sample.status == TouchPollStatus::Failed) {
-        return sample.error;
+        return sample;
     }
     if (reports.count >= sizeof(reports.samples) / sizeof(reports.samples[0])) {
         ESP_LOGE(kTag, "Frame touch report capacity exhausted (%s)",
                  esp_err_to_name(ESP_ERR_INVALID_SIZE));
-        return ESP_ERR_INVALID_SIZE;
+        return {TouchPollStatus::Failed, ESP_ERR_INVALID_SIZE};
     }
     reports.samples[reports.count++] = point;
-    return ESP_OK;
+    return sample;
+}
+
+// sample: Structured result whose provenance distinguishes acquisition from routing.
+bool optional_runtime_touch_failure(const TouchPollResult &sample)
+{
+    // Only a malformed measured report is optional after startup. Transport,
+    // locks, publication/routing and startup failures retain terminal policy.
+    return sample.status == TouchPollStatus::Failed && sample.acquisition_failed &&
+        sample.error == ESP_ERR_INVALID_RESPONSE &&
+        s_start_state.load(std::memory_order_acquire) == StartState::Running;
+}
+
+// error: Real rejected report error, preserved by ui.touch and character_touch.
+void interrupt_touch_gestures(esp_err_t error)
+{
+    s_touch_contact_interrupted = true;
+    s_state.setup_hold_candidate = false;
+    s_state.setup_hold_eligible = false;
+    s_state.navigation_touch_active = false;
+    s_state.body_drag_active = false;
+    CODY::cancel_petting(s_state.petting);
+    CODY::cancel_onboarding_touch();
+    ESP_LOGW(kTag, "Optional runtime touch report rejected; gestures interrupted, renderer continues (%s)",
+        esp_err_to_name(error));
 }
 
 // reports: Acquired reports in their original order, under the display lock.
@@ -3669,7 +3716,8 @@ esp_err_t dispatch_pending_touch(const PendingTouchReports &reports)
     return ESP_OK;
 }
 
-// Poll the hardware owner once; no report is distinct from a failed hardware read.
+// No parameters: poll the sole hardware owner once and dispatch only valid reports.
+// Exception: Returns acquisition and route failures with distinct provenance.
 TouchPollResult sample_touch()
 {
     const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
@@ -3750,8 +3798,12 @@ void companion_worker(void *context)
         }
         const TouchPollResult touch = sample_touch();
         if (touch.status == TouchPollStatus::Failed) {
-            fail_consumer("Touch sample", touch.error, true);
-            break;
+            if (optional_runtime_touch_failure(touch)) {
+                interrupt_touch_gestures(touch.error);
+            } else {
+                fail_consumer("Touch sample", touch.error, true);
+                break;
+            }
         }
         const esp_err_t scene_error = apply_scene_requests();
         if (scene_error != ESP_OK) {

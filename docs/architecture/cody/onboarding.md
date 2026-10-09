@@ -42,7 +42,7 @@ admitted during movement/wait.
 
 06 is white, hides its heading, places Cody's worried face at `(233,94,58)` and shows an
 installation QR of 240×240 at `(113,140)`. Scale 58 is smaller than 05's final 65.
-05/06 use Show QR / Pair Cody blue footers at `(113,390,240,40)` and neither draws
+05/06 use Show QR / Pair Cody semantic gradient footers at `(123,390,220,44)` and neither draws
 nor hit-tests lateral controls. The inherited installation payload is
 `https://play.google.com/store/apps/details?id=com.espressif.provble`; it is not a
 credential and does not start BLE.
@@ -201,7 +201,7 @@ and applied between frames without reopening that view.
 
 `LookNavigationContext` supplies caller/Done destinations; there is no inferred
 numeric navigation stack. During first setup screen 11 exposes no Back control.
-Its 240×40 Done footer is initially disabled even though Pearl Mist is visibly
+Its 220×44 Done footer is initially disabled even though Pearl Mist is visibly
 selected. Tapping any row is mandatory; tapping the already selected row counts as
 explicit confirmation, while a different row enables Done only after its save
 succeeds. Screens 36 and 11 keep reusable entry points for later personalization.
@@ -327,13 +327,48 @@ After standby, an already-held finger starts its 1.5-second clock at the first
 fresh acquired sample with the restored visible character. Sleep/wake resets
 the candidate, so hidden time does not count. Movement, gaps and rotation still
 cancel it. The opening contact must release before a choice can activate.
-The menu's upper Connect Codex capsule starts 12; the lower Network setup capsule
-starts 04-09. Logs now record the chosen capsule coordinates and named action,
+The menu's left Connect Codex card starts 12; the right Network setup card
+starts 04-09. Logs now record the chosen control coordinates and named action,
 without recording QR payloads or CCP codes. Cleanup blocks both actions.
 
 This correction has static source review only until a new image is installed.
 Its physical hold/selection behavior remains pending; the earlier capture does
 not validate the corrected firmware.
+
+### Important UI decision and Options - 2026-10-09
+
+The user approved the two side-by-side gradient cards plus one centered third
+action, and a single wide capsule with icon left of its text. `AGENTS.md` owns
+this continuing layout rule. Approved mockups and all eight ImageGen proposals
+are retained in `docs/Cody/ui-proposals/20261009/`; they are design references.
+Yes/No (40) and Network setup/Later (42) use the horizontal pair. Setup (41)
+adds Options below. Native actions on 05-15 and 36, where present, share dark
+gradients, thin semantic borders, white labels and typed action icons. Teal
+means affirmative/Codex, blue means network, graphite means No/Later/Options,
+amber means Retry/Cancel. QR quiet zones retain their compact footer variant.
+
+Options enters 10 / Make it yours, then 36 and 11 / skin. Its host context sends
+Done back to 41, rather than offering a new Codex association. Left Back from
+10 returns to Setup; Back from 36 returns to 10. Entering Setup retires that
+local context, so it cannot affect a later network onboarding journey. Opening
+Options itself changes no persisted key and admits no network or CCP request.
+
+An explicitly authorized 90-second reset/capture reproduced the freeze on
+`669a33e9`: Yes at 16497 ms, Connect Codex at 16498 ms, then CST9217 ACK=FF
+(expected AB) with fifteen FF report bytes at 17112 ms. The original
+ESP_ERR_INVALID_RESPONSE stopped the renderer. LAN/IP was already ready.
+The old fail-fast renderer policy, not an observed Internet probe, caused the
+frozen image. The physical/protocol cause of the FF report remains unresolved.
+
+After startup only, a malformed acquired touch report is now a documented
+optional input failure for rendering. Its owner still returns the real error;
+`ui.touch` and `character_touch` retain invalid/error state and prior good data.
+Queued reports are discarded, gesture recognition is cancelled, and input waits
+for a real acquired release before another press. No synthetic release, sensor
+retry-success substitution or implicit controller reset is introduced. Startup,
+transport, lock, capacity and route errors retain terminal policy. This isolates
+the measured input fault from display frame completion and standby quiescence;
+corrected physical behavior still needs observation.
 
 Draw/hit-test geometry uses the shared 466×466 circle and 320×320 safe square.
 Released horizontal swipes inside the safe square invoke the same typed actions:

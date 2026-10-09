@@ -957,6 +957,9 @@ void DeviceSnapshotService::reportTouch(bool ready, esp_err_t error)
                     effective_error,
                     attempted_at_us
                 );
+                // The acquisition failure interrupts any body gesture without
+                // inventing coordinates or release. Retain its last good sample.
+                mark_sample_failure(snapshot.character_touch, effective_error, attempted_at_us);
             }
         }
     );

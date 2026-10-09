@@ -4,12 +4,19 @@
 
 namespace CODY2D {
 
+enum class ActionIcon : uint8_t { None, Link, Wifi, Gear, Check, Close, Arrow, Qr, Retry };
+
 struct CapsuleControl {
     Rect bounds{};
     TextLine caption{};
     uint16_t top_color = 0;
     uint16_t bottom_color = 0;
     bool enabled = true;
+    uint16_t corner_radius = 0; // Zero retains the full capsule radius.
+    uint16_t border_color = 0;
+    ActionIcon icon = ActionIcon::None;
+    Point icon_center{};
+    uint16_t icon_color = 0xFFFF;
 };
 
 // control: Immutable logical bounds, palette role and optional prepared caption.
