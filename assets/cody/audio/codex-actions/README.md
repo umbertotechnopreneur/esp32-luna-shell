@@ -49,6 +49,17 @@ a deliberately suppressed, expired or busy-dropped cue must not delay activity
 presentation or replay later. Reading is prepared as an asset only until its
 event can be observed reliably.
 
+`CODY_codex_audio.hpp` provides `notify_codex_audio`, `set_codex_audio_suspended`,
+`set_codex_audio_enabled` and `get_codex_audio_status`. The existing optional
+owner handles these cues through one shared mailbox; `Dispatched` is admission,
+not completion. Codex activity requests are limited to one start every 1.5
+seconds. Other notices skip that limit but do not interrupt an in-flight sound.
+Codex presentation starts suspended and has a cancellation generation separate
+from personality-symbol visibility. Volume zero, quiet hours, global sound
+policy and standby still apply. Real failures remain in the owner's status and
+canonical snapshot. An outcome from another channel has `cue: None` in the
+Codex view; observers must correlate cue and request sequence.
+
 ## Rights and review
 
 The owner confirmed perpetual commercial-use source licences on 2026-10-04 and

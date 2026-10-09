@@ -529,6 +529,28 @@ esp_err_t LUNASHELL_audio_set_personality_suspended(bool suspended);
 // Exception: Returns the retained original asynchronous or preparation failure.
 esp_err_t LUNASHELL_audio_get_personality_status(lunashell_audio_cue_status_t *status);
 
+typedef enum {
+    LUNASHELL_CODEX_CUE_ACTIVITY = 0,
+    LUNASHELL_CODEX_CUE_NOTICE = 1,
+} lunashell_codex_audio_kind_t;
+
+// samples: Immutable flash-owned PCM retained through asynchronous playback.
+// sample_count: Exact mono sample count, bounded to 5600 (350 ms at 16 kHz).
+// sample_rate_hz: Exact authored rate, 16000 Hz.
+// cue_id: Stable application identity in the reserved Codex namespace.
+// kind: Activity is rate-limited; notices skip that limit but never interrupt current playback.
+// status: Receives dispatch/drop/suppression; one shared worker has no replay queue.
+// Exception: Returns and publishes original argument, preparation or asynchronous failures.
+esp_err_t LUNASHELL_audio_notify_codex(const int16_t *samples, size_t sample_count,
+    uint32_t sample_rate_hz, uint32_t cue_id, lunashell_codex_audio_kind_t kind,
+    lunashell_audio_cue_status_t *status);
+// suspended: Cancels Codex cues when their presentation hides, independently of personality symbols.
+// Exception: Returns the original retained owner failure.
+esp_err_t LUNASHELL_audio_set_codex_suspended(bool suspended);
+// enabled: Explicit session sound preference; does not override the immutable global sound policy.
+// Exception: Returns the original retained owner failure.
+esp_err_t LUNASHELL_audio_set_codex_enabled(bool enabled);
+
 /** Capture mono signed PCM16 when the selected board exposes one microphone. */
 esp_err_t LUNASHELL_audio_capture_pcm16(
     int16_t *samples,

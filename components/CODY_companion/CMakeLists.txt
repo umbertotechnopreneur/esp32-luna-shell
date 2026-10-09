@@ -22,7 +22,9 @@ idf_component_register(
         "src/runtime/CODY_settings.cpp"
         "src/runtime/CODY_capture_sound.cpp"
         "src/runtime/CODY_personality_audio.cpp"
+        "src/runtime/CODY_codex_audio.cpp"
         "../../assets/cody/personality-icons/audio/personality_audio.cpp"
+        "../../assets/cody/audio/codex-actions/generated/codex_audio_assets.cpp"
         "src/scenes/CODY_typewriter_audio.cpp"
         "src/diagnostics/CODY_screenshot.cpp"
         "src/diagnostics/CODY_status_overlay.cpp"
@@ -51,6 +53,7 @@ idf_component_register(
         ${cody_jelly_sources}
         ${cody_onboarding_sources}
     INCLUDE_DIRS "include" "../../assets/cody/personality/generated"
+        "../../assets/cody/audio/codex-actions/generated"
     PRIV_INCLUDE_DIRS "../../assets/cody/boot/generated" "../../assets/cody/rig/generated" "../../assets/cody/runtime/generated"
         "../../assets/cody/scenes/generated"
         "../../assets/cody/appearance/jelly-scanline/generated"

@@ -62,7 +62,14 @@ void copy_status(const lunashell_audio_cue_status_t &source, PersonalityAudioSta
     destination.last_error = source.last_error;
     destination.request_sequence = source.request_sequence;
     const bool idle_whistle = source.cue_id == static_cast<uint32_t>(IdleSceneId::Whistle);
-    destination.cue = idle_whistle ? PersonalityCue::None : static_cast<PersonalityCue>(source.cue_id);
+    destination.cue = PersonalityCue::None;
+    // The same owner also plays Codex notices; never cast their namespace to a symbol identity.
+    for (const auto &clip : PersonalityAudioAssets::clips) {
+        if (source.cue_id == static_cast<uint32_t>(clip.cue)) {
+            destination.cue = clip.cue;
+            break;
+        }
+    }
     destination.idle_scene = idle_whistle ? IdleSceneId::Whistle : IdleSceneId::None;
 }
 } // namespace

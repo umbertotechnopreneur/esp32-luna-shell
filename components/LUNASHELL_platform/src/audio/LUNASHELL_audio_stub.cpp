@@ -184,3 +184,48 @@ extern "C" esp_err_t LUNASHELL_audio_set_personality_suspended(bool suspended)
     ESP_LOGE("LUNASHELL_audio", "Personality suspension unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
     return ESP_ERR_NOT_SUPPORTED;
 }
+
+// samples: Immutable requested cue on a build without audio output.
+// sample_count: Exact authored mono sample count.
+// sample_rate_hz: Authored PCM clock.
+// cue_id: Stable rejected Codex identity.
+// kind: Requested activity/notice admission class.
+// status: Receives actual unavailable status.
+// Exception: Returns selected-route unavailability or an invalid output pointer.
+extern "C" esp_err_t LUNASHELL_audio_notify_codex(const int16_t *samples, size_t sample_count,
+    uint32_t sample_rate_hz, uint32_t cue_id, lunashell_codex_audio_kind_t kind,
+    lunashell_audio_cue_status_t *status)
+{
+    (void)samples;
+    (void)sample_count;
+    (void)kind;
+    const esp_err_t error = LUNASHELL_audio_get_personality_status(status);
+    if (status != nullptr) {
+        status->cue_id = cue_id;
+    }
+    ESP_LOGE("LUNASHELL_audio", "Codex dispatch unavailable (%s)", esp_err_to_name(error));
+    const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
+        false, 0, sample_rate_hz, 0, error, cue_id);
+    if (publication_error != ESP_OK) {
+        ESP_LOGE("LUNASHELL_audio", "Codex failure publication failed (%s)", esp_err_to_name(publication_error));
+    }
+    return error;
+}
+
+// suspended: Requested presentation gate on a build without an audio owner.
+// Exception: Returns the selected-route error.
+extern "C" esp_err_t LUNASHELL_audio_set_codex_suspended(bool suspended)
+{
+    (void)suspended;
+    ESP_LOGE("LUNASHELL_audio", "Codex suspension unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// enabled: Requested sound preference on a build without an audio owner.
+// Exception: Returns the selected-route error.
+extern "C" esp_err_t LUNASHELL_audio_set_codex_enabled(bool enabled)
+{
+    (void)enabled;
+    ESP_LOGE("LUNASHELL_audio", "Codex audio preference unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}

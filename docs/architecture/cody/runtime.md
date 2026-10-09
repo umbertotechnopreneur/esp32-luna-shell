@@ -137,15 +137,14 @@ already-true `changed` flag and does not attach mutable state on every tile.
 
 ## Optional audio
 
-Boot cues start with original procedural `audio-ready` (0.18 s) and `eyes-open`
-chime (1.3 s), authored in `assets/cody/runtime.yaml` and stored in flash. The explicit
-`audio.eyes_open_hello` selector currently appends `cody-hello-murmur`: 100 ms of
-silence and a 650-ms private vocal, for about 2.05 seconds / 90,412 bytes in the
-same eyes-open PCM asset. Other catalog voices and `none` (chime only) remain
-available; invalid identity, missing source or source/rendered hash mismatch fails
-preparation rather than substituting a sound. Only the selected voice is embedded.
-See [boot greeting authoring](../../../assets/cody/audio/boot-hello/README.md) for
-the ffmpeg recipe and owner-confirmed perpetual commercial-use licence provenance.
+Boot cues start with original procedural `audio-ready` (0.18 s), followed by the
+explicit `audio.eyes_open_cue: boot-rise` in `assets/cody/runtime.yaml`. BootRise
+is a 1.8-second rising chime: 79,380 mono PCM16 bytes at 22,050 Hz. On 2026-10-10
+this replaced the earlier chime-plus-murmur greeting; historical vocal auditions
+remain separate and are not embedded. Source/rendered hash mismatch or stale
+authoring fails preparation rather than selecting another sound.
+See [boot and Codex action authoring](../../../assets/cody/audio/codex-actions/README.md)
+for transformations and owner-confirmed commercial-use licence provenance.
 Preparation validates the
 flash PCM; completed boot requires a verified canonical clock before applying
 the quiet-hours policy. An unavailable/stale clock admits one pending boot request,
@@ -161,6 +160,21 @@ The base assets use 22,050 Hz and authored volume 100; the
 optional voice-AFE feature has its separate matched-rate configuration. Shared
 transport configuration is authoritative: a conflicting generic playback rate
 returns the real error rather than reconfiguring an open microphone unnoticed.
+
+`CODY_codex_audio.hpp` selects ten typed Codex action cues from 90,240 bytes of
+immutable mono 16 kHz PCM. Each lasts 210--350 ms, within the existing owner
+limit. The same optional personality-audio worker and one-slot mailbox own
+playback; there is no new worker, I2S owner or event replay queue. Independent
+channel generations cancel hidden Codex presentation and hidden personality
+symbols without cancelling each other; standby invalidates both. Codex starts
+suspended and its presenter enables only visible companion transitions.
+Working/Reading/Editing/Running requests have a 1.5-second activity rate limit.
+Other notices skip that limit but never preempt a cue already in flight.
+Busy, expired, disabled and quiet-hours dispositions remain explicit, while
+actual failures return their original error and publish through the canonical
+snapshot. `Dispatched` does not mean playback completed. A response-ready cue
+means the assistant finished its response, without asserting task success.
+The reserved Reading asset requires an actual observed event before use.
 
 The optional keyboard microclick is an original rounded noise impulse: 320 mono
 PCM16 samples at 16 kHz / 20 ms, 640 flash bytes. Completed-frame character deltas
