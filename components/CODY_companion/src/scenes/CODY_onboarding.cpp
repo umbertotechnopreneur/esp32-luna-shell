@@ -819,8 +819,10 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
     second = {};
     style_action(action, control);
     control.corner_radius = card ? 28 : 0;
+    // Lower the icon optically, reserving more bottom padding in short footers.
+    const uint16_t icon_drop = card ? 10U : bounds.height >= 72U ? 6U : 4U;
     control.icon_center = {static_cast<int16_t>(card ? bounds.x + bounds.width / 2U : bounds.x + 27U),
-        static_cast<int16_t>((card ? bounds.y + 23U : bounds.y + bounds.height / 2U) + 10U)};
+        static_cast<int16_t>((card ? bounds.y + 23U : bounds.y + bounds.height / 2U) + icon_drop)};
     if (label == nullptr) {
         control.icon = CODY2D::ActionIcon::None;
         return ESP_OK;

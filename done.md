@@ -15,8 +15,9 @@ flash logs were regenerated.
   masks, concentric two-pixel antialiased borders and per-row gradient weights.
   Current static controls share immutable flash masks without per-frame sampling,
   allocation or a full framebuffer. Existing text coverage, tile byte order,
-  stride, rotation ownership and hit bounds are retained. Action icons move down
-  exactly ten logical pixels; two-line card captions move down four pixels to
+  stride, rotation ownership and hit bounds are retained. The user's ten-pixel
+  suggestion is an optical indication: card icons move down ten pixels, ordinary
+  capsule icons six and compact/Options icons four. Two-line captions move down four pixels to
   preserve separation. Compact footer icons remain inside y=[390,434).
   Static source review only so far; build/install and physical rendering pending.
 

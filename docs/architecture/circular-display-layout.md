@@ -53,8 +53,9 @@ below radius squared 54,289. Options is (153,376,160,52); its extremes have
 squared distance 44,036. The compact footer extremes are 52,100. These are
 static geometry calculations, not simulator or physical touch evidence.
 
-On 2026-10-09 the user also requested antialiasing and action icons ten logical
-pixels lower. Native controls use compile-time 4x4 coverage masks for the current
+On 2026-10-09 the user also requested antialiasing and lower action icons, using
+ten pixels as a visual indication rather than a fixed requirement. Native
+controls use compile-time 4x4 coverage masks for the current
 outer/inner corner radii and 24x24 semantic icons. Masks are immutable flash data,
 shared across controls; no per-frame supersampling or heap cache is needed for
 the current layouts. RGB565 compositing respects the borrowed tile's byte order,
@@ -66,8 +67,8 @@ Hit testing retains the original pixel-center geometry and full touch bounds.
 
 Card icons now center at y=293, with their 24-pixel extent ending before y=305;
 two-line captions begin at y=308 and y=335 and end before y=360. Ordinary single
-icons center at y=398, Options at y=412 and compact QR/skin footer icons at y=422,
-ending at the original footer's exclusive bottom y=434. Icon coverage is clipped
+icons center at y=394 (+6), Options at y=406 (+4) and compact QR/skin footer icons
+at y=416 (+4), ending at y=428 with six pixels of bottom padding. Icon coverage is clipped
 to the rounded control, while all authored control/content rectangles remain
 unchanged. These are source geometry statements; physical appearance is pending.
 
