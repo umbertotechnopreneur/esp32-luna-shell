@@ -10,6 +10,16 @@ flash logs were regenerated.
 
 ## Cody action language, Options and touch diagnosis - 2026-10-09
 
+- The presentation/standby follow-up is installed at `84e95216`, firmware version
+  `cody-16-g84e95216`: the authorized eight-job Debug wake-word build and COM10 flash
+  succeeded, with four verified image hashes and final RTS reset. Application
+  bytes: 6,714,640. Source definitions were regenerated through
+  `scripts/device.ps1 generate -Generator cody-scenes -ToolArguments --definitions-only`;
+  glyph assets were unchanged. Build/flash log: `artifacts/logs/flash.log`.
+  Mandatory pre-flash transient cleanup removed the raw successful-generation
+  capture after its decisive timestamps/results were retained below. No fresh
+  capture/test was run for the larger code, wait message or three-minute override;
+  their physical appearance and timed standby remain open.
 - On 2026-10-10, `3458237e` / `cody-15-g3458237e` built and flashed on COM10:
   6,714,112-byte application, four verified image hashes and final RTS reset.
   The explicitly authorized 90-second reset/capture completed with exit 0:
@@ -25,8 +35,8 @@ flash logs were regenerated.
   font instead of the 25-pixel body font, cyan and centered at y=338 (height 40,
   width 109). It appears whole after the instruction and contributes no typewriter
   audio/count. These bounds remain within the content slot and safe square.
-  Static review completed; current presentation build/flash and physical review
-  remain pending. No new tests or capture were run for this follow-up.
+  Static review and build/flash completed as recorded above; physical review
+  remains pending. No new tests or capture were run for this follow-up.
 - Screen 12 now declares a 180-second standby override. Canonical successful code
   delivery refreshes it once, preserving three minutes from code-ready presentation
   without fabricated touch events, preference writes or a changed CCP expiry.

@@ -25,7 +25,8 @@ progress value or deadline guarantee. When ready, Enter code in Codex precedes
 the complete six-character cyan code in the existing 40-pixel title font.
 The code is centered at y=338 with 109x40 bounds within the existing content
 slot and safe square; it contributes no typewriter audio/count. This presentation
-follow-up is source-reviewed; installation and physical appearance remain pending.
+follow-up is source-reviewed, built and installed at `84e95216` on COM10;
+physical appearance remains pending.
 Its authored `standby_override_seconds` is 180. Successful canonical code-copy
 delivery refreshes the scene override once, giving three minutes from code-ready
 presentation instead of subtracting preparation time. Touch still extends that

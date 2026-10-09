@@ -2,12 +2,13 @@
 
 ## Cody startup and setup access - 2026-10-09
 
-Latest installed Cody image: `3458237e`, `cody-15-g3458237e`, Debug wake-word/Sophia,
-eight-job build and COM10 flash successful. The authorized 90-second capture
+Latest installed Cody image: `84e95216`, `cody-16-g84e95216`, Debug wake-word/Sophia,
+eight-job build and COM10 flash successful. The authorized 90-second capture on
+the preceding `3458237e` image
 completed the 50,000-iteration verifier in 27.790323 seconds with ESP_OK and no
 watchdog/reset or frame-stop error observed. User confirmed the code appears,
 but is too small. The larger complete code and explicit waiting estimate below
-are implemented; their installation and physical appearance remain pending.
+are installed; their physical appearance and timed standby remain pending.
 
 - [ ] Review the requested antialiased borders/icons and optically lower action
   icons on the display, including two-line card captions and compact QR/skin
@@ -37,8 +38,8 @@ are implemented; their installation and physical appearance remain pending.
   canonical code is copied into the view. Preparation does not subtract from
   those three minutes; ordinary touch/departure rules remain. Timed behavior
   has not been physically verified.
-  Current presentation follow-up installation/physical review and PC verifier
-  interoperability remain pending.
+  The presentation follow-up built/flashed successfully at `84e95216`;
+  physical review, timed standby and PC verifier interoperability remain pending.
   The initial passive capture lacked the press. A subsequent explicitly authorized
   90-second reset/capture recorded Yes -> Connect Codex, then fifteen FF touch
   bytes / invalid ACK stopping rendering. The Welcome escape and scoped malformed
