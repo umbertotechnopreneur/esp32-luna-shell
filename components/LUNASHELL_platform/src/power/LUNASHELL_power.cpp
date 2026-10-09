@@ -843,7 +843,7 @@ esp_err_t set_standalone_wireless_standby(bool standby)
         }
         const auto &link = observation.radios.codex_link;
         if (link.data_valid && !link.data_stale && link.retained_link_present &&
-            !link.pairing_repair_required) {
+            !link.pairing_repair_required && observation.radios.wifi.started) {
             s_standby_retains_codex_wireless = true;
             ESP_LOGI(kTag, "Cody standby retains wireless services for authenticated CCP notifications");
             return ESP_OK;
@@ -988,16 +988,22 @@ esp_err_t transition_display_resource(bool target)
     return error;
 }
 
-// Apply one optional resource transition while retaining its exact error.
+// component: Diagnostic name of the optional resource owner.
+// target: Whether the resource should apply its standby policy.
+// status: Last confirmed transition state, retained while the owner evaluates policy.
+// transition: Owner operation returning its real transition error.
+// reassert: Call the owner even if its cached applied state already matches.
+// Exception: Returns the original transition error; only unused build-off owners are optional.
 esp_err_t transition_standby_resource(
     const char *component,
     bool target,
     StandbyResourceStatus &status,
-    StandbyTransition transition
+    StandbyTransition transition,
+    bool reassert = false
 )
 {
     if (status.unsupported ||
-        (status.consistent && status.applied == target)) {
+        (!reassert && status.consistent && status.applied == target)) {
         return ESP_OK;
     }
     const esp_err_t error = transition(target);
@@ -1188,11 +1194,15 @@ esp_err_t suspend_standby_resources(bool best_effort)
     }
 #elif CONFIG_LUNASHELL_BUILD_ENABLE_WIFI || CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
     if (best_effort || first_error == ESP_OK) {
-        // Pairing can restart radios after a degraded wake. Reassert the stop
-        // through their owner rather than trusting the previous power cache.
-        s_standby_resources.wireless.consistent = false;
-        step("Standalone wireless services", s_standby_resources.wireless,
-             set_standalone_wireless_standby);
+        // Pairing can restart radios after a degraded wake. Always ask the owner
+        // to apply standby, preserving the real consistency state so healthy
+        // retained CCP links can keep listening and partial failures still close.
+        const esp_err_t radio_error = transition_standby_resource(
+            "Standalone wireless services", true, s_standby_resources.wireless,
+            set_standalone_wireless_standby, true);
+        if (first_error == ESP_OK && radio_error != ESP_OK) {
+            first_error = radio_error;
+        }
     }
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
