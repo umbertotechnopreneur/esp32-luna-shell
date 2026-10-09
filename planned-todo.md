@@ -37,9 +37,9 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
   [RTC](docs/architecture/cody/clock.md).
   Begin exploration with one-time reminders, countdown, snooze and a daily
   overview; named lists, quick notes and recurrence are later candidates.
-- [ ] Build the post-CCP1 companion session/event transport for context/status/
-  messages and confirmed responses; authenticated commissioning/liveness and
-  diagnostics HTTP are not that transport. Add push-to-talk, PC transcription/
+- [ ] Extend the active CCP chat/activity milestone with messages and confirmed
+  responses; activity transport and diagnostics HTTP do not implement replies.
+  Add push-to-talk, PC transcription/
   confirmation/session targeting and precomputed cues; credentials stay on the PC.
   Explore one configured AI destination, draft preview, append/start-again and
   explicit Send/Cancel first. Wake word and multiple destinations follow the
