@@ -15,6 +15,8 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "plugins/cody-codex-plugin/mcp"))
 import ccp_server as ccp
+import ccp_activity as activity
+import ccp_runtime as runtime
 
 
 class CcpContractTests(unittest.TestCase):
@@ -198,6 +200,153 @@ class CcpContractTests(unittest.TestCase):
             wiring = json.loads((plugin_root / wiring_path).read_text(encoding="utf-8"))["mcpServers"]["ccp"]
             self.assertEqual(wiring["cwd"], "${PLUGIN_ROOT}")
             self.assertEqual(wiring["args"], ["-B", "${PLUGIN_ROOT}/mcp/ccp_server.py", "--stdio"])
+
+
+class ChatActivityTests(unittest.TestCase):
+    # self: Pure host fixture with no Codex, sockets, protected state or physical device.
+    def setUp(self) -> None:
+        self.store = activity.ActivityStore()
+        self.event_time = 0
+
+    # self: In-memory activity fixture.
+    # name: Genuine-hook schema event represented synthetically for this host test.
+    # session: Opaque chat identity.
+    # turn: Opaque turn identity.
+    # fields: Additional allowlisted tool metadata.
+    # Raises ValueError when the tested owner rejects the event.
+    def observe(self, name, session="chat-a", turn="turn-a", **fields) -> None:
+        self.event_time += 1
+        with patch.object(activity.time, "monotonic_ns", return_value=1_000_000):
+            self.store.observe({"hook_event_name": name, "session_id": session,
+                                "cwd": "E:/synthetic-project", "turn_id": turn,
+                                "emitted_ns": self.event_time, **fields})
+
+    # self: Multiple chats and one explicit device selection.
+    # Raises AssertionError if another chat changes the selected device state.
+    def test_selection_is_explicit_and_isolated(self) -> None:
+        self.observe("SessionStart")
+        self.observe("SessionStart", session="chat-b")
+        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "none")
+        self.store.bind("abcdef012345", "chat-a", "Project A")
+        self.observe("UserPromptSubmit", session="chat-b")
+        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "active")
+        self.observe("UserPromptSubmit")
+        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "working")
+
+    # self: Two consecutive turns in the same selected chat.
+    # Raises AssertionError if a late previous-turn Stop completes a newer turn.
+    def test_old_turn_completion_cannot_finish_current_turn(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.store.bind("abcdef012345", "chat-a", "Project")
+        self.observe("UserPromptSubmit", turn="turn-b")
+        with self.assertRaisesRegex(ValueError, "turn does not match"):
+            self.observe("Stop")
+        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "working")
+
+    # self: Selected active turn with a synthetic monotonic lease.
+    # Raises AssertionError if a PC heartbeat or wall time keeps activity current.
+    def test_active_observation_expires_without_inventing_success(self) -> None:
+        with patch.object(activity.time, "monotonic", return_value=100.0):
+            self.observe("UserPromptSubmit")
+            self.store.bind("abcdef012345", "chat-a", "Project")
+        with patch.object(activity.time, "monotonic", return_value=221.0):
+            self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "unavailable")
+        self.observe("Stop")
+        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "ready")
+
+    # self: Concurrent command/edit operations on one turn.
+    # Raises AssertionError if finishing one operation erases another live operation.
+    def test_concurrent_tools_retain_identity(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.store.bind("abcdef012345", "chat-a", "Project")
+        self.observe("PreToolUse", tool_use_id="tool-command", tool_name="Bash")
+        self.observe("PreToolUse", tool_use_id="tool-edit", tool_name="apply_patch")
+        self.observe("PostToolUse", tool_use_id="tool-edit")
+        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "running")
+        self.observe("Interrupt")
+        self.observe("PostToolUse", tool_use_id="tool-command")
+        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "paused")
+        with self.assertRaisesRegex(ValueError, "Interrupted turn"):
+            self.observe("Stop")
+
+    # self: Existing project binding with malformed replacement metadata.
+    # Raises AssertionError if rejected values partially replace the selected chat.
+    def test_invalid_selection_preserves_previous_binding(self) -> None:
+        self.observe("SessionStart")
+        self.store.bind("abcdef012345", "chat-a", "Project")
+        previous = self.store.snapshot("abcdef012345")
+        for label in ("", "a" * 25, "a\x00b", "accent\u00e9"):
+            with self.assertRaises(ValueError):
+                self.store.bind("abcdef012345", "chat-a", label)
+        with self.assertRaises(ValueError):
+            self.store.bind("abcdef012345", "unknown-chat", "Project")
+        self.assertEqual(self.store.snapshot("abcdef012345"), previous)
+
+    # self: Authenticated synthetic responder and maximum display label.
+    # Raises AssertionError if ACTIVITY lacks nonce/HMAC binding or exceeds the wire limit.
+    def test_activity_reply_authenticates_every_field(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.store.bind("abcdef012345", "chat-a", "P" * 24)
+        state = Mock(pc_id="a" * 32)
+        state.link_key.return_value = bytes(range(32))
+        listener = Mock()
+        responder = ccp.CompanionResponder(state, listener, self.store)
+        values = ["abcdef012345", state.pc_id, "b" * 32]
+        proof = ccp.make_proof(state.link_key.return_value, "find-activity", *values)
+        find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
+                                   [("activity", "1"), ("proof", proof)])
+        responder._handle_find(find, ("192.0.2.10", ccp.DEVICE_PORT))
+        raw, _ = listener.sendto.call_args.args
+        kind, fields = ccp.parse_datagram(raw)
+        self.assertEqual(kind, "ACTIVITY")
+        self.assertLessEqual(len(raw), 512)
+        authenticated = [fields[key] for key in ("device", "pc", "nonce", "chat", "revision", "phase", "project")]
+        expected = ccp.make_proof(state.link_key.return_value, "activity", *authenticated)
+        self.assertEqual(fields["proof"], expected)
+        self.assertEqual(fields["nonce"], values[2])
+        self.assertEqual(bytes.fromhex(fields["project"]), b"P" * 24)
+        listener.reset_mock()
+        # Stripping the capability cannot reuse its proof as a presence-only FIND.
+        stripped = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) + [("proof", proof)])
+        with self.assertRaises(ValueError):
+            responder._handle_find(stripped, ("192.0.2.10", ccp.DEVICE_PORT))
+        listener.sendto.assert_not_called()
+
+    # self: Synthetic broker restart without any stored activity state.
+    # Raises AssertionError if a new owner auto-selects a previously observed chat.
+    def test_restart_and_explicit_clear_require_new_selection(self) -> None:
+        self.observe("SessionStart")
+        self.store.bind("abcdef012345", "chat-a", "Project")
+        self.store.unbind("abcdef012345")
+        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "none")
+        restarted = activity.ActivityStore()
+        self.assertEqual(restarted.list_sessions(), [])
+        self.assertEqual(restarted.snapshot("abcdef012345")["phase"], "none")
+
+    # self: Bounded same-user control requests represented without opening sockets.
+    # Raises AssertionError if releasing one transport drops another's lease.
+    def test_shared_runtime_releases_only_its_own_lease(self) -> None:
+        server = Mock()
+        server.lease_lock = threading.Lock()
+        server.leases = {}
+        runtime.dispatch(server, "lease", {"id": "a" * 32})
+        runtime.dispatch(server, "lease", {"id": "b" * 32})
+        runtime.dispatch(server, "release", {"id": "a" * 32})
+        self.assertEqual(set(server.leases), {"b" * 32})
+
+    # self: Hook ingestion fixture containing private text that must never reach the broker.
+    # Raises AssertionError if ingestion forwards a prompt, transcript, response or tool input.
+    def test_hook_ingestion_discards_private_contents(self) -> None:
+        original = {"hook_event_name": "UserPromptSubmit", "session_id": "chat-a",
+                    "turn_id": "turn-a", "cwd": "E:/synthetic-project", "prompt": "private prompt",
+                    "transcript_path": "private transcript", "tool_input": {"secret": "private"},
+                    "last_assistant_message": "private response"}
+        input_stream = Mock(buffer=io.BytesIO(json.dumps(original).encode("utf-8")))
+        with patch.object(runtime.sys, "stdin", input_stream), contextlib.redirect_stdout(io.StringIO()):
+            with patch.object(runtime, "ensure_runtime", return_value="synthetic"), patch.object(runtime, "exchange") as exchange:
+                runtime.run_hook()
+        submitted = exchange.call_args.args[1]
+        self.assertEqual(set(submitted), {"hook_event_name", "session_id", "turn_id", "cwd", "emitted_ns"})
 
 
 if __name__ == "__main__":

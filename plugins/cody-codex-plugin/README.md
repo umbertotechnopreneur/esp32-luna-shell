@@ -58,9 +58,10 @@ protects stored link keys with the current user's DPAPI account boundary. The
 runtime file is kept outside the repository under
 `%LOCALAPPDATA%\CodyCodexPlugin\state.json`.
 
-One CCP process owns the fixed listener on a PC. It acquires that listener
-before loading or creating the protected state. A second local process fails
-visibly before touching that identity. On a LAN with many Codex PCs, every
+One background CCP broker owns the fixed listener on a PC. It acquires that
+listener before loading or creating the protected pairing state. Multiple MCP
+transports share that broker; a conflicting broker fails before touching the
+pairing identity. On a LAN with many Codex PCs, every
 PC keeps a different random ID; Cody's retained PC ID and link key ensure that
 only the paired instance can answer its authenticated liveness request.
 
@@ -81,9 +82,9 @@ ports 42117 and 42118. Do not enable public-network access.
 
 The firmware/session protocol is documented in `protocol/CCP1.md`.
 
-CCP1 commissioning and liveness do not select a Codex chat or transport project,
-task or user messages. Screen 15 means that the paired CCP instance replied;
-those additional capabilities remain separate work.
+Screen 15 means the paired CCP instance replied. The activity extension below
+adds explicit chat selection and real lifecycle status. User messages, replies,
+PR details, branch acquisition and transcription remain separate work.
 
 ## Verification boundary
 
@@ -100,7 +101,7 @@ state or contact a device. It has not been executed for this revision.
 Real plugin installation, lifetime across chats, private firewall behavior,
 multi-adapter broadcast, display-code pairing and reconnection still require
 explicitly authorized end-to-end observation.
-# CCP 0.3 chat activity milestone
+## CCP 0.3 chat activity milestone
 
 The MCP entrypoint now attaches to a single hidden, on-demand Windows broker.
 The broker owns UDP 42118; MCP transports renew independent leases on the
@@ -124,4 +125,12 @@ apparently current. A Stop event means response ready, never task success.
 New firmware requests the authenticated activity capability in FIND; the broker
 returns nonce-bound ACTIVITY snapshots alongside READY. Selection tool success
 means accepted locally, not proof that the physical display has updated.
-Native presentation and physical verification are tracked in the root TODO.
+Native screens 17-20 and 32 consume the canonical activity snapshot. Ending a
+session shows 20B for five active seconds and returns to 16. Holding the character
+opens Setup; Back restores the saved-link journey and selected chat context.
+Packets expire on Cody after eight seconds; ordinary LAN reconnect replays the
+latest snapshot without repeating pairing. UI activity does not override the
+user's standby policy. Physical verification is tracked in the root TODO.
+
+The supported hook events and trust boundary are documented in the
+[official Codex hooks reference](https://learn.chatgpt.com/docs/hooks).

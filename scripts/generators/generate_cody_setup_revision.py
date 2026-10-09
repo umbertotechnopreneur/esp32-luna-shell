@@ -19,12 +19,14 @@ REVISION = "09 October 2026"
 REVISION_ID = "CODY-SETUP-20261009"
 RECOVERY_REVISION_ID = "CODY-SETUP-RECOVERY-20261009"
 INTERFACE_REVISION_ID = "CODY-UI-DECISION-20261009"
+ACTIVITY_REVISION_ID = "CODY-CCP-ACTIVITY-20261010"
 
 
 class RevisionKind(str, Enum):
     Startup = "startup"
     Recovery = "recovery"
     Interface = "interface"
+    Activity = "activity"
 
 INK = HexColor("#142737")
 MUTED = HexColor("#536776")
@@ -464,10 +466,94 @@ def interface_errata_page(pdf, dimensions, label, affected, number, original_cou
     pdf.showPage()
 
 
+# pdf: Canvas retaining the atlas's existing page size and typography.
+# dimensions: Original A4/A5 page dimensions.
+# label: Exact atlas identity.
+# number: Continued physical page number.
+# Raises ValueError if a bounded workflow paragraph overflows its page.
+def activity_page(pdf, dimensions, label, number):
+    width, height = dimensions
+    margin = 26 if width < 500 else 34
+    size = 8.5 if width < 500 else 11
+    heading(pdf, dimensions, label, "Follow one Codex chat", number,
+            "10 October 2026 / CCP 0.3 / screens 16-20 and 32", ACTIVITY_REVISION_ID)
+    box_width = (width - margin * 2 - 20) / 3
+    for index, text in enumerate(("Codex hooks", "CCP runtime", "Cody snapshot")):
+        left = margin + index * (box_width + 10)
+        pdf.setFillColor(PALE)
+        pdf.roundRect(left, height - 190, box_width, 35, 8, stroke=0, fill=1)
+        pdf.setFont("SetupBold", size + 1)
+        pdf.setFillColor(INK)
+        pdf.drawCentredString(left + box_width / 2, height - 176, text)
+    rows = [
+        ("Install and trust", "Update CCP to 0.3. Review and trust its hooks in Codex. "
+         "Installation alone does not trust them. The hidden PC runtime is shared by open chats; "
+         "the saved device pairing remains intact."),
+        ("Choose the chat", "Send a prompt, list observed sessions, then explicitly select one "
+         "session ID and paired Cody. Supply a short ASCII project label. Another chat cannot "
+         "replace that selection. Runtime restart requires selection again."),
+        ("Read actual activity", "17: project active. 18: working, editing or running. "
+         "19: response ready, not task success. 20A: paused or awaiting approval. "
+         "20B: session ended, then 16 after five active seconds. 32: paired PC lost."),
+        ("Freshness and scope", "The device receives authenticated snapshots every two seconds. "
+         "Missing packets expire after eight seconds; active hook observations expire after "
+         "120 seconds. UNAVAILABLE is explicit. Messages, answers, PR data, branch acquisition "
+         "and voice transcription remain future work. Physical behavior is pending."),
+    ]
+    top = 207
+    for title, body in rows:
+        top = paragraph(pdf, title, margin, top, width - 2 * margin, height, size + 1, True)
+        top = paragraph(pdf, body, margin, top + 2, width - 2 * margin, height, size) + 9
+    pdf.showPage()
+
+
+# pdf: Revision canvas; this dated errata page is always last.
+# dimensions: Preserved original page dimensions.
+# label: Canonical atlas identity.
+# name: Source filename used only to select affected original page IDs.
+# number: Continued physical page number.
+# original_count: Number of preserved pages, including all earlier errata.
+# Raises ValueError for layout overflow.
+def activity_errata_page(pdf, dimensions, label, name, number, original_count):
+    affected = {
+        "cody-navigation-atlas-v1.pdf": "Original pages 5-6 and 8; screens 15-20, 26-27, 31-32.",
+        "cody-planning-atlas-v1.pdf": "Original pages 9-10 and 25; screens 17-20, 21-24 and 32.",
+        "cody-ccp-service-atlas-v1.pdf": "Original pages 1-2, 7-8 and 10; scope and runtime ownership.",
+        "cody-codex-connection-atlas-v1.pdf": "Original pages 10-11 and 13; screen 15 and reconnect ownership.",
+        "cody-ccp-pairing-quickstart-a5-v1.pdf": "Original pages 1-2 and setup addendum page 5; installation and screen 15.",
+    }[name]
+    width, height = dimensions
+    margin = 26 if width < 500 else 34
+    size = 8.5 if width < 500 else 11
+    heading(pdf, dimensions, label, "Errata and corrections", number,
+            "Revision date: 10 October 2026 / authenticated chat activity", ACTIVITY_REVISION_ID)
+    rows = [
+        ("Affected original material", affected),
+        ("Analysis gap corrected", "Screen 15 originally proved PC presence only. The initial "
+         "analysis omitted explicit chat selection, shared runtime lifetime and event freshness. "
+         "This was a buco di analisi iniziale; it is now addressed in source."),
+        ("Contract and UI", "CCP 0.3 adds metadata-only hooks, exact session selection and "
+         "nonce-bound ACTIVITY messages. The canonical snapshot owns validity and errors. "
+         "18U adds the unavailable state. Setup re-entry preserves the selected context."),
+        ("Evidence and limits", "The user confirmed Connected on 10 October after real pairing. "
+         "That evidence belongs to the previous firmware and CCP 0.2. New code is implemented; "
+         "host checks, hook trust/autoload and physical 0.3 behavior are not established here. "
+         "A response-ready event is never reported as task success."),
+        ("Preservation", f"All {original_count} previous pages and earlier errata remain unchanged. "
+         "The approved gradient/icon action layouts remain binding. These diagrams describe "
+         "architecture, not captured device pixels."),
+    ]
+    top = 159
+    for title, body in rows:
+        top = paragraph(pdf, title, margin, top, width - 2 * margin, height, size + 1, True)
+        top = paragraph(pdf, body, margin, top + 2, width - 2 * margin, height, size) + 9
+    pdf.showPage()
+
+
 # revision: Explicit revision identity; no automatic migration or duplicate append.
 def selected_revision_id(revision):
     return {RevisionKind.Startup: REVISION_ID, RevisionKind.Recovery: RECOVERY_REVISION_ID,
-            RevisionKind.Interface: INTERFACE_REVISION_ID}[revision]
+            RevisionKind.Interface: INTERFACE_REVISION_ID, RevisionKind.Activity: ACTIVITY_REVISION_ID}[revision]
 
 
 # name: One explicitly requested source PDF filename.
@@ -492,7 +578,11 @@ def revise(name, label, affected, staging, revision):
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=dimensions, pageCompression=1)
     pdf.setAuthor("Umberto Giacobbi")
-    if revision == RevisionKind.Interface:
+    if revision == RevisionKind.Activity:
+        activity_page(pdf, dimensions, label, original_count + 1)
+        activity_errata_page(pdf, dimensions, label, name, original_count + 2, original_count)
+        added = 1
+    elif revision == RevisionKind.Interface:
         interface_page(pdf, dimensions, label, original_count + 1)
         interface_flow_page(pdf, dimensions, label, original_count + 2)
         interface_errata_page(pdf, dimensions, label, affected, original_count + 3, original_count)

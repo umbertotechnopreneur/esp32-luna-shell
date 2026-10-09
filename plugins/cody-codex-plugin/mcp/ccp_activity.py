@@ -128,6 +128,8 @@ class ActivityStore:
             else:
                 if turn_id != session.turn_id or session.phase == Phase.ENDED:
                     raise ValueError("Hook turn does not match the current chat turn")
+                if session.interrupted and name not in {"PostToolUse", "Interrupt"}:
+                    raise ValueError("Interrupted turn cannot resume without a new prompt")
                 if name == "PreToolUse":
                     tool_id = require_id(event.get("tool_use_id"), "tool_use_id")
                     if tool_id in session.tools or len(session.tools) >= 64:

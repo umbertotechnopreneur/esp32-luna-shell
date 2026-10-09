@@ -1,8 +1,8 @@
 # CCP1 local pairing protocol
 
 CCP1 connects one physical Cody device to one local Cody's Codex Plugin (CCP)
-process. It is a bounded UDP commissioning and liveness protocol, not the
-future Codex message/session transport.
+runtime. It provides bounded UDP commissioning, liveness and the explicit
+chat-activity extension below. It does not transport user messages or replies.
 
 ## Identity and ports
 
@@ -139,6 +139,47 @@ ten-second PC presence deadline uses a monotonic clock; wall time is retained
 only for the reported observation timestamp. A stopped responder is an actual
 MCP tool error. The listener is acquired before any protected-state access so a
 second local process cannot race first-use identity creation.
+
+## Authenticated chat activity (CCP 0.3)
+
+A capable Cody requests activity using a distinct HMAC domain, so stripping the
+capability cannot turn the request into an authenticated presence-only request:
+
+```text
+CCP1|FIND|device=<12 hex>|pc=<32 hex>|nonce=<32 hex>|activity=1|proof=<64 hex>
+HMAC input: find-activity|<device>|<pc>|<nonce>
+```
+
+CCP sends ordinary READY, followed by a complete latest-state snapshot:
+
+```text
+CCP1|ACTIVITY|device=<12 hex>|pc=<32 hex>|nonce=<32 hex>|chat=<64 hex>|revision=<16 hex>|phase=<token>|project=<hex or ->|proof=<64 hex>
+HMAC input: activity|<device>|<pc>|<nonce>|<chat>|<revision>|<phase>|<project>
+```
+
+The link key authenticates every field. `chat` is the SHA-256 of the selected
+opaque Codex session ID; all zeroes denote no selection. `revision` is a volatile
+unsigned counter for diagnostics, not a persisted ordering guarantee across PC
+restarts. Freshness comes from the device's current random FIND nonce, accepted
+at most once for ACTIVITY. Old polls, duplicated replies and altered metadata are
+rejected. The full datagram remains below 512 bytes. Text is hex-encoded printable
+ASCII, at most 24 bytes; `-` is allowed only with `phase=none` and zero chat ID.
+
+Phases: `none`, `active`, `working`, `editing`, `running`, `ready`, `paused`,
+`ended`, `unavailable`. These map to screens 15/16, 17, 18, 19, 20A/20B, or
+18U unavailable. An eight-second missing PC lease uses screen 32 after a chat
+has been selected. A retained label identifies context only while disconnected.
+
+The owner publishes activity into DeviceSnapshotService, separately marking
+freshness/health/error. No UI consumer reads host data or sockets. Unavailable
+activity never becomes a numeric estimate or a synthetic working state.
+
+Codex hooks submit only event/session/turn/tool identities and cwd through the
+DPAPI-authenticated 127.0.0.1:42119 control endpoint. No prompts, tool arguments,
+responses or transcript paths are retained. Sessions and selection are volatile;
+restart requires selection again, while LAN reconnect retains it. Active hook
+states expire after 120 seconds without a new event. MCP leases keep the broker
+alive but do not renew activity. There is no model-callable activity setter.
 
 ## Security boundary
 
