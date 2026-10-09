@@ -1,5 +1,6 @@
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_codex_debug.hpp"
 
 #include "sdkconfig.h"
 
@@ -106,6 +107,23 @@ bool s_event_publication_pending = false;
 bool s_reply_pending = false;
 int64_t s_next_reply_at_us = 0;
 char s_reply_nonce[33]{};
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+struct DebugScreenMailbox {
+    LUNASHELL::CodexDebugScreenRequest request{};
+    char nonce[33]{};
+    char mode[16]{};
+    sockaddr_in source{};
+    int64_t deadline_us = 0;
+    bool pending = false;
+    bool taken = false;
+    bool complete = false;
+    esp_err_t result = ESP_OK;
+    uint8_t channel_count = 0;
+    uint32_t pairing_attempt_id = 0;
+};
+DebugScreenMailbox s_debug_screen{};
+char s_debug_consumed_nonce[33]{};
+#endif
 enum class MaintenanceCommand : uint8_t { Restart, FactoryReset };
 MaintenanceCommand s_last_maintenance_command = MaintenanceCommand::Restart;
 char s_reset_request_id[33]{};
@@ -1509,6 +1527,37 @@ esp_err_t sendCommittedLocked(const ReadyResponse &response, const sockaddr_in &
     return error;
 }
 
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+// response: Just-authenticated active READY, retaining the unchanged base FIND contract.
+// source: Exact responder endpoint receiving the signed optional Debug capability.
+// Exception: Returns real crypto/encoding/send errors; this optional failure is logged independently.
+esp_err_t sendDebugCapabilityLocked(const ReadyResponse &response, const sockaddr_in &source)
+{
+    char input[160]{};
+    const int length = std::snprintf(input, sizeof(input), "debug-cap|%s|%s|%s|1",
+        response.device_id, response.pc_id, response.nonce);
+    uint8_t proof[32]{};
+    esp_err_t error = length > 0 && static_cast<size_t>(length) < sizeof(input)
+        ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), input, proof)
+        : ESP_ERR_INVALID_SIZE;
+    char proof_hex[65]{};
+    if (error == ESP_OK) {
+        error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
+    }
+    char packet[320]{};
+    const int packet_length = std::snprintf(packet, sizeof(packet),
+        "CCP1|DEBUGCAP|device=%s|pc=%s|nonce=%s|debug=1|proof=%s",
+        response.device_id, response.pc_id, response.nonce, proof_hex);
+    if (error == ESP_OK) {
+        error = packet_length > 0 && static_cast<size_t>(packet_length) < sizeof(packet)
+            ? sendDatagram(packet, source.sin_addr, ntohs(source.sin_port), "CCP DEBUGCAP")
+            : ESP_ERR_INVALID_SIZE;
+    }
+    wipe(proof, sizeof(proof));
+    return error;
+}
+#endif
+
 // response: Canonical READY message candidate.
 // source: Observed responder address.
 // Exception: Returns identity, proof, crypto, superseded-command, persistence or acknowledgement errors.
@@ -1599,6 +1648,15 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                     // READY still proves liveness if the outbound ACK fails;
                     // retain the real error and retry COMMITTED on the next READY.
                     publishLocked(State::Connected, error);
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+                    const esp_err_t debug_error = sendDebugCapabilityLocked(response, source);
+                    if (debug_error != ESP_OK) {
+                        // Debug views are optional; retain this failure in their transport owner.
+                        s_debug_screen.result = debug_error;
+                        publishLocked(State::Connected, debug_error);
+                        ESP_LOGE(kTag, "Optional CCP Debug capability failed (%s)", esp_err_to_name(debug_error));
+                    }
+#endif
                 } else {
                     publishLocked(State::Failed, error);
                 }
@@ -1827,6 +1885,139 @@ esp_err_t verifyEventProofLocked(const char *proof)
     return error;
 }
 
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+// payload: Bounded DEBUG envelope received by the existing CCP socket owner.
+// source: Exact authenticated current READY endpoint.
+// Exception: Rejects malformed, replayed, stale, unauthenticated or busy requests.
+esp_err_t acceptDebugScreen(const char *payload, const sockaddr_in &source)
+{
+    const char *names[] = {"device", "pc", "nonce", "id", "mode", "scroll", "proof"};
+    char *values[7]{};
+    if (!parseEventFields(payload, "CCP1|DEBUG|", names, 7, values)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (!s_link_present || s_candidate_present || s_pending != Command::None ||
+        s_link_snapshot.state != State::Connected || ntohs(source.sin_port) != kPluginPort ||
+        std::strcmp(values[0], s_link_snapshot.device_id) != 0 ||
+        std::strcmp(values[1], s_link_snapshot.paired_pc_id) != 0 ||
+        std::strcmp(values[2], s_ready_nonce) != 0 ||
+        std::strcmp(values[2], s_debug_consumed_nonce) == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    char address[16]{};
+    if (inet_ntop(AF_INET, &source.sin_addr, address, sizeof(address)) == nullptr) {
+        return ESP_FAIL;
+    }
+    if (std::strcmp(address, s_link_snapshot.peer_ip_address) != 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    uint8_t identity[16]{};
+    if (decodeHex(values[3], identity, sizeof(identity)) != ESP_OK) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    LUNASHELL::CodexDebugScreen screen;
+    if (std::strcmp(values[4], "face_channels") == 0) {
+        screen = LUNASHELL::CodexDebugScreen::FaceChannels;
+    } else if (std::strcmp(values[4], "character") == 0) {
+        screen = LUNASHELL::CodexDebugScreen::Character;
+    } else if (std::strcmp(values[4], "normal") == 0) {
+        screen = LUNASHELL::CodexDebugScreen::Normal;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const size_t digits = std::strlen(values[5]);
+    if (digits == 0 || digits > 3 || (digits > 1 && values[5][0] == '0')) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    unsigned scroll = 0;
+    for (size_t index = 0; index < digits; ++index) {
+        if (values[5][index] < '0' || values[5][index] > '9') {
+            return ESP_ERR_INVALID_ARG;
+        }
+        scroll = scroll * 10 + static_cast<unsigned>(values[5][index] - '0');
+    }
+    if (scroll > UINT8_MAX || (screen != LUNASHELL::CodexDebugScreen::FaceChannels && scroll != 0)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const int length = std::snprintf(s_event_proof_input, sizeof(s_event_proof_input),
+        "debug|%s|%s|%s|%s|%s|%s", values[0], values[1], values[2], values[3], values[4], values[5]);
+    if (length <= 0 || static_cast<size_t>(length) >= sizeof(s_event_proof_input)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const esp_err_t error = verifyEventProofLocked(values[6]);
+    if (error != ESP_OK) {
+        return error;
+    }
+    const int64_t now_us = esp_timer_get_time();
+    if (s_debug_screen.pending && now_us < s_debug_screen.deadline_us) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_debug_screen = {};
+    s_debug_screen.request.screen = screen;
+    s_debug_screen.request.scroll = static_cast<uint8_t>(scroll);
+    std::memcpy(s_debug_screen.request.request_id, values[3], 33);
+    std::memcpy(s_debug_screen.nonce, values[2], 33);
+    std::memcpy(s_debug_consumed_nonce, values[2], 33);
+    std::memcpy(s_debug_screen.mode, values[4], std::strlen(values[4]) + 1);
+    s_debug_screen.source = source;
+    s_debug_screen.deadline_us = now_us + 4000000;
+    s_debug_screen.pairing_attempt_id = s_link_snapshot.attempt_id;
+    s_debug_screen.pending = true;
+    return ESP_OK;
+}
+
+// No parameters: only the CCP worker signs and sends completed Debug acknowledgements.
+// Exception: Logs actual ACK send/crypto failures and never fabricates delivery.
+void maintainDebugScreen()
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (!s_debug_screen.pending) {
+        return;
+    }
+    if (esp_timer_get_time() >= s_debug_screen.deadline_us || !s_link_present ||
+        s_link_snapshot.state != State::Connected || s_pending != Command::None || s_candidate_present ||
+        s_debug_screen.pairing_attempt_id != s_link_snapshot.attempt_id) {
+        ESP_LOGW(kTag, "CCP Debug request retired before acknowledgement");
+        s_debug_screen = {};
+        return;
+    }
+    if (!s_debug_screen.complete) {
+        return;
+    }
+    char input[384]{};
+    const char *status = s_debug_screen.result == ESP_OK ? "applied" : "rejected";
+    const int length = std::snprintf(input, sizeof(input), "debug-ack|%s|%s|%s|%s|%s|%u|%s|%ld|%u",
+        s_link_snapshot.device_id, s_link_snapshot.paired_pc_id, s_debug_screen.nonce,
+        s_debug_screen.request.request_id, s_debug_screen.mode, s_debug_screen.request.scroll,
+        status, static_cast<long>(s_debug_screen.result), s_debug_screen.channel_count);
+    uint8_t proof[32]{};
+    esp_err_t error = length > 0 && static_cast<size_t>(length) < sizeof(input)
+        ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), input, proof)
+        : ESP_ERR_INVALID_SIZE;
+    char proof_hex[65]{};
+    if (error == ESP_OK) {
+        error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
+    }
+    char packet[kMaximumDatagramBytes + 1]{};
+    const int packet_length = std::snprintf(packet, sizeof(packet),
+        "CCP1|DEBUGACK|device=%s|pc=%s|nonce=%s|id=%s|mode=%s|scroll=%u|status=%s|error=%ld|count=%u|proof=%s",
+        s_link_snapshot.device_id, s_link_snapshot.paired_pc_id, s_debug_screen.nonce,
+        s_debug_screen.request.request_id, s_debug_screen.mode, s_debug_screen.request.scroll,
+        status, static_cast<long>(s_debug_screen.result), s_debug_screen.channel_count, proof_hex);
+    if (error == ESP_OK) {
+        error = packet_length > 0 && static_cast<size_t>(packet_length) < sizeof(packet)
+            ? sendDatagram(packet, s_debug_screen.source.sin_addr, ntohs(s_debug_screen.source.sin_port), "CCP DEBUGACK")
+            : ESP_ERR_INVALID_SIZE;
+    }
+    wipe(proof, sizeof(proof));
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "CCP Debug acknowledgement failed (%s)", esp_err_to_name(error));
+        publishLocked(State::Connected, error);
+    }
+    s_debug_screen = {}; // No automatic replay of a view mutation or its ambiguous ACK.
+}
+#endif
 
 // left: Previously authenticated immutable request body.
 // right: Candidate snapshot; selected_id alone may change during response delivery.
@@ -2324,6 +2515,15 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
         }
     }
     if (state == State::Discovering || state == State::Connected) {
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+        if (std::strncmp(payload, "CCP1|DEBUG|", 11) == 0) {
+            const esp_err_t error = acceptDebugScreen(payload, source);
+            if (error != ESP_OK) {
+                ESP_LOGE(kTag, "CCP Debug command rejected (%s)", esp_err_to_name(error));
+            }
+            return;
+        }
+#endif
         if (std::strncmp(payload, "CCP1|FACTORYRESET|", 18) == 0) {
             const esp_err_t error = acceptMaintenance(payload, source, MaintenanceCommand::FactoryReset);
             if (error != ESP_OK) {
@@ -2620,6 +2820,9 @@ void codexLinkWorker(void *context)
         receiveDatagrams();
         maintainState();
         maintainEvent();
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+        maintainDebugScreen();
+#endif
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kWorkerPollMs));
     }
 }
@@ -2640,6 +2843,54 @@ esp_err_t reject(
 }
 
 }  // namespace
+
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+// request: Non-owning output receiving one authenticated transient request.
+// Exception: Returns NOT_FOUND when empty/expired/retired; the worker does not sample sensors.
+esp_err_t LUNASHELL::takeCodexDebugScreen(CodexDebugScreenRequest &request)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (!s_debug_screen.pending || s_debug_screen.taken || s_debug_screen.complete ||
+        esp_timer_get_time() >= s_debug_screen.deadline_us || !s_link_present || s_candidate_present ||
+        s_pending != Command::None || s_link_snapshot.state != State::Connected ||
+        s_debug_screen.pairing_attempt_id != s_link_snapshot.attempt_id) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    request = s_debug_screen.request;
+    s_debug_screen.taken = true;
+    return ESP_OK;
+}
+
+// request: Exact immutable id/mode/scroll previously admitted by the mailbox.
+// result: Actual view application error; signed esp_err_t is preserved on the wire.
+// channel_count: Actual compiled channel count returned even when a scroll is rejected.
+// Exception: Returns INVALID_STATE for a retired request; never acknowledges visible pixels.
+esp_err_t LUNASHELL::completeCodexDebugScreen(const CodexDebugScreenRequest &request,
+                                           esp_err_t result, uint8_t channel_count)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (!s_debug_screen.pending || !s_debug_screen.taken || s_debug_screen.complete ||
+        esp_timer_get_time() >= s_debug_screen.deadline_us || !s_link_present || s_candidate_present ||
+        s_pending != Command::None || s_link_snapshot.state != State::Connected || channel_count == 0 ||
+        s_debug_screen.pairing_attempt_id != s_link_snapshot.attempt_id ||
+        std::strcmp(request.request_id, s_debug_screen.request.request_id) != 0 ||
+        request.screen != s_debug_screen.request.screen || request.scroll != s_debug_screen.request.scroll) {
+        ESP_LOGE(kTag, "CCP Debug completion rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_debug_screen.result = result;
+    s_debug_screen.channel_count = channel_count;
+    s_debug_screen.complete = true;
+    if (result != ESP_OK) {
+        // A Debug route is optional. Publish the actual service error while the
+        // authenticated transport remains connected; do not claim view success.
+        publishLocked(State::Connected, result);
+        ESP_LOGE(kTag, "Optional CCP Debug view rejected (%s)", esp_err_to_name(result));
+    }
+    xTaskNotifyGive(s_worker);
+    return ESP_OK;
+}
+#endif
 
 // No parameters: loads exact retained state and binds the fixed CCP1 device port.
 // Exception: Returns the original storage/crypto error or the logged socket/task failure.

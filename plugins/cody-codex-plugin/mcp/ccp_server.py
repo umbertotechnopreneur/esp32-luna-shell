@@ -637,6 +637,9 @@ class CompanionResponder:
         self._event_peers: dict[str, EventPeer] = {}
         self._event_lock = threading.Lock()
         self._resets = reset.ResetRequests()
+        self._debug_peers: dict[str, EventPeer] = {}
+        self._debug_requests: dict[str, dict[str, Any]] = {}
+        self._debug_used_nonce: dict[str, str] = {}
         self._thread = threading.Thread(target=self._run, name="CCP-responder", daemon=True)
 
     # No parameters: starts exactly one background authenticated liveness responder.
@@ -693,6 +696,12 @@ class CompanionResponder:
         if kind in {"RESETACK", "FACTORYRESETACK"}:
             operation = reset.ResetOperation.RESTART if kind == "RESETACK" else reset.ResetOperation.FACTORY_RESET
             self._accept_reset_ack(fields, source, operation)
+            return
+        if kind == "DEBUGACK":
+            self._accept_debug_ack(fields, source)
+            return
+        if kind == "DEBUGCAP":
+            self._accept_debug_capability(fields, source)
             return
         if kind != "FIND":
             return
@@ -767,6 +776,8 @@ class CompanionResponder:
                 if len(self._event_peers) >= 128 and fields["device"] not in self._event_peers:
                     raise ValueError("CCP authenticated event peer cache is full")
                 self._event_peers[fields["device"]] = EventPeer(fields["nonce"], link_key, source, now)
+                self._debug_peers = {identity: peer for identity, peer in self._debug_peers.items()
+                                     if 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS}
             request_id, state, ttl, data = self._requests.snapshot(fields["device"], hashlib.sha256(link_key).hexdigest())
             values = [fields["device"], fields["pc"], fields["nonce"], request_id, state, ttl, data]
             event_proof = make_proof(link_key, "event", *values)
@@ -787,6 +798,117 @@ class CompanionResponder:
                 except (OSError, ValueError, RuntimeError) as error:
                     self._resets.fail_send(request.request_id, error)
                     raise
+
+    # self: Responder keeping an optional capability separate from the unchanged FIND protocol.
+    # fields: Exact signed DEBUGCAP envelope emitted only by Debug firmware after READY.
+    # source: Must match the current active authenticated event peer.
+    # Raises ValueError for malformed, stale or forged capability advertisements.
+    def _accept_debug_capability(self, fields: dict[str, str], source: tuple[str, int]) -> None:
+        if set(fields) != {"device", "pc", "nonce", "debug", "proof"} or fields["debug"] != "1":
+            raise ValueError("Debug capability fields malformed")
+        for name in ("device", "pc", "nonce", "proof"):
+            if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
+                raise ValueError("Debug capability identity/proof malformed")
+        with self._event_lock:
+            peer = self._event_peers.get(fields["device"])
+            active = self._state.retained_keys(fields["device"]).active
+            if (peer is None or active is None or source != peer.source or fields["nonce"] != peer.nonce
+                    or fields["pc"] != self._state.pc_id or not hmac.compare_digest(active, peer.key)
+                    or not 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS
+                    or not hmac.compare_digest(make_proof(peer.key, "debug-cap", fields["device"],
+                        fields["pc"], fields["nonce"], "1"), fields["proof"])):
+                raise ValueError("Debug capability authentication failed")
+            if self._debug_used_nonce.get(fields["device"]) != fields["nonce"]:
+                self._debug_peers[fields["device"]] = peer
+
+    # self: Authenticated responder receiving transient Debug requests from MCP.
+    # device_id: Explicit retained target with a recent authenticated Debug capability.
+    # mode: face_channels, character or normal; no arbitrary route/command is accepted.
+    # scroll: Absolute first channel row; firmware checks its real channel count.
+    # include_simulator: Explicit authorization to target loopback, never inferred.
+    # Raises ValueError or OSError for invalid arguments, missing capability or send failure.
+    def debug_screen(self, device_id: str, mode: str, scroll: int, include_simulator: bool) -> dict[str, Any]:
+        if not isinstance(device_id, str) or HEX_PATTERNS["device"].fullmatch(device_id) is None:
+            raise ValueError("Debug requires an explicit device_id")
+        if not isinstance(mode, str) or mode not in {"face_channels", "character", "normal"}:
+            raise ValueError("Debug mode must be face_channels, character or normal")
+        if type(scroll) is not int or not 0 <= scroll <= 255 or (mode != "face_channels" and scroll != 0):
+            raise ValueError("Only face_channels accepts a scroll offset between 0 and 255")
+        if type(include_simulator) is not bool:
+            raise ValueError("include_simulator must be a boolean")
+        with self._event_lock:
+            peer = self._debug_peers.get(device_id)
+            current = self._event_peers.get(device_id)
+            if (peer is None or current is None or peer.nonce != current.nonce
+                    or not 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS):
+                raise ValueError("No recent authenticated Debug capability; Release firmware does not support this tool")
+            source_kind = observation_source(peer.source[0])
+            if source_kind == "SIMULATED" and not include_simulator:
+                raise ValueError("SIMULATED debug requires explicit include_simulator=true")
+            active = self._state.retained_keys(device_id).active
+            if active is None or not hmac.compare_digest(active, peer.key):
+                raise ValueError("Debug peer belongs to a retired association")
+            now = time.monotonic()
+            self._debug_requests = {identity: request for identity, request in self._debug_requests.items()
+                                    if request["deadline"] > now}
+            if device_id in self._debug_requests or len(self._debug_requests) >= 16:
+                raise ValueError("Debug request already pending or registry full")
+            request = {"id": secrets.token_hex(16), "mode": mode, "scroll": str(scroll),
+                       "peer": peer, "deadline": now + 4.0, "event": threading.Event(), "result": None}
+            self._debug_requests[device_id] = request
+            self._debug_used_nonce[device_id] = peer.nonce
+            self._debug_used_nonce = {identity: nonce for identity, nonce in self._debug_used_nonce.items()
+                                      if identity == device_id or identity in self._event_peers}
+            self._debug_peers.pop(device_id) # A new DEBUGCAP is required before another command.
+        values = [device_id, self._state.pc_id, peer.nonce, request["id"], mode, str(scroll)]
+        packet = encode_datagram("DEBUG", list(zip(("device", "pc", "nonce", "id", "mode", "scroll"), values))
+                                 + [("proof", make_proof(peer.key, "debug", *values))])
+        try:
+            self._socket.sendto(packet, peer.source)
+            request["event"].wait(4.0)
+        finally:
+            with self._event_lock:
+                if self._debug_requests.get(device_id) is request:
+                    self._debug_requests.pop(device_id)
+        result = request["result"]
+        return {"device_id": device_id, "request_id": request["id"], "source": source_kind,
+                "mode": mode, "scroll": scroll, "pixels_verified": False,
+                **(result if result is not None else {"status": "unknown"})}
+
+    # self: UDP owner authenticating ACK against the exact outstanding private lease.
+    # fields: Complete bounded DEBUGACK fields with status and real numeric error.
+    # source: Must match the authenticated Debug peer's endpoint.
+    # Raises ValueError for malformed, expired, duplicate or forged acknowledgements.
+    def _accept_debug_ack(self, fields: dict[str, str], source: tuple[str, int]) -> None:
+        names = ("device", "pc", "nonce", "id", "mode", "scroll", "status", "error", "count")
+        if set(fields) != {*names, "proof"}:
+            raise ValueError("Debug ACK fields are malformed")
+        for name in ("device", "pc", "nonce", "proof"):
+            if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
+                raise ValueError("Debug ACK identity/proof malformed")
+        if (re.fullmatch(r"[0-9a-f]{32}", fields["id"]) is None
+                or fields["status"] not in {"applied", "rejected"}
+                or re.fullmatch(r"-?[0-9]{1,10}", fields["error"]) is None
+                or not -(2 ** 31) <= int(fields["error"]) < 2 ** 31
+                or re.fullmatch(r"[0-9]{1,3}", fields["count"]) is None
+                or not 1 <= int(fields["count"]) <= 255
+                or (fields["status"] == "applied") != (int(fields["error"]) == 0)):
+            raise ValueError("Debug ACK result malformed")
+        with self._event_lock:
+            request = self._debug_requests.get(fields["device"])
+            if (request is None or request["deadline"] <= time.monotonic() or request["result"] is not None
+                    or fields["id"] != request["id"] or fields["mode"] != request["mode"]
+                    or fields["scroll"] != request["scroll"] or fields["pc"] != self._state.pc_id):
+                raise ValueError("Debug ACK has no matching live request")
+            peer = request["peer"]
+            active = self._state.retained_keys(fields["device"]).active
+            if (source != peer.source or fields["nonce"] != peer.nonce or active is None
+                    or not hmac.compare_digest(active, peer.key)
+                    or not hmac.compare_digest(make_proof(peer.key, "debug-ack", *(fields[name] for name in names)), fields["proof"])):
+                raise ValueError("Debug ACK authentication failed")
+            request["result"] = {"status": fields["status"], "error": int(fields["error"]),
+                                  "channel_count": int(fields["count"])}
+            request["event"].set()
 
     # self: Responder sharing only non-secret current extension capability with MCP.
     # device_id: Retained target whose last FIND must advertise events with an active key.
@@ -1321,6 +1443,13 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
             raise ValueError("Session listing does not accept arguments")
         sessions = service.activity.list_sessions()
         return tool_result({"sessions": sessions}, f"Observed {len(sessions)} chat(s) through Codex hooks.")
+    if name == "ccp_debug_screen":
+        if set(arguments) - {"device_id", "mode", "scroll", "include_simulator"}:
+            raise ValueError("Debug arguments contain unexpected fields")
+        result = service.responder.debug_screen(arguments.get("device_id"), arguments.get("mode"),
+                                                 arguments.get("scroll", 0), arguments.get("include_simulator", False))
+        return tool_result(result, f"{result['source']} debug request {result['status']}; display pixels were not verified.",
+                           result["status"] == "rejected")
     if name in {"ccp_reset_device", "ccp_factory_reset_device"}:
         if set(arguments) - {"device_id", "confirmation_code", "include_simulator"}:
             raise ValueError("Reset operation arguments contain unexpected fields")
@@ -1488,7 +1617,20 @@ def tool_catalog() -> list[dict[str, Any]]:
                 "openWorldHint": False,
             },
         },
-    ] + activity_tool_catalog() + interactions.tool_catalog() + [reset.tool_definition(operation) for operation in reset.ResetOperation]
+    ] + activity_tool_catalog() + interactions.tool_catalog() + [debug_tool_definition()] + [reset.tool_definition(operation) for operation in reset.ResetOperation]
+
+
+# No parameters: private bounded Debug screen tool, omitted from public manuals.
+def debug_tool_definition() -> dict[str, Any]:
+    return {"name": "ccp_debug_screen", "title": "Cody Debug screen",
+        "description": "Request live face_channels, character with snapshot HUD, or normal on an authenticated Debug Cody. ACK confirms worker application only, never display pixels.",
+        "inputSchema": {"type": "object", "additionalProperties": False,
+            "properties": {"device_id": {"type": "string", "pattern": "^[0-9a-f]{12}$"},
+                "mode": {"type": "string", "enum": ["face_channels", "character", "normal"]},
+                "scroll": {"type": "integer", "minimum": 0, "maximum": 255, "default": 0},
+                "include_simulator": {"type": "boolean", "default": False}},
+            "required": ["device_id", "mode"]},
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}}
 
 
 # No parameters: exposes observed context without any model-callable selection or activity setter.

@@ -9,6 +9,10 @@ if(CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY)
 endif()
 
 set(cody_onboarding_sources "")
+set(cody_debug_sources "")
+if(CONFIG_LUNASHELL_BUILD_MODE_DEBUG AND CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION)
+    list(APPEND cody_debug_sources "src/diagnostics/CODY_debug_views.cpp")
+endif()
 if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION)
     list(APPEND cody_onboarding_sources "src/scenes/CODY_onboarding.cpp" "src/scenes/CODY_look_screen.cpp")
 endif()
@@ -19,6 +23,7 @@ idf_component_register(
         "src/scenes/CODY_scene.cpp"
         "src/runtime/CODY_lifecycle.cpp"
         "src/model/CODY_expression_catalog.cpp"
+        "src/model/CODY_connection_personality.cpp"
         "src/runtime/CODY_settings.cpp"
         "src/runtime/CODY_capture_sound.cpp"
         "src/runtime/CODY_personality_audio.cpp"
@@ -52,6 +57,7 @@ idf_component_register(
         "../../assets/cody/scenes/generated/scene_body_font.cpp"
         ${cody_jelly_sources}
         ${cody_onboarding_sources}
+        ${cody_debug_sources}
     INCLUDE_DIRS "include" "../../assets/cody/personality/generated"
         "../../assets/cody/audio/codex-actions/generated"
     PRIV_INCLUDE_DIRS "../../assets/cody/boot/generated" "../../assets/cody/rig/generated" "../../assets/cody/runtime/generated"

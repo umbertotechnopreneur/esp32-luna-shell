@@ -322,7 +322,8 @@ def dispatch(server: ControlServer, operation: str, payload: dict[str, Any]) -> 
         params = payload.get("params")
         if (payload.get("method") == "tools/call" and isinstance(params, dict)
                 and params.get("name") in {"ccp_ask_question", "ccp_publish_notification",
-                                           "ccp_poll_request", "ccp_cancel_request", "ccp_reset_device", "ccp_factory_reset_device"}):
+                                           "ccp_poll_request", "ccp_cancel_request", "ccp_reset_device", "ccp_factory_reset_device",
+                                           "ccp_debug_screen"}):
             return ccp.handle_request(payload, server.service)
         # Pair/discovery cache operations are serialized; UDP liveness and hooks
         # remain independent while a pairing exchange waits for its device.
