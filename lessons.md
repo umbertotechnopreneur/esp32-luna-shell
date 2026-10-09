@@ -84,6 +84,12 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
 
 ## Cache, memory and frame ownership
 
+- Full canonical snapshots grow with unrelated features. The power worker's
+  nested 3904/3792-byte compiled frames exhausted its 8-KiB internal stack at
+  boot and after wake. Use bounded owner projections for control paths and keep
+  the applied-display read fresh after wake. Preserve real lock errors; never
+  substitute empty observations. Inspect the compiled call chain and observe
+  device stack minima before claiming that a memory correction is verified.
 - An optional engine's external heap/stack does not move its linked BSS out of
   internal RAM. TTS `57121ca2` boot repeatedly failed creating the mandatory
   8-KiB power task before speech was requested. Keep native cache-dependent BSS

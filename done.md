@@ -8,6 +8,30 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## Power-task boot/wake crash diagnosis and correction - 2026-10-10
+
+- The requested passive COM10 capture on `cody-32-g51b5d532-dirty` contains three
+  `LUNASHELL_power` stack-overflow panics. In the third, standby completed at
+  79260 ms, wake began at 131096 ms, and `phase=awake` reported ESP_OK at 132026 ms
+  immediately before the panic and software CPU reset. This is a real reset
+  following software standby, not intentional deep-sleep restoration.
+- The captured ELF prefix `63f852cac` matches the preserved ELF SHA-256
+  `63f852cacbb8e4171b16484530fdd7a68f4730da4fb21f7369c65c1102adcada`.
+  Offline core decoding confirms the overflowing task. Its unwind stops at the
+  corrupted stack, so it does not identify the exact application instruction.
+  Object disassembly independently shows 3904 bytes for `power_task` and 3792
+  for its nested `active_display_snapshot_diverged`: 7696 bytes before deeper
+  service/logging calls on an 8192-byte stack. Each full snapshot is 3728 bytes.
+- Replaced those copies with narrow canonical power inputs and applied-display
+  observations. The latter is still read after wake, rather than reusing an old
+  pre-wake observation. Aging/timestamps, lock failures and the fatal canonical
+  read invariant are retained. Compile-time size budgets and bounded Debug
+  minimum-free-stack logs make future growth observable. Static review complete;
+  build/install and fresh physical verification are pending at this checkpoint.
+- Raw captures, the matching ELF and three core dumps are retained locally in
+  `artifacts/build-cody-companion-wake-word-debug/diagnostics/power-20261010/`.
+  Core memory is private diagnostic material, not a repository artifact.
+
 ## Automatic CCP context - 2026-10-10
 
 - Implemented CCP 0.4 automatic following from the latest genuine UserPromptSubmit

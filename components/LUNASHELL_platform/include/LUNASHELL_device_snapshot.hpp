@@ -782,6 +782,26 @@ struct ConnectivityObservation {
     DeviceOperatingState operating_state = DeviceOperatingState::Active;
 };
 
+// Only the canonical inputs consumed by the internal-stack power worker.
+// Unrelated audio, storage and CCP growth must not enlarge its wake call chain.
+struct PowerControlObservation {
+    WifiSnapshot wifi;
+    BleSnapshot ble;
+    InputSnapshot input;
+    ImuSnapshot imu;
+    VoiceSnapshot voice;
+};
+
+// Read again after wake: the earlier control sample predates panel restoration.
+struct DisplayPolicyObservation {
+    ComponentSnapshot brightness;
+    ComponentSnapshot display_power_mode;
+    uint32_t brightness_percent = 100;
+    uint32_t configured_brightness_percent = 100;
+    UiHardwareSnapshot::DisplayPowerMode display_power_mode_state =
+        UiHardwareSnapshot::DisplayPowerMode::Unknown;
+};
+
 // A small coherent projection for informational chrome in either renderer.
 // Calendar fields are published by the clock owner; consumers never read live time.
 struct DeviceStatusObservation {
@@ -848,6 +868,12 @@ public:
 #endif
     // observation: Canonical radio/session state and power state under one lock.
     esp_err_t readConnectivityObservation(ConnectivityObservation &observation) const;
+    // observation: Coherent radio, button, motion and voice inputs, with original timestamps.
+    // Exception: Returns the original lock/release error without changing the destination.
+    esp_err_t readPowerControlObservation(PowerControlObservation &observation) const;
+    // observation: Current applied panel policy from the canonical owner, without hardware I/O.
+    // Exception: Returns the original lock/release error without changing the destination.
+    esp_err_t readDisplayPolicyObservation(DisplayPolicyObservation &observation) const;
     // observation: Receives battery, local calendar, Wi-Fi and BLE from one canonical lock.
     // No hardware read, live-clock read or renderer-specific cache is introduced here.
     esp_err_t readDeviceStatusObservation(DeviceStatusObservation &observation) const;

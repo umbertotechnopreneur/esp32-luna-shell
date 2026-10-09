@@ -53,6 +53,11 @@ constexpr int64_t kPowerDoublePressWindowUs = 500000;
 #endif
 constexpr int64_t kPowerKeyFreshnessUs = 500000;
 constexpr uint32_t kTaskStackBytes = 8192;
+// These copies stay live across nested wake calls on the internal task stack.
+static_assert(sizeof(LUNASHELL::PowerControlObservation) <= 768,
+              "Review the complete power-task stack budget before growing its inputs");
+static_assert(sizeof(LUNASHELL::DisplayPolicyObservation) <= 128,
+              "Keep nested display-policy reads bounded on the power task");
 constexpr uint32_t kDisplayFadeDurationMs = LUNASHELL::power_policy::kDisplayFadeDurationMs;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 constexpr int64_t kLegAlertRepeatUs = 3000000LL;
@@ -540,8 +545,10 @@ void publish_power(esp_err_t error)
     );
 }
 
-// radios: Already acquired canonical lifecycle data, never a new radio or sensor read.
-void reconcile_wireless_resume_error(const LUNASHELL::RadioSnapshot &radios)
+// wifi: Already acquired canonical Wi-Fi lifecycle state.
+// ble: Already acquired canonical BLE lifecycle state.
+void reconcile_wireless_resume_error(const LUNASHELL::WifiSnapshot &wifi,
+                                     const LUNASHELL::BleSnapshot &ble)
 {
     if (s_wireless_resume_error.load(std::memory_order_acquire) == ESP_OK) {
         return;
@@ -552,13 +559,14 @@ void reconcile_wireless_resume_error(const LUNASHELL::RadioSnapshot &radios)
             component.last_error == ESP_OK;
     };
     (void)ready;
-    (void)radios;
+    (void)wifi;
+    (void)ble;
     bool restored = true;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
-    restored = ready(radios.wifi) && radios.wifi.started;
+    restored = ready(wifi) && wifi.started;
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
-    restored = restored && ready(radios.ble);
+    restored = restored && ready(ble);
 #endif
     if (restored) {
         s_wireless_resume_error.store(ESP_OK, std::memory_order_release);
@@ -1322,16 +1330,25 @@ esp_err_t resume_standby_resources(
     return first_error;
 }
 
+// Exception: Canonical read failure remains fatal, as with the former full snapshot read.
 bool active_display_snapshot_diverged()
 {
-    const LUNASHELL::DeviceSnapshot snapshot =
-        LUNASHELL::DeviceSnapshotService::instance().snapshot();
+    LUNASHELL::DisplayPolicyObservation display;
+    const esp_err_t read_error =
+        LUNASHELL::DeviceSnapshotService::instance().readDisplayPolicyObservation(display);
+    if (read_error != ESP_OK) {
+        ESP_LOGE(kTag, "Active display policy read failed (%s)", esp_err_to_name(read_error));
+        std::abort();
+    }
+    // A completed wake may have changed the panel after the loop's input read.
+    // Keep this fresh, narrow read instead of nesting another full DeviceSnapshot.
+    // component: Canonical applied-state health, with its original operation result.
     const auto ready = [](const LUNASHELL::ComponentSnapshot &component) {
         return component.health == LUNASHELL::DeviceHealth::Ready &&
                component.last_error == ESP_OK;
     };
-    if (ready(snapshot.ui.display_power_mode) &&
-        snapshot.ui.display_power_mode_state !=
+    if (ready(display.display_power_mode) &&
+        display.display_power_mode_state !=
             LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active) {
         ESP_LOGW(
             kTag,
@@ -1339,13 +1356,13 @@ bool active_display_snapshot_diverged()
         );
         return true;
     }
-    if (!ready(snapshot.ui.brightness)) {
+    if (!ready(display.brightness)) {
         return false;
     }
 
-    const uint32_t applied = snapshot.ui.brightness_percent;
+    const uint32_t applied = display.brightness_percent;
     const uint32_t configured =
-        snapshot.ui.configured_brightness_percent;
+        display.configured_brightness_percent;
     const bool brightness_differs =
         applied + 1U < configured || applied > configured + 1U;
     if (brightness_differs) {
@@ -2587,6 +2604,7 @@ esp_err_t apply_idle_policy()
 }
 
 // argument: Unused task context; this worker owns the published power timeline.
+// Exception: Canonical read failure remains fatal; no policy uses a synthetic observation.
 void power_task(void *argument)
 {
     (void)argument;
@@ -2594,6 +2612,7 @@ void power_task(void *argument)
     uint32_t consumed_touch_interrupt_sequence = bsp_touch_interrupt_sequence();
 #endif
     TickType_t last_policy_tick = xTaskGetTickCount();
+    UBaseType_t reported_stack_minimum = kTaskStackBytes;
     publish_inputs();
     publish_power(ESP_OK);
     while (true) {
@@ -2692,9 +2711,16 @@ void power_task(void *argument)
             );
         }
 
-        const LUNASHELL::DeviceSnapshot snapshot =
-            LUNASHELL::DeviceSnapshotService::instance().snapshot();
-        reconcile_wireless_resume_error(snapshot.radios);
+        LUNASHELL::PowerControlObservation snapshot;
+        const esp_err_t observation_error =
+            LUNASHELL::DeviceSnapshotService::instance().readPowerControlObservation(snapshot);
+        if (observation_error != ESP_OK) {
+            publish_power(observation_error);
+            ESP_LOGE(kTag, "Power control observation failed (%s)",
+                     esp_err_to_name(observation_error));
+            std::abort();
+        }
+        reconcile_wireless_resume_error(snapshot.wifi, snapshot.ble);
         const auto &key = snapshot.input;
         const int64_t key_now_us = esp_timer_get_time();
         const bool key_current = key.power_button.data_valid && !key.power_button.data_stale &&
@@ -2896,6 +2922,18 @@ void power_task(void *argument)
                     s_deferred_standby_trace_report_at_us =
                         esp_timer_get_time() + kDeferredStandbyTraceReportDelayUs;
                 }
+            }
+        }
+        if (LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
+            // IDF reports bytes here. Log only substantial new minima, after
+            // the nested policy/wake paths have returned, to bound log traffic.
+            const UBaseType_t minimum_free = uxTaskGetStackHighWaterMark(nullptr);
+            if (reported_stack_minimum == kTaskStackBytes ||
+                minimum_free + 256U <= reported_stack_minimum) {
+                reported_stack_minimum = minimum_free;
+                ESP_LOGI(kTag, "Power task stack minimum free: %lu/%lu bytes",
+                         static_cast<unsigned long>(minimum_free),
+                         static_cast<unsigned long>(kTaskStackBytes));
             }
         }
         vTaskDelay(power_poll_delay());

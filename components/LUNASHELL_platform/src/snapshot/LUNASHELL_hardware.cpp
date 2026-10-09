@@ -6838,6 +6838,66 @@ esp_err_t DeviceSnapshotService::readConnectivityObservation(ConnectivityObserva
     return ESP_OK;
 }
 
+// observation: Coherent power inputs; no driver reads or independent sensor cache.
+// Exception: Returns the original lock/release error without publishing a partial copy.
+esp_err_t DeviceSnapshotService::readPowerControlObservation(
+    PowerControlObservation &observation
+) const
+{
+    const esp_err_t lock_error =
+        take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "power control read");
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    PowerControlObservation copy{
+        .wifi = s_snapshot.radios.wifi,
+        .ble = s_snapshot.radios.ble,
+        .input = s_snapshot.input,
+        .imu = s_snapshot.imu,
+        .voice = s_snapshot.voice,
+    };
+    const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
+    const esp_err_t release_error = give_snapshot_mutex("power control read");
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    // Match snapshot() aging exactly. Buttons retain their acquisition time;
+    // the power policy applies its stricter PKEY freshness requirement itself.
+    const int64_t now_us = esp_timer_get_time();
+    age_measured_sample(copy.imu, now_us, ttl_us);
+    if (copy.voice.state == VoiceState::Listening) {
+        age_measured_sample(copy.voice, now_us, 1000000);
+    }
+    observation = copy;
+    return ESP_OK;
+}
+
+// observation: Applied brightness and mode, read afresh after any power transition.
+// Exception: Returns the original lock/release error without publishing a partial copy.
+esp_err_t DeviceSnapshotService::readDisplayPolicyObservation(
+    DisplayPolicyObservation &observation
+) const
+{
+    const esp_err_t lock_error =
+        take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "display policy read");
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    const DisplayPolicyObservation copy{
+        .brightness = s_snapshot.ui.brightness,
+        .display_power_mode = s_snapshot.ui.display_power_mode,
+        .brightness_percent = s_snapshot.ui.brightness_percent,
+        .configured_brightness_percent = s_snapshot.ui.configured_brightness_percent,
+        .display_power_mode_state = s_snapshot.ui.display_power_mode_state,
+    };
+    const esp_err_t release_error = give_snapshot_mutex("display policy read");
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    observation = copy;
+    return ESP_OK;
+}
+
 // observation: Receives coherent battery, clock, Wi-Fi and BLE for informational chrome.
 // The renderer never samples the PMU, system clock, Wi-Fi or BLE driver through this path.
 esp_err_t DeviceSnapshotService::readDeviceStatusObservation(

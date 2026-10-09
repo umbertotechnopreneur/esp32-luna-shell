@@ -1,5 +1,20 @@
 # Active work
 
+## Power-task overflow at boot and wake - 2026-10-10
+
+- [x] Record the reported instability passively on COM10. Three captured panics
+  identify `LUNASHELL_power` stack overflow; one follows completed wake immediately.
+  Match the panic ELF hash before decoding. Preserve the raw captures/core dumps
+  locally under the selected build's diagnostics directory before transient cleanup.
+- [x] Replace two nested full-snapshot copies with bounded canonical power/display
+  observations. Preserve freshness, real errors and the fresh post-wake panel read;
+  retain the 8-KiB internal stack. Add bounded Debug stack-headroom reporting.
+- [ ] Build/install the completed fix and observe a fresh boot plus standby/wake
+  with the user's separately authorized verification capture. A build/flash alone
+  cannot establish that the device now resumes without resetting.
+- [ ] CCP still reports no hook-observed chats; authenticated packets have carried
+  state=None. Complete genuine hook review/delivery before claiming live chat activity.
+
 ## Automatic CCP context and atlas consolidation - 2026-10-10
 
 - [x] Replace manual chat binding with latest-user-prompt association in CCP 0.4.
@@ -13,9 +28,10 @@
   `51b5d532`, app version `cody-32-g51b5d532-dirty` (only PDF authoring work was
   uncommitted), with the eight-job Debug build and COM10 flash.
 - [ ] Fresh approval requested for cody-ccp, cody-context-documents (including
-  Poppler visual review) and `git diff --check HEAD`. No new host/PDF checks or
-  serial capture has been run. Native hook trust/autoload and physical automatic
-  chat following remain to observe; the manual MCP lease is not proof of hooks.
+  Poppler visual review) and `git diff --check HEAD`. No new host/PDF checks have
+  run. The later passive boot/wake capture is recorded above. Native hook trust,
+  autoload and physical automatic chat following remain to observe; the manual
+  MCP lease is not proof of hooks.
 
 ## CCP chat activity milestone - 2026-10-10
 
