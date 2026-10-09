@@ -26,11 +26,30 @@ flash logs were regenerated.
   session-ended and idle paths. The ACTIVITY no-selection project sentinel now
   has its literal hyphen first in the scanf set; added secret-free parse and
   authenticated-state logs alongside the existing canonical publication. Static review
-  completed; follow-up build/flash and physical confirmation remain pending.
+  completed; subsequent installation and observation are recorded below.
 - The first follow-up build stopped before flash because diagnostic code at
   `783bc3b` assigned the void `reportCodexLink` return. Corrected that call to
   match its API, whose owner logs publication failures; acceptance logs claim
   authentication only. The failed attempt did not change device flash.
+- Corrected image `3590f693`, `cody-30-g3590f693`, built with eight jobs and was
+  flashed on COM10: 6,802,848 application bytes, four verified image hashes and
+  final RTS reset. The shared helper performed pre-flash cleanup, removing the
+  preceding raw diagnostic captures after their decisive evidence was retained
+  above. Flash log: `artifacts/logs/flash.log`.
+- The freshly authorized 90-second reset capture on `3590f693` completed with
+  exit 0: `artifacts/logs/cody-boot-fixed-20261010.txt`. It recorded authenticated
+  ACTIVITY state=0/selected=no at 14193 ms, route Connected at 14203 ms and
+  DISPLAY=ready/TOUCH=ready snapshots at 34092 and 64105 ms. Standby requested at
+  74248 ms, UI quiesced at 75059 ms and standby entered with ESP_OK at 75925 ms.
+  No caption rejection, consumer stop, ACTIVITY rejection, panic or unexpected
+  reset appeared in this window. The early retained entry-failed trace belongs
+  to the prior boot; this run's standby completed successfully. No extra host
+  test suite was run for this narrow follow-up.
+- Separate diagnostics remain visible: the existing SD initialization timeouts,
+  logger truncation/loss reports, two I2S-disable messages during startup and one
+  CCP FIND send errno=118 during radio suspension at 75557 ms. These did not stop
+  the observed route or standby transition. Actual gesture/wake behavior, audible
+  output and a selected chat's transitions were not exercised by this capture.
 - Implemented a single on-demand Windows broker with DPAPI-authenticated loopback
   control, independent MCP leases, explicit observed-chat selection and metadata-only
   Codex hooks. The existing pairing identity is preserved; chat selection is volatile.

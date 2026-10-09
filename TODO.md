@@ -1,20 +1,5 @@
 # Active work
 
-## Cody boot freeze follow-up - 2026-10-10
-
-- [x] Capture and identify the reported startup freeze. Passive capture found
-  live background services but failed display/touch. The freshly authorized
-  reset capture on `da37aaac` recorded a 22-character, 243-pixel caption rejected
-  against the 232-pixel content width at 16113 ms, then Scene request failure at
-  16114 ms. This is a stopped UI, without a panic/reset in the captured window.
-- [x] Shorten the shared chat-selection caption to 20 characters/221 pixels for
-  screen 15, idle and session-ended states. Preserve the layout error checks.
-  Move the literal hyphen first in the ACTIVITY project scanset; the target
-  scanner can treat the old trailing hyphen as an unfinished range. Add bounded
-  secret-free parse diagnostics and log authenticated activity transitions.
-- [ ] Build/install the correction and, with fresh authorization, observe boot,
-  authenticated no-selection ACTIVITY, screen 15 and responsive standby/input.
-
 ## CCP chat activity milestone - 2026-10-10
 
 - [x] Implement one protected local CCP broker per PC, shared by MCP clients and trusted
@@ -39,13 +24,18 @@
   status reported no authenticated presence or hook-observed chats. Local hooks
   require local orchestration. Do not fabricate activity or bypass hook trust.
 - [ ] Physically review chat state transitions, multi-chat lifetime, reconnect,
-  UI responsiveness, standby and boot/action audio. No new serial capture or
-  device playback observation accompanied the successful installation.
+  input/wake and boot/action audio. The caption regression was corrected and
+  verified by the authorized 90-second reset capture on `3590f693`: authenticated
+  no-selection activity, route Connected, ready display/touch and successful
+  inactivity standby. Selected-chat transitions, actual gestures and audible
+  playback remain unobserved. See the dated evidence in done.md.
 
 ## Cody startup and setup access - 2026-10-09
 
-Latest installed Cody image: `da37aaac`, `cody-26-gda37aaac`, Debug wake-word/Sophia,
-eight-job build and COM10 flash successful on 2026-10-10. The preceding setup
+Latest installed Cody image: `3590f693`, `cody-30-g3590f693`, Debug wake-word/Sophia,
+eight-job build and COM10 flash successful on 2026-10-10. The prior activity image
+was `da37aaac`, `cody-26-gda37aaac`, with the caption regression recorded in done.md.
+The preceding setup
 image was `84e95216`, `cody-16-g84e95216`. The authorized 90-second capture on
 the preceding `3458237e` image
 completed the 50,000-iteration verifier in 27.790323 seconds with ESP_OK and no
