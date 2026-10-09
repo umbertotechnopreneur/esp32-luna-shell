@@ -1475,16 +1475,12 @@ esp_err_t acceptActivity(const ActivityResponse &response)
             s_link_snapshot.activity.state != activity.state ||
             std::strcmp(s_link_snapshot.activity.chat_id, activity.chat_id) != 0;
         s_link_snapshot.activity = activity;
-        error = LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
-        if (error == ESP_OK) {
-            s_activity_received_for_nonce = true;
-            if (transition) {
-                ESP_LOGI(kTag, "CCP ACTIVITY authenticated and published: state=%u selected=%s",
-                    static_cast<unsigned>(activity.state),
-                    activity.state == LUNASHELL::CodexActivityState::None ? "no" : "yes");
-            }
-        } else {
-            ESP_LOGE(kTag, "CCP ACTIVITY snapshot publication failed (%s)", esp_err_to_name(error));
+        LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
+        s_activity_received_for_nonce = true;
+        if (transition) {
+            ESP_LOGI(kTag, "CCP ACTIVITY authenticated and published: state=%u selected=%s",
+                static_cast<unsigned>(activity.state),
+                activity.state == LUNASHELL::CodexActivityState::None ? "no" : "yes");
         }
     }
     wipe(expected, sizeof(expected));

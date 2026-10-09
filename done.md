@@ -25,8 +25,11 @@ flash logs were regenerated.
   characters, 221 pixels in the actual 12-pixel/11-advance body font), including
   session-ended and idle paths. The ACTIVITY no-selection project sentinel now
   has its literal hyphen first in the scanf set; added secret-free parse and
-  accepted-state logs and retained canonical publication errors. Static review
+  accepted-state logs after canonical publication. Static review
   completed; follow-up build/flash and physical confirmation remain pending.
+- The first follow-up build stopped before flash because diagnostic code at
+  `783bc3b` assigned the void `reportCodexLink` return. Corrected that call to
+  match its synchronous-copy API; the failed attempt did not change device flash.
 - Implemented a single on-demand Windows broker with DPAPI-authenticated loopback
   control, independent MCP leases, explicit observed-chat selection and metadata-only
   Codex hooks. The existing pairing identity is preserved; chat selection is volatile.
