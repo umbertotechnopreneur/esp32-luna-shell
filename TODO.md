@@ -7,6 +7,10 @@
   returning to Welcome and standby, but contained no Connect Codex press.
   The identified Welcome-tap Wi-Fi loop and excluded 04/05/06 hold routes are
   corrected in source; physical confirmation and the initial selection remain open.
+- [x] Installed the setup escape correction on COM10 after the successful
+  eight-job Debug wake-word build at `669a33e9` (`cody-6-g669a33e9`). All four
+  image hashes were verified and the device reset via RTS. Corrected physical
+  route/hold behavior has not yet been observed.
 - [ ] Verify a stationary 1.5-second character hold after standby, including a
   contact held across wake: count only fresh visible acquired samples and return
   to the menu, preserving Wi-Fi/CCP. Confirm timeout Welcome tap/hold and resting

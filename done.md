@@ -29,6 +29,14 @@ flash logs were regenerated.
 - No firmware tests, validation scans, simulator or corrected-device input
   verification accompanied implementation. Installation evidence is recorded
   separately; corrected physical behavior remains in TODO.md.
+- The user-authorized installation then completed the Debug wake-word build
+  with eight jobs and COM10 flash at source `669a33e9`, project version
+  `cody-6-g669a33e9`. Four images were hash-verified and RTS reset completed;
+  no NVS/LittleFS/full-device erase was requested. Application: 6,701,136 bytes,
+  SHA-256 `a6b4af8f96f8468dfceff08340896aeb8a1dca75d20f8b779aef66691abc244a`.
+  Evidence: `artifacts/logs/flash.log`. Required pre-flash cleanup removed PDF
+  staging and the earlier passive capture after their findings were recorded.
+  No post-install capture/input test was run; physical behavior remains open.
 
 ## Cody Debug firmware installation - 2026-10-09
 
