@@ -6,11 +6,16 @@
   Preserve genuine hooks, ordering, background-chat isolation and authenticated
   canonical snapshots. Remove public manual select/clear tools.
 - [x] Replace the device's selection instruction with `Waiting for Codex`.
-- [ ] Update Navigation and Planning main pages by screen ID; retain historical
+- [x] Update Navigation and Planning main pages by screen ID; retain historical
   addenda/errata at the end and append dated corrections.
-- [ ] Complete static integration review, then request fresh authorization for
-  host/PDF checks. Install the revised plugin and firmware using existing install
-  authorization; observe actual hooks/display only with the required authorization.
+- [x] Complete static integration review. Install CCP 0.4.0 and reload its manually
+  started broker/MCP transport; preserve protected pairing storage. Install firmware
+  `51b5d532`, app version `cody-32-g51b5d532-dirty` (only PDF authoring work was
+  uncommitted), with the eight-job Debug build and COM10 flash.
+- [ ] Fresh approval requested for cody-ccp, cody-context-documents (including
+  Poppler visual review) and `git diff --check HEAD`. No new host/PDF checks or
+  serial capture has been run. Native hook trust/autoload and physical automatic
+  chat following remain to observe; the manual MCP lease is not proof of hooks.
 
 ## CCP chat activity milestone - 2026-10-10
 
@@ -45,8 +50,12 @@
 
 ## Cody startup and setup access - 2026-10-09
 
-Latest installed Cody image: `3590f693`, `cody-30-g3590f693`, Debug wake-word/Sophia,
-eight-job build and COM10 flash successful on 2026-10-10. The prior activity image
+Latest installed Cody image: `51b5d532`, `cody-32-g51b5d532-dirty`, Debug wake-word/Sophia,
+eight-job build and COM10 flash successful on 2026-10-10. Only the PDF revision
+and its authoring/check scripts were uncommitted at configuration time; firmware
+source was checkpointed. The prior boot-fixed image was `3590f693`,
+`cody-30-g3590f693`, with the authorized 90-second success recorded in done.md.
+The prior activity image
 was `da37aaac`, `cody-26-gda37aaac`, with the caption regression recorded in done.md.
 The preceding setup
 image was `84e95216`, `cody-16-g84e95216`. The authorized 90-second capture on

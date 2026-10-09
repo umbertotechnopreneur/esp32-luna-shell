@@ -19,11 +19,21 @@ flash logs were regenerated.
 - Changed the shared screen 15/idle/ended caption to `Waiting for Codex`, 17
   characters/188 pixels in the existing 232-pixel slot. Layout guards remain intact.
 - Prepared new isolated host regressions. Static source review is complete;
-  final checks, installation and actual hook/display delivery remain pending.
+  final host/PDF checks and actual hook/display delivery remain pending.
 - Authored the requested Navigation and Planning main-page consolidation, retained
   unrelated pages and previous errata, corrected the old manual-selection addendum,
   and appended integration notes plus final dated errata (38 pages each). PDF
   content/history checks and Poppler visual review are prepared, not yet executed.
+- Installed CCP 0.4.0 through `codex plugin add cody-codex-plugin@cody-local --json`.
+  Replaced the identified manually started 0.3.3 processes with the installed 0.4.0
+  broker and a retained MCP transport. This is process installation/startup evidence,
+  not proof of native hook trust/autoload or a genuine observed chat.
+- Eight-job Debug wake-word build and COM10 flash succeeded at firmware checkpoint
+  `51b5d532`; app version `cody-32-g51b5d532-dirty` reflects the uncommitted PDF
+  authoring work only. Application: 6,802,848 bytes; four image hashes verified;
+  final RTS reset. Log: `artifacts/logs/flash.log`. No follow-up serial capture
+  was authorized or run. The shared pre-flash cleanup removed older raw captures
+  and PDF staging; their original documents remain in Git at `2f7a5f53`.
 
 ## CCP chat activity and requested SFX - 2026-10-10
 
