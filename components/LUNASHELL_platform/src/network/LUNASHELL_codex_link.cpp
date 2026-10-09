@@ -38,6 +38,7 @@ constexpr uint16_t kDevicePort = 42117;
 constexpr uint16_t kPluginPort = 42118;
 constexpr size_t kMaximumDatagramBytes = 512;
 constexpr uint32_t kPbkdf2Iterations = 50000;
+constexpr int64_t kDerivationSliceUs = 10000;
 constexpr int64_t kPairingWindowUs = 5LL * 60LL * 1000000LL;
 constexpr int64_t kFindIntervalUs = 2LL * 1000000LL;
 constexpr int64_t kReadyExpiryUs = 8LL * 1000000LL;
@@ -249,52 +250,98 @@ esp_err_t hmacSha256(
 // code: Six-character display-only pairing code.
 // salt: Sixteen-byte random salt for this attempt.
 // verifier: Thirty-two byte derived verifier destination.
-// Exception: Returns the PSA failure without fabricating a verifier.
+// Exception: Returns the PSA computation or key-cleanup failure without a verifier.
 esp_err_t deriveVerifier(
     const char code[7],
     const uint8_t salt[16],
     uint8_t verifier[32]
 )
 {
-    psa_key_derivation_operation_t operation = PSA_KEY_DERIVATION_OPERATION_INIT;
-    psa_status_t status = psa_key_derivation_setup(
-        &operation,
-        PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_256)
-    );
-    if (status == PSA_SUCCESS) {
-        status = psa_key_derivation_input_integer(
-            &operation,
-            PSA_KEY_DERIVATION_INPUT_COST,
-            kPbkdf2Iterations
-        );
-    }
-    if (status == PSA_SUCCESS) {
-        status = psa_key_derivation_input_bytes(
-            &operation,
-            PSA_KEY_DERIVATION_INPUT_SALT,
-            salt,
-            16
-        );
-    }
-    if (status == PSA_SUCCESS) {
-        status = psa_key_derivation_input_bytes(
-            &operation,
-            PSA_KEY_DERIVATION_INPUT_PASSWORD,
-            reinterpret_cast<const uint8_t *>(code),
-            6
-        );
-    }
-    if (status == PSA_SUCCESS) {
-        status = psa_key_derivation_output_bytes(&operation, verifier, 32);
-    }
-    const psa_status_t abort_status = psa_key_derivation_abort(&operation);
+    // PBKDF2's single SHA-256 output block: U1 = HMAC(code, salt || INT32_BE(1));
+    // verifier = U1 xor ... xor U50000. PSA's monolithic KDF has no scheduling
+    // hook, so sequence its official HMAC primitive with bounded idle admission.
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_HMAC);
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_SIGN_MESSAGE);
+    psa_set_key_algorithm(&attributes, PSA_ALG_HMAC(PSA_ALG_SHA_256));
+    mbedtls_svc_key_id_t key_id = MBEDTLS_SVC_KEY_ID_INIT;
+    psa_status_t status = psa_import_key(&attributes,
+        reinterpret_cast<const uint8_t *>(code), 6, &key_id);
+    psa_reset_key_attributes(&attributes);
     if (status != PSA_SUCCESS) {
-        return logCryptoFailure("CCP PBKDF2", status);
+        return logCryptoFailure("CCP PBKDF2 key import", status);
     }
-    if (abort_status != PSA_SUCCESS) {
-        return logCryptoFailure("CCP PBKDF2 cleanup", abort_status);
+    const int64_t derivation_started_us = esp_timer_get_time();
+    ESP_LOGI(kTag, "CCP verifier HMAC key admitted; cooperative slices=%lld us",
+        static_cast<long long>(kDerivationSliceUs));
+
+    uint8_t salt_block[20]{};
+    std::memcpy(salt_block, salt, 16);
+    salt_block[19] = 1;
+    uint8_t previous[32]{};
+    uint8_t current[32]{};
+    uint8_t accumulated[32]{};
+    size_t output_size = 0;
+    status = psa_mac_compute(key_id, PSA_ALG_HMAC(PSA_ALG_SHA_256),
+        salt_block, sizeof(salt_block), previous, sizeof(previous), &output_size);
+    esp_err_t error = ESP_OK;
+    if (status == PSA_SUCCESS && output_size != sizeof(previous)) {
+        error = ESP_ERR_INVALID_SIZE;
+        ESP_LOGE(kTag, "CCP PBKDF2 initial HMAC length rejected: %u (%s)",
+            static_cast<unsigned>(output_size), esp_err_to_name(error));
     }
-    return ESP_OK;
+    if (status == PSA_SUCCESS && error == ESP_OK) {
+        std::memcpy(accumulated, previous, sizeof(accumulated));
+        int64_t slice_started_us = esp_timer_get_time();
+        for (uint32_t iteration = 1; iteration < kPbkdf2Iterations; ++iteration) {
+            // Distinct input/output storage avoids depending on PSA alias support.
+            status = psa_mac_compute(key_id, PSA_ALG_HMAC(PSA_ALG_SHA_256),
+                previous, sizeof(previous), current, sizeof(current), &output_size);
+            if (status != PSA_SUCCESS) {
+                break;
+            }
+            if (output_size != sizeof(current)) {
+                error = ESP_ERR_INVALID_SIZE;
+                ESP_LOGE(kTag, "CCP PBKDF2 HMAC length rejected: %u (%s)",
+                    static_cast<unsigned>(output_size), esp_err_to_name(error));
+                break;
+            }
+            for (size_t index = 0; index < sizeof(accumulated); ++index) {
+                accumulated[index] ^= current[index];
+            }
+            std::memcpy(previous, current, sizeof(previous));
+            if ((iteration + 1U) % 5000U == 0) {
+                ESP_LOGI(kTag, "CCP verifier progress: iterations=%lu/%lu elapsed_us=%lld",
+                    static_cast<unsigned long>(iteration + 1U),
+                    static_cast<unsigned long>(kPbkdf2Iterations),
+                    static_cast<long long>(esp_timer_get_time() - derivation_started_us));
+            }
+            if (esp_timer_get_time() - slice_started_us >= kDerivationSliceUs) {
+                // A real blocked tick admits IDLE0; taskYIELD alone would not.
+                // No service/snapshot/PSA operation lock survives this boundary.
+                vTaskDelay(1);
+                slice_started_us = esp_timer_get_time();
+            }
+        }
+    }
+    if (status != PSA_SUCCESS) {
+        error = logCryptoFailure("CCP PBKDF2 HMAC", status);
+    }
+    const psa_status_t destroy_status = psa_destroy_key(key_id);
+    if (destroy_status != PSA_SUCCESS) {
+        const esp_err_t cleanup_error = logCryptoFailure("CCP PBKDF2 key destroy", destroy_status);
+        if (error == ESP_OK) {
+            error = cleanup_error;
+        }
+    }
+    if (error == ESP_OK) {
+        std::memcpy(verifier, accumulated, sizeof(accumulated));
+    }
+    wipe(salt_block, sizeof(salt_block));
+    wipe(previous, sizeof(previous));
+    wipe(current, sizeof(current));
+    wipe(accumulated, sizeof(accumulated));
+    return error;
 }
 
 // state: Confirmed service state or admitted pending command.
@@ -611,6 +658,9 @@ void startPairing()
     if (error == ESP_OK) {
         error = formatDeviceId(observation.radios.wifi.mac_address, device_id);
     }
+    if (error == ESP_OK) {
+        ESP_LOGI(kTag, "CCP code preparation: canonical LAN and device identity admitted");
+    }
     char code[7]{};
     uint8_t salt[16]{};
     uint8_t verifier[32]{};
@@ -621,6 +671,7 @@ void startPairing()
         }
         esp_fill_random(salt, sizeof(salt));
         session_id = esp_random();
+        ESP_LOGI(kTag, "CCP code preparation: ephemeral code, salt and session generated; values withheld");
         const int64_t derivation_started_us = esp_timer_get_time();
         ESP_LOGI(kTag, "CCP verifier derivation started: core=%ld priority=%lu iterations=%lu",
             static_cast<long>(xPortGetCoreID()), static_cast<unsigned long>(kWorkerPriority),
@@ -648,6 +699,7 @@ void startPairing()
     s_link_snapshot.ready_at_us = 0;
     s_link_snapshot.peer_ip_address[0] = '\0';
     publishLocked(State::Pairing, ESP_OK);
+    ESP_LOGI(kTag, "CCP code preparation complete: display code ready, five-minute window active");
     wipe(code, sizeof(code));
     wipe(salt, sizeof(salt));
     wipe(verifier, sizeof(verifier));

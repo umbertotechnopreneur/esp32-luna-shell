@@ -18,7 +18,14 @@ the new visual appearance remain unobserved.
   has a frame timeout, not the previous malformed touch error. CCP's unpinned
   priority-3 PBKDF2 worker could preempt the priority-2 CPU1 renderer; source now
   pins CCP to CPU0 at priority 1, with secret-free derivation/failure timings.
-  Build/installation and renewed physical evidence for this correction are pending.
+  `4766df0b` built/flashed successfully; the newly authorized capture recorded
+  CCP derivation starting on CPU0 at priority 1 at 15845 ms, then IDLE0 watchdog
+  at 28015 ms and restart. Affinity alone was insufficient. Cooperative PSA-HMAC
+  PBKDF2 now blocks one tick between ten-millisecond slices, retaining all 50,000
+  iterations. Added phase/progress logs without secrets. Current changes also
+  reveal button/card labels whole after title/main-line typing, with matching
+  touch gates and no button typewriter audio. Build/installation and renewed
+  physical evidence for these follow-up changes are pending.
   The initial passive capture lacked the press. A subsequent explicitly authorized
   90-second reset/capture recorded Yes -> Connect Codex, then fifteen FF touch
   bytes / invalid ACK stopping rendering. The Welcome escape and scoped malformed

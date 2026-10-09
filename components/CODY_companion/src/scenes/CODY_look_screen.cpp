@@ -39,12 +39,14 @@ struct LookItem {
     uint16_t visible_characters = 0;
 };
 struct LookTextPrefixes {
+    bool controls_visible = false;
     uint16_t look_characters[kLookItemCapacity]{};
     uint16_t status_characters = 0;
     uint16_t hint_characters = 0;
     uint16_t visible_characters = 0;
 };
 struct LookView {
+    bool controls_visible = false;
     LookItem look_items[kLookItemCapacity]{};
     const char *selected_look_id = nullptr;
     uint8_t look_count = 0;
@@ -116,7 +118,9 @@ esp_err_t prepare_text_prefixes(const SceneFrame &scene, LookTextPrefixes &prefi
         return ESP_ERR_INVALID_STATE;
     }
     LookTextPrefixes prepared;
-    uint16_t preceding = scene.definition->title_visible ? scene.title.text.length : 0;
+    const uint16_t title_length = scene.definition->title_visible ? scene.title.text.length : 0;
+    prepared.controls_visible = scene.intro_phase == SceneIntroPhase::Complete &&
+        (!scene.definition->title_visible || scene.visible_characters == title_length);
     for (uint8_t index = 0; index < s_view.look_count; ++index) {
         const auto &item = s_view.look_items[index];
         if (item.id == nullptr || !item.control.caption.valid) {
@@ -124,13 +128,9 @@ esp_err_t prepare_text_prefixes(const SceneFrame &scene, LookTextPrefixes &prefi
                      esp_err_to_name(ESP_ERR_INVALID_STATE));
             return ESP_ERR_INVALID_STATE;
         }
-        prepared.look_characters[index] = scene_content_characters(
-            scene, item.control.caption.text.length, preceding);
-        preceding += item.control.caption.text.length;
-        // Hidden catalog labels keep their original sequence without making sound.
-        if (caption_in_viewport(item, s_view.look_scroll)) {
-            prepared.visible_characters += prepared.look_characters[index];
-        }
+        // Catalog rows are controls: their complete labels appear together and
+        // never extend the narrative typewriter cadence or its audio counts.
+        prepared.look_characters[index] = prepared.controls_visible ? item.control.caption.text.length : 0;
     }
     if (s_view.hint.valid && !s_view.status.valid) {
         ESP_LOGE(kTag, "Look retry hint has no status message (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
@@ -391,7 +391,7 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
                        uint16_t first_row, uint16_t first_column)
 {
     const auto &view = *static_cast<const LookView *>(state);
-    esp_err_t error = draw_look_list(view, strip, first_row, first_column);
+    esp_err_t error = view.controls_visible ? draw_look_list(view, strip, first_row, first_column) : ESP_OK;
     if (error == ESP_OK && view.status.valid) {
         error = CODY2D::draw_text_rows(view.status, view.status_visible_characters,
                                       strip, first_row, first_column);
@@ -400,7 +400,7 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
         error = CODY2D::draw_text_rows(view.hint, view.hint_visible_characters,
                                       strip, first_row, first_column);
     }
-    if (error == ESP_OK) {
+    if (error == ESP_OK && view.controls_visible) {
         error = CODY2D::draw_capsule_rows(view.done, strip, first_row, first_column);
     }
     return error;
@@ -434,6 +434,7 @@ esp_err_t attach_look_content(SceneFrame &scene, uint32_t control_revision)
         return prefix_error;
     }
     // Hosts invoke this only after the previous frame has fully retired.
+    s_view.controls_visible = prefixes.controls_visible;
     for (uint8_t index = 0; index < s_view.look_count; ++index) {
         s_view.look_items[index].visible_characters = prefixes.look_characters[index];
     }
@@ -466,7 +467,8 @@ esp_err_t update_look_text(SceneFrame &scene, uint32_t control_revision, bool &c
     if (prefix_error != ESP_OK) {
         return prefix_error;
     }
-    bool prefix_changed = prefixes.status_characters != s_view.status_visible_characters ||
+    bool prefix_changed = prefixes.controls_visible != s_view.controls_visible ||
+        prefixes.status_characters != s_view.status_visible_characters ||
         prefixes.hint_characters != s_view.hint_visible_characters ||
         prefixes.visible_characters != scene.content.visible_characters;
     for (uint8_t index = 0; index < s_view.look_count; ++index) {
@@ -574,6 +576,10 @@ esp_err_t handle_look_touch(SceneFrame &scene, CODY2D::Point point, bool pressed
     if (!s_view.valid) {
         ESP_LOGE(kTag, "Touch outside active look screen (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
+    }
+    if (!s_view.controls_visible) {
+        cancel_look_touch();
+        return ESP_OK;
     }
     if (s_view.pending_request_id != 0) {
         result.consumed = in_list(point) ||

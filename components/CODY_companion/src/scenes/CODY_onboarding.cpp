@@ -145,6 +145,7 @@ struct ContentView {
     uint16_t visible_characters[kContentLineCapacity]{};
     CODY2D::CapsuleControl action{};
     bool action_visible = false;
+    bool actions_visible = false;
     uint16_t action_visible_characters = 0;
     OnboardingAction action_id = OnboardingAction::None;
     CODY2D::CapsuleControl alternative{};
@@ -964,8 +965,8 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
         error = CODY2D::draw_text_rows(view.lines[index], view.visible_characters[index],
             strip, first_row, first_column);
     }
-    if (error == ESP_OK && view.action_visible && view.action.caption.valid) {
-        // Keep the full caption's centered geometry while drawing its typed prefix.
+    if (error == ESP_OK && view.actions_visible && view.action_visible && view.action.caption.valid) {
+        // Reveal the complete action atomically after the main line finishes.
         CODY2D::CapsuleControl capsule = view.action;
         capsule.caption = {};
         error = CODY2D::draw_capsule_rows(capsule, strip, first_row, first_column);
@@ -978,7 +979,7 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
                 strip, first_row, first_column);
         }
     }
-    if (error == ESP_OK && view.alternative_id != OnboardingAction::None) {
+    if (error == ESP_OK && view.actions_visible && view.alternative_id != OnboardingAction::None) {
         CODY2D::CapsuleControl capsule = view.alternative;
         capsule.caption = {};
         error = CODY2D::draw_capsule_rows(capsule, strip, first_row, first_column);
@@ -991,7 +992,7 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
                 strip, first_row, first_column);
         }
     }
-    if (error == ESP_OK && view.options.caption.valid) {
+    if (error == ESP_OK && view.actions_visible && view.options.caption.valid) {
         CODY2D::CapsuleControl control = view.options;
         control.caption = {};
         error = CODY2D::draw_capsule_rows(control, strip, first_row, first_column);
@@ -1001,6 +1002,20 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
         }
     }
     return error;
+}
+
+// scene: Valid route whose title and first body line define button admission.
+bool actions_ready(const SceneFrame &scene)
+{
+    const uint16_t title_length = scene.definition->title_visible ? scene.title.text.length : 0;
+    if (scene.definition->title_visible && scene.visible_characters < title_length) {
+        return false;
+    }
+    if (s_view.line_count == 0) {
+        return true;
+    }
+    const uint16_t length = s_view.lines[0].text.length;
+    return scene_content_characters(scene, length, title_length) == length;
 }
 
 // scene: Valid route receiving the current content revision.
@@ -1019,25 +1034,13 @@ esp_err_t attach_content(SceneFrame &scene)
     for (uint8_t index = 0; index < s_view.line_count; ++index) {
         content_characters += s_view.visible_characters[index];
     }
-    s_view.action_visible_characters = s_view.action_visible && s_view.action.caption.valid ?
-        scene_content_characters(scene, s_view.action.caption.text.length, preceding) : 0;
-    content_characters += s_view.action_visible_characters;
-    preceding += s_view.action_visible ? s_view.action.caption.text.length : 0;
-    s_view.action_second_visible = s_view.action_second_line.valid ?
-        scene_content_characters(scene, s_view.action_second_line.text.length, preceding) : 0;
-    preceding += s_view.action_second_line.text.length;
-    content_characters += s_view.action_second_visible;
-    s_view.alternative_visible_characters = s_view.alternative_id != OnboardingAction::None ?
-        scene_content_characters(scene, s_view.alternative.caption.text.length, preceding) : 0;
-    content_characters += s_view.alternative_visible_characters;
-    preceding += s_view.alternative.caption.text.length;
-    s_view.alternative_second_visible = s_view.alternative_second_line.valid ?
-        scene_content_characters(scene, s_view.alternative_second_line.text.length, preceding) : 0;
-    preceding += s_view.alternative_second_line.text.length;
-    content_characters += s_view.alternative_second_visible;
-    s_view.options_visible_characters = s_view.options.caption.valid ?
-        scene_content_characters(scene, s_view.options.caption.text.length, preceding) : 0;
-    content_characters += s_view.options_visible_characters;
+    s_view.actions_visible = actions_ready(scene);
+    s_view.action_visible_characters = s_view.actions_visible ? s_view.action.caption.text.length : 0;
+    s_view.action_second_visible = s_view.actions_visible ? s_view.action_second_line.text.length : 0;
+    s_view.alternative_visible_characters = s_view.actions_visible ? s_view.alternative.caption.text.length : 0;
+    s_view.alternative_second_visible = s_view.actions_visible ? s_view.alternative_second_line.text.length : 0;
+    s_view.options_visible_characters = s_view.actions_visible ? s_view.options.caption.text.length : 0;
+    // Button captions never contribute to typewriter cadence or its audio counts.
     const bool choice = s_view.alternative_id != OnboardingAction::None;
     const uint16_t top = s_route == Route::DebugText ? 130 :
         (s_route == Route::MakeItYours10 || s_route == Route::Settings36) ? 204 :
@@ -2036,30 +2039,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         caption_changed = caption_changed || visible != s_view.visible_characters[index];
         preceding += s_view.lines[index].text.length;
     }
-    if (s_view.action_visible && s_view.action.caption.valid) {
-        const uint16_t visible = scene_content_characters(scene, s_view.action.caption.text.length, preceding);
-        caption_changed = caption_changed || visible != s_view.action_visible_characters;
-        preceding += s_view.action.caption.text.length;
-    }
-    if (s_view.action_second_line.valid) {
-        const uint16_t visible = scene_content_characters(scene, s_view.action_second_line.text.length, preceding);
-        caption_changed = caption_changed || visible != s_view.action_second_visible;
-        preceding += s_view.action_second_line.text.length;
-    }
-    if (s_view.alternative_id != OnboardingAction::None) {
-        const uint16_t visible = scene_content_characters(scene, s_view.alternative.caption.text.length, preceding);
-        caption_changed = caption_changed || visible != s_view.alternative_visible_characters;
-        preceding += s_view.alternative.caption.text.length;
-    }
-    if (s_view.alternative_second_line.valid) {
-        const uint16_t visible = scene_content_characters(scene, s_view.alternative_second_line.text.length, preceding);
-        caption_changed = caption_changed || visible != s_view.alternative_second_visible;
-        preceding += s_view.alternative_second_line.text.length;
-    }
-    if (s_view.options.caption.valid) {
-        const uint16_t visible = scene_content_characters(scene, s_view.options.caption.text.length, preceding);
-        caption_changed = caption_changed || visible != s_view.options_visible_characters;
-    }
+    caption_changed = caption_changed || actions_ready(scene) != s_view.actions_visible;
     if (caption_changed) {
         const esp_err_t caption_error = attach_content(scene);
         if (caption_error != ESP_OK) {
@@ -2497,6 +2477,9 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return ESP_OK;
     }
     const bool cancel_hit = back_hit && s_view.action_id == OnboardingAction::Cancel;
+    if ((action_hit || cancel_hit) && !s_view.actions_visible) {
+        return ESP_OK;
+    }
     if (s_command_pending || s_work_busy.load(std::memory_order_acquire) ||
         ((action_hit || cancel_hit) && !s_view.action.enabled)) {
         return ESP_OK;
@@ -2683,7 +2666,7 @@ esp_err_t activate_setup_choice(SceneFrame &scene, OnboardingAction action)
 {
     ScenePresentation presentation{};
     esp_err_t error = prepare_scene_presentation(scene, presentation);
-    if (error != ESP_OK || !presentation.content_visible || s_timeout_cleanup.pending || s_command_pending ||
+    if (error != ESP_OK || !presentation.content_visible || !s_view.actions_visible || s_timeout_cleanup.pending || s_command_pending ||
         s_work_busy.load(std::memory_order_acquire)) {
         return error;
     }
@@ -2793,7 +2776,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
     if (pressed_edge) {
         const bool choice_route = s_route == Route::CodexChoice || s_route == Route::SetupMenu ||
             s_route == Route::NetworkWait;
-        if (choice_route) {
+        if (choice_route && s_view.actions_visible) {
             const bool primary_hit = s_view.action_visible && CODY2D::capsule_contains(s_view.action, point);
             const bool alternative_hit = s_view.alternative_id != OnboardingAction::None &&
                 CODY2D::capsule_contains(s_view.alternative, point);
@@ -2817,7 +2800,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                 return control->enabled ? activate_setup_choice(scene, action) : ESP_OK;
             }
         }
-        const bool footer_hit = uses_footer_action() && s_view.action_visible &&
+        const bool footer_hit = uses_footer_action() && s_view.actions_visible && s_view.action_visible &&
             CODY2D::capsule_contains(s_view.action, point);
         if (footer_hit) {
             consumed = true;

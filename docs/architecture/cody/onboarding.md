@@ -6,9 +6,22 @@ the CCP PBKDF2 worker unpinned at priority 3, above the priority-2 CPU1 renderer
 CCP now runs at priority 1 on CPU0, below acquisition/audio/radio tasks. Derivation
 and failed-frame stage timings contain no display codes or cryptographic material.
 This preserves the PSA PBKDF2 parameters, canonical state and genuine error paths.
-The scheduling defect is corrected in source; causation and physical recovery
-remain pending a newly authorized capture. SD retry timeout remains independent
-of that scheduling contract and is not treated as resolved.
+The subsequent authorized capture on `4766df0b` recorded derivation on CPU0 at
+priority 1, then an IDLE0 watchdog after twelve seconds and restart. Affinity
+alone was insufficient. The 2026-10-10 follow-up sequences official PSA HMAC
+operations as the original PBKDF2 block, blocking one tick between ten-millisecond
+slices without holding service/snapshot/PSA operation locks. All 50,000 iterations
+and the original code/salt/output lengths remain unchanged. Phase/progress logs
+report admission, every 5,000 completed iterations and real completion/error,
+without any code/salt/key value. Physical recovery and PC verifier compatibility
+remain pending. SD retry timeout is separately unresolved.
+
+Buttons/cards, including skin catalog rows, have no teletype captions. Onboarding
+actions appear complete together after the title and first/main body line finish;
+skin controls appear after the title. Narrative body/status text keeps its own
+typing. Controls share this visibility gate with touch admission; their label
+characters do not enter typewriter timing or audio counts. Separate lateral Back
+retains its route-driven visibility and full hit target.
 
 The navigation atlas page 02 and addendum A01/page 13 define the network journey;
 addendum A02/page 14 defines reusable screen 11, and addendum A04/page 16 records

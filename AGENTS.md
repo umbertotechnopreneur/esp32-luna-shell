@@ -66,6 +66,9 @@ instruction file; do not add parallel agent or Copilot contracts.
   screens. Preserve the separate lateral Back, QR quiet zones and local chords.
   Approved references: `docs/Cody/ui-proposals/20261009/selected-multi-action.png`
   and `selected-single-action.png` in the same directory.
+  Button/card captions do not use teletype. Reveal complete controls together
+  after the title and main body line finish; admit touch only while visible.
+  Keep control labels out of typewriter timing and audio counts.
 
 - Cody text is English, bounded printable ASCII; no Unicode/localization layer.
 - Use readable steps, descriptive names and helpers with one clear responsibility;

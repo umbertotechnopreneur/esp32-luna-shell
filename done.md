@@ -10,6 +10,29 @@ flash logs were regenerated.
 
 ## Cody action language, Options and touch diagnosis - 2026-10-09
 
+- Follow-up on 2026-10-10: `4766df0b` / `cody-14-g4766df0b` built and flashed
+  successfully on COM10 (6,718,384-byte application, four verified image hashes,
+  final RTS reset). The authorized 90-second reproduction
+  `artifacts/logs/cody-connect-codex-priority-fix.txt` recorded Yes at 15813 ms,
+  derivation start at 15845 ms on CPU0/priority 1, then IDLE0 watchdog at 28015 ms
+  and restart. No display timeout was observed before that watchdog. User reported
+  reset at Preparing secure code. The first affinity change was insufficient.
+- Implemented cooperative PBKDF2-HMAC-SHA256 using official PSA HMAC calls: the
+  original single 32-byte block, six-byte code, sixteen-byte salt and 50,000
+  iterations are retained. Ten-millisecond slices block one tick without holding
+  service/snapshot/PSA operation locks, admitting IDLE0 as well as higher workers.
+  Output is published only after successful key cleanup; intermediates are wiped,
+  real computation/cleanup failures remain visible. Source review only at this
+  checkpoint; PC verifier compatibility and physical recovery are not yet proven.
+  Requested phase and 5,000-iteration progress logs omit all code/salt/key values.
+- Updated onboarding and skin controls to appear as complete buttons/cards only
+  after title/main-line typing. Their labels do not extend narrative typing or
+  typewriter audio. Drawing and touch share the visibility gate; existing action
+  admission, layout geometry, gradients/icons and lateral Back stay integrated.
+  Current build/flash and renewed physical validation are pending.
+- The required pre-flash cleanup removed the earlier timeout reproduction file
+  after its decisive timestamps/errors were retained above and in TODO.md.
+
 - Completed the newly authorized 90-second COM10 reset/capture on installed
   `004d44d6`: `artifacts/logs/cody-connect-codex-freeze-aa.txt`. Yes at 21562 ms
   entered Connect Codex; at 22865 ms the complete-frame deadline failed after
