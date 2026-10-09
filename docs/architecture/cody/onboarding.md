@@ -309,8 +309,31 @@ and logs. No button or new menu action implements factory erasure. A true factor
 reset still requires a separate explicit reset/erase operation and is outside
 this reversible setup change.
 
-Implementation and static integration review only. No firmware tests, scans,
-configure/build/size, simulator launch, physical input, flash or erase ran.
+### Setup escape after inactivity and standby - 2026-10-09
+
+The authorized 90-second passive COM10 capture confirmed a real LAN/DHCP
+connection, then the old 05/06 timeout return to 04 / Welcome and later standby.
+It did not contain a Connect Codex press, so the initial reported wrong selection
+is not yet attributed to a touch or route cause.
+
+The previous Welcome touch handler immediately reentered 05, while the character
+hold excluded Welcome and the resting 05/06 pages. Together those rules trapped
+the user in network setup. Timeout Welcome now opens 41 on a stationary tap
+release; a 1.5-second character hold can open 41 earlier. Resting 05 and 06 also
+admit the hold when no worker/provisioning/cancellation owns a live operation.
+Initial automatic 04-05 setup for a genuinely absent Wi-Fi profile is unchanged.
+
+After standby, an already-held finger starts its 1.5-second clock at the first
+fresh acquired sample with the restored visible character. Sleep/wake resets
+the candidate, so hidden time does not count. Movement, gaps and rotation still
+cancel it. The opening contact must release before a choice can activate.
+The menu's upper Connect Codex capsule starts 12; the lower Network setup capsule
+starts 04-09. Logs now record the chosen capsule coordinates and named action,
+without recording QR payloads or CCP codes. Cleanup blocks both actions.
+
+This correction has static source review only until a new image is installed.
+Its physical hold/selection behavior remains pending; the earlier capture does
+not validate the corrected firmware.
 
 Draw/hit-test geometry uses the shared 466×466 circle and 320×320 safe square.
 Released horizontal swipes inside the safe square invoke the same typed actions:

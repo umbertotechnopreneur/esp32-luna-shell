@@ -2,6 +2,15 @@
 
 ## Cody startup and setup access - 2026-10-09
 
+- [ ] Resolve the reported Connect Codex -> Let's pair / Show QR transition.
+  The authorized 90-second passive capture confirmed LAN/DHCP, a setup timeout
+  returning to Welcome and standby, but contained no Connect Codex press.
+  The identified Welcome-tap Wi-Fi loop and excluded 04/05/06 hold routes are
+  corrected in source; physical confirmation and the initial selection remain open.
+- [ ] Verify a stationary 1.5-second character hold after standby, including a
+  contact held across wake: count only fresh visible acquired samples and return
+  to the menu, preserving Wi-Fi/CCP. Confirm timeout Welcome tap/hold and resting
+  05/06 escape reach the same menu without active-work/cancellation bypass.
 - [ ] After fresh command-specific authorization, validate missing Wi-Fi profile,
   saved-profile reconnect/DHCP wait, invalid/stale snapshot, unpaired Yes/No,
   paired reboot discovery and authenticated READY loss/recovery. Confirm No/Later

@@ -8,6 +8,28 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## Cody setup escape correction - 2026-10-09
+
+- The explicitly authorized 90-second passive COM10 capture completed without
+  reset. It recorded station DHCP success at device log time 519235 ms, the
+  onboarding inactivity return to Greeting/Welcome at 534964 ms, and standby
+  entry at 566626 ms. No Connect Codex press/menu activation was captured; the
+  initial reported wrong selection remains open. Capture provenance:
+  `artifacts/logs/cody-connect-routing.txt` (transient, removed by later build cleanup).
+- Static source review identified the concrete escape failure: timeout Welcome
+  touch immediately entered Wi-Fi invitation while character holds excluded
+  Welcome/05/06. Welcome stationary tap release now opens Setup; resting 04/05/06
+  admit character hold with all worker/provisioning/cancellation gates retained.
+  A wake-spanning contact starts a fresh 1500-ms hold only at visible eligibility.
+  Logs record capsule coordinates and named action, never QR payloads/CCP codes.
+- Appended recovery explanation and final dated Errata and corrections to each
+  requested PDF, preserving every preceding page content stream and earlier
+  errata. Navigation/Planning now have 31 pages, A5 Quick Start 8, CCP Service 15,
+  Codex Connection 19. All ten added pages were rendered and visually reviewed.
+- No firmware tests, validation scans, simulator or corrected-device input
+  verification accompanied implementation. Installation evidence is recorded
+  separately; corrected physical behavior remains in TODO.md.
+
 ## Cody Debug firmware installation - 2026-10-09
 
 - User explicitly requested installation on connected Cody. The single present

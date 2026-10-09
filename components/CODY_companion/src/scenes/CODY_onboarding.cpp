@@ -1607,12 +1607,14 @@ void request_saved_setup_startup()
     s_startup_pending = true;
 }
 
-// No parameters: a menu must never retire an in-flight action or provisioning session.
+// No parameters: resting setup pages may reopen choices without retiring live work.
 bool can_open_setup_menu()
 {
     return !s_startup_pending && !s_timeout_cleanup.pending && !s_command_pending &&
         !s_work_busy.load(std::memory_order_acquire) && !s_pairing_owned &&
         (s_route == Route::None || s_route == Route::Idle16 ||
+         (s_route == Route::Hello04 && s_hello_waits_for_touch) ||
+         s_route == Route::Invitation05 || s_route == Route::Install06 ||
          s_route == Route::LookingForPc14 || s_route == Route::Connected15 ||
          (s_route == Route::ConnectCodex12 && s_codex_error_visible && s_codex_terminal_error));
 }
@@ -2496,10 +2498,16 @@ esp_err_t activate_setup_choice(SceneFrame &scene, OnboardingAction action)
 {
     ScenePresentation presentation{};
     esp_err_t error = prepare_scene_presentation(scene, presentation);
-    if (error != ESP_OK || !presentation.content_visible || s_command_pending ||
+    if (error != ESP_OK || !presentation.content_visible || s_timeout_cleanup.pending || s_command_pending ||
         s_work_busy.load(std::memory_order_acquire)) {
         return error;
     }
+    const char *label = nullptr;
+    error = action_label(action, label);
+    if (error != ESP_OK) {
+        return error;
+    }
+    ESP_LOGI(kTag, "Setup choice activated: %s", label != nullptr ? label : "None");
     if (action == OnboardingAction::DeclineCodex || action == OnboardingAction::Later) {
         // No persistent refusal and no backend request. Next cold boot may ask again.
         scene = {};
@@ -2555,12 +2563,25 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         return ESP_OK;
     }
     if (s_route == Route::Hello04) {
-        if (s_hello_waits_for_touch && pressed_edge) {
-            consumed = true;
-            if (!s_timeout_cleanup.pending && !s_command_pending &&
-                !s_work_busy.load(std::memory_order_acquire)) {
-                return enter_route(Route::Invitation05, scene);
-            }
+        if (!s_hello_waits_for_touch) {
+            return ESP_OK;
+        }
+        // Timeout Welcome is an escape back to choices. Do not start Wi-Fi on
+        // the first pressed sample: the character hold must own its full contact.
+        consumed = true;
+        if (pressed_edge) {
+            s_swipe_active = can_open_setup_menu();
+            s_swipe_start = point;
+            s_swipe_rotation = rotation_degrees;
+        }
+        const int dx = point.x - s_swipe_start.x;
+        const int dy = point.y - s_swipe_start.y;
+        if (s_swipe_rotation != rotation_degrees || (pressed && dx * dx + dy * dy > 12 * 12)) {
+            s_swipe_active = false;
+        }
+        if (!pressed && s_swipe_active) {
+            s_swipe_active = false;
+            return can_open_setup_menu() ? open_setup_menu(scene) : ESP_OK;
         }
         return ESP_OK;
     }
@@ -2590,6 +2611,8 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
             if (primary_hit || alternative_hit) {
                 consumed = true;
                 const auto &control = primary_hit ? s_view.action : s_view.alternative;
+                ESP_LOGI(kTag, "Setup capsule pressed: x=%d y=%d slot=%s", point.x, point.y,
+                    primary_hit ? "footer" : "upper");
                 return control.enabled ? activate_setup_choice(scene,
                     primary_hit ? s_view.action_id : s_view.alternative_id) : ESP_OK;
             }

@@ -1,6 +1,7 @@
 """Append the requested startup/setup correction to the five existing Cody PDFs."""
 
 import argparse
+from enum import Enum
 from io import BytesIO
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -16,6 +17,13 @@ from reportlab.platypus import Paragraph
 ROOT = Path(__file__).resolve().parents[2]
 REVISION = "09 October 2026"
 REVISION_ID = "CODY-SETUP-20261009"
+RECOVERY_REVISION_ID = "CODY-SETUP-RECOVERY-20261009"
+
+
+class RevisionKind(str, Enum):
+    Startup = "startup"
+    Recovery = "recovery"
+
 INK = HexColor("#142737")
 MUTED = HexColor("#536776")
 BLUE = HexColor("#359FE7")
@@ -74,8 +82,9 @@ def paragraph(pdf, text, x, top, width, page_height, size=11, bold=False, color=
 # title: Revision-page title.
 # number: Physical page number, continuing the preserved originals.
 # subtitle: Short explanation of the page's purpose.
+# revision_id: Stable identity of the explicitly selected addendum.
 # Raises ValueError for title/subtitle overflow.
-def heading(pdf, dimensions, label, title, number, subtitle):
+def heading(pdf, dimensions, label, title, number, subtitle, revision_id=REVISION_ID):
     width, height = dimensions
     margin = 26 if width < 500 else 34
     paragraph(pdf, "CODY / " + label + " / SETUP REVISION", margin, 22,
@@ -88,7 +97,7 @@ def heading(pdf, dimensions, label, title, number, subtitle):
     pdf.setFillColor(MUTED)
     pdf.setFont("SetupBody", 7)
     pdf.drawString(margin, 32, "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential")
-    pdf.drawString(margin, 20, REVISION + " | Source implementation; firmware/device unverified")
+    pdf.drawString(margin, 20, revision_id + " | Physical review pending")
     pdf.drawRightString(width - margin, 20, str(number))
 
 
@@ -271,16 +280,89 @@ def errata_page(pdf, dimensions, label, affected, number, original_count):
     pdf.showPage()
 
 
+# pdf: Revision canvas, preserving the original atlas page dimensions.
+# dimensions: Original width and height, including the A5 leaflet.
+# label: Canonical document identity.
+# number: Continued physical page number.
+# Raises ValueError when the explanation leaves the printable page.
+def recovery_page(pdf, dimensions, label, number):
+    width, height = dimensions
+    compact = width < 500
+    margin = 26 if compact else 34
+    heading(pdf, dimensions, label, "Setup after standby", number,
+            "Hold Cody for 1.5 seconds to choose Network setup or Connect Codex.", RECOVERY_REVISION_ID)
+    content_width = width - 2 * margin if compact else 470
+    top = 163
+    rows = [
+        ("04-06 / Escape the network loop", "After inactivity, Welcome previously sent its first touch straight "
+         "back to Let's pair. Welcome now opens 41 on a stationary tap release. A character hold also opens "
+         "41 from timeout Welcome, Let's pair or the installation QR page when no operation is busy."),
+        ("35B / Wake, then hold", "A finger already down during wake starts its 1.5-second hold only on a "
+         "fresh acquired sample with the restored visible character. Hidden standby/wake time never counts. "
+         "Movement over 12 px, report gaps over 250 ms or rotation cancel the hold. Release before choosing."),
+        ("41 / Two explicit destinations", "Upper Connect Codex opens 12 and its six-character CCP code "
+         "using the local Wi-Fi/IP connection. Lower Network setup explicitly opens 04-09. No Internet probe "
+         "is required. Active provisioning, worker admission and pending cancellation block menu access."),
+    ]
+    size = 9.5 if compact else 11
+    for title, body in rows:
+        top = paragraph(pdf, title, margin, top, content_width, height, size + 1, True)
+        top = paragraph(pdf, body, margin, top + 3, content_width, height, size) + 12
+    if not compact:
+        illustrative_screen(pdf, 660, 273, 88, height, "Setup", "Connect Codex", "Network setup", True)
+        paragraph(pdf, "41 / Same choices after wake", 558, 383, 225, height, 12, True)
+        paragraph(pdf, "Illustrative UI. Existing credentials and retained CCP pairing are preserved.",
+                  558, 410, 225, height, 10, False, MUTED)
+    pdf.showPage()
+
+
+# pdf: Revision canvas; this is always the final appended page.
+# dimensions: Preserved original page dimensions.
+# label: Canonical atlas identity.
+# number: Continued final physical page number.
+# original_count: All preserved previous pages, including earlier errata.
+# setup_page_number: Previous addendum page whose gesture scope is superseded.
+# Raises ValueError when dated corrections overflow the page.
+def recovery_errata_page(pdf, dimensions, label, number, original_count, setup_page_number):
+    width, height = dimensions
+    margin = 26 if width < 500 else 34
+    heading(pdf, dimensions, label, "Errata and corrections", number,
+            "Revision date: " + REVISION + " / recovery correction", RECOVERY_REVISION_ID)
+    top = 162
+    rows = [
+        ("Original analysis gap", "The first analysis did not reconcile the legacy Welcome timeout/touch "
+         "path with reopening setup after standby. This was an original analysis gap (buco di analisi iniziale)."),
+        ("Affected pages and screens", f"Previous setup addendum: page {setup_page_number}. "
+         "Affected screen IDs: 04, 05, 06, 12, 35B and 41. Earlier dated errata remain intact."),
+        ("Corrections", "Timeout Welcome tap release and stationary character holds on resting 04-06 reopen "
+         "41. A hold spanning wake starts only after visible restoration. Connect Codex goes to 12; "
+         "Network setup goes to 04-09. Busy work and pending cleanup cannot be bypassed."),
+        ("Evidence and limits", "A user-authorized 90-second passive serial capture confirmed LAN/DHCP, "
+         "Welcome inactivity return and standby. No Connect Codex press occurred in that capture; the "
+         "initial wrong-selection report remains unresolved. The correction has static source review; "
+         "corrected physical behavior still needs observation."),
+        ("Preservation", f"All {original_count} preceding pages, prior errata and unrelated content are retained. "
+         "This addendum supersedes only the cited escape/gesture behavior. Saved credentials are not erased."),
+    ]
+    for title, body in rows:
+        top = paragraph(pdf, title, margin, top, width - 2 * margin, height, 10.5, True)
+        top = paragraph(pdf, body, margin, top + 3, width - 2 * margin, height,
+                        9 if width < 500 else 11) + 11
+    pdf.showPage()
+
+
 # name: One explicitly requested source PDF filename.
 # label: Canonical atlas label.
 # affected: Original affected page/screen IDs.
 # staging: Repository-local artifact directory for preserved originals and authoring output.
+# revision: Explicit typed revision; each can be appended exactly once.
 # Raises OSError or ValueError for missing/ambiguous inputs; publishes only fully authored PDFs.
-def revise(name, label, affected, staging):
+def revise(name, label, affected, staging, revision):
     source = ROOT / "docs/cody" / name
     reader = PdfReader(source)
-    if any(REVISION_ID in (page.extract_text() or "") for page in reader.pages):
-        raise ValueError(f"Revision {REVISION_ID} already exists in {name}; do not duplicate it")
+    revision_id = RECOVERY_REVISION_ID if revision == RevisionKind.Recovery else REVISION_ID
+    if any(revision_id in (page.extract_text() or "") for page in reader.pages):
+        raise ValueError(f"Revision {revision_id} already exists in {name}; do not duplicate it")
     dimensions = tuple(float(value) for value in (reader.pages[0].mediabox.width, reader.pages[0].mediabox.height))
     original_count = len(reader.pages)
     staging.mkdir(parents=True, exist_ok=True)
@@ -291,13 +373,19 @@ def revise(name, label, affected, staging):
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=dimensions, pageCompression=1)
     pdf.setAuthor("Umberto Giacobbi")
-    startup_page(pdf, dimensions, label, original_count + 1)
-    setup_page(pdf, dimensions, label, original_count + 2)
-    added = 2
-    if "quickstart" in name:
-        install_page(pdf, dimensions, label, original_count + 3)
-        added += 1
-    errata_page(pdf, dimensions, label, affected, original_count + added + 1, original_count)
+    if revision == RevisionKind.Recovery:
+        recovery_page(pdf, dimensions, label, original_count + 1)
+        setup_page_number = original_count - (2 if "quickstart" in name else 1)
+        recovery_errata_page(pdf, dimensions, label, original_count + 2, original_count, setup_page_number)
+        added = 1
+    else:
+        startup_page(pdf, dimensions, label, original_count + 1)
+        setup_page(pdf, dimensions, label, original_count + 2)
+        added = 2
+        if "quickstart" in name:
+            install_page(pdf, dimensions, label, original_count + 3)
+            added += 1
+        errata_page(pdf, dimensions, label, affected, original_count + added + 1, original_count)
     pdf.save()
     buffer.seek(0)
     writer = PdfWriter()
@@ -315,13 +403,16 @@ def revise(name, label, affected, staging):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--font-dir", type=Path, default=Path("C:/Windows/Fonts"))
-    parser.add_argument("--staging", type=Path, default=ROOT / "artifacts/docs/cody-setup-20261009")
+    parser.add_argument("--revision", choices=[value.value for value in RevisionKind], default=RevisionKind.Startup.value)
+    parser.add_argument("--staging", type=Path)
     args = parser.parse_args(argv)
-    staging = args.staging.resolve()
+    revision = RevisionKind(args.revision)
+    revision_id = RECOVERY_REVISION_ID if revision == RevisionKind.Recovery else REVISION_ID
+    staging = (args.staging or ROOT / "artifacts/docs" / revision_id.lower()).resolve()
     if not staging.is_relative_to((ROOT / "artifacts").resolve()):
         raise ValueError("PDF staging must stay under the repository artifacts directory")
     register_fonts(args.font_dir)
-    prepared = [revise(name, label, affected, staging)
+    prepared = [revise(name, label, affected, staging, revision)
                 for name, (label, affected) in DOCUMENTS.items()]
     # Complete every requested revision before changing any of the original documents.
     for source, staged in prepared:

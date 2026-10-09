@@ -245,6 +245,7 @@ struct CompanionState {
     bool touch_pressed = false;
     bool setup_hold_candidate = false;
     bool setup_hold_opened = false;
+    bool setup_hold_eligible = false;
     LUNASHELL_touch_point_t setup_hold_origin{};
     int64_t setup_hold_last_sample_us = 0;
     uint16_t setup_hold_rotation_degrees = 0;
@@ -3282,6 +3283,9 @@ esp_err_t apply_lifecycle_requests()
         return audio_error;
     }
     s_state.lifecycle_request = request;
+    // A retained contact must start a fresh visible hold after the wake handoff.
+    s_state.setup_hold_candidate = false;
+    s_state.setup_hold_eligible = false;
     cancel_transient_affection(sleeping);
     if (sleeping && !s_state.resume_scene_pending) {
         s_state.animation_paused_before_standby = s_state.animation_paused;
@@ -3356,7 +3360,7 @@ esp_err_t prepare_display_lifecycle(bool sleeping)
 }
 
 // point: Original acquired contact with its hardware-owner timestamp.
-// pressed_edge: Actual beginning of the contact, excluding wake/repeated reports.
+// pressed_edge: Actual beginning of the contact; wake eligibility uses fresh reports.
 // eligible: True only while the visible character owns a resting, unobstructed route.
 // consumed: True after the menu opens and until this same contact actually releases.
 // Exception: Returns the original body hit-test, menu, policy or release-publication error.
@@ -3376,11 +3380,17 @@ esp_err_t handle_setup_hold(const LUNASHELL_touch_point_t &point, bool pressed_e
         }
         return ESP_OK;
     }
-    if (!eligible || !point.pressed || !CODY::can_open_setup_menu()) {
+    const bool menu_eligible = eligible && CODY::can_open_setup_menu();
+    const bool start_visible_contact = point.pressed && menu_eligible &&
+        (pressed_edge || !s_state.setup_hold_eligible);
+    s_state.setup_hold_eligible = menu_eligible && point.pressed;
+    if (!menu_eligible || !point.pressed) {
         s_state.setup_hold_candidate = false;
         return ESP_OK;
     }
-    if (pressed_edge) {
+    if (start_visible_contact) {
+        // A wake contact may begin while the retained scene is hidden. Start
+        // its 1500-ms clock only at the first acquired, visible eligible sample.
         bool hit = false;
         const esp_err_t error = CODY::hit_test_body(*s_resources.rig,
             {static_cast<float>(point.x), static_cast<float>(point.y)}, hit);
