@@ -2,25 +2,22 @@
 
 ## Cody: notifiche e decisioni dall'atlante - 2026-10-10
 
-- [x] Ho ripreso i flussi gia approvati: PR 21-24 in sola lettura, screen 25
-  ritirato; domanda 26, scelta e conferma 27, Reply sent 31 solo dopo ACK del
-  destinatario. Le approvazioni native restano sul computer.
-- [x] Ho implementato il trasporto firmware autenticato EVENT/REPLY/REPLYACK,
-  identita immutabili, deadline di 180 secondi e stato canonico separato dalle
-  attivita della chat. Non trasformo timeout, offline o cancel in una scelta.
-- [x] Ho predisposto la ricezione in standby con il pairing conservato: la
-  notifica accoda il risveglio sul worker power; la wake word mantiene il suo
-  percorso. Questa e implementazione, non ancora prova sul dispositivo.
-- [ ] Completo integrazione CCP/MCP, schermate native e simulatore dichiarato
-  SIMULATED, insieme ai vettori condivisi tra encoder Python e decoder C++.
-- [ ] Rigenero i cinque PDF dalle pagine principali; conservo vecchie errata e
-  aggiungo in fondo la revisione datata. README e guida restano in prima persona.
-- [ ] Eseguo le verifiche finali, build/flash e cattura autorizzate dall'utente,
-  annunciando i comandi. Registro separatamente prove host, firmware e hardware;
-  l'utente e fuori studio, quindi non invento una conferma fisica del touch.
-- [ ] Faccio checkpoint mirati e push. Preservo fuori da questi checkpoint le
-  modifiche concorrenti al rig e ai relativi generatori, che non appartengono
-  al lavoro su notifiche e decisioni.
+- [x] Ho integrato CCP/MCP, firmware e simulatore SIMULATED: notifiche, domande
+  con due o tre scelte, conferma Send e Reply sent solo dopo ACK del destinatario.
+  Le PR 21-24 restano in sola lettura; lo screen 25 resta ritirato.
+- [x] Ho aggiunto riavvio e factory reset distinti con il codice letterale
+  `043533477` nella richiesta corrente. Il factory reset cancella impostazioni,
+  Wi-Fi e pairing; conservo firmware, asset e SD. Un errore impedisce il reboot.
+- [x] Ho aggiornato e verificato i cinque PDF: 173 pagine renderizzate, pagine
+  principali corrette e storico/errata preservati. README e guida seguono il flusso.
+- [x] Ho verificato 51 casi CCP, 21 casi simulatore, cody-runtime (26 vettori
+  Python/C++, presenter reale e owner settings), cody-native e snapshot-integrity.
+- [ ] Completo power-policy, build/flash, size e cattura sul dispositivo.
+  Non eseguo il factory reset fisico mentre l'utente e fuori studio.
+- [ ] Verifico la ricezione fisica delle notifiche e il riavvio conservativo;
+  touch, voce e hook reali richiedono evidenza distinta dalle prove sul PC.
+- [ ] Completo i checkpoint e il push preservando le modifiche concorrenti
+  al rig/debug, escluse dalla copia isolata usata per queste verifiche.
 
 ## Cody: chiudo il percorso completo - 2026-10-10
 

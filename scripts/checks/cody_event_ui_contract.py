@@ -14,8 +14,9 @@ def check_event_ui(compiler: str, output: Path) -> None:
                 "components/CODY2D/include", "components/CODY_companion/include",
                 "components/LUNASHELL_platform/include", "assets/cody/rig/generated",
                 "assets/cody/scenes/generated", "assets/cody/appearance/jelly-scanline/generated",
-                "assets/cody/audio/codex-actions/generated")
+                "assets/cody/audio/codex-actions/generated", "assets/cody/personality/generated")
     sources = ("scripts/tests/cody_native/event_ui_contract.cpp",
+               "scripts/tests/cody_native/event_ui_owner_boundary.cpp",
                "components/CODY2D/src/CODY2D.cpp", "components/CODY2D/src/CODY2D_paths.cpp",
                "components/CODY2D/src/CODY2D_text.cpp", "components/CODY2D/src/CODY2D_controls.cpp",
                "components/CODY_companion/src/model/CODY_rig.cpp",
@@ -23,9 +24,10 @@ def check_event_ui(compiler: str, output: Path) -> None:
                "assets/cody/scenes/generated/scene_font.cpp",
                "assets/cody/scenes/generated/scene_body_font.cpp")
     command = compile_command(compiler, includes, sources, executable,
-                              definitions=("CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX=1",), cxx_standard=20)
-    # Unused task/transport declarations intentionally have no fake implementations.
-    # A new dependency from the tested layout path therefore fails at link time.
+                              definitions=("CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX=1",
+                                           "CODY_ENABLE_PEARL_JELLY=0"), cxx_standard=20)
+    # Every excluded owner aborts if actually called. This also keeps MSVC's
+    # symbol resolution strict before its unused-function removal takes place.
     if Path(compiler).stem.lower() == "cl":
         command.insert(1, "/Gy")
         command.extend(("/link", "/OPT:REF", "/INCREMENTAL:NO"))

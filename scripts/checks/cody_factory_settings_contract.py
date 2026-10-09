@@ -12,7 +12,9 @@ def check_factory_settings(compiler: str, output: Path) -> None:
     executable = output / "factory-settings-contract.exe"
     includes = ("scripts/tests/factory_settings_stubs", "scripts/tests/cody_native",
                 "components/LUNASHELL_platform/include")
-    sources = ("scripts/tests/cody_native/factory_settings_contract.cpp",)
+    # MSVC searches quoted includes through the including source's directories
+    # before /I paths; keep this fixture outside cody_native's minimal nvs.h.
+    sources = ("scripts/tests/factory_settings/factory_settings_contract.cpp",)
     command = compile_command(compiler, includes, sources, executable,
                               definitions=("CONFIG_ESP_TASK_WDT_TIMEOUT_S=12",), cxx_standard=20)
     run_stage(command, output, "factory-settings-compile")

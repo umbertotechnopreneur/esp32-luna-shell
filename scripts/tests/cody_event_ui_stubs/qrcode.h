@@ -3,7 +3,7 @@
 #include "esp_err.h"
 
 // QR transport is outside this fixture; only its compile-time SDK declarations
-// are supplied. Any accidental call remains an unresolved symbol at link time.
+// are supplied. The linked owner boundary aborts if any QR operation is called.
 using esp_qrcode_handle_t = void *;
 constexpr int ESP_QRCODE_ECC_MED = 1;
 struct esp_qrcode_config_t {

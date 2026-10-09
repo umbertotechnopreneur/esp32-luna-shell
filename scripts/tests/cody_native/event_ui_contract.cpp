@@ -10,8 +10,8 @@
 #define ESP_LOGW(tag, ...) host_error_log(tag, __VA_ARGS__)
 
 // Compile the real presenter in this translation unit so the fixture can inspect
-// its private, immutable prepared controls. Unused worker/network paths are not
-// linked; no production-only test branch or copied layout implementation exists.
+// its private, immutable prepared controls. Owner boundaries abort if entered;
+// no production-only test branch or copied layout implementation exists.
 #include "../../../components/CODY_companion/src/scenes/CODY_onboarding.cpp"
 
 namespace CODY {
@@ -178,7 +178,7 @@ void complete_narrative(SceneFrame &scene)
 // No parameters: actual card rendering and typed labels share the full-control visibility gate.
 void check_choice_cards()
 {
-    for (uint8_t count : {2, 3}) {
+    for (uint8_t count : {uint8_t{2}, uint8_t{3}}) {
         start_question();
         s_presented_event.choice_count = count;
         SceneFrame scene = prepare(Route::DecisionChoices27, SceneId::DecisionChoices);
@@ -239,7 +239,7 @@ void check_pr_views()
         copy_field(s_presented_event.failed_checks[index],
             std::string(24, static_cast<char>('a' + index)) + " " + std::string(23, 'X'));
     }
-    for (uint8_t page : {0, 1}) {
+    for (uint8_t page : {uint8_t{0}, uint8_t{1}}) {
         s_event_failure_page = page;
         prepare(Route::CheckFailures24, SceneId::CheckFailures);
         require(!s_view.action_visible && s_view.event_choice_count == 0, "failure names are readonly");

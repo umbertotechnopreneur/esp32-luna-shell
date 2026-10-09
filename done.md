@@ -7,6 +7,27 @@ Conservo la storia in Git e nei documenti di architettura. I vecchi percorsi
 richiesta il 2026-10-05 ha rimosso quelle prove non versionate. Per i nuovi
 risultati indico sotto le copie preservate dentro la directory del build.
 
+## Notifiche, decisioni e comandi di manutenzione - 2026-10-10
+
+- Ho salvato il trasporto firmware in `a1a2d356` e l'integrazione completa in
+  `f5f36428`: EVENT/REPLY/REPLYACK autenticati, scelte stabili, deadline e ACK
+  del destinatario prima di Reply sent. Nessuna azione PR sul dispositivo.
+- Ho aggiunto `resetta il device codice 043533477` per il riavvio conservativo
+  e `formatta cody 043533477` per impostazioni, Wi-Fi e pairing. Il codice e un
+  controllo anti-equivoco letterale, non una password. Un ACK ammette soltanto
+  il comando; non dimostra un boot o una cancellazione completati.
+- Ho verificato 51 casi host CCP e 21 casi SIMULATED, inclusi pacchetti UDP
+  loopback reali, perdita dell'ACK, chiave ruotata, comando duplicato e factory
+  reset del solo archivio simulato. Ho verificato cody-runtime: 500 tick,
+  26 vettori condivisi, presenter grafico reale e owner settings con errori
+  erase/commit/readback e blocco scritture. cody-native e snapshot-integrity PASS.
+- Ho aggiornato i cinque atlanti nelle pagine principali e preservato le vecchie
+  errata, aggiungendo le nuove in fondo. QA documentale PASS, 173 pagine renderizzate
+  e reviste visivamente; fonti/documenti in `0834a496` e `eab8bf3e`.
+- Ho eseguito le verifiche in `E:\Cody-Notifications`, una copia isolata dallo
+  sviluppo concorrente del rig/debug. Build, installazione e osservazione fisica
+  restano aperte in TODO.md; non considero i test host una prova sul display.
+
 ## Pairing recuperabile, Options e simulatore CCP - 2026-10-10
 
 - Ho salvato firmware e preferenze in `959931f3`, dopo il primo checkpoint

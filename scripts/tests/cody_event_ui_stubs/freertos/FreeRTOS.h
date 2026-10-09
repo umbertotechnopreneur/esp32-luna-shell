@@ -3,7 +3,7 @@
 #include <cstdint>
 
 // Declaration-only SDK boundary for the portable event-layout fixture. No task
-// implementation is linked: the final host target discards unused device paths.
+// execution is emulated: the linked owner boundary aborts if a task is invoked.
 using StackType_t = uint32_t;
 using TaskHandle_t = void *;
 struct StaticTask_t { uint32_t unused; };

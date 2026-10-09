@@ -2882,15 +2882,25 @@ extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_
         ESP_LOGE(kTag, "CCP event dismiss rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
-    std::memcpy(s_dismissed_event_id, s_event_snapshot.request_id, sizeof(s_dismissed_event_id));
+    const LUNASHELL::CodexEventSnapshot retained = s_event_snapshot;
     static_cast<LUNASHELL::CodexEventPayload &>(s_event_snapshot) = {};
     s_event_snapshot.state = LUNASHELL::CodexEventState::None;
     s_event_snapshot.last_error = ESP_OK;
     s_event_snapshot.data_valid = true;
     s_event_snapshot.data_stale = false;
-    s_reply_pending = false;
     ++s_event_snapshot.revision;
-    return publishEventLocked();
+    const esp_err_t error = publishEventLocked();
+    if (error != ESP_OK) {
+        // The view has not observed dismissal. Preserve the request so its
+        // visible Retry remains admissible after a transient snapshot failure.
+        s_event_snapshot = retained;
+        s_event_snapshot.last_error = error;
+        ++s_event_snapshot.revision;
+        return error;
+    }
+    std::memcpy(s_dismissed_event_id, retained.request_id, sizeof(s_dismissed_event_id));
+    s_reply_pending = false;
+    return ESP_OK;
 }
 
 #else
