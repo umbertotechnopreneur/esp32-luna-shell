@@ -96,8 +96,8 @@ try {
         Assert-ConsoleRejection { Resolve-ArtifactPath '' '' } 'requires an explicit path'
     }
 
-    Invoke-ConsoleCheck 'Cleanup retains build/config/Python caches and explicitly protected outputs' {
-        foreach ($directory in @('build-cody-companion', 'sdkconfig', 'board-config', 'python', 'managed_components', 'custom-build')) {
+    Invoke-ConsoleCheck 'Cleanup retains build/config/Python caches, simulator identity and protected outputs' {
+        foreach ($directory in @('build-cody-companion', 'sdkconfig', 'board-config', 'python', 'managed_components', 'cody-simulator-state', 'custom-build')) {
             New-ConsoleFixtureFile (Join-Path $fixtureArtifacts "$directory/keep.txt")
         }
         New-ConsoleFixtureFile (Join-Path $fixtureArtifacts '.device.lock')
@@ -105,7 +105,7 @@ try {
         New-ConsoleFixtureFile (Join-Path $fixtureArtifacts 'simulator/remove.png')
         New-ConsoleFixtureFile (Join-Path $fixtureArtifacts 'capture.log')
         Clear-DeviceArtifacts -ProtectedPaths @((Join-Path $fixtureArtifacts 'custom-build/subtree'))
-        foreach ($directory in @('build-cody-companion', 'sdkconfig', 'board-config', 'python', 'managed_components', 'custom-build')) {
+        foreach ($directory in @('build-cody-companion', 'sdkconfig', 'board-config', 'python', 'managed_components', 'cody-simulator-state', 'custom-build')) {
             Assert-ConsoleCondition (Test-Path -LiteralPath (Join-Path $fixtureArtifacts "$directory/keep.txt")) "Cleanup removed protected $directory."
         }
         Assert-ConsoleCondition (Test-Path -LiteralPath (Join-Path $fixtureArtifacts '.device.lock')) 'Cleanup removed the operation lock.'
@@ -142,6 +142,7 @@ try {
     Invoke-ConsoleCheck 'Action-specific options reject ignored parameters and conflicting board selection' {
         $contract = Get-DeviceActionParameters
         Assert-DeviceActionParameters 'simulator' @{ Action = 'simulator'; Screen = 'rig'; Rotation = 180 } $contract
+        Assert-DeviceActionParameters 'simulator' @{ Action = 'simulator'; Ccp = $true } $contract
         Assert-DeviceActionParameters 'capture' @{ Action = 'capture'; Port = 'COM99'; DurationSeconds = 1 } $contract
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'simulator' @{ Port = 'COM99' } $contract } 'not valid'
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'help' @{ LogPath = 'artifacts/logs/help.log' } $contract } 'not valid'
@@ -240,11 +241,11 @@ try {
         Assert-ConsoleCondition ($call.PythonExecutable -eq 'host-python') 'Preview lost the host interpreter selection.'
     }
 
-    Invoke-ConsoleCheck 'Boot screenshots dispatch three host captures in fixed stage order' {
+    Invoke-ConsoleCheck 'Boot screenshots dispatch four host captures in fixed stage order' {
         $script:hostCalls.Clear()
         Invoke-DeviceCommand 'boot-screens' @{ SafeGuide = $false; PythonExecutable = 'host-python' }
-        Assert-ConsoleCondition ($script:hostCalls.Count -eq 3) 'Boot capture did not dispatch three host jobs.'
-        $screens = @('boot-sleep','boot-waking','boot-ready')
+        Assert-ConsoleCondition ($script:hostCalls.Count -eq 4) 'Boot capture did not dispatch four host jobs.'
+        $screens = @('boot-vibeware','boot-sleep','boot-waking','boot-ready')
         for ($index = 0; $index -lt $screens.Count; $index += 1) {
             $call = $script:hostCalls[$index]
             Assert-ConsoleCondition ($call.Arguments[1] -eq $screens[$index]) 'Boot stage order changed.'

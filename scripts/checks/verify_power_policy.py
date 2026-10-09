@@ -1454,7 +1454,8 @@ def verify_source_contracts() -> None:
         require_contains(hardware, edge, "physical PWR press/release acquisition")
         require_contains(queued_before_clear, edge, "PWR edges queued before verified IRQ clear")
     for fragment in ("snapshot.input", "key.power_pressed_at_us", "key.power_button.data_valid",
-                     "key.power_pressed_valid", "kPowerKeyFreshnessUs", "s_power_reset_hold.update(", 'restart_preserving_logs("PWR")'):
+                     "key.power_pressed_valid", "kPowerKeyFreshnessUs", "s_power_reset_hold.update(",
+                     'restart_preserving_logs("Debug PWR held for 3 seconds")'):
         require_contains(power_task, fragment, "continuous PWR reset uses only fresh canonical input")
     require_contains(power, "kPowerResetPressUs = 3000000", "three-second PWR software hold")
     restart = function_text(power, "void restart_preserving_logs(", "LUNASHELL_power.cpp")
@@ -1600,8 +1601,9 @@ def verify_source_contracts() -> None:
     require_regex(
         power_task,
         r"if\s*\(\s*\(leg_mode\s*&&\s*wake_on_leg_motion\s*&&\s*leg_motion\.level\s*>\s*0\)\s*\|\|\s*"
-        r"\(!leg_mode\s*&&\s*qualified_motion\)\s*\)",
-        "Leg wake preference and non-Leg qualified-motion isolation",
+        r"\(!leg_mode\s*&&\s*s_shake_wake_enabled\.load\(std::memory_order_acquire\)\s*&&\s*"
+        r"qualified_motion\)\s*\)",
+        "independent Leg/Cody wake preferences and qualified-motion isolation",
     )
     require_contains(
         power_task,
@@ -2217,14 +2219,16 @@ def verify_source_contracts() -> None:
         "mandatory standby consistency validation",
     )
     for fragment in (
-        "optional_storage_error != ESP_OK",
-        "recovery_storage_error != ESP_OK",
+        "optional_errors.first_error() != ESP_OK",
+        "recovery_optional_errors.first_error() != ESP_OK",
         "recovery_publication_error",
+        "publish_power(optional_error)",
+        "return optional_error",
     ):
         require_contains(
             standby_transition,
             fragment,
-            "optional storage recovery publication",
+            "optional storage/radio recovery publication preserves real failures",
         )
 
     suspend_resources = function_text(
