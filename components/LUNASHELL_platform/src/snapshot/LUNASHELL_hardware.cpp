@@ -6847,6 +6847,23 @@ esp_err_t DeviceSnapshotService::readCodyOptionsObservation(CodyOptionsObservati
     return ESP_OK;
 }
 
+// observation: Bounded canonical event, copied only after acquiring the snapshot mutex.
+// Exception: Returns the original lock/release failure, never an invented empty event.
+esp_err_t DeviceSnapshotService::readCodexEventObservation(CodexEventSnapshot &observation) const
+{
+    const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "Codex event read");
+    if (error != ESP_OK) {
+        return error;
+    }
+    const CodexEventSnapshot copy = s_snapshot.codex_event;
+    const esp_err_t release_error = give_snapshot_mutex("Codex event read");
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    observation = copy;
+    return ESP_OK;
+}
+
 // observation: Coherent projection for the connectivity worker; no driver reads.
 esp_err_t DeviceSnapshotService::readConnectivityObservation(ConnectivityObservation &observation) const
 {

@@ -358,6 +358,8 @@ const char *device_state_reason_name(LUNASHELL::DeviceStateReason reason)
         return "wake-word";
     case LUNASHELL::DeviceStateReason::Inactivity:
         return "inactivity";
+    case LUNASHELL::DeviceStateReason::CodexNotification:
+        return "codex-notification";
     }
     return "unknown";
 }
@@ -768,10 +770,39 @@ esp_err_t set_lvgl_standby(bool standby)
 
 #if !CONFIG_LUNASHELL_BUILD_ENABLE_UI && \
     (CONFIG_LUNASHELL_BUILD_ENABLE_WIFI || CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH)
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+bool s_standby_retains_codex_wireless = false;
+#endif
 // standby: Whether to stop or restore the radios selected by the standalone profile.
-// Exception: Hardware teardown failures block standby; a separate budget failure stays published.
+// Exception: Canonical read or hardware teardown failures block standby; budget failures remain published.
 esp_err_t set_standalone_wireless_standby(bool standby)
 {
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+    if (!standby && s_standby_retains_codex_wireless) {
+        // These radios never stopped. A second initialization would erase live
+        // connection state during an authenticated notification wake.
+        s_standby_retains_codex_wireless = false;
+        return ESP_OK;
+    }
+    if (standby && s_standby_resources.wireless.consistent) {
+        // Failed partial radio initialization must take the real teardown path.
+        // Retaining it would falsely report cleanup as a known stopped state.
+        LUNASHELL::ConnectivityObservation observation{};
+        const esp_err_t read_error = LUNASHELL::DeviceSnapshotService::instance()
+            .readConnectivityObservation(observation);
+        if (read_error != ESP_OK) {
+            ESP_LOGE(kTag, "Codex standby radio policy read failed (%s)", esp_err_to_name(read_error));
+            return read_error;
+        }
+        const auto &link = observation.radios.codex_link;
+        if (link.data_valid && !link.data_stale && link.retained_link_present &&
+            !link.pairing_repair_required) {
+            s_standby_retains_codex_wireless = true;
+            ESP_LOGI(kTag, "Cody standby retains wireless services for authenticated CCP notifications");
+            return ESP_OK;
+        }
+    }
+#endif
     esp_err_t result = ESP_ERR_NOT_SUPPORTED;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
     if (standby) {
@@ -3264,6 +3295,21 @@ extern "C" void LUNASHELL_power_manager_note_power_activity(void)
     s_activity_reason.store(LUNASHELL::DeviceStateReason::PowerButton,
                             std::memory_order_relaxed);
     s_activity_sequence.fetch_add(1, std::memory_order_release);
+}
+
+// No parameters: a new authenticated event queues work; the CCP task never performs wake I/O.
+// Exception: Returns INVALID_STATE before the mandatory power service is ready.
+extern "C" esp_err_t LUNASHELL_power_manager_note_codex_notification(void)
+{
+    if (!s_initialized.load(std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "Codex notification wake rejected before power initialization (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_activity_at_us.store(esp_timer_get_time(), std::memory_order_relaxed);
+    s_activity_reason.store(LUNASHELL::DeviceStateReason::CodexNotification, std::memory_order_relaxed);
+    s_activity_sequence.fetch_add(1, std::memory_order_release);
+    return ESP_OK;
 }
 
 // seconds: Scene inactivity interval; zero immediately restores configured policy.

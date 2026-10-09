@@ -44,6 +44,13 @@ extern "C" void LUNASHELL_power_manager_note_power_activity(void)
 {
 }
 
+// No parameters: excluded power profile has no notification wake owner.
+// Exception: Always returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t LUNASHELL_power_manager_note_codex_notification(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 // seconds: Unsupported transient override in a profile without the power owner.
 // Exception: Always returns ESP_ERR_NOT_SUPPORTED for this excluded feature.
 extern "C" esp_err_t LUNASHELL_power_manager_set_scene_standby_override(uint32_t seconds)

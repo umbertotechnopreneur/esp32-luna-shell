@@ -1025,6 +1025,8 @@ const char *deviceStateReasonName(LUNASHELL::DeviceStateReason reason)
         return "wake-word";
     case LUNASHELL::DeviceStateReason::Inactivity:
         return "inactivity";
+    case LUNASHELL::DeviceStateReason::CodexNotification:
+        return "codex-notification";
     }
     return "unknown";
 }

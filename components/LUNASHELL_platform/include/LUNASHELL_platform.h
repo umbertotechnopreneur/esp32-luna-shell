@@ -217,6 +217,9 @@ esp_err_t LUNASHELL_power_manager_register_short_press(
 void LUNASHELL_power_manager_note_activity(void);
 /** Refresh the active PWR countdown without blocking or changing persisted timeouts. */
 void LUNASHELL_power_manager_note_power_activity(void);
+// No parameters: queues one authenticated new Codex event through the power owner.
+// Exception: Returns INVALID_STATE before initialization or NOT_SUPPORTED when excluded.
+esp_err_t LUNASHELL_power_manager_note_codex_notification(void);
 
 // seconds: Transient scene inactivity seconds; zero restores the configured timeout.
 // Positive overrides start on scene entry and defer display dimming until standby.
@@ -818,6 +821,14 @@ esp_err_t LUNASHELL_codex_link_copy_pairing_code(
     size_t buffer_size,
     uint32_t expected_attempt_id
 );
+
+// expected_request_id: Exact currently displayed request, bound before confirmation.
+// choice_id: Stable semantic option selected and explicitly confirmed on Cody.
+// Exception: Returns state, expiry, identity or mailbox admission errors; admission is not delivery.
+esp_err_t LUNASHELL_codex_event_reply(const char *expected_request_id, const char *choice_id);
+// expected_request_id: Exact non-question or terminal interaction explicitly dismissed.
+// Exception: Rejects dismissal of an unanswered question or a newer request.
+esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_id);
 
 #ifdef __cplusplus
 }

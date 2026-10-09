@@ -11,6 +11,7 @@
 #endif
 
 #include "LUNASHELL_provisioning_state.hpp"
+#include "LUNASHELL_codex_events.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -253,6 +254,13 @@ struct CodexActivitySnapshot : ComponentSnapshot {
     uint64_t revision = 0;
     char chat_id[65] = {}; // SHA-256 identity; no transcript or prompt content.
     char project[25] = {}; // Explicit ASCII display label, never an identity.
+};
+
+struct CodexEventSnapshot : ComponentSnapshot, CodexEventPayload {
+    CodexEventState state = CodexEventState::None;
+    uint64_t revision = 0;
+    char request_id[33]{};
+    int64_t expires_at_us = 0;
 };
 
 struct CodexLinkSnapshot : ComponentSnapshot {
@@ -633,6 +641,7 @@ enum class DeviceStateReason : uint8_t {
     ImuMotion,
     WakeWord,
     Inactivity,
+    CodexNotification,
 };
 
 struct PowerManagementSnapshot : ComponentSnapshot {
@@ -744,6 +753,7 @@ struct CodyOptionsObservation {
 };
 
 struct DeviceSnapshot {
+    CodexEventSnapshot codex_event;
     uint32_t sequence = 0;
     int64_t last_update_attempt_at_us = 0;
     bool last_update_complete = false;
@@ -885,6 +895,12 @@ public:
     // observation: Coherent, bounded options projection; assigned only after a successful read.
     // Exception: Returns the original snapshot lock/release error.
     esp_err_t readCodyOptionsObservation(CodyOptionsObservation &observation) const;
+    // observation: Bounded canonical interaction; no radio, sensor or transcript reads.
+    // Exception: Returns the original canonical snapshot lock/read failure.
+    esp_err_t readCodexEventObservation(CodexEventSnapshot &observation) const;
+    // event: Authenticated controller state, including real delivery and expiry outcomes.
+    // Exception: Returns the original publication failure and logs its cause.
+    esp_err_t reportCodexEvent(const CodexEventSnapshot &event);
 
     // preferences: Actual settings-owner outcome, including failed reads and writes.
     // Exception: Returns the original publication error.

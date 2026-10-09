@@ -11,6 +11,7 @@ set(LUNASHELL_platform_srcs
     "src/runtime/LUNASHELL_sleep.cpp"
     "src/network/LUNASHELL_pairing_service.cpp"
     "src/network/LUNASHELL_codex_link.cpp"
+    "src/network/LUNASHELL_codex_events.cpp"
 )
 
 set(LUNASHELL_platform_requires

@@ -5118,6 +5118,9 @@ std::expected<void, std::string> App::refresh_battery(AppContext &context)
         case DeviceStateReason::Inactivity:
             reason = "INACTIVITY";
             break;
+        case DeviceStateReason::CodexNotification:
+            reason = "CODEX NOTIFICATION";
+            break;
         }
         std::snprintf(
             device_power_value.data(),

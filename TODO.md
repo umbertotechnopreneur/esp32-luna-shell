@@ -1,5 +1,27 @@
 # Active work
 
+## Cody: notifiche e decisioni dall'atlante - 2026-10-10
+
+- [x] Ho ripreso i flussi gia approvati: PR 21-24 in sola lettura, screen 25
+  ritirato; domanda 26, scelta e conferma 27, Reply sent 31 solo dopo ACK del
+  destinatario. Le approvazioni native restano sul computer.
+- [x] Ho implementato il trasporto firmware autenticato EVENT/REPLY/REPLYACK,
+  identita immutabili, deadline di 180 secondi e stato canonico separato dalle
+  attivita della chat. Non trasformo timeout, offline o cancel in una scelta.
+- [x] Ho predisposto la ricezione in standby con il pairing conservato: la
+  notifica accoda il risveglio sul worker power; la wake word mantiene il suo
+  percorso. Questa e implementazione, non ancora prova sul dispositivo.
+- [ ] Completo integrazione CCP/MCP, schermate native e simulatore dichiarato
+  SIMULATED, insieme ai vettori condivisi tra encoder Python e decoder C++.
+- [ ] Rigenero i cinque PDF dalle pagine principali; conservo vecchie errata e
+  aggiungo in fondo la revisione datata. README e guida restano in prima persona.
+- [ ] Eseguo le verifiche finali, build/flash e cattura autorizzate dall'utente,
+  annunciando i comandi. Registro separatamente prove host, firmware e hardware;
+  l'utente e fuori studio, quindi non invento una conferma fisica del touch.
+- [ ] Faccio checkpoint mirati e push. Preservo fuori da questi checkpoint le
+  modifiche concorrenti al rig e ai relativi generatori, che non appartengono
+  al lavoro su notifiche e decisioni.
+
 ## Cody: chiudo il percorso completo - 2026-10-10
 
 - [x] Ho isolato la correzione del pairing in `147c727`: conferma Already paired,

@@ -899,6 +899,17 @@ void DeviceSnapshotService::reportCodexLink(const CodexLinkSnapshot &codex_link)
     log_snapshot_publication_failure("Codex link report", publication_error);
 }
 
+// event: Complete owner-produced event; the synchronous update never retains this reference.
+// Exception: Returns and logs the original snapshot publication failure.
+esp_err_t DeviceSnapshotService::reportCodexEvent(const CodexEventSnapshot &event)
+{
+    const esp_err_t error = update_snapshot([&event](DeviceSnapshot &snapshot) {
+        snapshot.codex_event = event;
+    });
+    log_snapshot_publication_failure("Codex event report", error);
+    return error;
+}
+
 // ready: Hardware readiness confirmed by a successful operation.
 // error: Original operation or publication failure.
 void DeviceSnapshotService::reportDisplay(bool ready, esp_err_t error)
