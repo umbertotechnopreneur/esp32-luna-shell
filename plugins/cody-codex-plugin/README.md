@@ -83,7 +83,7 @@ ports 42117 and 42118. Do not enable public-network access.
 The firmware/session protocol is documented in `protocol/CCP1.md`.
 
 Screen 15 means the paired CCP instance replied. The activity extension below
-adds explicit chat selection and real lifecycle status. User messages, replies,
+automatically follows the chat of the latest user prompt and its real lifecycle status. User messages, replies,
 PR details, branch acquisition and transcription remain separate work.
 
 ## Verification boundary
@@ -97,13 +97,16 @@ The prepared host regression suite is invoked only through:
 It covers authenticated presence and the required two-sided pairing completion
 using synthetic clocks/keys, temporary files below `artifacts/` and mocked
 listeners. It does not open LAN sockets, call Codex, access the real protected
-state or contact a device. All 22 cases passed on 10 October 2026 for CCP 0.3.3.
+state or contact a device. All 22 earlier cases passed on 10 October 2026 for CCP 0.3.3.
+The revised 0.4 suite covers automatic switching, background isolation, reordered
+prompt delivery, bounded labels and removal of the manual selection tools;
+its new results are tracked in the root done.md/TODO.md.
 Local marketplace installation and manual MCP startup of 0.3.3 succeeded; the
 existing pairing record was retained. Native plugin autoload, hook trust,
 lifetime across chats, private firewall behavior, multi-adapter broadcast and
 activity delivery/reconnection still require end-to-end observation. The earlier
 0.2 pairing was physically confirmed; that does not establish 0.3 activity.
-## CCP 0.3 chat activity milestone
+## CCP 0.4 automatic chat activity
 
 The MCP entrypoint now attaches to a single hidden, on-demand Windows broker.
 The broker owns UDP 42118; MCP transports renew independent leases on the
@@ -118,25 +121,38 @@ Review and trust the bundled `hooks/hooks.json` in Codex before using activity.
 In a local Codex CLI session, `/hooks` opens that review. Local plugin command
 hooks require local orchestration; Work Cloud does not execute them even when
 some tools run on the PC. This adapter must receive genuine events before any
-chat can be selected.
-Install/enable alone does not trust hooks. A new prompt or session start registers
-the chat; `ccp_list_sessions` lists observed identities, and
-`ccp_select_session(device_id, session_id, project)` selects the user's exact chat.
-`project` is an explicit 1-24 character ASCII display label. No automatic first-chat
-selection, transcript reading, prompt storage or model-authored activity is used.
-Selection is volatile and must be repeated after a broker restart.
+chat activity can be shown.
+Install/enable alone does not trust hooks. `UserPromptSubmit` automatically makes
+that exact chat the followed context for all Cody devices paired to this PC.
+The newest prompt-hook emission wins; delayed older hooks cannot reverse it.
+SessionStart, tools, completions and interruptions from other chats never switch
+the followed context. `ccp_list_sessions` is read-only and exposes `followed`.
+The former `ccp_select_session` and `ccp_clear_session` tools have been removed.
+
+There is no chat picker on the device and no manual chat-selection prerequisite
+in Codex. Screen 15 says **Connected / Waiting for Codex** until the first genuine
+prompt. A broker restart waits for a new prompt automatically. Opening a tab
+alone is not a documented hook signal; this feature follows submitted work,
+not window focus. It does not read transcripts or retain prompt/response text.
+
+The display uses the working directory's last component as a project label,
+projected to printable ASCII (`?` for unsupported characters) and shortened with
+`...` to at most 24 characters. A filesystem root is labelled `Codex`. Those
+presentation decisions are logged. The full session digest remains the identity;
+two chats in the same project remain distinct. Chat titles and branches are not
+provided by this adapter.
 
 Hooks send lifecycle metadata only. Working/editing/running observations expire
 after 120 seconds without a new event, becoming unavailable rather than remaining
 apparently current. A Stop event means response ready, never task success.
-`ccp_clear_session` removes the selection while retaining pairing.
+Disable the plugin to stop future hooks; this does not erase device pairing.
 
 New firmware requests the authenticated activity capability in FIND; the broker
-returns nonce-bound ACTIVITY snapshots alongside READY. Selection tool success
-means accepted locally, not proof that the physical display has updated.
+returns nonce-bound ACTIVITY snapshots alongside READY. Local hook acceptance
+does not prove that the physical display has updated.
 Native screens 17-20 and 32 consume the canonical activity snapshot. Ending a
 session shows 20B for five active seconds and returns to 16. Holding the character
-opens Setup; Back restores the saved-link journey and selected chat context.
+opens Setup; Back restores the saved-link journey and plugin-provided chat context.
 Packets expire on Cody after eight seconds; ordinary LAN reconnect replays the
 latest snapshot without repeating pairing. UI activity does not override the
 user's standby policy. Physical verification is tracked in the root TODO.

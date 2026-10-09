@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "cody-codex-plugin",
-  "version": "0.3.3",
-  "description": "CCP: discover and pair Cody on the local network from Codex.",
+  "version": "0.4.0",
+  "description": "CCP: pair Cody and automatically follow your Codex chat on the local network.",
   "author": {
     "name": "Umberto Giacobbi"
   },
@@ -12,7 +12,7 @@
       "interface": {
         "displayName": "CCP - Cody's Codex Plugin",
         "shortDescription": "Pair Cody with Codex on the local network.",
-        "longDescription": "Discover Cody devices, match the six-character code shown on the physical display, and retain one authenticated local PC identity.",
+        "longDescription": "Pair Cody on the LAN, retain its authenticated PC identity, and automatically follow the latest user-prompt chat through trusted Codex hooks.",
         "developerName": "Umberto Giacobbi",
         "category": "Developer Tools",
         "capabilities": [

@@ -1,11 +1,24 @@
 # Active work
 
+## Automatic CCP context and atlas consolidation - 2026-10-10
+
+- [x] Replace manual chat binding with latest-user-prompt association in CCP 0.4.
+  Preserve genuine hooks, ordering, background-chat isolation and authenticated
+  canonical snapshots. Remove public manual select/clear tools.
+- [x] Replace the device's selection instruction with `Waiting for Codex`.
+- [ ] Update Navigation and Planning main pages by screen ID; retain historical
+  addenda/errata at the end and append dated corrections.
+- [ ] Complete static integration review, then request fresh authorization for
+  host/PDF checks. Install the revised plugin and firmware using existing install
+  authorization; observe actual hooks/display only with the required authorization.
+
 ## CCP chat activity milestone - 2026-10-10
 
 - [x] Implement one protected local CCP broker per PC, shared by MCP clients and trusted
   Codex hooks. Start it on demand without changing the retained pairing identity.
-- [x] List observed chats and explicitly bind one chat to one paired Cody. Never
-  infer a chat from foreground windows, process names or transcript contents.
+- [x] List observed chats. The former explicit binding was superseded by the
+  automatic-context decision above; never infer a chat from foreground windows,
+  process names or transcript contents.
 - [x] Implement authenticated, bounded activity snapshots in the canonical device
   snapshot and screens 17-20/32; reconnect must restore the selected context.
 - [x] Integrate the native presentation, plugin instructions and five atlas revisions,
@@ -19,7 +32,7 @@
   stopped before compilation. Eight-job Debug build and COM10 flash succeeded
   at `da37aaac` (`cody-26-gda37aaac`), with four verified image hashes.
 - [x] Make focused implementation checkpoints and push through `da37aaac`.
-- [ ] Complete native plugin hook review/autoload and bind a genuinely observed
+- [ ] Complete native plugin hook review/autoload and follow a genuinely observed
   chat. Installed CCP 0.3.3 starts manually and retains the pairing; its first
   status reported no authenticated presence or hook-observed chats. Local hooks
   require local orchestration. Do not fabricate activity or bypass hook trust.

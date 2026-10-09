@@ -157,8 +157,8 @@ CCP1|ACTIVITY|device=<12 hex>|pc=<32 hex>|nonce=<32 hex>|chat=<64 hex>|revision=
 HMAC input: activity|<device>|<pc>|<nonce>|<chat>|<revision>|<phase>|<project>
 ```
 
-The link key authenticates every field. `chat` is the SHA-256 of the selected
-opaque Codex session ID; all zeroes denote no selection. `revision` is a volatile
+The link key authenticates every field. `chat` is the SHA-256 of the followed
+opaque Codex session ID; all zeroes denote waiting for a prompt. `revision` is a volatile
 unsigned counter for diagnostics, not a persisted ordering guarantee across PC
 restarts. Freshness comes from the device's current random FIND nonce, accepted
 at most once for ACTIVITY. Old polls, duplicated replies and altered metadata are
@@ -168,7 +168,7 @@ ASCII, at most 24 bytes; `-` is allowed only with `phase=none` and zero chat ID.
 Phases: `none`, `active`, `working`, `editing`, `running`, `ready`, `paused`,
 `interrupted`, `ended`, `unavailable`. These map to screens 15/16, 17, 18, 19, 20A/20B, or
 18U unavailable. An eight-second missing PC lease uses screen 32 after a chat
-has been selected. A retained label identifies context only while disconnected.
+has been followed. A retained label identifies context only while disconnected.
 
 The owner publishes activity into DeviceSnapshotService, separately marking
 freshness/health/error. No UI consumer reads host data or sockets. Unavailable
@@ -176,8 +176,13 @@ activity never becomes a numeric estimate or a synthetic working state.
 
 Codex hooks submit only event/session/turn/tool identities and cwd through the
 DPAPI-authenticated 127.0.0.1:42119 control endpoint. No prompts, tool arguments,
-responses or transcript paths are retained. Sessions and selection are volatile;
-restart requires selection again, while LAN reconnect retains it. Active hook
+responses or transcript paths are retained. Since CCP 0.4, only the latest emitted
+UserPromptSubmit changes the followed chat; other chats' background events cannot
+steal it. All Cody devices paired to this PC mirror that context. SessionStart
+registers metadata only. The workspace leaf provides a bounded ASCII display
+label, never identity or a claimed chat title. No device or MCP selection step is
+required. Sessions and followed context are volatile; restart waits for the next
+genuine prompt, while LAN reconnect retains the context. Active hook
 states expire after 120 seconds without a new event. MCP leases keep the broker
 alive but do not renew activity. There is no model-callable activity setter.
 

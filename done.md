@@ -8,6 +8,23 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## Automatic CCP context - 2026-10-10
+
+- Implemented CCP 0.4 automatic following from the latest genuine UserPromptSubmit
+  hook. Background chat events cannot steal context; reordered older prompts do
+  not reverse the selection. All devices paired to the PC mirror that context.
+  Removed manual select/clear MCP tools and updated manifests, skill, protocol
+  and README. Labels are bounded ASCII workspace text; full session digests retain
+  identity. No prompts, replies, transcripts or tool arguments are added to storage.
+- Changed the shared screen 15/idle/ended caption to `Waiting for Codex`, 17
+  characters/188 pixels in the existing 232-pixel slot. Layout guards remain intact.
+- Prepared new isolated host regressions. Static source review is complete;
+  final checks, installation and actual hook/display delivery remain pending.
+- Authored the requested Navigation and Planning main-page consolidation, retained
+  unrelated pages and previous errata, corrected the old manual-selection addendum,
+  and appended integration notes plus final dated errata (38 pages each). PDF
+  content/history checks and Poppler visual review are prepared, not yet executed.
+
 ## CCP chat activity and requested SFX - 2026-10-10
 
 - Follow-up on the reported boot crash: passive 90-second COM10 capture and a

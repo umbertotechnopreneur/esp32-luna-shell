@@ -51,8 +51,8 @@ constexpr CODY2D::Rect kLeftCardBounds{73, 260, 154, 104};
 constexpr CODY2D::Rect kRightCardBounds{239, 260, 154, 104};
 constexpr CODY2D::Rect kOptionsBounds{153, 376, 160, 52};
 constexpr uint16_t kCaptionWidth = 232;
-// Twenty characters occupy 221 pixels in the authored body font.
-constexpr char kSelectChatCaption[] = "Pick a chat in Codex";
+// Seventeen characters occupy 188 pixels in the 232-pixel body slot.
+constexpr char kWaitingForCodexCaption[] = "Waiting for Codex";
 #if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
 constexpr uint16_t kDebugTextWidth = 386;
 constexpr uint16_t kDebugTextColor = 0xF7BE; // CSS whitesmoke (#F5F5F5) in native RGB565.
@@ -1471,7 +1471,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         error = prepare_caption("Codex PC found", 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption(kSelectChatCaption, 327, s_view.lines[1]);
+            error = prepare_caption(kWaitingForCodexCaption, 327, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
@@ -1513,7 +1513,7 @@ esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
     const auto &activity = link.activity;
     const bool same_chat = std::strcmp(activity.chat_id, s_presented_activity.chat_id) == 0;
     Route destination = Route::Connected15;
-    const char *message = kSelectChatCaption;
+    const char *message = kWaitingForCodexCaption;
     if (!link.data_valid || link.data_stale || link.state != CodexState::Connected) {
         if (!s_companion_seen_selection) {
             return ESP_OK;
@@ -1567,7 +1567,7 @@ esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
             }
             destination = active_time_us - s_session_ended_at_us < 5LL * 1000000LL
                 ? Route::Ended20 : Route::CompanionIdle16;
-            message = kSelectChatCaption;
+            message = kWaitingForCodexCaption;
             break;
         case Activity::Unavailable:
             destination = Route::ActivityUnavailable;

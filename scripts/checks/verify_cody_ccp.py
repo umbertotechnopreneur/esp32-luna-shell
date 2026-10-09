@@ -219,75 +219,100 @@ class ChatActivityTests(unittest.TestCase):
         self.event_time += 1
         with patch.object(activity.time, "monotonic_ns", return_value=1_000_000):
             self.store.observe({"hook_event_name": name, "session_id": session,
-                                "cwd": "E:/synthetic-project", "turn_id": turn,
+                                "cwd": fields.pop("cwd", "E:/synthetic-project"), "turn_id": turn,
                                 "emitted_ns": self.event_time, **fields})
 
-    # self: Multiple chats and one explicit device selection.
-    # Raises AssertionError if another chat changes the selected device state.
-    def test_selection_is_explicit_and_isolated(self) -> None:
+    # self: Concurrent chats whose genuine prompt events establish user intent.
+    # Raises AssertionError if startup selects a chat or background events steal it.
+    def test_latest_prompt_follows_automatically_without_background_switches(self) -> None:
         self.observe("SessionStart")
         self.observe("SessionStart", session="chat-b")
-        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "none")
-        self.store.bind("abcdef012345", "chat-a", "Project A")
-        self.observe("UserPromptSubmit", session="chat-b")
-        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "active")
+        self.assertEqual(self.store.snapshot()["phase"], "none")
         self.observe("UserPromptSubmit")
-        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "working")
+        first_chat = self.store.snapshot()["chat"]
+        self.observe("UserPromptSubmit", session="chat-b", cwd="E:/project-b")
+        second_chat = self.store.snapshot()["chat"]
+        self.assertNotEqual(first_chat, second_chat)
+        self.assertEqual(bytes.fromhex(self.store.snapshot()["project"]), b"project-b")
+        self.observe("Stop", session="chat-a")
+        self.observe("SessionStart", session="chat-a")
+        self.assertEqual(self.store.snapshot()["chat"], second_chat)
+        self.assertEqual(self.store.snapshot()["phase"], "working")
+        self.assertEqual([item["session_id"] for item in self.store.list_sessions()
+                          if item["followed"]], ["chat-b"])
+
+    # self: Two prompt hooks whose process delivery order differs from emission order.
+    # Raises AssertionError if a delayed older prompt reverses the followed chat.
+    def test_delayed_prompt_cannot_reverse_newer_chat(self) -> None:
+        self.event_time = 9
+        self.observe("UserPromptSubmit", session="chat-b")
+        followed_chat = self.store.snapshot()["chat"]
+        self.event_time = 4
+        self.observe("UserPromptSubmit", session="chat-a")
+        self.assertEqual(self.store.snapshot()["chat"], followed_chat)
+        self.event_time = 9
+        with self.assertRaisesRegex(ValueError, "ambiguous prompt timestamp"):
+            self.observe("UserPromptSubmit", session="chat-c")
+        self.assertEqual(len(self.store.list_sessions()), 2)
 
     # self: Two consecutive turns in the same selected chat.
     # Raises AssertionError if a late previous-turn Stop completes a newer turn.
     def test_old_turn_completion_cannot_finish_current_turn(self) -> None:
         self.observe("UserPromptSubmit")
-        self.store.bind("abcdef012345", "chat-a", "Project")
         self.observe("UserPromptSubmit", turn="turn-b")
         with self.assertRaisesRegex(ValueError, "turn does not match"):
             self.observe("Stop")
-        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "working")
+        self.assertEqual(self.store.snapshot()["phase"], "working")
 
     # self: Selected active turn with a synthetic monotonic lease.
     # Raises AssertionError if a PC heartbeat or wall time keeps activity current.
     def test_active_observation_expires_without_inventing_success(self) -> None:
         with patch.object(activity.time, "monotonic", return_value=100.0):
             self.observe("UserPromptSubmit")
-            self.store.bind("abcdef012345", "chat-a", "Project")
         with patch.object(activity.time, "monotonic", return_value=221.0):
-            self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "unavailable")
+            self.assertEqual(self.store.snapshot()["phase"], "unavailable")
         self.observe("Stop")
-        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "ready")
+        self.assertEqual(self.store.snapshot()["phase"], "ready")
 
     # self: Concurrent command/edit operations on one turn.
     # Raises AssertionError if finishing one operation erases another live operation.
     def test_concurrent_tools_retain_identity(self) -> None:
         self.observe("UserPromptSubmit")
-        self.store.bind("abcdef012345", "chat-a", "Project")
         self.observe("PreToolUse", tool_use_id="tool-command", tool_name="Bash")
         self.observe("PreToolUse", tool_use_id="tool-edit", tool_name="apply_patch")
         self.observe("PostToolUse", tool_use_id="tool-edit")
-        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "running")
+        self.assertEqual(self.store.snapshot()["phase"], "running")
         self.observe("Interrupt")
         self.observe("PostToolUse", tool_use_id="tool-command")
-        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "interrupted")
+        self.assertEqual(self.store.snapshot()["phase"], "interrupted")
         with self.assertRaisesRegex(ValueError, "Interrupted turn"):
             self.observe("Stop")
 
-    # self: Existing project binding with malformed replacement metadata.
-    # Raises AssertionError if rejected values partially replace the selected chat.
-    def test_invalid_selection_preserves_previous_binding(self) -> None:
-        self.observe("SessionStart")
-        self.store.bind("abcdef012345", "chat-a", "Project")
-        previous = self.store.snapshot("abcdef012345")
-        for label in ("", "a" * 25, "a\x00b", "accent\u00e9"):
-            with self.assertRaises(ValueError):
-                self.store.bind("abcdef012345", "chat-a", label)
+    # self: Followed chat with a rejected new prompt from a different chat.
+    # Raises AssertionError if rejected metadata changes the followed context.
+    def test_invalid_prompt_preserves_previous_context(self) -> None:
+        self.observe("UserPromptSubmit")
+        previous = self.store.snapshot()
         with self.assertRaises(ValueError):
-            self.store.bind("abcdef012345", "unknown-chat", "Project")
-        self.assertEqual(self.store.snapshot("abcdef012345"), previous)
+            self.observe("UserPromptSubmit", session="chat-b", turn="")
+        self.assertEqual(self.store.snapshot(), previous)
+
+    # self: Unicode and long workspace names that are labels, never chat identities.
+    # Raises AssertionError if display projection loses identity or violates the wire bound.
+    def test_automatic_project_label_is_bounded_ascii(self) -> None:
+        self.observe("UserPromptSubmit", cwd="E:/a-very-long-workspace-name-\u00e9")
+        first = self.store.snapshot()
+        label = bytes.fromhex(first["project"]).decode("ascii")
+        self.assertLessEqual(len(label), 24)
+        self.assertTrue(label.endswith("..."))
+        self.observe("UserPromptSubmit", session="chat-b", cwd="E:/a-very-long-workspace-name-\u00e9")
+        self.assertEqual(self.store.snapshot()["project"], first["project"])
+        self.assertNotEqual(self.store.snapshot()["chat"], first["chat"])
 
     # self: Authenticated synthetic responder and maximum display label.
     # Raises AssertionError if ACTIVITY lacks nonce/HMAC binding or exceeds the wire limit.
     def test_activity_reply_authenticates_every_field(self) -> None:
-        self.observe("UserPromptSubmit")
-        self.store.bind("abcdef012345", "chat-a", "P" * 24)
+        self.observe("UserPromptSubmit", cwd="E:/" + "P" * 24)
         state = Mock(pc_id="a" * 32)
         state.link_key.return_value = bytes(range(32))
         listener = Mock()
@@ -313,16 +338,30 @@ class ChatActivityTests(unittest.TestCase):
             responder._handle_find(stripped, ("192.0.2.10", ccp.DEVICE_PORT))
         listener.sendto.assert_not_called()
 
-    # self: Synthetic broker restart without any stored activity state.
-    # Raises AssertionError if a new owner auto-selects a previously observed chat.
-    def test_restart_and_explicit_clear_require_new_selection(self) -> None:
-        self.observe("SessionStart")
-        self.store.bind("abcdef012345", "chat-a", "Project")
-        self.store.unbind("abcdef012345")
-        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "none")
+    # self: Ended followed chat and a new broker without stored activity metadata.
+    # Raises AssertionError if an old chat is guessed or a new prompt needs manual binding.
+    def test_ended_chat_and_restart_wait_for_a_genuine_prompt(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("SessionEnd")
+        self.assertEqual(self.store.snapshot()["phase"], "ended")
+        self.observe("SessionStart", session="chat-b")
+        self.assertEqual(self.store.snapshot()["phase"], "ended")
         restarted = activity.ActivityStore()
         self.assertEqual(restarted.list_sessions(), [])
-        self.assertEqual(restarted.snapshot("abcdef012345")["phase"], "none")
+        self.assertEqual(restarted.snapshot()["phase"], "none")
+        self.store = restarted
+        self.observe("UserPromptSubmit", session="chat-b")
+        self.assertEqual(self.store.snapshot()["phase"], "working")
+
+    # self: Public MCP API that must not expose manual chat selection or fake activity.
+    # Raises AssertionError if the obsolete selection tools remain callable or advertised.
+    def test_manual_selection_is_removed_from_public_tools(self) -> None:
+        names = {tool["name"] for tool in ccp.tool_catalog()}
+        self.assertEqual(names, {"ccp_discover_devices", "ccp_pair_device",
+                                 "ccp_connection_status", "ccp_list_sessions"})
+        for name in ("ccp_select_session", "ccp_clear_session"):
+            with self.assertRaisesRegex(ValueError, "Unknown CCP tool"):
+                ccp.call_tool(Mock(), name, {})
 
     # self: Bounded same-user control requests represented without opening sockets.
     # Raises AssertionError if releasing one transport drops another's lease.

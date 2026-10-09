@@ -1,11 +1,13 @@
-"""Bounded chat selection and hook-derived activity; no transcript or prompt storage."""
+"""Follow the latest user-prompt hook; retain activity metadata, never chat contents."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
 import hashlib
+from pathlib import PureWindowsPath
 import re
+import sys
 import threading
 import time
 from typing import Any
@@ -31,7 +33,6 @@ EVENTS = frozenset({
 MAX_SESSIONS = 64
 ACTIVITY_LEASE_SECONDS = 120.0
 OPAQUE_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
-DEVICE_ID = re.compile(r"^[0-9a-f]{12}$")
 
 
 # value: Caller-supplied stable identity, never a storage index or display name.
@@ -43,20 +44,25 @@ def require_id(value: Any, label: str) -> str:
     return value
 
 
-# value: Explicit user-facing label for the physical display.
-# label: Field name used in rejection diagnostics.
-# Raises ValueError for empty, non-ASCII or overlong display labels.
-def require_label(value: Any, label: str) -> str:
-    if (not isinstance(value, str) or not 1 <= len(value) <= 24
-            or value != value.strip() or any(not 32 <= ord(char) <= 126 for char in value)):
-        raise ValueError(f"{label} must contain 1-24 printable ASCII characters without edge spaces")
-    return value
+# cwd: Validated hook working directory, used only as a display label.
+def project_label(cwd: str) -> str:
+    # This bounded ASCII projection is not an identity or a chat title. The full
+    # session digest distinguishes chats even when their display labels match.
+    leaf = PureWindowsPath(cwd).name
+    label = "".join(char if 32 <= ord(char) <= 126 else "?" for char in leaf).strip()
+    if not label:
+        print("CCP activity: workspace root uses the Codex display label", file=sys.stderr)
+        return "Codex"
+    if label != leaf or len(label) > 24:
+        print("CCP activity: workspace label projected to bounded ASCII", file=sys.stderr)
+    return label if len(label) <= 24 else label[:21].rstrip() + "..."
 
 
 @dataclass
 class Session:
     session_id: str
     cwd: str
+    project: str
     phase: Phase = Phase.ACTIVE
     turn_id: str = ""
     last_event_ns: int = 0
@@ -65,18 +71,13 @@ class Session:
     interrupted: bool = False
 
 
-@dataclass(frozen=True)
-class Binding:
-    session_id: str
-    project: str
-
-
 class ActivityStore:
-    # No parameters: volatile selection is deliberately not restored after broker restart.
+    # No parameters: a new broker waits for a genuine prompt before following a chat.
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._sessions: dict[str, Session] = {}
-        self._bindings: dict[str, Binding] = {}
+        self._followed_session_id = ""
+        self._last_prompt_ns = 0
         self._revision = 0
 
     # event: Allowlisted metadata from one genuine Codex hook invocation.
@@ -96,6 +97,8 @@ class ActivityStore:
         if name not in {"SessionStart", "SessionEnd"}:
             turn_id = require_id(event.get("turn_id"), "turn_id")
         with self._lock:
+            if name == "UserPromptSubmit" and emitted_ns == self._last_prompt_ns:
+                raise ValueError("Duplicate or ambiguous prompt timestamp rejected")
             session = self._sessions.get(session_id)
             if session is None:
                 # Only documented lifecycle boundaries may introduce a chat.
@@ -103,12 +106,12 @@ class ActivityStore:
                     raise ValueError("Chat has not been observed at SessionStart or UserPromptSubmit")
                 if len(self._sessions) >= MAX_SESSIONS:
                     expired = next((identity for identity, item in self._sessions.items()
-                                    if item.phase == Phase.ENDED and all(
-                                        binding.session_id != identity for binding in self._bindings.values())), None)
+                                    if item.phase == Phase.ENDED
+                                    and identity != self._followed_session_id), None)
                     if expired is None:
-                        raise ValueError("CCP chat registry is full; restart after detaching unused chats")
+                        raise ValueError("CCP chat registry is full; close unused Codex chats")
                     del self._sessions[expired]
-                session = Session(session_id, cwd)
+                session = Session(session_id, cwd, project_label(cwd))
                 self._sessions[session_id] = session
             if emitted_ns <= session.last_event_ns:
                 raise ValueError("Late or duplicate hook event rejected")
@@ -117,6 +120,12 @@ class ActivityStore:
                 session.tools.clear()
                 session.interrupted = False
                 session.phase = Phase.WORKING
+                # Only a user's prompt changes the followed chat. Completion,
+                # tools and resume events from background chats cannot steal it.
+                # Delayed delivery of an older prompt cannot reverse a switch.
+                if emitted_ns > self._last_prompt_ns:
+                    self._followed_session_id = session_id
+                    self._last_prompt_ns = emitted_ns
             elif name == "SessionStart":
                 # Resume/compaction does not erase an in-progress or completed turn.
                 if session.phase == Phase.ENDED:
@@ -153,7 +162,9 @@ class ActivityStore:
                     session.interrupted = name == "Interrupt"
                 elif name == "Stop":
                     session.phase = Phase.READY
-            session.cwd = cwd
+            if session.cwd != cwd:
+                session.project = project_label(cwd)
+                session.cwd = cwd
             session.last_event_ns = emitted_ns
             session.observed_at = time.monotonic()
             self._revision += 1
@@ -162,7 +173,8 @@ class ActivityStore:
     def list_sessions(self) -> list[dict[str, Any]]:
         with self._lock:
             return [{"session_id": item.session_id, "cwd": item.cwd,
-                     "phase": self._effective_phase(item).value}
+                     "phase": self._effective_phase(item).value,
+                     "followed": item.session_id == self._followed_session_id}
                     for item in self._sessions.values()]
 
     # session: Last genuine hook state, whose active lease must not outlive observation.
@@ -172,39 +184,14 @@ class ActivityStore:
             return Phase.UNAVAILABLE
         return session.phase
 
-    # device_id: Exact paired Cody identity already checked by the service.
-    # session_id: Exact observed chat selected explicitly by the user.
-    # project: Explicit ASCII display label; never used as identity.
-    # Raises ValueError when either identity or the display label is invalid.
-    def bind(self, device_id: str, session_id: str, project: str) -> None:
-        if DEVICE_ID.fullmatch(device_id) is None:
-            raise ValueError("Malformed Cody identity")
-        require_id(session_id, "session_id")
-        require_label(project, "project")
+    # No parameters: paired devices mirror this PC's latest user-prompt context.
+    def snapshot(self) -> dict[str, str]:
         with self._lock:
-            if session_id not in self._sessions or self._sessions[session_id].phase == Phase.ENDED:
-                raise ValueError("Select an observed, non-ended chat")
-            self._bindings[device_id] = Binding(session_id, project)
-            self._revision += 1
-
-    # device_id: Exact paired Cody whose explicit association is being removed.
-    # Raises ValueError when no association exists.
-    def unbind(self, device_id: str) -> None:
-        with self._lock:
-            if device_id not in self._bindings:
-                raise ValueError("Cody has no selected chat")
-            del self._bindings[device_id]
-            self._revision += 1
-
-    # device_id: Authenticated Cody requesting its latest selected-chat snapshot.
-    def snapshot(self, device_id: str) -> dict[str, str]:
-        with self._lock:
-            binding = self._bindings.get(device_id)
-            session = self._sessions[binding.session_id] if binding else None
+            session = self._sessions.get(self._followed_session_id)
             # A full digest preserves opaque chat identity without sending Codex IDs.
             return {
-                "chat": hashlib.sha256(binding.session_id.encode("ascii")).hexdigest() if binding else "0" * 64,
+                "chat": hashlib.sha256(session.session_id.encode("ascii")).hexdigest() if session else "0" * 64,
                 "revision": f"{self._revision:016x}",
                 "phase": self._effective_phase(session).value if session else Phase.NONE.value,
-                "project": binding.project.encode("ascii").hex() if binding else "",
+                "project": session.project.encode("ascii").hex() if session else "",
             }

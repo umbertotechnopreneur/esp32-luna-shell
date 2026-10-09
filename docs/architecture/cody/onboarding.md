@@ -434,3 +434,20 @@ retry/cancel, wake reconciliation, CCP firewall/broadcast behavior, concurrent
 plugin instances, LAN access and asynchronous NVS/rotation/route retirement races
 still need approved end-to-end device observation. No host fixture or successful
 flash proves those properties.
+
+### Plugin-owned chat association - 2026-10-10
+
+Screen 15 confirms the authenticated PC and shows `Waiting for Codex` until CCP
+has a genuine user-prompt event. It has no chat picker or chat-selection action.
+The previous `Pick a chat in Codex` instruction is removed from Connected, idle
+and session-ended views. The replacement is 17 characters / 188 pixels in the
+232-pixel body slot; the renderer's existing width/error checks are preserved.
+
+CCP 0.4 automatically follows the exact chat of the newest UserPromptSubmit
+hook. Background events from other chats update their metadata without switching
+the followed chat. The device only consumes the authenticated canonical snapshot
+for screens 17-20, 18U and 32. All devices paired to that PC mirror its context.
+The bounded workspace label does not identify a chat; the session digest does.
+No documented hook establishes tab focus, so a tab click alone is not claimed
+as a switch. Broker restart waits for the next prompt; LAN reconnect retains
+the context. Hook trust and local execution remain required by Codex.

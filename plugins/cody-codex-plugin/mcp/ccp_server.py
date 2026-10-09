@@ -28,7 +28,7 @@ DEVICE_PORT = 42117
 PLUGIN_PORT = 42118
 MAX_DATAGRAM_BYTES = 512
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.3.3"
+SERVER_VERSION = "0.4.0"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CODE_PATTERN = re.compile(r"^[A-HJ-NP-Z2-9]{6}$")
 HEX_PATTERNS = {
@@ -434,7 +434,7 @@ def open_companion_listener() -> socket.socket:
 class CompanionResponder:
     # state: Persistent PC/device relationships shared with pairing tool calls.
     # listener: Exclusively bound socket transferred by the service after state loads.
-    # activity: Volatile explicit chat selections owned by this broker.
+    # activity: Volatile user-prompt context owned by this broker.
     def __init__(self, state: StateStore, listener: socket.socket, activity: ActivityStore) -> None:
         self._state = state
         self._activity = activity
@@ -523,7 +523,7 @@ class CompanionResponder:
         self._socket.sendto(response, source)
         self._state.mark_seen(fields["device"], source[0])
         if with_activity:
-            activity = self._activity.snapshot(fields["device"])
+            activity = self._activity.snapshot()
             values = [fields["device"], fields["pc"], fields["nonce"],
                       activity["chat"], activity["revision"], activity["phase"],
                       activity["project"] or "-"]
@@ -848,10 +848,11 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
         if arguments:
             raise ValueError("Connection status does not accept arguments")
         devices = service.state.public_status()
+        activity = service.activity.snapshot()
         return tool_result(
             {"pc_id": service.state.pc_id, "devices": devices, "count": len(devices),
-             "activity": {item["device_id"]: service.activity.snapshot(item["device_id"])
-                          for item in devices}},
+             "follow_mode": "latest_user_prompt",
+             "activity": {item["device_id"]: activity for item in devices}},
             f"CCP retains {len(devices)} Cody pairing record(s).",
         )
     if name == "ccp_list_sessions":
@@ -859,19 +860,6 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
             raise ValueError("Session listing does not accept arguments")
         sessions = service.activity.list_sessions()
         return tool_result({"sessions": sessions}, f"Observed {len(sessions)} chat(s) through Codex hooks.")
-    if name in {"ccp_select_session", "ccp_clear_session"}:
-        required = {"device_id", "session_id", "project"} if name == "ccp_select_session" else {"device_id"}
-        if set(arguments) != required or any(not isinstance(value, str) for value in arguments.values()):
-            raise ValueError("Chat selection arguments do not match the declared schema")
-        device_id = arguments["device_id"]
-        if not any(item["device_id"] == device_id for item in service.state.public_status()):
-            raise ValueError("Cody must already be paired before selecting a chat")
-        if name == "ccp_select_session":
-            service.activity.bind(device_id, arguments["session_id"], arguments["project"])
-        else:
-            service.activity.unbind(device_id)
-        return tool_result({"selected_locally": name == "ccp_select_session", "device_id": device_id},
-                           "CCP selection updated; display delivery awaits Cody's next authenticated poll.")
     raise ValueError(f"Unknown CCP tool: {name}")
 
 
@@ -901,7 +889,9 @@ def handle_request(request: dict[str, Any], service: CcpService) -> dict[str, An
                 },
                 "instructions": (
                     "Discover before pairing. Pair only with the six-character code visible "
-                    "on the physical Cody display. Never reveal cryptographic protocol fields."
+                    "on the physical Cody display. Never reveal cryptographic protocol fields. "
+                    "Trusted hooks automatically follow the latest user-prompt chat. "
+                    "Do not ask the user to select a chat on Cody or fabricate activity events."
                 ),
             },
         }
@@ -995,24 +985,12 @@ def tool_catalog() -> list[dict[str, Any]]:
     ] + activity_tool_catalog()
 
 
-# No parameters: exposes explicit selection without any model-generated activity setter.
+# No parameters: exposes observed context without any model-callable selection or activity setter.
 def activity_tool_catalog() -> list[dict[str, Any]]:
-    device = {"type": "string", "pattern": "^[0-9a-f]{12}$"}
-    definitions = [
-        ("ccp_list_sessions", "List chats observed by trusted Codex hooks; no transcript contents.", {}),
-        ("ccp_select_session", "Follow the exact chat explicitly chosen by the user on one paired Cody.",
-         {"device_id": device, "session_id": {"type": "string", "maxLength": 128},
-          "project": {"type": "string", "minLength": 1, "maxLength": 24,
-                      "description": "User-facing printable ASCII project label; not chat identity."}}),
-        ("ccp_clear_session", "Stop following a chat on the selected Cody; retain its pairing.",
-         {"device_id": device}),
-    ]
-    return [{"name": name, "description": description,
-             "inputSchema": {"type": "object", "properties": properties,
-                             "required": list(properties), "additionalProperties": False},
-             "annotations": {"readOnlyHint": name == "ccp_list_sessions",
-                             "destructiveHint": False, "openWorldHint": False}}
-            for name, description, properties in definitions]
+    return [{"name": "ccp_list_sessions",
+             "description": "List hook-observed chats and the automatically followed chat; no transcript contents.",
+             "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+             "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}}]
 
 
 # response: JSON-RPC response written as exactly one stdout line.
