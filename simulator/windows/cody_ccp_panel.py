@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
+from cody_ccp_event_view import EventView
 from scripts.common.cody_rig_contract import evaluate
 
 
@@ -52,6 +53,7 @@ class CcpPanel:
     def __init__(self, window, parent):
         self.window = window
         self.endpoint = SimulatorEndpoint()
+        self.events = EventView()
         self.follow = tk.BooleanVar(value=True)
         self.network = tk.BooleanVar(value=True)
         self.message = tk.StringVar(value="Starting SIMULATED CCP...")
@@ -104,6 +106,7 @@ class CcpPanel:
             f"Chat: {snapshot.chat[:12] if snapshot.activity_valid and snapshot.phase != 'none' else 'UNAVAILABLE'}\n"
             f"Project: {context or 'No active chat'}\n"
             f"Packets: {snapshot.accepted_packets} accepted / {snapshot.rejected_packets} rejected"
+            + (f"\nRequest: {snapshot.event_state}" if snapshot.event_payload is not None else "")
             + (f"\n{error}" if error else ""))
         available = snapshot.state != LinkState.STOPPED
         busy = bool(code) or snapshot.pending_pairing or snapshot.state in (LinkState.PAIRING, LinkState.INCOMPLETE)
@@ -156,6 +159,8 @@ class CcpPanel:
     def render(self, rotation):
         self.refresh()
         snapshot, code = self._snapshot, self._display_code
+        if self.events.visible(snapshot):
+            return self.events.render(snapshot, self.window, rotation)
         identity, title, lines = presentation(snapshot, code)
         painter = self.window.renderer.scene_painter
         definition = painter.definition(identity)
@@ -184,6 +189,24 @@ class CcpPanel:
         painter.paint_text(image, "SIMULATED", 420, color=64704, body=True)
         self._frame_key, self._frame = key, (image.copy(), scene)
         return image, scene, key
+
+    # self: Circular interaction view using the parent's already-rotated logical touch coordinates.
+    # point: Logical press, or None when the pointer is outside the display.
+    # Errors are retained by the endpoint and shown without making a synthetic reply.
+    def press(self, point):
+        self.refresh()
+        if self.events.visible(self._snapshot):
+            try:
+                self.events.press(point, self._snapshot, self.endpoint)
+            except (OSError, RuntimeError, ValueError) as error:
+                messagebox.showerror("SIMULATED CCP", str(error), parent=self.window.root)
+
+    # self: Read-only PR failure-list navigation.
+    # point: Logical released point; vertical swipes page complete names, never select a row.
+    def release(self, point):
+        self.refresh()
+        if self.events.visible(self._snapshot):
+            self.events.release(point, self._snapshot)
 
     # self: Optional endpoint owner stopped before the containing Tk window is destroyed.
     # Raises RuntimeError or OSError if endpoint shutdown cannot complete.

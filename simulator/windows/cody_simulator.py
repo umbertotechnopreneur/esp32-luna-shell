@@ -1439,7 +1439,7 @@ class CodyWindow:
     # Audio failures are retained by the optional fake driver without stopping touch handling.
     def touch(self, event):
         if self.ccp_panel is not None and self.ccp_panel.follow.get():
-            # The protocol preview exposes commissioning through its explicit desktop panel.
+            self.ccp_panel.press(self.layout.to_logical(event.x, event.y, self.display_rotation))
             return
         self.preview_interaction()
         self.body_drag_origin = None
@@ -1514,6 +1514,8 @@ class CodyWindow:
     # self: Preview controller retaining the gesture's original logical basis.
     # event: Host pointer movement, interpreted using the last displayed layout.
     def drag_body(self, event):
+        if self.ccp_panel is not None and self.ccp_panel.follow.get():
+            return
         self.navigation_visibility.interact(int(time.perf_counter() * 1_000_000))
         if self.body_drag_origin is None:
             return
@@ -1529,6 +1531,9 @@ class CodyWindow:
     # self: Synthetic preview owner; release lets the shared springs settle.
     # event: Actual host pointer release, including release outside the preview.
     def release_body(self, event):
+        if self.ccp_panel is not None and self.ccp_panel.follow.get():
+            self.ccp_panel.release(self.layout.to_logical(event.x, event.y, self.display_rotation))
+            return
         self.navigation_visibility.interact(int(time.perf_counter() * 1_000_000))
         self.petting.cancel()
         if self.body_drag_origin is None:

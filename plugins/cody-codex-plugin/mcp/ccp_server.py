@@ -22,6 +22,8 @@ import time
 from typing import Any
 
 from ccp_activity import ActivityStore
+import ccp_interactions as interactions
+import ccp_reset as reset
 
 
 PROTOCOL = "CCP1"
@@ -29,7 +31,7 @@ DEVICE_PORT = 42117
 PLUGIN_PORT = 42118
 MAX_DATAGRAM_BYTES = 512
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.5.0"
+SERVER_VERSION = "0.6.0"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CODE_PATTERN = re.compile(r"^[A-HJ-NP-Z2-9]{6}$")
 HEX_PATTERNS = {
@@ -76,6 +78,14 @@ class CommitChallenge:
     nonce: str
     key: bytes
     pending_key: bytes | None
+    source: tuple[str, int]
+    observed_at: float
+
+
+@dataclass(frozen=True)
+class EventPeer:
+    nonce: str
+    key: bytes
     source: tuple[str, int]
     observed_at: float
 
@@ -213,10 +223,11 @@ def derive_verifier(code: str, salt_hex: str) -> bytes:
     )
 
 
-# message: Printable ASCII CCP1 datagram.
+# message: Printable ASCII CCP1 datagram; only EVENT uses the larger extension envelope.
 # Raises ValueError for malformed, ambiguous, oversized, or duplicate fields.
 def parse_datagram(message: bytes) -> tuple[str, dict[str, str]]:
-    if not message or len(message) > MAX_DATAGRAM_BYTES:
+    limit = interactions.MAX_EVENT_DATAGRAM_BYTES if message.startswith(b"CCP1|EVENT|") else MAX_DATAGRAM_BYTES
+    if not message or len(message) > limit:
         raise ValueError("CCP datagram size rejected")
     try:
         text = message.decode("ascii")
@@ -236,13 +247,14 @@ def parse_datagram(message: bytes) -> tuple[str, dict[str, str]]:
     return parts[1], fields
 
 
-# kind: Uppercase CCP1 message identity.
+# kind: Uppercase CCP1 message identity; only EVENT may exceed the original 512-byte envelope.
 # fields: Ordered field names and already validated printable ASCII values.
 # Raises ValueError when the encoded datagram exceeds the protocol bound.
 def encode_datagram(kind: str, fields: list[tuple[str, str]]) -> bytes:
     text = "|".join([PROTOCOL, kind, *[f"{name}={value}" for name, value in fields]])
     payload = text.encode("ascii")
-    if len(payload) > MAX_DATAGRAM_BYTES:
+    limit = interactions.MAX_EVENT_DATAGRAM_BYTES if kind == "EVENT" else MAX_DATAGRAM_BYTES
+    if len(payload) > limit:
         raise ValueError("CCP datagram exceeds its fixed bound")
     return payload
 
@@ -612,13 +624,19 @@ class CompanionResponder:
     # state: Persistent PC/device relationships shared with pairing tool calls.
     # listener: Exclusively bound socket transferred by the service after state loads.
     # activity: Volatile user-prompt context owned by this broker.
-    def __init__(self, state: StateStore, listener: socket.socket, activity: ActivityStore) -> None:
+    # requests: Separate volatile request owner; an activity snapshot cannot answer or replace a question.
+    def __init__(self, state: StateStore, listener: socket.socket, activity: ActivityStore,
+                 requests: interactions.InteractionStore | None = None) -> None:
         self._state = state
         self._activity = activity
+        self._requests = requests if requests is not None else interactions.InteractionStore()
         self._stop = threading.Event()
         self._socket = listener
         self._receive_error: OSError | None = None
         self._commit_challenges: dict[str, CommitChallenge] = {}
+        self._event_peers: dict[str, EventPeer] = {}
+        self._event_lock = threading.Lock()
+        self._resets = reset.ResetRequests()
         self._thread = threading.Thread(target=self._run, name="CCP-responder", daemon=True)
 
     # No parameters: starts exactly one background authenticated liveness responder.
@@ -643,7 +661,7 @@ class CompanionResponder:
         if not self._thread.is_alive():
             raise RuntimeError("CCP responder is not running")
 
-    # self: Sole socket worker receiving bounded FIND/COMMITTED messages without MCP stdout output.
+    # self: Sole socket worker receiving bounded FIND/COMMITTED/REPLY/RESETACK messages without MCP stdout output.
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
@@ -661,7 +679,7 @@ class CompanionResponder:
                 print(f"CCP presence message rejected from {source[0]}: {error}", file=sys.stderr, flush=True)
 
     # self: Authenticated responder; retained candidate keys are never promoted from FIND alone.
-    # payload: Candidate CCP1 FIND or COMMITTED datagram.
+    # payload: Candidate CCP1 FIND, COMMITTED, REPLY or RESETACK datagram.
     # source: Observed UDP source address and port.
     # Raises ValueError, RuntimeError, or OSError for rejected identity, proof, state, or send failures.
     def _handle_datagram(self, payload: bytes, source: tuple[str, int]) -> None:
@@ -669,13 +687,23 @@ class CompanionResponder:
         if kind == "COMMITTED":
             self._accept_committed(fields, source)
             return
+        if kind == "REPLY":
+            self._accept_reply(fields, source)
+            return
+        if kind in {"RESETACK", "FACTORYRESETACK"}:
+            operation = reset.ResetOperation.RESTART if kind == "RESETACK" else reset.ResetOperation.FACTORY_RESET
+            self._accept_reset_ack(fields, source, operation)
+            return
         if kind != "FIND":
             return
-        with_activity = set(fields) == {"device", "pc", "nonce", "activity", "proof"}
+        with_events = set(fields) == {"device", "pc", "nonce", "activity", "events", "proof"}
+        with_activity = with_events or set(fields) == {"device", "pc", "nonce", "activity", "proof"}
         if not with_activity and set(fields) != {"device", "pc", "nonce", "proof"}:
             raise ValueError("CCP FIND has unexpected or missing fields")
         if with_activity and fields["activity"] != "1":
             raise ValueError("Unsupported CCP activity capability")
+        if with_events and fields["events"] != "1":
+            raise ValueError("Unsupported CCP events capability")
         for name in ("device", "pc", "nonce", "proof"):
             if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
                 raise ValueError(f"CCP FIND field {name!r} is malformed")
@@ -688,7 +716,8 @@ class CompanionResponder:
         for candidate in (retained.pending, retained.active):
             if candidate is None:
                 continue
-            expected = make_proof(candidate, "find-activity" if with_activity else "find",
+            domain = "find-events" if with_events else "find-activity" if with_activity else "find"
+            expected = make_proof(candidate, domain,
                                   fields["device"], fields["pc"], fields["nonce"])
             if hmac.compare_digest(expected, fields["proof"]):
                 link_key = candidate
@@ -729,6 +758,101 @@ class CompanionResponder:
                 ("device", "pc", "nonce", "chat", "revision", "phase", "project"), values
             )) + [("proof", activity_proof)])
             self._socket.sendto(payload, source)
+        if with_events and retained.active is not None and hmac.compare_digest(link_key, retained.active):
+            # The old active link remains usable during commissioning. A candidate
+            # receives interactions only after COMMITTED proves durable promotion.
+            with self._event_lock:
+                self._event_peers = {identity: peer for identity, peer in self._event_peers.items()
+                                     if 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS}
+                if len(self._event_peers) >= 128 and fields["device"] not in self._event_peers:
+                    raise ValueError("CCP authenticated event peer cache is full")
+                self._event_peers[fields["device"]] = EventPeer(fields["nonce"], link_key, source, now)
+            request_id, state, ttl, data = self._requests.snapshot(fields["device"], hashlib.sha256(link_key).hexdigest())
+            values = [fields["device"], fields["pc"], fields["nonce"], request_id, state, ttl, data]
+            event_proof = make_proof(link_key, "event", *values)
+            payload = encode_datagram("EVENT", list(zip(
+                ("device", "pc", "nonce", "id", "state", "ttl", "data"), values)) + [("proof", event_proof)])
+            self._socket.sendto(payload, source)
+            request = self._resets.claim(fields["device"], hashlib.sha256(link_key).hexdigest(),
+                                         fields["nonce"], source)
+            if request is not None:
+                # This request is already marked sent: even a socket error has
+                # an ambiguous outcome and must never cause an automatic retry.
+                kind, _, domain, _ = reset.COMMANDS[request.operation]
+                values = [fields["device"], fields["pc"], fields["nonce"], request.request_id, reset.CONFIRMATION_CODE]
+                try:
+                    payload = encode_datagram(kind, list(zip(("device", "pc", "nonce", "id", "code"), values))
+                                              + [("proof", make_proof(link_key, domain, *values))])
+                    self._socket.sendto(payload, source)
+                except (OSError, ValueError, RuntimeError) as error:
+                    self._resets.fail_send(request.request_id, error)
+                    raise
+
+    # self: Responder sharing only non-secret current extension capability with MCP.
+    # device_id: Retained target whose last FIND must advertise events with an active key.
+    def supports_events(self, device_id: str) -> bool:
+        with self._event_lock:
+            peer = self._event_peers.get(device_id)
+            return peer is not None and 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS
+
+    # self: Responder admitting a device restart only after an authenticated current-peer acknowledgement.
+    # fields: Exact RESETACK fields, without any caller-supplied return address.
+    # source: Observed UDP address and port of the paired Cody.
+    # operation: Distinct restart or factory-reset acknowledgement domain; never interchangeable.
+    # Raises ValueError or RuntimeError for malformed, stale, forged or unrelated acknowledgements.
+    def _accept_reset_ack(self, fields: dict[str, str], source: tuple[str, int], operation: reset.ResetOperation) -> None:
+        if set(fields) != {"device", "pc", "nonce", "id", "status", "proof"} or fields.get("status") != "accepted":
+            raise ValueError("CCP RESETACK fields are malformed")
+        for name in ("device", "pc", "nonce", "proof"):
+            if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
+                raise ValueError(f"CCP RESETACK field {name!r} is malformed")
+        if reset.IDENTITY.fullmatch(fields["id"]) is None:
+            raise ValueError("CCP RESETACK request identity is invalid")
+        with self._event_lock:
+            peer = self._event_peers.get(fields["device"])
+        if (fields["pc"] != self._state.pc_id or peer is None or source != peer.source
+                or fields["nonce"] != peer.nonce
+                or not 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS):
+            raise ValueError("CCP RESETACK does not match the current authenticated peer")
+        active = self._state.retained_keys(fields["device"]).active
+        if active is None or not hmac.compare_digest(active, peer.key):
+            raise ValueError("CCP RESETACK belongs to a retired association")
+        values = [fields[name] for name in ("device", "pc", "nonce", "id", "status")]
+        if not hmac.compare_digest(make_proof(active, reset.COMMANDS[operation][3], *values), fields["proof"]):
+            raise ValueError("CCP RESETACK authentication failed")
+        self._resets.acknowledge(fields["id"], fields["device"], hashlib.sha256(active).hexdigest(), fields["nonce"], source, operation)
+
+    # self: Sole socket worker; a UDP receipt never substitutes for the MCP recipient acknowledgement.
+    # fields: Complete REPLY fields, bound to the newest authenticated event-capable FIND.
+    # source: Must match that FIND's observed address and port.
+    # Raises ValueError, RuntimeError or OSError for invalid/replayed/untrusted replies or send failure.
+    def _accept_reply(self, fields: dict[str, str], source: tuple[str, int]) -> None:
+        if set(fields) != {"device", "pc", "nonce", "id", "choice", "proof"}:
+            raise ValueError("CCP REPLY fields are malformed")
+        for name in ("device", "pc", "nonce", "proof"):
+            if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
+                raise ValueError(f"CCP REPLY field {name!r} is malformed")
+        if interactions.IDENTITY.fullmatch(fields["id"]) is None or interactions.CHOICE_ID.fullmatch(fields["choice"]) is None:
+            raise ValueError("CCP REPLY ticket or choice identity is invalid")
+        with self._event_lock:
+            peer = self._event_peers.get(fields["device"])
+        if (fields["pc"] != self._state.pc_id or peer is None or source != peer.source
+                or fields["nonce"] != peer.nonce
+                or not 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS):
+            raise ValueError("CCP REPLY does not match a recent authenticated event FIND")
+        active = self._state.retained_keys(fields["device"]).active
+        if active is None or not hmac.compare_digest(active, peer.key):
+            raise ValueError("CCP REPLY belongs to a retired association")
+        values = [fields[name] for name in ("device", "pc", "nonce", "id", "choice")]
+        if not hmac.compare_digest(make_proof(peer.key, "reply", *values), fields["proof"]):
+            raise ValueError("CCP REPLY authentication failed")
+        status = self._requests.answer(fields["device"], fields["id"], fields["choice"], hashlib.sha256(active).hexdigest())
+        if status in {"expired", "cancelled", "conflict", "unknown"}:
+            print(f"CCP reply rejected for device {fields['device']}: {status}", file=sys.stderr, flush=True)
+        proof = make_proof(peer.key, "reply-ack", *values, status)
+        payload = encode_datagram("REPLYACK", list(zip(("device", "pc", "nonce", "id", "choice"), values))
+                                 + [("status", status), ("proof", proof)])
+        self._socket.sendto(payload, source)
 
     # self: Responder owning the bounded, transient challenge cache.
     # fields: Exact nonce-bound device acknowledgement after durable active commit.
@@ -765,7 +889,9 @@ class CcpService:
         try:
             self.state = StateStore()
             self.activity = ActivityStore()
-            self.responder = CompanionResponder(self.state, listener, self.activity)
+            self.interactions = interactions.InteractionStore()
+            self.notifications_error: str | None = None
+            self.responder = CompanionResponder(self.state, listener, self.activity, self.interactions)
             self.responder.start()
         except BaseException:
             try:
@@ -776,6 +902,88 @@ class CcpService:
         self._offers: dict[tuple[str, str], Offer] = {}
         self._offers_lock = threading.Lock()
         self._pairing_lock = threading.Lock()
+
+    # self: Live service admitting an explicit tool request without manufacturing chat identity.
+    # arguments: Strict question/notification arguments validated at the MCP boundary.
+    # question: Fixed tool purpose; native approvals cannot be requested by an MCP caller.
+    # Raises ValueError for an unsupported/unobserved target, implicit simulator use or invalid content.
+    def enqueue_interaction(self, arguments: dict[str, Any], question: bool) -> dict[str, Any]:
+        device_id = arguments.get("device_id")
+        if not isinstance(device_id, str) or HEX_PATTERNS["device"].fullmatch(device_id) is None:
+            raise ValueError("device_id must identify the intended retained Cody")
+        include_simulator = arguments.get("include_simulator", False)
+        if type(include_simulator) is not bool:
+            raise ValueError("include_simulator must be a boolean")
+        target = next((item for item in self.state.public_status() if item["device_id"] == device_id), None)
+        if target is None or not target["retained_pairing"]:
+            raise ValueError("The requested Cody has no confirmed retained pairing")
+        if target["source"] == "UNOBSERVED" or not self.responder.supports_events(device_id):
+            raise ValueError("Cody has not recently advertised the authenticated events extension; wake or update it")
+        if target["source"] == "SIMULATED" and not include_simulator:
+            raise ValueError("A SIMULATED interaction requires explicit include_simulator=true")
+        payload = interactions.payload_from_arguments(arguments, question)
+        active = self.state.retained_keys(device_id).active
+        if active is None:
+            raise ValueError("The requested Cody active association changed before enqueue")
+        return self.interactions.enqueue(device_id, payload, target["source"], arguments.get("ttl_seconds", 180),
+                                         hashlib.sha256(active).hexdigest())
+
+    # self: Service requesting one explicitly selected restart or factory reset; ACK proves admission only.
+    # arguments: Exact MCP arguments; code comes from explicit current-message user intent, never a default.
+    # operation: Explicit tool purpose; a restart can never escalate to erasing settings.
+    # Raises ValueError for absent confirmation, an unobserved/unpaired target or implicit simulator use.
+    def reset_device(self, arguments: dict[str, Any], operation: reset.ResetOperation) -> dict[str, Any]:
+        reset.validate_confirmation(arguments.get("confirmation_code"))
+        device_id = arguments.get("device_id")
+        if not isinstance(device_id, str) or HEX_PATTERNS["device"].fullmatch(device_id) is None:
+            raise ValueError("device_id must identify the paired Cody intended for this reset operation")
+        include_simulator = arguments.get("include_simulator", False)
+        if type(include_simulator) is not bool:
+            raise ValueError("include_simulator must be a boolean")
+        target = next((item for item in self.state.public_status() if item["device_id"] == device_id), None)
+        if target is None or not target["retained_pairing"] or target["source"] == "UNOBSERVED":
+            raise ValueError("Device reset requires an observed, confirmed retained pairing")
+        if target.get("pairing_pending"):
+            raise ValueError("Complete or explicitly cancel the pending pairing before requesting a reset operation")
+        if target["source"] == "SIMULATED" and not include_simulator:
+            raise ValueError("A SIMULATED reset operation requires explicit include_simulator=true")
+        if not self.responder.supports_events(device_id):
+            raise ValueError("Device reset requires a recent authenticated CCP 0.6 peer; wake or update Cody")
+        active = self.state.retained_keys(device_id).active
+        if active is None:
+            raise ValueError("The active pairing changed before reset admission")
+        identity = self.responder._resets.enqueue(device_id, target["source"], hashlib.sha256(active).hexdigest(),
+                                                 arguments["confirmation_code"], operation)
+        return self.responder._resets.wait(identity)
+
+    # self: Service accepting only genuine hook metadata after ActivityStore validates it.
+    # event: Metadata from the authenticated hook endpoint, never model-created lifecycle data.
+    # Raises ValueError for a full bounded notification queue; the native prompt still owns authorization.
+    def notify_native_permission(self, event: dict[str, Any]) -> None:
+        if event.get("hook_event_name") == "UserPromptSubmit":
+            self.interactions.retire_native(None)
+        elif event.get("hook_event_name") in {"Stop", "Interrupt", "SessionEnd"}:
+            self.interactions.retire_native(event["session_id"])
+        if event.get("hook_event_name") != "PermissionRequest":
+            return
+        activity = self.activity.snapshot()
+        digest = hashlib.sha256(event["session_id"].encode("ascii")).hexdigest()
+        if activity["chat"] != digest or activity["phase"] != "paused":
+            return
+        context = bytes.fromhex(activity["project"]).decode("ascii") if activity["project"] else ""
+        payload = interactions.EventPayload(interactions.EventKind.APPROVAL_ON_PC, context,
+                                            "Approval needed", "Continue on your PC")
+        for target in self.state.public_status():
+            # Automatic native notices are physical-only; a simulator requires an
+            # explicit interaction request and never receives native approval data.
+            if (target["retained_pairing"] and target["source"] == "LAN"
+                    and self.responder.supports_events(target["device_id"])):
+                active = self.state.retained_keys(target["device_id"]).active
+                if active is None:
+                    raise ValueError("Native notice target lost its active association")
+                self.interactions.enqueue(target["device_id"], payload, "LAN",
+                                           association_id=hashlib.sha256(active).hexdigest(),
+                                           native_session=event["session_id"])
 
     # No parameters: stops the background UDP listener.
     # Raises RuntimeError or OSError when responder shutdown or socket closure fails.
@@ -1104,6 +1312,7 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
         return tool_result(
             {"pc_id": service.state.pc_id, "devices": devices, "count": len(devices),
              "follow_mode": "latest_user_prompt",
+             "notifications_error": service.notifications_error,
              "activity": {item["device_id"]: activity for item in devices}},
             f"CCP retains {len(devices)} Cody pairing record(s).",
         )
@@ -1112,6 +1321,32 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
             raise ValueError("Session listing does not accept arguments")
         sessions = service.activity.list_sessions()
         return tool_result({"sessions": sessions}, f"Observed {len(sessions)} chat(s) through Codex hooks.")
+    if name in {"ccp_reset_device", "ccp_factory_reset_device"}:
+        if set(arguments) - {"device_id", "confirmation_code", "include_simulator"}:
+            raise ValueError("Reset operation arguments contain unexpected fields")
+        operation = reset.ResetOperation.RESTART if name == "ccp_reset_device" else reset.ResetOperation.FACTORY_RESET
+        result = service.reset_device(arguments, operation)
+        return tool_result(result, f"{result['source']} Cody {result['operation']} is {result['state']}; completion is not verified.",
+                           is_error=not result["accepted"])
+    if name in {"ccp_ask_question", "ccp_publish_notification"}:
+        question = name == "ccp_ask_question"
+        allowed = {"device_id", "context", "title", "body", "ttl_seconds", "include_simulator"}
+        allowed |= {"choices"} if question else {"kind", "pr"}
+        if set(arguments) - allowed:
+            raise ValueError("Interaction arguments contain unexpected fields")
+        result = service.enqueue_interaction(arguments, question)
+        return tool_result(result, f"{result['source']} Cody request queued; no response has been selected.")
+    if name == "ccp_poll_request":
+        if set(arguments) - {"request_id", "capability", "wait_ms", "acknowledge_answer_id"}:
+            raise ValueError("Request polling arguments contain unexpected fields")
+        result = service.interactions.poll(arguments.get("request_id"), arguments.get("capability"),
+            arguments.get("wait_ms", 0), arguments.get("acknowledge_answer_id"))
+        return tool_result(result, f"{result['source']} Cody request is {result['state']}.")
+    if name == "ccp_cancel_request":
+        if set(arguments) != {"request_id", "capability"}:
+            raise ValueError("Cancellation requires only request_id and capability")
+        result = service.interactions.cancel(arguments["request_id"], arguments["capability"])
+        return tool_result(result, f"{result['source']} Cody request is {result['state']}; no option was inferred.")
     raise ValueError(f"Unknown CCP tool: {name}")
 
 
@@ -1146,7 +1381,12 @@ def handle_request(request: dict[str, Any], service: CcpService) -> dict[str, An
                     "Always identify SIMULATED results. replace_pending requires explicit permission "
                     "to discard an unresolved PC candidate and a new visible code. Never reveal cryptographic protocol fields. "
                     "Trusted hooks automatically follow the latest user-prompt chat. "
-                    "Do not ask the user to select a chat on Cody or fabricate activity events."
+                    "Do not ask the user to select a chat on Cody or fabricate activity events. "
+                    "Explicit Cody questions are separate from native permissions and chat focus. "
+                    "Keep the returned request capability private. Poll for a reply, then poll again "
+                    "with its answer_id as acknowledge_answer_id before using that decision. "
+                    "Only that acknowledgement confirms Reply sent. Cancelled, expired, offline or "
+                    "pending states never select an answer. PR notifications are read-only."
                 ),
             },
         }
@@ -1248,7 +1488,7 @@ def tool_catalog() -> list[dict[str, Any]]:
                 "openWorldHint": False,
             },
         },
-    ] + activity_tool_catalog()
+    ] + activity_tool_catalog() + interactions.tool_catalog() + [reset.tool_definition(operation) for operation in reset.ResetOperation]
 
 
 # No parameters: exposes observed context without any model-callable selection or activity setter.

@@ -285,6 +285,546 @@
       "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 0.72, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
       "title": { "text": "UNAVAILABLE", "top": 210, "color_rgb565": 64704, "character_interval_ms": 45, "visible": true },
       "navigation_visible": false, "readout_visible": true
+    },
+    {
+      "id": "pr-pending",
+      "identity": 27,
+      "background_rgb565": 0,
+      "standby_override_seconds": 180,
+      "entrance": {
+        "from": {
+          "x": 233,
+          "y": 92,
+          "scale": 42
+        },
+        "move_ms": 0,
+        "text_delay_ms": 0
+      },
+      "intro": {
+        "bitmap_fade_out_ms": 0,
+        "cloud_fade_in_ms": 0
+      },
+      "cloud": {
+        "x": 233,
+        "y": 92,
+        "scale": 42
+      },
+      "face": {
+        "eye_left": 1,
+        "eye_right": 1,
+        "brow_left": -0.45,
+        "brow_right": 0.05,
+        "mouth_open": 0.3,
+        "breath": 0,
+        "mouth_width": 0.5,
+        "nose_size": 1,
+        "cheek_size": 1,
+        "cheek_opacity": 0.58
+      },
+      "title": {
+        "text": "PR pending",
+        "top": 150,
+        "color_rgb565": 2047,
+        "character_interval_ms": 45,
+        "visible": true
+      },
+      "navigation_visible": false,
+      "readout_visible": true
+    },
+    {
+      "id": "checks-running",
+      "identity": 28,
+      "background_rgb565": 0,
+      "standby_override_seconds": 180,
+      "entrance": {
+        "from": {
+          "x": 233,
+          "y": 92,
+          "scale": 42
+        },
+        "move_ms": 0,
+        "text_delay_ms": 0
+      },
+      "intro": {
+        "bitmap_fade_out_ms": 0,
+        "cloud_fade_in_ms": 0
+      },
+      "cloud": {
+        "x": 233,
+        "y": 92,
+        "scale": 42
+      },
+      "face": {
+        "eye_left": 0.9,
+        "eye_right": 0.9,
+        "brow_left": 0.28,
+        "brow_right": 0.28,
+        "mouth_open": 0.02,
+        "breath": 0,
+        "mouth_width": 0.62,
+        "nose_size": 1,
+        "cheek_size": 0.95,
+        "cheek_opacity": 0.52
+      },
+      "title": {
+        "text": "Checks running",
+        "top": 150,
+        "color_rgb565": 2047,
+        "character_interval_ms": 45,
+        "visible": true
+      },
+      "navigation_visible": false,
+      "readout_visible": true
+    },
+    {
+      "id": "checks-failed",
+      "identity": 29,
+      "background_rgb565": 0,
+      "standby_override_seconds": 180,
+      "entrance": {
+        "from": {
+          "x": 233,
+          "y": 92,
+          "scale": 42
+        },
+        "move_ms": 0,
+        "text_delay_ms": 0
+      },
+      "intro": {
+        "bitmap_fade_out_ms": 0,
+        "cloud_fade_in_ms": 0
+      },
+      "cloud": {
+        "x": 233,
+        "y": 92,
+        "scale": 42
+      },
+      "face": {
+        "eye_left": 1,
+        "eye_right": 1,
+        "brow_left": -0.9,
+        "brow_right": -0.9,
+        "mouth_open": 0.42,
+        "breath": 0,
+        "mouth_width": 0.5,
+        "nose_size": 1,
+        "cheek_size": 1,
+        "cheek_opacity": 0.58
+      },
+      "title": {
+        "text": "Checks failed",
+        "top": 150,
+        "color_rgb565": 64704,
+        "character_interval_ms": 45,
+        "visible": true
+      },
+      "navigation_visible": false,
+      "readout_visible": true
+    },
+    {
+      "id": "check-failures",
+      "identity": 30,
+      "background_rgb565": 0,
+      "standby_override_seconds": 180,
+      "entrance": {
+        "from": {
+          "x": 233,
+          "y": 92,
+          "scale": 42
+        },
+        "move_ms": 0,
+        "text_delay_ms": 0
+      },
+      "intro": {
+        "bitmap_fade_out_ms": 0,
+        "cloud_fade_in_ms": 0
+      },
+      "cloud": {
+        "x": 233,
+        "y": 92,
+        "scale": 42
+      },
+      "face": {
+        "eye_left": 1,
+        "eye_right": 1,
+        "brow_left": -0.55,
+        "brow_right": -0.55,
+        "mouth_open": 0.14,
+        "breath": 0,
+        "mouth_width": 0.55,
+        "nose_size": 1,
+        "cheek_size": 1,
+        "cheek_opacity": 0.58
+      },
+      "title": {
+        "text": "Failed checks",
+        "top": 150,
+        "color_rgb565": 64704,
+        "character_interval_ms": 45,
+        "visible": true
+      },
+      "navigation_visible": false,
+      "readout_visible": true
+    },
+    {
+      "id": "decision-notice",
+      "identity": 31,
+      "background_rgb565": 0,
+      "standby_override_seconds": 180,
+      "entrance": {
+        "from": {
+          "x": 233,
+          "y": 92,
+          "scale": 42
+        },
+        "move_ms": 0,
+        "text_delay_ms": 0
+      },
+      "intro": {
+        "bitmap_fade_out_ms": 0,
+        "cloud_fade_in_ms": 0
+      },
+      "cloud": {
+        "x": 233,
+        "y": 92,
+        "scale": 42
+      },
+      "face": {
+        "eye_left": 1,
+        "eye_right": 1,
+        "brow_left": -0.45,
+        "brow_right": 0.05,
+        "mouth_open": 0.3,
+        "breath": 0,
+        "mouth_width": 0.5,
+        "nose_size": 1,
+        "cheek_size": 1,
+        "cheek_opacity": 0.58
+      },
+      "title": {
+        "text": "Codex needs you",
+        "top": 150,
+        "color_rgb565": 64704,
+        "character_interval_ms": 45,
+        "visible": true
+      },
+      "navigation_visible": false,
+      "readout_visible": true
+    },
+    {
+      "id": "decision-choices",
+      "identity": 32,
+      "background_rgb565": 0,
+      "standby_override_seconds": 180,
+      "entrance": {
+        "from": {
+          "x": 233,
+          "y": 92,
+          "scale": 42
+        },
+        "move_ms": 0,
+        "text_delay_ms": 0
+      },
+      "intro": {
+        "bitmap_fade_out_ms": 0,
+        "cloud_fade_in_ms": 0
+      },
+      "cloud": {
+        "x": 233,
+        "y": 92,
+        "scale": 42
+      },
+      "face": {
+        "eye_left": 1,
+        "eye_right": 1,
+        "brow_left": -0.45,
+        "brow_right": 0.05,
+        "mouth_open": 0.3,
+        "breath": 0,
+        "mouth_width": 0.5,
+        "nose_size": 1,
+        "cheek_size": 1,
+        "cheek_opacity": 0.58
+      },
+      "title": {
+        "text": "Choose a reply",
+        "top": 150,
+        "color_rgb565": 2047,
+        "character_interval_ms": 45,
+        "visible": true
+      },
+      "navigation_visible": false,
+      "readout_visible": true
+    },
+    {
+      "id": "decision-confirm",
+      "identity": 33,
+      "background_rgb565": 0,
+      "standby_override_seconds": 180,
+      "entrance": {
+        "from": {
+          "x": 233,
+          "y": 92,
+          "scale": 42
+        },
+        "move_ms": 0,
+        "text_delay_ms": 0
+      },
+      "intro": {
+        "bitmap_fade_out_ms": 0,
+        "cloud_fade_in_ms": 0
+      },
+      "cloud": {
+        "x": 233,
+        "y": 92,
+        "scale": 42
+      },
+      "face": {
+        "eye_left": 1,
+        "eye_right": 1,
+        "brow_left": -0.45,
+        "brow_right": 0.05,
+        "mouth_open": 0.3,
+        "breath": 0,
+        "mouth_width": 0.5,
+        "nose_size": 1,
+        "cheek_size": 1,
+        "cheek_opacity": 0.58
+      },
+      "title": {
+        "text": "Review choice",
+        "top": 150,
+        "color_rgb565": 2047,
+        "character_interval_ms": 45,
+        "visible": true
+      },
+      "navigation_visible": false,
+      "readout_visible": true
+    },
+    {
+      "id": "decision-waiting",
+      "identity": 34,
+      "background_rgb565": 0,
+      "standby_override_seconds": 180,
+      "entrance": {
+        "from": {
+          "x": 233,
+          "y": 92,
+          "scale": 42
+        },
+        "move_ms": 0,
+        "text_delay_ms": 0
+      },
+      "intro": {
+        "bitmap_fade_out_ms": 0,
+        "cloud_fade_in_ms": 0
+      },
+      "cloud": {
+        "x": 233,
+        "y": 92,
+        "scale": 42
+      },
+      "face": {
+        "eye_left": 1,
+        "eye_right": 1,
+        "brow_left": -0.45,
+        "brow_right": 0.05,
+        "mouth_open": 0.3,
+        "breath": 0,
+        "mouth_width": 0.5,
+        "nose_size": 1,
+        "cheek_size": 1,
+        "cheek_opacity": 0.58
+      },
+      "title": {
+        "text": "Sending reply",
+        "top": 150,
+        "color_rgb565": 2047,
+        "character_interval_ms": 45,
+        "visible": true
+      },
+      "navigation_visible": false,
+      "readout_visible": true
+    },
+    {
+      "id": "reply-sent",
+      "identity": 35,
+      "background_rgb565": 0,
+      "standby_override_seconds": 180,
+      "entrance": {
+        "from": {
+          "x": 233,
+          "y": 92,
+          "scale": 42
+        },
+        "move_ms": 0,
+        "text_delay_ms": 0
+      },
+      "intro": {
+        "bitmap_fade_out_ms": 0,
+        "cloud_fade_in_ms": 0
+      },
+      "cloud": {
+        "x": 233,
+        "y": 92,
+        "scale": 42
+      },
+      "face": {
+        "eye_left": 1,
+        "eye_right": 1,
+        "brow_left": -0.15,
+        "brow_right": -0.15,
+        "mouth_open": 0.4,
+        "breath": 0,
+        "mouth_width": 0.72,
+        "nose_size": 1,
+        "cheek_size": 1,
+        "cheek_opacity": 0.58
+      },
+      "title": {
+        "text": "Reply sent",
+        "top": 150,
+        "color_rgb565": 2047,
+        "character_interval_ms": 45,
+        "visible": true
+      },
+      "navigation_visible": false,
+      "readout_visible": true
+    },
+    {
+      "id": "codex-notice",
+      "identity": 36,
+      "background_rgb565": 0,
+      "standby_override_seconds": 180,
+      "entrance": {
+        "from": {
+          "x": 233,
+          "y": 92,
+          "scale": 42
+        },
+        "move_ms": 0,
+        "text_delay_ms": 0
+      },
+      "intro": {
+        "bitmap_fade_out_ms": 0,
+        "cloud_fade_in_ms": 0
+      },
+      "cloud": {
+        "x": 233,
+        "y": 92,
+        "scale": 42
+      },
+      "face": {
+        "eye_left": 1,
+        "eye_right": 1,
+        "brow_left": 0,
+        "brow_right": 0,
+        "mouth_open": 0.04,
+        "breath": 0,
+        "mouth_width": 0.72,
+        "nose_size": 1,
+        "cheek_size": 1,
+        "cheek_opacity": 0.58
+      },
+      "title": {
+        "text": "From Codex",
+        "top": 150,
+        "color_rgb565": 65535,
+        "character_interval_ms": 45,
+        "visible": true
+      },
+      "navigation_visible": false,
+      "readout_visible": true
+    },
+    {
+      "id": "approval-on-pc",
+      "identity": 37,
+      "background_rgb565": 0,
+      "standby_override_seconds": 180,
+      "entrance": {
+        "from": {
+          "x": 233,
+          "y": 92,
+          "scale": 42
+        },
+        "move_ms": 0,
+        "text_delay_ms": 0
+      },
+      "intro": {
+        "bitmap_fade_out_ms": 0,
+        "cloud_fade_in_ms": 0
+      },
+      "cloud": {
+        "x": 233,
+        "y": 92,
+        "scale": 42
+      },
+      "face": {
+        "eye_left": 1,
+        "eye_right": 1,
+        "brow_left": -0.45,
+        "brow_right": 0.05,
+        "mouth_open": 0.3,
+        "breath": 0,
+        "mouth_width": 0.5,
+        "nose_size": 1,
+        "cheek_size": 1,
+        "cheek_opacity": 0.58
+      },
+      "title": {
+        "text": "On your PC",
+        "top": 150,
+        "color_rgb565": 64704,
+        "character_interval_ms": 45,
+        "visible": true
+      },
+      "navigation_visible": false,
+      "readout_visible": true
+    },
+    {
+      "id": "event-unavailable",
+      "identity": 38,
+      "background_rgb565": 0,
+      "standby_override_seconds": 180,
+      "entrance": {
+        "from": {
+          "x": 233,
+          "y": 92,
+          "scale": 42
+        },
+        "move_ms": 0,
+        "text_delay_ms": 0
+      },
+      "intro": {
+        "bitmap_fade_out_ms": 0,
+        "cloud_fade_in_ms": 0
+      },
+      "cloud": {
+        "x": 233,
+        "y": 92,
+        "scale": 42
+      },
+      "face": {
+        "eye_left": 1,
+        "eye_right": 1,
+        "brow_left": -0.55,
+        "brow_right": -0.55,
+        "mouth_open": 0.14,
+        "breath": 0,
+        "mouth_width": 0.55,
+        "nose_size": 1,
+        "cheek_size": 1,
+        "cheek_opacity": 0.58
+      },
+      "title": {
+        "text": "UNAVAILABLE",
+        "top": 150,
+        "color_rgb565": 64704,
+        "character_interval_ms": 45,
+        "visible": true
+      },
+      "navigation_visible": false,
+      "readout_visible": true
     }
   ]
 }

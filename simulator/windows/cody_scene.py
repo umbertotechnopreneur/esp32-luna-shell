@@ -183,8 +183,11 @@ class ScenePainter:
     # color: Native RGB565 foreground.
     # body: Select the authored caption font instead of the title font.
     # visible: Optional visible prefix; omitted means the complete line.
+    # center_x: Shared logical horizontal center for a bounded event label or action caption.
+    # max_width: Optional explicit slot width; default preserves the authored title/caption slot.
     # Raises ValueError for unsupported pixels, text, extent or glyph counts.
-    def paint_text(self, image, text, top, color=65535, *, body=False, visible=None):
+    def paint_text(self, image, text, top, color=65535, *, body=False, visible=None,
+                   center_x=233, max_width=None):
         if image.mode != "RGB" or image.size != (466, 466):
             raise ValueError("Scene text requires a 466x466 RGB framebuffer")
         if not isinstance(text, str) or any(not 32 <= ord(character) <= 126 for character in text):
@@ -196,8 +199,12 @@ class ScenePainter:
         font = {**self.font, **self.font["body_font"]} if body else self.font
         coverage = self.body_coverage if body else self.coverage
         width = (len(text) - 1) * font["advance"] + font["width"]
-        origin_x = (466 - width) // 2
-        if width > (232 if body else 320) or any(
+        if max_width is None:
+            max_width = 232 if body else 320
+        if type(center_x) is not int or type(max_width) is not int or not 1 <= max_width <= 320:
+            raise ValueError("Scene text slot geometry is invalid")
+        origin_x = center_x - (width + 1) // 2
+        if width > max_width or any(
                 (x - 233) ** 2 + (y - 233) ** 2 > 233 ** 2
                 for x in (origin_x, origin_x + width - 1)
                 for y in (top, top + font["height"] - 1)):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -18,6 +19,8 @@ sys.path.insert(0, str(ROOT / "plugins/cody-codex-plugin/mcp"))
 import ccp_server as ccp
 import ccp_activity as activity
 import ccp_runtime as runtime
+import ccp_interactions as interactions
+from cody_ccp_event_vectors import event_vectors
 
 
 class CcpContractTests(unittest.TestCase):
@@ -461,7 +464,9 @@ class ChatActivityTests(unittest.TestCase):
     def test_manual_selection_is_removed_from_public_tools(self) -> None:
         names = {tool["name"] for tool in ccp.tool_catalog()}
         self.assertEqual(names, {"ccp_discover_devices", "ccp_pair_device",
-                                 "ccp_connection_status", "ccp_list_sessions"})
+                                 "ccp_connection_status", "ccp_list_sessions", "ccp_ask_question",
+                                 "ccp_publish_notification", "ccp_poll_request", "ccp_cancel_request",
+                                 "ccp_reset_device", "ccp_factory_reset_device"})
         for name in ("ccp_select_session", "ccp_clear_session"):
             with self.assertRaisesRegex(ValueError, "Unknown CCP tool"):
                 ccp.call_tool(Mock(), name, {})
@@ -605,6 +610,335 @@ class BrokerRecoveryTests(unittest.TestCase):
         self.assertEqual(ccp.observation_source("127.0.0.1"), "SIMULATED")
         self.assertEqual(ccp.observation_source("192.0.2.10"), "LAN")
         self.assertEqual(ccp.observation_source(""), "UNOBSERVED")
+
+
+class ResetTests(unittest.TestCase):
+    # self: Isolated reset admission owner; no physical device, hook or protected identity is used.
+    def setUp(self) -> None:
+        self.now = 50.0
+        self.store = ccp.reset.ResetRequests(lambda: self.now)
+        self.device, self.digest, self.nonce = "abcdef012345", "a" * 64, "b" * 32
+        self.endpoint = ("127.0.0.1", 49101)
+
+    # self: Strict distinction between explicit confirmation, restart and destructive factory reset.
+    # Raises AssertionError if missing/wrong/numeric confirmation queues any command.
+    def test_confirmation_is_explicit_and_operations_cannot_be_substituted(self) -> None:
+        for operation in ccp.reset.ResetOperation:
+            for invalid in (None, "", 43533477, "43533477", "043533478", "è" * 9):
+                with self.subTest(operation=operation, code_type=type(invalid).__name__):
+                    with self.assertRaises(ValueError):
+                        self.store.enqueue(self.device, "SIMULATED", self.digest, invalid, operation)
+        self.assertFalse(self.store._requests)
+        created = self.store.enqueue(self.device, "SIMULATED", self.digest, ccp.reset.CONFIRMATION_CODE,
+                                     ccp.reset.ResetOperation.FACTORY_RESET)
+        self.store.claim(self.device, self.digest, self.nonce, self.endpoint)
+        with self.assertRaises(ValueError):
+            self.store.acknowledge(created, self.device, self.digest, self.nonce, self.endpoint,
+                                   ccp.reset.ResetOperation.RESTART)
+        for _ in range(2):
+            self.store.acknowledge(created, self.device, self.digest, self.nonce, self.endpoint,
+                                   ccp.reset.ResetOperation.FACTORY_RESET)
+        result = self.store.wait(created)
+        self.assertTrue(result["accepted"])
+        self.assertFalse(result["boot_verified"] or result["settings_erasure_verified"] or result["preserve_pairing"])
+        self.assertIsNone(self.store.claim(self.device, self.digest, self.nonce, self.endpoint))
+
+    # self: One-shot admission across no FIND, lost ACK, socket failure and changed pairing.
+    # Raises AssertionError if ambiguous or retired requests become automatic retransmissions.
+    def test_single_transmission_timeout_and_pairing_change_are_explicit(self) -> None:
+        for mode in ("no_find", "lost_ack", "send_error", "new_pairing"):
+            self.store = ccp.reset.ResetRequests(lambda: self.now)
+            created = self.store.enqueue(self.device, "SIMULATED", self.digest, ccp.reset.CONFIRMATION_CODE,
+                                         ccp.reset.ResetOperation.RESTART)
+            if mode != "no_find":
+                claimed = self.store.claim(self.device, "c" * 64 if mode == "new_pairing" else self.digest,
+                                           self.nonce, self.endpoint)
+                self.assertEqual(claimed is None, mode == "new_pairing")
+            if mode == "send_error":
+                self.store.fail_send(created, OSError("SIMULATED UDP send failure"))
+            self.now += ccp.reset.REQUEST_SECONDS + .01
+            result = self.store.wait(created)
+            self.assertEqual(result["state"], "not_sent" if mode in {"no_find", "new_pairing"} else "ambiguous")
+            self.assertFalse(result["accepted"] or result["retry_automatically"])
+            self.assertIsNone(self.store.claim(self.device, self.digest, "d" * 32, self.endpoint))
+
+    # self: Real RESET/FACTORYRESET wire proofs with mocked transport and synthetic peer identities.
+    # Raises AssertionError if ACK authentication, endpoint/operation binding or 512-byte bounds weaken.
+    def test_authenticated_reset_ack_and_fresh_find_route(self) -> None:
+        key, pc = b"K" * 32, "e" * 32
+        state, listener = Mock(), Mock()
+        state.pc_id = pc
+        state.retained_keys.return_value = ccp.RetainedKeys(key, None)
+        source_activity = Mock()
+        source_activity.snapshot.return_value = {"chat": "0" * 64, "revision": "0" * 16,
+                                                  "phase": "none", "project": ""}
+        for operation in ccp.reset.ResetOperation:
+            responder = ccp.CompanionResponder(state, listener, source_activity)
+            responder._resets = self.store = ccp.reset.ResetRequests(lambda: self.now)
+            identity = self.store.enqueue(self.device, "SIMULATED", hashlib.sha256(key).hexdigest(),
+                                           ccp.reset.CONFIRMATION_CODE, operation)
+            values = [self.device, pc, self.nonce]
+            find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values))
+                                      + [("activity", "1"), ("events", "1"),
+                                         ("proof", ccp.make_proof(key, "find-events", *values))])
+            listener.sendto.reset_mock()
+            responder._handle_datagram(find, self.endpoint)
+            command, acknowledgement, _, ack_domain = ccp.reset.COMMANDS[operation]
+            sent = [call.args[0] for call in listener.sendto.call_args_list]
+            self.assertEqual(ccp.parse_datagram(sent[-1])[0], command)
+            self.assertLessEqual(len(sent[-1]), 512)
+            ack_values = [self.device, pc, self.nonce, identity, "accepted"]
+            ack = ccp.encode_datagram(acknowledgement,
+                list(zip(("device", "pc", "nonce", "id", "status"), ack_values))
+                + [("proof", ccp.make_proof(key, ack_domain, *ack_values))])
+            with self.assertRaisesRegex(ValueError, "current authenticated peer"):
+                responder._handle_datagram(ack, (self.endpoint[0], self.endpoint[1] + 1))
+            with self.assertRaisesRegex(ValueError, "authentication"):
+                responder._handle_datagram(ack[:-1] + (b"0" if ack[-1:] != b"0" else b"1"), self.endpoint)
+            state.retained_keys.return_value = ccp.RetainedKeys(b"N" * 32, None)
+            with self.assertRaisesRegex(ValueError, "retired association"):
+                responder._handle_datagram(ack, self.endpoint)
+            state.retained_keys.return_value = ccp.RetainedKeys(key, None)
+            other_operation = (ccp.reset.ResetOperation.FACTORY_RESET if operation == ccp.reset.ResetOperation.RESTART
+                               else ccp.reset.ResetOperation.RESTART)
+            other_command = ccp.reset.COMMANDS[other_operation]
+            wrong_operation_ack = ccp.encode_datagram(other_command[1],
+                list(zip(("device", "pc", "nonce", "id", "status"), ack_values))
+                + [("proof", ccp.make_proof(key, other_command[3], *ack_values))])
+            with self.assertRaisesRegex(ValueError, "live transmitted reset request"):
+                responder._handle_datagram(wrong_operation_ack, self.endpoint)
+            responder._handle_datagram(ack, self.endpoint)
+            responder._handle_datagram(ack, self.endpoint)
+            self.assertEqual(self.store.wait(identity)["state"], "accepted")
+            before = len(listener.sendto.call_args_list)
+            responder._handle_datagram(find, self.endpoint)
+            self.assertFalse(any(ccp.parse_datagram(call.args[0])[0] == command
+                                 for call in listener.sendto.call_args_list[before:]))
+
+    # self: Public tool boundary and the skill's explicit-current-message execution constraint.
+    # Raises AssertionError if the known code becomes a default or factory intent is conflated with restart.
+    def test_tools_reject_implicit_reset_and_skill_requires_current_user_intent(self) -> None:
+        service = ccp.CcpService.__new__(ccp.CcpService)
+        service.state, service.responder = Mock(), Mock()
+        for name in ("ccp_reset_device", "ccp_factory_reset_device"):
+            with self.assertRaises(ValueError):
+                ccp.call_tool(service, name, {"device_id": self.device})
+            service.state.public_status.assert_not_called()
+        skill = (ROOT / "plugins/cody-codex-plugin/skills/cody-codex/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("messaggio utente corrente", skill)
+        self.assertIn("resetta il device codice 043533477", skill)
+        self.assertIn("formatta cody 043533477", skill)
+        definitions = {item["name"]: item for item in ccp.tool_catalog()}
+        self.assertFalse(definitions["ccp_reset_device"]["annotations"]["destructiveHint"])
+        self.assertTrue(definitions["ccp_factory_reset_device"]["annotations"]["destructiveHint"])
+
+
+class InteractionTests(unittest.TestCase):
+    # self: Pure interaction owner with synthetic clocks; no hook, protected state or socket is used.
+    def setUp(self) -> None:
+        self.now = 100.0
+        self.store = interactions.InteractionStore(lambda: self.now)
+        self.device = "abcdef012345"
+        self.payload = interactions.EventPayload(interactions.EventKind.QUESTION, "SIMULATED fixture",
+            "Choose cache", "Which cache should I use?", (
+                interactions.Choice("memory", "Memory", "Keep the cache in memory.", interactions.Tone.POSITIVE),
+                interactions.Choice("redis", "Redis", "Use the configured Redis cache.", interactions.Tone.INFO)))
+
+    # self: Shared production-encoded vectors also consumed by the portable firmware decoder.
+    # Raises AssertionError if host admission differs from the shared wire contract.
+    def test_shared_payload_vectors_and_original_pairing_bound(self) -> None:
+        for name, encoded, valid in event_vectors():
+            with self.subTest(vector=name):
+                if valid:
+                    payload = interactions.decode_payload(encoded)
+                    self.assertEqual(interactions.encode_payload(payload), encoded)
+                    event = ccp.encode_datagram("EVENT", [("device", self.device), ("pc", "a" * 32),
+                        ("nonce", "b" * 32), ("id", "c" * 32), ("state", "pending"), ("ttl", "180"),
+                        ("data", encoded), ("proof", "d" * 64)])
+                    self.assertLessEqual(len(event), 1280)
+                    self.assertEqual(ccp.parse_datagram(event)[0], "EVENT")
+                else:
+                    with self.assertRaises(ValueError):
+                        interactions.decode_payload(encoded)
+        with self.assertRaises(ValueError):
+            ccp.encode_datagram("PAIR", [("data", "0" * 510)])
+        with self.assertRaises(ValueError):
+            ccp.parse_datagram(b"CCP1|PAIR|data=" + b"0" * 510)
+
+    # self: One real semantic choice represented with synthetic identities and a fixed deadline.
+    # Raises AssertionError if a UDP receipt is mistaken for recipient-confirmed delivery.
+    def test_reply_is_idempotent_and_delivery_requires_recipient_ack(self) -> None:
+        created = self.store.enqueue(self.device, self.payload, "SIMULATED")
+        identity, capability = created["request_id"], created["capability"]
+        self.assertEqual(self.store.answer(self.device, identity, "redis"), "received")
+        self.assertEqual(self.store.answer(self.device, identity, "redis"), "received")
+        self.assertEqual(self.store.answer(self.device, identity, "memory"), "conflict")
+        reply = self.store.poll(identity, capability)
+        self.assertEqual(reply["state"], "received")
+        self.assertFalse(reply["recipient_acknowledged"])
+        self.assertEqual(self.store.snapshot(self.device)[1], "received")
+        with self.assertRaises(ValueError):
+            self.store.poll(identity, "0" * 64)
+        with self.assertRaises(ValueError):
+            self.store.poll(identity, capability, acknowledge_answer_id="0" * 32)
+        acknowledged = self.store.poll(identity, capability, acknowledge_answer_id=reply["answer_id"])
+        self.assertEqual(acknowledged["state"], "delivered")
+        self.assertTrue(acknowledged["recipient_acknowledged"])
+        self.assertEqual(self.store.answer(self.device, identity, "redis"), "delivered")
+        self.assertEqual(self.store.snapshot(self.device)[1], "delivered")
+        self.assertEqual(self.store.poll(identity, capability, acknowledge_answer_id=reply["answer_id"])["state"], "delivered")
+        with self.assertRaises(ValueError):
+            self.store.cancel(identity, capability)
+
+    # self: Received-but-unacknowledged and explicitly cancelled questions.
+    # Raises AssertionError if expiry, wrong-device input or cancellation manufactures a decision.
+    def test_expiry_cancel_and_wrong_device_never_select_an_option(self) -> None:
+        first = self.store.enqueue(self.device, self.payload, "LAN", 15)
+        self.assertEqual(self.store.answer("012345abcdef", first["request_id"], "memory"), "unknown")
+        self.assertEqual(self.store.answer(self.device, first["request_id"], "redis"), "received")
+        reply = self.store.poll(first["request_id"], first["capability"])
+        self.now = 115.0
+        expired = self.store.poll(first["request_id"], first["capability"])
+        self.assertEqual(expired["state"], "expired")
+        self.assertNotIn("answer", expired)
+        with self.assertRaises(ValueError):
+            self.store.poll(first["request_id"], first["capability"], acknowledge_answer_id=reply["answer_id"])
+        second = self.store.enqueue(self.device, self.payload, "LAN")
+        self.store.cancel(second["request_id"], second["capability"])
+        self.assertEqual(self.store.answer(self.device, second["request_id"], "redis"), "cancelled")
+        self.assertNotIn("answer", self.store.poll(second["request_id"], second["capability"]))
+
+    # self: Question ownership alongside a bounded notification queue and background activity.
+    # Raises AssertionError if another request displaces the pending question or restores stale ownership.
+    def test_notices_do_not_replace_pending_questions_and_restart_loses_no_choice(self) -> None:
+        created = self.store.enqueue(self.device, self.payload, "LAN")
+        notice = interactions.EventPayload(interactions.EventKind.NOTICE, "", "Notice", "A real notification.")
+        self.store.enqueue(self.device, notice, "LAN")
+        self.assertEqual(self.store.snapshot(self.device)[0], created["request_id"])
+        with self.assertRaisesRegex(ValueError, "pending question"):
+            self.store.enqueue(self.device, self.payload, "LAN")
+        self.now += 60
+        self.assertEqual(self.store.snapshot(self.device)[1:3], ("pending", "120"))
+        restarted = interactions.InteractionStore(lambda: self.now)
+        self.assertEqual(restarted.answer(self.device, created["request_id"], "redis"), "unknown")
+        self.assertEqual(restarted.snapshot(self.device)[1], "none")
+
+    # self: A newer informational snapshot whose shorter lifetime must not reveal its superseded predecessor.
+    # Raises AssertionError if old failure/progress content can return after a newer notification expires.
+    def test_new_notification_retires_previous_snapshot_without_pr_regression(self) -> None:
+        old = interactions.EventPayload(interactions.EventKind.CHECKS_FAILED, "", "Checks failed", "Old current result.", failures=("compile",))
+        first = self.store.enqueue(self.device, old, "LAN", 180)
+        current = interactions.EventPayload(interactions.EventKind.CHECKS_PASSED, "", "Checks passed", "New current result.",
+                                            progress_valid=True, passed=1, total=1)
+        second = self.store.enqueue(self.device, current, "LAN", 15)
+        self.assertEqual(self.store.snapshot(self.device)[0], second["request_id"])
+        self.assertEqual(self.store.poll(first["request_id"], first["capability"])["state"], "cancelled")
+        self.now = 115.0
+        self.assertEqual(self.store.snapshot(self.device)[1], "none")
+
+    # self: One active association replaced before a reply reaches the host.
+    # Raises AssertionError if a new key can answer an old ticket, even before its first snapshot publication.
+    def test_pairing_replacement_retires_old_ticket_before_answer_or_snapshot(self) -> None:
+        first = self.store.enqueue(self.device, self.payload, "LAN", association_id="a" * 64)
+        self.assertEqual(self.store.answer(self.device, first["request_id"], "memory", "b" * 64), "unknown")
+        self.assertEqual(self.store.poll(first["request_id"], first["capability"])["state"], "cancelled")
+        second = self.store.enqueue(self.device, self.payload, "LAN", association_id="a" * 64)
+        self.assertEqual(self.store.snapshot(self.device, "b" * 64)[1], "none")
+        self.assertEqual(self.store.poll(second["request_id"], second["capability"])["state"], "cancelled")
+
+    # self: Last fraction of an otherwise live lifetime.
+    # Raises AssertionError if Pending/Received is published with an invalid zero-second TTL.
+    def test_last_fraction_of_lifetime_is_ceil_bounded_then_expires(self) -> None:
+        created = self.store.enqueue(self.device, self.payload, "LAN", 15)
+        self.now = 114.75
+        self.assertEqual(self.store.snapshot(self.device)[1:3], ("pending", "1"))
+        self.store.answer(self.device, created["request_id"], "memory")
+        self.assertEqual(self.store.snapshot(self.device)[1:3], ("received", "1"))
+        self.now = 115.0
+        self.assertEqual(self.store.snapshot(self.device)[1:3], ("expired", "0"))
+
+    # self: Explicit read-only PR metadata tied to one exact head.
+    # Raises AssertionError if partial/stale lists produce progress or imply successful checks.
+    def test_pr_metadata_requires_current_complete_head_and_whole_failure_names(self) -> None:
+        metadata = {"head": "a" * 40, "checks_head": "a" * 40, "complete": False,
+                    "current": True, "checks": [{"name": "compile", "state": "passed"}]}
+        self.assertEqual(interactions.check_metadata(interactions.EventKind.CHECKS_RUNNING, metadata), ((), False, 0, 0))
+        with self.assertRaises(ValueError):
+            interactions.check_metadata(interactions.EventKind.CHECKS_PASSED, metadata)
+        metadata["complete"] = True
+        self.assertEqual(interactions.check_metadata(interactions.EventKind.CHECKS_PASSED, metadata), ((), True, 1, 1))
+        metadata["checks_head"] = "b" * 40
+        with self.assertRaises(ValueError):
+            interactions.check_metadata(interactions.EventKind.CHECKS_PASSED, metadata)
+        metadata["checks_head"] = metadata["head"]
+        metadata["checks"] = [{"name": "F" * 49, "state": "failed"}]
+        with self.assertRaisesRegex(ValueError, "48"):
+            interactions.check_metadata(interactions.EventKind.CHECKS_FAILED, metadata)
+        metadata["checks"] = [{"name": f"failure-{index}", "state": "failed"} for index in range(7)]
+        with self.assertRaisesRegex(ValueError, "six"):
+            interactions.check_metadata(interactions.EventKind.CHECKS_FAILED, metadata)
+
+    # self: Full authenticated extension exchange through the production responder without a real socket.
+    # Raises AssertionError if capability stripping, proof alteration or source mismatch is admitted.
+    def test_event_extension_authenticates_request_reply_and_recipient_delivery(self) -> None:
+        created = self.store.enqueue(self.device, self.payload, "LAN")
+        state = Mock(pc_id="a" * 32)
+        key = bytes(range(32))
+        state.retained_keys.return_value = ccp.RetainedKeys(key, None)
+        listener = Mock()
+        responder = ccp.CompanionResponder(state, listener, activity.ActivityStore(), self.store)
+        values = [self.device, state.pc_id, "b" * 32]
+        find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
+            [("activity", "1"), ("events", "1"), ("proof", ccp.make_proof(key, "find-events", *values))])
+        source = ("192.0.2.10", ccp.DEVICE_PORT)
+        responder._handle_datagram(find, source)
+        kind, event = ccp.parse_datagram(listener.sendto.call_args.args[0])
+        self.assertEqual(kind, "EVENT")
+        self.assertEqual(event["id"], created["request_id"])
+        self.assertEqual(interactions.decode_payload(event["data"]), self.payload)
+        reply_values = values + [created["request_id"], "memory"]
+        reply = ccp.encode_datagram("REPLY", list(zip(("device", "pc", "nonce", "id", "choice"), reply_values)) +
+                                   [("proof", ccp.make_proof(key, "reply", *reply_values))])
+        with self.assertRaises(ValueError):
+            responder._handle_datagram(reply, (source[0], source[1] + 1))
+        responder._handle_datagram(reply, source)
+        self.assertEqual(ccp.parse_datagram(listener.sendto.call_args.args[0])[1]["status"], "received")
+        result = self.store.poll(created["request_id"], created["capability"])
+        self.store.poll(created["request_id"], created["capability"], acknowledge_answer_id=result["answer_id"])
+        responder._handle_datagram(reply, source)
+        self.assertEqual(ccp.parse_datagram(listener.sendto.call_args.args[0])[1]["status"], "delivered")
+        stripped = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
+            [("activity", "1"), ("proof", ccp.make_proof(key, "find-events", *values))])
+        with self.assertRaises(ValueError):
+            responder._handle_datagram(stripped, source)
+
+    # self: Long-poll dispatch using the real request store while the unrelated pairing lock is occupied.
+    # Raises AssertionError if recipient polling acquires the global tool lock or leaks response ownership.
+    def test_interaction_poll_does_not_hold_pairing_tool_lock(self) -> None:
+        created = self.store.enqueue(self.device, self.payload, "LAN")
+        server = Mock()
+        server.service.interactions = self.store
+        server.tool_lock = Mock()
+        server.tool_lock.__enter__ = Mock(side_effect=AssertionError("global lock must remain available"))
+        result = runtime.dispatch(server, "mcp", {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+            "name": "ccp_poll_request", "arguments": {"request_id": created["request_id"], "capability": created["capability"]}}})
+        self.assertEqual(result["result"]["structuredContent"]["state"], "pending")
+        server.tool_lock.__enter__.assert_not_called()
+
+    # self: Native hook fixture, with all private command arguments deliberately excluded.
+    # Raises AssertionError if a native permission is answered or an approval tool is exposed.
+    def test_native_permission_hook_never_returns_an_approval(self) -> None:
+        original = {"hook_event_name": "PermissionRequest", "session_id": "chat-fixture",
+                    "turn_id": "turn-fixture", "cwd": "E:/SIMULATED", "tool_name": "Bash",
+                    "tool_input": {"command": "SYNTHETIC PRIVATE COMMAND"}}
+        stream = io.StringIO()
+        with patch.object(runtime.sys, "stdin", Mock(buffer=io.BytesIO(json.dumps(original).encode()))):
+            with patch.object(runtime, "control_secret", return_value="fixture"), patch.object(runtime, "exchange") as exchange:
+                with contextlib.redirect_stdout(stream):
+                    runtime.run_hook()
+        self.assertEqual(json.loads(stream.getvalue()), {})
+        self.assertNotIn("tool_input", exchange.call_args.args[1])
+        self.assertFalse(any("approve" in tool["name"] or "permission" in tool["name"] for tool in ccp.tool_catalog()))
 
 
 if __name__ == "__main__":

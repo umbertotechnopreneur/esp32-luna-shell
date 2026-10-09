@@ -14,6 +14,9 @@ enum class SceneId : uint16_t {
     CodexChoice = 16, SetupMenu = 17, NetworkWait = 18,
     ProjectActive = 19, Working = 20, ResponseReady = 21, SessionPaused = 22,
     SessionEnded = 23, ConnectionLost = 24, CompanionIdle = 25, ActivityUnavailable = 26,
+    PrPending = 27, ChecksRunning = 28, ChecksFailed = 29, CheckFailures = 30,
+    DecisionNotice = 31, DecisionChoices = 32, DecisionConfirm = 33, DecisionWaiting = 34,
+    ReplySent = 35, CodexNotice = 36, ApprovalOnPc = 37, EventUnavailable = 38,
 };
 enum class SceneElementId : uint8_t { Cloud, Title, Content };
 enum class SceneIntroPhase : uint8_t { BitmapFadeOut, CloudFadeIn, Complete };

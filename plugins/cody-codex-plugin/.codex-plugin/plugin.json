@@ -1,7 +1,7 @@
 {
   "name": "cody-codex-plugin",
-  "version": "0.5.0",
-  "description": "Collego Cody alla chat Codex sulla LAN; posso includere esplicitamente Cody Studio SIMULATED.",
+  "version": "0.6.0",
+  "description": "Collego Cody, invio notifiche e domande; riavvio o ripristino solo con intenzione e codice espliciti. Cody Studio resta SIMULATED.",
   "author": {
     "name": "Umberto Giacobbi"
   },
@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "CCP - Cody's Codex Plugin",
     "shortDescription": "Collego Cody alla chat su cui lavoro.",
-    "longDescription": "Con CCP associo Cody sulla LAN, conservo l'identita del PC e seguo l'ultima chat con un prompt utente tramite hook autorizzati. Se lo chiedo, includo anche Cody Studio: e sempre marcato SIMULATED, niente controfigure in incognito.",
+    "longDescription": "Con CCP associo Cody sulla LAN e conservo l'identita del PC. Seguo la chat tramite hook autorizzati e invio domande esplicite con due o tre scelte: Reply sent compare solo dopo la conferma del destinatario Codex. Le PR restano in sola lettura e le autorizzazioni native restano sul computer. Cody Studio e sempre SIMULATED e lo includo solo quando lo chiedo.",
     "developerName": "Umberto Giacobbi",
     "category": "Developer Tools",
     "capabilities": [

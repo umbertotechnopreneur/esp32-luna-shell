@@ -51,6 +51,20 @@ extern "C" esp_err_t LUNASHELL_power_manager_note_codex_notification(void)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+// No parameters: excluded power profile cannot admit a Codex restart.
+// Exception: Always returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t LUNASHELL_power_manager_request_codex_restart(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// No parameters: excluded power profile cannot perform a factory reset.
+// Exception: Always returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t LUNASHELL_power_manager_request_codex_factory_reset(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 // seconds: Unsupported transient override in a profile without the power owner.
 // Exception: Always returns ESP_ERR_NOT_SUPPORTED for this excluded feature.
 extern "C" esp_err_t LUNASHELL_power_manager_set_scene_standby_override(uint32_t seconds)

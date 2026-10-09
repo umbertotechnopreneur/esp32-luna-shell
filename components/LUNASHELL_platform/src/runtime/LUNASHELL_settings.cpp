@@ -48,6 +48,7 @@ enum class SettingsOperation : uint8_t {
     GetBlob,
     EraseKey,
     Clear,
+    FactoryResetNamespace,
 };
 
 union SettingsScalar {
@@ -98,6 +99,7 @@ std::atomic<SettingsExecutorState> s_executor_state{
 std::atomic<esp_err_t> s_poison_error{ESP_OK};
 std::atomic<uint32_t> s_completed_generation{0};
 uint32_t s_next_generation = 0;
+std::atomic<bool> s_factory_reset_sealed{false};
 
 // operation: Typed internal executor operation for secret-free diagnostic names.
 const char *operation_name(SettingsOperation operation)
@@ -143,6 +145,8 @@ const char *operation_name(SettingsOperation operation)
         return "erase_key";
     case SettingsOperation::Clear:
         return "clear";
+    case SettingsOperation::FactoryResetNamespace:
+        return "factory_reset_namespace";
     default:
         return "unknown";
     }
@@ -220,12 +224,25 @@ esp_err_t copy_key(SettingsRequest &request, const char *key)
     return ESP_OK;
 }
 
+// operation: Owner operation, including a separately admitted factory-reset retry.
+// handle: Previously opened handle for this owner's dedicated namespace.
+// key: Exact bounded key or null for namespace/lifecycle operations.
+// Exception: Rejects writes after factory-reset admission and preserves executor/key failures.
 esp_err_t prepare_request(
     SettingsOperation operation,
     nvs_handle_t handle,
     const char *key = nullptr
 )
 {
+    const bool writes_settings = operation == SettingsOperation::SetU8 ||
+        operation == SettingsOperation::SetI32 || operation == SettingsOperation::SetU32 ||
+        operation == SettingsOperation::SetI64 || operation == SettingsOperation::SetU64 ||
+        operation == SettingsOperation::SetString || operation == SettingsOperation::SetBlob ||
+        operation == SettingsOperation::EraseKey || operation == SettingsOperation::Clear;
+    if (writes_settings && s_factory_reset_sealed.load(std::memory_order_acquire)) {
+        log_operation_failure(operation, key, ESP_ERR_INVALID_STATE);
+        return ESP_ERR_INVALID_STATE;
+    }
     const SettingsExecutorState state =
         s_executor_state.load(std::memory_order_acquire);
     if (state != SettingsExecutorState::Ready) {
@@ -259,6 +276,36 @@ esp_err_t prepare_request(
 esp_err_t commit_if_success(esp_err_t result, nvs_handle_t handle)
 {
     return result == ESP_OK ? nvs_commit(handle) : result;
+}
+
+// handle: Verified owner handle opened only for LUNASHELL_user, never a partition-wide erase.
+// Exception: Returns the first erase/commit/readback error; a residual key is INVALID_RESPONSE.
+esp_err_t reset_owned_namespace(nvs_handle_t handle)
+{
+    esp_err_t error = nvs_erase_all(handle);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Factory reset user-namespace erase failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    error = nvs_commit(handle);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Factory reset user-namespace commit failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    nvs_iterator_t iterator = nullptr;
+    error = nvs_entry_find_in_handle(handle, NVS_TYPE_ANY, &iterator);
+    if (error == ESP_ERR_NVS_NOT_FOUND && iterator == nullptr) {
+        ESP_LOGI(kTag, "Factory reset verified empty user namespace '%s'; writes sealed until reboot", kNamespace);
+        return ESP_OK;
+    }
+    if (iterator != nullptr) {
+        nvs_release_iterator(iterator);
+    }
+    if (error == ESP_OK || error == ESP_ERR_NVS_NOT_FOUND) {
+        error = ESP_ERR_INVALID_RESPONSE;
+    }
+    ESP_LOGE(kTag, "Factory reset user-namespace empty readback failed (%s)", esp_err_to_name(error));
+    return error;
 }
 
 // request: Exclusive internal-stack NVS operation and owned output storage.
@@ -384,6 +431,8 @@ esp_err_t execute_request(SettingsRequest &request)
             request.data,
             &request.size
         );
+    case SettingsOperation::FactoryResetNamespace:
+        return reset_owned_namespace(request.handle);
     case SettingsOperation::EraseKey:
         return commit_if_success(nvs_erase_key(request.handle, request.key), request.handle);
     case SettingsOperation::Clear:
@@ -1065,6 +1114,27 @@ esp_err_t UserSettingsService::clear()
     }
     error = prepare_request(SettingsOperation::Clear, _handle);
     return error == ESP_OK ? submit_request() : error;
+}
+
+// No parameters: only the explicit factory-reset orchestrator may admit this operation.
+// Exception: Returns the real owner/executor/erase/commit/readback error; sealing survives failure.
+esp_err_t UserSettingsService::resetOwnedNamespaceForFactoryReset()
+{
+    std::lock_guard<std::mutex> lock(_mutex);
+    esp_err_t error = ensureInitialized();
+    if (error != ESP_OK) {
+        log_operation_failure(SettingsOperation::FactoryResetNamespace, kNamespace, error);
+        return error;
+    }
+    error = prepare_request(SettingsOperation::FactoryResetNamespace, _handle);
+    if (error != ESP_OK) {
+        return error;
+    }
+    // The service mutex excludes queued writers at this boundary. Retaining the
+    // seal after partial failure prevents first-boot defaults from recreating data;
+    // only a newly explicit factory-reset retry may erase again before reboot.
+    s_factory_reset_sealed.store(true, std::memory_order_release);
+    return submit_request();
 }
 
 }  // namespace LUNASHELL

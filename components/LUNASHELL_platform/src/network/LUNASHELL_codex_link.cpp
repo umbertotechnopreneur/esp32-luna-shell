@@ -106,6 +106,9 @@ bool s_event_publication_pending = false;
 bool s_reply_pending = false;
 int64_t s_next_reply_at_us = 0;
 char s_reply_nonce[33]{};
+enum class MaintenanceCommand : uint8_t { Restart, FactoryReset };
+MaintenanceCommand s_last_maintenance_command = MaintenanceCommand::Restart;
+char s_reset_request_id[33]{};
 // Only the CCP worker borrows packet/crypto scratch; UI calls submit identities only.
 EXT_RAM_BSS_ATTR char s_receive_buffer[kMaximumEventDatagramBytes + 2]{};
 EXT_RAM_BSS_ATTR char s_event_parse_buffer[kMaximumEventDatagramBytes + 1]{};
@@ -1774,14 +1777,16 @@ bool parseEventFields(const char *payload, const char *prefix, const char *const
     return true;
 }
 
+enum class InboundCommand : uint8_t { Event, ReplyAck, Maintenance };
+
 // source: Datagram endpoint; only the authenticated current READY address is admitted.
 // device: Exact device identity in the envelope.
 // pc: Exact retained PC identity in the envelope.
 // nonce: Current poll nonce for EVENT, or last response nonce for REPLYACK.
-// reply_ack: Selects the nonce owner without permitting cross-domain replay.
+// command: Selects the nonce owner and one-snapshot-per-poll rule by message purpose.
 // Exception: Returns state/identity/endpoint errors; caller owns s_mutex.
 esp_err_t admitEventEnvelopeLocked(const sockaddr_in &source, const char *device, const char *pc,
-                                  const char *nonce, bool reply_ack)
+                                  const char *nonce, InboundCommand command)
 {
     if (!s_link_present || s_candidate_present || s_pending != Command::None ||
         s_link_snapshot.state != State::Connected || ntohs(source.sin_port) != kPluginPort ||
@@ -1794,8 +1799,9 @@ esp_err_t admitEventEnvelopeLocked(const sockaddr_in &source, const char *device
         return ESP_FAIL;
     }
     if (std::strcmp(address, s_link_snapshot.peer_ip_address) != 0 ||
-        std::strlen(nonce) != 32 || std::strcmp(nonce, reply_ack ? s_reply_nonce : s_ready_nonce) != 0 ||
-        (!reply_ack && s_event_received_for_nonce)) {
+        std::strlen(nonce) != 32 ||
+        std::strcmp(nonce, command == InboundCommand::ReplyAck ? s_reply_nonce : s_ready_nonce) != 0 ||
+        (command == InboundCommand::Event && s_event_received_for_nonce)) {
         return ESP_ERR_INVALID_STATE;
     }
     return ESP_OK;
@@ -1820,6 +1826,7 @@ esp_err_t verifyEventProofLocked(const char *proof)
     wipe(s_event_proof_input, sizeof(s_event_proof_input));
     return error;
 }
+
 
 // left: Previously authenticated immutable request body.
 // right: Candidate snapshot; selected_id alone may change during response delivery.
@@ -1879,7 +1886,7 @@ esp_err_t acceptEvent(const char *payload, const sockaddr_in &source)
         return ESP_ERR_INVALID_ARG;
     }
     std::lock_guard<std::mutex> guard(s_mutex);
-    esp_err_t error = admitEventEnvelopeLocked(source, values[0], values[1], values[2], false);
+    esp_err_t error = admitEventEnvelopeLocked(source, values[0], values[1], values[2], InboundCommand::Event);
     if (error != ESP_OK) {
         return error;
     }
@@ -1906,6 +1913,22 @@ esp_err_t acceptEvent(const char *payload, const sockaddr_in &source)
             return ESP_ERR_INVALID_ARG;
         }
         s_event_received_for_nonce = true;
+        if (s_event_snapshot.kind != LUNASHELL::CodexEventKind::Question &&
+            s_event_snapshot.state != EventState::None) {
+            // Informational snapshots have no outstanding answer. The owner
+            // withdrawing one returns to the activity already followed by Cody.
+            static_cast<LUNASHELL::CodexEventPayload &>(s_event_snapshot) = {};
+            s_event_snapshot.state = EventState::None;
+            s_event_snapshot.data_valid = true;
+            s_event_snapshot.data_stale = false;
+            s_event_snapshot.health = LUNASHELL::DeviceHealth::Ready;
+            s_event_snapshot.last_error = ESP_OK;
+            s_event_snapshot.last_attempt_at_us = now;
+            s_event_snapshot.last_success_at_us = now;
+            s_reply_pending = false;
+            ++s_event_snapshot.revision;
+            return publishEventLocked();
+        }
         if (eventIsOpen(s_event_snapshot.state)) {
             // A restarted recipient has lost the volatile ticket. Preserve its
             // question on screen as unavailable, never invent a cancellation or answer.
@@ -2023,7 +2046,7 @@ esp_err_t acceptReplyAck(const char *payload, const sockaddr_in &source)
         return ESP_ERR_INVALID_ARG;
     }
     std::lock_guard<std::mutex> guard(s_mutex);
-    esp_err_t error = admitEventEnvelopeLocked(source, values[0], values[1], values[2], true);
+    esp_err_t error = admitEventEnvelopeLocked(source, values[0], values[1], values[2], InboundCommand::ReplyAck);
     if (error != ESP_OK) {
         return error;
     }
@@ -2093,11 +2116,18 @@ void maintainEvent()
     const int64_t now = esp_timer_get_time();
     bool changed = false;
     if (eventIsOpen(s_event_snapshot.state) && now >= s_event_snapshot.expires_at_us) {
-        s_event_snapshot.state = EventState::Expired;
-        s_event_snapshot.last_error = ESP_ERR_TIMEOUT;
+        if (s_event_snapshot.kind == LUNASHELL::CodexEventKind::Question) {
+            s_event_snapshot.state = EventState::Expired;
+            s_event_snapshot.last_error = ESP_ERR_TIMEOUT;
+            ESP_LOGW(kTag, "CCP request expired without an implicit response");
+        } else {
+            static_cast<LUNASHELL::CodexEventPayload &>(s_event_snapshot) = {};
+            s_event_snapshot.state = EventState::None;
+            s_event_snapshot.last_error = ESP_OK;
+            ESP_LOGI(kTag, "CCP informational snapshot reached its display lifetime");
+        }
         s_reply_pending = false;
         changed = true;
-        ESP_LOGW(kTag, "CCP request expired without an implicit response");
     }
     if (s_event_snapshot.state != EventState::None && s_event_snapshot.data_valid &&
         now - s_event_snapshot.last_success_at_us >= kReadyExpiryUs) {
@@ -2161,6 +2191,89 @@ void maintainEvent()
     }
 }
 
+// payload: Explicit maintenance command; the literal code is a human intent check, not a password.
+// source: Current paired peer and poll nonce; existing CCP authentication is reused unchanged.
+// command: Separates a restart that preserves settings from an explicitly requested factory reset.
+// Exception: Returns exact schema, code, authentication, power-admission or ACK transport failures.
+esp_err_t acceptMaintenance(const char *payload, const sockaddr_in &source, MaintenanceCommand command)
+{
+    const bool factory = command == MaintenanceCommand::FactoryReset;
+    const char *prefix = factory ? "CCP1|FACTORYRESET|" : "CCP1|RESET|";
+    const char *domain = factory ? "factory-reset" : "reset";
+    const char *ack_domain = factory ? "factory-reset-ack" : "reset-ack";
+    const char *ack_verb = factory ? "FACTORYRESETACK" : "RESETACK";
+    static constexpr const char *names[] = {"device", "pc", "nonce", "id", "code", "proof"};
+    char *values[6]{};
+    if (!parseEventFields(payload, prefix, names, 6, values)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    std::lock_guard<std::mutex> guard(s_mutex);
+    esp_err_t error = admitEventEnvelopeLocked(source, values[0], values[1], values[2], InboundCommand::Maintenance);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (!LUNASHELL::validCodexResetCode(values[4])) {
+        ESP_LOGW(kTag, "CCP reset rejected: confirmation code does not match");
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t request_bytes[16]{};
+    if (decodeHex(values[3], request_bytes, sizeof(request_bytes)) != ESP_OK ||
+        allZero(request_bytes, sizeof(request_bytes))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const int length = std::snprintf(s_event_proof_input, sizeof(s_event_proof_input),
+        "%s|%s|%s|%s|%s|%s", domain, values[0], values[1], values[2], values[3], values[4]);
+    if (length <= 0 || static_cast<size_t>(length) >= sizeof(s_event_proof_input)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    error = verifyEventProofLocked(values[5]);
+    if (error != ESP_OK) {
+        return error;
+    }
+    const bool duplicate = std::strcmp(s_reset_request_id, values[3]) == 0;
+    if (duplicate && s_last_maintenance_command != command) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    char packet[kMaximumDatagramBytes + 1]{};
+    uint8_t proof[32]{};
+    char proof_hex[65]{};
+    const int proof_length = std::snprintf(s_event_proof_input, sizeof(s_event_proof_input),
+        "%s|%s|%s|%s|%s|accepted", ack_domain, values[0], values[1], values[2], values[3]);
+    error = proof_length > 0 && static_cast<size_t>(proof_length) < sizeof(s_event_proof_input)
+        ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), s_event_proof_input, proof)
+        : ESP_ERR_INVALID_SIZE;
+    if (error == ESP_OK) {
+        error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
+    }
+    if (error == ESP_OK) {
+        const int size = std::snprintf(packet, sizeof(packet),
+            "CCP1|%s|device=%s|pc=%s|nonce=%s|id=%s|status=accepted|proof=%s",
+            ack_verb, values[0], values[1], values[2], values[3], proof_hex);
+        if (size <= 0 || static_cast<size_t>(size) >= sizeof(packet)) {
+            error = ESP_ERR_INVALID_SIZE;
+        }
+    }
+    if (error == ESP_OK && !duplicate) {
+        error = factory ? LUNASHELL_power_manager_request_codex_factory_reset()
+                        : LUNASHELL_power_manager_request_codex_restart();
+        if (error == ESP_OK) {
+            std::memcpy(s_reset_request_id, values[3], sizeof(s_reset_request_id));
+            s_last_maintenance_command = command;
+        }
+    }
+    if (error == ESP_OK) {
+        // Once admitted, a lost ACK is an uncertain result for the caller. It
+        // must not cause an automatic second command or postpone the restart.
+        error = sendDatagram(packet, source.sin_addr, ntohs(source.sin_port), ack_verb);
+    }
+    wipe(proof, sizeof(proof));
+    wipe(proof_hex, sizeof(proof_hex));
+    wipe(s_event_proof_input, sizeof(s_event_proof_input));
+    wipe(packet, sizeof(packet));
+    return error;
+}
+
 // payload: Complete null-terminated datagram read by the owned socket.
 // source: Exact source address and port supplied by lwIP.
 void handleDatagram(const char *payload, const sockaddr_in &source)
@@ -2211,6 +2324,20 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
         }
     }
     if (state == State::Discovering || state == State::Connected) {
+        if (std::strncmp(payload, "CCP1|FACTORYRESET|", 18) == 0) {
+            const esp_err_t error = acceptMaintenance(payload, source, MaintenanceCommand::FactoryReset);
+            if (error != ESP_OK) {
+                ESP_LOGE(kTag, "CCP FACTORYRESET rejected or acknowledgement unavailable (%s)", esp_err_to_name(error));
+            }
+            return;
+        }
+        if (std::strncmp(payload, "CCP1|RESET|", 11) == 0) {
+            const esp_err_t error = acceptMaintenance(payload, source, MaintenanceCommand::Restart);
+            if (error != ESP_OK) {
+                ESP_LOGE(kTag, "CCP RESET rejected or acknowledgement unavailable (%s)", esp_err_to_name(error));
+            }
+            return;
+        }
         if (std::strncmp(payload, "CCP1|EVENT|", 11) == 0 ||
             std::strncmp(payload, "CCP1|REPLYACK|", 14) == 0) {
             const bool acknowledgement = std::strncmp(payload, "CCP1|REPLYACK|", 14) == 0;

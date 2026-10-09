@@ -10,6 +10,7 @@
 #include "LUNASHELL_wifi_provisioning.hpp"
 
 #include <cstdlib>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 
@@ -52,6 +53,7 @@ esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
 bool s_scan_watch_active;
 bool s_connect_requested;
 bool s_provisioning_owns_connection;
+std::atomic<bool> s_factory_reset_sealed{false};
 uint8_t s_consecutive_disconnects;
 LUNASHELL_wifi_status_t s_status;
 // Scan results are CPU-copied and never used by the Wi-Fi DMA/ISR path.
@@ -384,6 +386,8 @@ esp_err_t cancel_reconnect(
     return ESP_OK;
 }
 
+// delay_ms: Existing bounded reconnect delay; reset admission permanently cancels this boot's intent.
+// Exception: Returns the original timer error when a live reconnect cannot be scheduled.
 esp_err_t schedule_reconnect(uint32_t delay_ms)
 {
     if (s_reconnect_timer == nullptr) {
@@ -403,7 +407,7 @@ esp_err_t schedule_reconnect(uint32_t delay_ms)
 
     wifi_lock();
     if (!s_initialized || !s_status.started || !s_connect_requested ||
-        s_provisioning_owns_connection) {
+        s_provisioning_owns_connection || s_factory_reset_sealed.load(std::memory_order_acquire)) {
         // A disconnect event may have captured an older intent before an
         // explicit disconnect/stop transaction cancelled it. Revalidate under
         // the same lock as the timer command and treat the newer intent as the
@@ -443,6 +447,8 @@ esp_err_t schedule_reconnect(uint32_t delay_ms)
     return ESP_OK;
 }
 
+// timer: Existing one-shot reconnect timer; its callback rechecks reset ownership before connecting.
+// Exception: Logs real lock/driver/watch failures; never restarts a sealed factory-reset connection.
 void reconnect_timer_callback(TimerHandle_t timer)
 {
     (void)timer;
@@ -452,7 +458,7 @@ void reconnect_timer_callback(TimerHandle_t timer)
         wifi_lock();
         const bool retry =
             s_initialized && s_status.started && s_connect_requested &&
-            !s_provisioning_owns_connection;
+            !s_provisioning_owns_connection && !s_factory_reset_sealed.load(std::memory_order_acquire);
         // A one-shot timer is no longer pending once its callback begins.
         // Clear it before rescheduling so a queue failure cannot leave a false
         // pending latch behind.
@@ -481,7 +487,8 @@ void reconnect_timer_callback(TimerHandle_t timer)
     // acquiring the lifecycle gate, before calling into the Wi-Fi driver.
     wifi_lock();
     const bool should_connect = s_initialized && s_status.started &&
-        s_connect_requested && !s_provisioning_owns_connection;
+        s_connect_requested && !s_provisioning_owns_connection &&
+        !s_factory_reset_sealed.load(std::memory_order_acquire);
     s_status.reconnect_pending = false;
     s_status.reconnect_delay_ms = 0;
     if (should_connect) {
@@ -527,6 +534,8 @@ void reconnect_timer_callback(TimerHandle_t timer)
     );
 }
 
+// No parameters: acquire the completed driver scan only while the Wi-Fi owner remains active.
+// Exception: Logs/publishes scan or cleanup failures; reset never accepts retired scan content.
 void handle_scan_done()
 {
     uint16_t count = LUNASHELL_WIFI_MAX_NETWORKS;
@@ -534,6 +543,20 @@ void handle_scan_done()
     const esp_err_t error = esp_wifi_scan_get_ap_records(&count, s_scan_records);
 
     wifi_lock();
+    if (s_factory_reset_sealed.load(std::memory_order_acquire)) {
+        s_status.scanning = false;
+        ++s_status.event_sequence;
+        wifi_unlock();
+        const esp_err_t cleanup_error = finish_scan_watch_if_active(error);
+        const esp_err_t result = error != ESP_OK ? error : cleanup_error;
+        if (result != ESP_OK) {
+            ESP_LOGE(TAG, "Retired factory-reset scan failed (%s)", esp_err_to_name(result));
+            record_error(result);
+        } else {
+            publish_snapshot();
+        }
+        return;
+    }
     ++s_status.event_sequence;
     if (error == ESP_OK) {
         s_network_count = count;
@@ -576,15 +599,49 @@ void handle_scan_done()
 // event_base: ESP-IDF Wi-Fi or IP event family.
 // event_id: Concrete event identifier inside that family.
 // event_data: SDK-owned event payload, valid only during this callback.
+// Exception: Logs real event/watch failures; retired events cannot republish reset credentials.
 void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     (void)arg;
     WifiEventWatch event_watch;
 
+    if (s_factory_reset_sealed.load(std::memory_order_acquire)) {
+        // A retired association/IP callback must not republish credentials or
+        // replace the reset error. Stop/disconnect still retire observed links;
+        // a completed scan closes its existing watch without publishing results.
+        if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_SCAN_DONE) {
+            const esp_err_t error = finish_scan_watch_if_active(ESP_OK);
+            if (error != ESP_OK) {
+                ESP_LOGE(TAG, "Factory reset scan watch cleanup failed (%s)", esp_err_to_name(error));
+                record_error(error);
+            }
+        }
+        if (event_base == WIFI_EVENT &&
+            (event_id == WIFI_EVENT_STA_STOP || event_id == WIFI_EVENT_STA_DISCONNECTED)) {
+            wifi_lock();
+            if (event_id == WIFI_EVENT_STA_STOP) {
+                s_status.started = false;
+            }
+            s_status.connected = false;
+            s_status.ip_acquired = false;
+            s_status.ip_address[0] = '\0';
+            s_status.netmask[0] = '\0';
+            s_status.gateway[0] = '\0';
+            ++s_status.event_sequence;
+            wifi_unlock();
+            publish_snapshot();
+        }
+        return;
+    }
+
     if (event_base == WIFI_EVENT) {
         switch (event_id) {
         case WIFI_EVENT_STA_START:
             wifi_lock();
+            if (s_factory_reset_sealed.load(std::memory_order_acquire)) {
+                wifi_unlock();
+                return;
+            }
             s_status.started = true;
             s_status.last_error = ESP_OK;
             ++s_status.event_sequence;
@@ -598,6 +655,10 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             const esp_err_t event_error =
                 connected != nullptr ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
             wifi_lock();
+            if (s_factory_reset_sealed.load(std::memory_order_acquire)) {
+                wifi_unlock();
+                return;
+            }
             s_status.connected = true;
             s_status.ip_acquired = false;
             s_status.channel = connected != nullptr ? connected->channel : 0;
@@ -629,11 +690,12 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             s_status.last_disconnect_reason = disconnected != nullptr ? disconnected->reason : 0;
             // The provisioning manager owns its five credential retries. A
             // second timer here would race that state machine and retry twice.
-            reconnect = s_connect_requested && !s_provisioning_owns_connection;
-            s_status.last_error =
-                disconnected == nullptr
-                    ? ESP_ERR_INVALID_RESPONSE
-                    : (reconnect ? ESP_ERR_WIFI_CONN : ESP_OK);
+            const bool sealed = s_factory_reset_sealed.load(std::memory_order_acquire);
+            reconnect = s_connect_requested && !s_provisioning_owns_connection && !sealed;
+            if (!sealed) {
+                s_status.last_error = disconnected == nullptr
+                    ? ESP_ERR_INVALID_RESPONSE : (reconnect ? ESP_ERR_WIFI_CONN : ESP_OK);
+            }
             ++s_status.event_sequence;
             if (reconnect) {
                 const uint8_t shift = s_consecutive_disconnects < 5 ? s_consecutive_disconnects : 5;
@@ -673,10 +735,9 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             s_status.started = false;
             s_status.connected = false;
             s_status.ip_acquired = false;
-            s_status.last_error =
-                cancel_error == ESP_OK
-                    ? ESP_ERR_INVALID_STATE
-                    : cancel_error;
+            if (!s_factory_reset_sealed.load(std::memory_order_acquire)) {
+                s_status.last_error = cancel_error == ESP_OK ? ESP_ERR_INVALID_STATE : cancel_error;
+            }
             ++s_status.event_sequence;
             wifi_unlock();
             publish_snapshot();
@@ -696,7 +757,8 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
     if (event_id == IP_EVENT_STA_GOT_IP) {
         wifi_lock();
         const bool ip_expected =
-            s_initialized && s_status.started && s_connect_requested;
+            s_initialized && s_status.started && s_connect_requested &&
+            !s_factory_reset_sealed.load(std::memory_order_acquire);
         wifi_unlock();
         if (!ip_expected) {
             ESP_LOGW(TAG, "Ignoring stale IP event without connection intent");
@@ -717,7 +779,8 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
         }
 
         wifi_lock();
-        if (!s_initialized || !s_status.started || !s_connect_requested) {
+        if (!s_initialized || !s_status.started || !s_connect_requested ||
+            s_factory_reset_sealed.load(std::memory_order_acquire)) {
             wifi_unlock();
             ESP_LOGW(
                 TAG,
@@ -798,8 +861,9 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
         s_status.ip_address[0] = '\0';
         s_status.netmask[0] = '\0';
         s_status.gateway[0] = '\0';
-        s_status.last_error =
-            s_connect_requested ? ESP_ERR_WIFI_CONN : ESP_OK;
+        if (!s_factory_reset_sealed.load(std::memory_order_acquire)) {
+            s_status.last_error = s_connect_requested ? ESP_ERR_WIFI_CONN : ESP_OK;
+        }
         ++s_status.event_sequence;
         wifi_unlock();
         publish_snapshot();
@@ -822,8 +886,16 @@ esp_err_t initialize_nvs()
 
 }  // namespace
 
+// No parameters: starts only outside an explicitly sealed factory-reset lifecycle.
+// Exception: Returns original driver/init failures or INVALID_STATE after reset admission.
 static esp_err_t wifi_init_impl(void)
 {
+    if (s_factory_reset_sealed.load(std::memory_order_acquire)) {
+        ESP_LOGE(TAG, "Wi-Fi initialization rejected after factory-reset admission (%s)",
+            esp_err_to_name(ESP_ERR_INVALID_STATE));
+        record_error(ESP_ERR_INVALID_STATE);
+        return ESP_ERR_INVALID_STATE;
+    }
     if (s_initialized) {
         wifi_lock();
         const esp_err_t result = s_initialization_result;
@@ -1068,8 +1140,15 @@ fail:
     return error;
 }
 
+// No parameters: ordinary stop cannot consume the initialized driver retained for factory retry.
+// Exception: Returns the actual cleanup error or sealed-reset admission failure.
 static esp_err_t wifi_stop_impl(void)
 {
+    if (s_factory_reset_sealed.load(std::memory_order_acquire)) {
+        ESP_LOGE(TAG, "Ordinary Wi-Fi stop rejected after factory-reset admission (%s)",
+            esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
     if (s_provisioning_owns_connection) {
         ESP_LOGE(TAG, "Wi-Fi stop requires provisioning cleanup first (%s)",
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
@@ -1168,14 +1247,15 @@ static esp_err_t wifi_stop_impl(void)
 // ssid: Explicit network name, validated before touching driver configuration.
 // password: Network secret; null means an open network, never logged.
 // persist: Whether ESP-IDF must write the selected profile to NVS.
+// Exception: Returns original lifecycle/storage/driver errors, including sealed-reset rejection.
 static esp_err_t wifi_connect_impl(
     const char *ssid,
     const char *password,
     bool persist
 )
 {
-    if (!s_initialized || s_provisioning_owns_connection) {
-        ESP_LOGE(TAG, "Wi-Fi connect rejected during inactive/provisioning lifecycle (%s)",
+    if (!s_initialized || s_provisioning_owns_connection || s_factory_reset_sealed.load(std::memory_order_acquire)) {
+        ESP_LOGE(TAG, "Wi-Fi connect rejected during inactive/provisioning/factory-reset lifecycle (%s)",
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
@@ -1270,10 +1350,12 @@ static esp_err_t wifi_disconnect_owned_impl(void)
     return aggregate;
 }
 
+// No parameters: scan admission shares provisioning and explicit factory-reset ownership.
+// Exception: Returns the actual lifecycle, scan or watchdog failure.
 static esp_err_t wifi_start_scan_impl(void)
 {
-    if (s_provisioning_owns_connection) {
-        ESP_LOGE(TAG, "Wi-Fi scan rejected while provisioning owns scanning (%s)",
+    if (s_provisioning_owns_connection || s_factory_reset_sealed.load(std::memory_order_acquire)) {
+        ESP_LOGE(TAG, "Wi-Fi scan rejected during provisioning/factory-reset lifecycle (%s)",
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
@@ -1346,6 +1428,73 @@ extern "C" void LUNASHELL_wifi_get_status(LUNASHELL_wifi_status_t *status)
     wifi_unlock();
 }
 
+// No parameters: caller holds the lifecycle lock on an internal-stack orchestrator.
+// Exception: Returns the original stop/storage/restore/readback error; never deinitializes before retry.
+static esp_err_t wifi_factory_reset_impl(void)
+{
+    if (!s_driver_initialized) {
+        return ESP_ERR_WIFI_NOT_INIT;
+    }
+    if (s_provisioning_owns_connection) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_driver_started) {
+        const esp_err_t error = esp_wifi_stop();
+        if (error != ESP_OK) {
+            return error;
+        }
+        s_driver_started = false;
+        wifi_lock();
+        s_status.started = false;
+        s_status.connected = false;
+        s_status.ip_acquired = false;
+        s_status.scanning = false;
+        s_status.ip_address[0] = '\0';
+        s_status.netmask[0] = '\0';
+        s_status.gateway[0] = '\0';
+        ++s_status.event_sequence;
+        wifi_unlock();
+        publish_snapshot();
+    }
+    esp_err_t error = finish_scan_watch_if_active(ESP_OK);
+    if (error == ESP_OK) {
+        error = esp_wifi_set_storage(WIFI_STORAGE_FLASH);
+    }
+    if (error == ESP_OK) {
+        error = esp_wifi_restore();
+    }
+    wifi_config_t readback{};
+    if (error == ESP_OK) {
+        error = esp_wifi_get_config(WIFI_IF_STA, &readback);
+    }
+    if (error != ESP_OK) {
+        std::memset(&readback, 0, sizeof(readback));
+        return error;
+    }
+    bool credentials_empty = true;
+    for (uint8_t byte : readback.sta.ssid) {
+        credentials_empty = credentials_empty && byte == 0;
+    }
+    for (uint8_t byte : readback.sta.password) {
+        credentials_empty = credentials_empty && byte == 0;
+    }
+    std::memset(&readback, 0, sizeof(readback));
+    if (!credentials_empty) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    wifi_lock();
+    s_status.credentials_configured = false;
+    s_status.connect_requested = false;
+    s_status.ssid[0] = '\0';
+    s_status.last_error = ESP_OK;
+    s_network_count = 0;
+    ++s_status.event_sequence;
+    wifi_unlock();
+    publish_snapshot();
+    ESP_LOGI(TAG, "Factory reset verified empty station credentials after persistent Wi-Fi restore");
+    return ESP_OK;
+}
+
 static esp_err_t run_watched_wifi_operation(
     const char *operation_name,
     esp_err_t (*operation)(void)
@@ -1384,6 +1533,41 @@ extern "C" esp_err_t LUNASHELL_wifi_init(void)
 extern "C" esp_err_t LUNASHELL_wifi_stop(void)
 {
     return run_watched_wifi_operation("stop", wifi_stop_impl);
+}
+
+// No parameters: explicit factory-reset orchestration must call from an internal-stack worker.
+// Exception: Returns every original cleanup/driver/readback failure and publishes it canonically.
+extern "C" esp_err_t LUNASHELL_wifi_reset_for_factory(void)
+{
+    esp_err_t error = wifi_lifecycle_lock("factory-reset admission");
+    if (error != ESP_OK) {
+        record_error(error);
+        return error;
+    }
+    {
+        WifiLifecycleGuard lifecycle_guard;
+        s_factory_reset_sealed.store(true, std::memory_order_release);
+        error = s_driver_initialized ? cancel_reconnect(true, false) : ESP_ERR_WIFI_NOT_INIT;
+    }
+    // Provisioning stop/deinit can synchronously hand ownership back to Wi-Fi.
+    // Never hold the Wi-Fi lifecycle lock while the provisioning owner waits.
+#if CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING
+    if (error == ESP_OK && LUNASHELL_provisioning_initialized()) {
+        error = LUNASHELL_provisioning_stop();
+        if (error == ESP_OK) {
+            error = LUNASHELL_provisioning_deinit_for_ble();
+        }
+    }
+#endif
+    if (error == ESP_OK) {
+        error = run_watched_wifi_operation("factory reset", wifi_factory_reset_impl);
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Factory reset Wi-Fi cleanup/restore/readback failed; reboot rejected (%s)",
+            esp_err_to_name(error));
+        record_error(error);
+    }
+    return error;
 }
 
 extern "C" esp_err_t LUNASHELL_wifi_connect(
@@ -1439,6 +1623,8 @@ extern "C" esp_err_t LUNASHELL_wifi_start_scan(void)
 
 namespace LUNASHELL::wifi_provisioning {
 
+// No parameters: provisioning cannot begin after factory-reset admission.
+// Exception: Returns lifecycle/disconnection errors without allowing new credential writes.
 esp_err_t begin()
 {
     const esp_err_t lock_error = wifi_lifecycle_lock("provisioning begin");
@@ -1447,7 +1633,8 @@ esp_err_t begin()
     }
     WifiLifecycleGuard lifecycle_guard;
     wifi_lock();
-    const bool ready = s_initialized && s_status.started;
+    const bool ready = s_initialized && s_status.started &&
+        !s_factory_reset_sealed.load(std::memory_order_acquire);
     const bool already_owned = s_provisioning_owns_connection;
     const bool disconnect = s_connect_requested || s_status.connected;
     wifi_unlock();
@@ -1470,6 +1657,7 @@ esp_err_t begin()
 
 // ssid: Credential-event bytes published after the SDK accepted configuration.
 // ssid_capacity: Exact source array capacity; an SSID need not be null terminated.
+// Exception: Returns original validation/lifecycle errors; reset admission never adopts new credentials.
 esp_err_t credentialsReceived(const uint8_t *ssid, size_t ssid_capacity)
 {
     if (ssid == nullptr || ssid_capacity != LUNASHELL_WIFI_SSID_MAX_LEN || ssid[0] == 0) {
@@ -1478,7 +1666,8 @@ esp_err_t credentialsReceived(const uint8_t *ssid, size_t ssid_capacity)
         return ESP_ERR_INVALID_ARG;
     }
     wifi_lock();
-    if (!s_initialized || !s_status.started || !s_provisioning_owns_connection) {
+    if (!s_initialized || !s_status.started || !s_provisioning_owns_connection ||
+        s_factory_reset_sealed.load(std::memory_order_acquire)) {
         wifi_unlock();
         ESP_LOGE(TAG, "Provisioning credentials arrived without Wi-Fi ownership (%s)",
                  esp_err_to_name(ESP_ERR_INVALID_STATE));

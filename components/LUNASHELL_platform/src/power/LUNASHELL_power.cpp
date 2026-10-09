@@ -494,11 +494,50 @@ void publish_inputs()
     LUNASHELL::DeviceSnapshotService::instance().reportInputs(s_inputs);
 }
 
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
-// gesture: Exact validated Debug button gesture requesting this software restart.
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+enum class CodexMaintenance : uint8_t { None, Restart, FactoryReset };
+struct CodexMaintenanceRequest {
+    CodexMaintenance command = CodexMaintenance::None;
+    int64_t execute_at_us = 0;
+};
+portMUX_TYPE s_codex_maintenance_mux = portMUX_INITIALIZER_UNLOCKED;
+CodexMaintenanceRequest s_codex_maintenance_request{};
+std::atomic<esp_err_t> s_factory_reset_error{ESP_OK};
+
+// command: Explicit paired-peer operation, kept distinct from a software restart.
+// Exception: Returns INVALID_STATE when unavailable or another request is already queued.
+esp_err_t queue_codex_maintenance(CodexMaintenance command)
+{
+    if (!s_initialized.load(std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "CCP maintenance rejected before power initialization (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    const int64_t execute_at_us = esp_timer_get_time() + 500000;
+    portENTER_CRITICAL(&s_codex_maintenance_mux);
+    const bool occupied = s_codex_maintenance_request.command != CodexMaintenance::None;
+    if (!occupied) {
+        // The internal worker owns erase/log-drain/restart. The CCP task gets
+        // a bounded head start to transmit its admission acknowledgement.
+        s_codex_maintenance_request = {command, execute_at_us};
+    }
+    portEXIT_CRITICAL(&s_codex_maintenance_mux);
+    if (occupied) {
+        ESP_LOGE(kTag, "CCP maintenance already pending (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    ESP_LOGW(kTag, "CCP maintenance admitted: %s",
+             command == CodexMaintenance::FactoryReset ? "factory settings reset" : "restart; settings preserved");
+    return ESP_OK;
+}
+#endif
+
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG || \
+    (CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX)
+// gesture: Validated button gesture or authenticated, explicitly confirmed CCP restart.
 [[noreturn]] void restart_preserving_logs(const char *gesture)
 {
-    ESP_LOGW(kTag, "%s: software restart (settings preserved)", gesture);
+    ESP_LOGW(kTag, "%s: software restart", gesture);
     LUNASHELL_logger_sd_status_t sd_status{};
     const esp_err_t status_error = LUNASHELL_logger_get_sd_status(&sd_status);
     if (status_error == ESP_OK && sd_status.enabled) {
@@ -524,8 +563,16 @@ void publish_inputs()
 // error: Real transition or settings error published with the current power state.
 void publish_power(esp_err_t error)
 {
-    const esp_err_t publication_error = error != ESP_OK ? error :
-        s_wireless_resume_error.load(std::memory_order_acquire);
+    esp_err_t publication_error = error;
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+    // A partial factory reset remains visible across routine power updates.
+    if (publication_error == ESP_OK) {
+        publication_error = s_factory_reset_error.load(std::memory_order_acquire);
+    }
+#endif
+    if (publication_error == ESP_OK) {
+        publication_error = s_wireless_resume_error.load(std::memory_order_acquire);
+    }
     const SceneStandbyRequest scene_request = read_scene_standby_request();
     const uint32_t screen_idle_seconds = LUNASHELL::power_policy::scene_standby_timeout_seconds(
         s_screen_idle_timeout_seconds.load(std::memory_order_acquire), scene_request.policy);
@@ -2648,6 +2695,33 @@ void power_task(void *argument)
     publish_inputs();
     publish_power(ESP_OK);
     while (true) {
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+        portENTER_CRITICAL(&s_codex_maintenance_mux);
+        const CodexMaintenanceRequest maintenance = s_codex_maintenance_request;
+        portEXIT_CRITICAL(&s_codex_maintenance_mux);
+        if (maintenance.command != CodexMaintenance::None &&
+            esp_timer_get_time() >= maintenance.execute_at_us) {
+            if (maintenance.command == CodexMaintenance::Restart) {
+                restart_preserving_logs("CCP confirmed restart");
+            }
+            esp_err_t reset_error = LUNASHELL::UserSettingsService::instance()
+                .resetOwnedNamespaceForFactoryReset();
+            if (reset_error == ESP_OK) {
+                reset_error = LUNASHELL_wifi_reset_for_factory();
+            }
+            if (reset_error == ESP_OK) {
+                restart_preserving_logs("CCP factory settings cleared");
+            }
+            // A partial erasure is visible and retryable by a new explicit
+            // command; no reboot disguises it as a completed first-run reset.
+            ESP_LOGE(kTag, "CCP factory reset failed; reboot withheld (%s)", esp_err_to_name(reset_error));
+            s_factory_reset_error.store(reset_error, std::memory_order_release);
+            portENTER_CRITICAL(&s_codex_maintenance_mux);
+            s_codex_maintenance_request = {};
+            portEXIT_CRITICAL(&s_codex_maintenance_mux);
+            publish_power(reset_error);
+        }
+#endif
         const TickType_t now = xTaskGetTickCount();
         if (s_boot_rearm_requested.exchange(
                 false,
@@ -3310,6 +3384,30 @@ extern "C" esp_err_t LUNASHELL_power_manager_note_codex_notification(void)
     s_activity_reason.store(LUNASHELL::DeviceStateReason::CodexNotification, std::memory_order_relaxed);
     s_activity_sequence.fetch_add(1, std::memory_order_release);
     return ESP_OK;
+}
+
+// No parameters: only the CCP owner calls this after validating the paired sender and literal code.
+// Exception: Returns a real admission failure; no restart is scheduled on rejection.
+extern "C" esp_err_t LUNASHELL_power_manager_request_codex_restart(void)
+{
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+    return queue_codex_maintenance(CodexMaintenance::Restart);
+#else
+    ESP_LOGE(kTag, "CCP restart is unavailable in this profile (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+// No parameters: only CCP can submit an authenticated factory operation with the literal confirmation.
+// Exception: Reports admission only; the owners publish a later erase/verification error without rebooting.
+extern "C" esp_err_t LUNASHELL_power_manager_request_codex_factory_reset(void)
+{
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+    return queue_codex_maintenance(CodexMaintenance::FactoryReset);
+#else
+    ESP_LOGE(kTag, "CCP factory reset is unavailable in this profile (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 // seconds: Scene inactivity interval; zero immediately restores configured policy.

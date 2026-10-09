@@ -49,6 +49,13 @@ extern "C" esp_err_t LUNASHELL_wifi_disconnect(void)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+// No parameters: disabled Wi-Fi cannot verify or clear persistent driver credentials.
+// Exception: Returns NOT_SUPPORTED so the orchestrator cannot claim a completed factory reset.
+extern "C" esp_err_t LUNASHELL_wifi_reset_for_factory(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 extern "C" esp_err_t LUNASHELL_wifi_start_scan(void)
 {
     return ESP_ERR_NOT_SUPPORTED;

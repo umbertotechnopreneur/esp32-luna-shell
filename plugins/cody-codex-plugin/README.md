@@ -90,9 +90,64 @@ esplicito. Dopo 60 secondi senza lease o hook il broker termina.
 | `ccp_pair_device` | Associo il solo target che corrisponde al codice visibile; `replace_pending` richiede consenso esplicito. |
 | `ccp_connection_status` | Identità, presenza autenticata e ultimo snapshot del broker. |
 | `ccp_list_sessions` | Metadati delle chat osservate e campo `followed`; nessun selettore manuale. |
+| `ccp_ask_question` | Invio una domanda autosufficiente con due o tre scelte e conservo ticket e capability privati. |
+| `ccp_publish_notification` | Invio un fatto noto o uno snapshot PR in sola lettura, con metadati espliciti dello stesso head. |
+| `ccp_poll_request` | Leggo la risposta e confermo la ricezione con un secondo poll e `acknowledge_answer_id`. |
+| `ccp_cancel_request` | Ritiro il mio ticket senza scegliere un'opzione. |
+| `ccp_reset_device` | Riavvio il target paired su richiesta esplicita con codice, conservando le impostazioni. |
+| `ccp_factory_reset_device` | Cancello le impostazioni e riparto dal setup solo con la distinta intenzione di formattare e il codice. |
 
 Distinguo sempre `LAN`, `SIMULATED` e `UNOBSERVED` nei risultati. Lo stato MCP
 non dimostra quali pixel siano comparsi sul display fisico.
+
+## Una domanda fa il giro completo
+
+Con CCP 0.6 chiedo a Codex di inviarmi una domanda su Cody. Non mi servono hook
+per questa chiamata MCP esplicita: il destinatario è il ticket privato della
+richiesta, non una chat dedotta dal nome del progetto. `context` resta una mia
+etichetta dichiarata. Sullo screen 26 apro la domanda, sul 27 scelgo una card,
+leggo la descrizione e premo **Send**. Posso tornare indietro e cambiare scelta
+prima di inviare; una perdita di LAN conserva domanda e percorso.
+
+Il primo ACK UDP significa soltanto che CCP ha ricevuto la scelta. Codex legge
+la risposta con il ticket e la capability, poi conferma `answer_id` in un
+secondo poll. Solo allora Cody mostra lo screen 31 **Reply sent**. Il TTL
+predefinito di 180 secondi comprende anche questo ultimo passo: scadenza,
+cancellazione e assenza di rete non inventano una risposta. Il poll può
+attendere al massimo 15 secondi per chiamata; non riattiva da solo una chat
+sospesa. Dopo un riavvio del broker creo una nuova richiesta esplicita.
+
+Tengo una sola domanda aperta per dispositivo. Le notifiche successive
+sostituiscono le precedenti, senza scavalcare la domanda; così una vecchia PR
+rossa non ricompare dopo uno snapshot verde. Per i check uso nomi interi e
+conteggi solo da un elenco completo, corrente e dello stesso head. Se supero
+sei fallimenti o 48 caratteri per nome, torno a Codex: niente nomi mozzati.
+Gli screen 21–24 sono di sola lettura; lo screen 25 rimane ritirato.
+
+Un vero `PermissionRequest` può mostrare **Approval needed / On your PC**.
+Lascio l'approvazione nativa nel normale prompt Codex e non spedisco comandi,
+argomenti privati, log o stacktrace al display. I dettagli wire stanno nel
+[contratto CCP1](protocol/CCP1.md); capacità e limite di 1280 byte riguardano
+soltanto il nuovo EVENT, mentre il pairing conserva il limite di 512 byte.
+
+## Riavvio o ricomincio dal setup
+
+Scrivo **resetta il device codice 043533477** quando voglio solo riavviare:
+`ccp_reset_device` conserva Wi-Fi, pairing e preferenze. Scrivo invece
+**formatta cody 043533477** quando voglio cancellare tutte le impostazioni e
+ripartire dal primo setup: `ccp_factory_reset_device` elimina anche Wi-Fi e
+pairing, preservando firmware, asset e SD. Sono due comandi diversi, mica due
+nomi per la stessa sorpresa.
+
+Intenzione e codice devono comparire nel messaggio utente corrente. La stringa
+ha nove cifre, zero iniziale incluso; evita equivoci e non aggiunge una password
+al protocollo. Uso sempre il collegamento CCP già autenticato. `accepted`
+significa che Cody ha ammesso il comando, non che il successivo avvio o il wipe
+siano stati verificati. CCP invia una volta e aspetta al massimo cinque secondi:
+senza invio restituisce `not_sent`, dopo un invio senza conferma `ambiguous`.
+Non ripeto automaticamente un esito incerto. Dopo il factory reset il vecchio
+record PC può restare memorizzato, senza presenza; la nuova configurazione e
+il nuovo pairing richiedono passaggi espliciti.
 
 ## Collego anche il simulatore
 

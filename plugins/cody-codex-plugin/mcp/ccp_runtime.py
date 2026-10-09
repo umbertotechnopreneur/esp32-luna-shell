@@ -301,10 +301,29 @@ def dispatch(server: ControlServer, operation: str, payload: dict[str, Any]) -> 
         return {}
     if operation == "hook":
         server.service.activity.observe(payload)
+        notification_error = None
+        try:
+            server.service.notify_native_permission(payload)
+            if payload.get("hook_event_name") == "PermissionRequest":
+                server.service.notifications_error = None
+        except (OSError, RuntimeError, ValueError) as error:
+            # Delivery of the On your PC notice is optional. Preserve and
+            # publish its real failure while leaving native permission ownership
+            # with Codex; this hook must never grant or deny an operation.
+            notification_error = str(error)
+            server.service.notifications_error = notification_error
+            print(f"CCP native notice failed: {error}", file=sys.stderr, flush=True)
         with server.lease_lock:
             server.last_hook = time.monotonic()
-        return {}
+        return {"notification_error": notification_error} if notification_error else {}
     if operation == "mcp":
+        # A bounded interaction poll waits on its own condition. Holding the
+        # pairing/cache lock here would block its recipient acknowledgement.
+        params = payload.get("params")
+        if (payload.get("method") == "tools/call" and isinstance(params, dict)
+                and params.get("name") in {"ccp_ask_question", "ccp_publish_notification",
+                                           "ccp_poll_request", "ccp_cancel_request", "ccp_reset_device", "ccp_factory_reset_device"}):
+            return ccp.handle_request(payload, server.service)
         # Pair/discovery cache operations are serialized; UDP liveness and hooks
         # remain independent while a pairing exchange waits for its device.
         with server.tool_lock:

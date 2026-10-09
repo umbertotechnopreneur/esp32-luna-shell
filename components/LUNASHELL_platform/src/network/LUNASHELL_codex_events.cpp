@@ -85,6 +85,12 @@ struct PayloadReader {
 };
 } // namespace
 
+// confirmation_code: Exact intentional-reset check; authentication belongs to the existing CCP link.
+bool validCodexResetCode(const char *confirmation_code)
+{
+    return confirmation_code != nullptr && std::strcmp(confirmation_code, "043533477") == 0;
+}
+
 // value: Null-terminated semantic choice identifier, independent of display order.
 bool validCodexChoiceId(const char *value)
 {
@@ -190,6 +196,7 @@ esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayl
         (candidate.progress_valid && (candidate.kind != CodexEventKind::ChecksRunning &&
          candidate.kind != CodexEventKind::ChecksFailed && candidate.kind != CodexEventKind::ChecksPassed)) ||
         (candidate.progress_valid && (candidate.total == 0 || candidate.passed > candidate.total)) ||
+        (candidate.progress_valid && failed && candidate.failure_count > candidate.total - candidate.passed) ||
         (candidate.kind == CodexEventKind::ChecksPassed &&
          (!candidate.progress_valid || candidate.passed != candidate.total))) {
         return ESP_ERR_INVALID_ARG;

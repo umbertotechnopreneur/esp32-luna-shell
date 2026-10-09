@@ -23,6 +23,9 @@ from scripts.common.asset_provenance import text_source_hash
 from scripts.common.cody_typewriter_audio_contract import check_typewriter_audio_source
 from scripts.common.cody_codex_audio import load_boot_cue
 from scripts.generators.generate_cody_runtime_assets import synthesize
+from scripts.checks.cody_ccp_event_vectors import event_vectors
+from scripts.checks.cody_event_ui_contract import check_event_ui
+from scripts.checks.cody_factory_settings_contract import check_factory_settings
 
 
 # Validate failure visibility and parked time independently from the parity fixture.
@@ -216,8 +219,24 @@ def main(argv=None):
                                               definitions=preferences_definitions, cxx_standard=20)
         run_stage(preferences_command, output, "preferences-compile")
         run_stage([str(preferences)], output, "preferences")
+        events = output / "codex-event-contract.exe"
+        event_sources = ("scripts/tests/cody_native/codex_event_contract.cpp",
+                         "components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp")
+        run_stage(compile_command(compiler, includes, event_sources, events, cxx_standard=20),
+                  output, "events-compile")
+        vectors = event_vectors()
+        fixtures = output / "codex-event-vectors.txt"
+        fixtures.write_text("".join(f"{int(valid)}\t{payload}\n" for _, payload, valid in vectors),
+                            encoding="ascii")
+        run_stage([str(events), str(fixtures)], output, "events")
+        check_event_ui(compiler, output)
+        check_factory_settings(compiler, output)
         report.update(status="passed", response_ticks=500, fixture_seconds=50,
+            ccp_event_vectors=len(vectors),
             contracts=["native/host audio, fatigue and idle parity", "smooth interruption",
+                       "actual CCP host encoder versus native firmware decoder, strict truncation and buffer guards",
+                       "real event presenter: bounded ASCII, semantic cards, narrative gates, readonly PR and delivered-only success",
+                       "real settings owner: scoped factory erase, exact failures, empty readback, sealed writes and explicit retry",
                        "exact original ready tone and selected Cody startup asset", "256-color palette", "authored demo boundaries",
                        "rolling stage statistics, percentiles and overlay separation", "shared eye hit targets and transient annoyance",
                        "dirty-region packing, stride guards, full redraw after cache invalidation and rig framebuffer parity",

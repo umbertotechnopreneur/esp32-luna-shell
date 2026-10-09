@@ -221,6 +221,18 @@ void LUNASHELL_power_manager_note_power_activity(void);
 // Exception: Returns INVALID_STATE before initialization or NOT_SUPPORTED when excluded.
 esp_err_t LUNASHELL_power_manager_note_codex_notification(void);
 
+// No parameters: queues the already authenticated and explicitly confirmed CCP restart.
+// Exception: Returns INVALID_STATE when the power owner is unavailable or a restart is pending.
+esp_err_t LUNASHELL_power_manager_request_codex_restart(void);
+
+// No parameters: queues the explicitly confirmed factory reset on the internal power worker.
+// Exception: Admission errors never clear settings; accepted is not proof of completed erasure.
+esp_err_t LUNASHELL_power_manager_request_codex_factory_reset(void);
+
+// No parameters: Wi-Fi owner forgets driver-managed credentials for an explicit factory reset.
+// Exception: Returns the real stop, restore or empty-config verification failure.
+esp_err_t LUNASHELL_wifi_reset_for_factory(void);
+
 // seconds: Transient scene inactivity seconds; zero restores the configured timeout.
 // Positive overrides start on scene entry and defer display dimming until standby.
 // Refresh only on scene transitions or genuine operation progress, never every frame.

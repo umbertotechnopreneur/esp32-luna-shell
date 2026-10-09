@@ -76,11 +76,35 @@ Dal pannello posso:
 - togliere **SIMULATED LAN available** e ripristinarla senza perdere l'identità;
 - disattivare **Show CCP on the display** per tornare al rig mentre il link resta attivo.
 
+Posso chiedere esplicitamente a CCP il riavvio o il factory reset di questo
+target **SIMULATED**, con le distinte frasi e il codice descritti nel
+[README del plugin](../../plugins/cody-codex-plugin/README.md#riavvio-o-ricomincio-dal-setup).
+Il riavvio conserva lo store; il factory reset cancella soltanto impostazioni
+e associazioni del simulatore e rende la LAN simulata non configurata anche
+dopo la riapertura. Per ripartire riattivo **SIMULATED LAN available** e apro
+un nuovo pairing. Il vecchio record PC resta separato; non cancello nulla sul
+dispositivo fisico, nel firmware o sulla scheda SD.
+
 La preview mostra le scene/font esistenti e lo stato ricevuto dal broker.
 Il nome progetto occupa al massimo due righe da 21 caratteri; attendo pacchetti
 freschi prima di mostrare attività. Dopo otto secondi senza aggiornamenti tratto
 l'attività come **UNAVAILABLE**. Il cambio chat segue il vero prompt inviato a
 Codex; non ho aggiunto un selettore locale o un produttore di hook finti.
+
+Con CCP 0.6 ricevo anche EVENT autentici. Una domanda segue 26 → 27 → 31:
+apro, scelgo una card, controllo la descrizione e premo **Send**. La scelta
+resta locale e reversibile fino a Send; Back conserva il percorso. Il solo
+ACK UDP lascia **Waiting for Codex**: **Reply sent** richiede il secondo poll
+di conferma del destinatario, entro il TTL di 180 secondi. Posso togliere la
+LAN dal pannello e vedere la stessa domanda ancora presente, con invio
+disabilitato fino a un nuovo snapshot autentico.
+
+Per le PR mostro solo dati. **View failures** apre fino a sei nomi interi,
+tre per pagina; scorro verticalmente e torno indietro con Back. Le righe
+non sono pulsanti, e non compaiono merge, retry, log o stacktrace. Le nuove
+notifiche sostituiscono le vecchie senza interrompere una domanda. Gli
+strumenti di invio richiedono `include_simulator: true` anche dopo il pairing;
+continuo a mostrare **SIMULATED**, senza spacciare la preview per firmware.
 
 Questa modalità verifica il percorso del protocollo e la sua presentazione host.
 Il commissioning si controlla dal pannello desktop: non eseguo qui il firmware

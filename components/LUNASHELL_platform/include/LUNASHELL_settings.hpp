@@ -54,6 +54,11 @@ public:
 
     esp_err_t clear();
 
+    // No parameters: explicitly admitted factory reset of this owner's user namespace only.
+    // All writes stay sealed after admission until reboot; explicit reset retries remain allowed.
+    // Exception: Returns the original initialization, erase, commit or empty-readback failure.
+    esp_err_t resetOwnedNamespaceForFactoryReset();
+
 private:
     UserSettingsService() = default;
     ~UserSettingsService();

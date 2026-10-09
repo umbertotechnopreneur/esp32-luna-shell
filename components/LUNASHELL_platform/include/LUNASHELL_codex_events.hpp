@@ -47,4 +47,7 @@ esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayl
 // value: Null-terminated semantic choice identifier, independent of display order.
 bool validCodexChoiceId(const char *value);
 
+// confirmation_code: Literal human confirmation, including its leading zero; not a password.
+bool validCodexResetCode(const char *confirmation_code);
+
 } // namespace LUNASHELL

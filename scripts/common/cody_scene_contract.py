@@ -22,6 +22,12 @@ SCENE_IDENTITIES = {
     "response-ready": (21, "ResponseReady"), "session-paused": (22, "SessionPaused"),
     "session-ended": (23, "SessionEnded"), "connection-lost": (24, "ConnectionLost"),
     "companion-idle": (25, "CompanionIdle"), "activity-unavailable": (26, "ActivityUnavailable"),
+    "pr-pending": (27, "PrPending"), "checks-running": (28, "ChecksRunning"),
+    "checks-failed": (29, "ChecksFailed"), "check-failures": (30, "CheckFailures"),
+    "decision-notice": (31, "DecisionNotice"), "decision-choices": (32, "DecisionChoices"),
+    "decision-confirm": (33, "DecisionConfirm"), "decision-waiting": (34, "DecisionWaiting"),
+    "reply-sent": (35, "ReplySent"), "codex-notice": (36, "CodexNotice"),
+    "approval-on-pc": (37, "ApprovalOnPc"), "event-unavailable": (38, "EventUnavailable"),
 }
 
 
