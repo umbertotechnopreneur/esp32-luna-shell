@@ -26,7 +26,8 @@ constexpr uint32_t kPowerSuspendTimeoutMs = 5000;
 constexpr uint32_t kRefreshErrorReminderMs = 60U * 1000U;
 constexpr EventBits_t kWorkerQuiescentBit =
     static_cast<EventBits_t>(1U << 0);
-// A full refresh keeps two DeviceSnapshot values on the caller stack.
+// Acquisition and driver calls retain measured internal-stack headroom;
+// canonical staging and summary buffers belong to the owner's PSRAM storage.
 constexpr uint32_t kTaskStackBytes = 12U * 1024U;
 constexpr UBaseType_t kTaskPriority = 2;
 static_assert(

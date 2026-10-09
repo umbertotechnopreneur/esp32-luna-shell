@@ -90,6 +90,11 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
   the applied-display read fresh after wake. Preserve real lock errors; never
   substitute empty observations. Inspect the compiled call chain and observe
   device stack minima before claiming that a memory correction is verified.
+- Adding Codex events also exposed two full copies in the 12-KiB acquisition
+  worker and a 5616-byte GATT callback frame on a 4096-byte NimBLE task. Keep
+  acquisition scratch in owner storage under its refresh lock and project only
+  the BLE telemetry fields under one canonical read lock. Recheck all compiled
+  snapshot callers when the canonical schema grows, not only the feature worker.
 - An optional engine's external heap/stack does not move its linked BSS out of
   internal RAM. TTS `57121ca2` boot repeatedly failed creating the mandatory
   8-KiB power task before speech was requested. Keep native cache-dependent BSS

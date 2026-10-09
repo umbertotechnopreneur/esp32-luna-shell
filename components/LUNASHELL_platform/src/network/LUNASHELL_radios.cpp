@@ -369,6 +369,11 @@ static void stop_refresh_snapshot_task()
     }
 }
 
+// connection_handle: Existing NimBLE connection used to bound the response by negotiated MTU.
+// attribute_handle: SDK attribute identity; UUID selects the existing telemetry or command route.
+// context: SDK-owned GATT operation, offset and output mbuf.
+// argument: Unused registered callback context.
+// Exception: Logs the original snapshot/serialization error and returns the matching ATT rejection.
 static int LUNASHELL_gatt_access(
     uint16_t connection_handle,
     uint16_t attribute_handle,
@@ -382,17 +387,22 @@ static int LUNASHELL_gatt_access(
         if (context->op != BLE_GATT_ACCESS_OP_READ_CHR) {
             return BLE_ATT_ERR_READ_NOT_PERMITTED;
         }
-        const LUNASHELL::DeviceSnapshot snapshot =
-            LUNASHELL::DeviceSnapshotService::instance().snapshot();
+        LUNASHELL::BleTelemetryObservation snapshot;
+        const esp_err_t snapshot_error = LUNASHELL::DeviceSnapshotService::instance()
+            .readBleTelemetryObservation(snapshot);
+        if (snapshot_error != ESP_OK) {
+            ESP_LOGE(TAG, "BLE telemetry canonical read failed (%s)", esp_err_to_name(snapshot_error));
+            return BLE_ATT_ERR_INSUFFICIENT_RES;
+        }
         const bool battery_valid =
             has_fresh_data(snapshot.battery) &&
-            snapshot.battery.level_percent_valid &&
-            snapshot.battery.level_percent >= 0 &&
-            snapshot.battery.level_percent <= 100;
+            snapshot.battery_level_percent_valid &&
+            snapshot.battery_level_percent >= 0 &&
+            snapshot.battery_level_percent <= 100;
         const bool gps_valid = has_fresh_data(snapshot.gps);
         const bool imu_valid = has_fresh_data(snapshot.imu);
         const bool storage_valid = has_fresh_data(snapshot.storage);
-        const bool wifi_valid = has_fresh_data(snapshot.radios.wifi);
+        const bool wifi_valid = has_fresh_data(snapshot.wifi);
         const bool memory_valid = has_fresh_data(snapshot.memory);
         char battery[12] = "null";
         char satellites[12] = "null";
@@ -405,15 +415,15 @@ static int LUNASHELL_gatt_access(
                 battery,
                 sizeof(battery),
                 "%d",
-                snapshot.battery.level_percent
+                snapshot.battery_level_percent
             );
         }
-        if (gps_valid && snapshot.gps.has_fix) {
+        if (gps_valid && snapshot.gps_has_fix) {
             snprintf(
                 satellites,
                 sizeof(satellites),
                 "%u",
-                static_cast<unsigned>(snapshot.gps.satellites)
+                static_cast<unsigned>(snapshot.gps_satellites)
             );
         }
         if (memory_valid) {
@@ -421,23 +431,23 @@ static int LUNASHELL_gatt_access(
                 heap,
                 sizeof(heap),
                 "%lu",
-                static_cast<unsigned long>(snapshot.memory.heap_free_bytes)
+                static_cast<unsigned long>(snapshot.heap_free_bytes)
             );
             snprintf(
                 psram_free,
                 sizeof(psram_free),
                 "%lu",
-                static_cast<unsigned long>(snapshot.memory.psram_free_bytes)
+                static_cast<unsigned long>(snapshot.psram_free_bytes)
             );
         }
         if (wifi_valid &&
             (!format_json_string(
-                 snapshot.radios.wifi.ssid,
+                 snapshot.wifi_ssid,
                  wifi_ssid,
                  sizeof(wifi_ssid)
              ) ||
              !format_json_string(
-                 snapshot.radios.wifi.ip_address,
+                 snapshot.wifi_ip_address,
                  wifi_ip,
                  sizeof(wifi_ip)
              ))) {
@@ -458,19 +468,19 @@ static int LUNASHELL_gatt_access(
             static_cast<unsigned long>(snapshot.sequence),
             battery,
             battery_valid
-                ? (snapshot.battery.usb_present ? "true" : "false")
+                ? (snapshot.usb_present ? "true" : "false")
                 : "null",
             wifi_ssid,
             wifi_ip,
             gps_valid
-                ? (snapshot.gps.has_fix ? "true" : "false")
+                ? (snapshot.gps_has_fix ? "true" : "false")
                 : "null",
             satellites,
             imu_valid
-                ? (snapshot.imu.calibrated ? "true" : "false")
+                ? (snapshot.imu_calibrated ? "true" : "false")
                 : "null",
             storage_valid
-                ? (snapshot.storage.card_response_verified ? "true" : "false")
+                ? (snapshot.storage_card_response_verified ? "true" : "false")
                 : "null",
             heap,
             psram_free

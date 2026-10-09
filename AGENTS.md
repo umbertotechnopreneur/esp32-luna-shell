@@ -73,6 +73,13 @@ instruction file; do not add parallel agent or Copilot contracts.
 - Cody text is English, bounded printable ASCII; no Unicode/localization layer.
 - Use readable steps, descriptive names and helpers with one clear responsibility;
   no dense branches, unrelated one-line statements or speculative abstractions.
+- Treat large objects, arrays, by-value snapshots and temporary copies as explicit
+  stack-budget decisions. Check their size against the owning task and the deepest
+  nested call chain, including callbacks and logging. Prefer bounded projections
+  or component-owned buffers with clear synchronization; use PSRAM only where the
+  access and cache rules permit it. Never fix stack pressure by blindly enlarging
+  a task stack. After schema growth, revisit affected callers; inspect compiled
+  frames and measure device stack headroom before claiming runtime validation.
 - Domain identities use enums and unique names/IDs in typed namespaces. Reject
   duplicates/ambiguous references and preserve identity across reordering.
   Raw indices are for storage traversal/API boundaries, not domain meaning.

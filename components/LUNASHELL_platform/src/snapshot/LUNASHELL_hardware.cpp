@@ -410,6 +410,15 @@ OrientationState s_orientation;
 alignas(LUNASHELL::DeviceSnapshot) EXT_RAM_BSS_ATTR
 uint8_t s_snapshot_storage[sizeof(LUNASHELL::DeviceSnapshot)]{};
 LUNASHELL::DeviceSnapshot &s_snapshot = *new (s_snapshot_storage) LUNASHELL::DeviceSnapshot{};
+// Full acquisition owns both buffers under s_refresh_mutex, including summary logging.
+// Their size follows the canonical schema without consuming the caller's internal stack.
+struct FullRefreshScratch {
+    LUNASHELL::DeviceSnapshot stage;
+    LUNASHELL::DeviceSnapshot summary;
+};
+alignas(FullRefreshScratch) EXT_RAM_BSS_ATTR
+uint8_t s_full_refresh_storage[sizeof(FullRefreshScratch)]{};
+FullRefreshScratch &s_full_refresh = *new (s_full_refresh_storage) FullRefreshScratch{};
 StaticSemaphore_t s_snapshot_mutex_control;
 SemaphoreHandle_t s_snapshot_mutex;
 std::atomic<uint32_t> s_touch_activity_sequence{0};
@@ -6629,8 +6638,8 @@ esp_err_t DeviceSnapshotService::refresh(
     }
     const char *phase = reason != nullptr && reason[0] != '\0' ? reason : "manual";
     esp_err_t aggregate = ESP_OK;
-    DeviceSnapshot staged_snapshot;
-    DeviceSnapshot summary;
+    DeviceSnapshot &staged_snapshot = s_full_refresh.stage;
+    DeviceSnapshot &summary = s_full_refresh.summary;
     bool summary_available = false;
     int64_t reused_diagnostic_imu_at_us = 0;
     int64_t reused_diagnostic_microphone_at_us = 0;
@@ -6777,13 +6786,15 @@ esp_err_t DeviceSnapshotService::refresh(
             s_last_periodic_summary_tick = now_tick;
         }
     }
+    // The canonical lock is already released. Keep only the refresh ownership
+    // while logging, so another refresh cannot overwrite the shared summary.
+    if (should_log_summary) {
+        log_summary(summary);
+    }
     record_first_error(
         give_refresh_mutex(refresh_mutex, "Hardware refresh"),
         &aggregate
     );
-    if (should_log_summary) {
-        log_summary(summary);
-    }
     return aggregate;
 }
 
@@ -7011,6 +7022,52 @@ esp_err_t DeviceSnapshotService::readProcessorObservation(ProcessorSnapshot &pro
     }
     age_measured_sample(copy, esp_timer_get_time(), ttl_us);
     processor = copy;
+    return ESP_OK;
+}
+
+// observation: Bounded BLE wire fields, copied from one canonical snapshot without hardware reads.
+// Exception: Returns the original lock/release error and leaves the caller's output untouched.
+esp_err_t DeviceSnapshotService::readBleTelemetryObservation(BleTelemetryObservation &observation) const
+{
+    BleTelemetryObservation copy;
+    const esp_err_t lock_error =
+        take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "BLE telemetry read");
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    copy.sequence = s_snapshot.sequence;
+    copy.battery = s_snapshot.battery;
+    copy.gps = s_snapshot.gps;
+    copy.imu = s_snapshot.imu;
+    copy.storage = s_snapshot.storage;
+    copy.wifi = s_snapshot.radios.wifi;
+    copy.memory = s_snapshot.memory;
+    copy.battery_level_percent = s_snapshot.battery.level_percent;
+    copy.battery_level_percent_valid = s_snapshot.battery.level_percent_valid;
+    copy.usb_present = s_snapshot.battery.usb_present;
+    copy.gps_has_fix = s_snapshot.gps.has_fix;
+    copy.gps_satellites = s_snapshot.gps.satellites;
+    copy.imu_calibrated = s_snapshot.imu.calibrated;
+    copy.storage_card_response_verified = s_snapshot.storage.card_response_verified;
+    static_assert(sizeof(copy.wifi_ssid) == sizeof(s_snapshot.radios.wifi.ssid));
+    static_assert(sizeof(copy.wifi_ip_address) == sizeof(s_snapshot.radios.wifi.ip_address));
+    std::memcpy(copy.wifi_ssid, s_snapshot.radios.wifi.ssid, sizeof(copy.wifi_ssid));
+    std::memcpy(copy.wifi_ip_address, s_snapshot.radios.wifi.ip_address, sizeof(copy.wifi_ip_address));
+    copy.heap_free_bytes = s_snapshot.memory.heap_free_bytes;
+    copy.psram_free_bytes = s_snapshot.memory.psram_free_bytes;
+    const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
+    const esp_err_t release_error = give_snapshot_mutex("BLE telemetry read");
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    // Preserve snapshot() freshness exactly: Wi-Fi and card-response status are
+    // event-owned; only these four measured components were aged for BLE output.
+    const int64_t now_us = esp_timer_get_time();
+    age_measured_sample(copy.battery, now_us, ttl_us);
+    age_measured_sample(copy.gps, now_us, ttl_us);
+    age_measured_sample(copy.imu, now_us, ttl_us);
+    age_measured_sample(copy.memory, now_us, ttl_us);
+    observation = copy;
     return ESP_OK;
 }
 

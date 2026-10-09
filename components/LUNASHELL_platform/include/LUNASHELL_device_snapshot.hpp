@@ -843,6 +843,31 @@ struct DiagnosticsObservation {
     StorageSnapshot storage;
 };
 
+// Only fields serialized by BLE telemetry; unrelated snapshot growth stays off
+// NimBLE's stack. Component status retains the original acquisition timestamps.
+struct BleTelemetryObservation {
+    uint32_t sequence = 0;
+    ComponentSnapshot battery;
+    ComponentSnapshot gps;
+    ComponentSnapshot imu;
+    ComponentSnapshot storage;
+    ComponentSnapshot wifi;
+    ComponentSnapshot memory;
+    int battery_level_percent = -1;
+    bool battery_level_percent_valid = false;
+    bool usb_present = false;
+    bool gps_has_fix = false;
+    uint8_t gps_satellites = 0;
+    bool imu_calibrated = false;
+    bool storage_card_response_verified = false;
+    char wifi_ssid[33]{};
+    char wifi_ip_address[16]{};
+    uint32_t heap_free_bytes = 0;
+    uint32_t psram_free_bytes = 0;
+};
+static_assert(sizeof(BleTelemetryObservation) <= 320,
+    "BLE telemetry must remain a bounded projection for the NimBLE stack");
+
 struct MotionPowerObservation {
     bool storage_available = false;
     BatterySnapshot battery;
@@ -917,6 +942,9 @@ public:
     // processor: Receives current/aged CPU fields under the canonical snapshot lock.
     // This read never samples FreeRTOS directly or starts another telemetry cache.
     esp_err_t readProcessorObservation(ProcessorSnapshot &processor) const;
+    // observation: Only existing BLE telemetry fields, copied coherently under one canonical lock.
+    // Exception: Returns the original lock/release error without assigning a partial observation.
+    esp_err_t readBleTelemetryObservation(BleTelemetryObservation &observation) const;
     // observation: Receives canonical Wi-Fi, memory, processors and removable storage.
     // No renderer-side hardware reads or independent telemetry cache are introduced.
     // Exception: Returns the original snapshot lock or release error without publishing a partial copy.
