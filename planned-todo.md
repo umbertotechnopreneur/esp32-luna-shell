@@ -52,13 +52,12 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
   [RTC](docs/architecture/cody/clock.md).
   Begin exploration with one-time reminders, countdown, snooze and a daily
   overview; named lists, quick notes and recurrence are later candidates.
-- [ ] Extend the active CCP chat/activity milestone with messages and confirmed
-  responses; activity transport and diagnostics HTTP do not implement replies.
-  Add push-to-talk, PC transcription/
-  confirmation/session targeting and precomputed cues; credentials stay on the PC.
-  Explore one configured AI destination, draft preview, append/start-again and
-  explicit Send/Cancel first. Wake word and multiple destinations follow the
-  dependable first flow; dispatch, acknowledgement and task completion differ.
+- [ ] Estendo in futuro gli eventi CCP con messaggi e risposte confermate.
+  Prima verifico il canale App Server sperimentale descritto sopra; non fisso
+  gia' una trascrizione esterna. Valuto push-to-talk, anteprima, destinazione,
+  Send/Cancel e ripresa della bozza, mantenendo le credenziali sul PC e la
+  wake word gia' funzionante. Distinguo invio, ricezione e completamento del
+  compito: un pacchetto ricevuto non significa che Codex abbia finito il lavoro.
 - [ ] Explore explicit focus timers and gentle break suggestions, with "later",
   break/resume and silence-until controls. Base the first flow on user-started
   sessions; optional PC activity needs a separate consent/integration decision

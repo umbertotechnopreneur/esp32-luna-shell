@@ -1,12 +1,11 @@
 # Completed implementation and evidence
 
-This is a compact checkpoint record, not a release certificate. Open validation
-and implementation gaps remain in [TODO.md](TODO.md); deferred work is in
-[planned-todo.md](planned-todo.md). Historical revision details remain in Git
-and referenced architecture records. Paths under ignored `artifacts/` directories
-below are historical provenance only: the explicitly requested full local cleanup
-on 2026-10-05 removed the earlier untracked evidence before the current build and
-flash logs were regenerated.
+Qui raccolgo i checkpoint e quello che ho davvero osservato. Tengo le verifiche
+aperte in [TODO.md](TODO.md) e le idee rinviate in [planned-todo.md](planned-todo.md).
+Conservo la storia in Git e nei documenti di architettura. I vecchi percorsi
+`artifacts/` possono essere soltanto riferimenti storici: la pulizia completa
+richiesta il 2026-10-05 ha rimosso quelle prove non versionate. Per i nuovi
+risultati indico sotto le copie preservate dentro la directory del build.
 
 ## Pairing recuperabile, Options e simulatore CCP - 2026-10-10
 
@@ -25,8 +24,8 @@ flash logs were regenerated.
   con font nativi. Nessuna di queste prove dimostra touch, audio o wake fisici.
   Conservo i report in `artifacts/build-cody-companion-wake-word-debug/diagnostics/flow-validation-20261010/`.
   Il target preferenze compila senza warning; il target runtime ha warning MSVC
-  preesistenti fuori dalle modifiche. Build e installazione firmware sono ancora
-  aperte in TODO; niente medaglie prima del flash.
+  preesistenti fuori dalle modifiche. Ho completato anche build e installazione
+  firmware, con i risultati e i limiti registrati sotto.
 - Ho verificato anche `cody-native`, `snapshot-integrity`, `power-policy` e
   i 13 casi `device-console`. Ho riallineato aspettative obsolete dei controlli
   su dicitura reset PWR, contenitore degli errori opzionali e quattro schermate
@@ -40,6 +39,30 @@ flash logs were regenerated.
   Ho consolidato i due appunti planning del 4 ottobre nella guida onboarding e
   riscritto gli indici in prima persona. Manifest e QA sono sotto
   `artifacts/build-cody-companion-wake-word-debug/docs/cody-retained-flow-20261010/`.
+- Ho installato `ea0e3759`, app `cody-41-gea0e3759`, dopo build Debug
+  wake-word/Sophia a otto job e flash COM10 con quattro hash verificati.
+  Ho corretto il buffer del valore Orientation segnalato dal compilatore,
+  mantenendo attivi i warning. Il binario occupa 6.819.200 byte e lascia libero
+  il 50% della partizione applicazione; size riporta 218.408/341.760 byte DIRAM
+  occupati (63,91%). Audio, wake word Sophia e ascolto in standby sono abilitati.
+  ELF SHA-256: `bd822ccaba107d185701cbbbcfd40a454ad557c509bfc029c6536438650e6876`.
+- Ho concluso con exit 0 una cattura COM10 di 300 secondi dopo il reset:
+  `boot-standby-final.txt` nella directory diagnostics indicata sopra. Ho visto
+  retained=1/pending=0, pacchetti autenticati e Connected a 14.198 ms, senza
+  riaprire il codice. Ho poi osservato standby per inattivita a 75.904 ms con
+  ESP_OK, stack power minimo libero 5052/8192 e nessun panic/reset successivo
+  all'avvio nell'intervallo. Non ho osservato un risveglio o gesti sul display.
+- Ho conservato anche gli errori rimasti: timeout SD con stato UNAVAILABLE,
+  due disabilitazioni I2S su canale non ancora abilitato, righe troppo lunghe
+  segnalate dal logger e un heartbeat diagnostico SD rifiutato per contesa
+  snapshot a 177.060 ms. La cattura prosegue, ma non dichiaro questi errori risolti.
+- Ho installato CCP 0.5.0, verificato gli hash dei suoi 11 file e preservato
+  archivio pairing e chiave protetta. L'app ha ricaricato i propri client MCP;
+  gli strumenti reali rispondono anche dopo aver chiuso il client diagnostico.
+  Ho ricevuto connected=true su LAN dopo il boot e connected=false dopo lo
+  standby, con retained_pairing=true e pairing_pending=false. Le chat osservate
+  dagli hook sono ancora zero: revisione degli hook e nuovo prompt restano aperti.
+  Report: `ccp-final-handoff.json` nella stessa directory diagnostics.
 
 ## Wake word: riscontro dell'utente - 2026-10-10
 

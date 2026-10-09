@@ -5,26 +5,40 @@
 - [x] Ho isolato la correzione del pairing in `147c727`: conferma Already paired,
   Keep pairing/Pair again, Retry senza nuovo codice, recupero LAN/standby,
   accesso a Setup durante la ricerca e niente pausa artificiale dopo All set.
-  Ho completato la revisione statica; questo checkpoint non e ancora installato.
+  Ho incluso questo checkpoint nel firmware `ea0e3759`, installato su COM10.
 - [x] Ho reso operative le quattro scelte di Make it yours con valori canonici,
   salvataggio sul worker, readback ed errore/Retry espliciti. La verifica finale
   e la prova del touch sul dispositivo restano sotto.
 - [x] Ho completato Cancel, Forget pairing e riparazione esplicita del solo
   record CCP. Conservo attivo e candidato separati sui due lati, promuovo solo
   dopo prova autenticata e non elimino candidati PC su conferme vecchie.
-- [ ] Recupero la lease MCP dopo un errore transitorio e porto gli eventi reali
-  della chat al device. CCP conserva un'associazione ma vede ancora zero chat;
-  non inserisco eventi finti e non approvo gli hook al posto dell'utente.
+- [x] Ho aggiunto il recupero della lease MCP e installato CCP 0.5.0. L'app ha
+  ricaricato il trasporto: i suoi strumenti rispondono anche dopo la chiusura
+  del client diagnostico. Ho preservato identita e archivio del pairing.
+- [ ] Completo la verifica degli eventi reali della chat. CCP vede ancora zero
+  chat: ho chiesto revisione degli hook con `/hooks` e un nuovo prompt locale.
+  Non inserisco eventi finti e non approvo gli hook al posto dell'utente.
 - [x] Ho aggiunto pairing e pacchetti CCP reali al simulatore, con identita
   separata, archivio locale protetto e indicazione SIMULATED. Ho verificato
   36 casi CCP, 11 casi simulatore e la suite runtime/preferenze sul PC.
 - [x] Ho allineato i cinque PDF nelle pagine principali, conservando storico e
   addendum finali. Ho consolidato README e appunti sovrapposti nella guida
   onboarding. Verifica documentale e revisione visiva delle 153 pagine passate.
-- [ ] Eseguo build/installazione e prove al termine dell'integrazione. Il
-  2026-10-10 ho ricevuto autorizzazione esplicita a compilare, eseguire test e
+- [x] Ho completato build Debug wake-word/Sophia a otto job, flash COM10 e size
+  su `ea0e3759` (`cody-41-gea0e3759`): 6.819.200 byte applicazione e quattro
+  hash di scrittura verificati. Conservo il 50% della partizione applicazione
+  libero. Ho eseguito le verifiche host e documentali descritte in done.md.
+- [x] Ho completato la cattura con reset di 300 secondi: pairing ripristinato,
+  Connected a 14.198 ms e standby per inattivita a 75.904 ms con ESP_OK.
+  Non ho osservato panic o nuovi reset; stack power minimo libero 5052/8192.
+- [ ] Osservo il risveglio fisico, le scelte Options, Cancel/Forget e gli effetti
+  sul display/audio. La cattura senza gesti non dimostra questi comportamenti.
+  Mantengo valida l'autorizzazione del 2026-10-10 a compilare, eseguire test e
   resettare il device quante volte serve; annuncio comunque i comandi.
-  Faccio checkpoint coerenti e push sul branch di lavoro.
+- [ ] Approfondisco gli errori separati presenti nel log finale: timeout SD,
+  disabilitazione I2S prima dell'abilitazione e un heartbeat diagnostico SD
+  rifiutato per contesa snapshot a 177.060 ms. Non hanno interrotto questa
+  cattura, ma non li considero risolti dal nuovo pairing.
 
 ## Power-task overflow at boot and wake - 2026-10-10
 
@@ -38,15 +52,12 @@
 - [x] Build/install `579afee5`, app `cody-34-g579afee5`, Debug wake-word/Sophia,
   with eight jobs and four verified flash hashes. Authorized Git whitespace check
   passed for `9122c561..579afee5`.
-- [ ] Observe standby/wake after the correction. The authorized reset capture
-  reached Connected and measured 5820/8192 bytes minimum free stack, then failed
-  near 16 seconds because Windows closed COM10. No panic preceded the loss in
-  the captured interval; the missing interval is not stability evidence. The
-  port returned present and CCP reported connected=true. The later explicit
-  repeat-test/reset authorization covers the next capture; USB loss cause
-  remains unconfirmed.
-- [ ] CCP still reports no hook-observed chats; authenticated packets have carried
-  state=None. Complete genuine hook review/delivery before claiming live chat activity.
+- [x] Ho osservato boot e ingresso in standby con `ea0e3759` per 300 secondi,
+  senza panic/reset e con almeno 5052 byte liberi nello stack power. La vecchia
+  cattura su `579afee5`, interrotta da Windows dopo circa 16 secondi, resta
+  documentata in done.md; non attribuisco una causa a quella perdita USB.
+- [ ] Mi restano risveglio fisico ed eventi hook reali, tracciati nel percorso
+  completo qui sopra. Una riconnessione CCP non dimostra da sola il risveglio.
 
 ## Automatic CCP context and atlas consolidation - 2026-10-10
 
@@ -60,10 +71,9 @@
   started broker/MCP transport; preserve protected pairing storage. Install firmware
   `51b5d532`, app version `cody-32-g51b5d532-dirty` (only PDF authoring work was
   uncommitted), with the eight-job Debug build and COM10 flash.
-- [ ] Ho ripreso le verifiche con l'autorizzazione generale del 2026-10-10:
-  cody-ccp 0.5 e runtime sono passati; PDF e firmware sono nel pacchetto finale
-  descritto sopra. Restano trust/autoload degli hook e osservazione fisica della
-  chat automatica: la sola lease MCP non dimostra gli hook.
+- [x] Ho completato le verifiche host, PDF e firmware del pacchetto finale
+  descritto sopra. Ho osservato il caricamento MCP 0.5 nell'app; tengo aperti
+  revisione degli hook e primo prompt reale nel percorso completo.
 
 ## CCP chat activity milestone - 2026-10-10
 
@@ -98,9 +108,10 @@
 
 ## Cody startup and setup access - 2026-10-09
 
-Latest installed Cody image: `579afee5`, `cody-34-g579afee5`, Debug wake-word/Sophia,
-eight-job build and COM10 flash successful on 2026-10-10. Boot reached Connected;
-post-fix wake observation remains open as detailed above. Previous image:
+Ho installato per ultimo `ea0e3759`, `cody-41-gea0e3759`, Debug wake-word/Sophia,
+con build a otto job e flash COM10 il 2026-10-10. Nei 300 secondi di cattura ho
+osservato Connected e standby senza panic/reset; il risveglio resta da osservare.
+L'immagine precedente era `579afee5`, `cody-34-g579afee5`; quella ancora prima:
 `51b5d532`, `cody-32-g51b5d532-dirty`. Only the PDF revision
 and its authoring/check scripts were uncommitted at configuration time; firmware
 source was checkpointed. The prior boot-fixed image was `3590f693`,
