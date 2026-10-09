@@ -156,7 +156,8 @@ struct PreferenceControl {
     PreferenceId identity = PreferenceId::ShakeWake;
     CODY2D::CapsuleControl control{};
     CODY2D::TextLine value{};
-    char value_text[5]{};
+    // Include the terminator for every value of the canonical uint16_t angle.
+    char value_text[6]{};
     uint32_t requested_value = 0;
 };
 
@@ -1448,7 +1449,7 @@ esp_err_t prepare_options_content(SceneFrame &scene)
                     value = "Auto";
                 } else {
                     std::snprintf(target.value_text, sizeof(target.value_text), "%u",
-                        orientation.rendering_rotation_degrees);
+                        static_cast<unsigned>(orientation.rendering_rotation_degrees));
                     value = target.value_text;
                 }
                 target.requested_value = orientation.rendering_rotation_degrees == 0U ? 180U : 0U;
