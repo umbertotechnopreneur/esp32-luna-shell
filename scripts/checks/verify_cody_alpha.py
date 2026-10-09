@@ -20,7 +20,8 @@ from types import SimpleNamespace
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'simulator/windows'))
 from scripts.common.cody_rig_contract import (
-    advance_contour, advance_face, animate, contour_defaults, evaluate, load_contract,
+    advance_contour, advance_face, animate, compile_face_bindings, compile_geometry,
+    contour_defaults, evaluate, load_contract,
     make_contour_state, unique_object, validate_channels, validate_contour_definition,
     validate_face_definition,
 )
@@ -185,7 +186,8 @@ class RigContractTests(unittest.TestCase):
             self.assertAlmostEqual(after['local'][name][0]-before['local'][name][0],expected)
             self.assertAlmostEqual(after['local'][name][1],before['local'][name][1])
 
-    # self receives the test context: closing one eye cannot override another facial channel.
+    # self: Facial fixture; eye closure and sleeping breath cannot disturb unrelated controls.
+    # Raises AssertionError for leaked eye motion or breathing outside the mouth/body channels.
     def test_independent_eye_and_mouth_channels(self):
         base=evaluate(self.rig,self.ready,self.transform)
         changed=list(self.ready); changed[FaceChannel.EYE_LEFT]=0
@@ -199,7 +201,10 @@ class RigContractTests(unittest.TestCase):
         self.assertEqual([sleeping[channel] for channel in (FaceChannel.EYE_LEFT, FaceChannel.EYE_RIGHT,
                                                                     FaceChannel.BROW_LEFT, FaceChannel.BROW_RIGHT)],[0,0,.5,-.4])
         self.assertGreater(sleeping[FaceChannel.MOUTH_OPEN],.1)
-        self.assertEqual(sleeping[6:], sleeping_base[6:])
+        self.assertGreater(sleeping[FaceChannel.MOUTH_WIDTH], sleeping_base[FaceChannel.MOUTH_WIDTH])
+        for channel in FaceChannel:
+            if channel > FaceChannel.MOUTH_WIDTH:
+                self.assertEqual(sleeping[channel], sleeping_base[channel], channel.name)
 
     # self receives the test context: shape controls resize only their own descendants around unchanged anchors.
     def test_face_shape_controls_preserve_anchors_and_other_features(self):
@@ -227,6 +232,218 @@ class RigContractTests(unittest.TestCase):
                                            (point[1] - anchor[1]) * (ratio if scale_vertical else 1))
                     changed |= after != point
                 self.assertTrue(changed)
+
+    # self: Source-backed fixture whose new channels must be neutral before explicit animation.
+    # Raises AssertionError for a missing named control or a non-neutral default.
+    def test_extended_face_channel_defaults(self):
+        self.assertEqual(len(FaceChannel), 34)
+        unit_defaults = {FaceChannel.EYE_WIDTH_LEFT, FaceChannel.EYE_WIDTH_RIGHT,
+                         FaceChannel.TONGUE_OPACITY}
+        for channel in FaceChannel:
+            if channel < FaceChannel.GAZE_X:
+                continue
+            expected = 1 if channel in unit_defaults else 0
+            self.assertEqual(self.rig['channels'][channel]['default'], expected, channel.name)
+
+    # self: Independent-feature fixture; half-open eyes expose both open and closed-lid controls.
+    # Raises AssertionError if a facial control moves the body or another feature.
+    def test_extended_face_channels_preserve_feature_ownership(self):
+        values = [channel['default'] for channel in self.rig['channels']]
+        values[FaceChannel.EYE_LEFT] = values[FaceChannel.EYE_RIGHT] = .5
+        baseline = evaluate(self.rig, values, self.transform)
+        owners = {
+            'gaze_x': ('eye.left', 'eye.right'), 'gaze_y': ('eye.left', 'eye.right'),
+            'mouth_corner_left': ('mouth',), 'mouth_corner_right': ('mouth',),
+            'mouth_curve': ('mouth',), 'mouth_x': ('mouth',), 'mouth_y': ('mouth',),
+            'nose_x': ('nose',), 'nose_y': ('nose',),
+            'cheek_raise_left': ('cheek.left',), 'cheek_raise_right': ('cheek.right',),
+        }
+        for side in ('left', 'right'):
+            for feature in ('eye_width', 'eye_curve', 'eye_upper', 'eye_lower'):
+                owners[f'{feature}_{side}'] = (f'eye.{side}',)
+            for feature in ('brow_height', 'brow_curve'):
+                owners[f'{feature}_{side}'] = (f'brow.{side}',)
+        self.assertEqual(len(owners), 23)
+        for channel_name, anchors in owners.items():
+            with self.subTest(channel=channel_name):
+                altered_values = list(values)
+                identity = face_channel(channel_name)
+                altered_values[identity] = .75 if 'width' not in channel_name else 1.25
+                altered = evaluate(self.rig, altered_values, self.transform)
+                moved = set()
+                for point_name, original in baseline['local'].items():
+                    if altered['local'][point_name] != original:
+                        moved.add(point_name)
+                        self.assertTrue(any(point_name == anchor or point_name.startswith(anchor + '.')
+                                            for anchor in anchors), point_name)
+                self.assertTrue(moved, channel_name)
+                self.assertEqual(altered['rest_outline'], baseline['rest_outline'])
+
+    # self: Fixture checking physical blink admission against independent decorative curves.
+    # Raises AssertionError if open/closed controls leak across the eyelid gate.
+    def test_extended_lids_respect_blink_gate(self):
+        values = [channel['default'] for channel in self.rig['channels']]
+        for side in ('left', 'right'):
+            eye = face_channel(f'eye_{side}')
+            curve = face_channel(f'eye_curve_{side}')
+            upper = face_channel(f'eye_upper_{side}')
+            lower = face_channel(f'eye_lower_{side}')
+            for opening in (0, .5, 1):
+                with self.subTest(side=side, opening=opening):
+                    base = list(values)
+                    base[eye] = opening
+                    original = evaluate(self.rig, base, self.transform)
+                    curved = list(base)
+                    curved[curve] = 1
+                    moved = evaluate(self.rig, curved, self.transform)
+                    point = f'eye.{side}.p3'
+                    self.assertAlmostEqual(moved['local'][point][1] - original['local'][point][1],
+                                           -.1 * (1 - opening))
+                    adjusted = list(base)
+                    adjusted[upper] = adjusted[lower] = 1
+                    moved = evaluate(self.rig, adjusted, self.transform)
+                    self.assertAlmostEqual(moved['local'][point][1] - original['local'][point][1],
+                                           -.035 * opening)
+                    point = f'eye.{side}.p9'
+                    self.assertAlmostEqual(moved['local'][point][1] - original['local'][point][1],
+                                           .035 * opening)
+
+    # self: Closed facial paths whose center and end-cap joins must stay smooth during expression changes.
+    # Raises AssertionError for a zero tangent or a derivative discontinuity that would form a sharp cusp.
+    def test_soft_face_paths_preserve_join_tangents(self):
+        values = [channel['default'] for channel in self.rig['channels']]
+        paths = [path for path in self.rig['paths'] if path['name'] in {'eye.left', 'eye.right', 'mouth'}]
+        self.assertEqual(len(paths), 3)
+        for opening in (0, .45, 1):
+            for curvature in (-1, 0, 1):
+                with self.subTest(opening=opening, curvature=curvature):
+                    channels = list(values)
+                    for side in ('left', 'right'):
+                        channels[face_channel(f'eye_{side}')] = opening
+                        channels[face_channel(f'eye_curve_{side}')] = curvature
+                        channels[face_channel(f'eye_upper_{side}')] = .7
+                        channels[face_channel(f'eye_lower_{side}')] = -.6
+                    channels[FaceChannel.MOUTH_OPEN] = opening
+                    channels[FaceChannel.MOUTH_CURVE] = curvature
+                    channels[FaceChannel.MOUTH_CORNER_LEFT] = .6
+                    channels[FaceChannel.MOUTH_CORNER_RIGHT] = -.4
+                    scene = evaluate(self.rig, channels, self.transform)
+                    for path in paths:
+                        first = path['first_curve']
+                        curves = self.rig['curves'][first:first + path['curve_count']]
+                        for before, after in zip(curves, curves[1:] + curves[:1]):
+                            knot = scene['local'][before['points'][3]]
+                            incoming = scene['local'][before['points'][2]]
+                            outgoing = scene['local'][after['points'][1]]
+                            tangent_in = tuple(knot[axis] - incoming[axis] for axis in (0, 1))
+                            tangent_out = tuple(outgoing[axis] - knot[axis] for axis in (0, 1))
+                            self.assertGreater(math.hypot(*tangent_in), .001, before['name'])
+                            for axis in (0, 1):
+                                self.assertAlmostEqual(tangent_in[axis], tangent_out[axis], places=8,
+                                                       msg=f'{path["name"]}/{before["name"]}/{axis}')
+
+    # self: Fixture proving whole-feature translations carry descendants exactly once.
+    # Raises AssertionError for leaked movement or repeated parent displacement.
+    def test_extended_feature_offsets_translate_descendants_once(self):
+        values = [channel['default'] for channel in self.rig['channels']]
+        baseline = evaluate(self.rig, values, self.transform)
+        for channel_name, anchors, delta in (
+                ('gaze_x', ('eye.left', 'eye.right'), (.035, 0)),
+                ('gaze_y', ('eye.left', 'eye.right'), (0, .025)),
+                ('mouth_x', ('mouth',), (.055, 0)),
+                ('mouth_y', ('mouth',), (0, .045)),
+                ('nose_x', ('nose',), (.025, 0)),
+                ('nose_y', ('nose',), (0, .02))):
+            with self.subTest(channel=channel_name):
+                changed = list(values)
+                changed[face_channel(channel_name)] = .8
+                altered = evaluate(self.rig, changed, self.transform)
+                for name, original in baseline['local'].items():
+                    belongs = any(name == anchor or name.startswith(anchor + '.') for anchor in anchors)
+                    for axis in (0, 1):
+                        expected = .8 * delta[axis] if belongs else 0
+                        self.assertAlmostEqual(altered['local'][name][axis] - original[axis], expected,
+                                               msg=f'{channel_name}/{name}/{axis}')
+
+    # self: Source fixture whose caption-free facial fills must retain clipped highlights and tongue alpha.
+    # Raises AssertionError for misplaced highlight ownership, hidden-state leaks or geometric alpha effects.
+    def test_face_highlights_and_tongue_remain_clipped_and_independent(self):
+        values = [channel['default'] for channel in self.rig['channels']]
+        original = evaluate(self.rig, values, self.transform)
+        for opacity in (0, .5, 1):
+            changed = list(values)
+            changed[FaceChannel.TONGUE_OPACITY] = opacity
+            altered = evaluate(self.rig, changed, self.transform)
+            self.assertEqual(altered['world'], original['world'])
+            for path in altered['paths']:
+                if path['definition']['name'] == 'mouth.tongue':
+                    self.assertEqual(path['opacity'], opacity)
+                    self.assertEqual(path['definition']['clip'], 'mouth')
+                else:
+                    original_path = next(item for item in original['paths']
+                                         if item['definition']['name'] == path['definition']['name'])
+                    self.assertEqual(path['opacity'], original_path['opacity'])
+        for side in ('left', 'right'):
+            changed = list(values)
+            changed[face_channel(f'eye_{side}')] = 0
+            altered = evaluate(self.rig, changed, self.transform)
+            paths = {path['definition']['name']: path for path in altered['paths']}
+            self.assertTrue(paths[f'eye.{side}']['visible'])
+            self.assertFalse(paths[f'eye.{side}.shine']['visible'])
+            self.assertEqual(paths[f'eye.{side}.shine']['definition']['clip'], f'eye.{side}')
+            self.assertEqual(paths[f'eye.{side}']['definition']['antialiasing'], FillAntialiasing.COVERAGE)
+
+    # self: Authored graph whose named face ownership survives valid sibling and binding reordering.
+    # Raises AssertionError if reordering changes geometry or per-point binding semantics.
+    def test_face_bindings_preserve_identity_after_source_reordering(self):
+        changed = copy.deepcopy(self.rig)
+        # Reverse only siblings: parents must still precede their children at the API boundary.
+        children = {}
+        for point in changed['points']:
+            children.setdefault(point['parent'], []).append(point)
+        reordered = []
+        pending = [children[None][0]]
+        while pending:
+            point = pending.pop()
+            reordered.append(point)
+            pending.extend(children.get(point['name'], []))
+        changed['points'] = reordered
+        changed['face_bindings'].reverse()
+        compile_geometry(changed)
+        validate_face_definition(changed)
+        compile_face_bindings(changed)
+        self.assertEqual(changed['point_face_bindings'], self.rig['point_face_bindings'])
+        values = self.face_channels(gaze_x=.7, eye_left=.4, eye_curve_left=.8,
+                                    mouth_corner_right=-.6, mouth_curve=.3, tongue_opacity=.5)
+        original = evaluate(self.rig, values, self.transform)
+        altered = evaluate(changed, values, self.transform)
+        for field in ('world', 'local', 'paths', 'rest_outline'):
+            self.assertEqual(altered[field], original[field])
+
+    # self: Invalid authoring fixture; every rejection must remain explicit instead of being repaired.
+    # Raises AssertionError if invalid point ownership, displacement or gate authoring is accepted.
+    def test_face_bindings_reject_ambiguous_or_unsafe_authoring(self):
+        first = copy.deepcopy(self.rig['face_bindings'][0])
+        malformed = [
+            dict(first, point='missing.face.point'), dict(first, point='lobe.crown'),
+            dict(first, delta=[math.nan, 0]), dict(first, delta=[.201, 0]),
+            dict(first, delta=[0, 0]), dict(first, delta=[.1]),
+            dict(first, invert_weight=1), dict(first, invert_weight=True),
+            dict(first, weight_channel='breath'), dict(first, channel='missing_face_channel'),
+            dict(first, unexpected=True),
+        ]
+        for binding in malformed:
+            with self.subTest(binding=binding):
+                changed = copy.deepcopy(self.rig)
+                changed['face_bindings'] = [binding]
+                with self.assertRaises(ValueError):
+                    compile_face_bindings(changed)
+        for bindings in ([], [first, copy.deepcopy(first)], 'face_bindings'):
+            with self.subTest(bindings=bindings):
+                changed = copy.deepcopy(self.rig)
+                changed['face_bindings'] = bindings
+                with self.assertRaises(ValueError):
+                    compile_face_bindings(changed)
 
     # self receives the test context: facial targets must blend continuously and preserve elapsed-time equivalence.
     def test_face_transition_preserves_timing_and_rejects_invalid_targets(self):

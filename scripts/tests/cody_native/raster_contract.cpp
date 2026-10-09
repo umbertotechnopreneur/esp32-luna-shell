@@ -7,6 +7,7 @@
 #include "cody_jelly_data.hpp"
 #include "host_settings.hpp"
 #include "CODY_lifecycle.hpp"
+#include "CODY_connection_personality.hpp"
 #include "CODY_scene.hpp"
 #include "CODY_navigation_visibility.hpp"
 #include "LUNASHELL_button_hold.hpp"
@@ -14,6 +15,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <exception>
 #include <iterator>
 #include <limits>
@@ -446,7 +448,372 @@ void check_dirty_plan_contract()
     check_dirty_transition({base, true}, {changed, true}, "contour change preserves skeleton dependencies");
 }
 
-// Compare culling with an explicitly uncullable scene using the very same C++ raster.
+// name: Stable authored point identity, resolved only at this table boundary.
+// Returns kMaxPoints after recording a missing-fixture failure.
+size_t named_point_index(const char *name)
+{
+    for (size_t index = 0; index < std::size(CODY::Data::points); ++index) {
+        if (std::strcmp(CODY::Data::points[index].name, name) == 0) {
+            return index;
+        }
+    }
+    require(false, "extended face fixture point exists");
+    return CODY::kMaxPoints;
+}
+
+// name: Stable authored point identity.
+// anchor: Named feature that may own this point or its descendants.
+bool feature_owns_point(const char *name, const char *anchor)
+{
+    const size_t length = std::strlen(anchor);
+    return std::strncmp(name, anchor, length) == 0 &&
+           (name[length] == '\0' || name[length] == '.');
+}
+
+// No parameters: neutral extended controls expose each feature independently of authored expressions.
+CODY::Channels neutral_extended_face()
+{
+    auto channels = CODY::Data::defaults;
+    for (size_t index = CODY::to_index(CODY::FaceChannel::GazeX);
+         index < CODY::kFaceChannelCount; ++index) {
+        channels.values[index] = 0;
+    }
+    channels[CODY::FaceChannel::EyeWidthLeft] = 1;
+    channels[CODY::FaceChannel::EyeWidthRight] = 1;
+    channels[CODY::FaceChannel::TongueOpacity] = 1;
+    channels[CODY::FaceChannel::EyeLeft] = .5f;
+    channels[CODY::FaceChannel::EyeRight] = .5f;
+    return channels;
+}
+
+// No parameters: independent native controls cannot deform the body or unrelated facial features.
+void check_extended_face_ownership_contract()
+{
+    struct ControlCase {
+        CODY::FaceChannel channel;
+        float value;
+        const char *first_owner;
+        const char *second_owner;
+    };
+    const ControlCase cases[] = {
+        {CODY::FaceChannel::GazeX, .75f, "eye.left", "eye.right"},
+        {CODY::FaceChannel::GazeY, .75f, "eye.left", "eye.right"},
+        {CODY::FaceChannel::EyeWidthLeft, 1.25f, "eye.left", nullptr},
+        {CODY::FaceChannel::EyeWidthRight, 1.25f, "eye.right", nullptr},
+        {CODY::FaceChannel::EyeCurveLeft, .75f, "eye.left", nullptr},
+        {CODY::FaceChannel::EyeCurveRight, .75f, "eye.right", nullptr},
+        {CODY::FaceChannel::EyeUpperLeft, .75f, "eye.left", nullptr},
+        {CODY::FaceChannel::EyeUpperRight, .75f, "eye.right", nullptr},
+        {CODY::FaceChannel::EyeLowerLeft, .75f, "eye.left", nullptr},
+        {CODY::FaceChannel::EyeLowerRight, .75f, "eye.right", nullptr},
+        {CODY::FaceChannel::BrowHeightLeft, .75f, "brow.left", nullptr},
+        {CODY::FaceChannel::BrowHeightRight, .75f, "brow.right", nullptr},
+        {CODY::FaceChannel::BrowCurveLeft, .75f, "brow.left", nullptr},
+        {CODY::FaceChannel::BrowCurveRight, .75f, "brow.right", nullptr},
+        {CODY::FaceChannel::MouthCornerLeft, .75f, "mouth", nullptr},
+        {CODY::FaceChannel::MouthCornerRight, .75f, "mouth", nullptr},
+        {CODY::FaceChannel::MouthCurve, .75f, "mouth", nullptr},
+        {CODY::FaceChannel::MouthX, .75f, "mouth", nullptr},
+        {CODY::FaceChannel::MouthY, .75f, "mouth", nullptr},
+        {CODY::FaceChannel::NoseX, .75f, "nose", nullptr},
+        {CODY::FaceChannel::NoseY, .75f, "nose", nullptr},
+        {CODY::FaceChannel::CheekRaiseLeft, .75f, "cheek.left", nullptr},
+        {CODY::FaceChannel::CheekRaiseRight, .75f, "cheek.right", nullptr},
+    };
+    const auto channels = neutral_extended_face();
+    CODY::RigScene baseline;
+    require(CODY::evaluate_rig(channels, CODY::Data::placement, baseline) == ESP_OK,
+            "neutral extended face evaluates");
+    for (const auto &control : cases) {
+        auto changed = channels;
+        changed[control.channel] = control.value;
+        CODY::RigScene altered;
+        require(CODY::evaluate_rig(changed, CODY::Data::placement, altered) == ESP_OK,
+                "independent extended face control evaluates");
+        bool moved = false;
+        for (size_t index = 0; index < std::size(CODY::Data::points); ++index) {
+            const bool point_moved = baseline.local[index].x != altered.local[index].x ||
+                                     baseline.local[index].y != altered.local[index].y;
+            if (!point_moved) {
+                continue;
+            }
+            moved = true;
+            const char *name = CODY::Data::points[index].name;
+            require(feature_owns_point(name, control.first_owner) ||
+                    (control.second_owner != nullptr && feature_owns_point(name, control.second_owner)),
+                    "extended control preserves body and unrelated feature ownership");
+        }
+        require(moved, "every independent geometric face control has a native effect");
+        changed[control.channel] = NAN;
+        require(CODY::evaluate_rig(changed, CODY::Data::placement, altered) == ESP_ERR_INVALID_ARG &&
+                !altered.valid, "invalid extended channel rejects and invalidates scene");
+    }
+}
+
+// No parameters: curved eyelids admit only closed-eye weight; upper/lower lids admit open-eye weight.
+void check_extended_face_blink_contract()
+{
+    struct EyeCase {
+        CODY::FaceChannel opening;
+        CODY::FaceChannel curve;
+        CODY::FaceChannel upper;
+        CODY::FaceChannel lower;
+        const char *top;
+        const char *bottom;
+    };
+    const EyeCase eyes[] = {
+        {CODY::FaceChannel::EyeLeft, CODY::FaceChannel::EyeCurveLeft,
+         CODY::FaceChannel::EyeUpperLeft, CODY::FaceChannel::EyeLowerLeft,
+         "eye.left.p3", "eye.left.p9"},
+        {CODY::FaceChannel::EyeRight, CODY::FaceChannel::EyeCurveRight,
+         CODY::FaceChannel::EyeUpperRight, CODY::FaceChannel::EyeLowerRight,
+         "eye.right.p3", "eye.right.p9"},
+    };
+    for (const auto &eye : eyes) {
+        const size_t top = named_point_index(eye.top);
+        const size_t bottom = named_point_index(eye.bottom);
+        if (top == CODY::kMaxPoints || bottom == CODY::kMaxPoints) {
+            continue;
+        }
+        for (float opening : {0.f, .5f, 1.f}) {
+            auto channels = neutral_extended_face();
+            channels[eye.opening] = opening;
+            CODY::RigScene baseline;
+            require(CODY::evaluate_rig(channels, CODY::Data::placement, baseline) == ESP_OK,
+                    "native blink baseline evaluates");
+            channels[eye.curve] = 1;
+            CODY::RigScene curved;
+            require(CODY::evaluate_rig(channels, CODY::Data::placement, curved) == ESP_OK,
+                    "native curved blink evaluates");
+            require(std::abs(curved.local[top].y - baseline.local[top].y + .1f * (1 - opening)) < .00001f,
+                    "closed eyelid curve follows inverse blink weight");
+            channels[eye.curve] = 0;
+            channels[eye.upper] = channels[eye.lower] = 1;
+            CODY::RigScene adjusted;
+            require(CODY::evaluate_rig(channels, CODY::Data::placement, adjusted) == ESP_OK,
+                    "native upper/lower lid adjustment evaluates");
+            require(std::abs(adjusted.local[top].y - baseline.local[top].y + .035f * opening) < .00001f,
+                    "upper eyelid follows open-eye weight");
+            require(std::abs(adjusted.local[bottom].y - baseline.local[bottom].y - .035f * opening) < .00001f,
+                    "lower eyelid follows open-eye weight");
+        }
+    }
+}
+
+// No parameters: center joins and round end caps stay continuously differentiable under expression controls.
+void check_soft_face_tangent_contract()
+{
+    for (float opening : {0.f, .45f, 1.f}) {
+        for (float curvature : {-1.f, 0.f, 1.f}) {
+            auto channels = neutral_extended_face();
+            channels[CODY::FaceChannel::EyeLeft] = channels[CODY::FaceChannel::EyeRight] = opening;
+            channels[CODY::FaceChannel::EyeCurveLeft] = channels[CODY::FaceChannel::EyeCurveRight] = curvature;
+            channels[CODY::FaceChannel::EyeUpperLeft] = channels[CODY::FaceChannel::EyeUpperRight] = .7f;
+            channels[CODY::FaceChannel::EyeLowerLeft] = channels[CODY::FaceChannel::EyeLowerRight] = -.6f;
+            channels[CODY::FaceChannel::MouthOpen] = opening;
+            channels[CODY::FaceChannel::MouthCurve] = curvature;
+            channels[CODY::FaceChannel::MouthCornerLeft] = .6f;
+            channels[CODY::FaceChannel::MouthCornerRight] = -.4f;
+            CODY::RigScene scene;
+            require(CODY::evaluate_rig(channels, CODY::Data::placement, scene) == ESP_OK,
+                    "rounded face continuity pose evaluates");
+            for (const auto &path : CODY::Data::paths) {
+                if (std::strcmp(path.name, "eye.left") != 0 &&
+                    std::strcmp(path.name, "eye.right") != 0 && std::strcmp(path.name, "mouth") != 0) {
+                    continue;
+                }
+                const size_t first = CODY::to_index(path.first_curve);
+                for (size_t index = 0; index < path.curve_count; ++index) {
+                    const auto &before = CODY::Data::curves[first + index];
+                    const auto &after = CODY::Data::curves[first + (index + 1) % path.curve_count];
+                    const auto knot = scene.local[CODY::to_index(before.points[CODY::to_index(CODY::CurvePoint::End)])];
+                    const auto incoming = scene.local[CODY::to_index(before.points[CODY::to_index(CODY::CurvePoint::IncomingHandle)])];
+                    const auto outgoing = scene.local[CODY::to_index(after.points[CODY::to_index(CODY::CurvePoint::OutgoingHandle)])];
+                    require(std::hypot(knot.x - incoming.x, knot.y - incoming.y) > .001f,
+                            "rounded eye/mouth join retains a nonzero tangent");
+                    require(std::abs(knot.x - incoming.x - (outgoing.x - knot.x)) < .00001f &&
+                            std::abs(knot.y - incoming.y - (outgoing.y - knot.y)) < .00001f,
+                            "eye/mouth joins preserve equal incoming and outgoing derivatives");
+                }
+            }
+        }
+    }
+}
+
+// No parameters: tongue opacity moves no geometry and highlight clips remain tied to named eye paths.
+// Exceptions: std::bad_alloc if the dirty-frame reference framebuffer cannot be allocated.
+void check_extended_face_opacity_contract()
+{
+    auto channels = neutral_extended_face();
+    CODY::RigScene baseline;
+    require(CODY::evaluate_rig(channels, CODY::Data::placement, baseline) == ESP_OK,
+            "native tongue opacity baseline evaluates");
+    CODY::RigScene previous = baseline;
+    for (float opacity : {0.f, .5f, 1.f}) {
+        channels[CODY::FaceChannel::TongueOpacity] = opacity;
+        CODY::RigScene altered;
+        require(CODY::evaluate_rig(channels, CODY::Data::placement, altered) == ESP_OK,
+                "native tongue opacity scene evaluates");
+        for (size_t index = 0; index < std::size(CODY::Data::points); ++index) {
+            require(altered.world[index].x == baseline.world[index].x &&
+                    altered.world[index].y == baseline.world[index].y,
+                    "tongue alpha preserves all native geometry");
+        }
+        bool tongue_seen = false;
+        for (size_t index = 0; index < std::size(CODY::Data::paths); ++index) {
+            const auto &definition = CODY::Data::paths[index];
+            if (std::strcmp(definition.name, "mouth.tongue") == 0) {
+                tongue_seen = true;
+                require(altered.paths[index].opacity == static_cast<uint8_t>(std::lround(opacity * 255)),
+                        "native tongue independently quantizes source opacity");
+                require(definition.clip_path != CODY::PathId::None &&
+                        std::strcmp(CODY::Data::paths[CODY::to_index(definition.clip_path)].name, "mouth") == 0,
+                        "tongue remains clipped by its named mouth");
+            } else {
+                require(altered.paths[index].opacity == baseline.paths[index].opacity,
+                        "tongue opacity preserves other path alpha");
+            }
+            if (std::strcmp(definition.name, "eye.left.shine") == 0 ||
+                std::strcmp(definition.name, "eye.right.shine") == 0) {
+                const char *expected = std::strcmp(definition.name, "eye.left.shine") == 0
+                    ? "eye.left" : "eye.right";
+                require(definition.clip_path != CODY::PathId::None &&
+                        std::strcmp(CODY::Data::paths[CODY::to_index(definition.clip_path)].name, expected) == 0,
+                        "native shine clips to the correct eye under facial distortion");
+            }
+        }
+        require(tongue_seen, "native fixture contains independent tongue artwork");
+        check_dirty_transition({previous}, {altered}, "tongue opacity reconstructs native dirty pixels");
+        previous = altered;
+    }
+}
+
+// first: State before a rejected update, or an independently retained reference.
+// second: State after the attempted update.
+bool connection_states_equal(const CODY::ConnectionPersonalityState &first,
+                              const CODY::ConnectionPersonalityState &second)
+{
+    return first.pc_observed == second.pc_observed &&
+           first.pc_observation_continuous == second.pc_observation_continuous &&
+           first.pc_was_connected == second.pc_was_connected && first.event == second.event &&
+           first.event_remaining_us == second.event_remaining_us;
+}
+
+// No parameters: transient network reactions follow observed edges and active time without replaying stale facts.
+void check_connection_personality_contract()
+{
+    CODY::ConnectionPersonalityState state;
+    CODY::PersonalityCue cue = CODY::PersonalityCue::None;
+    CODY::ConnectionPersonalityInputs searching{true, false, true, false, true};
+    const CODY::ConnectionPersonalityInputs connected{true, false, true, true, false};
+    const CODY::ConnectionPersonalityInputs unavailable{true, false, false, false, false};
+    require(CODY::advance_connection_personality(searching, 0, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::Curiosity, "PC discovery waits with curiosity");
+    require(CODY::advance_connection_personality(connected, 0, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::Joy && state.event_remaining_us == 4000000,
+            "a real connection edge starts four seconds of joy");
+    const auto paused = state;
+    require(CODY::advance_connection_personality(connected, 0, state, cue) == ESP_OK &&
+            connection_states_equal(paused, state), "paused frames neither expire nor retrigger connection joy");
+    require(CODY::advance_connection_personality(connected, 3999999, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::Joy && state.event_remaining_us == 1,
+            "joy remains active until the final active microsecond");
+    require(CODY::advance_connection_personality(connected, 1, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::None, "four-second joy expires at the exact active-time boundary");
+    require(CODY::advance_connection_personality(connected, 4000000, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::None, "repeated connected snapshots cannot retrigger joy");
+    require(CODY::advance_connection_personality(searching, 0, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::Fear, "a confirmed disconnect reacts with the atlas fear expression");
+    require(CODY::advance_connection_personality(searching, 4000000, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::Curiosity, "disconnect reaction settles back into discovery waiting");
+    require(CODY::advance_connection_personality(connected, 0, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::Joy, "a new observed reconnect can start a fresh reaction");
+    require(CODY::advance_connection_personality(unavailable, 0, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::None && !state.pc_observation_continuous &&
+            state.event_remaining_us == 0, "stale connectivity cancels a reaction without inventing a disconnect");
+    require(CODY::advance_connection_personality(searching, 0, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::Curiosity, "re-observation after stale data does not invent a lost-connection edge");
+    require(CODY::advance_connection_personality(connected, 0, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::Joy, "continuous re-observation restores admission of future real edges");
+    auto wifi_search = connected;
+    wifi_search.wifi_searching = true;
+    require(CODY::advance_connection_personality(wifi_search, 0, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::NoWifi && state.event_remaining_us == 0,
+            "Wi-Fi search overrides and cancels PC celebration");
+    require(CODY::advance_connection_personality(connected, 0, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::None, "Wi-Fi recovery cannot replay a cancelled celebration");
+
+    state = {};
+    require(CODY::advance_connection_personality(connected, 0, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::Joy, "an initial verified connected snapshot admits startup joy");
+    require(CODY::advance_connection_personality(unavailable, 0, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::None, "stale initial connection drops startup joy");
+    require(CODY::advance_connection_personality(connected, 0, state, cue) == ESP_OK &&
+            cue == CODY::PersonalityCue::None, "same connected fact after a stale interval has no queued replay");
+
+    const auto before = state;
+    const auto original_cue = cue;
+    const CODY::ConnectionPersonalityInputs invalid[] = {
+        {true, false, false, true, false}, {true, false, true, true, true},
+        {true, false, false, false, true}, {false, true, true, false, true},
+    };
+    for (const auto &inputs : invalid) {
+        require(CODY::advance_connection_personality(inputs, 100, state, cue) == ESP_ERR_INVALID_ARG &&
+                connection_states_equal(before, state) && cue == original_cue,
+                "contradictory connectivity rejects without replacing state or cue");
+    }
+    require(CODY::advance_connection_personality(connected, -1, state, cue) == ESP_ERR_INVALID_ARG &&
+            connection_states_equal(before, state) && cue == original_cue,
+            "negative active time preserves the previous reaction state and output");
+
+    for (const auto scene : {CODY::SceneId::PairingFailed, CODY::SceneId::ConnectionLost,
+                            CODY::SceneId::ChecksFailed}) {
+        require(CODY::scene_personality_cue(scene) == CODY::PersonalityCue::Fear,
+                "actual failed routes use atlas fear");
+    }
+    for (const auto scene : {CODY::SceneId::Pairing, CODY::SceneId::LookingForPc,
+                            CODY::SceneId::ChecksRunning, CODY::SceneId::DecisionWaiting,
+                            CODY::SceneId::ApprovalOnPc, CODY::SceneId::PrPending}) {
+        require(CODY::scene_personality_cue(scene) == CODY::PersonalityCue::Curiosity,
+                "actual waiting routes use atlas curiosity");
+    }
+    require(CODY::scene_personality_cue(CODY::SceneId::NetworkWait) == CODY::PersonalityCue::NoWifi,
+            "network waiting uses the NoWifi reaction");
+    require(CODY::scene_personality_cue(CODY::SceneId::Settings) == CODY::PersonalityCue::None,
+            "neutral settings route does not invent a runtime reaction");
+    require(CODY::resolve_scene_personality_cue(CODY::SceneId::PairingFailed, CODY::PersonalityCue::NoWifi) ==
+            CODY::PersonalityCue::Fear, "confirmed failed route retains fear over Wi-Fi search");
+    require(CODY::resolve_scene_personality_cue(CODY::SceneId::CheckFailures, CODY::PersonalityCue::Joy) ==
+            CODY::PersonalityCue::Frustration, "confirmed check failures retain frustration over connection joy");
+    require(CODY::resolve_scene_personality_cue(CODY::SceneId::Connected, CODY::PersonalityCue::NoWifi) ==
+            CODY::PersonalityCue::NoWifi, "live Wi-Fi search overrides a retained connected scene");
+    require(CODY::resolve_scene_personality_cue(CODY::SceneId::DecisionWaiting, CODY::PersonalityCue::NoWifi) ==
+            CODY::PersonalityCue::NoWifi, "live Wi-Fi search identifies the cause of a waiting scene");
+    require(CODY::resolve_scene_personality_cue(CODY::SceneId::LookingForPc, CODY::PersonalityCue::Joy) ==
+            CODY::PersonalityCue::Joy, "observed connection joy reaches a discovery scene before route replacement");
+    require(CODY::resolve_scene_personality_cue(CODY::SceneId::Connected, CODY::PersonalityCue::Fear) ==
+            CODY::PersonalityCue::Fear, "observed disconnect fear reaches a retained connected scene");
+    require(CODY::resolve_scene_personality_cue(CODY::SceneId::Connected, CODY::PersonalityCue::Curiosity) ==
+            CODY::PersonalityCue::Curiosity, "rediscovery waiting reaches a retained connected scene");
+    require(CODY::resolve_scene_personality_cue(CODY::SceneId::CompanionIdle, CODY::PersonalityCue::Joy) ==
+            CODY::PersonalityCue::Joy, "ordinary companion view admits observed connection reactions");
+    require(CODY::resolve_scene_personality_cue(CODY::SceneId::Pairing, CODY::PersonalityCue::Joy) ==
+            CODY::PersonalityCue::Curiosity, "unrelated pending pairing does not borrow a PC connection celebration");
+}
+
+// scene: Completed native geometry emitted for the independent host evaluator.
+void write_world_fixture(const CODY::RigScene &scene)
+{
+    std::printf("{");
+    for (size_t index = 0; index < std::size(CODY::Data::points); ++index) {
+        const auto &point = CODY::Data::points[index];
+        std::printf("%s\"%s\":[%.9g,%.9g]", index == 0 ? "" : ",", point.name,
+                    scene.world[index].x, scene.world[index].y);
+    }
+    std::printf("}");
+}
+
+// No parameters: compare culling and authored facial poses with independent raster/host references.
 // Exceptions: std::bad_alloc if host framebuffer allocation fails.
 void check_rig_contract()
 {
@@ -455,13 +822,32 @@ void check_rig_contract()
             "generated ready geometry evaluates");
     require(scene.valid, "successful geometry publishes validity");
     // Emit a named fixture for the Python owner to compare against its evaluator.
-    std::printf("{\"world\":{");
-    for (size_t index = 0; index < std::size(CODY::Data::points); ++index) {
-        const auto &point = CODY::Data::points[index];
-        std::printf("%s\"%s\":[%.9g,%.9g]", index == 0 ? "" : ",", point.name,
-                    scene.world[index].x, scene.world[index].y);
+    std::printf("{\"world\":");
+    write_world_fixture(scene);
+    std::printf(",\"face_cases\":[");
+    // All extended values are emitted by name so storage order is never host domain meaning.
+    for (size_t case_index = 0; case_index < 3; ++case_index) {
+        auto channels = neutral_extended_face();
+        for (size_t index = CODY::to_index(CODY::FaceChannel::GazeX);
+             index < CODY::kFaceChannelCount; ++index) {
+            channels.values[index] = case_index == 0 ? CODY::Data::channel_min[index] :
+                                     case_index == 1 ? CODY::Data::channel_max[index] :
+                                     (CODY::Data::channel_min[index] + CODY::Data::channel_max[index]) / 2;
+        }
+        channels[CODY::FaceChannel::EyeLeft] = case_index == 0 ? 0.f : case_index == 1 ? 1.f : .37f;
+        channels[CODY::FaceChannel::EyeRight] = case_index == 0 ? 1.f : case_index == 1 ? 0.f : .61f;
+        require(CODY::evaluate_rig(channels, CODY::Data::placement, scene) == ESP_OK,
+                "extended extremum face evaluates for cross-language parity");
+        std::printf("%s{\"channels\":{", case_index == 0 ? "" : ",");
+        for (size_t index = 0; index < CODY::kFaceChannelCount; ++index) {
+            std::printf("%s\"%s\":%.9g", index == 0 ? "" : ",",
+                        CODY::Data::channel_names[index], channels.values[index]);
+        }
+        std::printf("},\"world\":");
+        write_world_fixture(scene);
+        std::printf("}");
     }
-    std::printf("}}\n");
+    std::printf("]}\n");
     for (float scale : {20.f, CODY::Data::placement.scale, 200.f}) {
         auto placement = CODY::Data::placement;
         placement.scale = scale;
@@ -1164,6 +1550,11 @@ int main()
         check_coverage_rectangle_contract();
         check_coverage_concave_tiles_contract();
         check_rig_contract();
+        check_extended_face_ownership_contract();
+        check_extended_face_blink_contract();
+        check_soft_face_tangent_contract();
+        check_extended_face_opacity_contract();
+        check_connection_personality_contract();
         check_compact_raster_contract();
         check_dirty_plan_contract();
         check_jelly_kernel_contract();

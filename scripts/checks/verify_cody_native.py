@@ -9,25 +9,45 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.common.cody_rig_contract import evaluate, load_contract
+from scripts.common.cody_rig_types import FaceChannel, channel_name, face_channel
 from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
 
 
-# fixture: Named world coordinates emitted by the real generated C++ ready scene.
-# Raises AssertionError for identity/coordinate divergence, or source-load errors for invalid authoring data.
+# expected: World coordinates produced from the same authored inputs by the host evaluator.
+# observed: Stable names and coordinates emitted by the real C++ evaluator.
+# label: Identifies the pose whose cross-language semantics must agree.
+# Raises AssertionError for missing, malformed, non-finite or divergent coordinates.
+def compare_named_world(expected: dict, observed: dict, label: str) -> None:
+    if set(observed) != set(expected):
+        raise AssertionError(f"{label}: native/Python point identities differ; generated tables may need regeneration.")
+    for name, coordinates in expected.items():
+        if len(observed[name]) != 2:
+            raise AssertionError(f"{label}: invalid native coordinate pair for {name}")
+        for native, host in zip(observed[name], coordinates):
+            # Float32 generation/evaluation permits 0.002 pixels, well below one visible pixel.
+            if not abs(native - host) <= 0.002:
+                raise AssertionError(f"{label}: native/Python geometry differs for {name}: {native} vs {host}")
+
+
+# fixture: Named ready scene plus bounded facial poses emitted by the real generated C++ evaluator.
+# Raises AssertionError for incomplete identity/pose coverage, or source-load errors for invalid authoring.
 def compare_geometry(fixture: dict) -> None:
     rig, _ = load_contract()
     transform = tuple(rig["default_transform"][name] for name in ("x", "y", "scale"))
     expected = evaluate(rig, rig["boot_channels"]["ready"], transform)["world"]
-    observed = fixture["world"]
-    if set(observed) != set(expected):
-        raise AssertionError("Native/Python point identities differ; generated tables may need regeneration.")
-    for name, coordinates in expected.items():
-        if len(observed[name]) != 2:
-            raise AssertionError(f"Invalid native coordinate pair for {name}")
-        for native, host in zip(observed[name], coordinates):
-            # Float32 generation/evaluation permits 0.002 pixels, well below one visible pixel.
-            if not abs(native - host) <= 0.002:
-                raise AssertionError(f"Native/Python geometry differs for {name}: {native} vs {host}")
+    compare_named_world(expected, fixture["world"], "ready")
+    cases = fixture.get("face_cases")
+    if not isinstance(cases, list) or len(cases) != 3:
+        raise AssertionError("Native fixture requires closed/open/asymmetric extended facial poses.")
+    for index, case in enumerate(cases):
+        authored = case["channels"]
+        if set(authored) != {channel_name(channel) for channel in FaceChannel}:
+            raise AssertionError(f"Extended face pose {index} has incomplete or unknown channel identities.")
+        values = [0] * len(FaceChannel)
+        for name, value in authored.items():
+            values[face_channel(name)] = value
+        expected = evaluate(rig, values, transform)["world"]
+        compare_named_world(expected, case["world"], f"extended face {index}")
 
 
 # argv: Explicit CLI options forwarded through scripts/device.ps1 check -Check cody-native.
@@ -62,6 +82,7 @@ def main(argv=None) -> None:
                    "components/CODY_companion/src/runtime/CODY_lifecycle.cpp",
                    "components/CODY_companion/src/scenes/CODY_scene.cpp",
                    "components/CODY_companion/src/model/CODY_expression_catalog.cpp",
+                   "components/CODY_companion/src/model/CODY_connection_personality.cpp",
                    "assets/cody/scenes/generated/scene_font.cpp",
                    "assets/cody/scenes/generated/scene_body_font.cpp",
                    "assets/cody/appearance/jelly-scanline/generated/cody_jelly_data.cpp")
@@ -80,7 +101,10 @@ def main(argv=None) -> None:
         report["simd_backend"] = "host arithmetic model" if args.simd_model else "excluded"
         report["contracts"] = ["RGB565 alpha rounding", "stride guards", "invalid geometry",
                                "analytic AA rectangle and concave coverage", "AA opacity, cap gradients and tile seams",
-                               "scene invalidation", "culling and strip parity", "native/Python ready geometry",
+                               "scene invalidation", "culling and strip parity", "native/Python ready and extended-face geometry",
+                               "independent extended-face ownership, blink gates, tongue opacity and eye clipping",
+                               "rounded eye/mouth tangent continuity through blink and asymmetric expressions",
+                               "connection active-time boundaries, edge admission, stale cancellation and scene reactions",
                                "compact tile parity and sentinels", "dirty reconstruction and unchanged frames",
                                "overlay, selection, pause, opacity, visibility, transform and contour damage"]
         report["contracts"].extend(["premultiplied jelly texture and transparent/opaque/AA samples",

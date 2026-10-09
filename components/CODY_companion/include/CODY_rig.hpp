@@ -14,17 +14,23 @@
 
 namespace CODY {
 
-constexpr uint16_t kMaxPoints = 200;
+constexpr uint16_t kMaxPoints = 203;
 constexpr uint16_t kMaxPaths = 16;
 constexpr uint16_t kSubdivisions = 12;
 constexpr uint16_t kMaxVertices = 64 * kSubdivisions + kMaxPaths;
 // The implementation statically rejects authored tables that outgrow these arrays.
 constexpr uint16_t kRigDebugLinkCapacity = 21;
-constexpr uint16_t kRigDebugTangentCapacity = 124;
+constexpr uint16_t kRigDebugTangentCapacity = 126;
 // Domain values are always addressed by enum; integers are confined to table traversal.
 enum class FaceChannel : uint8_t {
     EyeLeft, EyeRight, BrowLeft, BrowRight, MouthOpen, Breath,
-    MouthWidth, NoseSize, CheekSize, CheekOpacity, Count, None = UINT8_MAX
+    MouthWidth, NoseSize, CheekSize, CheekOpacity,
+    GazeX, GazeY, EyeWidthLeft, EyeWidthRight, EyeCurveLeft, EyeCurveRight,
+    EyeUpperLeft, EyeUpperRight, EyeLowerLeft, EyeLowerRight,
+    BrowHeightLeft, BrowHeightRight, BrowCurveLeft, BrowCurveRight,
+    MouthCornerLeft, MouthCornerRight, MouthCurve, MouthX, MouthY,
+    NoseX, NoseY, CheekRaiseLeft, CheekRaiseRight, TongueOpacity,
+    Count, None = UINT8_MAX
 };
 enum class ContourControl : uint8_t { Fullness, Amplitude, Speed, PhaseSpread, Count };
 enum class PointRole : uint8_t { Anchor, Knot, Handle };
@@ -141,6 +147,20 @@ struct CurveDefinition {
 struct PointFaceTransform {
     FaceChannel x_channel;
     FaceChannel y_channel;
+};
+
+// Additive local displacement composes before descendant scale and parent ownership.
+struct PointFaceBinding {
+    FaceChannel channel;
+    FaceChannel weight_channel;
+    bool invert_weight;
+    float dx;
+    float dy;
+};
+
+struct PointFaceBindingRange {
+    uint16_t first;
+    uint8_t count;
 };
 
 struct EntityDefinition {

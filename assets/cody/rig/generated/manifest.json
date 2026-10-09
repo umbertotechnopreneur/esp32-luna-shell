@@ -2,21 +2,22 @@
   "schema": "cody.rig.generated.v2",
   "skin_id": "cody",
   "source_path": "assets/cody/cody.yaml",
-  "points": 199,
-  "curves": 62,
+  "points": 202,
+  "curves": 63,
   "paths": 16,
   "subdivisions": 12,
   "palette_slots": 256,
   "contour_controls": 4,
   "contour_lobes": 11,
-  "facial_channels": 10,
-  "face_transforms": 4,
+  "facial_channels": 34,
+  "face_transforms": 6,
+  "face_bindings": 91,
   "response_schema": "cody.response.v3",
   "response_sources": [
     "motion.acceleration",
     "power.charge"
   ],
-  "source_sha256": "77bdbf92dc685507b035ac3aa9ed418296b2856d703a71b5bd4e1301124f761f",
+  "source_sha256": "0f46a5986fc82774aa16e0ffde477b3cffc9cc79b5ba6985f476607af1b2cad8",
   "palette_sha256": "b1577f9b6f7395b1b81b2b9f32fb9b0c3b47052d98fb72c9d4d4f8d3919ce1ed",
   "navigation_sha256": "b01bf693826947913dff928b6bf42d4f52a8892ecede77a3613b8563bec6a05c"
 }

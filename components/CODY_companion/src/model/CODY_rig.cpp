@@ -22,6 +22,8 @@ static_assert(std::size(Data::contour_max) == kContourControlCount);
 static_assert(Data::contour_transition_seconds >= .05f && Data::contour_transition_seconds <= 5.f);
 static_assert(Data::face_transition_seconds >= .05f && Data::face_transition_seconds <= 5.f);
 static_assert(std::size(Data::point_face_transforms) == std::size(Data::points));
+static_assert(std::size(Data::point_face_binding_ranges) == std::size(Data::points));
+static_assert(std::size(Data::face_bindings) <= 256);
 static_assert(std::size(Data::channel_min) == std::size(Channels{}.values));
 static_assert(std::size(Data::channel_max) == std::size(Channels{}.values));
 
@@ -601,7 +603,7 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
     if (pose_error != ESP_OK) {
         return pose_error;
     }
-    // One breathing scale carries every feature; no wandering eyes.
+    // One breathing scale carries every feature; gaze is an explicit local binding.
     scene.scale = transform.scale * (1 + .018f * channels[FaceChannel::Breath]);
     std::array<CODY2D::Vec2, std::size(Data::contour_lobes)> contour_offsets{};
     if (contour != nullptr) {
@@ -617,6 +619,17 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
         const auto &definition = Data::points[index];
         const float value = definition.channel == FaceChannel::None ? 0 : channels[definition.channel];
         CODY2D::Vec2 local{definition.x + definition.dx * value, definition.y + definition.dy * value};
+        const auto &bindings = Data::point_face_binding_ranges[index];
+        for (uint16_t offset = 0; offset < bindings.count; ++offset) {
+            const auto &binding = Data::face_bindings[bindings.first + offset];
+            float weight = binding.weight_channel == FaceChannel::None ? 1.f : channels[binding.weight_channel];
+            if (binding.invert_weight) {
+                weight = 1.f - weight;
+            }
+            const float contribution = channels[binding.channel] * weight;
+            local.x += binding.dx * contribution;
+            local.y += binding.dy * contribution;
+        }
         const auto &face_transform = Data::point_face_transforms[index];
         if (face_transform.x_channel != FaceChannel::None) {
             local.x *= channels[face_transform.x_channel];

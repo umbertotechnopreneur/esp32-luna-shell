@@ -183,11 +183,12 @@ def load_contract(root=ROOT, skin_path="assets/cody/cody.yaml"):
         if path["paint"] not in rig["style"]["paints"]:
             raise ValueError(f"Unknown paint: {path['name']}")
         path["paint"] = rig["style"]["paints"][path["paint"]]
-    if not 1 <= len(rig["points"]) <= 200 or not 1 <= len(rig["curves"]) <= 64 or not 1 <= len(rig["paths"]) <= 16:
+    if not 1 <= len(rig["points"]) <= 203 or not 1 <= len(rig["curves"]) <= 64 or not 1 <= len(rig["paths"]) <= 16:
         raise ValueError("Rig exceeds the bounded firmware geometry capacity")
     validate_channel_catalog(rig)
     compile_geometry(rig)
     validate_face_definition(rig)
+    compile_face_bindings(rig)
     validate_contour_definition(rig)
     validate_response_config(rig.get("response"))
     if set(rig["boot_channels"]) != {"sleep", "waking", "ready"}:
@@ -231,8 +232,18 @@ def validate_channel_catalog(rig):
         lower, upper, default = [finite(channel[key], channel["name"]) for key in ("minimum", "maximum", "default")]
         if not lower <= default <= upper or lower >= upper:
             raise ValueError(f"Invalid channel bounds: {channel['name']}")
-        expected_range = {'brow_left': (-1, 1), 'brow_right': (-1, 1), 'breath': (-1, 1),
-                          'mouth_width': (.5, 1.6), 'nose_size': (.5, 1.6), 'cheek_size': (.4, 1.8)}.get(channel['name'], (0, 1))
+        signed_channels = {
+            'brow_left', 'brow_right', 'breath', 'gaze_x', 'gaze_y',
+            'eye_curve_left', 'eye_curve_right', 'eye_upper_left', 'eye_upper_right',
+            'eye_lower_left', 'eye_lower_right', 'brow_height_left', 'brow_height_right',
+            'brow_curve_left', 'brow_curve_right', 'mouth_corner_left', 'mouth_corner_right',
+            'mouth_curve', 'mouth_x', 'mouth_y', 'nose_x', 'nose_y',
+            'cheek_raise_left', 'cheek_raise_right',
+        }
+        scale_ranges = {'mouth_width': (.5, 1.6), 'nose_size': (.5, 1.6),
+                        'cheek_size': (.4, 1.8), 'eye_width_left': (.6, 1.4),
+                        'eye_width_right': (.6, 1.4)}
+        expected_range = (-1, 1) if channel['name'] in signed_channels else scale_ranges.get(channel['name'], (0, 1))
         if (lower, upper) != expected_range:
             raise ValueError(f"{channel['name']}: semantic range must remain {expected_range}")
 
@@ -386,6 +397,60 @@ def validate_face_definition(rig):
         if opacity_channel is not None and path["stroke"] != 0:
             raise ValueError(f"Opacity is supported by filled paths only: {path['name']}")
         path["opacity_channel"] = opacity_channel
+
+
+# rig: Current authored graph; every displacement belongs to one named facial point.
+# Raises ValueError for duplicate, non-facial, unbounded or ambiguous channel bindings.
+def compile_face_bindings(rig):
+    points = {point["name"]: point for point in rig["points"]}
+    facial_anchors = {"eye.left", "eye.right", "brow.left", "brow.right",
+                      "mouth", "nose", "cheek.left", "cheek.right"}
+    bindings = rig["face_bindings"]
+    if not isinstance(bindings, list) or not 1 <= len(bindings) <= 256:
+        raise ValueError("Face requires 1-256 explicit point bindings")
+    by_point = {name: [] for name in points}
+    identities = set()
+    for binding in bindings:
+        if not isinstance(binding, dict) or set(binding) != {
+                "point", "channel", "delta", "weight_channel", "invert_weight"}:
+            raise ValueError(f"Invalid face binding fields: {binding!r}")
+        name = binding["point"]
+        if not isinstance(name, str) or name not in points:
+            raise ValueError(f"Unknown bound facial point: {name!r}")
+        ancestor = name
+        while ancestor not in facial_anchors and points[ancestor]["parent"] is not None:
+            ancestor = points[ancestor]["parent"]
+        if ancestor not in facial_anchors:
+            raise ValueError(f"Face binding cannot move body geometry: {name}")
+        channel = face_channel(binding["channel"])
+        identity = (name, channel)
+        if identity in identities or points[name]["channel"] == binding["channel"]:
+            raise ValueError(f"Duplicate face binding: {name}/{binding['channel']}")
+        identities.add(identity)
+        delta = binding["delta"]
+        if not isinstance(delta, list) or len(delta) != 2:
+            raise ValueError(f"Face displacement needs two coordinates: {name}")
+        displacement = [finite(value, f"face binding {name}") for value in delta]
+        if not any(displacement) or any(abs(value) > .2 for value in displacement):
+            raise ValueError(f"Face displacement exceeds its bound: {name}/{delta!r}")
+        if type(binding["invert_weight"]) is not bool:
+            raise ValueError(f"Face weight inversion must be boolean: {name}")
+        weight_name = binding["weight_channel"]
+        if weight_name is None:
+            if binding["invert_weight"]:
+                raise ValueError(f"Inverted face weight needs a channel: {name}")
+        else:
+            weight = rig["channels"][face_channel(weight_name)]
+            if (weight["minimum"], weight["maximum"]) != (0, 1):
+                raise ValueError(f"Face weight requires a zero-to-one channel: {name}/{weight_name}")
+        by_point[name].append(dict(binding, delta=displacement))
+        if len(by_point[name]) > 8:
+            raise ValueError(f"Face point exceeds eight independent bindings: {name}")
+    # Named point/channel order produces deterministic flash ranges after reordering YAML.
+    rig["point_face_bindings"] = {
+        name: sorted(items, key=lambda item: face_channel(item["channel"]))
+        for name, items in by_point.items()
+    }
 
 
 
@@ -585,7 +650,7 @@ def validate_channels(rig, values):
             raise ValueError(f"{channel['name']}: rejected value {value}")
 
 
-# rig supplies the ten channel bounds and face smoothing time constant.
+# rig supplies the named channel bounds and face smoothing time constant.
 # state contains the previous unanimated facial controls; it is not mutated.
 # target contains the requested facial controls, independent of contour state.
 # delta_ms is active elapsed time; zero freezes all facial transitions exactly.
@@ -690,6 +755,14 @@ def evaluate(rig, values, transform, contour=None):
     for point in rig["points"]:
         amount = channels[point["channel"]] if point["channel"] is not None else 0
         px, py = [position + delta * amount for position, delta in zip(point["position"], point["delta"])]
+        for binding in rig["point_face_bindings"][point["name"]]:
+            weight_name = binding["weight_channel"]
+            weight = channels[weight_name] if weight_name is not None else 1
+            if binding["invert_weight"]:
+                weight = 1 - weight
+            contribution = channels[binding["channel"]] * weight
+            px += binding["delta"][0] * contribution
+            py += binding["delta"][1] * contribution
         scale_x, scale_y = rig["point_face_transforms"][point["name"]]
         px *= channels[scale_x] if scale_x is not None else 1
         py *= channels[scale_y] if scale_y is not None else 1

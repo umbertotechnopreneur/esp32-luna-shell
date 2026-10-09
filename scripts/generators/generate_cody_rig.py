@@ -90,6 +90,20 @@ def emit_geometry(rig, palette):
         )
         lines.append("    {" + ", ".join(fields) + "},")
     lines.append("};")
+    bindings = []
+    lines.append("inline constexpr PointFaceBindingRange point_face_binding_ranges[] = {")
+    for point in rig["points"]:
+        point_bindings = rig["point_face_bindings"][point["name"]]
+        lines.append(f"    {{{len(bindings)}, {len(point_bindings)}}},")
+        bindings.extend(point_bindings)
+    lines.extend(["};", "inline constexpr PointFaceBinding face_bindings[] = {"])
+    for binding in bindings:
+        channel = cpp_identity("FaceChannel", binding["channel"])
+        weight = cpp_identity("FaceChannel", binding["weight_channel"])
+        inverted = "true" if binding["invert_weight"] else "false"
+        dx, dy = (cpp_float(value) for value in binding["delta"])
+        lines.append(f"    {{{channel}, {weight}, {inverted}, {dx}, {dy}}},")
+    lines.append("};")
     return lines
 
 
@@ -253,6 +267,7 @@ def main(argv=None):
         "contour_lobes": len(rig["contour"]["lobes"]),
         "facial_channels": len(rig["channels"]),
         "face_transforms": len(rig["face_transforms"]),
+        "face_bindings": len(rig["face_bindings"]),
         "response_schema": rig["response"]["schema"],
         "response_sources": [rig["response"][group]["source"] for group in ("motion", "power")],
         "source_sha256": text_source_hash(ROOT / rig["source_path"]),

@@ -182,7 +182,103 @@ channels:
   minimum: 0
   maximum: 1
   default: 0.58
-# Shape and opacity controls compose with the original six facial channels.
+- name: gaze_x
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: gaze_y
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: eye_width_left
+  minimum: 0.6
+  maximum: 1.4
+  default: 1
+- name: eye_width_right
+  minimum: 0.6
+  maximum: 1.4
+  default: 1
+- name: eye_curve_left
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: eye_curve_right
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: eye_upper_left
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: eye_upper_right
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: eye_lower_left
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: eye_lower_right
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: brow_height_left
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: brow_height_right
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: brow_curve_left
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: brow_curve_right
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: mouth_corner_left
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: mouth_corner_right
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: mouth_curve
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: mouth_x
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: mouth_y
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: nose_x
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: nose_y
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: cheek_raise_left
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: cheek_raise_right
+  minimum: -1
+  maximum: 1
+  default: 0
+- name: tongue_opacity
+  minimum: 0
+  maximum: 1
+  default: 1
+# Independent face controls compose before the shared body deformation.
 # Scale only descendants; the named anchor remains fixed in the face.
 face_transition_seconds: 0.18
 # External stimuli feed continuous artistic state, never a measured emotion.
@@ -265,6 +361,8 @@ response:
     fatigue_breath_slowdown: 0.55
     rhythm_blend_seconds: 0.22
 face_transforms:
+- {anchor: eye.left, channel: eye_width_left, axes: [x]}
+- {anchor: eye.right, channel: eye_width_right, axes: [x]}
 - {anchor: mouth, channel: mouth_width, axes: [x]}
 - {anchor: nose, channel: nose_size, axes: [x, y]}
 - {anchor: cheek.left, channel: cheek_size, axes: [x, y]}
@@ -272,6 +370,101 @@ face_transforms:
 path_opacity:
   cheek.left: cheek_opacity
   cheek.right: cheek_opacity
+  mouth.tongue: tongue_opacity
+# Bindings add bounded local displacement; eyelid weights preserve complete blink closure.
+face_bindings:
+# Paired center handles share their knot's curvature so facial joins cannot form cusps.
+- {point: eye.left, channel: gaze_x, delta: [0.035, 0], weight_channel: null, invert_weight: false}
+- {point: eye.left, channel: gaze_y, delta: [0, 0.025], weight_channel: null, invert_weight: false}
+- {point: brow.left, channel: brow_height_left, delta: [0, -0.055], weight_channel: null, invert_weight: false}
+- {point: brow.left.p1, channel: brow_curve_left, delta: [0, -0.05], weight_channel: null, invert_weight: false}
+- {point: brow.left.p2, channel: brow_curve_left, delta: [0, -0.05], weight_channel: null, invert_weight: false}
+- {point: cheek.left, channel: cheek_raise_left, delta: [0, -0.045], weight_channel: null, invert_weight: false}
+- {point: eye.left.p2, channel: eye_curve_left, delta: [0, -0.1], weight_channel: eye_left, invert_weight: true}
+- {point: eye.left.p2, channel: eye_upper_left, delta: [0, -0.035], weight_channel: eye_left, invert_weight: false}
+- {point: eye.left.p3, channel: eye_curve_left, delta: [0, -0.1], weight_channel: eye_left, invert_weight: true}
+- {point: eye.left.p3, channel: eye_upper_left, delta: [0, -0.035], weight_channel: eye_left, invert_weight: false}
+- {point: eye.left.p4, channel: eye_curve_left, delta: [0, -0.1], weight_channel: eye_left, invert_weight: true}
+- {point: eye.left.p4, channel: eye_upper_left, delta: [0, -0.035], weight_channel: eye_left, invert_weight: false}
+- {point: eye.left.p8, channel: eye_curve_left, delta: [0, -0.1], weight_channel: eye_left, invert_weight: true}
+- {point: eye.left.p8, channel: eye_lower_left, delta: [0, 0.035], weight_channel: eye_left, invert_weight: false}
+- {point: eye.left.p9, channel: eye_curve_left, delta: [0, -0.1], weight_channel: eye_left, invert_weight: true}
+- {point: eye.left.p9, channel: eye_lower_left, delta: [0, 0.035], weight_channel: eye_left, invert_weight: false}
+- {point: eye.left.p10, channel: eye_curve_left, delta: [0, -0.1], weight_channel: eye_left, invert_weight: true}
+- {point: eye.left.p10, channel: eye_lower_left, delta: [0, 0.035], weight_channel: eye_left, invert_weight: false}
+- {point: eye.right, channel: gaze_x, delta: [0.035, 0], weight_channel: null, invert_weight: false}
+- {point: eye.right, channel: gaze_y, delta: [0, 0.025], weight_channel: null, invert_weight: false}
+- {point: brow.right, channel: brow_height_right, delta: [0, -0.055], weight_channel: null, invert_weight: false}
+- {point: brow.right.p1, channel: brow_curve_right, delta: [0, -0.05], weight_channel: null, invert_weight: false}
+- {point: brow.right.p2, channel: brow_curve_right, delta: [0, -0.05], weight_channel: null, invert_weight: false}
+- {point: cheek.right, channel: cheek_raise_right, delta: [0, -0.045], weight_channel: null, invert_weight: false}
+- {point: eye.right.p2, channel: eye_curve_right, delta: [0, -0.1], weight_channel: eye_right, invert_weight: true}
+- {point: eye.right.p2, channel: eye_upper_right, delta: [0, -0.035], weight_channel: eye_right, invert_weight: false}
+- {point: eye.right.p3, channel: eye_curve_right, delta: [0, -0.1], weight_channel: eye_right, invert_weight: true}
+- {point: eye.right.p3, channel: eye_upper_right, delta: [0, -0.035], weight_channel: eye_right, invert_weight: false}
+- {point: eye.right.p4, channel: eye_curve_right, delta: [0, -0.1], weight_channel: eye_right, invert_weight: true}
+- {point: eye.right.p4, channel: eye_upper_right, delta: [0, -0.035], weight_channel: eye_right, invert_weight: false}
+- {point: eye.right.p8, channel: eye_curve_right, delta: [0, -0.1], weight_channel: eye_right, invert_weight: true}
+- {point: eye.right.p8, channel: eye_lower_right, delta: [0, 0.035], weight_channel: eye_right, invert_weight: false}
+- {point: eye.right.p9, channel: eye_curve_right, delta: [0, -0.1], weight_channel: eye_right, invert_weight: true}
+- {point: eye.right.p9, channel: eye_lower_right, delta: [0, 0.035], weight_channel: eye_right, invert_weight: false}
+- {point: eye.right.p10, channel: eye_curve_right, delta: [0, -0.1], weight_channel: eye_right, invert_weight: true}
+- {point: eye.right.p10, channel: eye_lower_right, delta: [0, 0.035], weight_channel: eye_right, invert_weight: false}
+- {point: mouth.p0, channel: mouth_corner_left, delta: [0, -0.045], weight_channel: null, invert_weight: false}
+- {point: mouth.p1, channel: mouth_corner_left, delta: [0, -0.045], weight_channel: null, invert_weight: false}
+- {point: mouth.p2, channel: mouth_corner_left, delta: [0, -0.032142857], weight_channel: null, invert_weight: false}
+- {point: mouth.p2, channel: mouth_corner_right, delta: [0, -0.012857143], weight_channel: null, invert_weight: false}
+- {point: mouth.p2, channel: mouth_curve, delta: [0, 0.055], weight_channel: null, invert_weight: false}
+- {point: mouth.p3, channel: mouth_corner_left, delta: [0, -0.0225], weight_channel: null, invert_weight: false}
+- {point: mouth.p3, channel: mouth_corner_right, delta: [0, -0.0225], weight_channel: null, invert_weight: false}
+- {point: mouth.p3, channel: mouth_curve, delta: [0, 0.055], weight_channel: null, invert_weight: false}
+- {point: mouth.p4, channel: mouth_corner_left, delta: [0, -0.012857143], weight_channel: null, invert_weight: false}
+- {point: mouth.p4, channel: mouth_corner_right, delta: [0, -0.032142857], weight_channel: null, invert_weight: false}
+- {point: mouth.p4, channel: mouth_curve, delta: [0, 0.055], weight_channel: null, invert_weight: false}
+- {point: mouth.p5, channel: mouth_corner_right, delta: [0, -0.045], weight_channel: null, invert_weight: false}
+- {point: mouth.p6, channel: mouth_corner_right, delta: [0, -0.045], weight_channel: null, invert_weight: false}
+- {point: mouth.p7, channel: mouth_corner_right, delta: [0, -0.045], weight_channel: null, invert_weight: false}
+- {point: mouth.p8, channel: mouth_corner_left, delta: [0, -0.012857143], weight_channel: null, invert_weight: false}
+- {point: mouth.p8, channel: mouth_corner_right, delta: [0, -0.032142857], weight_channel: null, invert_weight: false}
+- {point: mouth.p8, channel: mouth_curve, delta: [0, 0.055], weight_channel: null, invert_weight: false}
+- {point: mouth.p9, channel: mouth_corner_left, delta: [0, -0.0225], weight_channel: null, invert_weight: false}
+- {point: mouth.p9, channel: mouth_corner_right, delta: [0, -0.0225], weight_channel: null, invert_weight: false}
+- {point: mouth.p9, channel: mouth_curve, delta: [0, 0.055], weight_channel: null, invert_weight: false}
+- {point: mouth.p10, channel: mouth_corner_left, delta: [0, -0.032142857], weight_channel: null, invert_weight: false}
+- {point: mouth.p10, channel: mouth_corner_right, delta: [0, -0.012857143], weight_channel: null, invert_weight: false}
+- {point: mouth.p10, channel: mouth_curve, delta: [0, 0.055], weight_channel: null, invert_weight: false}
+- {point: mouth.p11, channel: mouth_corner_left, delta: [0, -0.045], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p0, channel: mouth_corner_left, delta: [0, -0.036160714], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p0, channel: mouth_corner_right, delta: [0, -0.008839286], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p0, channel: mouth_curve, delta: [0, 0.021607143], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p1, channel: mouth_corner_left, delta: [0, -0.029732143], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p1, channel: mouth_corner_right, delta: [0, -0.015267857], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p1, channel: mouth_curve, delta: [0, 0.037321429], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p2, channel: mouth_corner_left, delta: [0, -0.015267857], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p2, channel: mouth_corner_right, delta: [0, -0.029732143], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p2, channel: mouth_curve, delta: [0, 0.037321429], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p3, channel: mouth_corner_left, delta: [0, -0.008839286], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p3, channel: mouth_corner_right, delta: [0, -0.036160714], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p3, channel: mouth_curve, delta: [0, 0.021607143], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p4, channel: mouth_corner_left, delta: [0, -0.010607143], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p4, channel: mouth_corner_right, delta: [0, -0.034392857], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p4, channel: mouth_curve, delta: [0, 0.025928571], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p5, channel: mouth_corner_left, delta: [0, -0.016875], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p5, channel: mouth_corner_right, delta: [0, -0.028125], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p5, channel: mouth_curve, delta: [0, 0.04125], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p6, channel: mouth_corner_left, delta: [0, -0.0225], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p6, channel: mouth_corner_right, delta: [0, -0.0225], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p6, channel: mouth_curve, delta: [0, 0.055], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p7, channel: mouth_corner_left, delta: [0, -0.028125], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p7, channel: mouth_corner_right, delta: [0, -0.016875], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p7, channel: mouth_curve, delta: [0, 0.04125], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p8, channel: mouth_corner_left, delta: [0, -0.034392857], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p8, channel: mouth_corner_right, delta: [0, -0.010607143], weight_channel: null, invert_weight: false}
+- {point: mouth.tongue.p8, channel: mouth_curve, delta: [0, 0.025928571], weight_channel: null, invert_weight: false}
+- {point: mouth, channel: mouth_x, delta: [0.055, 0], weight_channel: null, invert_weight: false}
+- {point: mouth, channel: mouth_y, delta: [0, 0.045], weight_channel: null, invert_weight: false}
+- {point: nose, channel: nose_x, delta: [0.025, 0], weight_channel: null, invert_weight: false}
+- {point: nose, channel: nose_y, delta: [0, 0.02], weight_channel: null, invert_weight: false}
 expression_presets:
   # The small smile and soft blush are the resting face used by Idle 16.
   calm:
@@ -285,6 +478,30 @@ expression_presets:
     nose_size: 1
     cheek_size: 1
     cheek_opacity: 0.58
+    gaze_x: 0
+    gaze_y: 0
+    eye_width_left: 1
+    eye_width_right: 1
+    eye_curve_left: 0
+    eye_curve_right: 0
+    eye_upper_left: 0
+    eye_upper_right: 0
+    eye_lower_left: 0
+    eye_lower_right: 0
+    brow_height_left: 0
+    brow_height_right: 0
+    brow_curve_left: 0
+    brow_curve_right: 0
+    mouth_corner_left: 0
+    mouth_corner_right: 0
+    mouth_curve: 0.05
+    mouth_x: 0
+    mouth_y: 0
+    nose_x: 0
+    nose_y: 0
+    cheek_raise_left: 0
+    cheek_raise_right: 0
+    tongue_opacity: 1
   curious:
     eye_left: 1
     eye_right: 1
@@ -296,6 +513,30 @@ expression_presets:
     nose_size: 1
     cheek_size: 1
     cheek_opacity: 0.58
+    gaze_x: 0.55
+    gaze_y: -0.15
+    eye_width_left: 1
+    eye_width_right: 1
+    eye_curve_left: 0
+    eye_curve_right: 0
+    eye_upper_left: 0
+    eye_upper_right: 0
+    eye_lower_left: 0
+    eye_lower_right: 0
+    brow_height_left: 0.2
+    brow_height_right: 0
+    brow_curve_left: 0.1
+    brow_curve_right: 0
+    mouth_corner_left: 0
+    mouth_corner_right: 0
+    mouth_curve: 0
+    mouth_x: 0
+    mouth_y: 0
+    nose_x: 0
+    nose_y: 0
+    cheek_raise_left: 0
+    cheek_raise_right: 0
+    tongue_opacity: 1
   happy:
     eye_left: 1
     eye_right: 1
@@ -307,17 +548,65 @@ expression_presets:
     nose_size: 1
     cheek_size: 1.08
     cheek_opacity: 0.68
+    gaze_x: 0
+    gaze_y: 0
+    eye_width_left: 1
+    eye_width_right: 1
+    eye_curve_left: 1
+    eye_curve_right: 1
+    eye_upper_left: -0.4
+    eye_upper_right: -0.4
+    eye_lower_left: -0.3
+    eye_lower_right: -0.3
+    brow_height_left: 0.1
+    brow_height_right: 0.1
+    brow_curve_left: 0
+    brow_curve_right: 0
+    mouth_corner_left: 0
+    mouth_corner_right: 0
+    mouth_curve: 0.15
+    mouth_x: 0
+    mouth_y: 0
+    nose_x: 0
+    nose_y: 0
+    cheek_raise_left: 0.35
+    cheek_raise_right: 0.35
+    tongue_opacity: 1
   focused:
     eye_left: 0.9
     eye_right: 0.9
-    brow_left: 0.62
-    brow_right: 0.62
+    brow_left: 0.28
+    brow_right: 0.28
     mouth_open: 0.02
     breath: 0
     mouth_width: 0.62
     nose_size: 1
     cheek_size: 0.95
     cheek_opacity: 0.52
+    gaze_x: 0
+    gaze_y: 0
+    eye_width_left: 1
+    eye_width_right: 1
+    eye_curve_left: 0
+    eye_curve_right: 0
+    eye_upper_left: -0.18
+    eye_upper_right: -0.18
+    eye_lower_left: 0
+    eye_lower_right: 0
+    brow_height_left: 0
+    brow_height_right: 0
+    brow_curve_left: 0.15
+    brow_curve_right: 0.15
+    mouth_corner_left: 0
+    mouth_corner_right: 0
+    mouth_curve: -0.15
+    mouth_x: 0
+    mouth_y: 0
+    nose_x: 0
+    nose_y: 0
+    cheek_raise_left: 0
+    cheek_raise_right: 0
+    tongue_opacity: 1
   sleeping:
     eye_left: 0
     eye_right: 0
@@ -329,6 +618,30 @@ expression_presets:
     nose_size: 1
     cheek_size: 1
     cheek_opacity: 0.55
+    gaze_x: 0
+    gaze_y: 0
+    eye_width_left: 1
+    eye_width_right: 1
+    eye_curve_left: 0
+    eye_curve_right: 0
+    eye_upper_left: 0
+    eye_upper_right: 0
+    eye_lower_left: 0
+    eye_lower_right: 0
+    brow_height_left: 0
+    brow_height_right: 0
+    brow_curve_left: 0
+    brow_curve_right: 0
+    mouth_corner_left: 0
+    mouth_corner_right: 0
+    mouth_curve: 0
+    mouth_x: 0
+    mouth_y: 0
+    nose_x: 0
+    nose_y: 0
+    cheek_raise_left: 0
+    cheek_raise_right: 0
+    tongue_opacity: 0
   drowsy:
     eye_left: 0.35
     eye_right: 0.35
@@ -340,6 +653,30 @@ expression_presets:
     nose_size: 1
     cheek_size: 1
     cheek_opacity: 0.58
+    gaze_x: 0
+    gaze_y: 0
+    eye_width_left: 1
+    eye_width_right: 1
+    eye_curve_left: -0.1
+    eye_curve_right: -0.1
+    eye_upper_left: 0
+    eye_upper_right: 0
+    eye_lower_left: 0
+    eye_lower_right: 0
+    brow_height_left: 0
+    brow_height_right: 0
+    brow_curve_left: 0
+    brow_curve_right: 0
+    mouth_corner_left: 0
+    mouth_corner_right: 0
+    mouth_curve: 0
+    mouth_x: 0
+    mouth_y: 0
+    nose_x: 0
+    nose_y: 0
+    cheek_raise_left: 0
+    cheek_raise_right: 0
+    tongue_opacity: 0
   stressed:
     eye_left: 0.48
     eye_right: 0.48
@@ -351,6 +688,30 @@ expression_presets:
     nose_size: 1
     cheek_size: 1
     cheek_opacity: 0.62
+    gaze_x: 0
+    gaze_y: 0
+    eye_width_left: 1
+    eye_width_right: 1
+    eye_curve_left: 0
+    eye_curve_right: 0
+    eye_upper_left: 0
+    eye_upper_right: 0
+    eye_lower_left: 0
+    eye_lower_right: 0
+    brow_height_left: 0
+    brow_height_right: 0
+    brow_curve_left: 0
+    brow_curve_right: 0
+    mouth_corner_left: -0.1
+    mouth_corner_right: -0.1
+    mouth_curve: -0.65
+    mouth_x: 0
+    mouth_y: 0
+    nose_x: 0
+    nose_y: 0
+    cheek_raise_left: 0
+    cheek_raise_right: 0
+    tongue_opacity: 0
   embarrassed:
     eye_left: 0.65
     eye_right: 0.65
@@ -362,6 +723,30 @@ expression_presets:
     nose_size: 1
     cheek_size: 1.08
     cheek_opacity: 0.76
+    gaze_x: -0.3
+    gaze_y: 0.25
+    eye_width_left: 1
+    eye_width_right: 1
+    eye_curve_left: 0
+    eye_curve_right: 0
+    eye_upper_left: 0
+    eye_upper_right: 0
+    eye_lower_left: 0
+    eye_lower_right: 0
+    brow_height_left: 0
+    brow_height_right: 0
+    brow_curve_left: 0
+    brow_curve_right: 0
+    mouth_corner_left: 0.12
+    mouth_corner_right: 0
+    mouth_curve: 0
+    mouth_x: 0
+    mouth_y: 0
+    nose_x: 0
+    nose_y: 0
+    cheek_raise_left: 0.15
+    cheek_raise_right: 0.15
+    tongue_opacity: 1
   worried:
     eye_left: 1
     eye_right: 1
@@ -373,6 +758,30 @@ expression_presets:
     nose_size: 1
     cheek_size: 1
     cheek_opacity: 0.58
+    gaze_x: 0
+    gaze_y: 0
+    eye_width_left: 1
+    eye_width_right: 1
+    eye_curve_left: 0
+    eye_curve_right: 0
+    eye_upper_left: 0
+    eye_upper_right: 0
+    eye_lower_left: 0
+    eye_lower_right: 0
+    brow_height_left: 0.12
+    brow_height_right: 0.12
+    brow_curve_left: 0
+    brow_curve_right: 0
+    mouth_corner_left: -0.2
+    mouth_corner_right: -0.2
+    mouth_curve: -0.65
+    mouth_x: 0
+    mouth_y: 0
+    nose_x: 0
+    nose_y: 0
+    cheek_raise_left: 0
+    cheek_raise_right: 0
+    tongue_opacity: 0
   afraid:
     eye_left: 1
     eye_right: 1
@@ -384,6 +793,30 @@ expression_presets:
     nose_size: 1
     cheek_size: 1
     cheek_opacity: 0.58
+    gaze_x: 0
+    gaze_y: 0
+    eye_width_left: 1
+    eye_width_right: 1
+    eye_curve_left: 0
+    eye_curve_right: 0
+    eye_upper_left: 0.25
+    eye_upper_right: 0.25
+    eye_lower_left: 0.2
+    eye_lower_right: 0.2
+    brow_height_left: 0
+    brow_height_right: 0
+    brow_curve_left: 0
+    brow_curve_right: 0
+    mouth_corner_left: 0
+    mouth_corner_right: 0
+    mouth_curve: -0.25
+    mouth_x: 0
+    mouth_y: 0
+    nose_x: 0
+    nose_y: 0
+    cheek_raise_left: 0
+    cheek_raise_right: 0
+    tongue_opacity: 0
 # Shape controls affect only the outline anchors and their child handles.
 # Speed is cycles/second; phase is integrated, never recomputed from elapsed * speed.
 contour:
@@ -1025,125 +1458,77 @@ points:
   - 0
   - 0
 - name: eye.left.p0
-  position:
-  - -0.093
-  - -0.011
+  position: [-0.105, -0.005]
   parent: eye.left
   role: knot
   channel: eye_left
-  delta:
-  - 0.0
-  - 0.011000000000000003
+  delta: [0.011999999999999997, 0.005000000000000004]
 - name: eye.left.p1
-  position:
-  - -0.093
-  - -0.011
+  position: [-0.105, -0.019]
   parent: eye.left
   role: handle
   channel: eye_left
-  delta:
-  - 0.0
-  - -0.05858787850000001
+  delta: [0.011999999999999997, -0.0505878785]
 - name: eye.left.p2
-  position:
-  - -0.051362482
-  - 0.015
+  position: [-0.051362482, 0.03]
   parent: eye.left
   role: handle
   channel: eye_left
-  delta:
-  - 0.0
-  - -0.141
+  delta: [0, -0.156]
 - name: eye.left.p3
-  position:
-  - 0.0
-  - 0.025
+  position: [0, 0.03]
   parent: eye.left
   role: knot
   channel: eye_left
-  delta:
-  - 0.0
-  - -0.151
+  delta: [0, -0.156]
 - name: eye.left.p4
-  position:
-  - 0.051362482
-  - 0.015
+  position: [0.051362482, 0.03]
   parent: eye.left
   role: handle
   channel: eye_left
-  delta:
-  - 0.0
-  - -0.141
+  delta: [0, -0.156]
 - name: eye.left.p5
-  position:
-  - 0.093
-  - -0.011
+  position: [0.105, -0.019]
   parent: eye.left
   role: handle
   channel: eye_left
-  delta:
-  - 0.0
-  - -0.05858787850000001
+  delta: [-0.011999999999999997, -0.0505878785]
 - name: eye.left.p6
-  position:
-  - 0.093
-  - -0.011
+  position: [0.105, -0.005]
   parent: eye.left
   role: knot
   channel: eye_left
-  delta:
-  - 0.0
-  - 0.011000000000000003
+  delta: [-0.011999999999999997, 0.005000000000000004]
 - name: eye.left.p7
-  position:
-  - 0.093
-  - 0.011
+  position: [0.105, 0.009]
   parent: eye.left
   role: handle
   channel: eye_left
-  delta:
-  - 0.0
-  - 0.05858787850000001
+  delta: [-0.011999999999999997, 0.060587878500000004]
 - name: eye.left.p8
-  position:
-  - 0.051362482
-  - 0.038
+  position: [0.051362482, 0.056]
   parent: eye.left
   role: handle
   channel: eye_left
-  delta:
-  - 0.0
-  - 0.088
+  delta: [0, 0.07]
 - name: eye.left.p9
-  position:
-  - 0.0
-  - 0.045
+  position: [0, 0.056]
   parent: eye.left
   role: knot
   channel: eye_left
-  delta:
-  - 0.0
-  - 0.081
+  delta: [0, 0.07]
 - name: eye.left.p10
-  position:
-  - -0.051362482
-  - 0.038
+  position: [-0.051362482, 0.056]
   parent: eye.left
   role: handle
   channel: eye_left
-  delta:
-  - 0.0
-  - 0.088
+  delta: [0, 0.07]
 - name: eye.left.p11
-  position:
-  - -0.093
-  - 0.011
+  position: [-0.105, 0.009]
   parent: eye.left
   role: handle
   channel: eye_left
-  delta:
-  - 0.0
-  - 0.05858787850000001
+  delta: [0.011999999999999997, 0.060587878500000004]
 - name: eye.left.shine
   position:
   - 0.027
@@ -1335,125 +1720,77 @@ points:
   - 0
   - 0
 - name: eye.right.p0
-  position:
-  - -0.093
-  - -0.011
+  position: [-0.105, -0.005]
   parent: eye.right
   role: knot
   channel: eye_right
-  delta:
-  - 0.0
-  - 0.011000000000000003
+  delta: [0.011999999999999997, 0.005000000000000004]
 - name: eye.right.p1
-  position:
-  - -0.093
-  - -0.011
+  position: [-0.105, -0.019]
   parent: eye.right
   role: handle
   channel: eye_right
-  delta:
-  - 0.0
-  - -0.05858787850000001
+  delta: [0.011999999999999997, -0.0505878785]
 - name: eye.right.p2
-  position:
-  - -0.051362482
-  - 0.015
+  position: [-0.051362482, 0.03]
   parent: eye.right
   role: handle
   channel: eye_right
-  delta:
-  - 0.0
-  - -0.141
+  delta: [0, -0.156]
 - name: eye.right.p3
-  position:
-  - 0.0
-  - 0.025
+  position: [0, 0.03]
   parent: eye.right
   role: knot
   channel: eye_right
-  delta:
-  - 0.0
-  - -0.151
+  delta: [0, -0.156]
 - name: eye.right.p4
-  position:
-  - 0.051362482
-  - 0.015
+  position: [0.051362482, 0.03]
   parent: eye.right
   role: handle
   channel: eye_right
-  delta:
-  - 0.0
-  - -0.141
+  delta: [0, -0.156]
 - name: eye.right.p5
-  position:
-  - 0.093
-  - -0.011
+  position: [0.105, -0.019]
   parent: eye.right
   role: handle
   channel: eye_right
-  delta:
-  - 0.0
-  - -0.05858787850000001
+  delta: [-0.011999999999999997, -0.0505878785]
 - name: eye.right.p6
-  position:
-  - 0.093
-  - -0.011
+  position: [0.105, -0.005]
   parent: eye.right
   role: knot
   channel: eye_right
-  delta:
-  - 0.0
-  - 0.011000000000000003
+  delta: [-0.011999999999999997, 0.005000000000000004]
 - name: eye.right.p7
-  position:
-  - 0.093
-  - 0.011
+  position: [0.105, 0.009]
   parent: eye.right
   role: handle
   channel: eye_right
-  delta:
-  - 0.0
-  - 0.05858787850000001
+  delta: [-0.011999999999999997, 0.060587878500000004]
 - name: eye.right.p8
-  position:
-  - 0.051362482
-  - 0.038
+  position: [0.051362482, 0.056]
   parent: eye.right
   role: handle
   channel: eye_right
-  delta:
-  - 0.0
-  - 0.088
+  delta: [0, 0.07]
 - name: eye.right.p9
-  position:
-  - 0.0
-  - 0.045
+  position: [0, 0.056]
   parent: eye.right
   role: knot
   channel: eye_right
-  delta:
-  - 0.0
-  - 0.081
+  delta: [0, 0.07]
 - name: eye.right.p10
-  position:
-  - -0.051362482
-  - 0.038
+  position: [-0.051362482, 0.056]
   parent: eye.right
   role: handle
   channel: eye_right
-  delta:
-  - 0.0
-  - 0.088
+  delta: [0, 0.07]
 - name: eye.right.p11
-  position:
-  - -0.093
-  - 0.011
+  position: [-0.105, 0.009]
   parent: eye.right
   role: handle
   channel: eye_right
-  delta:
-  - 0.0
-  - 0.05858787850000001
+  delta: [0.011999999999999997, 0.060587878500000004]
 - name: eye.right.shine
   position:
   - 0.027
@@ -1778,95 +2115,77 @@ points:
   - 0
   - 0
 - name: mouth.p0
-  position:
-  - -0.1652
-  - -0.04
+  position: [-0.1652, -0.02]
   parent: mouth
   role: knot
   channel: mouth_open
-  delta:
-  - 0
-  - 0
+  delta: [0, 0]
 - name: mouth.p1
-  position:
-  - -0.0944
-  - 0.02
+  position: [-0.1652, -0.035]
   parent: mouth
   role: handle
   channel: mouth_open
-  delta:
-  - 0
-  - -0.15
+  delta: [0, -0.045]
 - name: mouth.p2
-  position:
-  - 0.0944
-  - 0.02
+  position: [-0.0708, 0.018]
   parent: mouth
   role: handle
   channel: mouth_open
-  delta:
-  - 0
-  - -0.15
+  delta: [0, -0.125]
 - name: mouth.p3
-  position:
-  - 0.1652
-  - -0.04
+  position: [0, 0.018]
   parent: mouth
   role: knot
   channel: mouth_open
-  delta:
-  - 0
-  - 0
+  delta: [0, -0.125]
 - name: mouth.p4
-  position:
-  - 0.1298
-  - 0.012
+  position: [0.0708, 0.018]
   parent: mouth
   role: handle
   channel: mouth_open
-  delta:
-  - 0
-  - 0.055
+  delta: [0, -0.125]
 - name: mouth.p5
-  position:
-  - 0.0708
-  - 0.018
+  position: [0.1652, -0.035]
   parent: mouth
   role: handle
   channel: mouth_open
-  delta:
-  - 0
-  - 0.13
+  delta: [0, -0.045]
 - name: mouth.p6
-  position:
-  - 0
-  - 0.018
+  position: [0.1652, -0.02]
   parent: mouth
   role: knot
   channel: mouth_open
-  delta:
-  - 0
-  - 0.13
+  delta: [0, 0]
 - name: mouth.p7
-  position:
-  - -0.0708
-  - 0.018
+  position: [0.1652, -0.005]
   parent: mouth
   role: handle
   channel: mouth_open
-  delta:
-  - 0
-  - 0.13
+  delta: [0, 0.045]
 - name: mouth.p8
-  position:
-  - -0.1298
-  - 0.012
+  position: [0.0708, 0.032]
   parent: mouth
   role: handle
   channel: mouth_open
-  delta:
-  - 0
-  - 0.055
+  delta: [0, 0.125]
+- name: mouth.p9
+  position: [0, 0.032]
+  parent: mouth
+  role: knot
+  channel: mouth_open
+  delta: [0, 0.125]
+- name: mouth.p10
+  position: [-0.0708, 0.032]
+  parent: mouth
+  role: handle
+  channel: mouth_open
+  delta: [0, 0.125]
+- name: mouth.p11
+  position: [-0.1652, -0.005]
+  parent: mouth
+  role: handle
+  channel: mouth_open
+  delta: [0, 0.045]
 # The lower tongue follows the same mouth anchor, width and opening controls.
 # Its rounded silhouette keeps a thin ink rim and is clipped by the exact lip.
 - name: mouth.tongue.p0
@@ -2444,23 +2763,13 @@ curves:
   - nose.p11
   - nose.p0
 - name: mouth.curve.0
-  points:
-  - mouth.p0
-  - mouth.p1
-  - mouth.p2
-  - mouth.p3
+  points: [mouth.p0, mouth.p1, mouth.p2, mouth.p3]
 - name: mouth.curve.1
-  points:
-  - mouth.p3
-  - mouth.p4
-  - mouth.p5
-  - mouth.p6
+  points: [mouth.p3, mouth.p4, mouth.p5, mouth.p6]
 - name: mouth.curve.2
-  points:
-  - mouth.p6
-  - mouth.p7
-  - mouth.p8
-  - mouth.p0
+  points: [mouth.p6, mouth.p7, mouth.p8, mouth.p9]
+- name: mouth.curve.3
+  points: [mouth.p9, mouth.p10, mouth.p11, mouth.p0]
 - name: mouth.tongue.curve.0
   points: [mouth.tongue.p0, mouth.tongue.p1, mouth.tongue.p2, mouth.tongue.p3]
 - name: mouth.tongue.curve.1
@@ -2577,6 +2886,7 @@ paths:
   - cheek.right.curve.3
 - name: eye.left
   paint: ink
+  antialiasing: coverage
   stroke: 0
   visible: null
   curves:
@@ -2586,8 +2896,10 @@ paths:
   - eye.left.curve.3
 - name: eye.left.shine
   paint: highlight
+  antialiasing: coverage
   stroke: 0
   visible: eye_left
+  clip: eye.left
   curves:
   - eye.left.shine.curve.0
   - eye.left.shine.curve.1
@@ -2595,12 +2907,13 @@ paths:
   - eye.left.shine.curve.3
 - name: brow.left
   paint: ink
-  stroke: 0.042
+  stroke: 0.048
   visible: null
   curves:
   - brow.left.curve.0
 - name: eye.right
   paint: ink
+  antialiasing: coverage
   stroke: 0
   visible: null
   curves:
@@ -2610,8 +2923,10 @@ paths:
   - eye.right.curve.3
 - name: eye.right.shine
   paint: highlight
+  antialiasing: coverage
   stroke: 0
   visible: eye_right
+  clip: eye.right
   curves:
   - eye.right.shine.curve.0
   - eye.right.shine.curve.1
@@ -2619,7 +2934,7 @@ paths:
   - eye.right.shine.curve.3
 - name: brow.right
   paint: ink
-  stroke: 0.042
+  stroke: 0.048
   visible: null
   curves:
   - brow.right.curve.0
@@ -2641,6 +2956,7 @@ paths:
   - mouth.curve.0
   - mouth.curve.1
   - mouth.curve.2
+  - mouth.curve.3
 - name: mouth.tongue
   paint: tongue
   antialiasing: coverage
@@ -2669,6 +2985,30 @@ boot_channels:
     nose_size: 1
     cheek_size: 1
     cheek_opacity: 0.55
+    gaze_x: 0
+    gaze_y: 0
+    eye_width_left: 1
+    eye_width_right: 1
+    eye_curve_left: 0
+    eye_curve_right: 0
+    eye_upper_left: 0
+    eye_upper_right: 0
+    eye_lower_left: 0
+    eye_lower_right: 0
+    brow_height_left: 0
+    brow_height_right: 0
+    brow_curve_left: 0
+    brow_curve_right: 0
+    mouth_corner_left: 0
+    mouth_corner_right: 0
+    mouth_curve: 0
+    mouth_x: 0
+    mouth_y: 0
+    nose_x: 0
+    nose_y: 0
+    cheek_raise_left: 0
+    cheek_raise_right: 0
+    tongue_opacity: 1
   waking:
     eye_left: 0.35
     eye_right: 0.35
@@ -2680,6 +3020,30 @@ boot_channels:
     nose_size: 1
     cheek_size: 1
     cheek_opacity: 0.58
+    gaze_x: 0
+    gaze_y: 0
+    eye_width_left: 1
+    eye_width_right: 1
+    eye_curve_left: 0
+    eye_curve_right: 0
+    eye_upper_left: 0
+    eye_upper_right: 0
+    eye_lower_left: 0
+    eye_lower_right: 0
+    brow_height_left: 0
+    brow_height_right: 0
+    brow_curve_left: 0
+    brow_curve_right: 0
+    mouth_corner_left: 0
+    mouth_corner_right: 0
+    mouth_curve: 0
+    mouth_x: 0
+    mouth_y: 0
+    nose_x: 0
+    nose_y: 0
+    cheek_raise_left: 0
+    cheek_raise_right: 0
+    tongue_opacity: 1
   ready:
     eye_left: 1
     eye_right: 1
@@ -2691,3 +3055,27 @@ boot_channels:
     nose_size: 1
     cheek_size: 1
     cheek_opacity: 0.58
+    gaze_x: 0
+    gaze_y: 0
+    eye_width_left: 1
+    eye_width_right: 1
+    eye_curve_left: 0
+    eye_curve_right: 0
+    eye_upper_left: 0
+    eye_upper_right: 0
+    eye_lower_left: 0
+    eye_lower_right: 0
+    brow_height_left: 0
+    brow_height_right: 0
+    brow_curve_left: 0
+    brow_curve_right: 0
+    mouth_corner_left: 0
+    mouth_corner_right: 0
+    mouth_curve: 0
+    mouth_x: 0
+    mouth_y: 0
+    nose_x: 0
+    nose_y: 0
+    cheek_raise_left: 0
+    cheek_raise_right: 0
+    tongue_opacity: 1
