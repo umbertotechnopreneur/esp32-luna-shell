@@ -241,6 +241,14 @@ record through the internal-stack settings owner, and wipes attempt secrets at
 success, timeout or cancellation. A genuinely absent record is unpaired; wrong
 size, version, CRC or contents is a visible failure requiring explicit repair.
 The PC plugin listens on UDP 42118 and retains its independently generated PC ID.
+CCP is available through the repository-local marketplace catalog at
+`.agents/plugins/marketplace.json`; its Python MCP entrypoint and installation
+workflow are described in the [CCP guide](../../../plugins/cody-codex-plugin/README.md).
+The PC acquires its exclusive listener before reading or creating that identity.
+Its status remains disconnected after commissioning until authenticated
+FIND/READY is observed, then expires after ten monotonic seconds without a new
+observation. Listener failure remains a real tool error. These PC-side observations
+do not publish synthetic firmware sensor data or imply a Codex chat connection.
 The CCP application worker's 8-KiB stack uses PSRAM. Its UDP/crypto work delegates
 all persisted writes to the existing internal settings executor; radio lifecycle
 and pairing-owner stacks retain their internal-memory ownership.

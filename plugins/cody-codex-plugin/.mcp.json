@@ -1,12 +1,13 @@
 {
   "mcpServers": {
     "ccp": {
-      "title": "Cody's Codex Plugin",
+      "title": "CCP - Cody's Codex Plugin",
       "description": "Discover, pair, and inspect Cody devices on the local network.",
-      "cwd": ".",
+      "cwd": "${PLUGIN_ROOT}",
       "command": "python",
       "args": [
-        "./mcp/ccp_server.py",
+        "-B",
+        "${PLUGIN_ROOT}/mcp/ccp_server.py",
         "--stdio"
       ]
     }

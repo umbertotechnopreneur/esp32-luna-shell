@@ -5,6 +5,7 @@
       "type": "stdio",
       "command": "python",
       "args": [
+        "-B",
         "${PLUGIN_ROOT}/mcp/ccp_server.py",
         "--stdio"
       ],

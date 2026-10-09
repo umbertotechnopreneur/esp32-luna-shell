@@ -1,4 +1,4 @@
-"""Cody's Codex Plugin MCP server and bounded local-network responder."""
+"""CCP: Cody's Codex Plugin MCP server and bounded local-network responder."""
 
 from __future__ import annotations
 
@@ -26,6 +26,8 @@ DEVICE_PORT = 42117
 PLUGIN_PORT = 42118
 MAX_DATAGRAM_BYTES = 512
 PBKDF2_ITERATIONS = 50_000
+SERVER_VERSION = "0.2.0"
+LIVENESS_TIMEOUT_SECONDS = 10.0
 CODE_PATTERN = re.compile(r"^[A-HJ-NP-Z2-9]{6}$")
 HEX_PATTERNS = {
     "request": re.compile(r"^[0-9a-f]{16}$"),
@@ -57,6 +59,7 @@ class PairingRecord:
     paired_at: float
     last_seen_at: float = 0.0
     last_address: str = ""
+    last_seen_monotonic: float | None = None
 
 
 class DataBlob(ctypes.Structure):
@@ -240,6 +243,17 @@ def offer_from_fields(fields: dict[str, str], address: str, request_id: str) -> 
     )
 
 
+# pairs: Persisted JSON object members before dictionary conversion can hide duplicates.
+# Raises ValueError when a stored object contains an ambiguous repeated field.
+def unique_state_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for name, value in pairs:
+        if name in result:
+            raise ValueError(f"CCP state contains duplicate field {name!r}")
+        result[name] = value
+    return result
+
+
 class StateStore:
     # No parameters: loads or creates the current Windows user's CCP identity.
     # Raises RuntimeError for corrupt, partial, inaccessible, or unprotectable state.
@@ -256,16 +270,25 @@ class StateStore:
     # No parameters: reads one exact versioned document or creates a genuinely absent identity.
     # Raises RuntimeError for invalid types, versions, identities, records, or filesystem failures.
     def _load(self) -> None:
-        if not self._path.exists():
+        try:
+            saved_text = self._path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            # Only a missing file grants first-use identity creation. A read
+            # error must leave an existing identity and its keys untouched.
+            print("CCP state absent: first use; persist a new PC identity", file=sys.stderr, flush=True)
             self.pc_id = secrets.token_hex(16)
             self._save_locked()
             return
-        try:
-            document = json.loads(self._path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        except (OSError, UnicodeError) as error:
             raise RuntimeError(f"CCP state read failed: {error}") from error
-        if not isinstance(document, dict) or document.get("version") != 1:
-            raise RuntimeError("CCP state version is missing or unsupported")
+        try:
+            document = json.loads(saved_text, object_pairs_hook=unique_state_object)
+        except ValueError as error:
+            raise RuntimeError(f"CCP state read failed: {error}") from error
+        if not isinstance(document, dict) or set(document) != {"version", "pc_id", "records"}:
+            raise RuntimeError("CCP state fields are missing or unexpected")
+        if type(document["version"]) is not int or document["version"] != 1:
+            raise RuntimeError("CCP state version is invalid or unsupported")
         pc_id = document.get("pc_id")
         records = document.get("records")
         if not isinstance(pc_id, str) or HEX_PATTERNS["pc"].fullmatch(pc_id) is None:
@@ -280,12 +303,14 @@ class StateStore:
             device_id = item["device_id"]
             protected_link_key = item["protected_link_key"]
             paired_at = item["paired_at"]
+            # A UTC epoch must be finite and representable through year 9999;
+            # the same range check rejects NaN/infinity without substitution.
             if (
                 not isinstance(device_id, str)
                 or not isinstance(protected_link_key, str)
                 or not isinstance(paired_at, (int, float))
                 or isinstance(paired_at, bool)
-                or paired_at <= 0
+                or not 0 < paired_at <= 253402300799
             ):
                 raise RuntimeError("CCP state contains invalid pairing record values")
             record = PairingRecord(device_id, protected_link_key, float(paired_at))
@@ -330,7 +355,9 @@ class StateStore:
         protected = protect_secret(link_key, f"CCP link key for Cody {device_id}")
         with self._lock:
             previous = self.records.get(device_id)
-            record = PairingRecord(device_id, protected, time.time(), time.time(), address)
+            # Persistence and ACTIVE confirm commissioning, not renewable
+            # presence. Only an authenticated FIND/READY exchange marks seen.
+            record = PairingRecord(device_id, protected, time.time(), last_address=address)
             self.records[device_id] = record
             try:
                 self._save_locked()
@@ -358,37 +385,58 @@ class StateStore:
             record = self.records.get(device_id)
             if record is not None:
                 record.last_seen_at = time.time()
+                record.last_seen_monotonic = time.monotonic()
                 record.last_address = address
 
     # No parameters: returns a bounded non-secret copy for MCP results.
     def public_status(self) -> list[dict[str, Any]]:
         with self._lock:
-            now = time.time()
+            # Wall time is retained for display; clock corrections cannot
+            # extend or prematurely expire the authenticated liveness lease.
+            now = time.monotonic()
             return [
                 {
                     "device_id": record.device_id,
                     "paired_at": record.paired_at,
                     "last_seen_at": record.last_seen_at,
                     "last_address": record.last_address or None,
-                    "connected": record.last_seen_at > 0 and now - record.last_seen_at <= 10.0,
+                    "connected": (
+                        record.last_seen_monotonic is not None
+                        and 0 <= now - record.last_seen_monotonic <= LIVENESS_TIMEOUT_SECONDS
+                    ),
                 }
                 for record in sorted(self.records.values(), key=lambda value: value.device_id)
             ]
 
 
-class CompanionResponder:
-    # state: Persistent PC/device relationships shared with pairing tool calls.
-    # Raises OSError when UDP port 42118 cannot be bound.
-    def __init__(self, state: StateStore) -> None:
-        self._state = state
-        self._stop = threading.Event()
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+# No parameters: acquires the one lifetime UDP listener before any identity read/write.
+# Raises OSError when exclusive ownership of UDP port 42118 cannot be acquired.
+def open_companion_listener() -> socket.socket:
+    listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
         if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
             # One PC identity has one liveness owner. Ambiguous same-host CCP
             # processes must fail visibly instead of sharing the fixed port.
-            self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-        self._socket.bind(("", PLUGIN_PORT))
-        self._socket.settimeout(0.25)
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        listener.bind(("", PLUGIN_PORT))
+        listener.settimeout(0.25)
+    except BaseException:
+        try:
+            listener.close()
+        except OSError as cleanup_error:
+            print(f"CCP listener cleanup failed: {cleanup_error}", file=sys.stderr, flush=True)
+        raise
+    return listener
+
+
+class CompanionResponder:
+    # state: Persistent PC/device relationships shared with pairing tool calls.
+    # listener: Exclusively bound socket transferred by the service after state loads.
+    def __init__(self, state: StateStore, listener: socket.socket) -> None:
+        self._state = state
+        self._stop = threading.Event()
+        self._socket = listener
+        self._receive_error: OSError | None = None
         self._thread = threading.Thread(target=self._run, name="CCP-responder", daemon=True)
 
     # No parameters: starts exactly one background authenticated liveness responder.
@@ -396,10 +444,22 @@ class CompanionResponder:
         self._thread.start()
 
     # No parameters: requests shutdown and closes the owned socket after the worker exits.
+    # Raises RuntimeError if the worker still owns the socket after the shutdown deadline.
+    # Raises OSError if socket closure fails.
     def close(self) -> None:
         self._stop.set()
         self._thread.join(timeout=1.0)
+        if self._thread.is_alive():
+            raise RuntimeError("CCP responder did not stop before the shutdown deadline")
         self._socket.close()
+
+    # No parameters: requires the lifetime listener to remain alive for every tool operation.
+    # Raises the original receive OSError or RuntimeError for an unexpectedly stopped worker.
+    def require_running(self) -> None:
+        if self._receive_error is not None:
+            raise self._receive_error
+        if not self._thread.is_alive():
+            raise RuntimeError("CCP responder is not running")
 
     # No parameters: receives bounded FIND datagrams without writing to MCP stdout.
     def _run(self) -> None:
@@ -410,6 +470,7 @@ class CompanionResponder:
                 continue
             except OSError as error:
                 if not self._stop.is_set():
+                    self._receive_error = error
                     print(f"CCP UDP receive failed: {error}", file=sys.stderr, flush=True)
                 return
             try:
@@ -457,13 +518,26 @@ class CcpService:
     # No parameters: loads protected state and starts the local authenticated responder.
     # Raises RuntimeError or OSError when state or the fixed UDP listener is unavailable.
     def __init__(self) -> None:
-        self.state = StateStore()
-        self.responder = CompanionResponder(self.state)
-        self.responder.start()
+        if os.name != "nt":
+            raise RuntimeError("CCP requires Windows for protected pairing persistence")
+        # Acquire ownership first: a second process must fail without creating,
+        # reading or overwriting the first process's PC identity and records.
+        listener = open_companion_listener()
+        try:
+            self.state = StateStore()
+            self.responder = CompanionResponder(self.state, listener)
+            self.responder.start()
+        except BaseException:
+            try:
+                listener.close()
+            except OSError as cleanup_error:
+                print(f"CCP startup cleanup failed: {cleanup_error}", file=sys.stderr, flush=True)
+            raise
         self._offers: dict[tuple[str, str], Offer] = {}
         self._offers_lock = threading.Lock()
 
     # No parameters: stops the background UDP listener.
+    # Raises RuntimeError or OSError when responder shutdown or socket closure fails.
     def close(self) -> None:
         self.responder.close()
 
@@ -724,8 +798,12 @@ def tool_result(payload: dict[str, Any], summary: str, is_error: bool = False) -
 # name: MCP tool name selected by Codex.
 # arguments: Validated-at-boundary JSON object supplied by Codex.
 # Raises ValueError for unknown tools or invalid argument types.
+# Raises OSError or RuntimeError for responder, network or persistence failures.
 def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    service.responder.require_running()
     if name == "ccp_discover_devices":
+        if set(arguments) - {"timeout_ms"}:
+            raise ValueError("Discovery arguments contain unexpected fields")
         timeout_ms = arguments.get("timeout_ms", 1200)
         if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool):
             raise ValueError("timeout_ms must be an integer")
@@ -735,6 +813,8 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
             f"Discovered {len(offers)} Cody pairing offer(s) on the local network.",
         )
     if name == "ccp_pair_device":
+        if set(arguments) != {"code"}:
+            raise ValueError("Pairing requires exactly the code argument")
         code = arguments.get("code")
         if not isinstance(code, str):
             raise ValueError("code must be a string")
@@ -744,6 +824,8 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
             f"Cody {paired['device_id']} confirmed pairing with this CCP instance.",
         )
     if name == "ccp_connection_status":
+        if arguments:
+            raise ValueError("Connection status does not accept arguments")
         devices = service.state.public_status()
         return tool_result(
             {"pc_id": service.state.pc_id, "devices": devices, "count": len(devices)},
@@ -771,7 +853,11 @@ def handle_request(request: dict[str, Any], service: CcpService) -> dict[str, An
             "result": {
                 "protocolVersion": protocol_version,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "cody-codex-plugin", "version": "0.1.0"},
+                "serverInfo": {
+                    "name": "cody-codex-plugin",
+                    "title": "CCP",
+                    "version": SERVER_VERSION,
+                },
                 "instructions": (
                     "Discover before pairing. Pair only with the six-character code visible "
                     "on the physical Cody display. Never reveal cryptographic protocol fields."
@@ -792,6 +878,7 @@ def handle_request(request: dict[str, Any], service: CcpService) -> dict[str, An
         try:
             result = call_tool(service, params["name"], arguments)
         except (OSError, RuntimeError, TimeoutError, ValueError) as error:
+            print(f"CCP tool operation failed: {error}", file=sys.stderr, flush=True)
             result = tool_result({"error": str(error)}, str(error), True)
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
     if request_id is None:
@@ -899,7 +986,7 @@ def run_stdio() -> int:
 
 # argv: Optional explicit command-line values used by packaging or diagnostics.
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Cody's Codex Plugin MCP server")
+    parser = argparse.ArgumentParser(description="CCP - Cody's Codex Plugin MCP server")
     parser.add_argument("--stdio", action="store_true", help="run the MCP STDIO transport")
     arguments = parser.parse_args(argv)
     if not arguments.stdio:

@@ -133,6 +133,12 @@ ready|<device>|<pc>|<nonce>
 
 Repeated authenticated FIND/READY exchanges are liveness evidence only. They
 do not prove that a Codex task, project, thread, or message transport exists.
+On the PC, a newly persisted pairing has no liveness timestamp. The responder
+marks it seen only after verifying FIND and successfully sending READY. The
+ten-second PC presence deadline uses a monotonic clock; wall time is retained
+only for the reported observation timestamp. A stopped responder is an actual
+MCP tool error. The listener is acquired before any protected-state access so a
+second local process cannot race first-use identity creation.
 
 ## Security boundary
 

@@ -24,6 +24,26 @@ flash logs were regenerated.
   configure/build/size, simulator, plugin execution or device operations ran.
   Existing open checks and physical evidence requirements remain in TODO.md.
 
+## CCP Python integration preparation - 2026-10-09
+
+- Followed the unchanged ten-page `docs/cody/cody-ccp-service-atlas-v1.pdf` and
+  extended the existing Python MCP service rather than adding another owner.
+  CCP remains discovery, display-code commissioning and authenticated presence;
+  Codex chat/task/message transport remains deferred.
+- Added a repository-local marketplace catalog, CCP display branding and
+  synchronized 0.2.0 package/server versions. Both installed MCP entrypoints use
+  the plugin-root path and Python `-B`; no user Codex configuration was changed.
+- Acquired the exclusive UDP listener before protected-state access, retained
+  real startup/receive/shutdown failures and rejected duplicate/invalid persisted
+  fields without repair. Commissioning no longer invents presence; only verified
+  FIND/READY starts the ten-second monotonic PC liveness lease.
+- Prepared host regressions behind `scripts/device.ps1 check -Check cody-ccp`
+  for source packaging, denied/corrupt state, listener ownership/failure and
+  proof/nonce checks, two-sided confirmation and presence versus persistence/clock
+  correction. Static source review
+  only: suite execution, installation, LAN/device observation and all firmware
+  validation remain pending. No PDF was revised and no refs were pushed.
+
 ## Requested recognition-only voice selection — 2026-10-07
 
 - Added the pinned Espressif Jarvis and Computer WakeNet weights beside Sophia,

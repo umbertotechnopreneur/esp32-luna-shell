@@ -1,0 +1,20 @@
+{
+  "name": "cody-local",
+  "interface": {
+    "displayName": "Cody local plugins"
+  },
+  "plugins": [
+    {
+      "name": "cody-codex-plugin",
+      "source": {
+        "source": "local",
+        "path": "./plugins/cody-codex-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

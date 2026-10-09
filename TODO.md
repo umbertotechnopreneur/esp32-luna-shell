@@ -316,6 +316,11 @@ every open physical observation below remains open.
   with one and many PCs, Windows private-firewall rules, wrong/expired codes,
   corrupt persisted records, packet loss, liveness loss/recovery and later
   re-entry through reusable 36/11. Wi-Fi/BLE alone must leave 14 pending.
+- [ ] With fresh approval, run `scripts/device.ps1 check -Check cody-ccp` for
+  the prepared host-only ownership, persistence, liveness and packaging regressions.
+  Then separately authorize actual CCP local-marketplace installation/lifetime
+  observation in Codex and physical pairing/reconnect. The Python implementation
+  is source-reviewed; neither host success nor a stored pair proves screen 15.
 - [ ] Validate teletype titles/body/footer/look/status and original microclick:
   completed-frame reveal only, no clicks on scrolling/replacement/resume,
   bounded notifications, quiet/time/volume gating, excluded-audio profiles,

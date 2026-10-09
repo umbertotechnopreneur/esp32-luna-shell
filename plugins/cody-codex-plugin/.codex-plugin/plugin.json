@@ -1,7 +1,7 @@
 {
   "name": "cody-codex-plugin",
-  "version": "0.1.0",
-  "description": "Discover and pair a Cody device on the local network from Codex.",
+  "version": "0.2.0",
+  "description": "CCP: discover and pair Cody on the local network from Codex.",
   "author": {
     "name": "Umberto Giacobbi"
   },
@@ -16,7 +16,7 @@
   "mcpServers": "./.mcp.json",
   "requires_local_executor": true,
   "interface": {
-    "displayName": "Cody's Codex Plugin",
+    "displayName": "CCP - Cody's Codex Plugin",
     "shortDescription": "Pair Cody with Codex on the local network.",
     "longDescription": "Cody's Codex Plugin (CCP) discovers Cody devices on the local network, matches the six-character code shown on the physical display, and maintains the authenticated local companion identity used by Cody.",
     "developerName": "Umberto Giacobbi",
