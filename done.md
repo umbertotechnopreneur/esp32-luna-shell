@@ -49,6 +49,15 @@ flash logs were regenerated.
   skin-scrollbar palette reference. Corrected that reference to semantic teal;
   no warning suppression. The acquisition INVALID_RESPONSE/NACK qualification
   was also made explicit in source comments and all five revised flow pages.
+- The repeated authorized Debug wake-word installation completed with eight jobs
+  and COM10 flash at source `010f76e0`, version `cody-9-g010f76e0`. Four image hashes
+  were verified and RTS reset completed. Sophia and prerecorded audio were retained;
+  no NVS/LittleFS/full-device erase. Application: 6,705,536 bytes, SHA-256
+  `94421604c3e85d397cd126f488a11d8c9b4533ee633564a18a605dfeb12d3511`.
+  Evidence: `artifacts/logs/flash.log`. The shared required cleanup removed temporary
+  PDF renders/staging and earlier captures after recording their findings; tracked
+  PDFs and approved images remain. No post-install capture, simulator, tests or
+  validation scans ran. Physical layout/input/standby and FF hardware cause remain open.
 
 ## Cody setup escape correction - 2026-10-09
 
