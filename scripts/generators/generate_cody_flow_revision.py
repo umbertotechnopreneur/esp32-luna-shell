@@ -16,7 +16,7 @@ from generate_cody_setup_revision import paragraph, register_fonts
 
 
 ROOT = Path(__file__).resolve().parents[2]
-REVISION = "CODY-RETAINED-FLOW-20261010"
+REVISION = "CODY-NOTIFICATIONS-20261010"
 DATE = "10 ottobre 2026"
 INK = HexColor("#142737")
 MUTED = HexColor("#536776")
@@ -58,123 +58,132 @@ class DocumentSpec:
 
 
 DOCUMENTS = {
-    DocumentId.Navigation: DocumentSpec("cody-navigation-atlas-v1.pdf", "NAVIGATION ATLAS", 38, 12),
-    DocumentId.Planning: DocumentSpec("cody-planning-atlas-v1.pdf", "PLANNING ATLAS", 38, 22),
-    DocumentId.Quickstart: DocumentSpec("cody-ccp-pairing-quickstart-a5-v1.pdf", "CCP QUICK START", 13, 2),
-    DocumentId.Service: DocumentSpec("cody-ccp-service-atlas-v1.pdf", "CCP SERVICE ATLAS", 20, 10),
-    DocumentId.Connection: DocumentSpec("cody-codex-connection-atlas-v1.pdf", "CODEX CONNECTION ATLAS", 24, 14),
+    DocumentId.Navigation: DocumentSpec("cody-navigation-atlas-v1.pdf", "NAVIGATION ATLAS", 42, 12),
+    DocumentId.Planning: DocumentSpec("cody-planning-atlas-v1.pdf", "PLANNING ATLAS", 42, 22),
+    DocumentId.Quickstart: DocumentSpec("cody-ccp-pairing-quickstart-a5-v1.pdf", "CCP QUICK START", 17, 2),
+    DocumentId.Service: DocumentSpec("cody-ccp-service-atlas-v1.pdf", "CCP SERVICE ATLAS", 24, 10),
+    DocumentId.Connection: DocumentSpec("cody-codex-connection-atlas-v1.pdf", "CODEX CONNECTION ATLAS", 28, 14),
 }
 
-BOOT = (
-    ("01-03 / Avvio locale", "Apro con VibeWare e poi mostro i checkpoint di Cody. Conservo gli errori "
-     "reali dei servizi. Con Ready confermo che lo stadio locale e' pronto; per PC e chat aspetto "
-     "le rispettive prove di connessione."),
-    ("04-09 / Nessuna rete salvata", "Avvio il provisioning dal telefono solo se il profilo Wi-Fi "
-     "manca davvero. Con credenziali salvate ma senza IP locale apro 42 / No connection. "
-     "Tratto una lettura fallita come errore, senza inventare un primo avvio."),
-    ("40 / LAN pronta, pairing assente", "Mi bastano associazione Wi-Fi e IP locale valido. "
-     "Connect Codex? offre Yes e No. Con No torno a 16, senza avviare CCP o salvare un rifiuto. "
-     "Non aggiungo un controllo separato dell'accesso a Internet."),
-    ("14-15 / Pairing gia' salvato", "Riutilizzo l'identita' del PC conservata e validata. Cerco "
-     "automaticamente; mostro Connected solo dopo READY autenticato. Un'interruzione Wi-Fi, "
-     "lo standby o un normale aggiornamento firmware non mi chiedono un altro codice."),
+COVER = (
+    ("Conservo il PC, poi ricevo il lavoro", "Tengo distinti pairing, presenza LAN e attivita' "
+     "dell'ultimo prompt reale. L'estensione EVENT porta avvisi e domande esplicite; non "
+     "inventa una chat quando manca un hook. Il contesto dichiarato e' un'etichetta."),
+    ("Decido soltanto dopo aver letto", "Da Codex needs you apro due o tre scelte. La selezione "
+     "apre un riepilogo con Send e Back. Mostro Reply sent solo dopo l'ACK del destinatario. "
+     "Una domanda dura 180 secondi; la scadenza non sceglie al mio posto."),
+    ("Le PR restano in sola lettura", "Conservo la decisione A03: gli screen 21-24 riportano "
+     "stati e nomi dei check falliti. Il 25 e' ritirato; diagnosi e azioni PR restano sul PC. "
+     "Un'approvazione nativa rimanda a On your PC, senza Allow o Deny su Cody."),
+    ("Come leggo questa revisione", "Ho aggiornato pagine principali e limiti del flow. "
+     "Conservo gli addenda precedenti e aggiungo errata datate. Ho integrato il contratto "
+     "nei sorgenti; suite finale e comportamento fisico restano da verificare."),
 )
 
-PAIRING = (
-    ("41 / Apro Setup", "Tengo il dito fermo sul personaggio visibile per 1,5 secondi. Metto "
-     "Connect Codex e Network setup affiancati, Options sotto al centro. Prima di scegliere "
-     "rilascio il dito. Mantengo questo ingresso anche mentre il PC e' offline."),
-    ("Variante 40 / Already paired", "Controllo il record prima della rete. Mostro Keep pairing "
-     "e Pair again affiancati, Forget sotto. Con un candidato incompleto uso Pairing paused; "
-     "con errore storage mostro Pairing error e abilito solo la cancellazione esplicita."),
-    ("Keep pairing / Riprendo", "Riutilizzo una presenza autenticata ancora valida; altrimenti "
-     "cerco il PC salvato. Anche Retry riprende questa associazione e puo' attendere il ritorno "
-     "della LAN. Una riconnessione non autorizza la sostituzione del PC."),
-    ("Pair again / Sostituisco consapevolmente", "Genero il codice dopo conferma esplicita e "
-     "con LAN utilizzabile. Salvo prima un candidato separato. Lo promuovo solo dopo la "
-     "prova che il PC ha salvato il link. Cancel scarta il candidato e conserva l'attivo."),
+NOTICES = (
+    ("26 / Codex needs you", "Ricevo una domanda dal chiamante MCP esplicito; per gli "
+     "avvisi mostro From Codex. Leggo testo inglese ASCII. Il contesto e' dichiarato dal "
+     "chiamante, senza attribuirgli l'identita' verificata della chat o degli hook."),
+    ("26 -> 27 / Apro la domanda", "Con Open leggo le due o tre risposte e le rispettive "
+     "descrizioni. Conservo una sola domanda aperta per dispositivo. Attivita', notifiche "
+     "successive e indicatori batteria non la sostituiscono."),
+    ("Approvazioni / On your PC", "Un PermissionRequest puo' richiamare la mia "
+     "attenzione, ma la decisione nativa resta nel computer. Non aggiungo Allow, Deny "
+     "o un'autorizzazione generica ricavata da un testo incompleto."),
+    ("Notifica non significa risposta", "Una notifica non offre scelte e non produce "
+     "REPLY. Riservo Reply sent alle risposte consegnate. Per le PR ammetto soltanto "
+     "gli stati e la lista read-only previsti da A03; nessuna azione operativa."),
 )
 
-TRANSACTION = (
-    ("Due candidati, attivi conservati", "Sul PC salvo il candidato DPAPI prima di "
-     "PAIR; sul Cody uso ccp_pending. Tengo separati i vecchi attivi. CONFIRM oppure "
-     "READY fresco provano il PC e consentono commit e rilettura sul Cody."),
-    ("Chiudo con una prova del commit", "Il PC promuove dopo ACTIVE o COMMITTED "
-     "autenticati, mai per il solo FIND. Dopo ogni READY valido Cody ripete COMMITTED "
-     "con il nonce corrente: recupero riavvii e ACK persi senza un altro codice."),
-    ("Cancel / Chiudo il tentativo", "Dal codice pronto scarto il candidato Cody. "
-     "Conservo il vecchio link operativo; sul PC il candidato resta pending. "
-     "Per sostituirlo richiedo nuovo codice e replace_pending:true esplicito. "
-     "Una prova con la vecchia chiave non autorizza la cancellazione."),
-    ("Forget / Solo il pairing Codex", "Confermo Forget pairing con Go back / Forget "
-     "e Only Codex is reset. Cancello solo i record CCP di Cody; il PC conserva il suo. "
-     "Dopo l'esito reale mostro Unpaired / Pairing removed, poi Done -> Setup."),
+QUESTIONS = (
+    ("26 / Codex needs you e Open", "Mostro il contesto dichiarato, il titolo e l'avviso. "
+     "La richiesta ha un ticket distinto e dura 180 secondi. Aprire o chiudere una "
+     "vista non allunga la scadenza e non seleziona una risposta."),
+    ("27 / Choose a reply", "Uso due card affiancate; con tre aggiungo quella "
+     "centrata sotto. Ogni scelta ha un ID stabile e un significato proprio. "
+     "Back torna a 26 e conserva la domanda, senza inviare."),
+    ("27 / Review choice", "La scelta apre un riepilogo con descrizione "
+     "e capsula Send. Back mi riporta alle opzioni. Dopo Send tengo la scelta "
+     "ferma e mostro Sending reply. Non aggiungo un quarto pulsante sotto tre card."),
+    ("31 / Reply sent dopo consegna", "L'ACK UDP received lascia Waiting for Codex: "
+     "CCP ha registrato la scelta. Solo con delivered mostro Reply sent e "
+     "Delivered to Codex; Done riprende il contesto precedente 17, 18 o 16."),
 )
 
-CONTEXT = (
-    ("15 / Connected, Waiting for Codex", "Con READY autenticato so che CCP e' raggiungibile. "
-     "Per la chat aspetto invece un evento reale. Waiting for Codex descrive l'assenza di quel "
-     "contesto; ripetere il pairing non lo farebbe comparire per magia."),
-    ("Seguo l'ultimo prompt reale", "Affido a UserPromptSubmit autorizzato la scelta della chat "
-     "seguita da CCP. Cody legge lo snapshot autenticato. Ho eliminato il selettore di chat "
-     "dal dispositivo e il passaggio manuale di scelta dentro Codex."),
-    ("Autorizzo gli hook, poi li eseguo localmente", "Dopo installazione e attivazione rivedo "
-     "gli hook di CCP in Codex; /hooks apre la revisione nella CLI locale. Gli hook command "
-     "richiedono orchestrazione locale. La sola installazione non li autorizza."),
-    ("Tengo le altre chat sullo sfondo", "Tool, completamenti e interruzioni di altre chat "
-     "non cambiano il contesto seguito. Un nuovo prompt si'. Il click su una scheda non e' "
-     "un hook documentato. Dopo il riavvio del broker aspetto un nuovo prompt reale."),
+DELIVERY = (
+    ("Ticket e capability privati", "Il chiamante MCP crea un ticket di 128 bit "
+     "con capability privata. Poll e cancel richiedono entrambi i valori. "
+     "La capability resta sul PC e non viaggia sulla LAN."),
+    ("received non e' delivered", "Il poll restituisce scelta e answer_id. "
+     "Un poll successivo con acknowledge_answer_id uguale prova la ricezione "
+     "del chiamante: solo allora passo a delivered e allo screen 31."),
+    ("Invio e risposta ripetuta", "Dopo pending entro in Sending locale, senza "
+     "cambiare scelta. Received non e' ancora delivered. Ripetere la stessa "
+     "risposta e' idempotente; una diversa non sovrascrive la prima."),
+    ("Scaduta, cancellata o riavvio", "Tengo visibile expired o cancelled senza "
+     "scegliere risposte. I 180 secondi valgono anche in received: un ACK tardivo "
+     "non porta a 31 e non riapre uno stato terminale. Dopo riavvio non riproduco risposte."),
+)
+
+PR_STATUS = (
+    ("21 / PR pending", "Osservo soltanto il PR indicato. Conservo l'esatto head "
+     "dello snapshot esplicito fornito da Codex. Non uso Stop come prova dei check "
+     "e non offro merge, approve, close, rerun o comment."),
+    ("22 / Checks running", "Mostro un conteggio solo con un elenco completo, "
+     "attuale e riferito allo stesso head. Altrimenti mostro soltanto Checks running. "
+     "Con tutti i check passati mostro un esito breve su 22 e torno a 17."),
+    ("23 -> 24 / View failures", "L'unica azione apre i nomi reali dei check falliti: "
+     "al massimo sei, fino a 48 caratteri ASCII ciascuno. Un input non rappresentabile "
+     "viene rifiutato esplicitamente; non taglio nomi e non invento totali."),
+    ("24 sola lettura / 25 ritirato", "Mostro tre nomi per pagina, fino a due "
+     "righe ciascuno; scorro verticalmente e tengo Back laterale. Non offro "
+     "View log o righe selezionabili. Log, diagnosi e correzioni restano sul PC."),
 )
 
 RECOVERY = (
-    ("Internet giu', LAN funzionante", "Continuo a usare il collegamento Wi-Fi/IP locale tra "
-     "Cody e CCP. Tengo separata la disponibilita' dei servizi online di Codex: il PC presente "
-     "sulla LAN non mi garantisce una risposta del modello."),
-    ("Wi-Fi o IP locale assenti", "Conservo credenziali e PC associato. All'avvio mostro 42 "
-     "con Network setup o Later. Durante il recupero attendo la LAN e riprovo con l'identita' "
-     "salvata. Gli errori reali del trasporto restano visibili nello stato."),
-    ("PC o CCP assenti", "Continuo la ricerca su 14; uso 32 per la perdita dopo un'attivita' "
-     "gia' seguita. Retry riprende la ricerca senza nuovo codice. Posso comunque tenere "
-     "premuto Cody per 1,5 secondi e aprire Setup."),
-    ("35A / 35B e aggiornamento firmware", "Con lo standby ordinario conservo percorso e "
-     "pairing. Al risveglio recupero la presenza autenticata. Un flash applicativo normale "
-     "preserva NVS; cancellazione, dati danneggiati o altra identita' PC sono casi distinti."),
+    ("Domanda protetta", "Una domanda aperta resta davanti agli aggiornamenti "
+     "ordinari. Conservo selezione e percorso. Batteria, charging o un avviso "
+     "successivo non fanno sparire una decisione che devo ancora leggere."),
+    ("32 / Offline", "Conservo il contenuto e cerco il PC salvato. La scadenza "
+     "continua: tornare sulla LAN non rinnova i 180 secondi. Timeout, Cancel "
+     "e disconnessione non scelgono un'opzione e non confermano consegna."),
+    ("Scadenza e annullamento", "Mostro Request expired, Request cancelled "
+     "o Reply rejected con Done. Ritiro gli invii non piu' validi; pacchetti "
+     "tardivi non riaprono stati terminali. La ricezione UDP resta un'attesa."),
+    ("35A / 35B e nuovi avvisi", "Mantengo Wi-Fi durante lo standby di Cody "
+     "associato. Accodo il wake per un avviso autenticato al worker power, "
+     "preservando AFE e wake word. Il risveglio fisico resta da verificare."),
 )
 
-PERSONALIZATION = (
-    ("10 / Make it yours", "Da Setup apro Options. Imposto Shake to wake, Auto-rotate e "
-     "Sounds su On oppure Off con righe compatte che mostrano i valori. La quarta "
-     "riga e' Orientation. Sounds Off lascia microfono e wake word attivi. "
-     "Next continua verso Settings, senza avviare alcun pairing."),
-    ("36 -> 11 / Skin", "Uso lo stesso selettore con anteprima animata e identificatori stabili "
-     "salvati. Ho rinominato lo screen 11 Skin: scelgo l'aspetto di Cody, oltre il vecchio "
-     "concetto di solo colore. Se il salvataggio fallisce, mantengo l'errore reale."),
-    ("Torno a chi mi ha aperto", "Entrando da Setup, Done torna a 41 e Back da 10 riporta a "
-     "Setup. La personalizzazione non avvia pairing di rete o Codex. Nel primo avvio "
-     "proseguo invece verso la decisione sul collegamento salvato."),
-    ("Orientation e salvataggio reale", "Scelgo 0 oppure 180 solo con Auto-rotate Off; "
-     "altrimenti mostro Auto. Confermo ogni valore solo dopo scrittura e rilettura "
-     "riuscite. Mantengo l'errore visibile; Retry ripropone lo stesso valore richiesto."),
+SCOPE = (
+    ("MCP esplicito e hook reali", "Tengo separati il ticket della richiesta e "
+     "la chat seguita dagli hook. context e' un'etichetta del chiamante; non "
+     "fabbrico UserPromptSubmit, identita' o testo per far sembrare attiva una chat."),
+    ("Approvazioni sul computer", "PermissionRequest produce al massimo "
+     "un avviso On your PC. Non autorizzo strumenti nativi da Cody e non "
+     "converto un avviso parziale in un generico consenso."),
+    ("PR e diagnosi sul PC", "Applico A03 del 4 ottobre: 21-24 sola lettura, "
+     "25 ritirato. Errori, log e stack trace restano sul PC; le domande 26/27 "
+     "non sono un percorso alternativo per gestire una PR."),
+    ("Voce e prove distinte", "28 Recording, 29 Transcribing e 30 Review "
+     "transcript restano un percorso futuro. Ho integrato questa estensione "
+     "nei sorgenti; suite finale e prova touch sul dispositivo restano aperte."),
 )
 
-ACTIVITY = (
-    ("17 / Project active", "Context from Codex", "Mostro il contesto dell'ultima chat con un prompt. "
-     "Il nome progetto e' un'etichetta ASCII; l'identita' della chat resta distinta. Non acquisisco ancora il branch."),
-    ("18 / Working", "Working in Codex", "Entro in Working dopo un prompt reale. Gli hook dei tool "
-     "forniscono Editing o Running. Con un nuovo prompt posso seguire automaticamente un'altra chat."),
-    ("18U / Unavailable", "No recent activity", "Dopo 120 secondi senza un nuovo hook considero "
-     "scaduta l'attivita' in corso. Il solo heartbeat del PC non mi dice se la chat sta ancora lavorando."),
+WIRE = (
+    ("EVENT autenticato", "Aggiungo events=1 a FIND con activity=1. Dopo READY "
+     "ricevo uno snapshot EVENT legato al nonce corrente. EVENT ammette 1280 "
+     "byte; gli altri pacchetti restano entro 512. Non frammento contenuti."),
+    ("Contenuto bounded ASCII", "Uso context fino a 24, title fino a 24 e "
+     "body fino a 63 caratteri stampabili. Scelte: ID univoco e label fino a 12, "
+     "detail fino a 63. Rifiuto campi o combinazioni non rappresentabili."),
+    ("Tre tempi diversi", "La domanda dura 180 secondi e i duplicati non "
+     "la prolungano. Presenza sul device e attivita' degli hook mantengono "
+     "i propri tempi di 8 e 120 secondi: non li uso come risposta o consenso."),
+    ("Un owner, una fonte canonica", "Il trasporto pubblica stato, errore "
+     "e freschezza nello snapshot canonico. La UI non apre socket. Il simulatore "
+     "usa lo stesso protocollo ma resta SIMULATED, con opt-in esplicito."),
 )
-
-REPLIES = (
-    ("19 / Response ready", "Read it in Codex", "Interpreto Stop come risposta pronta da leggere. "
-     "Il risultato del lavoro, dei test o del deploy resta quello dichiarato e verificato nella chat."),
-    ("20A / Paused", "Continue in Codex", "Con PermissionRequest mostro l'attesa di approvazione; "
-     "con Interrupt il turno interrotto. Un completamento sullo sfondo non lo riavvia."),
-    ("20B -> 16 / Ended", "Waiting for Codex", "Mostro SessionEnd per cinque secondi attivi, poi "
-     "lascio riposare Cody. Il prossimo prompt reale fornisce di nuovo il contesto senza altro pairing."),
-)
-
 
 # pdf: Destination vector canvas.
 # dimensions: Existing source page dimensions in points.
@@ -301,7 +310,8 @@ def draw_action_language(pdf, dimensions, top):
               width - 68, height, 12, True, TEAL)
     paragraph(pdf, "Faccio comparire i pulsanti completi dopo titolo e riga principale; abilito il "
               "touch solo quando sono visibili. Il teletype resta sul testo narrativo. Conservo "
-              "Back laterale, quiet zone dei QR e corde del cerchio. Queste immagini sono i "
+              "Back laterale e corde del cerchio. Sul 27 la scelta apre un riepilogo: uso "
+              "Send in capsula e Back per rivedere le opzioni. Queste immagini sono i "
               "riferimenti approvati; l'aspetto fisico del firmware richiede una prova separata.",
               34, top + 278, width - 68, height, 10.5)
 
@@ -329,420 +339,153 @@ def authored_page(specification, dimensions, label, number):
     return PdfReader(stream).pages[0]
 
 
-# identity: Stable requested document identity.
-# Returns physical-page replacements; screen IDs remain in the authored text.
+# identity: Stable requested document identity, independent of page order.
+# Returns replacements only for main pages affected by the new interaction contract.
 # Raises ValueError for an identity outside the explicitly requested document set.
 def main_revisions(identity):
-    common_cover = (
-        ("Associo una volta; recupero il PC salvato", "Tengo separati provisioning di rete e pairing Codex. "
-         "Conservo l'associazione durante standby, interruzioni temporanee e normali aggiornamenti. "
-         "Per sostituirla chiedo una scelta esplicita."),
-        ("Cody mostra; CCP porta la chat", "Seguo automaticamente la chat dell'ultimo prompt reale. "
-         "Connected conferma CCP sulla LAN; Waiting for Codex mi dice che manca ancora un contesto "
-         "reale. Ho tolto il passaggio Pick a chat."),
-        ("Setup resta a portata di dito", "Con una pressione ferma di 1,5 secondi apro Setup. "
-         "Connect Codex gestisce il PC, Network setup la rete, Options le preferenze. Con un "
-         "record salvato mostro Already paired: Keep pairing, Pair again oppure Forget."),
-        ("Come leggo questa revisione", "Ho aggiornato le pagine principali e conservato in "
-         "fondo addenda ed errata datati. Uso gli screen ID come riferimento. Distinguo sempre "
-         "codice scritto, build, installazione e comportamento osservato sul dispositivo."),
-    )
     if identity == DocumentId.Navigation:
         return {
-            1: PageSpec("Cody / Atlante della navigazione", "Dal primo avvio al PC salvato, fino all'attivita' reale della chat.", common_cover),
-            2: PageSpec("All'avvio leggo le scelte salvate", "Screen 01-09, 14-16, 40 e 42 / per CCP mi basta la LAN.", BOOT),
-            3: PageSpec("La rete ha un percorso dedicato", "Screen 04-09 e 42 / il provisioning Wi-Fi resta distinto dal pairing Codex.", (
-                ("04 -> 05 -> 06 -> 07", "Presento Cody con Welcome. Show QR apre l'installazione "
-                 "dell'app; Pair Cody entra in 07, che mostra il QR reale quando e' pronto. "
-                 "Conservo 06-bis nei dati d'autore, senza aggiungere uno step runtime."),
-                ("07 -> 09 / Aspetto una LAN reale", "Attendo provisioning, associazione Wi-Fi e IP "
-                 "DHCP. Un SSID salvato, un link BLE o una richiesta ammessa non bastano. Con 09 "
-                 "confermo la rete locale senza una verifica aggiuntiva di Internet."),
-                ("08 / Errore e Retry esplicito", "Mantengo l'errore originale. Cancel e Back "
-                 "attendono la chiusura dell'operazione attiva. Con Retry riprendo il passaggio "
-                 "di rete pertinente; non cambio l'associazione al PC."),
-                ("Inattivita' o rete salvata offline", "Dopo un timeout posso tornare a Welcome "
-                 "e riaprire Setup. Se ho credenziali ma manca l'IP, 42 offre Network setup o "
-                 "Later. L'assenza temporanea della rete non cancella le credenziali."),
+            1: PageSpec("Cody / Atlante della navigazione", "Notifiche, domande e PR in sola lettura; conservo il pairing e lo storico.", COVER),
+            5: PageSpec("Chi porta l'attivita', chi invia una domanda", "Screen 15-20 e 26 / hook reali e richieste MCP esplicite hanno identita' separate.", NOTICES),
+            6: PageSpec("L'attivita' non chiude una domanda", "Screen 17-20, 26 e 27 / proteggo il contenuto ancora da decidere.", RECOVERY),
+            7: PageSpec("Le pull request restano in sola lettura", "Screen 21-24 / applico A03 del 4 ottobre; il 25 e' ritirato.", PR_STATUS),
+            8: PageSpec("Leggo, scelgo e confermo", "Screen 26 -> 27 -> riepilogo 27 -> 31 / aspetto l'ACK del destinatario.", QUESTIONS),
+            9: PageSpec("Il percorso voce resta futuro", "Screen 28-30 / non confondo la risposta a card con registrazione o trascrizione.", (
+                ("27 -> 28 / Recording - futuro", "Conservo il percorso pensato per push to talk. "
+                 "L'ingresso voce e la cattura non sono parte di questa estensione. Le card "
+                 "e il riepilogo esplicito coprono la decisione corrente."),
+                ("28 -> 29 / Transcribing - futuro", "Prevedo uno stato distinto dopo il rilascio. "
+                 "Cancel deve tornare alla domanda senza scegliere per me. Non dichiaro "
+                 "una trascrizione disponibile per il solo fatto che il microfono funziona."),
+                ("30 / Review transcript - futuro", "Leggo prima di Send, posso registrare di "
+                 "nuovo o tornare alle opzioni con la bozza conservata. Errori di cattura "
+                 "o trascrizione devono restare visibili, senza Reply sent falso."),
+                ("31 / La stessa regola di consegna", "La conferma finale richiede l'ACK "
+                 "del destinatario. Il trasporto attuale delle scelte non implementa "
+                 "automaticamente il futuro percorso voce. Tengo i due perimetri separati."),
             )),
-            4: PageSpec("Setup protegge il pairing esistente", "Screen 41, variante di conferma 40 e screen 12.", PAIRING),
-            5: PageSpec("Mi collego e seguo il prompt", "Screen 13-20 e 32 / Let's go avvia subito la ricerca del PC salvato.", CONTEXT),
-            6: PageSpec("L'attivita' quotidiana arriva da Codex", "Screen 17, 18 e 18U / leggo metadati autenticati del ciclo di lavoro.", ACTIVITY, Layout.Screens,
-                        "Uso 19 dopo Stop, 20A per pausa/interruzione, 20B dopo SessionEnd. I pacchetti "
-                        "di attivita' scadono dopo otto secondi; verifico separatamente hook reali e display."),
-            10: PageSpec("Standby, guasti di rete e recupero", "Screen 14-16, 32, 35A, 35B, 41 e 42 / conservo l'identita' associata.", RECOVERY),
-            12: PageSpec("Options e ritorno al chiamante", "Screen 10, 11, 36 e 41 / ogni percorso sa dove tornare.", PERSONALIZATION),
+            10: PageSpec("Offline, scadenza e risveglio", "Screen 26/27, 32 e 35A/35B / nessuna risposta automatica.", RECOVERY),
         }
     if identity == DocumentId.Planning:
         return {
-            1: PageSpec("Cody / Atlante di progettazione", "Schermate attuali, confini dell'implementazione e storico in fondo.", common_cover),
-            2: PageSpec("Inventario delle schermate", "Conservo gli screen ID; Already paired e' una variante di conferma.", (
-                ("01-09 / Ingresso e rete locale", "Uso 01 Sleeping, 02 Waking, 03 Ready, 04 Welcome, "
-                 "05 Let's pair, 06 Install QR, 07 Pairing/QR dispositivo, 08 Try again "
-                 "e 09 LAN ready. Conservo 06-bis come dato d'autore e 39 come passaggio Debug."),
-                ("10-16 e 40-42 / Setup e collegamento", "Raccolgo 10 Make it yours, 36 Settings, "
-                 "11 Skin, 12 Connect Codex, 13 You're all set, 14 Looking for PC, 15 Connected "
-                 "/ Waiting for Codex, 16 Idle, 40 Connect Codex? / Already paired, 41 Setup, 42 No connection."),
-                ("17-32 / Attivita' e lavoro previsto", "Uso 17 Project active, 18 Working, "
-                 "18U Unavailable, 19 Response ready, 20A Paused, 20B Ended e 32 Connection lost. "
-                 "Tengo PR 21-24 e domande/voce/risposte 26-31 tra le funzioni previste. Ho ritirato 25."),
-                ("33-38 / Dispositivo e sviluppo", "Conservo 33 Low battery, 34 Charging, "
-                 "35A Sleep, 35B Wake, 36 Settings, 37 Rig view, 38 Expression channels. "
-                 "Per le azioni applico sempre il layout uno, due affiancati oppure due piu' uno."),
+            1: PageSpec("Cody / Atlante di progettazione", "Domande esplicite, notifiche e confini A03; aggiorno anche le pagine originali.", COVER),
+            2: PageSpec("Inventario e perimetro degli screen", "Uso gli screen ID del documento; le identita' enum del firmware sono separate.", (
+                ("01-16 e 40-42 / Avvio e collegamento", "Conservo provisioning LAN, Options, "
+                 "Skin e pairing con consenso alla sostituzione. Let's go cerca subito il "
+                 "PC salvato. Niente scelta manuale della chat."),
+                ("17-20 e 18U / Attivita'", "Seguo il prompt reale attraverso hook autorizzati. "
+                 "Stop significa risposta pronta, senza certificare test o PR. Una domanda "
+                 "aperta ha precedenza su questi aggiornamenti ordinari."),
+                ("21-27 e 31 / Stato e decisioni", "21-24 sono PR in sola lettura; 25 ritirato. "
+                 "26 annuncia avvisi/domande, 27 contiene scelte e riepilogo con Send. "
+                 "31 richiede l'ACK del destinatario; 32 conserva il percorso offline."),
+                ("28-30 e 33-39 / Confini", "28-30 restano voce futura. Conservo 33/34 come "
+                 "indicatori, 35A/35B per sleep/wake e 36-39 per preferenze e sviluppo. "
+                 "Non dichiaro questa nuova estensione verificata fisicamente."),
             )),
-            4: PageSpec("L'avvio parte dallo stato salvato", "Screen 01-09, 14-16, 40 e 42 / evito un commissioning inutile.", BOOT),
-            5: PageSpec("Presento Cody e preparo la rete", "Screen 04-07 / qui il QR serve al provisioning Wi-Fi.", (
-                ("04 / Welcome", "Entro nel setup di rete automatico solo se il profilo manca "
-                 "davvero. Su un dispositivo gia' configurato decido invece da rete e pairing "
-                 "osservati nello snapshot canonico."),
-                ("05 / Let's pair", "Con Show QR introduco il setup Wi-Fi assistito dal telefono. "
-                 "Questa frase appartiene al provisioning di rete; tengo distinto il consenso "
-                 "a sostituire il PC Codex. Mostro il pulsante completo, senza teletype."),
-                ("06 / App di pairing", "Tengo distinti QR di installazione e QR del dispositivo. "
-                 "Conservo la quiet zone del codice e la capsula compatta inferiore entro "
-                 "la corda disponibile sul display circolare."),
-                ("07 / Provisioning reale", "Mostro il QR di sessione dentro 07 dopo ReadyToScan; "
-                 "06-bis resta un dato d'autore. Prima di uscire chiudo l'operazione: un vecchio "
-                 "tentativo non deve riaprire una schermata gia' abbandonata."),
+            11: PageSpec("Osservo una PR senza gestirla", "Screen 21-23 / nessuna azione di merge, approve, close, rerun o comment.", (
+                ("21 / PR pending", "PR pending", "Mostro lo stato del PR indicato senza "
+                 "azioni. La fonte e' uno snapshot esplicito riferito all'esatto head."),
+                ("22 / Checks running", "Checks running", "Mostro conteggi solo da una "
+                 "lista completa e corrente. All checks passed resta breve, poi torno a 17."),
+                ("23 / Checks failed", "View failures", "L'unica azione apre 24, la lista "
+                 "di nomi reali. Ogni diagnosi o correzione continua sul PC."),
+            ), Layout.Screens, "A03 rimane vincolante. Un dato assente o incompleto non diventa "
+               "un conteggio inventato; un evento Stop non equivale a check passati."),
+            12: PageSpec("Errori sul PC; domande sul Cody", "Screen 24, 25 ritirato e 26 / correggo le illustrazioni precedenti in conflitto.", (
+                PR_STATUS[2], PR_STATUS[3], NOTICES[0], NOTICES[2],
             )),
-            6: PageSpec("Completo il setup Wi-Fi", "Screen 07-09 e 42 / misuro la disponibilita' della rete.", (
-                ("07 / Pairing", "Dal telefono ricevo le credenziali e aspetto associazione e "
-                 "IP locale. Mantengo Cancel esplicito. La mia fonte e' il risultato del worker, "
-                 "non l'animazione o il solo SSID memorizzato."),
-                ("08 / Try again", "Mostro l'operazione fallita e il suo errore. Retry torna al "
-                 "passaggio di rete; Cancel attende la chiusura. Un retry Wi-Fi non sostituisce "
-                 "il PC Codex ricordato."),
-                ("09 / LAN ready", "Con Wi-Fi e IP valido posso usare CCP. Continue apre "
-                 "personalizzazione e decisione sul link salvato. Con questa schermata "
-                 "confermo la LAN, non la raggiungibilita' di un servizio Internet."),
-                ("42 / No connection", "Con credenziali salvate ma senza IP offro Network setup "
-                 "e Later affiancati. Con Later entro in Idle per questa sessione. Tengo "
-                 "credenziali e pairing durante un'interruzione temporanea."),
-            )),
-            7: PageSpec("Make it yours, senza cambiare il PC", "Screen 10, 11, 36 e 41 / Options conserva il suo chiamante.", PERSONALIZATION),
-            8: PageSpec("Associo e poi mi collego subito", "Screen 12-15 / ho tolto la pausa intermedia di dieci secondi.", (
-                ("13 / You're all set", "Pairing saved", "Entro qui dopo la conferma del link "
-                 "salvato su entrambi i lati. Con Let's go avvio subito la ricerca del PC su 14."),
-                ("14 / Looking for PC", "Looking for PC", "Riutilizzo l'identita' salvata e "
-                 "attendo la risposta autenticata. Con 1,5 secondi sul personaggio posso ancora aprire Setup."),
-                ("15 / Connected", "Waiting for Codex", "Il PC associato e' raggiungibile. "
-                 "Aspetto il contesto dell'ultimo prompt reale attraverso gli hook autorizzati."),
-            ), Layout.Screens, "Su 12 mostro l'attesa mentre preparo il codice. Dal codice pronto tengo "
-               "Cody sveglio per tre minuti; la finestra del protocollo di pairing dura cinque minuti."),
-            9: PageSpec("Cody segue il lavoro che invio", "Screen 17, 18 e 18U / nessuna scelta di chat dal dispositivo.", ACTIVITY, Layout.Screens,
-                        "I Cody associati al PC seguono la chat dell'ultimo prompt reale. Il cambio di "
-                        "scheda non e' un hook documentato. CCP conserva metadati, non prompt o risposte."),
-            10: PageSpec("Risposta, pausa e riposo", "Screen 19, 20A, 20B e 16 / il volto non certifica il risultato del lavoro.", REPLIES, Layout.Screens,
-                         "Distinguo l'accettazione locale di un hook dai pixel aggiornati sul display. "
-                         "Registro separatamente la prova di trasporto, quella visiva e quella di risveglio."),
-            14: PageSpec("Risposte previste; recupero attuale", "Screen 30-32 / separo i futuri messaggi dalla presenza implementata.", (
-                ("30 / Review transcript - previsto", "Voglio leggere la futura trascrizione "
-                 "prima di Send. Record again torna alla registrazione e Back alla domanda. "
-                 "Non attribuisco questa consegna all'adapter di attivita' attuale."),
-                ("31 / Reply sent - previsto", "Mostrero' la conferma solo dopo l'ACK del "
-                 "destinatario. Stop oggi significa risposta pronta in Codex; non dimostra "
-                 "che Cody abbia inviato una risposta."),
-                ("32 / Connection lost", "Se perdo i pacchetti dopo aver seguito una chat, "
-                 "conservo il pairing e mostro il recupero. Quando la LAN torna, riprendo "
-                 "lo snapshot corrente del broker senza chiedere un nuovo codice."),
-                ("14 / Contesto ancora assente", "Prima di ricevere attivita' uso la ricerca "
-                 "del PC. Al ritorno di READY posso ancora mostrare Waiting for Codex. "
-                 "Tengo distinti pairing salvato, presenza e attivita' reale."),
-            )),
-            16: PageSpec("Mi risveglio e torno al punto giusto", "Screen 35B, 36, 37 e 41 / lo standby non e' un reset del pairing.", (
-                ("35B / Wake", "Ripristino il percorso utile dopo la transizione di alimentazione. "
-                 "Recupero LAN e presenza autenticata quando serve. Il tempo trascorso al buio "
-                 "non conta per il gesto di pressione da 1,5 secondi."),
-                ("41 / Accesso a Setup", "Tengo fermo il dito, apro il menu e rilascio prima "
-                 "di scegliere. Mantengo l'accesso dalle schermate stabili, di attesa e recupero. "
-                 "Un provisioning attivo deve prima chiudere la propria operazione."),
-                ("36 / Settings", "Riutilizzo il selettore Skin e le preferenze locali supportate. "
-                 "Se arrivo da Options, Done torna a Setup. Tengo il salvataggio fuori dal "
-                 "renderer e rendo visibili gli errori effettivi."),
-                ("37 / Rig e prove fisiche", "Uso la vista di sviluppo per il rig condiviso. "
-                 "Per touch, pannello e percorso al risveglio osservo il dispositivo. "
-                 "Una build riuscita resta una build riuscita, senza superpoteri."),
-            )),
-            21: PageSpec("Un linguaggio UI, colori con significato", "Decisione importante / riferimenti approvati, gradienti e icone.", (), Layout.Actions),
-            22: PageSpec("Already paired: decido prima", "Screen 41 -> variante di conferma 40 / correggo il buco di analisi.", PAIRING),
+            13: PageSpec("Due o tre scelte, poi Send", "Screen 26 e due varianti del 27 / gradienti, icone e conferma reversibile.", (
+                ("26 / Codex needs you", "Open", "Leggo l'avviso e apro la richiesta. Una "
+                 "domanda resta protetta dagli aggiornamenti ordinari e dura 180 secondi."),
+                ("27 / Choose a reply", "2 / 3 choices", "Due card sono affiancate; la "
+                 "terza va sotto al centro. Ogni ID resta stabile anche se cambia l'ordine."),
+                ("27 / Review choice", "Send", "Leggo la descrizione e confermo con Send. "
+                 "Back torna alle scelte; selezionare una card da solo non invia."),
+            ), Layout.Screens, "Il vecchio elenco verticale e' superato. Mostro i pulsanti completi "
+               "dopo il testo principale; niente teletype nelle label. 31 arriva solo dopo delivered."),
+            14: PageSpec("Quando posso dire Reply sent?", "Screen 31 / registro ricevuto, consegna confermata, scadenza e annullamento separati.", DELIVERY),
+            16: PageSpec("Ritrovo il percorso al risveglio", "Screen 26/27, 32 e 35A/35B / standby e scadenza restano fatti diversi.", RECOVERY),
+            21: PageSpec("Un linguaggio UI, anche per decidere", "Riferimenti approvati / card 2 o 2+1; riepilogo separato con capsula Send.", (), Layout.Actions),
+            22: PageSpec("Dove finisce il compito di Cody", "A03 resta in vigore / approvazioni native e diagnosi non passano al dispositivo.", SCOPE),
         }
     if identity == DocumentId.Quickstart:
         return {
             1: PageSpec("Installo CCP sul mio PC", "Windows / plugin locale / Python disponibile come comando python.", (
                 ("1 / Registro la sorgente locale", "Dalla radice del repository eseguo "
                  "codex plugin marketplace add . per registrare il catalogo incluso. "
-                 "Il vecchio ZIP era un'idea di distribuzione, non l'installazione attuale."),
-                ("2 / Installo e attivo", "Riavvio Codex, apro Plugins Directory e scelgo "
-                 "Cody local plugins. Installo CCP - Cody's Codex Plugin sul PC "
-                 "che voglio far ricordare a Cody."),
-                ("3 / Autorizzo l'attivita' reale", "Rivedo e autorizzo gli hook in Codex; "
-                 "nella CLI locale uso /hooks. Gli hook command richiedono orchestrazione "
-                 "locale: installare il plugin da solo non li avvia."),
-                ("4 / Preparo la LAN", "Tengo Cody e PC sulla rete locale raggiungibile. "
-                 "Se richiesto, autorizzo Python sulle reti Private per UDP 42117/42118. "
-                 "CCP non richiede una verifica dell'accesso a Internet."),
+                 "Installo e abilito CCP - Cody's Codex Plugin dal catalogo Cody local plugins."),
+                ("2 / Collego il dispositivo", "Uso il codice visibile su Cody. Se e' "
+                 "gia' associato scelgo Keep pairing; Pair again richiede consenso. "
+                 "Un'interruzione della LAN non richiede un codice nuovo."),
+                ("3 / Attivita' oppure richiesta esplicita", "Gli hook autorizzati "
+                 "seguono l'ultimo prompt reale con orchestrazione locale. Posso "
+                 "inviare avvisi/domande con MCP senza inventare hook o identita' di chat."),
+                ("4 / Tengo il perimetro chiaro", "Per CCP bastano Wi-Fi e IP sulla LAN. "
+                 "Le PR restano in sola lettura e le approvazioni native On your PC. "
+                 "Ho integrato l'estensione nei sorgenti; verifica finale ancora aperta."),
             )),
-            2: PageSpec("Un pairing. Poi riprendo.", "Screen 12-15 e 41 / uso il codice attuale sul Cody fisico.", (
-                ("1 / Apro Connect Codex", "Tengo premuto Cody per 1,5 secondi. Con "
-                 "Already paired scelgo Keep pairing, Pair again oppure Forget. "
-                 "Senza associazione aspetto il codice; Cancel chiude il tentativo."),
-                ("2 / Chiedo il collegamento", "In Codex chiedo di scoprire Cody e "
-                 "associarlo con il codice che leggo sul display. Lascio aperto 12. "
-                 "Non riciclo codici scaduti o esempi stampati."),
-                ("3 / All set -> Let's go", "All set conferma il pairing salvato. "
-                 "Let's go cerca subito il PC. Connected conferma CCP; con "
-                 "Waiting for Codex aspetto ancora il contesto di un prompt reale."),
-                ("4 / Invio il lavoro in Codex", "L'ultimo prompt reale sceglie la chat. "
-                 "Se non arriva attivita', controllo hook e orchestrazione locale. "
-                 "Per un'interruzione temporanea recupero il link senza nuovo pairing."),
-            )),
+            2: PageSpec("Leggo, scelgo, invio", "Screen 26 -> 27 -> 31 / una ricezione UDP non basta a dire consegnato.", QUESTIONS),
         }
     if identity == DocumentId.Service:
         return {
-            1: PageSpec("CCP collega presenza e attivita'", "Broker Python locale / plugin Codex / contratto ricavato dai sorgenti.", common_cover),
-            2: PageSpec("Un broker, due ingressi distinti", "Uso i tool MCP per il link e gli hook reali per il contesto della chat.", (
-                ("Codex -> tool MCP locali", "Uso ccp_discover_devices, ccp_pair_device e "
-                 "ccp_connection_status per associazione e presenza. Con ccp_list_sessions "
-                 "leggo le sessioni osservate. Ho rimosso la selezione manuale."),
-                ("Hook autorizzati -> broker", "UserPromptSubmit identifica l'ultima chat "
-                 "con un prompt. Gli eventi successivi la aggiornano; le altre chat non "
-                 "la scalzano. Non conservo prompt, risposte, trascrizioni o argomenti dei tool."),
-                ("Broker -> Cody", "Affido UDP 42118 e identita' PC protetta a un solo broker. "
-                 "I client MCP lo condividono sul canale locale autenticato. A FIND rispondo "
-                 "con READY e, quando richiesta, attivita' ACTIVITY autenticata."),
-                ("Simulatore esplicito", "Con simulator -Ccp apro un endpoint CCP1 loopback "
-                 "con identita' e archivio DPAPI propri. La discovery lo include solo con "
-                 "include_simulator:true. Preview e risultati restano marcati SIMULATED; "
-                 "non eseguo ESP-IDF o i gesti nativi."),
+            1: PageSpec("CCP porta stati e richieste esplicite", "Presenza, attivita', ticket e consegna hanno prove diverse.", COVER),
+            2: PageSpec("Hook e ticket hanno identita' separate", "CCP 0.6 / non uso context per inventare una chat seguita.", SCOPE),
+            7: PageSpec("Estendo CCP1 con EVENT e REPLY", "Screen 26/27 e PR 21-24 / messaggi autenticati e contenuti rappresentabili.", WIRE),
+            8: PageSpec("La ricevuta del broker non e' la consegna", "Screen 31 / ticket privato, poll del chiamante e ACK esplicito.", DELIVERY),
+            9: PageSpec("Confini di contenuto e fiducia", "Decisioni limitate / niente capability sulla LAN o azioni PR nel wire.", (
+                ("Conservo le protezioni del pairing", "Uso salt e sessione nuovi, prove HMAC "
+                 "legate alle identita' e un solo match del codice. Il PC protegge le chiavi "
+                 "con DPAPI; Cody conserva un record NVS versionato."),
+                ("Autenticazione, non cifratura", "CCP1 non e' PAKE o TLS. PBKDF2 rende piu' "
+                 "costosi i tentativi offline; il CRC NVS rileva corruzione, senza cifrare "
+                 "la chiave. Anche il contenuto EVENT e' autenticato, non cifrato."),
+                DELIVERY[0],
+                ("Rete locale e revisione di produzione", "Il codice non viaggia in chiaro "
+                 "nei pacchetti CCP1; non e' una promessa sulla cronologia Codex. Tengo "
+                 "aperta la revisione di guessing, replay/rate limit, key storage e reti ostili."),
             )),
-            5: PageSpec("Persisto i candidati prima della conferma", "Screen 12-13 / journal separati su Cody e PC; aggiungo COMMITTED a CCP1.", TRANSACTION),
-            7: PageSpec("Ricerco con l'identita' salvata", "Screen 13 -> 14 -> 15 / ho tolto nuovo codice e attesa artificiale dal recupero.", (
-                ("Dopo All set", "Let's go richiede subito la ricerca del PC salvato. Al "
-                 "boot di ritorno passo dallo stesso owner. Il codice temporaneo serve "
-                 "ad associare il dispositivo, non a ricollegarlo ogni volta."),
-                ("Durante una perdita di rete o standby", "Aspetto Wi-Fi/IP e stato awake "
-                 "dallo snapshot canonico. Riprovo usando il record salvato. Se un invio "
-                 "fallisce, mantengo l'errore fino a un recupero reale."),
-                ("Retry esplicito", "Con pairing salvato riprendo la discovery. Keep pairing "
-                 "conserva una presenza autenticata ancora valida. Posso aprire Setup "
-                 "anche quando il PC resta irraggiungibile."),
-                ("Sostituzione esplicita", "START_PAIRING non sovrascrive un link attivo. "
-                 "Already paired ammette la sostituzione; tengo il candidato separato "
-                 "fino alla prova PC. Forget richiede una conferma e cancella solo i dati CCP."),
-            )),
-            8: PageSpec("Presenza e attivita' scadono separate", "Screen 14, 15, 18U e 32 / conservo le prove e i loro timestamp.", (
-                ("Presenza sul dispositivo", "Invio normalmente FIND ogni due secondi. "
-                 "Dopo otto secondi senza READY autenticato torno in discovery. Errori "
-                 "temporanei di radio o invio preservano pairing e causa reale."),
-                ("Presenza sul PC", "Lo stato pubblico host usa una propria soglia di "
-                 "dieci secondi. Un record salvato parte disconnesso fino al traffico "
-                 "autenticato. Errori del listener e accesso negato restano errori."),
-                ("Attivita' consegnata", "Lego ACTIVITY al nonce atteso e alla sua "
-                 "autenticazione. Sul dispositivo i pacchetti scadono dopo otto secondi. "
-                 "UI e audio leggono lo snapshot canonico, senza letture autonome."),
-                ("Freschezza del lavoro", "Dopo 120 secondi senza un hook reale marco "
-                 "l'attivita' come non disponibile. READY non la rinnova. Interpreto "
-                 "Stop come risposta pronta; dopo riavvio del broker attendo un nuovo prompt."),
-            )),
-            10: PageSpec("Installazione e limiti delle prove", "Tengo distinti sorgenti, trasporto osservato e comportamento fisico.", (
-                ("Rete e durata del processo", "Uso un dominio IPv4 con broadcast "
-                 "raggiungibile. VLAN, VPN, isolamento guest e firewall possono bloccarlo. "
-                 "Il broker termina dopo 60 secondi senza lease di trasporti MCP o hook."),
-                ("Installazione e hook", "Uso il marketplace locale incluso e autorizzo "
-                 "gli hook dopo averli rivisti. Gli hook command richiedono orchestrazione "
-                 "locale. Il solo trasporto MCP connesso non ne dimostra l'esecuzione."),
-                ("Evidenza disponibile", "Ho il riscontro dell'utente su pairing, All set "
-                 "e Connected. Tengo ancora aperta la verifica degli hook reali e della "
-                 "consegna fisica. Non trasformo una modifica sorgente in una prova riuscita."),
-                ("Recupero della lease MCP", "Rinnovo ogni dieci secondi; dopo un guasto "
-                 "di trasporto riprovo a 1, 3, 10 e poi 30 secondi. Mantengo identita' "
-                 "ed errore fino alla risposta autenticata. Errori di identita' o auth "
-                 "restano terminali; non ripeto hook o pairing automaticamente."),
-            )),
+            10: PageSpec("Rete, durata e limiti delle prove", "Domanda 180 secondi / presenza 8 / attivita' hook 120.", RECOVERY),
         }
-    if identity != DocumentId.Connection:
-        raise ValueError("Unknown flow document identity: " + str(identity))
-    return {
-        1: PageSpec("Cody / Atlante del collegamento Codex", "Associo una volta, recupero il PC salvato e seguo il lavoro reale.", common_cover),
-        2: PageSpec("Il percorso che uso adesso", "Screen 12 -> 13 -> 14 -> 15 -> attivita' reale; senza scelta manuale della chat.", (
-            ("12 / Codice solo quando serve", "Avvio il pairing di un nuovo dispositivo "
-             "con LAN utilizzabile. Se e' gia' associato, chiedo prima se conservare o "
-             "sostituire il PC. Una disconnessione temporanea non genera un codice."),
-            ("13 / Cody ha salvato il link", "All set segue il commit e l'invio ACTIVE. "
-             "Il PC ha gia' salvato il candidato. Let's go cerca subito: ho eliminato la "
-             "vecchia pausa Idle di dieci secondi."),
-            ("14 -> 15 / Cerco il PC ricordato", "Accetto solo identita' salvata e "
-             "risposta autenticata. Con Connected confermo CCP. Tengo disponibile "
-             "Setup con una pressione sul personaggio da 1,5 secondi."),
-            ("15 -> attivita' / Prompt reale", "Prima del primo evento mostro Waiting "
-             "for Codex. Gli hook autorizzati portano automaticamente la chat "
-             "dell'ultimo prompt. Sul dispositivo non faccio scegliere una chat."),
-        )),
-        3: PageSpec("Prima del collegamento", "Screen 09, 40 e 42 / verifico rete locale e disponibilita' del plugin.", (
-            ("Cody / Wi-Fi e IP locale", "Completo il provisioning dal telefono quando "
-             "la rete manca davvero. Con credenziali salvate e senza IP attendo il "
-             "recupero o apro Network setup. Tengo separati assenza ed errore di lettura."),
-            ("PC / CCP disponibile", "Installo il marketplace locale sul PC Windows "
-             "che voglio associare. Il broker richiede Python e raggiungibilita' "
-             "UDP sulla rete privata."),
-            ("Attivita' / Hook autorizzati", "Dopo installazione e attivazione rivedo "
-             "gli hook in Codex, con /hooks nella CLI locale. Uso orchestrazione "
-             "locale e aspetto un prompt reale prima di mostrare lavoro."),
-            ("Internet / Dipendenza distinta", "Per Cody e CCP uso la LAN, senza "
-             "un controllo WAN. Codex puo' perdere il servizio online mentre "
-             "il link locale rimane raggiungibile: rappresento i due fatti separati."),
-        )),
-        4: PageSpec("Leggo il codice attuale di Cody", "Screen 12 / attesa visibile e durata limitata del tentativo.", (
-            ("Preparing secure code", "Durante la preparazione mostro Please wait "
-             "e About 30 seconds. E' una stima ricavata dalla precedente osservazione, "
-             "non una barra di progresso misurato o un tempo garantito."),
-            ("Sei caratteri leggibili insieme", "Leggo il codice sul dispositivo "
-             "e lo inserisco in Codex. Uso il font grande del titolo e lo mostro "
-             "intero. Non lo riproduco nei documenti o nei log."),
-            ("Tre minuti sul display", "Dal codice pronto applico 180 secondi "
-             "di timeout dedicato. Il touch rinnova l'inattivita'; uscendo ripristino "
-             "la regola ordinaria. Il protocollo mantiene una finestra di cinque minuti."),
-            ("Recupero e sostituzione", "Per un link salvato uso Keep pairing "
-             "o Retry. Apro un nuovo codice solo dopo Pair again esplicito. "
-             "Wi-Fi o CCP momentaneamente assenti non richiedono altro commissioning."),
-        )),
-        5: PageSpec("Associo dal PC giusto", "Prima scopro Cody; poi uso solo il codice visibile sul dispositivo.", (
-            ("Chiedo a Codex di collegarlo", "Con CCP attivo chiedo di scoprire "
-             "Cody e associarlo con il codice attuale. Uso il dispositivo fisico "
-             "come fonte, senza recuperare vecchi codici da immagini o documenti."),
-            ("Trovo un solo dispositivo", "Il codice deve corrispondere a una "
-             "sola offerta corrente. Con nessuna o piu' corrispondenze tengo "
-             "l'errore esplicito. Non scelgo chi risponde per primo."),
-            ("Aspetto il risultato", "Lascio aperta la schermata del codice. "
-             "Una richiesta ammessa non e' ancora pairing concluso: attendo "
-             "salvataggio e conferma su entrambi i lati."),
-            ("Poi invio lavoro normale", "Seguo automaticamente la chat "
-             "dell'ultimo prompt reale. Se vedo Waiting for Codex controllo "
-             "hook ed esecuzione locale; cambiare pairing non crea eventi."),
-        )),
-        6: PageSpec("All set conferma il pairing", "Screen 13 / distinguo associazione salvata e presenza attuale del PC.", (
-            ("Salvo candidati separati", "Prima di PAIR il PC salva il candidato "
-             "DPAPI, mantenendo l'attivo. Su Cody PAIR scrive ccp_pending e PAIRED "
-             "lo conferma. La ricezione di PAIR non sostituisce il vecchio link."),
-            ("Confermo il commit reale", "CONFIRM permette a Cody di promuovere, "
-             "rileggere e chiudere il journal. Mostro All set dopo l'invio ACTIVE. "
-             "Il PC promuove solo con ACTIVE o COMMITTED autenticati."),
-            ("Let's go ha un esito diretto", "Avvio subito la ricerca del "
-             "PC salvato. Ho rimosso il giro intermedio di dieci secondi in Idle. "
-             "Procedo verso Looking for PC e Connected."),
-            ("Conferma finale persa", "Al riavvio cerco con il candidato. READY "
-             "fresco ne permette il commit; COMMITTED prova al PC che Cody lo ha "
-             "salvato. Ripeto l'ACK dopo ogni READY valido; FIND da solo non promuove."),
-        )),
-        7: PageSpec("Conservo o sostituisco: prima chiedo", "Screen 41 -> variante di conferma 40 / Already paired.", PAIRING),
-        8: PageSpec("Cerco ancora lo stesso PC", "Screen 14 / PC assente e pairing assente sono due stati diversi.", RECOVERY),
-        10: PageSpec("Connected e attivita' sono fatti diversi", "Screen 15 / aspetto un contesto autentico, senza inventare lavoro.", CONTEXT),
-        11: PageSpec("Dopo interruzioni e standby riprendo", "Screen 14, 15, 32, 35A e 35B / recupero la presenza autentica.", RECOVERY),
-        12: PageSpec("Riprovo l'operazione che e' fallita", "Screen 08, 12, 14 e 40 / Retry non cambia il PC in silenzio.", (
-            ("Nessun pairing; codice scaduto", "Con Retry esplicito posso "
-             "preparare un nuovo codice sulla LAN disponibile. Uso il codice "
-             "del tentativo corrente e aspetto la conferma completa."),
-            ("Pairing salvato; CCP assente", "Riprendo la ricerca del PC "
-             "ricordato. IP mancante, standby o invio fallito conservano "
-             "associazione e causa reale fino al recupero."),
-            ("Voglio proprio un altro PC", "Apro Setup, Connect Codex e "
-             "confermo Pair again su Already paired. Quella scelta esplicita "
-             "autorizza un nuovo codice quando ho gia' un'associazione."),
-            ("Record salvato non valido", "Dimensione, tipo, versione, CRC "
-             "o lettura falliti restano errori. Non sostituisco il record "
-             "con un default e non cancello impostazioni di nascosto."),
-        )),
-        13: PageSpec("Chi decide che cosa?", "Tengo distinti impostazioni, trasporto, chat e presentazione.", (
-            ("Io / Scelte esplicite", "Scelgo se associare, conservare il "
-             "PC o sostituirlo. Apro Network setup per la rete e Options "
-             "per le preferenze. Un Retry ordinario non autorizza la cancellazione."),
-            ("Cody / Stato canonico", "Gli owner pubblicano stati, timestamp "
-             "ed errori reali. Il renderer li consuma. Conservo il pairing "
-             "in NVS; un gesto non inventa la salute della connessione."),
-            ("CCP / Identita' e chat", "Affido al broker l'associazione "
-             "protetta e gli hook autorizzati. L'ultimo prompt seleziona "
-             "il contesto; dispositivo e modello non devono sceglierlo a mano."),
-            ("Io / Prove circoscritte", "Una build non prova il touch; "
-             "READY non prova gli hook; un hook ricevuto non prova pixel "
-             "o audio. Registro ogni risultato con il suo limite concreto."),
-        )),
-    }
+    if identity == DocumentId.Connection:
+        return {
+            1: PageSpec("Cody / Dal collegamento alla decisione", "Conservo il PC; distinguo notifica, scelta e conferma di consegna.", COVER),
+            10: PageSpec("Connected, poi avvisi e domande", "Screen 15, 26 e 27 / l'etichetta context non e' l'identita' della chat.", NOTICES),
+            11: PageSpec("Offline non risponde per me", "Screen 26/27, 32 e 35A/35B / conservo il percorso e rispetto la scadenza.", RECOVERY),
+            13: PageSpec("Chi conferma la risposta?", "Screen 31 / il destinatario MCP deve riconoscere la ricezione.", DELIVERY),
+        }
+    raise ValueError("Unknown flow document identity: " + str(identity))
 
 
 # identity: Document that receives the dated trailing revision.
 # changed: Physical main-page numbers replaced in this document.
-# Returns new addendum recipes followed by the mandatory final errata.
+# Returns four pages ending with the mandatory current revision errata.
 def appendix_revisions(identity, changed):
-    compact = identity == DocumentId.Quickstart
-    sections = (
-        ("Primo avvio / Dispositivo gia' configurato", "Senza Wi-Fi salvato apro 04-09. "
-         "Con credenziali ma senza IP uso 42. Con LAN e senza pairing offro 40. "
-         "Con un record valido riprendo 14-15, senza verificare Internet."),
-        ("Setup / Consenso alla sostituzione", "Apro 41 tenendo premuto il personaggio "
-         "per 1,5 secondi. Con un pairing salvato mostro Already paired: Keep pairing, "
-         "Pair again oppure Forget. Retry riprende la ricerca senza codice nuovo."),
-        ("Pairing / Presenza / Attivita'", "Con 13 confermo il pairing. Let's go cerca "
-         "subito il PC. Su 15 confermo CCP e attendo il prompt reale. Gli hook "
-         "seguono la sua chat automaticamente: ho eliminato la scelta manuale."),
-        ("Options / Scelte locali", "Apro Make it yours da Options e riutilizzo "
-         "Settings e Skin. Torno al chiamante corretto. Tengo separati preferenze, "
-         "sostituzione del PC e qualsiasi cancellazione esplicita."),
-    )
-    pages = [PageSpec("Addendum / pairing conservato", "Registro della decisione / " + DATE + " / screen 04-16, 35B, 36 e 40-42.", sections)]
-    recovery_copy = RECOVERY
-    if compact:
-        recovery_copy = (
-            ("LAN attiva; Internet giu'", "Uso ancora il link locale con CCP. "
-             "Codex puo' perdere i servizi online separatamente. Tengo "
-             "questa situazione distinta da un pairing fallito."),
-            ("LAN o PC assenti", "Conservo le identita', attendo e riprovo "
-             "sulla rete locale. Posso tenere premuto Cody e aprire Setup. "
-             "Per Retry ordinario non serve un altro codice."),
-            ("Standby o aggiornamento", "Conservo il pairing e recupero "
-             "la presenza autenticata. Il normale flash preserva NVS; "
-             "cancellazione o storage invalido richiedono un'altra decisione."),
-            ("Connected senza attivita'", "Controllo autorizzazione degli hook "
-             "ed esecuzione locale, poi invio un prompt reale. Non fabbrico "
-             "eventi o record di fiducia per far sembrare tutto a posto."),
-        )
-    pages.append(PageSpec("Addendum / casi di recupero", "Screen 14-16, 18U, 32, 35A/35B e 42 / conservo l'identita' salvata.", recovery_copy))
-    pages.append(PageSpec("Addendum / conferma e reset", "Screen 12, 13, 40 e 41 / conservo rete, skin, preferenze e log.", TRANSACTION))
-    if compact:
-        errata = (
-            ("Pagine originali " + ", ".join(str(page) for page in sorted(changed)), "Ho "
-             "riscritto fronte e retro con installazione locale, hook e screen "
-             "12-15/41. Ho superato il concetto ZIP e la scelta manuale della chat."),
-            ("Screen 12-15, 40 e 41", "Let's go cerca subito. Already paired "
-             "offre Keep pairing, Pair again e Forget. Retry recupera il PC salvato; "
-             "Cancel chiude il candidato. Un normale aggiornamento conserva il link."),
-            ("Buco di analisi iniziale", "Avevo confuso commissioning, "
-             "riconnessione e attivita' e omesso il consenso alla sostituzione. "
-             "Ho corretto il flow: qui il buco lo chiudo, non lo nascondo."),
-            ("Storico ed evidenza", "Conservo verbatim addenda ed errata "
-             "precedenti. Le pagine attuali superano le istruzioni in conflitto. "
-             "Tengo separate modifiche scritte e prove fisiche ancora da eseguire."),
-        )
+    page_list = ", ".join(str(page) for page in sorted(changed))
+    if identity == DocumentId.Quickstart:
+        page_copy = "Ho aggiornato le due pagine iniziali: installazione locale, " \
+            "richieste esplicite e flow 26/27/31. Conservo lo storico precedente."
     else:
-        errata = (
-            ("Pagine originali " + ", ".join(str(page) for page in sorted(changed)), "Ho "
-             "integrato il flow corrente nelle pagine principali, conservando quelle "
-             "non coinvolte e tutti gli addenda/errata precedenti. Riferisco il percorso "
-             "agli screen ID anche quando cambia la paginazione."),
-            ("Screen 10-16, 32, 35B e 40-42", "Options salva quattro preferenze; Already "
-             "paired offre Keep pairing, Pair again e Forget. Separo Retry, Cancel e reset. "
-             "Uso journal separati e COMMITTED per il commit reale. Let's go cerca subito."),
-            ("Buco di analisi iniziale e responsabilita'", "Avevo mescolato commissioning, "
-             "recupero e attivita', senza chiedere conferma della sostituzione. Ho "
-             "esplicitato queste decisioni. CCP segue il prompt autentico; ho ritirato "
-             "la vecchia scelta manuale della chat."),
-            ("Decisione UI ed evidenza", "Conservo il linguaggio approvato: gradienti, "
-             "icone, coppia orizzontale o capsula singola e pulsanti senza teletype. "
-             "Con questa revisione aggiorno sorgenti e documenti; elenco separatamente "
-             "le prove di dispositivo, hook e simulatore ancora da completare."),
-        )
-    pages.append(PageSpec("Errata and corrections", "Data revisione: " + DATE + " / " + REVISION, errata))
-    return pages
-
+        page_copy = "Ho aggiornato le pagine principali coinvolte, mantenendo " \
+            "quelle estranee al flow e gli addenda precedenti. Uso gli screen ID."
+    errata = (
+        ("Pagine originali " + page_list, page_copy),
+        ("Screen 21-27 e 31-32", "Ho applicato A03: PR in sola lettura e 25 ritirato. "
+         "Ho rimosso View log e il vecchio elenco verticale. Ora 27 ha card e "
+         "riepilogo Send; 31 richiede delivered dopo l'ACK del destinatario."),
+        ("Buco di analisi iniziale", "Avevo lasciato ambigui ricevuta, consegna "
+         "e scadenza, oltre a illustrazioni PR superate. Li separo con ticket, "
+         "received/delivered e 180 secondi. Timeout e offline non scelgono risposte."),
+        ("Storico ed evidenza", "Conservo le errata precedenti; questa revisione "
+         "supera le istruzioni in conflitto. Ho integrato il contratto nei sorgenti; "
+         "suite finale, touch fisico e wake su avviso restano da verificare."),
+    )
+    return [
+        PageSpec("Addendum / notifiche e decisioni", "Revisione " + DATE + " / screen 26, 27 e 31.", QUESTIONS),
+        PageSpec("Addendum / PR solo in lettura", "A03 resta in vigore / screen 21-24; 25 ritirato.", PR_STATUS),
+        PageSpec("Addendum / ricevuta e consegna", "Screen 31 e 32 / il consenso non nasce da un timeout.", DELIVERY),
+        PageSpec("Errata and corrections", "Data revisione: " + DATE + " / " + REVISION, errata),
+    ]
 
 # identity: Stable document identity from the requested set.
 # staging: Owned repository artifact directory for backups and generated PDFs.
@@ -777,7 +520,7 @@ def revise(identity, staging):
         writer.add_page(authored_page(spec, dimensions, document.label, len(writer.pages) + 1))
     writer.add_outline_item("Atlante corrente", 0)
     writer.add_outline_item("Storico: addenda ed errata", document.main_pages)
-    writer.add_outline_item("Revisione pairing conservato - " + DATE, document.original_pages)
+    writer.add_outline_item("Revisione notifiche e decisioni - " + DATE, document.original_pages)
     writer.add_outline_item("Errata and corrections - " + DATE, len(writer.pages) - 1)
     writer.add_metadata({"/Title": "Cody / " + document.label.title(),
                          "/Author": "Umberto Giacobbi", "/Contact": "hello@umbertogiacobbi.biz", "/Subject": REVISION,

@@ -1,4 +1,4 @@
-# Cody: primo avvio, opzioni e collegamento
+# Cody: dal primo avvio alle notifiche e decisioni
 
 Qui tengo il contratto corrente del percorso di Cody. Uso gli screen ID degli
 atlanti come riferimenti stabili; lascio cronologia e risultati in
@@ -11,6 +11,12 @@ Per pacchetti, prove e tempi del protocollo uso
 [CCP1](../../../plugins/cody-codex-plugin/protocol/CCP1.md), senza mantenerne una
 seconda copia qui. I PDF aggiornano anche le pagine principali e conservano gli
 addenda e le errata precedenti in fondo.
+
+Per notifiche, domande e stati PR ho integrato l'estensione CCP 0.6 descritta
+qui sotto. Tengo distinti il contratto nei sorgenti, le prove host e le
+osservazioni fisiche di touch, offline e wake. Registro gli esiti correnti in
+[done.md](../../../done.md), senza trasformare una revisione documentale in
+una prova del dispositivo.
 
 ## Decido il percorso dai dati salvati
 
@@ -58,6 +64,12 @@ dai dati persistenti, senza fingere che la RAM precedente esista ancora.
 | 13, Let's go | Cerco subito il PC su 14 o riutilizzo una presenza valida su 15 |
 | 14, READY autenticato | 15 / Connected |
 | 15, nuovo prompt reale ricevuto da CCP | Attivita' della chat seguita automaticamente |
+| 26, domanda ricevuta e Open | Apro le due o tre scelte sullo screen 27 |
+| 27, seleziono una card | Apro il riepilogo, senza inviare |
+| 27, Send nel riepilogo | Invio la scelta e attendo la consegna al destinatario |
+| 27, ACK UDP received | Mantengo l'attesa; il broker ha registrato la scelta |
+| 27, delivered autenticato | 31 / Reply sent; poi riprendo il contesto precedente |
+| 26/27, expired oppure cancelled | Mostro l'esito senza scegliere una risposta |
 
 `06-bis` rimane un'identita' nei dati d'autore; nel runtime attuale il QR di
 sessione e' una presentazione dello screen 07. Ho rimosso la pausa artificiale
@@ -266,6 +278,141 @@ cinque secondi attivi e poi lascia Cody in Idle.
 Installazione, trust degli hook e orchestrazione locale sono condizioni
 operative separate dal pairing. Tengo le istruzioni nella guida CCP; non
 fabbrico eventi o record di fiducia per simulare una chat attiva.
+
+## Notifiche e domande arrivano da richieste esplicite
+
+Tengo due ingressi distinti: gli hook seguono l'ultimo prompt autentico, mentre
+una chiamata MCP esplicita pubblica un avviso o una domanda. Il campo `context`
+e' un'etichetta dichiarata dal chiamante, non una prova dell'identita' della chat.
+Non creo un `UserPromptSubmit` artificiale per far funzionare una notifica.
+
+Lo screen **26 / Codex needs you** richiama l'attenzione con titolo e testo brevi;
+**Open** apre le scelte. Per una notifica informativa mostro **From Codex**, senza
+produrre una risposta.
+Per `PermissionRequest` mantengo soltanto l'avviso **On your PC** con
+**Continue on your PC**: l'utente
+approva o rifiuta gli strumenti nativi nel client del PC. Non aggiungo Allow,
+Deny o un consenso generico su Cody, e non riassumo un'operazione lunga fino a
+nasconderne la parte importante.
+
+Mantengo una sola domanda aperta per dispositivo. Attivita' della chat, nuove
+notifiche e indicatori di batteria/charging non possono rimpiazzarla. Conservo
+l'identita' della richiesta anche quando il suo contesto testuale e' uguale a
+quello di un'altra: il ticket decide a quale domanda appartiene una risposta.
+
+## Scelgo sul 27, poi confermo
+
+Sul **27 / Choose a reply** presento due card affiancate oppure due card e
+una terza centrata sotto. Conservo ID univoci delle scelte, indipendenti dalla
+posizione. Ogni card ha label, icona e colore semantico. Il vecchio elenco
+verticale dell'atlante e' superato dalla decisione UI del 9 ottobre.
+
+Selezionare una card apre **Review choice**, variante di riepilogo dello screen 27.
+Qui leggo la descrizione e trovo una sola capsula **Send**, con Back laterale
+che torna alle opzioni. Non infilo un quarto pulsante sotto le tre card:
+quel pezzetto di cerchio ha gia' abbastanza da fare. Dalle opzioni, Back torna
+al 26 conservando la domanda. Fino a Send posso cambiare idea.
+
+Se la LAN manca prima dell'ammissione, disabilito Send e conservo la sottopagina.
+Dopo l'ammissione entro in **Sending reply** e la scelta diventa immutabile:
+mostro **Sending your reply**, poi **CCP received the reply** quando arriva la
+ricevuta del broker. In entrambi i casi mantengo **Waiting for Codex** e nessuna
+azione di invio aggiuntiva.
+
+Rivelo i controlli completi dopo titolo e riga principale e ammetto touch solo
+quando sono visibili. Le label dei pulsanti non entrano nel teletype o nel suo
+conteggio audio. Una risposta appartiene al ticket e all'ID della scelta:
+non uso un indice di lista o la label per dedurne l'identita'.
+
+## Reply sent richiede l'ACK del destinatario
+
+Alla creazione MCP ricevo un ticket casuale di **128 bit** e una capability
+privata. Poll e cancellazione richiedono entrambi; la capability resta sul PC
+e non viaggia nei datagrammi LAN. Non ne pubblico il valore in log o PDF.
+
+Distinguo questi passaggi:
+
+| Stato | Che cosa posso affermare |
+| --- | --- |
+| `pending` | La domanda e' disponibile; nessuna risposta inviata |
+| `Sending` locale | Ho ammesso l'invio della scelta; attendo la ricevuta senza cambiarla |
+| `received` | Il broker ha registrato la scelta; il destinatario deve ancora confermare |
+| `delivered` | Il chiamante in possesso della capability ha riconosciuto la risposta |
+| `cancelled` | La richiesta e' stata annullata; non scelgo al posto dell'utente |
+| `expired` | La richiesta e' scaduta; non invio una scelta tardiva |
+| `none` | Nessun evento disponibile; questo non equivale a una risposta |
+
+Il primo poll restituisce la risposta e un `answer_id` casuale. Un successivo
+poll con `acknowledge_answer_id` uguale prova che il chiamante ha ricevuto
+quella risposta. Solo allora il trasporto pubblica `delivered` e posso mostrare
+**31 / Reply sent**, con **Delivered to Codex** e **Done**. L'ACK UDP `received`
+da solo lascia la UI in attesa. Sending e' uno stato locale: i messaggi EVENT
+usano gli stati wire descritti nel protocollo.
+Il poll aspetta al massimo 15 secondi senza trattenere il lock delle altre
+operazioni MCP.
+
+Una ripetizione della stessa scelta e' idempotente; una scelta diversa non
+sovrascrive la prima. Un ACK perso puo' essere recuperato dallo stato autenticato
+di EVENT o REPLYACK. Un errore, una risposta sconosciuta o un conflitto restano
+visibili: non li trasformo in consegna e non spedisco una seconda scelta.
+La ricevuta non certifica il completamento del lavoro, dei test o di una PR.
+
+## Scadenza, offline e standby non decidono per me
+
+La domanda ha **180 secondi** di vita. La sua scadenza e' distinta dal timeout
+del display, dagli otto secondi di presenza del PC e dai 120 secondi di freschezza
+degli hook. Un EVENT ripetuto, un tap o il ritorno della LAN non allungano la
+finestra originale.
+
+La scadenza vale anche nello stato `received`: se il destinatario conferma oltre
+la finestra, mantengo `expired` e non mostro 31. Posso conservare per diagnosi la
+scelta ricevuta, ma non la tratto come decisione valida e non ammetto ACK tardivi.
+
+Su **32 / Connection lost** conservo contenuto e percorso della domanda.
+Timeout, annullamento, standby e disconnessione non scelgono una risposta.
+Quando la richiesta diventa `expired` o `cancelled` mostro l'esito e ritiro le
+azioni di invio ormai invalide. Le caption sono **Request expired**,
+**Request cancelled** oppure **Reply rejected**, con **Done**. Pacchetti tardivi
+non riaprono uno stato terminale. Al ritorno della LAN recupero lo stato reale,
+senza rigenerare il pairing o applicare una vecchia risposta a un nuovo ticket.
+La cache del broker e' volatile e limitata: dopo un riavvio non riproduco
+richieste o risposte per conto del chiamante.
+
+Mantengo Wi-Fi durante lo standby di Cody associato. Accodo il risveglio per
+un nuovo avviso autenticato al worker del power owner, preservando AFE e wake
+word; il renderer non accende da solo il pannello. Questo e' il contratto
+implementato nei sorgenti: la prova di risveglio e touch fisici resta separata.
+
+## PR: osservo lo stato, lavoro sul computer
+
+Applico l'**addendum A03 del 4 ottobre 2026** anche alle pagine principali:
+gli screen **21-24 sono in sola lettura e il 25 e' ritirato**. La gestione della
+PR e la diagnosi degli errori restano sul PC; le domande 26/27 non offrono una
+scorciatoia per aggirare quel limite.
+
+| Screen | Contenuto e unica navigazione ammessa |
+| --- | --- |
+| 21 / PR pending | Stato del PR indicato, senza azioni operative |
+| 22 / Checks running | Conteggio solo con lista completa, attuale e riferita all'esatto head |
+| 22 / All checks passed | Esito breve basato sui check, poi ritorno a 17 |
+| 23 / Checks failed | View failures apre 24 |
+| 24 / Failed checks | Tre nomi per pagina, fino a due righe ciascuno, swipe verticale e Back laterale |
+| 25 / Retired | Nessun percorso per log grezzi o stack trace sul dispositivo |
+
+Lo snapshot PR arriva da una chiamata esplicita e deve identificare l'esatto
+head. Non deduco check passati da Stop. Senza elenco completo e corrente non
+invento conteggi. Ammetto al massimo **sei nomi di check falliti, fino a 48
+caratteri ASCII stampabili ciascuno**. Se i dati non sono rappresentabili li
+rifiuto con un errore esplicito: non tronco nomi e non nascondo fallimenti per
+farli entrare. Lo screen 24 non ha View log o righe selezionabili. Cody non
+esegue merge, approve, close, rerun o comment su una PR.
+
+Mantengo i dettagli wire in [CCP1](../../../plugins/cody-codex-plugin/protocol/CCP1.md):
+EVENT porta stato e contenuto autenticati, REPLY vale soltanto per `question`.
+Il canale non cifra il contenuto; la capability resta locale al PC. Gli owner
+pubblicano dati, freschezza ed errori nello snapshot canonico consumato dalla UI.
+28 / Recording, 29 / Transcribing e 30 / Review transcript restano un flow
+futuro, senza attribuire trascrizione o invio voce a questa estensione.
 
 ## Recupero della lease e simulatore Windows
 

@@ -11,7 +11,7 @@ addenda ne abbiamo gia' una discreta collezione.
 | Voglio capire... | Leggo... |
 | --- | --- |
 | Come e' composto Cody | [Architettura Cody](architecture/cody/README.md) |
-| Primo avvio, Options, rete, pairing e recupero | [Onboarding e connessione](architecture/cody/onboarding.md) |
+| Primo avvio, Options, pairing, notifiche e decisioni | [Flow Cody](architecture/cody/onboarding.md) |
 | Scene, orologi del runtime e Debug | [Runtime](architecture/cody/runtime.md) |
 | Rig, rendering e prestazioni | [Rendering](architecture/cody/rendering.md) |
 | Orologio e RTC | [Clock](architecture/cody/clock.md) |
@@ -26,7 +26,7 @@ non il numero stampato della pagina.
 
 | PDF | A cosa mi serve |
 | --- | --- |
-| [Navigation Atlas](Cody/cody-navigation-atlas-v1.pdf) | Percorsi, ritorni e decisioni di rete/pairing |
+| [Navigation Atlas](Cody/cody-navigation-atlas-v1.pdf) | Percorsi, ritorni, domande e PR in sola lettura |
 | [Planning Atlas](Cody/cody-planning-atlas-v1.pdf) | Inventario degli screen, layout e confini del prodotto |
 | [Pairing Quickstart](Cody/cody-ccp-pairing-quickstart-a5-v1.pdf) | Installazione e collegamento dal PC, in formato A5 |
 | [CCP Service Atlas](Cody/cody-ccp-service-atlas-v1.pdf) | Owner, protocollo, persistenza e limiti delle prove |
@@ -35,6 +35,9 @@ non il numero stampato della pagina.
 Tengo i vecchi [appunti sul pairing](planning/2026-10-03-pairing-atlas-addendum.md)
 e [sull'aspetto](planning/2026-10-04-cody-look-atlas-addendum.md) come storico.
 Per il comportamento attuale parto dalla guida e dalle pagine principali dei PDF.
+Per la nuova estensione notifiche/decisioni tengo distinta l'implementazione nei
+sorgenti dalla suite finale e dalla prova fisica. A03 continua a lasciare gestione
+PR, log e diagnosi sul computer, con lo screen 25 ritirato.
 
 ## Piattaforma e Luna
 

@@ -12,8 +12,8 @@ from pypdf import PdfReader
 
 
 ROOT = Path(__file__).resolve().parents[2]
-BASELINE = "094ac0e19a5d004add46dcc73a5dd140ee901c73"
-REVISION = "CODY-RETAINED-FLOW-20261010"
+BASELINE = "c99762b81e364876a0d47d8e7a262b244e0fdbfc"
+REVISION = "CODY-NOTIFICATIONS-20261010"
 OUTPUT = ROOT / "artifacts/pdf-review" / REVISION.lower()
 ADDED_PAGES = 4
 
@@ -27,11 +27,11 @@ class ReviewSpec:
 
 
 DOCUMENTS = (
-    ReviewSpec("cody-navigation-atlas-v1.pdf", 38, 12, frozenset({1, 2, 3, 4, 5, 6, 10, 12})),
-    ReviewSpec("cody-planning-atlas-v1.pdf", 38, 22, frozenset({1, 2, 4, 5, 6, 7, 8, 9, 10, 14, 16, 21, 22})),
-    ReviewSpec("cody-ccp-pairing-quickstart-a5-v1.pdf", 13, 2, frozenset({1, 2})),
-    ReviewSpec("cody-ccp-service-atlas-v1.pdf", 20, 10, frozenset({1, 2, 5, 7, 8, 10})),
-    ReviewSpec("cody-codex-connection-atlas-v1.pdf", 24, 14, frozenset({1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13})),
+    ReviewSpec("cody-navigation-atlas-v1.pdf", 42, 12, frozenset({1, 5, 6, 7, 8, 9, 10})),
+    ReviewSpec("cody-planning-atlas-v1.pdf", 42, 22, frozenset({1, 2, 11, 12, 13, 14, 16, 21, 22})),
+    ReviewSpec("cody-ccp-pairing-quickstart-a5-v1.pdf", 17, 2, frozenset({1, 2})),
+    ReviewSpec("cody-ccp-service-atlas-v1.pdf", 24, 10, frozenset({1, 2, 7, 8, 9, 10})),
+    ReviewSpec("cody-codex-connection-atlas-v1.pdf", 28, 14, frozenset({1, 10, 11, 13})),
 )
 
 
@@ -67,14 +67,14 @@ def check_document(spec):
     # Paragraph line wrapping is visual geometry, not a change to an action's wording.
     main_text = " ".join(" ".join(after.pages[number - 1].extract_text() or ""
                                  for number in sorted(spec.changed_pages)).split())
-    for required in ("Already paired", "Keep pairing", "Pair again", "Forget", "Waiting for Codex"):
+    for required in ("Send", "Reply sent", "180", "sola lettura", "On your PC"):
         assert required in main_text, f"Current main pages lack {required}: {spec.filename}"
     cover = after.pages[0].extract_text() or ""
     assert REVISION in cover, "Revision only appended; cover is still old: " + spec.filename
     last = " ".join((after.pages[-1].extract_text() or "").split())
     assert "Errata and corrections" in last and "10 ottobre 2026" in last, "Missing dated final errata"
-    # The documented inclusive range 40-42 contains the Setup screen 41.
-    assert "analisi iniziale" in last and "40" in last and ("41" in last or "40-42" in last), (
+    # Inclusive screen ranges cover the revised PR, question and delivery routes.
+    assert "analisi iniziale" in last and "21-27" in last and "31-32" in last, (
         "Missing cause or affected screen IDs")
     assert "Pagine originali" in last, "Missing original page references"
     print(spec.filename + ": current main pages, unchanged history and final errata passed")

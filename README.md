@@ -23,6 +23,12 @@ associato e distingue pairing salvato, presenza sulla LAN e attivita' della chat
 Ho eliminato la scelta manuale della chat e il nuovo codice a ogni riconnessione:
 un po' meno burocrazia, finalmente.
 
+Ho integrato notifiche e domande esplicite da CCP: scelgo tra due o tre
+opzioni, rileggo e confermo con Send. Reply sent arriva dopo l'ACK del
+destinatario. Tengo le PR in sola lettura secondo A03 e le approvazioni native
+sul computer. Il [flow completo](docs/architecture/cody/onboarding.md) distingue
+il contratto nei sorgenti dalle evidenze host e fisiche registrate in [done.md](done.md).
+
 Conservo un solo registro per ogni scopo:
 
 | Mi serve... | Lo tengo qui |
