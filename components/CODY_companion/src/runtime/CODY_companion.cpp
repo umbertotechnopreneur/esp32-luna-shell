@@ -3683,8 +3683,9 @@ TouchPollResult capture_pending_touch(PendingTouchReports &reports)
 // sample: Structured result whose provenance distinguishes acquisition from routing.
 bool optional_runtime_touch_failure(const TouchPollResult &sample)
 {
-    // Only a malformed measured report is optional after startup. Transport,
-    // locks, publication/routing and startup failures retain terminal policy.
+    // Only an acquired INVALID_RESPONSE is optional after startup. This code
+    // can also mean an I2C NACK; do not infer its electrical/protocol origin.
+    // Other acquisition errors, locks, routing and startup retain terminal policy.
     return sample.status == TouchPollStatus::Failed && sample.acquisition_failed &&
         sample.error == ESP_ERR_INVALID_RESPONSE &&
         s_start_state.load(std::memory_order_acquire) == StartState::Running;

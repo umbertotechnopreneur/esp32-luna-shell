@@ -414,7 +414,8 @@ def interface_flow_page(pdf, dimensions, label, number):
         ("Scoped runtime correction", "The touch owner still rejects malformed reports and publishes the "
          "real error. After startup only, that acquisition error is optional for rendering. Discard queued "
          "gesture reports, cancel the gesture and require a real acquired release before another press. "
-         "No release is invented. Startup, transport, lock and route failures remain terminal."),
+         "No release is invented. The same acquisition error can mean an I2C NACK; its origin is not inferred. "
+         "Startup, other acquisition errors, locks and route failures remain terminal."),
         ("Evidence boundary", "Native source integration and approved mockups are documented here. "
          "The underlying cause of the FF report and corrected physical touch/standby behavior remain "
          "unverified. A successful build/flash alone does not establish those outcomes."),

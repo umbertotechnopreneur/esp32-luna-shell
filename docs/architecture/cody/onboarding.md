@@ -361,12 +361,14 @@ The old fail-fast renderer policy, not an observed Internet probe, caused the
 frozen image. The physical/protocol cause of the FF report remains unresolved.
 
 After startup only, a malformed acquired touch report is now a documented
-optional input failure for rendering. Its owner still returns the real error;
+optional input failure for rendering. Specifically, an acquisition
+ESP_ERR_INVALID_RESPONSE can originate in a rejected report or I2C NACK; this
+policy does not infer the electrical/protocol cause. Its owner returns the real error;
 `ui.touch` and `character_touch` retain invalid/error state and prior good data.
 Queued reports are discarded, gesture recognition is cancelled, and input waits
 for a real acquired release before another press. No synthetic release, sensor
 retry-success substitution or implicit controller reset is introduced. Startup,
-transport, lock, capacity and route errors retain terminal policy. This isolates
+other acquisition errors, lock, capacity and route errors retain terminal policy. This isolates
 the measured input fault from display frame completion and standby quiescence;
 corrected physical behavior still needs observation.
 

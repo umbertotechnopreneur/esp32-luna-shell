@@ -368,7 +368,7 @@ esp_err_t draw_look_list(const LookView &view, CODY2D::Surface strip,
         (limit == 0 ? 0 : static_cast<uint16_t>(view.look_scroll * thumb_range / limit));
     if (error == ESP_OK) {
         error = fill_canvas_rect(list_strip, clipped_top, clipped_left,
-            {kLookScrollBarLeft, thumb_top, kLookScrollBarWidth, thumb_height}, kBlueTop);
+            {kLookScrollBarLeft, thumb_top, kLookScrollBarWidth, thumb_height}, 0x06D9);
     }
     return error;
 }

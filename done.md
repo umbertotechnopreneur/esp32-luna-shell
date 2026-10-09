@@ -20,8 +20,10 @@ flash logs were regenerated.
 - Implemented the documented optional runtime malformed-acquisition policy:
   preserve the touch owner's real error and canonical invalid touch/body state;
   discard queued gestures, cancel hold/swipe/caress, wait for an actual release,
-  and continue display completion. Startup, transport, lock, capacity and route
-  errors remain terminal. No fabricated release, sensor fallback or controller
+  and continue display completion. An acquisition ESP_ERR_INVALID_RESPONSE can
+  also mean I2C NACK; the policy does not infer hardware origin. Startup, other
+  acquisition errors, locks, capacity and route errors remain terminal.
+  No fabricated release, sensor fallback or controller
   reset. Static review only at this implementation checkpoint.
 - Generated four setup and four single-action ImageGen proposals. User approved
   the pair of rounded gradient cards with centered Options below, and the single
@@ -43,6 +45,10 @@ flash logs were regenerated.
   reviewed. Navigation/Planning 34 pages, A5 Quick Start 11, CCP Service 18,
   Codex Connection 22. No firmware tests/scans/simulator or corrected-device input
   validation ran for this checkpoint; installation evidence follows separately.
+- First authorized installation build stopped before device writes at an obsolete
+  skin-scrollbar palette reference. Corrected that reference to semantic teal;
+  no warning suppression. The acquisition INVALID_RESPONSE/NACK qualification
+  was also made explicit in source comments and all five revised flow pages.
 
 ## Cody setup escape correction - 2026-10-09
 
