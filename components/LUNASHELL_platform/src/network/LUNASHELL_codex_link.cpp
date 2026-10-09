@@ -33,6 +33,7 @@ namespace {
 constexpr char kTag[] = "LUNASHELL_codex";
 constexpr char kProtocol[] = "CCP1";
 constexpr char kPairingSetting[] = "ccp_pairing";
+constexpr char kPendingPairingSetting[] = "ccp_pending";
 constexpr char kCodeAlphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 constexpr uint16_t kDevicePort = 42117;
 constexpr uint16_t kPluginPort = 42118;
@@ -55,6 +56,7 @@ enum class Command : uint8_t {
     StartPairing,
     StartDiscovery,
     Cancel,
+    ForgetPairing,
 };
 
 struct PersistedLink {
@@ -77,6 +79,9 @@ int s_socket = -1;
 LUNASHELL::CodexLinkSnapshot s_link_snapshot{};
 PersistedLink s_persisted_link{};
 bool s_link_present = false;
+PersistedLink s_candidate_link{};
+bool s_candidate_present = false;
+esp_err_t s_storage_error = ESP_OK;
 char s_pairing_code[7]{};
 uint8_t s_pairing_salt[16]{};
 uint8_t s_pairing_verifier[32]{};
@@ -357,6 +362,8 @@ void publishLocked(State state, esp_err_t error)
     s_link_snapshot.command_pending = s_pending != Command::None;
     s_link_snapshot.pairing_window_active = state == State::StartingPairing || state == State::Pairing;
     s_link_snapshot.retained_link_present = s_link_present;
+    s_link_snapshot.pending_pairing_present = s_candidate_present;
+    s_link_snapshot.pairing_repair_required = s_storage_error != ESP_OK;
     s_link_snapshot.data_valid = true;
     s_link_snapshot.data_stale = false;
     s_link_snapshot.health = error == ESP_OK
@@ -436,33 +443,34 @@ esp_err_t formatDeviceId(const char *mac_address, char device_id[13])
     return output_index == 12 ? ESP_OK : ESP_ERR_INVALID_SIZE;
 }
 
-// No parameters: loads one exact persisted record; genuine absence remains unpaired.
-// Exception: Corrupt, partial, inaccessible or unsupported state is returned unchanged.
-esp_err_t loadPersistedLink()
+// key: Active or candidate record owned by the CCP service.
+// record: Receives validated bytes only; never exposed through a snapshot or log.
+// present: Receives false only for a genuinely absent key.
+// Exception: Returns corrupt, partial, inaccessible or unsupported storage unchanged.
+esp_err_t readLinkRecord(const char *key, PersistedLink &record, bool &present)
 {
     auto &settings = LUNASHELL::UserSettingsService::instance();
-    esp_err_t error = settings.isInitialized() ? ESP_OK : settings.initialize();
-    if (error != ESP_OK) {
-        ESP_LOGE(kTag, "CCP settings initialization failed (%s)", esp_err_to_name(error));
-        return error;
-    }
     std::vector<uint8_t> data;
-    error = settings.getBlob(kPairingSetting, &data);
+    esp_err_t error = settings.getBlob(key, &data);
     if (error == ESP_ERR_NVS_NOT_FOUND) {
-        ESP_LOGI(kTag, "CCP pairing record absent; Cody remains explicitly unpaired");
+        ESP_LOGI(kTag, "CCP record '%s' absent; no identity is invented", key);
+        present = false;
+        wipe(&record, sizeof(record));
         return ESP_OK;
     }
     if (error != ESP_OK) {
-        ESP_LOGE(kTag, "CCP pairing record read failed (%s)", esp_err_to_name(error));
+        ESP_LOGE(kTag, "CCP record '%s' read failed (%s)", key, esp_err_to_name(error));
+        wipe(data.data(), data.size());
         return error;
     }
     if (data.size() != sizeof(PersistedLink)) {
         ESP_LOGE(kTag, "CCP pairing record size %u is invalid; explicit repair required",
                  static_cast<unsigned>(data.size()));
+        wipe(data.data(), data.size());
         return ESP_ERR_INVALID_SIZE;
     }
-    PersistedLink record{};
     std::memcpy(&record, data.data(), sizeof(record));
+    wipe(data.data(), data.size());
     if (record.version != kPersistedVersion) {
         ESP_LOGE(kTag, "CCP pairing record version %u is unsupported; explicit repair required",
                  static_cast<unsigned>(record.version));
@@ -482,33 +490,107 @@ esp_err_t loadPersistedLink()
         wipe(&record, sizeof(record));
         return ESP_ERR_INVALID_RESPONSE;
     }
-    s_persisted_link = record;
-    s_link_present = true;
-    s_link_snapshot.retained_link_present = true;
-    error = encodeHex(
-        record.pc_id,
-        sizeof(record.pc_id),
-        s_link_snapshot.paired_pc_id,
-        sizeof(s_link_snapshot.paired_pc_id)
-    );
-    wipe(&record, sizeof(record));
+    present = true;
+    return ESP_OK;
+}
+
+// No parameters: restores active identity and any incomplete candidate separately.
+// Exception: Storage failures require explicit repair, never implicit overwrite or reset.
+esp_err_t loadPersistedLink()
+{
+    auto &settings = LUNASHELL::UserSettingsService::instance();
+    esp_err_t error = settings.isInitialized() ? ESP_OK : settings.initialize();
     if (error == ESP_OK) {
-        ESP_LOGI(kTag, "CCP retained pairing loaded; no new code is required for reconnect");
+        error = readLinkRecord(kPairingSetting, s_persisted_link, s_link_present);
+    }
+    if (error == ESP_OK) {
+        error = readLinkRecord(kPendingPairingSetting, s_candidate_link, s_candidate_present);
+    }
+    if (error == ESP_OK && s_link_present) {
+        error = encodeHex(s_persisted_link.pc_id, sizeof(s_persisted_link.pc_id),
+                          s_link_snapshot.paired_pc_id, sizeof(s_link_snapshot.paired_pc_id));
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "CCP retained-state load failed; explicit repair required (%s)", esp_err_to_name(error));
+    } else {
+        ESP_LOGI(kTag, "CCP records restored: retained=%u pending_confirmation=%u; codes remain closed",
+                 s_link_present, s_candidate_present);
     }
     return error;
 }
 
+// key: Active or pending CCP record; never an unrelated user setting.
 // record: Fully formed versioned record whose CRC is already assigned.
-// Exception: Returns the original internal-stack NVS operation error.
-esp_err_t persistLink(const PersistedLink &record)
+// Exception: Latches the original write/readback error until an explicit successful Forget.
+esp_err_t persistLink(const char *key, const PersistedLink &record)
 {
-    const esp_err_t error = LUNASHELL::UserSettingsService::instance().setBlob(
-        kPairingSetting,
-        &record,
-        sizeof(record)
-    );
+    esp_err_t error = LUNASHELL::UserSettingsService::instance().setBlob(key, &record, sizeof(record));
+    PersistedLink readback{};
+    bool present = false;
+    if (error == ESP_OK) {
+        error = readLinkRecord(key, readback, present);
+    }
+    if (error == ESP_OK && (!present || std::memcmp(&record, &readback, sizeof(record)) != 0)) {
+        error = ESP_ERR_INVALID_RESPONSE;
+    }
+    wipe(&readback, sizeof(readback));
     if (error != ESP_OK) {
-        ESP_LOGE(kTag, "CCP pairing record write failed (%s)", esp_err_to_name(error));
+        // A failed commit/readback leaves disk ownership ambiguous even when RAM
+        // still contains the previous record. Only explicit repair can retire it.
+        s_storage_error = error;
+        ESP_LOGE(kTag, "CCP record '%s' persistence failed (%s)", key, esp_err_to_name(error));
+    }
+    return error;
+}
+
+// key: One CCP record removed by confirmation, cancellation or explicit Forget.
+// Exception: Latches erase/commit/readback failures; absence must be independently verified.
+esp_err_t eraseLinkRecord(const char *key)
+{
+    auto &settings = LUNASHELL::UserSettingsService::instance();
+    esp_err_t error = settings.isInitialized() ? ESP_OK : settings.initialize();
+    if (error == ESP_OK) {
+        error = settings.eraseKey(key);
+    }
+    if (error == ESP_OK || error == ESP_ERR_NVS_NOT_FOUND) {
+        // NVS NOT_FOUND is accepted only after readback independently confirms absence.
+        std::vector<uint8_t> remaining;
+        const esp_err_t read_error = settings.getBlob(key, &remaining);
+        wipe(remaining.data(), remaining.size());
+        error = read_error == ESP_ERR_NVS_NOT_FOUND ? ESP_OK :
+            read_error == ESP_OK ? ESP_ERR_INVALID_RESPONSE : read_error;
+    }
+    if (error != ESP_OK) {
+        s_storage_error = error;
+        ESP_LOGE(kTag, "CCP record '%s' explicit removal failed (%s)", key, esp_err_to_name(error));
+    }
+    return error;
+}
+
+// No parameters: caller holds s_mutex after an authenticated CONFIRM or candidate READY.
+// Exception: Partial persistence stays an error and keeps recovery state available.
+esp_err_t commitCandidateLocked()
+{
+    if (!s_candidate_present) {
+        ESP_LOGE(kTag, "CCP candidate commit rejected: no candidate (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    // PC possession is now proven. A reset between this write and pending-record
+    // removal can safely repeat the same authenticated completion after reboot.
+    esp_err_t error = persistLink(kPairingSetting, s_candidate_link);
+    if (error == ESP_OK) {
+        s_persisted_link = s_candidate_link;
+        s_link_present = true;
+        error = encodeHex(s_persisted_link.pc_id, sizeof(s_persisted_link.pc_id),
+                          s_link_snapshot.paired_pc_id, sizeof(s_link_snapshot.paired_pc_id));
+    }
+    if (error == ESP_OK) {
+        error = eraseLinkRecord(kPendingPairingSetting);
+    }
+    if (error == ESP_OK) {
+        wipe(&s_candidate_link, sizeof(s_candidate_link));
+        s_candidate_present = false;
+        ESP_LOGI(kTag, "CCP candidate committed after authenticated PC confirmation");
     }
     return error;
 }
@@ -713,12 +795,25 @@ esp_err_t decodeActivityState(const char *phase, LUNASHELL::CodexActivityState &
 }
 
 // No parameters: starts a fresh five-minute display-code window from canonical Wi-Fi identity.
-// Exception: Publishes the original snapshot, identity or crypto failure without a code window.
+// Exception: Publishes original candidate-removal, snapshot, identity or crypto failures.
 void startPairing()
 {
+    esp_err_t error = ESP_OK;
+    {
+        std::lock_guard<std::mutex> guard(s_mutex);
+        if (s_candidate_present) {
+            // Only an explicitly confirmed replacement can retire this candidate.
+            error = eraseLinkRecord(kPendingPairingSetting);
+            if (error == ESP_OK) {
+                wipe(&s_candidate_link, sizeof(s_candidate_link));
+                s_candidate_present = false;
+            }
+        }
+    }
     LUNASHELL::ConnectivityObservation observation{};
-    esp_err_t error = LUNASHELL::DeviceSnapshotService::instance()
-        .readConnectivityObservation(observation);
+    if (error == ESP_OK) {
+        error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
+    }
     char device_id[13]{};
     if (error == ESP_OK && !wifiOnline(observation)) {
         error = ESP_ERR_INVALID_STATE;
@@ -863,24 +958,31 @@ esp_err_t acceptPair(const PairRequest &request, const sockaddr_in &source)
     bool already_persisted = false;
     {
         std::lock_guard<std::mutex> guard(s_mutex);
-        if (s_link_snapshot.state != State::Pairing ||
+        if (s_pending != Command::None || s_link_snapshot.state != State::Pairing ||
             esp_timer_get_time() >= s_link_snapshot.deadline_at_us) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (s_candidate_present &&
+            (std::strcmp(s_pairing_pc_id, request.pc_id) != 0 ||
+             std::strcmp(s_pairing_nonce, request.nonce) != 0)) {
+            ESP_LOGE(kTag, "CCP PAIR rejected: an existing candidate owns this window; cancel or replace explicitly");
             return ESP_ERR_INVALID_STATE;
         }
         std::memcpy(expected_device_id, s_link_snapshot.device_id, sizeof(expected_device_id));
         std::snprintf(expected_session_id, sizeof(expected_session_id), "%08lx",
                       static_cast<unsigned long>(s_pairing_session_id));
         std::memcpy(verifier, s_pairing_verifier, sizeof(verifier));
-        already_persisted = s_link_present &&
+        already_persisted = s_candidate_present &&
             std::strcmp(s_pairing_pc_id, request.pc_id) == 0 &&
             std::strcmp(s_pairing_nonce, request.nonce) == 0;
         if (already_persisted) {
-            existing_record = s_persisted_link;
+            existing_record = s_candidate_link;
         }
     }
     if (std::strcmp(request.device_id, expected_device_id) != 0 ||
         std::strcmp(request.session_id, expected_session_id) != 0) {
         wipe(verifier, sizeof(verifier));
+        wipe(&existing_record, sizeof(existing_record));
         return ESP_ERR_INVALID_STATE;
     }
     char pair_input[160]{};
@@ -911,6 +1013,7 @@ esp_err_t acceptPair(const PairRequest &request, const sockaddr_in &source)
         wipe(expected_proof, sizeof(expected_proof));
         wipe(received_proof, sizeof(received_proof));
         wipe(pair_input, sizeof(pair_input));
+        wipe(&existing_record, sizeof(existing_record));
         if (error != ESP_ERR_INVALID_CRC && error != ESP_ERR_INVALID_ARG) {
             std::lock_guard<std::mutex> guard(s_mutex);
             clearPairingSecretsLocked();
@@ -948,8 +1051,20 @@ esp_err_t acceptPair(const PairRequest &request, const sockaddr_in &source)
     if (error == ESP_OK && !already_persisted) {
         std::memcpy(record.link_key, link_key, sizeof(link_key));
         record.crc32 = persistedLinkCrc32(record);
-        error = persistLink(record);
-        record_persisted = error == ESP_OK;
+        std::lock_guard<std::mutex> guard(s_mutex);
+        if (s_pending != Command::None || s_link_snapshot.state != State::Pairing) {
+            error = ESP_ERR_INVALID_STATE;
+        } else {
+            // Keep the active association until the PC proves it saved this candidate.
+            error = persistLink(kPendingPairingSetting, record);
+            record_persisted = error == ESP_OK;
+            if (record_persisted) {
+                s_candidate_link = record;
+                s_candidate_present = true;
+                std::memcpy(s_pairing_pc_id, request.pc_id, sizeof(s_pairing_pc_id));
+                std::memcpy(s_pairing_nonce, request.nonce, sizeof(s_pairing_nonce));
+            }
+        }
     }
     char confirmation_input[160]{};
     const int confirmation_length = error == ESP_OK
@@ -1011,26 +1126,14 @@ esp_err_t acceptPair(const PairRequest &request, const sockaddr_in &source)
     }
     {
         std::lock_guard<std::mutex> guard(s_mutex);
-        s_pending = Command::None;
-        if (record_persisted) {
-            s_persisted_link = record;
-            s_link_present = true;
-            s_link_snapshot.retained_link_present = true;
-            std::memcpy(
-                s_link_snapshot.paired_pc_id,
-                request.pc_id,
-                sizeof(s_link_snapshot.paired_pc_id)
-            );
-            std::memcpy(s_pairing_pc_id, request.pc_id, sizeof(s_pairing_pc_id));
-            std::memcpy(s_pairing_nonce, request.nonce, sizeof(s_pairing_nonce));
-        }
-        if (record_persisted) {
-            // PAIRED proves Cody persisted the relationship. Screen 13 still
-            // waits for CONFIRM, which proves CCP persisted it on the PC.
-            publishLocked(State::Pairing, error);
-        } else {
-            clearPairingSecretsLocked();
-            publishLocked(State::Failed, error);
+        if (s_pending == Command::None && s_link_snapshot.state == State::Pairing) {
+            if (record_persisted) {
+                // PAIRED proves candidate durability, not an active association.
+                publishLocked(State::Pairing, error);
+            } else {
+                clearPairingSecretsLocked();
+                publishLocked(State::Failed, error);
+            }
         }
     }
     wipe(verifier, sizeof(verifier));
@@ -1039,6 +1142,7 @@ esp_err_t acceptPair(const PairRequest &request, const sockaddr_in &source)
     wipe(link_key, sizeof(link_key));
     wipe(confirmation_proof, sizeof(confirmation_proof));
     wipe(&record, sizeof(record));
+    wipe(&existing_record, sizeof(existing_record));
     wipe(pair_input, sizeof(pair_input));
     wipe(link_input, sizeof(link_input));
     wipe(confirmation_input, sizeof(confirmation_input));
@@ -1048,7 +1152,7 @@ esp_err_t acceptPair(const PairRequest &request, const sockaddr_in &source)
 
 // request: CONFIRM proof sent only after CCP protected its local link record.
 // source: Observed plugin address and UDP port.
-// Exception: Returns identity, proof or ACTIVE-send failures without inventing PC confirmation.
+// Exception: Returns identity, proof, persistence or ACTIVE-send failures without inventing completion.
 esp_err_t acceptConfirm(const PairRequest &request, const sockaddr_in &source)
 {
     char expected_device_id[13]{};
@@ -1063,9 +1167,13 @@ esp_err_t acceptConfirm(const PairRequest &request, const sockaddr_in &source)
         accepted_state = s_link_snapshot.state;
         const bool current_pairing = accepted_state == State::Pairing &&
             now_us < s_link_snapshot.deadline_at_us;
-        const bool activation_replay = accepted_state == State::Paired &&
+        const bool activation_replay =
+            (accepted_state == State::Paired || accepted_state == State::Discovering ||
+             accepted_state == State::Connected) &&
             now_us < s_activation_replay_until_us;
-        if (!s_link_present || (!current_pairing && !activation_replay)) {
+        if (s_pending != Command::None || (!current_pairing && !activation_replay) ||
+            (current_pairing && !s_candidate_present && !s_link_present) ||
+            (activation_replay && !s_link_present)) {
             return ESP_ERR_INVALID_STATE;
         }
         std::memcpy(expected_device_id, s_link_snapshot.device_id, sizeof(expected_device_id));
@@ -1083,7 +1191,8 @@ esp_err_t acceptConfirm(const PairRequest &request, const sockaddr_in &source)
             std::memcpy(expected_pc_id, s_activation_pc_id, sizeof(expected_pc_id));
             std::memcpy(expected_nonce, s_activation_nonce, sizeof(expected_nonce));
         }
-        std::memcpy(link_key, s_persisted_link.link_key, sizeof(link_key));
+        const auto &record = current_pairing && s_candidate_present ? s_candidate_link : s_persisted_link;
+        std::memcpy(link_key, record.link_key, sizeof(link_key));
     }
     if (std::strcmp(request.device_id, expected_device_id) != 0 ||
         std::strcmp(request.session_id, expected_session_id) != 0 ||
@@ -1114,6 +1223,16 @@ esp_err_t acceptConfirm(const PairRequest &request, const sockaddr_in &source)
         !constantTimeEqual(expected_proof, received_proof, sizeof(expected_proof))) {
         error = ESP_ERR_INVALID_CRC;
         ESP_LOGE(kTag, "CCP CONFIRM proof rejected (%s)", esp_err_to_name(error));
+    }
+    if (error == ESP_OK && accepted_state == State::Pairing) {
+        std::lock_guard<std::mutex> guard(s_mutex);
+        if (s_pending != Command::None || s_link_snapshot.state != State::Pairing ||
+            std::strcmp(s_pairing_pc_id, request.pc_id) != 0 ||
+            std::strcmp(s_pairing_nonce, request.nonce) != 0) {
+            error = ESP_ERR_INVALID_STATE;
+        } else if (s_candidate_present) {
+            error = commitCandidateLocked();
+        }
     }
     char active_input[160]{};
     const int active_length = error == ESP_OK
@@ -1169,7 +1288,7 @@ esp_err_t acceptConfirm(const PairRequest &request, const sockaddr_in &source)
     }
     {
         std::lock_guard<std::mutex> guard(s_mutex);
-        if (error == ESP_OK) {
+        if (error == ESP_OK && s_pending == Command::None && s_link_snapshot.state == accepted_state) {
             if (accepted_state == State::Pairing) {
                 std::memcpy(
                     s_activation_session_id,
@@ -1190,9 +1309,16 @@ esp_err_t acceptConfirm(const PairRequest &request, const sockaddr_in &source)
                 clearPairingSecretsLocked();
                 publishLocked(State::Paired, ESP_OK);
             }
-        } else if (error != ESP_ERR_INVALID_CRC && error != ESP_ERR_INVALID_ARG &&
-                   error != ESP_ERR_INVALID_STATE) {
-            publishLocked(accepted_state, error);
+        } else if (error != ESP_OK && error != ESP_ERR_INVALID_CRC && error != ESP_ERR_INVALID_ARG &&
+                   error != ESP_ERR_INVALID_STATE && s_pending == Command::None &&
+                   s_link_snapshot.state == accepted_state) {
+            if (s_storage_error != ESP_OK) {
+                clearPairingSecretsLocked();
+                clearActivationReplayLocked();
+                publishLocked(State::Failed, error);
+            } else {
+                publishLocked(accepted_state, error);
+            }
         }
     }
     wipe(link_key, sizeof(link_key));
@@ -1220,15 +1346,20 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
     uint8_t nonce[16]{};
     {
         std::lock_guard<std::mutex> guard(s_mutex);
-        if (!s_link_present || s_pending != Command::None ||
+        if ((!s_link_present && !s_candidate_present) || s_pending != Command::None ||
             (s_link_snapshot.state != State::Discovering && s_link_snapshot.state != State::Connected)) {
             ESP_LOGE(kTag, "CCP FIND rejected: retained discovery is no longer active (%s)",
                      esp_err_to_name(ESP_ERR_INVALID_STATE));
             return ESP_ERR_INVALID_STATE;
         }
         std::memcpy(s_link_snapshot.device_id, device_id, sizeof(device_id));
-        std::memcpy(pc_id, s_link_snapshot.paired_pc_id, sizeof(pc_id));
-        std::memcpy(link_key, s_persisted_link.link_key, sizeof(link_key));
+        const auto &record = s_candidate_present ? s_candidate_link : s_persisted_link;
+        error = encodeHex(record.pc_id, sizeof(record.pc_id), pc_id, sizeof(pc_id));
+        if (error != ESP_OK) {
+            ESP_LOGE(kTag, "CCP discovery PC identity encoding failed (%s)", esp_err_to_name(error));
+            return error;
+        }
+        std::memcpy(link_key, record.link_key, sizeof(link_key));
     }
     esp_fill_random(nonce, sizeof(nonce));
     char nonce_hex[33]{};
@@ -1297,15 +1428,16 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
 }
 
 // No parameters: admits retained-link recovery; the worker waits for canonical LAN readiness.
-// Exception: Missing retained identity is published as a real failure, never new pairing.
+// Exception: Missing retained identity or the original storage error is published as failure.
 void startDiscovery()
 {
     std::lock_guard<std::mutex> guard(s_mutex);
     s_pending = Command::None;
-    if (!s_link_present) {
-        ESP_LOGE(kTag, "CCP discovery rejected: no retained pairing (%s)",
-                 esp_err_to_name(ESP_ERR_INVALID_STATE));
-        publishLocked(State::Failed, ESP_ERR_INVALID_STATE);
+    if ((!s_link_present && !s_candidate_present) || s_storage_error != ESP_OK) {
+        const esp_err_t error = s_storage_error != ESP_OK ? s_storage_error : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "CCP discovery rejected: retained=%u candidate=%u storage=%s (%s)",
+                 s_link_present, s_candidate_present, esp_err_to_name(s_storage_error), esp_err_to_name(error));
+        publishLocked(State::Failed, error);
         return;
     }
     s_last_ready_at_us = 0;
@@ -1318,11 +1450,51 @@ void startDiscovery()
     ESP_LOGI(kTag, "CCP reconnect admitted with retained pairing; code window stays closed");
 }
 
+// response: Authenticated READY whose nonce still owns the current discovery request.
+// source: Observed PC endpoint receiving the durable-device commit acknowledgement.
+// Exception: Returns the original encoding, HMAC or transport failure; requires s_mutex ownership.
+esp_err_t sendCommittedLocked(const ReadyResponse &response, const sockaddr_in &source)
+{
+    // A retained candidate is insufficient proof. Only the read-back active
+    // record may acknowledge commit, including every retry after an ACK loss.
+    if (!s_link_present || s_candidate_present) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    char proof_input[128]{};
+    uint8_t proof[32]{};
+    char proof_hex[65]{};
+    char payload[256]{};
+    const int input_length = std::snprintf(proof_input, sizeof(proof_input),
+        "committed|%s|%s|%s", response.device_id, response.pc_id, response.nonce);
+    esp_err_t error = input_length > 0 && static_cast<size_t>(input_length) < sizeof(proof_input)
+        ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), proof_input, proof)
+        : ESP_ERR_INVALID_SIZE;
+    if (error == ESP_OK) {
+        error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
+    }
+    if (error == ESP_OK) {
+        const int length = std::snprintf(payload, sizeof(payload),
+            "CCP1|COMMITTED|device=%s|pc=%s|nonce=%s|proof=%s",
+            response.device_id, response.pc_id, response.nonce, proof_hex);
+        error = length > 0 && static_cast<size_t>(length) < sizeof(payload)
+            ? sendDatagram(payload, source.sin_addr, ntohs(source.sin_port), "CCP COMMITTED")
+            : ESP_ERR_INVALID_SIZE;
+    }
+    wipe(proof_input, sizeof(proof_input));
+    wipe(proof, sizeof(proof));
+    wipe(proof_hex, sizeof(proof_hex));
+    wipe(payload, sizeof(payload));
+    return error;
+}
+
 // response: Canonical READY message candidate.
 // source: Observed responder address.
-// Exception: Returns identity, proof, crypto or superseded-command errors without accepting liveness.
+// Exception: Returns identity, proof, crypto, superseded-command, persistence or acknowledgement errors.
 esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
 {
+    if (ntohs(source.sin_port) != kPluginPort) {
+        return ESP_ERR_INVALID_ARG;
+    }
     char device_id[13]{};
     char pc_id[33]{};
     char nonce_hex[33]{};
@@ -1330,14 +1502,19 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
     uint8_t nonce[16]{};
     {
         std::lock_guard<std::mutex> guard(s_mutex);
-        if (!s_link_present ||
+        if ((!s_link_present && !s_candidate_present) || s_pending != Command::None ||
             (s_link_snapshot.state != State::Discovering &&
              s_link_snapshot.state != State::Connected)) {
             return ESP_ERR_INVALID_STATE;
         }
         std::memcpy(device_id, s_link_snapshot.device_id, sizeof(device_id));
-        std::memcpy(pc_id, s_link_snapshot.paired_pc_id, sizeof(pc_id));
-        std::memcpy(link_key, s_persisted_link.link_key, sizeof(link_key));
+        const auto &record = s_candidate_present ? s_candidate_link : s_persisted_link;
+        const esp_err_t identity_error = encodeHex(record.pc_id, sizeof(record.pc_id), pc_id, sizeof(pc_id));
+        if (identity_error != ESP_OK) {
+            ESP_LOGE(kTag, "CCP READY PC identity encoding failed (%s)", esp_err_to_name(identity_error));
+            return identity_error;
+        }
+        std::memcpy(link_key, record.link_key, sizeof(link_key));
         std::memcpy(nonce, s_find_nonce, sizeof(nonce));
     }
     esp_err_t error = encodeHex(nonce, sizeof(nonce), nonce_hex, sizeof(nonce_hex));
@@ -1385,14 +1562,23 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                 !constantTimeEqual(nonce, s_find_nonce, sizeof(nonce))) {
                 error = ESP_ERR_INVALID_STATE;
             } else {
-                s_last_ready_at_us = esp_timer_get_time();
-                s_link_snapshot.ready_at_us = s_last_ready_at_us;
-                std::memcpy(
-                    s_link_snapshot.peer_ip_address,
-                    peer_address,
-                    sizeof(s_link_snapshot.peer_ip_address)
-                );
-                publishLocked(State::Connected, ESP_OK);
+                if (s_candidate_present) {
+                    // A fresh candidate-key READY proves the PC retained its side
+                    // even when a reboot interrupted the original CONFIRM exchange.
+                    error = commitCandidateLocked();
+                }
+                if (error == ESP_OK) {
+                    s_last_ready_at_us = esp_timer_get_time();
+                    s_link_snapshot.ready_at_us = s_last_ready_at_us;
+                    std::memcpy(s_link_snapshot.peer_ip_address, peer_address,
+                                sizeof(s_link_snapshot.peer_ip_address));
+                    error = sendCommittedLocked(response, source);
+                    // READY still proves liveness if the outbound ACK fails;
+                    // retain the real error and retry COMMITTED on the next READY.
+                    publishLocked(State::Connected, error);
+                } else {
+                    publishLocked(State::Failed, error);
+                }
             }
         }
     }
@@ -1529,15 +1715,20 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
         }
         return;
     }
-    if (state == State::Paired) {
+    if (state == State::Paired || state == State::Discovering || state == State::Connected) {
         PairRequest request{};
         if (parseConfirm(payload, request)) {
+            // The user may already have continued to discovery when an earlier
+            // ACTIVE packet was lost. The short authenticated replay stays valid.
             const esp_err_t error = acceptConfirm(request, source);
             if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) {
                 ESP_LOGE(kTag, "CCP ACTIVE replay failed (%s)", esp_err_to_name(error));
             }
+            return;
         }
-        return;
+        if (state == State::Paired) {
+            return;
+        }
     }
     if (state == State::Discovering || state == State::Connected) {
         if (std::strncmp(payload, "CCP1|ACTIVITY|", 14) == 0) {
@@ -1604,6 +1795,7 @@ void maintainState()
     int64_t next_find_at_us = 0;
     int64_t last_ready_at_us = 0;
     int64_t activation_replay_until_us = 0;
+    uint32_t attempt_id = 0;
     {
         std::lock_guard<std::mutex> guard(s_mutex);
         if (s_pending != Command::None) {
@@ -1614,6 +1806,7 @@ void maintainState()
         next_find_at_us = s_next_find_at_us;
         last_ready_at_us = s_last_ready_at_us;
         activation_replay_until_us = s_activation_replay_until_us;
+        attempt_id = s_link_snapshot.attempt_id;
     }
     const int64_t now_us = esp_timer_get_time();
     if (activation_replay_until_us > 0 && now_us >= activation_replay_until_us) {
@@ -1626,9 +1819,23 @@ void maintainState()
     if (state == State::Pairing && deadline_at_us > 0 && now_us >= deadline_at_us) {
         std::lock_guard<std::mutex> guard(s_mutex);
         if (s_pending == Command::None && s_link_snapshot.state == State::Pairing &&
-            s_link_snapshot.deadline_at_us == deadline_at_us) {
+            s_link_snapshot.deadline_at_us == deadline_at_us &&
+            s_link_snapshot.attempt_id == attempt_id) {
             clearPairingSecretsLocked();
-            publishLocked(State::TimedOut, ESP_ERR_TIMEOUT);
+            if (s_candidate_present) {
+                // Retire the display window, not the durable transaction. A
+                // fresh candidate-key READY can finish interrupted commissioning.
+                s_last_ready_at_us = 0;
+                s_next_find_at_us = 0;
+                s_link_snapshot.ready_at_us = 0;
+                s_link_snapshot.peer_ip_address[0] = '\0';
+                wipe(s_find_nonce, sizeof(s_find_nonce));
+                s_activity_received_for_nonce = false;
+                publishLocked(State::Discovering, ESP_ERR_TIMEOUT);
+                ESP_LOGW(kTag, "CCP code expired with a saved candidate; authenticated recovery continues");
+            } else {
+                publishLocked(State::TimedOut, ESP_ERR_TIMEOUT);
+            }
         }
         return;
     }
@@ -1710,7 +1917,8 @@ void maintainState()
     }
 }
 
-// No parameters: applies the one admitted command outside the service mutex.
+// No parameters: applies one admitted command; persistence runs on the internal settings owner.
+// Exception: Cancellation/removal failures stay canonical and never report successful cleanup.
 void processCommand()
 {
     Command command = Command::None;
@@ -1728,11 +1936,44 @@ void processCommand()
     case Command::Cancel: {
         std::lock_guard<std::mutex> guard(s_mutex);
         s_pending = Command::None;
+        esp_err_t error = s_candidate_present ? eraseLinkRecord(kPendingPairingSetting) : ESP_OK;
+        if (error != ESP_OK) {
+            publishLocked(State::Failed, error);
+            break;
+        }
+        wipe(&s_candidate_link, sizeof(s_candidate_link));
+        s_candidate_present = false;
         clearPairingSecretsLocked();
         clearActivationReplayLocked();
         s_link_snapshot.peer_ip_address[0] = '\0';
         s_link_snapshot.ready_at_us = 0;
         publishLocked(s_link_present ? State::Paired : State::Idle, ESP_OK);
+        break;
+    }
+    case Command::ForgetPairing: {
+        std::lock_guard<std::mutex> guard(s_mutex);
+        s_pending = Command::None;
+        esp_err_t error = eraseLinkRecord(kPendingPairingSetting);
+        if (error == ESP_OK) {
+            error = eraseLinkRecord(kPairingSetting);
+        }
+        s_storage_error = error;
+        if (error != ESP_OK) {
+            publishLocked(State::Failed, error);
+            break;
+        }
+        wipe(&s_candidate_link, sizeof(s_candidate_link));
+        wipe(&s_persisted_link, sizeof(s_persisted_link));
+        s_candidate_present = false;
+        s_link_present = false;
+        clearPairingSecretsLocked();
+        clearActivationReplayLocked();
+        wipe(s_link_snapshot.paired_pc_id, sizeof(s_link_snapshot.paired_pc_id));
+        wipe(s_link_snapshot.peer_ip_address, sizeof(s_link_snapshot.peer_ip_address));
+        s_link_snapshot.ready_at_us = 0;
+        s_link_snapshot.activity = {};
+        publishLocked(State::Idle, ESP_OK);
+        ESP_LOGI(kTag, "CCP Forget pairing completed; only the two CCP records were removed");
         break;
     }
     case Command::None:
@@ -1775,7 +2016,7 @@ extern "C" esp_err_t LUNASHELL_codex_link_service_init(void)
 {
     std::lock_guard<std::mutex> guard(s_mutex);
     if (s_worker != nullptr) {
-        return ESP_OK;
+        return s_storage_error;
     }
     const psa_status_t crypto_status = psa_crypto_init();
     if (crypto_status != PSA_SUCCESS) {
@@ -1784,10 +2025,9 @@ extern "C" esp_err_t LUNASHELL_codex_link_service_init(void)
         return error;
     }
     esp_err_t error = loadPersistedLink();
-    if (error != ESP_OK) {
-        publishLocked(State::Failed, error);
-        return error;
-    }
+    // An optional CCP storage fault keeps a repair-only command owner alive.
+    // Initialization still returns the original error and the snapshot remains failed.
+    s_storage_error = error;
     s_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
     if (s_socket < 0) {
         ESP_LOGE(kTag, "CCP socket creation failed: errno=%d", errno);
@@ -1834,8 +2074,10 @@ extern "C" esp_err_t LUNASHELL_codex_link_service_init(void)
         publishLocked(State::Failed, ESP_ERR_NO_MEM);
         return ESP_ERR_NO_MEM;
     }
-    publishLocked(s_link_present ? State::Paired : State::Idle, ESP_OK);
-    return ESP_OK;
+    const State restored = s_candidate_present ? State::AwaitingConfirmation :
+        s_link_present ? State::Paired : State::Idle;
+    publishLocked(s_storage_error == ESP_OK ? restored : State::Failed, s_storage_error);
+    return s_storage_error;
 }
 
 // action: Start initial pairing, explicitly confirmed replacement, discovery or cancellation.
@@ -1858,6 +2100,9 @@ extern "C" esp_err_t LUNASHELL_codex_link_request(
     case LUNASHELL_CODEX_LINK_ACTION_CANCEL:
         command = Command::Cancel;
         break;
+    case LUNASHELL_CODEX_LINK_ACTION_FORGET_PAIRING:
+        command = Command::ForgetPairing;
+        break;
     default:
         return reject(action, expected_attempt_id, ESP_ERR_INVALID_ARG);
     }
@@ -1867,9 +2112,12 @@ extern "C" esp_err_t LUNASHELL_codex_link_request(
         return reject(action, expected_attempt_id, ESP_ERR_INVALID_STATE);
     }
     const State state = s_link_snapshot.state;
+    if (s_storage_error != ESP_OK && command != Command::ForgetPairing) {
+        return reject(action, expected_attempt_id, s_storage_error);
+    }
     if (command == Command::StartPairing) {
         const bool replacement_confirmed = action == LUNASHELL_CODEX_LINK_ACTION_REPLACE_PAIRING;
-        if (s_link_present != replacement_confirmed) {
+        if ((s_link_present || s_candidate_present) != replacement_confirmed) {
             ESP_LOGE(kTag, "CCP pairing admission rejected: retained=%u replacement_confirmed=%u",
                      s_link_present, replacement_confirmed);
             return reject(action, expected_attempt_id, ESP_ERR_INVALID_STATE);
@@ -1884,15 +2132,19 @@ extern "C" esp_err_t LUNASHELL_codex_link_request(
         clearActivationReplayLocked();
         publishLocked(State::StartingPairing, ESP_OK);
     } else if (command == Command::StartDiscovery) {
-        if (!s_link_present ||
+        if ((!s_link_present && !s_candidate_present) ||
             (state != State::Paired && state != State::Discovering &&
-             state != State::Connected && state != State::Failed && state != State::TimedOut)) {
+             state != State::Connected && state != State::Failed && state != State::TimedOut &&
+             state != State::AwaitingConfirmation)) {
             return reject(action, expected_attempt_id, ESP_ERR_INVALID_STATE);
         }
         s_pending = command;
         publishLocked(State::Discovering, ESP_OK);
+    } else if (command == Command::ForgetPairing) {
+        s_pending = command;
+        publishLocked(state, s_storage_error);
     } else {
-        if (state == State::Idle || state == State::Paired) {
+        if ((state == State::Idle || state == State::Paired) && !s_candidate_present) {
             return reject(action, expected_attempt_id, ESP_ERR_INVALID_STATE);
         }
         s_pending = command;

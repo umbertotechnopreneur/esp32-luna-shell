@@ -690,6 +690,7 @@ const char *codexLinkStateName(LUNASHELL::CodexLinkState state)
     case State::Connected: return "connected";
     case State::Failed: return "failed";
     case State::TimedOut: return "timed-out";
+    case State::AwaitingConfirmation: return "awaiting-confirmation";
     }
     return "unknown";
 }
@@ -729,6 +730,10 @@ void writeCodexLink(
     (void)json.boolean(codex_link.pairing_window_active);
     (void)json.raw(",\"retained_link_present\":");
     (void)json.boolean(codex_link.retained_link_present);
+    (void)json.raw(",\"pending_pairing_present\":");
+    (void)json.boolean(codex_link.pending_pairing_present);
+    (void)json.raw(",\"pairing_repair_required\":");
+    (void)json.boolean(codex_link.pairing_repair_required);
     (void)json.format(
         ",\"attempt_id\":%lu,\"changed_at_us\":%lld,\"deadline_at_us\":%lld,\"ready_at_us\":%lld",
         static_cast<unsigned long>(codex_link.attempt_id),

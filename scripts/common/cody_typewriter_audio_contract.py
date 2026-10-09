@@ -85,7 +85,11 @@ def check_typewriter_audio_source(root: Path) -> None:
 
     worker = function_body(owner, "typewriter_worker")
     playback = function_body(owner, "play_typewriter_tap_locked")
-    shared_playback = function_body(owner, "LUNASHELL_audio_play_pcm16")
+    shared_playback = function_body(owner, "play_pcm16_owned")
+    generic_entry = function_body(owner, "LUNASHELL_audio_play_pcm16")
+    user_cue_entry = function_body(owner, "LUNASHELL_audio_play_user_cue_pcm16")
+    assert "play_pcm16_owned(" in generic_entry and "nullptr, completed" in generic_entry
+    assert "play_pcm16_owned(" in user_cue_entry and "&user_sounds_revision, *completed" in user_cue_entry
     assert "clock_cue_policy(clock)" in worker
     assert "ClockCuePolicy::Allowed" in worker and "readClockObservation(clock)" in worker
     assert "xSemaphoreTake(mutex, 0)" in worker and "TYPEWRITER_MAX_AGE_US" in worker
@@ -95,6 +99,7 @@ def check_typewriter_audio_source(root: Path) -> None:
     assert "esp_codec_dev_get_out_vol" in playback and "volume_percent == 0" in playback
     assert "esp_codec_dev_set_out_vol" not in playback
     assert "write_speaker_pcm_locked(" in playback and "write_speaker_pcm_locked(" in shared_playback
+    assert "user_sound_request_current(*user_sounds_revision)" in shared_playback
     assert "esp_codec_dev_write(" not in playback
     assert "s_typewriter_last_error.load" in admission
     retained_fault = function_body(owner, "retain_typewriter_failure")

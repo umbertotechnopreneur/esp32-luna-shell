@@ -7,6 +7,69 @@
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "esp_log.h"
+#include <atomic>
+
+namespace {
+std::atomic<uint32_t> s_user_sounds_state{1U};
+}
+
+// enabled: Explicit admission preference, independent of whether this profile has an audio device.
+// No worker, codec, microphone, volume or persistence operation is attempted.
+extern "C" esp_err_t LUNASHELL_audio_set_user_sounds_enabled(bool enabled)
+{
+    uint32_t observed = s_user_sounds_state.load(std::memory_order_acquire);
+    for (;;) {
+        if (((observed & 1U) != 0U) == enabled) {
+            return ESP_OK;
+        }
+        const uint32_t revision = (observed + 2U) & ~1U;
+        const uint32_t desired = revision | (enabled ? 1U : 0U);
+        if (s_user_sounds_state.compare_exchange_weak(observed, desired, std::memory_order_acq_rel)) {
+            return ESP_OK;
+        }
+    }
+}
+
+// No parameters: observes the explicit gate without claiming that an audio route exists.
+extern "C" bool LUNASHELL_audio_user_sounds_enabled(void)
+{
+    return (s_user_sounds_state.load(std::memory_order_acquire) & 1U) != 0U;
+}
+
+// No parameters: revision invalidating pending logical cues after any preference change.
+extern "C" uint32_t LUNASHELL_audio_user_sounds_revision(void)
+{
+    return s_user_sounds_state.load(std::memory_order_acquire);
+}
+
+// samples: Borrowed mono PCM16 for a route excluded by this build.
+// sample_count: Exact authored sample count.
+// sample_rate_hz: Authored PCM clock.
+// volume_percent: Requested codec volume.
+// user_sounds_revision: Logical request revision, invalidated by Sounds Off/On.
+// completed: Always false; an unavailable route or deliberate suppression cannot complete playback.
+// Exception: Returns invalid arguments or actual route unavailability when playback was requested.
+extern "C" esp_err_t LUNASHELL_audio_play_user_cue_pcm16(const int16_t *samples, size_t sample_count,
+    uint32_t sample_rate_hz, int volume_percent, uint32_t user_sounds_revision, bool *completed)
+{
+    if (completed != nullptr) {
+        *completed = false;
+    }
+    const bool invalid = completed == nullptr || samples == nullptr || sample_count == 0 ||
+        sample_rate_hz < 50 || volume_percent < 0 || volume_percent > 100;
+    if (!invalid && ((user_sounds_revision & 1U) == 0U ||
+            user_sounds_revision != s_user_sounds_state.load(std::memory_order_acquire))) {
+        return ESP_OK;
+    }
+    const esp_err_t error = invalid ? ESP_ERR_INVALID_ARG : ESP_ERR_NOT_SUPPORTED;
+    ESP_LOGE("LUNASHELL_audio", "User cue rejected by absent audio route (%s)", esp_err_to_name(error));
+    const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
+        false, 0, sample_rate_hz, volume_percent, error);
+    if (publication_error != ESP_OK) {
+        ESP_LOGE("LUNASHELL_audio", "User cue failure publication failed (%s)", esp_err_to_name(publication_error));
+    }
+    return error;
+}
 
 // samples: Borrowed PCM for a route absent from this build profile.
 // sample_count: Number of mono PCM16 samples.

@@ -59,6 +59,9 @@ uint8_t s_microphone_channel_count;
 bool s_speaker_open;
 bool s_microphone_open;
 std::atomic_bool s_standby;
+// Bit zero is admission; the other bits change on every actual preference transition.
+// One atomic word keeps request revisions coherent before any worker exists.
+std::atomic<uint32_t> s_user_sounds_state{1U};
 std::atomic_bool s_audio_state_poisoned;
 StaticSemaphore_t s_audio_mutex_control;
 SemaphoreHandle_t s_audio_mutex;
@@ -98,6 +101,14 @@ TypewriterMailbox s_typewriter_mailbox;
 portMUX_TYPE s_typewriter_mailbox_mux = portMUX_INITIALIZER_UNLOCKED;
 // No parameters: cancels any symbol dispatch before the codec changes lifecycle ownership.
 void invalidate_personality_events();
+
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+// revision: Opaque Sounds gate token captured by one logical cue request.
+bool user_sound_request_current(uint32_t revision)
+{
+    return (revision & 1U) != 0U && s_user_sounds_state.load(std::memory_order_acquire) == revision;
+}
+#endif
 std::atomic<esp_err_t> s_typewriter_last_error{ESP_OK};
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 EXT_RAM_BSS_ATTR std::array<int16_t, TYPEWRITER_MAX_TRANSPORT_SAMPLES> s_typewriter_transport_samples;
@@ -134,7 +145,7 @@ bool claim_typewriter_event(TypewriterEvent &event)
     }
     const bool allowed = claimed &&
         (event.kind == TypewriterEventKind::Touch || !s_typewriter_mailbox.suspended) &&
-        !s_standby.load(std::memory_order_acquire);
+        !s_standby.load(std::memory_order_acquire) && LUNASHELL_audio_user_sounds_enabled();
     portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
     return allowed;
 }
@@ -151,7 +162,7 @@ void drop_typewriter_event(const TypewriterEvent &event)
 }
 
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
-// event: Immutable scene or touch epoch; navigation only invalidates scene glyphs.
+// event: Immutable scene or touch epoch; Sounds Off invalidates both kinds.
 bool typewriter_event_current(const TypewriterEvent &event)
 {
     portENTER_CRITICAL(&s_typewriter_mailbox_mux);
@@ -159,7 +170,7 @@ bool typewriter_event_current(const TypewriterEvent &event)
         ? event.generation == s_typewriter_mailbox.touch_generation
         : !s_typewriter_mailbox.suspended && event.generation == s_typewriter_mailbox.generation;
     portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
-    return current;
+    return current && LUNASHELL_audio_user_sounds_enabled();
 }
 #endif
 
@@ -559,6 +570,40 @@ esp_err_t prepare_voice_route_locked()
 
 }  // namespace
 
+// enabled: Explicit Sounds admission preference; persistence belongs to the settings owner.
+// No worker, codec or volume operation is attempted, including before audio initialization.
+extern "C" esp_err_t LUNASHELL_audio_set_user_sounds_enabled(bool enabled)
+{
+    uint32_t observed = s_user_sounds_state.load(std::memory_order_acquire);
+    for (;;) {
+        if (((observed & 1U) != 0U) == enabled) {
+            return ESP_OK;
+        }
+        const uint32_t revision = (observed + 2U) & ~1U;
+        const uint32_t desired = revision | (enabled ? 1U : 0U);
+        if (s_user_sounds_state.compare_exchange_weak(observed, desired, std::memory_order_acq_rel)) {
+            if (!enabled) {
+                invalidate_typewriter_events();
+                invalidate_personality_events();
+            }
+            ESP_LOGI(TAG, "User sounds admission %s; codec volume and microphone unchanged", enabled ? "enabled" : "disabled");
+            return ESP_OK;
+        }
+    }
+}
+
+// No parameters: exposes only the existing audio owner's atomic preference gate.
+extern "C" bool LUNASHELL_audio_user_sounds_enabled(void)
+{
+    return (s_user_sounds_state.load(std::memory_order_acquire) & 1U) != 0U;
+}
+
+// No parameters: opaque request revision, changed even when an Off/On pair ends enabled.
+extern "C" uint32_t LUNASHELL_audio_user_sounds_revision(void)
+{
+    return s_user_sounds_state.load(std::memory_order_acquire);
+}
+
 extern "C" uint8_t LUNASHELL_audio_input_channel_count(void)
 {
 #if CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL
@@ -602,7 +647,8 @@ extern "C" esp_err_t LUNASHELL_audio_set_startup_cue(const int16_t *samples,
     return ESP_OK;
 }
 
-// Initialize the existing board codec route once; the registered cue has the same owner.
+// No parameters: initializes the board codec once; registered user cues share the Sounds gate.
+// Exception: Returns original initialization, lifecycle or admitted startup-cue failures.
 extern "C" esp_err_t LUNASHELL_audio_init(void)
 {
     if (s_audio_state_poisoned.load(std::memory_order_acquire)) {
@@ -740,12 +786,15 @@ extern "C" esp_err_t LUNASHELL_audio_init(void)
         if (s_startup_cue.samples != nullptr) {
             // The route is initialized and the mutex released before calling the
             // existing playback API; its initialization fast path cannot recurse.
-            error = LUNASHELL_audio_play_pcm16(s_startup_cue.samples,
+            bool completed = false;
+            error = LUNASHELL_audio_play_user_cue_pcm16(s_startup_cue.samples,
                 s_startup_cue.sample_count, s_startup_cue.sample_rate_hz,
-                s_startup_cue.volume_percent);
+                s_startup_cue.volume_percent, LUNASHELL_audio_user_sounds_revision(), &completed);
             s_initialization_result.store(error, std::memory_order_release);
             if (error != ESP_OK) {
                 ESP_LOGE(TAG, "Audio-ready cue failed: %s", esp_err_to_name(error));
+            } else if (!completed) {
+                ESP_LOGI(TAG, "Audio-ready cue suppressed by Sounds preference; no completion claimed");
             }
         }
     } else {
@@ -760,13 +809,22 @@ namespace {
 // sample_rate_hz: Actual clock shared with the microphone when open.
 // volume_percent: Observed or explicitly selected codec output policy.
 // cue_id: Stable application sound identity, published only after successful writes.
+// user_sounds_revision: Optional application-cue token; generic PCM/voice writes leave it null.
+// completed: Optional exact completion result; false if the Sounds request was invalidated.
 // Exception: Returns original AFE, codec write, or snapshot publication failures.
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 esp_err_t write_speaker_pcm_locked(const int16_t *samples, size_t sample_count,
-                                  uint32_t sample_rate_hz, int volume_percent, uint32_t cue_id = 0)
+                                  uint32_t sample_rate_hz, int volume_percent, uint32_t cue_id = 0,
+                                  const uint32_t *user_sounds_revision = nullptr, bool *completed = nullptr)
 {
+    if (completed != nullptr) {
+        *completed = false;
+    }
     size_t offset = 0;
     while (offset < sample_count) {
+        if (user_sounds_revision != nullptr && !user_sound_request_current(*user_sounds_revision)) {
+            return ESP_OK; // Intentional cancellation is separate from real operation errors.
+        }
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
         const bool voice_afe_active = LUNASHELL_voice_afe_running();
         const size_t chunk_limit = voice_afe_active ? VOICE_REFERENCE_CHUNK_SAMPLES : sample_rate_hz / 50U;
@@ -803,6 +861,9 @@ esp_err_t write_speaker_pcm_locked(const int16_t *samples, size_t sample_count,
         }
         offset += chunk_samples;
     }
+    if (completed != nullptr) {
+        *completed = true;
+    }
     return ESP_OK;
 }
 
@@ -812,12 +873,17 @@ esp_err_t write_speaker_pcm_locked(const int16_t *samples, size_t sample_count,
 // source_rate_hz: Authored sample rate, admitted for bounded conversion.
 // transport_rate_hz: Existing duplex clock, unchanged while AFE captures.
 // volume_percent: Admitted codec volume for canonical playback reports.
+// user_sounds_revision: Optional Sounds token; null preserves explicit generic PCM playback.
+// completed: Receives true only if every converted chunk was submitted successfully.
 // Exception: Returns real format, codec, AEC reference or publication errors.
 esp_err_t write_prerecorded_pcm_locked(const int16_t *samples, size_t sample_count,
-    uint32_t source_rate_hz, uint32_t transport_rate_hz, int volume_percent)
+    uint32_t source_rate_hz, uint32_t transport_rate_hz, int volume_percent,
+    const uint32_t *user_sounds_revision, bool &completed)
 {
+    completed = false;
     if (source_rate_hz == transport_rate_hz) {
-        return write_speaker_pcm_locked(samples, sample_count, transport_rate_hz, volume_percent);
+        return write_speaker_pcm_locked(samples, sample_count, transport_rate_hz, volume_percent,
+            0, user_sounds_revision, &completed);
     }
     if (source_rate_hz < 8000 || source_rate_hz > 48000 || transport_rate_hz != VOICE_SAMPLE_RATE_HZ ||
         sample_count > SIZE_MAX / transport_rate_hz) {
@@ -849,13 +915,18 @@ esp_err_t write_prerecorded_pcm_locked(const int16_t *samples, size_t sample_cou
                 static_cast<int64_t>(samples[next]) * fraction;
             s_typewriter_transport_samples[index] = static_cast<int16_t>(interpolated / transport_rate_hz);
         }
+        bool chunk_completed = false;
         const esp_err_t error = write_speaker_pcm_locked(s_typewriter_transport_samples.data(),
-            chunk_samples, transport_rate_hz, volume_percent);
+            chunk_samples, transport_rate_hz, volume_percent, 0, user_sounds_revision, &chunk_completed);
         if (error != ESP_OK) {
             return error;
         }
+        if (!chunk_completed) {
+            return ESP_OK;
+        }
         offset += chunk_samples;
     }
+    completed = true;
     return ESP_OK;
 }
 #endif
@@ -890,19 +961,25 @@ esp_err_t reject_playback(const char *operation, esp_err_t error,
 // sample_count: Exact authored source length.
 // sample_rate_hz: Authored sample rate; voice playback uses the fixed duplex clock.
 // volume_percent: Codec output volume in 0..100.
+// user_sounds_revision: Optional cancellation token for an application cue; null is generic PCM.
+// completed: Receives false for Sounds cancellation, independent of the real error return.
 // Exception: Returns original standby, codec, format or snapshot publication errors.
-extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
+static esp_err_t play_pcm16_owned(
     const int16_t *samples,
     size_t sample_count,
     uint32_t sample_rate_hz,
-    int volume_percent
+    int volume_percent,
+    const uint32_t *user_sounds_revision,
+    bool &completed
 )
 {
+    completed = false;
 #if !CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
     (void)samples;
     (void)sample_count;
     (void)sample_rate_hz;
     (void)volume_percent;
+    (void)user_sounds_revision;
     LUNASHELL_hardware_report_speaker(false, ESP_ERR_NOT_SUPPORTED);
     return reject_playback("Disabled playback route", ESP_ERR_NOT_SUPPORTED, sample_rate_hz, volume_percent);
 #else
@@ -919,6 +996,9 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
             volume_percent
         );
         return reject_playback("Playback volume", ESP_ERR_INVALID_ARG, sample_rate_hz, volume_percent);
+    }
+    if (user_sounds_revision != nullptr && !user_sound_request_current(*user_sounds_revision)) {
+        return ESP_OK; // This cue was suppressed without codec I/O.
     }
     esp_err_t error = LUNASHELL_audio_init();
     if (error != ESP_OK) {
@@ -939,6 +1019,10 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
         audio_unlock(mutex);
         return reject_playback("Playback lifecycle ownership", ESP_ERR_INVALID_STATE,
             sample_rate_hz, volume_percent);
+    }
+    if (user_sounds_revision != nullptr && !user_sound_request_current(*user_sounds_revision)) {
+        audio_unlock(mutex);
+        return ESP_OK;
     }
 
     uint32_t transport_rate_hz = sample_rate_hz;
@@ -977,9 +1061,11 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
         // The PA is enabled by the official BSP codec interface; allow its output to settle.
         vTaskDelay(pdMS_TO_TICKS(100));
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
-        error = write_prerecorded_pcm_locked(samples, sample_count, sample_rate_hz, transport_rate_hz, volume_percent);
+        error = write_prerecorded_pcm_locked(samples, sample_count, sample_rate_hz, transport_rate_hz,
+            volume_percent, user_sounds_revision, completed);
 #else
-        error = write_speaker_pcm_locked(samples, sample_count, transport_rate_hz, volume_percent);
+        error = write_speaker_pcm_locked(samples, sample_count, transport_rate_hz, volume_percent,
+            0, user_sounds_revision, &completed);
 #endif
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -1002,17 +1088,49 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
         }
     }
 
+    completed = error == ESP_OK && completed &&
+        (user_sounds_revision == nullptr || user_sound_request_current(*user_sounds_revision));
     ESP_LOGI(
         TAG,
-        "Playback complete: transport=%lu source=%lu samples=%u volume=%d result=%s",
+        "Playback ended: transport=%lu source=%lu samples=%u volume=%d completed=%u result=%s",
         static_cast<unsigned long>(transport_rate_hz),
         static_cast<unsigned long>(sample_rate_hz),
         static_cast<unsigned>(sample_count),
         volume_percent,
+        static_cast<unsigned>(completed),
         esp_err_to_name(error)
     );
     return error;
 #endif
+}
+
+// samples: Borrowed mono PCM16 for explicit capture/diagnostic playback.
+// sample_count: Exact source sample count.
+// sample_rate_hz: Authored source rate.
+// volume_percent: Explicit playback volume.
+// Exception: Returns original codec, format or publication errors.
+extern "C" esp_err_t LUNASHELL_audio_play_pcm16(const int16_t *samples, size_t sample_count,
+    uint32_t sample_rate_hz, int volume_percent)
+{
+    bool completed = false;
+    return play_pcm16_owned(samples, sample_count, sample_rate_hz, volume_percent, nullptr, completed);
+}
+
+// samples: Immutable mono PCM16 for a user-governed cue.
+// sample_count: Exact source sample count.
+// sample_rate_hz: Authored source rate.
+// volume_percent: Explicit playback volume if the request is admitted.
+// user_sounds_revision: Opaque token for this logical request, retained across boot clips.
+// completed: Receives true only after all PCM and cleanup succeed.
+// Exception: Returns original argument, codec or publication errors; cancellation remains explicit.
+extern "C" esp_err_t LUNASHELL_audio_play_user_cue_pcm16(const int16_t *samples, size_t sample_count,
+    uint32_t sample_rate_hz, int volume_percent, uint32_t user_sounds_revision, bool *completed)
+{
+    if (completed == nullptr) {
+        return reject_playback("User cue completion destination", ESP_ERR_INVALID_ARG, sample_rate_hz, volume_percent);
+    }
+    return play_pcm16_owned(samples, sample_count, sample_rate_hz, volume_percent,
+        &user_sounds_revision, *completed);
 }
 
 extern "C" esp_err_t LUNASHELL_audio_capture_pcm16(
@@ -1441,6 +1559,9 @@ esp_err_t play_typewriter_tap_locked(bool &played, uint32_t &sample_rate_hz,
             s_typewriter_transport_samples[index] = static_cast<int16_t>(std::clamp<int32_t>(feedback, -32768, 32767));
         }
     }
+    if (!typewriter_event_current(event)) {
+        return ESP_OK;
+    }
     if (error == ESP_OK) {
         const int unmute_result = esp_codec_dev_set_out_mute(s_speaker, false);
         if (unmute_result != ESP_CODEC_DEV_OK) {
@@ -1448,11 +1569,13 @@ esp_err_t play_typewriter_tap_locked(bool &played, uint32_t &sample_rate_hz,
             error = static_cast<esp_err_t>(unmute_result);
         }
     }
-    if (error == ESP_OK) {
+    bool submitted = false;
+    if (error == ESP_OK && typewriter_event_current(event)) {
         error = write_speaker_pcm_locked(s_typewriter_transport_samples.data(), output_samples,
             sample_rate_hz, volume_percent);
+        submitted = error == ESP_OK;
     }
-    if (error == ESP_OK) {
+    if (error == ESP_OK && submitted) {
         // Codec writes can enqueue DMA before the last sample reaches the amp.
         // Drain this 15..25 ms cue before restoring mute, only in the audio worker.
         const uint32_t clip_ms = static_cast<uint32_t>((output_samples * 1000U + sample_rate_hz - 1U) / sample_rate_hz);
@@ -1465,7 +1588,7 @@ esp_err_t play_typewriter_tap_locked(bool &played, uint32_t &sample_rate_hz,
             error = static_cast<esp_err_t>(mute_result);
         }
     }
-    played = error == ESP_OK;
+    played = error == ESP_OK && submitted;
     return error;
 }
 
@@ -1611,6 +1734,10 @@ namespace {
 // Exception: Returns admission or retained asynchronous failure; never waits for audio I/O.
 esp_err_t notify_short_feedback(TypewriterEventKind kind)
 {
+    const esp_err_t retained_error = s_typewriter_last_error.load(std::memory_order_acquire);
+    if (retained_error != ESP_OK) {
+        return retained_error;
+    }
     const TaskHandle_t worker = s_typewriter_task.load(std::memory_order_acquire);
     const uint32_t requested_at_us = static_cast<uint32_t>(esp_timer_get_time());
     TypewriterEvent event;
@@ -1620,7 +1747,7 @@ esp_err_t notify_short_feedback(TypewriterEventKind kind)
     // belongs in this bounded critical section shared with the consumer claim.
     portENTER_CRITICAL(&s_typewriter_mailbox_mux);
     if ((kind == TypewriterEventKind::Touch || !s_typewriter_mailbox.suspended) &&
-        !s_standby.load(std::memory_order_acquire)) {
+        !s_standby.load(std::memory_order_acquire) && LUNASHELL_audio_user_sounds_enabled()) {
         owner_unavailable = worker == nullptr;
         // A glyph update cannot overwrite a waiting physical contact click.
         const bool touch_waiting = s_typewriter_mailbox.pending &&
@@ -1641,7 +1768,7 @@ esp_err_t notify_short_feedback(TypewriterEventKind kind)
         return ESP_ERR_INVALID_STATE;
     }
     if (!admitted) {
-        return ESP_OK; // An explicitly suspended/standby cue was not admitted.
+        return s_typewriter_last_error.load(std::memory_order_acquire);
     }
     if (xTaskNotify(worker, TYPEWRITER_EVENT, eSetBits) != pdPASS) {
         drop_typewriter_event(event);
@@ -1759,7 +1886,8 @@ bool personality_event_current(const PersonalityAudioEvent &event)
     const bool enabled = s_personality_mailbox.policy.enabled && (!codex || s_personality_mailbox.codex_enabled);
     const bool suspended = codex ? s_personality_mailbox.codex_suspended : s_personality_mailbox.suspended;
     const uint32_t generation = codex ? s_personality_mailbox.codex_generation : s_personality_mailbox.generation;
-    const bool current = enabled && !suspended && event.generation == generation;
+    const bool current = enabled && !suspended && event.generation == generation &&
+        LUNASHELL_audio_user_sounds_enabled();
     portEXIT_CRITICAL(&s_personality_mux);
     return current && !s_standby.load(std::memory_order_acquire);
 }
@@ -1870,7 +1998,7 @@ esp_err_t play_personality_locked(const PersonalityAudioEvent &event,
             error = publication_error;
         }
     }
-    if (error == ESP_OK && submitted && !cancelled) {
+    if (error == ESP_OK && submitted && !cancelled && personality_event_current(event)) {
         outcome = LUNASHELL_CUE_COMPLETED;
     }
     return error;
@@ -2040,6 +2168,14 @@ static esp_err_t notify_application_audio(const int16_t *samples, size_t sample_
         }
         return error;
     }
+    if (!LUNASHELL_audio_user_sounds_enabled()) {
+        const esp_err_t retained_error = LUNASHELL_audio_get_personality_status(status);
+        status->cue_id = cue_id;
+        if (retained_error == ESP_OK) {
+            status->state = LUNASHELL_CUE_SUPPRESSED;
+        }
+        return retained_error;
+    }
     const TaskHandle_t worker = s_personality_task.load(std::memory_order_acquire);
     if (worker == nullptr) {
         const esp_err_t retained_error = LUNASHELL_audio_get_personality_status(status);
@@ -2058,7 +2194,8 @@ static esp_err_t notify_application_audio(const int16_t *samples, size_t sample_
     portENTER_CRITICAL(&s_personality_mux);
     *status = s_personality_mailbox.status;
     status->cue_id = cue_id;
-    const bool enabled = s_personality_mailbox.policy.enabled && (!codex || s_personality_mailbox.codex_enabled);
+    const bool enabled = s_personality_mailbox.policy.enabled && (!codex || s_personality_mailbox.codex_enabled) &&
+        LUNASHELL_audio_user_sounds_enabled();
     const bool suspended = codex ? s_personality_mailbox.codex_suspended : s_personality_mailbox.suspended;
     const int64_t cooldown_us = codex ?
         (kind == LUNASHELL_CODEX_CUE_ACTIVITY ? CODEX_ACTIVITY_COOLDOWN_US : 0) :

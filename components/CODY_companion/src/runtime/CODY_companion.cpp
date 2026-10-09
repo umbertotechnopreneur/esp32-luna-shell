@@ -4099,6 +4099,10 @@ extern "C" esp_err_t CODY_companion_start(void)
     if (settings_error != ESP_OK) {
         return fail_consumer("Onboarding settings", settings_error, false);
     }
+    const esp_err_t preferences_error = CODY::load_companion_preferences();
+    if (preferences_error != ESP_OK) {
+        return fail_consumer("Companion preferences", preferences_error, false);
+    }
 #if CODY_ENABLE_PEARL_JELLY
     const esp_err_t look_error = CODY::load_persisted_jelly_skin();
     if (look_error != ESP_OK) {

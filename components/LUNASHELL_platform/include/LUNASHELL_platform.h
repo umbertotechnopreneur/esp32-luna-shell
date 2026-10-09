@@ -227,6 +227,9 @@ esp_err_t LUNASHELL_power_manager_set_scene_standby_override(uint32_t seconds);
 
 /** Select Leg Edition's motion/audio behavior; the shared idle timeout still applies. */
 esp_err_t LUNASHELL_power_manager_set_leg_mode(bool active, bool wake_on_motion);
+// enabled: Cody's non-Leg motion wake policy; does not stop orientation acquisition.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED when the power owner is excluded.
+esp_err_t LUNASHELL_power_manager_set_shake_wake_enabled(bool enabled);
 /** Enable or silence the movement cues without changing the screen policy. */
 esp_err_t LUNASHELL_power_manager_set_leg_sounds_enabled(bool enabled);
 
@@ -467,6 +470,25 @@ esp_err_t LUNASHELL_audio_play_pcm16(
     uint32_t sample_rate_hz,
     int volume_percent
 );
+
+// enabled: Explicit Sounds preference applied before workers or while they are active.
+// No codec, volume, microphone, quiet-hours or persistence operation is performed.
+// Returns ESP_OK when admission is applied; retained playback failures remain unchanged.
+esp_err_t LUNASHELL_audio_set_user_sounds_enabled(bool enabled);
+// No parameters: reads only the audio owner's atomic Sounds admission gate.
+bool LUNASHELL_audio_user_sounds_enabled(void);
+// No parameters: returns an opaque revision changed by each actual Sounds preference change.
+// A pending boot retains its revision so Off/On cannot replay an older cue.
+uint32_t LUNASHELL_audio_user_sounds_revision(void);
+// samples: Immutable mono PCM16 for an application cue such as boot audio.
+// sample_count: Exact authored sample count.
+// sample_rate_hz: Authored PCM rate; existing duplex conversion remains authoritative.
+// volume_percent: Explicit codec output policy used only if playback is admitted.
+// user_sounds_revision: Revision captured for this one logical cue request.
+// completed: True only after all PCM and cleanup succeed; false for intentional suppression.
+// Exception: Returns original argument/codec/publication failures; Sounds Off is not a failure.
+esp_err_t LUNASHELL_audio_play_user_cue_pcm16(const int16_t *samples, size_t sample_count,
+    uint32_t sample_rate_hz, int volume_percent, uint32_t user_sounds_revision, bool *completed);
 
 // samples: Immutable flash-owned original mono PCM16; retained for the owner lifetime.
 // sample_count: 240..400 samples, bounding the authored payload to 800 bytes.
@@ -776,6 +798,8 @@ typedef enum {
     LUNASHELL_CODEX_LINK_ACTION_CANCEL,
     // Admitted only after the user confirms replacing an existing association.
     LUNASHELL_CODEX_LINK_ACTION_REPLACE_PAIRING,
+    // Explicit confirmation removes only CCP association records, never Wi-Fi or preferences.
+    LUNASHELL_CODEX_LINK_ACTION_FORGET_PAIRING,
 } LUNASHELL_codex_link_action_t;
 
 /** No parameters: initialize the bounded CCP1 commissioning and liveness owner. */

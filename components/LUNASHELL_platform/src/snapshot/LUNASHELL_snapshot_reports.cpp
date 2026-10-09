@@ -105,6 +105,26 @@ void log_snapshot_publication_failure(
 namespace LUNASHELL {
 using namespace snapshot_detail;
 
+// preferences: Readback-confirmed settings or an explicitly invalid failure observation.
+// Exception: Returns the original canonical publication failure.
+esp_err_t DeviceSnapshotService::reportCodyPreferences(const CodyPreferencesSnapshot &preferences)
+{
+    // snapshot: Canonical storage, exclusively held by update_snapshot.
+    const esp_err_t error = update_snapshot([&](DeviceSnapshot &snapshot) {
+        const int64_t previous_success = snapshot.cody_preferences.last_success_at_us;
+        snapshot.cody_preferences = preferences;
+        if (!preferences.data_valid) {
+            // A failed reload has no new success timestamp; retain real prior provenance.
+            snapshot.cody_preferences.last_success_at_us = previous_success;
+            snapshot.cody_preferences.data_stale = previous_success > 0;
+        }
+    });
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Cody preferences publication failed (%s)", esp_err_to_name(error));
+    }
+    return error;
+}
+
 // operation: Actual request or terminal write result; contains no sensor values or secrets.
 // Exception: Returns publication/ordering errors separately from the persisted operation error.
 esp_err_t DeviceSnapshotService::reportCharacterLookSave(const CharacterLookSaveSnapshot &operation)

@@ -48,6 +48,7 @@ enum class CodexLinkState : uint8_t {
     Connected,
     Failed,
     TimedOut,
+    AwaitingConfirmation,
 };
 
 enum class CodexActivityState : uint8_t {

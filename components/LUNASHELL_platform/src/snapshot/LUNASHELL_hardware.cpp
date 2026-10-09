@@ -1568,7 +1568,8 @@ bsp_display_rotation_t bsp_rotation_for_degrees(uint16_t degrees)
 }
 #endif
 
-// Commit only a newly applied cardinal angle to avoid redundant NVS writes.
+// rendering_degrees: Applied cardinal angle, persisted only when it changes.
+// Exception: Returns original storage/readback errors without claiming persistence.
 esp_err_t persist_display_rotation(uint16_t rendering_degrees)
 {
     if (!is_cardinal_rotation(rendering_degrees)) {
@@ -1586,8 +1587,18 @@ esp_err_t persist_display_rotation(uint16_t rendering_degrees)
     if (init_error != ESP_OK) {
         return init_error;
     }
-    const esp_err_t error =
+    esp_err_t error =
         settings.setUInt32(kDisplayRotationSetting, rendering_degrees);
+    uint32_t readback = UINT32_MAX;
+    if (error == ESP_OK) {
+        error = settings.getUInt32(kDisplayRotationSetting, &readback);
+    }
+    if (error == ESP_OK && readback != rendering_degrees) {
+        error = ESP_ERR_INVALID_RESPONSE;
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Display rotation persistence/readback failed (%s)", esp_err_to_name(error));
+    }
     if (error == ESP_OK) {
         s_orientation.persisted_rendering_valid = true;
         s_orientation.persisted_rendering_degrees = rendering_degrees;
@@ -6819,6 +6830,23 @@ DeviceSnapshot DeviceSnapshotService::snapshot() const
     return copy;
 }
 
+// observation: Bounded canonical settings and orientation; no settings or sensor reads.
+// Exception: Returns the original lock/release error without assigning a partial result.
+esp_err_t DeviceSnapshotService::readCodyOptionsObservation(CodyOptionsObservation &observation) const
+{
+    const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "Cody options read");
+    if (error != ESP_OK) {
+        return error;
+    }
+    const CodyOptionsObservation copy{s_snapshot.cody_preferences, s_snapshot.ui.orientation};
+    const esp_err_t release_error = give_snapshot_mutex("Cody options read");
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    observation = copy;
+    return ESP_OK;
+}
+
 // observation: Coherent projection for the connectivity worker; no driver reads.
 esp_err_t DeviceSnapshotService::readConnectivityObservation(ConnectivityObservation &observation) const
 {
@@ -8066,7 +8094,8 @@ static esp_err_t set_auto_rotation_runtime(bool enabled)
 #endif
 }
 
-// Persist the preference before changing the active sampling policy.
+// enabled: Explicit auto-rotation choice, persisted and read back before runtime admission.
+// Exception: Returns the original storage/readback/runtime error.
 extern "C" esp_err_t LUNASHELL_display_set_auto_rotation_enabled(bool enabled)
 {
     const esp_err_t init_error = ensure_user_settings();
@@ -8091,8 +8120,16 @@ extern "C" esp_err_t LUNASHELL_display_set_auto_rotation_enabled(bool enabled)
         return persist_error;
     }
 
-    const esp_err_t runtime_error =
-        set_auto_rotation_runtime(enabled);
+    bool stored = !enabled;
+    esp_err_t readback_error = settings.getBool(kAutoRotationSetting, &stored);
+    if (readback_error == ESP_OK && stored != enabled) {
+        readback_error = ESP_ERR_INVALID_RESPONSE;
+    }
+    if (readback_error != ESP_OK) {
+        ESP_LOGE(TAG, "Auto-rotation preference readback failed (%s)", esp_err_to_name(readback_error));
+        return readback_error;
+    }
+    const esp_err_t runtime_error = set_auto_rotation_runtime(enabled);
     if (runtime_error != ESP_OK) {
         ESP_LOGE(
             TAG,

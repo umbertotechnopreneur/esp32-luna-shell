@@ -46,6 +46,7 @@ enum class SettingsOperation : uint8_t {
     SetBlob,
     GetBlobSize,
     GetBlob,
+    EraseKey,
     Clear,
 };
 
@@ -98,6 +99,7 @@ std::atomic<esp_err_t> s_poison_error{ESP_OK};
 std::atomic<uint32_t> s_completed_generation{0};
 uint32_t s_next_generation = 0;
 
+// operation: Typed internal executor operation for secret-free diagnostic names.
 const char *operation_name(SettingsOperation operation)
 {
     switch (operation) {
@@ -137,6 +139,8 @@ const char *operation_name(SettingsOperation operation)
         return "get_blob_size";
     case SettingsOperation::GetBlob:
         return "get_blob";
+    case SettingsOperation::EraseKey:
+        return "erase_key";
     case SettingsOperation::Clear:
         return "clear";
     default:
@@ -257,6 +261,8 @@ esp_err_t commit_if_success(esp_err_t result, nvs_handle_t handle)
     return result == ESP_OK ? nvs_commit(handle) : result;
 }
 
+// request: Exclusive internal-stack NVS operation and owned output storage.
+// Exception: Returns the original NVS or commit failure without erasing unrelated keys.
 esp_err_t execute_request(SettingsRequest &request)
 {
     switch (request.operation) {
@@ -378,6 +384,8 @@ esp_err_t execute_request(SettingsRequest &request)
             request.data,
             &request.size
         );
+    case SettingsOperation::EraseKey:
+        return commit_if_success(nvs_erase_key(request.handle, request.key), request.handle);
     case SettingsOperation::Clear:
         return commit_if_success(
             nvs_erase_all(request.handle),
@@ -1031,6 +1039,20 @@ esp_err_t UserSettingsService::getBlob(const char *key, std::vector<uint8_t> *da
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
+}
+
+// key: One explicitly selected setting; the rest of the namespace is untouched.
+// Exception: Returns initialization, admission, NVS erase or commit failure unchanged.
+esp_err_t UserSettingsService::eraseKey(const char *key)
+{
+    std::lock_guard<std::mutex> lock(_mutex);
+    esp_err_t error = ensureInitialized();
+    if (error != ESP_OK) {
+        log_operation_failure(SettingsOperation::EraseKey, key, error);
+        return error;
+    }
+    error = prepare_request(SettingsOperation::EraseKey, _handle, key);
+    return error == ESP_OK ? submit_request() : error;
 }
 
 esp_err_t UserSettingsService::clear()

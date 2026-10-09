@@ -1,4 +1,4 @@
-"""Explicit host checks for native response/demo/statistics and authored boot cues."""
+"""Explicit host checks for native response, authored audio and real Cody preference persistence."""
 from pathlib import Path
 from copy import deepcopy
 import argparse
@@ -205,15 +205,27 @@ def main(argv=None):
         run_stage(command, output, "compile")
         native = run_stage([str(executable)], output, "runtime")
         compare_response(json.loads(native.stdout))
+        preferences = output / "preferences-contract.exe"
+        preferences_sources = ("scripts/tests/cody_native/preferences_contract.cpp",
+                               "components/CODY_companion/src/runtime/CODY_settings.cpp")
+        preferences_definitions = ("CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS=1",
+                                  "CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO=1",
+                                  "CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311=1",
+                                  "CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT=0")
+        preferences_command = compile_command(compiler, includes, preferences_sources, preferences,
+                                              definitions=preferences_definitions, cxx_standard=20)
+        run_stage(preferences_command, output, "preferences-compile")
+        run_stage([str(preferences)], output, "preferences")
         report.update(status="passed", response_ticks=500, fixture_seconds=50,
             contracts=["native/host audio, fatigue and idle parity", "smooth interruption",
-                       "exact original chime and selected greeting composition", "256-color palette", "authored demo boundaries",
+                       "exact original ready tone and selected Cody startup asset", "256-color palette", "authored demo boundaries",
                        "rolling stage statistics, percentiles and overlay separation", "shared eye hit targets and transient annoyance",
                        "dirty-region packing, stride guards, full redraw after cache invalidation and rig framebuffer parity",
                        "scanline stroke exact parity with exhaustive reference, round caps and clipped tiles",
                        "native main HUD canonical CPU/IP/RAM/SD validity, lower-arc glyph rasterization and circular clipping",
                        "native status overlay glyph and layout contract",
-                       "original tiny typewriter cue, nonblocking coalesced admission, shared audio owner and stale-scene suppression"])
+                       "original tiny typewriter cue, nonblocking coalesced admission, shared audio owner and stale-scene suppression",
+                       "real settings source: persistent Sounds Off, strict absence/defaults, storage/readback errors and explicit Retry"])
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"
         raise

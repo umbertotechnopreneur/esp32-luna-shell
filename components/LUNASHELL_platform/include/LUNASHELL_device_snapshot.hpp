@@ -264,6 +264,8 @@ struct CodexLinkSnapshot : ComponentSnapshot {
     bool command_pending = false;
     bool pairing_window_active = false;
     bool retained_link_present = false;
+    bool pending_pairing_present = false;
+    bool pairing_repair_required = false;
     char device_id[13] = {};
     char paired_pc_id[33] = {};
     char peer_ip_address[16] = {};
@@ -730,6 +732,17 @@ struct CharacterLookSaveSnapshot {
     int64_t completed_at_us = 0;
 };
 
+// Settings owner publishes readback-confirmed values; consumers never read NVS.
+struct CodyPreferencesSnapshot : ComponentSnapshot {
+    bool shake_to_wake = false;
+    bool sounds_enabled = false;
+};
+
+struct CodyOptionsObservation {
+    CodyPreferencesSnapshot preferences;
+    OrientationSnapshot orientation;
+};
+
 struct DeviceSnapshot {
     uint32_t sequence = 0;
     int64_t last_update_attempt_at_us = 0;
@@ -752,6 +765,7 @@ struct DeviceSnapshot {
     CharacterInteractionSnapshot character_interaction;
     CharacterTouchSnapshot character_touch;
     CharacterLookSaveSnapshot character_look_save;
+    CodyPreferencesSnapshot cody_preferences;
     RadioSnapshot radios;
     StorageSnapshot storage;
     DiagnosticsSettingsSnapshot diagnostics;
@@ -868,6 +882,13 @@ public:
 #endif
     // observation: Canonical radio/session state and power state under one lock.
     esp_err_t readConnectivityObservation(ConnectivityObservation &observation) const;
+    // observation: Coherent, bounded options projection; assigned only after a successful read.
+    // Exception: Returns the original snapshot lock/release error.
+    esp_err_t readCodyOptionsObservation(CodyOptionsObservation &observation) const;
+
+    // preferences: Actual settings-owner outcome, including failed reads and writes.
+    // Exception: Returns the original publication error.
+    esp_err_t reportCodyPreferences(const CodyPreferencesSnapshot &preferences);
     // observation: Coherent radio, button, motion and voice inputs, with original timestamps.
     // Exception: Returns the original lock/release error without changing the destination.
     esp_err_t readPowerControlObservation(PowerControlObservation &observation) const;

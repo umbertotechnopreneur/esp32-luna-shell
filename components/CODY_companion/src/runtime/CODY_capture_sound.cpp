@@ -25,7 +25,9 @@ constexpr size_t kSampleCount = 3200;
 constexpr int kVolumePercent = 65;
 constexpr uint32_t kWorkerStackBytes = 4096;
 std::atomic<TaskHandle_t> s_worker{nullptr};
-std::atomic<bool> s_pending{false};
+portMUX_TYPE s_capture_mailbox_mux = portMUX_INITIALIZER_UNLOCKED;
+bool s_pending = false;
+uint32_t s_pending_user_sounds_revision = 0;
 
 // index: Current PCM sample inside the bounded original cue.
 // start: First sample of one mechanical click.
@@ -71,12 +73,24 @@ static_assert(kSampleCount * 1000U / kSampleRateHz == 200U,
               "The shutter cue must remain 200 ms of mono PCM16");
 
 // context: Unused task argument; this worker alone makes blocking audio calls.
+// Exception: Logs original policy/playback failures; the shared audio owner publishes codec failures.
 void capture_sound_worker(void *context)
 {
     (void)context;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        if (!s_pending.exchange(false, std::memory_order_acq_rel)) {
+        // Claim the pending flag and its policy token as one immutable request.
+        portENTER_CRITICAL(&s_capture_mailbox_mux);
+        const bool pending = s_pending;
+        const uint32_t user_sounds_revision = s_pending_user_sounds_revision;
+        s_pending = false;
+        portEXIT_CRITICAL(&s_capture_mailbox_mux);
+        if (!pending) {
+            continue;
+        }
+        if (!LUNASHELL_audio_user_sounds_enabled() ||
+            user_sounds_revision != LUNASHELL_audio_user_sounds_revision()) {
+            ESP_LOGI(kTag, "Shutter suppressed by Sounds preference");
             continue;
         }
         LUNASHELL::ClockSnapshot clock;
@@ -91,10 +105,14 @@ void capture_sound_worker(void *context)
             continue;
         }
         // The platform audio mutex serializes this cue with voice and typewriter.
-        const esp_err_t playback_error = LUNASHELL_audio_play_pcm16(
-            kOriginalShutter.data(), kOriginalShutter.size(), kSampleRateHz, kVolumePercent);
+        bool completed = false;
+        const esp_err_t playback_error = LUNASHELL_audio_play_user_cue_pcm16(
+            kOriginalShutter.data(), kOriginalShutter.size(), kSampleRateHz, kVolumePercent,
+            user_sounds_revision, &completed);
         if (playback_error != ESP_OK) {
             ESP_LOGE(kTag, "Shutter playback failed (%s)", esp_err_to_name(playback_error));
+        } else if (!completed) {
+            ESP_LOGI(kTag, "Shutter suppressed during playback; no completion claimed");
         }
     }
 }
@@ -128,18 +146,28 @@ esp_err_t prepare_capture_sound()
 }
 
 // No parameters: queue one shutter after a successfully retired capture frame.
+// Sounds Off skips admission; a later Off/On transition invalidates this logical request.
 // Exception: Returns the real notification or unavailable-route error.
 esp_err_t notify_capture_sound()
 {
 #if CONFIG_LUNASHELL_BUILD_MODE_DEBUG && CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    const uint32_t user_sounds_revision = LUNASHELL_audio_user_sounds_revision();
+    if (!LUNASHELL_audio_user_sounds_enabled()) {
+        return ESP_OK; // No playback was requested and no completion is reported.
+    }
     const TaskHandle_t worker = s_worker.load(std::memory_order_acquire);
     if (worker == nullptr) {
         ESP_LOGE(kTag, "Shutter worker is unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
-    s_pending.store(true, std::memory_order_release);
+    portENTER_CRITICAL(&s_capture_mailbox_mux);
+    s_pending_user_sounds_revision = user_sounds_revision;
+    s_pending = true;
+    portEXIT_CRITICAL(&s_capture_mailbox_mux);
     if (xTaskNotifyGive(worker) != pdPASS) {
-        s_pending.store(false, std::memory_order_release);
+        portENTER_CRITICAL(&s_capture_mailbox_mux);
+        s_pending = false;
+        portEXIT_CRITICAL(&s_capture_mailbox_mux);
         ESP_LOGE(kTag, "Shutter notification failed (%s)", esp_err_to_name(ESP_FAIL));
         return ESP_FAIL;
     }

@@ -48,6 +48,10 @@ public:
     esp_err_t setBlob(const char *key, const void *data, size_t size);
     esp_err_t getBlob(const char *key, std::vector<uint8_t> *data) const;
 
+    // key: One explicitly selected setting; the rest of the namespace is untouched.
+    // Exception: Returns the original erase/commit error, including genuine absence.
+    esp_err_t eraseKey(const char *key);
+
     esp_err_t clear();
 
 private:

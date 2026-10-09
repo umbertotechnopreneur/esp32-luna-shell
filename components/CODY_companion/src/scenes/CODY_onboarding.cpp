@@ -72,6 +72,7 @@ enum class Route : uint8_t {
     None, Hello04, Invitation05, Install06, Pairing07, Failed08, Online09,
     MakeItYours10, Look11, ConnectCodex12, SetupComplete13, LookingForPc14,
     Connected15, Settings36, DebugText, CodexChoice, SetupMenu, NetworkWait, CodexReplace,
+    CodexForget, CodexCleanup, CodexForgotten,
     Project17, Working18, Response19, Paused20, Ended20, Lost32, CompanionIdle16, ActivityUnavailable
 };
 enum class Work : uint8_t {
@@ -86,12 +87,17 @@ enum class Work : uint8_t {
     CodexReplace,
     CodexCopyCode,
     CodexDiscover,
+    CodexCancel,
+    CodexForget,
+    SavePreference,
 };
 enum class NavigationDirection : uint8_t { Previous, Next };
 enum class CodexConnectionIntent : uint8_t { Setup, Retry, ConfirmReplacement };
+enum class CodexCleanup : uint8_t { None, Cancel, Forget };
 enum class OnboardingAction : uint8_t {
     None, ShowQr, PairCody, Cancel, Retry, Continue, Next, Done, LetsGo,
-    AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later, Options, KeepPairing, ReplacePairing
+    AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later, Options, KeepPairing, ReplacePairing,
+    ForgetPairing, ConfirmForget, KeepSaved
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
 
@@ -136,6 +142,8 @@ struct Command {
     uint32_t attempt = 0;
     uint32_t session = 0;
     LUNASHELL::CharacterLookSaveSnapshot look_save{};
+    PreferenceId preference = PreferenceId::ShakeWake;
+    uint32_t preference_value = 0;
 };
 struct Result {
     Command command{};
@@ -144,6 +152,14 @@ struct Result {
     QrModules qr{};
     char codex_code[7]{};
 };
+struct PreferenceControl {
+    PreferenceId identity = PreferenceId::ShakeWake;
+    CODY2D::CapsuleControl control{};
+    CODY2D::TextLine value{};
+    char value_text[5]{};
+    uint32_t requested_value = 0;
+};
+
 struct ContentView {
     CODY2D::TextLine lines[kContentLineCapacity]{};
     uint8_t line_count = 0;
@@ -162,7 +178,10 @@ struct ContentView {
     uint16_t action_second_visible = 0;
     uint16_t alternative_second_visible = 0;
     CODY2D::CapsuleControl options{};
+    OnboardingAction options_id = OnboardingAction::None;
     uint16_t options_visible_characters = 0;
+    PreferenceControl preferences[4]{};
+    uint8_t preference_count = 0;
     QrModules qr{};
     CODY2D::Rect qr_bounds{};
     char error_text[32]{};
@@ -177,6 +196,10 @@ ContentView s_view;
 #endif
 Route s_route = Route::None;
 bool s_options_from_setup = false;
+esp_err_t s_preference_error = ESP_OK;
+PreferenceId s_requested_preference = PreferenceId::ShakeWake;
+uint32_t s_requested_preference_value = 0;
+LUNASHELL::CodyOptionsObservation s_presented_options{};
 bool s_setup_returns_to_companion = false;
 bool s_companion_seen_selection = false;
 int64_t s_session_ended_at_us = -1;
@@ -214,6 +237,10 @@ uint32_t s_codex_attempt = 0;
 int64_t s_last_codex_change_us = -1;
 bool s_codex_owned = false;
 uint32_t s_codex_replacement_attempt = 0;
+bool s_codex_manage_pending = false;
+bool s_codex_manage_repair = false;
+CodexCleanup s_codex_cleanup = CodexCleanup::None;
+bool s_codex_cleanup_admitted = false;
 bool s_codex_error_visible = false;
 bool s_codex_error_allows_setup = false;
 esp_err_t s_codex_visible_error = ESP_OK;
@@ -476,6 +503,15 @@ void execute_command(const Command &command, Result &result)
         result.error = persist_first_boot(false);
         return;
     }
+    if (command.work == Work::SavePreference) {
+        if (command.generation != s_presentation_generation.load(std::memory_order_acquire)) {
+            result.error = ESP_ERR_INVALID_STATE;
+            ESP_LOGE(kTag, "Preference write retired before persistence (%s)", esp_err_to_name(result.error));
+            return;
+        }
+        result.error = persist_companion_preference(command.preference, command.preference_value);
+        return;
+    }
     if (command.work == Work::SaveLook) {
 #if CODY_ENABLE_PEARL_JELLY
         result.error = persist_jelly_skin(command.look_save.requested_id);
@@ -525,11 +561,16 @@ void execute_command(const Command &command, Result &result)
         return;
     }
     if (command.work == Work::CodexStart || command.work == Work::CodexReplace ||
-        command.work == Work::CodexDiscover) {
-        const LUNASHELL_codex_link_action_t action = command.work == Work::CodexStart
-            ? LUNASHELL_CODEX_LINK_ACTION_START_PAIRING
-            : command.work == Work::CodexReplace ? LUNASHELL_CODEX_LINK_ACTION_REPLACE_PAIRING
-            : LUNASHELL_CODEX_LINK_ACTION_START_DISCOVERY;
+        command.work == Work::CodexDiscover || command.work == Work::CodexCancel ||
+        command.work == Work::CodexForget) {
+        LUNASHELL_codex_link_action_t action = LUNASHELL_CODEX_LINK_ACTION_START_PAIRING;
+        switch (command.work) {
+        case Work::CodexReplace: action = LUNASHELL_CODEX_LINK_ACTION_REPLACE_PAIRING; break;
+        case Work::CodexDiscover: action = LUNASHELL_CODEX_LINK_ACTION_START_DISCOVERY; break;
+        case Work::CodexCancel: action = LUNASHELL_CODEX_LINK_ACTION_CANCEL; break;
+        case Work::CodexForget: action = LUNASHELL_CODEX_LINK_ACTION_FORGET_PAIRING; break;
+        default: break;
+        }
         result.error = LUNASHELL_codex_link_request(action, command.attempt);
         return;
     }
@@ -586,6 +627,29 @@ esp_err_t enqueue(Work work, uint32_t attempt, uint32_t session = 0)
         return ESP_ERR_INVALID_STATE;
     }
     s_command = {work, s_generation, attempt, session};
+    s_command_pending = true;
+    ++s_navigation_revision;
+    s_work_busy.store(true, std::memory_order_release);
+    xTaskNotifyGive(s_worker);
+    return ESP_OK;
+}
+
+// preference: Stable identity of the actual row pressed, never a row index.
+// value: Exact user-selected target, also retained for an explicit Retry.
+// Exception: Returns mailbox admission failure without starting a write.
+esp_err_t enqueue_preference(PreferenceId preference, uint32_t value)
+{
+    if (s_worker == nullptr || s_work_busy.load(std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "Preference mailbox unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_command = {};
+    s_command.work = Work::SavePreference;
+    s_command.generation = s_generation;
+    s_command.preference = preference;
+    s_command.preference_value = value;
+    s_requested_preference = preference;
+    s_requested_preference_value = value;
     s_command_pending = true;
     ++s_navigation_revision;
     s_work_busy.store(true, std::memory_order_release);
@@ -725,13 +789,14 @@ bool uses_footer_action()
         s_route == Route::MakeItYours10 || s_route == Route::Settings36 ||
         s_route == Route::ConnectCodex12 || s_route == Route::SetupComplete13 ||
         s_route == Route::CodexChoice || s_route == Route::SetupMenu || s_route == Route::NetworkWait ||
-        s_route == Route::CodexReplace;
+        s_route == Route::CodexReplace || s_route == Route::CodexForget || s_route == Route::CodexForgotten;
 }
 
 // No parameters: QR pages retain quiet-zone clearance above their compact action.
 CODY2D::Rect single_action_bounds()
 {
-    return s_route == Route::Install06 || s_route == Route::Pairing07 ?
+    return s_route == Route::Install06 || s_route == Route::Pairing07 ||
+        (s_route == Route::ConnectCodex12 && !s_codex_error_visible) ?
         kFooterBounds : kSingleActionBounds;
 }
 
@@ -792,6 +857,13 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
     case OnboardingAction::ReplacePairing:
         label = "Pair again";
         break;
+    case OnboardingAction::ForgetPairing:
+    case OnboardingAction::ConfirmForget:
+        label = "Forget";
+        break;
+    case OnboardingAction::KeepSaved:
+        label = "Go back";
+        break;
     default:
         ESP_LOGE(kTag, "Unknown navigation action %u (%s)", to_index(action), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
@@ -811,6 +883,7 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
     switch (action) {
     case OnboardingAction::AcceptCodex:
     case OnboardingAction::KeepPairing:
+    case OnboardingAction::KeepSaved:
     case OnboardingAction::Done:
         control.icon = CODY2D::ActionIcon::Check;
         break;
@@ -843,6 +916,14 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
         control.border_color = 0xFC6A;
         control.icon_color = 0xFE55;
         control.icon = action == OnboardingAction::Cancel ? CODY2D::ActionIcon::Close : CODY2D::ActionIcon::Retry;
+        break;
+    case OnboardingAction::ForgetPairing:
+    case OnboardingAction::ConfirmForget:
+        control.top_color = 0x6002;
+        control.bottom_color = 0x2001;
+        control.border_color = 0xF986;
+        control.icon_color = 0xFBAE;
+        control.icon = CODY2D::ActionIcon::Close;
         break;
     default:
         break;
@@ -928,7 +1009,7 @@ esp_err_t prepare_action(OnboardingAction action, bool enabled)
     s_view.action_id = action;
     s_view.action_visible = action != OnboardingAction::None;
     const bool card = s_route == Route::CodexChoice || s_route == Route::SetupMenu ||
-        s_route == Route::NetworkWait || s_route == Route::CodexReplace;
+        s_route == Route::NetworkWait || s_route == Route::CodexReplace || s_route == Route::CodexForget;
     const auto bounds = card ? kRightCardBounds : uses_footer_action() ? single_action_bounds() :
         action == OnboardingAction::Cancel ? kBackBounds : kForwardBounds;
     if (uses_footer_action()) {
@@ -1047,6 +1128,14 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
                 strip, first_row, first_column);
         }
     }
+    for (uint8_t index = 0; error == ESP_OK && view.actions_visible && index < view.preference_count; ++index) {
+        const auto &preference = view.preferences[index];
+        error = CODY2D::draw_capsule_rows(preference.control, strip, first_row, first_column);
+        if (error == ESP_OK) {
+            error = CODY2D::draw_text_rows(preference.value, preference.value.text.length,
+                strip, first_row, first_column);
+        }
+    }
     return error;
 }
 
@@ -1118,9 +1207,9 @@ esp_err_t attach_content(SceneFrame &scene)
         ? DamageRect{40, top, 426, 356}
         : choice ? DamageRect{73, 260, 393, 364}
         : DamageRect{113, top, 353, static_cast<uint16_t>(content.bottom_action_visible ? s_view.action.bounds.y : 430)};
-    if (s_route == Route::SetupMenu) {
+    if (s_route == Route::SetupMenu || s_route == Route::CodexReplace) {
         content.bottom_action_bounds = {153, 376, 313, 428};
-    } else if (s_route == Route::CodexReplace) {
+    } else if (s_route == Route::CodexForget) {
         // Narrative below the two cards uses its narrower circular chord.
         // Only the actual card rectangles remain interactive.
         content.bottom_action_bounds = {113, 376, 353, 416};
@@ -1140,7 +1229,8 @@ esp_err_t attach_content(SceneFrame &scene)
         if (s_view.alternative_id != OnboardingAction::None) {
             content.control_bounds[0] = {73, 260, 227, 364};
         }
-        if (s_route == Route::SetupMenu || s_route == Route::CodexReplace || (s_options_from_setup &&
+        if (s_route == Route::SetupMenu || s_route == Route::CodexReplace || s_route == Route::CodexForget ||
+            (s_options_from_setup &&
             (s_route == Route::MakeItYours10 || s_route == Route::Settings36))) {
             content.control_bounds[0] = {10, 203, 70, 263};
         }
@@ -1279,6 +1369,119 @@ void notify_companion_transition(Route previous, Route destination,
     }
 }
 
+// scene: Screen 10 receiving actual canonical values or a visible write failure.
+// Exception: Returns the original snapshot or text preparation failure.
+esp_err_t prepare_options_content(SceneFrame &scene)
+{
+    s_view.line_count = 0;
+    s_view.preference_count = 0;
+    const char *title = s_preference_error == ESP_OK ? "Make it yours" : "Save failed";
+    const uint16_t title_length = static_cast<uint16_t>(std::strlen(title));
+    esp_err_t error = ESP_OK;
+    if (scene.title.text.length != title_length ||
+        std::memcmp(scene.title.text.characters, title, title_length) != 0) {
+        ++s_text_generation;
+        error = set_scene_title(scene, {title, title_length});
+    }
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (s_preference_error != ESP_OK) {
+        std::snprintf(s_view.error_text, sizeof(s_view.error_text), "Error: 0x%lx",
+            static_cast<unsigned long>(s_preference_error));
+        error = prepare_caption(s_view.error_text, 260, s_view.lines[0]);
+        s_view.line_count = 1;
+        return error == ESP_OK ? prepare_action(OnboardingAction::Retry, !s_command_pending) : error;
+    }
+    LUNASHELL::CodyOptionsObservation observation;
+    error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(observation);
+    if (error != ESP_OK) {
+        return error;
+    }
+    struct Row {
+        PreferenceId identity;
+        const char *label;
+        CODY2D::ActionIcon icon;
+    };
+    constexpr Row rows[] = {
+        {PreferenceId::ShakeWake, "Shake to wake", CODY2D::ActionIcon::Gear},
+        {PreferenceId::AutoRotate, "Auto-rotate", CODY2D::ActionIcon::Retry},
+        {PreferenceId::Sounds, "Sounds", CODY2D::ActionIcon::Check},
+        {PreferenceId::Orientation, "Orientation", CODY2D::ActionIcon::Arrow},
+    };
+    const auto &font = SceneData::body_font;
+    const auto &preferences = observation.preferences;
+    const auto &orientation = observation.orientation;
+    s_presented_options = observation;
+    for (const auto &row : rows) {
+        auto &target = s_view.preferences[s_view.preference_count];
+        target = {};
+        target.identity = row.identity;
+        const uint16_t top = 204U + s_view.preference_count * 38U;
+        bool available = preferences.data_valid && !preferences.data_stale;
+        bool active = false;
+        const char *value = "N/A";
+        switch (row.identity) {
+        case PreferenceId::ShakeWake:
+            active = preferences.shake_to_wake;
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
+            available = false;
+#endif
+            break;
+        case PreferenceId::Sounds:
+            active = preferences.sounds_enabled;
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO || !CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+            available = false;
+#endif
+            break;
+        case PreferenceId::AutoRotate:
+        case PreferenceId::Orientation:
+            available = orientation.data_valid && !orientation.data_stale && !orientation.rotation_pending;
+            active = orientation.auto_rotation_enabled;
+            break;
+        }
+        target.requested_value = active ? 0U : 1U;
+        if (available) {
+            value = active ? "On" : "Off";
+            if (row.identity == PreferenceId::Orientation) {
+                if (orientation.auto_rotation_enabled) {
+                    value = "Auto";
+                } else {
+                    std::snprintf(target.value_text, sizeof(target.value_text), "%u",
+                        orientation.rendering_rotation_degrees);
+                    value = target.value_text;
+                }
+                target.requested_value = orientation.rendering_rotation_degrees == 0U ? 180U : 0U;
+            }
+        }
+        const bool manual_locked = row.identity == PreferenceId::Orientation && orientation.auto_rotation_enabled;
+        target.control = {{113, top, 240, 32}, {},
+            static_cast<uint16_t>(active ? 0x030D : 0x2104),
+            static_cast<uint16_t>(active ? 0x0105 : 0x0841),
+            available && !manual_locked && !s_command_pending};
+        target.control.corner_radius = 12;
+        target.control.border_color = active ? 0x05FA : 0x630C;
+        target.control.icon = row.icon;
+        target.control.icon_center = {130, static_cast<int16_t>(top + 17U)};
+        target.control.icon_color = active ? 0x9FFF : 0xD69A;
+        const int16_t text_top = static_cast<int16_t>(top + (32U - font.height) / 2U);
+        error = CODY2D::prepare_text_line(font, {row.label, static_cast<uint16_t>(std::strlen(row.label))},
+            {148, text_top}, 0xFFFF, target.control.caption);
+        const uint16_t count = static_cast<uint16_t>(std::strlen(value));
+        const uint16_t value_width = (count - 1U) * font.advance + font.width;
+        if (error == ESP_OK) {
+            error = CODY2D::prepare_text_line(font, {value, count},
+                {static_cast<int16_t>(345U - value_width), text_top},
+                available ? 0xFFFF : 0xBDF7, target.value);
+        }
+        if (error != ESP_OK) {
+            return error;
+        }
+        ++s_view.preference_count;
+    }
+    return prepare_action(OnboardingAction::Next, !s_command_pending);
+}
+
 // route: Explicit atlas identity; no navigation is inferred from array position.
 // scene: Receives a fully validated immutable layout and caller-owned content.
 // Exception: Returns the real scene, catalog, text or content preparation error.
@@ -1311,9 +1514,11 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         identity = SceneId::Settings;
         break;
     case Route::ConnectCodex12:
+    case Route::CodexCleanup:
         identity = SceneId::ConnectCodex;
         break;
     case Route::SetupComplete13:
+    case Route::CodexForgotten:
         identity = SceneId::SetupComplete;
         break;
     case Route::LookingForPc14:
@@ -1332,6 +1537,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     case Route::ActivityUnavailable: identity = SceneId::ActivityUnavailable; break;
     case Route::CodexChoice:
     case Route::CodexReplace:
+    case Route::CodexForget:
         identity = SceneId::CodexChoice;
         break;
     case Route::SetupMenu:
@@ -1411,18 +1617,8 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         }
 #endif
     } else if (route == Route::MakeItYours10) {
-        constexpr const char *captions[] = {
-            "Shake to wake", "Auto-rotate", "Sounds", "Orientation 0 / 180"
-        };
-        for (const char *text : captions) {
-            error = prepare_caption(text, 204 + s_view.line_count * 38U,
-                                    s_view.lines[s_view.line_count]);
-            if (error != ESP_OK) {
-                return error;
-            }
-            ++s_view.line_count;
-        }
-        error = prepare_action(OnboardingAction::Next, true);
+        s_preference_error = ESP_OK;
+        error = prepare_options_content(prepared);
     } else if (route == Route::Settings36) {
         constexpr const char *captions[] = {"Personalization", "Choose Cody's look"};
         for (const char *text : captions) {
@@ -1435,18 +1631,32 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         }
         error = prepare_action(OnboardingAction::Continue, true);
     } else if (route == Route::CodexReplace) {
-        // This is a confirmation variant of the existing two-choice scene.
-        static constexpr char title[] = "Already paired";
+        const char *title = s_codex_manage_repair ? "Pairing error" :
+            s_codex_manage_pending ? "Pairing paused" : "Already paired";
+        error = set_scene_title(prepared, {title, static_cast<uint16_t>(std::strlen(title))});
+        if (error == ESP_OK) {
+            error = prepare_action(OnboardingAction::ReplacePairing, !s_codex_manage_repair);
+        }
+        if (error == ESP_OK) {
+            error = prepare_alternative(OnboardingAction::KeepPairing, !s_codex_manage_repair);
+        }
+        if (error == ESP_OK) {
+            CODY2D::TextLine unused;
+            s_view.options_id = OnboardingAction::ForgetPairing;
+            error = prepare_button(s_view.options_id, "Forget", kOptionsBounds, true, false, s_view.options, unused);
+        }
+    } else if (route == Route::CodexForget) {
+        static constexpr char title[] = "Forget pairing";
         error = set_scene_title(prepared, {title, sizeof(title) - 1U});
         if (error == ESP_OK) {
-            error = prepare_caption("Replace old pairing?", 384, s_view.lines[0]);
+            error = prepare_caption("Only Codex is reset", 384, s_view.lines[0]);
             s_view.line_count = 1;
         }
         if (error == ESP_OK) {
-            error = prepare_action(OnboardingAction::ReplacePairing, true);
+            error = prepare_action(OnboardingAction::ConfirmForget, true);
         }
         if (error == ESP_OK) {
-            error = prepare_alternative(OnboardingAction::KeepPairing, true);
+            error = prepare_alternative(OnboardingAction::KeepSaved, true);
         }
     } else if (route == Route::CodexChoice || route == Route::SetupMenu || route == Route::NetworkWait) {
         const auto primary = route == Route::CodexChoice ? OnboardingAction::DeclineCodex :
@@ -1460,6 +1670,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         }
         if (error == ESP_OK && route == Route::SetupMenu) {
             CODY2D::TextLine unused;
+            s_view.options_id = OnboardingAction::Options;
             error = prepare_button(OnboardingAction::Options, "Options", kOptionsBounds,
                 true, false, s_view.options, unused);
         }
@@ -1481,7 +1692,21 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
             s_view.line_count = 3;
         }
         if (error == ESP_OK) {
-            error = prepare_action(OnboardingAction::None, false);
+            error = prepare_action(s_codex_code[0] != '\0' ? OnboardingAction::Cancel : OnboardingAction::None,
+                                   s_codex_code[0] != '\0');
+        }
+    } else if (route == Route::CodexCleanup || route == Route::CodexForgotten) {
+        const char *title = route == Route::CodexForgotten ? "Unpaired" : "Please wait";
+        error = set_scene_title(prepared, {title, static_cast<uint16_t>(std::strlen(title))});
+        if (error == ESP_OK) {
+            const char *message = route == Route::CodexForgotten ? "Pairing removed" :
+                s_codex_cleanup == CodexCleanup::Forget ? "Removing pairing" : "Closing pairing";
+            error = prepare_caption(message, 300, s_view.lines[0]);
+            s_view.line_count = 1;
+        }
+        if (error == ESP_OK) {
+            error = prepare_action(route == Route::CodexForgotten ? OnboardingAction::Done : OnboardingAction::None,
+                                   route == Route::CodexForgotten);
         }
     } else if (route == Route::SetupComplete13) {
         error = prepare_caption("Setup confirmed", 300, s_view.lines[0]);
@@ -1493,17 +1718,17 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         error = prepare_caption("Looking for paired PC", 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption("Authenticated search", 327, s_view.lines[1]);
+            error = prepare_caption("Open Codex on your PC", 327, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::None, false);
         }
     } else if (route == Route::Connected15) {
-        error = prepare_caption("Codex PC found", 300, s_view.lines[0]);
+        error = prepare_caption(kWaitingForCodexCaption, 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption(kWaitingForCodexCaption, 327, s_view.lines[1]);
+            error = prepare_caption("Send a Codex prompt", 327, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
@@ -1756,23 +1981,28 @@ esp_err_t begin_codex_connection(SceneFrame &scene, CodexConnectionIntent intent
         );
     }
     if (intent == CodexConnectionIntent::ConfirmReplacement &&
-        (s_route != Route::CodexReplace || !codex_link.retained_link_present ||
+        (s_route != Route::CodexReplace ||
+         (!codex_link.retained_link_present && !codex_link.pending_pairing_present) ||
          codex_link.attempt_id != s_codex_replacement_attempt)) {
         ESP_LOGE(kTag, "CCP replacement confirmation no longer matches the saved association (%s)",
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
         return show_codex_error(scene, ESP_ERR_INVALID_STATE);
     }
-    if (codex_link.retained_link_present && intent == CodexConnectionIntent::Setup) {
+    if (intent == CodexConnectionIntent::Setup &&
+        (codex_link.retained_link_present || codex_link.pending_pairing_present || codex_link.pairing_repair_required)) {
         // Saved identity can be managed even while the LAN or PC is unavailable.
         s_codex_owned = false;
         s_codex_replacement_attempt = codex_link.attempt_id;
+        s_codex_manage_pending = codex_link.pending_pairing_present;
+        s_codex_manage_repair = codex_link.pairing_repair_required;
         wipe(s_codex_code, sizeof(s_codex_code));
         return enter_route(Route::CodexReplace, scene);
     }
     s_codex_error_visible = false;
     s_codex_error_allows_setup = false;
     wipe(s_codex_code, sizeof(s_codex_code));
-    if (codex_link.retained_link_present && intent == CodexConnectionIntent::Retry) {
+    if ((codex_link.retained_link_present || codex_link.pending_pairing_present) &&
+        !codex_link.pairing_repair_required && intent == CodexConnectionIntent::Retry) {
         // Retry never rotates a retained identity or opens another code window.
         return resume_codex_connection(scene, codex_link);
     }
@@ -1788,6 +2018,39 @@ esp_err_t begin_codex_connection(SceneFrame &scene, CodexConnectionIntent intent
         error = enqueue(work, codex_link.attempt_id);
     }
     return error == ESP_OK ? ESP_OK : show_codex_error(scene, error);
+}
+
+// scene: Current code or explicit Forget-confirmation view.
+// cleanup: Explicit cancellation or confirmed removal of the CCP records only.
+// Exception: Returns canonical/admission failures; completion is observed separately.
+esp_err_t begin_codex_cleanup(SceneFrame &scene, CodexCleanup cleanup)
+{
+    LUNASHELL::ConnectivityObservation observation{};
+    esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
+    if (error != ESP_OK) {
+        return show_codex_error(scene, error);
+    }
+    const auto &link = observation.radios.codex_link;
+    if (!link.data_valid || link.data_stale || link.command_pending ||
+        (cleanup == CodexCleanup::Forget &&
+         (s_route != Route::CodexForget || link.attempt_id != s_codex_replacement_attempt))) {
+        ESP_LOGE(kTag, "CCP cleanup rejected: state or confirmation changed (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return show_codex_error(scene, ESP_ERR_INVALID_STATE);
+    }
+    s_codex_cleanup = cleanup;
+    s_codex_cleanup_admitted = false;
+    s_codex_attempt = link.attempt_id;
+    s_codex_owned = false;
+    wipe(s_codex_code, sizeof(s_codex_code));
+    error = enter_route(Route::CodexCleanup, scene);
+    if (error == ESP_OK) {
+        error = enqueue(cleanup == CodexCleanup::Forget ? Work::CodexForget : Work::CodexCancel, link.attempt_id);
+    }
+    if (error != ESP_OK) {
+        s_codex_cleanup = CodexCleanup::None;
+        return show_codex_error(scene, error);
+    }
+    return ESP_OK;
 }
 
 // scene: Active host frame, replaced only after the reusable selector is prepared.
@@ -2073,6 +2336,7 @@ void reset_onboarding()
 {
     set_companion_audio_visible(false);
     s_options_from_setup = false;
+    s_preference_error = ESP_OK;
     s_setup_returns_to_companion = false;
     s_companion_seen_selection = false;
     s_session_ended_at_us = -1;
@@ -2100,6 +2364,10 @@ void reset_onboarding()
     s_codex_owned = false;
     s_codex_error_visible = false;
     s_codex_replacement_attempt = 0;
+    s_codex_manage_pending = false;
+    s_codex_manage_repair = false;
+    s_codex_cleanup = CodexCleanup::None;
+    s_codex_cleanup_admitted = false;
     s_codex_error_allows_setup = false;
     s_codex_visible_error = ESP_OK;
     wipe(s_codex_code, sizeof(s_codex_code));
@@ -2219,8 +2487,8 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
         return ESP_OK;
     }
     const auto &link = observation.radios.codex_link;
-    if (!link.data_valid || link.data_stale ||
-        (!link.retained_link_present && link.last_error != ESP_OK)) {
+    if (!link.data_valid || link.data_stale || link.pairing_repair_required ||
+        (!link.retained_link_present && !link.pending_pairing_present && link.last_error != ESP_OK)) {
         error = link.last_error != ESP_OK ? link.last_error : ESP_ERR_INVALID_STATE;
         ESP_LOGE(kTag, "Startup CCP snapshot unavailable (%s)", esp_err_to_name(error));
         s_startup_pending = false;
@@ -2231,7 +2499,7 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
     }
     s_startup_pending = false;
     changed = true;
-    if (!link.retained_link_present) {
+    if (!link.retained_link_present && !link.pending_pairing_present) {
         return enter_route(Route::CodexChoice, scene);
     }
     // A retained pairing is an identity, not evidence that the PC is currently ready.
@@ -2378,6 +2646,32 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         }
         changed = true;
     }
+    if (s_route == Route::MakeItYours10 && !s_command_pending && !have_result && s_preference_error == ESP_OK) {
+        LUNASHELL::CodyOptionsObservation options;
+        const esp_err_t options_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(options);
+        if (options_error != ESP_OK) {
+            wipe(&result, sizeof(result));
+            return options_error;
+        }
+        const auto &current = options.orientation;
+        const auto &previous = s_presented_options.orientation;
+        const bool preference_changed = options.preferences.last_attempt_at_us !=
+            s_presented_options.preferences.last_attempt_at_us;
+        if (preference_changed || current.auto_rotation_enabled != previous.auto_rotation_enabled ||
+            current.rotation_pending != previous.rotation_pending || current.data_valid != previous.data_valid ||
+            current.data_stale != previous.data_stale ||
+            current.rendering_rotation_degrees != previous.rendering_rotation_degrees) {
+            esp_err_t refresh_error = prepare_options_content(scene);
+            if (refresh_error == ESP_OK) {
+                refresh_error = attach_content(scene);
+            }
+            if (refresh_error != ESP_OK) {
+                wipe(&result, sizeof(result));
+                return refresh_error;
+            }
+            changed = true;
+        }
+    }
     LUNASHELL::ConnectivityObservation observation;
     esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
     if (error != ESP_OK) {
@@ -2413,7 +2707,13 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         s_command_pending = false;
         scene.content.control_revision = ++s_navigation_revision;
         changed = true;
-        if (result.error != ESP_OK) {
+        if (result.command.work == Work::SavePreference && s_route == Route::MakeItYours10) {
+            s_preference_error = result.error;
+            error = prepare_options_content(scene);
+            if (error == ESP_OK) {
+                error = attach_content(scene);
+            }
+        } else if (result.error != ESP_OK) {
             if (result.command.work == Work::Cancel && s_retry_to_invitation) {
                 // Admission failed, so a requested return to 05 has no confirmed cleanup.
                 s_retry_to_invitation = false;
@@ -2421,6 +2721,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             }
             const bool codex_work = result.command.work == Work::CodexStart ||
                 result.command.work == Work::CodexReplace ||
+                result.command.work == Work::CodexCancel || result.command.work == Work::CodexForget ||
                 result.command.work == Work::CodexCopyCode ||
                 result.command.work == Work::CodexDiscover;
             const bool expired_codex_code = result.command.work == Work::CodexCopyCode &&
@@ -2434,6 +2735,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                 (pairing.state != PairState::ReadyToScan || pairing.attempt_id != result.command.attempt ||
                  pairing.provisioning_session_id != result.command.session);
             if (codex_work && !expired_codex_code) {
+                s_codex_cleanup = CodexCleanup::None;
                 error = show_codex_error(scene, result.error);
             } else if (!expired_qr && !expired_codex_code) {
                 s_failed_work = result.command.work;
@@ -2505,6 +2807,8 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             }
         } else if (result.command.work == Work::CodexDiscover) {
             s_codex_error_visible = false;
+        } else if (result.command.work == Work::CodexCancel || result.command.work == Work::CodexForget) {
+            s_codex_cleanup_admitted = true;
         }
         wipe(&result, sizeof(result));
         if (error != ESP_OK) {
@@ -2512,6 +2816,23 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         }
     } else {
         wipe(&result, sizeof(result));
+    }
+    if (s_codex_cleanup != CodexCleanup::None) {
+        if (!s_codex_cleanup_admitted || codex_link.command_pending) {
+            return ESP_OK;
+        }
+        const CodexCleanup cleanup = s_codex_cleanup;
+        s_codex_cleanup = CodexCleanup::None;
+        changed = true;
+        const bool closed = cleanup == CodexCleanup::Forget
+            ? codex_link.state == CodexState::Idle && !codex_link.retained_link_present
+            : codex_link.state == CodexState::Idle || codex_link.state == CodexState::Paired;
+        if (!codex_link.data_valid || codex_link.data_stale || !closed ||
+            codex_link.attempt_id != s_codex_attempt || codex_link.pending_pairing_present ||
+            codex_link.pairing_repair_required || codex_link.last_error != ESP_OK) {
+            return show_codex_error(scene, codex_link.last_error != ESP_OK ? codex_link.last_error : ESP_ERR_INVALID_STATE);
+        }
+        return enter_route(cleanup == CodexCleanup::Forget ? Route::CodexForgotten : Route::SetupMenu, scene);
     }
     if (s_codex_owned) {
         if (s_command_pending && codex_link.data_valid &&
@@ -2539,7 +2860,9 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                        s_route == Route::LookingForPc14) {
                 error = enter_route(Route::Connected15, scene);
             } else if (codex_link.state == CodexState::Discovering &&
-                       s_route == Route::Connected15) {
+                       (s_route == Route::Connected15 || s_route == Route::ConnectCodex12)) {
+                s_codex_error_visible = false;
+                wipe(s_codex_code, sizeof(s_codex_code));
                 error = enter_route(Route::LookingForPc14, scene);
             } else if ((codex_link.state == CodexState::Failed ||
                         codex_link.state == CodexState::TimedOut) &&
@@ -2563,6 +2886,29 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             if (error != ESP_OK) {
                 changed = true;
                 return show_codex_error(scene, error);
+            }
+        }
+        if (s_route == Route::LookingForPc14 && codex_link.state == CodexState::Discovering) {
+            const auto &wifi = observation.radios.wifi;
+            const bool lan_ready = wifi.data_valid && !wifi.data_stale && wifi.last_error == ESP_OK &&
+                wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0';
+            const char *caption = !lan_ready ? "Waiting for Wi-Fi" :
+                codex_link.pending_pairing_present ? "Finishing pairing" : "Looking for paired PC";
+            const char *detail = lan_ready ? "Open Codex on your PC" : "Pairing is saved";
+            const uint16_t length = static_cast<uint16_t>(std::strlen(caption));
+            if (s_view.lines[0].text.length != length ||
+                std::memcmp(s_view.lines[0].text.characters, caption, length) != 0) {
+                error = prepare_caption(caption, 300, s_view.lines[0]);
+                if (error == ESP_OK) {
+                    error = prepare_caption(detail, 327, s_view.lines[1]);
+                }
+                if (error == ESP_OK) {
+                    error = attach_content(scene);
+                }
+                if (error != ESP_OK) {
+                    return error;
+                }
+                changed = true;
             }
         }
         if (s_route == Route::ConnectCodex12 ||
@@ -2775,7 +3121,8 @@ bool point_in_rect(CODY2D::Rect bounds, CODY2D::Point point)
 // No parameters: only routes with a real previous destination expose Back.
 bool previous_navigation_available()
 {
-    return s_route == Route::SetupMenu || s_route == Route::CodexReplace || s_route == Route::Install06 ||
+    return s_route == Route::SetupMenu || s_route == Route::CodexReplace || s_route == Route::CodexForget ||
+        s_route == Route::Install06 ||
         (s_options_from_setup && (s_route == Route::MakeItYours10 || s_route == Route::Settings36)) ||
         (s_view.action_visible && s_view.action_id == OnboardingAction::Cancel);
 }
@@ -2784,7 +3131,7 @@ bool previous_navigation_available()
 bool next_navigation_available()
 {
     if (s_route == Route::CodexChoice || s_route == Route::SetupMenu ||
-        s_route == Route::NetworkWait || s_route == Route::CodexReplace) {
+        s_route == Route::NetworkWait || s_route == Route::CodexReplace || s_route == Route::CodexForget) {
         return false; // Yes/No and setup choices require their own explicit capsule.
     }
     return s_view.action_visible && s_view.action_id != OnboardingAction::Cancel;
@@ -2793,7 +3140,7 @@ bool next_navigation_available()
 // No parameters: hidden lateral arrows do not retain invisible touch targets.
 bool previous_control_visible()
 {
-    return s_route == Route::SetupMenu || s_route == Route::CodexReplace ||
+    return s_route == Route::SetupMenu || s_route == Route::CodexReplace || s_route == Route::CodexForget ||
         (s_options_from_setup && (s_route == Route::MakeItYours10 || s_route == Route::Settings36)) ||
         (previous_navigation_available() && s_route != Route::Install06 && !uses_footer_action());
 }
@@ -2845,6 +3192,15 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     if (back_hit && s_route == Route::CodexReplace) {
         return enter_route(Route::SetupMenu, scene);
     }
+    if (back_hit && s_route == Route::CodexForget) {
+        return begin_codex_connection(scene, CodexConnectionIntent::Setup);
+    }
+    if (back_hit && s_route == Route::ConnectCodex12 && s_view.action_id == OnboardingAction::Cancel) {
+        return begin_codex_cleanup(scene, CodexCleanup::Cancel);
+    }
+    if (action_hit && s_route == Route::CodexForgotten) {
+        return enter_route(Route::SetupMenu, scene);
+    }
     if (back_hit && s_options_from_setup && s_route == Route::MakeItYours10) {
         s_options_from_setup = false;
         return enter_route(Route::SetupMenu, scene);
@@ -2869,6 +3225,14 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return enter_route(Route::MakeItYours10, scene);
     }
     if (action_hit && s_route == Route::MakeItYours10) {
+        if (s_preference_error != ESP_OK) {
+            esp_err_t error = enqueue_preference(s_requested_preference, s_requested_preference_value);
+            if (error == ESP_OK) {
+                s_preference_error = ESP_OK;
+                error = prepare_options_content(scene);
+            }
+            return error == ESP_OK ? attach_content(scene) : error;
+        }
         return enter_route(Route::Settings36, scene);
     }
     if (action_hit && s_route == Route::Settings36) {
@@ -3030,6 +3394,15 @@ esp_err_t activate_setup_choice(SceneFrame &scene, OnboardingAction action)
     if (action == OnboardingAction::ReplacePairing && s_route == Route::CodexReplace) {
         return begin_codex_connection(scene, CodexConnectionIntent::ConfirmReplacement);
     }
+    if (action == OnboardingAction::ForgetPairing && s_route == Route::CodexReplace) {
+        return enter_route(Route::CodexForget, scene);
+    }
+    if (action == OnboardingAction::KeepSaved && s_route == Route::CodexForget) {
+        return begin_codex_connection(scene, CodexConnectionIntent::Setup);
+    }
+    if (action == OnboardingAction::ConfirmForget && s_route == Route::CodexForget) {
+        return begin_codex_cleanup(scene, CodexCleanup::Forget);
+    }
     if (action == OnboardingAction::Options) {
         s_options_from_setup = true;
         return enter_route(Route::MakeItYours10, scene);
@@ -3128,8 +3501,23 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
     const CODY2D::CapsuleControl back{kBackBounds, {}, NavigationData::top, NavigationData::bottom, true};
     const CODY2D::CapsuleControl next{kForwardBounds, {}, NavigationData::top, NavigationData::bottom, true};
     if (pressed_edge) {
+        if (s_route == Route::MakeItYours10 && s_view.actions_visible && !s_command_pending) {
+            for (uint8_t index = 0; index < s_view.preference_count; ++index) {
+                const auto &preference = s_view.preferences[index];
+                if (!CODY2D::capsule_contains(preference.control, point)) {
+                    continue;
+                }
+                consumed = true;
+                esp_err_t error = enqueue_preference(preference.identity, preference.requested_value);
+                if (error != ESP_OK) {
+                    s_preference_error = error;
+                }
+                error = prepare_options_content(scene);
+                return error == ESP_OK ? attach_content(scene) : error;
+            }
+        }
         const bool choice_route = s_route == Route::CodexChoice || s_route == Route::SetupMenu ||
-            s_route == Route::NetworkWait || s_route == Route::CodexReplace;
+            s_route == Route::NetworkWait || s_route == Route::CodexReplace || s_route == Route::CodexForget;
         if (choice_route && s_view.actions_visible) {
             const bool primary_hit = s_view.action_visible && CODY2D::capsule_contains(s_view.action, point);
             const bool alternative_hit = s_view.alternative_id != OnboardingAction::None &&
@@ -3138,7 +3526,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
             if (primary_hit || alternative_hit || options_hit) {
                 consumed = true;
                 const CODY2D::CapsuleControl *control = &s_view.options;
-                OnboardingAction action = OnboardingAction::Options;
+                OnboardingAction action = s_view.options_id;
                 const char *slot = "options";
                 if (primary_hit) {
                     control = &s_view.action;

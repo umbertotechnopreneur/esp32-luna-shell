@@ -36,6 +36,14 @@ enum class BootCueState : uint8_t {
 };
 std::atomic<BootCueState> s_boot_cue_state{BootCueState::NotRequested};
 std::atomic<TaskHandle_t> s_deferred_worker{nullptr};
+std::atomic<uint32_t> s_boot_user_sounds_revision{0};
+
+// No parameters: the one boot request keeps its original admission token across clock waits.
+bool boot_sounds_allowed()
+{
+    return LUNASHELL_audio_user_sounds_enabled() &&
+        LUNASHELL_audio_user_sounds_revision() == s_boot_user_sounds_revision.load(std::memory_order_acquire);
+}
 
 // first: Aligned flash-owned little-endian PCM16 data.
 // last: Linker end symbol for exactly that asset.
@@ -55,29 +63,41 @@ esp_err_t pcm_view(const uint8_t *first, const uint8_t *last,
     return ESP_OK;
 }
 
-// No parameters: complete both real PCM operations through the canonical audio owner.
+// completed: True only when both PCM clips complete under the original Sounds revision.
 // Exception: Returns the original asset/codec/playback error.
-esp_err_t play_boot_pcm()
+esp_err_t play_boot_pcm(bool &completed)
 {
+    completed = false;
+    if (!boot_sounds_allowed()) {
+        return ESP_OK;
+    }
+    const uint32_t sounds_revision = s_boot_user_sounds_revision.load(std::memory_order_acquire);
+    bool clip_completed = false;
     const int16_t *samples = nullptr;
     size_t count = 0;
     esp_err_t error = pcm_view(audio_ready_start, audio_ready_end, samples, count);
     if (error == ESP_OK) {
-        error = LUNASHELL_audio_play_pcm16(samples, count,
-            CODY::RuntimeData::sample_rate_hz, CODY::RuntimeData::ready_volume_percent);
+        error = LUNASHELL_audio_play_user_cue_pcm16(samples, count,
+            CODY::RuntimeData::sample_rate_hz, CODY::RuntimeData::ready_volume_percent,
+            sounds_revision, &clip_completed);
     }
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Audio-ready cue failed: %s", esp_err_to_name(error));
         return error;
     }
+    if (!clip_completed || !boot_sounds_allowed()) {
+        return ESP_OK;
+    }
     error = pcm_view(eyes_open_start, eyes_open_end, samples, count);
     if (error == ESP_OK) {
-        error = LUNASHELL_audio_play_pcm16(samples, count,
-            CODY::RuntimeData::sample_rate_hz, CODY::RuntimeData::eyes_open_volume_percent);
+        error = LUNASHELL_audio_play_user_cue_pcm16(samples, count,
+            CODY::RuntimeData::sample_rate_hz, CODY::RuntimeData::eyes_open_volume_percent,
+            sounds_revision, &clip_completed);
     }
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Eyes-open cue failed: %s", esp_err_to_name(error));
     }
+    completed = error == ESP_OK && clip_completed && boot_sounds_allowed();
     return error;
 }
 
@@ -96,8 +116,29 @@ void publish_deferred_failure(const char *operation, esp_err_t error)
     }
 }
 
+// No parameters: wakes the sole pending owner to apply clock policy or an invalidated Sounds token.
+// Real admission failures are published; no playback completion is inferred from notification.
+void queue_pending_boot_observation()
+{
+    BootCueState expected = BootCueState::WaitingClock;
+    if (!s_boot_cue_state.compare_exchange_strong(expected, BootCueState::Queued,
+            std::memory_order_acq_rel)) {
+        return;
+    }
+    const TaskHandle_t worker = s_deferred_worker.load(std::memory_order_acquire);
+    if (worker == nullptr) {
+        publish_deferred_failure("worker ownership", ESP_ERR_INVALID_STATE);
+        return;
+    }
+    if (xTaskNotifyGive(worker) != pdPASS) {
+        publish_deferred_failure("clock/preference notification", ESP_FAIL);
+        s_deferred_worker.store(nullptr, std::memory_order_release);
+        vTaskDeleteWithCaps(worker);
+    }
+}
+
 // context: Unused; this temporary worker owns the single deferred boot request.
-// Asynchronous errors remain real; a missing clock never times out into completion.
+// Exception: Asynchronous errors are published; Sounds cancellation remains Suppressed.
 void deferred_boot_worker(void *context)
 {
     (void)context;
@@ -105,6 +146,11 @@ void deferred_boot_worker(void *context)
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         if (s_boot_cue_state.load(std::memory_order_acquire) != BootCueState::Queued) {
             continue;
+        }
+        if (!boot_sounds_allowed()) {
+            s_boot_cue_state.store(BootCueState::Suppressed, std::memory_order_release);
+            ESP_LOGI(kTag, "Deferred boot cues suppressed: Sounds preference invalidated this request");
+            break;
         }
         LUNASHELL::ClockSnapshot clock;
         const esp_err_t clock_error =
@@ -142,14 +188,16 @@ void deferred_boot_worker(void *context)
         }
         s_boot_cue_state.store(BootCueState::Playing, std::memory_order_release);
         const int64_t started_us = esp_timer_get_time();
-        const esp_err_t playback_error = play_boot_pcm();
+        bool completed = false;
+        const esp_err_t playback_error = play_boot_pcm(completed);
         if (playback_error != ESP_OK) {
             publish_deferred_failure("playback", playback_error);
         } else {
-            s_boot_cue_state.store(BootCueState::Completed, std::memory_order_release);
+            s_boot_cue_state.store(completed ? BootCueState::Completed : BootCueState::Suppressed,
+                std::memory_order_release);
         }
-        ESP_LOGI(kTag, "Deferred boot PCM operations completed: result=%s duration_us=%lld",
-            esp_err_to_name(playback_error),
+        ESP_LOGI(kTag, "Deferred boot PCM operations ended: completed=%u result=%s duration_us=%lld",
+            static_cast<unsigned>(completed), esp_err_to_name(playback_error),
             static_cast<long long>(esp_timer_get_time() - started_us));
         break;
     }
@@ -158,11 +206,15 @@ void deferred_boot_worker(void *context)
 }
 } // namespace
 
-// No parameters: the companion worker checks a pending clock without waiting for audio.
+// No parameters: observes pending clock/Sounds policy without waiting for audio.
 // Actual observation/admission failures are logged and published, not retried as success.
 extern "C" void CODY_boot_cues_observe_pending(void)
 {
     if (s_boot_cue_state.load(std::memory_order_acquire) != BootCueState::WaitingClock) {
+        return;
+    }
+    if (!boot_sounds_allowed()) {
+        queue_pending_boot_observation();
         return;
     }
     const int64_t now_us = esp_timer_get_time();
@@ -189,21 +241,7 @@ extern "C" void CODY_boot_cues_observe_pending(void)
         policy != LUNASHELL::ClockCuePolicy::QuietHours) {
         return;
     }
-    BootCueState expected = BootCueState::WaitingClock;
-    if (!s_boot_cue_state.compare_exchange_strong(expected, BootCueState::Queued,
-            std::memory_order_acq_rel)) {
-        return;
-    }
-    const TaskHandle_t worker = s_deferred_worker.load(std::memory_order_acquire);
-    if (worker == nullptr) {
-        publish_deferred_failure("worker ownership", ESP_ERR_INVALID_STATE);
-        return;
-    }
-    if (xTaskNotifyGive(worker) != pdPASS) {
-        publish_deferred_failure("clock notification", ESP_FAIL);
-        s_deferred_worker.store(nullptr, std::memory_order_release);
-        vTaskDeleteWithCaps(worker);
-    }
+    queue_pending_boot_observation();
 }
 
 // No parameters: validate flash-owned boot sound; defer playback until trusted time is published.
@@ -267,6 +305,13 @@ extern "C" esp_err_t CODY_boot_cues_play_eyes_open(void)
         ESP_LOGE(kTag, "Duplicate completed-boot cue request: %s", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
+    s_boot_user_sounds_revision.store(LUNASHELL_audio_user_sounds_revision(), std::memory_order_release);
+    if (!boot_sounds_allowed()) {
+        s_boot_cue_state.store(BootCueState::Suppressed, std::memory_order_release);
+        ESP_LOGI(kTag, "Boot cues deliberately suppressed: Sounds Off; saved codec volume unchanged");
+        CODY_boot_cues_boot_checkpoint("boot cues suppressed by Sounds preference");
+        return ESP_OK;
+    }
     LUNASHELL::ClockSnapshot clock;
     const esp_err_t observation_error =
         LUNASHELL::DeviceSnapshotService::instance().readClockObservation(clock);
@@ -299,9 +344,15 @@ extern "C" esp_err_t CODY_boot_cues_play_eyes_open(void)
         CODY_boot_cues_boot_checkpoint("boot cues suppressed by routine policy");
         return ESP_OK;
     }
-    const esp_err_t error = play_boot_pcm();
-    s_boot_cue_state.store(error == ESP_OK ? BootCueState::Completed : BootCueState::Failed,
-        std::memory_order_release);
+    bool completed = false;
+    const esp_err_t error = play_boot_pcm(completed);
+    BootCueState result = BootCueState::Suppressed;
+    if (error != ESP_OK) {
+        result = BootCueState::Failed;
+    } else if (completed) {
+        result = BootCueState::Completed;
+    }
+    s_boot_cue_state.store(result, std::memory_order_release);
     CODY_boot_cues_boot_checkpoint("eyes-open audio cue");
     return error;
 }

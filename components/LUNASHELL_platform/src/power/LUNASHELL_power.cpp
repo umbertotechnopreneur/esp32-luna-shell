@@ -96,6 +96,7 @@ std::atomic<int32_t> s_ui_quiescence_result{ESP_ERR_INVALID_STATE};
 std::atomic<uint32_t> s_activity_sequence{0};
 std::atomic_bool s_leg_mode_enabled{false};
 std::atomic_bool s_leg_wake_enabled{true};
+std::atomic_bool s_shake_wake_enabled{true};
 std::atomic_bool s_leg_sounds_enabled{true};
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 std::atomic<uint8_t> s_leg_pending_sound{0};
@@ -2770,7 +2771,7 @@ void power_task(void *argument)
         const bool wake_on_leg_motion =
             s_leg_wake_enabled.load(std::memory_order_acquire);
         if ((leg_mode && wake_on_leg_motion && leg_motion.level > 0) ||
-            (!leg_mode && qualified_motion)) {
+            (!leg_mode && s_shake_wake_enabled.load(std::memory_order_acquire) && qualified_motion)) {
             if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
                 const esp_err_t wake_error = set_standby(
                     false,
@@ -3305,8 +3306,16 @@ extern "C" esp_err_t LUNASHELL_power_manager_register_short_press(
     return ESP_OK;
 }
 
-// active: Whether the Leg Edition view owns motion/audio interaction.
-// wake_on_motion: Whether measured leg activity should refresh/wake its display.
+// enabled: Explicit non-Leg motion-wake policy, independent of IMU acquisition.
+// The policy is available before worker startup and does not perform hardware I/O.
+extern "C" esp_err_t LUNASHELL_power_manager_set_shake_wake_enabled(bool enabled)
+{
+    s_shake_wake_enabled.store(enabled, std::memory_order_release);
+    return ESP_OK;
+}
+
+// active: Whether the existing Leg motion policy owns power decisions.
+// wake_on_motion: Explicit Leg wake behavior, independent of Cody's motion gate.
 extern "C" esp_err_t LUNASHELL_power_manager_set_leg_mode(
     bool active,
     bool wake_on_motion
