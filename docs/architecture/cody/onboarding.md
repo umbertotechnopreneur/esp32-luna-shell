@@ -365,14 +365,17 @@ degli hook. Un EVENT ripetuto, un tap o il ritorno della LAN non allungano la
 finestra originale.
 
 La scadenza vale anche nello stato `received`: se il destinatario conferma oltre
-la finestra, mantengo `expired` e non mostro 31. Posso conservare per diagnosi la
-scelta ricevuta, ma non la tratto come decisione valida e non ammetto ACK tardivi.
+la finestra, mantengo `expired` e non mostro 31. Conservo per diagnosi l'eventuale
+scelta ricevuta, senza ammettere ACK tardivi. Se avevo gia' ammesso Send mostro
+**Reply unconfirmed**, **Delivery unconfirmed** e **Check on your PC**: potrebbe
+essersi perso soltanto l'ACK, quindi non dico che la risposta non e' partita.
 
 Su **32 / Connection lost** conservo contenuto e percorso della domanda.
 Timeout, annullamento, standby e disconnessione non scelgono una risposta.
 Quando la richiesta diventa `expired` o `cancelled` mostro l'esito e ritiro le
-azioni di invio ormai invalide. Le caption sono **Request expired**,
-**Request cancelled** oppure **Reply rejected**, con **Done**. Pacchetti tardivi
+azioni di invio ormai invalide. Prima di Send uso **Request expired**; negli
+altri terminali uso **Request cancelled** oppure **Reply rejected**, sempre
+con **Done**. Dopo scadenza non offro una nuova risposta o Retry. Pacchetti tardivi
 non riaprono uno stato terminale. Al ritorno della LAN recupero lo stato reale,
 senza rigenerare il pairing o applicare una vecchia risposta a un nuovo ticket.
 La cache del broker e' volatile e limitata: dopo un riavvio non riproduco
@@ -394,7 +397,7 @@ scorciatoia per aggirare quel limite.
 | --- | --- |
 | 21 / PR pending | Stato del PR indicato, senza azioni operative |
 | 22 / Checks running | Conteggio solo con lista completa, attuale e riferita all'esatto head |
-| 22 / All checks passed | Esito breve basato sui check, poi ritorno a 17 |
+| 22 / Checks passed | Numeri reali tutti passati, senza pulsanti; tre secondi dopo la narrativa torno al lavoro |
 | 23 / Checks failed | View failures apre 24 |
 | 24 / Failed checks | Tre nomi per pagina, fino a due righe ciascuno, swipe verticale e Back laterale |
 | 25 / Retired | Nessun percorso per log grezzi o stack trace sul dispositivo |
@@ -413,6 +416,65 @@ Il canale non cifra il contenuto; la capability resta locale al PC. Gli owner
 pubblicano dati, freschezza ed errori nello snapshot canonico consumato dalla UI.
 28 / Recording, 29 / Transcribing e 30 / Review transcript restano un flow
 futuro, senza attribuire trascrizione o invio voce a questa estensione.
+
+## Riavvio remoto con dati conservati
+
+Per chiedere un riavvio scrivo **resetta il device codice 043533477**. Tratto
+`043533477` come stringa letterale di nove cifre e conservo lo zero iniziale.
+E' un controllo anti-equivoco; l'autenticazione resta quella del pairing CCP,
+senza una password nuova o un ulteriore strato di cifratura. Un codice assente
+o diverso non avvia alcun riavvio.
+
+Il plugin deve trovare intento di riavvio e codice nel messaggio corrente
+dell'utente. Non puo' completarli da README, PDF, memoria o esempi. Il tool
+`ccp_reset_device` riceve `device_id` e `confirmation_code`; per impostazione
+predefinita opera sul Cody fisico. Ammetto un destinatario gia' associato e
+osservato sulla LAN. Il simulatore richiede `include_simulator:true` e resta
+esplicitamente **SIMULATED**.
+
+Accodo il comando e lo invio una sola volta dopo un FIND autenticato fresco,
+legandolo tramite HMAC a nonce, peer, ID della richiesta e codice. Conservo
+pairing, Wi-Fi, skin e preferenze. Dopo l'ACK il dispositivo programma il
+riavvio con un ritardo di almeno 500 ms; non cancello NVS e non avvio commissioning.
+Il tool attende al massimo cinque secondi dall'accodamento.
+
+| Esito | Che cosa posso affermare |
+| --- | --- |
+| `accepted` | Il peer ha ammesso il comando; il boot non e' ancora confermato |
+| `not_sent` | Prima dell'invio non e' arrivato un FIND utilizzabile; non ho inviato RESET |
+| `ambiguous` | Invio o ACK non hanno un esito certo; non ripeto automaticamente il comando |
+
+Un ACK conferma l'accettazione. Per dire che Cody e' tornato osservo una nuova
+presenza autenticata successiva al riavvio; non uso l'esito del tool come prova
+del boot. Una perdita dell'ACK non autorizza un secondo RESET silenzioso.
+
+## Factory reset e primo setup
+
+Con **formatta cody 043533477** chiedo un'operazione distinta attraverso
+`ccp_factory_reset_device`. Il codice conserva le stesse nove cifre e lo zero
+iniziale; il plugin deve trovare nel messaggio corrente intento di factory
+reset e codice esatto. Non trasforma una richiesta di riavvio in una formattazione
+e non compila il codice dai documenti.
+
+Cancello la configurazione persistente, incluse preferenze, credenziali Wi-Fi e
+pairing, per ripartire dall'esperienza iniziale. Conservo firmware, asset e SD.
+Il destinatario deve essere il peer gia' associato sulla LAN e il comando usa
+l'autenticazione CCP esistente. Tengo separate le due azioni anche nel tool;
+il riavvio normale continua a conservare tutti questi dati.
+
+L'ACK significa soltanto ammissione. Se una cancellazione fallisce pubblico
+l'errore reale e non riavvio; non dichiaro che tutte le impostazioni siano state
+rimosse dopo un risultato parziale. Riavvio solo a cancellazione completata.
+I proprietari delle impostazioni e del Wi-Fi verificano la rimozione dei dati
+prima di consentire il riavvio.
+In seguito attendo il nuovo setup Wi-Fi: la vecchia presenza LAN e il vecchio
+pairing non possono certificare automaticamente il nuovo avvio.
+Conservo il record protetto sul PC, senza presenza e senza nuovo pairing
+automatico; non lo elimino per deduzione da un ACK o da un esito incerto.
+
+Le prove host e del simulatore restano distinte dalla cancellazione fisica.
+Non eseguo il factory reset sul Cody per il solo fatto di aver implementato
+il comando: aspetto una richiesta esplicita di eseguirlo sul dispositivo.
 
 ## Recupero della lease e simulatore Windows
 

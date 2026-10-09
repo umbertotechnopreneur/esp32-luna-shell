@@ -2,6 +2,7 @@
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from hashlib import sha256
 from io import BytesIO
@@ -76,8 +77,8 @@ COVER = (
      "stati e nomi dei check falliti. Il 25 e' ritirato; diagnosi e azioni PR restano sul PC. "
      "Un'approvazione nativa rimanda a On your PC, senza Allow o Deny su Cody."),
     ("Come leggo questa revisione", "Ho aggiornato pagine principali e limiti del flow. "
-     "Conservo gli addenda precedenti e aggiungo errata datate. Ho integrato il contratto "
-     "nei sorgenti; suite finale e comportamento fisico restano da verificare."),
+     "Conservo gli addenda precedenti e aggiungo errata datate. Distinguo il contratto "
+     "nei sorgenti dalle prove host e fisiche; registro gli esiti correnti in done.md."),
 )
 
 NOTICES = (
@@ -120,18 +121,18 @@ DELIVERY = (
     ("Invio e risposta ripetuta", "Dopo pending entro in Sending locale, senza "
      "cambiare scelta. Received non e' ancora delivered. Ripetere la stessa "
      "risposta e' idempotente; una diversa non sovrascrive la prima."),
-    ("Scaduta, cancellata o riavvio", "Tengo visibile expired o cancelled senza "
-     "scegliere risposte. I 180 secondi valgono anche in received: un ACK tardivo "
-     "non porta a 31 e non riapre uno stato terminale. Dopo riavvio non riproduco risposte."),
+    ("Scadenza e consegna incerta", "I 180 secondi valgono anche in received. "
+     "Se ho gia' ammesso Send mostro Reply unconfirmed: puo' mancare solo l'ACK. "
+     "Prima di Send uso Request expired. Nessun Retry o ACK tardivo riapre la domanda."),
 )
 
 PR_STATUS = (
     ("21 / PR pending", "Osservo soltanto il PR indicato. Conservo l'esatto head "
      "dello snapshot esplicito fornito da Codex. Non uso Stop come prova dei check "
      "e non offro merge, approve, close, rerun o comment."),
-    ("22 / Checks running", "Mostro un conteggio solo con un elenco completo, "
-     "attuale e riferito allo stesso head. Altrimenti mostro soltanto Checks running. "
-     "Con tutti i check passati mostro un esito breve su 22 e torno a 17."),
+    ("22 / Checks running e Checks passed", "Mostro numeri solo da un elenco "
+     "completo e attuale sullo stesso head. Checks passed non ha pulsanti: "
+     "attendo la fine della narrativa e tre secondi, poi torno al lavoro."),
     ("23 -> 24 / View failures", "L'unica azione apre i nomi reali dei check falliti: "
      "al massimo sei, fino a 48 caratteri ASCII ciascuno. Un input non rappresentabile "
      "viene rifiutato esplicitamente; non taglio nomi e non invento totali."),
@@ -147,12 +148,12 @@ RECOVERY = (
     ("32 / Offline", "Conservo il contenuto e cerco il PC salvato. La scadenza "
      "continua: tornare sulla LAN non rinnova i 180 secondi. Timeout, Cancel "
      "e disconnessione non scelgono un'opzione e non confermano consegna."),
-    ("Scadenza e annullamento", "Mostro Request expired, Request cancelled "
-     "o Reply rejected con Done. Ritiro gli invii non piu' validi; pacchetti "
-     "tardivi non riaprono stati terminali. La ricezione UDP resta un'attesa."),
+    ("Scadenza e annullamento", "Prima di Send mostro Request expired; dopo "
+     "Send, Reply unconfirmed e Check on your PC. Uso Request cancelled o "
+     "Reply rejected per gli altri esiti, con Done. Non riapro stati terminali."),
     ("35A / 35B e nuovi avvisi", "Mantengo Wi-Fi durante lo standby di Cody "
      "associato. Accodo il wake per un avviso autenticato al worker power, "
-     "preservando AFE e wake word. Il risveglio fisico resta da verificare."),
+     "preservando AFE e wake word. Registro a parte gli esiti del risveglio fisico."),
 )
 
 SCOPE = (
@@ -166,8 +167,8 @@ SCOPE = (
      "25 ritirato. Errori, log e stack trace restano sul PC; le domande 26/27 "
      "non sono un percorso alternativo per gestire una PR."),
     ("Voce e prove distinte", "28 Recording, 29 Transcribing e 30 Review "
-     "transcript restano un percorso futuro. Ho integrato questa estensione "
-     "nei sorgenti; suite finale e prova touch sul dispositivo restano aperte."),
+     "transcript restano un percorso futuro. Tengo separati sorgenti, suite "
+     "host e prova touch sul dispositivo; gli esiti correnti sono in done.md."),
 )
 
 WIRE = (
@@ -183,6 +184,20 @@ WIRE = (
     ("Un owner, una fonte canonica", "Il trasporto pubblica stato, errore "
      "e freschezza nello snapshot canonico. La UI non apre socket. Il simulatore "
      "usa lo stesso protocollo ma resta SIMULATED, con opt-in esplicito."),
+)
+
+RESTART = (
+    "Riavvio esplicito / dati conservati",
+    "Scrivo 'resetta il device codice 043533477' nel messaggio corrente: nove cifre, zero compreso. "
+    "E' un controllo anti-equivoco, non una password; non lo completo dai documenti. "
+    "Uso il peer paired LAN, dati conservati. ACK = accepted; boot = nuova presenza.",
+)
+
+FACTORY_RESET = (
+    "Factory reset / primo setup",
+    "Con 'formatta cody 043533477' elimino preferenze, Wi-Fi e pairing; conservo "
+    "firmware, asset e SD. ACK indica ammissione. Riavvio solo dopo cancellazione "
+    "verificata; poi riparto dal setup Wi-Fi. Un errore resta visibile e non avvia il reboot.",
 )
 
 # pdf: Destination vector canvas.
@@ -387,7 +402,8 @@ def main_revisions(identity):
                 ("21 / PR pending", "PR pending", "Mostro lo stato del PR indicato senza "
                  "azioni. La fonte e' uno snapshot esplicito riferito all'esatto head."),
                 ("22 / Checks running", "Checks running", "Mostro conteggi solo da una "
-                 "lista completa e corrente. All checks passed resta breve, poi torno a 17."),
+                 "lista completa e corrente. Checks passed resta tre secondi dopo "
+                 "la narrativa, poi torno al lavoro senza un pulsante Done."),
                 ("23 / Checks failed", "View failures", "L'unica azione apre 24, la lista "
                  "di nomi reali. Ogni diagnosi o correzione continua sul PC."),
             ), Layout.Screens, "A03 rimane vincolante. Un dato assente o incompleto non diventa "
@@ -423,7 +439,7 @@ def main_revisions(identity):
                  "inviare avvisi/domande con MCP senza inventare hook o identita' di chat."),
                 ("4 / Tengo il perimetro chiaro", "Per CCP bastano Wi-Fi e IP sulla LAN. "
                  "Le PR restano in sola lettura e le approvazioni native On your PC. "
-                 "Ho integrato l'estensione nei sorgenti; verifica finale ancora aperta."),
+                 "Tengo separate le prove dai sorgenti e registro gli esiti in done.md."),
             )),
             2: PageSpec("Leggo, scelgo, invio", "Screen 26 -> 27 -> 31 / una ricezione UDP non basta a dire consegnato.", QUESTIONS),
         }
@@ -441,7 +457,7 @@ def main_revisions(identity):
                  "costosi i tentativi offline; il CRC NVS rileva corruzione, senza cifrare "
                  "la chiave. Anche il contenuto EVENT e' autenticato, non cifrato."),
                 DELIVERY[0],
-                ("Rete locale e revisione di produzione", "Il codice non viaggia in chiaro "
+                ("Rete locale e revisione di produzione", "Il codice di pairing a sei caratteri non viaggia in chiaro "
                  "nei pacchetti CCP1; non e' una promessa sulla cronologia Codex. Tengo "
                  "aperta la revisione di guessing, replay/rate limit, key storage e reti ostili."),
             )),
@@ -476,24 +492,71 @@ def appendix_revisions(identity, changed):
         ("Buco di analisi iniziale", "Avevo lasciato ambigui ricevuta, consegna "
          "e scadenza, oltre a illustrazioni PR superate. Li separo con ticket, "
          "received/delivered e 180 secondi. Timeout e offline non scelgono risposte."),
-        ("Storico ed evidenza", "Conservo le errata precedenti; questa revisione "
-         "supera le istruzioni in conflitto. Ho integrato il contratto nei sorgenti; "
-         "suite finale, touch fisico e wake su avviso restano da verificare."),
+        ("Storico, comandi e prove", "Ho separato riavvio e factory reset: il "
+         "primo conserva i dati, il secondo cancella la configurazione per "
+         "tornare al setup. ACK indica ammissione. Conservo storico ed errori "
+         "reali; gli esiti host e fisici sono in done.md."),
     )
     return [
         PageSpec("Addendum / notifiche e decisioni", "Revisione " + DATE + " / screen 26, 27 e 31.", QUESTIONS),
         PageSpec("Addendum / PR solo in lettura", "A03 resta in vigore / screen 21-24; 25 ritirato.", PR_STATUS),
-        PageSpec("Addendum / ricevuta e consegna", "Screen 31 e 32 / il consenso non nasce da un timeout.", DELIVERY),
+        PageSpec("Addendum / consegna e comandi", "Screen 31, 32 e nuovo setup / distinguo accettazione e risultato.",
+                 (DELIVERY[1], DELIVERY[3], RESTART, FACTORY_RESET)),
         PageSpec("Errata and corrections", "Data revisione: " + DATE + " / " + REVISION, errata),
     ]
 
+# staging: Existing artifact directory holding the previous draft manifest and original PDFs.
+# Raises OSError for unavailable originals, current drafts, manifest or archive output.
+# Raises ValueError when a current draft or preserved original differs from its recorded hash.
+def redraft_originals(staging):
+    manifest_bytes = (staging / "manifest.json").read_bytes()
+    manifest = json.loads(manifest_bytes)
+    if manifest.get("revision") != REVISION:
+        raise ValueError("Redraft manifest belongs to a different revision")
+    records = manifest.get("documents")
+    if not isinstance(records, list) or len(records) != len(DOCUMENTS):
+        raise ValueError("Redraft manifest must identify every requested document")
+    by_name = {}
+    for record in records:
+        if not isinstance(record, dict) or record.get("file") in by_name:
+            raise ValueError("Redraft manifest contains an invalid or duplicate document")
+        by_name[record.get("file")] = record
+    if set(by_name) != {document.filename for document in DOCUMENTS.values()}:
+        raise ValueError("Redraft manifest document set differs from this revision")
+
+    originals = {}
+    prior_drafts = {}
+    for identity, document in DOCUMENTS.items():
+        record = by_name[document.filename]
+        if record.get("identity") != identity.value:
+            raise ValueError("Redraft document identity differs: " + document.filename)
+        current = (ROOT / "docs/Cody" / document.filename).read_bytes()
+        original = (staging / (Path(document.filename).stem + "-original.pdf")).read_bytes()
+        if sha256(current).hexdigest() != record.get("revised_sha256"):
+            raise ValueError("Current PDF changed after the recorded draft: " + document.filename)
+        if sha256(original).hexdigest() != record.get("original_sha256"):
+            raise ValueError("Preserved original changed: " + document.filename)
+        originals[identity] = original
+        prior_drafts[document.filename] = current
+
+    # Keep the prior editorial draft before rewriting; never roll back the published PDFs.
+    archive = staging / "draft-history" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    archive.mkdir(parents=True, exist_ok=False)
+    (archive / "manifest.json").write_bytes(manifest_bytes)
+    for filename, draft in prior_drafts.items():
+        (archive / filename).write_bytes(draft)
+    return originals
+
+
 # identity: Stable document identity from the requested set.
 # staging: Owned repository artifact directory for backups and generated PDFs.
+# original_bytes: Hash-verified preserved input for an explicit redraft, otherwise None.
 # Raises OSError or ValueError for unexpected source topology or duplicate revisions.
-def revise(identity, staging):
+def revise(identity, staging, original_bytes=None):
     document = DOCUMENTS[identity]
     source = ROOT / "docs/Cody" / document.filename
-    original_bytes = source.read_bytes()
+    if original_bytes is None:
+        original_bytes = source.read_bytes()
     reader = PdfReader(BytesIO(original_bytes))
     if len(reader.pages) != document.original_pages:
         raise ValueError("Source page count changed: " + document.filename)
@@ -542,13 +605,16 @@ def revise(identity, staging):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--staging", type=Path, default=ROOT / "artifacts/docs" / REVISION.lower())
+    parser.add_argument("--redraft", action="store_true",
+                        help="Replace only the recorded current draft, using its verified preserved originals")
     args = parser.parse_args(argv)
     staging = args.staging.resolve()
     if not staging.is_relative_to((ROOT / "artifacts").resolve()):
         raise ValueError("PDF staging must remain under repository artifacts")
     staging.mkdir(parents=True, exist_ok=True)
+    originals = redraft_originals(staging) if args.redraft else {}
     register_fonts(Path("C:/Windows/Fonts"))
-    prepared = [revise(identity, staging) for identity in DOCUMENTS]
+    prepared = [revise(identity, staging, originals.get(identity)) for identity in DOCUMENTS]
     # Stage every requested document before publishing any of the source PDFs.
     for source, destination, _ in prepared:
         source.write_bytes(destination.read_bytes())

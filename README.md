@@ -29,6 +29,17 @@ destinatario. Tengo le PR in sola lettura secondo A03 e le approvazioni native
 sul computer. Il [flow completo](docs/architecture/cody/onboarding.md) distingue
 il contratto nei sorgenti dalle evidenze host e fisiche registrate in [done.md](done.md).
 
+Per chiedere un riavvio remoto scrivo **resetta il device codice 043533477**.
+Il plugin richiede intento e codice nel messaggio corrente: non completa il
+codice da questa pagina. Conservo pairing e preferenze; distinguo il comando
+accettato dalla presenza osservata dopo il boot. Tengo il contratto nella
+[guida Cody](docs/architecture/cody/onboarding.md#riavvio-remoto-con-dati-conservati).
+
+Con **formatta cody 043533477** chiedo invece il factory reset: cancello
+configurazione, Wi-Fi e pairing e torno al primo setup. Conservo firmware,
+asset e SD. Un errore di cancellazione resta visibile e impedisce il riavvio;
+l'ACK da solo non dimostra che la cancellazione sia finita.
+
 Conservo un solo registro per ogni scopo:
 
 | Mi serve... | Lo tengo qui |

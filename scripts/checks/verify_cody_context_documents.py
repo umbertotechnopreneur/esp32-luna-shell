@@ -64,6 +64,11 @@ def check_document(spec):
         assert REVISION in text, f"Missing revision identity: {spec.filename}/{number}"
         assert "Choose the chat" not in text and "then explicitly select" not in text, (
             f"Obsolete manual-selection instruction: {spec.filename}/{number}")
+    appendices = " ".join(" ".join(page.extract_text() or ""
+                                   for page in after.pages[spec.original_pages:]).split())
+    for required in ("043533477", "anti-equivoco", "formatta cody", "Factory reset",
+                     "Reply unconfirmed", "Checks passed"):
+        assert required in appendices, f"Revision appendices lack {required}: {spec.filename}"
     # Paragraph line wrapping is visual geometry, not a change to an action's wording.
     main_text = " ".join(" ".join(after.pages[number - 1].extract_text() or ""
                                  for number in sorted(spec.changed_pages)).split())
