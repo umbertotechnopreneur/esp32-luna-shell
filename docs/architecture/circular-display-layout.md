@@ -53,6 +53,24 @@ below radius squared 54,289. Options is (153,376,160,52); its extremes have
 squared distance 44,036. The compact footer extremes are 52,100. These are
 static geometry calculations, not simulator or physical touch evidence.
 
+On 2026-10-09 the user also requested antialiasing and action icons ten logical
+pixels lower. Native controls use compile-time 4x4 coverage masks for the current
+outer/inner corner radii and 24x24 semantic icons. Masks are immutable flash data,
+shared across controls; no per-frame supersampling or heap cache is needed for
+the current layouts. RGB565 compositing respects the borrowed tile's byte order,
+stride and existing background. The border follows a concentric two-pixel inset,
+and gradients interpolate each row with an eight-bit weight. Text already uses
+the authored antialiased font coverage. Other valid public-primitive radii retain
+the same coverage sampling rule, computed only when those shapes are requested.
+Hit testing retains the original pixel-center geometry and full touch bounds.
+
+Card icons now center at y=293, with their 24-pixel extent ending before y=305;
+two-line captions begin at y=308 and y=335 and end before y=360. Ordinary single
+icons center at y=398, Options at y=412 and compact QR/skin footer icons at y=422,
+ending at the original footer's exclusive bottom y=434. Icon coverage is clipped
+to the rounded control, while all authored control/content rectangles remain
+unchanged. These are source geometry statements; physical appearance is pending.
+
 The Cody Debug Screenshot control is hidden and non-interactive. Pause/Play and
 Skeleton retain their stable authored identities but set `visible_by_default`
 false, which disables both raster and hit testing. The source

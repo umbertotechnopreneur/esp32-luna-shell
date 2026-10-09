@@ -10,6 +10,16 @@ flash logs were regenerated.
 
 ## Cody action language, Options and touch diagnosis - 2026-10-09
 
+- Implemented the subsequent requested antialiasing refinement: compile-time
+  4x4 corner coverage for all current outer/inner radii, reconstructed 24x24 icon
+  masks, concentric two-pixel antialiased borders and per-row gradient weights.
+  Current static controls share immutable flash masks without per-frame sampling,
+  allocation or a full framebuffer. Existing text coverage, tile byte order,
+  stride, rotation ownership and hit bounds are retained. Action icons move down
+  exactly ten logical pixels; two-line card captions move down four pixels to
+  preserve separation. Compact footer icons remain inside y=[390,434).
+  Static source review only so far; build/install and physical rendering pending.
+
 - Completed both requested 90-second captures on COM10: passive current-state
   `artifacts/logs/cody-ccp-freeze.txt` and explicitly authorized reset/reproduction
   `artifacts/logs/cody-ccp-freeze-boot.txt`. The latter recorded Yes at 16497 ms,

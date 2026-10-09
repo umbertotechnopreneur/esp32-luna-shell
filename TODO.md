@@ -6,6 +6,11 @@ Latest installed Cody image: `010f76e0`, `cody-9-g010f76e0`, Debug wake-word/Sop
 eight-job build and COM10 flash successful. Approved UI and runtime touch isolation
 are installed; corrected physical behavior remains unobserved.
 
+- [ ] Review the requested antialiased borders/icons and ten-pixel lower action
+  icons on the display, including two-line card captions and compact QR/skin
+  footers. Source changes and static integration are complete; build/installation
+  and physical appearance for this refinement are not yet recorded.
+
 - [ ] Resolve the reported Connect Codex -> Let's pair / Show QR transition.
   The initial passive capture lacked the press. A subsequent explicitly authorized
   90-second reset/capture recorded Yes -> Connect Codex, then fifteen FF touch

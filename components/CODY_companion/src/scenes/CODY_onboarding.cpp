@@ -820,7 +820,7 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
     style_action(action, control);
     control.corner_radius = card ? 28 : 0;
     control.icon_center = {static_cast<int16_t>(card ? bounds.x + bounds.width / 2U : bounds.x + 27U),
-        static_cast<int16_t>(card ? bounds.y + 23U : bounds.y + bounds.height / 2U)};
+        static_cast<int16_t>((card ? bounds.y + 23U : bounds.y + bounds.height / 2U) + 10U)};
     if (label == nullptr) {
         control.icon = CODY2D::ActionIcon::None;
         return ESP_OK;
@@ -835,7 +835,8 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
         ESP_LOGE(kTag, "Action caption does not fit: %s (%s)", label, esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
-    const uint16_t top = card ? bounds.y + (space != nullptr ? 44U : 57U) :
+    // The lower icon must remain separate from both caption lines on a card.
+    const uint16_t top = card ? bounds.y + (space != nullptr ? 48U : 57U) :
         bounds.y + (bounds.height - font.height) / 2U;
     const uint16_t caption_left = card ? text_left + (text_width - width) / 2U :
         bounds.x + (bounds.width - width - 36U) / 2U + 36U;
@@ -855,7 +856,7 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
         }
         error = CODY2D::prepare_text_line(font, {text, count},
             {static_cast<int16_t>(bounds.x + (bounds.width - line_width) / 2U),
-             static_cast<int16_t>(bounds.y + 71U)}, 0xFFFF, second);
+             static_cast<int16_t>(bounds.y + 75U)}, 0xFFFF, second);
     }
     return error;
 }

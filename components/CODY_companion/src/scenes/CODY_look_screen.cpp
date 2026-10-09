@@ -197,7 +197,7 @@ esp_err_t prepare_done_control(const char *label, bool enabled)
     prepared.icon_color = 0x87FA;
     prepared.icon = enabled ? CODY2D::ActionIcon::Check : CODY2D::ActionIcon::None;
     const uint16_t text_left = enabled ? kDoneBounds.x + (kDoneBounds.width - width - 36U) / 2U + 36U : kDoneBounds.x;
-    prepared.icon_center = {static_cast<int16_t>(text_left - 24U), 412};
+    prepared.icon_center = {static_cast<int16_t>(text_left - 24U), 422};
     const uint16_t text_width = enabled ? 164 : kDoneBounds.width;
     if (width > text_width) {
         ESP_LOGE(kTag, "Look footer icon/caption does not fit (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
