@@ -17,6 +17,7 @@
 #include "CODY_jelly.hpp"
 #include "CODY_look_screen.hpp"
 #include "CODY_settings.hpp"
+#include "CODY_codex_audio.hpp"
 #include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_platform.h"
@@ -177,6 +178,9 @@ bool s_setup_returns_to_companion = false;
 bool s_companion_seen_selection = false;
 int64_t s_session_ended_at_us = -1;
 LUNASHELL::CodexActivitySnapshot s_presented_activity{};
+// Cue history survives Setup re-entry; hidden status is never replayed as a new action.
+char s_last_audio_chat[65]{};
+LUNASHELL::CodexActivityState s_last_audio_phase = LUNASHELL::CodexActivityState::None;
 bool s_startup_pending = false;
 esp_err_t s_startup_wifi_error = ESP_OK;
 uint32_t s_generation = 1;
@@ -1197,6 +1201,65 @@ esp_err_t enter_pairing_debug(const LUNASHELL::ConnectivityObservation &observat
 }
 #endif
 
+// visible: Whether the selected-chat presentation can request new semantic cues.
+void set_companion_audio_visible(bool visible)
+{
+    const esp_err_t error = set_codex_audio_suspended(!visible);
+    if (error != ESP_OK) {
+        // Audio is optional at this UI orchestration boundary. Its acquisition
+        // owner retains the real failure in the canonical playback snapshot.
+        ESP_LOGE(kTag, "Optional CCP audio visibility failed (%s)", esp_err_to_name(error));
+    }
+}
+
+// previous: Previously presented route, used to recognize real connection recovery.
+// destination: Newly accepted presentation; unavailable activity never creates a work cue.
+// phase: Authenticated semantic phase from the canonical snapshot.
+// chat_id: Bounded authenticated chat identity, used only to suppress duplicate cues.
+void notify_companion_transition(Route previous, Route destination,
+                                 LUNASHELL::CodexActivityState phase, const char *chat_id)
+{
+    using Activity = LUNASHELL::CodexActivityState;
+    CodexAudioCue cue = CodexAudioCue::None;
+    if (destination == Route::Lost32) {
+        cue = previous == Route::Lost32 ? CodexAudioCue::None : CodexAudioCue::ConnectionLost;
+    } else if (previous == Route::Lost32) {
+        cue = CodexAudioCue::ConnectionRestored;
+    } else if (destination != Route::ActivityUnavailable && destination != Route::CompanionIdle16) {
+        if (phase == s_last_audio_phase && std::strcmp(chat_id, s_last_audio_chat) == 0) {
+            return;
+        }
+        switch (phase) {
+        case Activity::Working: cue = CodexAudioCue::Working; break;
+        case Activity::Editing: cue = CodexAudioCue::Editing; break;
+        case Activity::Running: cue = CodexAudioCue::Running; break;
+        case Activity::ResponseReady: cue = CodexAudioCue::ResponseReady; break;
+        case Activity::Paused: cue = CodexAudioCue::Paused; break;
+        case Activity::Interrupted: cue = CodexAudioCue::Interrupted; break;
+        case Activity::Ended: cue = CodexAudioCue::SessionEnded; break;
+        case Activity::None:
+        case Activity::Active:
+        case Activity::Unavailable:
+            break;
+        }
+    }
+    if (destination != Route::Lost32 && destination != Route::ActivityUnavailable) {
+        s_last_audio_phase = phase;
+        std::memcpy(s_last_audio_chat, chat_id, sizeof(s_last_audio_chat));
+    }
+    if (cue == CodexAudioCue::None) {
+        return;
+    }
+    CodexAudioStatus status{};
+    const esp_err_t error = notify_codex_audio(cue, status);
+    if (error != ESP_OK) {
+        // The audio component publishes its failure; a missed optional sound
+        // must not prevent the user from seeing the original chat state.
+        ESP_LOGE(kTag, "Optional CCP transition audio failed: cue=%u (%s)",
+            static_cast<unsigned>(cue), esp_err_to_name(error));
+    }
+}
+
 // route: Explicit atlas identity; no navigation is inferred from array position.
 // scene: Receives a fully validated immutable layout and caller-owned content.
 // Exception: Returns the real scene, catalog, text or content preparation error.
@@ -1492,6 +1555,10 @@ esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
             destination = Route::Paused20;
             message = "Continue in Codex";
             break;
+        case Activity::Interrupted:
+            destination = Route::Paused20;
+            message = "Turn interrupted";
+            break;
         case Activity::Ended:
             if (!same_chat || s_session_ended_at_us < 0) {
                 s_session_ended_at_us = active_time_us;
@@ -1518,7 +1585,26 @@ esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
         activity.data_stale == s_presented_activity.data_stale) {
         return ESP_OK;
     }
+    const bool only_work_detail_changed = s_route == Route::Working18 && destination == s_route &&
+        same_chat && std::strcmp(activity.project, s_presented_activity.project) == 0 &&
+        activity.data_valid && s_presented_activity.data_valid &&
+        !activity.data_stale && !s_presented_activity.data_stale && s_view.line_count > 0;
+    const Route previous_route = s_route;
     s_presented_activity = activity;
+    if (only_work_detail_changed) {
+        // Fast tool transitions must not restart the headline/project typewriter.
+        const uint8_t detail = s_view.line_count - 1;
+        esp_err_t error = prepare_caption(message, 360, s_view.lines[detail]);
+        s_view.instant_lines[detail] = true;
+        changed = true;
+        if (error == ESP_OK) {
+            error = attach_content(scene);
+        }
+        if (error == ESP_OK) {
+            notify_companion_transition(previous_route, destination, activity.state, activity.chat_id);
+        }
+        return error;
+    }
     esp_err_t error = enter_route(destination, scene);
     if (error != ESP_OK || destination == Route::Connected15) {
         changed = true;
@@ -1552,10 +1638,15 @@ esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
     }
     if (error == ESP_OK) {
         error = prepare_caption(message, 360, s_view.lines[s_view.line_count]);
+        s_view.instant_lines[s_view.line_count] = true;
         ++s_view.line_count;
     }
     if (error == ESP_OK) {
         error = attach_content(scene);
+    }
+    if (error == ESP_OK) {
+        set_companion_audio_visible(true);
+        notify_companion_transition(previous_route, destination, activity.state, activity.chat_id);
     }
     changed = true;
     return error;
@@ -1917,6 +2008,7 @@ void cancel_onboarding_touch()
 // No parameters: retire routes and their QR state without erasing saved settings.
 void reset_onboarding()
 {
+    set_companion_audio_visible(false);
     s_options_from_setup = false;
     s_setup_returns_to_companion = false;
     s_companion_seen_selection = false;
@@ -1997,6 +2089,7 @@ esp_err_t open_setup_menu(SceneFrame &scene)
     }
     // The backend keeps its retained association; opening this view starts no radio work.
     s_setup_returns_to_companion = is_companion_route(s_route);
+    set_companion_audio_visible(false);
     s_codex_owned = false;
     wipe(s_codex_code, sizeof(s_codex_code));
     return enter_route(Route::SetupMenu, scene);

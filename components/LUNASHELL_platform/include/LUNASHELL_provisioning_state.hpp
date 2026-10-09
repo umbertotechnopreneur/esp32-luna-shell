@@ -51,7 +51,7 @@ enum class CodexLinkState : uint8_t {
 };
 
 enum class CodexActivityState : uint8_t {
-    None, Active, Working, Editing, Running, ResponseReady, Paused, Ended, Unavailable,
+    None, Active, Working, Editing, Running, ResponseReady, Paused, Interrupted, Ended, Unavailable,
 };
 
 }  // namespace LUNASHELL

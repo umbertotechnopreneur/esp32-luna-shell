@@ -110,6 +110,10 @@ the others. The broker exits after 60 seconds without a live transport or hook.
 The existing protected pairing file and PC identity are preserved.
 
 Review and trust the bundled `hooks/hooks.json` in Codex before using activity.
+In a local Codex CLI session, `/hooks` opens that review. Local plugin command
+hooks require local orchestration; Work Cloud does not execute them even when
+some tools run on the PC. This adapter must receive genuine events before any
+chat can be selected.
 Install/enable alone does not trust hooks. A new prompt or session start registers
 the chat; `ccp_list_sessions` lists observed identities, and
 `ccp_select_session(device_id, session_id, project)` selects the user's exact chat.

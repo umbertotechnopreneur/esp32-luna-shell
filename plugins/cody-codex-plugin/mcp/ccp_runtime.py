@@ -84,6 +84,8 @@ def exchange(operation: str, payload: dict[str, Any], secret: str, timeout: floa
 # No parameters: starts a hidden owner only if the loopback control port is unoccupied.
 # Raises OSError or RuntimeError for identity, launch, conflicting-version or startup failure.
 def ensure_runtime() -> str:
+    if os.name != "nt":
+        raise RuntimeError("CCP requires Windows for its protected local runtime")
     try:
         with socket.create_connection(("127.0.0.1", CONTROL_PORT), timeout=0.25):
             running = True
@@ -246,6 +248,8 @@ def dispatch(server: ControlServer, operation: str, payload: dict[str, Any]) -> 
 # No parameters: serves until no MCP lease or hook remains within the shutdown grace.
 # Raises OSError or RuntimeError for ownership, persistence or responder failures.
 def run_broker() -> int:
+    if os.name != "nt":
+        raise RuntimeError("CCP requires Windows for its protected local runtime")
     with ControlServer(("127.0.0.1", CONTROL_PORT), ControlHandler) as server:
         server.secret = control_secret(create=True)
         server.service = ccp.CcpService()

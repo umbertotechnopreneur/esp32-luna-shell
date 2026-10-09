@@ -19,6 +19,7 @@ class Phase(str, Enum):
     RUNNING = "running"
     READY = "ready"
     PAUSED = "paused"
+    INTERRUPTED = "interrupted"
     ENDED = "ended"
     UNAVAILABLE = "unavailable"
 
@@ -148,7 +149,7 @@ class ActivityStore:
                     if session.phase != Phase.READY and not session.interrupted:
                         session.phase = next(reversed(session.tools.values()), Phase.WORKING)
                 elif name == "PermissionRequest" or name == "Interrupt":
-                    session.phase = Phase.PAUSED
+                    session.phase = Phase.INTERRUPTED if name == "Interrupt" else Phase.PAUSED
                     session.interrupted = name == "Interrupt"
                 elif name == "Stop":
                     session.phase = Phase.READY

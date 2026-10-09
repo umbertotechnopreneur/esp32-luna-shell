@@ -166,7 +166,7 @@ rejected. The full datagram remains below 512 bytes. Text is hex-encoded printab
 ASCII, at most 24 bytes; `-` is allowed only with `phase=none` and zero chat ID.
 
 Phases: `none`, `active`, `working`, `editing`, `running`, `ready`, `paused`,
-`ended`, `unavailable`. These map to screens 15/16, 17, 18, 19, 20A/20B, or
+`interrupted`, `ended`, `unavailable`. These map to screens 15/16, 17, 18, 19, 20A/20B, or
 18U unavailable. An eight-second missing PC lease uses screen 32 after a chat
 has been selected. A retained label identifies context only while disconnected.
 

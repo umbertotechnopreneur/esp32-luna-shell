@@ -706,6 +706,7 @@ const char *codexActivityStateName(LUNASHELL::CodexActivityState state)
     case Activity::Running: return "running";
     case Activity::ResponseReady: return "ready";
     case Activity::Paused: return "paused";
+    case Activity::Interrupted: return "interrupted";
     case Activity::Ended: return "ended";
     case Activity::Unavailable: return "unavailable";
     }

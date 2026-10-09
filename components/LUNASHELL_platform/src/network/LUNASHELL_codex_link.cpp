@@ -689,6 +689,7 @@ esp_err_t decodeActivityState(const char *phase, LUNASHELL::CodexActivityState &
         {"none", Activity::None}, {"active", Activity::Active}, {"working", Activity::Working},
         {"editing", Activity::Editing}, {"running", Activity::Running},
         {"ready", Activity::ResponseReady}, {"paused", Activity::Paused},
+        {"interrupted", Activity::Interrupted},
         {"ended", Activity::Ended}, {"unavailable", Activity::Unavailable},
     };
     for (const auto &entry : entries) {

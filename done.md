@@ -8,6 +8,28 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## CCP chat activity and requested SFX - 2026-10-10
+
+- Implemented a single on-demand Windows broker with DPAPI-authenticated loopback
+  control, independent MCP leases, explicit observed-chat selection and metadata-only
+  Codex hooks. The existing pairing identity is preserved; chat selection is volatile.
+- Extended CCP1 with nonce-bound ACTIVITY snapshots, canonical device validity/error
+  state, screens 17-20/32 and 18U unavailable. Fast tool details do not restart the
+  headline typewriter. Setup re-entry restores the saved-link flow; cues follow
+  semantic changes without replaying previously announced status.
+- Added a 1.8-second boot cue and ten short Codex cues, with provenance for four
+  owner-supplied library samples. The existing audio worker handles independent
+  presentation gating, quiet hours, volume, standby and nonqueued admission.
+- Revised all five atlases by appending the workflow and a final dated errata page;
+  previous pages remain intact. Generated pages were rendered for visual authoring
+  review. Scene definitions and audio assets were regenerated through device.ps1.
+- Checkpoints include f95b982, 66318e8, 603daa0, 4dfe1f7 and audio checkpoints
+  e7425ff, b58a8ee, e987c54. First branch push through 4dfe1f7 confirmed remotely.
+  Local marketplace registration and CCP 0.3 installation succeeded; final patch
+  installation, host checks, firmware build/flash and physical behavior are pending.
+  Hook trust must be reviewed in Codex; no trust records or synthetic live events
+  were written. No new tests or device capture were executed for this milestone.
+
 ## Cody action language, Options and touch diagnosis - 2026-10-09
 
 - On 2026-10-10, the user's explicit connection request completed real LAN

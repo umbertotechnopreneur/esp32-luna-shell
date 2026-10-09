@@ -265,7 +265,7 @@ class ChatActivityTests(unittest.TestCase):
         self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "running")
         self.observe("Interrupt")
         self.observe("PostToolUse", tool_use_id="tool-command")
-        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "paused")
+        self.assertEqual(self.store.snapshot("abcdef012345")["phase"], "interrupted")
         with self.assertRaisesRegex(ValueError, "Interrupted turn"):
             self.observe("Stop")
 

@@ -2,14 +2,20 @@
 
 ## CCP chat activity milestone - 2026-10-10
 
-- [ ] Run one protected local CCP broker per PC, shared by MCP clients and trusted
+- [x] Implement one protected local CCP broker per PC, shared by MCP clients and trusted
   Codex hooks. Start it on demand without changing the retained pairing identity.
-- [ ] List observed chats and explicitly bind one chat to one paired Cody. Never
+- [x] List observed chats and explicitly bind one chat to one paired Cody. Never
   infer a chat from foreground windows, process names or transcript contents.
-- [ ] Carry authenticated, bounded activity snapshots to the canonical device
+- [x] Implement authenticated, bounded activity snapshots in the canonical device
   snapshot and screens 17-20/32; reconnect must restore the selected context.
-- [ ] Integrate the native presentation, plugin instructions and atlas revisions.
-  Prepare focused host checks; execute them only after fresh command approval.
+- [x] Integrate the native presentation, plugin instructions and five atlas revisions,
+  preserving previous pages and adding dated errata. Prepared isolated host checks.
+- [x] Prepare the requested 1.8-second startup SFX and ten short action cues from
+  the owner-provided library. Share the audio owner, quiet hours and standby gates;
+  throttle activity, keep explicit admission outcomes and avoid delayed replay.
+- [ ] Run the final authorized host checks and install the integrated firmware.
+  Native plugin hook trust/autoload, multi-chat lifetime, reconnect, UI and audio
+  physical behavior remain unverified. Local hooks require local orchestration.
 - [ ] Make focused checkpoint commits and push the authorized branch. Installation
   is authorized; build/flash evidence and physical behavior remain distinct.
 

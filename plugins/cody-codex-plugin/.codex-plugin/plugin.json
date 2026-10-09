@@ -1,6 +1,6 @@
 {
   "name": "cody-codex-plugin",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "CCP: discover and pair Cody on the local network from Codex.",
   "author": {
     "name": "Umberto Giacobbi"
