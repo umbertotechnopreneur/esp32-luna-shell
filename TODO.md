@@ -12,7 +12,11 @@
   250-ms sample-gap cancellation, cardinal rotation, real release publication,
   busy-route exclusion and menu Back/Connect Codex/Network setup. Check the two
   independent capsules and the separate left Back inside the circular chords.
-- [ ] Firmware/simulator/check execution remains unapproved for this change.
+- [x] User-authorized Debug wake-word configuration, build and COM10 flash completed
+  on 2026-10-09 at source `09fd405b`; esptool verified all four written images and
+  requested the final RTS reset. This does not prove startup/UI/pairing behavior.
+- [ ] Release build, standalone size report, simulator/check execution and physical
+  runtime/input/pairing review remain unexecuted; fresh test authorization is required.
 
 Only open, actionable work belongs here. Deferred work is in
 [planned-todo.md](planned-todo.md); completed implementation/evidence is in

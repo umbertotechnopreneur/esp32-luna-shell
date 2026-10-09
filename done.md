@@ -8,6 +8,30 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## Cody Debug firmware installation - 2026-10-09
+
+- User explicitly requested installation on connected Cody. The single present
+  Espressif USB serial device was COM10. Retained the existing Debug wake-word
+  variant with Sophia and prerecorded Cody audio; used ESP-IDF 6.0.2 and eight
+  Ninja jobs through the sole public `scripts/device.ps1` entrypoint.
+- The first flash stopped before compilation because the current partition-table
+  hash differed from the older build state. Compared the previous table and
+  current source: NVS remains `0x9000 / 0x6000`, LittleFS remains
+  `0xe33000 / 0x100000`. The model partition grows to 1 MiB by shrinking the app
+  allowance; neither persistent-data location moves. Public `set-target` then
+  regenerated the selected configuration; no safety gate was bypassed.
+- The repeated public flash command completed a full Debug build and wrote
+  bootloader, partition table, the three-model image and the application. Esptool
+  verified each written image and requested an RTS reset. No full-device erase,
+  NVS/LittleFS write, serial monitor/capture or physical UI/pairing test ran.
+- Installed source: `09fd405b`, project version `cody-4-g09fd405b`. Application
+  binary: 6,700,432 bytes; SHA-256
+  `fc690b93f5b4c671abb6eccfbf7cea00cd0db2ca099300c3276e05a58f0eea87`.
+  Build/flash evidence: `artifacts/logs/flash.log`. Runtime checks remain in TODO.
+- The required shared pre-flash artifact helper removed the reviewed PDF staging,
+  originals and PNGs after document QA. All five revised versioned PDFs and their
+  original pages/errata remain preserved; earlier originals are also in Git.
+
 ## Cody startup admission and reversible setup implementation - 2026-10-09
 
 - Revised all five requested repository PDFs with the startup/setup correction
@@ -15,7 +39,7 @@ flash logs were regenerated.
   analysis gap. Preserved previous pages/errata and added installation correction
   to the A5 quick start. Page totals: Navigation 29, Planning 29, Quick Start 6,
   CCP Service 13, Codex Connection 17. All 16 added pages were rendered and
-  visually reviewed; originals and render output remain under artifacts/docs.
+  visually reviewed before the later authorized pre-flash transient cleanup.
 
 - Closed the original analysis gap: `cody_firstboot=false` no longer skips an
   absent Codex association. Normal startup uses canonical Wi-Fi/IP and the valid
