@@ -23,12 +23,37 @@ flash logs were regenerated.
 - Revised all five atlases by appending the workflow and a final dated errata page;
   previous pages remain intact. Generated pages were rendered for visual authoring
   review. Scene definitions and audio assets were regenerated through device.ps1.
-- Checkpoints include f95b982, 66318e8, 603daa0, 4dfe1f7 and audio checkpoints
-  e7425ff, b58a8ee, e987c54. First branch push through 4dfe1f7 confirmed remotely.
-  Local marketplace registration and CCP 0.3 installation succeeded; final patch
-  installation, host checks, firmware build/flash and physical behavior are pending.
-  Hook trust must be reviewed in Codex; no trust records or synthetic live events
-  were written. No new tests or device capture were executed for this milestone.
+- Focused checkpoints include f95b982, 66318e8, 603daa0, 4dfe1f7, e7425ff,
+  b58a8ee, e987c54 and the integrated firmware source da37aaac. Authorized branch
+  pushes through da37aaac succeeded; the first push was also checked remotely.
+- Final eight-job IDF 6.0.2 Debug wake-word build and COM10 flash succeeded at
+  `da37aaac`, firmware `cody-26-gda37aaac`. Application: 6,802,464 bytes; 51% of
+  the app partition remains free. All four written images were hash-verified and
+  esptool performed the final RTS reset. Shared transient cleanup ran before both
+  operations. Current installation log: `artifacts/logs/flash.log`. Physical UI,
+  audio, standby and activity delivery remain unobserved for this image.
+- Authorized host checks passed: CCP initially 19 cases and, after the PC startup
+  correction and fresh approval, all 22 cases; cody-native portable C++/geometry
+  contracts; cody-runtime contracts. The first native/runtime attempts stopped
+  before compilation because the host compiler was absent from PATH. Freshly
+  authorized repeats passed with the existing Visual Studio Insiders x64 developer
+  environment. Reports: `artifacts/checks/cody-native/report.json` and
+  `artifacts/checks/cody-runtime/report.json`; final CCP log:
+  `artifacts/logs/check.log`. The pre-flash `git diff --check` also passed.
+- Local marketplace registration and CCP 0.3.3 installation succeeded. Startup
+  through the installed STDIO entrypoint now launches the shared hidden broker.
+  Connecting to the unowned loopback control port timed out at both 250 ms and
+  two seconds without starting a broker. Startup now probes exclusive port
+  ownership; only an occupied-address error is handled as an existing owner,
+  and other failures retain their cause. The child re-acquires ownership before
+  protected-state access. Three isolated regression cases cover these outcomes.
+- The old manually launched 0.2 owner was stopped before starting 0.3.3. MCP
+  initialize returned version 0.3.3; status retained one pairing record, with
+  connected=false at that observation, and listed zero hook-observed chats.
+  Hook trust/autoload must be reviewed in Codex before selecting a real chat;
+  no trust records or synthetic live events were written. Native autoload,
+  multi-chat lifetime, reconnect and physical behavior remain open. No new
+  serial capture was executed for this milestone.
 
 ## Cody action language, Options and touch diagnosis - 2026-10-09
 

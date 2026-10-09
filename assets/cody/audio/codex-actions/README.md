@@ -68,5 +68,8 @@ licence documents were not found in the inspected archive, whose PDFs are
 package indexes. Package terms remain authoritative. Repository licensing does
 not relicense the original sample packs.
 
-Asset generation is complete. Listening review, device playback and firmware
-validation have not been performed for this set.
+Asset generation and the authorized native/runtime host checks are complete.
+The integrated Debug wake-word firmware built with eight jobs and was flashed
+on COM10 on 10 October 2026 at `da37aaac` (`cody-26-gda37aaac`); all four image
+hashes were verified. Listening review and actual speaker playback remain
+unverified; compilation and installation do not establish audible behavior.

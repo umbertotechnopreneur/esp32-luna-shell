@@ -13,16 +13,25 @@
 - [x] Prepare the requested 1.8-second startup SFX and ten short action cues from
   the owner-provided library. Share the audio owner, quiet hours and standby gates;
   throttle activity, keep explicit admission outcomes and avoid delayed replay.
-- [ ] Run the final authorized host checks and install the integrated firmware.
-  Native plugin hook trust/autoload, multi-chat lifetime, reconnect, UI and audio
-  physical behavior remain unverified. Local hooks require local orchestration.
-- [ ] Make focused checkpoint commits and push the authorized branch. Installation
-  is authorized; build/flash evidence and physical behavior remain distinct.
+- [x] Run the authorized host checks: CCP 0.3.3 (22 cases), cody-native and
+  cody-runtime passed. The two native checks required the installed Visual Studio
+  Insiders developer environment and fresh authorization after the first attempt
+  stopped before compilation. Eight-job Debug build and COM10 flash succeeded
+  at `da37aaac` (`cody-26-gda37aaac`), with four verified image hashes.
+- [x] Make focused implementation checkpoints and push through `da37aaac`.
+- [ ] Complete native plugin hook review/autoload and bind a genuinely observed
+  chat. Installed CCP 0.3.3 starts manually and retains the pairing; its first
+  status reported no authenticated presence or hook-observed chats. Local hooks
+  require local orchestration. Do not fabricate activity or bypass hook trust.
+- [ ] Physically review chat state transitions, multi-chat lifetime, reconnect,
+  UI responsiveness, standby and boot/action audio. No new serial capture or
+  device playback observation accompanied the successful installation.
 
 ## Cody startup and setup access - 2026-10-09
 
-Latest installed Cody image: `84e95216`, `cody-16-g84e95216`, Debug wake-word/Sophia,
-eight-job build and COM10 flash successful. The authorized 90-second capture on
+Latest installed Cody image: `da37aaac`, `cody-26-gda37aaac`, Debug wake-word/Sophia,
+eight-job build and COM10 flash successful on 2026-10-10. The preceding setup
+image was `84e95216`, `cody-16-g84e95216`. The authorized 90-second capture on
 the preceding `3458237e` image
 completed the 50,000-iteration verifier in 27.790323 seconds with ESP_OK and no
 watchdog/reset or frame-stop error observed. User confirmed the code appears,

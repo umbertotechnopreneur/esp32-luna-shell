@@ -56,6 +56,11 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
 
 ## Build graph and GUI lifetimes
 
+- Native Windows checks need the existing C++ developer environment before the
+  authorized run. Visual Studio Insiders is omitted by vswhere unless
+  `-prerelease` is supplied. Load its `Launch-VsDevShell.ps1` with x64 host/target
+  selection before device.ps1 checks; a missing PATH entry is not a missing
+  installation or permission to install another compiler.
 - ESP-IDF resolves components before Kconfig: variants need admitted roots,
   defaults and reviewed build-local locks. Optional-requires cannot discover
   excluded roots. Gate SDK headers too; codec admission does not enable boot WAV.

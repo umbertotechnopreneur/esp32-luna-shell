@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hmac
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -81,17 +82,28 @@ def exchange(operation: str, payload: dict[str, Any], secret: str, timeout: floa
         connection.close()
 
 
+# No parameters: asks Winsock for exclusive ownership without connecting to a closed port.
+# Raises OSError for access denial or any failure other than an occupied address.
+def control_port_available() -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
+        reservation.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        try:
+            reservation.bind(("127.0.0.1", CONTROL_PORT))
+        except OSError as error:
+            if error.errno == errno.EADDRINUSE or getattr(error, "winerror", None) == 10048:
+                return False
+            raise
+    return True
+
+
 # No parameters: starts a hidden owner only if the loopback control port is unoccupied.
 # Raises OSError or RuntimeError for identity, launch, conflicting-version or startup failure.
 def ensure_runtime() -> str:
     if os.name != "nt":
         raise RuntimeError("CCP requires Windows for its protected local runtime")
-    try:
-        with socket.create_connection(("127.0.0.1", CONTROL_PORT), timeout=0.25):
-            running = True
-    except ConnectionRefusedError:
-        running = False
-    if not running:
+    if control_port_available():
+        # The child re-acquires the exclusive bind before reading any state. If
+        # another launcher wins this race, both clients authenticate that owner.
         log_directory = runtime_directory() / "artifacts" / "logs"
         log_directory.mkdir(parents=True, exist_ok=True)
         with (log_directory / "runtime.log").open("ab", buffering=0) as output:

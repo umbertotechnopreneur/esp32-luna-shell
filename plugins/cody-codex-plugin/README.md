@@ -97,10 +97,12 @@ The prepared host regression suite is invoked only through:
 It covers authenticated presence and the required two-sided pairing completion
 using synthetic clocks/keys, temporary files below `artifacts/` and mocked
 listeners. It does not open LAN sockets, call Codex, access the real protected
-state or contact a device. It has not been executed for this revision.
-Real plugin installation, lifetime across chats, private firewall behavior,
-multi-adapter broadcast, display-code pairing and reconnection still require
-explicitly authorized end-to-end observation.
+state or contact a device. All 22 cases passed on 10 October 2026 for CCP 0.3.3.
+Local marketplace installation and manual MCP startup of 0.3.3 succeeded; the
+existing pairing record was retained. Native plugin autoload, hook trust,
+lifetime across chats, private firewall behavior, multi-adapter broadcast and
+activity delivery/reconnection still require end-to-end observation. The earlier
+0.2 pairing was physically confirmed; that does not establish 0.3 activity.
 ## CCP 0.3 chat activity milestone
 
 The MCP entrypoint now attaches to a single hidden, on-demand Windows broker.
@@ -108,6 +110,9 @@ The broker owns UDP 42118; MCP transports renew independent leases on the
 DPAPI-authenticated loopback control port 42119. Closing one chat does not stop
 the others. The broker exits after 60 seconds without a live transport or hook.
 The existing protected pairing file and PC identity are preserved.
+Startup checks port ownership with an exclusive Winsock bind. A connection
+timeout to a closed loopback port cannot establish absence; access failures
+remain errors. The child re-acquires ownership before accessing protected state.
 
 Review and trust the bundled `hooks/hooks.json` in Codex before using activity.
 In a local Codex CLI session, `/hooks` opens that review. Local plugin command

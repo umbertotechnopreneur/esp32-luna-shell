@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import io
 import json
 from pathlib import Path
@@ -333,6 +334,35 @@ class ChatActivityTests(unittest.TestCase):
         runtime.dispatch(server, "lease", {"id": "b" * 32})
         runtime.dispatch(server, "release", {"id": "a" * 32})
         self.assertEqual(set(server.leases), {"b" * 32})
+
+    # self: Mocked Winsock reservation with no real socket or state access.
+    # Raises AssertionError if availability depends on a failed connection attempt.
+    def test_local_startup_uses_exclusive_port_ownership(self) -> None:
+        with patch.object(runtime.socket, "socket") as factory:
+            reservation = factory.return_value.__enter__.return_value
+            with patch.object(runtime.socket, "create_connection") as connect:
+                self.assertTrue(runtime.control_port_available())
+            connect.assert_not_called()
+            reservation.bind.assert_called_once_with(("127.0.0.1", runtime.CONTROL_PORT))
+            factory.return_value.__exit__.assert_called_once()
+
+    # self: An already occupied control address represented by the original socket error.
+    # Raises AssertionError if another owner is treated as an available address.
+    def test_occupied_control_port_preserves_existing_owner(self) -> None:
+        with patch.object(runtime.socket, "socket") as factory:
+            reservation = factory.return_value.__enter__.return_value
+            reservation.bind.side_effect = OSError(errno.EADDRINUSE, "synthetic occupied address")
+            self.assertFalse(runtime.control_port_available())
+
+    # self: A denied reservation whose cause cannot establish port availability.
+    # Raises AssertionError if an ambiguous access failure admits a new broker.
+    def test_control_port_access_failure_is_not_absence(self) -> None:
+        failure = OSError(errno.EACCES, "synthetic denied reservation")
+        with patch.object(runtime.socket, "socket") as factory:
+            factory.return_value.__enter__.return_value.bind.side_effect = failure
+            with self.assertRaises(OSError) as raised:
+                runtime.control_port_available()
+            self.assertIs(raised.exception, failure)
 
     # self: Hook ingestion fixture containing private text that must never reach the broker.
     # Raises AssertionError if ingestion forwards a prompt, transcript, response or tool input.
