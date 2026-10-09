@@ -1,5 +1,20 @@
 # Active work
 
+## Cody boot freeze follow-up - 2026-10-10
+
+- [x] Capture and identify the reported startup freeze. Passive capture found
+  live background services but failed display/touch. The freshly authorized
+  reset capture on `da37aaac` recorded a 22-character, 243-pixel caption rejected
+  against the 232-pixel content width at 16113 ms, then Scene request failure at
+  16114 ms. This is a stopped UI, without a panic/reset in the captured window.
+- [x] Shorten the shared chat-selection caption to 20 characters/221 pixels for
+  screen 15, idle and session-ended states. Preserve the layout error checks.
+  Move the literal hyphen first in the ACTIVITY project scanset; the target
+  scanner can treat the old trailing hyphen as an unfinished range. Add bounded
+  secret-free parse/publication diagnostics and retain snapshot publication errors.
+- [ ] Build/install the correction and, with fresh authorization, observe boot,
+  authenticated no-selection ACTIVITY, screen 15 and responsive standby/input.
+
 ## CCP chat activity milestone - 2026-10-10
 
 - [x] Implement one protected local CCP broker per PC, shared by MCP clients and trusted

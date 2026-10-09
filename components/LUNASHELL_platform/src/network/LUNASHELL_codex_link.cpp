@@ -666,16 +666,24 @@ struct ActivityResponse {
 bool parseActivity(const char *payload, ActivityResponse &response)
 {
     int consumed = 0;
+    // The no-selection sentinel is a literal hyphen. Keep it first: a trailing
+    // hyphen can be interpreted as an unfinished range by the target scanf.
     const int fields = std::sscanf(payload,
         "CCP1|ACTIVITY|device=%12[0-9a-f]|pc=%32[0-9a-f]|nonce=%32[0-9a-f]"
         "|chat=%64[0-9a-f]|revision=%16[0-9a-f]|phase=%11[a-z]"
-        "|project=%48[0-9a-f-]|proof=%64[0-9a-f]%n",
+        "|project=%48[-0-9a-f]|proof=%64[0-9a-f]%n",
         response.device_id, response.pc_id, response.nonce, response.chat_id,
         response.revision, response.phase, response.project, response.proof, &consumed);
-    return fields == 8 && std::strlen(response.device_id) == 12 &&
+    const bool valid = fields == 8 && std::strlen(response.device_id) == 12 &&
         std::strlen(response.pc_id) == 32 && std::strlen(response.nonce) == 32 &&
         std::strlen(response.chat_id) == 64 && std::strlen(response.revision) == 16 &&
         std::strlen(response.proof) == 64 && consumed == static_cast<int>(std::strlen(payload));
+    if (!valid) {
+        ESP_LOGE(kTag, "CCP ACTIVITY field parsing failed: fields=%d/8 consumed=%d bytes=%u (%s)",
+            fields, consumed, static_cast<unsigned>(std::strlen(payload)),
+            esp_err_to_name(ESP_ERR_INVALID_ARG));
+    }
+    return valid;
 }
 
 // phase: Bounded protocol token, never interpreted as a storage index.
@@ -1463,9 +1471,21 @@ esp_err_t acceptActivity(const ActivityResponse &response)
         activity.last_success_at_us = activity.data_valid ? activity.last_attempt_at_us :
             (std::strcmp(activity.chat_id, s_link_snapshot.activity.chat_id) == 0
                 ? s_link_snapshot.activity.last_success_at_us : 0);
+        const bool transition = s_link_snapshot.activity.last_attempt_at_us == 0 ||
+            s_link_snapshot.activity.state != activity.state ||
+            std::strcmp(s_link_snapshot.activity.chat_id, activity.chat_id) != 0;
         s_link_snapshot.activity = activity;
-        s_activity_received_for_nonce = true;
-        LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
+        error = LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
+        if (error == ESP_OK) {
+            s_activity_received_for_nonce = true;
+            if (transition) {
+                ESP_LOGI(kTag, "CCP ACTIVITY authenticated and published: state=%u selected=%s",
+                    static_cast<unsigned>(activity.state),
+                    activity.state == LUNASHELL::CodexActivityState::None ? "no" : "yes");
+            }
+        } else {
+            ESP_LOGE(kTag, "CCP ACTIVITY snapshot publication failed (%s)", esp_err_to_name(error));
+        }
     }
     wipe(expected, sizeof(expected));
     wipe(received, sizeof(received));

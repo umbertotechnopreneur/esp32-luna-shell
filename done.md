@@ -10,6 +10,23 @@ flash logs were regenerated.
 
 ## CCP chat activity and requested SFX - 2026-10-10
 
+- Follow-up on the reported boot crash: passive 90-second COM10 capture and a
+  separately authorized 90-second reset capture completed on `da37aaac`.
+  The reset log recorded Wi-Fi/IP at 15905 ms, looking-for-pc at 15941 ms,
+  ACTIVITY rejection at 16112 ms, `Caption rejected: length=22 width=243 top=327`
+  at 16113 ms and `Scene request failed; consumer stopped: ESP_ERR_INVALID_SIZE`
+  at 16114 ms. The caption exceeded the 232-pixel slot; background services
+  continued without a captured panic/reset. Logs:
+  `artifacts/logs/cody-boot-crash-20261010.txt` and
+  `artifacts/logs/cody-boot-crash-reset-20261010.txt` (transient cleanup may remove
+  them after these decisive observations are retained). The existing SD timeout
+  also remains present; it is not the cause of this caption rejection.
+- Corrected the shared selection instruction to `Pick a chat in Codex` (20
+  characters, 221 pixels in the actual 12-pixel/11-advance body font), including
+  session-ended and idle paths. The ACTIVITY no-selection project sentinel now
+  has its literal hyphen first in the scanf set; added secret-free parse and
+  accepted-state logs and retained canonical publication errors. Static review
+  completed; follow-up build/flash and physical confirmation remain pending.
 - Implemented a single on-demand Windows broker with DPAPI-authenticated loopback
   control, independent MCP leases, explicit observed-chat selection and metadata-only
   Codex hooks. The existing pairing identity is preserved; chat selection is volatile.

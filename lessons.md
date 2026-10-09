@@ -56,6 +56,11 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
 
 ## Build graph and GUI lifetimes
 
+- Native scene/raster checks do not exercise every onboarding route. A literal
+  body caption still has to fit the actual font and its 232-pixel slot: 22
+  characters occupied 243 pixels and stopped screen 15 on `da37aaac`. Share
+  bounded instructions across connected, idle and ended views; do not widen
+  layout guards or discard the renderer error to hide an oversized caption.
 - Native Windows checks need the existing C++ developer environment before the
   authorized run. Visual Studio Insiders is omitted by vswhere unless
   `-prerelease` is supplied. Load its `Launch-VsDevShell.ps1` with x64 host/target
