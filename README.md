@@ -22,6 +22,23 @@ Cody language; its fonts contain bounded printable ASCII.
 - [Active work](TODO.md), [deferred work](planned-todo.md), [completed work](done.md)
   and [recurring lessons](lessons.md).
 
+## Git starting points
+
+The annotated local tags below freeze the existing variant branches as source
+starting points. They do not establish new build or device validation.
+
+| Tag | Source commit | Existing variant branch |
+| --- | --- | --- |
+| `base-display-touch` | `3283a194` | `codex/base-display-touch` |
+| `luna-shell` | `369e5026` | `codex/luna-shell` |
+| `cody` | `9d2fe8c5` | `codex/cody`, also `main` when tagged |
+
+Onboarding work starts on `codex/cody-onboarding` from `cody`. Keep the tags
+fixed; make focused checkpoint commits on the feature branch and integrate
+reviewed work into `main`. Creating these local refs does not publish them;
+push requires separate authorization. The older variant branches are historical
+source baselines, not alternative SDK compatibility targets.
+
 ## Development
 
 Use PowerShell from this checkout. `scripts/device.ps1` is the sole public entry
@@ -71,6 +88,20 @@ greeting or Idle. The first-setup flow is 04 Hello → 05 Let's pair → 06 inst
 QR → 07 pairing with the session QR → 08 failure or 09 online. Software standby
 retains the current scene; a deep-sleep reset does not retain RAM route state.
 See the Cody guides for exact timings, audio policy and backend success gates.
+
+Continued setup currently follows 09 Online -> 10 Make it yours -> 36 Settings
+-> 11 skin selection -> 12 Codex pairing -> 13 setup confirmed -> 16 Idle for
+ten active seconds -> 14 paired-PC search -> 15 CCP ready. Screen 10 lists
+preference categories; interactive preference editing remains deferred.
+Screen 11 already selects and persists a named skin, rather than a flat color.
+
+[Cody's Codex Plugin](plugins/cody-codex-plugin/README.md) supplies the PC-side
+discovery, display-code pairing and authenticated liveness tools. Screen 15
+confirms the paired plugin's liveness. Chat selection, messages and Codex task
+events require the separate session/event transport recorded in
+[deferred work](planned-todo.md). The Wi-Fi connection alone establishes none
+of those outcomes. See [onboarding](docs/architecture/cody/onboarding.md) for
+the implemented confirmation gates and outstanding physical validation.
 
 ## Source ownership
 

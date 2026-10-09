@@ -8,6 +8,22 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## Cody branch starting points and onboarding source review - 2026-10-09
+
+- Local and remote tag listings were empty. Created annotated local tags
+  `base-display-touch` at `3283a194` from `codex/base-display-touch`,
+  `luna-shell` at `369e5026` from `codex/luna-shell`, and `cody` at `9d2fe8c5`
+  from the current clean `main` / `codex/cody` starting point. Opened
+  `codex/cody-onboarding` from `cody`; no refs were pushed.
+- Static source review found the continued 09 -> 10 -> 36 -> 11 -> 12 -> 13
+  -> 16 -> 14 -> 15 route, stable skin persistence and the existing CCP plugin.
+  Screen 10 currently lists preference categories without editing controls;
+  screen 15 represents authenticated plugin liveness, with chat/message/task
+  transport still deferred. Recorded these boundaries in the root README.
+- No firmware or plugin implementation changed. No tests, validation scans,
+  configure/build/size, simulator, plugin execution or device operations ran.
+  Existing open checks and physical evidence requirements remain in TODO.md.
+
 ## Requested recognition-only voice selection — 2026-10-07
 
 - Added the pinned Espressif Jarvis and Computer WakeNet weights beside Sophia,
