@@ -90,7 +90,10 @@ profile-specific silicon-sleep policy remain in
 Every authored scene supplies `standby_override_seconds`: zero inherits the saved
 user timeout, a positive value replaces it only for the active scene. Invitation
 05 and installation 06 use 60 seconds; real pairing 07 uses 90 seconds. The unused
-scan definition, Online 09, Debug-only 39, 10, 36 and 12-15 use 60 seconds. Hello 04, error 08
+scan definition, Online 09, Debug-only 39, 10, 36 and 13-15 use 60 seconds.
+Connect Codex 12 uses 180 seconds; successful canonical code delivery refreshes
+its anchor once, so preparation time does not consume the code-reading interval.
+Hello 04, error 08
 and look 11 inherit. Scene entry supplies a fresh
 inactivity baseline and touch refreshes it. Genuine canonical progress in the
 current pairing attempt also refreshes its 90-second anchor without fabricating

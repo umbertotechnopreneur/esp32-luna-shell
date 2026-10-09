@@ -2,10 +2,12 @@
 
 ## Cody startup and setup access - 2026-10-09
 
-Latest installed Cody image: `004d44d6`, `cody-12-g004d44d6`, Debug wake-word/Sophia,
-eight-job build and COM10 flash successful. Approved UI, runtime touch isolation
-and the antialiased/lower-icon refinement are installed; physical behavior and
-the new visual appearance remain unobserved.
+Latest installed Cody image: `3458237e`, `cody-15-g3458237e`, Debug wake-word/Sophia,
+eight-job build and COM10 flash successful. The authorized 90-second capture
+completed the 50,000-iteration verifier in 27.790323 seconds with ESP_OK and no
+watchdog/reset or frame-stop error observed. User confirmed the code appears,
+but is too small. The larger complete code and explicit waiting estimate below
+are implemented; their installation and physical appearance remain pending.
 
 - [ ] Review the requested antialiased borders/icons and optically lower action
   icons on the display, including two-line card captions and compact QR/skin
@@ -24,8 +26,19 @@ the new visual appearance remain unobserved.
   PBKDF2 now blocks one tick between ten-millisecond slices, retaining all 50,000
   iterations. Added phase/progress logs without secrets. Current changes also
   reveal button/card labels whole after title/main-line typing, with matching
-  touch gates and no button typewriter audio. Build/installation and renewed
-  physical evidence for these follow-up changes are pending.
+  touch gates and no button typewriter audio. `3458237e` built/flashed; the approved
+  90-second capture recorded Yes at 29766 ms, derivation at 29769 ms and ESP_OK/code
+  ready at 57560 ms (27.790323 seconds), without reset/watchdog or frame-stop error.
+  User confirmed the visible code but reported small text. Screen 12 now uses the
+  existing 40-pixel title font for the six-character code, revealed whole after
+  its instruction. Preparation adds Please wait / About 30 seconds; this is an
+  approximate wait estimate, not measured progress or a completion guarantee.
+  The screen 12 standby override is now 180 seconds, refreshed once when the
+  canonical code is copied into the view. Preparation does not subtract from
+  those three minutes; ordinary touch/departure rules remain. Timed behavior
+  has not been physically verified.
+  Current presentation follow-up installation/physical review and PC verifier
+  interoperability remain pending.
   The initial passive capture lacked the press. A subsequent explicitly authorized
   90-second reset/capture recorded Yes -> Connect Codex, then fifteen FF touch
   bytes / invalid ACK stopping rendering. The Welcome escape and scoped malformed

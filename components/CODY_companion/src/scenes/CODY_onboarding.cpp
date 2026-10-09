@@ -143,6 +143,7 @@ struct ContentView {
     CODY2D::TextLine lines[kContentLineCapacity]{};
     uint8_t line_count = 0;
     uint16_t visible_characters[kContentLineCapacity]{};
+    bool instant_lines[kContentLineCapacity]{};
     CODY2D::CapsuleControl action{};
     bool action_visible = false;
     bool actions_visible = false;
@@ -638,6 +639,27 @@ esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line
         {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(top)}, 0xFFFF, line);
 }
 
+// line: Receives the complete six-character code in the existing larger title font.
+// Exception: Returns the real code-length, font or layout error without logging the code.
+esp_err_t prepare_codex_code(CODY2D::TextLine &line)
+{
+    const auto &font = SceneData::title_font;
+    const size_t length = std::strlen(s_codex_code);
+    if (length != 6) {
+        ESP_LOGE(kTag, "CCP display code rejected: length=%u (%s)",
+            static_cast<unsigned>(length), esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const uint32_t width = (length - 1U) * font.advance + font.width;
+    if (width > kCaptionWidth || 338U + font.height > 393U) {
+        ESP_LOGE(kTag, "CCP display code geometry rejected (%s)",
+            esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return CODY2D::prepare_text_line(font, {s_codex_code, static_cast<uint16_t>(length)},
+        {static_cast<int16_t>((466U - width) / 2U), 338}, 0x07FF, line);
+}
+
 // destination: Fixed route-owned buffer retaining the formatted text through frame retirement.
 // capacity: Exact writable capacity including the null terminator.
 // format: Printable-ASCII format containing exactly one string conversion.
@@ -1018,6 +1040,19 @@ bool actions_ready(const SceneFrame &scene)
     return scene_content_characters(scene, length, title_length) == length;
 }
 
+// scene: Valid prepared route with the shared narrative typing clock.
+// index: Bounded storage position in the route-owned content lines.
+// preceding: Number of earlier narrative characters, excluding instant values.
+uint16_t line_visible_characters(const SceneFrame &scene, uint8_t index, uint16_t preceding)
+{
+    const uint16_t length = s_view.lines[index].text.length;
+    if (!s_view.instant_lines[index]) {
+        return scene_content_characters(scene, length, preceding);
+    }
+    // A code is one complete value, revealed after its instruction finishes.
+    return scene_content_characters(scene, preceding, 0) == preceding ? length : 0;
+}
+
 // scene: Valid route receiving the current content revision.
 // Exception: Returns the scene-content validation error without replacing the frame.
 esp_err_t attach_content(SceneFrame &scene)
@@ -1027,12 +1062,16 @@ esp_err_t attach_content(SceneFrame &scene)
     }
     uint16_t preceding = scene.definition->title_visible ? scene.title.text.length : 0;
     for (uint8_t index = 0; index < s_view.line_count; ++index) {
-        s_view.visible_characters[index] = scene_content_characters(scene, s_view.lines[index].text.length, preceding);
-        preceding += s_view.lines[index].text.length;
+        s_view.visible_characters[index] = line_visible_characters(scene, index, preceding);
+        if (!s_view.instant_lines[index]) {
+            preceding += s_view.lines[index].text.length;
+        }
     }
     uint16_t content_characters = 0;
     for (uint8_t index = 0; index < s_view.line_count; ++index) {
-        content_characters += s_view.visible_characters[index];
+        if (!s_view.instant_lines[index]) {
+            content_characters += s_view.visible_characters[index];
+        }
     }
     s_view.actions_visible = actions_ready(scene);
     s_view.action_visible_characters = s_view.actions_visible ? s_view.action.caption.text.length : 0;
@@ -1321,8 +1360,15 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         error = prepare_caption(message, 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK && s_codex_code[0] != '\0') {
-            error = prepare_caption(s_codex_code, 327, s_view.lines[1]);
+            error = prepare_codex_code(s_view.lines[1]);
+            s_view.instant_lines[1] = true;
             s_view.line_count = 2;
+        } else if (error == ESP_OK) {
+            error = prepare_caption("Please wait", 327, s_view.lines[1]);
+            if (error == ESP_OK) {
+                error = prepare_caption("About 30 seconds", 354, s_view.lines[2]);
+            }
+            s_view.line_count = 3;
         }
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::None, false);
@@ -2035,9 +2081,11 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
     uint16_t preceding = scene.definition->title_visible ? scene.title.text.length : 0;
     bool caption_changed = false;
     for (uint8_t index = 0; index < s_view.line_count; ++index) {
-        const uint16_t visible = scene_content_characters(scene, s_view.lines[index].text.length, preceding);
+        const uint16_t visible = line_visible_characters(scene, index, preceding);
         caption_changed = caption_changed || visible != s_view.visible_characters[index];
-        preceding += s_view.lines[index].text.length;
+        if (!s_view.instant_lines[index]) {
+            preceding += s_view.lines[index].text.length;
+        }
     }
     caption_changed = caption_changed || actions_ready(scene) != s_view.actions_visible;
     if (caption_changed) {
@@ -2166,6 +2214,12 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                    codex_link.state == CodexState::Pairing) {
             std::memcpy(s_codex_code, result.codex_code, sizeof(s_codex_code));
             error = enter_route(Route::ConnectCodex12, scene);
+            if (error == ESP_OK) {
+                // The same scene definition stays active. Refresh its anchor
+                // once on canonical code delivery, giving the full reading interval.
+                error = LUNASHELL_power_manager_set_scene_standby_override(
+                    scene.definition->standby_override_seconds);
+            }
         } else if (result.command.work == Work::CodexDiscover) {
             s_codex_error_visible = false;
         }

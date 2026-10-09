@@ -10,6 +10,29 @@ flash logs were regenerated.
 
 ## Cody action language, Options and touch diagnosis - 2026-10-09
 
+- On 2026-10-10, `3458237e` / `cody-15-g3458237e` built and flashed on COM10:
+  6,714,112-byte application, four verified image hashes and final RTS reset.
+  The explicitly authorized 90-second reset/capture completed with exit 0:
+  `artifacts/logs/cody-connect-codex-cooperative-kdf.txt`. Yes at 29766 ms entered
+  Connect Codex; derivation started at 29769 ms and completed all 50,000 iterations
+  at 57560 ms with ESP_OK, elapsed_us=27790323. The pairing window and display code
+  were ready, and the code-copy route entered at 57621 ms. No watchdog/reset or
+  frame-stop error was observed in the captured window. User confirmed the code
+  appears but is small; button appearance and PC proof compatibility remain open.
+- Implemented the reported readability follow-up: screen 12 adds Please wait /
+  About 30 seconds during preparation, reflecting this capture's approximate
+  duration. The six-character code uses the existing antialiased 40-pixel title
+  font instead of the 25-pixel body font, cyan and centered at y=338 (height 40,
+  width 109). It appears whole after the instruction and contributes no typewriter
+  audio/count. These bounds remain within the content slot and safe square.
+  Static review completed; current presentation build/flash and physical review
+  remain pending. No new tests or capture were run for this follow-up.
+- Screen 12 now declares a 180-second standby override. Canonical successful code
+  delivery refreshes it once, preserving three minutes from code-ready presentation
+  without fabricated touch events, preference writes or a changed CCP expiry.
+  Unchanged snapshots do not repeatedly extend it; existing touch and departure
+  handling remain. Source-reviewed; timed physical behavior remains unverified.
+
 - Follow-up on 2026-10-10: `4766df0b` / `cody-14-g4766df0b` built and flashed
   successfully on COM10 (6,718,384-byte application, four verified image hashes,
   final RTS reset). The authorized 90-second reproduction
@@ -29,8 +52,9 @@ flash logs were regenerated.
   after title/main-line typing. Their labels do not extend narrative typing or
   typewriter audio. Drawing and touch share the visibility gate; existing action
   admission, layout geometry, gradients/icons and lateral Back stay integrated.
-  Current build/flash and renewed physical validation are pending.
-- The required pre-flash cleanup removed the earlier timeout reproduction file
+  Its build/flash and code-generation capture are recorded above; physical button
+  appearance remains pending.
+- The required pre-flash cleanup removed the earlier timeout/watchdog reproduction files
   after its decisive timestamps/errors were retained above and in TODO.md.
 
 - Completed the newly authorized 90-second COM10 reset/capture on installed

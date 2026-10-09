@@ -115,7 +115,7 @@ inline constexpr SceneDefinition definitions[] = {
         {"Connect Codex", 13},
         210, 65535, 45, false, true, true,
         {{233.000000000f, 130.000000000f, 75.000000000f}, 0, 0}, 0,
-        60U
+        180U
     },
     {
         SceneId::SetupComplete, "setup-complete", {233.000000000f, 130.000000000f, 75.000000000f},

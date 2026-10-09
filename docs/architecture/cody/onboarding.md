@@ -13,8 +13,25 @@ operations as the original PBKDF2 block, blocking one tick between ten-milliseco
 slices without holding service/snapshot/PSA operation locks. All 50,000 iterations
 and the original code/salt/output lengths remain unchanged. Phase/progress logs
 report admission, every 5,000 completed iterations and real completion/error,
-without any code/salt/key value. Physical recovery and PC verifier compatibility
-remain pending. SD retry timeout is separately unresolved.
+without any code/salt/key value. The authorized 90-second capture of `3458237e`
+completed all 50,000 iterations in 27.790323 seconds with ESP_OK and a live
+five-minute code window, without an observed watchdog/reset or frame-stop error.
+The user confirmed the code appears. PC verifier compatibility remains pending;
+SD retry timeout is separately unresolved.
+
+Screen 12 shows Preparing secure code / Please wait / About 30 seconds while
+the code is absent. The estimate reflects the captured duration, not a measured
+progress value or deadline guarantee. When ready, Enter code in Codex precedes
+the complete six-character cyan code in the existing 40-pixel title font.
+The code is centered at y=338 with 109x40 bounds within the existing content
+slot and safe square; it contributes no typewriter audio/count. This presentation
+follow-up is source-reviewed; installation and physical appearance remain pending.
+Its authored `standby_override_seconds` is 180. Successful canonical code-copy
+delivery refreshes the scene override once, giving three minutes from code-ready
+presentation instead of subtracting preparation time. Touch still extends that
+inactivity anchor; leaving the scene restores the normal route policy. No NVS
+setting or five-minute CCP backend window is changed. Actual timed standby remains
+unverified.
 
 Buttons/cards, including skin catalog rows, have no teletype captions. Onboarding
 actions appear complete together after the title and first/main body line finish;

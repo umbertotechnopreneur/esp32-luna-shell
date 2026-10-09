@@ -135,7 +135,7 @@
     {
       "id": "connect-codex", "identity": 12,
       "background_rgb565": 0,
-      "standby_override_seconds": 60,
+      "standby_override_seconds": 180,
       "entrance": { "from": { "x": 233, "y": 130, "scale": 75 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 130, "scale": 75 },
