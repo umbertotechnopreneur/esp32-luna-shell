@@ -1,4 +1,4 @@
-"""Generate strict runtime settings, original chimes and a selected licensed greeting."""
+"""Generate strict runtime settings and the explicitly selected authored boot cue."""
 from pathlib import Path
 import argparse
 import hashlib
@@ -13,13 +13,16 @@ sys.path.insert(0, str(ROOT))
 from scripts.common.cody_rig_contract import load_contract
 from scripts.common.cody_runtime_contract import load_settings
 from scripts.common.asset_provenance import text_source_hash
-from scripts.common.cody_boot_audio import load_selection, render_selected_greeting
+from scripts.common.cody_codex_audio import load_boot_cue
 
 
-# settings: Validated explicit cue format and durations.
-# cue: One stable identity: audio_ready or eyes_open.
+# settings: Explicit cue format and durations; historical eyes_open auditions supply their own duration.
+# cue: One stable synthesis identity: audio_ready or the original eyes_open audition.
+# Raises ValueError or KeyError for unknown identities or missing authoring values.
 # Returns original PCM, not a recording or reconstruction of another startup sound.
 def synthesize(settings, cue):
+    if cue not in ("audio_ready", "eyes_open"):
+        raise ValueError(f"Unknown synthesized boot cue: {cue!r}")
     audio = settings["audio"]
     duration_key = "ready_duration_seconds" if cue == "audio_ready" else "eyes_open_duration_seconds"
     duration = audio[duration_key]
@@ -49,41 +52,11 @@ def synthesize(settings, cue):
     return b"".join(struct.pack("<h", round(value * scale)) for value in values)
 
 
-# settings: Explicit authored chime duration and selected greeting identity.
-# chime: Original synthesized eyes-open PCM at the shared codec rate.
-# archive_root: Optional explicitly relocated, read-only SFX archive.
-# Raises original source, identity and media-tool failures; never substitutes a sound.
-def compose_eyes_open(settings, chime, archive_root):
-    metadata = {
-        "origin": "original procedural synthesis",
-        "chime_pcm_bytes": len(chime),
-        "chime_sha256": hashlib.sha256(chime).hexdigest(),
-        "gap_pcm_bytes": 0,
-        "hello": None,
-    }
-    identity = settings["audio"]["eyes_open_hello"]
-    if identity == "none":
-        return chime, metadata
-    selection = load_selection()
-    if metadata["chime_sha256"] != selection["original_chime_sha256"]:
-        raise ValueError("Selected greeting requires the unchanged authored original chime")
-    greeting, greeting_metadata = render_selected_greeting(selection, identity, archive_root)
-    gap_frames = round(selection["chime_gap_ms"] * settings["audio"]["sample_rate_hz"] / 1000)
-    gap = bytes(gap_frames * 2)
-    metadata.update(
-        origin="original procedural chime plus licensed SFX",
-        gap_pcm_bytes=len(gap), hello=greeting_metadata,
-        licensing=selection["licensing"],
-    )
-    return chime + gap + greeting, metadata
-
-
 # No parameters: generate core assets in flash-owned source folders; reports stay in artifacts.
 # Raises original authoring, contract and filesystem errors.
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--archive-root", type=Path)
-    arguments = parser.parse_args()
+    parser.parse_args()
     source = ROOT / "assets/cody/runtime.yaml"
     settings = load_settings(source)
     rig, _ = load_contract()
@@ -118,10 +91,11 @@ def main():
     # Finish external-source preparation before replacing any known firmware asset.
     prepared_cues = []
     for cue in ("audio_ready", "eyes_open"):
-        pcm = synthesize(settings, cue)
-        metadata = {"origin": "original procedural synthesis"}
         if cue == "eyes_open":
-            pcm, metadata = compose_eyes_open(settings, pcm, arguments.archive_root)
+            pcm, metadata = load_boot_cue(settings["audio"]["eyes_open_cue"], settings["audio"]["sample_rate_hz"])
+        else:
+            pcm = synthesize(settings, cue)
+            metadata = {"origin": "original procedural synthesis"}
         prepared_cues.append((cue, pcm))
         manifest['cues'][cue] = {
             "pcm_bytes": len(pcm),
@@ -142,8 +116,7 @@ def main():
             output.writeframes(pcm)
     (generated / "manifest.json").write_text(json.dumps(manifest, indent=2) + '\n', encoding="utf-8")
     print(f"Generated runtime settings and boot cues: {generated}")
-    if settings["audio"]["eyes_open_hello"] != "none":
-        print("SFX perpetual commercial-use licence is owner-confirmed; device playback remains unverified.")
+    print("SFX commercial-use licence is owner-confirmed; device playback remains unverified.")
 
 
 if __name__ == '__main__':

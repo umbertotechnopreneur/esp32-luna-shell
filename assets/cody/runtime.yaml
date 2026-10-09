@@ -25,9 +25,8 @@ audio:
   # Match the one shared ES8311/ES7210 I2S clock, including active diagnostics.
   sample_rate_hz: 22050
   ready_duration_seconds: 0.18
-  eyes_open_duration_seconds: 1.3
-  # Keep the original chime; append this explicitly selected licensed greeting.
-  # Other catalog IDs or 'none' preserve the alternatives without a fallback.
-  eyes_open_hello: cody-hello-murmur
+  # Explicit authored selection; generation fails if its committed PCM is stale.
+  # BootRise is 1.8 seconds. Earlier greeting auditions remain separate assets.
+  eyes_open_cue: boot-rise
   ready_volume_percent: 100
   eyes_open_volume_percent: 100

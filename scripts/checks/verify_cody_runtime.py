@@ -21,7 +21,7 @@ from scripts.common.cody_rig_contract import contour_defaults, evaluate, load_co
 from scripts.common.cody_rig_types import ContourControl, FaceChannel
 from scripts.common.asset_provenance import text_source_hash
 from scripts.common.cody_typewriter_audio_contract import check_typewriter_audio_source
-from scripts.common.cody_boot_audio import load_selection
+from scripts.common.cody_codex_audio import load_boot_cue
 from scripts.generators.generate_cody_runtime_assets import synthesize
 
 
@@ -135,39 +135,20 @@ def check_assets(settings):
     manifest = json.loads((generated / "manifest.json").read_text())
     assert manifest["source_sha256"] == text_source_hash(ROOT / "assets/cody/runtime.yaml")
     hashes = []
-    for cue, duration_key in (("audio_ready", "ready_duration_seconds"), ("eyes_open", "eyes_open_duration_seconds")):
+    for cue in ("audio_ready", "eyes_open"):
         raw = (generated / f"cody-{cue}.pcm16le").read_bytes()
         digest = hashlib.sha256(raw).hexdigest()
         hashes.append(digest)
         assert digest == manifest["cues"][cue]["sha256"]
         cue_metadata = manifest["cues"][cue]
-        chime_bytes = round(settings["audio"][duration_key] * sample_rate_hz) * 2
-        assert raw[:chime_bytes] == synthesize(settings, cue)
-        expected_bytes = chime_bytes
         if cue == "eyes_open":
-            assert cue_metadata["chime_pcm_bytes"] == chime_bytes
-            assert cue_metadata["chime_sha256"] == hashlib.sha256(raw[:chime_bytes]).hexdigest()
-            selected_hello = settings["audio"]["eyes_open_hello"]
-            if selected_hello == "none":
-                assert cue_metadata["hello"] is None and cue_metadata["gap_pcm_bytes"] == 0
-            else:
-                selection = load_selection()
-                assert cue_metadata["chime_sha256"] == selection["original_chime_sha256"]
-                selected_cue = next(item for item in selection["cues"] if item["id"] == selected_hello)
-                hello_metadata = cue_metadata["hello"]
-                assert hello_metadata["id"] == selected_hello
-                assert hello_metadata["selection_sha256"] == selection["selection_sha256"]
-                assert hello_metadata["source_sha256"] == selected_cue["source_sha256"]
-                gap_bytes = round(selection["chime_gap_ms"] * sample_rate_hz / 1000) * 2
-                assert cue_metadata["gap_pcm_bytes"] == gap_bytes
-                assert raw[chime_bytes:chime_bytes + gap_bytes] == bytes(gap_bytes)
-                hello = raw[chime_bytes + gap_bytes:]
-                assert len(hello) == hello_metadata["pcm_bytes"]
-                assert len(hello) == selected_cue["expected_pcm_bytes"]
-                assert hashlib.sha256(hello).hexdigest() == hello_metadata["pcm_sha256"]
-                assert hashlib.sha256(hello).hexdigest() == selected_cue["expected_pcm_sha256"]
-                expected_bytes += gap_bytes + len(hello)
-        assert len(raw) == expected_bytes
+            expected, metadata = load_boot_cue(settings["audio"]["eyes_open_cue"], sample_rate_hz)
+            assert raw == expected and len(raw) >= sample_rate_hz * 2
+            assert cue_metadata["cue"] == settings["audio"]["eyes_open_cue"]
+            assert cue_metadata["selection_sha256"] == metadata["selection_sha256"]
+        else:
+            assert raw == synthesize(settings, cue)
+            assert len(raw) == round(settings["audio"]["ready_duration_seconds"] * sample_rate_hz) * 2
         assert len(raw) == cue_metadata["pcm_bytes"]
         assert cue_metadata["sample_rate_hz"] == sample_rate_hz
         assert math.isclose(cue_metadata["duration_seconds"], len(raw) / 2 / sample_rate_hz)

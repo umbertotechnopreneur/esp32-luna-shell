@@ -1,6 +1,6 @@
 {
   "schema": "cody.runtime.v1",
-  "source_sha256": "168ce96bb3d6d6b13fe7e1bd1ee4235a7827087e5f7801c63f30ca7ec1dc825e",
+  "source_sha256": "b7a61a5e914bc1817d72fc519a72ca826ce5f01d736f711d8df92fa9f6ad1850",
   "cues": {
     "audio_ready": {
       "pcm_bytes": 7938,
@@ -10,66 +10,124 @@
       "origin": "original procedural synthesis"
     },
     "eyes_open": {
-      "pcm_bytes": 90412,
+      "pcm_bytes": 79380,
       "sample_rate_hz": 22050,
-      "duration_seconds": 2.05015873015873,
-      "sha256": "e3028755277e7d68922282acee884f44a5de9032622c1ab59823a0fa42df986e",
-      "origin": "original procedural chime plus licensed SFX",
-      "chime_pcm_bytes": 57330,
-      "chime_sha256": "6b42c10b4308df88f22549176824029491f16d275018002fbe89bf316ad0786d",
-      "gap_pcm_bytes": 4410,
-      "hello": {
-        "id": "cody-hello-murmur",
-        "source": "C:\\Users\\umber\\OneDrive\\Archivio\\Dixion\\Sfx\\1001 Sound Effects\\Vocals & Wallas\\Muffled Talking Male.wav",
-        "source_sha256": "0f4f0ac10220859c9d7d84b8b7def98d73049d2e0fc2c0f846d86c5d27422aac",
-        "trim_start_seconds": 0.15,
-        "trim_end_seconds": 1.5,
-        "pitch_ratio": 1.4,
-        "post_pitch_tempo": 1.5,
-        "expected_pcm_sha256": "5038f9a100230c6614e84b11c56d4075e455499d584df463a263142d08e7a921",
-        "expected_pcm_bytes": 28672,
-        "selection_sha256": "1cafed0ba00df89d52f5aafed85f6c5f809fc021215f8aed125ad3ecfab3fd40",
-        "sample_rate_hz": 22050,
-        "channels": 1,
-        "encoding": "PCM16LE",
-        "source_format": {
-          "programs": [],
-          "stream_groups": [],
-          "streams": [
-            {
-              "sample_rate": "44100",
-              "channels": 2
-            }
+      "duration_seconds": 1.8,
+      "sha256": "cd971ef8877bfa756fae37494516bbec33eb59bd283c0b773c4be817ce04c44d",
+      "origin": "selected licensed samples transformed into Cody boot-rise",
+      "selection_sha256": "4c5ae29a2f794c0828483b5bbe150e7bcace609d08557a82d4e6ec891ce6a61b",
+      "cue": "boot-rise",
+      "layers": [
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 2200,
+          "offset_ms": 0,
+          "duration_ms": 1500,
+          "pitch_ratio": 0.75,
+          "gain": 0.8,
+          "highpass_hz": 140,
+          "lowpass_hz": 3400,
+          "fade_in_ms": 18,
+          "fade_out_ms": 430,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=2.200000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=140:p=2",
+            "lowpass=f=3400:p=2",
+            "aresample=22050",
+            "asetrate=16538",
+            "aresample=22050"
           ],
-          "format": {
-            "duration": "3.239184"
-          }
+          "active_excerpt_offset_frames_after_pitch": 3300,
+          "actual_pitch_ratio": 0.7500226757369615,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.475328027891416
         },
-        "ffmpeg_filters": [
-          "atrim=start=0.15:end=1.5",
-          "asetpts=PTS-STARTPTS",
-          "pan=mono|c0=0.5*c0+0.5*c1",
-          "highpass=f=180:p=2",
-          "lowpass=f=4200:p=2",
-          "aresample=22050",
-          "asetrate=30870",
-          "aresample=22050",
-          "atempo=1.5",
-          "afade=t=in:d=0.012",
-          "areverse",
-          "afade=t=in:d=0.045",
-          "areverse"
-        ],
-        "linear_gain": 1.5636640971592486,
-        "target_peak_dbfs": -9.0,
-        "pcm_bytes": 28672,
-        "duration_seconds": 0.6501587301587302,
-        "pcm_sha256": "5038f9a100230c6614e84b11c56d4075e455499d584df463a263142d08e7a921"
-      },
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 2200,
+          "offset_ms": 190,
+          "duration_ms": 1350,
+          "pitch_ratio": 0.943874,
+          "gain": 0.65,
+          "highpass_hz": 140,
+          "lowpass_hz": 3400,
+          "fade_in_ms": 18,
+          "fade_out_ms": 400,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=2.200000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=140:p=2",
+            "lowpass=f=3400:p=2",
+            "aresample=22050",
+            "asetrate=20812",
+            "aresample=22050"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 2640,
+          "actual_pitch_ratio": 0.9438548752834467,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.477011016528863
+        },
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 2200,
+          "offset_ms": 420,
+          "duration_ms": 1380,
+          "pitch_ratio": 1.12373,
+          "gain": 0.55,
+          "highpass_hz": 140,
+          "lowpass_hz": 3400,
+          "fade_in_ms": 20,
+          "fade_out_ms": 470,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=2.200000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=140:p=2",
+            "lowpass=f=3400:p=2",
+            "aresample=22050",
+            "asetrate=24778",
+            "aresample=22050"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 2090,
+          "actual_pitch_ratio": 1.123718820861678,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.474754482781705
+        }
+      ],
       "licensing": {
-        "status": "owner_confirmed_perpetual_commercial",
-        "scope": "On 2026-10-04 the owner confirmed purchased perpetual licences including commercial use for the source SFX packages.",
-        "restriction": "Use Cody assets under the purchased package terms; repository licensing does not relicense the external source sample packs."
+        "status": "owner_confirmed_purchased_commercial",
+        "scope": "The owner confirmed purchased perpetual commercial-use SFX licences on 2026-10-04 and requested this selection on 2026-10-10. Licence documents were not present in the inspected archive; the PDF files are package indexes.",
+        "restriction": "Only transformed Cody cues are included. The purchased package terms remain authoritative; repository licensing does not relicense the original sample packs."
       }
     }
   }

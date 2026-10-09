@@ -2,7 +2,7 @@
 
 Three short vocal candidates from the read-only local SFX archive, shaped with
 ffmpeg. These are pseudolanguage experiments, not verified English "hey"/"hi"
-recordings. The owner selected C (`cody-hello-murmur`) for the boot cue;
+recordings. The owner previously selected C (`cody-hello-murmur`) for the boot cue;
 A (`cody-hello-chatter`), B (`cody-hello-gurble`) and the original chime remain
 available. Perceived intelligibility and device acoustics still need listening.
 
@@ -24,27 +24,26 @@ The manifest records exact source hashes, filters, sample counts and output
 hashes. Only the original chime identity is accepted: no implicit fallback or
 duplicate greeting if an already-combined boot asset is supplied.
 
-The audition generator never replaces a firmware asset. It extracts only the
-SHA-pinned original chime prefix when preparing previews, so rerunning it after
-selecting a firmware greeting cannot append that greeting twice.
+The audition generator never replaces a firmware asset. It synthesizes the
+SHA-pinned original 1.3-second chime when preparing historical previews. It
+does not read the current firmware boot sound or append a greeting twice.
 
-## Selected firmware cue
+## Earlier firmware selection
 
-`assets/cody/runtime.yaml` explicitly selects `audio.eyes_open_hello`. Set it to
-one of the three full cue IDs or `none` (chime only); unknown IDs fail fast.
-Preparation reads the external archive and requires the exact authored source
-and rendered PCM hashes. There is no replacement cue if the source is missing,
-modified, silent or fails ffmpeg processing.
+As of 2026-10-10, `assets/cody/runtime.yaml` explicitly selects
+`audio.eyes_open_cue: boot-rise` from `../codex-actions/`. This replaces the
+previous composed chime and C greeting. The three greeting auditions remain
+available here, but are not included in the selected boot cue. Their preparation
+still requires exact authored source and rendered PCM hashes, with no fallback.
 
 ```powershell
 .\scripts\device.ps1 generate -Generator cody-runtime-assets
 ```
 
-This appends C to the existing 1.3-second eyes-open chime at authoring time:
+The earlier selection appended C to the 1.3-second eyes-open chime:
 57,330 chime bytes + 4,410 gap bytes + 28,672 vocal bytes = 90,412 flash PCM bytes
-(about 2.05 seconds). Only one variant is embedded, not all three. The YAML's
-chime duration remains 1.3 seconds; the manifest records each component and
-the combined duration independently.
+(about 2.05 seconds). The new BootRise is 79,380 PCM bytes (1.8 seconds) and
+is prepared by `cody-codex-sfx` before `cody-runtime-assets` consumes it.
 
 Canonical-clock waiting, quiet-hours suppression and the once-per-boot trigger
 are unchanged. An ordinary software-standby wake does not repeat the boot cue.

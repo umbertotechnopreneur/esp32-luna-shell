@@ -14,33 +14,19 @@ sys.path.insert(0, str(ROOT))
 from scripts.common.cody_boot_audio import (  # noqa: E402
     SAMPLE_RATE, load_selection, render_selected_greeting, write_wav,
 )
+from scripts.generators.generate_cody_runtime_assets import synthesize
 
 OUTPUT = ROOT / "artifacts/audio/cody-boot-hello"
 
 
 # selection: Validated catalog carrying an independent original-chime identity.
-# Raises RuntimeError for corrupt runtime PCM/metadata or an unrecognized original prefix.
-# Raises original filesystem or JSON errors; runtime assets are never changed.
+# Raises RuntimeError if the independent historical recipe does not match its pinned identity.
+# Runtime assets are never read or changed; the selected BootRise does not affect older auditions.
 def load_original_chime(selection):
-    generated = ROOT / "assets/cody/runtime/generated"
-    existing_pcm = (generated / "cody-eyes_open.pcm16le").read_bytes()
-    metadata = json.loads((generated / "manifest.json").read_text(encoding="utf-8"))["cues"]["eyes_open"]
-    if (type(metadata["sample_rate_hz"]) is not int or metadata["sample_rate_hz"] != SAMPLE_RATE or
-            type(metadata["pcm_bytes"]) is not int or len(existing_pcm) != metadata["pcm_bytes"] or
-            len(existing_pcm) % 2 or hashlib.sha256(existing_pcm).hexdigest() != metadata["sha256"]):
-        raise RuntimeError("Existing boot PCM does not match its runtime manifest")
-    # Composed firmware explicitly declares its original prefix length. An
-    # original-only cue is itself the whole prefix. Both independently match
-    # the pinned original, so a greeting is never appended twice.
-    chime_bytes = metadata["chime_pcm_bytes"] if "chime_pcm_bytes" in metadata else len(existing_pcm)
-    if type(chime_bytes) is not int or chime_bytes <= 0 or chime_bytes % 2 or chime_bytes > len(existing_pcm):
-        raise RuntimeError("Existing boot cue declares an invalid original-chime prefix")
-    chime = existing_pcm[:chime_bytes]
+    chime = synthesize({"audio": {"eyes_open_duration_seconds": 1.3, "sample_rate_hz": SAMPLE_RATE}}, "eyes_open")
     chime_hash = hashlib.sha256(chime).hexdigest()
     if chime_hash != selection["original_chime_sha256"]:
         raise RuntimeError("Boot preview requires the independently pinned original synthesized chime")
-    if "chime_sha256" in metadata and metadata["chime_sha256"] != chime_hash:
-        raise RuntimeError("Existing boot cue's declared original-chime hash is inconsistent")
     return chime
 
 
