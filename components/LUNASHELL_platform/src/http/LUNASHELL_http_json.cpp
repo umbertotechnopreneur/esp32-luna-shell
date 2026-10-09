@@ -694,6 +694,24 @@ const char *codexLinkStateName(LUNASHELL::CodexLinkState state)
     return "unknown";
 }
 
+// state: Typed activity from the authenticated CCP acquisition owner.
+const char *codexActivityStateName(LUNASHELL::CodexActivityState state)
+{
+    using Activity = LUNASHELL::CodexActivityState;
+    switch (state) {
+    case Activity::None: return "none";
+    case Activity::Active: return "active";
+    case Activity::Working: return "working";
+    case Activity::Editing: return "editing";
+    case Activity::Running: return "running";
+    case Activity::ResponseReady: return "ready";
+    case Activity::Paused: return "paused";
+    case Activity::Ended: return "ended";
+    case Activity::Unavailable: return "unavailable";
+    }
+    return "unknown";
+}
+
 // json: Bounded writer retaining all transport errors.
 // codex_link: Canonical non-secret CCP1 status; code, salt, proofs and keys are excluded.
 void writeCodexLink(
@@ -723,6 +741,16 @@ void writeCodexLink(
     (void)json.quoted(codex_link.paired_pc_id);
     (void)json.raw(",\"peer_ip_address\":");
     (void)json.quoted(codex_link.peer_ip_address);
+    (void)json.raw(",\"activity\":");
+    const auto &activity = codex_link.activity;
+    writeComponentStart(json, activity);
+    (void)json.raw(",\"state\":");
+    (void)json.quoted(codexActivityStateName(activity.state));
+    (void)json.raw(",\"chat_id\":");
+    (void)json.quoted(activity.chat_id);
+    (void)json.raw(",\"project\":");
+    (void)json.quoted(activity.project);
+    (void)json.format(",\"revision\":%llu}", static_cast<unsigned long long>(activity.revision));
     (void)json.raw("}");
 }
 

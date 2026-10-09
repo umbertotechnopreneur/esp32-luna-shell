@@ -248,6 +248,13 @@ struct PairingSessionSnapshot : ComponentSnapshot {
     bool command_pending = false;
 };
 
+struct CodexActivitySnapshot : ComponentSnapshot {
+    CodexActivityState state = CodexActivityState::None;
+    uint64_t revision = 0;
+    char chat_id[65] = {}; // SHA-256 identity; no transcript or prompt content.
+    char project[25] = {}; // Explicit ASCII display label, never an identity.
+};
+
 struct CodexLinkSnapshot : ComponentSnapshot {
     CodexLinkState state = CodexLinkState::Idle;
     uint32_t attempt_id = 0;
@@ -260,6 +267,7 @@ struct CodexLinkSnapshot : ComponentSnapshot {
     char device_id[13] = {};
     char paired_pc_id[33] = {};
     char peer_ip_address[16] = {};
+    CodexActivitySnapshot activity;
     // The displayed code, verifier, salt and link key never enter the snapshot.
 };
 

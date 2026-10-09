@@ -18,6 +18,10 @@ SCENE_IDENTITIES = {
     "looking-for-pc": (14, "LookingForPc"), "connected": (15, "Connected"),
     "codex-choice": (16, "CodexChoice"), "setup-menu": (17, "SetupMenu"),
     "network-wait": (18, "NetworkWait"),
+    "project-active": (19, "ProjectActive"), "working": (20, "Working"),
+    "response-ready": (21, "ResponseReady"), "session-paused": (22, "SessionPaused"),
+    "session-ended": (23, "SessionEnded"), "connection-lost": (24, "ConnectionLost"),
+    "companion-idle": (25, "CompanionIdle"), "activity-unavailable": (26, "ActivityUnavailable"),
 }
 
 

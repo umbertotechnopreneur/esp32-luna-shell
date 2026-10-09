@@ -205,6 +205,86 @@
       "face": { "eye_left": 1, "eye_right": 1, "brow_left": -0.9, "brow_right": -0.9, "mouth_open": 0.42, "breath": 0, "mouth_width": 0.5, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
       "title": { "text": "No connection", "top": 210, "color_rgb565": 65535, "character_interval_ms": 45, "visible": true },
       "navigation_visible": false, "readout_visible": true
+    },
+    {
+      "id": "project-active", "identity": 19,
+      "background_rgb565": 0, "standby_override_seconds": 60,
+      "entrance": { "from": { "x": 233, "y": 130, "scale": 75 }, "move_ms": 0, "text_delay_ms": 0 },
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
+      "cloud": { "x": 233, "y": 130, "scale": 75 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 0.72, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
+      "title": { "text": "Project active", "top": 210, "color_rgb565": 2047, "character_interval_ms": 45, "visible": true },
+      "navigation_visible": false, "readout_visible": true
+    },
+    {
+      "id": "working", "identity": 20,
+      "background_rgb565": 0, "standby_override_seconds": 60,
+      "entrance": { "from": { "x": 233, "y": 130, "scale": 75 }, "move_ms": 0, "text_delay_ms": 0 },
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
+      "cloud": { "x": 233, "y": 130, "scale": 75 },
+      "face": { "eye_left": 0.9, "eye_right": 0.9, "brow_left": 0.62, "brow_right": 0.62, "mouth_open": 0.02, "breath": 0, "mouth_width": 0.62, "nose_size": 1, "cheek_size": 0.95, "cheek_opacity": 0.52 },
+      "title": { "text": "Working", "top": 210, "color_rgb565": 2047, "character_interval_ms": 45, "visible": true },
+      "navigation_visible": false, "readout_visible": true
+    },
+    {
+      "id": "response-ready", "identity": 21,
+      "background_rgb565": 0, "standby_override_seconds": 60,
+      "entrance": { "from": { "x": 233, "y": 130, "scale": 75 }, "move_ms": 0, "text_delay_ms": 0 },
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
+      "cloud": { "x": 233, "y": 130, "scale": 75 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": -0.15, "brow_right": -0.15, "mouth_open": 0.7, "breath": 0, "mouth_width": 1.05, "nose_size": 1, "cheek_size": 1.08, "cheek_opacity": 0.68 },
+      "title": { "text": "Response ready", "top": 210, "color_rgb565": 2047, "character_interval_ms": 45, "visible": true },
+      "navigation_visible": false, "readout_visible": true
+    },
+    {
+      "id": "session-paused", "identity": 22,
+      "background_rgb565": 0, "standby_override_seconds": 60,
+      "entrance": { "from": { "x": 233, "y": 130, "scale": 75 }, "move_ms": 0, "text_delay_ms": 0 },
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
+      "cloud": { "x": 233, "y": 130, "scale": 75 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 0.72, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
+      "title": { "text": "Paused", "top": 210, "color_rgb565": 64704, "character_interval_ms": 45, "visible": true },
+      "navigation_visible": false, "readout_visible": true
+    },
+    {
+      "id": "session-ended", "identity": 23,
+      "background_rgb565": 0, "standby_override_seconds": 60,
+      "entrance": { "from": { "x": 233, "y": 130, "scale": 75 }, "move_ms": 0, "text_delay_ms": 0 },
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
+      "cloud": { "x": 233, "y": 130, "scale": 75 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 0.72, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
+      "title": { "text": "Session ended", "top": 210, "color_rgb565": 65535, "character_interval_ms": 45, "visible": true },
+      "navigation_visible": false, "readout_visible": true
+    },
+    {
+      "id": "connection-lost", "identity": 24,
+      "background_rgb565": 0, "standby_override_seconds": 60,
+      "entrance": { "from": { "x": 233, "y": 130, "scale": 75 }, "move_ms": 0, "text_delay_ms": 0 },
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
+      "cloud": { "x": 233, "y": 130, "scale": 75 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": -0.9, "brow_right": -0.9, "mouth_open": 0.42, "breath": 0, "mouth_width": 0.5, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
+      "title": { "text": "Connection lost", "top": 210, "color_rgb565": 64704, "character_interval_ms": 45, "visible": true },
+      "navigation_visible": false, "readout_visible": true
+    },
+    {
+      "id": "companion-idle", "identity": 25,
+      "background_rgb565": 0, "standby_override_seconds": 0,
+      "entrance": { "from": { "x": 233, "y": 130, "scale": 75 }, "move_ms": 0, "text_delay_ms": 0 },
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
+      "cloud": { "x": 233, "y": 130, "scale": 75 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 0.72, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
+      "title": { "text": "Cody is here", "top": 210, "color_rgb565": 65535, "character_interval_ms": 45, "visible": true },
+      "navigation_visible": false, "readout_visible": true
+    },
+    {
+      "id": "activity-unavailable", "identity": 26,
+      "background_rgb565": 0, "standby_override_seconds": 60,
+      "entrance": { "from": { "x": 233, "y": 130, "scale": 75 }, "move_ms": 0, "text_delay_ms": 0 },
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
+      "cloud": { "x": 233, "y": 130, "scale": 75 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 0.72, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
+      "title": { "text": "UNAVAILABLE", "top": 210, "color_rgb565": 64704, "character_interval_ms": 45, "visible": true },
+      "navigation_visible": false, "readout_visible": true
     }
   ]
 }

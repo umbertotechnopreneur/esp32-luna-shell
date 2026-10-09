@@ -69,7 +69,8 @@ using CodexState = LUNASHELL::CodexLinkState;
 enum class Route : uint8_t {
     None, Hello04, Invitation05, Install06, Pairing07, Failed08, Online09,
     MakeItYours10, Look11, ConnectCodex12, SetupComplete13, LookingForPc14,
-    Connected15, Idle16, Settings36, DebugText, CodexChoice, SetupMenu, NetworkWait
+    Connected15, Idle16, Settings36, DebugText, CodexChoice, SetupMenu, NetworkWait,
+    Project17, Working18, Response19, Paused20, Ended20, Lost32, CompanionIdle16, ActivityUnavailable
 };
 enum class Work : uint8_t {
     InstallQr,
@@ -172,6 +173,10 @@ ContentView s_view;
 #endif
 Route s_route = Route::None;
 bool s_options_from_setup = false;
+bool s_setup_returns_to_companion = false;
+bool s_companion_seen_selection = false;
+int64_t s_session_ended_at_us = -1;
+LUNASHELL::CodexActivitySnapshot s_presented_activity{};
 bool s_startup_pending = false;
 esp_err_t s_startup_wifi_error = ESP_OK;
 uint32_t s_generation = 1;
@@ -1235,6 +1240,14 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     case Route::Connected15:
         identity = SceneId::Connected;
         break;
+    case Route::Project17: identity = SceneId::ProjectActive; break;
+    case Route::Working18: identity = SceneId::Working; break;
+    case Route::Response19: identity = SceneId::ResponseReady; break;
+    case Route::Paused20: identity = SceneId::SessionPaused; break;
+    case Route::Ended20: identity = SceneId::SessionEnded; break;
+    case Route::Lost32: identity = SceneId::ConnectionLost; break;
+    case Route::CompanionIdle16: identity = SceneId::CompanionIdle; break;
+    case Route::ActivityUnavailable: identity = SceneId::ActivityUnavailable; break;
     case Route::CodexChoice:
         identity = SceneId::CodexChoice;
         break;
@@ -1393,7 +1406,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         error = prepare_caption("Codex PC found", 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption("CCP is ready", 327, s_view.lines[1]);
+            error = prepare_caption("Choose a chat in Codex", 327, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
@@ -1409,6 +1422,143 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     scene = prepared;
     ESP_LOGI(kTag, "Atlas route entered: %s", definition->name);
     return ESP_OK;
+}
+
+// route: Semantic route whose content follows the selected chat or its connection.
+bool is_companion_route(Route route)
+{
+    return route == Route::Connected15 || route == Route::LookingForPc14 ||
+        route == Route::Project17 || route == Route::Working18 || route == Route::Response19 ||
+        route == Route::Paused20 || route == Route::Ended20 || route == Route::Lost32 ||
+        route == Route::CompanionIdle16 || route == Route::ActivityUnavailable;
+}
+
+// link: Coherent canonical owner snapshot; no transport or host reads occur in this consumer.
+// active_time_us: Pausable UI clock used only for the session-ended presentation dwell.
+// scene: Current frame replaced only when visible state or selected identity changes.
+// changed: Receives whether scene content needs a new native render.
+// Exception: Returns the original layout/text error without disguising it as connection success.
+esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
+                                    int64_t active_time_us, SceneFrame &scene, bool &changed)
+{
+    if (!is_companion_route(s_route)) {
+        return ESP_OK;
+    }
+    using Activity = LUNASHELL::CodexActivityState;
+    const auto &activity = link.activity;
+    const bool same_chat = std::strcmp(activity.chat_id, s_presented_activity.chat_id) == 0;
+    Route destination = Route::Connected15;
+    const char *message = "Follow a chat in Codex";
+    if (!link.data_valid || link.data_stale || link.state != CodexState::Connected) {
+        if (!s_companion_seen_selection) {
+            return ESP_OK;
+        }
+        destination = Route::Lost32;
+        message = "Waiting for CCP";
+    } else if (!activity.data_valid || activity.data_stale) {
+        // The initial READY can precede ACTIVITY. Until the first activity reply,
+        // screen 15 claims PC presence only and never invents a chat state.
+        if (activity.last_attempt_at_us == 0 && !s_companion_seen_selection) {
+            return ESP_OK;
+        }
+        destination = Route::ActivityUnavailable;
+        message = "No recent activity";
+    } else {
+        switch (activity.state) {
+        case Activity::None:
+            destination = s_companion_seen_selection ? Route::CompanionIdle16 : Route::Connected15;
+            break;
+        case Activity::Active:
+            destination = Route::Project17;
+            message = "Ready when you are";
+            break;
+        case Activity::Working:
+            destination = Route::Working18;
+            message = "Working in Codex";
+            break;
+        case Activity::Editing:
+            destination = Route::Working18;
+            message = "Editing";
+            break;
+        case Activity::Running:
+            destination = Route::Working18;
+            message = "Running a command";
+            break;
+        case Activity::ResponseReady:
+            destination = Route::Response19;
+            message = "Read it in Codex";
+            break;
+        case Activity::Paused:
+            destination = Route::Paused20;
+            message = "Continue in Codex";
+            break;
+        case Activity::Ended:
+            if (!same_chat || s_session_ended_at_us < 0) {
+                s_session_ended_at_us = active_time_us;
+            }
+            destination = active_time_us - s_session_ended_at_us < 5LL * 1000000LL
+                ? Route::Ended20 : Route::CompanionIdle16;
+            message = "Choose a chat in Codex";
+            break;
+        case Activity::Unavailable:
+            destination = Route::ActivityUnavailable;
+            message = "No recent activity";
+            break;
+        }
+        if (activity.state != Activity::Ended) {
+            s_session_ended_at_us = -1;
+        }
+        if (activity.state != Activity::None) {
+            s_companion_seen_selection = true;
+        }
+    }
+    if (s_route == destination && same_chat && activity.state == s_presented_activity.state &&
+        std::strcmp(activity.project, s_presented_activity.project) == 0 &&
+        activity.data_valid == s_presented_activity.data_valid &&
+        activity.data_stale == s_presented_activity.data_stale) {
+        return ESP_OK;
+    }
+    s_presented_activity = activity;
+    esp_err_t error = enter_route(destination, scene);
+    if (error != ESP_OK || destination == Route::Connected15) {
+        changed = true;
+        return error;
+    }
+    // Copy the label into persistent view storage. Derive wrapping from the
+    // actual font, preferring a word boundary within the existing content width.
+    const size_t project_length = std::strlen(activity.project);
+    if (project_length > 0 && destination != Route::CompanionIdle16) {
+        const auto &font = SceneData::body_font;
+        const size_t capacity = (kCaptionWidth - font.width) / font.advance + 1;
+        size_t first_length = std::min(capacity, project_length);
+        size_t second_start = first_length;
+        if (project_length > capacity) {
+            for (size_t index = first_length; index > 0; --index) {
+                if (activity.project[index] == ' ') {
+                    first_length = index;
+                    second_start = index + 1;
+                    break;
+                }
+            }
+        }
+        std::memcpy(s_view.debug_text[0], activity.project, first_length);
+        error = prepare_caption(s_view.debug_text[0], 300, s_view.lines[0]);
+        s_view.line_count = 1;
+        if (error == ESP_OK && project_length > second_start) {
+            std::memcpy(s_view.debug_text[1], activity.project + second_start, project_length - second_start);
+            error = prepare_caption(s_view.debug_text[1], 327, s_view.lines[1]);
+            s_view.line_count = 2;
+        }
+    }
+    if (error == ESP_OK) {
+        error = prepare_caption(message, 360, s_view.lines[s_view.line_count]);
+        ++s_view.line_count;
+    }
+    if (error == ESP_OK) {
+        error = attach_content(scene);
+    }
+    changed = true;
+    return error;
 }
 
 // scene: Current screen replaced by a truthful retry view on screen 12.
@@ -1552,6 +1702,14 @@ esp_err_t enter_host_destination(SceneId destination, SceneFrame &scene)
     case SceneId::Connected:
         route = Route::Connected15;
         break;
+    case SceneId::ProjectActive: route = Route::Project17; break;
+    case SceneId::Working: route = Route::Working18; break;
+    case SceneId::ResponseReady: route = Route::Response19; break;
+    case SceneId::SessionPaused: route = Route::Paused20; break;
+    case SceneId::SessionEnded: route = Route::Ended20; break;
+    case SceneId::ConnectionLost: route = Route::Lost32; break;
+    case SceneId::CompanionIdle: route = Route::CompanionIdle16; break;
+    case SceneId::ActivityUnavailable: route = Route::ActivityUnavailable; break;
     default:
         ESP_LOGE(kTag, "Unsupported host destination %u (%s)",
                  static_cast<unsigned>(destination), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
@@ -1760,6 +1918,10 @@ void cancel_onboarding_touch()
 void reset_onboarding()
 {
     s_options_from_setup = false;
+    s_setup_returns_to_companion = false;
+    s_companion_seen_selection = false;
+    s_session_ended_at_us = -1;
+    s_presented_activity = {};
     ++s_generation;
     s_presentation_generation.store(s_generation, std::memory_order_release);
     s_route = Route::None;
@@ -1821,7 +1983,7 @@ bool can_open_setup_menu()
         (s_route == Route::None || s_route == Route::Idle16 ||
          (s_route == Route::Hello04 && s_hello_waits_for_touch) ||
          s_route == Route::Invitation05 || s_route == Route::Install06 ||
-         s_route == Route::LookingForPc14 || s_route == Route::Connected15 ||
+         is_companion_route(s_route) ||
          (s_route == Route::ConnectCodex12 && s_codex_error_visible && s_codex_terminal_error));
 }
 
@@ -1834,6 +1996,7 @@ esp_err_t open_setup_menu(SceneFrame &scene)
         return ESP_ERR_INVALID_STATE;
     }
     // The backend keeps its retained association; opening this view starts no radio work.
+    s_setup_returns_to_companion = is_companion_route(s_route);
     s_codex_owned = false;
     wipe(s_codex_code, sizeof(s_codex_code));
     return enter_route(Route::SetupMenu, scene);
@@ -2285,7 +2448,10 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         if (s_route == Route::ConnectCodex12 ||
             s_route == Route::SetupComplete13 ||
             s_route == Route::LookingForPc14 ||
-            s_route == Route::Connected15) {
+            is_companion_route(s_route)) {
+            if (is_companion_route(s_route)) {
+                return present_companion_activity(codex_link, active_time_us, scene, changed);
+            }
             return ESP_OK;
         }
     }
@@ -2547,8 +2713,12 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return enter_route(Route::Invitation05, scene);
     }
     if (back_hit && s_route == Route::SetupMenu) {
+        const bool return_to_companion = s_setup_returns_to_companion;
         scene = {};
         reset_onboarding();
+        if (return_to_companion) {
+            request_saved_setup_startup();
+        }
         return ESP_OK;
     }
     if (back_hit && s_options_from_setup && s_route == Route::MakeItYours10) {

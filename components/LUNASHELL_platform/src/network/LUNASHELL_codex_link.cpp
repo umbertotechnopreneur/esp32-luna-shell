@@ -90,6 +90,7 @@ int64_t s_activation_replay_until_us = 0;
 uint8_t s_find_nonce[16]{};
 int64_t s_next_find_at_us = 0;
 int64_t s_last_ready_at_us = 0;
+bool s_activity_received_for_nonce = false;
 
 // bytes: Secret or transient storage to erase with volatile writes.
 // size: Exact byte count owned by the caller.
@@ -361,6 +362,12 @@ void publishLocked(State state, esp_err_t error)
     s_link_snapshot.health = error == ESP_OK
         ? LUNASHELL::DeviceHealth::Ready
         : LUNASHELL::DeviceHealth::Degraded;
+    if (state != State::Connected && state != State::Discovering) {
+        s_link_snapshot.activity.data_valid = false;
+        s_link_snapshot.activity.data_stale = s_link_snapshot.activity.last_success_at_us > 0;
+        s_link_snapshot.activity.last_error = error != ESP_OK ? error : ESP_ERR_INVALID_STATE;
+        s_link_snapshot.activity.health = LUNASHELL::DeviceHealth::Degraded;
+    }
     if (error == ESP_OK) {
         s_link_snapshot.last_success_at_us = now_us;
     }
@@ -640,6 +647,57 @@ bool parseReady(const char *payload, ReadyResponse &response)
         std::strlen(response.nonce) == 32 &&
         std::strlen(response.proof) == 64 &&
         consumed == static_cast<int>(std::strlen(payload));
+}
+
+struct ActivityResponse {
+    char device_id[13]{};
+    char pc_id[33]{};
+    char nonce[33]{};
+    char chat_id[65]{};
+    char revision[17]{};
+    char phase[12]{};
+    char project[49]{};
+    char proof[65]{};
+};
+
+// payload: Candidate fixed-order activity snapshot, with no unbounded strings.
+// response: Receives exact-width identifiers and bounded ASCII metadata.
+// Exception: Rejects missing, extra, duplicated, reordered or malformed fields.
+bool parseActivity(const char *payload, ActivityResponse &response)
+{
+    int consumed = 0;
+    const int fields = std::sscanf(payload,
+        "CCP1|ACTIVITY|device=%12[0-9a-f]|pc=%32[0-9a-f]|nonce=%32[0-9a-f]"
+        "|chat=%64[0-9a-f]|revision=%16[0-9a-f]|phase=%11[a-z]"
+        "|project=%48[0-9a-f-]|proof=%64[0-9a-f]%n",
+        response.device_id, response.pc_id, response.nonce, response.chat_id,
+        response.revision, response.phase, response.project, response.proof, &consumed);
+    return fields == 8 && std::strlen(response.device_id) == 12 &&
+        std::strlen(response.pc_id) == 32 && std::strlen(response.nonce) == 32 &&
+        std::strlen(response.chat_id) == 64 && std::strlen(response.revision) == 16 &&
+        std::strlen(response.proof) == 64 && consumed == static_cast<int>(std::strlen(payload));
+}
+
+// phase: Bounded protocol token, never interpreted as a storage index.
+// state: Receives the canonical typed state on success.
+// Exception: Returns INVALID_ARG for an unknown activity token.
+esp_err_t decodeActivityState(const char *phase, LUNASHELL::CodexActivityState &state)
+{
+    using Activity = LUNASHELL::CodexActivityState;
+    struct Entry { const char *name; Activity state; };
+    constexpr Entry entries[] = {
+        {"none", Activity::None}, {"active", Activity::Active}, {"working", Activity::Working},
+        {"editing", Activity::Editing}, {"running", Activity::Running},
+        {"ready", Activity::ResponseReady}, {"paused", Activity::Paused},
+        {"ended", Activity::Ended}, {"unavailable", Activity::Unavailable},
+    };
+    for (const auto &entry : entries) {
+        if (std::strcmp(phase, entry.name) == 0) {
+            state = entry.state;
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_INVALID_ARG;
 }
 
 // No parameters: starts a fresh five-minute display-code window from canonical Wi-Fi identity.
@@ -1160,7 +1218,7 @@ esp_err_t sendFind()
         ? std::snprintf(
             proof_input,
             sizeof(proof_input),
-            "find|%s|%s|%s",
+            "find-activity|%s|%s|%s",
             device_id,
             pc_id,
             nonce_hex
@@ -1181,7 +1239,7 @@ esp_err_t sendFind()
         ? std::snprintf(
             request,
             sizeof(request),
-            "%s|FIND|device=%s|pc=%s|nonce=%s|proof=%s",
+            "%s|FIND|device=%s|pc=%s|nonce=%s|activity=1|proof=%s",
             kProtocol,
             device_id,
             pc_id,
@@ -1201,6 +1259,7 @@ esp_err_t sendFind()
     if (error == ESP_OK) {
         std::lock_guard<std::mutex> guard(s_mutex);
         std::memcpy(s_find_nonce, nonce, sizeof(nonce));
+        s_activity_received_for_nonce = false;
         s_next_find_at_us = esp_timer_get_time() + kFindIntervalUs;
     }
     wipe(link_key, sizeof(link_key));
@@ -1330,6 +1389,89 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
     return error;
 }
 
+// response: Bounded, parsed candidate activity from the paired PC.
+// Exception: Returns the original identity, replay, HMAC, encoding or state error.
+esp_err_t acceptActivity(const ActivityResponse &response)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (!s_link_present || s_activity_received_for_nonce ||
+        (s_link_snapshot.state != State::Connected && s_link_snapshot.state != State::Discovering)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    char nonce[33]{};
+    esp_err_t error = encodeHex(s_find_nonce, sizeof(s_find_nonce), nonce, sizeof(nonce));
+    if (error == ESP_OK && (std::strcmp(response.device_id, s_link_snapshot.device_id) != 0 ||
+        std::strcmp(response.pc_id, s_link_snapshot.paired_pc_id) != 0 ||
+        std::strcmp(response.nonce, nonce) != 0)) {
+        error = ESP_ERR_INVALID_STATE;
+    }
+    char proof_input[384]{};
+    const int length = std::snprintf(proof_input, sizeof(proof_input),
+        "activity|%s|%s|%s|%s|%s|%s|%s", response.device_id, response.pc_id,
+        response.nonce, response.chat_id, response.revision, response.phase, response.project);
+    uint8_t expected[32]{};
+    uint8_t received[32]{};
+    if (error == ESP_OK) {
+        error = length > 0 && static_cast<size_t>(length) < sizeof(proof_input)
+            ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), proof_input, expected)
+            : ESP_ERR_INVALID_SIZE;
+    }
+    if (error == ESP_OK) {
+        error = decodeHex(response.proof, received, sizeof(received));
+    }
+    if (error == ESP_OK && !constantTimeEqual(expected, received, sizeof(expected))) {
+        error = ESP_ERR_INVALID_CRC;
+    }
+    LUNASHELL::CodexActivitySnapshot activity{};
+    if (error == ESP_OK) {
+        error = decodeActivityState(response.phase, activity.state);
+    }
+    uint8_t revision[8]{};
+    if (error == ESP_OK) {
+        error = decodeHex(response.revision, revision, sizeof(revision));
+    }
+    if (error == ESP_OK) {
+        const bool no_chat = activity.state == LUNASHELL::CodexActivityState::None;
+        const bool zero_chat = std::strspn(response.chat_id, "0") == 64;
+        const size_t project_size = std::strlen(response.project);
+        if (no_chat) {
+            if (!zero_chat || std::strcmp(response.project, "-") != 0) {
+                error = ESP_ERR_INVALID_ARG;
+            }
+        } else if (zero_chat || project_size < 2 || project_size % 2 != 0) {
+            error = ESP_ERR_INVALID_ARG;
+        } else {
+            error = decodeHex(response.project, reinterpret_cast<uint8_t *>(activity.project), project_size / 2);
+            for (size_t index = 0; error == ESP_OK && index < project_size / 2; ++index) {
+                if (activity.project[index] < 32 || activity.project[index] > 126) {
+                    error = ESP_ERR_INVALID_ARG;
+                }
+            }
+        }
+    }
+    if (error == ESP_OK) {
+        for (const uint8_t value : revision) {
+            activity.revision = (activity.revision << 8U) | value;
+        }
+        std::memcpy(activity.chat_id, response.chat_id, sizeof(activity.chat_id));
+        activity.data_valid = activity.state != LUNASHELL::CodexActivityState::Unavailable;
+        activity.data_stale = !activity.data_valid;
+        activity.last_error = activity.data_valid ? ESP_OK : ESP_ERR_TIMEOUT;
+        activity.health = activity.data_valid ? LUNASHELL::DeviceHealth::Ready : LUNASHELL::DeviceHealth::Degraded;
+        activity.last_attempt_at_us = esp_timer_get_time();
+        activity.last_success_at_us = activity.data_valid ? activity.last_attempt_at_us :
+            (std::strcmp(activity.chat_id, s_link_snapshot.activity.chat_id) == 0
+                ? s_link_snapshot.activity.last_success_at_us : 0);
+        s_link_snapshot.activity = activity;
+        s_activity_received_for_nonce = true;
+        LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
+    }
+    wipe(expected, sizeof(expected));
+    wipe(received, sizeof(received));
+    wipe(proof_input, sizeof(proof_input));
+    return error;
+}
+
 // payload: Complete null-terminated datagram read by the owned socket.
 // source: Exact source address and port supplied by lwIP.
 void handleDatagram(const char *payload, const sockaddr_in &source)
@@ -1375,6 +1517,15 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
         return;
     }
     if (state == State::Discovering || state == State::Connected) {
+        if (std::strncmp(payload, "CCP1|ACTIVITY|", 14) == 0) {
+            ActivityResponse activity{};
+            const esp_err_t error = parseActivity(payload, activity)
+                ? acceptActivity(activity) : ESP_ERR_INVALID_ARG;
+            if (error != ESP_OK) {
+                ESP_LOGE(kTag, "CCP ACTIVITY rejected (%s)", esp_err_to_name(error));
+            }
+            return;
+        }
         ReadyResponse response{};
         if (parseReady(payload, response)) {
             const esp_err_t error = acceptReady(response, source);
@@ -1391,13 +1542,13 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
 void receiveDatagrams()
 {
     for (;;) {
-        char payload[kMaximumDatagramBytes + 1]{};
+        char payload[kMaximumDatagramBytes + 2]{};
         sockaddr_in source{};
         socklen_t source_size = sizeof(source);
         const int received = recvfrom(
             s_socket,
             payload,
-            kMaximumDatagramBytes,
+            kMaximumDatagramBytes + 1,
             MSG_DONTWAIT,
             reinterpret_cast<sockaddr *>(&source),
             &source_size
@@ -1409,6 +1560,11 @@ void receiveDatagrams()
             return;
         }
         if (received == 0 || received > static_cast<int>(kMaximumDatagramBytes)) {
+            ESP_LOGE(kTag, "CCP datagram rejected: length=%d", received);
+            continue;
+        }
+        if (std::memchr(payload, '\0', static_cast<size_t>(received)) != nullptr) {
+            ESP_LOGE(kTag, "CCP datagram rejected: embedded NUL");
             continue;
         }
         payload[received] = '\0';
@@ -1448,6 +1604,19 @@ void maintainState()
     }
     if (state != State::Discovering && state != State::Connected) {
         return;
+    }
+    {
+        std::lock_guard<std::mutex> guard(s_mutex);
+        auto &activity = s_link_snapshot.activity;
+        if (activity.data_valid && activity.last_attempt_at_us > 0 &&
+            now_us - activity.last_attempt_at_us >= kReadyExpiryUs) {
+            activity.data_valid = false;
+            activity.data_stale = true;
+            activity.last_error = ESP_ERR_TIMEOUT;
+            activity.health = LUNASHELL::DeviceHealth::Degraded;
+            LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
+            ESP_LOGW(kTag, "CCP activity expired: no authenticated snapshot for eight seconds");
+        }
     }
     if (state == State::Connected && last_ready_at_us > 0 &&
         now_us - last_ready_at_us >= kReadyExpiryUs) {
