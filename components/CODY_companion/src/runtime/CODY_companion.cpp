@@ -2836,6 +2836,17 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     // A slow log sink must not keep rotation or standby waiting behind the renderer.
     state_lock.release();
     timings.state_unlocked_us = esp_timer_get_time();
+    if (completed.error != ESP_OK) {
+        // Failure timings distinguish geometry/raster scheduling from DMA waits;
+        // log only after both frame retirement and the outer panel lock release.
+        ESP_LOGE(kTag, "Failed frame timing: error=%s total_us=%lld geometry_us=%lld raster_us=%lld "
+            "transfer_us=%lld rectangles=%u tiles=%u touch_polls=%u",
+            esp_err_to_name(completed.error),
+            static_cast<long long>(timings.frame_end_completed_us - timings.frame_begin_completed_us),
+            static_cast<long long>(timings.geometry_us), static_cast<long long>(timings.raster_us),
+            static_cast<long long>(timings.transfer_us), static_cast<unsigned>(timings.dirty_rectangles),
+            static_cast<unsigned>(timings.rasterized_tiles), static_cast<unsigned>(timings.touch_polls));
+    }
     timings.previous_log_output_us = s_previous_log_output_us;
     if (should_log) {
         if (deferred_log != nullptr) {

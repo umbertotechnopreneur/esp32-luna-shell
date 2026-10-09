@@ -1,5 +1,15 @@
 # Cody onboarding and connectivity
 
+The 2026-10-09 reset/reproduction on `004d44d6` confirmed Yes -> Connect Codex
+followed by a frame deadline error after four rectangles. Static review found
+the CCP PBKDF2 worker unpinned at priority 3, above the priority-2 CPU1 renderer.
+CCP now runs at priority 1 on CPU0, below acquisition/audio/radio tasks. Derivation
+and failed-frame stage timings contain no display codes or cryptographic material.
+This preserves the PSA PBKDF2 parameters, canonical state and genuine error paths.
+The scheduling defect is corrected in source; causation and physical recovery
+remain pending a newly authorized capture. SD retry timeout remains independent
+of that scheduling contract and is not treated as resolved.
+
 The navigation atlas page 02 and addendum A01/page 13 define the network journey;
 addendum A02/page 14 defines reusable screen 11, and addendum A04/page 16 records
 the pairing handoff and continued first-run route. Existing IDs remain unchanged;

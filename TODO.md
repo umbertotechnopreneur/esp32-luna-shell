@@ -13,6 +13,12 @@ the new visual appearance remain unobserved.
   physical appearance remains unobserved.
 
 - [ ] Resolve the reported Connect Codex -> Let's pair / Show QR transition.
+  New authorized reset/reproduction on `004d44d6` recorded Yes at 21562 ms,
+  then frame deadline failure after four rectangles at 22865 ms. This reproduction
+  has a frame timeout, not the previous malformed touch error. CCP's unpinned
+  priority-3 PBKDF2 worker could preempt the priority-2 CPU1 renderer; source now
+  pins CCP to CPU0 at priority 1, with secret-free derivation/failure timings.
+  Build/installation and renewed physical evidence for this correction are pending.
   The initial passive capture lacked the press. A subsequent explicitly authorized
   90-second reset/capture recorded Yes -> Connect Codex, then fifteen FF touch
   bytes / invalid ACK stopping rendering. The Welcome escape and scoped malformed

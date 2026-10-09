@@ -10,6 +10,21 @@ flash logs were regenerated.
 
 ## Cody action language, Options and touch diagnosis - 2026-10-09
 
+- Completed the newly authorized 90-second COM10 reset/capture on installed
+  `004d44d6`: `artifacts/logs/cody-connect-codex-freeze-aa.txt`. Yes at 21562 ms
+  entered Connect Codex; at 22865 ms the complete-frame deadline failed after
+  four rectangles and stopped rendering. No malformed-touch failure or panic
+  was observed in this reproduction. The user confirmed the freeze during capture.
+  SD initialization/retry timeout remains concurrent and separately unresolved.
+- Static review found CCP's monolithic 50,000-iteration PSA PBKDF2 running at
+  priority 3 without affinity, above the priority-2 CPU1 renderer. Corrected the
+  scheduling contract: CCP background work is priority 1 pinned to CPU0, leaving
+  acquisition/audio/radio workers above it and isolating native frame deadlines.
+  Added secret-free derivation duration/core/result and failed-frame stage timing.
+  The observed deadline failure is confirmed; scheduling causation and corrected
+  physical behavior still require fresh evidence. No timeout increase or discarded
+  error, protocol/KDF-cost change, driver reset or saved-data repair.
+
 - Implemented the subsequent requested antialiasing refinement: compile-time
   4x4 corner coverage for all current outer/inner radii, reconstructed 24x24 icon
   masks, concentric two-pixel antialiased borders and per-row gradient weights.

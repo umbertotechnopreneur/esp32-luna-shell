@@ -7,6 +7,7 @@
     CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
 
 #include "LUNASHELL_settings.hpp"
+#include "LUNASHELL_task_affinity.hpp"
 
 #include <cerrno>
 #include <cstddef>
@@ -43,6 +44,7 @@ constexpr int64_t kReadyExpiryUs = 8LL * 1000000LL;
 constexpr int64_t kActivationReplayUs = 10LL * 1000000LL;
 constexpr uint32_t kWorkerPollMs = 100;
 constexpr size_t kWorkerStackSize = 8192;
+constexpr UBaseType_t kWorkerPriority = 1;
 constexpr uint8_t kPersistedVersion = 1;
 static_assert(sizeof(kCodeAlphabet) == 33, "CCP display alphabet must contain exactly 32 symbols");
 using State = LUNASHELL::CodexLinkState;
@@ -594,6 +596,7 @@ bool parseReady(const char *payload, ReadyResponse &response)
 }
 
 // No parameters: starts a fresh five-minute display-code window from canonical Wi-Fi identity.
+// Exception: Publishes the original snapshot, identity or crypto failure without a code window.
 void startPairing()
 {
     LUNASHELL::ConnectivityObservation observation{};
@@ -618,7 +621,13 @@ void startPairing()
         }
         esp_fill_random(salt, sizeof(salt));
         session_id = esp_random();
+        const int64_t derivation_started_us = esp_timer_get_time();
+        ESP_LOGI(kTag, "CCP verifier derivation started: core=%ld priority=%lu iterations=%lu",
+            static_cast<long>(xPortGetCoreID()), static_cast<unsigned long>(kWorkerPriority),
+            static_cast<unsigned long>(kPbkdf2Iterations));
         error = deriveVerifier(code, salt, verifier);
+        ESP_LOGI(kTag, "CCP verifier derivation completed: elapsed_us=%lld result=%s",
+            static_cast<long long>(esp_timer_get_time() - derivation_started_us), esp_err_to_name(error));
     }
     std::lock_guard<std::mutex> guard(s_mutex);
     s_pending = Command::None;
@@ -1463,6 +1472,7 @@ esp_err_t reject(
 }  // namespace
 
 // No parameters: loads exact retained state and binds the fixed CCP1 device port.
+// Exception: Returns the original storage/crypto error or the logged socket/task failure.
 extern "C" esp_err_t LUNASHELL_codex_link_service_init(void)
 {
     std::lock_guard<std::mutex> guard(s_mutex);
@@ -1507,14 +1517,17 @@ extern "C" esp_err_t LUNASHELL_codex_link_service_init(void)
         publishLocked(State::Failed, ESP_FAIL);
         return ESP_FAIL;
     }
-    s_worker = xTaskCreateStatic(
+    // A monolithic PBKDF2 call must not outrank or migrate onto the frame owner.
+    // CPU0 acquisition/radio tasks retain priority over this background work.
+    s_worker = xTaskCreateStaticPinnedToCore(
         codexLinkWorker,
         "LUNASHELL_ccp",
         kWorkerStackSize,
         nullptr,
-        3,
+        kWorkerPriority,
         s_worker_stack,
-        &s_worker_control
+        &s_worker_control,
+        LUNASHELL::task_affinity::kCcpCoreId
     );
     if (s_worker == nullptr) {
         ESP_LOGE(kTag, "CCP worker creation failed (%s)", esp_err_to_name(ESP_ERR_NO_MEM));
