@@ -1478,7 +1478,7 @@ esp_err_t acceptActivity(const ActivityResponse &response)
         LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
         s_activity_received_for_nonce = true;
         if (transition) {
-            ESP_LOGI(kTag, "CCP ACTIVITY authenticated and published: state=%u selected=%s",
+            ESP_LOGI(kTag, "CCP ACTIVITY authenticated: state=%u selected=%s",
                 static_cast<unsigned>(activity.state),
                 activity.state == LUNASHELL::CodexActivityState::None ? "no" : "yes");
         }

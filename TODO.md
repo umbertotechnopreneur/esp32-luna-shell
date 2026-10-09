@@ -11,7 +11,7 @@
   screen 15, idle and session-ended states. Preserve the layout error checks.
   Move the literal hyphen first in the ACTIVITY project scanset; the target
   scanner can treat the old trailing hyphen as an unfinished range. Add bounded
-  secret-free parse diagnostics and log confirmed snapshot publication.
+  secret-free parse diagnostics and log authenticated activity transitions.
 - [ ] Build/install the correction and, with fresh authorization, observe boot,
   authenticated no-selection ACTIVITY, screen 15 and responsive standby/input.
 
