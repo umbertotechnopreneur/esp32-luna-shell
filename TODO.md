@@ -9,6 +9,10 @@ completed the 50,000-iteration verifier in 27.790323 seconds with ESP_OK and no
 watchdog/reset or frame-stop error observed. User confirmed the code appears,
 but is too small. The larger complete code and explicit waiting estimate below
 are installed; their physical appearance and timed standby remain pending.
+On 2026-10-10, real CCP tools confirmed pairing and authenticated connected=true;
+the user reported Connected on screen 15. PC verifier interoperability succeeded
+for this pairing. The installed service was launched manually from this chat;
+native plugin autoload/lifetime and reconnect behavior remain open.
 
 - [ ] Review the requested antialiased borders/icons and optically lower action
   icons on the display, including two-line card captions and compact QR/skin
@@ -39,7 +43,9 @@ are installed; their physical appearance and timed standby remain pending.
   those three minutes; ordinary touch/departure rules remain. Timed behavior
   has not been physically verified.
   The presentation follow-up built/flashed successfully at `84e95216`;
-  physical review, timed standby and PC verifier interoperability remain pending.
+  physical review and timed standby remain pending. A subsequent real LAN pairing
+  completed and authenticated status returned connected=true; the user confirmed
+  screen 15. PC verifier interoperability is observed for that pairing.
   The initial passive capture lacked the press. A subsequent explicitly authorized
   90-second reset/capture recorded Yes -> Connect Codex, then fifteen FF touch
   bytes / invalid ACK stopping rendering. The Welcome escape and scoped malformed
@@ -396,9 +402,10 @@ every open physical observation below remains open.
   re-entry through reusable 36/11. Wi-Fi/BLE alone must leave 14 pending.
 - [ ] With fresh approval, run `scripts/device.ps1 check -Check cody-ccp` for
   the prepared host-only ownership, persistence, liveness and packaging regressions.
-  Then separately authorize actual CCP local-marketplace installation/lifetime
-  observation in Codex and physical pairing/reconnect. The Python implementation
-  is source-reviewed; neither host success nor a stored pair proves screen 15.
+  Real physical pairing and screen 15 were observed on 2026-10-10 through the
+  manually launched installed STDIO service. Native plugin autoload/lifetime
+  observation, restart discovery and loss/recovery remain pending. Neither host
+  success nor a stored pair alone proves screen 15.
 - [ ] Validate teletype titles/body/footer/look/status and original microclick:
   completed-frame reveal only, no clicks on scrolling/replacement/resume,
   bounded notifications, quiet/time/volume gating, excluded-audio profiles,

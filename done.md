@@ -10,6 +10,18 @@ flash logs were regenerated.
 
 ## Cody action language, Options and touch diagnosis - 2026-10-09
 
+- On 2026-10-10, the user's explicit connection request completed real LAN
+  commissioning with the installed CCP 0.2.0 service and Cody at 192.168.1.19.
+  `ccp_discover_devices` returned one offer; `ccp_pair_device` returned paired=true
+  after two-sided confirmation. After the user pressed Let's go and reported
+  Connected, `ccp_connection_status` returned connected=true with authenticated
+  last-seen evidence. This verifies the cooperative firmware verifier interoperates
+  with the PC for this pairing and confirms the observed route to screen 15.
+  No display codes, proofs or keys are retained here. The enabled plugin's tools
+  were absent from this chat, so its installed STDIO service was launched manually
+  through the Codex terminal session. Native plugin autoload/lifetime, reboot
+  rediscovery, loss/recovery and multi-device behavior remain unverified.
+  This is commissioning/presence evidence, not a selected chat or task transport.
 - The presentation/standby follow-up is installed at `84e95216`, firmware version
   `cody-16-g84e95216`: the authorized eight-job Debug wake-word build and COM10 flash
   succeeded, with four verified image hashes and final RTS reset. Application
