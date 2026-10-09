@@ -9,9 +9,15 @@
 - [x] Replace two nested full-snapshot copies with bounded canonical power/display
   observations. Preserve freshness, real errors and the fresh post-wake panel read;
   retain the 8-KiB internal stack. Add bounded Debug stack-headroom reporting.
-- [ ] Build/install the completed fix and observe a fresh boot plus standby/wake
-  with the user's separately authorized verification capture. A build/flash alone
-  cannot establish that the device now resumes without resetting.
+- [x] Build/install `579afee5`, app `cody-34-g579afee5`, Debug wake-word/Sophia,
+  with eight jobs and four verified flash hashes. Authorized Git whitespace check
+  passed for `9122c561..579afee5`.
+- [ ] Observe standby/wake after the correction. The authorized reset capture
+  reached Connected and measured 5820/8192 bytes minimum free stack, then failed
+  near 16 seconds because Windows closed COM10. No panic preceded the loss in
+  the captured interval; the missing interval is not stability evidence. The
+  port returned present and CCP reported connected=true. Fresh passive capture
+  authorization requested; USB loss cause remains unconfirmed.
 - [ ] CCP still reports no hook-observed chats; authenticated packets have carried
   state=None. Complete genuine hook review/delivery before claiming live chat activity.
 
@@ -66,8 +72,10 @@
 
 ## Cody startup and setup access - 2026-10-09
 
-Latest installed Cody image: `51b5d532`, `cody-32-g51b5d532-dirty`, Debug wake-word/Sophia,
-eight-job build and COM10 flash successful on 2026-10-10. Only the PDF revision
+Latest installed Cody image: `579afee5`, `cody-34-g579afee5`, Debug wake-word/Sophia,
+eight-job build and COM10 flash successful on 2026-10-10. Boot reached Connected;
+post-fix wake observation remains open as detailed above. Previous image:
+`51b5d532`, `cody-32-g51b5d532-dirty`. Only the PDF revision
 and its authoring/check scripts were uncommitted at configuration time; firmware
 source was checkpointed. The prior boot-fixed image was `3590f693`,
 `cody-30-g3590f693`, with the authorized 90-second success recorded in done.md.

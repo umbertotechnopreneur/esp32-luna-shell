@@ -26,8 +26,22 @@ flash logs were regenerated.
   observations. The latter is still read after wake, rather than reusing an old
   pre-wake observation. Aging/timestamps, lock failures and the fatal canonical
   read invariant are retained. Compile-time size budgets and bounded Debug
-  minimum-free-stack logs make future growth observable. Static review complete;
-  build/install and fresh physical verification are pending at this checkpoint.
+  minimum-free-stack logs make future growth observable. Static review complete.
+- Checkpoint `579afee5` built with eight jobs and flashed on COM10 successfully;
+  app `cody-34-g579afee5`, 6,803,296 application bytes, four verified image hashes.
+  New compiled frames are 720 bytes (`power_task`) and 144 bytes (display helper),
+  down to 864 combined. The actual projections occupy 552 and 80 bytes. Matching
+  installed ELF SHA-256:
+  `348b002bcd61f2132feb6ce844810813eb292e02583169301c1fd486262aabc5`.
+- The separately authorized `git diff --check 9122c561 HEAD` passed at `579afee5`.
+  The authorized 300-second reset capture was interrupted by Windows closing
+  COM10 at about 16 seconds (exit 1). Before the loss it recorded Connected at
+  14196 ms, authenticated activity=None, and power minimum-free stack 5820/8192
+  bytes. No captured panic/reset followed boot in that short interval. Windows
+  subsequently listed COM10 present/OK and CCP reported connected=true. The
+  cause of USB closure and post-fix standby/wake remain unverified; no stability
+  claim covers the missing capture interval. Raw log:
+  `artifacts/logs/cody-power-stack-fixed-20261010.txt`.
 - Raw captures, the matching ELF and three core dumps are retained locally in
   `artifacts/build-cody-companion-wake-word-debug/diagnostics/power-20261010/`.
   Core memory is private diagnostic material, not a repository artifact.
