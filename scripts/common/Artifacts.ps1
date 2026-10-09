@@ -94,7 +94,8 @@ function Clear-DeviceArtifacts {
 
     $root = Get-DeviceArtifactsRoot
     $preserved = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    foreach ($name in @('sdkconfig', 'board-config', 'python', 'managed_components', '.device.lock')) {
+    # The isolated simulator identity is durable user state, not a disposable capture.
+    foreach ($name in @('sdkconfig', 'board-config', 'python', 'managed_components', 'cody-simulator-state', '.device.lock')) {
         $null = $preserved.Add($name)
     }
     foreach ($path in $ProtectedPaths) {

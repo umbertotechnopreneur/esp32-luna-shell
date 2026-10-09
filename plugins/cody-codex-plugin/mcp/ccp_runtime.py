@@ -24,6 +24,12 @@ from ccp_activity import EVENTS
 CONTROL_PORT = 42119
 MAX_REQUEST_BYTES = 65536
 IDLE_GRACE_SECONDS = 60.0
+LEASE_RENEW_SECONDS = 10.0
+LEASE_RETRY_SECONDS = (1.0, 3.0, 10.0, 30.0)
+
+
+class BrokerTransportError(RuntimeError):
+    """The HTTP transport failed before a valid broker response was available."""
 
 
 # No parameters: uses the established per-user CCP storage owner.
@@ -73,11 +79,15 @@ def exchange(operation: str, payload: dict[str, Any], secret: str, timeout: floa
         if len(raw) > MAX_REQUEST_BYTES:
             raise RuntimeError("CCP local response exceeds its bound")
         result = json.loads(raw)
+        if not isinstance(result, dict):
+            raise RuntimeError("CCP local response must be an object")
         if response.status != 200:
             raise RuntimeError(result.get("error", "CCP runtime rejected the request"))
+        if set(result) != {"result"}:
+            raise RuntimeError("CCP local response envelope is invalid")
         return result["result"]
     except http.client.HTTPException as error:
-        raise RuntimeError(f"CCP local HTTP exchange failed: {error}") from error
+        raise BrokerTransportError(f"CCP local HTTP exchange failed: {error}") from error
     finally:
         connection.close()
 
@@ -118,49 +128,94 @@ def ensure_runtime() -> str:
     while time.monotonic() < deadline:
         try:
             secret = control_secret()
-            exchange("health", {}, secret)
+            remaining = max(0.01, deadline - time.monotonic())
+            exchange("health", {}, secret, timeout=min(2.0, remaining))
             return secret
         except (ConnectionRefusedError, FileNotFoundError, TimeoutError) as error:
             last_error = error
             time.sleep(0.05)
-    raise RuntimeError(f"CCP startup did not complete; inspect artifacts/logs/runtime.log: {last_error}")
+    raise BrokerTransportError(
+        f"CCP startup did not complete; inspect artifacts/logs/runtime.log: {last_error}") from last_error
 
 
 class BrokerClient:
-    # No parameters: one MCP transport renews its lease independently of tool calls.
+    # self: One MCP transport renewing its lease independently of tool calls.
     # Raises OSError or RuntimeError when the shared owner cannot start or authenticate.
     def __init__(self) -> None:
         self._secret = ensure_runtime()
         self._lease = secrets.token_hex(16)
         self._stop = threading.Event()
+        self._state_lock = threading.Lock()
         self._error: Exception | None = None
         exchange("lease", {"id": self._lease}, self._secret)
         self._thread = threading.Thread(target=self._renew, name="CCP-MCP-lease", daemon=True)
         self._thread.start()
 
-    # No parameters: renews owner lifetime without fabricating chat activity.
-    def _renew(self) -> None:
-        while not self._stop.wait(10.0):
-            try:
-                exchange("lease", {"id": self._lease}, self._secret)
-            except (OSError, RuntimeError, ValueError) as error:
+    # self: Existing MCP lease whose control credential and identity must remain unchanged.
+    # Raises the original transport error, or an authentication/version/storage error.
+    def _renew_once(self) -> None:
+        with self._state_lock:
+            recovering = self._error is not None
+        try:
+            if recovering:
+                # A broker restart can be recovered; a replaced/missing credential
+                # cannot. Read the existing credential before admitting a launch.
+                retained_secret = control_secret()
+                if not hmac.compare_digest(retained_secret, self._secret):
+                    raise RuntimeError("CCP control identity changed; explicit plugin restart required")
+                recovered_secret = ensure_runtime()
+                if not hmac.compare_digest(recovered_secret, self._secret):
+                    raise RuntimeError("CCP recovered owner has a different control identity")
+            if self._stop.is_set():
+                return
+            exchange("lease", {"id": self._lease}, self._secret)
+        except (OSError, RuntimeError, ValueError) as error:
+            with self._state_lock:
+                first_failure = self._error is None
                 self._error = error
+            if first_failure:
                 print(f"CCP lease failed: {error}", file=sys.stderr, flush=True)
+            raise
+        with self._state_lock:
+            self._error = None
+        if recovering:
+            print("CCP authenticated lease recovered; retained pairing unchanged", file=sys.stderr, flush=True)
+
+    # self: One renewable MCP lease, independent of genuine Codex activity.
+    # Transport retries have bounded waits; identity/authentication failures remain terminal.
+    def _renew(self) -> None:
+        failures = 0
+        delay = LEASE_RENEW_SECONDS
+        while not self._stop.wait(delay):
+            try:
+                self._renew_once()
+                failures = 0
+                delay = LEASE_RENEW_SECONDS
+            except (OSError, BrokerTransportError):
+                # Cap each attempt and its cadence. No request or hook is replayed.
+                delay = LEASE_RETRY_SECONDS[min(failures, len(LEASE_RETRY_SECONDS) - 1)]
+                failures += 1
+            except (RuntimeError, ValueError) as error:
+                print(f"CCP lease recovery requires explicit action: {error}", file=sys.stderr, flush=True)
                 return
 
+    # self: Existing transport retaining its own lease identity and current renewal error.
     # operation: Requested local operation; MCP clients only use the mcp endpoint.
     # payload: Original MCP request, which the broker validates at its tool boundary.
     # Raises the original lease failure or current transport/operation error.
     def request(self, operation: str, payload: dict[str, Any]) -> Any:
-        if self._error is not None:
-            raise self._error
+        with self._state_lock:
+            error = self._error
+        if error is not None:
+            raise error
         return exchange(operation, payload, self._secret, timeout=20.0)
 
-    # No parameters: releases only this transport's lease, preserving other open chats.
+    # self: Existing transport releasing only its own lease, preserving other open chats.
     # Raises OSError or RuntimeError if the owned lease cannot be released.
     def close(self) -> None:
         self._stop.set()
-        self._thread.join(timeout=3.0)
+        # An in-flight recovery has a five-second startup and two-second lease bound.
+        self._thread.join(timeout=8.0)
         if self._thread.is_alive():
             raise RuntimeError("CCP lease worker did not stop")
         exchange("release", {"id": self._lease}, self._secret)

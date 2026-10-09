@@ -2,6 +2,7 @@
 
 import hashlib
 import math
+import re
 
 from scripts.common.cody_scene_contract import load_scenes, require_keys, scene_source_hash
 from scripts.common.cody_rig_contract import read_json
@@ -19,6 +20,8 @@ class ScenePainter:
         generated = root / "assets/cody/scenes/generated"
         self.font = read_json(generated / "manifest.json")
         self.coverage = (generated / "scene_font.2bpp.bin").read_bytes()
+        self.body_coverage = bytes(int(value, 16) for value in re.findall(
+            r"0x([0-9a-fA-F]{2})\b", (generated / "scene_body_font.cpp").read_text(encoding="utf-8")))
         require_keys(self.font, {"schema", "font_name", "source_family", "license", "font_source_sha256",
             "scenes_sha256", "first_character", "character_count", "width", "height", "advance",
             "row_bytes", "coverage_bytes", "coverage_sha256", "note", "body_font"}, "generated scene font")
@@ -37,6 +40,17 @@ class ScenePainter:
         if (len(self.coverage) != self.font["coverage_bytes"] or
                 hashlib.sha256(self.coverage).hexdigest() != self.font["coverage_sha256"]):
             raise ValueError("Scene glyph coverage is corrupt or incomplete")
+        body = self.font["body_font"]
+        require_keys(body, {"pixel_size", "width", "height", "advance", "row_bytes",
+                            "coverage_bytes", "coverage_sha256"}, "generated caption font")
+        if (any(type(body[key]) is not int for key in ("width", "height", "advance", "row_bytes", "coverage_bytes")) or
+                not 1 <= body["width"] <= 32 or not 1 <= body["height"] <= 64 or
+                not 1 <= body["advance"] <= 32 or body["row_bytes"] != (body["width"] + 3) // 4 or
+                body["coverage_bytes"] != font["character_count"] * body["height"] * body["row_bytes"]):
+            raise ValueError("Invalid printable-ASCII packed caption extent")
+        if (len(self.body_coverage) != body["coverage_bytes"] or
+                hashlib.sha256(self.body_coverage).hexdigest() != body["coverage_sha256"]):
+            raise ValueError("Scene caption coverage is corrupt or incomplete")
         for scene in self.scenes.values():
             title = scene["title"]
             width = (len(title["text"]) - 1) * font["advance"] + font["width"]
@@ -160,21 +174,50 @@ class ScenePainter:
         if not title["visible"]:
             return
         visible = self.visible_characters(identity, active_ms)
-        font = self.font
-        width = (len(title["text"]) - 1) * font["advance"] + font["width"]
+        self.paint_text(image, title["text"], title["top"], title["color_rgb565"], visible=visible)
+
+    # self: Owner of the same immutable title/caption glyphs used by the native renderer.
+    # image: Complete RGB logical framebuffer.
+    # text: Bounded printable-ASCII content; its complete width is reserved during reveal.
+    # top: Logical top row of this centered line.
+    # color: Native RGB565 foreground.
+    # body: Select the authored caption font instead of the title font.
+    # visible: Optional visible prefix; omitted means the complete line.
+    # Raises ValueError for unsupported pixels, text, extent or glyph counts.
+    def paint_text(self, image, text, top, color=65535, *, body=False, visible=None):
+        if image.mode != "RGB" or image.size != (466, 466):
+            raise ValueError("Scene text requires a 466x466 RGB framebuffer")
+        if not isinstance(text, str) or any(not 32 <= ord(character) <= 126 for character in text):
+            raise ValueError("Scene text must be printable ASCII")
+        if not text:
+            return
+        if type(top) is not int or type(color) is not int or not 0 <= color <= 65535:
+            raise ValueError("Scene text position/color is invalid")
+        font = {**self.font, **self.font["body_font"]} if body else self.font
+        coverage = self.body_coverage if body else self.coverage
+        width = (len(text) - 1) * font["advance"] + font["width"]
         origin_x = (466 - width) // 2
+        if width > (232 if body else 320) or any(
+                (x - 233) ** 2 + (y - 233) ** 2 > 233 ** 2
+                for x in (origin_x, origin_x + width - 1)
+                for y in (top, top + font["height"] - 1)):
+            raise ValueError("Scene text exceeds its slot or circular chord")
+        if visible is None:
+            visible = len(text)
+        if type(visible) is not int or not 0 <= visible <= len(text):
+            raise ValueError("Scene text visible prefix is invalid")
         pixels = image.load()
-        source = title["color_rgb565"]
-        for index, character in enumerate(title["text"][:visible]):
+        source = color
+        for index, character in enumerate(text[:visible]):
             glyph = (ord(character) - font["first_character"]) * font["height"] * font["row_bytes"]
             for row in range(font["height"]):
                 offset = glyph + row * font["row_bytes"]
                 for column in range(font["width"]):
-                    level = (self.coverage[offset + column // 4] >> (6 - column % 4 * 2)) & 3
+                    level = (coverage[offset + column // 4] >> (6 - column % 4 * 2)) & 3
                     if level == 0:
                         continue
                     x = origin_x + index * font["advance"] + column
-                    y = title["top"] + row
+                    y = top + row
                     red, green, blue = pixels[x, y]
                     background = (red >> 3) << 11 | (green >> 2) << 5 | blue >> 3
                     word = 0

@@ -137,20 +137,20 @@ class CcpContractTests(unittest.TestCase):
         state = Mock()
         state.pc_id = "a" * 32
         link_key = bytes(range(32))
-        state.link_key.return_value = link_key
+        state.retained_keys.return_value = ccp.RetainedKeys(link_key, None)
         responder = ccp.CompanionResponder(state, Mock(), ccp.ActivityStore())
         device_id = "abcdef012345"
         nonce = "b" * 32
         fields = [("device", device_id), ("pc", state.pc_id), ("nonce", nonce)]
         invalid = ccp.encode_datagram("FIND", fields + [("proof", "0" * 64)])
         with self.assertRaisesRegex(ValueError, "proof does not match"):
-            responder._handle_find(invalid, ("192.0.2.10", ccp.DEVICE_PORT))
+            responder._handle_datagram(invalid, ("192.0.2.10", ccp.DEVICE_PORT))
         state.mark_seen.assert_not_called()
         responder._socket.sendto.assert_not_called()
 
         proof = ccp.make_proof(link_key, "find", device_id, state.pc_id, nonce)
         valid = ccp.encode_datagram("FIND", fields + [("proof", proof)])
-        responder._handle_find(valid, ("192.0.2.10", ccp.DEVICE_PORT))
+        responder._handle_datagram(valid, ("192.0.2.10", ccp.DEVICE_PORT))
         payload, destination = responder._socket.sendto.call_args.args
         kind, response = ccp.parse_datagram(payload)
         self.assertEqual(kind, "READY")
@@ -176,16 +176,118 @@ class CcpContractTests(unittest.TestCase):
         )
         service._offers = {(offer.device_id, offer.session_id): offer}
         service._offers_lock = threading.Lock()
+        service._pairing_lock = threading.Lock()
         service._matching_offers = Mock(return_value=[(offer, bytes(32))])
         operations = Mock()
         service._exchange_pairing_request = operations.device_saved
-        service.state.remember_pairing = operations.pc_saved
+        service.state.stage_pairing = operations.pc_candidate
+        service.state.confirm_device_choice = operations.pc_committed
         service._exchange_confirmation = operations.active
         operations.active.side_effect = TimeoutError("synthetic missing ACTIVE")
         with self.assertRaisesRegex(TimeoutError, "missing ACTIVE"):
             service.pair("ABCDEF")
         completed_steps = [call[0] for call in operations.mock_calls]
-        self.assertEqual(completed_steps, ["device_saved", "pc_saved", "active"])
+        self.assertEqual(completed_steps, ["pc_candidate", "device_saved", "active"])
+
+    # self: Isolated transaction fixture; DPAPI alone is replaced by a reversible synthetic encoding.
+    # Returns a real StateStore with an existing active association and two distinct fixture keys.
+    def transaction_fixture(self):
+        for replacement in (patch.object(ccp, "protect_secret", side_effect=lambda value, description: value.hex()),
+                            patch.object(ccp, "unprotect_secret", side_effect=bytes.fromhex)):
+            replacement.start()
+            self.addCleanup(replacement.stop)
+        state = ccp.StateStore()
+        old_key, new_key = bytes(range(32)), bytes(reversed(range(32)))
+        state.remember_pairing("abcdef012345", old_key, "127.0.0.1")
+        return state, old_key, new_key
+
+    # self: Durable old/new associations across a process restart.
+    # Raises AssertionError if staging overwrites the active file or silently admits a second candidate.
+    def test_pending_pairing_preserves_old_record_and_requires_explicit_replacement(self):
+        state, old_key, new_key = self.transaction_fixture()
+        active_bytes = self.state_path.read_bytes()
+        state.stage_pairing("abcdef012345", new_key, "127.0.0.1")
+        self.assertEqual(self.state_path.read_bytes(), active_bytes)
+        restarted = ccp.StateStore()
+        self.assertEqual(restarted.retained_keys("abcdef012345"), ccp.RetainedKeys(old_key, new_key))
+        status = restarted.public_status()[0]
+        self.assertTrue(status["pairing_pending"])
+        self.assertTrue(status["retained_pairing"])
+        with self.assertRaisesRegex(ValueError, "unresolved pairing candidate"):
+            restarted.admit_pairing("abcdef012345", False)
+        restarted.stage_pairing("abcdef012345", bytes(32), "127.0.0.1", True)
+        self.assertEqual(restarted.retained_keys("abcdef012345").active, old_key)
+
+    # self: Failure after active persistence but before candidate-file cleanup.
+    # Raises AssertionError if partial failure reports success or prevents idempotent restart recovery.
+    def test_pending_cleanup_failure_is_explicit_and_recoverable(self):
+        state, _, new_key = self.transaction_fixture()
+        state.stage_pairing("abcdef012345", new_key, "127.0.0.1")
+        with patch.object(state, "_save_pending_locked", side_effect=RuntimeError("synthetic cleanup denied")):
+            with self.assertRaisesRegex(RuntimeError, "cleanup denied"):
+                state.confirm_device_choice("abcdef012345", new_key, new_key)
+        restarted = ccp.StateStore()
+        self.assertEqual(restarted.retained_keys("abcdef012345"), ccp.RetainedKeys(new_key, new_key))
+        restarted.confirm_device_choice("abcdef012345", new_key, new_key)
+        self.assertEqual(restarted.retained_keys("abcdef012345"), ccp.RetainedKeys(new_key, None))
+
+    # self: Old-key messages from a retained association, including authenticated recorded replays.
+    # Raises AssertionError if a previous key authorizes deleting a newer unresolved candidate.
+    def test_old_key_commit_keeps_pending_candidate_and_previous_link(self):
+        state, old_key, new_key = self.transaction_fixture()
+        state.stage_pairing("abcdef012345", new_key, "127.0.0.1")
+        state.confirm_device_choice("abcdef012345", old_key, new_key)
+        self.assertEqual(state.retained_keys("abcdef012345"), ccp.RetainedKeys(old_key, new_key))
+        with self.assertRaisesRegex(ValueError, "unresolved pairing candidate"):
+            state.admit_pairing("abcdef012345", False)
+
+    # self: Real HMAC responder with a private, isolated state owner.
+    # Raises AssertionError if FIND promotes a candidate, or forged/stale COMMITTED is accepted.
+    def test_committed_requires_nonce_source_proof_and_current_candidate(self):
+        state, old_key, new_key = self.transaction_fixture()
+        state.stage_pairing("abcdef012345", new_key, "127.0.0.1")
+        responder = ccp.CompanionResponder(state, Mock(), ccp.ActivityStore())
+        source = ("127.0.0.1", ccp.DEVICE_PORT)
+        values = ["abcdef012345", state.pc_id, "b" * 32]
+        fields = list(zip(("device", "pc", "nonce"), values))
+        find = ccp.encode_datagram("FIND", fields + [("proof", ccp.make_proof(new_key, "find", *values))])
+        committed = ccp.encode_datagram("COMMITTED", fields + [("proof", ccp.make_proof(new_key, "committed", *values))])
+        responder._handle_datagram(find, source)
+        self.assertEqual(state.retained_keys(values[0]), ccp.RetainedKeys(old_key, new_key))
+        with self.assertRaisesRegex(ValueError, "recent authenticated FIND"):
+            responder._handle_datagram(committed, (source[0], source[1] + 1))
+        forged = ccp.encode_datagram("COMMITTED", fields + [("proof", "0" * 64)])
+        with self.assertRaisesRegex(ValueError, "proof is invalid"):
+            responder._handle_datagram(forged, source)
+        state.stage_pairing(values[0], bytes(32), "127.0.0.1", True)
+        with self.assertRaisesRegex(ValueError, "superseded candidate"):
+            responder._handle_datagram(committed, source)
+        self.assertEqual(state.retained_keys(values[0]).active, old_key)
+
+    # self: A durable PC candidate receiving a valid device commit and later repeated presence.
+    # Raises AssertionError if missing ACK retry requires a fresh code or duplicate acknowledgement mutates identity.
+    def test_committed_retry_promotes_once_and_remains_idempotent(self):
+        state, _, new_key = self.transaction_fixture()
+        state.stage_pairing("abcdef012345", new_key, "127.0.0.1")
+        responder = ccp.CompanionResponder(state, Mock(), ccp.ActivityStore())
+        source = ("127.0.0.1", ccp.DEVICE_PORT)
+        for nonce in ("a" * 32, "b" * 32):
+            values = ["abcdef012345", state.pc_id, nonce]
+            fields = list(zip(("device", "pc", "nonce"), values))
+            responder._handle_datagram(ccp.encode_datagram("FIND", fields +
+                [("proof", ccp.make_proof(new_key, "find", *values))]), source)
+            responder._handle_datagram(ccp.encode_datagram("COMMITTED", fields +
+                [("proof", ccp.make_proof(new_key, "committed", *values))]), source)
+            self.assertEqual(state.retained_keys(values[0]), ccp.RetainedKeys(new_key, None))
+
+    # self: Partial local storage where the candidate file survived but its PC identity did not.
+    # Raises AssertionError if startup creates an unrelated PC identity over ambiguous state.
+    def test_orphan_candidate_store_does_not_create_a_new_identity(self):
+        ccp.StateStore()
+        self.state_path.unlink()
+        with self.assertRaisesRegex(RuntimeError, "active identity is missing"):
+            ccp.StateStore()
+        self.assertFalse(self.state_path.exists())
 
     # self: Source-only plugin catalog fixture.
     # Raises AssertionError if packaging versions, local paths or MCP entrypoints diverge.
@@ -314,20 +416,21 @@ class ChatActivityTests(unittest.TestCase):
     def test_activity_reply_authenticates_every_field(self) -> None:
         self.observe("UserPromptSubmit", cwd="E:/" + "P" * 24)
         state = Mock(pc_id="a" * 32)
-        state.link_key.return_value = bytes(range(32))
+        link_key = bytes(range(32))
+        state.retained_keys.return_value = ccp.RetainedKeys(link_key, None)
         listener = Mock()
         responder = ccp.CompanionResponder(state, listener, self.store)
         values = ["abcdef012345", state.pc_id, "b" * 32]
-        proof = ccp.make_proof(state.link_key.return_value, "find-activity", *values)
+        proof = ccp.make_proof(link_key, "find-activity", *values)
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
                                    [("activity", "1"), ("proof", proof)])
-        responder._handle_find(find, ("192.0.2.10", ccp.DEVICE_PORT))
+        responder._handle_datagram(find, ("192.0.2.10", ccp.DEVICE_PORT))
         raw, _ = listener.sendto.call_args.args
         kind, fields = ccp.parse_datagram(raw)
         self.assertEqual(kind, "ACTIVITY")
         self.assertLessEqual(len(raw), 512)
         authenticated = [fields[key] for key in ("device", "pc", "nonce", "chat", "revision", "phase", "project")]
-        expected = ccp.make_proof(state.link_key.return_value, "activity", *authenticated)
+        expected = ccp.make_proof(link_key, "activity", *authenticated)
         self.assertEqual(fields["proof"], expected)
         self.assertEqual(fields["nonce"], values[2])
         self.assertEqual(bytes.fromhex(fields["project"]), b"P" * 24)
@@ -335,7 +438,7 @@ class ChatActivityTests(unittest.TestCase):
         # Stripping the capability cannot reuse its proof as a presence-only FIND.
         stripped = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) + [("proof", proof)])
         with self.assertRaises(ValueError):
-            responder._handle_find(stripped, ("192.0.2.10", ccp.DEVICE_PORT))
+            responder._handle_datagram(stripped, ("192.0.2.10", ccp.DEVICE_PORT))
         listener.sendto.assert_not_called()
 
     # self: Ended followed chat and a new broker without stored activity metadata.
@@ -416,6 +519,92 @@ class ChatActivityTests(unittest.TestCase):
                 runtime.run_hook()
         submitted = exchange.call_args.args[1]
         self.assertEqual(set(submitted), {"hook_event_name", "session_id", "turn_id", "cwd", "emitted_ns"})
+
+
+class BrokerRecoveryTests(unittest.TestCase):
+    # self: Detached lease fixture; no constructor, thread, socket or protected state is used.
+    def setUp(self) -> None:
+        self.client = runtime.BrokerClient.__new__(runtime.BrokerClient)
+        self.client._secret = "synthetic-retained-credential"
+        self.client._lease = "a" * 32
+        self.client._stop = threading.Event()
+        self.client._state_lock = threading.Lock()
+        self.client._error = None
+        diagnostics = contextlib.redirect_stderr(io.StringIO())
+        diagnostics.__enter__()
+        self.addCleanup(diagnostics.__exit__, None, None, None)
+
+    # self: Failed lease followed by the same authenticated broker identity.
+    # Raises AssertionError if recovery rotates identity or clears an error before renewal succeeds.
+    def test_lease_recovers_without_replaying_tools_or_rotating_identity(self) -> None:
+        failure = ConnectionRefusedError("synthetic stopped broker")
+        with patch.object(runtime, "exchange", side_effect=failure):
+            with self.assertRaises(ConnectionRefusedError):
+                self.client._renew_once()
+        self.assertIs(self.client._error, failure)
+        with patch.object(runtime, "control_secret", return_value=self.client._secret) as secret:
+            with patch.object(runtime, "ensure_runtime", return_value=self.client._secret) as ensure:
+                with patch.object(runtime, "exchange", return_value={}) as exchange:
+                    self.client._renew_once()
+        secret.assert_called_once_with()
+        ensure.assert_called_once_with()
+        exchange.assert_called_once_with("lease", {"id": "a" * 32}, "synthetic-retained-credential")
+        self.assertIsNone(self.client._error)
+
+    # self: A replaced local credential that cannot identify the retained broker.
+    # Raises AssertionError if recovery launches or adopts a different control identity.
+    def test_changed_credential_stays_an_explicit_error(self) -> None:
+        self.client._error = ConnectionRefusedError("synthetic stopped broker")
+        with patch.object(runtime, "control_secret", return_value="different"):
+            with patch.object(runtime, "ensure_runtime") as ensure, patch.object(runtime, "exchange") as exchange:
+                with self.assertRaisesRegex(RuntimeError, "identity changed"):
+                    self.client._renew_once()
+        ensure.assert_not_called()
+        exchange.assert_not_called()
+        self.assertEqual(self.client._secret, "synthetic-retained-credential")
+        self.assertEqual(self.client._lease, "a" * 32)
+        self.assertIsNotNone(self.client._error)
+
+    # self: A failed mutating MCP exchange whose remote outcome is unknown.
+    # Raises AssertionError if the client automatically retries that operation.
+    def test_tool_request_is_never_replayed(self) -> None:
+        failure = ConnectionResetError("synthetic ambiguous tool response")
+        with patch.object(runtime, "exchange", side_effect=failure) as exchange:
+            with self.assertRaises(ConnectionResetError) as raised:
+                self.client.request("mcp", {"method": "tools/call"})
+        self.assertIs(raised.exception, failure)
+        exchange.assert_called_once()
+
+    # self: Repeated transport failure with synthetic waits and no real delay.
+    # Raises AssertionError if cadence is unbounded or a terminal error is hidden.
+    def test_transient_retries_are_bounded_and_stoppable(self) -> None:
+        self.client._stop = Mock()
+        self.client._stop.wait.side_effect = [False] * 6 + [True]
+        self.client._renew_once = Mock(side_effect=ConnectionRefusedError("synthetic offline"))
+        self.client._renew()
+        self.assertEqual([call.args[0] for call in self.client._stop.wait.call_args_list],
+                         [10.0, 1.0, 3.0, 10.0, 30.0, 30.0, 30.0])
+        self.client._stop.reset_mock()
+        self.client._stop.wait.side_effect = [False]
+        self.client._renew_once.side_effect = RuntimeError("synthetic authentication rejected")
+        self.client._renew()
+        self.client._stop.wait.assert_called_once_with(10.0)
+
+    # self: Public discovery contract with mocked transport service.
+    # Raises AssertionError if loopback discovery becomes implicit or loses its source label.
+    def test_simulator_discovery_requires_explicit_boolean(self) -> None:
+        service = Mock()
+        service.discover.return_value = []
+        ccp.call_tool(service, "ccp_discover_devices", {})
+        service.discover.assert_called_once_with(1200, False)
+        service.discover.reset_mock()
+        ccp.call_tool(service, "ccp_discover_devices", {"include_simulator": True})
+        service.discover.assert_called_once_with(1200, True)
+        with self.assertRaises(ValueError):
+            ccp.call_tool(service, "ccp_discover_devices", {"include_simulator": "true"})
+        self.assertEqual(ccp.observation_source("127.0.0.1"), "SIMULATED")
+        self.assertEqual(ccp.observation_source("192.0.2.10"), "LAN")
+        self.assertEqual(ccp.observation_source(""), "UNOBSERVED")
 
 
 if __name__ == "__main__":

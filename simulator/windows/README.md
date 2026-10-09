@@ -1,128 +1,134 @@
-# Windows simulators
+# Simulatori Windows
 
-Host previews of the 466 x 466 circular UI and authored behavior, not electrical
-hardware or ESP-IDF driver emulation. All device-twin/stimulus values are visibly
-`SYNTHETIC` and never enter firmware snapshots. Host timing and Pillow output do
-not establish native pixels, FPS, CPU load or audible quality.
+Qui provo la UI circolare da 466 × 466 e i comportamenti descritti dagli asset.
+Tengo ben visibili **SYNTHETIC** e **SIMULATED**: i valori generati sul PC non
+entrano negli snapshot del firmware. FPS host, immagini Pillow e audio del PC
+restano osservazioni host; il comportamento elettrico di Cody si verifica su Cody.
 
-## Cody
+## Apro Cody Studio
 
-The approved VibeWare floppy is available as `device.ps1 simulator -Screen
-boot-vibeware`. The 42-frame host preview retains the 3.5-second GIF timeline,
-black transparency composition, centered twofold pixel scale and shared cardinal
-rotation. `-AtMs` selects a still; `boot-screens` includes the new introduction.
-The Luna simulator also starts with this artwork and completes its current cycle
-after synthetic service readiness. No simulator was run for this implementation.
-The Studio manifesto link uses the user-provided
-`https://umbertogiacobbi.biz/vibeware/manifesto` without background navigation.
-
-The desktop inspector uses Tkinter/ttk with the local Cody Studio dark theme:
-navy surfaces, teal accents, Segoe UI text, thin sliders and switch controls.
-The fixed header keeps animation, rig inspection, scene and rotation accessible.
-Face, Shape, Inputs and Inspect each retain a separate scroll position, and
-expression presets wrap into a grid instead of overflowing the sidebar. Narrow
-windows stack the inspector below the preview. The initial view hides geometry
-overlays and opens Face, so the character and automatic caress experiment can
-be tried without first clearing the diagnostic view. Stable point names remain
-available under Inspect. These changes affect desktop widgets only.
-
-The first Studio UI at `679fbda2` opened after an authorized restart; the user
-reported blurry Windows scaling and about 100 ms host ticks, then closed it.
-The subsequent DPI/performance corrections have static source review only.
-Windows startup now explicitly requires Per Monitor v2 awareness before Tk,
-then sets point scaling from the actual window DPI. Custom indicators, sidebar
-dimensions, wrapping and spacing use that startup scale. Window dimensions are
-bounded by the monitor's physical work area; compact side-by-side layout is used
-when the stacked minimum cannot fit. The character's native
-466 x 466 geometry and pointer mapping stay independent of UI scaling. Moving
-between monitors with different DPI still needs a separate Tk scaling transition.
-
-The exact four-sample coverage accumulator buckets edges by scanline and emits
-disjoint coverage runs. Opaque RGB565 interiors use Pillow's C-backed copy; only
-partial pixels use the original native channel blend. Visible inspector text
-updates at most 10 Hz, status at 5 Hz; model, gesture and cue clocks still advance
-each tick. The footer reports observed host FPS separately from the target.
-The desktop frame limit defaults to30Hz (25Hz for the jelly study), with explicit
-15/25/30/60 choices in the inspector. This limits host redraw demand without
-changing firmware cadence or elapsed-time personality/gesture rules.
-No improvement in FPS or CPU use has been measured yet.
-
-A focused regression check is available through the public CLI, after explicit
-authorization. It opens no Tk window and runs no benchmark:
-
-```powershell
-.\scripts\device.ps1 check -Check cody-preview-raster
-```
-
-It compares final RGB pixels against the established per-pixel compositor across
-clipped/concave/fractional polygons and four opacities, plus analytic coverage,
-winding reversal and an independent per-pixel coverage oracle on 32 x 32 masks.
-Native firmware performance remains unmeasured.
-
-The Face panel offers one manga-symbol selector in the main `rig` presentation.
-The semantic `sleep` and `sleeping` presets select Sleep automatically; blinking
-or closing the eye sliders does not. Editing a face slider clears the selected
-preset identity. Greeting and boot artwork disable the symbol; Micro always
-suppresses it. Device-symbol choices remain explicitly synthetic host previews.
-
-The single-target channel uses a 300-ms stable request, 400-ms smooth fade-in,
-2,500-ms minimum full-opacity hold and 600-ms smooth fade-out. Intermediate
-requests are overwritten without a queue. A semantic Sleep preset starts its
-fade without the stability delay; a manually selected Sleep symbol in an ordinary
-pose retains that delay. Entering the Sleep preset releases any competing symbol
-without its minimum hold, completing the old symbol's fade-out before Sleep's
-fade-in. Leaving the semantic Sleep preset also releases it without waiting for
-the minimum hold. Pause freezes the channel and following time. The interactive
-Sleep preset can show the full transition; firmware power timing is unchanged
-and may turn the panel off before a competing-symbol transition completes.
-
-The simulator reads its stable IDs, priorities, gesture/mood rules, anchor
-profiles and timing directly from validated `assets/cody/personality.yaml`.
-Firmware receives generated immutable headers from the same source. The center follows
-the evaluated Nose anchor plus its configured local offset using a 360-ms finite
-history window; scale uses a 400-ms window. Seventeen fixed 25-ms geometry buckets
-hold duration-weighted target integrals. Older geometry is discarded completely,
-so a stationary target is reached within 400 ms of active time. Position lag is
-capped at four pixels radially; deformation is limited to two pixels at the
-largest base extent. Pause freezes these windows. This geometric history does
-not queue symbol requests. Symbols use the generated RGB565 palette/coverage data and the same
-integer sampling and opacity multiplication as native Cody. Pillow compositing
-remains a host preview rather than pixel-level hardware proof.
-
-The native status rectangle `(106,37)-(362,58)` is permanently reserved, along
-with Back. A symbol that cannot fit its authored position, the body's clearance
-or the circle reports `BLOCKED_BY_LAYOUT` in the host status line. It is hidden
-without shifting or shrinking abruptly; the next admitted presentation fades in
-again. The 2026-10-05 focused suite passed 122 native/Python controller parity
-frames, and the interactive Rig window opened using the versioned pearl boot
-artwork. Gesture feel, audio playback and hardware behavior remain unverified.
-Disable Debug geometry and select symbol None to try automatic caress hearts.
-See [personality symbols](../../docs/architecture/cody/personality-icons.md).
+Uso sempre la console pubblica dalla radice del repository:
 
 ```powershell
 .\scripts\device.ps1 simulator
+.\scripts\device.ps1 simulator -Screen greeting
 .\scripts\device.ps1 simulator -Screen boot-waking -Rotation 180
-.\scripts\device.ps1 simulator -Screen greeting -CloudJellyStudy -AtMs 1500 -OutputPath artifacts/simulator/greeting.png
+.\scripts\device.ps1 simulator -Screen boot-vibeware -AtMs 1500 -OutputPath artifacts/simulator/boot.png
+.\scripts\device.ps1 boot-screens
 ```
 
-The resizable inspector shares authored rig/response data, named point selection,
-face and contour controls, pause, cardinal rotation and synthetic motion/touch.
-One current viewport transform aligns preview and mouse input; resizing does not
-advance animation time. Desktop annotations are inspector UI, not firmware text.
+Mi servono Python, Pillow e PyYAML. La console prepara il driver audio host prima
+dell'apertura interattiva; una cattura statica non avvia l'audio.
+L'anteprima parte senza rig sovrapposto. Nei pannelli **Face**, **Shape**, **Inputs**
+e **Inspect** cambio espressioni, contorno, stimoli sintetici e diagnostica.
+Ogni scheda mantiene il proprio scorrimento; nelle finestre strette l'ispettore
+si dispone sotto la preview, quando lo spazio verticale lo permette.
 
-`-CloudJellyStudy` previews the native pearl approach; face-follow starts enabled.
-`-CloudMaterialStudy` and `-CloudPngMeshStudy` are separate host-only appearance studies.
-They are mutually exclusive material choices, not alternate firmware fallbacks.
-PNG is preferable to GIF for judging subtle colors. Fixed synthetic GIF timelines
-are not recorded sensor replay or rendering benchmarks.
+Ridimensiono solo la presentazione: geometria, rotazione e puntatore restano
+nelle coordinate logiche del display. Uso Per Monitor v2 prima di Tk e la scala
+DPI iniziale del monitor. Il cambio tra monitor con DPI diversi richiede ancora
+una transizione Tk dedicata. Lascio il limite a 30 Hz, oppure 25 Hz nello studio
+jelly; nell'ispettore posso scegliere 15, 25, 30 o 60 Hz. Il footer distingue
+gli FPS osservati dal limite richiesto. Aggiorno le letture testuali a 10 Hz e
+lo stato a 5 Hz; i clock del modello seguono il tempo trascorso.
 
-Cody launches from source and needs Python with Pillow/PyYAML. See
-[the console](../../scripts/README.md) for interpreter resolution, permitted output
-paths and packaging. Current contracts:
-[runtime](../../docs/architecture/cody/runtime.md),
-[rendering](../../docs/architecture/cody/rendering.md).
+Il floppy VibeWare usa 42 frame e la timeline di 3,5 secondi del GIF approvato,
+con composizione nera, scala pixel doppia e rotazione condivisa.
+`-AtMs` sceglie il fotogramma di una cattura; `boot-screens` comprende
+l'introduzione. Il link Manifesto si apre solo con un clic esplicito.
 
-## Luna and Leg previews
+## Collego il simulatore a CCP
+
+```powershell
+.\scripts\device.ps1 simulator -Ccp
+```
+
+Con `-Ccp` apro anche il pannello **CCP** e un endpoint UDP reale, solo su
+`127.0.0.1:42117`. Nel pannello scelgo **Connect Codex** e leggo il codice.
+In Codex chiedo espressamente di collegare **Cody Studio SIMULATED**; la discovery
+aggiunge `include_simulator: true`, poi il pairing usa il codice visibile.
+Per installazione e trust seguo il [README canonico di CCP](../../plugins/cody-codex-plugin/README.md).
+
+Parlo CCP1 con le stesse primitive del plugin: offerte, PAIR/PAIRED,
+CONFIRM/ACTIVE e FIND/READY/ACTIVITY autentici. Dopo PAIR salvo un candidato
+distinto dall'associazione attiva. Lo promuovo con CONFIRM o con un READY
+autenticato che risponde al nonce corrente; quest'ultimo percorso permette di
+riprendere dopo un riavvio senza un nuovo codice.
+Rispondo a ogni READY valido con COMMITTED, soltanto dopo il commit attivo:
+anche il PC può così completare il proprio candidato se ACTIVE o un precedente
+COMMITTED si sono persi. Il protocollo conserva il vecchio record su entrambi
+i lati fino alla prova del nuovo commit; non prometto una transazione atomica
+tra PC e dispositivo. Dopo Cancel il vecchio link può riprendere, ma il candidato
+PC resta esplicito: per sostituirlo uso un nuovo codice e `replace_pending: true`.
+
+La mia identità simulata inizia con `02` e vive, insieme alle associazioni
+protette da DPAPI, in `artifacts/cody-simulator-state/device.json`.
+Il cleanup dei build conserva questa directory. Un secondo endpoint non può
+prendere la stessa porta; un errore di lettura resta un errore, senza inventare
+un nuovo dispositivo. Il codice compare solo nella UI, mai nei log o nello
+snapshot pubblico.
+
+Dal pannello posso:
+
+- confermare **Replace pairing** mantenendo il vecchio record fino alla nuova conferma;
+- usare **Cancel code** per scartare la finestra o il candidato corrente;
+- confermare **Forget pairing** per cancellare solo le associazioni del simulatore;
+- togliere **SIMULATED LAN available** e ripristinarla senza perdere l'identità;
+- disattivare **Show CCP on the display** per tornare al rig mentre il link resta attivo.
+
+La preview mostra le scene/font esistenti e lo stato ricevuto dal broker.
+Il nome progetto occupa al massimo due righe da 21 caratteri; attendo pacchetti
+freschi prima di mostrare attività. Dopo otto secondi senza aggiornamenti tratto
+l'attività come **UNAVAILABLE**. Il cambio chat segue il vero prompt inviato a
+Codex; non ho aggiunto un selettore locale o un produttore di hook finti.
+
+Questa modalità verifica il percorso del protocollo e la sua presentazione host.
+Il commissioning si controlla dal pannello desktop: non eseguo qui il firmware
+ESP-IDF né riproduco ogni gesto e schermata dell'onboarding nativo.
+Per evitare catture ambigue uso `-Ccp` solo nella modalità interattiva `rig`,
+senza studi di materiale. Cody fisico resta un'identità indipendente.
+
+## Espressioni, simboli e materiale
+
+Nel pannello Face scelgo un simbolo manga per la presentazione `rig`.
+I preset semantici `sleep` e `sleeping` attivano Sleep; chiudere gli occhi con
+uno slider non equivale ad addormentarsi. Una modifica manuale del volto toglie
+l'identità del preset. Greeting, boot e Micro non mostrano il simbolo.
+Per provare le carezze automatiche disattivo il rig diagnostico e scelgo None.
+
+Leggo ID, priorità, tempi, gesti e umore da `assets/cody/personality.yaml`.
+Il canale attende 300 ms di richiesta stabile, entra in 400 ms, rimane almeno
+2.500 ms e scompare in 600 ms. Sleep semantico salta l'attesa iniziale e può
+rilasciare subito il simbolo concorrente; un simbolo Sleep scelto manualmente
+mantiene la normale attesa. Pause congela il tempo attivo.
+Non prometto che il pannello fisico resti acceso fino alla fine della dissolvenza.
+
+L'ancora segue Nose con una finestra di 360 ms; la scala usa 400 ms.
+Uso 17 intervalli fissi da 25 ms, ritardo radiale massimo di quattro pixel e
+deformazione massima di due pixel. La storia geometrica non accoda simboli.
+Palette, copertura e opacità arrivano dagli asset RGB565 generati.
+Riservo Back e la regione di stato: se il simbolo non entra, riporto
+`BLOCKED_BY_LAYOUT`, senza ridurlo o spostarlo a sorpresa.
+Il contratto completo sta in [personality icons](../../docs/architecture/cody/personality-icons.md).
+
+Per l'aspetto della nuvola tengo distinti tre studi:
+
+| Opzione | Cosa provo |
+| --- | --- |
+| `-CloudJellyStudy` | Approccio perla a scanline, interattivo o PNG/GIF; il volto segue il corpo. |
+| `-CloudMaterialStudy` | Studio host del volume, con cattura statica. |
+| `-CloudPngMeshStudy` | Texture e mesh triangolare; `-MeshOverlay` mostra la topologia. |
+
+Scelgo un solo materiale per volta. Preferisco PNG per giudicare i colori;
+il GIF segue una timeline sintetica fissa, non un replay di sensori.
+
+```powershell
+.\scripts\device.ps1 simulator -CloudJellyStudy
+.\scripts\device.ps1 simulator -Screen greeting -CloudJellyStudy -AtMs 1500 -OutputPath artifacts/simulator/greeting.png
+.\scripts\device.ps1 simulator -CloudPngMeshStudy -MeshOverlay -OutputPath artifacts/simulator/cloud-mesh.gif
+```
+
+## Preview Luna e Leg
 
 ```powershell
 .\scripts\device.ps1 simulator-luna -ToolArguments @('--scenario', 'battery-low', '--screen', 'battery')
@@ -132,32 +138,37 @@ paths and packaging. Current contracts:
 .\scripts\device.ps1 package-simulator
 ```
 
-Luna previews diagnostic pages, status/command arcs, power stages and semantic
-device-twin actions. `--board-config` selects the minimal shell using the reviewed
-board YAML and staged shell document; it cannot be mixed with full-device
-scenarios/pages/radio options. Leg has acceleration, gyro, combined, motion and
-settings views; values remain synthetic.
+Con Luna provo pagine diagnostiche, archi di stato/comando, alimentazione e azioni
+semantiche. `--board-config` sceglie la shell minima dal board YAML e dal documento
+shell preparato; non lo mescolo con scenari, pagine e radio del dispositivo
+completo. Per Leg tengo accelerometro, gyro, vista combinata, movimento e
+impostazioni, sempre sintetici.
 
-The packaged executable remains the Luna target, written under
-`artifacts/simulator/windows/dist/`. Packaging explicitly prepares the local host
-environment; launching a preview does not silently install it.
+Il pacchetto EXE rimane Luna in `artifacts/simulator/windows/dist/`.
+Il packaging prepara esplicitamente l'ambiente host; aprire una preview non
+installa dipendenze di nascosto.
 
-Controls: mouse = synthetic touch; `B` = short BOOT/fullscreen; `P` = PWR standby
-toggle; `R` = BOOT soft reset; Enter = confirm; Esc = Back; `C` = confirmation;
-F2 = viewport guide. Standby ignores touch/short BOOT and wakes through synthetic
-PWR. Fullscreen stays locked until explicitly exited.
+| Controllo Luna | Azione sintetica |
+| --- | --- |
+| Mouse | Touch |
+| B | BOOT breve / fullscreen |
+| P | Standby PWR |
+| R | Reset software BOOT |
+| Enter / C | Conferma |
+| Esc | Back |
+| F2 | Guida viewport |
 
-The initial central viewport is 320 x 320 at y=73; hiding only the lower arc
-grows it to 320 x 393, and hiding both/fullscreen to 320 x 466 at y=0.
-`--idle-state` supports active, command-hidden, chrome-hidden, fullscreen,
-dimmed, off and standby captures.
+In standby ignoro touch e BOOT breve; riattivo con PWR sintetico.
+Il viewport parte da 320 × 320 a y=73; nascondendo l'arco basso arriva a
+320 × 393, e senza entrambi gli archi/fullscreen a 320 × 466, y=0.
+Con `--idle-state` posso catturare active, command-hidden, chrome-hidden,
+fullscreen, dimmed, off e standby.
 
-## Deterministic fixtures
+## Fixture e verifiche
 
-`scenarios/` uses `LUNASHELL.simulator.scenario.v1`: typed snapshot patches and
-strictly ordered virtual-time events. Invalid types, duplicate keys, impossible
-states and incoherent validity fail. Semantic actions retain preconditions:
-formatting needs one-shot authorization; distance calibration needs current inputs.
+In `scenarios/` uso `LUNASHELL.simulator.scenario.v1`: patch tipizzate e
+eventi ordinati nel tempo virtuale. Rifiuto chiavi duplicate, tipi errati e stati
+incoerenti. Format e calibrazione mantengono le proprie precondizioni.
 
 ```powershell
 .\scripts\device.ps1 simulator-luna -ToolArguments @('--list-scenarios')
@@ -165,25 +176,34 @@ formatting needs one-shot authorization; distance calibration needs current inpu
 .\scripts\device.ps1 simulator-luna -ToolArguments @('--scenario', 'healthy', '--action', 'start:wireless', '--advance-ms', '1000', '--dump-api', '/api/v1/status')
 ```
 
-`--scenario-file` selects an explicit fixture; `--output` writes JSON under
-`artifacts/`. Replay advances only when requested and retains immutable
-generations. The live scenario catalog replaces a duplicated list here.
+Con `--scenario-file` scelgo una fixture esplicita; `--output` scrive sotto
+`artifacts/`. Avanzo il replay solo quando richiesto e mantengo generazioni
+immutabili. L'elenco degli scenari viene dal catalogo, così non lo duplico qui.
 
-## Loopback HTTP fixtures
+Il server interno `fake_device_server.py` usa loopback, normalmente porta 18080,
+e header sintetici/no-cache. Health è pubblico; gli altri GET richiedono Bearer
+esatto, con limite dopo venti errori in sessanta secondi. Il token pubblico di
+fixture è `LUNASHELL-SIMULATOR-ONLY-NOT-A-SECRET`.
+Il controllo separato `/__simulator/` gestisce load/advance/action; per i contratti
+uso [HTTP device API](../../docs/architecture/http-device-api.md).
 
-`fake_device_server.py` and its local wrapper implement the internal test server:
-loopback-only, normally port 18080, no GUI/serial/hardware, synthetic/no-cache
-headers. They are fixture implementation, not a physical-device API or a second
-public workflow. The intentionally public test token is
-`LUNASHELL-SIMULATOR-ONLY-NOT-A-SECRET`.
+Preparo queste verifiche tramite la console, poi chiedo l'autorizzazione prevista
+da [AGENTS.md](../../AGENTS.md) prima di ogni esecuzione:
 
-Health is public. Capabilities/info/diagnostics/RTC/GPS/status GET routes require
-exact Bearer matching; twenty failed authentications in sixty seconds rate-limit
-data access without hiding health. The separate `/__simulator/` control plane
-lists fixtures/state and accepts load/advance/action requests; it is not firmware
-API behavior. See [HTTP contracts](../../docs/architecture/http-device-api.md).
+```powershell
+.\scripts\device.ps1 check -Check cody-ccp
+.\scripts\device.ps1 check -Check cody-ccp-simulator
+.\scripts\device.ps1 check -Check cody-preview-raster
+.\scripts\device.ps1 check -Check simulator
+```
 
-Simulator execution and checks still need explicit approval under
-[AGENTS](../../AGENTS.md). The `simulator` check covers fixtures, replay, actions,
-redaction and loopback transport; Cody has separate check identifiers. No command
-in this README has been executed as part of the documentation cleanup.
+Le due suite CCP non aprono finestre e non inviano hook a Codex. Quella del
+simulatore comprende UDP reale su porte temporanee di loopback e stato sintetico
+isolato, senza broadcast LAN o accesso alle associazioni personali.
+La suite raster confronta i pixel con il compositore per-pixel e un oracolo di
+copertura indipendente su maschere piccole. La suite Luna copre fixture, azioni,
+redazione e trasporto loopback. Registro risultati e limiti in
+[done.md](../../done.md) e [TODO.md](../../TODO.md).
+Per interpreti, percorsi e packaging rimando alla [console](../../scripts/README.md);
+per il dispositivo ai contratti [runtime](../../docs/architecture/cody/runtime.md)
+e [rendering](../../docs/architecture/cody/rendering.md).

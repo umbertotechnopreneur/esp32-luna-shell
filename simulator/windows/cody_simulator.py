@@ -1,4 +1,4 @@
-"""Local Cody rig preview in the existing Windows simulator toolchain. No network/device I/O."""
+"""Cody Studio rig preview, with an explicit SIMULATED CCP1 loopback endpoint via --ccp."""
 
 from __future__ import annotations
 
@@ -44,6 +44,7 @@ from cody_personality import (  # noqa: E402
 from cody_petting import PettingRecognizer, PettingZone, load_petting_config  # noqa: E402
 from cody_happiness import initial_state, advance_happiness, apply_event, PersonalityEvent, sadness  # noqa: E402
 from cody_scene import ScenePainter  # noqa: E402
+from cody_ccp_panel import CcpPanel  # noqa: E402
 from cody_fake_audio import FakeAudioDriver  # noqa: E402
 from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
@@ -609,7 +610,7 @@ class CodyWindow:
     # self: New preview controller owning transient animation and synthetic model state.
     # root owns the Tk preview window and its scheduled frame callback.
     # renderer owns immutable authored tables and the shared scene drawing code.
-    # args selects the initial screen, rotation, safe-square overlay and rendering study.
+    # args selects the initial screen, rotation, study and optional SIMULATED CCP endpoint.
     # Raises tk.TclError for failed widget construction or lost Tk ownership.
     # Raises OSError or AttributeError if required Windows monitor APIs are unavailable.
     # Raises RuntimeError if the window DPI context or work-area bounds are invalid.
@@ -623,6 +624,7 @@ class CodyWindow:
         self.last_audio_screen = None
         self.last_audio_glyphs = 0
         self.last_link_error = None
+        self.ccp_panel = None
         self.jelly_study = renderer.jelly_study_enabled
         preview_name = 'PEARL JELLY / HOST ONLY' if self.jelly_study else 'Cody Alpha'
         self.root.title(f"{renderer.rig['character']['name']} / VibeWare {preview_name} / SYNTHETIC")
@@ -737,6 +739,12 @@ class CodyWindow:
         self.build_stimulus_controls(stimuli)
         self.build_debug_controls(overlay)
         self.tabs.select(self.inspector_tabs[0])
+        if args.ccp:
+            ccp_tab = InspectorTab(self.tabs, self.ui_colors["panel"], self.root._cody_ui_pixel_scale)
+            self.tabs.add(ccp_tab, text="CCP")
+            self.inspector_tabs.append(ccp_tab)
+            self.ccp_panel = CcpPanel(self, ccp_tab.content)
+            self.tabs.select(ccp_tab)
         self.tabs.bind("<<NotebookTabChanged>>", self.inspector_tab_changed)
         if self.jelly_study:
             # Artistic host controls only; no firmware defaults or sensor samples change.
@@ -851,7 +859,7 @@ class CodyWindow:
         header = ttk.Frame(self.controls_host, style="Panel.TFrame", padding=self.ui_pixels((18, 16, 18, 16)))
         header.grid(row=0, column=0, sticky="ew")
         ttk.Label(header, text="Character controls", style="Section.TLabel").pack(anchor="w")
-        ttk.Label(header, text="Local preview / no device connection", style="Muted.TLabel").pack(anchor="w", pady=(4, 14))
+        ttk.Label(header, text="Local preview / physical device separate", style="Muted.TLabel").pack(anchor="w", pady=(4, 14))
         selection = ttk.Frame(header, style="Panel.TFrame")
         selection.pack(fill="x")
         selection.columnconfigure(0, weight=1)
@@ -1240,11 +1248,14 @@ class CodyWindow:
                 tab.scroll(event.delta)
                 return "break"
 
-    # self: Host controller; stop callbacks and PC playback before destroying the window.
+    # self: Host controller; stop callbacks, optional CCP and playback before destroying Tk.
+    # Raises RuntimeError or OSError if CCP worker/socket ownership cannot be retired.
     def close(self):
         if self.after_id is not None:
             self.root.after_cancel(self.after_id)
             self.after_id = None
+        if self.ccp_panel is not None:
+            self.ccp_panel.close()
         self.audio.close()
         self.root.destroy()
 
@@ -1427,6 +1438,9 @@ class CodyWindow:
     # event: Desktop coordinates projected through the last displayed layout and rotation.
     # Audio failures are retained by the optional fake driver without stopping touch handling.
     def touch(self, event):
+        if self.ccp_panel is not None and self.ccp_panel.follow.get():
+            # The protocol preview exposes commissioning through its explicit desktop panel.
+            return
         self.preview_interaction()
         self.body_drag_origin = None
         self.petting.cancel()
@@ -1731,6 +1745,11 @@ class CodyWindow:
     # Raises ValueError or tk.TclError; tick exposes the original error and stops.
     def render_tick(self):
         started = time.perf_counter()
+        if self.ccp_panel is not None:
+            if self.ccp_panel.follow.get():
+                self.render_ccp_tick(started)
+                return
+            self.ccp_panel.refresh()
         self.advance_happiness_clock(int(started * 1_000_000))
         self.navigation_visibility.update(int(started * 1_000_000))
         self.renderer.navigation_opacity = self.navigation_visibility.opacity(int(started * 1_000_000))
@@ -1885,6 +1904,29 @@ class CodyWindow:
         delay_ms = max(1, math.ceil(interval_ms - duration_ms))
         self.after_id = self.root.after(delay_ms, self.tick)
 
+    # self: Studio owner presenting its isolated authenticated CCP state.
+    # started: Current host clock; freezes the independent rig clock while CCP owns the view.
+    # Raises ValueError or tk.TclError for rejected content or failed presentation.
+    def render_ccp_tick(self, started):
+        self.last_tick = started
+        self.happiness_sampled_us = int(started * 1_000_000)
+        self.body_drag_origin = None
+        self.petting.cancel()
+        self.remove_unused_labels(set())
+        rotation = self.rotation.get()
+        layout = PreviewLayout.fit(*self.pending_canvas_size, False)
+        image, self.scene, key = self.ccp_panel.render(rotation)
+        key += (layout,)
+        if key != self.last_presentation_key:
+            # Match the common preview's circular mask and cardinal presentation.
+            mask = Image.new("L", (SIZE, SIZE), 0)
+            ImageDraw.Draw(mask).ellipse((0, 0, SIZE - 1, SIZE - 1), fill=255)
+            image.putalpha(mask)
+            self.present_frame(orient(image, rotation), layout, Screen.GREETING, rotation)
+            self.last_presentation_key = key
+        self.timing.configure(text="SIMULATED CCP1 / loopback only / real authenticated packets / ESP32 UNMEASURED")
+        self.after_id = self.root.after(100, self.tick)
+
 
 # argv: Explicit Cody argument list from the common Windows launcher.
 # Raises ValueError for an invalid authored rig or evaluated scene.
@@ -1898,6 +1940,8 @@ def main(argv=None):
     parser.add_argument('--capture',type=Path,
                         help = 'Output PNG; relative names use artifacts/simulator, explicit paths must stay under artifacts')
     parser.add_argument('--safe-guide',action='store_true')
+    parser.add_argument('--ccp', action='store_true',
+                        help='Opt in to the isolated SIMULATED CCP1 loopback endpoint and visible pairing panel')
     parser.add_argument('--cloud-material-study', action='store_true',
                         help='Capture a host-only soft cloud material study; not firmware rendering parity')
     parser.add_argument('--cloud-png-mesh-study', action='store_true',
@@ -1908,6 +1952,9 @@ def main(argv=None):
                         help='Overlay the actual triangle mesh in a PNG mesh study capture')
     parser.add_argument('--at-ms',type=int,default=1000)
     args = parser.parse_args(argv)
+    if args.ccp and (args.capture is not None or args.screen != Screen.RIG or
+                    args.cloud_material_study or args.cloud_png_mesh_study or args.cloud_jelly_study):
+        parser.error('--ccp requires interactive --screen rig without a rendering study')
     if args.at_ms<0:
         parser.error('--at-ms must be non-negative')
     if args.cloud_material_study and (args.capture is None or args.screen != Screen.RIG):

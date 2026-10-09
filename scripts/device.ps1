@@ -45,6 +45,7 @@ param(
     [switch]$CloudPngMeshStudy,
     [switch]$CloudJellyStudy,
     [switch]$MeshOverlay,
+    [switch]$Ccp,
     [string]$PythonExecutable,
     [string]$Skin,
     [string]$Check = 'cody-alpha',

@@ -9,6 +9,7 @@ from ctypes import wintypes
 from dataclasses import dataclass
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -28,7 +29,7 @@ DEVICE_PORT = 42117
 PLUGIN_PORT = 42118
 MAX_DATAGRAM_BYTES = 512
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.4.0"
+SERVER_VERSION = "0.5.0"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CODE_PATTERN = re.compile(r"^[A-HJ-NP-Z2-9]{6}$")
 HEX_PATTERNS = {
@@ -62,6 +63,29 @@ class PairingRecord:
     last_seen_at: float = 0.0
     last_address: str = ""
     last_seen_monotonic: float | None = None
+
+
+@dataclass(frozen=True)
+class RetainedKeys:
+    active: bytes | None
+    pending: bytes | None
+
+
+@dataclass(frozen=True)
+class CommitChallenge:
+    nonce: str
+    key: bytes
+    pending_key: bytes | None
+    source: tuple[str, int]
+    observed_at: float
+
+
+# address: Socket-observed IP address, or an empty value before fresh observation.
+# Raises ValueError for an invalid observed address.
+def observation_source(address: str) -> str:
+    if not address:
+        return "UNOBSERVED"
+    return "SIMULATED" if ipaddress.ip_address(address).is_loopback else "LAN"
 
 
 class DataBlob(ctypes.Structure):
@@ -175,7 +199,7 @@ def make_proof(key: bytes, *values: str) -> str:
     return hmac.new(key, canonical_text(*values), hashlib.sha256).hexdigest()
 
 
-# code: Normalized six-character code visible on the physical display.
+# code: Normalized six-character code visible on the explicitly selected target display.
 # salt_hex: Sixteen-byte session salt encoded as lowercase hexadecimal.
 # Raises ValueError for an invalid code or salt.
 def derive_verifier(code: str, salt_hex: str) -> bytes:
@@ -257,24 +281,35 @@ def unique_state_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 class StateStore:
-    # No parameters: loads or creates the current Windows user's CCP identity.
+    # self: Loads or creates the current Windows user's CCP identity and separate candidates.
     # Raises RuntimeError for corrupt, partial, inaccessible, or unprotectable state.
     def __init__(self) -> None:
         local_app_data = os.environ.get("LOCALAPPDATA")
         if not local_app_data:
             raise RuntimeError("LOCALAPPDATA is unavailable; CCP state cannot be owned safely")
         self._path = Path(local_app_data) / "CodyCodexPlugin" / "state.json"
+        self._pending_path = self._path.with_name("pending-pairings.json")
         self._lock = threading.Lock()
         self.pc_id = ""
         self.records: dict[str, PairingRecord] = {}
+        self.pending_records: dict[str, PairingRecord] = {}
         self._load()
+        self._load_pending()
 
-    # No parameters: reads one exact versioned document or creates a genuinely absent identity.
+    # self: Reads one exact versioned document or creates a genuinely absent identity.
     # Raises RuntimeError for invalid types, versions, identities, records, or filesystem failures.
     def _load(self) -> None:
         try:
             saved_text = self._path.read_text(encoding="utf-8")
         except FileNotFoundError:
+            try:
+                self._pending_path.stat()
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                raise RuntimeError(f"CCP pending-state presence check failed: {error}") from error
+            else:
+                raise RuntimeError("CCP active identity is missing while candidate state exists; explicit repair is required")
             # Only a missing file grants first-use identity creation. A read
             # error must leave an existing identity and its keys untouched.
             print("CCP state absent: first use; persist a new PC identity", file=sys.stderr, flush=True)
@@ -325,9 +360,44 @@ class StateStore:
         self.pc_id = pc_id
         self.records = loaded
 
-    # No parameters: atomically persists the current identity and protected records.
-    # Raises RuntimeError when directory creation, file write, permission, or replacement fails.
-    def _save_locked(self) -> None:
+    # self: Existing PC identity owner; pending records never replace the active state file.
+    # Raises RuntimeError for corrupt, mismatched, unreadable or unprotectable candidate state.
+    def _load_pending(self) -> None:
+        try:
+            raw = self._pending_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            print("CCP pending store absent: persist an empty first-use candidate set", file=sys.stderr, flush=True)
+            self._save_pending_locked()
+            return
+        except (OSError, UnicodeError) as error:
+            raise RuntimeError(f"CCP pending state read failed: {error}") from error
+        try:
+            document = json.loads(raw, object_pairs_hook=unique_state_object)
+        except ValueError as error:
+            raise RuntimeError(f"CCP pending state decode failed: {error}") from error
+        if (not isinstance(document, dict) or set(document) != {"version", "pc_id", "records"} or
+                type(document["version"]) is not int or document["version"] != 1 or
+                document["pc_id"] != self.pc_id or not isinstance(document["records"], list)):
+            raise RuntimeError("CCP pending state identity/version/fields are invalid")
+        loaded: dict[str, PairingRecord] = {}
+        for item in document["records"]:
+            if not isinstance(item, dict) or set(item) != {"device_id", "protected_link_key", "paired_at"}:
+                raise RuntimeError("CCP pending pairing record is malformed")
+            device, protected, paired_at = item["device_id"], item["protected_link_key"], item["paired_at"]
+            if (not isinstance(device, str) or HEX_PATTERNS["device"].fullmatch(device) is None or device in loaded or
+                    not isinstance(protected, str) or not protected or type(paired_at) not in (int, float) or
+                    not 0 < paired_at <= 253402300799):
+                raise RuntimeError("CCP pending pairing values are invalid")
+            if len(unprotect_secret(protected)) != 32:
+                raise RuntimeError("CCP pending key length is invalid")
+            loaded[device] = PairingRecord(device, protected, float(paired_at))
+        self.pending_records = loaded
+
+    # self: Sole current-user owner of active and candidate relationship files.
+    # path: One of the two private state documents.
+    # records: Complete current identity map, already validated and DPAPI protected.
+    # Raises RuntimeError for directory, write, flush, permission or atomic-replacement failure.
+    def _write_records_locked(self, path: Path, records: dict[str, PairingRecord]) -> None:
         document = {
             "version": 1,
             "pc_id": self.pc_id,
@@ -337,17 +407,117 @@ class StateStore:
                     "protected_link_key": record.protected_link_key,
                     "paired_at": record.paired_at,
                 }
-                for record in sorted(self.records.values(), key=lambda value: value.device_id)
+                for record in sorted(records.values(), key=lambda value: value.device_id)
             ],
         }
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = self._path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(".tmp")
+            with temporary.open("w", encoding="utf-8") as output:
+                output.write(json.dumps(document, indent=2) + "\n")
+                output.flush()
+                os.fsync(output.fileno())
             os.chmod(temporary, 0o600)
-            os.replace(temporary, self._path)
+            os.replace(temporary, path)
         except OSError as error:
             raise RuntimeError(f"CCP state write failed: {error}") from error
+
+    # self: Locked active-state owner; its versioned schema remains unchanged.
+    # Raises RuntimeError for the original persistence failure.
+    def _save_locked(self) -> None:
+        self._write_records_locked(self._path, self.records)
+
+    # self: Locked candidate-state owner; active associations remain untouched.
+    # Raises RuntimeError for the original persistence failure.
+    def _save_pending_locked(self) -> None:
+        self._write_records_locked(self._pending_path, self.pending_records)
+
+    # self: PC state owner checking an explicit new commissioning request before PAIR is sent.
+    # device_id: Exact cryptographically selected offer identity.
+    # replace_pending: Explicit permission to supersede an unresolved candidate, never inferred from a timeout.
+    # Raises ValueError if an unresolved candidate would be discarded implicitly.
+    def admit_pairing(self, device_id: str, replace_pending: bool) -> None:
+        if type(replace_pending) is not bool:
+            raise ValueError("replace_pending must be a boolean")
+        with self._lock:
+            if device_id in self.pending_records and not replace_pending:
+                raise ValueError("CCP has an unresolved pairing candidate; resume Cody or explicitly replace that candidate with a new visible code")
+
+    # self: Candidate owner; the previous active key remains available to Cancel recovery.
+    # device_id: Exact offer identity selected by the visible display code.
+    # link_key: Candidate key protected before persistence.
+    # address: Socket-observed address for non-secret status.
+    # replace_pending: Explicitly admitted replacement of an unresolved candidate.
+    # Raises ValueError or RuntimeError without silently replacing an ambiguous candidate.
+    def stage_pairing(self, device_id: str, link_key: bytes, address: str, replace_pending: bool = False) -> None:
+        self.admit_pairing(device_id, replace_pending)
+        protected = protect_secret(link_key, f"CCP candidate key for Cody {device_id}")
+        with self._lock:
+            previous = self.pending_records.get(device_id)
+            if previous is not None and not replace_pending:
+                raise ValueError("CCP candidate changed before persistence")
+            self.pending_records[device_id] = PairingRecord(device_id, protected, time.time(), last_address=address)
+            try:
+                self._save_pending_locked()
+            except RuntimeError:
+                if previous is None:
+                    self.pending_records.pop(device_id, None)
+                else:
+                    self.pending_records[device_id] = previous
+                raise
+
+    # self: Locked active/candidate owner exposing keys only to the authenticated responder.
+    # device_id: Socket-provided identity, accepted only if already retained.
+    # Raises RuntimeError for DPAPI failure; neither secret is returned through public status.
+    def retained_keys(self, device_id: str) -> RetainedKeys:
+        with self._lock:
+            active, pending = self.records.get(device_id), self.pending_records.get(device_id)
+            return RetainedKeys(unprotect_secret(active.protected_link_key) if active else None,
+                                unprotect_secret(pending.protected_link_key) if pending else None)
+
+    # self: Two-file transaction owner; new-key ACTIVE/COMMITTED proves candidate commit.
+    # device_id: Exact authenticated device identity.
+    # key: Device-confirmed key, either the new candidate or the previous active association.
+    # expected_pending: Candidate present when the challenge/exchange began; rejects stale confirmations.
+    # Raises ValueError for stale proofs, or RuntimeError for persistence failures.
+    def confirm_device_choice(self, device_id: str, key: bytes, expected_pending: bytes | None) -> None:
+        with self._lock:
+            pending = self.pending_records.get(device_id)
+            active = self.records.get(device_id)
+            active_key = unprotect_secret(active.protected_link_key) if active else None
+            if pending is None:
+                if active_key is None or not hmac.compare_digest(active_key, key):
+                    raise ValueError("CCP commit has no matching retained association")
+                return
+            pending_key = unprotect_secret(pending.protected_link_key)
+            if expected_pending is None or not hmac.compare_digest(expected_pending, pending_key):
+                raise ValueError("CCP commit belongs to a superseded candidate")
+            if hmac.compare_digest(pending_key, key):
+                self.records[device_id] = pending
+                try:
+                    self._save_locked()
+                except RuntimeError:
+                    if active is None:
+                        self.records.pop(device_id, None)
+                    else:
+                        self.records[device_id] = active
+                    raise
+            elif active_key is None or not hmac.compare_digest(active_key, key):
+                raise ValueError("CCP commit key differs from both retained associations")
+            else:
+                # The previous key keeps working after Cancel, but its recorded
+                # FIND/COMMITTED messages could be replayed. They cannot authorize
+                # destruction of a newer candidate; only explicit replacement can.
+                return
+            # A reset between active save and pending removal is recoverable:
+            # both files name the same proven key, and a later COMMITTED retries cleanup.
+            self.pending_records.pop(device_id)
+            try:
+                self._save_pending_locked()
+            except RuntimeError:
+                self.pending_records[device_id] = pending
+                raise
+            print("CCP device-confirmed pairing transaction completed", file=sys.stderr, flush=True)
 
     # device_id: Stable device identity confirmed by the pairing response.
     # link_key: Newly derived link key, protected before any state replacement.
@@ -380,34 +550,40 @@ class StateStore:
                 return None
             return unprotect_secret(record.protected_link_key)
 
+    # self: Current active/candidate owner retaining presence observations in memory only.
     # device_id: Stable identity that produced a verified liveness request.
     # address: Current source IPv4 address, used for status only and never as identity.
     def mark_seen(self, device_id: str, address: str) -> None:
         with self._lock:
-            record = self.records.get(device_id)
-            if record is not None:
+            for record in (self.records.get(device_id), self.pending_records.get(device_id)):
+                if record is None:
+                    continue
                 record.last_seen_at = time.time()
                 record.last_seen_monotonic = time.monotonic()
                 record.last_address = address
 
-    # No parameters: returns a bounded non-secret copy for MCP results.
+    # self: State owner returning a bounded non-secret copy for MCP results.
     def public_status(self) -> list[dict[str, Any]]:
         with self._lock:
             # Wall time is retained for display; clock corrections cannot
             # extend or prematurely expire the authenticated liveness lease.
             now = time.monotonic()
+            observed = {**self.records, **self.pending_records}
             return [
                 {
                     "device_id": record.device_id,
                     "paired_at": record.paired_at,
                     "last_seen_at": record.last_seen_at,
                     "last_address": record.last_address or None,
+                    "source": observation_source(record.last_address),
+                    "pairing_pending": record.device_id in self.pending_records,
+                    "retained_pairing": record.device_id in self.records,
                     "connected": (
                         record.last_seen_monotonic is not None
                         and 0 <= now - record.last_seen_monotonic <= LIVENESS_TIMEOUT_SECONDS
                     ),
                 }
-                for record in sorted(self.records.values(), key=lambda value: value.device_id)
+                for record in sorted(observed.values(), key=lambda value: value.device_id)
             ]
 
 
@@ -432,6 +608,7 @@ def open_companion_listener() -> socket.socket:
 
 
 class CompanionResponder:
+    # self: Sole UDP responder with a bounded transient commit-challenge cache.
     # state: Persistent PC/device relationships shared with pairing tool calls.
     # listener: Exclusively bound socket transferred by the service after state loads.
     # activity: Volatile user-prompt context owned by this broker.
@@ -441,6 +618,7 @@ class CompanionResponder:
         self._stop = threading.Event()
         self._socket = listener
         self._receive_error: OSError | None = None
+        self._commit_challenges: dict[str, CommitChallenge] = {}
         self._thread = threading.Thread(target=self._run, name="CCP-responder", daemon=True)
 
     # No parameters: starts exactly one background authenticated liveness responder.
@@ -465,7 +643,7 @@ class CompanionResponder:
         if not self._thread.is_alive():
             raise RuntimeError("CCP responder is not running")
 
-    # No parameters: receives bounded FIND datagrams without writing to MCP stdout.
+    # self: Sole socket worker receiving bounded FIND/COMMITTED messages without MCP stdout output.
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
@@ -478,15 +656,19 @@ class CompanionResponder:
                     print(f"CCP UDP receive failed: {error}", file=sys.stderr, flush=True)
                 return
             try:
-                self._handle_find(payload, source)
+                self._handle_datagram(payload, source)
             except (OSError, RuntimeError, ValueError) as error:
-                print(f"CCP FIND rejected from {source[0]}: {error}", file=sys.stderr, flush=True)
+                print(f"CCP presence message rejected from {source[0]}: {error}", file=sys.stderr, flush=True)
 
-    # payload: Candidate CCP1 FIND datagram.
+    # self: Authenticated responder; retained candidate keys are never promoted from FIND alone.
+    # payload: Candidate CCP1 FIND or COMMITTED datagram.
     # source: Observed UDP source address and port.
     # Raises ValueError, RuntimeError, or OSError for rejected identity, proof, state, or send failures.
-    def _handle_find(self, payload: bytes, source: tuple[str, int]) -> None:
+    def _handle_datagram(self, payload: bytes, source: tuple[str, int]) -> None:
         kind, fields = parse_datagram(payload)
+        if kind == "COMMITTED":
+            self._accept_committed(fields, source)
+            return
         if kind != "FIND":
             return
         with_activity = set(fields) == {"device", "pc", "nonce", "activity", "proof"}
@@ -499,14 +681,19 @@ class CompanionResponder:
                 raise ValueError(f"CCP FIND field {name!r} is malformed")
         if fields["pc"] != self._state.pc_id:
             return
-        link_key = self._state.link_key(fields["device"])
-        if link_key is None:
+        retained = self._state.retained_keys(fields["device"])
+        if retained.active is None and retained.pending is None:
             return
-        expected = make_proof(
-            link_key, "find-activity" if with_activity else "find",
-            fields["device"], fields["pc"], fields["nonce"]
-        )
-        if not hmac.compare_digest(expected, fields["proof"]):
+        link_key = None
+        for candidate in (retained.pending, retained.active):
+            if candidate is None:
+                continue
+            expected = make_proof(candidate, "find-activity" if with_activity else "find",
+                                  fields["device"], fields["pc"], fields["nonce"])
+            if hmac.compare_digest(expected, fields["proof"]):
+                link_key = candidate
+                break
+        if link_key is None:
             raise ValueError("CCP FIND proof does not match the retained identity")
         proof = make_proof(
             link_key, "ready", fields["device"], fields["pc"], fields["nonce"]
@@ -521,6 +708,16 @@ class CompanionResponder:
             ],
         )
         self._socket.sendto(response, source)
+        # Only the newest authenticated challenge per retained identity is live.
+        # A strict cap also bounds memory if a user accumulates many associations.
+        now = time.monotonic()
+        self._commit_challenges = {device: value for device, value in self._commit_challenges.items()
+                                   if 0 <= now - value.observed_at <= LIVENESS_TIMEOUT_SECONDS}
+        if len(self._commit_challenges) >= 128 and fields["device"] not in self._commit_challenges:
+            oldest = min(self._commit_challenges, key=lambda device: self._commit_challenges[device].observed_at)
+            del self._commit_challenges[oldest]
+        self._commit_challenges[fields["device"]] = CommitChallenge(
+            fields["nonce"], link_key, retained.pending, source, now)
         self._state.mark_seen(fields["device"], source[0])
         if with_activity:
             activity = self._activity.snapshot()
@@ -533,9 +730,31 @@ class CompanionResponder:
             )) + [("proof", activity_proof)])
             self._socket.sendto(payload, source)
 
+    # self: Responder owning the bounded, transient challenge cache.
+    # fields: Exact nonce-bound device acknowledgement after durable active commit.
+    # source: Must equal the authenticated FIND source, including its UDP port.
+    # Raises ValueError for stale/forged/ambiguous confirmation, or RuntimeError for persistence failure.
+    def _accept_committed(self, fields: dict[str, str], source: tuple[str, int]) -> None:
+        if set(fields) != {"device", "pc", "nonce", "proof"}:
+            raise ValueError("CCP COMMITTED has unexpected or missing fields")
+        for name in fields:
+            if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
+                raise ValueError(f"CCP COMMITTED field {name!r} is malformed")
+        challenge = self._commit_challenges.get(fields["device"])
+        if (fields["pc"] != self._state.pc_id or challenge is None or source != challenge.source or
+                fields["nonce"] != challenge.nonce or
+                not 0 <= time.monotonic() - challenge.observed_at <= LIVENESS_TIMEOUT_SECONDS):
+            raise ValueError("CCP COMMITTED does not match a recent authenticated FIND")
+        expected = make_proof(challenge.key, "committed", fields["device"], fields["pc"], fields["nonce"])
+        if not hmac.compare_digest(expected, fields["proof"]):
+            raise ValueError("CCP COMMITTED proof is invalid")
+        self._state.confirm_device_choice(fields["device"], challenge.key, challenge.pending_key)
+        # Remove only after persistence succeeds; the next READY also requests a new proof.
+        self._commit_challenges.pop(fields["device"], None)
+
 
 class CcpService:
-    # No parameters: loads protected state and starts the local authenticated responder.
+    # self: Loads protected state and starts the local authenticated responder.
     # Raises RuntimeError or OSError when state or the fixed UDP listener is unavailable.
     def __init__(self) -> None:
         if os.name != "nt":
@@ -556,17 +775,22 @@ class CcpService:
             raise
         self._offers: dict[tuple[str, str], Offer] = {}
         self._offers_lock = threading.Lock()
+        self._pairing_lock = threading.Lock()
 
     # No parameters: stops the background UDP listener.
     # Raises RuntimeError or OSError when responder shutdown or socket closure fails.
     def close(self) -> None:
         self.responder.close()
 
+    # self: Service replacing its current, non-secret discovery cache.
     # timeout_ms: Bounded LAN collection window requested by the MCP caller.
+    # include_simulator: Explicitly admit the separately labelled loopback simulator.
     # Raises ValueError or OSError for invalid bounds or socket failures.
-    def discover(self, timeout_ms: int) -> list[Offer]:
+    def discover(self, timeout_ms: int, include_simulator: bool = False) -> list[Offer]:
         if timeout_ms < 250 or timeout_ms > 3000:
             raise ValueError("timeout_ms must be between 250 and 3000")
+        if type(include_simulator) is not bool:
+            raise ValueError("include_simulator must be a boolean")
         request_id = secrets.token_hex(8)
         query = encode_datagram("DISCOVER", [("request", request_id)])
         found: dict[tuple[str, str], Offer] = {}
@@ -576,10 +800,14 @@ class CcpService:
             transport.bind(("", 0))
             transport.settimeout(0.1)
             transport.sendto(query, ("255.255.255.255", DEVICE_PORT))
+            if include_simulator:
+                transport.sendto(query, ("127.0.0.1", DEVICE_PORT))
             while time.monotonic() < deadline:
                 try:
                     payload, source = transport.recvfrom(MAX_DATAGRAM_BYTES + 1)
                 except socket.timeout:
+                    continue
+                if observation_source(source[0]) == "SIMULATED" and not include_simulator:
                     continue
                 try:
                     kind, fields = parse_datagram(payload)
@@ -593,7 +821,7 @@ class CcpService:
             self._offers = found
         return sorted(found.values(), key=lambda value: (value.device_id, value.address))
 
-    # code: Normalized six-character value supplied from Cody's physical display.
+    # code: Six-character value supplied from the selected physical or explicitly simulated display.
     # offers: Bounded offers from one discovery window.
     # Returns every cryptographically matching offer and its derived verifier.
     def _matching_offers(self, code: str, offers: list[Offer]) -> list[tuple[Offer, bytes]]:
@@ -612,9 +840,21 @@ class CcpService:
                 matches.append((offer, verifier))
         return matches
 
-    # code: Six-character value read by the user from Cody's physical display.
+    # self: Service serializing commissioning operations against one candidate per device.
+    # code: Six-character value read from the selected physical or explicitly simulated display.
+    # replace_pending: Explicit permission to supersede an unresolved PC candidate with this fresh code.
     # Raises ValueError, RuntimeError, TimeoutError, or OSError for invalid, ambiguous, rejected, or failed pairing.
-    def pair(self, code: str) -> dict[str, Any]:
+    def pair(self, code: str, replace_pending: bool = False) -> dict[str, Any]:
+        if type(replace_pending) is not bool:
+            raise ValueError("replace_pending must be a boolean")
+        with self._pairing_lock:
+            return self._pair_locked(code, replace_pending)
+
+    # self: Service with exclusive commissioning ownership for this request.
+    # code: Explicit display code used to select one cryptographically matching offer.
+    # replace_pending: Permission to supersede an unresolved candidate; never inferred from timeout.
+    # Raises ValueError, RuntimeError, TimeoutError or OSError for discovery, protocol or storage failures.
+    def _pair_locked(self, code: str, replace_pending: bool) -> dict[str, Any]:
         normalized = code.strip().upper()
         if CODE_PATTERN.fullmatch(normalized) is None:
             raise ValueError("The Cody code must contain six characters from A-H, J-N, P-Z, or 2-9")
@@ -627,12 +867,14 @@ class CcpService:
         if not matches and used_cached_offers:
             # A display-code retry rotates the device session. Refresh once so
             # an older MCP discovery result cannot hide the current offer.
-            matches = self._matching_offers(normalized, self.discover(1200))
+            include_simulator = any(observation_source(value.address) == "SIMULATED" for value in offers)
+            matches = self._matching_offers(normalized, self.discover(1200, include_simulator))
         if not matches:
             raise ValueError("No current Cody offer matches the displayed code")
         if len(matches) != 1:
             raise RuntimeError("The displayed code matches more than one Cody offer; restart pairing")
         offer, verifier = matches[0]
+        self.state.admit_pairing(offer.device_id, replace_pending)
         nonce = secrets.token_hex(16)
         port = str(PLUGIN_PORT)
         proof = make_proof(
@@ -662,17 +904,19 @@ class CcpService:
             ),
             hashlib.sha256,
         ).digest()
+        # Persist before PAIR: losing every PAIRED reply must still leave the
+        # key available for authenticated rediscovery of Cody's candidate.
+        self.state.stage_pairing(offer.device_id, link_key, offer.address, replace_pending)
         self._exchange_pairing_request(offer, request, nonce, link_key)
-        # Cody's PAIRED response proves its NVS write. Protect the matching PC
-        # record before sending CONFIRM so neither UI can report a one-sided link.
-        self.state.remember_pairing(offer.device_id, link_key, offer.address)
         confirmed_at = self._exchange_confirmation(offer, nonce, link_key)
+        self.state.confirm_device_choice(offer.device_id, link_key, link_key)
         return {
             "paired": True,
             "device_id": offer.device_id,
             "address": offer.address,
             "session_id": offer.session_id,
             "confirmed_at": confirmed_at,
+            "source": observation_source(offer.address),
         }
 
     # offer: Exact cached offer selected by the user's code.
@@ -799,6 +1043,7 @@ def public_offers(offers: list[Offer]) -> list[dict[str, Any]]:
             "address": offer.address,
             "session_id": offer.session_id,
             "received_at": offer.received_at,
+            "source": observation_source(offer.address),
         }
         for offer in offers
     ]
@@ -823,26 +1068,33 @@ def tool_result(payload: dict[str, Any], summary: str, is_error: bool = False) -
 def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     service.responder.require_running()
     if name == "ccp_discover_devices":
-        if set(arguments) - {"timeout_ms"}:
+        if set(arguments) - {"timeout_ms", "include_simulator"}:
             raise ValueError("Discovery arguments contain unexpected fields")
         timeout_ms = arguments.get("timeout_ms", 1200)
         if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool):
             raise ValueError("timeout_ms must be an integer")
-        offers = public_offers(service.discover(timeout_ms))
+        include_simulator = arguments.get("include_simulator", False)
+        if type(include_simulator) is not bool:
+            raise ValueError("include_simulator must be a boolean")
+        offers = public_offers(service.discover(timeout_ms, include_simulator))
+        simulated_count = sum(item["source"] == "SIMULATED" for item in offers)
         return tool_result(
             {"devices": offers, "count": len(offers)},
-            f"Discovered {len(offers)} Cody pairing offer(s) on the local network.",
+            f"Discovered {len(offers)} Cody pairing offer(s); {simulated_count} SIMULATED on loopback.",
         )
     if name == "ccp_pair_device":
-        if set(arguments) != {"code"}:
-            raise ValueError("Pairing requires exactly the code argument")
+        if "code" not in arguments or set(arguments) - {"code", "replace_pending"}:
+            raise ValueError("Pairing requires code and accepts only optional replace_pending")
         code = arguments.get("code")
         if not isinstance(code, str):
             raise ValueError("code must be a string")
-        paired = service.pair(code)
+        replace_pending = arguments.get("replace_pending", False)
+        if type(replace_pending) is not bool:
+            raise ValueError("replace_pending must be a boolean")
+        paired = service.pair(code, replace_pending)
         return tool_result(
             paired,
-            f"Cody {paired['device_id']} confirmed pairing with this CCP instance.",
+            f"{paired['source']} Cody {paired['device_id']} confirmed pairing with this CCP instance.",
         )
     if name == "ccp_connection_status":
         if arguments:
@@ -889,7 +1141,10 @@ def handle_request(request: dict[str, Any], service: CcpService) -> dict[str, An
                 },
                 "instructions": (
                     "Discover before pairing. Pair only with the six-character code visible "
-                    "on the physical Cody display. Never reveal cryptographic protocol fields. "
+                    "on the physical Cody display, or on Cody Studio only when SIMULATED pairing "
+                    "was explicitly requested and discovery used include_simulator=true. "
+                    "Always identify SIMULATED results. replace_pending requires explicit permission "
+                    "to discard an unresolved PC candidate and a new visible code. Never reveal cryptographic protocol fields. "
                     "Trusted hooks automatically follow the latest user-prompt chat. "
                     "Do not ask the user to select a chat on Cody or fabricate activity events."
                 ),
@@ -927,7 +1182,7 @@ def tool_catalog() -> list[dict[str, Any]]:
         {
             "name": "ccp_discover_devices",
             "title": "Discover Cody devices",
-            "description": "Find current Cody pairing offers on the local LAN without changing device state.",
+            "description": "Find current Cody LAN pairing offers; include_simulator explicitly adds labelled loopback offers.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -936,7 +1191,12 @@ def tool_catalog() -> list[dict[str, Any]]:
                         "minimum": 250,
                         "maximum": 3000,
                         "default": 1200,
-                    }
+                    },
+                    "include_simulator": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Only enable for an explicitly requested Cody Studio simulator session.",
+                    },
                 },
                 "additionalProperties": False,
             },
@@ -951,7 +1211,8 @@ def tool_catalog() -> list[dict[str, Any]]:
             "title": "Pair Cody",
             "description": (
                 "Pair the single current Cody offer matching the six-character code visible "
-                "on the physical device. This changes device and local plugin state."
+                "on the physical device or the explicitly requested SIMULATED Cody Studio. "
+                "This changes the matched target and local plugin state."
             ),
             "inputSchema": {
                 "type": "object",
@@ -960,7 +1221,12 @@ def tool_catalog() -> list[dict[str, Any]]:
                         "type": "string",
                         "pattern": "^[A-HJ-NP-Z2-9]{6}$",
                         "description": "Six-character code currently visible on Cody.",
-                    }
+                    },
+                    "replace_pending": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Explicitly replace an unresolved PC candidate using this new visible code; never infer permission from timeout.",
+                    },
                 },
                 "required": ["code"],
                 "additionalProperties": False,

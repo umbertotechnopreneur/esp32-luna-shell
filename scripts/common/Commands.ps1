@@ -14,7 +14,7 @@ function Get-DeviceActionParameters {
     return @{
         menu = $idf + $serial + @('Jobs','PythonExecutable','Rotation')
         help = @(); list = @(); 'clean-artifacts' = @('BuildDir')
-        simulator = $preview + @('OutputPath')
+        simulator = $preview + @('OutputPath','Ccp')
         'boot-screens' = @('Rotation','AtMs','SafeGuide','PythonExecutable')
         'simulator-luna' = @('PythonExecutable','ToolArguments')
         'package-simulator' = @()
@@ -48,6 +48,11 @@ function Assert-DeviceActionParameters($RequestedAction, $BoundParameters, $Cont
     if ($BoundParameters.ContainsKey('BoardConfig') -and
         ($BoundParameters.ContainsKey('Profile') -or $BoundParameters.ContainsKey('Feature'))) {
         throw 'BoardConfig selects its own Profile and Feature; do not combine these options.'
+    }
+    if ($BoundParameters.Ccp -and ($BoundParameters.OutputPath -or
+            ($BoundParameters.ContainsKey('Screen') -and $BoundParameters.Screen -ne 'rig') -or
+            $BoundParameters.CloudMaterialStudy -or $BoundParameters.CloudPngMeshStudy -or $BoundParameters.CloudJellyStudy)) {
+        throw '-Ccp requires the interactive rig simulator without an output capture or rendering study.'
     }
 }
 
@@ -138,6 +143,7 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                 if ($Options.CloudPngMeshStudy) { $arguments += '--cloud-png-mesh-study' }
                 if ($Options.CloudJellyStudy) { $arguments += '--cloud-jelly-study' }
                 if ($Options.MeshOverlay) { $arguments += '--mesh-overlay' }
+                if ($Options.Ccp) { $arguments += '--ccp' }
                 $capture = if ($RequestedAction -eq 'boot-screens') {
                     Resolve-ArtifactPath '' "artifacts/simulator/$screenName.png"
                 } else { $Options.OutputPath }
