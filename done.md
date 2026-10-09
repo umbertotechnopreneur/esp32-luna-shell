@@ -8,6 +8,46 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## Pairing recuperabile, Options e simulatore CCP - 2026-10-10
+
+- Ho salvato firmware e preferenze in `959931f3`, dopo il primo checkpoint
+  `147c7273` sulla riconnessione. Ho separato attivo e candidato, aggiunto
+  Cancel/Forget con conferma e reso operative le quattro preferenze di Options.
+  Sounds Off invalida anche i suoni gia' accodati; microfono e wake word restano
+  indipendenti. Gli errori storage conservano causa, stato visibile e Retry.
+- Ho salvato CCP 0.5 e simulatore in `3a76053d`: lease recuperabile, candidato PC
+  protetto prima di PAIR, promozione su ACTIVE/COMMITTED, nessuna cancellazione
+  implicita su una vecchia chiave. Il simulatore usa un endpoint CCP1 reale e
+  uno stato DPAPI distinto; mostro sempre SIMULATED.
+- Ho verificato sul PC `cody-runtime`, compresa una fixture che compila il vero
+  CODY_settings.cpp, 36 casi `cody-ccp` e 11 casi `cody-ccp-simulator`. Questi
+  ultimi includono uno scambio UDP loopback reale su porte temporanee e testi
+  con font nativi. Nessuna di queste prove dimostra touch, audio o wake fisici.
+  Conservo i report in `artifacts/build-cody-companion-wake-word-debug/diagnostics/flow-validation-20261010/`.
+  Il target preferenze compila senza warning; il target runtime ha warning MSVC
+  preesistenti fuori dalle modifiche. Build e installazione firmware sono ancora
+  aperte in TODO; niente medaglie prima del flash.
+- Ho verificato anche `cody-native`, `snapshot-integrity`, `power-policy` e
+  i 13 casi `device-console`. Ho riallineato aspettative obsolete dei controlli
+  su dicitura reset PWR, contenitore degli errori opzionali e quattro schermate
+  di avvio; ho incluso il nuovo gate Shake e la conservazione dell'identita'
+  del simulatore. Il checkpoint dei controlli e' `f34056d`.
+- Ho aggiornato i cinque PDF nelle pagine originali e aggiunto quattro pagine
+  finali per documento, conservando tutte le precedenti errata. Ho verificato
+  testo e stream delle pagine preservate e rivisto i render di 153 pagine.
+  Il primo controllo documentale rifiutava il range valido 40-42 al posto del
+  singolo ID 41: corretto il parser, la verifica e' passata senza cambiare i PDF.
+  Ho consolidato i due appunti planning del 4 ottobre nella guida onboarding e
+  riscritto gli indici in prima persona. Manifest e QA sono sotto
+  `artifacts/build-cody-companion-wake-word-debug/docs/cody-retained-flow-20261010/`.
+
+## Wake word: riscontro dell'utente - 2026-10-10
+
+- Ho ricevuto dall'utente questo riscontro: la wake word funziona molto bene.
+  Lo tengo come comportamento da preservare durante il lavoro su Options.
+  Sounds Off governa gli effetti; lascio attivi microfono e wake word.
+  Registro una conferma dell'utente, non una nuova misura automatica.
+
 ## Power-task boot/wake crash diagnosis and correction - 2026-10-10
 
 - The requested passive COM10 capture on `cody-32-g51b5d532-dirty` contains three
@@ -1607,7 +1647,7 @@ flash logs were regenerated.
   display-code pairing, ten-second Idle flow, atlas illustrations and note lines.
   Both pages were rendered and visually inspected. No ZIP release, plugin
   install/runtime, firmware, LAN or hardware validation is claimed.
-  [Artifact record](docs/planning/2026-10-04-ccp-pairing-quickstart.md).
+  [Artifact record](docs/architecture/cody/onboarding.md#quickstart-a5-del-4-ottobre-2026).
 - Checkpoint `f4cc7e97`: adopted Alpha terminology in active code/tools; boot
   cues, runtime authoring and appearance assets have coordinated names. Persisted
   keys, routes, skin IDs, parameter values, PCM/WAV and image bytes are unchanged.
@@ -1792,4 +1832,4 @@ flash logs were regenerated.
   visibly and in metadata. All ten new pages and 58 historical footers were
   visually reviewed; historical page bodies remain pixel-identical at 96 DPI.
   No runtime, LAN or physical-device validation was performed for this document.
-  [Artifact and preservation record](docs/planning/2026-10-04-ccp-service-atlas.md).
+  [Artifact and preservation record](docs/architecture/cody/onboarding.md#service-atlas-del-4-ottobre-2026).

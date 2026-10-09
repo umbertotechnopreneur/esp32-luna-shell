@@ -5,6 +5,24 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
 
 ## Cody product
 
+- [ ] Valuto un relay remoto dopo la chiusura degli screen: un adapter accanto
+  all'istanza Codex pubblica eventi reali, un backend ASP.NET Core descritto con
+  Aspire li smista su Azure, Cody apre una connessione TLS in uscita. Mantengo
+  associazione utente/device, snapshot corrente con sequenza/scadenza e recupero
+  dopo disconnessione. Questa e' un'idea richiesta il 2026-10-10, non un servizio
+  gia' implementato o autorizzato al deployment. L'utente ha ribadito di non
+  implementare Aspire. Prima verifico dove l'istanza
+  remota espone davvero gli eventi: il relay non puo' inventare gli hook mancanti.
+- [ ] Per parlare con Codex da Cody valuto prima il canale audio dell'App Server:
+  nello schema esportato da Codex 0.147.0 il 2026-10-10 ho trovato i metodi
+  sperimentali `thread/realtime/start`, `thread/realtime/appendAudio` e
+  `thread/realtime/outputAudio/delta`, con trascrizioni e output audio oppure
+  testo. Quindi trascrizione e sintesi esterne non sono un requisito gia' deciso.
+  Gli hook restano il canale degli eventi di attivita'; l'audio avrebbe un
+  trasporto distinto via CCP. Devo ancora verificare disponibilita' sull'account,
+  formato audio e accesso alla chat desktop aperta. Questa e' solo ricerca:
+  non ho avviato sessioni vocali ne' implementato il trasporto sul device.
+
 - [ ] Explore three nontechnical product directions: everyday memory ("Remind
   me to..."), reviewed dictation to Codex/other supported AI destinations, and
   a considerate desk companion (focus sessions, break suggestions, snooze and
@@ -27,9 +45,6 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
   requests before replay. Missing/full/write-failed SD must surface a real
   error; no implicit formatting or internal-storage fallback. This message
   outbox is separate from the personality channel's no-queue policy.
-- [ ] Finish English circular screen 10 preferences and make it the normal
-  first-setup caller for implemented screen 11. Keep manual 0/180 orientation,
-  auto-rotation, shake-to-wake and sound separate and validity-aware.
 - [ ] After UX selection, add a fixed-capacity reminder/deadline service with
   typed IDs, timezone/quiet preferences, snooze/missed-event policy and trusted
   canonical time. Schedule Deep-sleep wake through the existing power/timer

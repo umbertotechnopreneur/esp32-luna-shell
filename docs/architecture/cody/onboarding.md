@@ -1,453 +1,468 @@
-# Cody onboarding and connectivity
+# Cody: primo avvio, opzioni e collegamento
 
-The 2026-10-09 reset/reproduction on `004d44d6` confirmed Yes -> Connect Codex
-followed by a frame deadline error after four rectangles. Static review found
-the CCP PBKDF2 worker unpinned at priority 3, above the priority-2 CPU1 renderer.
-CCP now runs at priority 1 on CPU0, below acquisition/audio/radio tasks. Derivation
-and failed-frame stage timings contain no display codes or cryptographic material.
-This preserves the PSA PBKDF2 parameters, canonical state and genuine error paths.
-The subsequent authorized capture on `4766df0b` recorded derivation on CPU0 at
-priority 1, then an IDLE0 watchdog after twelve seconds and restart. Affinity
-alone was insufficient. The 2026-10-10 follow-up sequences official PSA HMAC
-operations as the original PBKDF2 block, blocking one tick between ten-millisecond
-slices without holding service/snapshot/PSA operation locks. All 50,000 iterations
-and the original code/salt/output lengths remain unchanged. Phase/progress logs
-report admission, every 5,000 completed iterations and real completion/error,
-without any code/salt/key value. The authorized 90-second capture of `3458237e`
-completed all 50,000 iterations in 27.790323 seconds with ESP_OK and a live
-five-minute code window, without an observed watchdog/reset or frame-stop error.
-The user confirmed the code appears. PC verifier compatibility remains pending;
-SD retry timeout is separately unresolved.
+Qui tengo il contratto corrente del percorso di Cody. Uso gli screen ID degli
+atlanti come riferimenti stabili; lascio cronologia e risultati in
+[done.md](../../../done.md), verifiche aperte in [TODO.md](../../../TODO.md) e
+lezioni in [lessons.md](../../../lessons.md). Il primo schema aveva mescolato
+commissioning, riconnessione e attivita' della chat: ho separato quei tre fatti.
 
-Screen 12 shows Preparing secure code / Please wait / About 30 seconds while
-the code is absent. The estimate reflects the captured duration, not a measured
-progress value or deadline guarantee. When ready, Enter code in Codex precedes
-the complete six-character cyan code in the existing 40-pixel title font.
-The code is centered at y=338 with 109x40 bounds within the existing content
-slot and safe square; it contributes no typewriter audio/count. This presentation
-follow-up is source-reviewed, built and installed at `84e95216` on COM10;
-physical appearance remains pending.
-Its authored `standby_override_seconds` is 180. Successful canonical code-copy
-delivery refreshes the scene override once, giving three minutes from code-ready
-presentation instead of subtracting preparation time. Touch still extends that
-inactivity anchor; leaving the scene restores the normal route policy. No NVS
-setting or five-minute CCP backend window is changed. Actual timed standby remains
-unverified.
+Per installazione e hook rimando alla [guida CCP](../../../plugins/cody-codex-plugin/README.md).
+Per pacchetti, prove e tempi del protocollo uso
+[CCP1](../../../plugins/cody-codex-plugin/protocol/CCP1.md), senza mantenerne una
+seconda copia qui. I PDF aggiornano anche le pagine principali e conservano gli
+addenda e le errata precedenti in fondo.
 
-Buttons/cards, including skin catalog rows, have no teletype captions. Onboarding
-actions appear complete together after the title and first/main body line finish;
-skin controls appear after the title. Narrative body/status text keeps its own
-typing. Controls share this visibility gate with touch admission; their label
-characters do not enter typewriter timing or audio counts. Separate lateral Back
-retains its route-driven visibility and full hit target.
+## Decido il percorso dai dati salvati
 
-The navigation atlas page 02 and addendum A01/page 13 define the network journey;
-addendum A02/page 14 defines reusable screen 11, and addendum A04/page 16 records
-the pairing handoff and continued first-run route. Existing IDs remain unchanged;
-only the Debug-only pairing screen adds ID 39. Startup/text/standby contracts are
-in [runtime](runtime.md).
+Dopo branding e checkpoint locali leggo una sola osservazione canonica. Non uso
+`cody_firstboot` come scorciatoia per dichiarare rete o PC pronti.
 
-## Current route sequence
-
-| Route/action | Current result |
+| Osservazione reale | Percorso |
 | --- | --- |
-| 04, complete Hello text retired + 1 active second | 05 / Let's pair |
-| 05, Show QR | 06 / app installation QR; no radio action |
-| 06, Previous swipe | 05; no invisible lateral Back target |
-| 06, Pair Cody admitted | Immediately 07 / Starting Bluetooth |
-| 07, current attempt ReadyToScan + QR encoded | Remain 07 / Scan to pair + session QR |
-| Credentials / Connecting / Completing | Retire QR; type actual progress in 07 |
-| 07, Cancel | Wipe QR and await confirmed closure, then 06 |
-| 05 / 06 after 30 active seconds, or 07 after 90 active seconds, without touch or genuine pairing progress | Return immediately to 04 / Welcome; retire old presentation work and close the owned attempt asynchronously |
-| Timeout-returned 04, fresh tap after confirmed clean closure | Resume at 05; no boot sequence is replayed |
-| Failed / TimedOut / presentation error | 08 / actual error and gated Retry |
-| 08, Retry after clean terminal failure | Return to 05; Show QR and Pair Cody admit the next attempt |
-| 08, Retry with an active session or failed cleanup | Request typed Cancel, keep 08 visible, then return to 05 only after clean Cancelled |
-| Online + healthy current Wi-Fi association/IP | Persist and read back `cody_firstboot=false` |
-| Persisted handoff + BLE advertising restored, Debug | 39 / Pairing debug; any awake tap dismisses |
-| Persisted handoff + BLE advertising restored, Release | Skip 39 and enter 09 directly |
-| 09, Continue | End pairing-route ownership and enter 10 / Make it yours |
+| Profilo Wi-Fi veramente assente | 04 / Welcome e provisioning 05-09 |
+| Credenziali presenti, associazione o IP assenti | 42 / No connection: Network setup oppure Later |
+| Wi-Fi e IP validi, pairing Codex assente | 40 / Connect Codex?: Yes oppure No |
+| Pairing conservato e valido | 14 / Looking for PC, poi 15 solo dopo READY autenticato |
+| Lettura, tipo, CRC o storage falliti | Mantengo l'errore; non li trasformo in un profilo assente |
+
+Mi basta la **LAN con Wi-Fi e IP funzionanti**. Un'eventuale perdita di Internet
+puo' influire sui servizi online di Codex, ma non e' una ragione per rifare il
+pairing locale. Con No torno a Idle senza avviare CCP o salvare un rifiuto. Al
+boot successivo posso riproporre la scelta se manca ancora l'associazione.
+
+La normale configurazione usa `CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT=n`.
+Mantengo `y` come replay di sviluppo esplicito. Lo standby software conserva il
+percorso; un vero reset/deep sleep ricostruisce lo stato dalle osservazioni e
+dai dati persistenti, senza fingere che la RAM precedente esista ancora.
+
+## Percorso e ritorni
+
+| Screen e azione | Risultato |
+| --- | --- |
+| 04, introduzione completata | 05 / Let's pair |
+| 05, Show QR | 06 / QR di installazione; nessuna azione radio |
+| 06, Pair Cody ammesso | 07 / Starting Bluetooth |
+| 07, ReadyToScan del tentativo corrente | QR di sessione dentro 07 / Scan to pair |
+| 07, credenziali o connessione in corso | Ritiro il QR e mostro il progresso reale |
+| 07, Cancel | Ritiro il QR, attendo la chiusura confermata, torno a 06 |
+| 08, Retry | Riprendo il passaggio corretto dopo cleanup riuscito |
+| Online e Wi-Fi/IP validi | Scrivo e rileggo `cody_firstboot=false` |
+| Handoff completato in Debug | 39 / dati reali copiati; un nuovo tap continua |
+| Handoff completato in Release | Entro direttamente in 09 |
+| 09, Continue | 10 / Make it yours |
 | 10, Next | 36 / Settings |
-| 36, Continue | 11 / Cody's look |
-| 11, explicit row choice + Done | 12 when `CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX=y`; otherwise 13 |
-| 12, CCP1 pairing starts | Show the six-character display-only code; no manual success action |
-| Matching CCP proof + two-sided persisted-link confirmation | 13 / You're all set. |
-| 13, Let's go | 16 / native Idle animation for 10 active seconds |
-| 16, ten active seconds elapsed | 14 / authenticated search for the retained PC identity |
-| Matching authenticated READY | 15 / CCP is ready; Wi-Fi presence alone never promotes it |
+| 36, Continue | 11 / Skin |
+| 11, scelta esplicita e Done | Torno al chiamante; nel setup iniziale valuto il link Codex salvato |
+| 40, Yes senza pairing | 12 / preparazione e visualizzazione del codice |
+| 12, handshake a due lati completato | 13 / You're all set |
+| 13, Let's go | Cerco subito il PC su 14 o riutilizzo una presenza valida su 15 |
+| 14, READY autenticato | 15 / Connected |
+| 15, nuovo prompt reale ricevuto da CCP | Attivita' della chat seguita automaticamente |
 
-05 starts at Hello's `(233,225,130)`, moves in 1,000 ms to `(233,105,65)`, waits
-300 ms, then types title, three captions and Show QR at 45 ms/character. Its live
-blink, breath, IMU and elastic touch response continue. No content action is
-admitted during movement/wait.
+`06-bis` rimane un'identita' nei dati d'autore; nel runtime attuale il QR di
+sessione e' una presentazione dello screen 07. Ho rimosso la pausa artificiale
+di dieci secondi su 16 dopo Let's go: la conferma deve portare al collegamento,
+senza una passeggiata extra in Idle.
 
-06 is white, hides its heading, places Cody's worried face at `(233,94,58)` and shows an
-installation QR of 240×240 at `(113,140)`. Scale 58 is smaller than 05's final 65.
-05/06 use Show QR / Pair Cody semantic gradient footers at `(123,390,220,44)` and neither draws
-nor hit-tests lateral controls. The inherited installation payload is
-`https://play.google.com/store/apps/details?id=com.espressif.provble`; it is not a
-credential and does not start BLE.
+`CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX` resta un gate esplicito, normalmente `y`.
+Con `n` il primo setup salta il collegamento Codex. Le scelte di rete continuano
+ad appartenere al loro owner.
 
-08 uses the separate afraid expression: open eyes, inward-raised worried brows and
-a narrow open mouth. Its only footer label is Retry. A failed installation QR
-returns to 05 without radio cleanup because that work starts no session. A clean
-terminal pairing attempt also returns to 05 without starting another attempt.
-The new attempt begins only when Pair Cody is pressed again on 06.
-If pairing is already Online and only the local first-boot write failed, Retry
-retries that write on 07 instead of starting another BLE pairing attempt.
+Tengo le viste di provisioning entro questi slot logici, con rendering e touch
+nella stessa rotazione:
 
-07 enters on action admission, not radio success. Its white scene places Cody at
-`(233,80,46)` above title y=131. ReadyToScan types Scan to pair and displays the
-current session QR, 204×204 at `(131,182)`, inside the same 07. There is no active
-06-bis transition; reusable `scan-to-pair` remains authoring data only. Progress,
-cancellation and cleanup replace the QR rather than showing stale session data.
-05–09 use state-admitted captioned footer actions and hide lateral arrows/targets.
+| Vista | Geometria e ammissione |
+| --- | --- |
+| 05 | Muovo Cody da `(233,225,130)` a `(233,105,65)` in 1.000 ms, attendo 300 ms, poi avvio il testo; durante movimento e attesa non ammetto azioni |
+| 06 | Fondo bianco, Cody `(233,94,58)`, QR installazione 240 x 240 in `(113,140)` |
+| 07 | Cody `(233,80,46)`, titolo y=131, QR sessione 204 x 204 in `(131,182)` soltanto quando ReadyToScan |
+| 05/06 | Capsule Show QR / Pair Cody in `(123,390,220,44)`; nessun target laterale invisibile |
 
-09 continuously checks live Wi-Fi, not just the completed pairing result. Lost
-association/IP replaces the online claim with No connection and Wi-Fi disconnected
-or UNAVAILABLE. Software wake reconciles these same observations before exposing
-a retained route; closed sessions return to 06 or their actual terminal state.
-Its scene override requests standby after 60 seconds. Wake restores the retained
-09 route and does not activate Continue; only a fresh user press advances to 10.
+Su 09 ricontrollo Wi-Fi/IP in tempo reale. Se la rete cade sostituisco la
+conferma con No connection o UNAVAILABLE; dopo wake non attivo Continue al
+posto dell'utente. Se il pairing di rete e' gia' Online e fallisce solo la
+scrittura di `cody_firstboot`, Retry riprova quella scrittura senza avviare
+un altro provisioning BLE.
 
-After the same current attempt publishes Online with a healthy association and
-nonempty IP, the action worker writes `cody_firstboot=false`, reads it back and
-rejects any mismatch before success UI. Debug builds then show reusable text route
-39 with a micro Cody cloud and the actual copied SSID, IP and BLE name plus the
-handoff milestones. It has no button or invisible control; any awake tap dismisses
-it. Release compiles out its scene definition, text and atlas mapping and enters
-09 directly. The current BLE name is `CODY-` plus the final two MAC bytes.
+## Apro Setup anche quando il PC manca
 
-## Backend admission and QR ownership
+Tengo fermo il dito sul personaggio visibile per **1,5 secondi** e apro 41 / Setup.
+Movimento oltre 12 pixel, gap reale tra campioni oltre 250 ms, rotazione o una
+transizione di alimentazione annullano il candidato. Dopo il risveglio conto dal
+primo campione fresco con personaggio visibile; il tempo al buio non vale.
+Il contatto che apre il menu deve terminare prima che una scelta sia ammessa.
 
-The standalone connectivity layer compiles the HTTP server without GUI dependencies.
-Boot initializes saved-profile Wi-Fi and the async pairing owner. Without saved
-credentials it retains the controller DMA reservation until explicit Pair Cody;
-with credentials it transfers that lease to BLE telemetry. Boot does not open a
-provisioning session in the Cody profile.
-Consumers use `LUNASHELL_platform.h` and the canonical snapshot, either
-`DeviceSnapshot.radios.pairing` or `readConnectivityObservation`.
+Conservo l'ingresso dalle viste stabili, da Looking for PC e dagli errori CCP
+locali recuperabili. Un'operazione attiva di provisioning o cleanup mantiene
+il proprio owner fino a chiusura: il gesto non scavalca quel vincolo.
 
-`LUNASHELL_pairing_request(action, observation.radios.pairing.attempt_id)` submits
-typed START/RETRY/CANCEL. `ESP_OK` means admitted, never Online or Cancelled. Keep
-the attempt ID in route context to reject delayed events; display code does not
-initialize radios, query SDK Wi-Fi or perform synchronous manager cleanup.
+Metto **Connect Codex** e **Network setup** sulla stessa riga e **Options** sotto.
+Network setup riapre 04-09. Options entra nel percorso locale 10/36/11.
+Back torna al percorso associato senza far ripartire inutilmente una discovery
+gia' in corso o una connessione autenticata ancora valida.
 
-Explicit Pair drains and temporarily parks native display DMA before stopping
-telemetry or acquiring the controller lease. The gate stays closed through
-Wi-Fi/manager initialization and controller startup, then reopens on success or
-failure without changing the separate standby gate. A 34,816-byte aggregate
-budget is held as four 8-KiB chunks plus one 2-KiB chunk, allocated all-or-nothing.
-The old single 30-KiB controller-block claim is unsupported by the inspected EMI
-routine: its `0x7800` is an address offset. That guard rejected Pair before the SDK ran. The 8-KiB largest-block
-policy covers the configured controller context and separate 4-KiB stacks but
-does not prove every vendor allocation or SDK initialization will succeed.
-Compact `Pairing DMA` records show actual free/largest blocks at each boundary;
-insufficient memory and SDK failures remain real errors, not successful pairing.
-One static owner retains this budget across standby and every failure
-before controller handoff. It is released only immediately before controller
-initialization. Cody parks display DMA during radio/session closure, then reclaims
-the chunks after the SDK confirms an idle controller. Repeated reserve calls reuse
-the held chunks. This is a lifecycle budget, not a second allocation while the
-controller is already using its exchange memory.
+Con un pairing conservato, Connect Codex mostra **Already paired**, anche se la
+LAN e' momentaneamente assente:
 
-Radio closure returns `cleanup_error` and `dma_reservation_error` separately.
-An allocation failure remains published in BLE and pairing snapshots, but does
-not misreport a closed manager as still open or prevent clean Retry navigation.
-Known-off radios may enter standby with that explicit budget error; the next
-Start must pass strict admission again. Failed or uncertain hardware cleanup
-never attempts reallocation. NimBLE host allocations use PSRAM; the controller
-DMA block remains internal. Frame admission captures deliberate parking under
-the display lock so a fast gate reopening cannot terminate Cody.
+- **Keep pairing** conserva il record e riusa Connected/Discovering quando lo
+  stato e' valido; altrimenti riprende la ricerca del PC salvato.
+- **Pair again** e' consenso esplicito a una sostituzione; ammetto il nuovo
+  codice quando la rete richiesta e' disponibile.
+- **Forget**, centrato sotto la coppia, apre una seconda conferma dedicata.
 
-Published states are Idle, Starting, ReadyToScan, Connecting, Completing, Online,
-Cancelling, Cancelled, Failed and TimedOut. Check validity/health/staleness before
-interpretation. A valid degraded failure remains displayable with its real error.
+Con un candidato incompleto uso il titolo **Pairing paused**. Con un errore
+storage, incluso lettura o CRC, uso **Pairing error** e abilito solo la cancellazione
+esplicita: un record corrotto non equivale a un dispositivo mai associato.
 
-Only ReadyToScan may copy `LUNASHELL_provisioning_copy_qr(buffer, capacity,
-provisioning_session_id)` into a caller-owned buffer of at least 192 bytes. A racing
-or expired session returns `ESP_ERR_INVALID_STATE`: reread and follow current
-state, never reuse old QR data. Proof of possession rotates each attempt. Retire
-and wipe the secret payload/modules; never put them in logs, snapshots, HTTP or
-files, and do not call the GUI QR asset owner.
+Aprire la conferma, tornare indietro o premere Retry non autorizza a cambiare PC.
+Il backend distingue l'azione di primo pairing dall'azione di sostituzione,
+controlla l'identita' del tentativo e rifiuta conferme diventate obsolete.
 
-Both QR viewports use integer modules, a four-module white quiet zone and bounded
-version 10 storage: at most 57×57 modules / 407 packed bytes, no QR framebuffer or
-resampled bitmap. QR encoding errors remain visible and require explicit retry.
-The pinned QR dependency is `espressif/qrcode` `0.1.0~2`; dependency-lock updates
-remain explicit reviewed platform workflows, not silent resolver changes.
+## Options e Skin condividono il chiamante
 
-The backend has a five-minute deadline. A new pairing attempt requires successful
-cleanup; `cleanup_error` is separate from the attempt failure. If 08 still owns an
-active session or cleanup failed, Retry requests the typed Cancel operation and
-stays disabled on 08 until the canonical state confirms clean Cancelled. A failed
-closure remains visible with its real error and can be retried explicitly; an
-uncancellable state remains blocked rather than presenting a false return to 05.
-Cancel on 07 wipes the displayed QR immediately but navigation waits for Cancelled
-and then returns to 06.
-Stored SSID, BLE connection, credentials, DHCP initiation or action admission
-never establish Online. See [connectivity/pairing](../connectivity-pairing.md) for
-the acquisition, worker and cleanup implementation.
+Da Setup, Options apre Make it yours. Mantengo il contesto di navigazione in
+modo che Done ritorni a 41, Back da 10 ritorni a Setup e Back da 36 ritorni a 10.
+La visita alle preferenze non avvia network setup o commissioning Codex.
+Nel primo avvio, Done dal percorso Skin continua invece verso la decisione
+sul link salvato.
 
-A fixed-capacity screen policy gives 05 and 06 a 30-second inactivity return;
-real pairing 07 allows 90 seconds, including time spent entering the phone's
-Wi-Fi password. It uses the awake route clock: pausing animation does not pause
-inactivity, while standby and the lifecycle wake sequence consume no timeout time.
-Fresh presses, actual contact
-movement/releases and canonical progress in the current attempt refresh it;
-animation, typewriter prefixes, IMU movement and repeated unchanged snapshots
-do not. Genuine progress also reanchors 07's 90-second standby override so the
-previous 60-second policy cannot interrupt the wait. Ordinary touch refreshes
-standby through its existing owner. This policy does not write settings or change
-the five-minute backend deadline; 05 and 06 retain 60-second standby overrides.
+Su 10 rendo operative quattro righe compatte, con valore sempre visibile:
 
-The timeout retires the route generation and wipes the displayed QR before showing
-the existing `Hi, I'm Cody!` Greeting scene. Its normal teletype remains paused when
-Debug stops animation; its route inactivity clock is separate. This returned Welcome
-stays visible until a fresh tap. A detached cleanup context retains only the old attempt identity:
-an outstanding admission result can identify the attempt to cancel, but late QR,
-progress and first-boot results cannot restore their old route or start a new
-first-boot completion write. Running worker operations retain ownership until they
-actually exit. New navigation remains blocked until canonical clean closure and
-the bounded action mailbox has drained. Cancellation admission is not closure;
-an actual cancellation or cleanup failure remains visible on 08 with its real
-error and explicit Retry.
+| Preferenza | Scelte e vincoli |
+| --- | --- |
+| Shake to wake | On / Off, persistente |
+| Auto-rotate | On / Off, persistente |
+| Sounds | On / Off, gate audio master persistente |
+| Orientation | 0 / 180 solo con Auto-rotate Off; mostro Auto altrimenti |
 
-## Reusable look selector 11
+Con Sounds Off fermo la riproduzione; lascio microfono e wake word attivi.
 
-The live preview uses `(233,172,44)`, title y=78 and viewport `(117,226,232,146)`.
-Rows are 220×38 with 44-pixel spacing, fixed capacity 8 and a visible scroll thumb;
-vertical drag has no momentum. The five flash-resident looks are Pearl Mist,
-Aurora Veil, Cosmic Stardust, Enchanted Mosaic and Dreamwave. Their stable catalog
-IDs, not names/list order, are persistence identities. `cody_skin` persists Pearl
-Mist only when missing; unknown ID, invalid type or failed read is an error,
-never repair.
+**Next** continua a Settings 36 e **Continue** apre Skin 11. Durante una richiesta
+di salvataggio tengo distinta l'ammissione dal risultato. Confermo il valore solo
+dopo scrittura e rilettura riuscite; l'errore rimane visibile e non invento un
+successo. Con Retry ripropongo lo stesso valore richiesto. Le letture persistenti
+invalide mantengono la propria causa, senza
+correzione automatica o sostituzione con default.
 
-One copied stable-ID request enters the static 4-KiB PSRAM action worker's
-single-slot mailbox. It performs admission/QR work outside the display worker
-and delegates persisted writes to the internal-stack settings executor;
-radio lifecycle remains with its owner. Views/result payload also use PSRAM;
-TCBs and mailbox synchronization remain internal. During Saving... the old preview stays
-active, navigation/second save are disabled and controls dim. The worker persists
-only. On success the display owner selects the skin between retired frames.
+Sul selettore 11 uso l'anteprima `(233,172,44)`, titolo a y=78 e viewport
+`(117,226,232,146)`. Le righe sono 220 x 38 con passo 44, capacita' otto e scroll
+senza inerzia. Gli aspetti disponibili sono Pearl Mist, Aurora Veil, Cosmic
+Stardust, Enchanted Mosaic e Dreamwave. Salvo gli ID stabili, non il nome o
+l'ordine della lista. Un valore `cody_skin` invalido resta un errore.
 
-`DeviceSnapshot.character_look_save` publishes stable ID, monotonic request ID,
-Saving/Saved/Failed, original error and actual start/completion timestamps. It is
-an operation result, not a sensor measurement. Failed writes retain the previous
-selection; the disabled footer shows the real `Error: 0x...`, and tapping a look
-starts an explicit retry. Optional preference failure
-does not hide a separate fatal identity, snapshot-publication or renderer error.
-Retiring a view does not cancel a running copied request: its result is published
-and applied between frames without reopening that view.
+Copia della richiesta, persistenza e risultato passano dall'action worker e
+dall'esecutore settings con stack interno. Durante Saving mantengo la vecchia
+anteprima, blocco una seconda scrittura e rendo visibile l'esito reale. Il
+renderer applica lo skin solo dopo il salvataggio riuscito, tra frame conclusi.
+`DeviceSnapshot.character_look_save` espone ID, request ID, Saving/Saved/Failed,
+errore e timestamp originali. Ritirare una vista non riapre il suo percorso
+quando arriva un risultato in ritardo.
 
-`LookNavigationContext` supplies caller/Done destinations; there is no inferred
-numeric navigation stack. During first setup screen 11 exposes no Back control.
-Its 220×44 Done footer is initially disabled even though Pearl Mist is visibly
-selected. Tapping any row is mandatory; tapping the already selected row counts as
-explicit confirmation, while a different row enables Done only after its save
-succeeds. Screens 36 and 11 keep reusable entry points for later personalization.
-The cloud remains front-facing and animated; skins never become QR decoration.
-Typed row/status prefixes and persistent text generations obey [runtime](runtime.md),
-including offscreen clipping and silent scroll baselines.
+Durante il primo setup chiedo una scelta esplicita anche se Pearl Mist e'
+gia' mostrato. La selezione della stessa riga vale come conferma; una nuova
+selezione abilita Done solo dopo il salvataggio riuscito.
 
-## Continued setup and Codex gate
+## Codice visibile e tempi distinti
 
-Screen 10 presents the compact Make it yours preference categories and advances to
-the reusable Settings route 36. Screen 36 currently admits Cody's look and advances
-to the shared selector 11. Their identities remain stable so later Settings hosts
-can reuse 36 and 11 without duplicating preference or look state.
+Su 12 mostro **Preparing secure code / Please wait / About 30 seconds** finche'
+il codice non esiste. La stima deriva dalla precedente osservazione, non e'
+progresso misurato. Quando e' pronto, mostro Enter code in Codex e tutti e sei
+i caratteri con il font del titolo: centro y=338, bounds 109 x 40. Il codice
+non entra nei log, nei file, nello snapshot pubblico, nell'HTTP o nei datagrammi.
 
-`CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX` is an explicit boolean. The Cody profile and
-Kconfig default currently set it to `y`, so Done from 11 evaluates the saved link
-and offers the explicit Yes/No choice on 40 when unpaired; `n` skips to 13.
-Yes enters 12; No returns to native Idle without an NVS write or CCP request.
-With the gate enabled, screen 12 starts a five-minute CCP1 pairing
-window and displays six characters from
-`ABCDEFGHJKLMNPQRSTUVWXYZ23456789`. The code never enters the canonical snapshot,
-HTTP, logs or a datagram. There is no Done button. Cody first persists the link
-and authenticates `PAIRED`; CCP then protects its matching PC record and returns
-`CONFIRM`. Only the authenticated `ACTIVE` completion can enter 13, so neither
-side presents a one-sided retained link as complete.
+Uso l'owner CCP a priorita' 1 su CPU0. La derivazione mantiene gli stessi
+50.000 passi PBKDF2-HMAC-SHA256 con operazioni PSA; cedo un tick tra slice di
+circa dieci millisecondi, senza trattenere lock di servizio o snapshot. Registro
+solo fasi, tempi e cause di errore, senza materiale di pairing.
 
-Let's go from 13 retires the setup scene and leaves the normal native Idle
-animation visible for ten seconds of the existing active clock. Standby does not
-consume that hold. At expiry Cody enters 14 and broadcasts authenticated FIND
-messages for the one retained PC ID. Only a plugin with that PC ID and link key
-can return a valid READY and promote screen 15. READY is repeated liveness evidence,
-not evidence of a Codex task, project, chat or message transport; loss of liveness
-returns the presentation to 14.
+Distinguo la finestra backend di cinque minuti dal timeout di standby dello
+screen. `standby_override_seconds=180` viene riancorato una volta quando il
+codice pronto e' copiato nella presentazione. Tengo quindi tre minuti dal
+codice disponibile; il touch rinnova l'inattivita' e uscire ripristina la policy
+ordinaria. Questi tempi non richiedono una nuova preferenza persistente.
 
-The `LUNASHELL_codex_link` owner binds UDP 42117 and publishes only non-secret
-`DeviceSnapshot.radios.codex_link` state. It generates the display code, salt and
-verifier, validates proofs, persists one versioned CRC-protected `ccp_pairing`
-record through the internal-stack settings owner, and wipes attempt secrets at
-success, timeout or cancellation. A genuinely absent record is unpaired; wrong
-size, version, CRC or contents is a visible failure requiring explicit repair.
-The PC plugin listens on UDP 42118 and retains its independently generated PC ID.
-CCP is available through the repository-local marketplace catalog at
-`.agents/plugins/marketplace.json`; its Python MCP entrypoint and installation
-workflow are described in the [CCP guide](../../../plugins/cody-codex-plugin/README.md).
-The PC acquires its exclusive listener before reading or creating that identity.
-Its status remains disconnected after commissioning until authenticated
-FIND/READY is observed, then expires after ten monotonic seconds without a new
-observation. Listener failure remains a real tool error. These PC-side observations
-do not publish synthetic firmware sensor data or imply a Codex chat connection.
-The CCP application worker's 8-KiB stack uses PSRAM. Its UDP/crypto work delegates
-all persisted writes to the existing internal settings executor; radio lifecycle
-and pairing-owner stacks retain their internal-memory ownership.
-The complete field order and proof inputs are versioned in
-[`plugins/cody-codex-plugin/protocol/CCP1.md`](../../../plugins/cody-codex-plugin/protocol/CCP1.md).
+Dal codice pronto mostro **Cancel** nella capsula compatta `(123,390,220,44)`.
+Durante la derivazione attendo la conclusione dell'operazione. Cancel chiude
+il codice e scarta l'eventuale candidato, conservando il link attivo precedente.
+Aspetto l'esito del worker e tengo visibile un errore reale di cancellazione.
 
-CCP1 uses PBKDF2-HMAC-SHA256 and HMAC proofs but is a compact commissioning and
-liveness protocol, not a formal PAKE, TLS replacement or security certification.
-The future bidirectional context/status/message transport remains a separate
-product and security boundary.
+## Confermo, recupero o dimentico il pairing
 
-## Input and public HTTP boundary
+Ho separato il record attivo `ccp_pairing` dal candidato `ccp_pending` su Cody,
+conservando lo schema v1 dell'attivo. Anche sul PC tengo separati `state.json`
+e `pending-pairings.json`, entrambi protetti con DPAPI. Salvo il candidato PC
+prima del primo PAIR: posso cosi' recuperare anche se tutte le risposte PAIRED
+vanno perse. PAIR salva il candidato Cody senza sostituire il precedente attivo;
+PAIRED ne prova il salvataggio. CONFIRM prova la persistenza del candidato PC:
+promuovo allora quello Cody, verifico la rilettura e rimuovo il pending.
+Solo dopo l'invio riuscito di ACTIVE mostro All set; il tool PC conclude con
+successo quando riceve ACTIVE autenticato. Una persistenza o cancellazione
+fallita resta un errore, senza All set anticipato.
 
-### Startup admission and reversible setup - 2026-10-09
+Dopo un reboot con candidato incompleto cerco il PC usando quel candidato.
+Una risposta READY fresca e autenticata prova che il PC possiede il link e
+permette di completare la promozione. Aggiungo a CCP1 l'ACK COMMITTED: dopo ogni
+READY valido, con attivo scritto e riletto, confermo il commit al PC. La prova
+usa identita', sorgente e nonce del FIND recente (dieci secondi). Il PC promuove
+su ACTIVE oppure COMMITTED validi; FIND da solo non basta. Ripetendo COMMITTED
+anche per un attivo recupero l'ACK perso al giro seguente. Se manca la prova,
+rimango in attesa o nell'errore reale; non invento la conferma e non impongo
+subito un altro codice.
 
-The initial analysis omitted returning devices with Wi-Fi provisioned but no
-Codex association. The action worker now exists on every Cody startup. After the
-completed branding/character sequence (or actual deep-sleep Wake), one canonical
-connectivity observation selects the route, independently of `cody_firstboot`:
+Non prometto un rollback atomico distribuito. Cancel conserva il vecchio attivo
+sul Cody e permette di usarlo ancora, ma lascio il candidato PC irrisolto.
+Un COMMITTED con la vecchia chiave non lo cancella: potrebbe essere un pacchetto
+vecchio riprodotto. Anche dopo Cancel, Forget o una prima associazione interrotta
+richiedo un nuovo codice visibile e `replace_pending:true` per sostituire quel
+candidato esplicitamente. Espongo `pairing_pending` e `retained_pairing` come
+stati distinti. Il dettaglio dei messaggi resta nel [protocollo CCP1](../../../plugins/cody-codex-plugin/protocol/CCP1.md).
 
-- A valid observation with genuinely absent saved Wi-Fi credentials enters 04
-  and the existing 05-09 provisioning journey. A read failure is never absence.
-- Saved credentials without association/nonempty DHCP IP enter 42, No connection.
-  The Wi-Fi owner retains them and reconnects; Network setup explicitly reopens
-  04-09, while Later leaves Idle for this session. Invalid/stale observations show
-  UNAVAILABLE, keep the real canonical error and permit the same explicit choices.
-- Healthy Wi-Fi/IP with no retained `ccp_pairing` record enters 40, Connect Codex?
-  Yes admits 12. No retires the view without settings or network actions; there is
-  no persisted refusal, so a later boot offers the choice again.
-- A valid retained record adopts its current attempt and searches on 14. Only an
-  authenticated READY enters 15. Persisted identity does not certify current PC
-  presence. CRC/type/read failures remain errors, never unpaired defaults.
+**Forget pairing** presenta **Go back / Forget**, con **Only Codex is reset**.
+Cancello sul Cody soltanto `ccp_pairing` e `ccp_pending`. Conservo Wi-Fi, skin,
+preferenze e log; il PC conserva il proprio record protetto, senza presenza
+autenticata del dispositivo. Questa azione non invia una revoca remota e non
+e' un factory reset.
 
-This requires local Wi-Fi/IP, not a public Internet probe. Screen 09's online
-claim means LAN connectivity. `CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT=y` retains
-the deliberate development replay; the normal profile uses `n`. Ordinary standby
-retains its route and does not repeat startup admission. No new redundant paired
-boolean is persisted; the validated `ccp_pairing` record is authoritative.
+Solo dopo l'esito noto della cancellazione mostro **Unpaired / Pairing removed**.
+**Done** torna a Setup. Uso la stessa scelta esplicita per rimuovere un record
+CCP danneggiato; non faccio repair automatici o cancellazioni globali di NVS.
 
-A stationary 1500-ms hold on the visible character opens 41, Setup, from stable
-Idle, PC-search/connected or terminal CCP-error routes. Motion beyond 12 pixels,
-a real sample gap over 250 ms, rotation or lifecycle interruption cancels the
-candidate. Busy work and live provisioning are excluded. The opening contact
-cannot activate a menu choice and its real release retains the acquisition
-timestamp. Connect Codex explicitly opens a fresh display-code attempt; Network
-setup reopens 04-09. Left Back returns to Idle. Opening/dismissing the menu clears
-no saved credentials, skin, pairing or first-boot key. Re-pairing replaces the
-device's association only after the existing successful handshake/persistence.
+## Recupero il PC senza rifare commissioning
 
-PWR/BOOT retain their platform policy. PWR single toggles standby/wake except
-active Debug screenshot capture (enabled by default). PWR long release requests
-standby; Debug double within 500 ms or a continuous three-second PWR hold restarts.
-BOOT short restores a dim/sleeping panel first or toggles fullscreen/status arcs;
-BOOT held three seconds restarts only in Debug. These restart paths preserve NVS
-and logs. No button or new menu action implements factory erasure. A true factory
-reset still requires a separate explicit reset/erase operation and is outside
-this reversible setup change.
+Il record conservato identifica il PC anche se cambiano IP o disponibilita'
+della rete. Quando la radio e' in standby o manca l'IP, aspetto uno stato
+canonico utilizzabile. Un invio fallito mantiene errore e associazione, con
+ritentativi limitati nel tempo; non ricado in un nuovo codice.
 
-### Setup escape after inactivity and standby - 2026-10-09
+Invio FIND normalmente ogni due secondi. Solo READY autenticato stabilisce
+presenza; dopo otto secondi senza una risposta valida riprendo discovery.
+Il PC usa una soglia propria di dieci secondi per il suo stato pubblico.
+Una presenza scaduta non diventa attuale solo perche' il record esiste ancora.
 
-The authorized 90-second passive COM10 capture confirmed a real LAN/DHCP
-connection, then the old 05/06 timeout return to 04 / Welcome and later standby.
-It did not contain a Connect Codex press, so the initial reported wrong selection
-is not yet attributed to a touch or route cause.
+Un aggiornamento applicativo normale conserva NVS. Cancellazione esplicita,
+record danneggiato o altra identita' del PC sono casi distinti. La transazione
+puo' aver gia' scritto un candidato sul dispositivo prima della conferma PC:
+quel journal, da solo, non autorizza All set o un successo di pairing.
 
-The previous Welcome touch handler immediately reentered 05, while the character
-hold excluded Welcome and the resting 05/06 pages. Together those rules trapped
-the user in network setup. Timeout Welcome now opens 41 on a stationary tap
-release; a 1.5-second character hold can open 41 earlier. Resting 05 and 06 also
-admit the hold when no worker/provisioning/cancellation owns a live operation.
-Initial automatic 04-05 setup for a genuinely absent Wi-Fi profile is unchanged.
+## L'ultimo prompt reale sceglie la chat
 
-After standby, an already-held finger starts its 1.5-second clock at the first
-fresh acquired sample with the restored visible character. Sleep/wake resets
-the candidate, so hidden time does not count. Movement, gaps and rotation still
-cancel it. The opening contact must release before a choice can activate.
-The menu's left Connect Codex card starts 12; the right Network setup card
-starts 04-09. Logs now record the chosen control coordinates and named action,
-without recording QR payloads or CCP codes. Cleanup blocks both actions.
+Su 15 uso **Connected / Waiting for Codex** finche' manca un contesto autentico.
+La didascalia e' di 17 caratteri e 188 pixel nel body da 232: rispetto i limiti
+del renderer invece di nascondere un errore di misura.
 
-This correction has static source review only until a new image is installed.
-Its physical hold/selection behavior remains pending; the earlier capture does
-not validate the corrected firmware.
+CCP segue l'ultimo `UserPromptSubmit` autorizzato, con identita' esatta di chat
+e turno. Le altre chat possono aggiornare i propri metadati ma tool,
+completamenti e interruzioni sullo sfondo non cambiano il contesto seguito.
+Un click su una scheda non e' un hook di focus documentato. Dopo il riavvio
+del broker attendo il prossimo prompt reale; durante una semplice riconnessione
+LAN recupero lo snapshot corrente.
 
-### Important UI decision and Options - 2026-10-09
+Il nome progetto e' un'etichetta ASCII limitata, non l'identita' della chat.
+Cody consuma lo snapshot autenticato per 17-20, 18U e 32. I pacchetti scadono
+dopo otto secondi; il lavoro attivo scade dopo 120 secondi senza un nuovo hook.
+Stop significa risposta pronta, non task riuscito. SessionEnd mostra 20B per
+cinque secondi attivi e poi lascia Cody in Idle.
 
-The user approved the two side-by-side gradient cards plus one centered third
-action, and a single wide capsule with icon left of its text. `AGENTS.md` owns
-this continuing layout rule. Approved mockups and all eight ImageGen proposals
-are retained in `docs/Cody/ui-proposals/20261009/`; they are design references.
-Yes/No (40) and Network setup/Later (42) use the horizontal pair. Setup (41)
-adds Options below. Native actions on 05-15 and 36, where present, share dark
-gradients, thin semantic borders, white labels and typed action icons. Teal
-means affirmative/Codex, blue means network, graphite means No/Later/Options,
-amber means Retry/Cancel. QR quiet zones retain their compact footer variant.
+Installazione, trust degli hook e orchestrazione locale sono condizioni
+operative separate dal pairing. Tengo le istruzioni nella guida CCP; non
+fabbrico eventi o record di fiducia per simulare una chat attiva.
 
-Options enters 10 / Make it yours, then 36 and 11 / skin. Its host context sends
-Done back to 41, rather than offering a new Codex association. Left Back from
-10 returns to Setup; Back from 36 returns to 10. Entering Setup retires that
-local context, so it cannot affect a later network onboarding journey. Opening
-Options itself changes no persisted key and admits no network or CCP request.
+## Recupero della lease e simulatore Windows
 
-An explicitly authorized 90-second reset/capture reproduced the freeze on
-`669a33e9`: Yes at 16497 ms, Connect Codex at 16498 ms, then CST9217 ACK=FF
-(expected AB) with fifteen FF report bytes at 17112 ms. The original
-ESP_ERR_INVALID_RESPONSE stopped the renderer. LAN/IP was already ready.
-The old fail-fast renderer policy, not an observed Internet probe, caused the
-frozen image. The physical/protocol cause of the FF report remains unresolved.
+CCP rinnova normalmente la lease MCP ogni dieci secondi. Dopo un guasto di
+trasporto riprova con attese di 1, 3, 10 e poi al massimo 30 secondi. Mantengo
+l'errore nei tool fino a un rinnovo autenticato riuscito, leggendo la credenziale
+esistente e conservando la stessa identita' e lo stesso lease ID. Errori di
+identita', versione, autenticazione o risposta invalida restano terminali.
+Questo recupero non ripete pairing, tool o hook per conto dell'utente. Se devo
+riavviare il broker, attendo un nuovo prompt reale per ricostruire l'attivita'.
 
-After startup only, a malformed acquired touch report is now a documented
-optional input failure for rendering. Specifically, an acquisition
-ESP_ERR_INVALID_RESPONSE can originate in a rejected report or I2C NACK; this
-policy does not infer the electrical/protocol cause. Its owner returns the real error;
-`ui.touch` and `character_touch` retain invalid/error state and prior good data.
-Queued reports are discarded, gesture recognition is cancelled, and input waits
-for a real acquired release before another press. No synthetic release, sensor
-retry-success substitution or implicit controller reset is introduced. Startup,
-other acquisition errors, lock, capacity and route errors retain terminal policy. This isolates
-the measured input fault from display frame completion and standby quiescence;
-corrected physical behavior still needs observation.
+Con Cody Studio posso usare un endpoint CCP1 reale su `127.0.0.1:42117`, separato
+dal dispositivo. Lo avvio esplicitamente con l'opzione `-Ccp` della console;
+la discovery lo include solo con `include_simulator:true`. Identita' e record
+DPAPI restano in `artifacts/cody-simulator-state/device.json`, preservati dalla
+pulizia ordinaria e distinti dai record fisici.
 
-Draw/hit-test geometry uses the shared 466×466 circle and 320×320 safe square.
-Released horizontal swipes inside the safe square invoke the same typed actions:
-48-pixel displacement, horizontal dominance, axis lock after 12 pixels. Vertical
-list scrolling and short cloud drags retain ownership. Route/orientation changes
-cancel a pending gesture; swipe never bypasses busy or cleanup gates. Debug toolbar
-contacts cannot become route gestures. See [circular layout](../circular-display-layout.md).
+Il pannello offre Connect, Replace con conferma, Cancel, Forget con conferma
+e una disponibilita' LAN sintetica. Ricevo veri pacchetti di attivita' CCP, ma
+mostro sempre **SIMULATED**. E' una GUI host con lo stesso protocollo, non
+esecuzione ESP-IDF o replica completa dei gesti e dell'onboarding nativo.
+Tengo comandi e limiti nella [guida Cody Studio](../../../simulator/windows/README.md).
+Una prova di questo endpoint non si trasforma in una prova di Wi-Fi, alimentazione,
+touch o NVS sul Cody fisico.
 
-HTTP listens on the actual station IP at 8080 only when explicitly enabled; pairing
-does not enable it. `httpServerSetApiKey` / `httpServerSetEnabled` run outside the
-renderer. Only absent `http_enabled` persists default false. Missing key means
-unconfigured; empty/corrupt/oversized saved key fails. Health is public; protected
-read-only endpoints use Bearer authentication and exclude QR and CCP1 secrets.
-`radios.codex_link` exposes state, identities and liveness timestamps only. The
-transport is local HTTP, not HTTPS or the future Codex message/session transport. Endpoint and
-authentication detail belongs in [HTTP API](../http-device-api.md).
+## Owner del provisioning e cleanup
 
-Actual Android scanning, wrong credentials/missing AP, DHCP, BLE handoff, repeated
-retry/cancel, wake reconciliation, CCP firewall/broadcast behavior, concurrent
-plugin instances, LAN access and asynchronous NVS/rotation/route retirement races
-still need approved end-to-end device observation. No host fixture or successful
-flash proves those properties.
+Leggo `DeviceSnapshot.radios.pairing` oppure `readConnectivityObservation`.
+Invio START/RETRY/CANCEL attraverso `LUNASHELL_pairing_request` con l'attempt ID
+osservato. `ESP_OK` ammette la richiesta; aspetto lo stato canonico per dichiarare
+Online o Cancelled. Il display non inizializza le radio e non chiama lo SDK Wi-Fi.
 
-### Plugin-owned chat association - 2026-10-10
+Prima del pairing esplicito parcheggio il DMA del display e passo la lease del
+controller al suo owner. Conservo il budget interno di 34.816 byte come quattro
+blocchi da 8 KiB e uno da 2 KiB, acquisiti insieme. Rilascio il budget subito prima
+dell'inizializzazione controller e lo recupero solo dopo chiusura certa. Gli
+errori di cleanup e di prenotazione DMA restano distinti; non faccio passare
+una chiusura incerta per riuscita. Il dettaglio vive nella
+[guida provisioning](../connectivity-pairing.md).
 
-Screen 15 confirms the authenticated PC and shows `Waiting for Codex` until CCP
-has a genuine user-prompt event. It has no chat picker or chat-selection action.
-The previous `Pick a chat in Codex` instruction is removed from Connected, idle
-and session-ended views. The replacement is 17 characters / 188 pixels in the
-232-pixel body slot; the renderer's existing width/error checks are preserved.
+Copia del QR, payload e moduli appartengono al tentativo corrente. Solo
+ReadyToScan autorizza `LUNASHELL_provisioning_copy_qr`; una sessione scaduta o
+sostituita produce `ESP_ERR_INVALID_STATE` e richiede una nuova osservazione.
+Uso moduli interi, quiet zone bianca di quattro moduli e storage limitato alla
+versione 10: massimo 57 x 57 moduli, 407 byte. Non salvo payload segreti o QR.
 
-CCP 0.4 automatically follows the exact chat of the newest UserPromptSubmit
-hook. Background events from other chats update their metadata without switching
-the followed chat. The device only consumes the authenticated canonical snapshot
-for screens 17-20, 18U and 32. All devices paired to that PC mirror its context.
-The bounded workspace label does not identify a chat; the session digest does.
-No documented hook establishes tab focus, so a tab click alone is not claimed
-as a switch. Broker restart waits for the next prompt; LAN reconnect retains
-the context. Hook trust and local execution remain required by Codex.
+Gli stati Idle, Starting, ReadyToScan, Connecting, Completing, Online,
+Cancelling, Cancelled, Failed e TimedOut mantengono validita', freschezza e
+causa reale. Un errore degradato ma valido rimane presentabile. Prima di una
+nuova sessione attendo cleanup riuscito; Retry con una sessione ancora attiva
+richiede Cancel e resta sulla vista d'errore fino alla chiusura confermata.
+
+## Inattivita', touch e pulsanti
+
+Uso timeout locali di ritorno di 30 secondi per 05/06 e 90 per 07. Il clock del
+percorso avanza da sveglio anche se metto in pausa l'animazione; standby e wake
+non lo consumano. Lo rinnovo con touch reale o progresso canonico del tentativo,
+non con animazione, teletype, IMU o snapshot invariati. Mantengo separati il
+deadline backend da cinque minuti e gli override di standby dello screen.
+
+Dopo timeout ritiro generazione e QR della vista, mostro Welcome e porto a
+termine il cleanup. Un tap fresco su Welcome riapre Setup; il gesto da 1,5
+secondi e' disponibile anche sulle pagine 05/06 stabili. Un risultato tardivo
+non puo' ripristinare la vecchia vista o completare un handoff gia' ritirato.
+
+Applico la decisione UI del 9 ottobre: due card affiancate, tre come coppia piu'
+azione centrata sotto, una come capsula larga con icona a sinistra. Uso gradienti
+discreti e colori semantici. I pulsanti compaiono interi dopo titolo e riga
+principale; abilito contemporaneamente il touch. Le loro label non partecipano
+a teletype o suono dei caratteri. Per geometria, antialiasing e Back laterale
+seguo il [contratto circolare](../circular-display-layout.md).
+
+Dopo startup tratto `ESP_ERR_INVALID_RESPONSE` del touch come guasto opzionale
+dell'input: tengo errore e dati precedenti invalidi, scarto i report pendenti,
+annullo il gesto e aspetto un rilascio acquisito reale. Non sintetizzo un release
+e non resetto implicitamente il controller. Gli altri errori critici mantengono
+la loro policy. Questa scelta impedisce al singolo report malformato di fingere
+un touch valido o di fermare automaticamente tutto il rendering.
+
+## PWR, BOOT e HTTP
+
+Mantengo la policy della piattaforma. PWR singolo alterna standby/wake, salvo
+la cattura screenshot attiva in Debug; il rilascio dopo pressione lunga richiede
+standby. In Debug il doppio PWR entro 500 ms o la pressione continua per tre
+secondi riavvia. BOOT breve ripristina prima un pannello dim/sleep, oppure
+alterna fullscreen/status; BOOT per tre secondi riavvia solo in Debug.
+Questi riavvii conservano NVS e log, senza eseguire un factory reset.
+
+Tengo HTTP separato da CCP: ascolta sull'IP station reale, porta 8080, solo
+quando attivato esplicitamente. Pairing non lo abilita. Health e' pubblico;
+gli endpoint read-only protetti richiedono Bearer e non espongono QR o segreti
+CCP. Un valore salvato invalido resta errore. Il contratto completo rimane
+nell'[API HTTP](../http-device-api.md).
+
+## Cosa ho osservato e cosa resta da provare
+
+Conservo i dettagli dei checkpoint e delle catture in `done.md` e nei log locali.
+La cattura autorizzata di `3458237e` ha completato la derivazione in 27,790323
+secondi senza watchdog osservato; l'utente ha poi confermato il codice e,
+separatamente, All set/Connected. La correzione dello stack power ha raggiunto
+Connected con 5.820 byte liberi minimi su 8.192, ma la seriale e' caduta dopo
+circa 16 secondi: quell'intervallo non prova il ciclo standby/risveglio completo.
+
+Per questa revisione registro separatamente build/installazione, prove host,
+revisione visiva dei PDF, gesture e salvataggi fisici, Cancel/reset e interruzioni
+fra persistenze, perdita/ritorno della LAN, hook reali in Codex e consegna sul
+display. I casi sintetici del simulatore non diventano misure del firmware.
+Tengo gli esiti effettivi in [done.md](../../../done.md) e autorizzazioni e prove
+ancora aperte in [TODO.md](../../../TODO.md): un documento aggiornato non spunta
+da solo tutte quelle caselle.
+
+## Provenienza degli atlanti
+
+Ho riunito qui i due appunti del 4 ottobre 2026, prima separati in
+`docs/planning/2026-10-04-ccp-service-atlas.md` e
+`docs/planning/2026-10-04-ccp-pairing-quickstart.md`. Sono memoria del lavoro di
+allora: i contratti correnti sono sopra, le correzioni datate in fondo ai PDF.
+La cartella originale era
+`C:\Users\umber\OneDrive\Obsidian\30_Engineering\Products\Cody Companion\atlas`;
+i mirror nel repository erano identici in quel checkpoint. Non considero questo
+un controllo della sincronizzazione attuale.
+
+### Service atlas del 4 ottobre 2026
+
+Su richiesta di Umberto Giacobbi ho preparato dieci pagine A4 landscape in inglese,
+con diagrammi vettoriali deterministici, cloud frontale, una scena ImageGen
+riutilizzata senza modifiche dal connection atlas e spazio per note. La mappa
+originale era: 1 discovery/pairing/presenza; 2 Codex MCP, Python CCP e CCP1 UDP;
+3 DISCOVER/OFFER e finestre; 4 codice sul display, un solo match e ambiguita';
+5 PAIR/PAIRED/CONFIRM/ACTIVE e retry; 6 una identita' fra 100 PC, illustrazione
+senza load test; 7 vecchio percorso 13→16→14→15 e FIND/READY; 8 cadenza di due
+secondi, scadenza device di otto secondi e stato PC separato; 9 sicurezza, limite
+offline-guessing, DPAPI, CRC NVS e codice; 10 prerequisiti e limiti delle prove.
+Il percorso con attesa sullo screen 16 e' stato poi corretto.
+
+Avevo letto `CCP1.md`, README, `mcp.json`, `mcp/ccp_server.py` e
+`LUNASHELL_codex_link.cpp`, senza eseguirli e senza dichiarare trasporto di task,
+chat o messaggi verificato. Ho applicato a tutti e cinque i PDF l'autore
+`Umberto Giacobbi` e il contatto `hello@umbertogiacobbi.biz`, visibili e nei
+metadati. I quattro documenti precedenti conservavano contenuti, copyright,
+numerazione e conteggi: planning 26, navigation 16, connection 14 e quickstart 2.
+Ho aggiunto soltanto una riga di attribuzione di 6,4 pt nella fascia libera
+dei loro 58 footer; il nuovo service atlas aveva un footer piu' ampio.
+
+Conservo questi riferimenti sotto `atlas/source/` nella cartella originale:
+
+- `build_ccp_service_atlas.py` e `ccp-service-page-manifest.json`: sorgente e indice.
+- `apply_pdf_attribution.py`: passaggio idempotente con backup espliciti.
+- `review_ccp_service_documents.py` e `ccp-service-document-review.json`:
+  render, dimensioni e confronto dei contenuti precedenti.
+- `cody-pdf-attribution-review.json`: hash, mirror, metadati e percorsi dei backup;
+  gli hash storici non vengono riscritti come se fossero attuali.
+
+Le evidenze locali erano in `artifacts/document-review/ccp-service-atlas/`.
+Ho renderizzato le dieci nuove pagine a 1500 px sul lato lungo, corretto le
+spaziature freccia/testo e rivisto i render. Sulle 58 pagine precedenti, il
+confronto prima/dopo a 96 DPI mostrava il corpo sopra il footer identico pixel
+per pixel; ho ispezionato tutti i footer in quattro contact sheet. Testo e
+dimensioni erano conservati, autore e contatto presenti ovunque. Erano prove
+documentali: nessun build, test firmware, simulatore, installazione/esecuzione
+plugin, modifica firewall/rete, controllo fisico o stampa.
+
+### Quickstart A5 del 4 ottobre 2026
+
+Sempre su richiesta di Umberto, nel fuso Asia/Saigon, ho creato il pieghevole
+inglese di due pagine A5 portrait, 419,528 × 595,276 pt. Indicavo stampa al 100%,
+fronte/retro sul lato lungo; le preferenze PDF richiedevano NoScaling e
+DuplexLongEdge, ma la stampa fisica non era stata verificata. Ho usato navy/cyan,
+Segoe UI e JetBrains Mono incorporati, due immagini ImageGen del connection
+atlas senza modificarle, una riga per note per lato e un codice chiaramente
+illustrativo. Il fronte copriva prerequisiti, ZIP, registrazione marketplace,
+installazione/abilitazione e firewall privato; il retro codice, conferma,
+Let's go, la vecchia attesa Idle di dieci secondi e recupero del PC associato.
+
+Il pacchetto `Cody-CCP.zip` era una proposta, non un archivio distribuito o
+installato. La struttura prevista era `CCP/.agents/plugins/marketplace.json`
+piu' `CCP/plugins/cody-codex-plugin/`, con `plugin.json`, `mcp.json`,
+`.codex-plugin/plugin.json`, `.mcp.json`, `mcp/`, `skills/`, `protocol/` e README.
+Il marketplace proposto usava `name: cody-ccp`, `interface.displayName: Cody CCP`,
+entry `cody-codex-plugin`, source `./plugins/cody-codex-plugin`, installation
+`AVAILABLE`, authentication `ON_INSTALL` e category `Productivity`; quei wrapper
+non erano stati aggiunti al plugin. Distinguevo `codex plugin marketplace add .`
+dall'installazione e dall'abilitazione dopo riavvio del client. I prerequisiti
+erano Codex CLI, client desktop con supporto ai plugin locali, Windows e Python
+raggiungibile come `python`.
+
+Il riferimento storico verificato il 4 ottobre era
+[Package your plugin](https://developers.openai.com/plugins/build/plugins),
+collegato nel PDF: nessuna azione inventata Install ZIP, nessuna garanzia sul
+supporto di ogni client/account. Per l'installazione corrente rimando alla
+[guida del plugin](../../../plugins/cody-codex-plugin/README.md).
+
+Nella cartella originale conservo `source/build_ccp_pairing_quickstart_a5.py`,
+`source/ccp-pairing-quickstart-a5-review.json` e le immagini
+`codex-connection-assets/cody-codex-hero.png` e
+`codex-connection-assets/display-code-to-codex.png`. I render locali erano in
+`artifacts/document-review/ccp-quickstart-a5/`: entrambe le pagine renderizzate
+con Poppler a 1600 px sul lato lungo, poi ispezionate per clipping, allineamento,
+leggibilita' e ordine del flow. Non avevo ricostruito gli altri atlanti ne'
+eseguito firmware, simulatore, installazione plugin, rete o prove sul dispositivo.

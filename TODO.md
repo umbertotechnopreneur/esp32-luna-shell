@@ -1,5 +1,31 @@
 # Active work
 
+## Cody: chiudo il percorso completo - 2026-10-10
+
+- [x] Ho isolato la correzione del pairing in `147c727`: conferma Already paired,
+  Keep pairing/Pair again, Retry senza nuovo codice, recupero LAN/standby,
+  accesso a Setup durante la ricerca e niente pausa artificiale dopo All set.
+  Ho completato la revisione statica; questo checkpoint non e ancora installato.
+- [x] Ho reso operative le quattro scelte di Make it yours con valori canonici,
+  salvataggio sul worker, readback ed errore/Retry espliciti. La verifica finale
+  e la prova del touch sul dispositivo restano sotto.
+- [x] Ho completato Cancel, Forget pairing e riparazione esplicita del solo
+  record CCP. Conservo attivo e candidato separati sui due lati, promuovo solo
+  dopo prova autenticata e non elimino candidati PC su conferme vecchie.
+- [ ] Recupero la lease MCP dopo un errore transitorio e porto gli eventi reali
+  della chat al device. CCP conserva un'associazione ma vede ancora zero chat;
+  non inserisco eventi finti e non approvo gli hook al posto dell'utente.
+- [x] Ho aggiunto pairing e pacchetti CCP reali al simulatore, con identita
+  separata, archivio locale protetto e indicazione SIMULATED. Ho verificato
+  36 casi CCP, 11 casi simulatore e la suite runtime/preferenze sul PC.
+- [x] Ho allineato i cinque PDF nelle pagine principali, conservando storico e
+  addendum finali. Ho consolidato README e appunti sovrapposti nella guida
+  onboarding. Verifica documentale e revisione visiva delle 153 pagine passate.
+- [ ] Eseguo build/installazione e prove al termine dell'integrazione. Il
+  2026-10-10 ho ricevuto autorizzazione esplicita a compilare, eseguire test e
+  resettare il device quante volte serve; annuncio comunque i comandi.
+  Faccio checkpoint coerenti e push sul branch di lavoro.
+
 ## Power-task overflow at boot and wake - 2026-10-10
 
 - [x] Record the reported instability passively on COM10. Three captured panics
@@ -16,8 +42,9 @@
   reached Connected and measured 5820/8192 bytes minimum free stack, then failed
   near 16 seconds because Windows closed COM10. No panic preceded the loss in
   the captured interval; the missing interval is not stability evidence. The
-  port returned present and CCP reported connected=true. Fresh passive capture
-  authorization requested; USB loss cause remains unconfirmed.
+  port returned present and CCP reported connected=true. The later explicit
+  repeat-test/reset authorization covers the next capture; USB loss cause
+  remains unconfirmed.
 - [ ] CCP still reports no hook-observed chats; authenticated packets have carried
   state=None. Complete genuine hook review/delivery before claiming live chat activity.
 
@@ -33,11 +60,10 @@
   started broker/MCP transport; preserve protected pairing storage. Install firmware
   `51b5d532`, app version `cody-32-g51b5d532-dirty` (only PDF authoring work was
   uncommitted), with the eight-job Debug build and COM10 flash.
-- [ ] Fresh approval requested for cody-ccp, cody-context-documents (including
-  Poppler visual review) and `git diff --check HEAD`. No new host/PDF checks have
-  run. The later passive boot/wake capture is recorded above. Native hook trust,
-  autoload and physical automatic chat following remain to observe; the manual
-  MCP lease is not proof of hooks.
+- [ ] Ho ripreso le verifiche con l'autorizzazione generale del 2026-10-10:
+  cody-ccp 0.5 e runtime sono passati; PDF e firmware sono nel pacchetto finale
+  descritto sopra. Restano trust/autoload degli hook e osservazione fisica della
+  chat automatica: la sola lease MCP non dimostra gli hook.
 
 ## CCP chat activity milestone - 2026-10-10
 
