@@ -492,6 +492,9 @@ esp_err_t loadPersistedLink()
         sizeof(s_link_snapshot.paired_pc_id)
     );
     wipe(&record, sizeof(record));
+    if (error == ESP_OK) {
+        ESP_LOGI(kTag, "CCP retained pairing loaded; no new code is required for reconnect");
+    }
     return error;
 }
 
@@ -1202,26 +1205,34 @@ esp_err_t acceptConfirm(const PairRequest &request, const sockaddr_in &source)
     return error;
 }
 
-// No parameters: broadcasts one authenticated FIND for the retained PC identity.
-// Exception: Returns missing-state, HMAC, formatting or UDP send failures.
-esp_err_t sendFind()
+// wifi: Current canonical station identity admitted by the reconnect policy.
+// Exception: Returns missing/retired-state, HMAC, formatting or UDP send failures.
+esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
 {
     char device_id[13]{};
+    esp_err_t error = formatDeviceId(wifi.mac_address, device_id);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "CCP discovery station identity rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
     char pc_id[33]{};
     uint8_t link_key[32]{};
     uint8_t nonce[16]{};
     {
         std::lock_guard<std::mutex> guard(s_mutex);
-        if (!s_link_present || s_link_snapshot.device_id[0] == '\0') {
+        if (!s_link_present || s_pending != Command::None ||
+            (s_link_snapshot.state != State::Discovering && s_link_snapshot.state != State::Connected)) {
+            ESP_LOGE(kTag, "CCP FIND rejected: retained discovery is no longer active (%s)",
+                     esp_err_to_name(ESP_ERR_INVALID_STATE));
             return ESP_ERR_INVALID_STATE;
         }
-        std::memcpy(device_id, s_link_snapshot.device_id, sizeof(device_id));
+        std::memcpy(s_link_snapshot.device_id, device_id, sizeof(device_id));
         std::memcpy(pc_id, s_link_snapshot.paired_pc_id, sizeof(pc_id));
         std::memcpy(link_key, s_persisted_link.link_key, sizeof(link_key));
     }
     esp_fill_random(nonce, sizeof(nonce));
     char nonce_hex[33]{};
-    esp_err_t error = encodeHex(nonce, sizeof(nonce), nonce_hex, sizeof(nonce_hex));
+    error = encodeHex(nonce, sizeof(nonce), nonce_hex, sizeof(nonce_hex));
     char proof_input[128]{};
     const int input_length = error == ESP_OK
         ? std::snprintf(
@@ -1267,9 +1278,15 @@ esp_err_t sendFind()
     }
     if (error == ESP_OK) {
         std::lock_guard<std::mutex> guard(s_mutex);
-        std::memcpy(s_find_nonce, nonce, sizeof(nonce));
-        s_activity_received_for_nonce = false;
-        s_next_find_at_us = esp_timer_get_time() + kFindIntervalUs;
+        if (s_pending == Command::None &&
+            (s_link_snapshot.state == State::Discovering || s_link_snapshot.state == State::Connected)) {
+            std::memcpy(s_find_nonce, nonce, sizeof(nonce));
+            s_activity_received_for_nonce = false;
+            s_next_find_at_us = esp_timer_get_time() + kFindIntervalUs;
+        } else {
+            error = ESP_ERR_INVALID_STATE;
+            ESP_LOGW(kTag, "CCP FIND completion retired by a newer command (%s)", esp_err_to_name(error));
+        }
     }
     wipe(link_key, sizeof(link_key));
     wipe(nonce, sizeof(nonce));
@@ -1279,50 +1296,31 @@ esp_err_t sendFind()
     return error;
 }
 
-// No parameters: validates retained state and canonical Wi-Fi before discovery begins.
+// No parameters: admits retained-link recovery; the worker waits for canonical LAN readiness.
+// Exception: Missing retained identity is published as a real failure, never new pairing.
 void startDiscovery()
 {
-    LUNASHELL::ConnectivityObservation observation{};
-    esp_err_t error = LUNASHELL::DeviceSnapshotService::instance()
-        .readConnectivityObservation(observation);
-    char device_id[13]{};
-    if (error == ESP_OK && !wifiOnline(observation)) {
-        error = ESP_ERR_INVALID_STATE;
-        ESP_LOGE(kTag, "CCP discovery requires a valid canonical Wi-Fi connection (%s)",
-                 esp_err_to_name(error));
+    std::lock_guard<std::mutex> guard(s_mutex);
+    s_pending = Command::None;
+    if (!s_link_present) {
+        ESP_LOGE(kTag, "CCP discovery rejected: no retained pairing (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        publishLocked(State::Failed, ESP_ERR_INVALID_STATE);
+        return;
     }
-    if (error == ESP_OK) {
-        error = formatDeviceId(observation.radios.wifi.mac_address, device_id);
-    }
-    {
-        std::lock_guard<std::mutex> guard(s_mutex);
-        s_pending = Command::None;
-        if (error == ESP_OK && !s_link_present) {
-            error = ESP_ERR_INVALID_STATE;
-        }
-        if (error == ESP_OK) {
-            std::memcpy(s_link_snapshot.device_id, device_id, sizeof(device_id));
-            s_last_ready_at_us = 0;
-            s_next_find_at_us = 0;
-            s_link_snapshot.ready_at_us = 0;
-            s_link_snapshot.peer_ip_address[0] = '\0';
-            publishLocked(State::Discovering, ESP_OK);
-        } else {
-            publishLocked(State::Failed, error);
-        }
-    }
-    if (error == ESP_OK) {
-        error = sendFind();
-        if (error != ESP_OK) {
-            std::lock_guard<std::mutex> guard(s_mutex);
-            publishLocked(State::Failed, error);
-        }
-    }
+    s_last_ready_at_us = 0;
+    s_next_find_at_us = 0;
+    s_link_snapshot.ready_at_us = 0;
+    s_link_snapshot.peer_ip_address[0] = '\0';
+    wipe(s_find_nonce, sizeof(s_find_nonce));
+    s_activity_received_for_nonce = false;
+    publishLocked(State::Discovering, ESP_OK);
+    ESP_LOGI(kTag, "CCP reconnect admitted with retained pairing; code window stays closed");
 }
 
 // response: Canonical READY message candidate.
 // source: Observed responder address.
-// Exception: Returns identity, proof or crypto failure without accepting liveness.
+// Exception: Returns identity, proof, crypto or superseded-command errors without accepting liveness.
 esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
 {
     char device_id[13]{};
@@ -1380,14 +1378,22 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
             error = ESP_FAIL;
         } else {
             std::lock_guard<std::mutex> guard(s_mutex);
-            s_last_ready_at_us = esp_timer_get_time();
-            s_link_snapshot.ready_at_us = s_last_ready_at_us;
-            std::memcpy(
-                s_link_snapshot.peer_ip_address,
-                peer_address,
-                sizeof(s_link_snapshot.peer_ip_address)
-            );
-            publishLocked(State::Connected, ESP_OK);
+            // Proof computation releases the lock. A newer user command owns
+            // the state even if this older READY was cryptographically valid.
+            if (s_pending != Command::None ||
+                (s_link_snapshot.state != State::Discovering && s_link_snapshot.state != State::Connected) ||
+                !constantTimeEqual(nonce, s_find_nonce, sizeof(nonce))) {
+                error = ESP_ERR_INVALID_STATE;
+            } else {
+                s_last_ready_at_us = esp_timer_get_time();
+                s_link_snapshot.ready_at_us = s_last_ready_at_us;
+                std::memcpy(
+                    s_link_snapshot.peer_ip_address,
+                    peer_address,
+                    sizeof(s_link_snapshot.peer_ip_address)
+                );
+                publishLocked(State::Connected, ESP_OK);
+            }
         }
     }
     wipe(link_key, sizeof(link_key));
@@ -1589,7 +1595,8 @@ void receiveDatagrams()
     }
 }
 
-// No parameters: expires code windows and maintains authenticated liveness cadence.
+// No parameters: expires code windows and retries retained discovery across LAN/standby loss.
+// Exception: Read and send failures stay canonical until an authenticated READY succeeds.
 void maintainState()
 {
     State state = State::Idle;
@@ -1599,6 +1606,9 @@ void maintainState()
     int64_t activation_replay_until_us = 0;
     {
         std::lock_guard<std::mutex> guard(s_mutex);
+        if (s_pending != Command::None) {
+            return;
+        }
         state = s_link_snapshot.state;
         deadline_at_us = s_link_snapshot.deadline_at_us;
         next_find_at_us = s_next_find_at_us;
@@ -1615,8 +1625,11 @@ void maintainState()
     }
     if (state == State::Pairing && deadline_at_us > 0 && now_us >= deadline_at_us) {
         std::lock_guard<std::mutex> guard(s_mutex);
-        clearPairingSecretsLocked();
-        publishLocked(State::TimedOut, ESP_ERR_TIMEOUT);
+        if (s_pending == Command::None && s_link_snapshot.state == State::Pairing &&
+            s_link_snapshot.deadline_at_us == deadline_at_us) {
+            clearPairingSecretsLocked();
+            publishLocked(State::TimedOut, ESP_ERR_TIMEOUT);
+        }
         return;
     }
     if (state != State::Discovering && state != State::Connected) {
@@ -1624,6 +1637,10 @@ void maintainState()
     }
     {
         std::lock_guard<std::mutex> guard(s_mutex);
+        if (s_pending != Command::None ||
+            (s_link_snapshot.state != State::Discovering && s_link_snapshot.state != State::Connected)) {
+            return;
+        }
         auto &activity = s_link_snapshot.activity;
         if (activity.data_valid && activity.last_attempt_at_us > 0 &&
             now_us - activity.last_attempt_at_us >= kReadyExpiryUs) {
@@ -1638,14 +1655,57 @@ void maintainState()
     if (state == State::Connected && last_ready_at_us > 0 &&
         now_us - last_ready_at_us >= kReadyExpiryUs) {
         std::lock_guard<std::mutex> guard(s_mutex);
-        s_link_snapshot.peer_ip_address[0] = '\0';
-        publishLocked(State::Discovering, ESP_OK);
+        if (s_pending == Command::None && s_link_snapshot.state == State::Connected &&
+            s_last_ready_at_us == last_ready_at_us) {
+            s_link_snapshot.peer_ip_address[0] = '\0';
+            ESP_LOGW(kTag, "CCP presence expired; retained pairing will reconnect (%s)",
+                     esp_err_to_name(ESP_ERR_TIMEOUT));
+            publishLocked(State::Discovering, ESP_ERR_TIMEOUT);
+        }
     }
     if (next_find_at_us == 0 || now_us >= next_find_at_us) {
-        const esp_err_t error = sendFind();
+        {
+            std::lock_guard<std::mutex> guard(s_mutex);
+            if (s_pending != Command::None ||
+                (s_link_snapshot.state != State::Discovering && s_link_snapshot.state != State::Connected)) {
+                return;
+            }
+            // Schedule failed attempts too. A radio transition must not create a hot loop.
+            s_next_find_at_us = now_us + kFindIntervalUs;
+        }
+        LUNASHELL::ConnectivityObservation observation{};
+        esp_err_t error = LUNASHELL::DeviceSnapshotService::instance()
+            .readConnectivityObservation(observation);
+        if (error == ESP_OK && !wifiOnline(observation)) {
+            error = observation.radios.wifi.last_error != ESP_OK
+                ? observation.radios.wifi.last_error : ESP_ERR_INVALID_STATE;
+            std::lock_guard<std::mutex> guard(s_mutex);
+            if (s_pending == Command::None &&
+                (s_link_snapshot.state == State::Discovering || s_link_snapshot.state == State::Connected) &&
+                (s_link_snapshot.state != State::Discovering || s_link_snapshot.last_error != error)) {
+                ESP_LOGW(kTag, "CCP reconnect waits for active LAN: power=%u connected=%u ip=%u (%s)",
+                    static_cast<unsigned>(observation.operating_state),
+                    observation.radios.wifi.connected, observation.radios.wifi.ip_acquired,
+                    esp_err_to_name(error));
+                s_link_snapshot.peer_ip_address[0] = '\0';
+                publishLocked(State::Discovering, error);
+            }
+            return;
+        }
+        if (error == ESP_OK) {
+            error = sendFind(observation.radios.wifi);
+        }
         if (error != ESP_OK) {
             std::lock_guard<std::mutex> guard(s_mutex);
-            publishLocked(State::Failed, error);
+            // Discovery is idempotent. Preserve identity and the actual failure;
+            // a successful UDP send alone cannot clear the error or prove a PC is ready.
+            if (s_pending == Command::None &&
+                (s_link_snapshot.state == State::Discovering || s_link_snapshot.state == State::Connected)) {
+                ESP_LOGE(kTag, "CCP retained discovery attempt failed; retry in two seconds (%s)",
+                         esp_err_to_name(error));
+                s_link_snapshot.peer_ip_address[0] = '\0';
+                publishLocked(State::Discovering, error);
+            }
         }
     }
 }
@@ -1778,8 +1838,9 @@ extern "C" esp_err_t LUNASHELL_codex_link_service_init(void)
     return ESP_OK;
 }
 
-// action: Start pairing, start authenticated discovery, or cancel current activity.
+// action: Start initial pairing, explicitly confirmed replacement, discovery or cancellation.
 // expected_attempt_id: Exact canonical attempt identity observed by the caller.
+// Exception: Rejects implicit replacement, stale confirmations and conflicting pending commands.
 extern "C" esp_err_t LUNASHELL_codex_link_request(
     LUNASHELL_codex_link_action_t action,
     uint32_t expected_attempt_id
@@ -1788,6 +1849,7 @@ extern "C" esp_err_t LUNASHELL_codex_link_request(
     Command command = Command::None;
     switch (action) {
     case LUNASHELL_CODEX_LINK_ACTION_START_PAIRING:
+    case LUNASHELL_CODEX_LINK_ACTION_REPLACE_PAIRING:
         command = Command::StartPairing;
         break;
     case LUNASHELL_CODEX_LINK_ACTION_START_DISCOVERY:
@@ -1806,6 +1868,12 @@ extern "C" esp_err_t LUNASHELL_codex_link_request(
     }
     const State state = s_link_snapshot.state;
     if (command == Command::StartPairing) {
+        const bool replacement_confirmed = action == LUNASHELL_CODEX_LINK_ACTION_REPLACE_PAIRING;
+        if (s_link_present != replacement_confirmed) {
+            ESP_LOGE(kTag, "CCP pairing admission rejected: retained=%u replacement_confirmed=%u",
+                     s_link_present, replacement_confirmed);
+            return reject(action, expected_attempt_id, ESP_ERR_INVALID_STATE);
+        }
         if (state == State::StartingPairing || state == State::Pairing ||
             s_link_snapshot.attempt_id == UINT32_MAX) {
             return reject(action, expected_attempt_id, ESP_ERR_INVALID_STATE);
@@ -1818,7 +1886,7 @@ extern "C" esp_err_t LUNASHELL_codex_link_request(
     } else if (command == Command::StartDiscovery) {
         if (!s_link_present ||
             (state != State::Paired && state != State::Discovering &&
-             state != State::Connected)) {
+             state != State::Connected && state != State::Failed && state != State::TimedOut)) {
             return reject(action, expected_attempt_id, ESP_ERR_INVALID_STATE);
         }
         s_pending = command;

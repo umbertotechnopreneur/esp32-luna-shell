@@ -774,11 +774,13 @@ typedef enum {
     LUNASHELL_CODEX_LINK_ACTION_START_PAIRING,
     LUNASHELL_CODEX_LINK_ACTION_START_DISCOVERY,
     LUNASHELL_CODEX_LINK_ACTION_CANCEL,
+    // Admitted only after the user confirms replacing an existing association.
+    LUNASHELL_CODEX_LINK_ACTION_REPLACE_PAIRING,
 } LUNASHELL_codex_link_action_t;
 
 /** No parameters: initialize the bounded CCP1 commissioning and liveness owner. */
 esp_err_t LUNASHELL_codex_link_service_init(void);
-/** action: Explicit pairing, discovery, or cancellation request. */
+/** action: Explicit pairing, confirmed replacement, discovery, or cancellation request. */
 /** expected_attempt_id: Exact canonical attempt observed by the caller. */
 esp_err_t LUNASHELL_codex_link_request(
     LUNASHELL_codex_link_action_t action,
