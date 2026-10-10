@@ -87,5 +87,12 @@ else()
     target_compile_definitions(${COMPONENT_LIB} PUBLIC CODY_ENABLE_PEARL_JELLY=0)
     target_compile_definitions(${COMPONENT_LIB} PUBLIC CODY_JELLY_SIMD_AVAILABLE=0)
 endif()
-target_add_binary_data(${COMPONENT_LIB} "${PROJECT_DIR}/assets/cody/runtime/generated/cody-audio_ready.pcm16le" BINARY RENAME_TO cody_audio_ready)
-target_add_binary_data(${COMPONENT_LIB} "${PROJECT_DIR}/assets/cody/runtime/generated/cody-eyes_open.pcm16le" BINARY RENAME_TO cody_eyes_open)
+if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+    # IDF's binary embed emits byte-aligned sections; PCM16 requires aligned samples
+    # regardless of the size/order of preceding font and artwork resources.
+    set(cody_boot_pcm_source "${CMAKE_CURRENT_BINARY_DIR}/cody_boot_pcm.S")
+    configure_file("src/runtime/CODY_boot_pcm.S.in" "${cody_boot_pcm_source}" @ONLY)
+    set_source_files_properties("${cody_boot_pcm_source}" PROPERTIES OBJECT_DEPENDS
+        "${PROJECT_DIR}/assets/cody/runtime/generated/cody-audio_ready.pcm16le;${PROJECT_DIR}/assets/cody/runtime/generated/cody-eyes_open.pcm16le")
+    target_sources(${COMPONENT_LIB} PRIVATE "${cody_boot_pcm_source}")
+endif()

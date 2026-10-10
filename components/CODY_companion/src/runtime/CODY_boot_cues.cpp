@@ -49,13 +49,16 @@ bool boot_sounds_allowed()
 // last: Linker end symbol for exactly that asset.
 // samples: Receives borrowed samples without decoding or heap allocation.
 // count: Receives the exact mono sample count.
+// Exception: Returns the actual invalid bounds/alignment error without modifying outputs.
 esp_err_t pcm_view(const uint8_t *first, const uint8_t *last,
                    const int16_t *&samples, size_t &count)
 {
     const uintptr_t start = reinterpret_cast<uintptr_t>(first);
     const uintptr_t end = reinterpret_cast<uintptr_t>(last);
     if (end <= start || start % alignof(int16_t) != 0 || (end - start) % 2 != 0) {
-        ESP_LOGE(kTag, "Boot PCM bounds/alignment rejected: %s", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        ESP_LOGE(kTag, "Boot PCM bounds/alignment rejected: start=%p end=%p alignment=%u (%s)",
+            static_cast<const void *>(first), static_cast<const void *>(last),
+            static_cast<unsigned>(alignof(int16_t)), esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
     samples = reinterpret_cast<const int16_t *>(first);

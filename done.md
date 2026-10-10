@@ -7,6 +7,24 @@ Older `artifacts/` paths may be historical references only: the complete cleanup
 requested on 2026-10-05 removed that unversioned evidence. New results identify
 the preserved copies within the build directory.
 
+## Cody boot PCM alignment fix - 2026-10-10
+
+- The user reported a black screen after the firmware upload. The explicitly
+  authorized 30-second boot capture on COM10 showed repeated startup aborts in
+  `CODY_boot_cues_prepare_boot`, before display initialization: ESP_ERR_INVALID_SIZE.
+- The matching linker map placed audio-ready PCM at `0x3c6179dd` and eyes-open
+  PCM at `0x3c6198e3`. Both byte lengths were even, but their start addresses
+  violated the int16_t alignment required by the existing borrowed PCM view.
+  IDF 6.0.2's binary-embedding assembly does not declare sample alignment.
+- The component now configures an assembly source in its own build directory,
+  explicitly aligning each unchanged PCM asset to two bytes before its start
+  label. Each exact end label precedes the next asset's padding. Ninja tracks
+  both PCM files as object dependencies. Rejected views log their real bounds.
+- Initial failure evidence: `artifacts/build-cody-companion-wake-word-debug/
+  diagnostics/20261010-black-screen.log` and `20261010-black-screen.map`.
+  Source review is complete; corrected-image upload and startup evidence are
+  tracked separately in TODO.md. No test suites or validation scans executed.
+
 ## Requested Cody firmware upload - 2026-10-10
 
 - User requested upload to the device. Discovery identified the single Espressif

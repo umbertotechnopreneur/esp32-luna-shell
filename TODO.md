@@ -1,5 +1,16 @@
 # Active work
 
+## Cody black-screen startup regression - 2026-10-10
+
+- [x] Capture the explicitly authorized reset/boot on COM10. Firmware aborted
+  in boot PCM preflight before display startup with ESP_ERR_INVALID_SIZE.
+- [x] Identify odd PCM start addresses in the matching linked image and replace
+  byte-aligned binary embedding with per-asset two-byte-aligned assembly.
+  Preserve the original PCM bytes, end bounds and runtime rejection behavior.
+- [ ] Rebuild and upload the corrected firmware under the existing upload request.
+- [ ] Capture a new boot only after explicit authorization of the exact command;
+  startup recovery and physical UI remain unverified until observed.
+
 ## Native UI polish and Cody boot identity - 2026-10-10
 
 - [x] Replace enlarged 8x8 action glyphs with native-size semantic vector masks;

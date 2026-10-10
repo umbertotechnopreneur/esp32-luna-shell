@@ -1,0 +1,16 @@
+/* PCM bytes retain their authored format and exact end bounds. Alignment belongs
+ * to each asset, including when another resource has an odd byte length. */
+.section .rodata.cody_boot_pcm,"a",@progbits
+.balign 2
+.global _binary_cody_audio_ready_start
+_binary_cody_audio_ready_start:
+.incbin "@PROJECT_DIR@/assets/cody/runtime/generated/cody-audio_ready.pcm16le"
+.global _binary_cody_audio_ready_end
+_binary_cody_audio_ready_end:
+
+.balign 2
+.global _binary_cody_eyes_open_start
+_binary_cody_eyes_open_start:
+.incbin "@PROJECT_DIR@/assets/cody/runtime/generated/cody-eyes_open.pcm16le"
+.global _binary_cody_eyes_open_end
+_binary_cody_eyes_open_end:
