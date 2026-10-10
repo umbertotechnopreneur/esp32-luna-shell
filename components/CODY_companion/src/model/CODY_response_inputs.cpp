@@ -49,6 +49,7 @@ esp_err_t observe_response_inputs(ResponseInputs &inputs, LUNASHELL::ClockSnapsh
     result.body_touch.stamp = published_stamp(body_touch, true);
     if (result.body_touch.stamp.health == SampleHealth::Current) {
         result.body_touch.pressed = body_touch.pressed;
+        result.body_touch.point_px = {static_cast<float>(body_touch.x), static_cast<float>(body_touch.y)};
         result.body_touch.displacement_px = {
             static_cast<float>(body_touch.x) - body_touch.origin_x,
             static_cast<float>(body_touch.y) - body_touch.origin_y};

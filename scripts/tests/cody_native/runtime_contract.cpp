@@ -20,6 +20,9 @@
 // No parameters: shared status-overlay fixture reports its actual contract failures.
 int check_status_overlay_contract();
 
+// No parameters: run the shared character direction admission/composition contracts.
+int check_character_direction_contract();
+
 namespace {
 // condition: Contract that must hold for the actual portable firmware implementation.
 // message: Concrete failure retained in the host check output.
@@ -760,6 +763,7 @@ int main()
     benchmark_contracts();
     debug_hud_contracts();
     require(check_status_overlay_contract() == 0, "status overlay glyph/geometry contracts failed");
+    require(check_character_direction_contract() == 0, "character direction contracts failed");
     demo_contracts();
     damage_contracts();
     stroke_contracts();

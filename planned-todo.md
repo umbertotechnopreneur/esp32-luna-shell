@@ -1,5 +1,18 @@
 # Deferred work
 
+## Cody character ideas kept simple - 2026-10-10
+
+- [ ] Bind the shared native character director into Cody Studio for labelled
+  synthetic gaze/caress/compaction previews; do not duplicate its arithmetic in Python.
+- [ ] Consider wake stretch, attention double blink and a few nonrepeating variants
+  only after reviewing the three basic device reactions. These extra performances
+  were explicitly left out to keep the first revision small.
+- [ ] Consider richer time-of-day personality and long-task acting only if existing
+  synchronized clock, day/night greetings and quiet rhythm prove insufficient.
+  Reuse their owner; no new calendar, wellbeing reminders or inferred work fatigue.
+- [ ] Reconcile expression-debug screen 38 after its separate agent's review;
+  this character change does not add a replacement screen or alter debug poses.
+
 ## Cody companion follow-up - 2026-10-10
 
 - [ ] Integrate a supported observer of this desktop chat's App Server token-usage

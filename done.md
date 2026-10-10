@@ -7,6 +7,21 @@ Older `artifacts/` paths may be historical references only: the complete cleanup
 requested on 2026-10-05 removed that unversioned evidence. New results identify
 the preserved copies within the build directory.
 
+## Minimal character direction source integration - 2026-10-10
+
+- Added gaze towards canonical body touch or admitted visible information, a
+  30-second active caress warmth tail with positive-only happiness projection,
+  and native concentration plus a brief stretch/smile after a genuine matching
+  compaction end. Reused existing face, contour and Confusion manga channels.
+- Kept one bounded display-lock owner for the artistic state and reused its
+  canonical technical buffer. Preserved native root motion, audio mouth, eye
+  closure, clock/routine ownership, existing navigation and exact debug presets.
+  No Codex protocol/hook or expression-debug screen change accompanied this work.
+- Registered focused native regression cases but did not execute them. Only
+  static source review was performed; generation, build, device behavior and
+  stack headroom remain pending in `TODO.md`. Studio binding and optional extra
+  performances are deferred in `planned-todo.md` per the requested simple scope.
+
 ## Companion detail and shake refinement source integration - 2026-10-10
 
 - Restored the live native character on all passive technical pages at the shared

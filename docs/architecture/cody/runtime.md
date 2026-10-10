@@ -6,6 +6,41 @@ immutable state until every display transaction retires; partial writes never
 become the next displayed-state reference. See [rendering](rendering.md) for the
 damage/DMA contract and [onboarding](onboarding.md) for route gates.
 
+## Minimal character direction - 2026-10-10
+
+`CODY_character_direction` adds three small artistic contributions after the
+existing native response: gaze towards acquired body touch or visible information,
+positive warmth after a recognized caress, and concentration/release during genuine
+compaction. Rendering and touch keep the existing logical coordinates. Gaze can
+follow the last fully retired manga bounds without a second face/icon evaluation.
+An approval faces forward. No person tracking or new sensor sampling is introduced.
+
+The display-lock owner retains bounded inputs (at most 96 bytes) and direction
+state (at most 128 bytes). Existing native motion, blinking/protective eye closure,
+audio-driven mouth opening, breathing, quiet hours, day/night routine and Desk/Away
+policy retain their owners. Debug, explicit expression presets, setup and the
+startup/Sleep/Wake lifecycle suppress these contributions and consume hidden events.
+This work does not change expression debug screen 38 or Codex transport admission.
+
+Compaction requires current canonical link/activity and technical observations with
+matching chat and ACTIVITY revision. Concentration slightly narrows the mouth,
+changes eye curves and raises one brow; the existing Confusion manga cue is requested
+only when its current channel is free. A two-second stretch/smile requires an
+observed current `Active -> Refreshed` transition of the same compaction sequence.
+Source gaps, stale data, another chat, interruption and resume cannot manufacture
+completion. They can suppress this optional release gesture. Existing Home
+compaction text/status remains independently visible through the established UI.
+
+Pause freezes artistic time while consuming source edges. A caress leaves a
+30-second active-time warmth tail, blending back gently; positive happiness above
+the authored initial value contributes additional warmth. Low/unattended happiness
+does not create a sad expression. All numeric mood rules and their awake clock stay
+unchanged. Physical timing, visual strength and nested stack headroom remain
+unverified. The source-only regression cases are registered in `cody-runtime`.
+Studio presentation binding and optional extra gestures remain deferred in
+[planned-todo.md](../../../planned-todo.md); authorized generation/build/device
+work is tracked in [TODO.md](../../../TODO.md).
+
 ## Startup and expression sequencing
 
 Cold boot or software reset first shows the approved VibeWare floppy insertion

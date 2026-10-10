@@ -8,8 +8,8 @@ needs, mood categories and agent-session model below remain deferred.
 
 `assets/cody/personality.yaml` is the canonical source of the test rules.
 Its strict `cody.personality.v2` contract defines session-only artistic state,
-no facial binding, happiness bounds 0..100, initial value 50, a ten-point
-carezza gain and one-point decay per 60 awake seconds. Initial value, gain and
+positive-only artistic face binding, happiness bounds 0..100, initial value 50,
+a ten-point caress gain and one-point decay per 60 awake seconds. Initial value, gain and
 decay timing are authored test choices. Sadness is always `100 - happiness`;
 there is no independent sadness counter or mood transition enum in this MVP.
 
@@ -25,7 +25,13 @@ wall time. This is the chosen MVP policy, not a persisted/offline mood service.
 Only a recognized eligible upper/lower body stroke applies gain, once per
 contact and under the existing petting cooldown. Apply that event even when
 another cue suppresses the decorative heart. Happiness and derived sadness
-do not modify facial channels, breathing, motion or cue priorities yet.
+retain their existing numeric rules. The minimal character director projects only
+happiness above the authored initial value into a gentle smile and raised cheeks;
+lower values do not create an unattended frown. Each accepted caress also leaves
+a bounded 30-second active-time warmth tail after its existing heart cue. This
+does not change breathing, acquired motion or cue priorities. See
+[runtime](runtime.md#minimal-character-direction---2026-10-10) for admission,
+pause and debug isolation. The Windows presentation binding is still deferred.
 The native getter exposes an artistic snapshot under the existing display
 lock. The Windows source reads the same YAML and displays synthetic diagnostic
 values; it does not write firmware observations.
@@ -43,7 +49,9 @@ bindings. It emits `personality_catalog.hpp`, `personality_rules.hpp`,
 `assets/cody/personality/generated/`, plus canonical source provenance in
 `manifest.json`. Firmware uses those flash constants rather than
 parsing YAML or evaluating arbitrary expressions at runtime. After editing the
-YAML, regenerate and build before expecting a device rule change.
+YAML, regenerate and build before expecting a device rule change. The 2026-10-10
+`positive_only` revision has not been regenerated or validated yet; earlier
+generation and test results below predate the character director.
 
 Generation has run. The focused suite compiled the portable native sources on
 2026-10-05, then failed two new assertions that incorrectly expected a drawable

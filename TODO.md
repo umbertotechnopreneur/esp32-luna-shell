@@ -1,5 +1,27 @@
 # Active work
 
+## Minimal Cody character direction - 2026-10-10
+
+- [x] Implement native gaze, positive caress warmth and genuine compaction
+  concentration/release. Reuse existing face/contour/manga channels and canonical
+  observations; keep Debug/presets/setup and acquired motion/audio ownership intact.
+- [x] Complete static source integration and prepare regression cases for source
+  gaps, revision/sequence/chat mismatch, pause/resume, positive-only affect,
+  preserved protective closure/audio/root motion and invalid-input transactions.
+- [ ] Regenerate the personality source provenance for `face_binding: positive_only`
+  through `scripts/device.ps1 generate -Generator cody-personality-rules` after
+  authorization. Existing numeric constants and happiness decay are unchanged.
+- [ ] Run the prepared checks only after fresh exact-command authorization:
+  `scripts/device.ps1 check -Check cody-runtime` and, separately,
+  `scripts/device.ps1 check -Check cody-personality`. No suite was executed here.
+- [ ] Authorize the final firmware build and physical observation separately.
+  Inspect Home compaction visibility, exact-end release, touch gaze at all cardinal
+  rotations, warmth after a real caress, debug isolation, paused navigation and
+  deepest nested renderer stack headroom. No build, simulator or flash accompanied
+  this source change. The other agents own Codex bugfixing and debug screen 38.
+- [x] Record the handoff: Studio binding and extra performances are intentionally
+  deferred in `planned-todo.md`; do not present them as implemented.
+
 ## Cody companion panels and genuine compaction - 2026-10-10
 
 - [x] Refine passive details with the live native character, four curated rows,

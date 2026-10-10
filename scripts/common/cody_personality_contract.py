@@ -249,8 +249,8 @@ def load_personality_rules(path):
     fields(rules, ("schema", "scope", "face_binding", "catalog", "happiness", "sadness", "caress", "icons", "audio", "wellbeing"), "personality")
     if rules["schema"] != "cody.personality.v2":
         raise ValueError("Unsupported personality schema")
-    if rules["scope"] != "session" or rules["face_binding"] != "disabled":
-        raise ValueError("MVP personality requires session scope and disabled face binding")
+    if rules["scope"] != "session" or rules["face_binding"] != "positive_only":
+        raise ValueError("Personality requires session scope and positive-only artistic face binding")
     validate_catalog(rules["catalog"])
     happiness = rules["happiness"]
     fields(happiness, ("metric", "minimum", "maximum", "initial", "on_caress", "decay"), "happiness")

@@ -75,6 +75,8 @@ struct PlaybackSample {
 struct BodyTouchSample {
     SampleStamp stamp{};
     bool pressed = false;
+    // Acquired logical point; gaze uses this without reconstructing the contact from displacement.
+    CODY2D::Vec2 point_px{};
     CODY2D::Vec2 displacement_px{};
     uint16_t rendering_rotation_degrees = 0;
     int64_t gesture_started_at_us = 0;

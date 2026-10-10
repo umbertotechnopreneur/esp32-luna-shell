@@ -23,6 +23,7 @@
 #include "CODY_debug_views.hpp"
 #include "CODY_dirty_plan.hpp"
 #include "CODY_response.hpp"
+#include "CODY_character_direction.hpp"
 #include "CODY_companion_mode.hpp"
 #include "CODY_petting.hpp"
 #include "CODY_companion_gestures.hpp"
@@ -235,6 +236,11 @@ struct CompanionState {
     CODY::PersonalityCue connection_cue = CODY::PersonalityCue::None;
     CODY::HappinessState happiness{};
     int64_t happiness_sampled_at_us = 0;
+    int64_t last_caress_at_us = 0;
+    // Display-lock ownership keeps the bounded projection and transaction off the nested frame stack.
+    CODY::CharacterDirectionInputs character_inputs{};
+    CODY::CharacterDirectionState character_direction{};
+    CODY::CharacterDirectionState next_character_direction{};
     CODY::PersonalityLag personality_lag{};
     CODY::PersonalityBatteryLatch personality_battery{};
     CODY::PersonalityFrame retired_personality{};
@@ -1903,9 +1909,98 @@ esp_err_t observe_connection_personality(int64_t active_delta_us,
     return CODY::advance_connection_personality(inputs, active_delta_us, state, cue);
 }
 
+// inputs: Current acquired response projection; gaze never reads a touch driver.
+// scene: Current authored scene; gaze follows only actual visible information.
+// lifecycle: Next native lifecycle, preserving exact startup/Sleep/Wake ownership.
+// placement: Nominal logical character placement, including the technical artwork slot.
+// now_us: Observation time after snapshot reads, used only for acquired touch freshness.
+// rebase: Resume discards compaction continuity and consumed contacts across standby.
+// Exception: Returns the original canonical projection or artistic mood validation failure.
+esp_err_t observe_character_direction(const CODY::ResponseInputs &inputs,
+    const CODY::SceneFrame &scene, const CODY::LifecycleState &lifecycle,
+    CODY::Transform placement, int64_t now_us, bool rebase)
+{
+    auto &direction = s_state.character_inputs;
+    direction = {};
+    direction.placement = placement;
+    direction.paused = s_state.animation_paused;
+    direction.rebase = rebase;
+    direction.caress_at_us = s_state.last_caress_at_us;
+    direction.enabled = CODY::lifecycle_is_resting(lifecycle) && !s_state.resume_scene_pending &&
+        companion_home_route_active() && !debug_view_active() &&
+        !s_state.rig_debug && !s_state.expression_override;
+    if (CODY::lifecycle_is_resting(lifecycle)) {
+        // Reuse the serialized technical buffer; never copy the full canonical snapshot onto this stack.
+        esp_err_t error = LUNASHELL::DeviceSnapshotService::instance()
+            .readCodexTechnicalObservation(s_state.technical_observation);
+        if (error != ESP_OK) {
+            ESP_LOGE(kTag, "Character activity observation failed (%s)", esp_err_to_name(error));
+            return error;
+        }
+        error = CODY::project_character_activity(s_state.technical_observation.link,
+            s_state.technical_observation.technical, direction.activity);
+        if (error != ESP_OK) {
+            return error;
+        }
+    }
+    const esp_err_t mood_error = CODY::positive_character_affect(CODY::PersonalityData::happiness,
+        s_state.happiness, direction.positive_affect);
+    if (mood_error != ESP_OK) {
+        return mood_error;
+    }
+    const bool low_battery = inputs.power.stamp.health == CODY::SampleHealth::Current &&
+        inputs.power.stamp.error == ESP_OK && inputs.power.level_percent <= CODY::PersonalityConfig::low_battery_enter_percent;
+    const CODY::PersonalityCue scene_cue = CODY::resolve_scene_personality_cue(
+        scene.valid ? scene.definition->id : CODY::SceneId::CompanionIdle, s_state.connection_cue);
+    direction.affection_allowed = direction.enabled && !low_battery &&
+        scene_cue != CODY::PersonalityCue::Fear && scene_cue != CODY::PersonalityCue::Frustration &&
+        s_state.eye_reaction_remaining_us == 0 && s_state.response.annoyance < .1f;
+    const auto &touch = inputs.body_touch;
+    const int64_t touch_limit_us = static_cast<int64_t>(CODY::Data::response.touch.event_timeout_seconds * 1000000.f);
+    const bool touch_current = touch.stamp.health == CODY::SampleHealth::Current && touch.stamp.error == ESP_OK &&
+        touch.stamp.sampled_at_us > 0 && now_us >= touch.stamp.sampled_at_us &&
+        now_us - touch.stamp.sampled_at_us <= touch_limit_us && touch.pressed &&
+        touch.rendering_rotation_degrees == inputs.rendering_rotation_degrees;
+    if (touch_current) {
+        direction.gaze_visible = true;
+        direction.gaze_point = touch.point_px;
+        return ESP_OK;
+    }
+    if (direction.activity.attention) {
+        // An approval faces the user; no person tracking is inferred.
+        return ESP_OK;
+    }
+    const bool panel_artwork = technical_panel_view_active();
+    // Use last fully retired manga geometry, breaking the face/icon evaluation cycle.
+    const uint32_t route = !panel_artwork && scene.valid ? static_cast<uint32_t>(scene.definition->id) : 0;
+    const auto &manga = s_state.retired_personality;
+    if (manga.status == CODY::PersonalityPresentationStatus::Visible && manga.opacity > 0 &&
+        s_state.personality_lag.route == route && s_state.personality_lag.rotation == inputs.rendering_rotation_degrees) {
+        direction.gaze_visible = true;
+        direction.gaze_point = {(manga.bounds.left + manga.bounds.right) * .5f,
+            (manga.bounds.top + manga.bounds.bottom) * .5f};
+        return ESP_OK;
+    }
+    if (panel_artwork && s_state.technical_panel.valid &&
+        s_state.technical_panel.panel == s_state.companion_panel) {
+        direction.gaze_visible = direction.activity.working || direction.activity.compacting;
+        direction.gaze_point = {233, 225};
+    } else if (!panel_artwork && scene.valid && scene.intro_phase == CODY::SceneIntroPhase::Complete) {
+        if (scene.activity_overlay.state != CODY::ActivityOverlayState::Hidden) {
+            const auto bounds = CODY::activity_overlay_bounds();
+            direction.gaze_visible = true;
+            direction.gaze_point = {(bounds.left + bounds.right) * .5f, (bounds.top + bounds.bottom) * .5f};
+        } else if (scene.title.valid && scene.visible_characters > 0) {
+            direction.gaze_visible = direction.activity.working || direction.activity.compacting;
+            direction.gaze_point = {233, scene.title.bounds.y + scene.title.bounds.height * .5f};
+        }
+    }
+    return ESP_OK;
+}
+
 // frame_started_us: Real timestamp sampled while the display lock is held.
 // resume_animation: Exclude standby time from both independent animation clocks.
-// Exception: Returns the original snapshot, lifecycle, scene or rig evaluation failure.
+// Exception: Returns the original snapshot, direction, lifecycle, scene or rig evaluation failure.
 esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_animation)
 {
     if (s_resources.rig == nullptr) {
@@ -2115,6 +2210,19 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
         // Keep the small character in its reserved slot while its face and contour remain alive.
         response_frame.transform = CODY::kCompanionPanelCharacterTransform;
     }
+    esp_err_t direction_error = observe_character_direction(inputs, next_scene, next_lifecycle,
+        base_transform, esp_timer_get_time(), resume_animation ||
+        s_state.rendered_rotation_degrees != inputs.rendering_rotation_degrees);
+    if (direction_error == ESP_OK) {
+        direction_error = CODY::advance_character_direction(s_state.character_inputs,
+            animation_delta_us, s_state.character_direction, s_state.next_character_direction);
+    }
+    if (direction_error == ESP_OK) {
+        direction_error = CODY::compose_character_direction(s_state.next_character_direction, response_frame);
+    }
+    if (direction_error != ESP_OK) {
+        return direction_error;
+    }
     CODY::ContourState next_contour{};
     const esp_err_t contour_error = CODY::advance_contour(
         s_state.contour, response_frame.contour, animation_delta_ms, next_contour
@@ -2183,6 +2291,7 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
             static_cast<unsigned>(stressed_pose));
     }
     s_state.response = next_response;
+    s_state.character_direction = s_state.next_character_direction;
     s_state.response_frame = response_frame;
     if (s_state.rendered_rotation_degrees != inputs.rendering_rotation_degrees) {
         cancel_transient_affection();
@@ -2859,6 +2968,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
         if (!sleeping && cue == CODY::PersonalityCue::None && s_state.welcome_remaining_us > 0) {
             cue = s_state.welcome_cue;
+        }
+        if (!sleeping && cue == CODY::PersonalityCue::None) {
+            cue = CODY::character_direction_cue(s_state.character_direction);
         }
         if (context.presentation == CODY::PersonalityPresentation::Disabled) {
             cue = CODY::PersonalityCue::None;
@@ -3843,6 +3955,7 @@ esp_err_t publish_body_gesture(const LUNASHELL_touch_point_t &point, bool presse
             if (happiness_error != ESP_OK) {
                 return happiness_error;
             }
+            s_state.last_caress_at_us = point.sample_timestamp_us;
             ESP_LOGI(kTag, "Mood caress: happiness=%u sadness=%u",
                 static_cast<unsigned>(s_state.happiness.happiness),
                 static_cast<unsigned>(CODY::PersonalityData::happiness.maximum - s_state.happiness.happiness));

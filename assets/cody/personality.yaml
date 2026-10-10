@@ -1,7 +1,7 @@
 # Build-time character personality. These values do not measure human emotions.
 schema: cody.personality.v2
 scope: session
-face_binding: disabled
+face_binding: positive_only
 
 # Identity is a contract: list order can change; these IDs and names cannot.
 # caress always means one gentle stroke above the eyes OR below the mouth.

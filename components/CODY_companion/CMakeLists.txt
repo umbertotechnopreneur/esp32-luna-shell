@@ -41,6 +41,7 @@ idf_component_register(
         "src/rendering/CODY_dirty_plan.cpp"
         "src/model/CODY_rig.cpp"
         "src/model/CODY_response.cpp"
+        "src/model/CODY_character_direction.cpp"
         "src/model/CODY_petting.cpp"
         "src/model/CODY_happiness.cpp"
         "src/model/CODY_wellbeing.cpp"
