@@ -1,5 +1,21 @@
 # Active work
 
+## Native host batching optimizations - 2026-10-10
+
+- [x] Convert the frame once and rasterize all event actions in one production C++ call.
+  Publish only after complete success; retain exact layout, styles, glyphs and touch gates.
+- [x] Import snapshot leaves with one bounded atomic native batch, including production aging,
+  and project all component metadata in one call without rewriting source timestamps.
+- [x] Reject duplicate field identities, overflow, unknown paths and embedded-NUL text;
+  preserve the committed owner and caller output when a batch fails.
+- [x] Update host ABI to 2, source provenance and actual native regression definitions.
+- [x] Save implementation checkpoint `0973e0b` on main, preserving concurrent branding; no push.
+- [x] Correct simulator documentation and this activity's records to English;
+  make the repository-wide English rule explicit in AGENTS.md.
+- [ ] Regenerate the driver and execute cody-runtime/simulator only when each exact command
+  receives fresh authorization. No test, build, generator or validation scan has run here.
+- [ ] Measure host frame time and snapshot costs before claiming runtime performance gains.
+
 ## Production C++ logic shared with the simulator - 2026-10-10
 
 - [x] Share CCP decoding and transaction admission, stable identities, deadlines,

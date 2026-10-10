@@ -1,13 +1,13 @@
-# Simulatori Windows
+# Windows simulators
 
-Qui provo la UI circolare da 466 × 466 e i comportamenti descritti dagli asset.
-Tengo ben visibili **SYNTHETIC** e **SIMULATED**: i valori generati sul PC non
-entrano negli snapshot del firmware. FPS host, immagini Pillow e audio del PC
-restano osservazioni host; il comportamento elettrico di Cody si verifica su Cody.
+I use these previews to explore the 466 × 466 circular UI and the behavior described
+by the assets. **SYNTHETIC** and **SIMULATED** remain clearly visible: values
+generated on the PC never enter firmware snapshots. Host FPS, Pillow images and
+PC audio remain host observations; Cody's electrical behavior is verified on Cody.
 
-## Apro Cody Studio
+## Open Cody Studio
 
-Uso sempre la console pubblica dalla radice del repository:
+I always use the public console from the repository root:
 
 ```powershell
 .\scripts\device.ps1 simulator
@@ -17,134 +17,133 @@ Uso sempre la console pubblica dalla radice del repository:
 .\scripts\device.ps1 boot-screens
 ```
 
-Mi servono Python, Pillow e PyYAML. La console prepara il driver audio host prima
-dell'apertura interattiva; una cattura statica non avvia l'audio.
-L'anteprima parte senza rig sovrapposto. Nei pannelli **Face**, **Shape**, **Inputs**
-e **Inspect** cambio espressioni, contorno, stimoli sintetici e diagnostica.
-Ogni scheda mantiene il proprio scorrimento; nelle finestre strette l'ispettore
-si dispone sotto la preview, quando lo spazio verticale lo permette.
+Python, Pillow and PyYAML are required. The console prepares the host audio driver
+before an interactive session; a static capture does not start audio.
+The preview starts without a rig overlay. The **Face**, **Shape**, **Inputs** and
+**Inspect** panels control expressions, outlines, synthetic stimuli and diagnostics.
+Each tab retains its own scroll position; in narrow windows, the inspector moves
+below the preview when vertical space permits.
 
-Ridimensiono solo la presentazione: geometria, rotazione e puntatore restano
-nelle coordinate logiche del display. Uso Per Monitor v2 prima di Tk e la scala
-DPI iniziale del monitor. Il cambio tra monitor con DPI diversi richiede ancora
-una transizione Tk dedicata. Lascio il limite a 30 Hz, oppure 25 Hz nello studio
-jelly; nell'ispettore posso scegliere 15, 25, 30 o 60 Hz. Il footer distingue
-gli FPS osservati dal limite richiesto. Aggiorno le letture testuali a 10 Hz e
-lo stato a 5 Hz; i clock del modello seguono il tempo trascorso.
+Resizing affects presentation only: geometry, rotation and pointer input stay in
+the display's logical coordinates. Per Monitor v2 is enabled before Tk, using the
+monitor's initial DPI scale. Moving between monitors with different DPI still
+requires a dedicated Tk transition. The default limit is 30 Hz, or 25 Hz in the
+jelly study; the inspector offers 15, 25, 30 or 60 Hz. The footer distinguishes
+observed FPS from the requested limit. Text readouts update at 10 Hz and status
+at 5 Hz; model clocks follow elapsed time.
 
-Il floppy VibeWare usa 42 frame e la timeline di 3,5 secondi del GIF approvato,
-con composizione nera, scala pixel doppia e rotazione condivisa.
-`-AtMs` sceglie il fotogramma di una cattura; `boot-screens` comprende
-l'introduzione. Il link Manifesto si apre solo con un clic esplicito.
+The VibeWare floppy uses 42 frames and the approved GIF's 3.5-second timeline,
+with black composition, double pixel scaling and shared rotation.
+`-AtMs` selects the frame for a capture; `boot-screens` includes the introduction.
+The Manifesto link opens only after an explicit click.
 
-## Collego il simulatore a CCP
+## Connect the simulator to CCP
 
 ```powershell
 .\scripts\device.ps1 simulator -Ccp
 ```
 
-Con `-Ccp` apro anche il pannello **CCP** e un endpoint UDP reale, solo su
-`127.0.0.1:42117`. Nel pannello scelgo **Connect Codex** e leggo il codice.
-In Codex chiedo espressamente di collegare **Cody Studio SIMULATED**; la discovery
-aggiunge `include_simulator: true`, poi il pairing usa il codice visibile.
-Per installazione e trust seguo il [README canonico di CCP](../../plugins/cody-codex-plugin/README.md).
+`-Ccp` also opens the **CCP** panel and a real UDP endpoint restricted to
+`127.0.0.1:42117`. Select **Connect Codex** in the panel and read the code.
+In Codex, explicitly request a connection to **Cody Studio SIMULATED**; discovery
+adds `include_simulator: true`, then pairing uses the visible code.
+For installation and trust, follow the [canonical CCP README](../../plugins/cody-codex-plugin/README.md).
 
-Parlo CCP1 con le stesse primitive del plugin: offerte, PAIR/PAIRED,
-CONFIRM/ACTIVE e FIND/READY/ACTIVITY autentici. Dopo PAIR salvo un candidato
-distinto dall'associazione attiva. Lo promuovo con CONFIRM o con un READY
-autenticato che risponde al nonce corrente; quest'ultimo percorso permette di
-riprendere dopo un riavvio senza un nuovo codice.
-Rispondo a ogni READY valido con COMMITTED, soltanto dopo il commit attivo:
-anche il PC può così completare il proprio candidato se ACTIVE o un precedente
-COMMITTED si sono persi. Il protocollo conserva il vecchio record su entrambi
-i lati fino alla prova del nuovo commit; non prometto una transazione atomica
-tra PC e dispositivo. Dopo Cancel il vecchio link può riprendere, ma il candidato
-PC resta esplicito: per sostituirlo uso un nuovo codice e `replace_pending: true`.
+The endpoint speaks CCP1 using the plugin's same primitives: authentic offers,
+PAIR/PAIRED, CONFIRM/ACTIVE and FIND/READY/ACTIVITY. After PAIR, it saves a candidate
+separately from the active association. CONFIRM or an authenticated READY answering
+the current nonce promotes it; the latter path allows recovery after a restart
+without a new code.
+Every valid READY receives COMMITTED only after the active commit: the PC can
+also complete its candidate if ACTIVE or an earlier COMMITTED was lost.
+The protocol preserves the old record on both sides until the new commit is
+proven; it does not promise an atomic transaction between PC and device.
+After Cancel, the old link can resume, but the PC candidate remains explicit:
+replacing it requires a new code and `replace_pending: true`.
 
-La mia identità simulata inizia con `02` e vive, insieme alle associazioni
-protette da DPAPI, in `artifacts/cody-simulator-state/device.json`.
-Il cleanup dei build conserva questa directory. Un secondo endpoint non può
-prendere la stessa porta; un errore di lettura resta un errore, senza inventare
-un nuovo dispositivo. Il codice compare solo nella UI, mai nei log o nello
-snapshot pubblico.
+The simulated identity starts with `02` and resides, alongside DPAPI-protected
+associations, in `artifacts/cody-simulator-state/device.json`.
+Build cleanup preserves this directory. A second endpoint cannot take the same
+port; a read error remains an error instead of inventing a new device.
+The code appears only in the UI, never in logs or the public snapshot.
 
-Dal pannello posso:
+The panel supports:
 
-- confermare **Replace pairing** mantenendo il vecchio record fino alla nuova conferma;
-- usare **Cancel code** per scartare la finestra o il candidato corrente;
-- confermare **Forget pairing** per cancellare solo le associazioni del simulatore;
-- togliere **SIMULATED LAN available** e ripristinarla senza perdere l'identità;
-- disattivare **Show CCP on the display** per tornare al rig mentre il link resta attivo.
+- confirming **Replace pairing** while preserving the old record until the new confirmation;
+- using **Cancel code** to discard the current window or candidate;
+- confirming **Forget pairing** to delete only simulator associations;
+- disabling **SIMULATED LAN available** and restoring it without losing the identity;
+- disabling **Show CCP on the display** to return to the rig while the link remains active.
 
-Posso chiedere esplicitamente a CCP il riavvio o il factory reset di questo
-target **SIMULATED**, con le distinte frasi e il codice descritti nel
-[README del plugin](../../plugins/cody-codex-plugin/README.md#riavvio-o-ricomincio-dal-setup).
-Il riavvio conserva lo store; il factory reset cancella soltanto impostazioni
-e associazioni del simulatore e rende la LAN simulata non configurata anche
-dopo la riapertura. Per ripartire riattivo **SIMULATED LAN available** e apro
-un nuovo pairing. Il vecchio record PC resta separato; non cancello nulla sul
-dispositivo fisico, nel firmware o sulla scheda SD.
+CCP can explicitly request a restart or factory reset of this **SIMULATED** target,
+using the distinct phrases and code described in the
+[plugin README](../../plugins/cody-codex-plugin/README.md#riavvio-o-ricomincio-dal-setup).
+A restart preserves the store; a factory reset deletes only simulator settings
+and associations and leaves the simulated LAN unconfigured even after reopening.
+To resume, enable **SIMULATED LAN available** and start new pairing.
+The old PC record remains separate; nothing is deleted on the physical device,
+in firmware or on the SD card.
 
-La preview mostra le scene/font esistenti e lo stato ricevuto dal broker.
-Il nome progetto occupa al massimo due righe da 21 caratteri; attendo pacchetti
-freschi prima di mostrare attività. Dopo otto secondi senza aggiornamenti tratto
-l'attività come **UNAVAILABLE**. Il cambio chat segue il vero prompt inviato a
-Codex; non ho aggiunto un selettore locale o un produttore di hook finti.
+The preview shows existing scenes/fonts and the state received from the broker.
+Project names occupy at most two lines of 21 characters; activity appears only
+after fresh packets arrive. After eight seconds without updates, activity is
+treated as **UNAVAILABLE**. Chat changes follow the actual prompt sent to Codex;
+there is no local selector or fabricated hook producer.
 
-Con CCP 0.6 ricevo anche EVENT autentici. Una domanda segue 26 → 27 → 31:
-apro, scelgo una card, controllo la descrizione e premo **Send**. La scelta
-resta locale e reversibile fino a Send; Back conserva il percorso. Il solo
-ACK UDP lascia **Waiting for Codex**: **Reply sent** richiede il secondo poll
-di conferma del destinatario, entro il TTL di 180 secondi. Posso togliere la
-LAN dal pannello e vedere la stessa domanda ancora presente, con invio
-disabilitato fino a un nuovo snapshot autentico.
+CCP 0.6 also supports authentic EVENT messages. A question follows 26 → 27 → 31:
+open it, select a card, review its description and press **Send**.
+The selection stays local and reversible until Send; Back preserves the path.
+A UDP ACK alone leaves **Waiting for Codex**: **Reply sent** requires the second
+recipient-confirmation poll within the 180-second TTL. Disabling LAN in the panel
+keeps the same question visible, with sending disabled until a new authenticated
+snapshot arrives.
 
-Per le PR mostro solo dati. **View failures** apre fino a sei nomi interi,
-tre per pagina; scorro verticalmente e torno indietro con Back. Le righe
-non sono pulsanti, e non compaiono merge, retry, log o stacktrace. Le nuove
-notifiche sostituiscono le vecchie senza interrompere una domanda. Gli
-strumenti di invio richiedono `include_simulator: true` anche dopo il pairing;
-continuo a mostrare **SIMULATED**, senza spacciare la preview per firmware.
+PR views display data only. **View failures** opens up to six complete names,
+three per page, with vertical scrolling and Back navigation. Rows are not buttons;
+merge, retry, logs and stack traces are not offered. New notifications replace old
+ones without interrupting a question. Sending tools require
+`include_simulator: true` even after pairing; **SIMULATED** stays visible, without
+presenting the preview as firmware.
 
-Questa modalità verifica il percorso del protocollo e la sua presentazione host.
-Il commissioning si controlla dal pannello desktop: non eseguo qui il firmware
-ESP-IDF né riproduco ogni gesto e schermata dell'onboarding nativo.
-Per evitare catture ambigue uso `-Ccp` solo nella modalità interattiva `rig`,
-senza studi di materiale. Cody fisico resta un'identità indipendente.
+This mode exercises the protocol path and its host presentation.
+Commissioning is controlled from the desktop panel: it does not run ESP-IDF
+firmware here or reproduce every gesture and screen of native onboarding.
+To avoid ambiguous captures, `-Ccp` is supported only in interactive `rig` mode,
+without material studies. Physical Cody remains an independent identity.
 
-## Espressioni, simboli e materiale
+## Expressions, symbols and materials
 
-Nel pannello Face scelgo un simbolo manga per la presentazione `rig`.
-I preset semantici `sleep` e `sleeping` attivano Sleep; chiudere gli occhi con
-uno slider non equivale ad addormentarsi. Una modifica manuale del volto toglie
-l'identità del preset. Greeting, boot e Micro non mostrano il simbolo.
-Per provare le carezze automatiche disattivo il rig diagnostico e scelgo None.
+The Face panel selects a manga symbol for the `rig` presentation.
+The semantic `sleep` and `sleeping` presets activate Sleep; closing the eyes with
+a slider does not mean falling asleep. A manual face change removes the preset's
+identity. Greeting, boot and Micro do not display the symbol.
+To explore automatic petting, disable the diagnostic rig and select None.
 
-Leggo ID, priorità, tempi, gesti e umore da `assets/cody/personality.yaml`.
-Il canale attende 300 ms di richiesta stabile, entra in 400 ms, rimane almeno
-2.500 ms e scompare in 600 ms. Sleep semantico salta l'attesa iniziale e può
-rilasciare subito il simbolo concorrente; un simbolo Sleep scelto manualmente
-mantiene la normale attesa. Pause congela il tempo attivo.
-Non prometto che il pannello fisico resti acceso fino alla fine della dissolvenza.
+IDs, priorities, timing, gestures and mood come from `assets/cody/personality.yaml`.
+The channel waits for a stable request for 300 ms, enters over 400 ms, remains for
+at least 2,500 ms and disappears over 600 ms. Semantic Sleep skips the initial
+wait and can immediately release the competing symbol; a manually selected
+Sleep symbol retains the normal wait. Pause freezes active time.
+This does not promise that the physical panel stays on until the fade completes.
 
-L'ancora segue Nose con una finestra di 360 ms; la scala usa 400 ms.
-Uso 17 intervalli fissi da 25 ms, ritardo radiale massimo di quattro pixel e
-deformazione massima di due pixel. La storia geometrica non accoda simboli.
-Palette, copertura e opacità arrivano dagli asset RGB565 generati.
-Riservo Back e la regione di stato: se il simbolo non entra, riporto
-`BLOCKED_BY_LAYOUT`, senza ridurlo o spostarlo a sorpresa.
-Il contratto completo sta in [personality icons](../../docs/architecture/cody/personality-icons.md).
+The anchor follows Nose with a 360-ms window; scaling uses 400 ms.
+There are 17 fixed intervals of 25 ms, a maximum radial delay of four pixels and
+maximum deformation of two pixels. Geometry history does not queue symbols.
+Palette, coverage and opacity come from generated RGB565 assets.
+Back and the status region remain reserved: if a symbol does not fit, the result
+is `BLOCKED_BY_LAYOUT`, without unexpectedly shrinking or moving it.
+The complete contract is in [personality icons](../../docs/architecture/cody/personality-icons.md).
 
-Per l'aspetto della nuvola tengo distinti tre studi:
+Three studies remain separate for the cloud's appearance:
 
-| Opzione | Cosa provo |
+| Option | Study |
 | --- | --- |
-| `-CloudJellyStudy` | Approccio perla a scanline, interattivo o PNG/GIF; il volto segue il corpo. |
-| `-CloudMaterialStudy` | Studio host del volume, con cattura statica. |
-| `-CloudPngMeshStudy` | Texture e mesh triangolare; `-MeshOverlay` mostra la topologia. |
+| `-CloudJellyStudy` | Pearl scanline approach, interactive or PNG/GIF; the face follows the body. |
+| `-CloudMaterialStudy` | Host volume study with static capture. |
+| `-CloudPngMeshStudy` | Texture and triangular mesh; `-MeshOverlay` displays the topology. |
 
-Scelgo un solo materiale per volta. Preferisco PNG per giudicare i colori;
-il GIF segue una timeline sintetica fissa, non un replay di sensori.
+Select one material at a time. PNG is preferable for assessing colors;
+GIF follows a fixed synthetic timeline rather than sensor replay.
 
 ```powershell
 .\scripts\device.ps1 simulator -CloudJellyStudy
@@ -152,7 +151,7 @@ il GIF segue una timeline sintetica fissa, non un replay di sensori.
 .\scripts\device.ps1 simulator -CloudPngMeshStudy -MeshOverlay -OutputPath artifacts/simulator/cloud-mesh.gif
 ```
 
-## Preview Luna e Leg
+## Luna and Leg previews
 
 ```powershell
 .\scripts\device.ps1 simulator-luna -ToolArguments @('--scenario', 'battery-low', '--screen', 'battery')
@@ -162,69 +161,75 @@ il GIF segue una timeline sintetica fissa, non un replay di sensori.
 .\scripts\device.ps1 package-simulator
 ```
 
-Con Luna provo pagine diagnostiche, archi di stato/comando, alimentazione e azioni
-semantiche. `--board-config` sceglie la shell minima dal board YAML e dal documento
-shell preparato; non lo mescolo con scenari, pagine e radio del dispositivo
-completo. Per Leg tengo accelerometro, gyro, vista combinata, movimento e
-impostazioni, sempre sintetici.
+Luna provides diagnostic pages, status/command arcs, power behavior and semantic
+actions. `--board-config` selects the minimal shell from the board YAML and prepared
+shell document; it is not combined with full-device scenarios, pages or radios.
+Leg retains accelerometer, gyro, combined, motion and settings views, all synthetic.
 
-Il pacchetto EXE rimane Luna in `artifacts/simulator/windows/dist/`.
-Il packaging prepara esplicitamente l'ambiente host; aprire una preview non
-installa dipendenze di nascosto.
+The EXE package remains Luna under `artifacts/simulator/windows/dist/`.
+Packaging explicitly prepares the host environment; opening a preview does not
+silently install dependencies.
 
-| Controllo Luna | Azione sintetica |
+| Luna control | Synthetic action |
 | --- | --- |
 | Mouse | Touch |
-| B | BOOT breve / fullscreen |
-| P | Standby PWR |
-| R | Reset software BOOT |
-| Enter / C | Conferma |
+| B | Short BOOT press / fullscreen |
+| P | PWR standby |
+| R | BOOT software reset |
+| Enter / C | Confirm |
 | Esc | Back |
-| F2 | Guida viewport |
+| F2 | Viewport help |
 
-In standby ignoro touch e BOOT breve; riattivo con PWR sintetico.
-Il viewport parte da 320 × 320 a y=73; nascondendo l'arco basso arriva a
-320 × 393, e senza entrambi gli archi/fullscreen a 320 × 466, y=0.
-Con `--idle-state` posso catturare active, command-hidden, chrome-hidden,
-fullscreen, dimmed, off e standby.
+In standby, touch and short BOOT presses are ignored; synthetic PWR wakes the device.
+The viewport starts at 320 × 320 with y=73; hiding the lower arc extends it to
+320 × 393, and hiding both arcs/fullscreen extends it to 320 × 466 with y=0.
+`--idle-state` can capture active, command-hidden, chrome-hidden, fullscreen,
+dimmed, off and standby states.
 
-## Fixture e verifiche
+## Fixtures and checks
 
-Il driver `cody_host_graphics.dll` comprende anche i moduli di logica condivisi
-con il firmware. Python conserva finestra, trasporto, autenticazione e input
-sintetici; non sostituisce una libreria mancante o non aggiornata con una seconda
-implementazione. Il caricamento controlla manifest, hash dei sorgenti e ABI.
-Dopo modifiche a questi moduli preparo il driver, quando l'esecuzione e'
-autorizzata, attraverso la console pubblica:
+The `cody_host_graphics.dll` driver also includes logic modules shared with firmware.
+Python retains the window, transport, authentication and synthetic inputs; it does
+not replace a missing or outdated library with a second implementation.
+Loading verifies the manifest, source hashes and ABI.
+Host ABI 2 transfers all actions in a frame through one native call:
+RGB is converted to RGB565 once and converted back after the complete raster pass.
+The image is published only if the entire group succeeds. Snapshots also use a
+single import with aging and one grouped metadata read; names, types, limits,
+duplicates and errors are checked at the native boundary. A failed field discards
+the candidate without changing the previous owner.
+Value parsing preserves existing rules: this change reduces Python/C++ calls,
+while timing and memory still require measurement. After changing these modules,
+prepare the driver through the public console when execution is authorized:
 
 ```powershell
 .\scripts\device.ps1 generate -Generator cody-simulator-graphics
 ```
 
-| Percorso | Codice di produzione eseguito sul PC |
+| Path | Production code executed on the PC |
 | --- | --- |
-| CCP | Decoder EVENT e transazioni: ID, scadenza originale, scelta, risposta, chiusura e rifiuto della riapertura. |
-| Domande | Piano di presentazione, percorsi, testi, palette, icone, preparazione e raster delle azioni, tempi di comparsa e ammissione del touch. |
-| Standby | Politica dei servizi, ordine delle risorse, errori, rollback e recupero; le operazioni delle risorse rimangono sintetiche. |
-| Snapshot e HTTP | Decoder RTC, aging con timestamp originali, validita', redazione e serializzatore JSON del firmware. |
+| CCP | EVENT decoder and transactions: IDs, original deadline, selection, reply, closure and rejection of reopening. |
+| Questions | Presentation plan, routes, text, palettes, icons, action preparation/raster, reveal timing and touch admission. |
+| Standby | Service policy, resource ordering, errors, rollback and recovery; resource operations remain synthetic. |
+| Snapshot and HTTP | RTC decoder, aging with original timestamps, validity, redaction and the firmware JSON serializer. |
 
-Le azioni `standby:profile` e `standby:fault` configurano rispettivamente i
-quattro requisiti booleani `deep_sleep_enabled`, `retained_connection`,
-`voice_listening`, `touch_wake_available` e un guasto con `resource`, `target`,
-`error`, piu' `count`/`skip` opzionali. `press:pwr` esegue la transizione C++ e
-pubblica anche il risultato di un recupero incompleto. `rtc-registers` riceve
-`registers`, una lista di sette byte, e passa i valori al decoder RTC reale.
-Un errore di decodifica resta visibile, senza sostituire il campione storico.
+The `standby:profile` and `standby:fault` actions configure, respectively, the four
+boolean requirements `deep_sleep_enabled`, `retained_connection`, `voice_listening`,
+`touch_wake_available`, and a fault with `resource`, `target`, `error`, plus optional
+`count`/`skip`. `press:pwr` runs the C++ transition and also publishes the result of
+incomplete recovery. `rtc-registers` receives `registers`, a list of seven bytes,
+and passes the values to the real RTC decoder. A decoding error remains visible
+without replacing the historical sample.
 
-I gruppi non modellati restano indisponibili. Il Task-WDT ESP-IDF non esiste
-sul PC: `/api/v1/health` riporta liveness non disponibile con
-`ESP_ERR_NOT_SUPPORTED` e `ok=false`. I dati restano **SYNTHETIC**; il JSON
-aggiunge `simulator.runtime=production-cpp`. La scelta deep sleep e' una
-decisione della politica, non una prova di sonno elettrico, consumi o risveglio.
+Unmodeled groups remain unavailable. The ESP-IDF Task-WDT does not exist on the PC:
+`/api/v1/health` reports unavailable liveness with `ESP_ERR_NOT_SUPPORTED` and
+`ok=false`. Data remains **SYNTHETIC**; JSON adds
+`simulator.runtime=production-cpp`. Selecting deep sleep is a policy decision,
+not evidence of electrical sleep, power consumption or wake behavior.
 
-In `scenarios/` uso `LUNASHELL.simulator.scenario.v1`: patch tipizzate e
-eventi ordinati nel tempo virtuale. Rifiuto chiavi duplicate, tipi errati e stati
-incoerenti. Format e calibrazione mantengono le proprie precondizioni.
+`scenarios/` uses `LUNASHELL.simulator.scenario.v1`: typed patches and events ordered
+in virtual time. Duplicate keys, incorrect types and inconsistent states are
+rejected. Formatting and calibration retain their own preconditions.
 
 ```powershell
 .\scripts\device.ps1 simulator-luna -ToolArguments @('--list-scenarios')
@@ -232,19 +237,19 @@ incoerenti. Format e calibrazione mantengono le proprie precondizioni.
 .\scripts\device.ps1 simulator-luna -ToolArguments @('--scenario', 'healthy', '--action', 'start:wireless', '--advance-ms', '1000', '--dump-api', '/api/v1/status')
 ```
 
-Con `--scenario-file` scelgo una fixture esplicita; `--output` scrive sotto
-`artifacts/`. Avanzo il replay solo quando richiesto e mantengo generazioni
-immutabili. L'elenco degli scenari viene dal catalogo, così non lo duplico qui.
+`--scenario-file` selects an explicit fixture; `--output` writes under `artifacts/`.
+Replay advances only when requested, preserving immutable generations.
+The scenario list comes from the catalog rather than being duplicated here.
 
-Il server interno `fake_device_server.py` usa loopback, normalmente porta 18080,
-e header sintetici/no-cache. Health è pubblico; gli altri GET richiedono Bearer
-esatto, con limite dopo venti errori in sessanta secondi. Il token pubblico di
-fixture è `LUNASHELL-SIMULATOR-ONLY-NOT-A-SECRET`.
-Il controllo separato `/__simulator/` gestisce load/advance/action; per i contratti
-uso [HTTP device API](../../docs/architecture/http-device-api.md).
+The internal `fake_device_server.py` server uses loopback, normally port 18080,
+and synthetic/no-cache headers. Health is public; other GET requests require an
+exact Bearer token, with a limit after twenty errors in sixty seconds.
+The public fixture token is `LUNASHELL-SIMULATOR-ONLY-NOT-A-SECRET`.
+The separate `/__simulator/` control handles load/advance/action; contracts are
+documented in [HTTP device API](../../docs/architecture/http-device-api.md).
 
-Preparo queste verifiche tramite la console, poi chiedo l'autorizzazione prevista
-da [AGENTS.md](../../AGENTS.md) prima di ogni esecuzione:
+Prepare these checks through the console, then request the authorization required
+by [AGENTS.md](../../AGENTS.md) before each execution:
 
 ```powershell
 .\scripts\device.ps1 check -Check cody-ccp
@@ -254,18 +259,18 @@ da [AGENTS.md](../../AGENTS.md) prima di ogni esecuzione:
 .\scripts\device.ps1 check -Check simulator
 ```
 
-Le due suite CCP non aprono finestre e non inviano hook a Codex. Quella del
-simulatore comprende UDP reale su porte temporanee di loopback e stato sintetico
-isolato, senza broadcast LAN o accesso alle associazioni personali.
-La suite raster confronta i pixel con il compositore per-pixel e un oracolo di
-copertura indipendente su maschere piccole. La suite Luna copre fixture, azioni,
-redazione e trasporto loopback. Registro risultati e limiti in
-[done.md](../../done.md) e [TODO.md](../../TODO.md).
-Per interpreti, percorsi e packaging rimando alla [console](../../scripts/README.md);
-per il dispositivo ai contratti [runtime](../../docs/architecture/cody/runtime.md)
-e [rendering](../../docs/architecture/cody/rendering.md).
+The two CCP suites do not open windows or send hooks to Codex. The simulator suite
+includes real UDP on temporary loopback ports and isolated synthetic state, with
+no LAN broadcast or access to personal associations.
+The raster suite compares pixels with the per-pixel compositor and an independent
+coverage oracle on small masks. The Luna suite covers fixtures, actions, redaction
+and loopback transport. Results and limitations are recorded in
+[done.md](../../done.md) and [TODO.md](../../TODO.md).
+For interpreters, paths and packaging, see the [console](../../scripts/README.md);
+for the device, see the [runtime](../../docs/architecture/cody/runtime.md) and
+[rendering](../../docs/architecture/cody/rendering.md) contracts.
 
-`cody-runtime` include le definizioni di regressione dei moduli C++ condivisi;
-`simulator` comprende aging, RTC, errori di pubblicazione e JSON nativo. La
-presenza di queste definizioni non attesta la loro esecuzione. Le suite che
-caricano la libreria richiedono il driver aggiornato prima del proprio avvio.
+`cody-runtime` includes regression definitions for the shared C++ modules;
+`simulator` includes aging, RTC, publication errors and native JSON. The presence
+of these definitions does not establish that they were executed. Suites loading
+the library require an up-to-date driver before they start.

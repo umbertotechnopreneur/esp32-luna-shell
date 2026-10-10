@@ -1,99 +1,121 @@
 # Completed implementation and evidence
 
-Qui raccolgo i checkpoint e quello che ho davvero osservato. Tengo le verifiche
-aperte in [TODO.md](TODO.md) e le idee rinviate in [planned-todo.md](planned-todo.md).
-Conservo la storia in Git e nei documenti di architettura. I vecchi percorsi
-`artifacts/` possono essere soltanto riferimenti storici: la pulizia completa
-richiesta il 2026-10-05 ha rimosso quelle prove non versionate. Per i nuovi
-risultati indico sotto le copie preservate dentro la directory del build.
+This record contains implementation checkpoints and observed evidence. Pending
+validation belongs in [TODO.md](TODO.md); deferred ideas belong in
+[planned-todo.md](planned-todo.md). Git and architecture documents retain history.
+Older `artifacts/` paths may be historical references only: the complete cleanup
+requested on 2026-10-05 removed that unversioned evidence. New results identify
+the preserved copies within the build directory.
 
-## Logica di produzione condivisa con il simulatore - 2026-10-10
+## Native host batching optimizations - 2026-10-10
 
-- Checkpoint locale `b60e38c`, direttamente su `main`, per i quattro percorsi
-  richiesti. Il codice Python conserva input sintetici, finestra, autenticazione
-  e trasporto; la libreria C++ obbligatoria rifiuta manifest, sorgenti o ABI non
-  aggiornati. Nessuna seconda implementazione Python viene usata come fallback.
-- CCP usa il decoder e la transazione del firmware: identita', contenuto,
-  scadenza originale, risposta, stati terminali e chiusure. Radio e firma UDP
-  restano nei rispettivi proprietari, separati dagli effetti della transazione.
-- La presentazione condivide percorsi, testi e wrapping, selezione reversibile,
-  conferma, Back, dettagli PR, palette e icone. Preparazione e raster delle
-  azioni usano CODY2D reale. La comparsa completa dei controlli e il touch
-  dipendono dal piano condiviso e dal frame effettivamente mostrato, compresi
-  freshness, errori e ammissioni. Non dichiaro equivalenza misurata dei pixel.
-- Lo standby condivide ordine, politica audio/radio, errori, rollback e recupero.
-  Il PC inietta guasti sulle risorse sintetiche, conserva le cause originali e
-  pubblica anche recuperi incompleti. Profilo, guasti e transizioni mutano un
-  candidato privato: solo una pubblicazione riuscita sostituisce il proprietario
-  precedente. Questa copia/commit host non rappresenta un rollback fisico.
-- Snapshot e API usano aging, decoder RTC e JSON di produzione. Il writer riceve
-  clock e sink espliciti; solo il trasporto firmware legge il clock e invia HTTP.
-  Restano originali i timestamp dei campioni e del clock di sistema, i valori
-  storici e gli errori. Il PC non pubblica in DeviceSnapshotService; i gruppi non
-  modellati e il Task-WDT rimangono indisponibili. Health riporta liveness
-  ESP_ERR_NOT_SUPPORTED, senza inventare una misura del watchdog. I tempi host
-  sono ammessi prima della conversione int64, impedendo troncamenti del clock.
-- Ho registrato tutti i moduli in CMake e nel generatore host C++20, aggiornato
-  contratti sorgente e documentazione e scritto regressioni C++/Python per
-  transazioni, presentazione, guasti, aging, RTC, redazione e pubblicazione fallita.
-- Evidenza: lettura statica e revisioni incrociate tramite tre subagent. Nessun
-  test, scan di validazione, generazione del driver, build, simulatore, hardware,
-  installazione o push eseguito. Le verifiche e lo stack compilato restano aperti
-  in TODO.md. I banner VibeWare concorrenti sono preservati e separati dal commit.
+- Local implementation checkpoint `0973e0b`, directly on `main`.
+- All event actions share one RGB-to-RGB565 conversion, one production C++
+  raster call and one conversion back to RGB. Native preparation admits all
+  controls before rasterization; Python publishes only after complete success.
+  Production layout, captions, icons and touch admission remain shared.
+- Snapshot leaves use one bounded native import with production aging. A private
+  heap candidate preserves the previous owner on failure. One metadata batch
+  projects component health, original errors, validity and source timestamps;
+  failed lookup or allocation never partially exposes the destination buffer.
+- Duplicate identities, unknown paths, numeric overflow and embedded-NUL text
+  are rejected. Host ABI is now 2; its new header participates in source provenance.
+  The native simulator driver must be regenerated before the updated wrappers run.
+- Added regression definitions for native raster parity, one-call publication,
+  atomic imports, metadata failure and text rejection, with actual native fixtures
+  linked into cody-runtime and discovered by the simulator suite.
+- Corrected the simulator README and this activity's records to English and made
+  the repository-wide English requirement explicit in AGENTS.md.
+- Evidence: local and independent static source review only. No tests, validation
+  scans, generator, build, simulator or hardware operations were executed. Runtime
+  timing and memory gains remain unmeasured; execution requires fresh command
+  authorization. Concurrent branding is preserved separately; no push.
 
-## Follow-up P2: riavvio broker, scadenza e HTTP - 2026-10-10
+## Production logic shared with the simulator - 2026-10-10
 
-- Checkpoint locale dell'implementazione: `31665ca`, direttamente su `main`.
-- CCP 0.6.2 lega al proof FIND events=2 la domanda e lo stato osservati da Cody.
-  Se il broker ha perso un ticket aperto, pubblica prima unavailable per il suo
-  ID; il dispositivo conserva la scelta locale senza inventare consegna, pubblica
-  Rejected e ne conferma il ritiro nel FIND seguente. La nuova domanda attende
-  questo passaggio anche quando e' gia' accodata prima della riconnessione.
-- Cody Studio SIMULATED controlla la scadenza originale durante la ricezione
-  EVENT, anche prima di tick() e davanti a Received/Delivered con TTL positivo.
-  Conserva lo stato Expired e la prova della selezione locale.
-- HTTP usa un buffer di risposta PSRAM protetto per lettura, serializzazione e
-  invio. readSnapshot() restituisce gli errori canonici reali e applica aging e
-  timestamp senza acquisizione hardware. Il gestore invia 503 con la causa,
-  propaga l'errore originale e non legge il buffer fallito. I precedenti caller
-  dell'API by-value conservano il loro contratto; non ho aumentato lo stack HTTP.
-- Ho aggiunto regressioni per riavvio con successore accodato, autenticazione
-  della domanda corrente e pacchetti tardivi prima del tick; ho aggiornato i
-  contratti sorgente HTTP/snapshot, manifest e documentazione.
-- Evidenza: revisione statica locale e seconda revisione statica tramite subagent.
-  Nessun test, scan di validazione, build, esecuzione del simulatore, installazione,
-  flash o prova fisica eseguito. Stack compilato e contesa reale restano da verificare;
-  pacchetto installato e firmware fisico non sono aggiornati. Nessun push.
-- Un secondo subagent ha esaminato, senza modifiche o esecuzioni, i confini del
-  simulatore: rig/scene/font e parte dell'audio usano gia' C++ reale; le prossime
-  estrazioni proposte sono stati CCP, presentazione delle domande, politica di
-  standby, decoder/freshness/JSON e regole delle preferenze. Nessuna di queste
-  estrazioni ulteriori e' dichiarata implementata.
+- Local checkpoint `b60e38c`, directly on `main`, implements the four requested
+  paths. Python retains synthetic input, the window, authentication and transport.
+  The required C++ library rejects outdated manifests, sources or ABI; it has no
+  alternate Python implementation.
+- CCP uses the firmware decoder and transaction: identities, content, original
+  deadline, reply, terminal states and closure. Radio and UDP authentication
+  retain their respective owners, separate from transaction effects.
+- Presentation shares routes, text wrapping, reversible selection, confirmation,
+  Back, PR details, palette and icons. Action preparation and rasterization use
+  production CODY2D. Complete control reveal and touch admission depend on the
+  shared plan and the displayed frame, including freshness, errors and admission.
+  Pixel equivalence has not been measured.
+- Standby shares ordering, audio/radio policy, errors, rollback and recovery. The
+  PC injects faults into synthetic resources, preserves original causes and
+  publishes incomplete recovery. Profile, faults and transitions modify a private
+  candidate; successful publication alone replaces the prior owner. This host
+  copy/commit does not represent physical rollback.
+- Snapshots and APIs use production aging, RTC decoding and JSON. The writer
+  receives explicit clock and sink inputs; firmware transport alone reads the
+  clock and sends HTTP. Sample/system-clock timestamps, historical values and
+  errors remain original. The PC never publishes into DeviceSnapshotService;
+  unmodeled groups and Task-WDT remain unavailable. Health reports liveness as
+  ESP_ERR_NOT_SUPPORTED. Host clocks are admitted before int64 conversion to
+  prevent truncation.
+- Registered modules in CMake and the C++20 host generator, updated source
+  contracts and documentation, and added C++/Python regression definitions for
+  transactions, presentation, faults, aging, RTC, redaction and failed publication.
+- Evidence: static source review and cross-review by three subagents. No test,
+  validation scan, driver generation, build, simulator, hardware, installation or
+  push was performed. Validation and compiled stack inspection remain in TODO.md.
+  Concurrent VibeWare banners remain preserved and separate from the checkpoint.
 
-## Review P1 e pulizia mirata su main - 2026-10-10
+## Follow-up P2: broker restart, deadline and HTTP - 2026-10-10
 
-- Checkpoint locale dell'implementazione: `667242c`, direttamente su `main`.
-- Ho conservato la correzione gia' presente del ramo radio: `reassert` richiama
-  il proprietario senza falsificare `wireless.consistent`. Ho estratto la
-  transizione delle risorse in un modulo dedicato, mantenendo ordine, rollback
-  e pubblicazione del flag audio nel power owner.
-- Release sceglie lo standby software quando la transazione conserva Codex o
-  quando e' richiesto l'ascolto wake word. Il deep sleep richiede entrambi i
-  servizi assenti e il profilo touch; l'API verifica anche il power owner.
-- CCP 0.6.1 ripete la chiusura della domanda pubblicata fino a EVENTACK firmato
-  dal dispositivo. Verifico endpoint, nonce, chiave attiva e ticket; l'ACK non
-  riscrive l'esito del destinatario. Firmware e Cody Studio SIMULATED mantengono
-  gli stati terminali reali, ritrasmettono l'ACK perso e non riaprono la domanda.
-- Ho separato calendario/decoder RTC, presentazione degli eventi e dipendenze
-  DPAPI/Winsock/avvio nascosto. Acquisizione I2C, timestamp e canonical snapshot
-  restano nel proprietario hardware; il formato protetto delle chiavi non cambia.
-  Il companion residente resta Windows, con la dipendenza isolata.
-- Ho scritto regressioni per domande consecutive, ACK perso, scadenza locale,
-  provenienza/nonce/proof/associazione errati e selezione C++ del sonno. Ho
-  aggiornato CMake, contratti sorgente, manifest e documentazione.
-- Evidenza: implementazione e revisione statica dei sorgenti. Nessun test,
-  scan di validazione, build, simulatore, installazione, flash o prova fisica
-  eseguito in questo passaggio; le verifiche restano in TODO.md. Nessun push.
+- Local implementation checkpoint `31665ca`, directly on `main`.
+- CCP 0.6.2 binds the question and state observed by Cody to the authenticated
+  FIND events=2 proof. If the broker loses an open ticket, it first publishes
+  unavailable for that ID. The device retains its local choice, publishes
+  Rejected without inventing delivery and confirms retirement in the next FIND.
+  A successor waits even when queued before reconnection.
+- Cody Studio SIMULATED checks the original deadline during EVENT admission,
+  before tick() and even for Received/Delivered packets with positive TTL. It
+  preserves Expired and evidence of the local selection.
+- HTTP uses a PSRAM response buffer protected across read, serialization and
+  send. readSnapshot() returns real canonical errors and applies aging and
+  timestamps without hardware acquisition. The handler sends 503 with the cause,
+  propagates the original error and never reads the failed buffer. Existing
+  by-value callers retain their contract; the HTTP stack was not enlarged.
+- Added regression definitions for broker restart with a queued successor,
+  current-question authentication and late packets before tick. Updated
+  HTTP/snapshot source contracts, manifest and documentation.
+- Evidence: local static review and independent subagent static review. No test,
+  validation scan, build, simulator, installation, flash or physical verification
+  was performed. Compiled stack and actual contention remain unverified. The
+  installed plugin and physical firmware were not updated; no push.
+- Another subagent reviewed simulator boundaries without edits or execution.
+  Rig/scenes/fonts and part of audio already use production C++. At that point,
+  CCP states, question presentation, standby policy, decoder/freshness/JSON and
+  preference rules were proposed extractions, not completed implementation.
+
+## P1 review and focused cleanup on main - 2026-10-10
+
+- Local implementation checkpoint `667242c`, directly on `main`.
+- Preserved the existing radio-branch fix: `reassert` calls the owner without
+  falsifying `wireless.consistent`. Extracted resource transitions into a dedicated
+  module, retaining ordering, rollback and audio-flag publication in the power owner.
+- Release selects software standby when the transaction retains Codex or wake
+  word listening is required. Deep sleep requires both services to be absent and
+  the touch profile to allow it; the API also checks the power owner.
+- CCP 0.6.1 repeats published question closure until the device signs EVENTACK.
+  Endpoint, nonce, active key and ticket are checked; ACK never rewrites the
+  recipient outcome. Firmware and Cody Studio SIMULATED retain actual terminal
+  states, retransmit lost acknowledgements and never reopen the question.
+- Separated RTC calendar/decoder, event presentation and DPAPI/Winsock/hidden
+  startup dependencies. I2C acquisition, timestamps and canonical snapshots stay
+  with the hardware owner; protected key storage is unchanged. The resident
+  companion remains Windows, with its platform dependency isolated.
+- Added regression definitions for consecutive questions, lost ACK, local
+  expiry, invalid origin/nonce/proof/pairing and C++ sleep selection. Updated
+  CMake, source contracts, manifest and documentation.
+- Evidence: implementation and static source review. No test, validation scan,
+  build, simulator, installation, flash or physical verification was performed
+  in this step. Pending validation remains in TODO.md; no push.
 
 ## Integrazione in main e chiusura del worktree - 2026-10-10
 
