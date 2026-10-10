@@ -2,17 +2,23 @@
 #include "esp_err.h"
 #include <cstdint>
 
+namespace LUNASHELL { enum class CodyUsageMode : uint8_t; }
+
 namespace CODY {
-enum class PreferenceId : uint8_t { ShakeWake = 0, AutoRotate = 1, Sounds = 2, Orientation = 3 };
+enum class PreferenceId : uint8_t { ShakeWake = 0, AutoRotate = 1, Sounds = 2, Orientation = 3, UsageMode = 4 };
 
 // No parameters: loads exact persisted values, creating only genuinely absent keys.
 // Exception: Returns the real storage, owner-policy or publication error.
 esp_err_t load_companion_preferences();
 
 // preference: Stable identity of the explicit user choice.
-// value: Boolean 0/1, or an exact manual angle 0/180 for Orientation.
+// value: Boolean/mode 0/1, or an exact manual angle 0/180 for Orientation.
 // Exception: Returns the real validation, persistence, application or publication error.
 esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value);
+
+// mode: Explicit Desk or Away choice; changes only this durable presentation preference.
+// Exception: Returns original validation, projection, persistence, readback or publication errors.
+esp_err_t persist_companion_usage_mode(LUNASHELL::CodyUsageMode mode);
 
 struct OnboardingSettings {
     bool persisted_first_boot = false;

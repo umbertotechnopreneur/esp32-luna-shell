@@ -2,6 +2,15 @@
 
 ## Cody companion panels and genuine compaction - 2026-10-10
 
+- [x] Implement strict Desk/Away persistence and the existing Usage options row;
+  share calmer native presentation with explicitly SIMULATED Studio previews.
+- [x] Preserve native approval priority during compaction, use truthful orphan
+  captions, and reject current technical fields from a different activity revision.
+- [ ] Authorize generation/build and device observation for these new source
+  changes. Review five-row geometry, mode persistence/failures, preview parity,
+  walking rejection and nested render stack headroom before runtime claims.
+- [ ] Run prepared mode, revision-coherence and compaction-lease source regressions
+  only after specific suite authorization. No new execution accompanied this task.
 - [x] Integrate Home, Activity, Model & Context and Session & Link with persistent
   local selection, released-tap navigation and shared deliberate-shake recognition.
   Attention routes preempt panels without losing the selected page.

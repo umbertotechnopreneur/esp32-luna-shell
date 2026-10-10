@@ -1,14 +1,6 @@
 #include "CODY_settings.hpp"
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
-#include "LUNASHELL_platform.h"
-#include "sdkconfig.h"
-#include "esp_log.h"
-#include "esp_timer.h"
-
-#include "CODY_settings.hpp"
-#include "LUNASHELL_settings.hpp"
-#include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_codex_name.hpp"
 #include "LUNASHELL_platform.h"
 #include "sdkconfig.h"
@@ -24,6 +16,7 @@ constexpr char kFirstBootKey[] = "cody_firstboot";
 constexpr char kShakeKey[] = "cody_shake";
 constexpr char kSoundsKey[] = "cody_sounds";
 constexpr char kUserNameKey[] = "cody_user_name";
+constexpr char kUsageModeKey[] = "cody_usage";
 std::mutex s_preferences_mutex;
 
 // name: Exact user-provided printable ASCII, including empty explicit clear.
@@ -202,6 +195,21 @@ esp_err_t save_switch(const char *key, uint32_t value)
     }
     return error;
 }
+
+// preferences: Receives only readback-confirmed mode or its independent original failure.
+// Exception: Returns real storage/type/value/default-readback errors without changing unrelated fields.
+esp_err_t load_usage_mode(LUNASHELL::CodyPreferencesSnapshot &preferences)
+{
+    bool away = false;
+    // The strict 0/1 storage encoding is the enum's documented boundary representation.
+    const esp_err_t error = load_switch(kUsageModeKey, false, away);
+    preferences.usage_mode_valid = error == ESP_OK;
+    preferences.usage_mode_error = error;
+    if (error == ESP_OK) {
+        preferences.usage_mode = away ? LUNASHELL::CodyUsageMode::Away : LUNASHELL::CodyUsageMode::Desk;
+    }
+    return error;
+}
 }
 
 // No parameters: exact persisted settings are applied before Cody/audio workers start.
@@ -215,19 +223,32 @@ static esp_err_t load_companion_preferences_locked()
     LUNASHELL::CodyOptionsObservation previous;
     const esp_err_t projection_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(previous);
     if (projection_error == ESP_OK) {
-        // A failed sounds/wake reload does not erase the independent profile's
-        // genuine last successful read or silently republish an empty name.
+        // A failed sounds/wake reload preserves independent profile and mode
+        // observations when their storage reads have not been attempted.
         preferences.user_name = previous.preferences.user_name;
+        preferences.usage_mode = previous.preferences.usage_mode;
+        preferences.usage_mode_valid = previous.preferences.usage_mode_valid;
+        preferences.usage_mode_error = previous.preferences.usage_mode_error;
     } else {
         preferences.user_name.last_error = projection_error;
         preferences.user_name.health = LUNASHELL::DeviceHealth::Degraded;
+        preferences.usage_mode_error = projection_error;
         ESP_LOGE(kTag, "Optional preferred-name prior projection unavailable (%s)", esp_err_to_name(projection_error));
+        ESP_LOGE(kTag, "Optional companion usage mode prior projection unavailable (%s)", esp_err_to_name(projection_error));
     }
     if (error == ESP_OK) {
         error = load_switch(kShakeKey, kDefaultShake, preferences.shake_to_wake);
     }
     if (error == ESP_OK) {
         error = load_switch(kSoundsKey, kDefaultSounds, preferences.sounds_enabled);
+    }
+    if (error == ESP_OK) {
+        const esp_err_t usage_error = load_usage_mode(preferences);
+        if (usage_error != ESP_OK) {
+            // Presentation mode is optional. Keep its genuine failure independently
+            // visible while existing sound, wake and profile owners remain usable.
+            ESP_LOGE(kTag, "Optional companion usage mode unavailable (%s)", esp_err_to_name(usage_error));
+        }
     }
     if (error == ESP_OK) {
         if (projection_error == ESP_OK) {
@@ -282,11 +303,52 @@ esp_err_t load_companion_preferences()
     return error;
 }
 
+// mode: Explicit typed Desk or Away preference; no clock, audio, radio or wake policy changes.
+// Exception: Returns original validation, canonical projection, write/readback or publication errors.
+esp_err_t persist_companion_usage_mode(LUNASHELL::CodyUsageMode mode)
+{
+    if (mode != LUNASHELL::CodyUsageMode::Desk && mode != LUNASHELL::CodyUsageMode::Away) {
+        ESP_LOGE(kTag, "Companion usage mode rejected: value=%u (%s)",
+            static_cast<unsigned>(mode), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    LUNASHELL::CodyOptionsObservation observation;
+    auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    esp_err_t error = snapshots.readCodyOptionsObservation(observation);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Companion usage mode canonical projection failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    error = save_switch(kUsageModeKey, mode == LUNASHELL::CodyUsageMode::Away ? 1U : 0U);
+    observation.preferences.usage_mode_valid = error == ESP_OK;
+    observation.preferences.usage_mode_error = error;
+    if (error == ESP_OK) {
+        observation.preferences.usage_mode = mode;
+    }
+    // Keep master preference validity, timestamps and the independent name profile
+    // unchanged. A failed mode write cannot report guessed Desk or disable sounds.
+    const esp_err_t publication_error = snapshots.reportCodyPreferences(observation.preferences);
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(kTag, "Companion usage mode publication failed (%s)", esp_err_to_name(publication_error));
+    }
+    return error != ESP_OK ? error : publication_error;
+}
+
 // preference: Stable identity of the choice pressed on screen 10.
-// value: Boolean 0/1 or a manual half-turn 0/180; invalid input is never clamped.
+// value: Boolean/mode 0/1 or a manual half-turn 0/180; invalid input is never clamped.
 // Exception: Returns the original validation, persistence, policy or publication error.
 esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
 {
+    if (preference == PreferenceId::UsageMode) {
+        if (value > 1U) {
+            ESP_LOGE(kTag, "Companion usage mode input rejected: value=%lu (%s)",
+                static_cast<unsigned long>(value), esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
+        return persist_companion_usage_mode(value == 1U ? LUNASHELL::CodyUsageMode::Away :
+            LUNASHELL::CodyUsageMode::Desk);
+    }
     std::lock_guard<std::mutex> guard(s_preferences_mutex);
     const bool valid = preference == PreferenceId::Orientation ? value == 0U || value == 180U : value <= 1U;
     if (!valid) {
@@ -316,6 +378,9 @@ esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
     case PreferenceId::Orientation:
         error = LUNASHELL_display_set_rotation_degrees(value);
         break;
+    case PreferenceId::UsageMode:
+        // The typed mode branch above owns its separate mutation/publication path.
+        return ESP_ERR_INVALID_STATE;
     }
     if (error == ESP_OK) {
         // Re-read both keys before publishing values, also recovering a prior failed explicit save.

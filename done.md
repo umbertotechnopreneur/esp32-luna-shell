@@ -7,6 +7,23 @@ Older `artifacts/` paths may be historical references only: the complete cleanup
 requested on 2026-10-05 removed that unversioned evidence. New results identify
 the preserved copies within the build directory.
 
+## Desk/Away and companion coherence source integration - 2026-10-10
+
+- Implemented a typed Desk/Away preference in the existing settings owner, with
+  strict absent-only defaulting, exact readback and independent failure state.
+  Added the Usage row to existing options and a shared native artistic policy;
+  no additional transport, task, radio, voice or standby policy was introduced.
+- Studio's explicit SIMULATED mode preview uses the same helper and cannot
+  change persisted device settings or leak into live/Debug/event views.
+- Native approval attention and its notification retain priority during genuine
+  compaction. Orphan start/end boundaries use neutral truthful text. Current
+  technical fields require matching chat and activity revision; known mismatched
+  Active compaction becomes STALE, without fabricated completion or counts.
+- Added source-only persistence/isolation, shared rhythm, technical revision and
+  compaction lease/orphan regressions. Integration and static source review are
+  complete; no tests, scans, generators, simulator, build, flash or serial capture
+  were executed for these changes. Their runtime validation remains in TODO.md.
+
 ## Native Cody companion panels and truthful telemetry - 2026-10-10
 
 - Implemented persistent Home, Activity, Model & Context and Session & Link

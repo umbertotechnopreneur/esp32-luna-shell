@@ -364,6 +364,8 @@ class ActivityStore:
                         "description": description.encode("ascii").hex(),
                         "branch": session.branch.encode("ascii").hex() if session else ""}
             compact = session.compaction if session else Compaction.NONE
+            # Replies preserve the genuine lifecycle timestamp. A broker heartbeat is not
+            # a fresh Codex observation that compaction is still running beyond its source lease.
             if (compact == Compaction.ACTIVE and session and
                     now - session.compact_observed_at > ACTIVITY_LEASE_SECONDS):
                 compact = Compaction.STALE

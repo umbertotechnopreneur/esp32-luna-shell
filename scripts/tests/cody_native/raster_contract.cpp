@@ -9,6 +9,8 @@
 #include "CODY_lifecycle.hpp"
 #include "CODY_connection_personality.hpp"
 #include "CODY_scene.hpp"
+#include "CODY_technical_panels.hpp"
+#include "scene_data.hpp"
 #include "CODY_navigation_visibility.hpp"
 #include "LUNASHELL_button_hold.hpp"
 #include <algorithm>
@@ -1566,6 +1568,96 @@ void check_scene_typewriter_contract()
     require(retired.content.visible_characters == 3 && retired.content.text_generation == 17,
             "retired audio baselines own their counts, not mutable content pointers");
 }
+// No parameters: synthetic host observations exercise the actual canonical panel mapper.
+// Exception: Reports preparation or ownership failures through the existing require sink.
+void check_technical_panel_owner_contract()
+{
+    // These serialized host-only owners never enter the firmware snapshot service.
+    static LUNASHELL::CodexLinkSnapshot link{};
+    static LUNASHELL::CodexTechnicalSnapshot technical{};
+    static CODY::PanelPresentation presentation{};
+    CODY::SceneContent content{};
+    link.state = LUNASHELL::CodexLinkState::Connected;
+    link.data_valid = true;
+    link.activity.data_valid = true;
+    link.activity.state = LUNASHELL::CodexActivityState::Working;
+    link.activity.revision = 12;
+    std::memset(link.activity.chat_id, 'a', 64);
+    std::memcpy(technical.chat_id, link.activity.chat_id, 65);
+    technical.data_valid = true;
+    technical.revision = 11;
+    technical.received_at_us = 1000000;
+    technical.model_valid = true;
+    technical.model_source = LUNASHELL::CodexModelSource::HookMetadata;
+    std::strcpy(technical.model, "observed-model");
+    technical.compaction_valid = true;
+    technical.compaction = LUNASHELL::CodexCompactionState::Active;
+    technical.compaction_age_valid = true;
+    technical.compaction_age_at_receive_us = 10000000;
+    technical.turn_elapsed_valid = true;
+    technical.turn_elapsed_at_receive_us = 20000000;
+    technical.context_valid = true;
+    technical.used = 50;
+    technical.capacity = 100;
+
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
+        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK,
+        "prepare same-chat technical packet gap without borrowing previous-turn data");
+    require(std::strstr(presentation.captions[0], "UNAVAILABLE") != nullptr &&
+            std::strcmp(presentation.captions[2], "Context: UNAVAILABLE") == 0 &&
+            presentation.bar_pixels == 0 && !presentation.compaction_active &&
+            std::strcmp(presentation.banner, "Compaction: STALE") == 0,
+            "revision mismatch hides model and counters while retaining uncertain compaction");
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::Activity,
+        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        std::strstr(presentation.captions[7], "UNAVAILABLE") != nullptr,
+        "revision mismatch cannot show a previous turn wall clock");
+
+    technical.revision = link.activity.revision;
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
+        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        std::strstr(presentation.captions[0], "observed-model") != nullptr &&
+        std::strcmp(presentation.captions[2], "Context used: 50%") == 0 &&
+        presentation.compaction_active,
+        "matching revision restores genuinely available fields and compaction");
+
+    link.activity.data_stale = true;
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
+        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        std::strstr(presentation.captions[0], "UNAVAILABLE") != nullptr &&
+        std::strcmp(presentation.banner, "Compaction: STALE") == 0,
+        "stale activity cannot confer current ownership on matching technical data");
+    link.activity.data_stale = false;
+    for (unsigned health = 0; health < 2; ++health) {
+        link.data_valid = health != 0;
+        link.data_stale = health != 0;
+        require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
+            link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+            std::strstr(presentation.captions[0], "STALE") != nullptr &&
+            std::strcmp(presentation.captions[2], "Context: STALE") == 0 &&
+            presentation.bar_pixels == 0 && !presentation.compaction_active &&
+            std::strcmp(presentation.banner, "Compaction: STALE") == 0,
+            "invalid or stale link cannot make retained connected technical data current");
+        require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::SessionLink,
+            link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+            std::strcmp(presentation.captions[3], health == 0 ? "PC: UNAVAILABLE" : "PC: STALE") == 0,
+            "canonical link health takes precedence over retained connected state");
+    }
+    link.state = LUNASHELL::CodexLinkState::Idle;
+    link.data_valid = false;
+    link.data_stale = false;
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::SessionLink,
+        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        std::strcmp(presentation.captions[3], "PC: UNAVAILABLE") == 0,
+        "an invalid initial link cannot fabricate a disconnected observation");
+    link.state = LUNASHELL::CodexLinkState::Connected;
+    link.data_valid = true;
+    std::memset(technical.chat_id, 'b', 64);
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
+        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        presentation.banner[0] == '\0' && std::strstr(presentation.captions[0], "UNAVAILABLE") != nullptr,
+        "a different chat cannot donate model or historical compaction state");
+}
 }  // namespace
 
 // No parameters: host-only portable contracts never touch a driver or serial port.
@@ -1596,6 +1688,7 @@ int main()
         check_button_hold_contract();
         check_lifecycle_contract();
         check_scene_typewriter_contract();
+        check_technical_panel_owner_contract();
     } catch (const std::exception &error) {
         std::fprintf(stderr, "Native contract failed: %s\n", error.what());
         return 1;

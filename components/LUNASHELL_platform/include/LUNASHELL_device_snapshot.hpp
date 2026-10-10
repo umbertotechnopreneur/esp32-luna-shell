@@ -799,9 +799,14 @@ struct CodyUserNameSnapshot : ComponentSnapshot {
 };
 
 // Settings owner publishes readback-confirmed values; consumers never read NVS.
+enum class CodyUsageMode : uint8_t { Desk = 0, Away = 1 };
+
 struct CodyPreferencesSnapshot : ComponentSnapshot {
     bool shake_to_wake = false;
     bool sounds_enabled = false;
+    CodyUsageMode usage_mode = CodyUsageMode::Desk;
+    bool usage_mode_valid = false;
+    esp_err_t usage_mode_error = ESP_ERR_INVALID_STATE;
     CodyUserNameSnapshot user_name;
 };
 

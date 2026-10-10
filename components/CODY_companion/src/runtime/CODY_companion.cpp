@@ -23,6 +23,7 @@
 #include "CODY_debug_views.hpp"
 #include "CODY_dirty_plan.hpp"
 #include "CODY_response.hpp"
+#include "CODY_companion_mode.hpp"
 #include "CODY_petting.hpp"
 #include "CODY_companion_gestures.hpp"
 #include "CODY_technical_panels.hpp"
@@ -1911,6 +1912,18 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     if (observation_error != ESP_OK) {
         return observation_error;
     }
+    // Persistent preferences have independent validity; an invalid mode is not a Desk default.
+    // Only a confirmed Away value may opt into the optional artistic policy.
+    LUNASHELL::CodyOptionsObservation options;
+    static_assert(sizeof(options) <= 256, "Away observation exceeds the bounded render projection budget");
+    const esp_err_t options_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(options);
+    if (options_error != ESP_OK) {
+        ESP_LOGE(kTag, "Companion mode observation failed (%s)", esp_err_to_name(options_error));
+        return options_error;
+    }
+    const bool away = options.preferences.usage_mode_valid &&
+        options.preferences.usage_mode_error == ESP_OK &&
+        options.preferences.usage_mode == LUNASHELL::CodyUsageMode::Away;
     if (resume_animation) {
         CODY::suspend_companion_shake(s_state.companion_shake, frame_started_us);
         CODY::cancel_companion_tap(s_state.companion_tap);
@@ -2050,6 +2063,8 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
         rhythm_config.expression.stress_breath_gain = 0;
         rhythm_config.expression.fatigue_breath_slowdown = 0;
     }
+    CODY::apply_away_rhythm(away && gesture_eligible && next_lifecycle.phase == CODY::LifecyclePhase::Idle &&
+        !debug_view_active() && !s_state.expression_override, rhythm_config, target_contour, inputs);
     const esp_err_t response_error = CODY::advance_response(
         rhythm_config, previous_response, inputs, animation_delta_ms,
         esp_timer_get_time(), true, next_response

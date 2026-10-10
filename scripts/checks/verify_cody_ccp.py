@@ -389,6 +389,37 @@ class ChatActivityTests(unittest.TestCase):
         self.observe("Interrupt")
         self.assertEqual(self.store.snapshot_bundle()[1]["compaction"], "interrupted")
 
+    # self: A genuine-schema synthetic start followed only by fresh broker snapshot replies.
+    # Raises AssertionError if transport replies reset elapsed or renew an unconfirmed source lease.
+    def test_compaction_heartbeat_does_not_renew_source_observation(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("PreCompact", trigger="auto")
+        session = self.store._sessions["chat-a"]
+        started_at = session.compact_observed_at
+        sequence = session.compact_sequence
+        for seconds, expected in ((30, "active"), (119, "active"), (121, "stale"), (180, "stale")):
+            with self.subTest(seconds=seconds), patch.object(activity.time, "monotonic", return_value=started_at + seconds):
+                activity_projection, technical = self.store.snapshot_bundle()
+                self.assertEqual(technical["compaction"], expected)
+                self.assertEqual(int(technical["compactage"]), seconds * 1000)
+                self.assertEqual(technical["revision"], activity_projection["revision"])
+                self.assertEqual(session.compact_observed_at, started_at)
+                self.assertEqual(session.compact_sequence, sequence)
+                self.assertEqual(technical["used"], "-")
+
+    # self: A synthetic observed start whose turn stops without its matching PostCompact hook.
+    # Raises AssertionError if Stop invents a refresh or new context counts from a missing boundary.
+    def test_turn_stop_with_missing_compaction_end_is_not_refreshed(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("PreCompact", trigger="auto")
+        started_sequence = self.store._sessions["chat-a"].compact_sequence
+        self.observe("Stop")
+        activity_projection, technical = self.store.snapshot_bundle()
+        self.assertEqual(activity_projection["phase"], "ready")
+        self.assertEqual(technical["compaction"], "orphaned")
+        self.assertEqual(int(technical["compactseq"], 16), started_sequence)
+        self.assertTrue(all(technical[field] == "-" for field in technical_metadata.UNAVAILABLE_FIELDS))
+
     # self: Model-changing turns and same-turn user steering without a token source.
     # Raises AssertionError if a model change borrows an old numerator or steering restarts the turn clock.
     def test_model_and_turn_projection_preserve_unavailable_metrics(self) -> None:

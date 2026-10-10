@@ -8,6 +8,7 @@
 #include "CODY_activity_observation.hpp"
 #include "CODY_technical_panels.hpp"
 #include "CODY_companion_gestures.hpp"
+#include "CODY_companion_mode.hpp"
 #include "LUNASHELL_snapshot_aging.hpp"
 #include "CODY_response.hpp"
 #include "CODY2D_controls.hpp"
@@ -44,6 +45,7 @@ struct HostState {
     CODY::ActivityObservationState activity_observation{};
     CODY::CompanionTapState companion_tap{};
     CODY::CompanionShakeState companion_shake{};
+    bool away = false;
 };
 // Wire data contains PC-only observations. It never enters DeviceSnapshotService.
 struct HostResponseInputs {
@@ -792,6 +794,16 @@ CODY_HOST_EXPORT void cody_host_personality_clear(void *state)
     if (state) { CODY::clear_personality_presentation(static_cast<HostState *>(state)->personality); }
 }
 
+// state: PC-only response owner; persisted or canonical physical settings are never modified.
+// away: Explicit synthetic preview mode; false restores the authored Desk rhythm.
+// Exception: Returns the original invalid-owner error.
+CODY_HOST_EXPORT int cody_host_set_away(void *state, bool away)
+{
+    if (!state) { return host_result("set_away", ESP_ERR_INVALID_ARG); }
+    static_cast<HostState *>(state)->away = away;
+    return ESP_OK;
+}
+
 // state: Host-owned native response owner to initialize after explicit Studio reset.
 // seed: Artistic nonzero idle sequence seed supplied by the PC.
 // Exception: Returns invalid arguments without modifying the current native model.
@@ -894,6 +906,10 @@ CODY_HOST_EXPORT int cody_host_response_advance(void *state, const HostResponseI
     inputs.body_touch.gesture_started_at_us = wire->gesture_started;
     auto config = CODY::Data::response;
     config.motion.sensitivity = sensitivity;
+    CODY::ContourControls unused_contour{};
+    // PC call frames borrow original input facts; only this local presentation
+    // projection receives the shared rhythm policy, once per response advance.
+    CODY::apply_away_rhythm(static_cast<HostState *>(state)->away, config, unused_contour, inputs);
     auto &response = static_cast<HostState *>(state)->response;
     return host_result("advance_response", CODY::advance_response(config, response, inputs,
         delta_ms, now_us, animate, response));
@@ -920,8 +936,13 @@ CODY_HOST_EXPORT int cody_host_response_compose(void *state, const float *values
     if (error != ESP_OK) { return error; }
     CODY::ContourControls targets{};
     std::copy(contour, contour + CODY::kContourControlCount, targets.values);
+    auto config = CODY::Data::response;
+    CODY::ResponseInputs unused_inputs{};
+    // Compose from unmodified authored targets, applying the shared reduction
+    // once rather than repeatedly scaling the previous displayed contour.
+    CODY::apply_away_rhythm(static_cast<HostState *>(state)->away, config, targets, unused_inputs);
     CODY::ResponseFrame frame{};
-    error = CODY::compose_response(CODY::Data::response, static_cast<HostState *>(state)->response,
+    error = CODY::compose_response(config, static_cast<HostState *>(state)->response,
         channels, targets, {placement[0], placement[1], placement[2]}, rotation, animate, frame);
     if (error != ESP_OK) { return host_result("compose_response", error); }
     std::copy(frame.face.values, frame.face.values + count, output);

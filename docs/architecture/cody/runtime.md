@@ -170,6 +170,62 @@ remain unavailable or awaiting a coherent new measurement. Loss of updates,
 interruption, an orphan completion and disconnected state remain distinct;
 elapsed time alone never proves compaction completed.
 
+Current technical values also require the exact ACTIVITY revision, not merely
+the same chat. ACTIVITY and TECH may arrive separately: during that gap, model,
+context and turn duration are UNAVAILABLE. A previously known same-chat Active
+compaction remains explicitly STALE until coherent metadata arrives. A different
+chat cannot borrow its lifecycle. An orphan boundary says `Compaction not fully
+observed`, covering both a missing start and a missing completion. A genuine
+native permission request retains `Waiting for you` / `Approve on your PC`,
+its notification and the frozen project row while the amber compaction indicator
+remains visible. Native approvals still happen only on the PC.
+
+The source lease is 120 seconds since the last genuine lifecycle hook. The
+current hook source has start/end boundaries, without an ongoing confirmation
+signal; repeated broker replies do not renew this lease. A compaction lasting
+longer than that remains STALE, never completed by timeout. A future supported
+ongoing observer must provide a distinct confirmation age before a long-running
+operation can remain current beyond that lease. The explicit Studio synthetic
+long-compaction scenario exercises presentation, not actual hook reachability.
+
+### Desk and Away
+
+The existing Make it yours screen includes a `Usage` row, toggling `Desk` and
+`Away` through the settings owner. Its five 34-pixel rows begin at y=190 with a
+38-pixel step; the last ends at y=376, before the compact footer at y=390. The
+40-pixel title begins at y=146 and ends before the controls. These rectangles
+remain inside the central square; the separate lateral Back target is intact.
+
+`cody_usage` is a strict persisted uint32 boundary value (Desk=0, Away=1).
+Only an absent key receives a logged Desk default followed by exact readback.
+Storage/type/value/readback failures publish independent mode validity and the
+original error; the row shows N/A rather than a guessed mode. Explicit mode
+changes serialize with other preferences and preserve sound, wake, rotation,
+clock, preferred name and their independent provenance. Consumers use only the
+canonical bounded options projection, with no NVS or sensor read in rendering.
+
+The shared `CODY_companion_mode.hpp` policy calms artistic breathing and outline
+motion, and suppresses optional idle accessory scenes on awake passive Home and
+panel routes. Setup, semantic question controls and manually selected Debug
+expressions retain their existing behavior. Activity headlines, important sounds,
+the compaction indicator, tap/shake, source freshness and service decisions stay
+with their existing owners. Studio provides a clearly SIMULATED preview toggle
+using that same native helper and resets it before live or Debug/event views.
+
+Away makes no radio, CPU frequency, voice, standby or new transport change.
+The regular gesture service cadence remains intact; lowering it without
+separating canonical motion sampling could miss deliberate shake peaks. Reduced
+accessory motion is implemented; CPU time, energy use and walking rejection are
+not measured by source review. Reachability continues to follow the actual link.
+
+The options projection is guarded at 256 bytes in the render path. Mode fields
+add one enum, one validity flag and one esp_err_t to the canonical preferences;
+padding and compiled structure size still require the next authorized build.
+One additional preference control belongs to the existing persistent content
+owner. Host Away state is one boolean; no task stack was increased. Previously
+recorded boot stack headroom and compiled frames predate these changes and do not
+validate the new nested render/projection path.
+
 `CODY_scene` resolves immutable definitions by `SceneId`, prepares cloud/title and
 an optional bounded content slot, advances fixed-capacity state and plans old/new
 damage. Authored background, title visibility, entrance placement/timing and text

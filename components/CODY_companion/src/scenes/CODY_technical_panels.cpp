@@ -193,7 +193,7 @@ void format_compaction(const PanelInputs &inputs, PanelPresentation &presentatio
             inputs.counters_pending ? "Context refreshed; pending" : "Context refreshed");
         break;
     case State::Orphaned:
-        std::strcpy(presentation.banner, "Compaction: start unknown");
+        std::strcpy(presentation.banner, "Compaction not fully observed");
         break;
     case State::Interrupted:
         std::strcpy(presentation.banner, "Compaction interrupted");
@@ -357,8 +357,10 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
             std::snprintf(presentation.captions[1], 32, "%.29s", inputs.chat_id + std::min<size_t>(24, length));
             std::snprintf(presentation.captions[2], 32, "%.29s", inputs.chat_id + std::min<size_t>(53, length));
         }
-        std::snprintf(presentation.captions[3], 32, "PC: %s", !inputs.connected ? "DISCONNECTED" :
-            inputs.link == PanelValueState::Current ? "CONNECTED" : value_state_text(inputs.link));
+        // An invalid initial snapshot cannot prove disconnection; retained state
+        // cannot override the canonical link's independent freshness either.
+        std::snprintf(presentation.captions[3], 32, "PC: %s", inputs.link != PanelValueState::Current ?
+            value_state_text(inputs.link) : inputs.connected ? "CONNECTED" : "DISCONNECTED");
         format_duration(presentation.captions[4], "Activity age", inputs.activity_age_us);
         format_metric(presentation.captions[5], "Total", inputs.cumulative);
         format_duration(presentation.captions[6], "Usage age", inputs.usage_age_us);
@@ -416,10 +418,28 @@ esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
     inputs.description = link.activity.description;
     inputs.chat_id = has_observed_chat(link.activity.chat_id, link.activity.state) ? link.activity.chat_id : "";
     inputs.phase = link.activity.state;
-    const bool owner_matches = technical.data_valid && technical.chat_id[0] != '\0' &&
+    // ACTIVITY and TECH travel separately. An older turn's metadata must remain
+    // unavailable until the matching revision arrives, even when its chat is unchanged.
+    const bool chat_matches = technical.data_valid && technical.chat_id[0] != '\0' &&
+        has_observed_chat(link.activity.chat_id, link.activity.state) &&
         std::strcmp(technical.chat_id, link.activity.chat_id) == 0;
+    const bool owner_matches = chat_matches && link.activity.data_valid &&
+        !link.activity.data_stale && technical.revision == link.activity.revision;
+    if (chat_matches && !owner_matches && technical.compaction_valid) {
+        // A packet gap is not a lifecycle end. Retain only an explicitly uncertain
+        // or historical observation, with no previous-turn counters or elapsed time.
+        using Compaction = LUNASHELL::CodexCompactionState;
+        switch (technical.compaction) {
+        case Compaction::Active: inputs.compaction = Compaction::Stale; break;
+        case Compaction::Stale:
+        case Compaction::Orphaned:
+        case Compaction::Interrupted: inputs.compaction = technical.compaction; break;
+        default: break;
+        }
+    }
     if (owner_matches) {
-        const bool stale = technical.data_stale || !inputs.connected;
+        const bool stale = technical.data_stale || !inputs.connected ||
+            inputs.link != PanelValueState::Current;
         const uint64_t receipt_age = technical.received_at_us > 0 && now_us >= technical.received_at_us ?
             static_cast<uint64_t>(now_us - technical.received_at_us) : 0;
         const uint64_t available_age = std::numeric_limits<uint64_t>::max() - receipt_age;

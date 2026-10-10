@@ -115,6 +115,7 @@ class CcpPanel:
         self.activity_preview = tk.BooleanVar(value=False)
         self.preview_phase = tk.StringVar(value="working")
         self.preview_scenario = tk.StringVar(value="Normal")
+        self.preview_companion_mode = tk.StringVar(value="Desk")
         self.preview_project = tk.StringVar(value="ESP32 Luna Shell")
         self.preview_branch = tk.StringVar(value="codex/audio-settings")
         self.preview_description = tk.StringVar(value="Updating Cody audio cues and quiet-hours settings, then preparing the firmware for the device with clearer activity feedback and a distraction-free desktop experience.")
@@ -126,7 +127,8 @@ class CcpPanel:
         self._preview_capture_delay_ms = None
         section = window.add_section(parent, "SIMULATED / CCP1",
             "Real CCP packets on this PC. This identity belongs only to Cody Studio.")
-        ttk.Checkbutton(section, text="Show CCP on the display", variable=self.follow).pack(anchor="w")
+        ttk.Checkbutton(section, text="Show CCP on the display", variable=self.follow,
+            command=self.change_companion_mode).pack(anchor="w")
         ttk.Checkbutton(section, text="SIMULATED LAN available", variable=self.network,
                         command=self.change_network).pack(anchor="w", pady=(8, 12))
         ttk.Label(section, textvariable=self.message, style="Muted.TLabel", wraplength=310).pack(fill="x")
@@ -153,6 +155,12 @@ class CcpPanel:
                     "Refreshed / pending", "Counters updated", "Missing / stale", "Model changed", "Link lost", "Custom"))
         scenarios.pack(fill="x")
         scenarios.bind("<<ComboboxSelected>>", self.select_preview_scenario)
+        ttk.Label(preview, text="SIMULATED companion mode").pack(anchor="w", pady=(8, 2))
+        companion_mode = ttk.Combobox(preview, textvariable=self.preview_companion_mode, state="readonly", values=("Desk", "Away"))
+        companion_mode.pack(fill="x")
+        companion_mode.bind("<<ComboboxSelected>>", self.change_companion_mode)
+        ttk.Label(preview, style="Muted.TLabel", wraplength=310,
+            text="On passive Home and technical pages, Desk retains the native rhythm. Away suppresses idle accessories and slows breathing and contour motion while preserving activity and attention alerts; device settings are unchanged.").pack(fill="x")
         ttk.Button(preview, text="SIMULATED shake: return Home", command=self.simulate_shake).pack(fill="x", pady=(8, 4))
         ttk.Label(preview, text="Phase").pack(anchor="w", pady=(12, 2))
         phase = ttk.Combobox(preview, textvariable=self.preview_phase, state="readonly",
@@ -251,7 +259,14 @@ class CcpPanel:
         if self._route_face_state is None:
             self._route_face_state = list(base)
         self._route_face_state = self.window.renderer.advance_face(self._route_face_state, base, active_ms)
-        inputs = replace(self.window.observe_stimuli(round(now * 1000000), rotation), idle_scene_allowed=False)
+        preview_idle = (self.activity_preview.get() and self._preview_snapshot is not None and self._companion_panel == 0
+            and self._preview_snapshot.state == LinkState.CONNECTED and self._preview_snapshot.activity_valid
+            and self._preview_snapshot.phase in {"none", "active"}
+            and self.preview_scenario.get() != "Long compaction")
+        self.change_companion_mode()
+        # Idle Home retains the native admission decision; the shared Away helper
+        # suppresses accessories and adjusts artistic motion without changing source samples.
+        inputs = replace(self.window.observe_stimuli(round(now * 1000000), rotation), idle_scene_allowed=preview_idle)
         self.window.response_config["motion"]["sensitivity"] = self.window.motion_sensitivity.get()
         self.window.response_state = self.window.renderer.advance_model(self.window.response_config,
             self.window.response_state, inputs, active_ms, round(now * 1000000), self.window.playing.get())
@@ -344,10 +359,22 @@ class CcpPanel:
             self._preview_capture_delay_ms = None
             self.follow.set(self._preview_saved_follow)
             self.window.playing.set(self._preview_saved_playing)
+            self.window.renderer.require_native().set_away(False)
             self.preview_capture_button.configure(state="disabled")
             self.preview_message.set("Preview is off. Showing the actual SIMULATED CCP endpoint.")
             self._route_key = None
             self._frame_key = None
+
+    # self: Explicit SIMULATED preview presentation owner, separate from persisted device settings.
+    # event: Optional Tk control event; no event text is treated as metadata.
+    # Raises RuntimeError for the original native mode boundary error.
+    def change_companion_mode(self, event=None):
+        away = bool(self.activity_preview.get() and self.follow.get()
+            and self._preview_snapshot is not None and self.preview_companion_mode.get() == "Away")
+        # Every explicit activity preview is passive companion content, including
+        # work, attention, compaction and disconnected technical pages. The
+        # independent idle admission still prevents accessories on busy Home.
+        self.window.renderer.require_native().set_away(away)
 
     # self: Rendering-only synthetic input owner, separate from pairing, packets and snapshots.
     # event: Optional Tk selection event; no remote or firmware command is admitted.
@@ -448,6 +475,8 @@ class CcpPanel:
     def panel_observation(self, snapshot):
         observation = NativePanelObservation()
         technical = snapshot.technical
+        coherent = self.has_coherent_technical(snapshot)
+        known = self.has_known_technical(snapshot)
         for name, value in (("project", snapshot.project), ("branch", snapshot.branch),
                             ("description", snapshot.description), ("chat_id", snapshot.chat),
                             ("technical_chat_id", technical.chat if technical else ""),
@@ -457,20 +486,28 @@ class CcpPanel:
         compactions = ("none", "active", "refreshed", "orphaned", "interrupted", "stale")
         observation.phase = phases.index(snapshot.phase)
         observation.compaction = compactions.index(technical.compaction.value) if technical else 0
+        if known and not coherent:
+            if technical.compaction.value == "active":
+                observation.compaction = compactions.index("stale")
+            elif technical.compaction.value == "refreshed":
+                observation.compaction = 0
         observation.connected = snapshot.state == LinkState.CONNECTED and snapshot.network_ready
         observation.link_valid = bool(snapshot.retained_pairing)
         observation.link_stale = not observation.connected
         observation.activity_valid = snapshot.activity_valid
         observation.activity_stale = not snapshot.activity_valid
-        observation.technical_valid = snapshot.technical_valid
+        # This bridge flag admits authenticated historical identity, not current
+        # freshness. Separate metric flags require the endpoint's coherent pair;
+        # retained compaction becomes explicit STALE instead of a fresh operation.
+        observation.technical_valid = known
         observation.receipt_age_us = max(0, snapshot.technical_age_ms or 0) * 1000
         if technical is not None:
             for field, source in (("model", technical.model_age_ms), ("compaction", technical.compaction_age_ms),
                                   ("activity", technical.activity_age_ms), ("turn_elapsed", technical.turn_elapsed_ms)):
                 valid_name = "model_valid" if field == "model" else field + "_age_valid" if field in {"compaction", "activity"} else "turn_elapsed_valid"
-                setattr(observation, valid_name, source is not None)
+                setattr(observation, valid_name, coherent and source is not None)
                 setattr(observation, field + "_age_us" if field != "turn_elapsed" else "turn_elapsed_us", (source or 0) * 1000)
-            observation.compaction_valid = technical.compaction.value != "none"
+            observation.compaction_valid = known and observation.compaction != 0
         return observation
 
     # self: Explicit CLI preview owner; the visible simulator remains open after its one native capture.
@@ -516,6 +553,9 @@ class CcpPanel:
     def render(self, rotation):
         self.refresh()
         preview = self.activity_preview.get() and self._preview_snapshot is not None
+        # Reset before every early Debug/event path as well as ordinary live
+        # rendering; explicit preview rhythm must not leak into authenticated views.
+        self.change_companion_mode()
         snapshot, code = (self._preview_snapshot, "") if preview else (self._snapshot, self._display_code)
         if not preview and self._debug_mode != "normal":
             return self.render_debug(rotation)
@@ -528,7 +568,8 @@ class CcpPanel:
         self.update_activity_observation(snapshot)
         identity, title, lines = presentation(replace(snapshot, phase=self._admitted_phase), code)
         compacting = self.is_compacting(snapshot, preview)
-        if compacting:
+        if compacting and not (snapshot.activity_valid and snapshot.state == LinkState.CONNECTED
+                and snapshot.network_ready and snapshot.phase == "paused"):
             identity, title, lines = "working", "Compacting context", ()
         painter = self.window.renderer.scene_painter
         definition = painter.definition(identity)
@@ -612,13 +653,25 @@ class CcpPanel:
                     "paused": "Approve on your PC", "interrupted": "Paused in Codex"}
         description = (snapshot.description if working and snapshot.description else
                        captions.get(self._admitted_phase, "")) if current else ""
-        if compacting:
+        if current and snapshot.phase == "paused":
+            description = "Approve on your PC"
+        elif compacting:
             description = "Refreshing working context"
-        elif (snapshot.technical_valid and snapshot.technical is not None
+        elif (self.has_coherent_technical(snapshot) and snapshot.technical is not None
                 and snapshot.technical.compaction.value == "refreshed"
                 and snapshot.technical.compaction_age_ms is not None
-                and snapshot.technical.compaction_age_ms + (snapshot.technical_age_ms or 0) < 8000):
-            description = "Context refreshed"
+                and snapshot.technical.compaction_age_ms + (snapshot.technical_age_ms or 0) < 3000):
+            description = "Context refreshed; counters pending"
+        elif (self.has_known_technical(snapshot) and not self.has_coherent_technical(snapshot)
+                and snapshot.technical.compaction.value == "active"):
+            description = "Compaction: STALE"
+        elif (self.has_known_technical(snapshot) and snapshot.technical is not None
+                and snapshot.technical.compaction.value == "orphaned"):
+            description = "Compaction not fully observed"
+        elif (self.has_known_technical(snapshot) and snapshot.technical.compaction.value == "interrupted"):
+            description = "Compaction interrupted"
+        elif (self.has_known_technical(snapshot) and snapshot.technical.compaction.value == "stale"):
+            description = "Compaction: STALE"
         elif (self.activity_preview.get() and self.preview_scenario.get() in {"Refreshed / pending", "Counters updated"}):
             description = "Context refreshed; counts pending" if self.preview_scenario.get() == "Refreshed / pending" else "Context refreshed"
         phase_key = (snapshot.chat, overlay, current, snapshot.phase)
@@ -660,9 +713,26 @@ class CcpPanel:
         if preview:
             return self.preview_scenario.get() == "Long compaction"
         technical = snapshot.technical
-        return bool(snapshot.technical_valid and technical is not None
+        return bool(self.has_coherent_technical(snapshot) and technical is not None
             and technical.compaction.value == "active" and technical.compaction_age_ms is not None
             and technical.compaction_age_ms + (snapshot.technical_age_ms or 0) <= 120000)
+
+    # self: Presentation consumer; revision admission remains owned by SimulatorEndpoint.
+    # snapshot: Canonical isolated observation with a coherence-qualified technical_valid flag.
+    # Returns current technical metadata only when the accepted ACTIVITY identity still matches.
+    def has_coherent_technical(self, snapshot):
+        # technical_valid is set only after exact ACTIVITY chat/revision equality
+        # and the independent TECH transport lease; a heartbeat cannot admit a mismatch.
+        return bool(snapshot.technical_valid and snapshot.technical is not None
+            and snapshot.activity_valid and snapshot.state == LinkState.CONNECTED and snapshot.network_ready
+            and snapshot.technical.chat == snapshot.chat)
+
+    # self: Presentation consumer retaining only already authenticated same-chat history.
+    # snapshot: Isolated canonical endpoint observation; no transport freshness is inferred.
+    # Returns whether lifecycle history can be labelled without borrowing another chat's data.
+    def has_known_technical(self, snapshot):
+        return bool(snapshot.technical is not None and snapshot.chat != "0" * 64
+            and snapshot.technical.chat == snapshot.chat)
 
     # self: Transient Debug presentation retaining the normal authored route and session preferences.
     # rotation: Same logical orientation applied to native graphics and acquired pointer coordinates.

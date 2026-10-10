@@ -182,6 +182,7 @@ class NativeRig:
             "personality": (C.c_int, (P, P, C.c_uint8, C.c_float, C.c_uint32, C.c_uint16, C.c_uint8, C.c_int64, C.c_bool, U16, C.c_uint8, U16)),
             "personality_clear": (None, (P,)),
             "response_reset": (C.c_int, (P, C.c_uint32)),
+            "set_away": (C.c_int, (P, C.c_bool)),
             "response_rebase": (C.c_int, (P,)),
             "response_readout": (C.c_int, (P, C.POINTER(C.c_double), C.c_uint32)),
             "response_timestamps": (C.c_int, (P, C.POINTER(C.c_int64), C.c_uint32)),
@@ -432,6 +433,14 @@ class NativeRig:
     def suspend_companion_shake(self, now_us):
         bounded_integer(now_us, 0, 0x7fffffffffffffff, "panel.shake.suspend")
         checked("panel_suspend_shake", self.api.cody_host_panel_suspend_shake(self.state, now_us))
+
+    # self: PC-only presentation mode owner; physical settings and observations are untouched.
+    # away: Explicit SIMULATED Away selection; false restores authored Desk behavior.
+    # Raises ValueError for untyped flags; RuntimeError for the original native owner error.
+    def set_away(self, away):
+        if type(away) is not bool:
+            raise ValueError("SIMULATED companion mode requires an explicit boolean")
+        checked("set_away", self.api.cody_host_set_away(self.state, away))
 
     # self: Native facial transition owner.
     # state: Current independent channels.

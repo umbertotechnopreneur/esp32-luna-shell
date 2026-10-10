@@ -43,6 +43,7 @@ struct Fixture {
     unsigned publication_calls = 0;
     LUNASHELL::CodyOptionsObservation observation;
     LUNASHELL::CodyPreferencesSnapshot attempted_publication;
+    std::string preferred_name;
     int64_t time_us = 1'000'000;
 };
 
@@ -66,6 +67,7 @@ void reset_existing(uint32_t sounds = 1U, uint32_t shake = 1U)
     fixture = Fixture{};
     fixture.keys["cody_sounds"] = {true, sounds};
     fixture.keys["cody_shake"] = {true, shake};
+    fixture.keys["cody_usage"] = {true, 0U};
 }
 
 // error: Expected original failure from storage, a runtime owner or publication.
@@ -219,6 +221,130 @@ void check_owner_and_publication_failures()
         "invalid input must not mutate storage or the display owner");
 }
 
+// No parameters: synthetic storage faults exercise the real mode owner without hardware.
+void check_usage_mode_persistence_and_isolation()
+{
+    using Mode = LUNASHELL::CodyUsageMode;
+    reset_existing();
+    fixture.keys["cody_usage"].present = false;
+    expect(CODY::load_companion_preferences() == ESP_OK, "absent mode may default independently");
+    expect(fixture.observation.preferences.usage_mode_valid &&
+        fixture.observation.preferences.usage_mode == Mode::Desk &&
+        fixture.observation.preferences.usage_mode_error == ESP_OK,
+        "first boot must publish only confirmed Desk");
+    expect(fixture.keys["cody_usage"].writes == 1U && fixture.keys["cody_usage"].reads == 2U &&
+        fixture.keys["cody_usage"].value == 0U, "mode default must persist once with exact readback");
+
+    reset_existing();
+    fixture.keys["cody_usage"].value = 1U;
+    expect(CODY::load_companion_preferences() == ESP_OK, "confirmed Away reload baseline must load");
+    const unsigned confirmed_mode_reads = fixture.keys["cody_usage"].reads;
+    fixture.keys["cody_sounds"].read_error = kStorageFailure;
+    expect(CODY::load_companion_preferences() == kStorageFailure &&
+        fixture.observation.preferences.usage_mode == Mode::Away &&
+        fixture.observation.preferences.usage_mode_valid &&
+        fixture.observation.preferences.usage_mode_error == ESP_OK &&
+        fixture.keys["cody_usage"].reads == confirmed_mode_reads &&
+        fixture.keys["cody_usage"].writes == 0U,
+        "a primary sound read failure must preserve independently confirmed Away without a mode read or write");
+
+    reset_existing();
+    fixture.keys["cody_usage"].read_error = kTypeMismatch;
+    expect(CODY::load_companion_preferences() == ESP_OK, "independent unavailable mode baseline must publish");
+    const unsigned failed_mode_reads = fixture.keys["cody_usage"].reads;
+    fixture.keys["cody_sounds"].read_error = kStorageFailure;
+    expect(CODY::load_companion_preferences() == kStorageFailure &&
+        !fixture.observation.preferences.usage_mode_valid &&
+        fixture.observation.preferences.usage_mode_error == kTypeMismatch &&
+        fixture.keys["cody_usage"].reads == failed_mode_reads &&
+        fixture.keys["cody_usage"].writes == 0U,
+        "a primary sound read failure must preserve the independent mode error when no new mode read was attempted");
+
+    for (const esp_err_t error : {kStorageFailure, kTypeMismatch}) {
+        reset_existing();
+        fixture.keys["cody_usage"].read_error = error;
+        expect(CODY::load_companion_preferences() == ESP_OK, "optional mode failure preserves master preferences");
+        expect(!fixture.observation.preferences.usage_mode_valid &&
+            fixture.observation.preferences.usage_mode_error == error &&
+            fixture.observation.preferences.data_valid && fixture.sounds_enabled && fixture.shake_enabled,
+            "original mode failure must remain independent and visible");
+        expect(fixture.keys["cody_usage"].writes == 0U, "mode read/type failure cannot default or repair storage");
+    }
+    reset_existing();
+    fixture.keys["cody_usage"].value = 2U;
+    expect(CODY::load_companion_preferences() == ESP_OK, "invalid mode is an optional independent failure");
+    expect(!fixture.observation.preferences.usage_mode_valid &&
+        fixture.observation.preferences.usage_mode_error == ESP_ERR_INVALID_ARG &&
+        fixture.keys["cody_usage"].value == 2U && fixture.keys["cody_usage"].writes == 0U,
+        "unsupported persisted modes must not be coerced, clamped or replaced");
+
+    reset_existing(0U, 0U);
+    fixture.preferred_name = "Avery";
+    expect(CODY::load_companion_preferences() == ESP_OK, "mode isolation baseline must load");
+    const unsigned sound_calls = fixture.sound_calls;
+    const unsigned shake_calls = fixture.shake_calls;
+    expect(CODY::persist_companion_usage_mode(Mode::Away) == ESP_OK, "explicit Away must persist and publish");
+    expect(fixture.observation.preferences.usage_mode_valid &&
+        fixture.observation.preferences.usage_mode == Mode::Away &&
+        fixture.keys["cody_usage"].value == 1U, "Away must be readback-confirmed before publication");
+    expect(fixture.sound_calls == sound_calls && fixture.shake_calls == shake_calls && fixture.display_calls == 0U &&
+        !fixture.observation.preferences.sounds_enabled && !fixture.observation.preferences.shake_to_wake &&
+        std::string(fixture.observation.preferences.user_name.name) == "Avery" &&
+        fixture.keys["cody_sounds"].writes == 0U && fixture.keys["cody_shake"].writes == 0U,
+        "mode changes must preserve master preferences, profile and owner application counts");
+    fixture.initialized = false;
+    expect(CODY::load_companion_preferences() == ESP_OK &&
+        fixture.observation.preferences.usage_mode == Mode::Away,
+        "confirmed Away must survive an explicitly simulated restart");
+
+    for (const bool readback_failure : {false, true}) {
+        reset_existing();
+        expect(CODY::load_companion_preferences() == ESP_OK, "mode failure baseline must load");
+        auto &stored = fixture.keys["cody_usage"];
+        if (readback_failure) {
+            stored.readback_error = kStorageFailure;
+        } else {
+            stored.write_error = kStorageFailure;
+        }
+        const unsigned prior_sound_calls = fixture.sound_calls;
+        const unsigned prior_shake_calls = fixture.shake_calls;
+        expect(CODY::persist_companion_usage_mode(Mode::Away) == kStorageFailure,
+            "mode mutation must return its original write/readback error");
+        expect(!fixture.observation.preferences.usage_mode_valid &&
+            fixture.observation.preferences.usage_mode_error == kStorageFailure &&
+            fixture.observation.preferences.usage_mode == Mode::Desk &&
+            fixture.observation.preferences.data_valid && fixture.sound_calls == prior_sound_calls &&
+            fixture.shake_calls == prior_shake_calls,
+            "failed Away must retain prior known value with unavailable mode, leaving other owners untouched");
+        stored.readback_error = ESP_OK;
+        stored.write_error = ESP_OK;
+        expect(CODY::persist_companion_usage_mode(Mode::Away) == ESP_OK && stored.writes == 2U,
+            "only explicit Retry may recover a failed mode write");
+    }
+    reset_existing();
+    expect(CODY::load_companion_preferences() == ESP_OK, "publication failure baseline must load");
+    fixture.publication_error = ESP_ERR_TIMEOUT;
+    expect(CODY::persist_companion_usage_mode(Mode::Away) == ESP_ERR_TIMEOUT &&
+        fixture.observation.preferences.usage_mode == Mode::Desk && fixture.keys["cody_usage"].value == 1U,
+        "durable Away with failed publication must return failure and retain previous canonical mode");
+    reset_existing();
+    expect(CODY::load_companion_preferences() == ESP_OK, "readback mismatch baseline must load");
+    fixture.keys["cody_usage"].mismatch_readback = true;
+    expect(CODY::persist_companion_usage_mode(Mode::Away) == ESP_ERR_INVALID_RESPONSE &&
+        !fixture.observation.preferences.usage_mode_valid &&
+        fixture.observation.preferences.usage_mode_error == ESP_ERR_INVALID_RESPONSE,
+        "mismatched mode readback must remain an explicit unavailable result");
+    reset_existing();
+    fixture.projection_error = ESP_ERR_TIMEOUT;
+    expect(CODY::persist_companion_usage_mode(Mode::Away) == ESP_ERR_TIMEOUT &&
+        fixture.keys["cody_usage"].writes == 0U, "failed canonical projection must reject mutation before writing");
+    reset_existing();
+    expect(CODY::persist_companion_usage_mode(static_cast<Mode>(2U)) == ESP_ERR_INVALID_ARG &&
+        CODY::persist_companion_preference(CODY::PreferenceId::UsageMode, 2U) == ESP_ERR_INVALID_ARG &&
+        fixture.keys["cody_usage"].writes == 0U,
+        "unknown typed or raw boundary modes must fail before storage");
+}
+
 } // namespace
 
 namespace LUNASHELL {
@@ -245,6 +371,30 @@ esp_err_t UserSettingsService::initialize()
 bool UserSettingsService::isInitialized() const
 {
     return fixture.initialized;
+}
+
+// key: Only the existing profile key is represented by this explicitly synthetic fixture.
+// value: Receives its stored printable name; the real owner still validates it.
+// Exception: Returns invalid argument for another key or null destination.
+esp_err_t UserSettingsService::getString(const char *key, std::string *value) const
+{
+    if (key == nullptr || value == nullptr || std::string(key) != "cody_user_name") {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *value = fixture.preferred_name;
+    return ESP_OK;
+}
+
+// key: Existing profile key, separate from the mode and boolean storage fixtures.
+// value: Exact synthetic profile value requested by the real owner.
+// Exception: Returns invalid argument for another key or null value.
+esp_err_t UserSettingsService::setString(const char *key, const char *value)
+{
+    if (key == nullptr || value == nullptr || std::string(key) != "cody_user_name") {
+        return ESP_ERR_INVALID_ARG;
+    }
+    fixture.preferred_name = value;
+    return ESP_OK;
 }
 
 // key: Actual key requested by the firmware implementation.
@@ -410,6 +560,7 @@ int main()
     check_absence_and_strict_reads();
     check_failed_save_and_explicit_retry();
     check_owner_and_publication_failures();
+    check_usage_mode_persistence_and_isolation();
     std::puts("Real Cody settings host contracts passed; hardware was not accessed.");
     return EXIT_SUCCESS;
 }

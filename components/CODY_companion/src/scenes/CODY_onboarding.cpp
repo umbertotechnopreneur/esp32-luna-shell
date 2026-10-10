@@ -1,7 +1,4 @@
 #include "CODY_onboarding.hpp"
-#include "CODY_codex_event_presentation.hpp"
-
-#include "CODY_onboarding.hpp"
 #include "CODY_activity_description.hpp"
 #include "CODY_activity_identity.hpp"
 #include "CODY_activity_observation.hpp"
@@ -57,7 +54,8 @@ constexpr CODY2D::Rect kSingleActionBounds{113, 352, 240, 72};
 constexpr CODY2D::Rect kLeftCardBounds{73, 260, 154, 104};
 constexpr CODY2D::Rect kRightCardBounds{239, 260, 154, 104};
 constexpr CODY2D::Rect kOptionsBounds{153, 376, 160, 52};
-constexpr uint16_t kPreferenceTop = 202;
+// The 40-pixel title ends at 186; five rows end at 376 before the 390 footer.
+constexpr uint16_t kPreferenceTop = 190;
 constexpr uint16_t kPreferenceHeight = 34;
 constexpr uint16_t kPreferenceStep = 38;
 constexpr uint16_t kEventCaptionWidth = 300;
@@ -195,7 +193,7 @@ struct ContentView {
     CODY2D::CapsuleControl options{};
     OnboardingAction options_id = OnboardingAction::None;
     uint16_t options_visible_characters = 0;
-    PreferenceControl preferences[4]{};
+    PreferenceControl preferences[5]{};
     uint8_t preference_count = 0;
     EventChoiceControl event_choices[3]{};
     uint8_t event_choice_count = 0;
@@ -1521,7 +1519,9 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         {PreferenceId::AutoRotate, "Auto-rotate", CODY2D::ActionIcon::Rotate},
         {PreferenceId::Sounds, "Sounds", CODY2D::ActionIcon::Sound},
         {PreferenceId::Orientation, "Orientation", CODY2D::ActionIcon::Orientation},
+        {PreferenceId::UsageMode, "Usage", CODY2D::ActionIcon::Motion},
     };
+    static_assert(std::size(rows) <= std::size(s_view.preferences), "Options rows exceed their persistent control owner");
     const auto &font = SceneData::body_font;
     const auto &preferences = observation.preferences;
     const auto &orientation = observation.orientation;
@@ -1552,10 +1552,17 @@ esp_err_t prepare_options_content(SceneFrame &scene)
             available = orientation.data_valid && !orientation.data_stale && !orientation.rotation_pending;
             active = orientation.auto_rotation_enabled;
             break;
+        case PreferenceId::UsageMode:
+            available = preferences.usage_mode_valid && preferences.usage_mode_error == ESP_OK;
+            active = preferences.usage_mode == LUNASHELL::CodyUsageMode::Away;
+            break;
         }
         target.requested_value = active ? 0U : 1U;
         if (available) {
             value = active ? "On" : "Off";
+            if (row.identity == PreferenceId::UsageMode) {
+                value = active ? "Away" : "Desk";
+            }
             if (row.identity == PreferenceId::Orientation) {
                 if (orientation.auto_rotation_enabled) {
                     value = "Auto";
@@ -2308,24 +2315,31 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
     const bool current_link = link.data_valid && !link.data_stale && link.state == CodexState::Connected;
     const bool technical_owner = technical.data_valid && technical.compaction_valid && technical.chat_id[0] != '\0' &&
         std::strcmp(technical.chat_id, activity.chat_id) == 0;
+    // ACTIVITY and TECH can arrive separately. A known lifecycle remains explicitly
+    // stale until the matching revision arrives; it cannot become a current new-turn fact.
+    const bool coherent_technical = technical_owner && activity.data_valid && !activity.data_stale &&
+        technical.revision == activity.revision;
     Compaction compaction = technical_owner ? technical.compaction : Compaction::None;
-    if ((!current_link || technical.data_stale) && compaction == Compaction::Active) { compaction = Compaction::Stale; }
+    if ((!current_link || technical.data_stale || !coherent_technical) && compaction == Compaction::Active) { compaction = Compaction::Stale; }
     const bool compacting = compaction == Compaction::Active && current_link && !technical.data_stale;
     const int64_t now_us = esp_timer_get_time();
     const uint64_t receipt_age_us = technical.received_at_us > 0 && now_us >= technical.received_at_us ?
         static_cast<uint64_t>(now_us - technical.received_at_us) : 0;
-    const bool refreshed_feedback = compaction == Compaction::Refreshed && !technical.data_stale &&
+    const bool refreshed_feedback = current_link && coherent_technical && compaction == Compaction::Refreshed && !technical.data_stale &&
         technical.compaction_age_valid && technical.compaction_age_at_receive_us < 3000000 &&
         receipt_age_us < 3000000 - technical.compaction_age_at_receive_us;
     const bool compaction_changed = compaction != s_presented_compaction || refreshed_feedback != s_presented_compaction_feedback;
     const bool current_work = current_link && activity.data_valid && !activity.data_stale &&
         (activity.state == Activity::Working || activity.state == Activity::Editing || activity.state == Activity::Running);
+    const bool native_attention = current_link && activity.data_valid && !activity.data_stale &&
+        activity.state == Activity::Paused;
     const char *description = current_work && link.state == LUNASHELL::CodexLinkState::Connected ?
         activity.description : "";
-    if (compacting) { description = "Compacting context; please wait"; }
+    if (native_attention) { description = "Approve on your PC"; }
+    else if (compacting) { description = "Compacting context; please wait"; }
     else if (refreshed_feedback) { description = technical.context_valid && !technical.context_stale ?
         "Context refreshed" : "Context refreshed; counters pending"; }
-    else if (compaction == Compaction::Orphaned) { description = "Compaction ended; start unobserved"; }
+    else if (compaction == Compaction::Orphaned) { description = "Compaction not fully observed"; }
     else if (compaction == Compaction::Interrupted) { description = "Compaction interrupted"; }
     else if (compaction == Compaction::Stale) { description = "Compaction updates are STALE"; }
     ActivityOverlayState overlay = ActivityOverlayState::Hidden;
@@ -2427,7 +2441,7 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
             s_companion_seen_selection = true;
         }
     }
-    if (compacting) {
+    if (compacting && !native_attention) {
         destination = Route::Working18;
         message = "Compacting context";
     }
@@ -2457,7 +2471,7 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
         !activity.data_stale && !s_presented_activity.data_stale && s_view.activity_identity.project_line.valid;
     const Route previous_route = s_route;
     const bool headline_changed = work_phase != s_presented_work_phase || compaction_changed;
-    const char *headline = compacting ? "Compacting" : !current_link ? "Disconnected" : !activity.data_valid || activity.data_stale ? nullptr : current_work ?
+    const char *headline = native_attention ? "Waiting for you" : compacting ? "Compacting" : !current_link ? "Disconnected" : !activity.data_valid || activity.data_stale ? nullptr : current_work ?
         (work_phase == Activity::Editing ? "Editing code" : work_phase == Activity::Running ? "Running command" : "Working") :
         activity.state == Activity::Paused ? "Waiting for you" :
         activity.state == Activity::ResponseReady ? "Reply ready" :
@@ -2482,7 +2496,7 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
         if (error == ESP_OK) {
             error = attach_content(scene);
         }
-        if (error == ESP_OK && !compacting && !compaction_changed) {
+        if (error == ESP_OK && (!compacting || native_attention) && (!compaction_changed || native_attention)) {
             notify_companion_transition(previous_route, destination, activity.state, activity.chat_id);
         }
         return error;
@@ -2529,7 +2543,7 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
     }
     if (error == ESP_OK) {
         set_companion_audio_visible(true);
-        if (!compacting && !compaction_changed) {
+        if ((!compacting || native_attention) && (!compaction_changed || native_attention)) {
             notify_companion_transition(previous_route, destination, activity.state, activity.chat_id);
         }
     }
@@ -3285,7 +3299,10 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         const auto &current = options.orientation;
         const auto &previous = s_presented_options.orientation;
         const bool preference_changed = options.preferences.last_attempt_at_us !=
-            s_presented_options.preferences.last_attempt_at_us;
+            s_presented_options.preferences.last_attempt_at_us ||
+            options.preferences.usage_mode != s_presented_options.preferences.usage_mode ||
+            options.preferences.usage_mode_valid != s_presented_options.preferences.usage_mode_valid ||
+            options.preferences.usage_mode_error != s_presented_options.preferences.usage_mode_error;
         if (preference_changed || current.auto_rotation_enabled != previous.auto_rotation_enabled ||
             current.rotation_pending != previous.rotation_pending || current.data_valid != previous.data_valid ||
             current.data_stale != previous.data_stale ||

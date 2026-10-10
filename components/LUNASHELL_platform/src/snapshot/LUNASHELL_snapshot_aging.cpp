@@ -99,6 +99,9 @@ void age_codex_technical(CodexTechnicalSnapshot &technical, int64_t now_us)
         (technical.data_stale || !technical.compaction_age_valid ||
          technical.compaction_age_at_receive_us >= source_ttl_us ||
          elapsed >= source_ttl_us - technical.compaction_age_at_receive_us)) {
+        // compact_age is the genuine start/last lifecycle event age. Current hooks have no
+        // ongoing confirmation pulse: repeated authenticated packets do not renew this source lease.
+        // A future ongoing source must carry confirmation age separately from start elapsed.
         // Loss of observation never becomes successful completion.
         technical.compaction = CodexCompactionState::Stale;
     }

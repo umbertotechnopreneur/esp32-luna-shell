@@ -2,6 +2,7 @@
 #include "CODY_demo.hpp"
 #include "CODY_response.hpp"
 #include "CODY_companion_gestures.hpp"
+#include "CODY_companion_mode.hpp"
 #include "CODY_damage.hpp"
 #include "CODY_debug_hud.hpp"
 #include "host_diagnostics.hpp"
@@ -232,6 +233,108 @@ void current(CODY::SampleStamp &stamp, int64_t now_us)
     stamp.health = CODY::SampleHealth::Current;
     stamp.error = ESP_OK;
     stamp.sampled_at_us = now_us;
+}
+
+// actual: Source metadata after applying the presentation preference.
+// original: Acquired metadata that the preference must leave intact.
+// Exception: Exits the host executable if source provenance changes.
+void require_same_stamp(const CODY::SampleStamp &actual, const CODY::SampleStamp &original)
+{
+    require(actual.health == original.health && actual.origin == original.origin &&
+        actual.sampled_at_us == original.sampled_at_us && actual.error == original.error,
+        "Away must preserve source validity, origin, timestamp and original error");
+}
+
+// No parameters: labeled host inputs exercise shared Away policy and the real response model.
+// Exception: Exits the host executable if presentation changes source data or normal responses.
+void companion_usage_mode_contracts()
+{
+    auto original_config = CODY::Data::response;
+    original_config.expression.base_breath_hz = .3f;
+    auto original_contour = CODY::contour_defaults();
+    original_contour[CODY::ContourControl::Amplitude] = .8f;
+    original_contour[CODY::ContourControl::Speed] = 1;
+    CODY::ResponseInputs original_inputs{};
+    original_inputs.idle_scene_allowed = true;
+    original_inputs.last_interaction_at_us = 1990000;
+    current(original_inputs.motion.stamp, 2000000);
+    original_inputs.motion.acceleration_mps2[CODY::Axis::Z] = 9.81f;
+    current(original_inputs.power.stamp, 2000000);
+    original_inputs.power.level_percent = 41;
+    original_inputs.power.charging = true;
+    current(original_inputs.microphone.stamp, 2000000);
+    original_inputs.microphone.channel_count = 1;
+    original_inputs.microphone.mean_level[0] = 1024;
+    original_inputs.microphone.peak_level[0] = 2048;
+    current(original_inputs.playback.stamp, 2000000);
+    original_inputs.playback.active = true;
+    original_inputs.playback.mean_level = 1024;
+    original_inputs.playback.cue_id = 7;
+    current(original_inputs.body_touch.stamp, 2000000);
+    original_inputs.body_touch.pressed = true;
+    original_inputs.body_touch.displacement_px = {3, 4};
+    original_inputs.body_touch.gesture_started_at_us = 1990000;
+    original_inputs.eye_tap.stamp.health = CODY::SampleHealth::Error;
+    original_inputs.eye_tap.stamp.error = ESP_ERR_TIMEOUT;
+    original_inputs.eye_tap.stamp.sampled_at_us = 1980000;
+
+    auto desk_config = original_config;
+    auto desk_contour = original_contour;
+    auto desk_inputs = original_inputs;
+    CODY::apply_away_rhythm(false, desk_config, desk_contour, desk_inputs);
+    auto away_config = original_config;
+    auto away_contour = original_contour;
+    auto away_inputs = original_inputs;
+    CODY::apply_away_rhythm(true, away_config, away_contour, away_inputs);
+    require(desk_inputs.idle_scene_allowed && !away_inputs.idle_scene_allowed &&
+        desk_config.expression.base_breath_hz == original_config.expression.base_breath_hz &&
+        desk_config.expression.stress_breath_gain == original_config.expression.stress_breath_gain &&
+        away_config.expression.base_breath_hz < desk_config.expression.base_breath_hz &&
+        away_config.expression.stress_breath_gain <= desk_config.expression.stress_breath_gain,
+        "Desk must retain its authored rhythm while Away calms optional breathing and disables idle scenes");
+    for (size_t index = 0; index < CODY::kContourControlCount; ++index) {
+        require(desk_contour.values[index] == original_contour.values[index],
+            "Desk must leave every authored contour control unchanged");
+    }
+    require(away_contour[CODY::ContourControl::Amplitude] < desk_contour[CODY::ContourControl::Amplitude] &&
+        away_contour[CODY::ContourControl::Speed] < desk_contour[CODY::ContourControl::Speed] &&
+        away_contour[CODY::ContourControl::Fullness] == desk_contour[CODY::ContourControl::Fullness] &&
+        away_contour[CODY::ContourControl::PhaseSpread] == desk_contour[CODY::ContourControl::PhaseSpread],
+        "Away must calm the authored outline without changing its fullness or phase spread");
+    for (const auto *inputs : {&desk_inputs, &away_inputs}) {
+        require_same_stamp(inputs->motion.stamp, original_inputs.motion.stamp);
+        require_same_stamp(inputs->power.stamp, original_inputs.power.stamp);
+        require_same_stamp(inputs->microphone.stamp, original_inputs.microphone.stamp);
+        require_same_stamp(inputs->playback.stamp, original_inputs.playback.stamp);
+        require_same_stamp(inputs->body_touch.stamp, original_inputs.body_touch.stamp);
+        require_same_stamp(inputs->eye_tap.stamp, original_inputs.eye_tap.stamp);
+        require(inputs->motion.acceleration_mps2[CODY::Axis::Z] == 9.81f && inputs->power.level_percent == 41 &&
+            inputs->power.charging && inputs->microphone.channel_count == 1 &&
+            inputs->microphone.mean_level[0] == 1024 && inputs->microphone.peak_level[0] == 2048 &&
+            inputs->playback.active && inputs->playback.mean_level == 1024 && inputs->playback.cue_id == 7 &&
+            inputs->body_touch.pressed && inputs->body_touch.displacement_px.x == 3 &&
+            inputs->body_touch.displacement_px.y == 4 && inputs->body_touch.gesture_started_at_us == 1990000 &&
+            inputs->last_interaction_at_us == 1990000,
+            "a presentation mode must leave acquired motion, power, sound and touch values intact");
+    }
+    const auto state = CODY::make_response_state(original_config);
+    CODY::ResponseState baseline, desk, away;
+    require(CODY::advance_response(original_config, state, original_inputs, 100, 2000000, true, baseline) == ESP_OK &&
+        CODY::advance_response(desk_config, state, desk_inputs, 100, 2000000, true, desk) == ESP_OK &&
+        CODY::advance_response(away_config, state, away_inputs, 100, 2000000, true, away) == ESP_OK,
+        "both usage modes must remain valid inputs to the actual response model");
+    require(desk.breath_phase == baseline.breath_phase && desk.breath_rate_hz == baseline.breath_rate_hz &&
+        desk.blink_elapsed_ms == baseline.blink_elapsed_ms && away.blink_elapsed_ms == baseline.blink_elapsed_ms &&
+        away.breath_rate_hz < baseline.breath_rate_hz && away.stress == baseline.stress &&
+        away.fatigue == baseline.fatigue && away.attention == baseline.attention && away.speaking == baseline.speaking &&
+        away.drag_x.position == baseline.drag_x.position && away.drag_y.position == baseline.drag_y.position &&
+        away.touch_pressure.position == baseline.touch_pressure.position,
+        "Away must slow breathing while preserving blink timing and real sensor/touch response gains");
+    for (const auto axis : {CODY::Axis::X, CODY::Axis::Y, CODY::Axis::Z}) {
+        require(away.body[CODY::to_index(axis)].position == baseline.body[CODY::to_index(axis)].position &&
+            away.body[CODY::to_index(axis)].velocity == baseline.body[CODY::to_index(axis)].velocity,
+            "Away must preserve the real motion response on every axis");
+    }
 }
 
 // Exercise real bounded statistics, rollover, overlay separation and error boundaries.
@@ -600,6 +703,7 @@ void damage_contracts()
 int main()
 {
     companion_navigation_gesture_contracts();
+    companion_usage_mode_contracts();
     require(CODY::rig_control_at({158, 47}) == CODY::RigControl::None &&
             CODY::rig_control_at({233, 47}) == CODY::RigControl::None &&
             CODY::rig_control_at({308, 47}) == CODY::RigControl::None,
