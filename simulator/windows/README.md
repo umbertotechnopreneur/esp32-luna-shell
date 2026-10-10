@@ -97,7 +97,7 @@ there is no local selector or fabricated hook producer.
 CCP 0.6 also supports authentic EVENT messages. A question follows 26 → 27 → 31:
 open it, select a card, review its description and press **Send**.
 The selection stays local and reversible until Send; Back preserves the path.
-A UDP ACK alone leaves **Waiting for Codex**: **Reply sent** requires the second
+A UDP ACK alone leaves **Confirming delivery**: **Reply sent** requires the second
 recipient-confirmation poll within the 180-second TTL. Disabling LAN in the panel
 keeps the same question visible, with sending disabled until a new authenticated
 snapshot arrives.

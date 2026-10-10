@@ -56,8 +56,8 @@ constexpr uint16_t kPreferenceHeight = 34;
 constexpr uint16_t kPreferenceStep = 38;
 constexpr uint16_t kEventCaptionWidth = 300;
 constexpr uint16_t kCaptionWidth = 232;
-// Seventeen characters occupy 188 pixels in the 232-pixel body slot.
-constexpr char kWaitingForCodexCaption[] = "Waiting for Codex";
+// The invitation fits the 232-pixel body slot without implying a selected chat.
+constexpr char kCodexInvitationCaption[] = "Ready to team up";
 #if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
 constexpr uint16_t kDebugTextWidth = 386;
 constexpr uint16_t kDebugTextColor = 0xF7BE; // CSS whitesmoke (#F5F5F5) in native RGB565.
@@ -847,7 +847,7 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         label = "Cancel";
         break;
     case OnboardingAction::Retry:
-        label = "Retry";
+        label = "Try again";
         break;
     case OnboardingAction::Continue:
         label = "Continue";
@@ -862,16 +862,16 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         label = "Let's go";
         break;
     case OnboardingAction::AcceptCodex:
-        label = "Yes";
+        label = "Let's connect";
         break;
     case OnboardingAction::DeclineCodex:
-        label = "No";
+        label = "Not now";
         break;
     case OnboardingAction::ConnectCodex:
         label = "Connect Codex";
         break;
     case OnboardingAction::NetworkSetup:
-        label = "Network setup";
+        label = "Set up Wi-Fi";
         break;
     case OnboardingAction::Later:
         label = "Later";
@@ -880,23 +880,23 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         label = "Options";
         break;
     case OnboardingAction::KeepPairing:
-        label = "Keep pairing";
+        label = "Keep link";
         break;
     case OnboardingAction::ReplacePairing:
         label = "Pair again";
         break;
     case OnboardingAction::ForgetPairing:
     case OnboardingAction::ConfirmForget:
-        label = "Forget";
+        label = "Forget link";
         break;
     case OnboardingAction::KeepSaved:
-        label = "Go back";
+        label = "Keep link";
         break;
     case OnboardingAction::OpenEvent: label = "Open"; break;
     case OnboardingAction::ViewFailures: label = "View failures"; break;
     case OnboardingAction::SendReply: label = "Send"; break;
     case OnboardingAction::DismissEvent: label = "Done"; break;
-    case OnboardingAction::RetryEvent: label = "Retry"; break;
+    case OnboardingAction::RetryEvent: label = "Try again"; break;
     default:
         ESP_LOGE(kTag, "Unknown navigation action %u (%s)", to_index(action), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
@@ -1789,7 +1789,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     if (is_codex_event_route(route)) {
         error = prepare_event_content(prepared);
     } else if (route == Route::Invitation05) {
-        constexpr const char *captions[] = {"We'll show a QR code.", "Scan it to install", "the pairing app."};
+        constexpr const char *captions[] = {"Let's get connected.", "Scan the QR to get", "the setup app."};
         for (const char *text : captions) {
             error = prepare_caption(text, 242 + s_view.line_count * 26U, s_view.lines[s_view.line_count]);
             if (error != ESP_OK) {
@@ -1832,7 +1832,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         s_preference_error = ESP_OK;
         error = prepare_options_content(prepared);
     } else if (route == Route::Settings36) {
-        constexpr const char *captions[] = {"Personalization", "Choose Cody's look"};
+        constexpr const char *captions[] = {"A little more you", "Choose Cody's look"};
         for (const char *text : captions) {
             error = prepare_caption(text, 238 + s_view.line_count * 30U,
                                     s_view.lines[s_view.line_count]);
@@ -1844,7 +1844,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         error = prepare_action(OnboardingAction::Continue, true);
     } else if (route == Route::CodexReplace) {
         const char *title = s_codex_manage_repair ? "Pairing error" :
-            s_codex_manage_pending ? "Pairing paused" : "Already paired";
+            s_codex_manage_pending ? "Pairing pending" : "PC remembered";
         error = set_scene_title(prepared, {title, static_cast<uint16_t>(std::strlen(title))});
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::ReplacePairing, !s_codex_manage_repair);
@@ -1858,10 +1858,10 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
             error = prepare_button(s_view.options_id, "Forget", kOptionsBounds, true, false, s_view.options, unused);
         }
     } else if (route == Route::CodexForget) {
-        static constexpr char title[] = "Forget pairing";
+        static constexpr char title[] = "Forget this PC?";
         error = set_scene_title(prepared, {title, sizeof(title) - 1U});
         if (error == ESP_OK) {
-            error = prepare_caption("Only Codex is reset", 384, s_view.lines[0]);
+            error = prepare_caption("Wi-Fi stays saved", 384, s_view.lines[0]);
             s_view.line_count = 1;
         }
         if (error == ESP_OK) {
@@ -1888,8 +1888,8 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         }
     } else if (route == Route::ConnectCodex12) {
         const char *message = s_codex_code[0] == '\0'
-            ? "Preparing secure code"
-            : "Enter code in Codex";
+            ? "Creating your code"
+            : "Share code in Codex";
         error = prepare_caption(message, 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK && s_codex_code[0] != '\0') {
@@ -1897,7 +1897,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
             s_view.instant_lines[1] = true;
             s_view.line_count = 2;
         } else if (error == ESP_OK) {
-            error = prepare_caption("Please wait", 327, s_view.lines[1]);
+            error = prepare_caption("One moment", 327, s_view.lines[1]);
             if (error == ESP_OK) {
                 error = prepare_caption("About 30 seconds", 354, s_view.lines[2]);
             }
@@ -1908,11 +1908,11 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
                                    s_codex_code[0] != '\0');
         }
     } else if (route == Route::CodexCleanup || route == Route::CodexForgotten) {
-        const char *title = route == Route::CodexForgotten ? "Unpaired" : "Please wait";
+        const char *title = route == Route::CodexForgotten ? "Link removed" : "One moment";
         error = set_scene_title(prepared, {title, static_cast<uint16_t>(std::strlen(title))});
         if (error == ESP_OK) {
-            const char *message = route == Route::CodexForgotten ? "Pairing removed" :
-                s_codex_cleanup == CodexCleanup::Forget ? "Removing pairing" : "Closing pairing";
+            const char *message = route == Route::CodexForgotten ? "Ready for a new PC" :
+                s_codex_cleanup == CodexCleanup::Forget ? "Removing saved link" : "Closing pairing";
             error = prepare_caption(message, 300, s_view.lines[0]);
             s_view.line_count = 1;
         }
@@ -1921,26 +1921,26 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
                                    route == Route::CodexForgotten);
         }
     } else if (route == Route::SetupComplete13) {
-        error = prepare_caption("Setup confirmed", 300, s_view.lines[0]);
+        error = prepare_caption("Your setup is saved", 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::LetsGo, true);
         }
     } else if (route == Route::LookingForPc14) {
-        error = prepare_caption("Looking for paired PC", 300, s_view.lines[0]);
+        error = prepare_caption("Finding your PC", 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption("Open Codex on your PC", 327, s_view.lines[1]);
+            error = prepare_caption("Open Codex to rejoin", 327, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::None, false);
         }
     } else if (route == Route::Connected15) {
-        error = prepare_caption(kWaitingForCodexCaption, 300, s_view.lines[0]);
+        error = prepare_caption(kCodexInvitationCaption, 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption("Send a Codex prompt", 327, s_view.lines[1]);
+            error = prepare_caption("Start a chat in Codex", 327, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
@@ -2218,13 +2218,13 @@ esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
     const auto &activity = link.activity;
     const bool same_chat = std::strcmp(activity.chat_id, s_presented_activity.chat_id) == 0;
     Route destination = Route::Connected15;
-    const char *message = kWaitingForCodexCaption;
+    const char *message = kCodexInvitationCaption;
     if (!link.data_valid || link.data_stale || link.state != CodexState::Connected) {
         if (!s_companion_seen_selection) {
             return ESP_OK;
         }
         destination = Route::Lost32;
-        message = "Waiting for CCP";
+        message = "Open Codex to rejoin";
     } else if (!activity.data_valid || activity.data_stale) {
         // The initial READY can precede ACTIVITY. Until the first activity reply,
         // screen 15 claims PC presence only and never invents a chat state.
@@ -2232,7 +2232,7 @@ esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
             return ESP_OK;
         }
         destination = Route::ActivityUnavailable;
-        message = "No recent activity";
+        message = "Activity unavailable";
     } else {
         switch (activity.state) {
         case Activity::None:
@@ -2244,11 +2244,11 @@ esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
             break;
         case Activity::Working:
             destination = Route::Working18;
-            message = "Working in Codex";
+            message = "Making it happen";
             break;
         case Activity::Editing:
             destination = Route::Working18;
-            message = "Editing";
+            message = "Shaping your code";
             break;
         case Activity::Running:
             destination = Route::Working18;
@@ -2256,7 +2256,7 @@ esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
             break;
         case Activity::ResponseReady:
             destination = Route::Response19;
-            message = "Read it in Codex";
+            message = "Your reply is ready";
             break;
         case Activity::Paused:
             destination = Route::Paused20;
@@ -2264,7 +2264,7 @@ esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
             break;
         case Activity::Interrupted:
             destination = Route::Paused20;
-            message = "Turn interrupted";
+            message = "Paused in Codex";
             break;
         case Activity::Ended:
             if (!same_chat || s_session_ended_at_us < 0) {
@@ -2272,11 +2272,11 @@ esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
             }
             destination = active_time_us - s_session_ended_at_us < 5LL * 1000000LL
                 ? Route::Ended20 : Route::CompanionIdle16;
-            message = kWaitingForCodexCaption;
+            message = kCodexInvitationCaption;
             break;
         case Activity::Unavailable:
             destination = Route::ActivityUnavailable;
-            message = "No recent activity";
+            message = "Activity unavailable";
             break;
         }
         if (activity.state != Activity::Ended) {
@@ -3216,7 +3216,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                 error = set_scene_title(scene, {title, sizeof(title) - 1U});
             }
             if (error == ESP_OK) {
-                error = prepare_caption("Scan me in the app.", kSessionCaptionTop, s_view.lines[0]);
+                error = prepare_caption("Scan with the app", kSessionCaptionTop, s_view.lines[0]);
             }
             if (error == ESP_OK) {
                 s_local_failure = false;
@@ -3348,9 +3348,9 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             const auto &wifi = observation.radios.wifi;
             const bool lan_ready = wifi.data_valid && !wifi.data_stale && wifi.last_error == ESP_OK &&
                 wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0';
-            const char *caption = !lan_ready ? "Waiting for Wi-Fi" :
-                codex_link.pending_pairing_present ? "Finishing pairing" : "Looking for paired PC";
-            const char *detail = lan_ready ? "Open Codex on your PC" : "Pairing is saved";
+            const char *caption = !lan_ready ? "Wi-Fi unavailable" :
+                codex_link.pending_pairing_present ? "Finishing pairing" : "Finding your PC";
+            const char *detail = lan_ready ? "Open Codex to rejoin" : "Your link is saved";
             const uint16_t length = static_cast<uint16_t>(std::strlen(caption));
             if (s_view.lines[0].text.length != length ||
                 std::memcmp(s_view.lines[0].text.characters, caption, length) != 0) {

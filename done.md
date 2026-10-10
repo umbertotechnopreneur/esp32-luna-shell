@@ -2183,3 +2183,23 @@ the preserved copies within the build directory.
   visually reviewed; historical page bodies remain pixel-identical at 96 DPI.
   No runtime, LAN or physical-device validation was performed for this document.
   [Artifact and preservation record](docs/architecture/cody/onboarding.md#service-atlas-del-4-ottobre-2026).
+
+## Cody product copy - 2026-10-10
+
+- Reviewed the 38-scene catalog and revised 20 titles, fixed onboarding/activity
+  captions, action labels and the shared firmware/host event messages. Connected
+  screen 15 now says Ready to team up / Start a chat in Codex. The two lines use
+  177 and 232 pixels with the committed body font in the unchanged 232-pixel slot.
+- Kept unavailable/stale data, real errors, saved/incomplete pairing and recipient
+  delivery confirmation explicit. Dynamic event text, canonical data ownership,
+  stable IDs, touch/layout bounds and control reveal behavior are unchanged.
+- Aligned Studio connection copy and current plugin/architecture documentation.
+  Both existing plugin manifests now have English product descriptions and three
+  suggested prompts. The runtime previously logged that four prompts were ignored;
+  this presentation correction does not establish the cause of missing hooks.
+- The user authorized `scripts/device.ps1 generate -Generator cody-scenes
+  -ToolArguments @('--definitions-only')`; all 38 definitions and their source
+  hash were regenerated while retaining the existing ASCII glyph assets.
+- Static source review only beyond that generation: no tests, validation scans,
+  firmware build, simulator launch, flash or physical display/touch inspection.
+  The installed plugin cache and PC configuration/trust/pairing remain unchanged.

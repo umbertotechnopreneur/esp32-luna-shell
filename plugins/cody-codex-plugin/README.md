@@ -80,7 +80,9 @@ Gli eventi di tool, completamento o avvio di altre chat non rubano il contesto.
 Aprire una scheda senza scrivere non produce un segnale di focus documentato:
 non leggo finestre, transcript o testo dei messaggi per indovinarlo.
 
-Fino al primo prompt lo screen 15 mostra **Connected / Waiting for Codex**.
+Before the first prompt, screen 15 shows **Connected / Ready to team up**,
+with **Start a chat in Codex** as the next step. This confirms the PC link,
+without claiming a followed chat or active work.
 Trasmetto fase del lavoro, identità della chat e nome breve del progetto.
 Due chat dello stesso progetto conservano identità diverse. Un evento `Stop`
 significa risposta pronta; non lo presento come prova che il compito sia riuscito.

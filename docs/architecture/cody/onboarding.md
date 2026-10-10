@@ -113,18 +113,18 @@ Network setup riapre 04-09. Options entra nel percorso locale 10/36/11.
 Back torna al percorso associato senza far ripartire inutilmente una discovery
 gia' in corso o una connessione autenticata ancora valida.
 
-Con un pairing conservato, Connect Codex mostra **Already paired**, anche se la
-LAN e' momentaneamente assente:
+With a saved pairing, Connect Codex shows **PC remembered**, including when
+the LAN is temporarily unavailable:
 
-- **Keep pairing** conserva il record e riusa Connected/Discovering quando lo
-  stato e' valido; altrimenti riprende la ricerca del PC salvato.
-- **Pair again** e' consenso esplicito a una sostituzione; ammetto il nuovo
-  codice quando la rete richiesta e' disponibile.
-- **Forget**, centrato sotto la coppia, apre una seconda conferma dedicata.
+- **Keep link** retains the saved pairing and reuses Connected/Discovering when
+  the state is valid; otherwise it resumes discovery of the remembered PC.
+- **Pair again** explicitly authorizes replacement; the new code is admitted
+  when the required network is available.
+- **Forget**, centered below the pair, opens a separate confirmation.
 
-Con un candidato incompleto uso il titolo **Pairing paused**. Con un errore
-storage, incluso lettura o CRC, uso **Pairing error** e abilito solo la cancellazione
-esplicita: un record corrotto non equivale a un dispositivo mai associato.
+An incomplete candidate shows **Pairing pending**. Storage failures, including
+read and CRC errors, show **Pairing error** and permit only explicit removal.
+A corrupt record is not an unpaired device.
 
 Aprire la conferma, tornare indietro o premere Retry non autorizza a cambiare PC.
 Il backend distingue l'azione di primo pairing dall'azione di sostituzione,
@@ -258,9 +258,10 @@ quel journal, da solo, non autorizza All set o un successo di pairing.
 
 ## L'ultimo prompt reale sceglie la chat
 
-Su 15 uso **Connected / Waiting for Codex** finche' manca un contesto autentico.
-La didascalia e' di 17 caratteri e 188 pixel nel body da 232: rispetto i limiti
-del renderer invece di nascondere un errore di misura.
+Screen 15 shows **Connected / Ready to team up** until an authentic chat context
+arrives, followed by **Start a chat in Codex**. The invitation occupies 177 pixels;
+the instruction occupies 232 pixels in the existing 232-pixel body slot.
+The copy describes PC presence without inventing a followed chat or activity.
 
 CCP segue l'ultimo `UserPromptSubmit` autorizzato, con identita' esatta di chat
 e turno. Le altre chat possono aggiornare i propri metadati ma tool,
@@ -307,17 +308,16 @@ una terza centrata sotto. Conservo ID univoci delle scelte, indipendenti dalla
 posizione. Ogni card ha label, icona e colore semantico. Il vecchio elenco
 verticale dell'atlante e' superato dalla decisione UI del 9 ottobre.
 
-Selezionare una card apre **Review choice**, variante di riepilogo dello screen 27.
-Qui leggo la descrizione e trovo una sola capsula **Send**, con Back laterale
-che torna alle opzioni. Non infilo un quarto pulsante sotto le tre card:
-quel pezzetto di cerchio ha gia' abbastanza da fare. Dalle opzioni, Back torna
-al 26 conservando la domanda. Fino a Send posso cambiare idea.
+Selecting a card opens **Ready to send?**, the review variant of screen 27.
+Its description appears above one **Send** capsule. Lateral Back returns to the
+choices; no fourth footer action is added. From the choices, Back returns to
+screen 26 while retaining the question. The selection remains reversible until Send.
 
 Se la LAN manca prima dell'ammissione, disabilito Send e conservo la sottopagina.
-Dopo l'ammissione entro in **Sending reply** e la scelta diventa immutabile:
-mostro **Sending your reply**, poi **CCP received the reply** quando arriva la
-ricevuta del broker. In entrambi i casi mantengo **Waiting for Codex** e nessuna
-azione di invio aggiuntiva.
+After admission, **Reply on its way** retains the immutable choice. It shows
+**Sending your reply**, then **Reply reached your PC** after the broker receipt.
+Both states retain **Confirming delivery** with no additional send action.
+Only the authenticated recipient acknowledgement permits **Reply sent**.
 
 Rivelo i controlli completi dopo titolo e riga principale e ammetto touch solo
 quando sono visibili. Le label dei pulsanti non entrano nel teletype o nel suo

@@ -136,7 +136,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Let's pair",
+        "text": "Let's connect",
         "top": 185,
         "color_rgb565": 65535,
         "character_interval_ms": 45,
@@ -343,7 +343,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Pairing...",
+        "text": "Connecting...",
         "top": 115,
         "color_rgb565": 0,
         "character_interval_ms": 45,
@@ -412,7 +412,7 @@
         "tongue_opacity": 0
       },
       "title": {
-        "text": "Try again",
+        "text": "Pairing failed",
         "top": 210,
         "color_rgb565": 65535,
         "character_interval_ms": 45,
@@ -481,7 +481,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "You're online.",
+        "text": "You're online",
         "top": 210,
         "color_rgb565": 65535,
         "character_interval_ms": 45,
@@ -964,7 +964,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Looking for PC",
+        "text": "Finding your PC",
         "top": 210,
         "color_rgb565": 65535,
         "character_interval_ms": 45,
@@ -1240,7 +1240,7 @@
         "tongue_opacity": 0
       },
       "title": {
-        "text": "No connection",
+        "text": "Wi-Fi needed",
         "top": 210,
         "color_rgb565": 65535,
         "character_interval_ms": 45,
@@ -1309,7 +1309,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Project active",
+        "text": "Let's get to work",
         "top": 210,
         "color_rgb565": 2047,
         "character_interval_ms": 45,
@@ -1378,7 +1378,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Working",
+        "text": "On it",
         "top": 210,
         "color_rgb565": 2047,
         "character_interval_ms": 45,
@@ -1447,7 +1447,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Response ready",
+        "text": "Reply ready",
         "top": 210,
         "color_rgb565": 2047,
         "character_interval_ms": 45,
@@ -1516,7 +1516,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Paused",
+        "text": "Taking a pause",
         "top": 210,
         "color_rgb565": 64704,
         "character_interval_ms": 45,
@@ -1585,7 +1585,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Session ended",
+        "text": "Chat closed",
         "top": 210,
         "color_rgb565": 65535,
         "character_interval_ms": 45,
@@ -1654,7 +1654,7 @@
         "tongue_opacity": 0
       },
       "title": {
-        "text": "Connection lost",
+        "text": "Link unavailable",
         "top": 210,
         "color_rgb565": 64704,
         "character_interval_ms": 45,
@@ -1723,7 +1723,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Cody is here",
+        "text": "Ready for more",
         "top": 210,
         "color_rgb565": 65535,
         "character_interval_ms": 45,
@@ -1861,7 +1861,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "PR pending",
+        "text": "Review pending",
         "top": 150,
         "color_rgb565": 2047,
         "character_interval_ms": 45,
@@ -1930,7 +1930,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Checks running",
+        "text": "Checking the work",
         "top": 150,
         "color_rgb565": 2047,
         "character_interval_ms": 45,
@@ -2068,7 +2068,7 @@
         "tongue_opacity": 0
       },
       "title": {
-        "text": "Failed checks",
+        "text": "Check details",
         "top": 150,
         "color_rgb565": 64704,
         "character_interval_ms": 45,
@@ -2137,7 +2137,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Codex needs you",
+        "text": "Your call",
         "top": 150,
         "color_rgb565": 64704,
         "character_interval_ms": 45,
@@ -2206,7 +2206,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Choose a reply",
+        "text": "Pick your reply",
         "top": 150,
         "color_rgb565": 2047,
         "character_interval_ms": 45,
@@ -2275,7 +2275,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Review choice",
+        "text": "Ready to send?",
         "top": 150,
         "color_rgb565": 2047,
         "character_interval_ms": 45,
@@ -2344,7 +2344,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Sending reply",
+        "text": "Reply on its way",
         "top": 150,
         "color_rgb565": 2047,
         "character_interval_ms": 45,

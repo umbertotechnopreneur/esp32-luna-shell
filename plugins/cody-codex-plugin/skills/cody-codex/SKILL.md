@@ -37,8 +37,9 @@ Dopo il pairing seguo i metadati autentici:
 - Se la lista è vuota, faccio controllare la revisione/trust degli hook CCP e
   l'orchestrazione locale, poi un nuovo prompt. Non fabbrico eventi e non
   modifico record di fiducia per far reagire Cody.
-- Fino al primo prompt lo screen 15 mostra **Connected / Waiting for Codex**.
-  Un semplice cambio di scheda non è un evento hook documentato.
+- Before the first prompt, screen 15 shows **Connected / Ready to team up**
+  and **Start a chat in Codex**. This describes PC presence only.
+  Switching tabs alone is not a documented focus hook.
 - `Stop` significa risposta pronta, non successo del compito. Attività assente
   o scaduta resta **UNAVAILABLE**.
 - Dopo il riavvio del broker aspetto un nuovo prompt; la sola riconnessione LAN

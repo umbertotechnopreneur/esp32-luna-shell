@@ -21,25 +21,25 @@ from cody_personality import PersonalityPresentation
 # Returns the authored scene, bounded title override and at most two caption lines.
 def presentation(snapshot: SimulatorSnapshot, code: str) -> tuple[str, str, tuple[str, ...]]:
     if not snapshot.network_ready:
-        return "network-wait", "No connection", ("SIMULATED LAN offline", "Saved pairing kept" if snapshot.retained_pairing else "Connect LAN to pair")
+        return "network-wait", "Wi-Fi needed", ("SIMULATED LAN offline", "Your link is saved" if snapshot.retained_pairing else "Connect LAN to pair")
     if snapshot.state == LinkState.PAIRING:
-        return "connect-codex", "Connect Codex", ("Enter code in Codex", "Confirm simulator")
+        return "connect-codex", "Connect Codex", ("Share code in Codex", "Confirm simulator")
     if snapshot.state == LinkState.INCOMPLETE:
-        return "pairing-failed", "Pairing pending", ("Waiting for CONFIRM", "Cancel to start again")
+        return "pairing-failed", "Pairing pending", ("Awaiting confirmation", "Cancel to start again")
     if snapshot.state == LinkState.UNPAIRED:
         return "codex-choice", "Connect Codex?", ("Choose Connect Codex", "in the CCP panel")
     if snapshot.state == LinkState.DISCOVERING:
-        return "looking-for-pc", "Looking for PC", ("Saved pairing kept", "Waiting for CCP")
+        return "looking-for-pc", "Finding your PC", ("Your link is saved", "Open Codex to rejoin")
     if snapshot.state == LinkState.PAIRED:
-        return "setup-complete", "You're all set.", ("Waiting for CCP",)
+        return "setup-complete", "You're all set.", ("Open Codex to rejoin",)
     if snapshot.state == LinkState.TIMED_OUT:
         return "pairing-failed", "Code expired", ("Choose Connect Codex", "for a new code")
     if snapshot.state == LinkState.STOPPED:
-        return "pairing-failed", "CCP stopped", ("See the CCP panel",)
+        return "pairing-failed", "Link stopped", ("See the CCP panel",)
     if not snapshot.activity_valid:
-        return "activity-unavailable", "UNAVAILABLE", ("Waiting for snapshot", "from CCP")
+        return "activity-unavailable", "UNAVAILABLE", ("Activity unavailable", "Check Codex on PC")
     if snapshot.phase == "none":
-        return "connected", "Connected", ("Waiting for Codex", "Send a real prompt")
+        return "connected", "Connected", ("Ready to team up", "Start a chat in Codex")
     identities = {"active": "project-active", "working": "working", "editing": "working",
                   "running": "working", "ready": "response-ready", "paused": "session-paused",
                   "interrupted": "session-paused", "ended": "session-ended",

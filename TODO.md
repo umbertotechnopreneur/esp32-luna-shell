@@ -1,5 +1,22 @@
 # Active work
 
+## Cody product copy - 2026-10-10
+
+- [x] Review fixed scene titles, onboarding/activity captions, action labels and
+  shared question/check/status messages. Use concise English companion wording
+  while preserving real failures, unavailable data and delivery acknowledgement.
+- [x] Align Cody Studio's fixed connection copy and the plugin/architecture docs.
+  Preserve dynamic event content, semantic identities, layout and touch gates.
+- [x] Regenerate all 38 authored scene definitions with the authorized command
+  `scripts/device.ps1 generate -Generator cody-scenes -ToolArguments @('--definitions-only')`.
+- [ ] Run any requested checks, firmware build or simulator only after the
+  corresponding exact command receives fresh authorization. Physical UI is pending.
+- [ ] Resolve why CCP hooks are absent from runtime hooks/list despite the plugin
+  being installed/enabled and its eight hook definitions being present. Read-only
+  inspection returned zero hooks with no warnings/errors for both WinGet 0.156.1
+  and the app's 0.162.0-alpha.17.2. Hook trust, config and pairing were not changed.
+
+
 ## Cody black-screen startup regression - 2026-10-10
 
 - [x] Capture the explicitly authorized reset/boot on COM10. Firmware aborted

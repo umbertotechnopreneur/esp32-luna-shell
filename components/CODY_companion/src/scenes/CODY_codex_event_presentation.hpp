@@ -360,19 +360,23 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         plan.route == Route::CheckFailures24;
     uint16_t top = 196;
     esp_err_t error = ESP_OK;
+    // value: Complete English copy or canonical event text, never shortened here.
+    // instant: Excludes status text from narrative timing.
+    // pitch: Existing logical line spacing.
+    // words: Preserves word boundaries where the fixed line budget permits.
     const auto text = [&](const char *value, bool instant = false, uint16_t pitch = 26, bool words = true) {
         if (error == ESP_OK) { error = append_lines(plan, value, top, capacity, pitch, instant, words); }
     };
     char status[64]{};
     if (plan.route == Route::EventUnavailable) {
-        text("Event status unavailable");
+        text("Update unavailable");
         std::snprintf(status, sizeof(status), "Error: 0x%08lX", static_cast<unsigned long>(context.observation_error));
         text(status, true);
-        add_action(plan, ActionId::Retry, "Retry", true);
+        add_action(plan, ActionId::Retry, "Try again", true);
     } else if (plan.route == Route::DecisionChoices27) {
         text(event.title);
         top = 228;
-        text(context.online ? "Choose a response" : "Offline - pending", true);
+        text(context.online ? "What's your call?" : "Offline - pending", true);
         if (event.choice_count < 2 || event.choice_count > 3) { return ESP_ERR_INVALID_SIZE; }
         const Bounds bounds[] = {{73, 260, 154, 104}, {239, 260, 154, 104}, {113, 376, 240, 52}};
         for (uint8_t index = 0; index < event.choice_count; ++index) {
@@ -396,9 +400,9 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
             std::snprintf(status, sizeof(status), context.online ? "Send error: 0x%08lX" : "Offline: 0x%08lX",
                 static_cast<unsigned long>(context.ui_error));
             text(status, true);
-        } else { text(context.online ? "Review before sending" : "Offline - not sent", true); }
+        } else { text(context.online ? "Happy with this reply?" : "Offline - not sent", true); }
         add_action(plan, context.ui_error == ESP_OK ? ActionId::Send : ActionId::Retry,
-            context.ui_error == ESP_OK ? "Send" : "Retry",
+            context.ui_error == ESP_OK ? "Send" : "Try again",
             context.online && event.state == State::Pending && !context.reply_admitted, choice->tone);
     } else if (plan.route == Route::CheckFailures24) {
         if (event.failure_count > 6 || navigation.failure_page > 1) { return ESP_ERR_INVALID_SIZE; }
@@ -410,12 +414,12 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         }
         top = 354;
         text(!context.online ? "Offline - saved details" : event.failure_count > 3 ?
-            "Swipe to scroll" : "Read details on your PC", true);
+            "Swipe for more" : "Full details in Codex", true);
     } else if (plan.route == Route::DecisionWaiting) {
         text(event.title);
         text(!context.online ? "Offline - reply pending" : event.state == State::Received ?
-            "CCP received the reply" : "Sending your reply");
-        text("Waiting for Codex", true);
+            "Reply reached your PC" : "Sending your reply");
+        text("Confirming delivery", true);
         if (event.last_error != ESP_OK) {
             std::snprintf(status, sizeof(status), "Error: 0x%08lX", static_cast<unsigned long>(event.last_error));
             text(status, true);
@@ -430,7 +434,7 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
             text(status, true);
         }
         add_action(plan, context.ui_error == ESP_OK ? ActionId::Dismiss : ActionId::Retry,
-            context.ui_error == ESP_OK ? "Done" : "Retry", !context.dismiss_admitted, Tone::Positive);
+            context.ui_error == ESP_OK ? "Done" : "Try again", !context.dismiss_admitted, Tone::Positive);
     } else {
         const bool unconfirmed = plan.route == Route::CodexNotice && event.state == State::Expired &&
             event.selected_id[0] != '\0';
@@ -448,9 +452,9 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         else if (plan.route == Route::ChecksFailed23) { add_action(plan, ActionId::Failures, "View failures", true); }
         else if (plan.route == Route::CodexNotice) {
             add_action(plan, context.ui_error == ESP_OK ? ActionId::Dismiss : ActionId::Retry,
-                context.ui_error == ESP_OK ? "Done" : "Retry", !context.dismiss_admitted);
+                context.ui_error == ESP_OK ? "Done" : "Try again", !context.dismiss_admitted);
         } else if (event.kind == Kind::ChecksPassed && context.ui_error != ESP_OK) {
-            add_action(plan, ActionId::Retry, "Retry", true);
+            add_action(plan, ActionId::Retry, "Try again", true);
         }
         if (plan.route == Route::ApprovalOnPc) { text("Continue on your PC", true); }
         const esp_err_t status_error = context.ui_error != ESP_OK ? context.ui_error : event.last_error;
