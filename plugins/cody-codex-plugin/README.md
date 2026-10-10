@@ -20,6 +20,15 @@ esplicito delle credenziali e dell'avvio, senza sostituti in chiaro.
 
 ## Installo CCP una volta
 
+The canonical Codex manifest is `.codex-plugin/plugin.json`. Keep the portable
+root `plugin.json` out of this package: native Codex 0.161.0 and
+0.162.0-alpha.17.2 detect zero hooks when that file takes precedence, but detect
+all eight definitions with the canonical manifest alone. The native inspection
+is available through `scripts/device.ps1 check -Check cody-hook-discovery
+-ToolArguments @('--codex-executable', '<native Codex executable>', '--installed')`.
+Inspection never executes hooks or approves trust. After updating an existing
+installation, restart the Codex client and review the discovered hooks in `/hooks`.
+
 1. Rendo `python` disponibile nell'ambiente dell'app desktop.
 2. Dalla radice di questo repository registro il catalogo locale, se manca:
    `codex plugin marketplace add .`.

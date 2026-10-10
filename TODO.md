@@ -15,8 +15,12 @@
   WinGet 0.161.0 and app 0.162.0-alpha.17.2 recognize all eight authored hooks
   through .codex-plugin/plugin.json alone; portable plugin.json, including the
   dual-manifest package, returns zero. Hook trust, config and pairing were not changed.
-- [ ] Apply the diagnosed packaging remedy to CCP distribution/installed cache,
-  then separately complete native hook review and observe a genuine user prompt.
+- [x] Apply the packaging remedy to the marketplace source and installed CCP
+  0.6.2 cache. Native plugin/read and hooks/list now expose all eight hooks on
+  WinGet 0.161.0 and app 0.162.0-alpha.17.2; hook/config hashes are unchanged.
+- [ ] Complete native hook review in /hooks after restarting the client, then
+  observe a genuine user prompt. All eight discovered hooks remain untrusted;
+  metadata enablement is not permission to execute them.
 
 
 ## Cody black-screen startup regression - 2026-10-10

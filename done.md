@@ -2222,3 +2222,26 @@ the preserved copies within the build directory.
   portable-over-legacy precedence; observed native loading does not honor that
   hook declaration here. Keep the packaging remedy and real end-to-end event
   validation pending: installed CCP, PC configuration/trust and pairing are unchanged.
+
+## Installed CCP hook discovery repair - 2026-10-10
+
+- Removed the portable root plugin.json from the marketplace source and installed
+  E:/.codex/plugins/cache/cody-local/cody-codex-plugin/0.6.2. The sole Codex
+  manifest is .codex-plugin/plugin.json; the installed copy now matches the
+  source's English interface and three suggested prompts. Existing MCP runtime,
+  pairing, hook commands and version are retained. Original source/installed
+  manifests are backed up under artifacts/ccp-installed-hook-fix-20261010/before.
+- Added an --installed mode to the native hook inspector. The updated inspector
+  can still reproduce portable/dual loading failures through isolated fixtures
+  even though the production portable manifest has been removed. Adjusted the
+  existing source packaging test to read the canonical manifest.
+- Authorized final checks passed: CcpContractTests.test_local_plugin_entrypoints_agree,
+  the 20-case native format comparison on WinGet 0.161.0, and installed inspection
+  on both 0.161.0 and 0.162.0-alpha.17.2. plugin/read and hooks/list each return
+  eight hooks; sourcePath identifies the actual installed cache, pluginId is
+  cody-codex-plugin@cody-local, and warnings/errors are empty. Installed inspection
+  evidence: artifacts/ccp-hook-discovery-20261010/parser-probes/installed-report.json.
+- All eight hooks are enabled but untrusted. No hook was executed or approved,
+  no chat event was fabricated, and hashes confirm config.toml plus source/cache
+  hooks.json are unchanged. Restart/review through native /hooks and a genuine
+  user prompt remain pending; no firmware, simulator or physical-device validation.

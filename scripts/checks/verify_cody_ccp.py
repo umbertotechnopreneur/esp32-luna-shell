@@ -300,9 +300,9 @@ class CcpContractTests(unittest.TestCase):
         marketplace = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text(encoding="utf-8"))
         entry = marketplace["plugins"][0]
         self.assertEqual((ROOT / entry["source"]["path"]).resolve(), plugin_root.resolve())
-        for manifest_path in ("plugin.json", ".codex-plugin/plugin.json"):
-            manifest = json.loads((plugin_root / manifest_path).read_text(encoding="utf-8"))
-            self.assertEqual(manifest["version"], ccp.SERVER_VERSION)
+        manifest_path = plugin_root / ".codex-plugin/plugin.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], ccp.SERVER_VERSION)
         for wiring_path in ("mcp.json", ".mcp.json"):
             wiring = json.loads((plugin_root / wiring_path).read_text(encoding="utf-8"))["mcpServers"]["ccp"]
             self.assertEqual(wiring["cwd"], "${PLUGIN_ROOT}")
