@@ -7,6 +7,71 @@ Older `artifacts/` paths may be historical references only: the complete cleanup
 requested on 2026-10-05 removed that unversioned evidence. New results identify
 the preserved copies within the build directory.
 
+## Native Cody companion panels and truthful telemetry - 2026-10-10
+
+- Implemented persistent Home, Activity, Model & Context and Session & Link
+  views. Short released taps cycle technical pages; deliberate fresh IMU gestures
+  return Home through one shared native recognizer. Questions, setup and Debug
+  preempt panel presentation without losing the selected page. Gesture thresholds
+  have not been physically calibrated.
+- Native presentation owns field formatting, independent source aging, context
+  bar arithmetic and bounded captions. Home keeps measured full-text scrolling,
+  project/branch fading and fixed character overlays. Studio uses the same native
+  presentation and recognizers; eleven explicit SIMULATED scenarios provide
+  missing/stale, compaction, counter and link conditions without firmware data.
+- Genuine PreCompact/PostCompact and hook model metadata travel over authenticated
+  TECH on the existing CCP transport. Compaction is separate from tool phase;
+  duplicates, wrong turns, missing starts and disconnection cannot fabricate
+  completion. Effort, context capacity/counts and cumulative tokens remain
+  UNAVAILABLE: this desktop session exposes no supported readable telemetry channel.
+- Added authenticated preferred-name and clock chat tools. The settings owner
+  persists first-connection timezone adoption and retains later explicit choices.
+  No example name was assigned. Installed plugin cache files were synchronized
+  without changing pairing. New/modified hooks still need Codex native review.
+- Local source checkpoints: `b4f11386` and `b35258f`. The latter completes the
+  clock owner's source/header and removes duplicate checkpoint-only include lines.
+  No push was performed, following the new task attachment's explicit instruction.
+- Public Studio preview compiled and opened successfully after rejecting one
+  concurrent-source hash mismatch. The native Home PNG is preserved as
+  `artifacts/build-cody-companion-wake-word-debug/diagnostics/20261010-companion-home-preview.png`.
+  This is a synthetic renderer observation, not physical panel/touch evidence.
+- Authorized COM10 Debug/wake-word flash succeeded with verified writes and reset.
+  Image `cody-78-gb4f11386-dirty` is 6,973,040 bytes; SHA256
+  `718c5cc86e10599e0e4f062009d1d46ad0ac5bd9b6873b85a7cec67223137336`.
+  The built working tree includes the clock source completed by `b35258f`; its
+  later local commit did not change the already compiled source bytes.
+- The authorized 60-second reset/serial capture reached Ready, retired the startup
+  cycle and authenticated the retained LAN connection, without panic or abort.
+  Cody minimum free stack was 3264/12288 bytes (peak used 9024); power minimum
+  free was 5816/8192 in the captured boot. Those samples do not cover selected
+  panels, compaction, wake or deliberate physical gestures.
+- Compiled object inspection measured draw_companion_frame=3024 bytes,
+  companion_worker=368, panel mapping=320, panel preparation=336 and panel
+  raster=208. Persistent panel/technical buffers live with the PSRAM owner;
+  the canonical technical reader's frame is 32 bytes. These individual frames
+  do not include every nested callback/logging frame.
+- Authenticated quiet-hours configuration returned applied/error=0; a separate
+  authenticated read confirmed disabled, Asia/Ho_Chi_Minh, retained 22:00-07:00.
+  Speaker audibility and physical name/UI behavior remain unverified.
+- Flash, boot capture and compiled-frame records are preserved under the selected
+  build's diagnostics as `20261010-companion-panels-flash.log`,
+  `20261010-companion-panels-boot.log` and `20261010-companion-compiled-frames.json`.
+  SD protocol timeouts and codec/PMU I2C errors remain open; their overlap is
+  correlation, not a diagnosed cause. No new test suite was executed.
+
+## Cody notification sound authoring - 2026-10-10
+
+- Added distinct question, PC approval, confirmed answer receipt, passed-check and
+  failed-check cues from three additional recordings in the owner's supplied SFX
+  archive. Preserved boot audio, bounded cue durations, semantic deduplication,
+  speaker ownership and the user's master sound/volume preferences.
+- The three explicitly authorized public generators completed: Codex SFX,
+  runtime assets and scene definitions. Sixteen cues are prepared; action PCM is
+  140,800 bytes at 16 kHz. Authored notice peaks are -14 to -20 dBFS; digital
+  preparation does not establish speaker audibility.
+- Focused local checkpoint: `76f4114b`. The subsequent integrated flash includes
+  these sixteen cues. Speaker audibility remains unverified; no new test suite ran.
+
 ## Hardware acquisition component extraction - 2026-10-10
 
 - PMU owns XPowers handles, IRQ clearing/de-duplication, power-key events, battery
@@ -39,8 +104,13 @@ the preserved copies within the build directory.
   `20261010-ccp-simulator.log`. The normal build cleanup removed earlier transient
   check/generator directories; the tracked records retain observed results.
 - The authorized changed-file `git diff --check` passed after removing four extra
-  end-of-file blank lines. No firmware flash, reset, serial capture, hardware suites,
-  extra profile build or device stack/headroom measurements were performed.
+  end-of-file blank lines. The subsequently requested flash on COM10 completed
+  with image `cody-76-gfb82f704-dirty`; esptool verified the written images and
+  reset the target. The user reports that this refactored firmware feels fast.
+  That is physical user feedback, not a measured benchmark or stack-headroom result.
+  Flash output is retained in the selected build's diagnostics as
+  `20261010-acquisition-flash.log`. No serial capture, hardware suites, extra
+  profile build or device stack/headroom measurements were performed.
 
 ## CCP contract verification and transport parity - 2026-10-10
 

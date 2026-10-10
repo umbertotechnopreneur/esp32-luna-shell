@@ -10,12 +10,17 @@
 - [x] Add authenticated TECH metadata on the existing CCP transport, independent
   freshness and genuine PreCompact/PostCompact lifecycle admission. Hook model
   provenance is explicit; unsupported effort and token metrics stay UNAVAILABLE.
-- [ ] Finish the SIMULATED scenario selector and inspect the native presentation.
-- [ ] Compile and flash the integrated Debug/wake-word image on COM10, then inspect
+- [x] Finish eleven labelled SIMULATED scenarios and inspect a native Home frame.
+  Technical-page visual inspection and physical navigation remain separate.
+- [x] Compile and flash the integrated Debug/wake-word image on COM10, then inspect
   a bounded serial boot capture. No new test suite is requested.
 - [ ] Observe genuinely reviewed hooks on the followed chat and calibrate physical
   tap/shake behavior separately. Source regressions are prepared but not executed.
-- [ ] Check actual compiled frames and device stack headroom after schema growth.
+- [x] Inspect actual compiled frames and boot stack headroom after schema growth.
+  Cody minimum free was 3264/12288 bytes in the captured boot/connected path;
+  panel, compaction, wake and deepest gesture paths remain physically unmeasured.
+- [ ] Diagnose SD probe timeouts and intermittent codec/PMU I2C failures observed
+  during the serial capture; do not infer a cause from their overlapping timing.
 
 ## Informative Cody activity and audible notifications - 2026-10-10
 
@@ -28,9 +33,9 @@
   project/branch fading, actual elapsed time and truthful phase admission.
 - [x] Add explicit chat commands to read/set the preferred user name, persist it
   through the settings owner, and personalize idle greetings from canonical data.
-- [ ] Review the requested SIMULATED native presentation, synchronize the local
+- [x] Review the requested SIMULATED native presentation, synchronize the local
   plugin, and flash the integrated Debug/wake-word image on COM10.
-- [ ] Explicitly disable the existing device's quiet-hours setting through an
+- [x] Explicitly disable the existing device's quiet-hours setting through an
   authenticated command; confirm the durable outcome separately from audibility.
 - [ ] Diagnose remaining genuine hook turn-correlation rejections without
   weakening stale-event admission or inventing activity.
@@ -48,9 +53,10 @@
   contract assertions. Static integration review completed.
 - [x] Complete the authorized Cody Debug/wake-word build and changed-file diff check.
 - [ ] Run hardware/status/RTC/snapshot/power/TOF suites only after fresh exact-command
-  authorization. Enabled GNSS acquisition in another profile and device stack headroom remain
+  authorization. Enabled GNSS acquisition in another profile and full-path stack headroom remain
   pending. Requested COM10 flash completed with verified image writes; the user
-  reports fast physical operation. Device stack headroom remains unmeasured.
+  reports fast physical operation. Boot headroom was subsequently measured;
+  panel, wake and deepest nested hardware paths remain unmeasured.
 
 ## CCP verification and transport parity - 2026-10-10
 
