@@ -7,10 +7,17 @@ from PIL import Image
 
 
 class VibeWareBoot:
-    # self: Host-only owner of the unchanged GIF frames and generated geometry.
+    # self: Host-only owner of the unchanged GIF, or the real native Cody compositor.
     # root: Repository/package root containing the approved asset and manifest.
+    # cody_companion: Explicit Cody route using shared firmware typography, decoder and layout.
     # Raises OSError or ValueError for missing, inconsistent or invalid artwork.
-    def __init__(self, root: Path):
+    # Raises RuntimeError or AttributeError for rejected or incompatible native Cody rendering.
+    def __init__(self, root: Path, *, cody_companion: bool = False):
+        self.native = None
+        if cody_companion:
+            from cody_native_boot_branding import NativeBootBranding
+            self.native = NativeBootBranding()
+            return
         self.manifest = json.loads((root / "assets/branding/VibeWare/generated/manifest.json").read_text(encoding="utf-8"))
         self.frames = []
         self.durations = self.manifest["frame_durations_ms"]
@@ -37,7 +44,10 @@ class VibeWareBoot:
     # self: Host-only resource owner.
     # elapsed_ms: Explicit nonnegative artistic preview time; no device measurements.
     # Raises ValueError for invalid animation time or a malformed duration list.
+    # Raises RuntimeError for an actual native Cody clock rejection.
     def frame_index(self, elapsed_ms):
+        if self.native is not None:
+            return self.native.frame_index(elapsed_ms)
         if elapsed_ms < 0:
             raise ValueError("VibeWare preview time must be nonnegative")
         remaining = elapsed_ms % self.manifest["cycle_duration_ms"]
@@ -50,5 +60,8 @@ class VibeWareBoot:
     # self: Host-only resource owner.
     # elapsed_ms: Explicit artistic preview time, independent of all sensor state.
     # Raises ValueError for an invalid frame time.
+    # Raises RuntimeError for actual native Cody decode/font/raster failures.
     def image(self, elapsed_ms):
+        if self.native is not None:
+            return self.native.image(elapsed_ms)
         return self.frames[self.frame_index(elapsed_ms)].copy()

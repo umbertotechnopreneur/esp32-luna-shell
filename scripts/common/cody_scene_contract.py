@@ -1,7 +1,9 @@
 """Strict shared authoring contract for reusable cloud/title/content scenes."""
 
+import hashlib
 import math
 from pathlib import Path
+import re
 
 from scripts.common.cody_rig_contract import load_contract, read_json, validate_channels
 from scripts.common.cody_rig_types import FaceChannel
@@ -44,6 +46,78 @@ def scene_source_hash(root: Path):
 def require_keys(value, expected, label):
     if not isinstance(value, dict) or set(value) != set(expected):
         raise ValueError(f"{label}: expected fields {sorted(expected)}, got {value!r}")
+
+
+# directory: Existing generated scene assets; no font discovery or generation occurs here.
+# Raises OSError, UnicodeError or ValueError for missing, corrupt or unsupported asset formats.
+def load_generated_scene_fonts(directory: Path):
+    manifest = read_json(directory / "manifest.json")
+    if not isinstance(manifest, dict) or manifest.get("schema") not in (
+            "cody.scene-font.v1", "cody.scene-font.v2"):
+        raise ValueError("Unsupported generated scene-font schema")
+    explicit_format = manifest["schema"] == "cody.scene-font.v2"
+    fields = {"schema", "font_name", "source_family", "license", "font_source_sha256",
+              "scenes_sha256", "first_character", "character_count", "width", "height", "advance",
+              "row_bytes", "coverage_bytes", "coverage_sha256", "note", "body_font"}
+    format_fields = {"coverage_bits", "coverage_file"} if explicit_format else set()
+    require_keys(manifest, fields | format_fields, "generated scene font")
+    if (type(manifest["first_character"]) is not int or manifest["first_character"] != 32 or
+            type(manifest["character_count"]) is not int or manifest["character_count"] != 95 or
+            manifest["source_family"] != "JetBrains Mono" or manifest["license"] != "SIL-OFL-1.1"):
+        raise ValueError("Generated fonts require the licensed printable-ASCII JetBrains Mono source")
+    for key in ("font_source_sha256", "scenes_sha256"):
+        if not isinstance(manifest[key], str) or re.fullmatch(r"[0-9a-f]{64}", manifest[key]) is None:
+            raise ValueError(f"Invalid generated font provenance: {key}")
+    body = manifest["body_font"]
+    require_keys(body, {"pixel_size", "width", "height", "advance", "row_bytes",
+                        "coverage_bytes", "coverage_sha256"} | format_fields, "generated caption font")
+    if type(body["pixel_size"]) is not int or body["pixel_size"] != 18:
+        raise ValueError("Generated caption font must retain its explicit 18px size")
+    loaded = []
+    for name, font in (("scene_font", manifest), ("scene_body_font", body)):
+        # V1 names the committed two-bit format. V2 always declares a format;
+        # neither byte lengths nor file availability are used to guess one.
+        bits = font["coverage_bits"] if explicit_format else 2
+        if type(bits) is not int or bits not in (2, 4):
+            raise ValueError(f"{name}: unsupported coverage format {bits!r}")
+        numeric = ("width", "height", "advance", "row_bytes", "coverage_bytes")
+        if (any(type(font[key]) is not int for key in numeric) or
+                not 1 <= font["width"] <= 32 or not 1 <= font["height"] <= 64 or
+                not 1 <= font["advance"] <= 32 or font["row_bytes"] != (font["width"] * bits + 7) // 8 or
+                font["coverage_bytes"] != 95 * font["height"] * font["row_bytes"]):
+            raise ValueError(f"{name}: invalid printable-ASCII packed extent")
+        if not isinstance(font["coverage_sha256"], str) or re.fullmatch(
+                r"[0-9a-f]{64}", font["coverage_sha256"]) is None:
+            raise ValueError(f"{name}: invalid coverage digest")
+        cpp = (directory / f"{name}.cpp").read_text(encoding="utf-8")
+        symbol = "title_font" if name == "scene_font" else "body_font"
+        initializer = re.findall(
+            rf"const\s+CODY2D::MonoFont\s+{symbol}\s*\{{\s*coverage\s*,\s*sizeof\(coverage\)\s*,([^}}]+)\}}\s*;", cpp)
+        if len(initializer) != 1:
+            raise ValueError(f"{name}: missing or ambiguous flash font declaration")
+        metrics = [field.strip() for field in initializer[0].split(",")]
+        expected = ["32", "95", str(font["width"]), str(font["height"]),
+                    str(font["advance"]), str(font["row_bytes"])]
+        if explicit_format:
+            expected.append(str(bits))
+        if metrics != expected:
+            raise ValueError(f"{name}: flash font metrics or coverage format differ from the manifest")
+        compiled_coverage = bytes(int(value, 16) for value in re.findall(r"0x([0-9a-fA-F]{2})\b", cpp))
+        if explicit_format:
+            filename = f"{name}.{bits}bpp.bin"
+            if font["coverage_file"] != filename:
+                raise ValueError(f"{name}: coverage file must explicitly match its format")
+            coverage = (directory / filename).read_bytes()
+        elif name == "scene_font":
+            coverage = (directory / "scene_font.2bpp.bin").read_bytes()
+        else:
+            # The current V1 caption asset is committed only as a flash array.
+            coverage = compiled_coverage
+        if (len(coverage) != font["coverage_bytes"] or compiled_coverage != coverage or
+                hashlib.sha256(coverage).hexdigest() != font["coverage_sha256"]):
+            raise ValueError(f"{name}: coverage is corrupt, incomplete or differs from the flash array")
+        loaded.append(coverage)
+    return manifest, loaded[0], loaded[1]
 
 
 # root: Active checkout containing the single current scene schema.

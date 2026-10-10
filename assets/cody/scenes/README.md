@@ -16,5 +16,12 @@ OFL 1.1; keep `OFL.txt` with the asset distribution.
 coverage in firmware flash. `generated/scene_font.2bpp.bin` and `manifest.json`
 are for the Windows preview; that binary is not a second firmware embed.
 
+The generator now emits an explicit `cody.scene-font.v2` package with 4bpp
+coverage, baked at 4x resolution and downsampled while preserving the committed
+title/body metrics. V2 names both font binaries and records their format and
+hashes; the native renderer and preview validate the same packing. The existing
+v1 assets above remain 2bpp until a separately authorized full bake supplies the
+licensed font source. Definition-only generation preserves the validated format.
+
 Layout, setting behavior, content lifetime, costs and deferred validation are
 documented in `docs/architecture/cody/runtime.md`.

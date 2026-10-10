@@ -1,11 +1,8 @@
 """Reusable cloud/title presentation using the same authored scenes and flash glyphs."""
 
-import hashlib
 import math
-import re
 
-from scripts.common.cody_scene_contract import load_scenes, require_keys, scene_source_hash
-from scripts.common.cody_rig_contract import read_json
+from scripts.common.cody_scene_contract import load_generated_scene_fonts, load_scenes, scene_source_hash
 from scripts.common.cody_rig_types import FaceChannel
 
 
@@ -19,39 +16,13 @@ class ScenePainter:
         self.document = load_scenes(root, rig)
         self.scenes = {scene["id"]: scene for scene in self.document["scenes"]}
         generated = root / "assets/cody/scenes/generated"
-        self.font = read_json(generated / "manifest.json")
-        self.coverage = (generated / "scene_font.2bpp.bin").read_bytes()
-        self.body_coverage = bytes(int(value, 16) for value in re.findall(
-            r"0x([0-9a-fA-F]{2})\b", (generated / "scene_body_font.cpp").read_text(encoding="utf-8")))
-        require_keys(self.font, {"schema", "font_name", "source_family", "license", "font_source_sha256",
-            "scenes_sha256", "first_character", "character_count", "width", "height", "advance",
-            "row_bytes", "coverage_bytes", "coverage_sha256", "note", "body_font"}, "generated scene font")
-        if self.font["schema"] != "cody.scene-font.v1":
-            raise ValueError("Unsupported generated scene-font schema")
+        self.font, self.coverage, self.body_coverage = load_generated_scene_fonts(generated)
         font = self.font
-        numeric = ("first_character", "character_count", "width", "height", "advance", "row_bytes", "coverage_bytes")
-        if (any(type(font[key]) is not int for key in numeric) or
-                font["first_character"] != 32 or font["character_count"] != 95 or
-                not 1 <= font["width"] <= 32 or not 1 <= font["height"] <= 64 or
-                not 1 <= font["advance"] <= 32 or font["row_bytes"] != (font["width"] + 3) // 4 or
-                font["coverage_bytes"] != font["character_count"] * font["height"] * font["row_bytes"]):
-            raise ValueError("Invalid printable-ASCII packed font extent")
+        explicit_format = font["schema"] == "cody.scene-font.v2"
+        self.coverage_bits = font["coverage_bits"] if explicit_format else 2
+        self.body_coverage_bits = font["body_font"]["coverage_bits"] if explicit_format else 2
         if scene_source_hash(root) != self.font["scenes_sha256"]:
             raise ValueError("Scene assets are stale; regenerate with device.ps1 generate -Generator cody-scenes")
-        if (len(self.coverage) != self.font["coverage_bytes"] or
-                hashlib.sha256(self.coverage).hexdigest() != self.font["coverage_sha256"]):
-            raise ValueError("Scene glyph coverage is corrupt or incomplete")
-        body = self.font["body_font"]
-        require_keys(body, {"pixel_size", "width", "height", "advance", "row_bytes",
-                            "coverage_bytes", "coverage_sha256"}, "generated caption font")
-        if (any(type(body[key]) is not int for key in ("width", "height", "advance", "row_bytes", "coverage_bytes")) or
-                not 1 <= body["width"] <= 32 or not 1 <= body["height"] <= 64 or
-                not 1 <= body["advance"] <= 32 or body["row_bytes"] != (body["width"] + 3) // 4 or
-                body["coverage_bytes"] != font["character_count"] * body["height"] * body["row_bytes"]):
-            raise ValueError("Invalid printable-ASCII packed caption extent")
-        if (len(self.body_coverage) != body["coverage_bytes"] or
-                hashlib.sha256(self.body_coverage).hexdigest() != body["coverage_sha256"]):
-            raise ValueError("Scene caption coverage is corrupt or incomplete")
         for scene in self.scenes.values():
             title = scene["title"]
             width = (len(title["text"]) - 1) * font["advance"] + font["width"]
@@ -213,6 +184,9 @@ class ScenePainter:
             raise ValueError("Scene text position/color is invalid")
         font = {**self.font, **self.font["body_font"]} if body else self.font
         coverage = self.body_coverage if body else self.coverage
+        coverage_bits = self.body_coverage_bits if body else self.coverage_bits
+        samples_per_byte = 8 // coverage_bits
+        maximum_coverage = (1 << coverage_bits) - 1
         width = (len(text) - 1) * font["advance"] + font["width"]
         if max_width is None:
             max_width = 232 if body else 320
@@ -235,7 +209,8 @@ class ScenePainter:
             for row in range(font["height"]):
                 offset = glyph + row * font["row_bytes"]
                 for column in range(font["width"]):
-                    level = (coverage[offset + column // 4] >> (6 - column % 4 * 2)) & 3
+                    shift = 8 - coverage_bits - column % samples_per_byte * coverage_bits
+                    level = (coverage[offset + column // samples_per_byte] >> shift) & maximum_coverage
                     if level == 0:
                         continue
                     x = origin_x + index * font["advance"] + column
@@ -246,6 +221,7 @@ class ScenePainter:
                     for shift, mask in ((11, 31), (5, 63), (0, 31)):
                         foreground = source >> shift & mask
                         beneath = background >> shift & mask
-                        word |= ((foreground * level + beneath * (3 - level) + 1) // 3) << shift
+                        word |= ((foreground * level + beneath * (maximum_coverage - level) +
+                                  maximum_coverage // 2) // maximum_coverage) << shift
                     pixels[x, y] = ((word >> 11 & 31) * 255 // 31,
                                     (word >> 5 & 63) * 255 // 63, (word & 31) * 255 // 31)

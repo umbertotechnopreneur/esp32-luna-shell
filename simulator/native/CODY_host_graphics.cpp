@@ -673,7 +673,7 @@ CODY_HOST_EXPORT int cody_host_scene_timing(uint16_t identity, int64_t elapsed_u
 CODY_HOST_EXPORT int cody_host_capsule(uint16_t *pixels, uint32_t capacity, const uint16_t *bounds,
     const uint16_t *colors, uint8_t icon, int16_t icon_x, int16_t icon_y, uint16_t radius, bool enabled)
 {
-    if (!pixels || capacity != 466U * 466U || !bounds || !colors || icon > static_cast<uint8_t>(CODY2D::ActionIcon::Retry)) {
+    if (!pixels || capacity != 466U * 466U || !bounds || !colors || icon > static_cast<uint8_t>(CODY2D::ActionIcon::Orientation)) {
         return host_result("capsule", ESP_ERR_INVALID_ARG);
     }
     CODY2D::CapsuleControl control{};

@@ -19,14 +19,16 @@
 namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_look";
-constexpr uint16_t kSelectedTop = 0x034C;
-constexpr uint16_t kSelectedBottom = 0x0105;
-constexpr uint16_t kLookNeutralTop = 0x2946;
-constexpr uint16_t kLookNeutralBottom = 0x18C4;
+constexpr uint16_t kSelectedTop = 0x1147;
+constexpr uint16_t kSelectedBottom = 0x08C4;
+constexpr uint16_t kLookNeutralTop = 0x18E5;
+constexpr uint16_t kLookNeutralBottom = 0x10A3;
 constexpr uint16_t kCaptionWidth = 232;
-constexpr CODY2D::Rect kLookListViewport{117, 226, 232, 146};
 constexpr CODY2D::Rect kLookItemBase{117, 226, 220, 38};
 constexpr uint16_t kLookItemStep = 44;
+constexpr uint16_t kLookVisibleRows = 3;
+constexpr CODY2D::Rect kLookListViewport{117, 226, 232,
+    (kLookVisibleRows - 1U) * kLookItemStep + kLookItemBase.height};
 constexpr uint16_t kLookScrollBarLeft = 343;
 constexpr uint16_t kLookScrollBarWidth = 4;
 constexpr uint16_t kLookDragThreshold = 5;
@@ -95,13 +97,14 @@ esp_err_t advance_text_generation()
     return ESP_OK;
 }
 
-// item: Stable catalog row with its full prepared caption geometry.
+// item: Stable catalog row with its complete prepared control geometry.
 // scroll: Current bounded viewport displacement in logical pixels.
-bool caption_in_viewport(const LookItem &item, uint16_t scroll)
+bool row_in_viewport(const LookItem &item, uint16_t scroll)
 {
-    const int32_t top = static_cast<int32_t>(item.control.caption.bounds.y) - scroll;
-    const int32_t bottom = top + item.control.caption.bounds.height;
-    return top < kLookListViewport.y + kLookListViewport.height && bottom > kLookListViewport.y;
+    const int32_t top = static_cast<int32_t>(item.control.bounds.y) - scroll;
+    const int32_t bottom = top + item.control.bounds.height;
+    return top >= kLookListViewport.y &&
+        bottom <= kLookListViewport.y + kLookListViewport.height;
 }
 
 // scene: Valid selector with an active text clock that never resets during scroll/save.
@@ -193,12 +196,13 @@ esp_err_t prepare_done_control(const char *label, bool enabled)
         return ESP_ERR_INVALID_SIZE;
     }
     CODY2D::CapsuleControl prepared{kDoneBounds, {}, kSelectedTop, kSelectedBottom, enabled};
-    prepared.border_color = 0x06D9;
-    prepared.icon_color = 0x87FA;
+    prepared.border_color = 0x2B4F;
+    prepared.icon_color = 0x8F1D;
     prepared.icon = enabled ? CODY2D::ActionIcon::Check : CODY2D::ActionIcon::None;
     const uint16_t text_left = enabled ? kDoneBounds.x + (kDoneBounds.width - width - 36U) / 2U + 36U : kDoneBounds.x;
-    // Match the compact onboarding footer's optical drop and bottom padding.
-    prepared.icon_center = {static_cast<int16_t>(text_left - 24U), 416};
+    // Match onboarding's centered icon-label group using the same font container.
+    prepared.icon_center = {static_cast<int16_t>(text_left - 24U),
+        static_cast<int16_t>(kDoneBounds.y + (kDoneBounds.height - font.height) / 2U + font.height / 2U)};
     const uint16_t text_width = enabled ? 164 : kDoneBounds.width;
     if (width > text_width) {
         ESP_LOGE(kTag, "Look footer icon/caption does not fit (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
@@ -297,7 +301,7 @@ esp_err_t fill_canvas_rect(CODY2D::Surface strip, uint16_t first_row, uint16_t f
 }
 
 // view: Immutable prepared list, selection and bounded scroll position.
-// strip: Scene-content tile; rows are clipped again to the list viewport.
+// strip: Scene-content tile; only complete rows are admitted inside the list viewport.
 // first_row: Logical y origin shared with touch coordinates.
 // first_column: Logical x origin shared with touch coordinates.
 // Exception: Returns the real invalid-state, surface or text drawing error.
@@ -338,6 +342,10 @@ esp_err_t draw_look_list(const LookView &view, CODY2D::Surface strip,
                      esp_err_to_name(ESP_ERR_INVALID_STATE));
             return ESP_ERR_INVALID_STATE;
         }
+        // Rendering and touch admit the same whole row; a hidden fragment is never selectable.
+        if (!row_in_viewport(item, view.look_scroll)) {
+            continue;
+        }
         CODY2D::CapsuleControl row = item.control;
         row.bounds.y = static_cast<uint16_t>(row.bounds.y - view.look_scroll);
         row.caption.origin.y = static_cast<int16_t>(row.caption.origin.y - view.look_scroll);
@@ -345,9 +353,9 @@ esp_err_t draw_look_list(const LookView &view, CODY2D::Surface strip,
         const bool selected = std::strcmp(item.id, view.selected_look_id) == 0;
         row.top_color = selected ? kSelectedTop : kLookNeutralTop;
         row.bottom_color = selected ? kSelectedBottom : kLookNeutralBottom;
-        row.border_color = selected ? 0x06D9 : 0x5ACB;
+        row.border_color = selected ? 0x2B4F : 0x4A8C;
         row.caption.color = 0xFFFF;
-        // Keep full-label centering while the prepared immutable prefix types in.
+        // Complete control captions share the title's reveal gate without typewriter timing.
         const CODY2D::TextLine caption = row.caption;
         row.caption = {};
         esp_err_t error = CODY2D::draw_capsule_rows(row, list_strip, clipped_top, clipped_left);
@@ -359,17 +367,22 @@ esp_err_t draw_look_list(const LookView &view, CODY2D::Surface strip,
             return error;
         }
     }
+    const uint16_t limit = look_scroll_limit();
+    if (limit == 0) {
+        return ESP_OK;
+    }
     const CODY2D::Rect track{kLookScrollBarLeft, kLookListViewport.y,
         kLookScrollBarWidth, kLookListViewport.height};
     esp_err_t error = fill_canvas_rect(list_strip, clipped_top, clipped_left, track, kLookNeutralBottom);
-    const uint16_t limit = look_scroll_limit();
-    const uint16_t thumb_height = limit == 0 ? kLookListViewport.height : 48;
+    const uint16_t content_height = kLookListViewport.height + limit;
+    const uint16_t thumb_height = static_cast<uint16_t>(
+        static_cast<uint32_t>(kLookListViewport.height) * kLookListViewport.height / content_height);
     const uint16_t thumb_range = kLookListViewport.height - thumb_height;
     const uint16_t thumb_top = kLookListViewport.y +
-        (limit == 0 ? 0 : static_cast<uint16_t>(view.look_scroll * thumb_range / limit));
+        static_cast<uint16_t>(view.look_scroll * thumb_range / limit);
     if (error == ESP_OK) {
         error = fill_canvas_rect(list_strip, clipped_top, clipped_left,
-            {kLookScrollBarLeft, thumb_top, kLookScrollBarWidth, thumb_height}, 0x06D9);
+            {kLookScrollBarLeft, thumb_top, kLookScrollBarWidth, thumb_height}, 0x6C33);
     }
     return error;
 }
@@ -473,7 +486,7 @@ esp_err_t update_look_text(SceneFrame &scene, uint32_t control_revision, bool &c
         prefixes.visible_characters != scene.content.visible_characters;
     for (uint8_t index = 0; index < s_view.look_count; ++index) {
         const auto &item = s_view.look_items[index];
-        if (caption_in_viewport(item, s_view.look_scroll) &&
+        if (row_in_viewport(item, s_view.look_scroll) &&
             prefixes.look_characters[index] != item.visible_characters) {
             prefix_changed = true;
         }
@@ -613,7 +626,12 @@ esp_err_t handle_look_touch(SceneFrame &scene, CODY2D::Point point, bool pressed
         if (horizontal_gesture) {
             return ESP_OK;
         }
-        const int scroll = std::clamp<int>(s_touch_scroll_start + displacement, 0, look_scroll_limit());
+        const int displacement_limit = look_scroll_limit();
+        const int requested_scroll = std::clamp<int>(
+            s_touch_scroll_start + displacement, 0, displacement_limit);
+        // Whole-row steps keep three complete controls visible throughout the gesture.
+        const int scroll = std::min<int>(displacement_limit,
+            ((requested_scroll + kLookItemStep / 2U) / kLookItemStep) * kLookItemStep);
         if (scroll != s_view.look_scroll) {
             s_view.look_scroll = static_cast<uint16_t>(scroll);
             result.changed = true;
@@ -635,6 +653,9 @@ esp_err_t handle_look_touch(SceneFrame &scene, CODY2D::Point point, bool pressed
         if (item.id == nullptr) {
             ESP_LOGE(kTag, "Look row %u has no identity (%s)", index, esp_err_to_name(ESP_ERR_INVALID_STATE));
             return ESP_ERR_INVALID_STATE;
+        }
+        if (!row_in_viewport(item, s_view.look_scroll)) {
+            continue;
         }
         auto target = item.control;
         target.bounds.y = static_cast<uint16_t>(target.bounds.y - s_view.look_scroll);

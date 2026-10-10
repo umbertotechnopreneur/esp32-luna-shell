@@ -29,6 +29,10 @@ class NativeActionIcon(IntEnum):
     ARROW = 6
     QR = 7
     RETRY = 8
+    MOTION = 9
+    ROTATE = 10
+    SOUND = 11
+    ORIENTATION = 12
 
 
 # value: Original transport integer, checked before ctypes could truncate or wrap it.
@@ -513,12 +517,12 @@ class NativeRig:
             raise ValueError('Native action tone must be Neutral/Positive/Negative/Info')
         # Driver composition supplies theme/layout data; all coverage, gradient, border,
         # icon and glyph pixel operations execute unchanged CODY2D production functions.
-        palettes = ((0x3187, 0x10A3, 0x5ACB, 0xCE79), (0x034C, 0x0105, 0x06D9, 0x87FA),
-            (0x61C5, 0x20A2, 0xFC6A, 0xFE55), (0x1190, 0x0085, 0x249F, 0x8E9F))
+        palettes = ((0x18E5, 0x10A3, 0x4A8C, 0xBDF7), (0x1147, 0x08C4, 0x2B4F, 0x8F1D),
+            (0x28A4, 0x1883, 0x796B, 0xED53), (0x1106, 0x08A4, 0x3291, 0xA71F))
         x, y, width, height = bounds
         card = height > 80
         icon_x = x + width // 2 if card else x + 31
-        icon_y = y + 35 if card else y + height // 2 + 4
+        icon_y = y + 33 if card else y + (height - 25) // 2 + 25 // 2
         icons = (NativeActionIcon.ARROW, NativeActionIcon.CHECK, NativeActionIcon.CLOSE, NativeActionIcon.ARROW)
         pixels = (C.c_uint16 * (466 * 466))()
         for index, (red, green, blue) in enumerate(image.getdata()):

@@ -22,6 +22,7 @@ SOURCES = (
     "simulator/native/CODY_host_event_presentation.cpp",
     "simulator/native/CODY_host_standby.cpp",
     "simulator/native/CODY_host_snapshot.cpp",
+    "simulator/native/CODY_host_boot_branding.cpp",
     "components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp",
     "components/LUNASHELL_platform/src/network/LUNASHELL_codex_transaction.cpp",
     "components/LUNASHELL_platform/src/power/LUNASHELL_standby_resources.cpp",
@@ -54,6 +55,7 @@ INCLUDES = (
     "components/CODY2D/include",
     "components/CODY_companion/include",
     "components/CODY_companion/src/scenes",
+    "components/LUNASHELL_boot/include",
     "components/LUNASHELL_platform/include",
     "components/LUNASHELL_platform/src/snapshot",
     "components/LUNASHELL_platform/src/power",
@@ -62,6 +64,7 @@ INCLUDES = (
     "assets/cody/personality/generated",
     "assets/cody/personality-icons/generated",
     "assets/cody/appearance/jelly-scanline/generated",
+    "assets/branding/VibeWare/generated",
 )
 DEFINITIONS = ("CODY_ENABLE_PEARL_JELLY=1", "CODY_HOST_SIMULATOR=1")
 
@@ -85,6 +88,8 @@ def source_provenance():
         "assets/cody/appearance/jelly-scanline/skins.json",
         "scripts/generators/generate_cody_simulator_graphics.py",
         "simulator/native/CODY_host_snapshot.hpp",
+        "components/LUNASHELL_boot/src/ui/VIBEWARE_boot_animation.c",
+        "assets/branding/VibeWare/generated/vibeware_boot_data.c",
         "scripts/common/cody_native_checks.py",
         "scripts/common/cody_host_compiler.py",
     ))

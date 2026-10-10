@@ -1249,6 +1249,7 @@ void check_jelly_texture_contract()
     }
 }
 // No parameters: capsule geometry, captions and compact tiles share logical bounds.
+// Exception: Assertion failure identifies geometry, publication or tile-ownership divergence.
 void check_capsule_contract()
 {
     constexpr uint16_t width = 20;
@@ -1262,17 +1263,20 @@ void check_capsule_contract()
             "capsule renders without a caption");
     require(pixels[2 * width + 10] == 0xf800 && pixels[7 * width + 10] == 0x001f,
             "capsule uses the exact top and bottom gradient anchors");
-    require(pixels[2 * width + 4] == 0 && pixels[4 * width + 10] != 0,
-            "capsule rounds its corners and fills its middle");
+    require(pixels[2 * width + 4] != 0xf800 && pixels[4 * width + 10] != 0,
+            "capsule retains partial corner coverage and fills its middle");
     require(CODY2D::capsule_contains(control, {10, 4}) &&
             !CODY2D::capsule_contains(control, {4, 2}) &&
             !CODY2D::capsule_contains(control, {16, 4}),
             "capsule touch uses the same rounded half-open target");
     for (uint16_t row = 0; row < height; ++row) {
         for (uint16_t column = 0; column < width; ++column) {
-            require((pixels[row * width + column] != 0) == CODY2D::capsule_contains(control,
-                {static_cast<int16_t>(column), static_cast<int16_t>(row)}),
-                "every painted capsule pixel belongs to its touch target");
+            // Partial edge coverage can extend beyond a pixel-center hit test;
+            // antialiasing must not widen the logical interactive shape.
+            require(!CODY2D::capsule_contains(control,
+                {static_cast<int16_t>(column), static_cast<int16_t>(row)}) ||
+                pixels[row * width + column] != 0,
+                "every rounded touch point retains painted control coverage");
         }
     }
     for (const auto order : {CODY2D::Rgb565ByteOrder::Native, CODY2D::Rgb565ByteOrder::ByteSwapped}) {
@@ -1308,6 +1312,32 @@ void check_capsule_contract()
     control.bounds.width = 5;
     require(CODY2D::draw_capsule_rows(control, full, 0, 0) == ESP_ERR_INVALID_ARG && pixels == unchanged,
             "invalid capsule rejects before modifying the destination");
+}
+
+// No parameters: exact four-bit alpha levels preserve native colors, byte order and tile guards.
+// Exception: Assertion failure identifies glyph format or compositing errors.
+void check_font_coverage_contract()
+{
+    constexpr uint8_t coverage[] = {0x01, 0x7f};
+    const CODY2D::MonoFont font{coverage, sizeof(coverage), 'A', 1, 4, 1, 4, 2, 4};
+    CODY2D::TextLine line;
+    require(CODY2D::prepare_text_line(font, {"A", 1}, {1, 0}, 0xffff, line) == ESP_OK,
+        "four-bit printable-ASCII coverage prepares its actual packed extent");
+    constexpr uint16_t expected[] = {0x001f, 0x109f, 0x73bf, 0xffff};
+    for (const auto order : {CODY2D::Rgb565ByteOrder::Native, CODY2D::Rgb565ByteOrder::ByteSwapped}) {
+        std::array<uint16_t, 8> pixels;
+        pixels.fill(CODY2D::rgb565_native_to_stored(0x001f, order));
+        const CODY2D::Surface tile{pixels.data(), 6, 1, 8,
+            static_cast<uint32_t>(pixels.size()), order};
+        require(CODY2D::draw_text_rows(line, 1, tile, 0, 0) == ESP_OK,
+            "four-bit alpha draws over a colored background in both storage orders");
+        for (uint16_t index = 0; index < 4; ++index) {
+            require(pixels[index + 1] == CODY2D::rgb565_native_to_stored(expected[index], order),
+                "transparent, faint, partial and opaque glyph samples retain exact color");
+        }
+        require(pixels[0] == pixels[5] && pixels[5] == pixels[6] && pixels[6] == pixels[7],
+            "glyph raster preserves neighboring pixels and padded-stride guards");
+    }
 }
 
 // No parameters: hidden targets cannot activate; fade timing keeps running while paused.
@@ -1561,6 +1591,7 @@ int main()
         check_jelly_texture_contract();
         check_jelly_settings_contract();
         check_capsule_contract();
+        check_font_coverage_contract();
         check_navigation_visibility_contract();
         check_button_hold_contract();
         check_lifecycle_contract();

@@ -55,22 +55,41 @@ static geometry calculations, not simulator or physical touch evidence.
 
 On 2026-10-09 the user also requested antialiasing and lower action icons, using
 ten pixels as a visual indication rather than a fixed requirement. Native
-controls use compile-time 4x4 coverage masks for the current
-outer/inner corner radii and 24x24 semantic icons. Masks are immutable flash data,
+controls use compile-time 8x8 coverage masks for the current
+outer/inner corner radii and 24x24 semantic vector icons sampled at 4x4 coverage.
+Whole corner cells bypass sampling; icon rows are constant-evaluated separately
+to bound compiler work. Masks are immutable flash data,
 shared across controls; no per-frame supersampling or heap cache is needed for
 the current layouts. RGB565 compositing respects the borrowed tile's byte order,
 stride and existing background. The border follows a concentric two-pixel inset,
-and gradients interpolate each row with an eight-bit weight. Text already uses
-the authored antialiased font coverage. Other valid public-primitive radii retain
+and gradients interpolate each row with an eight-bit weight. Restrained semantic
+palettes replace the bright cyan/blue outlines. Text retains the exact format
+recorded by its asset: the current committed fonts are 2bpp; the updated generator
+supports 4bpp with 4x supersampling, subject to explicit regeneration with the
+licensed source font and unchanged metrics. Other valid public-primitive radii retain
 the same coverage sampling rule, computed only when those shapes are requested.
 Hit testing retains the original pixel-center geometry and full touch bounds.
 
-Card icons now center at y=293, with their 24-pixel extent ending before y=305;
+Card icons center at y=293, with their 24-pixel extent ending before y=305;
 two-line captions begin at y=308 and y=335 and end before y=360. Ordinary single
-icons center at y=394 (+6), Options at y=406 (+4) and compact QR/skin footer icons
-at y=416 (+4), ending at y=428 with six pixels of bottom padding. Icon coverage is clipped
+icons align to the caption's actual font container, rather than a fixed downward
+offset. With the current body font, their centers are y=387, Options y=401 and
+compact QR/skin footer y=411. Icon coverage is clipped
 to the rounded control, while all authored control/content rectangles remain
-unchanged. These are source geometry statements; physical appearance is pending.
+unchanged. Make-it-yours uses 34-pixel rows at y=202/240/278/316 and a separate
+compact footer at y=390. Motion, rotation, sounds and orientation have dedicated
+semantic icons. The look list occupies y=226..351 and admits three complete
+38-pixel rows, separated by six pixels; drawing and touch share whole-row
+admission and scrolling advances in 44-pixel steps. These are source geometry
+statements; physical appearance is pending.
+
+The Cody cold-boot branding uses the real title font for `Cody AI Companion`
+at y=60 and the body font for `A distraction-free sidekick` at y=110. Both lines
+are centered from their font metrics and appear together. The complete floppy
+artwork is rendered at (137,164), 192 x 219, retaining its 42-frame, 3500-ms cycle.
+Device and Cody Studio use the same decoder, row resampling and text compositor;
+one decoded source row belongs to the serialized owner. Generic Luna branding
+retains its existing layout. A successful PC preview does not verify device boot.
 
 The Cody Debug Screenshot control is hidden and non-interactive. Pause/Play and
 Skeleton retain their stable authored identities but set `visible_by_default`

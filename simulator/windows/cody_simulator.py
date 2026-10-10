@@ -416,6 +416,7 @@ class CodyRenderer:
     # background_rgb565: Explicit scene background, or the authored plain-rig palette color.
     # Raises ValueError for an invalid opacity, coverage policy or unsupported blend target.
     # Raises OSError for unreadable alternate PNG artwork.
+    # Raises RuntimeError for real shared boot-branding preparation or rendering failures.
     def draw_scene(self, scene, debug=True, selected=None, guide=False, *, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False, navigation_visible=True, background_rgb565=None):
         if sum((material_study, png_mesh_study, self.jelly_study_enabled)) > 1:
             raise ValueError('Choose only one cloud rendering study')
@@ -675,7 +676,7 @@ class CodyRenderer:
         else:
             if screen == Screen.BOOT_VIBEWARE:
                 if self.branding is None:
-                    self.branding = VibeWareBoot(self.root)
+                    self.branding = VibeWareBoot(self.root, cody_companion=True)
                 image = self.branding.image(personality_elapsed_ms)
             else:
                 image = self.boot[screen].copy()
@@ -1896,11 +1897,12 @@ class CodyWindow:
     # values: Composed facial state; comparison does not alter the simulation.
     # transform: Composed position and scale in logical pixels.
     # Raises tk.TclError if a presentation control has become unavailable.
+    # Raises native runtime errors if the shared boot animation cannot initialize or select its frame.
     def presentation_key(self, screen, rotation, layout, values, transform):
         common = (screen, rotation, layout)
         if screen == Screen.BOOT_VIBEWARE:
             if self.renderer.branding is None:
-                self.renderer.branding = VibeWareBoot(self.renderer.root)
+                self.renderer.branding = VibeWareBoot(self.renderer.root, cody_companion=True)
             return common + (self.renderer.branding.frame_index(self.elapsed_ms),)
         if screen not in ANIMATED_SCREENS:
             return common

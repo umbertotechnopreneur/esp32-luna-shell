@@ -51,6 +51,9 @@ constexpr CODY2D::Rect kSingleActionBounds{113, 352, 240, 72};
 constexpr CODY2D::Rect kLeftCardBounds{73, 260, 154, 104};
 constexpr CODY2D::Rect kRightCardBounds{239, 260, 154, 104};
 constexpr CODY2D::Rect kOptionsBounds{153, 376, 160, 52};
+constexpr uint16_t kPreferenceTop = 202;
+constexpr uint16_t kPreferenceHeight = 34;
+constexpr uint16_t kPreferenceStep = 38;
 constexpr uint16_t kEventCaptionWidth = 300;
 constexpr uint16_t kCaptionWidth = 232;
 // Seventeen characters occupy 188 pixels in the 232-pixel body slot.
@@ -816,10 +819,11 @@ bool uses_footer_action()
         is_codex_event_route(s_route);
 }
 
-// No parameters: QR pages retain quiet-zone clearance above their compact action.
+// No parameters: QR pages and dense options retain clearance above their compact action.
 CODY2D::Rect single_action_bounds()
 {
     return s_route == Route::Install06 || s_route == Route::Pairing07 ||
+        s_route == Route::MakeItYours10 ||
         (s_route == Route::ConnectCodex12 && !s_codex_error_visible) ?
         kFooterBounds : kSingleActionBounds;
 }
@@ -904,10 +908,10 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
 // control: Receives native dark gradients, border and the matching action icon.
 void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
 {
-    control.top_color = 0x034C;
-    control.bottom_color = 0x0105;
-    control.border_color = 0x06D9;
-    control.icon_color = 0x87FA;
+    control.top_color = 0x1147;
+    control.bottom_color = 0x08C4;
+    control.border_color = 0x2B4F;
+    control.icon_color = 0x8F1D;
     control.icon = CODY2D::ActionIcon::Arrow;
     switch (action) {
     case OnboardingAction::AcceptCodex:
@@ -924,19 +928,19 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
         break;
     case OnboardingAction::NetworkSetup:
     case OnboardingAction::ShowQr:
-        control.top_color = 0x1190;
-        control.bottom_color = 0x0085;
-        control.border_color = 0x249F;
-        control.icon_color = 0x8E9F;
+        control.top_color = 0x1106;
+        control.bottom_color = 0x08A4;
+        control.border_color = 0x3291;
+        control.icon_color = 0xA71F;
         control.icon = action == OnboardingAction::ShowQr ? CODY2D::ActionIcon::Qr : CODY2D::ActionIcon::Wifi;
         break;
     case OnboardingAction::DeclineCodex:
     case OnboardingAction::Later:
     case OnboardingAction::Options:
-        control.top_color = 0x3187;
+        control.top_color = 0x18E5;
         control.bottom_color = 0x10A3;
-        control.border_color = 0x5ACB;
-        control.icon_color = action == OnboardingAction::Options ? 0xFE55 : 0xCE79;
+        control.border_color = 0x4A8C;
+        control.icon_color = 0xBDF7;
         control.icon = action == OnboardingAction::Options ? CODY2D::ActionIcon::Gear : CODY2D::ActionIcon::Close;
         break;
     case OnboardingAction::Cancel:
@@ -944,19 +948,19 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
     case OnboardingAction::RetryEvent:
     case OnboardingAction::ViewFailures:
     case OnboardingAction::ReplacePairing:
-        control.top_color = 0x61C5;
-        control.bottom_color = 0x20A2;
-        control.border_color = 0xFC6A;
-        control.icon_color = 0xFE55;
+        control.top_color = 0x2924;
+        control.bottom_color = 0x18C3;
+        control.border_color = 0x7BEF;
+        control.icon_color = 0xE5F1;
         control.icon = action == OnboardingAction::Cancel ? CODY2D::ActionIcon::Close :
             action == OnboardingAction::ViewFailures ? CODY2D::ActionIcon::Arrow : CODY2D::ActionIcon::Retry;
         break;
     case OnboardingAction::ForgetPairing:
     case OnboardingAction::ConfirmForget:
-        control.top_color = 0x6002;
-        control.bottom_color = 0x2001;
-        control.border_color = 0xF986;
-        control.icon_color = 0xFBAE;
+        control.top_color = 0x28A4;
+        control.bottom_color = 0x1883;
+        control.border_color = 0x796B;
+        control.icon_color = 0xED53;
         control.icon = CODY2D::ActionIcon::Close;
         break;
     default:
@@ -980,10 +984,9 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
     second = {};
     style_action(action, control);
     control.corner_radius = card ? 28 : 0;
-    // Lower the icon optically, reserving more bottom padding in short footers.
-    const uint16_t icon_drop = card ? 10U : bounds.height >= 72U ? 6U : 4U;
+    // Cards keep the approved icon-above-caption arrangement.
     control.icon_center = {static_cast<int16_t>(card ? bounds.x + bounds.width / 2U : bounds.x + 27U),
-        static_cast<int16_t>((card ? bounds.y + 23U : bounds.y + bounds.height / 2U) + icon_drop)};
+        static_cast<int16_t>(card ? bounds.y + 33U : bounds.y + bounds.height / 2U)};
     if (label == nullptr) {
         control.icon = CODY2D::ActionIcon::None;
         return ESP_OK;
@@ -1007,7 +1010,9 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
     const uint16_t caption_left = card ? text_left + (text_width - width) / 2U :
         bounds.x + (bounds.width - width - 36U) / 2U + 36U;
     if (!card) {
+        // Center the icon and label as one group, aligned to the font container.
         control.icon_center.x = static_cast<int16_t>(caption_left - 24U);
+        control.icon_center.y = static_cast<int16_t>(top + font.height / 2U);
     }
     esp_err_t error = CODY2D::prepare_text_line(font, {label, length},
         {static_cast<int16_t>(caption_left), static_cast<int16_t>(top)},
@@ -1250,7 +1255,7 @@ esp_err_t attach_content(SceneFrame &scene)
     // Button captions never contribute to typewriter cadence or its audio counts.
     const bool choice = s_view.alternative_id != OnboardingAction::None;
     const uint16_t top = s_route == Route::DebugText ? 130 :
-        (s_route == Route::MakeItYours10 || s_route == Route::Settings36) ? 204 :
+        s_route == Route::MakeItYours10 ? kPreferenceTop : s_route == Route::Settings36 ? 204 :
         s_route == Route::Install06 ? kInstallQrBounds.y :
         s_route == Route::Pairing07 ? kSessionCaptionTop :
         s_route == Route::Invitation05 ? 230 : 300;
@@ -1483,10 +1488,10 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         CODY2D::ActionIcon icon;
     };
     constexpr Row rows[] = {
-        {PreferenceId::ShakeWake, "Shake to wake", CODY2D::ActionIcon::Gear},
-        {PreferenceId::AutoRotate, "Auto-rotate", CODY2D::ActionIcon::Retry},
-        {PreferenceId::Sounds, "Sounds", CODY2D::ActionIcon::Check},
-        {PreferenceId::Orientation, "Orientation", CODY2D::ActionIcon::Arrow},
+        {PreferenceId::ShakeWake, "Shake to wake", CODY2D::ActionIcon::Motion},
+        {PreferenceId::AutoRotate, "Auto-rotate", CODY2D::ActionIcon::Rotate},
+        {PreferenceId::Sounds, "Sounds", CODY2D::ActionIcon::Sound},
+        {PreferenceId::Orientation, "Orientation", CODY2D::ActionIcon::Orientation},
     };
     const auto &font = SceneData::body_font;
     const auto &preferences = observation.preferences;
@@ -1496,7 +1501,7 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         auto &target = s_view.preferences[s_view.preference_count];
         target = {};
         target.identity = row.identity;
-        const uint16_t top = 204U + s_view.preference_count * 38U;
+        const uint16_t top = kPreferenceTop + s_view.preference_count * kPreferenceStep;
         bool available = preferences.data_valid && !preferences.data_stale;
         bool active = false;
         const char *value = "N/A";
@@ -1534,16 +1539,16 @@ esp_err_t prepare_options_content(SceneFrame &scene)
             }
         }
         const bool manual_locked = row.identity == PreferenceId::Orientation && orientation.auto_rotation_enabled;
-        target.control = {{113, top, 240, 32}, {},
-            static_cast<uint16_t>(active ? 0x030D : 0x2104),
-            static_cast<uint16_t>(active ? 0x0105 : 0x0841),
+        target.control = {{113, top, 240, kPreferenceHeight}, {},
+            static_cast<uint16_t>(active && available ? 0x1147 : 0x18E5),
+            static_cast<uint16_t>(active && available ? 0x08C4 : 0x10A3),
             available && !manual_locked && !s_command_pending};
         target.control.corner_radius = 12;
-        target.control.border_color = active ? 0x05FA : 0x630C;
+        target.control.border_color = active && available ? 0x2B4F : 0x4A8C;
         target.control.icon = row.icon;
         target.control.icon_center = {130, static_cast<int16_t>(top + 17U)};
-        target.control.icon_color = active ? 0x9FFF : 0xD69A;
-        const int16_t text_top = static_cast<int16_t>(top + (32U - font.height) / 2U);
+        target.control.icon_color = active && available ? 0x8F1D : 0xBDF7;
+        const int16_t text_top = static_cast<int16_t>(top + (kPreferenceHeight - font.height) / 2U);
         error = CODY2D::prepare_text_line(font, {row.label, static_cast<uint16_t>(std::strlen(row.label))},
             {148, text_top}, 0xFFFF, target.control.caption);
         const uint16_t count = static_cast<uint16_t>(std::strlen(value));
@@ -1829,7 +1834,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     } else if (route == Route::Settings36) {
         constexpr const char *captions[] = {"Personalization", "Choose Cody's look"};
         for (const char *text : captions) {
-            error = prepare_caption(text, 232 + s_view.line_count * 38U,
+            error = prepare_caption(text, 238 + s_view.line_count * 30U,
                                     s_view.lines[s_view.line_count]);
             if (error != ESP_OK) {
                 return error;

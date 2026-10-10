@@ -1,4 +1,4 @@
-"""Bake the current cloud/title scene and two-bit monochrome glyphs into flash data."""
+"""Bake current scene definitions and four-bit grayscale glyphs into flash data."""
 
 import argparse
 import hashlib
@@ -10,7 +10,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from scripts.common.cody_scene_contract import SCENE_IDENTITIES, load_scenes, scene_source_hash
+from scripts.common.cody_scene_contract import (SCENE_IDENTITIES, load_generated_scene_fonts,
+                                               load_scenes, scene_source_hash)
 from scripts.common.cody_rig_types import FaceChannel
 
 OUTPUT = ROOT / "assets/cody/scenes/generated"
@@ -45,21 +46,33 @@ def bake_font(font_path: Path, document):
     width = max(box[2] for box in boxes) - left_bearing
     if not 1 <= width <= 32 or not 1 <= height <= 64:
         raise ValueError(f"Unsupported glyph cell: {width}x{height}")
-    row_bytes = (width + 3) // 4
+    # Measure at the original size so layout, advances and authored touch geometry
+    # remain unchanged. Only coverage is rasterized at four times the resolution.
+    raster_scale = 4
+    raster_font = ImageFont.truetype(str(font_path), document["font"]["pixel_size"] * raster_scale)
+    row_bytes = (width + 1) // 2
     coverage = bytearray()
     for code in range(first, last + 1):
         character = chr(code)
         left, top, right, bottom = font.getbbox(character, anchor="ls")
         if left < left_bearing or right - left_bearing > width or top + ascent < 0 or bottom + ascent > height:
             raise ValueError(f"Glyph {character!r} leaves its monospace cell")
-        image = Image.new("L", (width, height))
-        ImageDraw.Draw(image).text((-left_bearing, ascent), character, font=font, fill=255, anchor="ls")
+        raster_box = raster_font.getbbox(character, anchor="ls")
+        if (raster_box[0] - left_bearing * raster_scale < 0 or
+                raster_box[2] - left_bearing * raster_scale > width * raster_scale or
+                raster_box[1] + ascent * raster_scale < 0 or
+                raster_box[3] + ascent * raster_scale > height * raster_scale):
+            raise ValueError(f"Supersampled glyph {character!r} leaves the original metrics")
+        raster = Image.new("L", (width * raster_scale, height * raster_scale))
+        ImageDraw.Draw(raster).text((-left_bearing * raster_scale, ascent * raster_scale),
+                                   character, font=raster_font, fill=255, anchor="ls")
+        image = raster.resize((width, height), Image.Resampling.BOX)
         samples = image.load()
         for row in range(height):
             packed = bytearray(row_bytes)
             for column in range(width):
-                level = (samples[column, row] * 3 + 127) // 255
-                packed[column // 4] |= level << (6 - (column % 4) * 2)
+                level = (samples[column, row] * 15 + 127) // 255
+                packed[column // 2] |= level << (4 - (column % 2) * 4)
             coverage.extend(packed)
     return bytes(coverage), width, height, advance, row_bytes
 
@@ -126,16 +139,22 @@ def main(argv=None):
     args = parser.parse_args(argv)
     document = load_scenes(ROOT)
     if args.definitions_only:
-        manifest = json.loads((OUTPUT / "manifest.json").read_text(encoding="utf-8"))
-        if (manifest["schema"] != "cody.scene-font.v1" or manifest["first_character"] != 32
-                or manifest["character_count"] != 95):
-            raise ValueError("Definition-only generation requires the current committed ASCII font")
+        manifest, _, _ = load_generated_scene_fonts(OUTPUT)
         header = definition_header(document, manifest["width"], manifest["height"], manifest["advance"])
         manifest["scenes_sha256"] = scene_source_hash(ROOT)
         (OUTPUT / "scene_data.hpp").write_text(header, encoding="utf-8")
         (OUTPUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         print(f"Generated {len(document['scenes'])} scene definitions; ASCII glyph assets unchanged")
         return
+    try:
+        (OUTPUT / "manifest.json").stat()
+    except FileNotFoundError:
+        previous_manifest = None
+    else:
+        # Only a genuinely absent manifest permits first generation. A missing
+        # font array, corrupt record or read failure in an existing package stops
+        # the bake instead of discarding its geometry contract.
+        previous_manifest, _, _ = load_generated_scene_fonts(OUTPUT)
     coverage, width, height, advance, row_bytes = bake_font(args.font_path, document)
     count = document["font"]["last_character"] - document["font"]["first_character"] + 1
     header = definition_header(document, width, height, advance)
@@ -148,25 +167,32 @@ def main(argv=None):
     for offset in range(0, len(coverage), 24):
         source.append("    " + ", ".join(f"0x{value:02x}" for value in coverage[offset:offset + 24]) + ",")
     source.extend(["};", "} // namespace",
-        f"const CODY2D::MonoFont title_font{{coverage, sizeof(coverage), 32, {count}, {width}, {height}, {advance}, {row_bytes}}};",
+        f"const CODY2D::MonoFont title_font{{coverage, sizeof(coverage), 32, {count}, {width}, {height}, {advance}, {row_bytes}, 4}};",
         "} // namespace CODY::SceneData"])
     manifest = {
-        "schema": "cody.scene-font.v1", "font_name": "Cody Title Mono",
+        "schema": "cody.scene-font.v2", "font_name": "Cody Title Mono",
         "source_family": "JetBrains Mono", "license": "SIL-OFL-1.1",
         "font_source_sha256": hashlib.sha256(args.font_path.read_bytes()).hexdigest(),
         "scenes_sha256": scene_source_hash(ROOT),
         "first_character": 32, "character_count": count, "width": width, "height": height,
         "advance": advance, "row_bytes": row_bytes, "coverage_bytes": len(coverage),
+        "coverage_bits": 4, "coverage_file": "scene_font.4bpp.bin",
         "coverage_sha256": hashlib.sha256(coverage).hexdigest(),
-        "note": "Source asset generation only; no firmware or simulator validation.",
+        "note": "4x supersampled grayscale coverage; source generation only, without firmware or simulator validation.",
     }
-    OUTPUT.mkdir(parents=True, exist_ok=True)
-    (OUTPUT / "scene_data.hpp").write_text(header, encoding="utf-8")
-    (OUTPUT / "scene_font.cpp").write_text("\n".join(source) + "\n", encoding="utf-8")
     # A second, small ASCII face lives in flash for reusable captions/actions.
     # It reuses the same licensed source, never a runtime glyph cache.
     body_document = {"font": {"pixel_size": 18, "first_character": 32, "last_character": 126}}
     body_coverage, body_width, body_height, body_advance, body_row_bytes = bake_font(args.font_path, body_document)
+    if previous_manifest is not None:
+        for label, expected, actual in (
+                ("title", previous_manifest, (width, height, advance)),
+                ("caption", previous_manifest["body_font"], (body_width, body_height, body_advance))):
+            if actual != (expected["width"], expected["height"], expected["advance"]):
+                raise ValueError(f"The {label} font bake must preserve the committed width, height and advance")
+        if (document["font"]["first_character"] != previous_manifest["first_character"] or
+                count != previous_manifest["character_count"]):
+            raise ValueError("The font bake must preserve the committed printable-ASCII repertoire")
     body_source = [
         "// JetBrains Mono caption coverage; SIL OFL 1.1. See ../OFL.txt.",
         '#include "scene_data.hpp"', "namespace CODY::SceneData {", "namespace {",
@@ -175,16 +201,22 @@ def main(argv=None):
     for offset in range(0, len(body_coverage), 24):
         body_source.append("    " + ", ".join(f"0x{value:02x}" for value in body_coverage[offset:offset + 24]) + ",")
     body_source.extend(["};", "} // namespace",
-        f"const CODY2D::MonoFont body_font{{coverage, sizeof(coverage), 32, {count}, {body_width}, {body_height}, {body_advance}, {body_row_bytes}}};",
+        f"const CODY2D::MonoFont body_font{{coverage, sizeof(coverage), 32, {count}, {body_width}, {body_height}, {body_advance}, {body_row_bytes}, 4}};",
         "} // namespace CODY::SceneData"])
-    (OUTPUT / "scene_body_font.cpp").write_text("\n".join(body_source) + "\n", encoding="utf-8")
     manifest["body_font"] = {
         "pixel_size": 18, "width": body_width, "height": body_height,
         "advance": body_advance, "row_bytes": body_row_bytes,
         "coverage_bytes": len(body_coverage),
+        "coverage_bits": 4, "coverage_file": "scene_body_font.4bpp.bin",
         "coverage_sha256": hashlib.sha256(body_coverage).hexdigest(),
     }
-    (OUTPUT / "scene_font.2bpp.bin").write_bytes(coverage)
+    # Complete both font bakes before touching the generated asset package.
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    (OUTPUT / "scene_data.hpp").write_text(header, encoding="utf-8")
+    (OUTPUT / "scene_font.cpp").write_text("\n".join(source) + "\n", encoding="utf-8")
+    (OUTPUT / "scene_body_font.cpp").write_text("\n".join(body_source) + "\n", encoding="utf-8")
+    (OUTPUT / "scene_font.4bpp.bin").write_bytes(coverage)
+    (OUTPUT / "scene_body_font.4bpp.bin").write_bytes(body_coverage)
     (OUTPUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(f"Scene asset packaged: {len(document['scenes'])} scene(s), {width}x{height} glyphs, {len(coverage)} flash bytes")
 

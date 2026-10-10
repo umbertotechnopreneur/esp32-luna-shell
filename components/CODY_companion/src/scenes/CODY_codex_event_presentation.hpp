@@ -148,23 +148,31 @@ inline void style(Action &action)
     using Icon = CODY2D::ActionIcon;
     switch (action.tone) {
     case Tone::Neutral:
-        action.colors[0] = 0x3187; action.colors[1] = 0x10A3;
-        action.colors[2] = 0x5ACB; action.colors[3] = 0xCE79;
+        action.colors[0] = 0x18E5;
+        action.colors[1] = 0x10A3;
+        action.colors[2] = 0x4A8C;
+        action.colors[3] = 0xBDF7;
         action.icon = Icon::Arrow;
         break;
     case Tone::Positive:
-        action.colors[0] = 0x034C; action.colors[1] = 0x0105;
-        action.colors[2] = 0x06D9; action.colors[3] = 0x87FA;
+        action.colors[0] = 0x1147;
+        action.colors[1] = 0x08C4;
+        action.colors[2] = 0x2B4F;
+        action.colors[3] = 0x8F1D;
         action.icon = Icon::Check;
         break;
     case Tone::Negative:
-        action.colors[0] = 0x6002; action.colors[1] = 0x2001;
-        action.colors[2] = 0xF986; action.colors[3] = 0xFBAE;
+        action.colors[0] = 0x28A4;
+        action.colors[1] = 0x1883;
+        action.colors[2] = 0x796B;
+        action.colors[3] = 0xED53;
         action.icon = Icon::Close;
         break;
     case Tone::Info:
-        action.colors[0] = 0x1190; action.colors[1] = 0x0085;
-        action.colors[2] = 0x249F; action.colors[3] = 0x8E9F;
+        action.colors[0] = 0x1106;
+        action.colors[1] = 0x08A4;
+        action.colors[2] = 0x3291;
+        action.colors[3] = 0xA71F;
         action.icon = Icon::Link;
         break;
     }
@@ -174,8 +182,10 @@ inline void style(Action &action)
     case ActionId::Open: action.icon = Icon::Arrow; break;
     case ActionId::Retry:
     case ActionId::Failures:
-        action.colors[0] = 0x61C5; action.colors[1] = 0x20A2;
-        action.colors[2] = 0xFC6A; action.colors[3] = 0xFE55;
+        action.colors[0] = 0x2924;
+        action.colors[1] = 0x18C3;
+        action.colors[2] = 0x7BEF;
+        action.colors[3] = 0xE5F1;
         action.icon = action.id == ActionId::Retry ? Icon::Retry : Icon::Arrow;
         break;
     default: break;
@@ -216,7 +226,12 @@ inline esp_err_t prepare_control(const Action &action, const CODY2D::MonoFont &f
         bounds.y + (bounds.height - font.height) / 2;
     const uint16_t left = action.card ? bounds.x + (bounds.width - width) / 2 :
         bounds.x + (bounds.width - width - 36U) / 2U + 36U;
-    if (!action.card) { control.icon_center.x = static_cast<int16_t>(left - 24); }
+    if (!action.card) {
+        // Caption and icon form one centered group, with the same vertical
+        // alignment used by onboarding's actual native controls.
+        control.icon_center.x = static_cast<int16_t>(left - 24);
+        control.icon_center.y = static_cast<int16_t>(top + font.height / 2U);
+    }
     esp_err_t error = CODY2D::prepare_text_line(font, {label, length},
         {static_cast<int16_t>(left), static_cast<int16_t>(top)}, 0xFFFF, control.caption);
     if (error == ESP_OK && space != nullptr) {

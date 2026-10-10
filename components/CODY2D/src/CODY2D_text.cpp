@@ -10,31 +10,35 @@ constexpr uint16_t kMaximumTextLength = 64;
 
 // source: Native RGB565 foreground.
 // destination: Native RGB565 background beneath the glyph.
-// level: Two-bit coverage, strictly between transparent and opaque.
-uint16_t blend_coverage(uint16_t source, uint16_t destination, uint8_t level)
+// level: Valid font coverage, strictly between transparent and opaque.
+// maximum: Opaque coverage level for the font's explicit two- or four-bit format.
+uint16_t blend_coverage(uint16_t source, uint16_t destination, uint8_t level, uint8_t maximum)
 {
-    const uint32_t inverse = 3U - level;
+    const uint32_t inverse = maximum - level;
+    const uint32_t rounding = maximum / 2U;
     const uint32_t red = (((source >> 11U) & 31U) * level +
-                          ((destination >> 11U) & 31U) * inverse + 1U) / 3U;
+                          ((destination >> 11U) & 31U) * inverse + rounding) / maximum;
     const uint32_t green = (((source >> 5U) & 63U) * level +
-                            ((destination >> 5U) & 63U) * inverse + 1U) / 3U;
-    const uint32_t blue = ((source & 31U) * level + (destination & 31U) * inverse + 1U) / 3U;
+                            ((destination >> 5U) & 63U) * inverse + rounding) / maximum;
+    const uint32_t blue = ((source & 31U) * level + (destination & 31U) * inverse + rounding) / maximum;
     return static_cast<uint16_t>((red << 11U) | (green << 5U) | blue);
 }
 } // namespace
 
 // font: Immutable packed coverage and exact readable storage extent.
+// Exception: Returns INVALID_ARG for unsupported formats or invalid storage bounds.
 esp_err_t validate_mono_font(const MonoFont &font)
 {
     const uint32_t required_bytes = static_cast<uint32_t>(font.character_count) *
         font.height * font.row_bytes;
     if (font.coverage == nullptr || font.width == 0 || font.width > 32 ||
         font.height == 0 || font.height > 64 || font.advance == 0 || font.advance > 32 ||
-        font.row_bytes != (font.width + 3U) / 4U || font.character_count == 0 ||
+        (font.coverage_bits != 2 && font.coverage_bits != 4) ||
+        font.row_bytes != (font.width * font.coverage_bits + 7U) / 8U || font.character_count == 0 ||
         font.first_character < 32 || font.first_character + font.character_count > 127 ||
         required_bytes != font.coverage_bytes) {
-        ESP_LOGE(kTag, "Font rejected: glyph=%ux%u advance=%u bytes=%lu required=%lu (%s)",
-            font.width, font.height, font.advance, static_cast<unsigned long>(font.coverage_bytes),
+        ESP_LOGE(kTag, "Font rejected: glyph=%ux%u advance=%u coverage_bits=%u bytes=%lu required=%lu (%s)",
+            font.width, font.height, font.advance, font.coverage_bits, static_cast<unsigned long>(font.coverage_bytes),
             static_cast<unsigned long>(required_bytes), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
@@ -46,6 +50,7 @@ esp_err_t validate_mono_font(const MonoFont &font)
 // origin: Nonnegative full-canvas top-left corner of the line.
 // color: Native RGB565 foreground color.
 // line: Receives the prepared layout only after every input is accepted.
+// Exception: Returns the original font error or INVALID_ARG/INVALID_SIZE for rejected text geometry.
 esp_err_t prepare_text_line(const MonoFont &font, TextSpan text, Point origin,
                             uint16_t color, TextLine &line)
 {
@@ -85,6 +90,7 @@ esp_err_t prepare_text_line(const MonoFont &font, TextSpan text, Point origin,
 // strip: Caller-owned RGB565 tile, including its explicit native/panel byte order.
 // first_row: Logical canvas y origin of this tile.
 // first_column: Logical canvas x origin of this tile.
+// Exception: Returns the original surface/font error or a specific invalid text/tile error.
 esp_err_t draw_text_rows(const TextLine &line, uint16_t visible_characters,
                          Surface strip, uint16_t first_row, uint16_t first_column)
 {
@@ -117,6 +123,7 @@ esp_err_t draw_text_rows(const TextLine &line, uint16_t visible_characters,
         std::max<int>(0, static_cast<int>(first_column) - line.origin.x - (font.width - 1)) / font.advance
     );
     const uint16_t stored_color = rgb565_native_to_stored(line.color, strip.byte_order);
+    const uint8_t maximum_coverage = static_cast<uint8_t>((1U << font.coverage_bits) - 1U);
     for (uint16_t index = first_glyph; index < visible_characters; ++index) {
         const int glyph_left = line.origin.x + index * font.advance;
         if (glyph_left >= right) {
@@ -138,13 +145,17 @@ esp_err_t draw_text_rows(const TextLine &line, uint16_t visible_characters,
             uint16_t *destination = strip.pixels + (row - first_row) * strip.stride + left - first_column;
             for (int column = left; column < last; ++column, ++destination) {
                 const uint16_t glyph_column = static_cast<uint16_t>(column - glyph_left);
-                const uint8_t level = (coverage[glyph_column / 4U] >> (6U - (glyph_column % 4U) * 2U)) & 3U;
-                if (level == 3) {
+                // Both supported formats divide a byte exactly; bit addressing
+                // avoids a variable division in the per-pixel glyph loop.
+                const uint16_t bit_offset = glyph_column * font.coverage_bits;
+                const uint8_t shift = static_cast<uint8_t>(8U - font.coverage_bits - (bit_offset & 7U));
+                const uint8_t level = (coverage[bit_offset >> 3U] >> shift) & maximum_coverage;
+                if (level == maximum_coverage) {
                     *destination = stored_color;
                 } else if (level != 0) {
                     const uint16_t background = rgb565_stored_to_native(*destination, strip.byte_order);
                     *destination = rgb565_native_to_stored(
-                        blend_coverage(line.color, background, level), strip.byte_order
+                        blend_coverage(line.color, background, level, maximum_coverage), strip.byte_order
                     );
                 }
             }

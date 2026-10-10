@@ -32,8 +32,12 @@ jelly study; the inspector offers 15, 25, 30 or 60 Hz. The footer distinguishes
 observed FPS from the requested limit. Text readouts update at 10 Hz and status
 at 5 Hz; model clocks follow elapsed time.
 
-The VibeWare floppy uses 42 frames and the approved GIF's 3.5-second timeline,
-with black composition, double pixel scaling and shared rotation.
+The VibeWare floppy uses 42 frames and the approved GIF's 3.5-second timeline.
+Cody's native compositor centers `Cody AI Companion` above
+`A distraction-free sidekick`, then renders the complete floppy at (137,164),
+192 x 219, on black with shared rotation. It uses the same production decoder,
+font preparation and row compositor as firmware. Generic Luna retains its
+original branding placement.
 `-AtMs` selects the frame for a capture; `boot-screens` includes the introduction.
 The Manifesto link opens only after an explicit click.
 
@@ -192,6 +196,11 @@ The `cody_host_graphics.dll` driver also includes logic modules shared with firm
 Python retains the window, transport, authentication and synthetic inputs; it does
 not replace a missing or outdated library with a second implementation.
 Loading verifies the manifest, source hashes and ABI.
+Rounded controls use immutable vector icon masks and refined corner coverage.
+The font renderer accepts the format explicitly recorded by each font package;
+current committed glyphs remain 2bpp. The updated scene generator can bake 4bpp
+with 4x supersampling after separately authorized generation with the licensed
+source font. A library rebuild alone does not upgrade the committed glyph assets.
 Host ABI 2 transfers all actions in a frame through one native call:
 RGB is converted to RGB565 once and converted back after the complete raster pass.
 The image is published only if the entire group succeeds. Snapshots also use a

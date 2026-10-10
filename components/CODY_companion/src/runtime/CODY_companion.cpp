@@ -34,6 +34,7 @@
 #include "CODY_screenshot.hpp"
 #include "CODY_capture_sound.hpp"
 #include "CODY_boot_cues.h"
+#include "CODY_boot_branding.hpp"
 #include "VIBEWARE_boot_animation.h"
 #include "vibeware_boot_data.h"
 #include "CODY_status_overlay.hpp"
@@ -287,6 +288,8 @@ struct CompanionState {
     bool branding_complete = false;
     uint16_t branding_frame = 0;
     int64_t branding_frame_due_us = 0;
+    CODY::BootBranding::Presentation branding_presentation{};
+    CODY::BootBranding::Scratch branding_scratch{};
     CODY::ExpressionId requested_expression = CODY::ExpressionId::Calm;
     bool expression_override = false;
     bool greeting_entered = false;
@@ -2234,17 +2237,15 @@ esp_err_t draw_branding_rows(uint16_t frame_index)
         }
         const uint16_t rows = static_cast<uint16_t>(std::min<size_t>(capacity_rows, kPanelHeight - row));
         auto *pixels = static_cast<uint16_t *>(storage);
-        std::memset(pixels, 0, static_cast<size_t>(rows) * kPanelWidth * sizeof(uint16_t));
-        const uint16_t first = std::max<uint16_t>(row, VIBEWARE_BOOT_TOP);
-        const uint16_t end = std::min<uint16_t>(row + rows, VIBEWARE_BOOT_TOP + VIBEWARE_BOOT_HEIGHT);
-        if (first < end) {
-            const size_t offset = static_cast<size_t>(first - row) * kPanelWidth + VIBEWARE_BOOT_LEFT;
-            error = VIBEWARE_boot_decode_rows(frame_index, first - VIBEWARE_BOOT_TOP,
-                end - first, pixels + offset, kPanelWidth,
-                capacity_bytes / sizeof(uint16_t) - offset, true);
-            if (error != ESP_OK) {
-                return error;
-            }
+        // Prepared text and the single source row live in the display-locked
+        // companion's PSRAM state; no bitmap or glyph buffer enters this stack.
+        CODY2D::Surface strip{pixels, kPanelWidth, rows, kPanelWidth,
+            static_cast<uint32_t>(capacity_bytes / sizeof(uint16_t)),
+            CODY2D::Rgb565ByteOrder::ByteSwapped};
+        error = CODY::BootBranding::draw_rows(s_state.branding_presentation,
+            s_state.branding_scratch, frame_index, strip, row);
+        if (error != ESP_OK) {
+            return error;
         }
         // The next borrow cannot reuse an in-flight DMA slot; frame end retires the final one.
         error = LUNASHELL_display_frame_submit_rgb565(0, row, kPanelWidth, row + rows, pixels);
@@ -4371,6 +4372,11 @@ extern "C" esp_err_t CODY_companion_start(void)
     const esp_err_t branding_error = VIBEWARE_boot_validate();
     if (branding_error != ESP_OK) {
         return fail_consumer("VibeWare boot resource", branding_error, false);
+    }
+    const esp_err_t branding_layout_error = CODY::BootBranding::prepare(
+        CODY::SceneData::title_font, CODY::SceneData::body_font, s_state.branding_presentation);
+    if (branding_layout_error != ESP_OK) {
+        return fail_consumer("Cody boot branding layout", branding_layout_error, false);
     }
     const esp_err_t asset_error = validate_boot_asset(
         CODY_asset::sleeping_pearl, "Sleeping boot asset"
