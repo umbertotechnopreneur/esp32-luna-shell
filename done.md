@@ -7,6 +7,40 @@ Conservo la storia in Git e nei documenti di architettura. I vecchi percorsi
 richiesta il 2026-10-05 ha rimosso quelle prove non versionate. Per i nuovi
 risultati indico sotto le copie preservate dentro la directory del build.
 
+## Logica di produzione condivisa con il simulatore - 2026-10-10
+
+- Checkpoint locale `b60e38c`, direttamente su `main`, per i quattro percorsi
+  richiesti. Il codice Python conserva input sintetici, finestra, autenticazione
+  e trasporto; la libreria C++ obbligatoria rifiuta manifest, sorgenti o ABI non
+  aggiornati. Nessuna seconda implementazione Python viene usata come fallback.
+- CCP usa il decoder e la transazione del firmware: identita', contenuto,
+  scadenza originale, risposta, stati terminali e chiusure. Radio e firma UDP
+  restano nei rispettivi proprietari, separati dagli effetti della transazione.
+- La presentazione condivide percorsi, testi e wrapping, selezione reversibile,
+  conferma, Back, dettagli PR, palette e icone. Preparazione e raster delle
+  azioni usano CODY2D reale. La comparsa completa dei controlli e il touch
+  dipendono dal piano condiviso e dal frame effettivamente mostrato, compresi
+  freshness, errori e ammissioni. Non dichiaro equivalenza misurata dei pixel.
+- Lo standby condivide ordine, politica audio/radio, errori, rollback e recupero.
+  Il PC inietta guasti sulle risorse sintetiche, conserva le cause originali e
+  pubblica anche recuperi incompleti. Profilo, guasti e transizioni mutano un
+  candidato privato: solo una pubblicazione riuscita sostituisce il proprietario
+  precedente. Questa copia/commit host non rappresenta un rollback fisico.
+- Snapshot e API usano aging, decoder RTC e JSON di produzione. Il writer riceve
+  clock e sink espliciti; solo il trasporto firmware legge il clock e invia HTTP.
+  Restano originali i timestamp dei campioni e del clock di sistema, i valori
+  storici e gli errori. Il PC non pubblica in DeviceSnapshotService; i gruppi non
+  modellati e il Task-WDT rimangono indisponibili. Health riporta liveness
+  ESP_ERR_NOT_SUPPORTED, senza inventare una misura del watchdog. I tempi host
+  sono ammessi prima della conversione int64, impedendo troncamenti del clock.
+- Ho registrato tutti i moduli in CMake e nel generatore host C++20, aggiornato
+  contratti sorgente e documentazione e scritto regressioni C++/Python per
+  transazioni, presentazione, guasti, aging, RTC, redazione e pubblicazione fallita.
+- Evidenza: lettura statica e revisioni incrociate tramite tre subagent. Nessun
+  test, scan di validazione, generazione del driver, build, simulatore, hardware,
+  installazione o push eseguito. Le verifiche e lo stack compilato restano aperti
+  in TODO.md. I banner VibeWare concorrenti sono preservati e separati dal commit.
+
 ## Follow-up P2: riavvio broker, scadenza e HTTP - 2026-10-10
 
 - Checkpoint locale dell'implementazione: `31665ca`, direttamente su `main`.

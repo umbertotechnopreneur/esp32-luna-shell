@@ -1,5 +1,27 @@
 # Active work
 
+## Production C++ logic shared with the simulator - 2026-10-10
+
+- [x] Share CCP decoding and transaction admission, stable identities, deadlines,
+  replies, terminal acknowledgements and explicit dismissal with firmware.
+- [x] Share question routes, text wrapping, semantic action style/preparation/raster,
+  reversible navigation, narrative reveal and touch admission.
+- [x] Share standby resource ordering, service policy, errors and recovery; add
+  explicit synthetic fault/profile inputs without claiming physical sleep.
+- [x] Share RTC decoding, sample aging, original timestamps and HTTP JSON;
+  remove the duplicate Python API builders and reject stale native libraries.
+- [x] Integrate firmware/host source graphs and add regression definitions.
+  Static review includes independent reviews and fixes to rendered touch identity,
+  exact endpoint errors and fallible publication ownership.
+- [ ] Regenerate the native simulator driver when explicitly authorized.
+- [ ] Execute cody-runtime, cody-ccp-simulator, simulator, snapshot-integrity,
+  power-policy, rtc-contract and http-api-contract only after each exact command
+  receives fresh authorization. No tests or validation scans ran for this work.
+- [ ] Compile firmware and inspect stack frames separately when requested;
+  source integration does not attest linkage, rendered pixels or physical behavior.
+- [x] Save implementation checkpoint `b60e38c` directly on main; no push.
+  Concurrent VibeWare branding remains separate and preserved in the workspace.
+
 ## Follow-up P2 review fixes - 2026-10-10
 
 - [x] Retire an unknown open device question before publishing a successor after broker restart.
