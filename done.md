@@ -17,6 +17,10 @@ risultati indico sotto le copie preservate dentro la directory del build.
   il worktree `E:\Cody-Notifications` insieme alla sua cartella. Ho conservato
   le 22 prove diagnostiche, con copie identiche, negli artifacts del repository
   principale. Il checkout attivo e ora `main`.
+- Ho eliminato `codex/cody-onboarding` sia localmente sia sul remoto dopo aver
+  confermato che tutti i suoi commit sono inclusi in `main`. Conservo soltanto
+  i quattro branch canonici: `main`, `codex/cody`, `codex/luna-shell` e
+  `codex/base-display-touch`; i tre tag storici restano invariati.
 - Le prove firmware registrate sotto restano riferite a `e3f72b3c`. In questo
   passaggio ho integrato i sorgenti e chiuso il worktree; build e installazione
   del nuovo insieme di sorgenti mantengono le verifiche aperte in TODO.md.

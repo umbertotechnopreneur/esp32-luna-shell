@@ -61,8 +61,10 @@ build o una prova sul dispositivo.
 | `luna-shell` | `369e5026` | `codex/luna-shell` |
 | `cody` | `9d2fe8c5` | `codex/cody`, anche `main` al momento del tag |
 
-Il lavoro di onboarding parte da `cody` su `codex/cody-onboarding`. Mantengo i tag
-fermi, faccio checkpoint locali coerenti e pubblico con l'autorizzazione al push.
+Ho integrato in `main` il lavoro avviato da `cody` su `codex/cody-onboarding`,
+poi ho eliminato il branch temporaneo e il worktree. Conservo quattro branch
+canonici: `main` e le tre varianti nella tabella. Mantengo i tag fermi, faccio
+checkpoint locali coerenti e pubblico con l'autorizzazione al push.
 Le varianti storiche restano riferimenti dei sorgenti, senza aggiungere altri SDK.
 
 ## Come ci lavoro
