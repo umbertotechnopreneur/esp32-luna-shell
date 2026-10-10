@@ -103,6 +103,7 @@ char s_ready_nonce[33]{};
 LUNASHELL::CodexEventSnapshot s_event_snapshot{};
 LUNASHELL::CodexEventPayload s_event_candidate{};
 char s_dismissed_event_id[33]{};
+LUNASHELL::CodexEventState s_dismissed_event_state = LUNASHELL::CodexEventState::None;
 bool s_event_publication_pending = false;
 bool s_reply_pending = false;
 int64_t s_next_reply_at_us = 0;
@@ -131,6 +132,7 @@ char s_reset_request_id[33]{};
 EXT_RAM_BSS_ATTR char s_receive_buffer[kMaximumEventDatagramBytes + 2]{};
 EXT_RAM_BSS_ATTR char s_event_parse_buffer[kMaximumEventDatagramBytes + 1]{};
 EXT_RAM_BSS_ATTR char s_event_proof_input[kMaximumEventDatagramBytes + 1]{};
+EXT_RAM_BSS_ATTR char s_event_ack_packet[kMaximumDatagramBytes + 1]{};
 
 // bytes: Secret or transient storage to erase with volatile writes.
 // size: Exact byte count owned by the caller.
@@ -1774,13 +1776,6 @@ esp_err_t publishEventLocked()
     return error;
 }
 
-// state: Local transaction state, independent of activity or the connection lease.
-bool eventIsOpen(LUNASHELL::CodexEventState state)
-{
-    using EventState = LUNASHELL::CodexEventState;
-    return state == EventState::Pending || state == EventState::Sending || state == EventState::Received;
-}
-
 // value: Complete canonical unsigned decimal value from a signed packet.
 // seconds: Receives the bounded remaining lifetime; no UTC clock is assumed.
 bool parseEventTtl(const char *value, uint16_t &seconds)
@@ -2066,6 +2061,51 @@ bool decodeEventState(const char *value, LUNASHELL::CodexEventState &state)
     return false;
 }
 
+// request_id: Exact retired question; may be retained after explicit dismissal.
+// state: Actual published terminal device state, never the MCP recipient's inferred state.
+// Exception: Returns original crypto/transport errors; caller holds s_mutex on the CCP worker.
+esp_err_t sendTerminalEventAckLocked(const char *request_id, LUNASHELL::CodexEventState state)
+{
+    const char *token = LUNASHELL::codexEventTerminalToken(state);
+    if (token == nullptr) {
+        return ESP_OK; // No closed question is available to acknowledge.
+    }
+    // The CCP worker owns both shared scratch buffers while holding s_mutex.
+    // Keep the bounded packet off the nested receive stack; proof storage is 97 bytes.
+    const int length = std::snprintf(s_event_proof_input, sizeof(s_event_proof_input),
+        "event-ack|%s|%s|%s|%s|%s", s_link_snapshot.device_id,
+        s_link_snapshot.paired_pc_id, s_ready_nonce, request_id, token);
+    uint8_t proof[32]{};
+    char proof_hex[65]{};
+    esp_err_t error = length > 0 && static_cast<size_t>(length) < sizeof(s_event_proof_input)
+        ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), s_event_proof_input, proof)
+        : ESP_ERR_INVALID_SIZE;
+    if (error == ESP_OK) {
+        error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
+    }
+    if (error == ESP_OK) {
+        const int size = std::snprintf(s_event_ack_packet, sizeof(s_event_ack_packet),
+            "CCP1|EVENTACK|device=%s|pc=%s|nonce=%s|id=%s|state=%s|proof=%s",
+            s_link_snapshot.device_id, s_link_snapshot.paired_pc_id, s_ready_nonce, request_id, token, proof_hex);
+        in_addr address{};
+        if (size <= 0 || static_cast<size_t>(size) >= sizeof(s_event_ack_packet)) {
+            error = ESP_ERR_INVALID_SIZE;
+        } else if (inet_pton(AF_INET, s_link_snapshot.peer_ip_address, &address) != 1) {
+            error = ESP_ERR_INVALID_STATE;
+        } else {
+            error = sendDatagram(s_event_ack_packet, address, kPluginPort, "CCP EVENTACK");
+        }
+    }
+    wipe(proof, sizeof(proof));
+    wipe(proof_hex, sizeof(proof_hex));
+    wipe(s_event_ack_packet, sizeof(s_event_ack_packet));
+    wipe(s_event_proof_input, sizeof(s_event_proof_input));
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "CCP terminal observation ACK failed; next EVENT retries (%s)", esp_err_to_name(error));
+    }
+    return error;
+}
+
 // payload: Complete bounded EVENT envelope, never logged as raw user content.
 // source: Observed UDP endpoint matched against authenticated READY.
 // Exception: Returns precise envelope/schema/replay/publication/wake errors.
@@ -2120,7 +2160,7 @@ esp_err_t acceptEvent(const char *payload, const sockaddr_in &source)
             ++s_event_snapshot.revision;
             return publishEventLocked();
         }
-        if (eventIsOpen(s_event_snapshot.state)) {
+        if (LUNASHELL::codexEventIsOpen(s_event_snapshot.state)) {
             // A restarted recipient has lost the volatile ticket. Preserve its
             // question on screen as unavailable, never invent a cancellation or answer.
             s_event_snapshot.state = EventState::Rejected;
@@ -2134,7 +2174,7 @@ esp_err_t acceptEvent(const char *payload, const sockaddr_in &source)
         }
         return ESP_OK;
     }
-    if (allZero(request_bytes, sizeof(request_bytes)) || (eventIsOpen(state) && ttl == 0)) {
+    if (allZero(request_bytes, sizeof(request_bytes)) || (LUNASHELL::codexEventIsOpen(state) && ttl == 0)) {
         return ESP_ERR_INVALID_ARG;
     }
     error = LUNASHELL::decodeCodexEventPayload(values[6], std::strlen(values[6]), s_event_candidate);
@@ -2149,20 +2189,32 @@ esp_err_t acceptEvent(const char *payload, const sockaddr_in &source)
     }
     if (std::strcmp(values[3], s_dismissed_event_id) == 0) {
         s_event_received_for_nonce = true;
-        return ESP_OK;
+        return sendTerminalEventAckLocked(s_dismissed_event_id, s_dismissed_event_state);
     }
     const bool same_request = std::strcmp(values[3], s_event_snapshot.request_id) == 0;
     if (same_request && !sameEventContent(s_event_snapshot, s_event_candidate)) {
         return ESP_ERR_INVALID_RESPONSE;
     }
     if (!same_request && s_event_snapshot.kind == LUNASHELL::CodexEventKind::Question &&
-        eventIsOpen(s_event_snapshot.state)) {
+        LUNASHELL::codexEventIsOpen(s_event_snapshot.state)) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (same_request && !eventIsOpen(s_event_snapshot.state) &&
+    if (same_request && !LUNASHELL::codexEventIsOpen(s_event_snapshot.state) &&
         s_event_snapshot.state != EventState::None && state != s_event_snapshot.state) {
         // A terminal ticket cannot be revived by an older authenticated frame.
-        return ESP_ERR_INVALID_STATE;
+        if (!LUNASHELL::codexEventIsTerminal(state)) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        // Local expiry can precede Delivered. Acknowledge the actual closure,
+        // but only after a pending canonical publication has succeeded.
+        s_event_received_for_nonce = true;
+        if (s_event_publication_pending) {
+            error = publishEventLocked();
+            if (error != ESP_OK) {
+                return error;
+            }
+        }
+        return sendTerminalEventAckLocked(s_event_snapshot.request_id, s_event_snapshot.state);
     }
     if (same_request && s_event_snapshot.selected_id[0] != '\0' && answered &&
         std::strcmp(s_event_snapshot.selected_id, s_event_candidate.selected_id) != 0) {
@@ -2170,7 +2222,7 @@ esp_err_t acceptEvent(const char *payload, const sockaddr_in &source)
     }
     const bool keep_local_reply = same_request && state == EventState::Pending &&
         (s_event_snapshot.state == EventState::Sending || s_event_snapshot.state == EventState::Received);
-    const bool locally_expired = same_request && eventIsOpen(s_event_snapshot.state) &&
+    const bool locally_expired = same_request && LUNASHELL::codexEventIsOpen(s_event_snapshot.state) &&
         now >= s_event_snapshot.expires_at_us;
     bool changed = !same_request || (!keep_local_reply && state != s_event_snapshot.state) ||
         !s_event_snapshot.data_valid || s_event_snapshot.data_stale;
@@ -2192,7 +2244,7 @@ esp_err_t acceptEvent(const char *payload, const sockaddr_in &source)
         s_event_snapshot.state = state;
     }
     // A retransmitted snapshot cannot revive an elapsed local decision window.
-    if (locally_expired || (eventIsOpen(s_event_snapshot.state) && now >= s_event_snapshot.expires_at_us)) {
+    if (locally_expired || (LUNASHELL::codexEventIsOpen(s_event_snapshot.state) && now >= s_event_snapshot.expires_at_us)) {
         s_event_snapshot.state = EventState::Expired;
         changed = true;
     }
@@ -2202,7 +2254,7 @@ esp_err_t acceptEvent(const char *payload, const sockaddr_in &source)
     s_event_snapshot.last_error = s_event_snapshot.state == EventState::Expired ? ESP_ERR_TIMEOUT : ESP_OK;
     s_event_snapshot.last_attempt_at_us = now;
     s_event_snapshot.last_success_at_us = now;
-    if (!eventIsOpen(s_event_snapshot.state) || answered) {
+    if (!LUNASHELL::codexEventIsOpen(s_event_snapshot.state) || answered) {
         s_reply_pending = false;
     }
     s_event_received_for_nonce = true;
@@ -2223,12 +2275,15 @@ esp_err_t acceptEvent(const char *payload, const sockaddr_in &source)
             }
         }
     }
+    if (error == ESP_OK && s_event_snapshot.kind == LUNASHELL::CodexEventKind::Question) {
+        error = sendTerminalEventAckLocked(s_event_snapshot.request_id, s_event_snapshot.state);
+    }
     return error;
 }
 
 // payload: Complete bounded acknowledgement for the exact confirmed response.
 // source: Current paired endpoint; no unrelated sender can complete screen31.
-// Exception: Returns authentication, identity, state or publication errors unchanged.
+// Exception: Returns authentication, identity, state, publication or terminal-ACK transport errors unchanged.
 esp_err_t acceptReplyAck(const char *payload, const sockaddr_in &source)
 {
     static constexpr const char *names[] = {"device", "pc", "nonce", "id", "choice", "status", "proof"};
@@ -2278,7 +2333,7 @@ esp_err_t acceptReplyAck(const char *payload, const sockaddr_in &source)
         return ESP_ERR_INVALID_STATE;
     }
     const int64_t now = esp_timer_get_time();
-    if (eventIsOpen(s_event_snapshot.state) && now >= s_event_snapshot.expires_at_us) {
+    if (LUNASHELL::codexEventIsOpen(s_event_snapshot.state) && now >= s_event_snapshot.expires_at_us) {
         state = EventState::Expired;
         error = ESP_ERR_TIMEOUT;
     }
@@ -2295,7 +2350,9 @@ esp_err_t acceptReplyAck(const char *payload, const sockaddr_in &source)
     s_reply_pending = false;
     ESP_LOGI(kTag, "CCP reply acknowledgement: state=%u", static_cast<unsigned>(state));
     const esp_err_t publication_error = publishEventLocked();
-    return error != ESP_OK ? error : publication_error;
+    const esp_err_t ack_error = publication_error == ESP_OK
+        ? sendTerminalEventAckLocked(s_event_snapshot.request_id, s_event_snapshot.state) : publication_error;
+    return error != ESP_OK ? error : ack_error;
 }
 
 // No parameters: worker retries only the already confirmed ID/choice, never a different action.
@@ -2306,7 +2363,7 @@ void maintainEvent()
     using EventState = LUNASHELL::CodexEventState;
     const int64_t now = esp_timer_get_time();
     bool changed = false;
-    if (eventIsOpen(s_event_snapshot.state) && now >= s_event_snapshot.expires_at_us) {
+    if (LUNASHELL::codexEventIsOpen(s_event_snapshot.state) && now >= s_event_snapshot.expires_at_us) {
         if (s_event_snapshot.kind == LUNASHELL::CodexEventKind::Question) {
             s_event_snapshot.state = EventState::Expired;
             s_event_snapshot.last_error = ESP_ERR_TIMEOUT;
@@ -3008,7 +3065,7 @@ extern "C" esp_err_t LUNASHELL_codex_link_request(
             s_link_snapshot.attempt_id == UINT32_MAX) {
             return reject(action, expected_attempt_id, ESP_ERR_INVALID_STATE);
         }
-        if (eventIsOpen(s_event_snapshot.state)) {
+        if (LUNASHELL::codexEventIsOpen(s_event_snapshot.state)) {
             // Explicit replacement retires the outstanding recipient ticket.
             // Keeping the old pairing on a later Cancel does not revive it.
             s_event_snapshot.state = LUNASHELL::CodexEventState::Cancelled;
@@ -3129,7 +3186,7 @@ extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_
     std::lock_guard<std::mutex> guard(s_mutex);
     if (expected_request_id == nullptr || std::strcmp(expected_request_id, s_event_snapshot.request_id) != 0 ||
         s_event_snapshot.state == LUNASHELL::CodexEventState::None ||
-        (s_event_snapshot.kind == LUNASHELL::CodexEventKind::Question && eventIsOpen(s_event_snapshot.state))) {
+        (s_event_snapshot.kind == LUNASHELL::CodexEventKind::Question && LUNASHELL::codexEventIsOpen(s_event_snapshot.state))) {
         ESP_LOGE(kTag, "CCP event dismiss rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
@@ -3150,6 +3207,8 @@ extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_
         return error;
     }
     std::memcpy(s_dismissed_event_id, retained.request_id, sizeof(s_dismissed_event_id));
+    s_dismissed_event_state = retained.kind == LUNASHELL::CodexEventKind::Question
+        ? retained.state : LUNASHELL::CodexEventState::None;
     s_reply_pending = false;
     return ESP_OK;
 }

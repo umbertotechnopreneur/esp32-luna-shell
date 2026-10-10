@@ -1,4 +1,5 @@
 #include "CODY_onboarding.hpp"
+#include "CODY_codex_event_presentation.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -70,16 +71,10 @@ constexpr bool kCodexIntegrationEnabled = CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX;
 using PairState = LUNASHELL::PairingSessionState;
 using CodexState = LUNASHELL::CodexLinkState;
 
-enum class Route : uint8_t {
-    None, Hello04, Invitation05, Install06, Pairing07, Failed08, Online09,
-    MakeItYours10, Look11, ConnectCodex12, SetupComplete13, LookingForPc14,
-    Connected15, Settings36, DebugText, CodexChoice, SetupMenu, NetworkWait, CodexReplace,
-    CodexForget, CodexCleanup, CodexForgotten,
-    Project17, Working18, Response19, Paused20, Ended20, Lost32, CompanionIdle16, ActivityUnavailable,
-    PrPending21 = 64, ChecksRunning22 = 65, ChecksFailed23 = 66, CheckFailures24 = 67,
-    DecisionNotice26 = 68, DecisionChoices27 = 69, DecisionConfirm27 = 70,
-    DecisionWaiting = 71, ReplySent31 = 72, CodexNotice = 73, ApprovalOnPc = 74, EventUnavailable = 75
-};
+using event_presentation::Route;
+using event_presentation::EventStage;
+using event_presentation::EventRetry;
+using event_presentation::is_codex_event_route;
 enum class Work : uint8_t {
     InstallQr,
     SessionQr,
@@ -105,8 +100,6 @@ enum class OnboardingAction : uint8_t {
     ForgetPairing, ConfirmForget, KeepSaved,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
-enum class EventStage : uint8_t { Notice = 0, Choices = 1, Confirm = 2, Waiting = 3, Failures = 4 };
-enum class EventRetry : uint8_t { None = 0, Reply = 2, Dismiss = 3 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
 
 struct ScreenInactivityPolicy {
@@ -304,28 +297,6 @@ Result &s_result = *new (s_result_storage) Result{};
 Result s_result{};
 #endif
 QrModules *s_encoding_target = nullptr; // Only the action worker calls the QR library.
-
-// route: Stable presentation identity, independent of atlas page numbers or catalog order.
-bool is_codex_event_route(Route route)
-{
-    switch (route) {
-    case Route::PrPending21:
-    case Route::ChecksRunning22:
-    case Route::ChecksFailed23:
-    case Route::CheckFailures24:
-    case Route::DecisionNotice26:
-    case Route::DecisionChoices27:
-    case Route::DecisionConfirm27:
-    case Route::DecisionWaiting:
-    case Route::ReplySent31:
-    case Route::CodexNotice:
-    case Route::ApprovalOnPc:
-    case Route::EventUnavailable:
-        return true;
-    default:
-        return false;
-    }
-}
 
 // route: Stable route identity whose bounded local inactivity policy is requested.
 const ScreenInactivityPolicy *screen_inactivity_policy(Route route)
@@ -1650,25 +1621,6 @@ esp_err_t append_event_text(const char *text, uint16_t &top, uint16_t pitch = 26
     return ESP_OK;
 }
 
-// state: Authenticated owner state; only these outcomes are terminal notifications.
-bool codex_event_terminal(LUNASHELL::CodexEventState state)
-{
-    using State = LUNASHELL::CodexEventState;
-    return state == State::Delivered || state == State::Cancelled ||
-        state == State::Expired || state == State::Rejected;
-}
-
-// id: Stable choice identity retained independently of the current card ordering.
-const LUNASHELL::CodexEventChoice *event_choice(const char *id)
-{
-    for (const auto &choice : s_presented_event.choices) {
-        if (choice.id[0] != '\0' && std::strcmp(choice.id, id) == 0) {
-            return &choice;
-        }
-    }
-    return nullptr;
-}
-
 // choice: Authenticated semantic caption, identity and tone from the canonical event.
 // bounds: Existing circle-safe pair or centered third-action rectangle.
 // card: True for an icon above the caption, false for the centered third capsule.
@@ -1736,7 +1688,7 @@ esp_err_t prepare_event_content(SceneFrame &scene)
             }
         }
     } else if (s_route == Route::DecisionConfirm27) {
-        const auto *choice = event_choice(s_event_selected_id);
+        const auto *choice = event_presentation::find_choice(s_presented_event, s_event_selected_id);
         if (choice == nullptr) {
             ESP_LOGE(kTag, "Selected decision identity unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_FOUND));
             return ESP_ERR_NOT_FOUND;
@@ -1790,7 +1742,7 @@ esp_err_t prepare_event_content(SceneFrame &scene)
         }
     } else if (s_route == Route::ReplySent31) {
         error = append_event_text("Delivered to Codex", top);
-        const auto *choice = event_choice(event.selected_id);
+        const auto *choice = event_presentation::find_choice(s_presented_event, event.selected_id);
         if (error == ESP_OK && choice != nullptr) {
             error = append_event_text(choice->label, top, 26, true);
         }
@@ -1852,14 +1804,14 @@ esp_err_t prepare_event_content(SceneFrame &scene)
             error = append_event_text(event.context, top, 26, true);
         } else if (error == ESP_OK && !s_event_online) {
             top = action == OnboardingAction::None ? 354 : 326;
-            error = append_event_text(codex_event_terminal(event.state) ?
+            error = append_event_text(LUNASHELL::codexEventIsTerminal(event.state) ?
                 "Offline - saved result" : "Offline - pending", top, 26, true);
         }
     }
     if (error == ESP_OK && s_route == Route::ChecksRunning22 && event.kind == LUNASHELL::CodexEventKind::ChecksPassed) {
         error = set_scene_title(scene, {"Checks passed", 13});
     }
-    if (error == ESP_OK && s_route == Route::CodexNotice && codex_event_terminal(event.state) &&
+    if (error == ESP_OK && s_route == Route::CodexNotice && LUNASHELL::codexEventIsTerminal(event.state) &&
         event.state != State::Delivered) {
         const char *title = event.state == State::Expired ?
             (event.selected_id[0] != '\0' ? "Reply unconfirmed" : "Request expired") :
@@ -2175,40 +2127,11 @@ void reset_event_presentation()
     s_checks_passed_readable_at_us = -1;
 }
 
-// No parameters: route derives from authenticated lifecycle plus reversible local navigation.
+// No parameters: projects the retained owner snapshot and reversible navigation into a route.
 Route codex_event_destination()
 {
-    using Kind = LUNASHELL::CodexEventKind;
-    using State = LUNASHELL::CodexEventState;
-    const auto &event = s_presented_event;
-    if (s_event_observation_error != ESP_OK) {
-        return Route::EventUnavailable;
-    }
-    if (event.kind == Kind::Question && event.state == State::Delivered) {
-        return Route::ReplySent31;
-    }
-    if (codex_event_terminal(event.state)) {
-        return Route::CodexNotice;
-    }
-    switch (event.kind) {
-    case Kind::Question:
-        if (s_event_reply_admitted || event.state == State::Sending || event.state == State::Received) {
-            return Route::DecisionWaiting;
-        }
-        if (s_event_stage == EventStage::Confirm) {
-            return Route::DecisionConfirm27;
-        }
-        return s_event_stage == EventStage::Choices ? Route::DecisionChoices27 : Route::DecisionNotice26;
-    case Kind::PrPending: return Route::PrPending21;
-    case Kind::ChecksRunning:
-    case Kind::ChecksPassed: return Route::ChecksRunning22;
-    case Kind::ChecksFailed:
-        return s_event_stage == EventStage::Failures ? Route::CheckFailures24 : Route::ChecksFailed23;
-    case Kind::ApprovalOnPc: return Route::ApprovalOnPc;
-    case Kind::Notice: return Route::CodexNotice;
-    case Kind::None: return Route::Connected15;
-    }
-    return Route::EventUnavailable;
+    return event_presentation::destination(s_presented_event, s_event_stage,
+                                           s_event_reply_admitted, s_event_observation_error);
 }
 
 // scene: Display-owned frame rebuilt from the retained canonical event, never from transport I/O.
@@ -2344,7 +2267,7 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
     s_presented_event = observed;
     s_event_online = online;
     s_companion_seen_selection = true;
-    if (!same_request || (observed.state != previous_state && codex_event_terminal(observed.state))) {
+    if (!same_request || (observed.state != previous_state && LUNASHELL::codexEventIsTerminal(observed.state))) {
         // A terminal owner result retires any failed local admission; Retry must
         // never resurrect an expired/rejected response or replace Done with Send.
         s_event_ui_error = ESP_OK;
@@ -2411,7 +2334,7 @@ esp_err_t activate_codex_event(SceneFrame &scene, OnboardingAction action)
     }
     if (reply && (!s_event_online || s_event_reply_admitted ||
         s_presented_event.state != LUNASHELL::CodexEventState::Pending ||
-        event_choice(s_event_selected_id) == nullptr)) {
+        event_presentation::find_choice(s_presented_event, s_event_selected_id) == nullptr)) {
         ESP_LOGE(kTag, "Codex reply admission rejected by current presentation (%s)",
             esp_err_to_name(ESP_ERR_INVALID_STATE));
         s_event_ui_error = ESP_ERR_INVALID_STATE;

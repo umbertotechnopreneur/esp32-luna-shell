@@ -1,5 +1,6 @@
 set(LUNASHELL_platform_srcs
     "src/snapshot/LUNASHELL_hardware.cpp"
+    "src/snapshot/LUNASHELL_rtc_calendar.cpp"
     "src/snapshot/LUNASHELL_snapshot_reports.cpp"
     "src/runtime/LUNASHELL_liveness.cpp"
     "src/snapshot/LUNASHELL_snapshot_scheduler.cpp"
@@ -82,7 +83,9 @@ else()
 endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS)
-    list(APPEND LUNASHELL_platform_srcs "src/power/LUNASHELL_power.cpp")
+    list(APPEND LUNASHELL_platform_srcs
+        "src/power/LUNASHELL_power.cpp"
+        "src/power/LUNASHELL_standby_resources.cpp")
     list(APPEND LUNASHELL_platform_requires esp_pm)
 else()
     list(APPEND LUNASHELL_platform_srcs "src/power/LUNASHELL_power_stub.cpp")

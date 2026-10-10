@@ -2202,6 +2202,18 @@ def verify_source_contracts() -> None:
         "esp_err_t transition_standby_resource(",
         "standby resource transition",
     )
+    radio_policy = function_text(power, "esp_err_t set_standalone_wireless_standby(",
+                                 "standby radio policy")
+    require_contains(radio_policy, "standby && s_standby_resources.wireless.consistent",
+                     "retention requires observed radio consistency")
+    suspension = function_text(power, "esp_err_t suspend_standby_resources(", "resource suspension")
+    require("s_standby_resources.wireless.consistent = false" not in suspension,
+            "policy reassertion must preserve the last confirmed radio state")
+    require_contains(suspension, "set_standalone_wireless_standby, true",
+                     "radio policy reassertion is explicit")
+    require_contains(standby_transition,
+                     "selected_standby_sleep() == LUNASHELL::power_policy::StandbySleep::Deep",
+                     "service policy precedes optional deep-sleep admission")
     for fragment in (
         "status.consistent && status.applied == target",
         "status.consistent = false",

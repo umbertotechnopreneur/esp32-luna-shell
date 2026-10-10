@@ -357,6 +357,13 @@ di EVENT o REPLYACK. Un errore, una risposta sconosciuta o un conflitto restano
 visibili: non li trasformo in consegna e non spedisco una seconda scelta.
 La ricevuta non certifica il completamento del lavoro, dei test o di una PR.
 
+Con CCP 0.6.1, la domanda successiva aspetta anche la chiusura sul dispositivo.
+Dopo avere pubblicato lo stato terminale nel canonical snapshot, Cody invia
+EVENTACK firmato con identita', nonce corrente e stato realmente osservato.
+Il broker ripete la chiusura finche' riceve questa conferma, anche se l'agent
+ha gia' creato una nuova domanda. Un ACK perso viene ripetuto; non prolunga il
+TTL della domanda successiva e non cambia il risultato ricevuto dall'agent.
+
 ## Scadenza, offline e standby non decidono per me
 
 La domanda ha **180 secondi** di vita. La sua scadenza e' distinta dal timeout

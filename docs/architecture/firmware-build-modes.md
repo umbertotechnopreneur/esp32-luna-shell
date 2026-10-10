@@ -55,7 +55,7 @@ cannot accidentally reuse a Release build.
 | Bootloader logging | INFO | WARN |
 | Boot identity | Debug notice | One Release notice warning about the USB sleep limitation |
 | Automatic Light-sleep | Disabled for USB debugging | Enabled when power management is present and workloads permit it |
-| Inactivity sleep | CPU/USB remain awake in software standby | Deep-sleep after confirmed standby; touch/IMU wake restarts firmware |
+| Inactivity sleep | CPU/USB remain awake in software standby | Software standby for retained Codex or voice listening; otherwise Deep-sleep with touch wake |
 | Screen inactivity and fade | Runtime `idle_sleep_s`, default 60 s; 800-ms fade | Same timeout and fades |
 | Standby motion observation | 10-Hz host snapshots | Accelerometer-only hardware WoM; no host polling during Deep-sleep |
 | CPU frequency | Existing 80--240 MHz dynamic policy | Same 80--240 MHz policy |
@@ -76,7 +76,10 @@ diagnostic services are functional features and are not silently disabled.
 Performance Mode restores the compiled log default when it ends, so it cannot
 turn Release INFO logging back on.
 
-Release enters Deep-sleep after confirmed standby on touch-enabled profiles;
+Release enters Deep-sleep after confirmed standby on touch-enabled profiles
+only when the power owner retains neither the Codex radio association nor
+wake-word standby listening. Those services keep software standby, without
+attempting sleep and restoring Active due to an expected policy rejection;
 touch GPIO11 and accelerometer-only IMU INT2/GPIO21 provide physical wake.
 The normal inactivity timer adds no periodic wake and PWR polling stops.
 Debug keeps CPU/USB awake and retains 10-Hz software motion observation.

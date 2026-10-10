@@ -7,6 +7,7 @@
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_snapshot_internal.hpp"
+#include "LUNASHELL_rtc_calendar.hpp"
 #include "LUNASHELL_distance_service.hpp"
 #include "LUNASHELL_sensor_fusion.hpp"
 #include "LUNASHELL_settings.hpp"
@@ -2200,125 +2201,10 @@ esp_err_t verify_pmu_termination_current(
 }
 #endif
 
-uint8_t bcd_to_decimal(uint8_t value)
-{
-    return static_cast<uint8_t>(((value >> 4) * 10U) + (value & 0x0FU));
-}
-
-uint8_t decimal_to_bcd(uint8_t value)
-{
-    return static_cast<uint8_t>(((value / 10U) << 4) | (value % 10U));
-}
-
-bool valid_calendar_time(const LUNASHELL_calendar_time_t &time)
-{
-    if (time.year < 2024 || time.year > 2099 ||
-        time.month < 1 || time.month > 12 ||
-        time.hour > 23 || time.minute > 59 || time.second > 59) {
-        return false;
-    }
-    static constexpr uint8_t days_per_month[] = {
-        31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
-    };
-    uint8_t maximum_day = days_per_month[time.month - 1U];
-    const bool leap =
-        (time.year % 4U == 0U && time.year % 100U != 0U) ||
-        time.year % 400U == 0U;
-    if (time.month == 2U && leap) {
-        maximum_day = 29;
-    }
-    return time.day >= 1U && time.day <= maximum_day;
-}
-
-bool valid_rtc_register_calendar(const LUNASHELL_calendar_time_t &time)
-{
-    if (time.year < 2000 || time.year > 2099 ||
-        time.month < 1 || time.month > 12 ||
-        time.hour > 23 || time.minute > 59 || time.second > 59) {
-        return false;
-    }
-    static constexpr uint8_t days_per_month[] = {
-        31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
-    };
-    uint8_t maximum_day = days_per_month[time.month - 1U];
-    const bool leap =
-        (time.year % 4U == 0U && time.year % 100U != 0U) ||
-        time.year % 400U == 0U;
-    if (time.month == 2U && leap) {
-        maximum_day = 29;
-    }
-    return time.day >= 1U && time.day <= maximum_day;
-}
-
-bool valid_bcd(uint8_t value)
-{
-    return (value & 0x0FU) <= 9U && ((value >> 4U) & 0x0FU) <= 9U;
-}
-
-bool calendar_fields_equal(
-    const LUNASHELL_calendar_time_t &left,
-    const LUNASHELL_calendar_time_t &right
-)
-{
-    return left.year == right.year &&
-           left.month == right.month &&
-           left.day == right.day &&
-           left.hour == right.hour &&
-           left.minute == right.minute &&
-           left.second == right.second;
-}
-
-void advance_calendar_one_second(LUNASHELL_calendar_time_t *time)
-{
-    if (time == nullptr) {
-        return;
-    }
-    if (++time->second <= 59U) {
-        return;
-    }
-    time->second = 0;
-    if (++time->minute <= 59U) {
-        return;
-    }
-    time->minute = 0;
-    if (++time->hour <= 23U) {
-        return;
-    }
-    time->hour = 0;
-    static constexpr uint8_t days_per_month[] = {
-        31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
-    };
-    uint8_t maximum_day = days_per_month[time->month - 1U];
-    const bool leap =
-        (time->year % 4U == 0U && time->year % 100U != 0U) ||
-        time->year % 400U == 0U;
-    if (time->month == 2U && leap) {
-        maximum_day = 29U;
-    }
-    if (++time->day <= maximum_day) {
-        return;
-    }
-    time->day = 1;
-    if (++time->month <= 12U) {
-        return;
-    }
-    time->month = 1;
-    ++time->year;
-}
-
-bool rtc_write_readback_matches(
-    const LUNASHELL_calendar_time_t &requested,
-    const LUNASHELL_calendar_time_t &observed
-)
-{
-    if (calendar_fields_equal(requested, observed)) {
-        return true;
-    }
-    LUNASHELL_calendar_time_t next = requested;
-    advance_calendar_one_second(&next);
-    return calendar_fields_equal(next, observed);
-}
-
+// time: Calendar acquired by the RTC owner, including untrusted register diagnostics.
+// read_error: Original hardware/decode outcome.
+// publication_error: Result of publishing that exact acquisition to the canonical snapshot.
+// trusted_write_generation_at_read: Generation used to reject an observation superseded by a write.
 RtcLatchObservation make_rtc_latch_observation(
     const LUNASHELL_calendar_time_t &time,
     esp_err_t read_error,
@@ -2331,7 +2217,7 @@ RtcLatchObservation make_rtc_latch_observation(
         return observation;
     }
     if (read_error != ESP_ERR_INVALID_STATE ||
-        !valid_rtc_register_calendar(time) ||
+        !LUNASHELL::rtc_calendar::valid_rtc_register_calendar(time) ||
         time.clock_integrity) {
         return observation;
     }
@@ -2992,6 +2878,8 @@ esp_err_t init_rtc(i2c_master_bus_handle_t bus)
 }
 #endif
 
+// time: Receives one hardware read, including explicit untrusted calendar diagnostics.
+// Exception: Returns the original I2C read or calendar-integrity failure.
 esp_err_t read_rtc_calendar(LUNASHELL_calendar_time_t *time)
 {
     if (time == nullptr) {
@@ -3008,97 +2896,13 @@ esp_err_t read_rtc_calendar(LUNASHELL_calendar_time_t *time)
         return error;
     }
 
-    const uint8_t seconds = raw[0] & 0x7FU;
-    const uint8_t minutes = raw[1] & 0x7FU;
-    const uint8_t hours = raw[2] & 0x3FU;
-    const uint8_t day = raw[3] & 0x3FU;
-    const uint8_t month = raw[5] & 0x1FU;
-    if (!valid_bcd(seconds) || !valid_bcd(minutes) ||
-        !valid_bcd(hours) || !valid_bcd(day) ||
-        !valid_bcd(month) || !valid_bcd(raw[6])) {
-        ESP_LOGE(
-            TAG,
-            "RTC PCF85063 rejected non-BCD calendar: raw=[%02x %02x %02x %02x %02x %02x %02x]",
-            raw[0],
-            raw[1],
-            raw[2],
-            raw[3],
-            raw[4],
-            raw[5],
-            raw[6]
-        );
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-
-    const LUNASHELL_calendar_time_t decoded = {
-        .clock_integrity = (raw[0] & BIT(7)) == 0,
-        .year = static_cast<uint16_t>(2000U + bcd_to_decimal(raw[6])),
-        .month = bcd_to_decimal(month),
-        .day = bcd_to_decimal(day),
-        .hour = bcd_to_decimal(hours),
-        .minute = bcd_to_decimal(minutes),
-        .second = bcd_to_decimal(seconds),
-    };
-    if (!valid_rtc_register_calendar(decoded)) {
-        ESP_LOGE(
-            TAG,
-            "RTC PCF85063 rejected calendar range: decoded=%04u-%02u-%02u %02u:%02u:%02u raw=[%02x %02x %02x %02x %02x %02x %02x]",
-            decoded.year,
-            decoded.month,
-            decoded.day,
-            decoded.hour,
-            decoded.minute,
-            decoded.second,
-            raw[0],
-            raw[1],
-            raw[2],
-            raw[3],
-            raw[4],
-            raw[5],
-            raw[6]
-        );
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    *time = decoded;
-    if (!decoded.clock_integrity) {
-        ESP_LOGW(
-            TAG,
-            "RTC PCF85063 calendar integrity unavailable (oscillator-stop flag set): "
-            "decoded=%04u-%02u-%02u %02u:%02u:%02u "
-            "raw=[%02x %02x %02x %02x %02x %02x %02x]",
-            decoded.year,
-            decoded.month,
-            decoded.day,
-            decoded.hour,
-            decoded.minute,
-            decoded.second,
-            raw[0],
-            raw[1],
-            raw[2],
-            raw[3],
-            raw[4],
-            raw[5],
-            raw[6]
-        );
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (!valid_calendar_time(decoded)) {
-        ESP_LOGW(
-            TAG,
-            "RTC PCF85063 calendar is structurally valid but not initialized "
-            "to a trusted epoch: decoded=%04u-%02u-%02u %02u:%02u:%02u",
-            decoded.year,
-            decoded.month,
-            decoded.day,
-            decoded.hour,
-            decoded.minute,
-            decoded.second
-        );
-        return ESP_ERR_INVALID_STATE;
-    }
-    return ESP_OK;
+    return LUNASHELL::rtc_calendar::decode_registers(raw, *time);
 }
 
+// time: Original acquired calendar; never synthesized after a failed read.
+// error: Hardware/decode outcome controlling validity and health.
+// attempted_at_us: Original acquisition timestamp retained for failure and success state.
+// Exception: Returns the canonical publication error without replacing the acquisition error.
 esp_err_t publish_rtc_read(
     const LUNASHELL_calendar_time_t &time,
     esp_err_t error,
@@ -3109,7 +2913,7 @@ esp_err_t publish_rtc_read(
         return update_snapshot(
             [time, error, attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
                 if (error == ESP_ERR_INVALID_STATE &&
-                    valid_rtc_register_calendar(time)) {
+                    LUNASHELL::rtc_calendar::valid_rtc_register_calendar(time)) {
                     snapshot.rtc.clock_integrity = time.clock_integrity;
                     snapshot.rtc.second = time.second;
                     snapshot.rtc.minute = time.minute;
@@ -4388,6 +4192,11 @@ NmeaSentenceKind nmea_sentence_kind(const char *sentence, size_t length)
     return NmeaSentenceKind::Unsupported;
 }
 
+// sentence: Checksum-verified bounded receiver sentence.
+// length: Exact input size before field parsing.
+// sample: Owner-held GPS candidate updated only from validated fields.
+// state: Acquisition-owned GGA/RMC validity and original sentence timestamps.
+// supported: Optional output distinguishing unsupported sentence kinds from malformed supported ones.
 bool parse_nmea_sentence(
     const char *sentence,
     size_t length,
@@ -4524,7 +4333,7 @@ bool parse_nmea_sentence(
         double longitude = 0.0;
         float speed_knots = 0.0F;
         float course_degrees = 0.0F;
-        if (!valid_calendar_time(utc) ||
+        if (!LUNASHELL::rtc_calendar::valid_calendar_time(utc) ||
             !parse_float_field(fields[7], &speed_knots) ||
             speed_knots < 0.0F ||
             !parse_float_field(fields[8], &course_degrees) ||
@@ -8766,9 +8575,11 @@ extern "C" esp_err_t LUNASHELL_rtc_read(LUNASHELL_calendar_time_t *time, int64_t
     return ESP_OK;
 }
 
+// time: Explicit trusted UTC calendar written and verified by the sole RTC acquisition owner.
+// Exception: Returns original admission, register, readback, persistence or publication failure.
 extern "C" esp_err_t LUNASHELL_rtc_write(const LUNASHELL_calendar_time_t *time)
 {
-    if (time == nullptr || !valid_calendar_time(*time)) {
+    if (time == nullptr || !LUNASHELL::rtc_calendar::valid_calendar_time(*time)) {
         ESP_LOGE(TAG, "RTC write rejected: invalid UTC calendar");
         return ESP_ERR_INVALID_ARG;
     }
@@ -8781,13 +8592,13 @@ extern "C" esp_err_t LUNASHELL_rtc_write(const LUNASHELL_calendar_time_t *time)
     // calendar or publish their results out of order.
     std::lock_guard<std::mutex> rtc_lock(s_rtc_operation_mutex);
     const uint8_t raw[7] = {
-        decimal_to_bcd(time->second),
-        decimal_to_bcd(time->minute),
-        decimal_to_bcd(time->hour),
-        decimal_to_bcd(time->day),
+        LUNASHELL::rtc_calendar::decimal_to_bcd(time->second),
+        LUNASHELL::rtc_calendar::decimal_to_bcd(time->minute),
+        LUNASHELL::rtc_calendar::decimal_to_bcd(time->hour),
+        LUNASHELL::rtc_calendar::decimal_to_bcd(time->day),
         0,
-        decimal_to_bcd(time->month),
-        decimal_to_bcd(static_cast<uint8_t>(time->year - 2000U)),
+        LUNASHELL::rtc_calendar::decimal_to_bcd(time->month),
+        LUNASHELL::rtc_calendar::decimal_to_bcd(static_cast<uint8_t>(time->year - 2000U)),
     };
     const int64_t attempted_at_us = esp_timer_get_time();
     const bool pending_recovery_at_start =
@@ -8818,7 +8629,7 @@ extern "C" esp_err_t LUNASHELL_rtc_write(const LUNASHELL_calendar_time_t *time)
         if (recovery_readback_required) {
             error = read_rtc_calendar(&published);
             if (error == ESP_OK &&
-                !rtc_write_readback_matches(*time, published)) {
+                !LUNASHELL::rtc_calendar::rtc_write_readback_matches(*time, published)) {
                 ESP_LOGE(
                     TAG,
                     "RTC recovery readback mismatch: requested=%04u-%02u-%02u %02u:%02u:%02u observed=%04u-%02u-%02u %02u:%02u:%02u (%s)",

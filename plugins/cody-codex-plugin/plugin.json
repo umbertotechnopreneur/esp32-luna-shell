@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "cody-codex-plugin",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Collego Cody, invio notifiche e domande; riavvio o ripristino solo con intenzione e codice espliciti. Cody Studio resta SIMULATED.",
   "author": {
     "name": "Umberto Giacobbi"

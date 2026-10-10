@@ -411,8 +411,10 @@ class SimulatorLink:
                 self._accept_debug(fields, source)
             elif kind == "EVENT":
                 self._accept_event(fields, source)
+                self._send_terminal_ack(send)
             elif kind == "REPLYACK":
                 self._accept_reply_ack(fields)
+                self._send_terminal_ack(send)
             elif kind in {"RESET", "FACTORYRESET"}:
                 operation = reset.ResetOperation.RESTART if kind == "RESET" else reset.ResetOperation.FACTORY_RESET
                 self._accept_reset(fields, source, send, operation)
@@ -730,6 +732,10 @@ class SimulatorLink:
         if fields["state"] == "pending" and payload.selected_id:
             raise ValueError("CCP pending EVENT cannot already have a selected choice")
         same_ticket = fields["id"] == self._request_id
+        if (not same_ticket and self._event_payload is not None
+                and self._event_payload.kind == interactions.EventKind.QUESTION
+                and self._event_state in {"pending", "sending", "received"}):
+            raise ValueError("CCP next question arrived before the previous device closure")
         if same_ticket and self._event_payload is not None:
             if replace(payload, selected_id="") != replace(self._event_payload, selected_id=""):
                 raise ValueError("CCP immutable request content changed")
@@ -746,7 +752,10 @@ class SimulatorLink:
             if self._event_payload is not None and self._event_payload.selected_id:
                 payload = replace(payload, selected_id=self._event_payload.selected_id)
         if same_ticket and self._event_state in {"expired", "cancelled", "rejected", "delivered"} and incoming != self._event_state:
-            raise ValueError("CCP retired request cannot change state or revive")
+            if incoming not in interactions.TERMINAL_STATES:
+                raise ValueError("CCP retired request cannot change state or revive")
+            # Preserve local expiry/rejection while acknowledging actual closure.
+            incoming = self._event_state
         expiry = self.clock() + ttl
         self._event_expires = min(self._event_expires, expiry) if same_ticket else expiry
         self._request_id, self._event_payload, self._event_state = fields["id"], payload, incoming
@@ -755,6 +764,20 @@ class SimulatorLink:
             self._reply_choice = ""
         if incoming in {"pending", "sending", "received"} and ttl == 0:
             self._event_state, self._reply_choice = "expired", ""
+
+    # self: SIMULATED endpoint reporting actual retirement, separate from recipient delivery.
+    # send: Sole authenticated socket callback; a lost ACK is retried on the next terminal EVENT.
+    # Raises ValueError, RuntimeError or OSError for missing route, crypto or send failure.
+    def _send_terminal_ack(self, send: Send) -> None:
+        if (self._event_payload is None or self._event_payload.kind != interactions.EventKind.QUESTION
+                or self._event_state not in interactions.TERMINAL_STATES | {"rejected"}):
+            return
+        if self.active is None or not self._nonce or self._event_peer is None:
+            raise ValueError("No authenticated route for terminal observation")
+        key = protocol.unprotect_secret(self.active["protected_link_key"])
+        values = [self.device_id, self.active["pc_id"], self._nonce, self._request_id, self._event_state]
+        send(protocol.encode_datagram("EVENTACK", list(zip(("device", "pc", "nonce", "id", "state"), values))
+                                      + [("proof", protocol.make_proof(key, "event-ack", *values))]), self._event_peer)
 
     # self: Explicit simulator confirmation target; choosing a card alone never calls this method.
     # choice_id: Stable ID selected locally and reviewed before Send.

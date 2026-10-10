@@ -270,6 +270,9 @@ HMAC input: reply|<device>|<pc>|<nonce>|<id>|<choice>
 
 CCP1|REPLYACK|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|choice=<choice-id>|status=<status>|proof=<64hex>
 HMAC input: reply-ack|<device>|<pc>|<nonce>|<id>|<choice>|<status>
+
+CCP1|EVENTACK|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|state=<terminal-state>|proof=<64hex>
+HMAC input: event-ack|<device>|<pc>|<nonce>|<id>|<state>
 ```
 
 L'estensione `events=1` richiede anche `activity=1`; entrambe hanno valore
@@ -329,6 +332,30 @@ autorizza `Reply sent`. Gli altri status REPLYACK sono `received`, `expired`,
 `cancelled`, `conflict`, `unknown`. Ripetere la stessa scelta e' idempotente;
 una scelta diversa non sovrascrive la prima. Non azzero lo stato per un ACK
 perso: il successivo FIND o REPLY ne riporta lo stato autenticato.
+
+Da CCP 0.6.1 distinguo la conferma del destinatario dalla chiusura osservata
+sul dispositivo. Una domanda gia' pubblicata e chiusa dal broker precede la
+successiva finche' Cody non applica lo stato terminale e invia EVENTACK.
+L'ACK ammette solo `delivered`, `cancelled`, `expired` o `rejected`, con chiave
+attiva, endpoint osservato e nonce FIND corrente. Non contiene una scelta,
+non approva operazioni e non modifica il risultato del destinatario.
+Una scadenza locale puo' precedere il frame `delivered`: conservo la reale
+chiusura locale senza inventare `Reply sent` e senza riscrivere la risposta MCP.
+
+| Passaggio | Proprietario | Effetto |
+| --- | --- | --- |
+| pending -> sending | Cody, dopo Send esplicito | Scelta confermata localmente; consegna ancora ignota |
+| pending -> received | Broker, dopo REPLY autenticato | Risposta registrata; il destinatario deve confermarla |
+| received -> delivered | Agent, poll con answer_id esatto | Destinatario confermato; Cody deve ancora osservare la chiusura |
+| terminal -> EVENTACK | Cody, dopo pubblicazione canonica | Consente al broker di pubblicare la domanda successiva |
+
+Ritrasmetto lo snapshot terminale anche oltre gli otto secondi della normale
+presentazione, finche' ricevo l'ACK. Se l'ACK si perde, il FIND successivo
+ripete la chiusura e Cody la riconferma, anche dopo Done. Una domanda mai
+pubblicata non richiede una chiusura sul dispositivo. Le scadenze iniziano
+all'accodamento: l'attesa della chiusura precedente non prolunga il TTL.
+Il firmware che implementa EVENTACK e CCP 0.6.1 vanno aggiornati insieme;
+non rilascio la successiva domanda per un semplice timeout di presentazione.
 
 Tengo una sola domanda aperta per dispositivo, senza soppiantarla con attivita',
 batteria o notifiche. La selezione sullo screen 27 rimane reversibile finche'

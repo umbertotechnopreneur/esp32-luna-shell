@@ -479,10 +479,14 @@ def main() -> int:
 
     read_start = hardware.index("esp_err_t read_rtc_calendar(")
     read_end = hardware.index("esp_err_t publish_rtc_read(", read_start)
-    rtc_read = hardware[read_start:read_end]
+    rtc_acquisition = hardware[read_start:read_end]
+    require_contains(rtc_acquisition, "read_register(s_rtc, PCF85063_REG_SECONDS", "RTC acquisition owner")
+    require_contains(rtc_acquisition, "rtc_calendar::decode_registers(raw, *time)", "RTC calendar delegation")
+    decoder_start = hardware.index("esp_err_t decode_registers(")
+    rtc_read = hardware[decoder_start:]
     for fragment in (
         "valid_rtc_register_calendar(decoded)",
-        "*time = decoded;",
+        "time = decoded;",
         "if (!decoded.clock_integrity)",
         "if (!valid_calendar_time(decoded))",
         "return ESP_ERR_INVALID_STATE;",
@@ -490,7 +494,7 @@ def main() -> int:
         require_contains(rtc_read, fragment, "read_rtc_calendar")
     require(
         rtc_read.index("valid_rtc_register_calendar(decoded)")
-        < rtc_read.index("*time = decoded;")
+        < rtc_read.index("time = decoded;")
         < rtc_read.index("if (!decoded.clock_integrity)")
         < rtc_read.index("if (!valid_calendar_time(decoded))"),
         "RTC read must separate malformed registers, OS integrity, and trusted epoch",

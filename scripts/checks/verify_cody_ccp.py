@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "plugins/cody-codex-plugin/mcp"))
 import ccp_server as ccp
 import ccp_activity as activity
 import ccp_runtime as runtime
+import ccp_windows as windows
 import ccp_interactions as interactions
 from cody_ccp_event_vectors import event_vectors
 
@@ -485,9 +486,9 @@ class ChatActivityTests(unittest.TestCase):
     # self: Mocked Winsock reservation with no real socket or state access.
     # Raises AssertionError if availability depends on a failed connection attempt.
     def test_local_startup_uses_exclusive_port_ownership(self) -> None:
-        with patch.object(runtime.socket, "socket") as factory:
+        with patch.object(windows.socket, "socket") as factory:
             reservation = factory.return_value.__enter__.return_value
-            with patch.object(runtime.socket, "create_connection") as connect:
+            with patch.object(windows.socket, "create_connection") as connect:
                 self.assertTrue(runtime.control_port_available())
             connect.assert_not_called()
             reservation.bind.assert_called_once_with(("127.0.0.1", runtime.CONTROL_PORT))
@@ -496,7 +497,7 @@ class ChatActivityTests(unittest.TestCase):
     # self: An already occupied control address represented by the original socket error.
     # Raises AssertionError if another owner is treated as an available address.
     def test_occupied_control_port_preserves_existing_owner(self) -> None:
-        with patch.object(runtime.socket, "socket") as factory:
+        with patch.object(windows.socket, "socket") as factory:
             reservation = factory.return_value.__enter__.return_value
             reservation.bind.side_effect = OSError(errno.EADDRINUSE, "synthetic occupied address")
             self.assertFalse(runtime.control_port_available())
@@ -505,7 +506,7 @@ class ChatActivityTests(unittest.TestCase):
     # Raises AssertionError if an ambiguous access failure admits a new broker.
     def test_control_port_access_failure_is_not_absence(self) -> None:
         failure = OSError(errno.EACCES, "synthetic denied reservation")
-        with patch.object(runtime.socket, "socket") as factory:
+        with patch.object(windows.socket, "socket") as factory:
             factory.return_value.__enter__.return_value.bind.side_effect = failure
             with self.assertRaises(OSError) as raised:
                 runtime.control_port_available()
@@ -734,6 +735,83 @@ class ResetTests(unittest.TestCase):
 
 
 class InteractionTests(unittest.TestCase):
+    # self: Two sequential questions with a lost terminal packet/ACK and one active association.
+    # Raises AssertionError if publication bypasses device closure or extends the queued deadline.
+    def test_next_question_waits_for_authenticated_device_closure(self) -> None:
+        association = "a" * 64
+        first = self.store.enqueue(self.device, self.payload, "LAN", association_id=association)
+        self.store.snapshot(self.device, association)
+        self.store.answer(self.device, first["request_id"], "memory")
+        answer = self.store.poll(first["request_id"], first["capability"])
+        self.store.poll(first["request_id"], first["capability"], acknowledge_answer_id=answer["answer_id"])
+        second = self.store.enqueue(self.device, self.payload, "LAN", association_id=association)
+        self.now += interactions.TERMINAL_DISPLAY_SECONDS + 1
+        self.assertEqual(self.store.snapshot(self.device, association)[:2], (first["request_id"], "delivered"))
+        for device, state, digest in ((self.device, "pending", association),
+                                      (self.device, "delivered", "b" * 64),
+                                      ("012345abcdef", "delivered", association)):
+            with self.assertRaises(ValueError):
+                self.store.acknowledge_terminal(device, first["request_id"], state, digest)
+        self.assertEqual(self.store.snapshot(self.device, association)[0], first["request_id"])
+        self.store.acknowledge_terminal(self.device, first["request_id"], "delivered", association)
+        self.store.acknowledge_terminal(self.device, first["request_id"], "delivered", association)
+        self.assertEqual(self.store.snapshot(self.device, association)[:3],
+                         (second["request_id"], "pending", str(180 - int(self.now - 100))))
+
+    # self: Local expiry after recipient delivery and an unpublished cancellation.
+    # Raises AssertionError if local closure rewrites the answer or an unseen cancellation blocks a question.
+    def test_local_expiry_ack_preserves_recipient_result_and_unpublished_ticket_does_not_block(self) -> None:
+        association = "a" * 64
+        first = self.store.enqueue(self.device, self.payload, "LAN", association_id=association)
+        self.store.snapshot(self.device, association)
+        self.store.answer(self.device, first["request_id"], "redis")
+        answer = self.store.poll(first["request_id"], first["capability"])
+        self.store.poll(first["request_id"], first["capability"], acknowledge_answer_id=answer["answer_id"])
+        self.store.acknowledge_terminal(self.device, first["request_id"], "expired", association)
+        self.assertEqual(self.store.poll(first["request_id"], first["capability"])["state"], "delivered")
+        cancelled = self.store.enqueue(self.device, self.payload, "LAN", association_id=association)
+        self.store.cancel(cancelled["request_id"], cancelled["capability"])
+        with self.assertRaises(ValueError):
+            self.store.acknowledge_terminal(self.device, cancelled["request_id"], "cancelled", association)
+        next_ticket = self.store.enqueue(self.device, self.payload, "LAN", association_id=association)
+        self.assertEqual(self.store.snapshot(self.device, association)[0], next_ticket["request_id"])
+
+    # self: Real signed EVENTACK packets against the production responder and isolated socket mock.
+    # Raises AssertionError if a wrong source, stale nonce, forged proof or retired key releases the next ticket.
+    def test_terminal_ack_requires_current_peer_nonce_proof_and_association(self) -> None:
+        key = bytes(range(32))
+        association = hashlib.sha256(key).hexdigest()
+        first = self.store.enqueue(self.device, self.payload, "LAN", association_id=association)
+        state = Mock(pc_id="a" * 32)
+        state.retained_keys.return_value = ccp.RetainedKeys(key, None)
+        responder = ccp.CompanionResponder(state, Mock(), activity.ActivityStore(), self.store)
+        source = ("192.0.2.10", ccp.DEVICE_PORT)
+        values = [self.device, state.pc_id, "b" * 32]
+        find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
+            [("activity", "1"), ("events", "1"), ("proof", ccp.make_proof(key, "find-events", *values))])
+        responder._handle_datagram(find, source)
+        self.store.cancel(first["request_id"], first["capability"])
+        second = self.store.enqueue(self.device, self.payload, "LAN", association_id=association)
+        ack_values = values + [first["request_id"], "cancelled"]
+        fields = list(zip(("device", "pc", "nonce", "id", "state"), ack_values))
+        ack = ccp.encode_datagram("EVENTACK", fields + [("proof", ccp.make_proof(key, "event-ack", *ack_values))])
+        with self.assertRaises(ValueError):
+            responder._handle_datagram(ack, (source[0], source[1] + 1))
+        with self.assertRaises(ValueError):
+            responder._handle_datagram(ccp.encode_datagram("EVENTACK", fields + [("proof", "0" * 64)]), source)
+        stale_values = [*values[:2], "c" * 32, *ack_values[3:]]
+        with self.assertRaises(ValueError):
+            responder._handle_datagram(ccp.encode_datagram("EVENTACK",
+                list(zip(("device", "pc", "nonce", "id", "state"), stale_values)) +
+                [("proof", ccp.make_proof(key, "event-ack", *stale_values))]), source)
+        state.retained_keys.return_value = ccp.RetainedKeys(bytes(reversed(key)), None)
+        with self.assertRaises(ValueError):
+            responder._handle_datagram(ack, source)
+        self.assertEqual(self.store.snapshot(self.device, association)[0], first["request_id"])
+        state.retained_keys.return_value = ccp.RetainedKeys(key, None)
+        responder._handle_datagram(ack, source)
+        self.assertEqual(self.store.snapshot(self.device, association)[0], second["request_id"])
+
     # self: Pure interaction owner with synthetic clocks; no hook, protected state or socket is used.
     def setUp(self) -> None:
         self.now = 100.0

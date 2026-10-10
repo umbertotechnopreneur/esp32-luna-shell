@@ -1,4 +1,5 @@
 #include "../../components/LUNASHELL_platform/include/LUNASHELL_scene_standby_policy.hpp"
+#include "../../components/LUNASHELL_platform/include/LUNASHELL_standby_policy.hpp"
 
 using LUNASHELL::power_policy::SceneStandbyOverride;
 using LUNASHELL::power_policy::scene_standby_expired;
@@ -30,3 +31,16 @@ constexpr SceneStandbyOverride maximum{UINT32_MAX, 0};
 static_assert(!scene_standby_expired(4294967294999999LL, 0, maximum));
 static_assert(scene_standby_expired(4294967295000000LL, 0, maximum));
 static_assert(!scene_standby_expired(119999999, 0, pairing));
+
+using LUNASHELL::power_policy::StandbySleep;
+using LUNASHELL::power_policy::select_standby_sleep;
+
+// Release permits deep sleep only when no retained service needs the CPU/radio.
+static_assert(select_standby_sleep(true, false, false, true) == StandbySleep::Deep);
+static_assert(select_standby_sleep(true, true, false, true) == StandbySleep::Software);
+static_assert(select_standby_sleep(true, false, true, true) == StandbySleep::Software);
+static_assert(select_standby_sleep(true, true, true, true) == StandbySleep::Software);
+// Debug and a missing physical touch wake stay in the existing software path.
+static_assert(select_standby_sleep(false, false, false, true) == StandbySleep::Software);
+static_assert(select_standby_sleep(false, true, true, true) == StandbySleep::Software);
+static_assert(select_standby_sleep(true, false, false, false) == StandbySleep::Software);

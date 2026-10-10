@@ -499,7 +499,9 @@ class SimulatorProtocolTests(unittest.TestCase):
                 interactions.Choice("memory", "Memory", "Keep the cache in memory.", interactions.Tone.POSITIVE),
                 interactions.Choice("redis", "Redis", "Use the configured Redis cache.", interactions.Tone.INFO),
                 interactions.Choice("none", "No cache", "Continue without a cache.", interactions.Tone.NEUTRAL)))
-        created = self.requests.enqueue(self.link.device_id, payload, "SIMULATED")
+        key = protocol.unprotect_secret(self.link.active["protected_link_key"])
+        created = self.requests.enqueue(self.link.device_id, payload, "SIMULATED",
+                                       association_id=hashlib.sha256(key).hexdigest())
         self.deliver_events()
         return created
 
@@ -533,6 +535,34 @@ class SimulatorProtocolTests(unittest.TestCase):
         self.deliver_events()
         self.assertEqual(self.link.snapshot().event_state, "delivered")
         self.assertEqual(self.link.snapshot().event_payload.selected_id, "redis")
+
+    # self: Two real broker/simulator transactions with the first terminal acknowledgement lost.
+    # Raises AssertionError if the broker hides closure, a retry changes the answer, or the second ticket is rejected.
+    def test_consecutive_questions_retry_terminal_ack_before_publishing_next(self):
+        first = self.question()
+        payload = self.link.snapshot().event_payload
+        self.link.submit_reply("redis", self.send)
+        self.host._handle_datagram(self.send.call_args.args[0], (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        self.link.handle_datagram(self.host_listener.sendto.call_args.args[0],
+                                  (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        answer = self.requests.poll(first["request_id"], first["capability"])
+        self.requests.poll(first["request_id"], first["capability"], acknowledge_answer_id=answer["answer_id"])
+        key = protocol.unprotect_secret(self.link.active["protected_link_key"])
+        association = hashlib.sha256(key).hexdigest()
+        second = self.requests.enqueue(self.link.device_id, payload, "SIMULATED", association_id=association)
+        self.deliver_events()
+        self.assertEqual(self.link.snapshot().request_id, first["request_id"])
+        self.assertEqual(self.link.snapshot().event_state, "delivered")
+        # Drop this EVENTACK; the next FIND must still publish the first closure.
+        self.now += interactions.TERMINAL_DISPLAY_SECONDS + 1
+        self.deliver_events()
+        self.assertEqual(self.link.snapshot().request_id, first["request_id"])
+        kind, fields = protocol.parse_datagram(self.send.call_args.args[0])
+        self.assertEqual((kind, fields["state"]), ("EVENTACK", "delivered"))
+        self.host._handle_datagram(self.send.call_args.args[0], (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        self.deliver_events()
+        self.assertEqual(self.link.snapshot().request_id, second["request_id"])
+        self.assertEqual(self.link.snapshot().event_state, "pending")
 
     # self: Pending semantic question across simulated radio loss and reconnection.
     # Raises AssertionError if disconnect loses the route/selection or permits a stale reply.

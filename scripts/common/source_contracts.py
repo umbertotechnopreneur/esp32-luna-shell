@@ -2,8 +2,12 @@
 from pathlib import Path
 
 _SOURCE_PARTS = {
+    "LUNASHELL_power.cpp": ("LUNASHELL_standby_resources.cpp", "LUNASHELL_standby_resources.hpp"),
+    "CODY_onboarding.cpp": ("CODY_codex_event_presentation.hpp",),
     "LUNASHELL_hardware.cpp": (
         "LUNASHELL_snapshot_reports.cpp",
+        "LUNASHELL_rtc_calendar.cpp",
+        "LUNASHELL_rtc_calendar.hpp",
         "LUNASHELL_snapshot_internal.hpp",
     ),
     "LUNASHELL_app.cpp": (

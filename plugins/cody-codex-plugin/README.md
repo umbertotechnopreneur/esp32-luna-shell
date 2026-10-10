@@ -5,6 +5,17 @@ piccolo omaggio nel nome e senza chiedere alla nuvola di diventare un server.
 Uso Python standard su Windows, MCP locale per Codex e CCP1 per il dispositivo.
 Mi bastano Wi-Fi e IP sulla LAN: l'accesso a Internet non decide il pairing.
 
+CCP 0.6.1 richiede il firmware con EVENTACK: prima di mostrare una seconda
+domanda attendo la chiusura autenticata della prima sul dispositivo. La conferma
+dell'agent e quella di Cody restano distinte; i dettagli sono nel
+[contratto CCP1](protocol/CCP1.md). Questo checkpoint aggiorna i sorgenti;
+l'installazione del pacchetto e il caricamento del firmware sono operazioni separate.
+
+`mcp/ccp_windows.py` possiede DPAPI, percorsi utente, esclusivita' Winsock e
+avvio nascosto. Trasporto e broker mantengono il formato delle chiavi salvate.
+Il runtime residente resta Windows: Linux/macOS richiedono un proprietario
+esplicito delle credenziali e dell'avvio, senza sostituti in chiaro.
+
 ## Installo CCP una volta
 
 1. Rendo `python` disponibile nell'ambiente dell'app desktop.

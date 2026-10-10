@@ -7,6 +7,8 @@
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_power_policy.hpp"
+#include "LUNASHELL_standby_policy.hpp"
+#include "LUNASHELL_standby_resources.hpp"
 #include "LUNASHELL_scene_standby_policy.hpp"
 #include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_settings.hpp"
@@ -38,8 +40,8 @@ namespace {
 constexpr char kTag[] = "LUNASHELL_power_manager";
 constexpr gpio_num_t kBootButton = GPIO_NUM_0;
 constexpr TickType_t kPollTicks = pdMS_TO_TICKS(20);
-// Debug keeps motion observable at 10 Hz. Release enters Deep-sleep after
-// successful standby; incomplete standby retains a slower software cadence.
+// Debug keeps motion observable at 10 Hz. Release retains a slower software
+// cadence when a live service prevents deep sleep after successful standby.
 constexpr TickType_t kStandbyPollTicks = pdMS_TO_TICKS(
     LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled ? 100 : 1000);
 constexpr TickType_t kPolicyTicks = pdMS_TO_TICKS(100);
@@ -191,11 +193,9 @@ TickType_t s_boot_release_stable_at;
 std::atomic_bool s_boot_rearm_requested{false};
 std::atomic<uint32_t> s_pending_wakeup_cause{0};
 
-struct StandbyResourceStatus {
-    bool applied = false;
-    bool consistent = true;
-    bool unsupported = false;
-};
+using LUNASHELL::power_policy::StandbyResourceStatus;
+using LUNASHELL::power_policy::StandbyTransition;
+using LUNASHELL::power_policy::transition_standby_resource;
 
 struct OptionalResumeErrors {
     esp_err_t storage = ESP_OK;
@@ -733,8 +733,6 @@ void update_boot_arming(TickType_t now)
     );
 }
 
-using StandbyTransition = esp_err_t (*)(bool);
-
 // Keep the public audio flag aligned with both audio ownership layers.
 // No parameters: recompute suspension from the compiled resource owners.
 void refresh_audio_suspend_flag()
@@ -880,6 +878,32 @@ esp_err_t set_standalone_wireless_standby(bool standby)
 }
 #endif
 
+// No parameters: evaluate only confirmed resource state owned by the power task.
+LUNASHELL::power_policy::StandbySleep selected_standby_sleep()
+{
+    bool retained_connection = false;
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI && \
+    (CONFIG_LUNASHELL_BUILD_ENABLE_WIFI || CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH) && \
+    CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+    retained_connection = s_standby_retains_codex_wireless;
+#endif
+    constexpr bool voice_listening =
+#if CONFIG_LUNASHELL_BUILD_WAKE_WORD_STANDBY_LISTENING
+        true;
+#else
+        false;
+#endif
+    constexpr bool touch_wake_available =
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+        true;
+#else
+        false;
+#endif
+    return LUNASHELL::power_policy::select_standby_sleep(
+        LUNASHELL::build_mode::kDeepSleepOnStandbyEnabled, retained_connection,
+        voice_listening, touch_wake_available);
+}
+
 // Release reduces sampling during the transaction, then arms hardware WoM.
 // Debug keeps the host monitor available for software wake and diagnostics.
 // standby: Transactional standby request; Debug retains its normal 10-Hz observation.
@@ -988,68 +1012,6 @@ esp_err_t transition_display_resource(bool target)
     return error;
 }
 
-// component: Diagnostic name of the optional resource owner.
-// target: Whether the resource should apply its standby policy.
-// status: Last confirmed transition state, retained while the owner evaluates policy.
-// transition: Owner operation returning its real transition error.
-// reassert: Call the owner even if its cached applied state already matches.
-// Exception: Returns the original transition error; only unused build-off owners are optional.
-esp_err_t transition_standby_resource(
-    const char *component,
-    bool target,
-    StandbyResourceStatus &status,
-    StandbyTransition transition,
-    bool reassert = false
-)
-{
-    if (status.unsupported ||
-        (!reassert && status.consistent && status.applied == target)) {
-        return ESP_OK;
-    }
-    const esp_err_t error = transition(target);
-    if (error == ESP_ERR_NOT_SUPPORTED) {
-        // A build-off implementation is only classified as unavailable from
-        // the known active baseline. NOT_SUPPORTED after a successful
-        // suspension or an earlier failure cannot prove the hardware state.
-        if (status.consistent && !status.applied && target) {
-            status.unsupported = true;
-            ESP_LOGI(
-                kTag,
-                "%s standby transition unavailable in this build profile",
-                component
-            );
-            return ESP_OK;
-        }
-        status.consistent = false;
-        ESP_LOGE(
-            kTag,
-            "%s transition to %s became unavailable after lifecycle use",
-            component,
-            target ? "standby" : "active"
-        );
-        return error;
-    }
-    if (error != ESP_OK) {
-        // Component APIs attempt their own rollback, but their return value
-        // cannot prove that a nested rollback succeeded. Force the outer
-        // recovery to re-assert its target instead of trusting stale state.
-        status.consistent = false;
-        ESP_LOGE(
-            kTag,
-            "%s transition to %s failed (%s)",
-            component,
-            target ? "standby" : "active",
-            esp_err_to_name(error)
-        );
-        return error;
-    }
-    status.applied = target;
-    status.consistent = true;
-    status.unsupported = false;
-    refresh_audio_suspend_flag();
-    return ESP_OK;
-}
-
 // Require every mandatory resource to have a known lifecycle state.
 // target: Whether every selected resource must be in standby or active.
 // allow_storage_degraded: Whether an explicitly optional SD failure may remain visible.
@@ -1131,6 +1093,9 @@ esp_err_t suspend_standby_resources(bool best_effort)
             state,
             transition
         );
+        if (error == ESP_OK) {
+            refresh_audio_suspend_flag();
+        }
         if (first_error == ESP_OK && error != ESP_OK) {
             first_error = error;
         }
@@ -1263,6 +1228,9 @@ esp_err_t resume_standby_resources(
             state,
             transition
         );
+        if (error == ESP_OK) {
+            refresh_audio_suspend_flag();
+        }
         if (first_error == ESP_OK && error != ESP_OK) {
             first_error = error;
         }
@@ -1967,7 +1935,7 @@ esp_err_t set_standby(
             device_state_reason_name(reason),
             static_cast<unsigned long>(s_transition_sequence)
         );
-        if constexpr (LUNASHELL::build_mode::kDeepSleepOnStandbyEnabled) {
+        if (selected_standby_sleep() == LUNASHELL::power_policy::StandbySleep::Deep) {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
             const bool activity_during_suspend =
                 activity_before_standby != s_activity_sequence.load(std::memory_order_acquire);
@@ -3702,13 +3670,19 @@ extern "C" esp_err_t LUNASHELL_power_enter_light_sleep(uint64_t wake_after_us)
 }
 
 // wake_after_us: Optional timer in addition to touch/motion; zero adds no periodic wake.
+// Exception: Returns policy/admission failure or the original sleep/recovery error.
 extern "C" esp_err_t LUNASHELL_power_enter_deep_sleep(uint64_t wake_after_us)
 {
-#if CONFIG_LUNASHELL_BUILD_WAKE_WORD_STANDBY_LISTENING
-    ESP_LOGE(kTag, "Deep-sleep rejected while wake-word standby listening is enabled (%s)",
-             esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
-    return ESP_ERR_NOT_SUPPORTED;
-#endif
+    if (xTaskGetCurrentTaskHandle() != s_task) {
+        ESP_LOGE(kTag, "Deep-sleep rejected outside the power owner (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (selected_standby_sleep() != LUNASHELL::power_policy::StandbySleep::Deep) {
+        ESP_LOGE(kTag, "Deep-sleep rejected: the standby policy retains a live service or excludes sleep (%s)",
+              esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     if (!LUNASHELL::build_mode::kDeepSleepOnStandbyEnabled ||
         s_state != LUNASHELL::DeviceOperatingState::Standby ||
         xTaskGetCurrentTaskHandle() != s_task ||

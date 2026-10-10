@@ -15,6 +15,33 @@ enum class CodexEventState : uint8_t {
 };
 enum class CodexChoiceTone : uint8_t { Neutral, Positive, Negative, Info };
 
+// state: Device transaction state independent of connection/activity freshness.
+[[nodiscard]] constexpr bool codexEventIsOpen(CodexEventState state)
+{
+    return state == CodexEventState::Pending || state == CodexEventState::Sending ||
+        state == CodexEventState::Received;
+}
+
+// state: Actual retired device state; none is absence, not a closed transaction.
+[[nodiscard]] constexpr bool codexEventIsTerminal(CodexEventState state)
+{
+    return state == CodexEventState::Delivered || state == CodexEventState::Cancelled ||
+        state == CodexEventState::Expired || state == CodexEventState::Rejected;
+}
+
+// state: Actual retired state carried by the authenticated device acknowledgement.
+// Returns nullptr for a live or absent transaction; never manufactures closure.
+[[nodiscard]] constexpr const char *codexEventTerminalToken(CodexEventState state)
+{
+    switch (state) {
+    case CodexEventState::Delivered: return "delivered";
+    case CodexEventState::Cancelled: return "cancelled";
+    case CodexEventState::Expired: return "expired";
+    case CodexEventState::Rejected: return "rejected";
+    default: return nullptr;
+    }
+}
+
 struct CodexEventChoice {
     char id[13]{};
     char label[13]{};

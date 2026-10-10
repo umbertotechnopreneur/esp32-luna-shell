@@ -5,20 +5,24 @@ check, simulator, flash, serial access or electrical measurement was performed.
 
 The shared inactivity timer starts at the last real touch or qualified movement.
 Its first-boot default is **60 seconds**. The display fades out over a nominal
-**800 ms**, then Release enters Deep-sleep after successful transactional standby.
+**800 ms**, then Release chooses sleep after successful transactional standby.
+The power owner keeps software standby when the confirmed radio transaction
+retains the Cody/Codex association or wake-word standby listening is enabled.
+It permits Deep-sleep only with neither live service and a touch-enabled profile.
+The build mode grants permission to sleep; it does not override requested services.
 Debug uses the same timeout and fade but keeps the CPU running and USB available.
 Leg Edition uses this shared timer too; its former fixed 25-second panel-only
 policy no longer overrides device inactivity.
 
-| Resource | Active Debug | Debug standby | Release Deep-sleep |
+| Resource | Active Debug | Software standby | Release Deep-sleep |
 | --- | --- | --- | --- |
-| CPU / USB Serial-JTAG | Awake; normal frequency scaling | Awake; no automatic Light-sleep | CPU powered down; USB disconnects |
+| CPU / USB Serial-JTAG | Awake; normal frequency scaling | Debug stays awake; Release keeps its existing workload-governed Light-sleep policy | CPU powered down; USB disconnects |
 | Logging | INFO default; VERBOSE compiled | Errors and real input/power diagnostics remain available | WARN/ERROR compiled; no host polling or serial work |
 | Display | Configured brightness | 800-ms fade to off | Off; wake startup stays dark until the first boot frame and 800-ms fade-in |
 | Touch | IRQ-driven acquisition | Available for software wake | Powered; GPIO11 EXT1 low-level wake |
 | IMU | Canonical measured snapshots | 10-Hz host motion monitor, six-axis software-standby profile | Accelerometer-only low-power WoM on INT2/GPIO21; gyro off |
-| Wi-Fi / BLE | Available according to explicit service settings | Quiesced by the existing standby transaction | Connections lost; owners reinitialize on boot |
-| Audio / AFE / SD / TOF / full snapshots | Selected/requested services | Suspended by the existing transaction | Host services stopped |
+| Wi-Fi / BLE | Available according to explicit service settings | Retained for the admitted Cody/Codex association; otherwise quiesced | Connections lost; owners reinitialize on boot |
+| Audio / AFE / SD / TOF / full snapshots | Selected/requested services | Suspended except explicitly enabled wake-word listening | Host services stopped |
 | PWR | Existing PMU event handling | Existing software wake | No PWR/PMU wake source; no polling timer |
 
 Deep-sleep is a **firmware restart**, so 800 ms specifies the fade, not total
@@ -96,6 +100,11 @@ transition remains incomplete and active operation stays blocked; the error is
 not replaced with success or a silently selected sleep mode.
 
 ## Remaining evidence
+
+The service-aware policy and EVENTACK integration of 2026-10-10 have only static
+source review. Their C++ policy assertions and sequential broker/simulator
+regressions are defined but unexecuted. Earlier Debug hardware evidence does
+not validate these changes or Release residency/current.
 
 Verify revision identity, touch and IMU wake, held-finger behavior, repeated
 sleep/reboot cycles, configured timeout persistence, startup frame/fades, actual

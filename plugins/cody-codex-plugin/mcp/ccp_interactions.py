@@ -93,6 +93,8 @@ class Ticket:
     terminal_at: float | None = None
     association_id: str = ""
     native_session: str = ""
+    published: bool = False
+    device_terminal_state: str = ""
 
 
 # value: Caller-supplied text, retained exactly rather than projected or truncated.
@@ -534,6 +536,29 @@ class InteractionStore:
                     ticket.state, ticket.terminal_at = "cancelled", self._clock()
                     self._condition.notify_all()
 
+    # self: Owner recording authenticated device retirement separately from recipient delivery.
+    # device_id: Active peer identity authenticated by the UDP responder.
+    # request_id: Exact ticket previously published to this device.
+    # state: Actual terminal device state, including local expiry or rejection.
+    # association_id: Current active-key digest; a replacement cannot close another association's ticket.
+    # Raises ValueError for unknown, unrelated, unpublished or nonterminal acknowledgements.
+    def acknowledge_terminal(self, device_id: str, request_id: str, state: str,
+                             association_id: str) -> None:
+        with self._condition:
+            self._expire()
+            ticket = self._tickets.get(request_id)
+            if (ticket is None or ticket.device_id != device_id or not ticket.published
+                    or ticket.payload.kind != EventKind.QUESTION or ticket.state not in TERMINAL_STATES):
+                raise ValueError("Terminal acknowledgement has no published closed question")
+            if state not in TERMINAL_STATES | {"rejected"}:
+                raise ValueError("Terminal acknowledgement cannot close a live device request")
+            if not association_id or not hmac.compare_digest(association_id, ticket.association_id):
+                raise ValueError("Terminal acknowledgement belongs to a different association")
+            # An expired device can have missed Delivered. Record its real closure
+            # without changing the recipient-confirmed answer or claiming Reply sent.
+            ticket.device_terminal_state = state
+            self._condition.notify_all()
+
     # self: Publisher choosing a complete request snapshot without changing caller ownership.
     # device_id: Authenticated active Cody peer.
     # association_id: Current active-key digest; replacement retires old requests without exposing their payload.
@@ -553,13 +578,19 @@ class InteractionStore:
                     continue
                 relevant.append(item)
             questions = [item for item in relevant if item.payload.kind == EventKind.QUESTION
-                         and item.state not in TERMINAL_STATES]
+                          and item.state not in TERMINAL_STATES]
+            closing = [item for item in relevant if item.payload.kind == EventKind.QUESTION
+                       and item.published and item.state in TERMINAL_STATES and not item.device_terminal_state]
             recent = [item for item in relevant if item.payload.kind == EventKind.QUESTION
                       and item.terminal_at is not None and now - item.terminal_at < TERMINAL_DISPLAY_SECONDS]
             notices = [item for item in relevant if item.payload.kind != EventKind.QUESTION and item.state == "pending"]
-            ticket = (questions[-1] if questions else recent[-1] if recent else notices[-1] if notices else None)
+            # Queuing the next question must not hide the previous closure before
+            # Cody has applied it. Repeat the terminal snapshot until its signed ACK.
+            ticket = (closing[0] if closing else questions[-1] if questions else
+                      recent[-1] if recent else notices[-1] if notices else None)
             if ticket is None:
                 return "0" * 32, "none", "0", "-"
+            ticket.published = True
             payload = replace(ticket.payload, selected_id=ticket.selected_id)
             # Ceil prevents a live last-fraction-of-a-second request from being
             # published as Pending with ttl=0; the host deadline remains exact.

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import errno
 import hmac
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10,8 +9,6 @@ import json
 import os
 from pathlib import Path
 import secrets
-import socket
-import subprocess
 import sys
 import threading
 import time
@@ -19,9 +16,10 @@ from typing import Any
 
 import ccp_server as ccp
 from ccp_activity import EVENTS
+from ccp_windows import (CONTROL_PORT, configure_exclusive_socket, control_port_available,
+                         launch_runtime, runtime_directory)
 
 
-CONTROL_PORT = 42119
 MAX_REQUEST_BYTES = 65536
 IDLE_GRACE_SECONDS = 60.0
 LEASE_RENEW_SECONDS = 10.0
@@ -30,15 +28,6 @@ LEASE_RETRY_SECONDS = (1.0, 3.0, 10.0, 30.0)
 
 class BrokerTransportError(RuntimeError):
     """The HTTP transport failed before a valid broker response was available."""
-
-
-# No parameters: uses the established per-user CCP storage owner.
-# Raises RuntimeError when Windows local application storage is unavailable.
-def runtime_directory() -> Path:
-    location = os.environ.get("LOCALAPPDATA")
-    if not location:
-        raise RuntimeError("CCP requires LOCALAPPDATA for protected runtime state")
-    return Path(location) / "CodyCodexPlugin"
 
 
 # create: Only the process owning the exclusive control listener may create a missing key.
@@ -92,20 +81,6 @@ def exchange(operation: str, payload: dict[str, Any], secret: str, timeout: floa
         connection.close()
 
 
-# No parameters: asks Winsock for exclusive ownership without connecting to a closed port.
-# Raises OSError for access denial or any failure other than an occupied address.
-def control_port_available() -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
-        reservation.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-        try:
-            reservation.bind(("127.0.0.1", CONTROL_PORT))
-        except OSError as error:
-            if error.errno == errno.EADDRINUSE or getattr(error, "winerror", None) == 10048:
-                return False
-            raise
-    return True
-
-
 # No parameters: starts a hidden owner only if the loopback control port is unoccupied.
 # Raises OSError or RuntimeError for identity, launch, conflicting-version or startup failure.
 def ensure_runtime() -> str:
@@ -114,15 +89,7 @@ def ensure_runtime() -> str:
     if control_port_available():
         # The child re-acquires the exclusive bind before reading any state. If
         # another launcher wins this race, both clients authenticate that owner.
-        log_directory = runtime_directory() / "artifacts" / "logs"
-        log_directory.mkdir(parents=True, exist_ok=True)
-        with (log_directory / "runtime.log").open("ab", buffering=0) as output:
-            subprocess.Popen(
-                [sys.executable, "-B", str(Path(__file__).with_name("ccp_server.py")), "--broker"],
-                stdin=subprocess.DEVNULL, stdout=output, stderr=output,
-                creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
-                close_fds=True,
-            )
+        launch_runtime(Path(__file__).with_name("ccp_server.py"))
     deadline = time.monotonic() + 5.0
     last_error: Exception | None = None
     while time.monotonic() < deadline:
@@ -225,10 +192,10 @@ class ControlServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
 
-    # No parameters: acquires sole PC ownership before loading or creating any state.
+    # self: Control listener acquiring sole PC ownership before loading or creating any state.
     # Raises OSError when another process owns the loopback port.
     def server_bind(self) -> None:
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        configure_exclusive_socket(self.socket)
         super().server_bind()
 
 

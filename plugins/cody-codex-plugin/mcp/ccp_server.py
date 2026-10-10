@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
-import ctypes
-from ctypes import wintypes
 from dataclasses import dataclass
 import hashlib
 import hmac
@@ -24,6 +21,7 @@ from typing import Any
 from ccp_activity import ActivityStore
 import ccp_interactions as interactions
 import ccp_reset as reset
+from ccp_windows import configure_exclusive_socket, protect_secret, unprotect_secret, runtime_directory
 
 
 PROTOCOL = "CCP1"
@@ -31,7 +29,7 @@ DEVICE_PORT = 42117
 PLUGIN_PORT = 42118
 MAX_DATAGRAM_BYTES = 512
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.0"
+SERVER_VERSION = "0.6.1"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CODE_PATTERN = re.compile(r"^[A-HJ-NP-Z2-9]{6}$")
 HEX_PATTERNS = {
@@ -96,106 +94,6 @@ def observation_source(address: str) -> str:
     if not address:
         return "UNOBSERVED"
     return "SIMULATED" if ipaddress.ip_address(address).is_loopback else "LAN"
-
-
-class DataBlob(ctypes.Structure):
-    _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_ubyte))]
-
-
-# No parameters: returns Windows cryptography libraries with exact pointer signatures.
-# Raises RuntimeError when called outside Windows.
-def windows_cryptography_libraries() -> tuple[Any, Any]:
-    if os.name != "nt":
-        raise RuntimeError("CCP local link-key persistence requires Windows DPAPI")
-    crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    crypt32.CryptProtectData.argtypes = [
-        ctypes.POINTER(DataBlob),
-        wintypes.LPCWSTR,
-        ctypes.POINTER(DataBlob),
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        wintypes.DWORD,
-        ctypes.POINTER(DataBlob),
-    ]
-    crypt32.CryptProtectData.restype = wintypes.BOOL
-    crypt32.CryptUnprotectData.argtypes = [
-        ctypes.POINTER(DataBlob),
-        ctypes.POINTER(wintypes.LPWSTR),
-        ctypes.POINTER(DataBlob),
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        wintypes.DWORD,
-        ctypes.POINTER(DataBlob),
-    ]
-    crypt32.CryptUnprotectData.restype = wintypes.BOOL
-    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
-    kernel32.LocalFree.restype = ctypes.c_void_p
-    return crypt32, kernel32
-
-
-# kernel32: Loaded Windows kernel library with the LocalFree signature configured.
-# pointer: DPAPI-owned pointer returned through a DATA_BLOB or description field.
-# label: Non-secret diagnostic name for the owned allocation.
-# Raises RuntimeError when Windows cannot release the allocation.
-def release_windows_buffer(kernel32: Any, pointer: Any, label: str) -> None:
-    if pointer and kernel32.LocalFree(ctypes.cast(pointer, ctypes.c_void_p)):
-        raise RuntimeError(f"Windows DPAPI {label} release failed: {ctypes.get_last_error()}")
-
-
-# value: Secret bytes protected for the current Windows user.
-# description: Non-secret label shown only by Windows credential diagnostics.
-# Raises RuntimeError when DPAPI cannot protect or release the value.
-def protect_secret(value: bytes, description: str) -> str:
-    source_buffer = ctypes.create_string_buffer(value)
-    source = DataBlob(len(value), ctypes.cast(source_buffer, ctypes.POINTER(ctypes.c_ubyte)))
-    protected = DataBlob()
-    crypt32, kernel32 = windows_cryptography_libraries()
-    if not crypt32.CryptProtectData(
-        ctypes.byref(source), description, None, None, None, 0x1, ctypes.byref(protected)
-    ):
-        raise RuntimeError(f"Windows DPAPI protection failed: {ctypes.get_last_error()}")
-    try:
-        payload = ctypes.string_at(protected.pbData, protected.cbData)
-        return base64.b64encode(payload).decode("ascii")
-    finally:
-        release_windows_buffer(kernel32, protected.pbData, "protected buffer")
-
-
-# encoded: Base64 DPAPI blob previously created for the current Windows user.
-# Raises RuntimeError when the blob is malformed, belongs to another user, or cannot be released.
-def unprotect_secret(encoded: str) -> bytes:
-    try:
-        payload = base64.b64decode(encoded, validate=True)
-    except (ValueError, TypeError) as error:
-        raise RuntimeError("CCP protected link key is not valid base64") from error
-    source_buffer = ctypes.create_string_buffer(payload)
-    source = DataBlob(len(payload), ctypes.cast(source_buffer, ctypes.POINTER(ctypes.c_ubyte)))
-    clear = DataBlob()
-    description = wintypes.LPWSTR()
-    crypt32, kernel32 = windows_cryptography_libraries()
-    if not crypt32.CryptUnprotectData(
-        ctypes.byref(source), ctypes.byref(description), None, None, None, 0x1, ctypes.byref(clear)
-    ):
-        raise RuntimeError(f"Windows DPAPI unprotect failed: {ctypes.get_last_error()}")
-    try:
-        value = ctypes.string_at(clear.pbData, clear.cbData)
-        if len(value) != 32:
-            raise RuntimeError("CCP protected link key has an invalid length")
-        return value
-    finally:
-        release_error: RuntimeError | None = None
-        try:
-            release_windows_buffer(kernel32, description, "description")
-        except RuntimeError as error:
-            release_error = error
-        try:
-            release_windows_buffer(kernel32, clear.pbData, "clear buffer")
-        except RuntimeError as error:
-            if release_error is None:
-                release_error = error
-        if release_error is not None:
-            raise release_error
 
 
 # values: Ordered lowercase ASCII fields covered by one protocol proof.
@@ -296,10 +194,7 @@ class StateStore:
     # self: Loads or creates the current Windows user's CCP identity and separate candidates.
     # Raises RuntimeError for corrupt, partial, inaccessible, or unprotectable state.
     def __init__(self) -> None:
-        local_app_data = os.environ.get("LOCALAPPDATA")
-        if not local_app_data:
-            raise RuntimeError("LOCALAPPDATA is unavailable; CCP state cannot be owned safely")
-        self._path = Path(local_app_data) / "CodyCodexPlugin" / "state.json"
+        self._path = runtime_directory() / "state.json"
         self._pending_path = self._path.with_name("pending-pairings.json")
         self._lock = threading.Lock()
         self.pc_id = ""
@@ -607,7 +502,7 @@ def open_companion_listener() -> socket.socket:
         if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
             # One PC identity has one liveness owner. Ambiguous same-host CCP
             # processes must fail visibly instead of sharing the fixed port.
-            listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            configure_exclusive_socket(listener)
         listener.bind(("", PLUGIN_PORT))
         listener.settimeout(0.25)
     except BaseException:
@@ -692,6 +587,9 @@ class CompanionResponder:
             return
         if kind == "REPLY":
             self._accept_reply(fields, source)
+            return
+        if kind == "EVENTACK":
+            self._accept_event_ack(fields, source)
             return
         if kind in {"RESETACK", "FACTORYRESETACK"}:
             operation = reset.ResetOperation.RESTART if kind == "RESETACK" else reset.ResetOperation.FACTORY_RESET
@@ -909,6 +807,33 @@ class CompanionResponder:
             request["result"] = {"status": fields["status"], "error": int(fields["error"]),
                                   "channel_count": int(fields["count"])}
             request["event"].set()
+
+    # self: UDP owner validating a terminal observation against its active event peer.
+    # fields: Exact nonce-bound EVENTACK identities and actual terminal device state.
+    # source: Must match the authenticated event-capable FIND address and port.
+    # Raises ValueError or RuntimeError for schema, freshness, proof, association or lifecycle errors.
+    def _accept_event_ack(self, fields: dict[str, str], source: tuple[str, int]) -> None:
+        names = ("device", "pc", "nonce", "id", "state")
+        if set(fields) != {*names, "proof"}:
+            raise ValueError("CCP EVENTACK fields are malformed")
+        for name in ("device", "pc", "nonce", "proof"):
+            if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
+                raise ValueError(f"CCP EVENTACK field {name!r} is malformed")
+        if interactions.IDENTITY.fullmatch(fields["id"]) is None:
+            raise ValueError("CCP EVENTACK request identity is malformed")
+        with self._event_lock:
+            peer = self._event_peers.get(fields["device"])
+        if (fields["pc"] != self._state.pc_id or peer is None or source != peer.source
+                or fields["nonce"] != peer.nonce
+                or not 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS):
+            raise ValueError("CCP EVENTACK does not match a recent authenticated FIND")
+        active = self._state.retained_keys(fields["device"]).active
+        if active is None or not hmac.compare_digest(active, peer.key):
+            raise ValueError("CCP EVENTACK belongs to a retired association")
+        if not hmac.compare_digest(make_proof(active, "event-ack", *(fields[name] for name in names)), fields["proof"]):
+            raise ValueError("CCP EVENTACK authentication failed")
+        self._requests.acknowledge_terminal(fields["device"], fields["id"], fields["state"],
+                                            hashlib.sha256(active).hexdigest())
 
     # self: Responder sharing only non-secret current extension capability with MCP.
     # device_id: Retained target whose last FIND must advertise events with an active key.
