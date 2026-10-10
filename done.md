@@ -7,6 +7,30 @@ Older `artifacts/` paths may be historical references only: the complete cleanup
 requested on 2026-10-05 removed that unversioned evidence. New results identify
 the preserved copies within the build directory.
 
+## Requested Cody firmware upload - 2026-10-10
+
+- User requested upload to the device. Discovery identified the single Espressif
+  USB Serial/JTAG candidate on COM10. The flash guard rejected changed SDKCONFIG
+  inputs before compilation; `scripts/device.ps1 set-target -Profile cody-companion
+  -Feature wake-word -BuildMode Debug` rebuilt the selected generated configuration.
+- `scripts/device.ps1 flash -Port COM10 -Profile cody-companion -Feature wake-word
+  -BuildMode Debug -Jobs 8` compiled and linked successfully with ESP-IDF 6.0.2.
+  The public flash command performed the shared transient-artifact cleanup.
+  Firmware version: `cody-65-g2b0804b1-dirty`; concurrent branding remains uncommitted.
+- Application image: 6,881,120 bytes (`0x68ff60`), with 50% of its partition free
+  according to the build's mandatory partition-fit step. SHA256:
+  `3b889c440d5544fb63fe6ee8d9c83cbce66ce7954ce164a79f61c741e9631274`.
+- Bootloader, partition table, voice models and application were written; esptool
+  verified all four hashes and issued the normal RTS reset. NVS and LittleFS
+  were outside the written ranges. The selected feature retains Sophia wake word.
+- This image contains shared firmware/simulator logic, native control polish and
+  the new Cody boot title/subtitle. Font assets remain 2bpp; no font bake was run.
+- Evidence is compilation, linking and flash verification only. No test suite,
+  standalone validation scan, monitor, capture or physical UI inspection ran.
+  Compiled stack costs and device runtime behavior remain pending.
+- Preserved logs under `artifacts/build-cody-companion-wake-word-debug/diagnostics/`:
+  `20261010-ui-set-target.log` and `20261010-ui-flash.log`. No push.
+
 ## Native UI polish and Cody boot identity - 2026-10-10
 
 - Local implementation checkpoint `db9047e`, directly on `main`.

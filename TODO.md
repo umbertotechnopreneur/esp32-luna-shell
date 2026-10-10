@@ -18,8 +18,10 @@
   The open preview still uses committed 2bpp glyphs; 4bpp visual quality is pending.
 - [ ] Run each requested suite only after its exact command receives fresh authorization.
   New four-bit/tile regression definitions have not been executed.
-- [ ] Build firmware and inspect compiled stack/frame costs and physical UI separately
-  when requested; no firmware/hardware operations performed for this work.
+- [x] Build and flash the requested Debug/wake-word firmware on COM10;
+  all four image hashes verified and the target reset after writing on 2026-10-10.
+- [ ] Inspect compiled stack/frame costs and physical UI separately when requested;
+  successful compilation and flash do not verify display, touch or runtime behavior.
 
 ## Native host batching optimizations - 2026-10-10
 
