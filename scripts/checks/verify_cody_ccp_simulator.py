@@ -601,6 +601,78 @@ class SimulatorProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.link.submit_reply("memory", self.send)
 
+    # self: A restarted real responder whose new recipient queues a question before any reconnect frame.
+    # Raises AssertionError if the unknown question hides its replacement until expiry or is mistaken for delivery.
+    def test_broker_restart_with_queued_successor_retires_old_question_first(self):
+        first = self.question()
+        self.link.submit_reply("memory", self.send)
+        payload = replace(self.link.snapshot().event_payload, selected_id="")
+        key = protocol.unprotect_secret(self.link.active["protected_link_key"])
+        self.requests = self.host._requests = interactions.InteractionStore(lambda: self.now)
+        second = self.requests.enqueue(self.link.device_id, payload, "SIMULATED",
+                                       association_id=hashlib.sha256(key).hexdigest())
+        self.deliver_events()
+        snapshot = self.link.snapshot()
+        self.assertEqual((snapshot.request_id, snapshot.event_state), (first["request_id"], "rejected"))
+        self.assertEqual(snapshot.event_payload.selected_id, "memory")
+        self.assertFalse(self.requests._tickets[second["request_id"]].published)
+        self.assertFalse(any(protocol.parse_datagram(call.args[0])[0] == "EVENTACK"
+                             for call in self.send.call_args_list))
+        self.deliver_events()
+        self.assertEqual((self.link.snapshot().request_id, self.link.snapshot().event_state),
+                         (second["request_id"], "pending"))
+        self.assertEqual(self.requests.poll(second["request_id"], second["capability"])["state"], "pending")
+
+    # self: Confirmed local selection with a valid packet admitted before the endpoint's next maintenance tick.
+    # incoming: Authenticated state whose positive TTL must never extend the original device deadline.
+    # Raises AssertionError if late receipt/delivery/pending revives the decision or loses local Send evidence.
+    def late_event_before_tick(self, incoming):
+        created = self.question()
+        self.link.submit_reply("memory", self.send)
+        deadline = self.link._event_expires
+        self.now += simulated.FIND_SECONDS + .01
+        self.send.reset_mock()
+        self.host_listener.reset_mock()
+        self.link.tick(self.send)
+        find = next(call.args[0] for call in self.send.call_args_list
+                    if protocol.parse_datagram(call.args[0])[0] == "FIND")
+        self.host._handle_datagram(find, (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        # Admit READY before changing the clock. Do not run tick at the deadline.
+        for call in self.host_listener.sendto.call_args_list:
+            if protocol.parse_datagram(call.args[0])[0] != "EVENT":
+                self.link.handle_datagram(call.args[0], (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        payload = self.link.snapshot().event_payload
+        if incoming == "pending":
+            payload = replace(payload, selected_id="")
+        key = protocol.unprotect_secret(self.link.active["protected_link_key"])
+        values = [self.link.device_id, self.pc, self.link._nonce, created["request_id"], incoming,
+                  "30", interactions.encode_payload(payload)]
+        packet = protocol.encode_datagram("EVENT", list(zip(
+            ("device", "pc", "nonce", "id", "state", "ttl", "data"), values))
+            + [("proof", protocol.make_proof(key, "event", *values))])
+        self.now = deadline + .01
+        self.link.handle_datagram(packet, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        snapshot = self.link.snapshot()
+        self.assertEqual(snapshot.event_state, "expired")
+        self.assertEqual(snapshot.event_payload.selected_id, "memory")
+        self.assertEqual(self.link._event_expires, deadline)
+        self.assertEqual(protocol.parse_datagram(self.send.call_args.args[0])[1]["state"], "expired")
+
+    # self: A late recipient-confirmed EVENT before maintenance has enforced local expiry.
+    # Raises AssertionError if the simulator accepts Delivered where firmware requires Expired.
+    def test_late_delivered_event_cannot_bypass_original_deadline(self):
+        self.late_event_before_tick("delivered")
+
+    # self: Late broker receipt before maintenance.
+    # Raises AssertionError if receipt revives a closed local decision window.
+    def test_late_received_event_cannot_bypass_original_deadline(self):
+        self.late_event_before_tick("received")
+
+    # self: Late pending retransmission with a positive remaining host TTL.
+    # Raises AssertionError if retransmission extends the original local deadline or erases Send evidence.
+    def test_late_pending_event_cannot_bypass_original_deadline(self):
+        self.late_event_before_tick("pending")
+
     # self: Confirmed local Send whose UDP reply never reaches the original recipient.
     # Raises AssertionError if host expiry erases local submission evidence or presents success/retry.
     def test_expiry_after_send_keeps_unconfirmed_delivery_and_terminal_done(self):

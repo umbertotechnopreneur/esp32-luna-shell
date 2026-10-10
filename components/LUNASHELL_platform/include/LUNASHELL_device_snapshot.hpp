@@ -907,6 +907,9 @@ public:
     [[nodiscard]]
     TouchActivityObservation touchActivityObservation() const noexcept;
     DeviceSnapshot snapshot() const;
+    // destination: Caller-owned full buffer; usable only when this read returns ESP_OK.
+    // Exception: Returns the original canonical lock/release error without reading hardware.
+    esp_err_t readSnapshot(DeviceSnapshot &destination) const;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
     // observation: Coherent speech policy and card availability; never samples hardware.
     // Exception: Returns the original canonical lock or release error.

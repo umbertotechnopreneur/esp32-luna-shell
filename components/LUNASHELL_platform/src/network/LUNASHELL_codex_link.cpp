@@ -1371,8 +1371,12 @@ esp_err_t acceptConfirm(const PairRequest &request, const sockaddr_in &source)
     return error;
 }
 
+// No parameters: commits the event owner's current state to canonical consumers under s_mutex.
+// Exception: Returns the original publication error and retains pending publication for retry.
+esp_err_t publishEventLocked();
+
 // wifi: Current canonical station identity admitted by the reconnect policy.
-// Exception: Returns missing/retired-state, HMAC, formatting or UDP send failures.
+// Exception: Returns missing/retired-state, canonical publication, HMAC, formatting or UDP send failures.
 esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
 {
     char device_id[13]{};
@@ -1382,6 +1386,8 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
         return error;
     }
     char pc_id[33]{};
+    char current_id[33] = "00000000000000000000000000000000";
+    const char *current_state = "none";
     uint8_t link_key[32]{};
     uint8_t nonce[16]{};
     {
@@ -1400,19 +1406,40 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
             return error;
         }
         std::memcpy(link_key, record.link_key, sizeof(link_key));
+        if (s_event_publication_pending) {
+            // A signed observation may release the next question only after
+            // the canonical consumer has received the previous retirement.
+            error = publishEventLocked();
+            if (error != ESP_OK) {
+                wipe(link_key, sizeof(link_key));
+                return error;
+            }
+        }
+        if (s_event_snapshot.kind == LUNASHELL::CodexEventKind::Question &&
+            s_event_snapshot.state != LUNASHELL::CodexEventState::None) {
+            std::memcpy(current_id, s_event_snapshot.request_id, sizeof(current_id));
+            current_state = LUNASHELL::codexEventStateToken(s_event_snapshot.state);
+            if (current_state == nullptr) {
+                wipe(link_key, sizeof(link_key));
+                ESP_LOGE(kTag, "CCP FIND rejected: question state has no wire token");
+                return ESP_ERR_INVALID_STATE;
+            }
+        }
     }
     esp_fill_random(nonce, sizeof(nonce));
     char nonce_hex[33]{};
     error = encodeHex(nonce, sizeof(nonce), nonce_hex, sizeof(nonce_hex));
-    char proof_input[128]{};
+    char proof_input[192]{};
     const int input_length = error == ESP_OK
         ? std::snprintf(
             proof_input,
             sizeof(proof_input),
-            "find-events|%s|%s|%s",
+            "find-events-v2|%s|%s|%s|%s|%s",
             device_id,
             pc_id,
-            nonce_hex
+            nonce_hex,
+            current_id,
+            current_state
         )
         : -1;
     uint8_t proof[32]{};
@@ -1430,11 +1457,13 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
         ? std::snprintf(
             request,
             sizeof(request),
-            "%s|FIND|device=%s|pc=%s|nonce=%s|activity=1|events=1|proof=%s",
+            "%s|FIND|device=%s|pc=%s|nonce=%s|activity=1|events=2|current=%s|state=%s|proof=%s",
             kProtocol,
             device_id,
             pc_id,
             nonce_hex,
+            current_id,
+            current_state,
             proof_hex
         )
         : -1;
@@ -2042,7 +2071,7 @@ bool sameEventContent(const LUNASHELL::CodexEventPayload &left,
 }
 
 // value: Exact state token from an authenticated EVENT frame.
-// state: Receives a wire-supported state; local Sending is never accepted from the PC.
+// state: Receives a wire-supported state; Unavailable maps to local Rejected, never Sending.
 bool decodeEventState(const char *value, LUNASHELL::CodexEventState &state)
 {
     using EventState = LUNASHELL::CodexEventState;
@@ -2051,6 +2080,7 @@ bool decodeEventState(const char *value, LUNASHELL::CodexEventState &state)
         {"none", EventState::None}, {"pending", EventState::Pending},
         {"received", EventState::Received}, {"delivered", EventState::Delivered},
         {"cancelled", EventState::Cancelled}, {"expired", EventState::Expired},
+        {"unavailable", EventState::Rejected},
     };
     for (const auto &entry : entries) {
         if (std::strcmp(value, entry.name) == 0) {
@@ -2139,6 +2169,30 @@ esp_err_t acceptEvent(const char *payload, const sockaddr_in &source)
     }
     using EventState = LUNASHELL::CodexEventState;
     const int64_t now = esp_timer_get_time();
+    if (state == EventState::Rejected) {
+        if (ttl != 0 || std::strcmp(values[6], "-") != 0 ||
+            allZero(request_bytes, sizeof(request_bytes)) ||
+            std::strcmp(values[3], s_event_snapshot.request_id) != 0 ||
+            s_event_snapshot.kind != LUNASHELL::CodexEventKind::Question) {
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+        // Missing volatile recipient state is not a cancellation or an answer.
+        // The next signed FIND confirms canonical retirement to the new broker.
+        s_event_received_for_nonce = true;
+        if (LUNASHELL::codexEventIsOpen(s_event_snapshot.state)) {
+            s_event_snapshot.state = EventState::Rejected;
+            s_event_snapshot.last_error = ESP_ERR_NOT_FOUND;
+            s_event_snapshot.data_valid = false;
+            s_event_snapshot.data_stale = true;
+            s_event_snapshot.health = LUNASHELL::DeviceHealth::Degraded;
+            s_event_snapshot.last_attempt_at_us = now;
+            s_reply_pending = false;
+            ++s_event_snapshot.revision;
+            ESP_LOGW(kTag, "CCP question recipient unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_FOUND));
+            return publishEventLocked();
+        }
+        return s_event_publication_pending ? publishEventLocked() : ESP_OK;
+    }
     if (state == EventState::None) {
         if (!allZero(request_bytes, sizeof(request_bytes)) || ttl != 0 || std::strcmp(values[6], "-") != 0) {
             return ESP_ERR_INVALID_ARG;

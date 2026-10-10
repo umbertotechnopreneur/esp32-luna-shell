@@ -23,7 +23,9 @@ CAPABILITY = re.compile(r"^[0-9a-f]{64}$")
 DEVICE_ID = re.compile(r"^[0-9a-f]{12}$")
 CHOICE_ID = re.compile(r"^[a-z][a-z0-9_]{0,11}$")
 HEAD_ID = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
-STATES = frozenset(("pending", "received", "delivered", "cancelled", "expired", "none"))
+STATES = frozenset(("pending", "received", "delivered", "cancelled", "expired", "none", "unavailable"))
+DEVICE_STATES = frozenset(("none", "pending", "sending", "received", "delivered", "cancelled", "expired", "rejected"))
+OPEN_DEVICE_STATES = frozenset(("pending", "sending", "received"))
 ACK_STATES = frozenset(("received", "delivered", "expired", "cancelled", "conflict", "unknown"))
 TERMINAL_STATES = frozenset(("delivered", "cancelled", "expired"))
 CHECK_STATES = frozenset(("pending", "running", "passed", "failed", "cancelled", "skipped", "unknown"))
@@ -562,8 +564,15 @@ class InteractionStore:
     # self: Publisher choosing a complete request snapshot without changing caller ownership.
     # device_id: Authenticated active Cody peer.
     # association_id: Current active-key digest; replacement retires old requests without exposing their payload.
+    # current_id: Question identity reported by the authenticated device, or all zeros for absence.
+    # current_state: Actual device state; an unknown open question is retired before publishing a successor.
     # Returns request identity, lifecycle state, remaining TTL and immutable encoded payload.
-    def snapshot(self, device_id: str, association_id: str = "") -> tuple[str, str, str, str]:
+    # Raises ValueError for an incoherent device observation.
+    def snapshot(self, device_id: str, association_id: str = "",
+                 current_id: str = "0" * 32, current_state: str = "none") -> tuple[str, str, str, str]:
+        if (IDENTITY.fullmatch(current_id) is None or current_state not in DEVICE_STATES
+                or (current_id == "0" * 32) != (current_state == "none")):
+            raise ValueError("Device question observation is incoherent")
         with self._condition:
             self._expire()
             now = self._clock()
@@ -577,6 +586,13 @@ class InteractionStore:
                         self._condition.notify_all()
                     continue
                 relevant.append(item)
+            if current_state in OPEN_DEVICE_STATES:
+                current = next((item for item in relevant if item.request_id == current_id), None)
+                if current is None or not current.published or current.payload.kind != EventKind.QUESTION:
+                    # Volatile broker state can disappear while Cody still owns
+                    # a question. Its signed next FIND confirms retirement; no
+                    # successor is published until that observation is terminal.
+                    return current_id, "unavailable", "0", "-"
             questions = [item for item in relevant if item.payload.kind == EventKind.QUESTION
                           and item.state not in TERMINAL_STATES]
             closing = [item for item in relevant if item.payload.kind == EventKind.QUESTION

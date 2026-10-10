@@ -259,8 +259,8 @@ hook per spedire una domanda. Un vero `PermissionRequest` produce soltanto un
 avviso `On your PC`: l'autorizzazione nativa rimane nel normale prompt Codex.
 
 ```text
-CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=1|events=1|proof=<64hex>
-HMAC input: find-events|<device>|<pc>|<nonce>
+CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=1|events=2|current=<32hex>|state=<device-state>|proof=<64hex>
+HMAC input: find-events-v2|<device>|<pc>|<nonce>|<current>|<state>
 
 CCP1|EVENT|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|state=<state>|ttl=<seconds>|data=<hex or ->|proof=<64hex>
 HMAC input: event|<device>|<pc>|<nonce>|<id>|<state>|<ttl>|<data>
@@ -275,20 +275,34 @@ CCP1|EVENTACK|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|state=<terminal
 HMAC input: event-ack|<device>|<pc>|<nonce>|<id>|<state>
 ```
 
-L'estensione `events=1` richiede anche `activity=1`; entrambe hanno valore
-esatto `1`. Il dominio HMAC distingue questa richiesta dalle due forme FIND
-precedenti. Mantengo il limite di 512 byte per tutti i pacchetti, salvo EVENT
+L'estensione `events=2` richiede anche `activity=1`, con valori esatti `2` e
+`1`. Il dominio HMAC lega anche l'osservazione della domanda sul dispositivo.
+`current` e' il suo ID oppure tutto zero quando manca; `state` e' `none` solo
+con ID zero, altrimenti `pending`, `sending`, `received`, `delivered`,
+`cancelled`, `expired` o `rejected`. Le notifiche non costituiscono una domanda
+aperta. Mantengo il limite di 512 byte per tutti i pacchetti, salvo EVENT
 che ammette al massimo 1280 byte. Non frammento i messaggi applicativi.
 
 EVENT e' uno snapshot completo e immutabile del contenuto del ticket, firmato
 con la chiave del link e il nonce FIND corrente. Ammetto una sola pubblicazione
 EVENT per nonce e solamente dopo READY. `state` e' `pending`, `received`,
-`delivered`, `cancelled`, `expired` oppure `none`. Il caso `none` usa ID tutto
+`delivered`, `cancelled`, `expired`, `unavailable` oppure `none`. Il caso `none` usa ID tutto
 zero, `ttl=0` e `data=-`; non costituisce una risposta. `ttl` e' il numero
 intero di secondi residui arrotondato per eccesso (0..180), non un timestamp
 UTC; `pending` e `received` richiedono almeno un secondo. Una ripetizione non
 allunga la scadenza locale originale. Offline conservo la domanda e il suo
 percorso: nessun timeout, riavvio o ritorno LAN sceglie un'opzione.
+
+Da CCP 0.6.2, se il FIND dichiara una domanda aperta che il broker non ha mai
+pubblicato per l'associazione attiva (ad esempio dopo il suo riavvio), rispondo
+prima con EVENT `unavailable`, lo stesso ID, `ttl=0`, `data=-`. Non pubblico
+ancora una nuova domanda gia' accodata. Cody accetta il ritiro soltanto per
+la propria domanda e conserva la scelta locale come consegna non confermata;
+pubblica `rejected` con `ESP_ERR_NOT_FOUND`. Il successivo FIND firmato con
+stato terminale, oppure assenza dopo Done, conferma il ritiro prima della
+nuova pubblicazione. Se il frame o la pubblicazione canonica falliscono,
+ripeto il ritiro; non serve EVENTACK per un ticket che il nuovo broker ignora.
+Questo flusso non ricostruisce risposte perse e non prolunga le scadenze.
 
 Decodifico `data` come byte esadecimali minuscoli. Il payload v1 contiene,
 nell'ordine:
@@ -354,7 +368,7 @@ presentazione, finche' ricevo l'ACK. Se l'ACK si perde, il FIND successivo
 ripete la chiusura e Cody la riconferma, anche dopo Done. Una domanda mai
 pubblicata non richiede una chiusura sul dispositivo. Le scadenze iniziano
 all'accodamento: l'attesa della chiusura precedente non prolunga il TTL.
-Il firmware che implementa EVENTACK e CCP 0.6.1 vanno aggiornati insieme;
+Il firmware che implementa EVENTACK, FIND events=2 e CCP 0.6.2 vanno aggiornati insieme;
 non rilascio la successiva domanda per un semplice timeout di presentazione.
 
 Tengo una sola domanda aperta per dispositivo, senza soppiantarla con attivita',
@@ -399,7 +413,7 @@ HMAC input: factory-reset-ack|<device>|<pc>|<nonce>|<id>|accepted
 ```
 
 I quattro pacchetti restano entro 512 byte. Genero un ID casuale di 128 bit
-e accodo una sola operazione per device. Attendo un FIND `events=1` fresco
+e accodo una sola operazione per device. Attendo un FIND `events=2` fresco
 autenticato con la chiave attiva; dopo READY ed EVENT invio il comando una sola
 volta, all'endpoint osservato e con quel nonce. Il device risponde dalla porta
 42117 alla 42118, ammette un ID una volta e non sposta la scadenza quando riceve

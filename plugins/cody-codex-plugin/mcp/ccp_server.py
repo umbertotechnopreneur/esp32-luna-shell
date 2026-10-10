@@ -29,7 +29,7 @@ DEVICE_PORT = 42117
 PLUGIN_PORT = 42118
 MAX_DATAGRAM_BYTES = 512
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.1"
+SERVER_VERSION = "0.6.2"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CODE_PATTERN = re.compile(r"^[A-HJ-NP-Z2-9]{6}$")
 HEX_PATTERNS = {
@@ -603,14 +603,19 @@ class CompanionResponder:
             return
         if kind != "FIND":
             return
-        with_events = set(fields) == {"device", "pc", "nonce", "activity", "events", "proof"}
+        with_events = set(fields) == {"device", "pc", "nonce", "activity", "events", "current", "state", "proof"}
         with_activity = with_events or set(fields) == {"device", "pc", "nonce", "activity", "proof"}
         if not with_activity and set(fields) != {"device", "pc", "nonce", "proof"}:
             raise ValueError("CCP FIND has unexpected or missing fields")
         if with_activity and fields["activity"] != "1":
             raise ValueError("Unsupported CCP activity capability")
-        if with_events and fields["events"] != "1":
-            raise ValueError("Unsupported CCP events capability")
+        if with_events:
+            if fields["events"] != "2":
+                raise ValueError("Unsupported CCP events capability")
+            if (interactions.IDENTITY.fullmatch(fields["current"]) is None
+                    or fields["state"] not in interactions.DEVICE_STATES
+                    or (fields["current"] == "0" * 32) != (fields["state"] == "none")):
+                raise ValueError("CCP FIND question observation is incoherent")
         for name in ("device", "pc", "nonce", "proof"):
             if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
                 raise ValueError(f"CCP FIND field {name!r} is malformed")
@@ -623,9 +628,11 @@ class CompanionResponder:
         for candidate in (retained.pending, retained.active):
             if candidate is None:
                 continue
-            domain = "find-events" if with_events else "find-activity" if with_activity else "find"
-            expected = make_proof(candidate, domain,
-                                  fields["device"], fields["pc"], fields["nonce"])
+            domain = "find-events-v2" if with_events else "find-activity" if with_activity else "find"
+            values = [fields["device"], fields["pc"], fields["nonce"]]
+            if with_events:
+                values.extend((fields["current"], fields["state"]))
+            expected = make_proof(candidate, domain, *values)
             if hmac.compare_digest(expected, fields["proof"]):
                 link_key = candidate
                 break
@@ -676,7 +683,8 @@ class CompanionResponder:
                 self._event_peers[fields["device"]] = EventPeer(fields["nonce"], link_key, source, now)
                 self._debug_peers = {identity: peer for identity, peer in self._debug_peers.items()
                                      if 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS}
-            request_id, state, ttl, data = self._requests.snapshot(fields["device"], hashlib.sha256(link_key).hexdigest())
+            request_id, state, ttl, data = self._requests.snapshot(
+                fields["device"], hashlib.sha256(link_key).hexdigest(), fields["current"], fields["state"])
             values = [fields["device"], fields["pc"], fields["nonce"], request_id, state, ttl, data]
             event_proof = make_proof(link_key, "event", *values)
             payload = encode_datagram("EVENT", list(zip(

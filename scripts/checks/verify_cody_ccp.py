@@ -680,8 +680,8 @@ class ResetTests(unittest.TestCase):
                                            ccp.reset.CONFIRMATION_CODE, operation)
             values = [self.device, pc, self.nonce]
             find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values))
-                                      + [("activity", "1"), ("events", "1"),
-                                         ("proof", ccp.make_proof(key, "find-events", *values))])
+                                      + [("activity", "1"), ("events", "2"), ("current", "0" * 32), ("state", "none"),
+                                         ("proof", ccp.make_proof(key, "find-events-v2", *values, "0" * 32, "none"))])
             listener.sendto.reset_mock()
             responder._handle_datagram(find, self.endpoint)
             command, acknowledgement, _, ack_domain = ccp.reset.COMMANDS[operation]
@@ -735,6 +735,52 @@ class ResetTests(unittest.TestCase):
 
 
 class InteractionTests(unittest.TestCase):
+    # self: Restarted volatile broker with a successor already queued before the device reconnects.
+    # Raises AssertionError if a lost question blocks until timeout, exposes the successor early or invents an answer.
+    def test_restart_retires_unknown_open_question_before_publishing_successor(self) -> None:
+        association = "a" * 64
+        first = self.store.enqueue(self.device, self.payload, "LAN", association_id=association)
+        self.store.snapshot(self.device, association)
+        restarted = interactions.InteractionStore(lambda: self.now)
+        second = restarted.enqueue(self.device, self.payload, "LAN", association_id=association)
+        for state in ("pending", "sending", "received"):
+            self.assertEqual(restarted.snapshot(self.device, association, first["request_id"], state),
+                             (first["request_id"], "unavailable", "0", "-"))
+        self.assertFalse(restarted._tickets[second["request_id"]].published)
+        self.assertEqual(restarted.answer(self.device, first["request_id"], "memory"), "unknown")
+        self.assertEqual(restarted.snapshot(self.device, association, first["request_id"], "rejected")[:2],
+                         (second["request_id"], "pending"))
+        self.assertEqual(restarted.poll(second["request_id"], second["capability"])["state"], "pending")
+
+    # self: Signed device observation admitted through the production responder after loss of host tickets.
+    # Raises AssertionError if identity/state tampering bypasses retirement or authentic retirement suppresses the successor.
+    def test_find_question_observation_is_bound_to_its_proof(self) -> None:
+        key = bytes(range(32))
+        state, listener = Mock(pc_id="a" * 32), Mock()
+        state.retained_keys.return_value = ccp.RetainedKeys(key, None)
+        association = hashlib.sha256(key).hexdigest()
+        queued = self.store.enqueue(self.device, self.payload, "LAN", association_id=association)
+        responder = ccp.CompanionResponder(state, listener, activity.ActivityStore(), self.store)
+        source = ("192.0.2.10", ccp.DEVICE_PORT)
+        values = [self.device, state.pc_id, "b" * 32, "c" * 32, "sending"]
+        fields = list(zip(("device", "pc", "nonce", "current", "state"), values))
+        fields += [("activity", "1"), ("events", "2")]
+        proof = ccp.make_proof(key, "find-events-v2", *values)
+        for name, changed in (("current", "d" * 32), ("state", "rejected")):
+            altered = [(field, changed if field == name else value) for field, value in fields]
+            with self.assertRaises(ValueError):
+                responder._handle_datagram(ccp.encode_datagram("FIND", altered + [("proof", proof)]), source)
+        self.assertFalse(self.store._tickets[queued["request_id"]].published)
+        responder._handle_datagram(ccp.encode_datagram("FIND", fields + [("proof", proof)]), source)
+        kind, event = ccp.parse_datagram(listener.sendto.call_args.args[0])
+        self.assertEqual((kind, event["id"], event["state"], event["data"]),
+                         ("EVENT", values[3], "unavailable", "-"))
+        values[-1] = "rejected"
+        fields = list(zip(("device", "pc", "nonce", "current", "state"), values))
+        responder._handle_datagram(ccp.encode_datagram("FIND", fields + [("activity", "1"), ("events", "2"),
+            ("proof", ccp.make_proof(key, "find-events-v2", *values))]), source)
+        self.assertEqual(ccp.parse_datagram(listener.sendto.call_args.args[0])[1]["id"], queued["request_id"])
+
     # self: Two sequential questions with a lost terminal packet/ACK and one active association.
     # Raises AssertionError if publication bypasses device closure or extends the queued deadline.
     def test_next_question_waits_for_authenticated_device_closure(self) -> None:
@@ -788,7 +834,7 @@ class InteractionTests(unittest.TestCase):
         source = ("192.0.2.10", ccp.DEVICE_PORT)
         values = [self.device, state.pc_id, "b" * 32]
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
-            [("activity", "1"), ("events", "1"), ("proof", ccp.make_proof(key, "find-events", *values))])
+            [("activity", "1"), ("events", "2"), ("current", "0" * 32), ("state", "none"), ("proof", ccp.make_proof(key, "find-events-v2", *values, "0" * 32, "none"))])
         responder._handle_datagram(find, source)
         self.store.cancel(first["request_id"], first["capability"])
         second = self.store.enqueue(self.device, self.payload, "LAN", association_id=association)
@@ -967,7 +1013,7 @@ class InteractionTests(unittest.TestCase):
         responder = ccp.CompanionResponder(state, listener, activity.ActivityStore(), self.store)
         values = [self.device, state.pc_id, "b" * 32]
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
-            [("activity", "1"), ("events", "1"), ("proof", ccp.make_proof(key, "find-events", *values))])
+            [("activity", "1"), ("events", "2"), ("current", "0" * 32), ("state", "none"), ("proof", ccp.make_proof(key, "find-events-v2", *values, "0" * 32, "none"))])
         source = ("192.0.2.10", ccp.DEVICE_PORT)
         responder._handle_datagram(find, source)
         kind, event = ccp.parse_datagram(listener.sendto.call_args.args[0])
@@ -986,7 +1032,7 @@ class InteractionTests(unittest.TestCase):
         responder._handle_datagram(reply, source)
         self.assertEqual(ccp.parse_datagram(listener.sendto.call_args.args[0])[1]["status"], "delivered")
         stripped = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
-            [("activity", "1"), ("proof", ccp.make_proof(key, "find-events", *values))])
+            [("activity", "1"), ("proof", ccp.make_proof(key, "find-events-v2", *values, "0" * 32, "none"))])
         with self.assertRaises(ValueError):
             responder._handle_datagram(stripped, source)
 

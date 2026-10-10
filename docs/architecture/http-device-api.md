@@ -63,8 +63,18 @@ these snapshots. The controller contract is documented in
 `connectivity-pairing.md`; this diagnostics API is separate from a PC companion
 session or MCP transport.
 
-All data routes serialize one coherent point-in-time copy returned by
-`DeviceSnapshotService::snapshot()`. The HTTP service never owns an acquisition
+All data routes serialize one coherent point-in-time copy returned by the
+fallible `DeviceSnapshotService::readSnapshot()` into an HTTP-owned PSRAM buffer.
+One mutex covers copy, serialization and send, so concurrent requests never
+overwrite a response in progress. A full snapshot does not occupy the 6 KiB
+HTTP task stack. Lock timeout, allocation or release failure returns
+`503 Service Unavailable` with the original error name in the JSON `error`
+field, without using the buffer or calling the legacy fatal `snapshot()` API.
+The handler propagates the original read error even if sending that error
+response also fails; both causes are logged. Aging, validity and original
+measurement timestamps are preserved by the canonical owner. Compiled stack
+frames and physical contention behavior still require separate validation.
+The HTTP service never owns an acquisition
 task: it consumes the same Full Snapshot generations as the UI and reports the
 active user cadence through `/api/v1/capabilities`. Request handlers never
 access peripheral drivers directly. JSON data responses use a versioned

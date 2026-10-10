@@ -372,8 +372,12 @@ class SimulatorLink:
         nonce = secrets.token_hex(16)
         key = protocol.unprotect_secret(record["protected_link_key"])
         pc = record["pc_id"]
-        fields = [("device", self.device_id), ("pc", pc), ("nonce", nonce), ("activity", "1"), ("events", "1")]
-        proof = protocol.make_proof(key, "find-events", self.device_id, pc, nonce)
+        current_id, current_state = "0" * 32, "none"
+        if self._event_payload is not None and self._event_payload.kind == interactions.EventKind.QUESTION:
+            current_id, current_state = self._request_id, self._event_state
+        fields = [("device", self.device_id), ("pc", pc), ("nonce", nonce), ("activity", "1"),
+                  ("events", "2"), ("current", current_id), ("state", current_state)]
+        proof = protocol.make_proof(key, "find-events-v2", self.device_id, pc, nonce, current_id, current_state)
         send(protocol.encode_datagram("FIND", fields + [("proof", proof)]), (LOOPBACK, protocol.PLUGIN_PORT))
         self._nonce = nonce
         if self.state != LinkState.CONNECTED:
@@ -411,7 +415,8 @@ class SimulatorLink:
                 self._accept_debug(fields, source)
             elif kind == "EVENT":
                 self._accept_event(fields, source)
-                self._send_terminal_ack(send)
+                if fields["state"] not in {"none", "unavailable"}:
+                    self._send_terminal_ack(send)
             elif kind == "REPLYACK":
                 self._accept_reply_ack(fields)
                 self._send_terminal_ack(send)
@@ -711,6 +716,18 @@ class SimulatorLink:
             raise ValueError("CCP EVENT lifetime is outside its bound")
         if fields["state"] in {"pending", "received"} and ttl == 0:
             raise ValueError("CCP live EVENT cannot have zero lifetime")
+        now = self.clock()
+        if fields["state"] == "unavailable":
+            if (ttl != 0 or fields["data"] != "-" or fields["id"] == "0" * 32
+                    or fields["id"] != self._request_id or self._event_payload is None
+                    or self._event_payload.kind != interactions.EventKind.QUESTION):
+                raise ValueError("CCP unavailable EVENT does not retire the current question")
+            # A restarted broker lost the recipient; preserve local Send evidence
+            # without claiming a response. Its next signed FIND proves retirement.
+            if self._event_state in interactions.OPEN_DEVICE_STATES:
+                self._event_state, self._reply_choice = "rejected", ""
+            self._event_at, self._event_nonce = now, fields["nonce"]
+            return
         if fields["state"] == "none":
             if fields["id"] != "0" * 32 or ttl != 0 or fields["data"] != "-":
                 raise ValueError("CCP empty EVENT is incoherent")
@@ -732,6 +749,8 @@ class SimulatorLink:
         if fields["state"] == "pending" and payload.selected_id:
             raise ValueError("CCP pending EVENT cannot already have a selected choice")
         same_ticket = fields["id"] == self._request_id
+        locally_expired = (same_ticket and self._event_state in interactions.OPEN_DEVICE_STATES
+                           and now >= self._event_expires)
         if (not same_ticket and self._event_payload is not None
                 and self._event_payload.kind == interactions.EventKind.QUESTION
                 and self._event_state in {"pending", "sending", "received"}):
@@ -756,13 +775,15 @@ class SimulatorLink:
                 raise ValueError("CCP retired request cannot change state or revive")
             # Preserve local expiry/rejection while acknowledging actual closure.
             incoming = self._event_state
-        expiry = self.clock() + ttl
+        expiry = now + ttl
         self._event_expires = min(self._event_expires, expiry) if same_ticket else expiry
         self._request_id, self._event_payload, self._event_state = fields["id"], payload, incoming
-        self._event_at, self._event_nonce, self._event_peer = self.clock(), fields["nonce"], source
+        self._event_at, self._event_nonce, self._event_peer = now, fields["nonce"], source
         if not same_ticket or incoming in interactions.TERMINAL_STATES:
             self._reply_choice = ""
-        if incoming in {"pending", "sending", "received"} and ttl == 0:
+        # Packet admission precedes tick() in the endpoint. Enforce the original
+        # deadline here even when a late packet claims Received or Delivered.
+        if locally_expired or (incoming in interactions.OPEN_DEVICE_STATES and now >= self._event_expires):
             self._event_state, self._reply_choice = "expired", ""
 
     # self: SIMULATED endpoint reporting actual retirement, separate from recipient delivery.

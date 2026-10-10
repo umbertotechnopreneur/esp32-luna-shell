@@ -29,17 +29,27 @@ enum class CodexChoiceTone : uint8_t { Neutral, Positive, Negative, Info };
         state == CodexEventState::Expired || state == CodexEventState::Rejected;
 }
 
-// state: Actual retired state carried by the authenticated device acknowledgement.
-// Returns nullptr for a live or absent transaction; never manufactures closure.
-[[nodiscard]] constexpr const char *codexEventTerminalToken(CodexEventState state)
+// state: Actual question state reported in the authenticated FIND observation.
+[[nodiscard]] constexpr const char *codexEventStateToken(CodexEventState state)
 {
     switch (state) {
+    case CodexEventState::None: return "none";
+    case CodexEventState::Pending: return "pending";
+    case CodexEventState::Sending: return "sending";
+    case CodexEventState::Received: return "received";
     case CodexEventState::Delivered: return "delivered";
     case CodexEventState::Cancelled: return "cancelled";
     case CodexEventState::Expired: return "expired";
     case CodexEventState::Rejected: return "rejected";
-    default: return nullptr;
     }
+    return nullptr;
+}
+
+// state: Actual retired state carried by the authenticated device acknowledgement.
+// Returns nullptr for a live or absent transaction; never manufactures closure.
+[[nodiscard]] constexpr const char *codexEventTerminalToken(CodexEventState state)
+{
+    return codexEventIsTerminal(state) ? codexEventStateToken(state) : nullptr;
 }
 
 struct CodexEventChoice {

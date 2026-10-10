@@ -521,13 +521,13 @@ def verify_source_contract() -> None:
         "CPU samples must use the owning-core callback rather than remote idle reads",
     )
 
-    require_contains(source, "apply_measured_sample_aging(copy, esp_timer_get_time());", "snapshot()")
+    require_contains(source, "apply_measured_sample_aging(destination, esp_timer_get_time());", "snapshot()")
     require_contains(source, "apply_measured_sample_aging(summary, esp_timer_get_time());", "refresh()")
     require_order(
         source,
-        "copy = s_snapshot;",
-        "apply_measured_sample_aging(copy, esp_timer_get_time());",
-        "snapshot()",
+        "destination = s_snapshot;",
+        "apply_measured_sample_aging(destination, esp_timer_get_time());",
+        "readSnapshot()",
     )
     require_order(
         source,

@@ -52,6 +52,8 @@ def function_text(text: str, signature: str, label: str) -> str:
     raise AssertionError(f"{label} has an unterminated body: {signature}")
 
 
+# No parameters: checks the source contract without starting an HTTP server or accessing hardware.
+# Raises AssertionError or OSError for missing contracts or unreadable source/documentation.
 def main() -> int:
     header = HEADER.read_text(encoding="utf-8")
     json_header = JSON_HEADER.read_text(encoding="utf-8")
@@ -197,6 +199,27 @@ def main() -> int:
         "esp_err_t handleApiRequest(httpd_req_t *request)",
         "HTTP request lifecycle gate",
     )
+    snapshot_source = (ROOT / "components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp").read_text(encoding="utf-8")
+    snapshot_read = function_text(snapshot_source,
+        "esp_err_t DeviceSnapshotService::readSnapshot(DeviceSnapshot &destination) const",
+        "fallible canonical HTTP read")
+    if "std::abort" in snapshot_read or "DeviceSnapshot copy" in snapshot_read:
+        raise AssertionError("Fallible canonical read must not abort or put a full snapshot on its stack")
+    require_contains(snapshot_read, "return lock_error;", "canonical lock error propagation")
+    require_contains(snapshot_read, "return release_error;", "canonical release error propagation")
+    require_contains(snapshot_read, "apply_measured_sample_aging(destination, esp_timer_get_time());", "canonical read aging")
+    require_contains(source, "alignas(LUNASHELL::DeviceSnapshot) EXT_RAM_BSS_ATTR", "HTTP snapshot PSRAM ownership")
+    require_contains(request_handler, "return snapshot_error;", "HTTP original snapshot error propagation")
+    if ".snapshot()" in request_handler or "const LUNASHELL::DeviceSnapshot snapshot" in request_handler:
+        raise AssertionError("HTTP handler must consume its fallible PSRAM buffer, never a fatal by-value snapshot")
+    read_at = request_handler.find(".readSnapshot(s_response_snapshot)")
+    lock_at = request_handler.find("snapshot_lock(s_response_snapshot_mutex)")
+    failure_at = request_handler.find("if (snapshot_error != ESP_OK)", read_at)
+    unavailable_at = request_handler.find('"503 Service Unavailable"', failure_at)
+    error_return_at = request_handler.find("return snapshot_error;", unavailable_at)
+    writer_at = request_handler.find("LUNASHELL::HttpJsonWriter response(request);", error_return_at)
+    if not 0 <= lock_at < read_at < failure_at < unavailable_at < error_return_at < writer_at:
+        raise AssertionError("HTTP must serialize buffer ownership and reject failed reads before using any payload")
     lifecycle_read_at = request_handler.find(
         "LUNASHELL::HttpLifecycleView lifecycle = snapshotLifecycle();"
     )

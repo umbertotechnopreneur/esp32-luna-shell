@@ -6618,35 +6618,38 @@ DeviceSnapshotService::touchActivityObservation() const noexcept
     return observation;
 }
 
-DeviceSnapshot DeviceSnapshotService::snapshot() const
+// destination: Caller-owned full snapshot buffer, never allocated on this function's stack.
+// Exception: Returns original lock/release errors; destination is unusable on failure.
+esp_err_t DeviceSnapshotService::readSnapshot(DeviceSnapshot &destination) const
 {
-    DeviceSnapshot copy;
     const esp_err_t lock_error =
         take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "read");
     if (lock_error != ESP_OK) {
-        ESP_LOGE(
-            TAG,
-            "DeviceSnapshot read cannot return a synthetic empty snapshot "
-            "(%s)",
-            esp_err_to_name(lock_error)
-        );
-        std::abort();
+        return lock_error;
     }
-    copy = s_snapshot;
+    destination = s_snapshot;
     const esp_err_t release_error = give_snapshot_mutex("read");
     if (release_error != ESP_OK) {
-        ESP_LOGE(
-            TAG,
-            "DeviceSnapshot read mutex invariant failed (%s)",
-            esp_err_to_name(release_error)
-        );
-        std::abort();
+        return release_error;
     }
-    apply_measured_sample_aging(copy, esp_timer_get_time());
+    apply_measured_sample_aging(destination, esp_timer_get_time());
     const TouchActivityObservation touch_activity =
         touchActivityObservation();
-    copy.ui.touch_activity_sequence = touch_activity.sequence;
-    copy.ui.touch_last_activity_at_us = touch_activity.last_activity_at_us;
+    destination.ui.touch_activity_sequence = touch_activity.sequence;
+    destination.ui.touch_last_activity_at_us = touch_activity.last_activity_at_us;
+    return ESP_OK;
+}
+
+// No parameters: legacy by-value consumers retain their explicit fatal read contract.
+// Exception: Aborts on canonical read failure; fallible consumers must call readSnapshot().
+DeviceSnapshot DeviceSnapshotService::snapshot() const
+{
+    DeviceSnapshot copy;
+    const esp_err_t error = readSnapshot(copy);
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "DeviceSnapshot legacy read failed (%s)", esp_err_to_name(error));
+        std::abort();
+    }
     return copy;
 }
 

@@ -18,8 +18,10 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <new>
 #include <string>
 
+#include "esp_attr.h"
 #include "esp_event.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -89,6 +91,14 @@ char s_expected_authorization[
 
 std::mutex s_metrics_mutex;
 HttpMetricsState s_metrics{};
+
+// HTTP owns one full response buffer in PSRAM. The lock covers canonical copy
+// and the entire serialization/send; no handler can observe another request's data.
+std::mutex s_response_snapshot_mutex;
+alignas(LUNASHELL::DeviceSnapshot) EXT_RAM_BSS_ATTR
+uint8_t s_response_snapshot_storage[sizeof(LUNASHELL::DeviceSnapshot)]{};
+LUNASHELL::DeviceSnapshot &s_response_snapshot =
+    *new (s_response_snapshot_storage) LUNASHELL::DeviceSnapshot{};
 
 esp_event_handler_instance_t s_ip_event_instance = nullptr;
 esp_event_handler_instance_t s_wifi_event_instance = nullptr;
@@ -429,7 +439,8 @@ void reportLifecycle(esp_err_t error = ESP_OK)
     }
 }
 
-// Authenticate data routes and serialize one immutable snapshot per request.
+// request: HTTP owner request; protected routes authenticate before reading canonical data.
+// Exception: Returns original canonical read or response errors; snapshot failures send HTTP 503.
 esp_err_t handleApiRequest(httpd_req_t *request)
 {
     recordRequest();
@@ -472,7 +483,22 @@ esp_err_t handleApiRequest(httpd_req_t *request)
         recordAuthorized();
     }
 
-    const LUNASHELL::DeviceSnapshot snapshot = LUNASHELL::DeviceSnapshotService::instance().snapshot();
+    std::lock_guard<std::mutex> snapshot_lock(s_response_snapshot_mutex);
+    const esp_err_t snapshot_error =
+        LUNASHELL::DeviceSnapshotService::instance().readSnapshot(s_response_snapshot);
+    if (snapshot_error != ESP_OK) {
+        recordResponseFailure();
+        ESP_LOGE(kTag, "HTTP canonical snapshot read failed (%s)", esp_err_to_name(snapshot_error));
+        // esp_err_to_name produces bounded ASCII tokens, safe in this JSON message.
+        const esp_err_t send_error = sendError(request, "503 Service Unavailable",
+            esp_err_to_name(snapshot_error), false, true);
+        if (send_error != ESP_OK) {
+            ESP_LOGE(kTag, "HTTP snapshot error response failed (%s); read cause remains %s",
+                     esp_err_to_name(send_error), esp_err_to_name(snapshot_error));
+        }
+        return snapshot_error;
+    }
+    const LUNASHELL::DeviceSnapshot &snapshot = s_response_snapshot;
     const esp_err_t response_setup_error = prepareJsonResponse(
         request,
         is_health && !lifecycle.accepting_requests
