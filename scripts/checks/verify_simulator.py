@@ -287,7 +287,7 @@ def check_fake_http_transport() -> str:
     require(SIMULATOR_TEST_DIR.is_dir(), "simulator test directory is missing")
     suite = unittest.defaultTestLoader.discover(
         str(SIMULATOR_TEST_DIR),
-        pattern="test_fake_device_server.py",
+        pattern="test_*.py",
     )
     test_count = suite.countTestCases()
     require(test_count > 0, "no fake HTTP tests were discovered")

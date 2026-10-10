@@ -270,7 +270,7 @@ class CcpPanel:
         snapshot, code = self._snapshot, self._display_code
         if self._debug_mode != "normal":
             return self.render_debug(rotation)
-        if self.events.visible(snapshot):
+        if self.events.visible(snapshot, self.endpoint):
             result = self.events.render(snapshot, self.window, rotation, self.prepare_personality, self.compose_scene)
             return result
         identity, title, lines = presentation(snapshot, code)
@@ -338,7 +338,7 @@ class CcpPanel:
                 self.follow.set(self._debug_normal_follow)
                 self._frame_key = None
             return
-        if self.events.visible(self._snapshot):
+        if self.events.visible(self._snapshot, self.endpoint):
             try:
                 self.events.press(point, self._snapshot, self.endpoint)
             except (OSError, RuntimeError, ValueError) as error:
@@ -359,7 +359,7 @@ class CcpPanel:
                     self._debug_scroll = max(0, min(count - 1, self._debug_scroll + (rows if displacement > 0 else -rows)))
             self._debug_press = None
             return
-        if self.events.visible(self._snapshot):
+        if self.events.visible(self._snapshot, self.endpoint):
             self.events.release(point, self._snapshot)
 
     # self: Optional endpoint owner stopped before the containing Tk window is destroyed.

@@ -217,9 +217,12 @@ def main() -> int:
     failure_at = request_handler.find("if (snapshot_error != ESP_OK)", read_at)
     unavailable_at = request_handler.find('"503 Service Unavailable"', failure_at)
     error_return_at = request_handler.find("return snapshot_error;", unavailable_at)
-    writer_at = request_handler.find("LUNASHELL::HttpJsonWriter response(request);", error_return_at)
+    writer_at = request_handler.find("LUNASHELL::HttpJsonWriter response({request, writeHttpJsonChunk}, esp_timer_get_time());", error_return_at)
     if not 0 <= lock_at < read_at < failure_at < unavailable_at < error_return_at < writer_at:
         raise AssertionError("HTTP must serialize buffer ownership and reject failed reads before using any payload")
+    if "httpd_resp_send_chunk" in json_source or '"esp_http_server.h"' in json_header or "esp_timer_get_time" in json_source:
+        raise AssertionError("Shared JSON must use explicit sink and observation clock, never firmware drivers")
+    require_contains(json_source, "_sink.write(_sink.context, _buffer, _used, false)", "shared JSON transport error")
     lifecycle_read_at = request_handler.find(
         "LUNASHELL::HttpLifecycleView lifecycle = snapshotLifecycle();"
     )

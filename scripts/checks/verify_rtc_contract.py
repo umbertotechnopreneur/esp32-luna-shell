@@ -470,7 +470,7 @@ def verify_gps_sync_model() -> None:
 # Raises AssertionError for contract drift and preserves real source/model failures.
 def main() -> int:
     hardware = read_component_source(HARDWARE)
-    time_source = TIME.read_text(encoding="utf-8")
+    time_source = read_component_source(TIME)
     wifi = WIFI.read_text(encoding="utf-8")
 
     reset_calendar = decode((0x80, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00))

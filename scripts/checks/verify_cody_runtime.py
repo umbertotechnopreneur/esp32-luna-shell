@@ -229,10 +229,30 @@ def main(argv=None):
         fixtures.write_text("".join(f"{int(valid)}\t{payload}\n" for _, payload, valid in vectors),
                             encoding="ascii")
         run_stage([str(events), str(fixtures)], output, "events")
+        # These host fixtures compile the same source modules used by firmware
+        # and Studio. They never create a socket, sensor or canonical device owner.
+        shared_includes = ("simulator/native/platform", "components/LUNASHELL_platform/include",
+                           "components/LUNASHELL_platform/src/snapshot", "components/LUNASHELL_platform/src/power")
+        shared_groups = {
+            "shared-ccp": ("scripts/tests/shared_ccp.cpp", "components/LUNASHELL_platform/src/network/LUNASHELL_codex_transaction.cpp",
+                           "components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp"),
+            "shared-snapshot": ("scripts/tests/shared_snapshot.cpp", "components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_aging.cpp",
+                                "components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_names.cpp",
+                                "components/LUNASHELL_platform/src/snapshot/LUNASHELL_rtc_calendar.cpp",
+                                "components/LUNASHELL_platform/src/runtime/LUNASHELL_clock_policy.cpp",
+                                "components/LUNASHELL_platform/src/http/LUNASHELL_http_json.cpp"),
+            "shared-standby": ("scripts/tests/cody_native/standby_contract.cpp", "simulator/native/CODY_host_standby.cpp",
+                               "components/LUNASHELL_platform/src/power/LUNASHELL_standby_resources.cpp"),
+        }
+        for name, shared_sources in shared_groups.items():
+            target = output / f"{name}.exe"
+            run_stage(compile_command(compiler, shared_includes, shared_sources, target, cxx_standard=20),
+                      output, f"{name}-compile")
+            run_stage([str(target)], output, name)
         check_event_ui(compiler, output)
         check_factory_settings(compiler, output)
         report.update(status="passed", response_ticks=500, fixture_seconds=50,
-            ccp_event_vectors=len(vectors),
+            ccp_event_vectors=len(vectors), shared_firmware_groups=list(shared_groups),
             contracts=["native/host audio, fatigue and idle parity", "smooth interruption",
                        "actual CCP host encoder versus native firmware decoder, strict truncation and buffer guards",
                        "real event presenter: bounded ASCII, semantic cards, narrative gates, readonly PR and delivered-only success",

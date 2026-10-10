@@ -987,6 +987,7 @@ def verify_transaction_fault_injection() -> None:
 # Raises AssertionError, OSError or ValueError when a required contract is missing or invalid.
 def verify_source_contracts() -> None:
     power = read(POWER_SOURCE)
+    shared_standby = read(ROOT / "components/LUNASHELL_platform/include/LUNASHELL_standby_transition.hpp")
     hardware = read(HARDWARE_SOURCE)
     header = read(PLATFORM_HEADER)
     device_snapshot = read(DEVICE_SNAPSHOT_HEADER)
@@ -1925,9 +1926,11 @@ def verify_source_contracts() -> None:
     )
     for fragment in (
         "suspend_standby_resources(false)",
-        "resume_standby_resources(true,",
+        "recover_standby_sequence(",
+        "run_hardware_standby_recovery",
         "resume_standby_resources(false,",
-        "suspend_standby_resources(true)",
+        "StandbyRecoveryState::Previous",
+        "StandbyRecoveryState::Requested",
         "begin_standby_sleep_measurement()",
         "log_standby_sleep_measurement(",
     ):
@@ -2199,7 +2202,7 @@ def verify_source_contracts() -> None:
 
     resource_transition = function_text(
         power,
-        "esp_err_t transition_standby_resource(",
+        "esp_err_t transition_standby_resource(const char *component, bool target,",
         "standby resource transition",
     )
     radio_policy = function_text(power, "esp_err_t set_standalone_wireless_standby(",
@@ -2209,8 +2212,11 @@ def verify_source_contracts() -> None:
     suspension = function_text(power, "esp_err_t suspend_standby_resources(", "resource suspension")
     require("s_standby_resources.wireless.consistent = false" not in suspension,
             "policy reassertion must preserve the last confirmed radio state")
-    require_contains(suspension, "set_standalone_wireless_standby, true",
+    hardware_step = function_text(power, "execute_hardware_standby_step(", "hardware resource adapter")
+    require_contains(hardware_step, "set_standalone_wireless_standby, target",
                      "radio policy reassertion is explicit")
+    require_contains(suspension, "execute_standby_sequence(true, best_effort",
+                     "firmware suspension executes shared resource order")
     require_contains(standby_transition,
                      "selected_standby_sleep() == LUNASHELL::power_policy::StandbySleep::Deep",
                      "service policy precedes optional deep-sleep admission")
@@ -2248,25 +2254,14 @@ def verify_source_contracts() -> None:
         "esp_err_t suspend_standby_resources(",
         "standby resource suspension",
     )
-    suspend_order = [
-        suspend_resources.find("LUNASHELL_hardware_set_full_snapshot_power_suspended"),
-        suspend_resources.find("LUNASHELL_hardware_set_ui_sampling_power_suspended"),
-        suspend_resources.find("LUNASHELL_hardware_set_gps_power_suspended"),
-        suspend_resources.find("LUNASHELL_distance_set_power_suspended"),
-        suspend_resources.find("LUNASHELL_storage_set_power_suspended"),
-        suspend_resources.find("LUNASHELL_hardware_set_imu_low_power"),
-        suspend_resources.find("set_motion_wake_standby"),
-        suspend_resources.find("LUNASHELL_voice_afe_set_standby"),
-        suspend_resources.find("LUNASHELL_audio_set_standby"),
-        suspend_resources.find("stop_radios_for_standby"),
-        suspend_resources.find("transition_display_resource(true)"),
-        suspend_resources.find("set_lvgl_standby"),
-    ]
-    require(
-        all(index >= 0 for index in suspend_order)
-        and suspend_order == sorted(suspend_order),
-        "standby resources must quiesce producers before panel-off and LVGL pause",
-    )
+    suspend_plan = shared_standby.split("static constexpr StandbyStep suspend[] = {", 1)[1].split("};", 1)[0]
+    suspend_order = [suspend_plan.find("StandbyStep::" + name) for name in (
+        "FullSnapshots", "UiSampling", "Gps", "Distance", "Storage", "Imu", "MotionWake",
+        "VoiceAfe", "BaseAudio", "Wireless", "StandaloneDisplay", "Display", "Lvgl")]
+    require(all(index >= 0 for index in suspend_order) and suspend_order == sorted(suspend_order),
+            "shared standby plan must quiesce producers before panel-off and LVGL pause")
+    require_contains(hardware_step, "transition_standby_resource(name, requested, *status, transition)",
+                     "shared plan adapter preserves actual hardware owner status")
     bsp_pause = function_text(
         bsp_display,
         "esp_err_t bsp_display_lvgl_pause(void)",
@@ -2392,24 +2387,19 @@ def verify_source_contracts() -> None:
         "esp_err_t resume_standby_resources(",
         "standby resource resume",
     )
-    resume_order = [
-        resume_resources.find("set_lvgl_standby"),
-        resume_resources.find("set_motion_wake_standby"),
-        resume_resources.find("LUNASHELL_hardware_set_imu_low_power"),
-        resume_resources.find("LUNASHELL_distance_set_power_suspended"),
-        resume_resources.find("LUNASHELL_storage_set_power_suspended"),
-        resume_resources.find("LUNASHELL_audio_set_standby"),
-        resume_resources.find("LUNASHELL_voice_afe_set_standby"),
-        resume_resources.find("LUNASHELL_hardware_set_ui_sampling_power_suspended"),
-        resume_resources.find("LUNASHELL_hardware_set_gps_power_suspended"),
-        resume_resources.find("LUNASHELL_hardware_set_full_snapshot_power_suspended"),
-        resume_resources.find("transition_display_resource(false)"),
-    ]
-    require(
-        all(index >= 0 for index in resume_order)
-        and resume_order == sorted(resume_order),
-        "wake must restore LVGL and producers before exposing the active panel",
-    )
+    require_contains(resume_resources, "execute_standby_sequence(false, best_effort",
+                     "firmware wake executes the same shared resource order")
+    resume_plan = shared_standby.split("static constexpr StandbyStep resume[] = {", 1)[1].split("};", 1)[0]
+    resume_order = [resume_plan.find("StandbyStep::" + name) for name in (
+        "Lvgl", "MotionWake", "Imu", "Distance", "Storage", "BaseAudio", "VoiceAfe",
+        "UiSampling", "Gps", "FullSnapshots", "Wireless", "PrepareDarkFrame",
+        "StandaloneDisplay", "PrepareWakeFrame", "Display")]
+    require(all(index >= 0 for index in resume_order) and resume_order == sorted(resume_order),
+            "shared wake plan must restore producers before exposing the active panel")
+    require_contains(shared_standby, "result.error != ESP_OK && (!best_effort || exposes_display)",
+                     "failed producers keep the display dark even during best-effort recovery")
+    require_contains(shared_standby, "run(owner, !requested, true)", "shared rollback restores previous state first")
+    require_contains(shared_standby, "run(owner, requested, true)", "shared fallback retries requested state only after rollback failure")
 
     for fragment in (
         "LUNASHELL_hardware_set_full_snapshot_power_suspended(bool suspended)",

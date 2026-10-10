@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from dataclasses import replace
 from enum import Enum
 import hashlib
 import hmac
@@ -21,6 +20,7 @@ import time
 from typing import Callable
 
 from runtime_paths import simulator_artifacts_root
+from cody_native_ccp import NativeTransaction, checked as checked_transaction
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "plugins/cody-codex-plugin/mcp"))
@@ -70,6 +70,7 @@ class SimulatorSnapshot:
     event_payload: interactions.EventPayload | None = None
     event_fresh: bool = False
     event_remaining_seconds: int = 0
+    event_error: int = 0
     reset_count: int = 0
 
 
@@ -200,10 +201,12 @@ class SimulatorLink:
         self._logged_error = ""
         self._logged_error_at = 0.0
         self._duplicate_errors = 0
+        self._transaction: NativeTransaction | None = None
         self._request_id = ""
         self._event_state = "none"
         self._event_payload: interactions.EventPayload | None = None
         self._event_at: float | None = None
+        self._event_error = 0
         self._event_expires = 0.0
         self._event_nonce = ""
         self._event_peer: tuple[str, int] | None = None
@@ -234,6 +237,32 @@ class SimulatorLink:
     def device_id(self) -> str:
         return self.store.document["device_id"]
 
+    # self: Endpoint owner serializing native state and its public projection.
+    # Raises loader/native errors; there is no alternate Python transition engine.
+    def _native_transaction(self) -> NativeTransaction:
+        if self._transaction is None:
+            self._transaction = NativeTransaction()
+        return self._transaction
+
+    # self: Owner copying a decoded native DTO; no transaction rules are evaluated here.
+    # Raises the original native read or ABI error.
+    def _sync_transaction(self) -> None:
+        result = self._native_transaction().snapshot(interactions)
+        self._request_id, self._event_payload, self._event_state = result.request_id, result.payload, result.state
+        self._event_expires, self._event_error = result.expires, result.error
+        # Retry eligibility is a projection of the engine's Sending state.
+        self._reply_choice = result.payload.selected_id if result.payload is not None and result.state == "sending" else ""
+
+    # self: Owner explicitly withdrawing transient state during commissioning/reset.
+    # Raises the original native reset/read error if an event owner already exists.
+    def _reset_transaction(self) -> None:
+        if self._transaction is not None:
+            self._transaction.reset()
+            self._sync_transaction()
+        else:
+            self._request_id, self._event_state, self._event_payload = "", "none", None
+        self._reply_choice, self._event_error = "", 0
+
     # self: Current owner; the result is consumed only by the visible simulator display.
     def display_code(self) -> str:
         return self._code if not self.pending and self.clock() < self._deadline else ""
@@ -250,7 +279,7 @@ class SimulatorLink:
             accepted_packets=self.accepted_packets, rejected_packets=self.rejected_packets,
             last_error=self._reset_error or self.last_error, request_id=self._request_id, event_state=self._event_state,
             event_payload=self._event_payload, event_fresh=event_fresh,
-            event_remaining_seconds=max(0, int(self._event_expires - self.clock())), reset_count=self.reset_count)
+            event_remaining_seconds=max(0, int(self._event_expires - self.clock())), event_error=self._event_error, reset_count=self.reset_count)
 
     # self: Explicit user commissioning target; never called by discovery.
     # replace_confirmed: User confirmation for an existing saved association.
@@ -270,8 +299,7 @@ class SimulatorLink:
         self._nonce = ""
         self._ready_at = self._activity_at = None
         self._event_at = None
-        self._event_payload = None
-        self._request_id, self._event_state, self._reply_choice = "", "none", ""
+        self._reset_transaction()
         self.last_error = ""
 
     # self: Owner retiring all ephemeral display-only commissioning values.
@@ -302,7 +330,7 @@ class SimulatorLink:
         self._nonce = ""
         self._ready_at = self._activity_at = None
         self.phase, self.project, self.chat = "none", "", ""
-        self._request_id, self._event_state, self._event_payload = "", "none", None
+        self._reset_transaction()
         self._event_at, self._event_peer = None, None
         self._event_nonce, self._reply_choice = "", ""
         self.state = LinkState.UNPAIRED if self.network_ready else LinkState.NETWORK_DOWN
@@ -349,9 +377,9 @@ class SimulatorLink:
         if self._reset_due is not None and now >= self._reset_due:
             self._apply_reset()
             return
-        if self._event_state in {"pending", "sending", "received"} and now >= self._event_expires:
-            self._event_state = "expired"
-            self._reply_choice = ""
+        if self._transaction is not None:
+            self._transaction.tick(now)
+            self._sync_transaction()
         if self._code and now >= self._deadline:
             self._clear_code()
             self.state = LinkState.INCOMPLETE if self.pending else LinkState.TIMED_OUT
@@ -362,7 +390,7 @@ class SimulatorLink:
         if self._ready_at is not None and now - self._ready_at >= PRESENCE_SECONDS:
             self.state = LinkState.INCOMPLETE if self.pending else LinkState.DISCOVERING
             self.last_error = "No authenticated READY for eight seconds"
-        if (self._reply_choice and self._event_state in {"sending", "received"}
+        if (self._reply_choice and self._event_state == "sending"
                 and self.state == LinkState.CONNECTED and now >= self._reply_after
                 and self._event_peer is not None):
             self._send_reply(send)
@@ -709,94 +737,28 @@ class SimulatorLink:
             raise ValueError("CCP EVENT authentication failed")
         if fields["nonce"] == self._event_nonce:
             raise ValueError("EVENT permits one snapshot per FIND nonce")
-        if fields["state"] not in interactions.STATES or not fields["ttl"].isdigit():
-            raise ValueError("CCP EVENT state or lifetime is invalid")
-        ttl = int(fields["ttl"])
-        if str(ttl) != fields["ttl"] or not 0 <= ttl <= interactions.MAX_TTL_SECONDS:
-            raise ValueError("CCP EVENT lifetime is outside its bound")
-        if fields["state"] in {"pending", "received"} and ttl == 0:
-            raise ValueError("CCP live EVENT cannot have zero lifetime")
+        # UDP authenticity and nonce replay remain transport-owner concerns.
+        # Decoding, immutable content, deadlines and retirement execute firmware C++.
         now = self.clock()
-        if fields["state"] == "unavailable":
-            if (ttl != 0 or fields["data"] != "-" or fields["id"] == "0" * 32
-                    or fields["id"] != self._request_id or self._event_payload is None
-                    or self._event_payload.kind != interactions.EventKind.QUESTION):
-                raise ValueError("CCP unavailable EVENT does not retire the current question")
-            # A restarted broker lost the recipient; preserve local Send evidence
-            # without claiming a response. Its next signed FIND proves retirement.
-            if self._event_state in interactions.OPEN_DEVICE_STATES:
-                self._event_state, self._reply_choice = "rejected", ""
-            self._event_at, self._event_nonce = now, fields["nonce"]
-            return
-        if fields["state"] == "none":
-            if fields["id"] != "0" * 32 or ttl != 0 or fields["data"] != "-":
-                raise ValueError("CCP empty EVENT is incoherent")
-            if self._event_payload is not None and self._event_payload.kind != interactions.EventKind.QUESTION:
-                self._event_payload = None
-                self._request_id, self._event_state, self._reply_choice = "", "none", ""
-            elif self._event_state in {"pending", "sending", "received"}:
-                # A broker restart loses its volatile recipient. This is an
-                # unavailable request, never evidence that a reply was sent.
-                self._event_state = "rejected"
-                self._reply_choice = ""
-            self._event_at, self._event_nonce = self.clock(), fields["nonce"]
-            return
-        if fields["id"] == "0" * 32:
-            raise ValueError("CCP nonempty EVENT needs an immutable request identity")
-        payload = interactions.decode_payload(fields["data"])
-        if fields["state"] in {"received", "delivered"} and not payload.selected_id:
-            raise ValueError("CCP answered EVENT has no selected choice")
-        if fields["state"] == "pending" and payload.selected_id:
-            raise ValueError("CCP pending EVENT cannot already have a selected choice")
-        same_ticket = fields["id"] == self._request_id
-        locally_expired = (same_ticket and self._event_state in interactions.OPEN_DEVICE_STATES
-                           and now >= self._event_expires)
-        if (not same_ticket and self._event_payload is not None
-                and self._event_payload.kind == interactions.EventKind.QUESTION
-                and self._event_state in {"pending", "sending", "received"}):
-            raise ValueError("CCP next question arrived before the previous device closure")
-        if same_ticket and self._event_payload is not None:
-            if replace(payload, selected_id="") != replace(self._event_payload, selected_id=""):
-                raise ValueError("CCP immutable request content changed")
-            if self._reply_choice and payload.selected_id and payload.selected_id != self._reply_choice:
-                raise ValueError("CCP EVENT answer differs from the confirmed local choice")
-            if self._event_payload.selected_id and not payload.selected_id:
-                # A lost outbound REPLY can leave the host's expired snapshot
-                # without a selection. Keep the local Send evidence so the UI
-                # reports unconfirmed delivery instead of an untouched timeout.
-                payload = replace(payload, selected_id=self._event_payload.selected_id)
-        incoming = fields["state"]
-        if same_ticket and self._event_state in {"sending", "received"} and incoming == "pending":
-            incoming = self._event_state
-            if self._event_payload is not None and self._event_payload.selected_id:
-                payload = replace(payload, selected_id=self._event_payload.selected_id)
-        if same_ticket and self._event_state in {"expired", "cancelled", "rejected", "delivered"} and incoming != self._event_state:
-            if incoming not in interactions.TERMINAL_STATES:
-                raise ValueError("CCP retired request cannot change state or revive")
-            # Preserve local expiry/rejection while acknowledging actual closure.
-            incoming = self._event_state
-        expiry = now + ttl
-        self._event_expires = min(self._event_expires, expiry) if same_ticket else expiry
-        self._request_id, self._event_payload, self._event_state = fields["id"], payload, incoming
-        self._event_at, self._event_nonce, self._event_peer = now, fields["nonce"], source
-        if not same_ticket or incoming in interactions.TERMINAL_STATES:
-            self._reply_choice = ""
-        # Packet admission precedes tick() in the endpoint. Enforce the original
-        # deadline here even when a late packet claims Received or Delivered.
-        if locally_expired or (incoming in interactions.OPEN_DEVICE_STATES and now >= self._event_expires):
-            self._event_state, self._reply_choice = "expired", ""
+        self._native_transaction().event(fields, now)
+        self._sync_transaction()
+        self._event_at, self._event_nonce = now, fields["nonce"]
+        self._event_peer = source
 
     # self: SIMULATED endpoint reporting actual retirement, separate from recipient delivery.
     # send: Sole authenticated socket callback; a lost ACK is retried on the next terminal EVENT.
     # Raises ValueError, RuntimeError or OSError for missing route, crypto or send failure.
     def _send_terminal_ack(self, send: Send) -> None:
-        if (self._event_payload is None or self._event_payload.kind != interactions.EventKind.QUESTION
-                or self._event_state not in interactions.TERMINAL_STATES | {"rejected"}):
+        if self._transaction is None:
+            return
+        observation = self._transaction.terminal()
+        if observation is None:
             return
         if self.active is None or not self._nonce or self._event_peer is None:
             raise ValueError("No authenticated route for terminal observation")
         key = protocol.unprotect_secret(self.active["protected_link_key"])
-        values = [self.device_id, self.active["pc_id"], self._nonce, self._request_id, self._event_state]
+        request_id, state = observation
+        values = [self.device_id, self.active["pc_id"], self._nonce, request_id, state]
         send(protocol.encode_datagram("EVENTACK", list(zip(("device", "pc", "nonce", "id", "state"), values))
                                       + [("proof", protocol.make_proof(key, "event-ack", *values))]), self._event_peer)
 
@@ -805,16 +767,16 @@ class SimulatorLink:
     # send: Sole endpoint callback; socket success does not mean recipient delivery.
     # Raises ValueError, RuntimeError or OSError for stale/invalid state or failed send.
     def submit_reply(self, choice_id: str, send: Send) -> None:
-        if (self._event_state != "pending" or self._event_payload is None
-                or self._event_payload.kind != interactions.EventKind.QUESTION
-                or not self.snapshot().event_fresh or self.clock() >= self._event_expires):
-            raise ValueError("This request is not currently available for a reply")
-        if choice_id not in {choice.choice_id for choice in self._event_payload.choices}:
-            raise ValueError("The selected choice does not belong to this request")
-        self._reply_choice = choice_id
-        self._event_payload = replace(self._event_payload, selected_id=choice_id)
-        self._event_state = "sending"
+        self._native_transaction().submit(self._request_id, choice_id, self.snapshot().event_fresh, self.clock())
+        self._sync_transaction()
         self._send_reply(send)
+
+    # self: Explicit simulator Done target; never closes an unanswered question.
+    # request_id: Immutable informational/terminal identity currently displayed.
+    # Raises ValueError with the real native dismissal admission error.
+    def dismiss_event(self, request_id: str) -> None:
+        self._native_transaction().dismiss(request_id)
+        self._sync_transaction()
 
     # self: Endpoint retaining one explicitly confirmed answer across retries and temporary offline periods.
     # send: Sole socket callback; only a later authenticated delivered acknowledgement shows Reply sent.
@@ -839,19 +801,11 @@ class SimulatorLink:
         names = ("device", "pc", "nonce", "id", "choice", "status")
         if not hmac.compare_digest(protocol.make_proof(key, "reply-ack", *(fields[name] for name in names)), fields["proof"]):
             raise ValueError("CCP REPLYACK authentication failed")
-        if (fields["id"] != self._request_id or not self._reply_choice
-                or fields["choice"] != self._reply_choice or fields["status"] not in interactions.ACK_STATES):
-            raise ValueError("CCP REPLYACK does not match the confirmed local answer")
-        if self.clock() >= self._event_expires and self._event_state in {"pending", "sending", "received"}:
-            self._event_state, self._reply_choice = "expired", ""
-        if self._event_state in {"expired", "cancelled", "rejected", "delivered"}:
-            raise ValueError("CCP REPLYACK arrived after the request was retired")
-        status = fields["status"]
-        self._event_state = "rejected" if status in {"conflict", "unknown"} else status
-        if self._event_payload is not None and status in {"received", "delivered"}:
-            self._event_payload = replace(self._event_payload, selected_id=self._reply_choice)
-        if status != "received":
-            self._reply_choice = ""
+        error = self._native_transaction().ack(fields, self.clock())
+        self._sync_transaction()
+        # Recipient errors can retire the native request. Publish its real state
+        # before reporting that error; a subsequent EVENT retries terminal ACK.
+        checked_transaction("REPLYACK", error)
 
 
 class SimulatorEndpoint:
@@ -983,6 +937,19 @@ class SimulatorEndpoint:
                     raise ValueError("Unsupported SIMULATED CCP action")
             except (OSError, RuntimeError, ValueError) as error:
                 self._link.record_error("action", error)
+                raise
+
+    # self: Endpoint forwarding an explicit Done action under the transport owner lock.
+    # request_id: Exact informational/terminal identity reviewed by the user.
+    # Raises ValueError or the original native error, retained for the visible simulator UI.
+    def dismiss_event(self, request_id: str) -> None:
+        with self._lock:
+            if self._link is None or self._fatal_error is not None:
+                raise RuntimeError("SIMULATED CCP endpoint is unavailable")
+            try:
+                self._link.dismiss_event(request_id)
+            except (OSError, RuntimeError, ValueError) as error:
+                self._link.record_error("dismiss", error)
                 raise
 
     # self: Simulator endpoint accepting only the user's explicit reviewed Send action.

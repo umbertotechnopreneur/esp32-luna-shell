@@ -51,7 +51,6 @@ constexpr CODY2D::Rect kSingleActionBounds{113, 352, 240, 72};
 constexpr CODY2D::Rect kLeftCardBounds{73, 260, 154, 104};
 constexpr CODY2D::Rect kRightCardBounds{239, 260, 154, 104};
 constexpr CODY2D::Rect kOptionsBounds{153, 376, 160, 52};
-constexpr CODY2D::Rect kEventThirdBounds{113, 376, 240, 52};
 constexpr uint16_t kEventCaptionWidth = 300;
 constexpr uint16_t kCaptionWidth = 232;
 // Seventeen characters occupy 188 pixels in the 232-pixel body slot.
@@ -223,6 +222,8 @@ bool s_event_reply_admitted = false;
 bool s_event_dismiss_admitted = false;
 char s_event_selected_id[13]{};
 uint8_t s_event_failure_page = 0;
+// Display-owner buffer avoids putting the complete presentation plan on its task stack.
+event_presentation::Plan s_event_plan{};
 int64_t s_checks_passed_readable_at_us = -1;
 char s_last_event_audio_request[33]{};
 char s_last_delivered_audio_request[33]{};
@@ -1194,17 +1195,14 @@ bool actions_ready(const SceneFrame &scene)
         return true;
     }
     if (is_codex_event_route(s_route)) {
-        uint16_t preceding = title_length;
-        for (uint8_t index = 0; index < s_view.line_count; ++index) {
-            if (!s_view.instant_lines[index]) {
-                const uint16_t length = s_view.lines[index].text.length;
-                if (scene_content_characters(scene, length, preceding) != length) {
-                    return false;
-                }
-                preceding += length;
+        uint16_t narrative = title_length;
+        for (uint8_t index = 0; index < s_event_plan.line_count; ++index) {
+            if (!s_event_plan.lines[index].instant) {
+                narrative += static_cast<uint16_t>(std::strlen(s_event_plan.lines[index].text));
             }
         }
-        return true;
+        return event_presentation::controls_ready(s_event_plan,
+            scene_content_characters(scene, narrative, 0), title_length);
     }
     const uint16_t length = s_view.lines[0].text.length;
     return scene_content_characters(scene, length, title_length) == length;
@@ -1563,263 +1561,116 @@ esp_err_t prepare_options_content(SceneFrame &scene)
     return prepare_action(OnboardingAction::Next, !s_command_pending);
 }
 
-// text: Bounded canonical ASCII, copied into presentation-owned storage before drawing.
-// top: Logical top of the first line; every subsequent line advances by the supplied pitch.
-// pitch: Logical line spacing, at least the authored body font height.
-// instant: True for live status/progress values excluded from typewriter timing and sound.
-// wrap_at_words: False for readonly check identifiers, whose exact two-line slots must not expand.
-// Exception: Returns exact text/capacity/geometry errors without truncating user-visible data.
-esp_err_t append_event_text(const char *text, uint16_t &top, uint16_t pitch = 26,
-                           bool instant = false, bool wrap_at_words = true)
+// line: Fully wrapped shared-plan line, copied into presentation-owned storage before drawing.
+// Exception: Returns exact native text/capacity/geometry errors without changing the shared plan.
+esp_err_t append_event_line(const event_presentation::Line &line)
 {
     const auto &font = SceneData::body_font;
-    if (text == nullptr || pitch < font.height) {
-        ESP_LOGE(kTag, "Event text layout rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
-        return ESP_ERR_INVALID_ARG;
+    const size_t count = std::strlen(line.text);
+    if (count == 0 || count >= kDebugLineBytes || s_view.line_count >= kContentLineCapacity ||
+        line.top + font.height > 380) {
+        ESP_LOGE(kTag, "Shared event line bounds rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
     }
-    const size_t capacity = (kEventCaptionWidth - font.width) / font.advance + 1U;
-    size_t offset = 0;
-    const size_t total = std::strlen(text);
-    size_t remaining_lines = (total + capacity - 1U) / capacity;
-    while (offset < total) {
-        if (s_view.line_count >= kContentLineCapacity || top + font.height > 380) {
-            ESP_LOGE(kTag, "Event text exceeds its visible viewport (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
-            return ESP_ERR_INVALID_SIZE;
-        }
-        size_t count = std::min(capacity, total - offset);
-        if (wrap_at_words && offset + count < total) {
-            for (size_t index = count; index > 0; --index) {
-                // Word boundaries are optional: every accepted wire string must
-                // fit the same bounded slots as hard wrapping, including long words.
-                const size_t remaining = total - (offset + index + 1U);
-                if (text[offset + index] == ' ' && remaining <= (remaining_lines - 1U) * capacity) {
-                    count = index;
-                    break;
-                }
-            }
-        }
-        const uint8_t line_index = s_view.line_count;
-        auto &buffer = s_view.debug_text[line_index];
-        std::memcpy(buffer, text + offset, count);
-        buffer[count] = '\0';
-        const uint16_t width = static_cast<uint16_t>((count - 1U) * font.advance + font.width);
-        const esp_err_t error = CODY2D::prepare_text_line(font, {buffer, static_cast<uint16_t>(count)},
-            {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(top)},
-            instant ? 0xBDF7 : 0xFFFF, s_view.lines[line_index]);
-        if (error != ESP_OK) {
-            return error;
-        }
-        s_view.instant_lines[line_index] = instant;
-        ++s_view.line_count;
-        --remaining_lines;
-        top += pitch;
-        offset += count;
-        if (wrap_at_words && offset < total && text[offset] == ' ') {
-            ++offset;
-        }
+    const uint8_t index = s_view.line_count;
+    auto &buffer = s_view.debug_text[index];
+    std::memcpy(buffer, line.text, count + 1U);
+    const uint16_t width = static_cast<uint16_t>((count - 1U) * font.advance + font.width);
+    const esp_err_t error = CODY2D::prepare_text_line(font, {buffer, static_cast<uint16_t>(count)},
+        {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(line.top)},
+        line.instant ? 0xBDF7 : 0xFFFF, s_view.lines[index]);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Shared event line geometry failed (%s)", esp_err_to_name(error));
+        return error;
     }
+    s_view.instant_lines[index] = line.instant;
+    ++s_view.line_count;
     return ESP_OK;
 }
 
-// choice: Authenticated semantic caption, identity and tone from the canonical event.
-// bounds: Existing circle-safe pair or centered third-action rectangle.
-// card: True for an icon above the caption, false for the centered third capsule.
-// target: Receives a complete reversible local selection; this function never submits it.
-// Exception: Returns invalid tone or exact caption/control geometry failure.
-esp_err_t prepare_event_choice(const LUNASHELL::CodexEventChoice &choice, CODY2D::Rect bounds,
-                              bool card, EventChoiceControl &target)
+// No parameters: returns reversible navigation without transport or sensor access.
+event_presentation::Navigation event_navigation()
 {
-    OnboardingAction style = OnboardingAction::Options;
-    switch (choice.tone) {
-    case LUNASHELL::CodexChoiceTone::Neutral: style = OnboardingAction::Options; break;
-    case LUNASHELL::CodexChoiceTone::Positive: style = OnboardingAction::AcceptCodex; break;
-    case LUNASHELL::CodexChoiceTone::Negative: style = OnboardingAction::ForgetPairing; break;
-    case LUNASHELL::CodexChoiceTone::Info: style = OnboardingAction::NetworkSetup; break;
-    default:
-        ESP_LOGE(kTag, "Event choice tone rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
-        return ESP_ERR_INVALID_ARG;
-    }
-    std::memcpy(target.id, choice.id, sizeof(target.id));
-    const esp_err_t error = prepare_button(style, choice.label, bounds, true, card, target.control, target.second);
-    if (choice.tone == LUNASHELL::CodexChoiceTone::Neutral) {
-        target.control.icon = CODY2D::ActionIcon::Arrow;
-    } else if (choice.tone == LUNASHELL::CodexChoiceTone::Info) {
-        target.control.icon = CODY2D::ActionIcon::Link;
-    }
-    return error;
+    event_presentation::Navigation navigation;
+    navigation.stage = s_event_stage;
+    std::memcpy(navigation.selected_id, s_event_selected_id, sizeof(navigation.selected_id));
+    navigation.failure_page = s_event_failure_page;
+    return navigation;
 }
 
-// scene: Event-owned scene receiving readonly details or explicitly admitted actions.
-// Exception: Returns real data/geometry failures; never invents progress or delivery.
+// No parameters: projects actual canonical observation and previous owner admissions.
+event_presentation::Context event_context()
+{
+    return {s_event_online, s_event_reply_admitted, s_event_dismiss_admitted,
+        s_event_observation_error, s_event_ui_error, s_event_retry};
+}
+
+// navigation: Local reversible presentation state accepted by the shared model.
+// effect: Accepted model intent; reversible navigation clears only local review errors.
+void retain_event_navigation(const event_presentation::Navigation &navigation,
+                             event_presentation::Effect effect = event_presentation::Effect::None)
+{
+    s_event_stage = navigation.stage;
+    std::memcpy(s_event_selected_id, navigation.selected_id, sizeof(s_event_selected_id));
+    s_event_failure_page = navigation.failure_page;
+    auto context = event_context();
+    event_presentation::accept_navigation(context, effect);
+    s_event_ui_error = context.ui_error;
+    s_event_retry = context.retry;
+}
+
+// id: Shared semantic action identity independent of label or card ordering.
+OnboardingAction event_action_identity(event_presentation::ActionId id)
+{
+    using Id = event_presentation::ActionId;
+    switch (id) {
+    case Id::Open: return OnboardingAction::OpenEvent;
+    case Id::Send: return OnboardingAction::SendReply;
+    case Id::Dismiss: return OnboardingAction::DismissEvent;
+    case Id::Retry: return OnboardingAction::RetryEvent;
+    case Id::Failures: return OnboardingAction::ViewFailures;
+    default: return OnboardingAction::None;
+    }
+}
+
+// scene: Event-owned frame drawing the same bounded semantic plan as the native host.
+// Exception: Returns original shared data/layout or native preparation failure.
 esp_err_t prepare_event_content(SceneFrame &scene)
 {
-    using State = LUNASHELL::CodexEventState;
-    const auto &event = s_presented_event;
-    uint16_t top = 196;
-    esp_err_t error = ESP_OK;
-    OnboardingAction action = OnboardingAction::None;
-    bool enabled = false;
-    if (s_route == Route::EventUnavailable) {
-        error = append_event_text("Event status unavailable", top);
-        if (error == ESP_OK) {
-            std::snprintf(s_view.error_text, sizeof(s_view.error_text), "Error: 0x%08lX",
-                static_cast<unsigned long>(s_event_observation_error));
-            error = append_event_text(s_view.error_text, top, 26, true);
+    const auto &font = SceneData::body_font;
+    const size_t capacity = (kEventCaptionWidth - font.width) / font.advance + 1U;
+    esp_err_t error = event_presentation::prepare(s_presented_event, event_navigation(),
+        event_context(), capacity, s_event_plan);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Shared event presentation rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    for (uint8_t index = 0; error == ESP_OK && index < s_event_plan.line_count; ++index) {
+        error = append_event_line(s_event_plan.lines[index]);
+    }
+    s_view.action_visible = false;
+    for (uint8_t index = 0; error == ESP_OK && index < s_event_plan.action_count; ++index) {
+        const auto &action = s_event_plan.actions[index];
+        if (action.id == event_presentation::ActionId::Choose) {
+            auto &choice = s_view.event_choices[s_view.event_choice_count];
+            std::memcpy(choice.id, action.choice_id, sizeof(choice.id));
+            error = event_presentation::prepare_control(action, font, choice.control, choice.second);
+            if (error == ESP_OK) { ++s_view.event_choice_count; }
+        } else {
+            const auto action_id = event_action_identity(action.id);
+            if (s_view.action_id != action_id || s_view.action.enabled != action.enabled) { ++s_navigation_revision; }
+            if (s_view.action_id != action_id) { ++s_text_generation; }
+            s_view.action_id = action_id;
+            s_view.action_visible = true;
+            error = event_presentation::prepare_control(action, font, s_view.action, s_view.action_second_line);
         }
-        action = OnboardingAction::RetryEvent;
-        enabled = true;
-    } else if (s_route == Route::DecisionChoices27) {
-        error = append_event_text(event.title, top);
-        top = 228;
-        if (error == ESP_OK) {
-            error = append_event_text(s_event_online ? "Choose a response" : "Offline - pending", top, 26, true);
-        }
-        if (event.choice_count < 2 || event.choice_count > 3) {
-            ESP_LOGE(kTag, "Decision choice count rejected: %u (%s)", event.choice_count,
-                esp_err_to_name(ESP_ERR_INVALID_SIZE));
-            return ESP_ERR_INVALID_SIZE;
-        }
-        const CODY2D::Rect slots[] = {kLeftCardBounds, kRightCardBounds, kEventThirdBounds};
-        for (uint8_t index = 0; error == ESP_OK && index < event.choice_count; ++index) {
-            error = prepare_event_choice(event.choices[index], slots[index], index < 2,
-                s_view.event_choices[index]);
-            if (error == ESP_OK) {
-                ++s_view.event_choice_count;
-            }
-        }
-    } else if (s_route == Route::DecisionConfirm27) {
-        const auto *choice = event_presentation::find_choice(s_presented_event, s_event_selected_id);
-        if (choice == nullptr) {
-            ESP_LOGE(kTag, "Selected decision identity unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_FOUND));
-            return ESP_ERR_NOT_FOUND;
-        }
-        error = append_event_text(choice->label, top);
-        if (error == ESP_OK) {
-            error = append_event_text(choice->detail[0] != '\0' ? choice->detail : event.body, top);
-        }
-        top = 326;
-        if (error == ESP_OK) {
-            const char *status = s_event_online ? "Review before sending" : "Offline - not sent";
-            if (s_event_ui_error != ESP_OK) {
-                std::snprintf(s_view.error_text, sizeof(s_view.error_text),
-                    s_event_online ? "Send error: 0x%08lX" : "Offline: 0x%08lX",
-                    static_cast<unsigned long>(s_event_ui_error));
-                status = s_view.error_text;
-            }
-            error = append_event_text(status, top, 26, true);
-        }
-        action = s_event_ui_error == ESP_OK ? OnboardingAction::SendReply : OnboardingAction::RetryEvent;
-        enabled = s_event_online && event.state == State::Pending && !s_event_reply_admitted;
-    } else if (s_route == Route::CheckFailures24) {
-        const uint8_t first = static_cast<uint8_t>(s_event_failure_page * 3U);
-        if (event.failure_count == 0) {
-            error = append_event_text("No failure details", top);
-        }
-        for (uint8_t index = first; error == ESP_OK && index < event.failure_count && index < first + 3U; ++index) {
-            top = static_cast<uint16_t>(196U + (index - first) * 52U);
-            error = append_event_text(event.failed_checks[index], top, 25, true, false);
-        }
-        top = 354;
-        if (error == ESP_OK) {
-            const char *hint = !s_event_online ? "Offline - saved details" :
-                event.failure_count > 3 ? "Swipe to scroll" : "Read details on your PC";
-            error = append_event_text(hint, top, 26, true);
-        }
-    } else if (s_route == Route::DecisionWaiting) {
-        error = append_event_text(event.title, top);
-        if (error == ESP_OK) {
-            const char *status = !s_event_online ? "Offline - reply pending" :
-                event.state == State::Received ? "CCP received the reply" : "Sending your reply";
-            error = append_event_text(status, top);
-        }
-        if (error == ESP_OK) {
-            error = append_event_text("Waiting for Codex", top, 26, true);
-        }
-        if (error == ESP_OK && event.last_error != ESP_OK) {
-            std::snprintf(s_view.error_text, sizeof(s_view.error_text), "Error: 0x%08lX",
-                static_cast<unsigned long>(event.last_error));
-            error = append_event_text(s_view.error_text, top, 26, true);
-        }
-    } else if (s_route == Route::ReplySent31) {
-        error = append_event_text("Delivered to Codex", top);
-        const auto *choice = event_presentation::find_choice(s_presented_event, event.selected_id);
-        if (error == ESP_OK && choice != nullptr) {
-            error = append_event_text(choice->label, top, 26, true);
-        }
-        if (error == ESP_OK && s_event_ui_error != ESP_OK) {
-            top = 326;
-            std::snprintf(s_view.error_text, sizeof(s_view.error_text), "Done error: 0x%08lX",
-                static_cast<unsigned long>(s_event_ui_error));
-            error = append_event_text(s_view.error_text, top, 26, true);
-        }
-        action = s_event_ui_error == ESP_OK ? OnboardingAction::DismissEvent : OnboardingAction::RetryEvent;
-        enabled = !s_event_dismiss_admitted;
-    } else {
-        const bool delivery_unconfirmed = s_route == Route::CodexNotice &&
-            event.state == State::Expired && event.selected_id[0] != '\0';
-        error = append_event_text(event.title, top);
-        if (error == ESP_OK) {
-            error = append_event_text(delivery_unconfirmed ? "Delivery unconfirmed" : event.body, top);
-        }
-        if (error == ESP_OK && delivery_unconfirmed) {
-            error = append_event_text("Check on your PC", top);
-        }
-        if (error == ESP_OK && s_route == Route::ChecksRunning22) {
-            if (event.progress_valid && s_event_online) {
-                std::snprintf(s_view.error_text, sizeof(s_view.error_text), "%u / %u checks passed",
-                    static_cast<unsigned>(event.passed), static_cast<unsigned>(event.total));
-                error = append_event_text(s_view.error_text, top, 26, true);
-            } else {
-                error = append_event_text("Progress unavailable", top, 26, true);
-            }
-        }
-        if (s_route == Route::DecisionNotice26) {
-            action = OnboardingAction::OpenEvent;
-            enabled = event.state == State::Pending;
-        } else if (s_route == Route::ChecksFailed23) {
-            action = OnboardingAction::ViewFailures;
-            enabled = true;
-        } else if (s_route == Route::CodexNotice) {
-            action = s_event_ui_error == ESP_OK ? OnboardingAction::DismissEvent : OnboardingAction::RetryEvent;
-            enabled = !s_event_dismiss_admitted;
-        } else if (s_route == Route::ChecksRunning22 && event.kind == LUNASHELL::CodexEventKind::ChecksPassed &&
-                   s_event_ui_error != ESP_OK) {
-            // Retry acknowledges only this informational card; it never reruns a check.
-            action = OnboardingAction::RetryEvent;
-            enabled = true;
-        }
-        if (error == ESP_OK && s_route == Route::ApprovalOnPc) {
-            error = append_event_text("Continue on your PC", top, 26, true);
-        }
-        const esp_err_t status_error = s_event_ui_error != ESP_OK ? s_event_ui_error : event.last_error;
-        if (error == ESP_OK && status_error != ESP_OK) {
-            top = action == OnboardingAction::None ? 354 : 326;
-            std::snprintf(s_view.error_text, sizeof(s_view.error_text),
-                s_event_online ? "Error: 0x%08lX" : "Offline: 0x%08lX",
-                static_cast<unsigned long>(status_error));
-            error = append_event_text(s_view.error_text, top, 26, true);
-        } else if (error == ESP_OK && s_event_online && event.context[0] != '\0' &&
-            s_route != Route::ChecksRunning22 && s_route != Route::ApprovalOnPc) {
-            top = 326;
-            error = append_event_text(event.context, top, 26, true);
-        } else if (error == ESP_OK && !s_event_online) {
-            top = action == OnboardingAction::None ? 354 : 326;
-            error = append_event_text(LUNASHELL::codexEventIsTerminal(event.state) ?
-                "Offline - saved result" : "Offline - pending", top, 26, true);
+        if (error != ESP_OK) {
+            ESP_LOGE(kTag, "Shared event action geometry failed (%s)", esp_err_to_name(error));
         }
     }
-    if (error == ESP_OK && s_route == Route::ChecksRunning22 && event.kind == LUNASHELL::CodexEventKind::ChecksPassed) {
-        error = set_scene_title(scene, {"Checks passed", 13});
-    }
-    if (error == ESP_OK && s_route == Route::CodexNotice && LUNASHELL::codexEventIsTerminal(event.state) &&
-        event.state != State::Delivered) {
-        const char *title = event.state == State::Expired ?
-            (event.selected_id[0] != '\0' ? "Reply unconfirmed" : "Request expired") :
-            event.state == State::Cancelled ? "Request cancelled" : "Reply rejected";
-        error = set_scene_title(scene, {title, static_cast<uint16_t>(std::strlen(title))});
-    }
-    if (error == ESP_OK) {
-        error = prepare_action(action, enabled);
+    if (error == ESP_OK && s_event_plan.title[0] != '\0') {
+        error = set_scene_title(scene, {s_event_plan.title,
+            static_cast<uint16_t>(std::strlen(s_event_plan.title))});
     }
     return error;
 }
@@ -2176,16 +2027,8 @@ void notify_event_audio(CodexAudioCue cue)
 // Exception: Returns layout errors; optional dismissal errors keep their cause and visible Retry.
 esp_err_t advance_checks_passed_dwell(SceneFrame &scene, int64_t active_time_us, bool &changed)
 {
-    if (s_presented_event.kind != LUNASHELL::CodexEventKind::ChecksPassed ||
-        s_route != Route::ChecksRunning22 || !s_view.actions_visible || s_event_dismiss_admitted ||
-        s_event_ui_error != ESP_OK) {
-        return ESP_OK;
-    }
-    if (s_checks_passed_readable_at_us < 0) {
-        s_checks_passed_readable_at_us = active_time_us;
-        return ESP_OK;
-    }
-    if (active_time_us - s_checks_passed_readable_at_us < 3LL * 1000000LL) {
+    if (!event_presentation::checks_passed_dismiss_due(s_presented_event, event_context(),
+        s_view.actions_visible, active_time_us, s_checks_passed_readable_at_us)) {
         return ESP_OK;
     }
     s_event_ui_error = LUNASHELL_codex_event_dismiss(s_presented_event.request_id);
@@ -2307,40 +2150,35 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
 // Exception: Returns layout errors; admission failures retain their original error and visible Retry.
 esp_err_t activate_codex_event(SceneFrame &scene, OnboardingAction action)
 {
-    if (action == OnboardingAction::OpenEvent) {
-        s_event_stage = EventStage::Choices;
-        return render_codex_event(scene);
+    const event_presentation::Action *selected = nullptr;
+    for (uint8_t index = 0; index < s_event_plan.action_count; ++index) {
+        if (event_action_identity(s_event_plan.actions[index].id) == action) {
+            selected = &s_event_plan.actions[index];
+            break;
+        }
     }
-    if (action == OnboardingAction::ViewFailures) {
-        s_event_stage = EventStage::Failures;
-        s_event_failure_page = 0;
-        return render_codex_event(scene);
+    if (selected == nullptr) {
+        ESP_LOGE(kTag, "Unknown event action rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
     }
-    if (action == OnboardingAction::RetryEvent && s_event_observation_error != ESP_OK) {
+    auto navigation = event_navigation();
+    event_presentation::Effect effect;
+    const esp_err_t decision_error = event_presentation::activate(s_presented_event,
+        event_context(), *selected, navigation, effect);
+    if (decision_error != ESP_OK) {
+        ESP_LOGE(kTag, "Event admission rejected (%s)", esp_err_to_name(decision_error));
+        return decision_error;
+    }
+    retain_event_navigation(navigation, effect);
+    if (effect == event_presentation::Effect::Render) { return render_codex_event(scene); }
+    if (effect == event_presentation::Effect::Observe) {
         s_event_observation_error = ESP_OK;
-        // Keep a preceding reply/dismiss admission failure so its explicit Retry
-        // remains usable after the canonical observation becomes readable again.
         s_view.action.enabled = false;
         ++s_navigation_revision;
         return attach_content(scene);
     }
-    const bool reply = action == OnboardingAction::SendReply ||
-        (action == OnboardingAction::RetryEvent && s_event_retry == EventRetry::Reply);
-    const bool dismiss = action == OnboardingAction::DismissEvent ||
-        (action == OnboardingAction::RetryEvent && s_event_retry == EventRetry::Dismiss);
-    if (!reply && !dismiss) {
-        ESP_LOGE(kTag, "Unexpected Codex event action rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (reply && (!s_event_online || s_event_reply_admitted ||
-        s_presented_event.state != LUNASHELL::CodexEventState::Pending ||
-        event_presentation::find_choice(s_presented_event, s_event_selected_id) == nullptr)) {
-        ESP_LOGE(kTag, "Codex reply admission rejected by current presentation (%s)",
-            esp_err_to_name(ESP_ERR_INVALID_STATE));
-        s_event_ui_error = ESP_ERR_INVALID_STATE;
-        s_event_retry = EventRetry::Reply;
-        return render_codex_event(scene, true);
-    }
+    const bool reply = effect == event_presentation::Effect::Reply;
+    if (!reply && effect != event_presentation::Effect::Dismiss) { return ESP_ERR_INVALID_STATE; }
     const esp_err_t error = reply
         ? LUNASHELL_codex_event_reply(s_presented_event.request_id, s_event_selected_id)
         : LUNASHELL_codex_event_dismiss(s_presented_event.request_id);
@@ -3735,8 +3573,7 @@ bool point_in_rect(CODY2D::Rect bounds, CODY2D::Point point)
 bool previous_navigation_available()
 {
     if (is_codex_event_route(s_route)) {
-        return s_route == Route::DecisionChoices27 || s_route == Route::DecisionConfirm27 ||
-            s_route == Route::CheckFailures24;
+        return s_event_plan.back;
     }
     return s_route == Route::SetupMenu || s_route == Route::CodexReplace || s_route == Route::CodexForget ||
         s_route == Route::Install06 ||
@@ -3804,13 +3641,15 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         if (!back_hit || !s_view.actions_visible) {
             return ESP_OK;
         }
-        if (s_route == Route::DecisionConfirm27) {
-            s_event_stage = EventStage::Choices;
-            s_event_ui_error = ESP_OK;
-            s_event_retry = EventRetry::None;
-        } else {
-            s_event_stage = EventStage::Notice;
-        }
+        auto navigation = event_navigation();
+        event_presentation::Action back_action;
+        back_action.id = event_presentation::ActionId::Back;
+        back_action.enabled = s_event_plan.back;
+        event_presentation::Effect effect;
+        const esp_err_t error = event_presentation::activate(s_presented_event, event_context(),
+            back_action, navigation, effect);
+        if (error != ESP_OK) { return error; }
+        retain_event_navigation(navigation, effect);
         return render_codex_event(scene);
     }
     if (back_hit && s_route == Route::Install06) {
@@ -4143,21 +3982,20 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
             if (presentation_error != ESP_OK || !presentation.content_visible) {
                 return presentation_error;
             }
-            for (uint8_t index = 0; index < s_view.event_choice_count; ++index) {
-                const auto &choice = s_view.event_choices[index];
-                if (!CODY2D::capsule_contains(choice.control, point)) {
-                    continue;
+            const auto *action = event_presentation::hit_action(s_event_plan,
+                s_view.actions_visible, point.x, point.y);
+            if (action != nullptr) {
+                consumed = true;
+                if (action->id == event_presentation::ActionId::Choose) {
+                    auto navigation = event_navigation();
+                    event_presentation::Effect effect;
+                    const esp_err_t error = event_presentation::activate(s_presented_event,
+                        event_context(), *action, navigation, effect);
+                    if (error != ESP_OK) { return error; }
+                    retain_event_navigation(navigation, effect);
+                    return render_codex_event(scene);
                 }
-                consumed = true;
-                std::memcpy(s_event_selected_id, choice.id, sizeof(s_event_selected_id));
-                s_event_ui_error = ESP_OK;
-                s_event_retry = EventRetry::None;
-                s_event_stage = EventStage::Confirm;
-                return render_codex_event(scene);
-            }
-            if (s_view.action_visible && CODY2D::capsule_contains(s_view.action, point)) {
-                consumed = true;
-                return activate_codex_event(scene, s_view.action_id);
+                return activate_codex_event(scene, event_action_identity(action->id));
             }
         }
         if (s_route == Route::MakeItYours10 && s_view.actions_visible && !s_command_pending) {
@@ -4243,13 +4081,11 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         if (s_route == Route::CheckFailures24 && s_view.actions_visible &&
             s_swipe_axis == GestureAxis::Vertical && std::abs(dy) >= 36) {
             consumed = true;
-            const uint8_t previous_page = s_event_failure_page;
-            if (dy < 0 && (s_event_failure_page + 1U) * 3U < s_presented_event.failure_count) {
-                ++s_event_failure_page;
-            } else if (dy > 0 && s_event_failure_page > 0) {
-                --s_event_failure_page;
-            }
-            return previous_page != s_event_failure_page ? render_codex_event(scene, true) : ESP_OK;
+            auto navigation = event_navigation();
+            const bool changed = event_presentation::scroll(s_presented_event, navigation,
+                s_view.actions_visible, dx, dy);
+            retain_event_navigation(navigation);
+            return changed ? render_codex_event(scene, true) : ESP_OK;
         }
         if (s_swipe_axis == GestureAxis::Horizontal && std::abs(dx) >= 48 &&
             std::abs(dx) * 2 > std::abs(dy) * 3) {

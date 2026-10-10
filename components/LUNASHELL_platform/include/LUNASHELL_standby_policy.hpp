@@ -6,6 +6,13 @@ namespace LUNASHELL::power_policy {
 
 enum class StandbySleep : uint8_t { Software, Deep };
 
+// standby: Requested overall software standby state.
+// voice_listening: Whether speech acquisition still owns the audio transport.
+[[nodiscard]] constexpr bool select_standby_audio(bool standby, bool voice_listening)
+{
+    return standby && !voice_listening;
+}
+
 // deep_sleep_enabled: Whether the selected build permits loss of runtime state.
 // retained_connection: Confirmed radio retention needed for incoming Codex events.
 // voice_listening: Whether the audio owner must keep acquiring standby speech.

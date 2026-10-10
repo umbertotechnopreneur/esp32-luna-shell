@@ -170,3 +170,25 @@ sixty-second window and return `429 Too Many Requests` with `Retry-After`.
 The service is intended for a trusted local network. It is plain HTTP by
 design for this first device integration; TLS should be added before exposing
 it beyond that boundary.
+
+## Shared synthetic host execution
+
+The Windows scenario owner feeds explicit synthetic observations into the same
+`LUNASHELL_snapshot_aging.cpp` and `LUNASHELL_http_json.cpp` compiled for firmware.
+The serializer accepts an observation timestamp and a fallible chunk sink;
+firmware supplies its monotonic clock and HTTP transport, while the host supplies
+its virtual clock and bounded output buffer. Python does not rebuild public API
+objects, decide field freshness or implement redaction independently.
+
+The host preserves acquisition timestamps and historical numeric values when
+aging invalidates a sample. Synthetic RTC register actions use the production
+calendar decoder and retain its original error. No host data is published into
+`DeviceSnapshotService`, and unmodeled groups remain unavailable. Each host API
+response carries the existing synthetic simulator metadata plus
+`simulator.runtime=production-cpp`.
+
+ESP-IDF Task-WDT has no host owner. Host health therefore reports
+`liveness.available=false`, `query_error=ESP_ERR_NOT_SUPPORTED` and `ok=false`;
+it does not manufacture firmware watchdog evidence. HTTP transport counters
+remain distinct from measured device data. A missing, stale or incompatible
+native library is an explicit failure, with no Python response fallback.

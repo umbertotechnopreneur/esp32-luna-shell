@@ -14,6 +14,9 @@
 // no production-only test branch or copied layout implementation exists.
 #include "../../../components/CODY_companion/src/scenes/CODY_onboarding.cpp"
 
+// No parameters: shared-model regression scenarios never enter device owners.
+void verify_shared_event_presentation();
+
 namespace CODY {
 // scene: Not used; entering the look selector is outside this event-only fixture.
 // control_revision: Not used; the test must stay inside event routes.
@@ -83,6 +86,9 @@ SceneFrame prepare(Route route, SceneId identity)
 {
     s_view = {};
     s_route = route;
+    s_event_stage = route == Route::DecisionChoices27 ? EventStage::Choices :
+        route == Route::DecisionConfirm27 ? EventStage::Confirm :
+        route == Route::CheckFailures24 ? EventStage::Failures : EventStage::Notice;
     const SceneDefinition *definition = nullptr;
     require(find_scene(identity, definition) == ESP_OK, "event scene is generated and registered");
     SceneFrame scene;
@@ -136,7 +142,15 @@ void check_bounded_text()
         require(text.size() <= 63, "adversarial text is legal wire data");
         s_view = {};
         uint16_t top = 222;
-        require(append_event_text(text.c_str(), top) == ESP_OK, "word wrap accepts every bounded legal body");
+        event_presentation::Plan wrapping;
+        const auto &font = SceneData::body_font;
+        const size_t capacity = (300U - font.width) / font.advance + 1U;
+        require(event_presentation::append_lines(wrapping, text.c_str(), top, capacity) == ESP_OK,
+            "production word wrap accepts every bounded legal body");
+        for (uint8_t index = 0; index < wrapping.line_count; ++index) {
+            require(append_event_line(wrapping.lines[index]) == ESP_OK,
+                "firmware renderer accepts every fully wrapped shared line");
+        }
         require(s_view.line_count <= 3, "word wrapping never exceeds hard-wrap line budget");
         std::string joined;
         for (uint8_t index = 0; index < s_view.line_count; ++index) {
@@ -302,6 +316,7 @@ void check_reply_semantics()
 // No parameters: compile/run is available only through the explicitly requested native suite.
 int main()
 {
+    verify_shared_event_presentation();
     check_bounded_text();
     check_choice_cards();
     check_pr_views();

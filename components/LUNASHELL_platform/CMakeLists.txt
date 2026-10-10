@@ -1,11 +1,14 @@
 set(LUNASHELL_platform_srcs
     "src/snapshot/LUNASHELL_hardware.cpp"
     "src/snapshot/LUNASHELL_rtc_calendar.cpp"
+    "src/snapshot/LUNASHELL_snapshot_aging.cpp"
+    "src/snapshot/LUNASHELL_snapshot_names.cpp"
     "src/snapshot/LUNASHELL_snapshot_reports.cpp"
     "src/runtime/LUNASHELL_liveness.cpp"
     "src/snapshot/LUNASHELL_snapshot_scheduler.cpp"
     "src/snapshot/LUNASHELL_sensor_fusion.cpp"
     "src/runtime/LUNASHELL_time.cpp"
+    "src/runtime/LUNASHELL_clock_policy.cpp"
     "src/runtime/LUNASHELL_settings.cpp"
     "src/snapshot/LUNASHELL_performance.cpp"
     "src/display/LUNASHELL_display_runtime.cpp"
@@ -13,6 +16,7 @@ set(LUNASHELL_platform_srcs
     "src/network/LUNASHELL_pairing_service.cpp"
     "src/network/LUNASHELL_codex_link.cpp"
     "src/network/LUNASHELL_codex_events.cpp"
+    "src/network/LUNASHELL_codex_transaction.cpp"
 )
 
 set(LUNASHELL_platform_requires

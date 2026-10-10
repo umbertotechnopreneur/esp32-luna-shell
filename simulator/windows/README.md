@@ -190,6 +190,38 @@ fullscreen, dimmed, off e standby.
 
 ## Fixture e verifiche
 
+Il driver `cody_host_graphics.dll` comprende anche i moduli di logica condivisi
+con il firmware. Python conserva finestra, trasporto, autenticazione e input
+sintetici; non sostituisce una libreria mancante o non aggiornata con una seconda
+implementazione. Il caricamento controlla manifest, hash dei sorgenti e ABI.
+Dopo modifiche a questi moduli preparo il driver, quando l'esecuzione e'
+autorizzata, attraverso la console pubblica:
+
+```powershell
+.\scripts\device.ps1 generate -Generator cody-simulator-graphics
+```
+
+| Percorso | Codice di produzione eseguito sul PC |
+| --- | --- |
+| CCP | Decoder EVENT e transazioni: ID, scadenza originale, scelta, risposta, chiusura e rifiuto della riapertura. |
+| Domande | Piano di presentazione, percorsi, testi, palette, icone, preparazione e raster delle azioni, tempi di comparsa e ammissione del touch. |
+| Standby | Politica dei servizi, ordine delle risorse, errori, rollback e recupero; le operazioni delle risorse rimangono sintetiche. |
+| Snapshot e HTTP | Decoder RTC, aging con timestamp originali, validita', redazione e serializzatore JSON del firmware. |
+
+Le azioni `standby:profile` e `standby:fault` configurano rispettivamente i
+quattro requisiti booleani `deep_sleep_enabled`, `retained_connection`,
+`voice_listening`, `touch_wake_available` e un guasto con `resource`, `target`,
+`error`, piu' `count`/`skip` opzionali. `press:pwr` esegue la transizione C++ e
+pubblica anche il risultato di un recupero incompleto. `rtc-registers` riceve
+`registers`, una lista di sette byte, e passa i valori al decoder RTC reale.
+Un errore di decodifica resta visibile, senza sostituire il campione storico.
+
+I gruppi non modellati restano indisponibili. Il Task-WDT ESP-IDF non esiste
+sul PC: `/api/v1/health` riporta liveness non disponibile con
+`ESP_ERR_NOT_SUPPORTED` e `ok=false`. I dati restano **SYNTHETIC**; il JSON
+aggiunge `simulator.runtime=production-cpp`. La scelta deep sleep e' una
+decisione della politica, non una prova di sonno elettrico, consumi o risveglio.
+
 In `scenarios/` uso `LUNASHELL.simulator.scenario.v1`: patch tipizzate e
 eventi ordinati nel tempo virtuale. Rifiuto chiavi duplicate, tipi errati e stati
 incoerenti. Format e calibrazione mantengono le proprie precondizioni.
@@ -217,6 +249,7 @@ da [AGENTS.md](../../AGENTS.md) prima di ogni esecuzione:
 ```powershell
 .\scripts\device.ps1 check -Check cody-ccp
 .\scripts\device.ps1 check -Check cody-ccp-simulator
+.\scripts\device.ps1 check -Check cody-runtime
 .\scripts\device.ps1 check -Check cody-preview-raster
 .\scripts\device.ps1 check -Check simulator
 ```
@@ -231,3 +264,8 @@ redazione e trasporto loopback. Registro risultati e limiti in
 Per interpreti, percorsi e packaging rimando alla [console](../../scripts/README.md);
 per il dispositivo ai contratti [runtime](../../docs/architecture/cody/runtime.md)
 e [rendering](../../docs/architecture/cody/rendering.md).
+
+`cody-runtime` include le definizioni di regressione dei moduli C++ condivisi;
+`simulator` comprende aging, RTC, errori di pubblicazione e JSON nativo. La
+presenza di queste definizioni non attesta la loro esecuzione. Le suite che
+caricano la libreria richiedono il driver aggiornato prima del proprio avvio.

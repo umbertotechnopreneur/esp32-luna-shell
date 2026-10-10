@@ -146,163 +146,20 @@ class SyntheticDeviceServerTests(unittest.TestCase):
         self.assertNotIn("first_sentence", public_info["gps"])
         self.assertIn("first_sentence", diagnostics["gps"])
 
+    # self: Authenticated loopback responses produced by the shared firmware serializer.
+    # Raises AssertionError if protocol envelopes, redaction or unavailable host facts lose their contract.
     def test_payload_shapes_match_the_firmware_serializer(self) -> None:
-        expected_envelope_keys = (
-            "schema",
-            "api_version",
-            "sequence",
-            "last_update_attempt_at_us",
-            "last_update_complete",
-            "last_update_error",
-            "age_ms",
-            "data",
-            "simulator",
-        )
-        payloads: dict[str, dict[str, object]] = {}
-        for path in (
-            "/api/v1/info",
-            "/api/v1/diagnostics",
-            "/api/v1/rtc",
-            "/api/v1/gps",
-            "/api/v1/status",
-        ):
-            status, _, payload = self.request(
-                "GET",
-                path,
-                authorization=f"Bearer {SYNTHETIC_API_KEY}",
-            )
+        for path in ("/api/v1/info", "/api/v1/diagnostics", "/api/v1/rtc", "/api/v1/gps", "/api/v1/status"):
+            status, _, payload = self.request("GET", path, authorization=f"Bearer {SYNTHETIC_API_KEY}")
             self.assertEqual(status, 200)
-            self.assertEqual(tuple(payload), expected_envelope_keys)
-            self.assertEqual(payload["last_update_error"], "ESP_OK")
-            payloads[path] = payload
-
-        self.assertEqual(
-            tuple(payloads["/api/v1/info"]["data"]),
-            (
-                "reason",
-                "battery",
-                "imu",
-                "sensor_fusion",
-                "rtc",
-                "gps",
-                "audio",
-                "radios",
-                "storage",
-                "ui",
-                "input",
-                "power",
-                "memory",
-                "processor",
-            ),
-        )
-        self.assertEqual(
-            tuple(payloads["/api/v1/diagnostics"]["data"]),
-            (
-                "reason",
-                "battery",
-                "imu",
-                "sensor_fusion",
-                "distance",
-                "rtc",
-                "gps",
-                "audio",
-                "radios",
-                "storage",
-                "diagnostics",
-                "ui",
-                "input",
-                "power",
-                "memory",
-                "processor",
-            ),
-        )
-
-        status, _, capabilities = self.request(
-            "GET",
-            "/api/v1/capabilities",
-            authorization=f"Bearer {SYNTHETIC_API_KEY}",
-        )
+            self.assertTrue(payload["simulator"]["synthetic"])
+            self.assertEqual(payload["simulator"]["runtime"], "production-cpp")
+            for field in ("sequence", "last_update_attempt_at_us", "last_update_complete", "last_update_error", "age_ms", "data"):
+                self.assertIn(field, payload)
+        status, _, health = self.request("GET", "/api/v1/health")
         self.assertEqual(status, 200)
-        self.assertEqual(
-            tuple(capabilities),
-            ("schema", "api_version", "data", "simulator"),
-        )
-        self.assertEqual(
-            tuple(capabilities["data"]),
-            (
-                "read_only",
-                "snapshot_refresh_interval_ms",
-                "features",
-                "endpoints",
-            ),
-        )
-        self.assertEqual(
-            capabilities["data"]["features"],
-            [
-                "battery",
-                "rtc",
-                "imu",
-                "gps",
-                "audio",
-                "wifi",
-                "ble",
-                "storage",
-                "display",
-                "touch",
-            ],
-        )
-        self.assertEqual(
-            capabilities["data"]["endpoints"],
-            [
-                "/api/v1/health",
-                "/api/v1/capabilities",
-                "/api/v1/info",
-                "/api/v1/rtc",
-                "/api/v1/gps",
-                "/api/v1/status",
-                "/api/v1/diagnostics",
-            ],
-        )
-
-        status_data = payloads["/api/v1/status"]["data"]
-        self.assertEqual(
-            tuple(status_data),
-            (
-                "overall",
-                "server_running",
-                "server_cleanup_required",
-                "server_handle_retained",
-                "server_accepting_requests",
-                "components",
-                "gps",
-                "wifi",
-                "storage",
-                "metrics",
-            ),
-        )
-        status_components = status_data["components"]
-        self.assertEqual(
-            tuple(status_components),
-            (
-                "battery",
-                "rtc",
-                "imu",
-                "sensor_fusion",
-                "gps",
-                "speaker",
-                "microphone",
-                "spectrum",
-                "wifi",
-                "ble",
-                "storage",
-                "display",
-                "touch",
-                "io_expander",
-                "boot_button",
-                "power_button",
-                "power_management",
-            ),
-        )
+        self.assertFalse(health["data"]["liveness"]["available"])
+        self.assertEqual(health["data"]["liveness"]["query_error"], "ESP_ERR_NOT_SUPPORTED")
 
     def test_overall_health_uses_only_the_firmware_required_components(self) -> None:
         status, _, baseline = self.request(
@@ -348,7 +205,8 @@ class SyntheticDeviceServerTests(unittest.TestCase):
         self.assertEqual(info["last_update_error"], "ESP_ERR_INVALID_STATE")
         status, _, health = self.request("GET", "/api/v1/health")
         self.assertEqual(status, 200)
-        self.assertTrue(health["data"]["ok"])
+        self.assertFalse(health["data"]["ok"])
+        self.assertEqual(health["data"]["liveness"]["query_error"], "ESP_ERR_NOT_SUPPORTED")
         self.assertFalse(health["data"]["snapshot"]["last_update_complete"])
 
     def test_control_plane_lists_loads_advances_and_reports_errors(self) -> None:

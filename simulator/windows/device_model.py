@@ -29,6 +29,7 @@ ERROR_VALUES = frozenset(
         "ESP_ERR_NO_MEM",
         "ESP_ERR_INVALID_ARG",
         "ESP_ERR_INVALID_STATE",
+        "ESP_ERR_INVALID_SIZE",
         "ESP_ERR_NOT_FOUND",
         "ESP_ERR_NOT_SUPPORTED",
         "ESP_ERR_TIMEOUT",
@@ -684,6 +685,8 @@ def _validate_component(component: Mapping[str, Any], path: str, now_us: int) ->
         _require(success > 0, f"{path} current readiness requires a successful timestamp")
 
 
+# snapshot: Explicit input or aged host observation retaining historical PMIC fields.
+# Raises ScenarioValidationError for malformed values; stale history does not become current.
 def _validate_battery(snapshot: Mapping[str, Any]) -> None:
     battery = snapshot["battery"]
     current = _component_current(battery)
@@ -701,14 +704,18 @@ def _validate_battery(snapshot: Mapping[str, Any]) -> None:
     if current and not battery["usb_present"]:
         _require(not battery["vbus_good"] and battery["usb_mv"] == 0, "absent USB must not report a valid VBUS rail")
     if battery["power_state"] == "charging":
-        _require(current and battery["battery_present"] and battery["usb_present"] and battery["vbus_good"], "charging requires a current PMIC sample, cell, and good VBUS")
+        observed = current or (battery["data_stale"] and battery["last_success_at_us"] > 0)
+        _require(observed and battery["battery_present"] and battery["usb_present"] and battery["vbus_good"], "charging requires a current or historical PMIC observation, cell, and good VBUS")
         _require(battery["charger_phase"] != "stopped", "charging requires an active charger phase")
 
 
+# snapshot: Explicit input or aged observation whose original fix may remain historical.
+# Raises ScenarioValidationError for fabricated fixes or invalid retained numeric fields.
 def _validate_gps(snapshot: Mapping[str, Any]) -> None:
     gps = snapshot["gps"]
     if gps["has_fix"]:
-        _require(_component_current(gps), "GPS fix requires a current receiver sample")
+        observed = _component_current(gps) or (gps["data_stale"] and gps["last_success_at_us"] > 0)
+        _require(observed, "GPS fix requires a current or explicitly historical receiver sample")
         _require(gps["utc_valid"], "GPS fix requires valid UTC")
         _require(gps["fix_quality"] > 0 and gps["satellites"] > 0, "GPS fix requires quality and satellites")
         _require(-90.0 <= gps["latitude_degrees"] <= 90.0, "GPS latitude is out of range")
@@ -819,6 +826,8 @@ def _validate_memory(snapshot: Mapping[str, Any]) -> None:
         _require(memory["largest_failed_allocation_bytes"] > 0 and memory["failed_allocation_caps_seen_mask"] > 0, "allocation failure aggregates are incomplete")
 
 
+# snapshot: Coherent explicit synthetic scenario observation.
+# Raises ScenarioValidationError for invalid operating state or display/chrome invariants.
 def _validate_power(snapshot: Mapping[str, Any]) -> None:
     power = snapshot["power"]
     ui = snapshot["ui"]
@@ -842,7 +851,8 @@ def _validate_power(snapshot: Mapping[str, Any]) -> None:
             _require(not power["command_arc_visible"] and not power["status_arc_visible"], "display-off cannot retain visible chrome")
     if power["state"] == "standby":
         _require(power["display_idle_stage"] == "display-off" and applied == 0, "standby requires a dark display")
-        _require(power["audio_suspended"] and not power["fullscreen_active"], "standby requires suspended audio and no fullscreen lock")
+        # Wake speech may retain audio while every other standby invariant holds.
+        _require(not power["fullscreen_active"], "standby cannot retain a fullscreen lock")
         _require(not power["command_arc_visible"] and not power["status_arc_visible"], "standby cannot retain visible chrome")
 
 
@@ -952,6 +962,9 @@ class VirtualClock:
         self._now_us = target_us
         return self._now_us
 
+    # self: Explicit monotonic host clock, independent of firmware acquisition.
+    # target_ms: Nondecreasing absolute virtual time in milliseconds.
+    # Raises ScenarioValidationError for invalid or regressing time.
     def advance_to_ms(self, target_ms: int) -> int:
         _require(_is_int(target_ms) and target_ms >= 0, "virtual clock target must be non-negative")
         return self.advance_to_us(target_ms * 1000)
@@ -1110,24 +1123,39 @@ class ScenarioEngine:
     def elapsed_ms(self) -> int:
         return (self.clock.now_us - self.scenario.initial_time_us) // 1000
 
-    def _publish(self) -> SnapshotGeneration:
-        validate_snapshot(self._state, now_us=self.clock.now_us)
-        self._generation_count += 1
+    # self: Synthetic acquisition owner; production aging acts on a separate host-only observation.
+    # state: Candidate acquisition mapping, or the currently committed source.
+    # now_us: Candidate virtual observation time; None uses the committed clock.
+    # Raises native/schema errors without advancing publication ownership.
+    def _publish(self, state=None, now_us=None) -> SnapshotGeneration:
+        state = self._state if state is None else state
+        now_us = self.clock.now_us if now_us is None else now_us
+        validate_snapshot(state, now_us=now_us)
+        from cody_native_snapshot import NativeSnapshot
+        observed = NativeSnapshot(state, now_us)
+        aged = observed.aged_mapping(state)
+        next_generation = self._generation_count + 1
         simulator = {
             "synthetic": True,
             "model_version": SIMULATOR_MODEL_VERSION,
             "scenario": self.scenario.name,
             "title": self.scenario.title,
-            "clock_us": self.clock.now_us,
-            "elapsed_ms": self.elapsed_ms,
-            "generation": self._generation_count,
+            "clock_us": now_us,
+            "elapsed_ms": (now_us - self.scenario.initial_time_us) // 1000,
+            "generation": next_generation,
         }
-        return SnapshotGeneration(
-            sequence=self._state["sequence"],
-            at_us=self.clock.now_us,
-            snapshot=_freeze(copy.deepcopy(self._state)),
+        standby = self.standby_diagnostics()
+        if standby is not None:
+            simulator["standby"] = standby
+        generation = SnapshotGeneration(
+            sequence=state["sequence"],
+            at_us=now_us,
+            snapshot=_freeze(aged),
             simulator=_freeze(simulator),
         )
+        self._native_snapshot = observed
+        self._generation_count = next_generation
+        return generation
 
     def snapshot(self) -> dict[str, Any]:
         return _thaw(self._generation.snapshot)
@@ -1136,6 +1164,9 @@ class ScenarioEngine:
         _require(_is_int(delta_ms) and delta_ms >= 0, "advance delta must be non-negative")
         return self.advance_to_ms(self.elapsed_ms + delta_ms)
 
+    # self: Deterministic host acquisition and publication owner.
+    # target_ms: Nondecreasing authored timeline target.
+    # Raises original native/schema errors before committing the failing event or virtual clock step.
     def advance_to_ms(self, target_ms: int) -> SnapshotGeneration:
         _require(_is_int(target_ms) and target_ms >= self.elapsed_ms, "scenario timeline cannot move backwards")
         target_us = self.scenario.initial_time_us + target_ms * 1000
@@ -1145,17 +1176,25 @@ class ScenarioEngine:
             event_us = self.scenario.initial_time_us + event.at_ms * 1000
             if event_us > target_us:
                 break
+            trial = copy.deepcopy(self._state)
+            _apply_event_state(trial, event, event_us)
+            generation = self._publish(trial, event_us)
             self.clock.advance_to_us(event_us)
-            _apply_event_state(self._state, event, event_us)
-            validate_snapshot(self._state, now_us=event_us)
+            self._state = trial
             self._event_index += 1
-            self._generation = self._publish()
+            self._generation = generation
             published = True
-        self.clock.advance_to_us(target_us)
         if not published or self._generation.at_us != target_us:
-            self._generation = self._publish()
+            generation = self._publish(self._state, target_us)
+            self.clock.advance_to_us(target_us)
+            self._generation = generation
         return self._generation
 
+    # self: Host owner committing a validated acquisition and native publication together.
+    # patch: Exact original input fields for this semantic action.
+    # reason: Explicit synthetic action identity.
+    # touch_components: Only acquisition owners whose attempt occurred at the current virtual time.
+    # Raises original native/schema errors before the candidate becomes committed state.
     def _commit_action(
         self,
         patch: Mapping[str, Any],
@@ -1167,15 +1206,19 @@ class ScenarioEngine:
         trial = copy.deepcopy(self._state)
         _apply_event_state(trial, event, self.clock.now_us)
         validate_snapshot(trial, now_us=self.clock.now_us)
+        generation = self._publish(trial)
         self._state = trial
-        self._generation = self._publish()
-        return self._generation
+        self._generation = generation
+        return generation
 
     def action(self, name: str, **params: Any) -> SnapshotGeneration:
         """Apply a semantic user/device action with strict preconditions."""
 
         actions = {
             "press:pwr": self._action_power,
+            "standby:profile": self._action_standby_profile,
+            "standby:fault": self._action_standby_fault,
+            "rtc-registers": self._action_rtc_registers,
             "press:boot": self._action_boot,
             "touch": self._action_touch,
             "confirm:format-sd": self._action_format_sd,
@@ -1195,30 +1238,149 @@ class ScenarioEngine:
         if params:
             raise SemanticActionError(f"{name} does not accept parameters: {', '.join(sorted(params))}")
 
+    # self: Scenario owner; an absent synthetic baseline is borrowed until publication commits it.
+    # Raises RuntimeError/OSError/ValueError when the required native implementation is unavailable.
+    def _standby_owner(self):
+        from cody_native_standby import NativeStandby
+        if not hasattr(self, "_native_standby"):
+            state = self._state["power"]["state"]
+            if state not in {"active", "standby"}:
+                raise SemanticActionError(f"Cannot initialize standby owner during {state}")
+            return NativeStandby(standby=state == "standby")
+        return self._native_standby
+
+    # self: Scenario owner; only the publication thread may observe its private candidate.
+    # Returns no synthetic power claims before the first native owner commits successfully.
+    def standby_diagnostics(self) -> dict | None:
+        publication = getattr(self, "_standby_publication", None)
+        # API readers on other threads keep seeing the committed owner while
+        # this thread builds candidate metadata under the server's existing action lock.
+        owner = getattr(publication, "candidate", None)
+        if owner is None:
+            owner = getattr(self, "_native_standby", None)
+        return owner.snapshot() if owner is not None else None
+
+    # self: Serialized scenario owner; published generations and native resource ownership advance together.
+    # candidate: Private host-only owner retaining proposed profile, faults or resource transitions.
+    # patch: Proposed power projection, or None for a metadata-only profile/fault change.
+    # Raises original publication errors after discarding the candidate; no hardware rollback is inferred.
+    def _publish_standby_candidate(self, candidate, patch: Mapping[str, Any] | None = None) -> SnapshotGeneration:
+        import threading
+        if not hasattr(self, "_standby_publication"):
+            self._standby_publication = threading.local()
+        publication = self._standby_publication
+        if hasattr(publication, "candidate"):
+            candidate.release()
+            raise SemanticActionError("Native standby publication cannot be reentered")
+        publication.candidate = candidate
+        try:
+            if patch is None:
+                generation = self._publish()
+            else:
+                generation = self._commit_action(patch, reason="synthetic-native-pwr",
+                    touch_components=("input.power_button", "power", "ui.display_power_mode", "ui.brightness"))
+        except BaseException:
+            candidate.release()
+            raise
+        finally:
+            del publication.candidate
+        # Resource mutations occurred only in private host memory. The acquisition
+        # owner prepared the generation before this candidate becomes its committed peer.
+        self._native_standby = candidate
+        self._generation = generation
+        return generation
+
+    # self: Synthetic scenario owner retaining immutable published generations.
+    # params: No user parameters; native C++ decides ordering, errors and recovery.
+    # Raises SemanticActionError after publishing a failed transaction's actual result.
     def _action_power(self, params: Mapping[str, Any]) -> SnapshotGeneration:
         self._no_params("press:pwr", params)
+        from cody_native_standby import error_name
         state = self._state["power"]["state"]
         if state not in {"active", "standby"}:
             raise SemanticActionError(f"press:pwr rejected during {state}")
-        wake = state == "standby"
-        count = self._state["input"]["power_short_press_count"] + 1
-        transition = self._state["power"]["transition_sequence"] + 1
+        owner = self._standby_owner()
+        before = owner.snapshot()
+        if before["incomplete"] or before["standby"] != (state == "standby"):
+            raise SemanticActionError("Scenario power state diverged from its native resource owner")
+        target = state == "active"
+        candidate = owner.prepare()
+        result = candidate.transition(target)
+        if result["incomplete"]:
+            next_state = "entering-standby" if target else "waking"
+        else:
+            next_state = "standby" if result["standby"] else "active"
+        panel_state = ("display-off" if result["display_off"] else "active") if result["display_consistent"] else "unknown"
+        request_error = result["request_error_code"]
+        panel_error = 0 if result["display_consistent"] else (
+            result["display_rollback_error_code"] or request_error)
+        sequence_increment = int(target or (next_state == "active" and state == "standby"))
         patch: dict[str, Any] = {
-            "input.power_short_press_count": count,
-            "power.state": "active" if wake else "standby",
+            "input.power_short_press_count": self._state["input"]["power_short_press_count"] + 1,
+            "power.state": next_state,
             "power.reason": "power-button",
-            "power.audio_suspended": not wake,
+            "power.audio_suspended": result["audio_suspended"],
             "power.fullscreen_active": False,
-            "power.command_arc_visible": wake,
-            "power.status_arc_visible": wake,
-            "power.display_idle_stage": "active" if wake else "display-off",
-            "power.transition_sequence": transition,
-            "power.last_activity_at_us": self.clock.now_us,
+            "power.command_arc_visible": next_state == "active",
+            "power.status_arc_visible": next_state == "active",
+            "power.display_idle_stage": panel_state,
+            "power.transition_sequence": self._state["power"]["transition_sequence"] + sequence_increment,
             "power.changed_at_us": self.clock.now_us,
-            "ui.display_power_mode_state": "active" if wake else "display-off",
-            "ui.brightness_percent": self._state["ui"]["configured_brightness_percent"] if wake else 0,
+            "power.health": "degraded" if request_error else "ready",
+            "power.last_error": error_name(request_error),
+            "power.data_valid": request_error == 0,
+            "power.data_stale": False,
+            "ui.display_power_mode_state": panel_state,
         }
-        return self._commit_action(patch, reason="synthetic-pwr", touch_components=("input.power_button", "power", "ui.display_power_mode", "ui.brightness"))
+        for component in ("ui.display_power_mode", "ui.brightness"):
+            patch[component + ".health"] = "degraded" if panel_error else "ready"
+            patch[component + ".last_error"] = error_name(panel_error)
+            patch[component + ".data_valid"] = panel_error == 0
+            patch[component + ".data_stale"] = False
+        if next_state == "active" and state == "standby":
+            patch["power.last_activity_at_us"] = self.clock.now_us
+        if result["display_consistent"]:
+            patch["ui.brightness_percent"] = 0 if result["display_off"] else self._state["ui"]["configured_brightness_percent"]
+        generation = self._publish_standby_candidate(candidate, patch)
+        if request_error:
+            raise SemanticActionError(f"Native standby request failed: {error_name(request_error)}; resulting state={next_state}")
+        return generation
+
+    # self: Synthetic scenario owner; C++ owns profile policy and admission.
+    # params: Exactly four boolean service/profile requirements.
+    # Raises SemanticActionError for invalid input or an actual native owner rejection.
+    def _action_standby_profile(self, params: Mapping[str, Any]) -> SnapshotGeneration:
+        expected = {"deep_sleep_enabled", "retained_connection", "voice_listening", "touch_wake_available"}
+        if set(params) != expected or any(type(value) is not bool for value in params.values()):
+            raise SemanticActionError("standby:profile requires four explicit boolean service/profile fields")
+        candidate = self._standby_owner().prepare()
+        try:
+            candidate.configure(**params)
+        except (ValueError, RuntimeError) as error:
+            candidate.release()
+            raise SemanticActionError(str(error)) from error
+        return self._publish_standby_candidate(candidate)
+
+    # self: Synthetic scenario owner; faults never reach physical resource owners.
+    # params: Resource identity, target and real error, with optional bounded count/skip.
+    # Raises SemanticActionError for invalid fault identity or native admission failure.
+    def _action_standby_fault(self, params: Mapping[str, Any]) -> SnapshotGeneration:
+        from cody_native_standby import RESOURCE_NAMES
+        required = {"resource", "target", "error"}
+        allowed = required | {"count", "skip"}
+        if not required.issubset(params) or not set(params).issubset(allowed):
+            raise SemanticActionError("standby:fault requires resource, target, error and optional count/skip")
+        name = params["resource"]
+        if not isinstance(name, str) or name not in RESOURCE_NAMES:
+            raise SemanticActionError(f"Unknown native standby resource {name!r}")
+        candidate = self._standby_owner().prepare()
+        try:
+            candidate.inject_fault(RESOURCE_NAMES[name], target=params["target"],
+                error=params["error"], count=params.get("count", 1), skip=params.get("skip", 0))
+        except (ValueError, RuntimeError) as error:
+            candidate.release()
+            raise SemanticActionError(str(error)) from error
+        return self._publish_standby_candidate(candidate)
 
     def _action_boot(self, params: Mapping[str, Any]) -> SnapshotGeneration:
         self._no_params("press:boot", params)
@@ -1469,243 +1631,31 @@ class ScenarioEngine:
     def _simulator_metadata(self) -> dict[str, Any]:
         return _thaw(self._generation.simulator)
 
+    # self: Explicit synthetic acquisition owner, separate from the firmware canonical service.
+    # params: Exact registers input containing seven synthetic register bytes for the real decoder.
+    # Raises input/schema errors; decoder failures are published with their real cause before raising.
+    def _action_rtc_registers(self, params: Mapping[str, Any]) -> SnapshotGeneration:
+        from cody_native_snapshot import NativeSnapshot
+        if set(params) != {"registers"}:
+            raise SemanticActionError("rtc-registers requires exactly the registers field")
+        owner = NativeSnapshot(self._state, self.clock.now_us)
+        error, data = owner.decode_rtc(params["registers"])
+        # Register acquisition owns the RTC only; the independent system clock
+        # must retain its original measurement and attempt timestamps.
+        patch = {f"rtc.{name}": data[name] for name in self._state["rtc"] if name != "system_time"}
+        generation = self._commit_action(patch, reason="synthetic-rtc-registers")
+        if error:
+            raise SemanticActionError(f"SIMULATED production RTC decoder failed: esp_err_t=0x{error & 0xffffffff:08x}")
+        return generation
+
+    # self: Host owner of the current aged native snapshot generation.
+    # path: Exact public firmware API route; Python does not decide field validity or redaction.
+    # Raises the original native serialization/route error without a Python response fallback.
     def api_payload(self, path: str) -> dict[str, Any]:
-        """Adapt the active generation to one documented read-only API v1 route."""
-
-        builders = {
-            "/api/v1/health": self._api_health,
-            "/api/v1/capabilities": self._api_capabilities,
-            "/api/v1/info": lambda: self._api_info(False),
-            "/api/v1/diagnostics": lambda: self._api_info(True),
-            "/api/v1/rtc": self._api_rtc,
-            "/api/v1/gps": self._api_gps,
-            "/api/v1/status": self._api_status,
-        }
-        if path not in builders:
-            raise KeyError(f"unknown API v1 path {path!r}")
-        payload = builders[path]()
+        payload = self._native_snapshot.api_payload(path)
         payload["simulator"] = self._simulator_metadata()
+        payload["simulator"]["runtime"] = "production-cpp"
         return payload
-
-    def _envelope(self, schema: str, data: Any) -> dict[str, Any]:
-        snapshot = self._state
-        age_ms = max(0, self.clock.now_us - snapshot["last_update_attempt_at_us"]) // 1000
-        return {
-            "schema": schema,
-            "api_version": API_VERSION,
-            "sequence": snapshot["sequence"],
-            "last_update_attempt_at_us": snapshot["last_update_attempt_at_us"],
-            "last_update_complete": snapshot["last_update_complete"],
-            "last_update_error": snapshot["last_update_error"],
-            "age_ms": age_ms,
-            "data": data,
-        }
-
-    @staticmethod
-    def _component_payload(component: Mapping[str, Any]) -> dict[str, Any]:
-        return {key: copy.deepcopy(component[key]) for key in ("health", "last_error", "data_valid", "data_stale", "last_attempt_at_us", "last_success_at_us")}
-
-    def _battery_payload(self) -> dict[str, Any]:
-        battery = copy.deepcopy(self._state["battery"])
-        current = _component_current(battery)
-        level_valid = current and battery["level_percent_valid"] and 0 <= battery["level_percent"] <= 100
-        voltage_valid = current and battery["battery_mv_valid"] and battery["battery_mv"] > 0
-        battery["level_percent_valid"] = level_valid
-        battery["level_percent"] = battery["level_percent"] if level_valid else None
-        battery["battery_mv_valid"] = voltage_valid
-        battery["battery_mv"] = battery["battery_mv"] if voltage_valid else None
-        return battery
-
-    def _gps_payload(self, include_sensitive: bool) -> dict[str, Any]:
-        gps = copy.deepcopy(self._state["gps"])
-        fix_valid = gps["has_fix"] and _component_current(gps)
-        if not fix_valid:
-            for field in ("latitude_degrees", "longitude_degrees", "altitude_m", "speed_mps", "course_degrees", "hdop", "utc_time", "utc_date"):
-                gps[field] = None
-        if not include_sensitive:
-            gps.pop("first_sentence")
-        return gps
-
-    def _wifi_payload(self, include_sensitive: bool) -> dict[str, Any]:
-        wifi = copy.deepcopy(self._state["radios"]["wifi"])
-        if not include_sensitive:
-            for field in ("ssid", "ip_address", "mac_address"):
-                wifi.pop(field)
-        return wifi
-
-    def _distance_payload(self) -> dict[str, Any]:
-        distance = copy.deepcopy(self._state["distance"])
-        for sensor in distance["sensors"]:
-            if not _component_current(sensor):
-                for field in ("raw_distance_mm", "filtered_distance_mm", "window_sample_count", "inlier_count", "median_absolute_deviation_mm"):
-                    sensor[field] = None
-        if not _component_current(distance):
-            for field in ("slant_distance_mm", "vertical_distance_mm", "sensor_spread_mm", "samples_used", "tilt_degrees", "confidence_percent"):
-                distance[field] = None
-        return distance
-
-    def _info_data(self, include_sensitive: bool) -> dict[str, Any]:
-        snapshot = self._state
-        data = {
-            "reason": snapshot["reason"],
-            "battery": self._battery_payload(),
-            "imu": copy.deepcopy(snapshot["imu"]),
-            "sensor_fusion": copy.deepcopy(snapshot["sensor_fusion"]),
-        }
-        if include_sensitive:
-            data["distance"] = self._distance_payload()
-        data.update({
-            "rtc": copy.deepcopy(snapshot["rtc"]),
-            "gps": self._gps_payload(include_sensitive),
-            "audio": copy.deepcopy(snapshot["audio"]),
-            "radios": {
-                "wifi": self._wifi_payload(include_sensitive),
-                "ble": copy.deepcopy(snapshot["radios"]["ble"]),
-            },
-            "storage": copy.deepcopy(snapshot["storage"]),
-        })
-        if include_sensitive:
-            data["diagnostics"] = copy.deepcopy(snapshot["diagnostics"])
-        data.update({
-            "ui": copy.deepcopy(snapshot["ui"]),
-            "input": copy.deepcopy(snapshot["input"]),
-            "power": copy.deepcopy(snapshot["power"]),
-            "memory": copy.deepcopy(snapshot["memory"]),
-            "processor": copy.deepcopy(snapshot["processor"]),
-        })
-        return data
-
-    def _api_info(self, include_sensitive: bool) -> dict[str, Any]:
-        schema = "LUNASHELL.device.diagnostics.v1" if include_sensitive else "LUNASHELL.device.info.v1"
-        return self._envelope(schema, self._info_data(include_sensitive))
-
-    def _api_rtc(self) -> dict[str, Any]:
-        return self._envelope("LUNASHELL.device.rtc.v1", copy.deepcopy(self._state["rtc"]))
-
-    def _api_gps(self) -> dict[str, Any]:
-        return self._envelope("LUNASHELL.device.gps.v1", self._gps_payload(False))
-
-    def _api_capabilities(self) -> dict[str, Any]:
-        full_snapshot_period = self._state["diagnostics"]["full_snapshot_period"]
-        refresh_interval_ms = (
-            self._state["diagnostics"]["full_snapshot_period_ms"]
-            if full_snapshot_period["health"] == "ready"
-            and full_snapshot_period["last_error"] == "ESP_OK"
-            and full_snapshot_period["data_valid"]
-            else 0
-        )
-        return {
-            "schema": "LUNASHELL.device.capabilities.v1",
-            "api_version": API_VERSION,
-            "data": {
-                "read_only": True,
-                "snapshot_refresh_interval_ms": refresh_interval_ms,
-                "features": ["battery", "rtc", "imu", "gps", "audio", "wifi", "ble", "storage", "display", "touch"],
-                "endpoints": ["/api/v1/health", "/api/v1/capabilities", "/api/v1/info", "/api/v1/rtc", "/api/v1/gps", "/api/v1/status", "/api/v1/diagnostics"],
-            },
-        }
-
-    def _api_health(self) -> dict[str, Any]:
-        snapshot = self._state
-        wifi_connected = snapshot["radios"]["wifi"]["connected"] and snapshot["radios"]["wifi"]["ip_acquired"]
-        return {
-            "schema": "LUNASHELL.device.health.v1",
-            "api_version": API_VERSION,
-            "data": {
-                "ok": True,
-                "server_running": True,
-                "server_cleanup_required": False,
-                "server_handle_retained": True,
-                "server_accepting_requests": True,
-                "auth_required_for_data": True,
-                "wifi_connected": wifi_connected,
-                "snapshot": {
-                    "sequence": snapshot["sequence"],
-                    "last_update_attempt_at_us": snapshot["last_update_attempt_at_us"],
-                    "last_update_complete": snapshot["last_update_complete"],
-                    "age_ms": max(0, self.clock.now_us - snapshot["last_update_attempt_at_us"]) // 1000,
-                },
-                "liveness": {
-                    "available": True,
-                    "query_error": "ESP_OK",
-                    "initialized": True,
-                    "boot_reset_reason": 0,
-                    "watchdog_timeout_ms": 5000,
-                    "operation_sequence": snapshot["sequence"],
-                    "active_mask": 0,
-                    "last_error": "ESP_OK",
-                    "last_progress": {"valid": True, "point": "snapshot-commit", "age_ms": 0},
-                    "previous_timeout": {"valid": False, "operation_sequence": 0, "active_mask": 0, "last_progress_point": "unavailable"},
-                },
-            },
-        }
-
-    def _api_status(self) -> dict[str, Any]:
-        named_paths = {
-            "battery": "battery",
-            "rtc": "rtc",
-            "imu": "imu",
-            "sensor_fusion": "sensor_fusion",
-            "gps": "gps",
-            "speaker": "audio.speaker",
-            "microphone": "audio.microphone",
-            "spectrum": "audio.spectrum",
-            "wifi": "radios.wifi",
-            "ble": "radios.ble",
-            "storage": "storage",
-            "display": "ui.display",
-            "touch": "ui.touch",
-            "io_expander": "input.io_expander",
-            "boot_button": "input.boot_button",
-            "power_button": "input.power_button",
-            "power_management": "power",
-        }
-        components = {name: self._component_payload(_resolve(self._state, path)) for name, path in named_paths.items()}
-        overall_paths = (
-            "battery",
-            "imu",
-            "sensor_fusion",
-            "rtc",
-            "gps",
-            "audio.speaker",
-            "audio.microphone",
-            "radios.wifi",
-            "radios.ble",
-            "storage",
-            "ui.display",
-            "ui.touch",
-            "input.io_expander",
-            "input.boot_button",
-            "input.power_button",
-            "power",
-        )
-        healths = {_resolve(self._state, path)["health"] for path in overall_paths}
-        overall = "missing" if "missing" in healths else "degraded" if "degraded" in healths else "unknown" if "unknown" in healths else "ready"
-        data = {
-            "overall": overall,
-            "server_running": True,
-            "server_cleanup_required": False,
-            "server_handle_retained": True,
-            "server_accepting_requests": True,
-            "components": components,
-            "gps": {"has_fix": self._state["gps"]["has_fix"], "satellites": self._state["gps"]["satellites"]},
-            "wifi": {"connected": self._state["radios"]["wifi"]["connected"], "ip_acquired": self._state["radios"]["wifi"]["ip_acquired"]},
-            "storage": {"card_response_verified": self._state["storage"]["card_response_verified"], "formatted": self._state["storage"]["formatted"]},
-            "metrics": {
-                "request_count": 0,
-                "authorized_count": 0,
-                "unauthorized_count": 0,
-                "response_failure_count": 0,
-                "start_count": 1,
-                "stop_count": 0,
-                "start_failure_count": 0,
-                "stop_failure_count": 0,
-                "event_lifecycle_failure_count": 0,
-                "last_lifecycle_error": 0,
-                "auth_failures_in_window": 0,
-            },
-        }
-        return self._envelope("LUNASHELL.device.status.v1", data)
 
     def dump_snapshot(self, *, indent: int = 2) -> str:
         return json.dumps(self._generation.to_dict(), indent=indent, sort_keys=True, ensure_ascii=False)

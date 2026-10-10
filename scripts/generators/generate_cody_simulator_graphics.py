@@ -18,6 +18,18 @@ SOURCES = (
     "simulator/native/CODY_host_graphics.cpp",
     "simulator/native/CODY_host_personality_behavior.cpp",
     "simulator/native/CODY_host_settings.cpp",
+    "simulator/native/CODY_host_ccp.cpp",
+    "simulator/native/CODY_host_event_presentation.cpp",
+    "simulator/native/CODY_host_standby.cpp",
+    "simulator/native/CODY_host_snapshot.cpp",
+    "components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp",
+    "components/LUNASHELL_platform/src/network/LUNASHELL_codex_transaction.cpp",
+    "components/LUNASHELL_platform/src/power/LUNASHELL_standby_resources.cpp",
+    "components/LUNASHELL_platform/src/snapshot/LUNASHELL_rtc_calendar.cpp",
+    "components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_aging.cpp",
+    "components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_names.cpp",
+    "components/LUNASHELL_platform/src/runtime/LUNASHELL_clock_policy.cpp",
+    "components/LUNASHELL_platform/src/http/LUNASHELL_http_json.cpp",
     "components/CODY2D/src/CODY2D.cpp",
     "components/CODY2D/src/CODY2D_paths.cpp",
     "components/CODY2D/src/CODY2D_controls.cpp",
@@ -41,7 +53,10 @@ INCLUDES = (
     "simulator/native/platform",
     "components/CODY2D/include",
     "components/CODY_companion/include",
+    "components/CODY_companion/src/scenes",
     "components/LUNASHELL_platform/include",
+    "components/LUNASHELL_platform/src/snapshot",
+    "components/LUNASHELL_platform/src/power",
     "assets/cody/rig/generated",
     "assets/cody/scenes/generated",
     "assets/cody/personality/generated",
@@ -87,7 +102,7 @@ def main(argv=None):
     compiler = resolve_compiler(args.compiler) if args.compiler else prepare_host_compiler()
     inputs = source_provenance()
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    command = compile_command(compiler, INCLUDES, SOURCES, LIBRARY, DEFINITIONS)
+    command = compile_command(compiler, INCLUDES, SOURCES, LIBRARY, DEFINITIONS, cxx_standard=20)
     if Path(compiler).stem.lower() == "cl":
         command += ["/LD", "/link", f"/IMPLIB:{OUTPUT / 'cody_host_graphics.lib'}"]
     else:

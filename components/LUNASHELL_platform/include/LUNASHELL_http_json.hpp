@@ -12,7 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "esp_http_server.h"
+#include "LUNASHELL_liveness.h"
 #include "LUNASHELL_device_snapshot.hpp"
 
 namespace LUNASHELL {
@@ -47,9 +47,27 @@ struct HttpLifecycleView {
 };
 
 /** Bounded chunked JSON writer used by the read-only HTTP response paths. */
+struct HttpJsonSink {
+    void *context = nullptr;
+    // final is true only for chunk termination; transport errors stay original.
+    esp_err_t (*write)(void *context, const char *data, std::size_t size, bool final) = nullptr;
+};
+
+struct HttpLivenessView {
+    LUNASHELL_liveness_status_t status{};
+    esp_err_t query_error = ESP_ERR_NOT_SUPPORTED;
+    const char *last_progress_name = "none";
+    const char *previous_timeout_name = "none";
+};
+
 class HttpJsonWriter final {
 public:
-    explicit HttpJsonWriter(httpd_req_t *request);
+    // sink: Explicit transport owner; serialization never imports an HTTP driver.
+    // now_us: Original observation time, supplied by the firmware or synthetic host owner.
+    explicit HttpJsonWriter(HttpJsonSink sink, int64_t now_us);
+
+    // No parameters: returns the owner's observation time without reading a clock.
+    [[nodiscard]] int64_t observationTimeUs() const { return _now_us; }
 
     bool raw(const char *text);
     bool format(const char *format_string, ...);
@@ -63,7 +81,8 @@ private:
     bool append(char value);
     bool flush();
 
-    httpd_req_t *_request;
+    HttpJsonSink _sink;
+    int64_t _now_us;
     char _buffer[512] = {};
     std::size_t _used = 0;
     bool _failed = false;
@@ -73,7 +92,8 @@ private:
 void httpJsonWriteHealth(
     HttpJsonWriter &json,
     const DeviceSnapshot &snapshot,
-    const HttpLifecycleView &lifecycle
+    const HttpLifecycleView &lifecycle,
+    const HttpLivenessView &liveness
 );
 
 /** Serialize the authenticated, network-redacted operational view. */

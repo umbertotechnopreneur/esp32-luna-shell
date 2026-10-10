@@ -439,6 +439,17 @@ void reportLifecycle(esp_err_t error = ESP_OK)
     }
 }
 
+// context: Real HTTP request owned by this server task.
+// data: Borrowed bounded serialized chunk; null only on explicit termination.
+// size: Exact byte count; no driver-side inference or copied snapshot.
+// final: True to finish the HTTP chunked transfer.
+// Exception: Returns the original HTTP transport error.
+esp_err_t writeHttpJsonChunk(void *context, const char *data, std::size_t size, bool final)
+{
+    return httpd_resp_send_chunk(static_cast<httpd_req_t *>(context),
+        final ? nullptr : data, final ? 0 : size);
+}
+
 // request: HTTP owner request; protected routes authenticate before reading canonical data.
 // Exception: Returns original canonical read or response errors; snapshot failures send HTTP 503.
 esp_err_t handleApiRequest(httpd_req_t *request)
@@ -509,9 +520,16 @@ esp_err_t handleApiRequest(httpd_req_t *request)
         recordResponseFailure();
         return response_setup_error;
     }
-    LUNASHELL::HttpJsonWriter response(request);
+    LUNASHELL::HttpJsonWriter response({request, writeHttpJsonChunk}, esp_timer_get_time());
     if (is_health) {
-        LUNASHELL::httpJsonWriteHealth(response, snapshot, lifecycle);
+        LUNASHELL::HttpLivenessView liveness;
+        liveness.query_error = LUNASHELL_liveness_get_status(&liveness.status);
+        if (liveness.query_error != ESP_OK) {
+            ESP_LOGE(kTag, "HTTP liveness read failed (%s)", esp_err_to_name(liveness.query_error));
+        }
+        liveness.last_progress_name = LUNASHELL_liveness_point_name(liveness.status.last_progress_point);
+        liveness.previous_timeout_name = LUNASHELL_liveness_point_name(liveness.status.previous_timeout.last_progress_point);
+        LUNASHELL::httpJsonWriteHealth(response, snapshot, lifecycle, liveness);
     } else if (std::strcmp(route, kCapabilitiesPath) == 0) {
         const uint32_t refresh_interval_ms =
             snapshot.diagnostics.full_snapshot_period.health ==

@@ -18,7 +18,6 @@
 #include <cstring>
 
 #include "esp_err.h"
-#include "esp_timer.h"
 #include "LUNASHELL_liveness.h"
 
 namespace {
@@ -26,18 +25,23 @@ namespace {
 constexpr std::size_t kFormatBufferCapacity = 384U;
 constexpr uint32_t kApiVersion = 1U;
 
-uint64_t snapshotAgeMs(const LUNASHELL::DeviceSnapshot &snapshot)
+// json: Serializer holding the owner-provided monotonic observation time.
+// snapshot: Canonical or explicitly synthetic original snapshot timestamps.
+uint64_t snapshotAgeMs(const LUNASHELL::HttpJsonWriter &json, const LUNASHELL::DeviceSnapshot &snapshot)
 {
     if (snapshot.last_update_attempt_at_us <= 0) {
         return 0U;
     }
-    const int64_t now = esp_timer_get_time();
+    const int64_t now = json.observationTimeUs();
     if (now <= snapshot.last_update_attempt_at_us) {
         return 0U;
     }
     return static_cast<uint64_t>(now - snapshot.last_update_attempt_at_us) / 1000ULL;
 }
 
+// json: Transport-independent bounded output owner.
+// schema: Exact reviewed public response schema identity.
+// snapshot: Original canonical or explicitly synthetic measurements.
 void writeEnvelopeStart(
     LUNASHELL::HttpJsonWriter &json,
     const char *schema,
@@ -56,7 +60,7 @@ void writeEnvelopeStart(
     (void)json.raw(",\"last_update_error\":");
     (void)json.quoted(esp_err_to_name(snapshot.last_update_error));
     (void)json.format(",\"age_ms\":%llu,\"data\":",
-                      static_cast<unsigned long long>(snapshotAgeMs(snapshot)));
+                      static_cast<unsigned long long>(snapshotAgeMs(json, snapshot)));
 }
 
 bool componentCurrent(const LUNASHELL::ComponentSnapshot &component)
@@ -1409,8 +1413,14 @@ void writeSnapshotData(
 
 namespace LUNASHELL {
 
-HttpJsonWriter::HttpJsonWriter(httpd_req_t *request): _request(request)
+// sink: Explicit output owner; errors must be returned, never hidden.
+// now_us: Observation time supplied by its caller without serializer-side clock reads.
+HttpJsonWriter::HttpJsonWriter(HttpJsonSink sink, int64_t now_us): _sink(sink), _now_us(now_us)
 {
+    if (_sink.write == nullptr || now_us < 0) {
+        _failed = true;
+        _last_error = ESP_ERR_INVALID_ARG;
+    }
 }
 
 // Stream arbitrary text through the fixed response buffer.
@@ -1481,13 +1491,14 @@ bool HttpJsonWriter::boolean(bool value)
     return raw(value ? "true" : "false");
 }
 
-// Flush buffered JSON and terminate the chunked HTTP response.
+// No parameters: flushes the bounded buffer and asks the explicit sink to finish.
+// Exception: Returns the original formatting or sink error.
 esp_err_t HttpJsonWriter::finish()
 {
     if (_failed || !flush()) {
         return _last_error != ESP_OK ? _last_error : ESP_FAIL;
     }
-    const esp_err_t error = httpd_resp_send_chunk(_request, nullptr, 0);
+    const esp_err_t error = _sink.write(_sink.context, nullptr, 0, true);
     if (error != ESP_OK) {
         _failed = true;
         _last_error = error;
@@ -1502,10 +1513,12 @@ bool HttpJsonWriter::append(char value)
     return true;
 }
 
+// No parameters: transfers one chunk to the explicit sink.
+// Exception: Records the original sink error for finish() to propagate.
 bool HttpJsonWriter::flush()
 {
     if (_used == 0U) return true;
-    const esp_err_t error = httpd_resp_send_chunk(_request, _buffer, _used);
+    const esp_err_t error = _sink.write(_sink.context, _buffer, _used, false);
     _used = 0U;
     if (error != ESP_OK) {
         _failed = true;
@@ -1514,15 +1527,19 @@ bool HttpJsonWriter::flush()
     return error == ESP_OK;
 }
 
+// json: Bounded sink and explicit observation clock.
+// snapshot: Canonical or explicitly synthetic snapshot, never acquired here.
+// lifecycle: Observed HTTP ownership flags supplied by the transport.
+// observation: Real liveness query result and names supplied by the runtime owner.
 void httpJsonWriteHealth(
     HttpJsonWriter &json,
     const DeviceSnapshot &snapshot,
-    const HttpLifecycleView &lifecycle
+    const HttpLifecycleView &lifecycle,
+    const HttpLivenessView &observation
 )
 {
-    LUNASHELL_liveness_status_t liveness{};
-    const esp_err_t liveness_result =
-        LUNASHELL_liveness_get_status(&liveness);
+    const auto &liveness = observation.status;
+    const esp_err_t liveness_result = observation.query_error;
     const bool liveness_ok =
         liveness_result == ESP_OK && liveness.initialized &&
         liveness.last_error == ESP_OK;
@@ -1547,7 +1564,7 @@ void httpJsonWriteHealth(
                        static_cast<long long>(snapshot.last_update_attempt_at_us));
     (void)json.boolean(snapshot.last_update_complete);
     (void)json.format(",\"age_ms\":%llu},\"liveness\":{\"available\":",
-                      static_cast<unsigned long long>(snapshotAgeMs(snapshot)));
+                      static_cast<unsigned long long>(snapshotAgeMs(json, snapshot)));
     (void)json.boolean(liveness_result == ESP_OK);
     (void)json.raw(",\"query_error\":");
     (void)json.quoted(esp_err_to_name(liveness_result));
@@ -1566,11 +1583,7 @@ void httpJsonWriteHealth(
     (void)json.boolean(liveness.last_progress_valid);
     (void)json.raw(",\"point\":");
     (void)json.quoted(
-        LUNASHELL_liveness_point_name(
-            liveness.last_progress_valid
-                ? liveness.last_progress_point
-                : LUNASHELL_LIVENESS_POINT_COUNT
-        )
+        liveness.last_progress_valid ? observation.last_progress_name : "none"
     );
     (void)json.format(
         ",\"age_ms\":%lu},\"previous_timeout\":{\"valid\":",
@@ -1585,11 +1598,7 @@ void httpJsonWriteHealth(
         static_cast<unsigned long>(liveness.previous_timeout.active_mask)
     );
     (void)json.quoted(
-        LUNASHELL_liveness_point_name(
-            liveness.previous_timeout.valid
-                ? liveness.previous_timeout.last_progress_point
-                : LUNASHELL_LIVENESS_POINT_COUNT
-        )
+        liveness.previous_timeout.valid ? observation.previous_timeout_name : "none"
     );
     (void)json.raw("}}}}");
 }

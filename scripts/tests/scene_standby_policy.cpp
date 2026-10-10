@@ -34,6 +34,12 @@ static_assert(!scene_standby_expired(119999999, 0, pairing));
 
 using LUNASHELL::power_policy::StandbySleep;
 using LUNASHELL::power_policy::select_standby_sleep;
+using LUNASHELL::power_policy::select_standby_audio;
+
+static_assert(!select_standby_audio(false, false));
+static_assert(!select_standby_audio(false, true));
+static_assert(select_standby_audio(true, false));
+static_assert(!select_standby_audio(true, true));
 
 // Release permits deep sleep only when no retained service needs the CPU/radio.
 static_assert(select_standby_sleep(true, false, false, true) == StandbySleep::Deep);
