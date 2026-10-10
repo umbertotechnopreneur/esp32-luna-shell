@@ -14,6 +14,9 @@ Continue development on the single local `codex/cody` branch; checkpoint history
 is consolidated there. The daily Codex Standard cache, Home warning/carousel
 and Model & Context badge are implemented; final validation remains open in
 CCP-07. No rates, dollar amounts or session-cost estimation are sent to Cody.
+Latest firmware `cody-99-g8cfb6ce3` was built and flashed on COM10 on 2026-10-11
+with four image hashes verified and NVS excluded. Post-reset behavior, stack
+headroom and the prepared host/simulator cases remain unverified.
 
 ## Reproduced device faults
 
@@ -45,8 +48,9 @@ CCP-07. No rates, dollar amounts or session-cost estimation are sent to Cody.
 ## CCP, hooks and companion
 
 - [ ] **CCP-01 - Coordinated security rollout.** Security implementation is
-  retained in dedicated checkpoint `bbb11e10`. Install current CCP 0.6.4 and
-  matching READY/COMMITTED plus TECH v2 firmware together when requested.
+  retained in dedicated checkpoint `bbb11e10`. Matching READY/COMMITTED plus
+  TECH v2 firmware from `8cfb6ce3` was built/flashed on COM10 on 2026-10-11.
+  Confirm the active paired-PC service is CCP 0.6.4 for runtime observations.
   Inspect affected compiled frames and measured stacks; run prepared security
   regressions with fresh suite authorization. Observe real pairing, retained recovery, packet/ACK loss,
   broker restart, consecutive questions and notice routing; tune bounded ingress
@@ -80,8 +84,9 @@ CCP-07. No rates, dollar amounts or session-cost estimation are sent to Cody.
   accents, one attention double blink, exact-turn reply/interruption, repeated
   frames, source gaps, hidden routes/pause and the real PC approval view. Verify
   automatic Cody low-battery/charging cues, fractional threshold boundaries,
-  missing percentage/presence and immediate source-expiry invalidation. Build
-  only after integration; inspect compiled frames and physical stack headroom
+  missing percentage/presence and immediate source-expiry invalidation. The
+  integrated Debug wake-word firmware from `8cfb6ce3` is built/flashed; inspect
+  compiled frames and physical stack headroom
   for the 208-byte director and display-owned status projection. Earlier test
   results cover the preceding revision. Python additions are platform-neutral;
   the existing Windows credential/launcher boundary still needs a separate port.
@@ -95,10 +100,12 @@ CCP-07. No rates, dollar amounts or session-cost estimation are sent to Cody.
   measured context row. Home project/branch/model rotation and a persistent
   green/orange/red/gray band chip are integrated with compaction priority,
   partial-frame damage and native Studio previews. Obtain fresh named authorization
-  for CCP, native aging/rendering, Studio/simulator and firmware validation.
+  for CCP, native aging/rendering, Studio/simulator and firmware runtime checks.
   Prepared cache, signed transport, expiry, raster and Studio cases have not run.
-  Regeneration, compiled frames and device
-  stack headroom remain unverified; source work does not install or flash CCP 0.6.4.
+  Debug wake-word firmware from `8cfb6ce3` was built/flashed on COM10 on
+  2026-10-11. Regeneration, compiled frames, device stack headroom and actual
+  badge/compaction/tap/shake behavior remain unverified; the flash alone does
+  not establish the active PC plugin version or reviewed hook execution.
 
 - [ ] **UI-01 - Setup and retained onboarding.** Exercise first-run versus
   retained pairing, missing/saved Wi-Fi, reconnect/DHCP, unavailable/stale data,

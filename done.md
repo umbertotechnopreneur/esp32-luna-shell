@@ -13,11 +13,30 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
-## Current verification - 2026-10-11
+## Current firmware installation - 2026-10-11
+
+- Built and flashed clean source checkpoint `8cfb6ce3` through the public
+  `scripts/device.ps1 flash -Profile cody-companion -Feature wake-word
+  -BuildMode Debug -Port COM10 -Jobs 8` workflow with shared transient cleanup.
+  ESP-IDF 6.0.2 produced firmware identity `cody-99-g8cfb6ce3`.
+- The application is 6,990,864 bytes (`0x6aac10`); the build's partition check
+  reported 49% free in the `0xd23000` application partition. No separate size
+  command was run.
+- COM10 was the present Espressif USB device; esptool identified ESP32-S3
+  revision v0.2. Bootloader, partition table, wake-word models and application
+  each completed write/hash verification, followed by the standard RTS reset.
+  NVS was not a flash target, and no erase-flash command was issued.
+- Operation exit code was zero. The complete build/flash log is
+  `artifacts/build-cody-companion-wake-word-evidence/firmware-20261011-8cfb6ce3-flash.log`.
+  No test suite, simulator, serial capture, post-reset UI observation or device
+  stack-headroom measurement accompanied this operation. CCP-01/06/07 remain
+  open for their remaining named checks and runtime evidence.
+
+## Earlier verification - 2026-10-11
 
 The results below precede the later 2026-10-11 Codex acting/power-cue increment.
-That increment has source review and prepared cases only; its fresh execution
-gate is CCP-06 in TODO.md.
+Its later firmware build/flash is recorded above; these earlier test results
+do not cover that increment. Its remaining execution gate is CCP-06 in TODO.md.
 
 - Cody Debug wake-word built with ESP-IDF 6.0.2, eight jobs and shared cleanup.
   Identity `cody-86-ge2ae6191-dirty`; application `0x6a9800` bytes, with 49% of
