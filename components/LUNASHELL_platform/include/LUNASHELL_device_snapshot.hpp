@@ -253,8 +253,54 @@ struct CodexActivitySnapshot : ComponentSnapshot {
     CodexActivityState state = CodexActivityState::None;
     uint64_t revision = 0;
     char chat_id[65] = {}; // SHA-256 identity; no transcript or prompt content.
-    char project[25] = {}; // Explicit ASCII display label, never an identity.
+    char project[65] = {}; // Actual bounded ASCII display label, never a chat identity.
+    char description[193] = {}; // Actual bounded purpose; no raw prompt, command or transcript.
+    char branch[65] = {}; // Genuine checkout branch or explicit DETACHED; empty is unavailable.
 };
+
+enum class CodexModelSource : uint8_t { Unavailable, HookMetadata };
+enum class CodexCompactionState : uint8_t { None, Active, Refreshed, Orphaned, Interrupted, Stale };
+
+// Technical measurements are separate from link liveness and tool-phase snapshots.
+// Ages are host durations at receipt, never comparisons between host and device clocks.
+struct CodexTechnicalSnapshot : ComponentSnapshot {
+    char chat_id[65]{};
+    char turn_id[65]{};
+    uint64_t revision = 0;
+    int64_t received_at_us = 0;
+    char model[129]{};
+    CodexModelSource model_source = CodexModelSource::Unavailable;
+    bool model_valid = false;
+    bool model_stale = false;
+    uint64_t model_age_at_receive_us = 0;
+    char effort[17]{};
+    bool effort_valid = false;
+    bool effort_stale = false;
+    CodexCompactionState compaction = CodexCompactionState::None;
+    uint64_t compaction_sequence = 0;
+    bool compaction_valid = false;
+    bool compaction_age_valid = false;
+    uint64_t compaction_age_at_receive_us = 0;
+    bool activity_age_valid = false;
+    uint64_t activity_age_at_receive_us = 0;
+    bool turn_elapsed_valid = false;
+    uint64_t turn_elapsed_at_receive_us = 0;
+    bool context_valid = false;
+    bool context_stale = false;
+    bool cumulative_valid = false;
+    bool input_valid = false;
+    bool output_valid = false;
+    bool threshold_valid = false;
+    uint64_t used = 0;
+    uint64_t capacity = 0;
+    uint64_t cumulative = 0;
+    uint64_t input = 0;
+    uint64_t output = 0;
+    uint64_t threshold = 0;
+    uint64_t usage_age_at_receive_us = 0;
+};
+static_assert(sizeof(CodexTechnicalSnapshot) <= 512,
+    "Technical telemetry projection must remain bounded to a 512-byte caller frame");
 
 struct CodexEventSnapshot : ComponentSnapshot, CodexEventPayload {
     CodexEventState state = CodexEventState::None;
@@ -287,6 +333,11 @@ struct RadioSnapshot {
     ProvisioningSnapshot provisioning;
     PairingSessionSnapshot pairing;
     CodexLinkSnapshot codex_link;
+};
+
+struct CodexTechnicalObservation {
+    CodexLinkSnapshot link;
+    CodexTechnicalSnapshot technical;
 };
 
 enum class StorageMountOutcome : uint8_t {
@@ -741,10 +792,17 @@ struct CharacterLookSaveSnapshot {
     int64_t completed_at_us = 0;
 };
 
+// A settings profile is independent of master sounds and motion preferences.
+struct CodyUserNameSnapshot : ComponentSnapshot {
+    char name[25]{};
+    uint32_t revision = 0;
+};
+
 // Settings owner publishes readback-confirmed values; consumers never read NVS.
 struct CodyPreferencesSnapshot : ComponentSnapshot {
     bool shake_to_wake = false;
     bool sounds_enabled = false;
+    CodyUserNameSnapshot user_name;
 };
 
 struct CodyOptionsObservation {
@@ -754,6 +812,7 @@ struct CodyOptionsObservation {
 
 struct DeviceSnapshot {
     CodexEventSnapshot codex_event;
+    CodexTechnicalSnapshot codex_technical;
     uint32_t sequence = 0;
     int64_t last_update_attempt_at_us = 0;
     bool last_update_complete = false;
@@ -906,6 +965,10 @@ public:
     );
     [[nodiscard]]
     TouchActivityObservation touchActivityObservation() const noexcept;
+
+    // observation: Original canonical touch service health, without the full hardware snapshot.
+    // Exception: Returns the original snapshot mutex error without changing the destination.
+    esp_err_t readTouchHealthObservation(ComponentSnapshot &observation) const;
     DeviceSnapshot snapshot() const;
     // destination: Caller-owned full buffer; usable only when this read returns ESP_OK.
     // Exception: Returns the original canonical lock/release error without reading hardware.
@@ -926,6 +989,14 @@ public:
     // observation: Bounded canonical interaction; no radio, sensor or transcript reads.
     // Exception: Returns the original canonical snapshot lock/read failure.
     esp_err_t readCodexEventObservation(CodexEventSnapshot &observation) const;
+
+    // observation: Persistent caller-owned link/telemetry projection, copied under one lock.
+    // Exception: Returns original lock/release errors; do not consume output on failure.
+    esp_err_t readCodexTechnicalObservation(CodexTechnicalObservation &observation) const;
+
+    // technical: Authenticated owner-produced projection; no prompts or transcript content.
+    // Exception: Returns the original canonical publication error.
+    esp_err_t reportCodexTechnical(const CodexTechnicalSnapshot &technical);
     // event: Authenticated controller state, including real delivery and expiry outcomes.
     // Exception: Returns the original publication failure and logs its cause.
     esp_err_t reportCodexEvent(const CodexEventSnapshot &event);

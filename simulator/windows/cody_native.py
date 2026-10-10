@@ -57,6 +57,55 @@ class HostResponseInputs(C.Structure):
         ("pressed", C.c_uint8), ("idle_allowed", C.c_uint8), ("eye", C.c_uint8)]
 
 
+class NativePanelMetric(C.Structure):
+    """Original uint64 observation and independent UNAVAILABLE/CURRENT/STALE/INVALID state."""
+    _fields_ = [("value", C.c_uint64), ("state", C.c_uint8)]
+
+    # self: Typed native metric transport owner.
+    # value: Original count or duration, never a substituted missing value.
+    # state: Explicit unavailable/current/stale/invalid identity.
+    # Raises ValueError before ctypes could narrow invalid original integers.
+    def __init__(self, value=0, state=0):
+        super().__init__(bounded_integer(value, 0, 0xffffffffffffffff, "panel.metric.value"),
+                         bounded_integer(state, 0, 3, "panel.metric.state"))
+
+
+class NativePanelInputs(C.Structure):
+    """Borrowed PC facts only; native firmware owns all formatting, layout and bar arithmetic."""
+    _fields_ = [(name, C.c_char_p) for name in ("project", "branch", "description", "chat_id", "model", "effort")] + [
+        ("phase", C.c_uint8), ("compaction", C.c_uint8),
+        ("link", C.c_uint8), ("activity", C.c_uint8), ("model_state", C.c_uint8), ("effort_state", C.c_uint8),
+        ("connected", C.c_bool), ("simulated", C.c_bool), ("context_coherent", C.c_bool),
+        ("context_estimated", C.c_bool), ("counters_pending", C.c_bool)] + [
+        (name, NativePanelMetric) for name in ("used", "capacity", "threshold", "cumulative",
+            "activity_age_us", "usage_age_us", "turn_elapsed_us", "compaction_elapsed_us")]
+
+    # self: Bounded PC projection retained through its synchronous native preparation call.
+    # Raises no exceptions; absent strings and metrics remain explicitly unavailable.
+    def __init__(self):
+        super().__init__()
+        for name in ("project", "branch", "description", "chat_id", "model", "effort"):
+            setattr(self, name, b"")
+
+
+class NativePanelObservation(C.Structure):
+    """Raw authenticated PC metadata; shared C++ owns receipt/source aging and presentation."""
+    _fields_ = [(name, C.c_char_p) for name in ("project", "branch", "description", "chat_id",
+        "technical_chat_id", "model", "effort")] + [("phase", C.c_uint8), ("compaction", C.c_uint8)] + [
+        (name, C.c_bool) for name in ("connected", "link_valid", "link_stale", "activity_valid",
+            "activity_stale", "technical_valid", "model_valid", "effort_valid", "compaction_valid",
+            "compaction_age_valid", "activity_age_valid", "turn_elapsed_valid")] + [
+        (name, C.c_uint64) for name in ("model_age_us", "compaction_age_us", "activity_age_us",
+            "turn_elapsed_us", "receipt_age_us")]
+
+    # self: Raw source projection consumed synchronously by the native scratch owner.
+    # Raises no exceptions; absent fields retain unavailable flags rather than numeric claims.
+    def __init__(self):
+        super().__init__()
+        for name in ("project", "branch", "description", "chat_id", "technical_chat_id", "model", "effort"):
+            setattr(self, name, b"")
+
+
 # operation: Native call being checked.
 # result: Original esp_err_t returned across the transport boundary.
 # Raises RuntimeError with the real numeric firmware error, never a Python fallback.
@@ -110,6 +159,20 @@ class NativeRig:
             "path": (C.c_int, (P, C.c_uint32, U32, F, C.c_uint32)),
             "scale": (C.c_int, (P, F)),
             "draw": (C.c_int, (P, U16, C.c_uint32, C.c_bool, C.c_char_p, C.c_bool, C.c_bool, C.c_uint8, C.c_uint16)),
+            "activity_overlay": (C.c_int, (P, C.c_uint8, C.c_uint32)),
+            "activity_description": (C.c_int, (P, C.c_char_p, C.c_uint32, C.c_int64)),
+            "activity_identity": (C.c_int, (P, C.c_char_p, C.c_char_p, C.c_int64, C.c_bool, C.c_int64, C.c_bool)),
+            "activity_observe": (C.c_int, (P, C.c_uint8, C.c_char_p, C.c_bool, C.c_int64, C.POINTER(C.c_uint8), C.POINTER(C.c_int64))),
+            "activity_pause": (C.c_int, (P,)),
+            "panel_next": (C.c_int, (C.c_uint8, C.POINTER(C.c_uint8))),
+            "panel_prepare": (C.c_int, (P, C.c_uint8, C.POINTER(NativePanelInputs), C.c_int64)),
+            "panel_observation": (C.c_int, (P, C.c_uint8, C.POINTER(NativePanelObservation), C.c_int64)),
+            "panel_tap": (C.c_int, (P, C.c_int16, C.c_int16, C.c_bool, C.c_bool, C.c_int64,
+                C.c_uint16, C.c_bool, C.c_bool, C.POINTER(C.c_bool))),
+            "panel_cancel_tap": (C.c_int, (P,)),
+            "panel_shake": (C.c_int, (P, C.c_float, C.c_float, C.c_float, C.c_int64, C.c_int64,
+                C.c_bool, C.POINTER(C.c_bool))),
+            "panel_suspend_shake": (C.c_int, (P, C.c_int64)),
             "connection": (C.c_int, (P, C.c_bool, C.c_bool, C.c_bool, C.c_bool, C.c_bool, C.c_int64, C.POINTER(C.c_uint8))),
             "scene_cue": (C.c_int, (C.c_uint16, C.c_uint8, C.POINTER(C.c_uint8))),
             "scene_id": (C.c_int, (C.c_char_p, U16)),
@@ -217,6 +280,158 @@ class NativeRig:
             rgb[index * 3 + 1] = ((value >> 5) & 63) * 255 // 63
             rgb[index * 3 + 2] = (value & 31) * 255 // 31
         return Image.frombytes("RGB", (466, 466), bytes(rgb))
+
+    # self: Native graphics owner; all font layout, overflow and marquee rastering stay in shared C++.
+    # scene: Actual evaluated rig retaining its independent native frame owner.
+    # overlay: Shared ActivityOverlayState numeric identity, derived from genuine isolated CCP metadata.
+    # overlay_elapsed_us: Active time since the observed phase changed, bounded to uint32.
+    # description: Actual purpose or truthful phase caption in at most 192 printable ASCII characters.
+    # description_elapsed_us: Active time since this exact description changed; no protocol freshness is renewed.
+    # Raises ValueError for unsupported metadata; RuntimeError for real native preparation failures.
+    def prepare_activity(self, scene, overlay, overlay_elapsed_us, description, description_elapsed_us):
+        if type(overlay) is not int or overlay not in (0, 1, 2, 3, 4):
+            raise ValueError("Native activity overlay identity is invalid")
+        if (type(overlay_elapsed_us) is not int or not 0 <= overlay_elapsed_us <= 0xffffffff
+                or type(description_elapsed_us) is not int or not 0 <= description_elapsed_us <= 0x7fffffffffffffff):
+            raise ValueError("Native activity clocks are invalid")
+        if (not isinstance(description, str) or len(description) > 192
+                or any(not 32 <= ord(character) <= 126 for character in description)):
+            raise ValueError("Native activity description must be bounded printable ASCII")
+        handle = scene["_native_scene"].handle
+        encoded = description.encode("ascii")
+        checked("activity_overlay", self.api.cody_host_activity_overlay(handle, overlay, overlay_elapsed_us))
+        checked("activity_description", self.api.cody_host_activity_description(
+            handle, encoded, len(encoded), description_elapsed_us))
+
+    # self: Persistent native policy owner, independent of transient rig frames.
+    # phase: Genuine isolated hook phase or visibly SIMULATED preview state.
+    # chat: Exact observed SHA-256 identity; empty is admitted only before current activity exists.
+    # current: Whether this complete isolated link/activity observation is current.
+    # active_time_us: Monotonic pausable UI clock, unaffected by text and route repaint.
+    # Raises ValueError for unsupported fields; RuntimeError for original native policy errors.
+    def observe_activity(self, phase, chat, current, active_time_us):
+        phases = ("none", "active", "working", "editing", "running", "ready", "paused", "interrupted", "ended", "unavailable")
+        if (phase not in phases or not isinstance(chat, str) or type(current) is not bool
+                or type(active_time_us) is not int or not 0 <= active_time_us <= 0x7fffffffffffffff):
+            raise ValueError("Native activity observation metadata is invalid")
+        presented, elapsed = C.c_uint8(), C.c_int64()
+        checked("activity_observe", self.api.cody_host_activity_observe(self.state, phases.index(phase),
+            chat.encode("ascii"), current, active_time_us, C.byref(presented), C.byref(elapsed)))
+        if presented.value >= len(phases):
+            raise RuntimeError("Native activity policy returned an unknown phase")
+        return phases[presented.value], elapsed.value
+
+    # self: Persistent native observation owner while a genuine interaction owns the view.
+    # Raises RuntimeError for original native state errors.
+    def pause_activity(self):
+        checked("activity_pause", self.api.cody_host_activity_pause(self.state))
+
+    # self: Actual native identity raster transport, without Python text truncation or fading.
+    # scene: Independent evaluated rig frame whose native owner borrows its identity buffers.
+    # project: Actual bounded ASCII project label, empty when no context is available.
+    # branch: Actual bounded ASCII checkout branch, empty when unavailable.
+    # elapsed_us: Active time since the identity or attention state changed.
+    # attention: Genuine paused/question state freezing the project caption.
+    # operation_elapsed_us: Shared native observed work interval, negative when unavailable.
+    # compacting: Authoritative compaction lifecycle; elapsed then means actual observed start duration.
+    # Raises ValueError for unsupported metadata; RuntimeError for original native preparation errors.
+    def prepare_activity_identity(self, scene, project, branch, elapsed_us, attention, operation_elapsed_us, compacting):
+        if (any(not isinstance(value, str) or len(value) > 64 or
+                    any(not 32 <= ord(character) <= 126 for character in value) for value in (project, branch))
+                or type(elapsed_us) is not int or not 0 <= elapsed_us <= 0x7fffffffffffffff
+                or type(attention) is not bool or type(compacting) is not bool or type(operation_elapsed_us) is not int):
+            raise ValueError("Native activity identity metadata is invalid")
+        checked("activity_identity", self.api.cody_host_activity_identity(scene["_native_scene"].handle,
+            project.encode("ascii"), branch.encode("ascii"), elapsed_us, attention, operation_elapsed_us, compacting))
+
+    # self: Shared native renderer transport owner.
+    # current: Explicit Home=0/Activity=1/ModelContext=2/SessionLink=3 identity.
+    # Raises ValueError for unknown identities; RuntimeError for the original native failure.
+    def next_companion_panel(self, current):
+        bounded_integer(current, 0, 3, "panel.current")
+        selected = C.c_uint8()
+        checked("panel_next", self.api.cody_host_panel_next(current, C.byref(selected)))
+        return selected.value
+
+    # self: Shared native renderer transport owner.
+    # scene: Existing native frame retaining its bounded technical caption owner.
+    # panel: Typed Home or technical page identity.
+    # inputs: Original PC facts with independent source freshness, never a firmware snapshot.
+    # elapsed_us: Nonnegative local presentation time for the indeterminate lifecycle accent.
+    # Raises ValueError for invalid transport shape; RuntimeError for the native source/layout rejection.
+    def prepare_companion_panel(self, scene, panel, inputs, elapsed_us):
+        bounded_integer(panel, 0, 3, "panel.identity")
+        bounded_integer(elapsed_us, 0, 0x7fffffffffffffff, "panel.elapsed_us")
+        if not isinstance(inputs, NativePanelInputs):
+            raise ValueError("Technical panels require the typed native metadata projection")
+        checked("panel_prepare", self.api.cody_host_panel_prepare(scene["_native_scene"].handle,
+            panel, C.byref(inputs), elapsed_us))
+
+    # self: Shared native transport owner.
+    # scene: Existing native frame retaining its canonical-shaped PC-only source scratch.
+    # panel: Explicit Home or selected technical identity.
+    # observation: Original hook metadata and measured duration ages, with availability flags.
+    # elapsed_us: Actual active presentation clock; never a fake compaction percentage.
+    # Raises ValueError for invalid shape or clocks; RuntimeError for real native source/layout errors.
+    def prepare_companion_observation(self, scene, panel, observation, elapsed_us):
+        bounded_integer(panel, 0, 3, "panel.identity")
+        bounded_integer(elapsed_us, 0, 0x7fffffffffffffff, "panel.elapsed_us")
+        if not isinstance(observation, NativePanelObservation):
+            raise ValueError("Technical panels require original typed hook observations")
+        checked("panel_observation", self.api.cody_host_panel_observation(scene["_native_scene"].handle,
+            panel, C.byref(observation), elapsed_us))
+
+    # self: Persistent recognizer owner, isolated from physical snapshots.
+    # x: Original logical acquired touch coordinate.
+    # y: Original logical acquired touch coordinate.
+    # pressed: Acquired contact or release state.
+    # pressed_edge: Original new-contact edge.
+    # sampled_at_us: Actual local acquisition time.
+    # rotation: Current logical display rotation.
+    # eligible: Passive content is visible and eligible.
+    # consumed: Explicit action or other gesture owns this contact.
+    # Raises ValueError for invalid original integers; RuntimeError for native rejection.
+    def observe_companion_tap(self, x, y, pressed, pressed_edge, sampled_at_us, rotation, eligible, consumed):
+        bounded_integer(x, -32768, 32767, "panel.tap.x")
+        bounded_integer(y, -32768, 32767, "panel.tap.y")
+        bounded_integer(sampled_at_us, 1, 0x7fffffffffffffff, "panel.tap.timestamp")
+        bounded_integer(rotation, 0, 270, "panel.tap.rotation")
+        if any(type(value) is not bool for value in (pressed, pressed_edge, eligible, consumed)):
+            raise ValueError("Native passive tap requires original typed acquisition flags")
+        accepted = C.c_bool()
+        checked("panel_tap", self.api.cody_host_panel_tap(self.state, x, y, pressed, pressed_edge,
+            sampled_at_us, rotation, eligible, consumed, C.byref(accepted)))
+        return accepted.value
+
+    # self: Persistent shared recognizer owner.
+    # Raises RuntimeError for the original invalid-owner native error.
+    def cancel_companion_tap(self):
+        checked("panel_cancel_tap", self.api.cody_host_panel_cancel_tap(self.state))
+
+    # self: Persistent shared motion recognizer owner.
+    # x: Explicit SIMULATED acquired X acceleration in m/s2.
+    # y: Explicit SIMULATED acquired Y acceleration in m/s2.
+    # z: Explicit SIMULATED acquired Z acceleration in m/s2.
+    # sampled_at_us: Original synthetic acquisition timestamp.
+    # now_us: Local observation time, used by shared native freshness policy.
+    # active: Visible awake companion navigation admission.
+    # Raises ValueError for invalid clocks or flags; RuntimeError for native rejection.
+    def observe_companion_shake(self, x, y, z, sampled_at_us, now_us, active):
+        bounded_integer(sampled_at_us, 1, 0x7fffffffffffffff, "panel.shake.timestamp")
+        bounded_integer(now_us, sampled_at_us, 0x7fffffffffffffff, "panel.shake.now")
+        if type(active) is not bool or any(not math.isfinite(value) for value in (x, y, z)):
+            raise ValueError("Native shake requires explicit finite acquired synthetic samples")
+        accepted = C.c_bool()
+        checked("panel_shake", self.api.cody_host_panel_shake(self.state, x, y, z,
+            sampled_at_us, now_us, active, C.byref(accepted)))
+        return accepted.value
+
+    # self: Persistent shared motion recognizer owner.
+    # now_us: Actual local clock at wake or view suspension.
+    # Raises ValueError for invalid clocks; RuntimeError for original native rejection.
+    def suspend_companion_shake(self, now_us):
+        bounded_integer(now_us, 0, 0x7fffffffffffffff, "panel.shake.suspend")
+        checked("panel_suspend_shake", self.api.cody_host_panel_suspend_shake(self.state, now_us))
 
     # self: Native facial transition owner.
     # state: Current independent channels.

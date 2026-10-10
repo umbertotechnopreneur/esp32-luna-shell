@@ -910,6 +910,17 @@ esp_err_t DeviceSnapshotService::reportCodexEvent(const CodexEventSnapshot &even
     return error;
 }
 
+// technical: Synchronously borrowed owner buffer; the snapshot never retains the reference.
+// Exception: Returns the original canonical publication error.
+esp_err_t DeviceSnapshotService::reportCodexTechnical(const CodexTechnicalSnapshot &technical)
+{
+    const esp_err_t error = update_snapshot([&technical](DeviceSnapshot &snapshot) {
+        snapshot.codex_technical = technical;
+    });
+    log_snapshot_publication_failure("Codex technical report", error);
+    return error;
+}
+
 // ready: Hardware readiness confirmed by a successful operation.
 // error: Original operation or publication failure.
 void DeviceSnapshotService::reportDisplay(bool ready, esp_err_t error)

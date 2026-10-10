@@ -21,6 +21,9 @@ from typing import Any
 from ccp_activity import ActivityStore
 import ccp_interactions as interactions
 import ccp_reset as reset
+import ccp_clock as clock
+import ccp_name as preferred_name
+import ccp_technical as technical_metadata
 from ccp_windows import configure_exclusive_socket, protect_secret, unprotect_secret, runtime_directory
 
 
@@ -28,6 +31,9 @@ PROTOCOL = "CCP1"
 DEVICE_PORT = 42117
 PLUGIN_PORT = 42118
 MAX_DATAGRAM_BYTES = 512
+MAX_ACTIVITY_DATAGRAM_BYTES = 1024
+MAX_TECHNICAL_DATAGRAM_BYTES = 1024
+TECHNICAL_FIELDS = technical_metadata.FIELDS
 PBKDF2_ITERATIONS = 50_000
 SERVER_VERSION = "0.6.2"
 LIVENESS_TIMEOUT_SECONDS = 10.0
@@ -121,10 +127,12 @@ def derive_verifier(code: str, salt_hex: str) -> bytes:
     )
 
 
-# message: Printable ASCII CCP1 datagram; only EVENT uses the larger extension envelope.
+# message: Printable ASCII CCP1 datagram; EVENT, ACTIVITY and TECH have explicit extension bounds.
 # Raises ValueError for malformed, ambiguous, oversized, or duplicate fields.
 def parse_datagram(message: bytes) -> tuple[str, dict[str, str]]:
-    limit = interactions.MAX_EVENT_DATAGRAM_BYTES if message.startswith(b"CCP1|EVENT|") else MAX_DATAGRAM_BYTES
+    limit = (interactions.MAX_EVENT_DATAGRAM_BYTES if message.startswith(b"CCP1|EVENT|") else
+             MAX_ACTIVITY_DATAGRAM_BYTES if message.startswith(b"CCP1|ACTIVITY|") else
+             MAX_TECHNICAL_DATAGRAM_BYTES if message.startswith(b"CCP1|TECH|") else MAX_DATAGRAM_BYTES)
     if not message or len(message) > limit:
         raise ValueError("CCP datagram size rejected")
     try:
@@ -145,13 +153,15 @@ def parse_datagram(message: bytes) -> tuple[str, dict[str, str]]:
     return parts[1], fields
 
 
-# kind: Uppercase CCP1 message identity; only EVENT may exceed the original 512-byte envelope.
+# kind: Uppercase CCP1 message identity; EVENT, ACTIVITY and TECH use separately bounded extensions.
 # fields: Ordered field names and already validated printable ASCII values.
 # Raises ValueError when the encoded datagram exceeds the protocol bound.
 def encode_datagram(kind: str, fields: list[tuple[str, str]]) -> bytes:
     text = "|".join([PROTOCOL, kind, *[f"{name}={value}" for name, value in fields]])
     payload = text.encode("ascii")
-    limit = interactions.MAX_EVENT_DATAGRAM_BYTES if kind == "EVENT" else MAX_DATAGRAM_BYTES
+    limit = (interactions.MAX_EVENT_DATAGRAM_BYTES if kind == "EVENT" else
+             MAX_ACTIVITY_DATAGRAM_BYTES if kind == "ACTIVITY" else
+             MAX_TECHNICAL_DATAGRAM_BYTES if kind == "TECH" else MAX_DATAGRAM_BYTES)
     if len(payload) > limit:
         raise ValueError("CCP datagram exceeds its fixed bound")
     return payload
@@ -535,6 +545,8 @@ class CompanionResponder:
         self._debug_peers: dict[str, EventPeer] = {}
         self._debug_requests: dict[str, dict[str, Any]] = {}
         self._debug_used_nonce: dict[str, str] = {}
+        self.clock = clock.ClockRequests(self, sys.modules[__name__])
+        self.names = preferred_name.NameRequests(self, sys.modules[__name__])
         self._thread = threading.Thread(target=self._run, name="CCP-responder", daemon=True)
 
     # No parameters: starts exactly one background authenticated liveness responder.
@@ -601,14 +613,28 @@ class CompanionResponder:
         if kind == "DEBUGCAP":
             self._accept_debug_capability(fields, source)
             return
+        if kind == "CLOCKCAP":
+            self.clock.accept_capability(fields, source)
+            return
+        if kind == "CLOCKACK":
+            self.clock.accept_ack(fields, source)
+            return
+        if kind == "NAMECAP":
+            self.names.accept_capability(fields, source)
+            return
+        if kind == "NAMEACK":
+            self.names.accept_ack(fields, source)
+            return
         if kind != "FIND":
             return
         with_events = set(fields) == {"device", "pc", "nonce", "activity", "events", "current", "state", "proof"}
         with_activity = with_events or set(fields) == {"device", "pc", "nonce", "activity", "proof"}
         if not with_activity and set(fields) != {"device", "pc", "nonce", "proof"}:
             raise ValueError("CCP FIND has unexpected or missing fields")
-        if with_activity and fields["activity"] != "1":
+        if with_activity and fields["activity"] not in {"1", "2", "3"}:
             raise ValueError("Unsupported CCP activity capability")
+        with_description = with_activity and fields["activity"] in {"2", "3"}
+        with_technical = with_activity and fields["activity"] == "3"
         if with_events:
             if fields["events"] != "2":
                 raise ValueError("Unsupported CCP events capability")
@@ -629,6 +655,10 @@ class CompanionResponder:
             if candidate is None:
                 continue
             domain = "find-events-v2" if with_events else "find-activity" if with_activity else "find"
+            if with_description:
+                domain = "find-events-activity-v2" if with_events else "find-activity-v2"
+            if with_technical:
+                domain = "find-events-activity-v3" if with_events else "find-activity-v3"
             values = [fields["device"], fields["pc"], fields["nonce"]]
             if with_events:
                 values.extend((fields["current"], fields["state"]))
@@ -663,15 +693,34 @@ class CompanionResponder:
             fields["nonce"], link_key, retained.pending, source, now)
         self._state.mark_seen(fields["device"], source[0])
         if with_activity:
-            activity = self._activity.snapshot()
+            activity, technical = self._activity.snapshot_bundle()
+            projected_project = activity["project"]
+            if not with_description and len(projected_project) > 48:
+                # Version-one peers retain their documented 24-byte display slot; identity stays in chat.
+                label = bytes.fromhex(projected_project).decode("ascii")
+                projected_project = (label[:21].rstrip() + "...").encode("ascii").hex()
+                print("CCP activity: legacy project display projected to its 24-byte slot", file=sys.stderr)
             values = [fields["device"], fields["pc"], fields["nonce"],
                       activity["chat"], activity["revision"], activity["phase"],
-                      activity["project"] or "-"]
-            activity_proof = make_proof(link_key, "activity", *values)
+                      projected_project or "-"]
+            names = ("device", "pc", "nonce", "chat", "revision", "phase", "project")
+            if with_description:
+                values.append(activity["description"] or "-")
+                names += ("description",)
+                values.append(activity["branch"] or "-")
+                names += ("branch",)
+            activity_proof = make_proof(link_key, "activity-v2" if with_description else "activity", *values)
             payload = encode_datagram("ACTIVITY", list(zip(
-                ("device", "pc", "nonce", "chat", "revision", "phase", "project"), values
+                names, values
             )) + [("proof", activity_proof)])
             self._socket.sendto(payload, source)
+            if with_technical:
+                # One locked projection binds both packets to the same chat and activity revision.
+                technical_fields = {"device": fields["device"], "pc": fields["pc"], "nonce": fields["nonce"], **technical}
+                values = [technical_fields[name] for name in TECHNICAL_FIELDS]
+                proof = make_proof(link_key, "technical-v1", *values)
+                payload = encode_datagram("TECH", list(zip(TECHNICAL_FIELDS, values)) + [("proof", proof)])
+                self._socket.sendto(payload, source)
         if with_events and retained.active is not None and hmac.compare_digest(link_key, retained.active):
             # The old active link remains usable during commissioning. A candidate
             # receives interactions only after COMMITTED proves durable promotion.
@@ -1368,6 +1417,7 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
             {"pc_id": service.state.pc_id, "devices": devices, "count": len(devices),
              "follow_mode": "latest_user_prompt",
              "notifications_error": service.notifications_error,
+             "clock_setup": service.responder.clock.setup_status(),
              "activity": {item["device_id"]: activity for item in devices}},
             f"CCP retains {len(devices)} Cody pairing record(s).",
         )
@@ -1376,6 +1426,18 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
             raise ValueError("Session listing does not accept arguments")
         sessions = service.activity.list_sessions()
         return tool_result({"sessions": sessions}, f"Observed {len(sessions)} chat(s) through Codex hooks.")
+    if name == "ccp_report_progress":
+        if set(arguments) != {"session_id", "turn_id", "description"}:
+            raise ValueError("Progress requires exact session_id, turn_id and description fields")
+        result = service.activity.report_progress(arguments["session_id"], arguments["turn_id"], arguments["description"])
+        return tool_result(result, "Actual work description recorded for the followed chat; device display is not verified.")
+    if name in {"ccp_read_clock", "ccp_configure_clock"}:
+        result = service.responder.clock.request(arguments, name == "ccp_configure_clock")
+        return tool_result(result, f"{result['source']} clock preferences {result['status']}.",
+                           result["status"] != "applied")
+    if name in {"ccp_read_name", "ccp_set_name"}:
+        result = service.responder.names.request(arguments, name == "ccp_set_name")
+        return tool_result(result, f"{result['source']} preferred name {result['status']}.", result["status"] != "applied")
     if name == "ccp_debug_screen":
         if set(arguments) - {"device_id", "mode", "scroll", "include_simulator"}:
             raise ValueError("Debug arguments contain unexpected fields")
@@ -1550,7 +1612,7 @@ def tool_catalog() -> list[dict[str, Any]]:
                 "openWorldHint": False,
             },
         },
-    ] + activity_tool_catalog() + interactions.tool_catalog() + [debug_tool_definition()] + [reset.tool_definition(operation) for operation in reset.ResetOperation]
+    ] + activity_tool_catalog() + interactions.tool_catalog() + clock.tool_catalog() + preferred_name.tool_catalog() + [debug_tool_definition()] + [reset.tool_definition(operation) for operation in reset.ResetOperation]
 
 
 # No parameters: private bounded Debug screen tool, omitted from public manuals.
@@ -1566,12 +1628,20 @@ def debug_tool_definition() -> dict[str, Any]:
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}}
 
 
-# No parameters: exposes observed context without any model-callable selection or activity setter.
+# No parameters: exposes observed context and descriptions without changing selected chat or hook phase.
 def activity_tool_catalog() -> list[dict[str, Any]]:
     return [{"name": "ccp_list_sessions",
              "description": "List hook-observed chats and the automatically followed chat; no transcript contents.",
              "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
-             "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}}]
+             "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}},
+            {"name": "ccp_report_progress", "title": "Describe current work on Cody",
+             "description": "Report a short English ASCII description of actual current work, such as Adding sounds to Codex screens. Use current followed session_id and turn_id from ccp_list_sessions; never fabricate progress, commands, logs, percentages or estimates. This cannot select a chat or change its hook phase.",
+             "inputSchema": {"type": "object", "additionalProperties": False,
+                 "properties": {"session_id": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,128}$"},
+                     "turn_id": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,128}$"},
+                     "description": {"type": "string", "minLength": 1, "maxLength": 192, "pattern": "^[ -~]+$"}},
+                 "required": ["session_id", "turn_id", "description"]},
+             "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}}]
 
 
 # response: JSON-RPC response written as exactly one stdout line.

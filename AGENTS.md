@@ -56,6 +56,10 @@ instruction file; do not add parallel agent or Copilot contracts.
   rotate touch independently. Read
   [circular-display-layout](docs/architecture/circular-display-layout.md) before
   changing layouts.
+- Cody companion technical panels are a scoped exception to lateral Back:
+  a short passive tap advances Activity, Model & Context, Session & Link, then
+  Activity again; a deliberate shake returns directly to Home. These panels
+  have no Back control. Setup, remote questions and Luna retain their routes.
 
 ## Code clarity
 

@@ -3,94 +3,112 @@ name: cody-codex
 description: Connect Cody, send notifications and semantic questions, and acknowledge its replies. Restart or erase settings only with explicit current-message intent and confirmation code. Support physical LAN or explicitly requested SIMULATED Cody Studio; native approvals remain on the computer.
 ---
 
-# Collego Cody con CCP
+# Connect Cody through CCP
 
-Uso gli strumenti CCP per il target richiesto dall'utente.
+Use CCP tools for the target requested by the user.
 
-- Prima del pairing chiamo `ccp_discover_devices`, salvo un'offerta ancora corrente
-  già restituita nello stesso processo MCP.
-- Per il dispositivo fisico lascio `include_simulator` a `false`.
-  Lo imposto a `true` solo se l'utente chiede esplicitamente Cody Studio o il
-  simulatore; identifico sempre quei risultati come **SIMULATED**.
-- Uso soltanto il codice di sei caratteri che l'utente fornisce dal display del
-  target scelto. Non lo indovino, conservo, ripeto in prosa o ricavo dai file.
-  Non uso il codice di un simulatore per attestare il pairing fisico.
-- Se vedo più dispositivi lascio che `ccp_pair_device` trovi la corrispondenza
-  crittografica; non scelgo la prima risposta di rete.
-- Riporto pairing o presenza solo quando il risultato corrispondente li conferma.
-  Per lo stato uso `ccp_connection_status`; un'identità salvata non dimostra
-  presenza, attività o pixel sul display.
-- Se `pairing_pending` è vero, lascio riprendere la conferma con l'identità
-  salvata. Uso `replace_pending: true` soltanto quando l'utente autorizza
-  esplicitamente la sostituzione di quel candidato e fornisce un nuovo codice
-  visibile. Timeout, firmware aggiornato e PC assente non sono autorizzazioni.
-- Tengo riservati verifier, proof, chiavi, salt e contenuti della memoria protetta.
+- Call `ccp_discover_devices` before pairing unless a current offer was already
+  returned by the same MCP process.
+- Leave `include_simulator: false` for a physical device. Set it to `true` only
+  when the user explicitly requests Cody Studio or the simulator; label those
+  results **SIMULATED**.
+- Use only the six-character code the user provides from the selected display.
+  Do not guess, retain, repeat in prose or extract it from files. A simulator code
+  does not attest physical pairing.
+- Let `ccp_pair_device` select the cryptographic match when several devices are
+  discovered; never select the first network response.
+- Report pairing or presence only when the corresponding result confirms it.
+  Use `ccp_connection_status`; a saved identity proves neither presence, activity
+  nor display pixels.
+- If `pairing_pending` is true, allow confirmation to resume with the saved
+  identity. Use `replace_pending: true` only when the user explicitly authorizes
+  replacing that candidate and supplies a new visible code. A timeout, firmware
+  update or absent PC is not authorization.
+- Keep verifiers, proofs, keys, salts and protected-store contents private.
 
-Dopo il pairing seguo i metadati autentici:
+After pairing, follow authentic metadata:
 
-- L'ultimo `UserPromptSubmit` reale seleziona automaticamente la chat del PC.
-  Non chiedo di scegliere una chat sul dispositivo o con un tool manuale.
-  Gli eventi delle chat in background non cambiano il contesto seguito.
-- Leggo `ccp_connection_status` e `ccp_list_sessions`; il campo `followed`
-  identifica la chat, mentre il nome del progetto è solo un'etichetta.
-  Non deduco il focus da finestre, transcript o nomi di cartelle.
-- Se la lista è vuota, faccio controllare la revisione/trust degli hook CCP e
-  l'orchestrazione locale, poi un nuovo prompt. Non fabbrico eventi e non
-  modifico record di fiducia per far reagire Cody.
-- Before the first prompt, screen 15 shows **Connected / Ready to team up**
-  and **Start a chat in Codex**. This describes PC presence only.
-  Switching tabs alone is not a documented focus hook.
-- `Stop` significa risposta pronta, non successo del compito. Attività assente
-  o scaduta resta **UNAVAILABLE**.
-- Dopo il riavvio del broker aspetto un nuovo prompt; la sola riconnessione LAN
-  conserva il contesto. Non ripeto automaticamente un pairing dall'esito ambiguo.
+- The latest real `UserPromptSubmit` automatically selects the PC chat. Do not
+  ask the user to select a chat on Cody or through a manual tool. Background-chat
+  events do not change the followed context.
+- Read `ccp_connection_status` and `ccp_list_sessions`; `followed` identifies the
+  chat, while its project name is only a label. Do not infer focus from windows,
+  transcripts or directory names.
+- If the list is empty, have CCP hook review/trust and local orchestration
+  checked, then await a new prompt. Never fabricate events or modify trust
+  records to make Cody respond.
+- Before the first prompt, screen 15 shows **Connected / Ready to team up** and
+  **Start a chat in Codex**. This describes PC presence only. Switching tabs alone
+  is not a documented focus hook.
+- `Stop` means a response is ready; it does not prove task success. Missing or
+  expired activity remains **UNAVAILABLE**.
+- At the start of substantive work and when its actual purpose changes, read
+  `ccp_list_sessions` and call `ccp_report_progress` with the exact currently
+  followed `session_id` and `turn_id`. Describe what you are doing in a short
+  English ASCII sentence, preferably 30-80 characters and at most 192. Examples:
+  **Adding sounds to Codex screens**, **Fixing standby notifications**, or
+  **Reviewing the pairing flow**. Report actual work only; never invent elapsed
+  progress, percentages, completion, estimates, commands or transcript excerpts.
+  A background agent must not report another chat's work. Re-read identities
+  after a rejected or stale report; never overwrite selection or hook state.
+  Reports expire and are cleared on the next prompt or terminal hook. A report
+  does not prove that the device rendered its text.
+- After broker restart, await a new prompt; LAN reconnection alone preserves the
+  context. Never automatically repeat a pairing with an ambiguous outcome.
 
-Per installazione, recupero e limiti uso il [README del plugin](../../README.md).
+Use the [plugin README](../../README.md) for installation, recovery and limits.
+Use [cody-settings](../cody-settings/SKILL.md) for timezone and quiet hours.
 
-Per una richiesta esplicita uso CCP 0.6 senza inventare attività della chat:
+For an explicit interaction, use CCP 0.6 without inventing chat activity:
 
-- Chiamo `ccp_ask_question` con il target confermato, testo inglese autosufficiente
-  e due o tre scelte. Ogni scelta ha ID stabile, etichetta breve, descrizione
-  completa della conseguenza e colore semantico. Non uso questo strumento per
-  aggirare approvazioni native, inviare azioni PR o chiedere credenziali.
-- `context` è una mia etichetta dichiarata: non prova identità o focus di chat.
-  Per un target SIMULATED uso `include_simulator: true` solo su richiesta esplicita.
-- Conservo `request_id` e `capability` restituiti alla chiamata e tengo privata
-  la capability. Non mostro questi valori nel testo per l'utente.
-- Attendo con `ccp_poll_request`, al massimo 15 secondi per chiamata. `pending`
-  non è una scelta; dopo `received` leggo `answer` e `answer_id`, poi chiamo di
-  nuovo lo stesso poll con `acknowledge_answer_id` uguale. Uso la decisione solo
-  se questo ritorna `delivered`: è anche il momento di **Reply sent** su Cody.
-- Il TTL predefinito è 180 secondi e comprende anche questa conferma finale.
-  Su `expired`, `cancelled`, errore o assenza di risposta non scelgo un default,
-  non indovino un answer_id e non presento una consegna riuscita. Posso proseguire
-  sulla chat del computer oppure creare una nuova domanda esplicitamente.
-- `ccp_cancel_request` ritira solo il ticket di cui possiedo la capability;
-  Back sul dispositivo conserva la domanda. Non ripeto enqueue dall'esito ambiguo.
-- `ccp_publish_notification` invia soltanto fatti noti. Per le PR fornisco head
-  esatto e check reali con completezza/currentness esplicite; nessun successo
-  ricavato da `Stop`, nessuna azione merge/approve/close/rerun/comment, nessun log
-  o stacktrace sul device. Se i nomi non entrano li tratto su Codex, senza tagli.
-- Un vero hook `PermissionRequest` mostra soltanto **On your PC**. Il relativo
-  hook continua senza decisione e lascia a Codex la normale autorizzazione.
+- Call `ccp_ask_question` with the confirmed target, self-contained English text
+  and two or three choices. Each choice needs a stable ID, short label, complete
+  consequence and semantic tone. Do not bypass native approvals, send PR actions
+  or request credentials through this tool.
+- `context` is a declared label; it does not prove chat identity or focus. Use
+  `include_simulator: true` for a SIMULATED target only when explicitly requested.
+- Retain the returned `request_id` and `capability` for the call, keeping the
+  capability private. Do not expose these values in user-facing prose.
+- Wait with `ccp_poll_request`, at most 15 seconds per call. `pending` is not a
+  choice. After `received`, read `answer` and `answer_id`, then poll the same
+  request with matching `acknowledge_answer_id`. Use the decision only after
+  `delivered`, which also allows **Reply sent** on Cody.
+- The default 180-second TTL includes that final acknowledgement. On `expired`,
+  `cancelled`, error or missing answer, never select a default, guess an answer ID
+  or claim delivery. Continue in the PC chat or explicitly create a new question.
+- `ccp_cancel_request` withdraws only a ticket whose capability you possess. Back
+  on Cody retains the question. Never repeat an enqueue with an ambiguous result.
+- `ccp_publish_notification` sends known facts only. For PRs, provide the exact
+  head and actual checks with explicit completeness and currentness. Never infer
+  success from `Stop`, perform merge/approve/close/rerun/comment actions, or send
+  logs or stack traces to Cody. Handle names that exceed bounds on Codex without
+  truncating them.
+- When the user wants work context on Cody, use `ccp_publish_notification` with
+  `kind: "notice"` for meaningful explicit milestones. Use a short, self-contained
+  English title and body describing the actual task or confirmed outcome. Do not
+  forward commands or logs, fabricate completion, spam transient updates or
+  replace a pending question. Hook activity carries bounded phase/project
+  metadata; `ccp_report_progress` adds explicit purpose without exposing full
+  prompt text. Prefer that tool for ongoing work and notifications for milestones.
+- A real `PermissionRequest` hook shows only **On your PC**. Its hook continues
+  without a decision, leaving native authorization with Codex.
 
-Per riavvio e ripristino distinguo due intenzioni esplicite:
+Distinguish two explicit intentions for restart and reset:
 
-- Con `resetta il device codice 043533477` uso `ccp_reset_device`: riavvio Cody
-  conservando impostazioni, Wi-Fi e pairing. Prima verifico il target paired.
-- Con `formatta cody 043533477` uso soltanto `ccp_factory_reset_device`: cancello
-  tutte le impostazioni del dispositivo, compresi Wi-Fi e pairing, poi riparto
-  dal primo setup. Firmware, asset e scheda SD restano intatti. Non uso questo
-  tool per una semplice richiesta di riavvio, test o aggiornamento firmware.
-- In entrambi i casi richiedo intenzione corrispondente e codice di nove cifre
-  nel **messaggio utente corrente**. Lo zero iniziale fa parte della stringa.
-  Non completo il codice perché lo conosco, non lo ricavo da documenti, esempi,
-  tool metadata o messaggi precedenti. È un controllo contro gli equivoci,
-  non una password: l'autenticazione rimane quella del pairing CCP.
-- Per un target SIMULATED richiedo anche l'intenzione esplicita di operare sul
-  simulatore e uso `include_simulator: true`. Non cambio il target implicitamente.
-- `accepted` conferma solo l'ammissione: non prova il successivo avvio o la
-  cancellazione completata. `not_sent` e `ambiguous` sono esiti distinti e non
-  autorizzano retry automatici. Dopo un factory reset non cancello da solo il
-  record PC, non riassocio il device e non dichiaro riuscito il wipe dalla
-  semplice scomparsa dalla rete.
+- For a current user request to restart Cody with code `043533477`, use
+  `ccp_reset_device`, retaining settings, Wi-Fi and pairing. Verify the paired
+  target first.
+- For a current user request to erase Cody's settings with code `043533477`, use
+  only `ccp_factory_reset_device`. It clears all device settings including Wi-Fi
+  and pairing, then restarts first setup. Firmware, assets and SD remain intact.
+  Do not use it for a simple restart, test or firmware update.
+- Both require the matching intention and nine-digit code in the **current user
+  message**. The leading zero belongs to the string. Never complete the code
+  from memory or derive it from documents, examples, tool metadata or earlier
+  messages. This prevents misunderstandings; pairing still owns authentication.
+- A SIMULATED target also requires explicit simulator intent and
+  `include_simulator: true`. Never switch targets implicitly.
+- `accepted` proves admission only, not a later boot or completed erasure.
+  `not_sent` and `ambiguous` are distinct outcomes and never authorize automatic
+  retries. After factory reset, do not independently remove the PC record, pair
+  again or infer successful erasure merely because Cody disappeared from LAN.

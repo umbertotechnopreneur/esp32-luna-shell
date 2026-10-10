@@ -108,6 +108,68 @@ scene definition or expression-catalog mapping for 39.
 
 ## Reusable scenes and text
 
+### Companion information panels
+
+Home retains the character, actual activity phase, alternating project/branch
+and concrete activity description. Names and descriptions use native font metrics:
+short text stays still; overflow scrolls within its own viewport. Identity fades
+affect only its row. Attention and authentic compaction hold the project.
+
+A short released passive tap opens Activity, then Model & Context, then Session &
+Link, then Activity again. Each panel remains selected until another deliberate
+gesture. A deliberate shake returns directly to Home and changes no remote
+request, chat, approval or read acknowledgement. Panels have no lateral Back.
+Setup and questions keep their explicit controls and existing navigation.
+An explicit setup, remote question, PC approval or Debug view can preempt the
+technical compositor. Its real controls then own touch; the retained panel choice
+resumes when that route ends. This is attention arbitration, not a reading timeout.
+
+Touch recognition retains the contact's origin, displayed orientation and original
+timestamps. More than 12 pixels of displacement, a contact longer than 450 ms,
+a discontinuity, a control action, a caress or a long settings hold invalidates
+navigation. A view opens only after the acquired release; that contact never
+reaches controls on the new view. Eye reactions retain their existing action.
+
+Shake recognition consumes only distinct, fresh canonical IMU response samples.
+Three alternating acceleration peaks within 900 ms require a previously settled
+baseline; hysteresis, a 1.5-second cooldown and a new calm interval prevent replay.
+Wake suppresses navigation recognition for two seconds. Missing, stale or invalid
+IMU data cancels recognition. These initial thresholds require physical calibration;
+source review and serial startup do not establish gesture quality while walking.
+
+Technical panels share native formatting, numeric validity, page identities and
+raster with Studio. Panel content and its coherent canonical observation belong
+to the serialized PSRAM renderer state, not nested frame-stack copies. Technical
+labels and numbers bypass typewriter timing and its audio. A page transition
+clears the retired full composition; subsequent changes damage the panel viewport
+and independent status footprint. The base home route continues receiving events
+without forwarding panel touches to its hidden controls.
+
+| Metric | Actual source and meaning | Availability in this integration |
+| --- | --- | --- |
+| Hook model | Common hook metadata for the followed chat/turn; full bounded slug | Available when an admitted genuine hook includes it; labelled Hook model |
+| Reasoning effort | A per-turn authoritative field, not a global default | UNAVAILABLE: current documented hook schema does not provide it |
+| Current context used / capacity | Coherent current session occupancy and declared capacity | UNAVAILABLE: no supported observer of this desktop chat's App Server channel established |
+| Free context / percent / colored bar | Derived only from valid coherent used and positive capacity | Neutral bar and UNAVAILABLE until both source measurements exist |
+| Session cumulative tokens | Distinct cumulative counters, excluding double-counted subcategories | UNAVAILABLE through the currently connected plugin transport |
+| Automatic compaction threshold | Explicit source threshold, distinct from capacity | UNAVAILABLE |
+| Turn elapsed | Host monotonic duration since genuine UserPromptSubmit, transported as a duration | Available only for the admitted observed turn; unobserved time is not operation work |
+| Observed work | Native accumulated active observation intervals | Explicitly labelled Observed, never operation elapsed |
+| Compaction | Admitted PreCompact / PostCompact for the followed chat | Separate lifecycle; no progress percent or timeout success |
+| Link and activity age | Authenticated link presence versus genuine activity update age | Independent; a heartbeat does not refresh model/context provenance |
+
+Official App Server exposes `thread/tokenUsage/updated`, but the installed desktop
+App Server uses its own stdio channel. The plugin MCP transport does not forward
+that channel. Starting another server, reading transcript text or guessing capacity
+from the model name would not establish this chat's telemetry and is not used.
+The missing supported observation channel is an explicit integration boundary.
+
+Compaction remains visible on Home and all panels. Ordinary tool phases cannot
+cancel it. A genuine completion may show Context refreshed while context counters
+remain unavailable or awaiting a coherent new measurement. Loss of updates,
+interruption, an orphan completion and disconnected state remain distinct;
+elapsed time alone never proves compaction completed.
+
 `CODY_scene` resolves immutable definitions by `SceneId`, prepares cloud/title and
 an optional bounded content slot, advances fixed-capacity state and plans old/new
 damage. Authored background, title visibility, entrance placement/timing and text

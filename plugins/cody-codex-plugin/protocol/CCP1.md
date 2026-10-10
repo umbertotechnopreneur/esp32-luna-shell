@@ -16,7 +16,8 @@ Per il simulatore uso un'identita' separata di 12 cifre esadecimali e la indico
 sempre come SIMULATED. La discovery deve includerlo esplicitamente; non pubblico
 quell'identita' come un MAC misurato su un dispositivo fisico.
 
-Every datagram is printable ASCII, at most 512 bytes, and uses `|` separators.
+Every datagram is printable ASCII and uses `|` separators. Ordinary packets
+admit 512 bytes; ACTIVITY and TECH admit 1024; EVENT admits 1280.
 Unknown, duplicated or missing fields are rejected. Senders use the canonical
 field order shown below for reproducible proofs and diagnostics.
 
@@ -203,51 +204,185 @@ serve la sostituzione esplicita descritta sopra. Un FIND da solo non autorizza
 alcuna promozione.
 Lascio `pairing_pending` e `retained_pairing` distinti nello stato pubblico.
 
-## Authenticated chat activity (CCP 0.3)
+## Authenticated chat activity and purpose
 
-A capable Cody requests activity using a distinct HMAC domain, so stripping the
-capability cannot turn the request into an authenticated presence-only request:
-
-```text
-CCP1|FIND|device=<12 hex>|pc=<32 hex>|nonce=<32 hex>|activity=1|proof=<64 hex>
-HMAC input: find-activity|<device>|<pc>|<nonce>
-```
-
-CCP sends ordinary READY, followed by a complete latest-state snapshot:
+Current firmware negotiates `activity=3`, with or without the separate events
+capability. Each capability is bound to its own HMAC domain; stripping or
+changing a capability never reuses a presence proof. Version three adds the
+separate TECH projection below; its ACTIVITY payload keeps version-two fields.
 
 ```text
-CCP1|ACTIVITY|device=<12 hex>|pc=<32 hex>|nonce=<32 hex>|chat=<64 hex>|revision=<16 hex>|phase=<token>|project=<hex or ->|proof=<64 hex>
-HMAC input: activity|<device>|<pc>|<nonce>|<chat>|<revision>|<phase>|<project>
+CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=3|proof=<64hex>
+HMAC input: find-activity-v3|<device>|<pc>|<nonce>
+
+CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=3|events=2|current=<32hex>|state=<device-state>|proof=<64hex>
+HMAC input: find-events-activity-v3|<device>|<pc>|<nonce>|<current>|<state>
+
+CCP1|ACTIVITY|device=<12hex>|pc=<32hex>|nonce=<32hex>|chat=<64hex>|revision=<16hex>|phase=<token>|project=<hex or ->|description=<hex or ->|branch=<hex or ->|proof=<64hex>
+HMAC input: activity-v2|<device>|<pc>|<nonce>|<chat>|<revision>|<phase>|<project>|<description>|<branch>
 ```
 
-The link key authenticates every field. `chat` is the SHA-256 of the followed
-opaque Codex session ID; all zeroes denote waiting for a prompt. `revision` is a volatile
-unsigned counter for diagnostics, not a persisted ordering guarantee across PC
-restarts. Freshness comes from the device's current random FIND nonce, accepted
-at most once for ACTIVITY. Old polls, duplicated replies and altered metadata are
-rejected. The full datagram remains below 512 bytes. Text is hex-encoded printable
-ASCII, at most 24 bytes; `-` is allowed only with `phase=none` and zero chat ID.
+The PC sends ordinary READY before this complete activity snapshot. The link
+key authenticates every field, in exactly the documented order. `chat` is the
+SHA-256 of the followed opaque Codex session ID; all zeroes denote no followed
+prompt. `revision` is a volatile diagnostic counter, not a persisted ordering
+guarantee. The current random FIND nonce admits at most one ACTIVITY snapshot;
+old polls, duplicate replies and altered metadata are rejected.
 
-Phases: `none`, `active`, `working`, `editing`, `running`, `ready`, `paused`,
-`interrupted`, `ended`, `unavailable`. These map to screens 15/16, 17, 18, 19, 20A/20B, or
-18U unavailable. An eight-second missing PC lease uses screen 32 after a chat
-has been followed. A retained label identifies context only while disconnected.
+ACTIVITY and TECH use separate 1024-byte extension envelopes. EVENT retains its
+1280-byte envelope; every other datagram retains its original 512-byte bound.
+There is no fragmentation. Printable ASCII text is hex encoded: `project` and
+`branch` each admit at most 64 characters, `description` at most 192. `-` means
+no description or unavailable branch. A no-chat snapshot requires `phase=none`,
+zero chat, `project=-`, `description=-` and `branch=-`. A description is admitted
+only for actual `working`, `editing` or `running` phases.
 
-The owner publishes activity into DeviceSnapshotService, separately marking
-freshness/health/error. No UI consumer reads host data or sockets. Unavailable
-activity never becomes a numeric estimate or a synthetic working state.
+The hook ingestion owner obtains the actual branch from the nearest checkout's
+`.git/HEAD`, including an explicit worktree `gitdir` pointer. Detached HEAD is
+reported as `DETACHED`; an absent checkout or failed/unrepresentable read makes
+the branch unavailable and preserves the real diagnostic. No Git command,
+transcript, raw tool input or guessed branch is used. Project metadata uses the
+actual workspace leaf within its 64-character ASCII contract; unrepresentable
+labels explicitly report `UNAVAILABLE`. Measured overflow scrolling belongs to
+the native display; authenticated metadata retains the accepted full label.
 
-Codex hooks submit only event/session/turn/tool identities and cwd through the
-DPAPI-authenticated 127.0.0.1:42119 control endpoint. No prompts, tool arguments,
-responses or transcript paths are retained. Since CCP 0.4, only the latest emitted
-UserPromptSubmit changes the followed chat; other chats' background events cannot
-steal it. All Cody devices paired to this PC mirror that context. SessionStart
-registers metadata only. The workspace leaf provides a bounded ASCII display
-label, never identity or a claimed chat title. No device or MCP selection step is
-required. Sessions and followed context are volatile; restart waits for the next
-genuine prompt, while LAN reconnect retains the context. Active hook
-states expire after 120 seconds without a new event. MCP leases keep the broker
-alive but do not renew activity. There is no model-callable activity setter.
+Version-one peers continue to negotiate `activity=1`, using `find-activity` or
+`find-events-v2`. Their ACTIVITY fields remain device, pc, nonce, chat, revision,
+phase, project and proof, authenticated with `activity`. Their 24-byte project
+slot receives a separately logged display projection when a newer owner holds
+a longer name. Version-one responses remain below 512 bytes. Version-two peers
+use `find-activity-v2` or `find-events-activity-v2` and receive ACTIVITY without
+TECH. Current firmware requires the version-three contract it requests; it
+does not silently downgrade.
+
+Phases are `none`, `active`, `working`, `editing`, `running`, `ready`, `paused`,
+`interrupted`, `ended` and `unavailable`. A genuine `apply_patch` tool, including
+native namespace qualification, maps to editing. `Bash`, `exec_command`,
+`write_stdin` and `shell_command` map to running. Other tools, including opaque
+code orchestration, remain generic working; arguments are never mined for an
+invented command or purpose. Latest-state polling can miss brief tool bursts.
+
+The canonical DeviceSnapshotService receives activity validity, health, original
+observation times and real errors. UI consumers never read host sockets. Missing
+PC presence after eight seconds uses the connection-lost view; expired activity
+remains unavailable. A retained label identifies context while disconnected.
+
+Hooks retain only event/session/turn/tool identities, cwd, bounded checkout
+metadata, reported model and genuine compaction trigger through the
+DPAPI-authenticated loopback owner. No prompts, tool
+arguments, responses or transcript paths are retained. Only the latest genuinely
+emitted UserPromptSubmit follows a chat; background events cannot switch it.
+SessionStart registers metadata only. Broker restart waits for a new real prompt;
+LAN recovery alone retains context. Active phases expire after 120 seconds
+without a genuine event; MCP leases and description reports never renew them.
+Rejected turn correlations log the event and expected/observed turn hashes,
+without weakening old-turn protection or persisting raw hook contents.
+
+`ccp_report_progress(session_id, turn_id, description)` adds a short actual
+purpose only to the currently followed active turn. Identities come from
+`ccp_list_sessions`. It cannot select a chat, change a hook phase or claim task
+completion. Reports reject inactive/stale turns and unsupported text. Purpose
+expires independently after 120 seconds and clears on a new prompt, Stop,
+PermissionRequest, Interrupt or SessionEnd. The skill asks for actual English
+work descriptions, never commands, logs, percentages or invented estimates.
+
+Firmware and Cody Studio use shared native presentation helpers. The main title
+shows Working, Editing code, Running command, Waiting for you or Reply ready.
+Ordinary tool subtypes require 2.5 seconds of stable observation while generic
+Working covers short bursts; completion, stale data and attention bypass that
+dwell. The observed work clock starts before subtype admission, ignores repaint
+and purpose changes, pauses during genuine interaction views and disappears on
+completion/unavailability. Its timer appears only after ten observed seconds;
+it is neither a CPU measurement nor a progress estimate.
+
+The fixed project row holds for at least five seconds, fades out for 200 ms, remains black
+for 100 ms, then fades in `branch: <actual branch>` over 200 ms. Branch holds for
+at least three seconds before the reverse transition. Project is white; branch uses
+WhiteSmoke. Actual attention keeps the project visible. Native font metrics
+measure long identity captions and scroll their bounded native viewport. Long
+identity dwell extends until its full scroll and end hold complete. A purpose fitting
+the 320-pixel viewport stays still; overflow scrolls at 20 pixels per second
+with 1.2-second start and 1.8-second end holds. This animation never triggers
+hook activity, typewriter counts, touch admission or repeated audio.
+
+## Authenticated technical metadata
+
+Version-three FIND yields READY, ACTIVITY, then TECH. Activity and technical
+metadata are acquired under one ActivityStore lock, preserving one chat and
+revision even when a hook arrives during UDP transmission. EVENT and other
+independent extensions retain their own authenticated contracts.
+
+```text
+CCP1|TECH|device=<12hex>|pc=<32hex>|nonce=<32hex>|chat=<64hex>|turn=<64hex>|revision=<16hex>|model=<hex or ->|effort=-|modelage=<ms or ->|compaction=<token>|compactseq=<16hex>|compactage=<ms or ->|activityage=<ms or ->|turnelapsed=<ms or ->|used=-|capacity=-|cumulative=-|input=-|output=-|threshold=-|usageage=-|proof=<64hex>
+HMAC input: technical-v1|<device>|<pc>|<nonce>|<chat>|<turn>|<revision>|<model>|<effort>|<modelage>|<compaction>|<compactseq>|<compactage>|<activityage>|<turnelapsed>|<used>|<capacity>|<cumulative>|<input>|<output>|<threshold>|<usageage>
+```
+
+Field order is mandatory. TECH accepts at most 1024 bytes without fragmentation.
+All identifiers and hex text use lowercase hex. `turn` hashes the genuine
+current turn ID; `model` retains a full 1..128-byte ASCII slug, with character
+codes 33..126, hex encoded. Unrepresentable values are rejected with their real
+cause rather than truncated. Milliseconds are canonical unsigned decimal
+0..4294967295 with no leading zeroes; `-` means unavailable. A missing model
+requires missing modelage and vice versa.
+
+The receiver admits one TECH per current FIND challenge only after READY and
+the matching ACTIVITY have been accepted. Chat and revision must exactly match
+that ACTIVITY. TECH and ACTIVITY have independent consumed-nonce flags. TECH
+before ACTIVITY, repeated TECH, old challenges, mismatched peers and invalid
+proofs are rejected; the next FIND supplies a new coherent snapshot. No TECH ACK
+or staged merge with an older activity is used. On pairing replacement, the
+technical projection is cleared. Disconnect invalidates transport freshness;
+historical metadata may remain visible only with explicit stale/unavailable
+status. Transport freshness expires after eight seconds.
+
+A zero chat requires zero turn, missing model and source ages, missing duration,
+and `compaction=none|compactseq=0000000000000000|compactage=-`. A known idle chat
+may have zero turn only while model, duration and compaction are unavailable;
+its last genuine activity observation may still have an age. SessionStart after
+an ended chat preserves the known chat without inventing a new turn.
+
+| Field | Actual source and meaning |
+| --- | --- |
+| model, modelage | Common hook model metadata, its source emission age; reported model, not proof of separately executed/rerouted selection |
+| effort | UNAVAILABLE: no documented reasoning-effort field in the hook payload |
+| compaction, compactseq, compactage | Genuine PreCompact/PostCompact lifecycle within the exact current chat/turn; age of the latest observed lifecycle transition |
+| activityage | Age of the latest admitted hook emission; a broker heartbeat never refreshes it |
+| turnelapsed | Observed UserPromptSubmit-to-now duration, frozen at genuine Stop, Interrupt or SessionEnd |
+| used, capacity | UNAVAILABLE: no connected desktop-owned usage/capacity stream |
+| cumulative, input, output | UNAVAILABLE: no connected desktop-owned token counters |
+| threshold, usageage | UNAVAILABLE: no observed automatic threshold or token sample |
+
+The currently unsupported fields must be `-`; decoders reject numeric values
+until an actual source and its semantics are implemented. No model-global
+capacity, last-request input count, cumulative counter or guessed threshold is
+substituted for current context occupancy. No percentage or free-token bar is
+derived from missing data. Source ages use the PC monotonic clock and genuine
+hook emission timestamp, distinct from receiver-local transport timestamps.
+Reported model and active compaction observations expire independently after
+120 seconds. Same-turn steering preserves the observed turn start and active
+tools; a new actual turn clears the previous model and compaction scope.
+
+Compaction tokens are `none`, `active`, `refreshed`, `orphaned`, `interrupted`
+and `stale`. `none` requires zero sequence and missing compactage; other states
+require a nonzero sequence and nonzero turn. PreCompact accepts only genuine
+`auto`/`manual` trigger metadata, increments the lifecycle sequence and enters
+active. A matching PostCompact changes active to refreshed. Ordinary tool hooks
+never clear it. Duplicate boundaries and old-turn completions are rejected.
+PostCompact without an observed start reports orphaned, never success. Stop
+without PostCompact reports lost updates; interruption or session end reports
+interrupted. An expired active observation projects stale, never completion.
+Only active compactage denotes observed compaction start age; other ages are
+transition ages, not an invented operation duration. Even a genuine refreshed
+state supplies no new token sample and cannot revive old token numerators.
+
+Official Codex documents the common hook model field and genuine compact
+boundaries in [Hooks](https://learn.chatgpt.com/docs/hooks), and
+`thread/tokenUsage/updated` plus `model/rerouted` in
+[App Server](https://learn.chatgpt.com/docs/app-server). The plugin has no
+connected notification channel for the currently owned desktop chat. No second
+App Server, chat resume/start or transcript parsing is introduced to simulate
+that channel. Changed plugin hooks require native review before execution;
+enabling the plugin alone does not establish trusted live hook delivery.
 
 ## Notifiche e decisioni autentiche (CCP 0.6)
 
@@ -275,13 +410,12 @@ CCP1|EVENTACK|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|state=<terminal
 HMAC input: event-ack|<device>|<pc>|<nonce>|<id>|<state>
 ```
 
-L'estensione `events=2` richiede anche `activity=1`, con valori esatti `2` e
-`1`. Il dominio HMAC lega anche l'osservazione della domanda sul dispositivo.
-`current` e' il suo ID oppure tutto zero quando manca; `state` e' `none` solo
-con ID zero, altrimenti `pending`, `sending`, `received`, `delivered`,
-`cancelled`, `expired` o `rejected`. Le notifiche non costituiscono una domanda
-aperta. Mantengo il limite di 512 byte per tutti i pacchetti, salvo EVENT
-che ammette al massimo 1280 byte. Non frammento i messaggi applicativi.
+The `events=2` capability accepts activity version 1, 2 or 3, with its matching
+HMAC domain. `current` is the observed question ID, or all zeroes when absent;
+`state` is `none` only for zero ID, otherwise pending, sending, received,
+delivered, cancelled, expired or rejected. Notifications are not open questions.
+EVENT admits at most 1280 bytes; ACTIVITY version 2 and TECH admit 1024; other packets
+retain 512. Application messages are never fragmented.
 
 EVENT e' uno snapshot completo e immutabile del contenuto del ticket, firmato
 con la chiave del link e il nonce FIND corrente. Ammetto una sola pubblicazione
@@ -430,6 +564,62 @@ rimane un errore e non viene nascosto dal riavvio. Il record PC puo' restare
 salvato ma senza presenza: non lo elimino su un esito incerto e non avvio
 pairing automatici. Il simulatore applica le stesse regole solo al proprio
 store, con `include_simulator: true` esplicito e identita' sempre SIMULATED.
+
+## Clock preferences and quiet hours
+
+After an authenticated READY, physical firmware may advertise `CLOCKCAP`.
+Each field order below is canonical; proofs use the active pairing key and
+the exact ASCII values in the shown HMAC order. These packets remain bounded
+to 512 bytes.
+
+```text
+CCP1|CLOCKCAP|device=<12hex>|pc=<32hex>|nonce=<32hex>|clock=1|initialized=<0|1>|proof=<64hex>
+HMAC input: clock-cap|<device>|<pc>|<nonce>|1|<initialized>
+
+CCP1|CLOCK|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|op=<read|init|set>|timezone=<value>|enabled=<value>|start=<value>|end=<value>|proof=<64hex>
+HMAC input: clock|<device>|<pc>|<nonce>|<id>|<op>|<timezone>|<enabled>|<start>|<end>
+
+CCP1|CLOCKACK|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|op=<read|init|set>|status=<applied|rejected>|error=<decimal>|initialized=<value>|timezone=<value>|enabled=<value>|start=<value>|end=<value>|proof=<64hex>
+HMAC input: clock-ack|<device>|<pc>|<nonce>|<id>|<op>|<status>|<error>|<initialized>|<timezone>|<enabled>|<start>|<end>
+```
+
+Timezone identities are `0` UTC, `1` Rome and `2` Ho Chi Minh City. Other
+identities are rejected with a real error; an unsupported host timezone is
+reported to the user and is never silently substituted. The RTC remains UTC.
+Quiet hours use an explicit `enabled` switch (`0` or `1`) and local minutes
+`start`/`end` in `0..1439`, forming a half-open window that may cross midnight.
+Equal endpoints are rejected when quiet hours are enabled. Numeric fields use
+canonical decimal without leading zeroes; `-1` means preserve the existing
+setting, never infer a value.
+
+`read` requires all four setting fields to be `-1`. `init` requires a supported
+timezone and `enabled=-1|start=-1|end=-1`: automatic first connection adopts only
+the host timezone and preserves all quiet-hours preferences. `set` requires at
+least one explicit setting. The firmware retains a separate strict durable
+`clock_adopted` marker across reconnects and restarts. An initialized device
+answers `init` with its existing configuration without changing it. Explicit
+`set` seals automatic adoption before changing preferences, so a partial failure
+cannot make a later reconnect replace the user's configuration.
+
+Quiet hours default to disabled only when the clock preference key is genuinely
+absent. Existing enabled settings survive firmware updates. Disabling quiet
+hours on an existing device requires an explicit `set` with `enabled=0`.
+Manual Sounds, speaker volume and standby remain independent audio controls.
+
+Only the exact active READY peer, fixed port and challenge are admitted. The
+device consumes each CLOCK nonce once and rejects the most recent request ID
+again. The host sends a mutation once and does not replay it after a lost ACK;
+the result remains ambiguous until a separate authenticated read. ACK validation
+retains the request's original nonce and endpoint, even if a newer poll arrives.
+
+`applied` requires `error=0` and confirmed settings. `rejected` carries the original
+validation, storage or publication error. When durable and runtime settings
+cannot be confirmed together, all five ACK result fields (`initialized`,
+`timezone`, `enabled`, `start`, `end`) are `-1`; unavailable values are never
+replaced by defaults. A partial write may leave actual confirmed settings in a
+rejected ACK, so inspect both its status and values. An ACK confirms the settings
+operation, not physical audio output or clock synchronization. NVS operations
+run through the settings executor outside the CCP state mutex.
 
 ## Security boundary
 

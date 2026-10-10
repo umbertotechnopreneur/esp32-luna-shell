@@ -1,5 +1,40 @@
 # Active work
 
+## Cody companion panels and genuine compaction - 2026-10-10
+
+- [x] Integrate Home, Activity, Model & Context and Session & Link with persistent
+  local selection, released-tap navigation and shared deliberate-shake recognition.
+  Attention routes preempt panels without losing the selected page.
+- [x] Prepare technical captions, coherent context bars, source ages and bounded
+  rendering in native C++; keep owner buffers outside the rendering task stack.
+- [x] Add authenticated TECH metadata on the existing CCP transport, independent
+  freshness and genuine PreCompact/PostCompact lifecycle admission. Hook model
+  provenance is explicit; unsupported effort and token metrics stay UNAVAILABLE.
+- [ ] Finish the SIMULATED scenario selector and inspect the native presentation.
+- [ ] Compile and flash the integrated Debug/wake-word image on COM10, then inspect
+  a bounded serial boot capture. No new test suite is requested.
+- [ ] Observe genuinely reviewed hooks on the followed chat and calibrate physical
+  tap/shake behavior separately. Source regressions are prepared but not executed.
+- [ ] Check actual compiled frames and device stack headroom after schema growth.
+
+## Informative Cody activity and audible notifications - 2026-10-10
+
+- [x] Author and explicitly regenerate sixteen bounded sound cues from the
+  owner-provided library, including questions, approvals, answer receipt and
+  explicit check outcomes. Keep existing master sound and volume preferences.
+- [x] Preserve quiet hours, default them off only for an absent key, and implement
+  authenticated timezone adoption plus explicit chat configuration.
+- [x] Finish shared native activity description, fixed character overlays,
+  project/branch fading, actual elapsed time and truthful phase admission.
+- [x] Add explicit chat commands to read/set the preferred user name, persist it
+  through the settings owner, and personalize idle greetings from canonical data.
+- [ ] Review the requested SIMULATED native presentation, synchronize the local
+  plugin, and flash the integrated Debug/wake-word image on COM10.
+- [ ] Explicitly disable the existing device's quiet-hours setting through an
+  authenticated command; confirm the durable outcome separately from audibility.
+- [ ] Diagnose remaining genuine hook turn-correlation rejections without
+  weakening stale-event admission or inventing activity.
+
 ## Component-owned hardware acquisition - 2026-10-10
 
 - [x] Extract PMU/IRQ/battery, RTC, QMI8658/calibration, GNSS/NMEA, microphone/
@@ -14,8 +49,8 @@
 - [x] Complete the authorized Cody Debug/wake-word build and changed-file diff check.
 - [ ] Run hardware/status/RTC/snapshot/power/TOF suites only after fresh exact-command
   authorization. Enabled GNSS acquisition in another profile and device stack headroom remain
-  pending; no firmware flash, serial capture or physical verification is requested.
-- [ ] Linux/macOS companion support stays deferred as requested.
+  pending. Requested COM10 flash completed with verified image writes; the user
+  reports fast physical operation. Device stack headroom remains unmeasured.
 
 ## CCP verification and transport parity - 2026-10-10
 

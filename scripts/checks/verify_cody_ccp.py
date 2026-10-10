@@ -21,6 +21,7 @@ import ccp_activity as activity
 import ccp_runtime as runtime
 import ccp_windows as windows
 import ccp_interactions as interactions
+import ccp_technical as technical_metadata
 from cody_ccp_event_vectors import event_vectors
 
 
@@ -314,19 +315,110 @@ class ChatActivityTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store = activity.ActivityStore()
         self.event_time = 0
+        self.event_base_ns = None
 
     # self: In-memory activity fixture.
     # name: Genuine-hook schema event represented synthetically for this host test.
     # session: Opaque chat identity.
     # turn: Opaque turn identity.
-    # fields: Additional allowlisted tool metadata.
+    # fields: Additional allowlisted tool, model or compaction metadata.
     # Raises ValueError when the tested owner rejects the event.
     def observe(self, name, session="chat-a", turn="turn-a", **fields) -> None:
         self.event_time += 1
-        with patch.object(activity.time, "monotonic_ns", return_value=1_000_000):
+        if self.event_base_ns is None:
+            self.event_base_ns = int(activity.time.monotonic() * 1_000_000_000)
+        emitted_ns = self.event_base_ns + self.event_time
+        with patch.object(activity.time, "monotonic_ns", return_value=emitted_ns + 1):
             self.store.observe({"hook_event_name": name, "session_id": session,
                                 "cwd": fields.pop("cwd", "E:/synthetic-project"), "turn_id": turn,
-                                "emitted_ns": self.event_time, **fields})
+                                "emitted_ns": emitted_ns, **fields})
+
+    # self: Two synthetic chats with independently observed compaction lifecycle events.
+    # Raises AssertionError if a background compaction changes the followed chat or its projection.
+    def test_background_compaction_cannot_take_over_followed_chat(self) -> None:
+        self.observe("UserPromptSubmit", session="chat-background", model="synthetic-model-b")
+        self.observe("UserPromptSubmit", model="synthetic-model-a")
+        followed = self.store.snapshot_bundle()[1]
+        self.observe("PreCompact", session="chat-background", trigger="auto", model="synthetic-model-b")
+        result = self.store.snapshot_bundle()[1]
+        self.assertEqual(result["chat"], followed["chat"])
+        self.assertEqual(result["model"], followed["model"])
+        self.assertEqual(result["compaction"], "none")
+
+    # self: Genuine-schema synthetic compaction surrounding an unrelated local command.
+    # Raises AssertionError if ordinary tool activity replaces compaction or its source timestamp.
+    def test_tool_activity_does_not_erase_active_compaction(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("PreCompact", trigger="auto")
+        started = self.store._sessions["chat-a"].compact_observed_at
+        self.observe("PreToolUse", tool_use_id="tool-a", tool_name="Bash")
+        self.observe("PostToolUse", tool_use_id="tool-a")
+        self.assertEqual(self.store.snapshot_bundle()[1]["compaction"], "active")
+        self.assertEqual(self.store._sessions["chat-a"].compact_observed_at, started)
+
+    # self: Duplicate, stale-turn and missing-start lifecycle boundaries.
+    # Raises AssertionError if any unsupported boundary invents a successful context refresh.
+    def test_compaction_duplicates_tardy_events_and_orphaned_completion(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("PreCompact", trigger="auto")
+        with self.assertRaisesRegex(ValueError, "Duplicate compaction start"):
+            self.observe("PreCompact", trigger="auto")
+        self.observe("PostCompact", trigger="auto")
+        self.assertEqual(self.store.snapshot_bundle()[1]["compaction"], "refreshed")
+        with self.assertRaisesRegex(ValueError, "Duplicate compaction completion"):
+            self.observe("PostCompact", trigger="auto")
+        self.observe("UserPromptSubmit", turn="turn-new")
+        with self.assertRaisesRegex(ValueError, "turn does not match"):
+            self.observe("PostCompact", trigger="auto")
+        self.observe("PostCompact", turn="turn-new", trigger="manual")
+        self.assertEqual(self.store.snapshot_bundle()[1]["compaction"], "orphaned")
+        sequence = self.store.snapshot_bundle()[1]["compactseq"]
+        with self.assertRaisesRegex(ValueError, "Duplicate compaction completion"):
+            self.observe("PostCompact", turn="turn-new", trigger="manual")
+        self.assertEqual(self.store.snapshot_bundle()[1]["compactseq"], sequence)
+
+    # self: Compaction without a final signal, followed by an explicit interruption.
+    # Raises AssertionError if elapsed observation loss becomes completion or fresh counts.
+    def test_compaction_expiry_and_interrupt_never_claim_refresh(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("PreCompact", trigger="auto")
+        with patch.object(activity.time, "monotonic", return_value=self.event_base_ns / 1_000_000_000 + 121):
+            expired = self.store.snapshot_bundle()[1]
+        self.assertEqual(expired["compaction"], "stale")
+        self.assertEqual(expired["used"], "-")
+        self.observe("Interrupt")
+        self.assertEqual(self.store.snapshot_bundle()[1]["compaction"], "interrupted")
+
+    # self: Model-changing turns and same-turn user steering without a token source.
+    # Raises AssertionError if a model change borrows an old numerator or steering restarts the turn clock.
+    def test_model_and_turn_projection_preserve_unavailable_metrics(self) -> None:
+        self.observe("UserPromptSubmit", model="synthetic-model-a")
+        started = self.store._sessions["chat-a"].turn_started_at
+        self.observe("PreToolUse", tool_use_id="tool-a", tool_name="Bash")
+        self.observe("UserPromptSubmit", model="synthetic-model-b")
+        self.assertEqual(self.store._sessions["chat-a"].turn_started_at, started)
+        self.observe("PostToolUse", tool_use_id="tool-a", model="synthetic-model-b")
+        activity_projection, technical = self.store.snapshot_bundle()
+        self.assertEqual(activity_projection["revision"], technical["revision"])
+        self.assertEqual(bytes.fromhex(technical["model"]), b"synthetic-model-b")
+        self.assertTrue(all(technical[key] == "-" for key in technical_metadata.UNAVAILABLE_FIELDS))
+        self.observe("UserPromptSubmit", turn="turn-new")
+        self.assertEqual(self.store.snapshot_bundle()[1]["model"], "-")
+
+    # self: A delayed previous-turn hook with private identities intentionally excluded from diagnostics.
+    # Raises AssertionError if rejection weakens admission or loses its actionable hashed classification.
+    def test_turn_rejection_logs_event_and_hashes_without_raw_identities(self) -> None:
+        self.observe("UserPromptSubmit", turn="private-current-turn")
+        diagnostics = io.StringIO()
+        with contextlib.redirect_stderr(diagnostics), self.assertRaisesRegex(ValueError, "turn does not match"):
+            self.observe("PreCompact", turn="private-old-turn", trigger="auto")
+        message = diagnostics.getvalue()
+        self.assertIn("rejected PreCompact", message)
+        self.assertIn("expected_turn=", message)
+        self.assertIn("observed_turn=", message)
+        self.assertNotIn("private-current-turn", message)
+        self.assertNotIn("private-old-turn", message)
+        self.assertEqual(self.store.snapshot_bundle()[1]["compaction"], "none")
 
     # self: Concurrent chats whose genuine prompt events establish user intent.
     # Raises AssertionError if startup selects a chat or background events steal it.
@@ -409,11 +501,50 @@ class ChatActivityTests(unittest.TestCase):
         self.observe("UserPromptSubmit", cwd="E:/a-very-long-workspace-name-\u00e9")
         first = self.store.snapshot()
         label = bytes.fromhex(first["project"]).decode("ascii")
-        self.assertLessEqual(len(label), 24)
-        self.assertTrue(label.endswith("..."))
+        self.assertEqual(label, "UNAVAILABLE")
         self.observe("UserPromptSubmit", session="chat-b", cwd="E:/a-very-long-workspace-name-\u00e9")
         self.assertEqual(self.store.snapshot()["project"], first["project"])
         self.assertNotEqual(self.store.snapshot()["chat"], first["chat"])
+        self.observe("UserPromptSubmit", cwd="E:/" + "P" * 64)
+        self.assertEqual(bytes.fromhex(self.store.snapshot()["project"]), b"P" * 64)
+
+    # self: Synthetic authenticated version-three peer with the full reported model identity.
+    # Raises AssertionError if technical metadata loses activity correlation or admits invented token counts.
+    def test_technical_reply_matches_activity_and_rejects_unobserved_metrics(self) -> None:
+        self.observe("UserPromptSubmit", model="M" * 128)
+        self.observe("PreCompact", trigger="auto")
+        state = Mock(pc_id="a" * 32)
+        link_key = bytes(range(32))
+        state.retained_keys.return_value = ccp.RetainedKeys(link_key, None)
+        listener = Mock()
+        responder = ccp.CompanionResponder(state, listener, self.store)
+        values = ["abcdef012345", state.pc_id, "b" * 32]
+        proof = ccp.make_proof(link_key, "find-activity-v3", *values)
+        find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
+                                   [("activity", "3"), ("proof", proof)])
+        responder._handle_datagram(find, ("192.0.2.10", ccp.DEVICE_PORT))
+        packets = [ccp.parse_datagram(call.args[0]) for call in listener.sendto.call_args_list]
+        self.assertEqual([kind for kind, _ in packets], ["READY", "ACTIVITY", "TECH"])
+        activity_fields, technical_fields = packets[1][1], packets[2][1]
+        self.assertEqual(technical_fields["chat"], activity_fields["chat"])
+        self.assertEqual(technical_fields["revision"], activity_fields["revision"])
+        self.assertEqual(technical_fields["nonce"], values[2])
+        authenticated = [technical_fields[name] for name in technical_metadata.FIELDS]
+        self.assertEqual(technical_fields["proof"], ccp.make_proof(link_key, "technical-v1", *authenticated))
+        self.assertLessEqual(len(listener.sendto.call_args_list[2].args[0]), 1024)
+        projected = technical_metadata.decode_projection(technical_fields)
+        self.assertEqual(projected.model, "M" * 128)
+        self.assertEqual(projected.compaction, technical_metadata.CompactionState.ACTIVE)
+        self.assertIsNone(projected.context_used)
+        self.assertIsNone(projected.context_capacity)
+        invalid = dict(technical_fields)
+        invalid["used"] = "12000"
+        with self.assertRaisesRegex(ValueError, "authoritative source"):
+            technical_metadata.decode_projection(invalid)
+        invalid = dict(technical_fields)
+        invalid["modelage"] = "-"
+        with self.assertRaisesRegex(ValueError, "incoherent"):
+            technical_metadata.decode_projection(invalid)
 
     # self: Authenticated synthetic responder and maximum display label.
     # Raises AssertionError if ACTIVITY lacks nonce/HMAC binding or exceeds the wire limit.
@@ -460,14 +591,16 @@ class ChatActivityTests(unittest.TestCase):
         self.observe("UserPromptSubmit", session="chat-b")
         self.assertEqual(self.store.snapshot()["phase"], "working")
 
-    # self: Public MCP API, including authenticated Debug screens, without manual chat selection.
+    # self: Public MCP API, including authenticated settings and progress, without manual chat selection.
     # Raises AssertionError if the obsolete selection tools remain callable or advertised.
     def test_manual_selection_is_removed_from_public_tools(self) -> None:
         names = {tool["name"] for tool in ccp.tool_catalog()}
         self.assertEqual(names, {"ccp_discover_devices", "ccp_pair_device",
                                  "ccp_connection_status", "ccp_list_sessions", "ccp_ask_question",
                                  "ccp_publish_notification", "ccp_poll_request", "ccp_cancel_request",
-                                 "ccp_reset_device", "ccp_factory_reset_device", "ccp_debug_screen"})
+                                 "ccp_reset_device", "ccp_factory_reset_device", "ccp_debug_screen",
+                                 "ccp_read_clock", "ccp_configure_clock", "ccp_report_progress",
+                                 "ccp_read_name", "ccp_set_name"})
         for name in ("ccp_select_session", "ccp_clear_session"):
             with self.assertRaisesRegex(ValueError, "Unknown CCP tool"):
                 ccp.call_tool(Mock(), name, {})
@@ -518,13 +651,16 @@ class ChatActivityTests(unittest.TestCase):
         original = {"hook_event_name": "UserPromptSubmit", "session_id": "chat-a",
                     "turn_id": "turn-a", "cwd": "E:/synthetic-project", "prompt": "private prompt",
                     "transcript_path": "private transcript", "tool_input": {"secret": "private"},
-                    "last_assistant_message": "private response"}
+                    "last_assistant_message": "private response", "model": "reported-model", "trigger": "auto"}
         input_stream = Mock(buffer=io.BytesIO(json.dumps(original).encode("utf-8")))
         with patch.object(runtime.sys, "stdin", input_stream), contextlib.redirect_stdout(io.StringIO()):
-            with patch.object(runtime, "ensure_runtime", return_value="synthetic"), patch.object(runtime, "exchange") as exchange:
+            with patch.object(runtime, "ensure_runtime", return_value="synthetic"), patch.object(runtime, "exchange") as exchange, \
+                    patch.object(runtime, "read_branch", return_value="synthetic-branch"):
                 runtime.run_hook()
         submitted = exchange.call_args.args[1]
-        self.assertEqual(set(submitted), {"hook_event_name", "session_id", "turn_id", "cwd", "emitted_ns"})
+        self.assertEqual(set(submitted), {"hook_event_name", "session_id", "turn_id", "cwd", "emitted_ns", "branch", "model", "trigger"})
+        self.assertEqual(submitted["model"], "reported-model")
+        self.assertEqual(submitted["trigger"], "auto")
 
 
 class BrokerRecoveryTests(unittest.TestCase):

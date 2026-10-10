@@ -12,6 +12,61 @@ namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_rig";
 constexpr float kTau = 6.2831853071795864769f;
+constexpr uint32_t kActivityCycleUs = kActivityOverlayCycleUs;
+constexpr uint32_t kResponseAccentUs = kActivityOverlayResponseUs;
+constexpr uint32_t kActivityPaintStepUs = 50000;
+constexpr std::array<uint16_t, 256> kWorkingPalette{0x5EDD};
+constexpr std::array<uint16_t, 256> kWaitingPalette{0xF58B};
+constexpr std::array<uint16_t, 256> kReadyPalette{0x77B9};
+
+// center_x: Absolute logical x coordinate, independent of the cloud pose.
+// center_y: Absolute logical y coordinate, independent of the cloud pose.
+// radius: Bounded artwork radius for immutable flash-owned polygon vertices.
+constexpr std::array<CODY2D::Vec2, 16> activity_dot(float center_x, float center_y, float radius)
+{
+    constexpr CODY2D::Vec2 unit[]{
+        {1, 0}, {.923880f, .382683f}, {.707107f, .707107f}, {.382683f, .923880f},
+        {0, 1}, {-.382683f, .923880f}, {-.707107f, .707107f}, {-.923880f, .382683f},
+        {-1, 0}, {-.923880f, -.382683f}, {-.707107f, -.707107f}, {-.382683f, -.923880f},
+        {0, -1}, {.382683f, -.923880f}, {.707107f, -.707107f}, {.923880f, -.382683f},
+    };
+    std::array<CODY2D::Vec2, 16> result{};
+    for (size_t index = 0; index < result.size(); ++index) {
+        result[index] = {center_x + unit[index].x * radius, center_y + unit[index].y * radius};
+    }
+    return result;
+}
+
+constexpr std::array<std::array<CODY2D::Vec2, 16>, 3> kActivityDots{
+    activity_dot(332, 126, 7), activity_dot(366, 148, 7), activity_dot(332, 170, 7),
+};
+constexpr CODY2D::Vec2 kPauseLeft[]{
+    {333, 129}, {341, 129}, {344, 132}, {344, 164},
+    {341, 167}, {333, 167}, {330, 164}, {330, 132},
+};
+constexpr CODY2D::Vec2 kPauseRight[]{
+    {357, 129}, {365, 129}, {368, 132}, {368, 164},
+    {365, 167}, {357, 167}, {354, 164}, {354, 132},
+};
+constexpr CODY2D::Vec2 kResponseSpark[]{
+    {349, 124}, {355, 142}, {373, 148}, {355, 154},
+    {349, 172}, {343, 154}, {325, 148}, {343, 142},
+};
+constexpr CODY2D::Vec2 kCompactionHourglass[]{
+    {330, 125}, {368, 125}, {368, 132}, {355, 148},
+    {368, 164}, {368, 171}, {330, 171}, {330, 164},
+    {343, 148}, {330, 132},
+};
+
+// elapsed_us: Quantized active animation time; changing brightness never changes placement.
+// offset_us: Fixed phase offset differentiating the three stationary working dots.
+uint8_t activity_pulse(uint32_t elapsed_us, uint32_t offset_us)
+{
+    const uint32_t phase = (elapsed_us + offset_us) % kActivityCycleUs;
+    const uint32_t triangle = phase < kActivityCycleUs / 2 ? phase : kActivityCycleUs - phase;
+    return static_cast<uint8_t>(56U + triangle * 184U / (kActivityCycleUs / 2));
+}
+
 static_assert(std::size(Data::points) <= kMaxPoints);
 static_assert(std::size(Data::paths) <= kMaxPaths);
 static_assert(std::size(Data::curves) * kSubdivisions + std::size(Data::paths) <= kMaxVertices);
@@ -829,6 +884,83 @@ esp_err_t prepare_rig_debug_strokes(const RigScene &scene, PointId selected,
     return ESP_OK;
 }
 
+// frame: Immutable activity presentation captured with the retiring scene frame.
+// strip: Borrowed RGB565 tile whose background is already cleared.
+// first_row: Logical canvas row represented by the tile.
+// first_column: Logical canvas column represented by the tile.
+// Exception: Returns the actual state, surface or antialiased primitive failure.
+esp_err_t draw_activity_overlay_rows(const ActivityOverlayFrame &frame,
+    CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+{
+    if (frame.state != ActivityOverlayState::Hidden && frame.state != ActivityOverlayState::Working &&
+        frame.state != ActivityOverlayState::Waiting && frame.state != ActivityOverlayState::ResponseReady &&
+        frame.state != ActivityOverlayState::Compacting) {
+        ESP_LOGE(kTag, "Activity overlay identity rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (frame.state == ActivityOverlayState::Hidden ||
+        (frame.state == ActivityOverlayState::ResponseReady && frame.elapsed_us >= kResponseAccentUs)) {
+        return ESP_OK;
+    }
+    const auto bounds = activity_overlay_bounds();
+    if (first_row >= bounds.bottom || first_row + strip.height <= bounds.top ||
+        first_column >= bounds.right || first_column + strip.width <= bounds.left) {
+        return ESP_OK;
+    }
+    // At most three tiny flash-owned polygons; no heap, scratch frame or sensor read.
+    const uint32_t elapsed_us = (frame.state == ActivityOverlayState::ResponseReady ?
+        std::min(frame.elapsed_us, kResponseAccentUs) : frame.elapsed_us % kActivityCycleUs) /
+        kActivityPaintStepUs * kActivityPaintStepUs;
+    if (frame.state == ActivityOverlayState::Working) {
+        for (size_t index = 0; index < kActivityDots.size(); ++index) {
+            const auto &vertices = kActivityDots[index];
+            const esp_err_t error = CODY2D::fill_path_rows(strip, first_row,
+                vertices.data(), vertices.size(), kWorkingPalette.data(), 0, 0,
+                activity_pulse(elapsed_us, index * 600000U), first_column,
+                CODY2D::FillAntialiasing::Coverage);
+            if (error != ESP_OK) {
+                ESP_LOGE(kTag, "Activity dot draw failed (%s)", esp_err_to_name(error));
+                return error;
+            }
+        }
+        return ESP_OK;
+    }
+    if (frame.state == ActivityOverlayState::Compacting) {
+        const esp_err_t error = CODY2D::fill_path_rows(strip, first_row,
+            kCompactionHourglass, std::size(kCompactionHourglass), kWaitingPalette.data(), 0, 0,
+            static_cast<uint8_t>(112U + activity_pulse(elapsed_us, 0) / 2U), first_column,
+            CODY2D::FillAntialiasing::Coverage);
+        if (error != ESP_OK) {
+            ESP_LOGE(kTag, "Compaction accent draw failed (%s)", esp_err_to_name(error));
+        }
+        return error;
+    }
+    if (frame.state == ActivityOverlayState::Waiting) {
+        const uint8_t opacity = static_cast<uint8_t>(144U + activity_pulse(elapsed_us, 0) / 3U);
+        esp_err_t error = CODY2D::fill_path_rows(strip, first_row,
+            kPauseLeft, std::size(kPauseLeft), kWaitingPalette.data(), 0, 0,
+            opacity, first_column, CODY2D::FillAntialiasing::Coverage);
+        if (error == ESP_OK) {
+            error = CODY2D::fill_path_rows(strip, first_row,
+                kPauseRight, std::size(kPauseRight), kWaitingPalette.data(), 0, 0,
+                opacity, first_column, CODY2D::FillAntialiasing::Coverage);
+        }
+        if (error != ESP_OK) {
+            ESP_LOGE(kTag, "Activity pause draw failed (%s)", esp_err_to_name(error));
+        }
+        return error;
+    }
+    const uint8_t opacity = elapsed_us <= 200000U ? 255U :
+        static_cast<uint8_t>((kResponseAccentUs - elapsed_us) * 255U / 1000000U);
+    const esp_err_t error = CODY2D::fill_path_rows(strip, first_row,
+        kResponseSpark, std::size(kResponseSpark), kReadyPalette.data(), 0, 0,
+        opacity, first_column, CODY2D::FillAntialiasing::Coverage);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Response accent draw failed (%s)", esp_err_to_name(error));
+    }
+    return error;
+}
+
 // scene: Completed vector face and pearl mapping reused unchanged by every tile.
 // strip: RGB565 destination owned by the companion worker.
 // first_row: Tile y origin in the unrotated logical canvas.
@@ -842,13 +974,15 @@ esp_err_t prepare_rig_debug_strokes(const RigScene &scene, PointId selected,
 // navigation_opacity: Debug toolbar fade applied without advancing the character clock.
 // background_rgb565: Native color for the current logical scene, cleared once per tile.
 // screenshot_state: Visible result of the independent on-demand capture operation.
+// activity_overlay: Optional immutable absolute layer painted behind the character.
 // Exception: Returns the original surface, geometry, profiling or primitive drawing error.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected, RigRasterProfile *profile,
                         bool paused, uint16_t first_column,
                         const RigDebugStrokeCache *debug_cache, bool navigation_visible,
                         uint8_t navigation_opacity, uint16_t background_rgb565,
-                        RigControlState screenshot_state)
+                        RigControlState screenshot_state,
+                        const ActivityOverlayFrame *activity_overlay)
 {
     if (profile != nullptr && profile->now_us == nullptr) {
         ESP_LOGE(kTag, "Raster profiling clock rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
@@ -897,6 +1031,16 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         stage_started_us = now_us;
     }
     const int64_t artwork_started_us = stage_started_us;
+    if (activity_overlay != nullptr) {
+        // Absolute activity slots belong to the canvas. Cody naturally occludes them.
+        result = draw_activity_overlay_rows(*activity_overlay, strip, first_row, first_column);
+        if (result != ESP_OK) {
+            return result;
+        }
+        if (profile != nullptr) {
+            stage_started_us = profile->now_us();
+        }
+    }
 #if CODY_ENABLE_PEARL_JELLY
     if (profile != nullptr) {
         profile->jelly.now_us = profile->now_us;

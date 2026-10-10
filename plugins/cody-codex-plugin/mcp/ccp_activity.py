@@ -26,13 +26,59 @@ class Phase(str, Enum):
     UNAVAILABLE = "unavailable"
 
 
+class Compaction(str, Enum):
+    NONE = "none"
+    ACTIVE = "active"
+    REFRESHED = "refreshed"
+    ORPHANED = "orphaned"
+    INTERRUPTED = "interrupted"
+    STALE = "stale"
+
+
 EVENTS = frozenset({
     "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-    "PermissionRequest", "Stop", "Interrupt", "SessionEnd",
+    "PermissionRequest", "Stop", "Interrupt", "SessionEnd", "PreCompact", "PostCompact",
 })
 MAX_SESSIONS = 64
 ACTIVITY_LEASE_SECONDS = 120.0
+MAX_DESCRIPTION_LENGTH = 192
 OPAQUE_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
+
+
+# value: Optional genuine hook model slug; absence remains unavailable.
+# Raises ValueError for unsupported or unrepresentable reported model metadata.
+def hook_model(value: Any) -> str:
+    if value is None:
+        return ""
+    if (not isinstance(value, str) or not 1 <= len(value) <= 128
+            or any(not 33 <= ord(character) <= 126 for character in value)):
+        raise ValueError("Hook model must contain 1-128 printable ASCII characters without spaces")
+    return value
+
+
+# seconds: Nonnegative duration or age measured only within the PC monotonic clock domain.
+# Returns an explicit unavailable token when the protocol's uint32 millisecond range cannot represent it.
+def wire_milliseconds(seconds: float) -> str:
+    milliseconds = int(seconds * 1000)
+    if not 0 <= milliseconds <= 0xffffffff:
+        print("CCP technical duration unavailable: outside uint32 milliseconds", file=sys.stderr, flush=True)
+        return "-"
+    return str(milliseconds)
+
+
+# tool_name: Genuine hook tool identity, never command text or model-generated intent.
+# Raises ValueError when the native tool identity is empty or outside its bounded ASCII contract.
+def tool_phase(tool_name: Any) -> Phase:
+    if (not isinstance(tool_name, str) or not tool_name or len(tool_name) > 256
+            or any(not 32 <= ord(character) <= 126 for character in tool_name)):
+        raise ValueError("Hook tool_name must be bounded printable ASCII")
+    # Namespaces are native tool identities, not clues extracted from arguments.
+    leaf = tool_name.rsplit(".", 1)[-1]
+    if leaf == "apply_patch":
+        return Phase.EDITING
+    if leaf in {"Bash", "exec_command", "write_stdin", "shell_command"}:
+        return Phase.RUNNING
+    return Phase.WORKING
 
 
 # value: Caller-supplied stable identity, never a storage index or display name.
@@ -49,13 +95,13 @@ def project_label(cwd: str) -> str:
     # This bounded ASCII projection is not an identity or a chat title. The full
     # session digest distinguishes chats even when their display labels match.
     leaf = PureWindowsPath(cwd).name
-    label = "".join(char if 32 <= ord(char) <= 126 else "?" for char in leaf).strip()
-    if not label:
+    if not leaf:
         print("CCP activity: workspace root uses the Codex display label", file=sys.stderr)
         return "Codex"
-    if label != leaf or len(label) > 24:
-        print("CCP activity: workspace label projected to bounded ASCII", file=sys.stderr)
-    return label if len(label) <= 24 else label[:21].rstrip() + "..."
+    if len(leaf) > 64 or any(not 32 <= ord(character) <= 126 for character in leaf):
+        print("CCP activity: workspace label unavailable outside 1-64 printable ASCII characters", file=sys.stderr)
+        return "UNAVAILABLE"
+    return leaf
 
 
 @dataclass
@@ -63,12 +109,24 @@ class Session:
     session_id: str
     cwd: str
     project: str
+    branch: str = ""
     phase: Phase = Phase.ACTIVE
     turn_id: str = ""
     last_event_ns: int = 0
     observed_at: float = 0.0
     tools: dict[str, Phase] = field(default_factory=dict)
     interrupted: bool = False
+    description: str = ""
+    description_observed_at: float = 0.0
+    model: str = ""
+    model_observed_at: float = 0.0
+    turn_started_at: float = 0.0
+    turn_ended_at: float = 0.0
+    compaction: Compaction = Compaction.NONE
+    compact_sequence: int = 0
+    compact_observed_at: float = 0.0
+    compact_trigger: str = ""
+    compact_last_event: str = ""
 
 
 class ActivityStore:
@@ -90,12 +148,20 @@ class ActivityStore:
         cwd = event.get("cwd")
         if not isinstance(cwd, str) or not cwd or len(cwd) > 4096:
             raise ValueError("Hook cwd must be a bounded nonempty path")
+        branch = event.get("branch", "")
+        if (not isinstance(branch, str) or len(branch) > 64
+                or any(not 32 <= ord(character) <= 126 for character in branch)):
+            raise ValueError("Hook branch must be bounded printable ASCII checkout metadata")
         emitted_ns = event.get("emitted_ns")
         if type(emitted_ns) is not int or not 0 < emitted_ns <= time.monotonic_ns():
             raise ValueError("Hook emission timestamp is invalid")
         turn_id = ""
         if name not in {"SessionStart", "SessionEnd"}:
             turn_id = require_id(event.get("turn_id"), "turn_id")
+        model = hook_model(event.get("model"))
+        trigger = event.get("trigger")
+        if name in {"PreCompact", "PostCompact"} and (not isinstance(trigger, str) or trigger not in {"auto", "manual"}):
+            raise ValueError("Compaction trigger must be the genuine auto or manual hook value")
         with self._lock:
             if name == "UserPromptSubmit" and emitted_ns == self._last_prompt_ns:
                 raise ValueError("Duplicate or ambiguous prompt timestamp rejected")
@@ -116,10 +182,23 @@ class ActivityStore:
             if emitted_ns <= session.last_event_ns:
                 raise ValueError("Late or duplicate hook event rejected")
             if name == "UserPromptSubmit":
+                new_turn = turn_id != session.turn_id
+                if new_turn:
+                    session.turn_started_at = emitted_ns / 1_000_000_000
+                    session.turn_ended_at = 0.0
+                    session.tools.clear()
+                    session.model = ""
+                    session.model_observed_at = 0.0
+                    session.compaction = Compaction.NONE
+                    session.compact_sequence = 0
+                    session.compact_observed_at = 0.0
+                    session.compact_trigger = ""
+                    session.compact_last_event = ""
                 session.turn_id = turn_id
-                session.tools.clear()
                 session.interrupted = False
-                session.phase = Phase.WORKING
+                session.description = ""
+                session.description_observed_at = 0.0
+                session.phase = next(reversed(session.tools.values()), Phase.WORKING)
                 # Only a user's prompt changes the followed chat. Completion,
                 # tools and resume events from background chats cannot steal it.
                 # Delayed delivery of an older prompt cannot reverse a switch.
@@ -132,11 +211,31 @@ class ActivityStore:
                     session.phase = Phase.ACTIVE
                     session.turn_id = ""
                     session.tools.clear()
+                    session.model = ""
+                    session.model_observed_at = 0.0
+                    session.turn_started_at = 0.0
+                    session.turn_ended_at = 0.0
+                    session.compaction = Compaction.NONE
+                    session.compact_sequence = 0
+                    session.compact_observed_at = 0.0
+                    session.compact_trigger = ""
+                    session.compact_last_event = ""
             elif name == "SessionEnd":
                 session.phase = Phase.ENDED
                 session.tools.clear()
+                session.description = ""
+                if session.turn_started_at and not session.turn_ended_at:
+                    session.turn_ended_at = emitted_ns / 1_000_000_000
+                if session.compaction == Compaction.ACTIVE:
+                    session.compaction = Compaction.INTERRUPTED
+                    session.compact_observed_at = emitted_ns / 1_000_000_000
             else:
                 if turn_id != session.turn_id or session.phase == Phase.ENDED:
+                    # Hashes diagnose real hook correlation without persisting chat contents or IDs.
+                    expected = hashlib.sha256(session.turn_id.encode("ascii")).hexdigest()[:12]
+                    actual = hashlib.sha256(turn_id.encode("ascii")).hexdigest()[:12]
+                    print(f"CCP activity rejected {name}: expected_turn={expected} observed_turn={actual}",
+                          file=sys.stderr, flush=True)
                     raise ValueError("Hook turn does not match the current chat turn")
                 if session.interrupted and name not in {"PostToolUse", "Interrupt"}:
                     raise ValueError("Interrupted turn cannot resume without a new prompt")
@@ -144,9 +243,7 @@ class ActivityStore:
                     tool_id = require_id(event.get("tool_use_id"), "tool_use_id")
                     if tool_id in session.tools or len(session.tools) >= 64:
                         raise ValueError("Duplicate tool identity or too many concurrent tools")
-                    tool_name = event.get("tool_name")
-                    phase = (Phase.EDITING if tool_name == "apply_patch" else
-                             Phase.RUNNING if tool_name == "Bash" else Phase.WORKING)
+                    phase = tool_phase(event.get("tool_name"))
                     session.tools[tool_id] = phase
                     session.phase = phase
                 elif name == "PostToolUse":
@@ -160,22 +257,84 @@ class ActivityStore:
                 elif name == "PermissionRequest" or name == "Interrupt":
                     session.phase = Phase.INTERRUPTED if name == "Interrupt" else Phase.PAUSED
                     session.interrupted = name == "Interrupt"
+                    session.description = ""
+                    if name == "Interrupt":
+                        session.turn_ended_at = emitted_ns / 1_000_000_000
+                        if session.compaction == Compaction.ACTIVE:
+                            session.compaction = Compaction.INTERRUPTED
+                            session.compact_observed_at = emitted_ns / 1_000_000_000
                 elif name == "Stop":
                     session.phase = Phase.READY
+                    session.description = ""
+                    session.turn_ended_at = emitted_ns / 1_000_000_000
+                    if session.compaction == Compaction.ACTIVE:
+                        session.compaction = Compaction.ORPHANED
+                        session.compact_observed_at = emitted_ns / 1_000_000_000
+                        print("CCP compaction updates lost: turn stopped without PostCompact", file=sys.stderr, flush=True)
+                elif name == "PreCompact":
+                    if session.phase == Phase.READY:
+                        raise ValueError("Completed turn cannot start compaction without a new prompt")
+                    if session.compaction == Compaction.ACTIVE:
+                        raise ValueError("Duplicate compaction start rejected for the current turn")
+                    session.compact_sequence += 1
+                    session.compaction = Compaction.ACTIVE
+                    session.compact_trigger = trigger
+                    session.compact_last_event = name
+                    session.compact_observed_at = emitted_ns / 1_000_000_000
+                elif name == "PostCompact":
+                    if session.compact_last_event == name:
+                        raise ValueError("Duplicate compaction completion rejected for the current turn")
+                    if session.compaction != Compaction.ACTIVE:
+                        session.compact_sequence += 1
+                        session.compaction = Compaction.ORPHANED
+                        print("CCP compaction completion unavailable: no matching observed start", file=sys.stderr, flush=True)
+                    elif trigger != session.compact_trigger:
+                        raise ValueError("Compaction completion trigger does not match its observed start")
+                    else:
+                        session.compaction = Compaction.REFRESHED
+                    session.compact_last_event = name
+                    session.compact_observed_at = emitted_ns / 1_000_000_000
+                    # The final hook confirms compaction only; it supplies no refreshed usage counters.
+            if model and (name == "UserPromptSubmit" or turn_id == session.turn_id and turn_id):
+                session.model = model
+                session.model_observed_at = emitted_ns / 1_000_000_000
             if session.cwd != cwd:
                 session.project = project_label(cwd)
                 session.cwd = cwd
             session.last_event_ns = emitted_ns
-            session.observed_at = time.monotonic()
+            session.branch = branch
+            session.observed_at = emitted_ns / 1_000_000_000
             self._revision += 1
 
     # No parameters: exposes identities and local context only, never chat contents.
     def list_sessions(self) -> list[dict[str, Any]]:
         with self._lock:
             return [{"session_id": item.session_id, "cwd": item.cwd,
+                     "turn_id": item.turn_id,
                      "phase": self._effective_phase(item).value,
                      "followed": item.session_id == self._followed_session_id}
                     for item in self._sessions.values()]
+
+    # session_id: Hook-observed chat identity; only the currently followed chat may report progress.
+    # turn_id: Exact current hook turn identity, rejecting delayed and background reports.
+    # description: Agent-authored actual purpose in bounded printable English ASCII, without commands or logs.
+    # Raises ValueError for stale identities, inactive work or unsupported description bytes.
+    def report_progress(self, session_id: Any, turn_id: Any, description: Any) -> dict[str, str]:
+        session_id = require_id(session_id, "session_id")
+        turn_id = require_id(turn_id, "turn_id")
+        if (not isinstance(description, str) or not 1 <= len(description) <= MAX_DESCRIPTION_LENGTH
+                or description != description.strip()
+                or any(not 32 <= ord(character) <= 126 for character in description)):
+            raise ValueError("Progress description must contain 1-192 printable ASCII characters")
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if (session is None or session_id != self._followed_session_id or session.turn_id != turn_id
+                    or self._effective_phase(session) not in {Phase.WORKING, Phase.EDITING, Phase.RUNNING}):
+                raise ValueError("Progress requires the followed chat's current active hook turn")
+            session.description = description
+            session.description_observed_at = time.monotonic()
+            self._revision += 1
+            return {"status": "reported", "description": description}
 
     # session: Last genuine hook state, whose active lease must not outlive observation.
     def _effective_phase(self, session: Session) -> Phase:
@@ -186,12 +345,41 @@ class ActivityStore:
 
     # No parameters: paired devices mirror this PC's latest user-prompt context.
     def snapshot(self) -> dict[str, str]:
+        return self.snapshot_bundle()[0]
+
+    # No parameters: obtains activity and technical projection atomically for one authenticated FIND reply.
+    def snapshot_bundle(self) -> tuple[dict[str, str], dict[str, str]]:
         with self._lock:
             session = self._sessions.get(self._followed_session_id)
-            # A full digest preserves opaque chat identity without sending Codex IDs.
-            return {
-                "chat": hashlib.sha256(session.session_id.encode("ascii")).hexdigest() if session else "0" * 64,
-                "revision": f"{self._revision:016x}",
-                "phase": self._effective_phase(session).value if session else Phase.NONE.value,
-                "project": session.project.encode("ascii").hex() if session else "",
-            }
+            now = time.monotonic()
+            phase = self._effective_phase(session) if session else Phase.NONE
+            description = (session.description if session and
+                phase in {Phase.WORKING, Phase.EDITING, Phase.RUNNING} and
+                now - session.description_observed_at <= ACTIVITY_LEASE_SECONDS else "")
+            # Full digests preserve opaque identity without exposing native Codex identifiers.
+            identity = {"chat": hashlib.sha256(session.session_id.encode("ascii")).hexdigest() if session else "0" * 64,
+                        "revision": f"{self._revision:016x}"}
+            activity = {**identity, "phase": phase.value,
+                        "project": session.project.encode("ascii").hex() if session else "",
+                        "description": description.encode("ascii").hex(),
+                        "branch": session.branch.encode("ascii").hex() if session else ""}
+            compact = session.compaction if session else Compaction.NONE
+            if (compact == Compaction.ACTIVE and session and
+                    now - session.compact_observed_at > ACTIVITY_LEASE_SECONDS):
+                compact = Compaction.STALE
+            technical = {**identity,
+                "turn": hashlib.sha256(session.turn_id.encode("ascii")).hexdigest() if session and session.turn_id else "0" * 64,
+                "model": session.model.encode("ascii").hex() if session and session.model else "-",
+                "modelage": wire_milliseconds(now - session.model_observed_at) if session and session.model else "-",
+                "compaction": compact.value,
+                "compactseq": f"{session.compact_sequence:016x}" if session else "0" * 16,
+                "compactage": wire_milliseconds(now - session.compact_observed_at) if session and session.compact_sequence else "-",
+                "activityage": wire_milliseconds(now - session.observed_at) if session else "-",
+                "turnelapsed": wire_milliseconds((session.turn_ended_at or now) - session.turn_started_at)
+                    if session and session.turn_started_at else "-",
+                # No desktop-owned App Server notification stream is available to this plugin.
+                # Hook model is reported metadata; effort and token/capacity fields remain unavailable.
+                **{key: "-" for key in ("effort", "used", "capacity", "cumulative", "input", "output", "threshold", "usageage")}}
+            if technical["modelage"] == "-":
+                technical["model"] = "-"
+            return activity, technical

@@ -176,6 +176,14 @@ bezel clearance or touch behavior.
 
 ## Layout and interaction
 
+Cody's three companion information panels use the central [73,393) square.
+Their page indicator and passive-tap hints belong to the panel, without a lateral
+Back control. A short released tap advances Activity, Model & Context, Session &
+Link, then Activity again; a deliberate canonical-IMU shake returns directly to
+Home. Setup and remote-question controls retain their existing navigation. This
+exception applies only to Cody's technical panels, not Luna. Drawing and gesture
+recognition retain the same logical cardinal orientation.
+
 Use the central square as a reliable content baseline. Expand outside it only
 with circle-aware clipping and explicit space for navigation. A complete QR
 rectangle, including its white quiet zone, must remain unobstructed.

@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT / "plugins/cody-codex-plugin/mcp"))
 import ccp_server as protocol  # noqa: E402
 import ccp_interactions as interactions  # noqa: E402
 import ccp_reset as reset  # noqa: E402
+import ccp_technical as technical_metadata  # noqa: E402
 
 LOOPBACK = "127.0.0.1"
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -60,8 +61,13 @@ class SimulatorSnapshot:
     network_ready: bool = True
     phase: str = "none"
     project: str = ""
+    description: str = ""
+    branch: str = ""
     chat: str = ""
     activity_valid: bool = False
+    technical: technical_metadata.TechnicalProjection | None = None
+    technical_valid: bool = False
+    technical_age_ms: int | None = None
     accepted_packets: int = 0
     rejected_packets: int = 0
     last_error: str = ""
@@ -196,8 +202,14 @@ class SimulatorLink:
         self._ready_at: float | None = None
         self._activity_at: float | None = None
         self._activity_nonce = ""
+        self._activity_revision = ""
+        self._technical: technical_metadata.TechnicalProjection | None = None
+        self._technical_nonce = ""
+        self._technical_at: float | None = None
         self._activation: tuple[str, str, str, float] | None = None
         self.phase, self.project, self.chat = "none", "", ""
+        self.description = ""
+        self.branch = ""
         self.accepted_packets = self.rejected_packets = 0
         self.last_error = ""
         self._logged_error = ""
@@ -275,10 +287,18 @@ class SimulatorLink:
         valid = self._activity_at is not None and self.clock() - self._activity_at < PRESENCE_SECONDS
         event_fresh = (self._event_at is not None and self.clock() - self._event_at < PRESENCE_SECONDS
                        and self.state == LinkState.CONNECTED and self.network_ready)
+        technical_valid = (valid and self.state == LinkState.CONNECTED and self.network_ready
+            and self._technical is not None and self._technical_at is not None
+            and self.clock() - self._technical_at < PRESENCE_SECONDS
+            and self._technical.chat == self.chat and self._technical.revision == self._activity_revision)
         return SimulatorSnapshot(device_id=self.device_id, state=self.state,
             retained_pairing=self.active is not None, pending_pairing=self.pending is not None,
             network_ready=self.network_ready, phase=self.phase, project=self.project, chat=self.chat,
+            description=self.description if valid else "",
+            branch=self.branch if valid else "",
             activity_valid=valid and self.state == LinkState.CONNECTED,
+            technical=self._technical, technical_valid=technical_valid,
+            technical_age_ms=int((self.clock() - self._technical_at) * 1000) if self._technical_at is not None else None,
             accepted_packets=self.accepted_packets, rejected_packets=self.rejected_packets,
             last_error=self._reset_error or self.last_error, request_id=self._request_id, event_state=self._event_state,
             event_payload=self._event_payload, event_fresh=event_fresh,
@@ -301,6 +321,7 @@ class SimulatorLink:
         self.state = LinkState.PAIRING
         self._nonce = ""
         self._ready_at = self._activity_at = None
+        self._technical, self._technical_at, self._technical_nonce = None, None, ""
         self._event_at = None
         self._reset_transaction()
         self.last_error = ""
@@ -334,6 +355,7 @@ class SimulatorLink:
         self._nonce = ""
         self._ready_at = self._activity_at = None
         self.phase, self.project, self.chat = "none", "", ""
+        self._technical, self._technical_at, self._technical_nonce = None, None, ""
         self._reset_transaction()
         self._event_at, self._event_peer = None, None
         self._event_nonce, self._reply_choice = "", ""
@@ -408,9 +430,9 @@ class SimulatorLink:
         current_id, current_state = "0" * 32, "none"
         if self._event_payload is not None and self._event_payload.kind == interactions.EventKind.QUESTION:
             current_id, current_state = self._request_id, self._event_state
-        fields = [("device", self.device_id), ("pc", pc), ("nonce", nonce), ("activity", "1"),
+        fields = [("device", self.device_id), ("pc", pc), ("nonce", nonce), ("activity", "3"),
                   ("events", "2"), ("current", current_id), ("state", current_state)]
-        proof = protocol.make_proof(key, "find-events-v2", self.device_id, pc, nonce, current_id, current_state)
+        proof = protocol.make_proof(key, "find-events-activity-v3", self.device_id, pc, nonce, current_id, current_state)
         send(protocol.encode_datagram("FIND", fields + [("proof", proof)]), (LOOPBACK, protocol.PLUGIN_PORT))
         self._nonce = nonce
         # A retained Connected state does not authenticate this new FIND yet.
@@ -443,11 +465,13 @@ class SimulatorLink:
             self._accept_pair(fields, source, send)
         elif kind == "CONFIRM":
             self._accept_confirm(fields, source, send)
-        elif kind in ("READY", "ACTIVITY", "EVENT", "REPLYACK", "RESET", "FACTORYRESET", "DEBUG"):
+        elif kind in ("READY", "ACTIVITY", "TECH", "EVENT", "REPLYACK", "RESET", "FACTORYRESET", "DEBUG"):
             if source[1] != protocol.PLUGIN_PORT:
                 raise ValueError("CCP presence sender port is invalid")
             if kind == "DEBUG":
                 self._accept_debug(fields, source)
+            elif kind == "TECH":
+                self._accept_technical(fields)
             elif kind == "EVENT":
                 self._accept_event(fields, source)
                 if fields["state"] not in {"none", "unavailable"}:
@@ -646,6 +670,7 @@ class SimulatorLink:
         if candidate:
             self._ready_at = self._activity_at = None
             self._activity_nonce = ""
+            self._technical, self._technical_at, self._technical_nonce = None, None, ""
             self.phase, self.project, self.chat = "none", "", ""
         if self.state != LinkState.CONNECTED:
             self.state = LinkState.PAIRED
@@ -661,7 +686,7 @@ class SimulatorLink:
     def _accept_presence(self, kind: str, fields: dict[str, str], source: tuple[str, int], send: Send) -> None:
         expected = {"device", "pc", "nonce", "proof"}
         if kind == "ACTIVITY":
-            expected |= {"chat", "revision", "phase", "project"}
+            expected |= {"chat", "revision", "phase", "project", "description", "branch"}
         if set(fields) != expected:
             raise ValueError("Malformed CCP presence fields")
         require_hex({name: fields[name] for name in ("device", "pc", "nonce", "proof")})
@@ -672,8 +697,9 @@ class SimulatorLink:
         if fields["device"] != self.device_id or fields["pc"] != record["pc_id"]:
             raise ValueError("CCP presence identity differs")
         key = protocol.unprotect_secret(record["protected_link_key"])
-        names = ("device", "pc", "nonce") if kind == "READY" else ("device", "pc", "nonce", "chat", "revision", "phase", "project")
-        if not hmac.compare_digest(protocol.make_proof(key, kind.lower(), *(fields[name] for name in names)), fields["proof"]):
+        names = ("device", "pc", "nonce") if kind == "READY" else ("device", "pc", "nonce", "chat", "revision", "phase", "project", "description", "branch")
+        domain = "ready" if kind == "READY" else "activity-v2"
+        if not hmac.compare_digest(protocol.make_proof(key, domain, *(fields[name] for name in names)), fields["proof"]):
             raise ValueError("CCP presence authentication failed")
         if kind == "READY":
             if self.pending:
@@ -707,7 +733,7 @@ class SimulatorLink:
             project = ""
         else:
             encoded = fields["project"]
-            if len(encoded) % 2 or len(encoded) > 48 or any(character not in "0123456789abcdef" for character in encoded):
+            if len(encoded) % 2 or len(encoded) > 128 or any(character not in "0123456789abcdef" for character in encoded):
                 raise ValueError("ACTIVITY project encoding is malformed")
             project = bytes.fromhex(encoded).decode("ascii")
             if not project or any(not 32 <= ord(character) <= 126 for character in project):
@@ -715,8 +741,51 @@ class SimulatorLink:
         empty = fields["phase"] == "none"
         if empty != (fields["chat"] == "0" * 64) or empty != (project == ""):
             raise ValueError("ACTIVITY empty context is incoherent")
+        encoded_description = fields["description"]
+        description = ""
+        if encoded_description != "-":
+            if (len(encoded_description) % 2 or not 2 <= len(encoded_description) <= 384
+                    or any(character not in "0123456789abcdef" for character in encoded_description)):
+                raise ValueError("ACTIVITY description encoding is malformed")
+            description = bytes.fromhex(encoded_description).decode("ascii")
+            if (fields["phase"] not in {"working", "editing", "running"}
+                    or any(not 32 <= ord(character) <= 126 for character in description)):
+                raise ValueError("ACTIVITY description does not belong to current work")
+        encoded_branch = fields["branch"]
+        branch = ""
+        if encoded_branch != "-":
+            if (len(encoded_branch) % 2 or not 2 <= len(encoded_branch) <= 128
+                    or any(character not in "0123456789abcdef" for character in encoded_branch)):
+                raise ValueError("ACTIVITY branch encoding is malformed")
+            branch = bytes.fromhex(encoded_branch).decode("ascii")
+            if empty or any(not 32 <= ord(character) <= 126 for character in branch):
+                raise ValueError("ACTIVITY branch does not belong to an observed chat")
         self.phase, self.project, self.chat = fields["phase"], project, fields["chat"]
+        self.description, self.branch = description, branch
         self._activity_at, self._activity_nonce = self.clock(), fields["nonce"]
+        self._activity_revision = fields["revision"]
+
+    # self: SIMULATED authenticated technical owner; snapshots remain separate from physical firmware.
+    # fields: Fixed-order bounded technical projection paired with this FIND's accepted ACTIVITY.
+    # Raises ValueError or RuntimeError for missing source, malformed metadata, forged/replayed packets or unavailable keys.
+    def _accept_technical(self, fields: dict[str, str]) -> None:
+        if tuple(fields) != (*technical_metadata.FIELDS, "proof"):
+            raise ValueError("TECH fields are missing, reordered or unsupported")
+        require_hex({name: fields[name] for name in ("device", "pc", "nonce", "proof")})
+        if (self.active is None or self.state != LinkState.CONNECTED or not self.network_ready
+                or fields["device"] != self.device_id or fields["pc"] != self.active["pc_id"]
+                or fields["nonce"] != self._ready_nonce or fields["nonce"] != self._activity_nonce
+                or fields["nonce"] == self._technical_nonce
+                or fields["chat"] != self.chat or fields["revision"] != self._activity_revision):
+            raise ValueError("TECH requires the current accepted ACTIVITY identity and one reply per nonce")
+        key = protocol.unprotect_secret(self.active["protected_link_key"])
+        proof = protocol.make_proof(key, "technical-v1", *(fields[name] for name in technical_metadata.FIELDS))
+        if not hmac.compare_digest(proof, fields["proof"]):
+            raise ValueError("TECH authentication failed")
+        technical = technical_metadata.decode_projection(fields)
+        self._technical = technical
+        self._technical_nonce = fields["nonce"]
+        self._technical_at = self.clock()
 
     # self: Active link owner validating every interaction against its purpose-specific nonce and PC identity.
     # fields: Common authenticated EVENT or REPLYACK envelope.

@@ -21,6 +21,7 @@ idf_component_register(
     SRCS
         "src/runtime/CODY_companion.cpp"
         "src/scenes/CODY_scene.cpp"
+        "src/scenes/CODY_technical_panels.cpp"
         "src/runtime/CODY_lifecycle.cpp"
         "src/model/CODY_expression_catalog.cpp"
         "src/model/CODY_connection_personality.cpp"

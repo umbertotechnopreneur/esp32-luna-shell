@@ -45,6 +45,7 @@ SOURCES = (
     "components/CODY_companion/src/rendering/CODY_jelly.cpp",
     "components/CODY_companion/src/diagnostics/CODY_debug_views.cpp",
     "components/CODY_companion/src/scenes/CODY_scene.cpp",
+    "components/CODY_companion/src/scenes/CODY_technical_panels.cpp",
     "assets/cody/personality-icons/generated/personality_icons.cpp",
     "assets/cody/appearance/jelly-scanline/generated/cody_jelly_data.cpp",
     "assets/cody/scenes/generated/scene_font.cpp",

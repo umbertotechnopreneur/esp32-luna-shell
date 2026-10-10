@@ -900,6 +900,8 @@ class CodyWindow:
             self.tabs.add(ccp_tab, text="CCP")
             self.inspector_tabs.append(ccp_tab)
             self.ccp_panel = CcpPanel(self, ccp_tab.content)
+            if args.activity_preview:
+                self.ccp_panel.start_cli_preview(args.at_ms)
             self.tabs.select(ccp_tab)
         self.tabs.bind("<<NotebookTabChanged>>", self.inspector_tab_changed)
         if self.jelly_study:
@@ -1673,6 +1675,7 @@ class CodyWindow:
     # event: Host pointer movement, interpreted using the last displayed layout.
     def drag_body(self, event):
         if self.ccp_panel is not None and self.ccp_panel.follow.get():
+            self.ccp_panel.drag(self.layout.to_logical(event.x, event.y, self.display_rotation))
             return
         self.navigation_visibility.interact(int(time.perf_counter() * 1_000_000))
         if self.body_drag_origin is None:
@@ -2114,7 +2117,8 @@ class CodyWindow:
             self.last_presentation_key = key
             # Optional SFX follow the exact native cue only after its frame was presented.
             self.present_audio(Screen.GREETING, personality_only=True)
-        self.timing.configure(text="SIMULATED CCP1 / loopback only / real authenticated packets / ESP32 UNMEASURED")
+        self.timing.configure(text="SIMULATED ACTIVITY PREVIEW / no packets or pairing / shared C++ renderer / ESP32 UNMEASURED"
+            if self.ccp_panel.activity_preview.get() else "SIMULATED CCP1 / loopback only / real authenticated packets / ESP32 UNMEASURED")
         self.after_id = self.root.after(100, self.tick)
 
 
@@ -2132,6 +2136,8 @@ def main(argv=None):
     parser.add_argument('--safe-guide',action='store_true')
     parser.add_argument('--ccp', action='store_true',
                         help='Opt in to the isolated SIMULATED CCP1 loopback endpoint and visible pairing panel')
+    parser.add_argument('--activity-preview', action='store_true',
+                        help='Explicitly show synthetic activity through shared native rendering; save one annotated frame after --at-ms without pairing')
     parser.add_argument('--cloud-material-study', action='store_true',
                         help='Capture a host-only soft cloud material study; not firmware rendering parity')
     parser.add_argument('--cloud-png-mesh-study', action='store_true',
@@ -2142,6 +2148,8 @@ def main(argv=None):
                         help='Overlay the actual triangle mesh in a PNG mesh study capture')
     parser.add_argument('--at-ms',type=int,default=1000)
     args = parser.parse_args(argv)
+    if args.activity_preview and not args.ccp:
+        parser.error('--activity-preview requires interactive --ccp')
     if args.ccp and (args.capture is not None or args.screen != Screen.RIG or
                     args.cloud_material_study or args.cloud_png_mesh_study or args.cloud_jelly_study):
         parser.error('--ccp requires interactive --screen rig without a rendering study')

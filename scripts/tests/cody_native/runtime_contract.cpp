@@ -15,6 +15,24 @@
 #include <cstring>
 #include "CODY2D_paths.hpp"
 
+#include "CODY_benchmark.hpp"
+#include "CODY_demo.hpp"
+#include "CODY_response.hpp"
+#include "CODY_companion_gestures.hpp"
+#include "CODY_damage.hpp"
+#include "CODY_debug_hud.hpp"
+#include "host_diagnostics.hpp"
+#include "cloud_rig_data.hpp"
+#include "runtime_settings.hpp"
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <initializer_list>
+#include <vector>
+#include <algorithm>
+#include <cstring>
+#include "CODY2D_paths.hpp"
+
 // No parameters: shared status-overlay fixture reports its actual contract failures.
 int check_status_overlay_contract();
 
@@ -27,6 +45,73 @@ void require(bool condition, const char *message)
         std::fprintf(stderr, "Native runtime failure: %s\n", message);
         std::exit(1);
     }
+}
+
+// No parameters: synthetic acquisition fixtures exercise the actual shared recognizers.
+void companion_navigation_gesture_contracts()
+{
+    CODY::CompanionTapState tap{};
+    require(!CODY::observe_companion_tap(tap, 233, 300, true, true, 1000000, 0, true, false),
+        "navigation must wait for an acquired release");
+    require(CODY::observe_companion_tap(tap, 0, 0, false, false, 1080000, 0, true, false),
+        "BSP release without coordinates must admit a stationary short tap");
+    require(!CODY::observe_companion_tap(tap, 0, 0, false, false, 1090000, 0, true, false),
+        "one contact must produce only one navigation");
+    CODY::observe_companion_tap(tap, 233, 300, true, true, 1500000, 0, true, false);
+    require(CODY::observe_companion_tap(tap, 0, 0, false, false, 1720000, 0, true, false),
+        "an IRQ-driven stationary short contact does not require invented held samples");
+    CODY::observe_companion_tap(tap, 233, 300, true, true, 2000000, 0, true, false);
+    CODY::observe_companion_tap(tap, 260, 300, true, false, 2050000, 0, true, false);
+    require(!CODY::observe_companion_tap(tap, 233, 300, false, false, 2100000, 0, true, false),
+        "a drag returning to its origin must not become a navigation tap");
+    CODY::observe_companion_tap(tap, 233, 300, true, true, 3000000, 0, true, false);
+    CODY::cancel_companion_tap(tap);
+    require(!CODY::observe_companion_tap(tap, 0, 0, false, false, 3080000, 0, true, false),
+        "standby or an explicit control must cancel its contact's navigation");
+    CODY::observe_companion_tap(tap, 233, 300, true, true, 4000000, 0, true, false);
+    require(!CODY::observe_companion_tap(tap, 0, 0, false, false, 4080000, 90, true, false),
+        "rotation must cancel a contact measured in the previous view");
+    CODY::observe_companion_tap(tap, 233, 300, true, true, 5000000, 0, true, false);
+    require(!CODY::observe_companion_tap(tap, 0, 0, false, false, 5480000, 0, true, false),
+        "a hold must not become navigation on release");
+
+    CODY::CompanionShakeState shake{};
+    CODY::MotionSample sample{};
+    sample.stamp.health = CODY::SampleHealth::Current;
+    sample.acceleration_mps2[CODY::Axis::Z] = 9.81f;
+    // Explicit SIMULATED steady samples arm the real recognizer after its calm interval.
+    for (int index = 0; index <= 6; ++index) {
+        sample.stamp.sampled_at_us = 1000000 + index * 100000;
+        require(!CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true),
+            "steady gravity must not produce shake navigation");
+    }
+    sample.stamp.sampled_at_us += 50000;
+    sample.acceleration_mps2[CODY::Axis::X] = 12;
+    require(!CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true),
+        "a single lift or acceleration peak must not produce navigation");
+    require(!CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true),
+        "a repeated canonical sample cannot supply another shake peak");
+    sample.acceleration_mps2[CODY::Axis::X] = 0;
+    sample.stamp.sampled_at_us += 50000;
+    CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true);
+    sample.acceleration_mps2[CODY::Axis::X] = -12;
+    sample.stamp.sampled_at_us += 50000;
+    require(!CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true),
+        "two opposing peaks are insufficient for deliberate shake navigation");
+    sample.acceleration_mps2[CODY::Axis::X] = 0;
+    sample.stamp.sampled_at_us += 50000;
+    CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true);
+    sample.acceleration_mps2[CODY::Axis::X] = 12;
+    sample.stamp.sampled_at_us += 50000;
+    require(CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true),
+        "three distinct opposing peaks after calm must admit one deliberate shake");
+    CODY::suspend_companion_shake(shake, sample.stamp.sampled_at_us);
+    sample.stamp.sampled_at_us += 50000;
+    require(!CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true),
+        "wake-causing motion must settle before it can navigate");
+    sample.stamp.health = CODY::SampleHealth::Stale;
+    require(!CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true),
+        "stale canonical IMU data must never navigate");
 }
 
 // component: Host-only measured fixture used to exercise the actual HUD formatter.
@@ -531,6 +616,7 @@ void damage_contracts()
 // Exception: Host framebuffer allocations may throw std::bad_alloc.
 int main()
 {
+    companion_navigation_gesture_contracts();
     require(CODY::rig_control_at({158, 47}) == CODY::RigControl::None &&
             CODY::rig_control_at({233, 47}) == CODY::RigControl::None &&
             CODY::rig_control_at({308, 47}) == CODY::RigControl::None,

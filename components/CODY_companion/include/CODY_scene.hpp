@@ -2,8 +2,12 @@
 
 #include "CODY2D_text.hpp"
 #include "CODY_dirty_plan.hpp"
+#include "CODY_activity_overlay.hpp"
 
 namespace CODY {
+
+struct ActivityDescriptionState;
+struct ActivityIdentityState;
 
 // Explicit IDs do not change if authoring declarations are reordered.
 enum class SceneId : uint16_t {
@@ -88,6 +92,17 @@ struct SceneFrame {
     uint32_t entrance_elapsed_us = 0;
     // Retitling restarts text without replaying the cloud's entrance placement.
     uint64_t text_elapsed_us = 0;
+    ActivityOverlayFrame activity_overlay{};
+    // Stable route-owned description; its revision is captured independently of mutable storage.
+    const ActivityDescriptionState *activity_description = nullptr;
+    uint32_t activity_description_revision = 0;
+    const ActivityIdentityState *activity_identity = nullptr;
+    uint32_t activity_identity_revision = 0;
+    uint64_t activity_identity_timer_seconds = 0;
+    uint16_t activity_identity_offset = 0;
+    uint8_t activity_identity_opacity = 0;
+    bool activity_identity_branch = false;
+    bool activity_identity_timer_visible = false;
     bool valid = false;
 };
 
@@ -112,6 +127,16 @@ esp_err_t begin_scene(const SceneDefinition &definition, SceneFrame &frame);
 // frame: Prepared reusable layout; geometry and optional content stay owned by it.
 // title: Immutable ASCII text retained until all frames referencing it retire.
 esp_err_t set_scene_title(SceneFrame &frame, CODY2D::TextSpan title);
+
+// frame: Prepared scene retaining the absolute activity layer and its active clock.
+// state: Authenticated activity or Hidden when unavailable, stale, disconnected or idle.
+// Exception: Returns invalid scene or activity identity without changing the frame.
+esp_err_t set_scene_activity_overlay(SceneFrame &frame, ActivityOverlayState state);
+
+// frame: Serialized current scene receiving bounded identity visual keys for damage planning.
+// identity: Stable route-owned native captions, or nullptr to clear the identity and timer.
+// revision: Monotonic owner generation changed by new identity text, retained across view resets.
+void capture_scene_activity_identity(SceneFrame &frame, const ActivityIdentityState *identity, uint32_t revision);
 
 // frame: Current prepared scene; unchanged if the request is invalid.
 // active_delta_us: Nonnegative animation time, excluding pause and standby intervals.

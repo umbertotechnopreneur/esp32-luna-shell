@@ -67,15 +67,19 @@ esp_err_t retain_sleep_outputs()
 }
 
 // wake_after_us: Optional timer; normal Release inactivity passes zero.
+// Exception: Returns original canonical readiness, GPIO or sleep-source configuration errors.
 esp_err_t prepare_sleep(uint64_t wake_after_us)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
-    const auto snapshot = LUNASHELL::DeviceSnapshotService::instance().snapshot();
-    if (snapshot.ui.touch.health != LUNASHELL::DeviceHealth::Ready) {
+    // Touch readiness does not require copying audio, inventories or growing CCP schemas
+    // onto the power task's nested sleep call chain.
+    LUNASHELL::ComponentSnapshot touch;
+    ESP_RETURN_ON_ERROR(LUNASHELL::DeviceSnapshotService::instance()
+        .readTouchHealthObservation(touch), kTag, "Read canonical touch wake readiness");
+    if (touch.health != LUNASHELL::DeviceHealth::Ready) {
         ESP_LOGE(kTag, "Deep-sleep rejected: touch wake unavailable (%s)",
-                 esp_err_to_name(snapshot.ui.touch.last_error));
-        return snapshot.ui.touch.last_error != ESP_OK
-            ? snapshot.ui.touch.last_error : ESP_ERR_INVALID_STATE;
+                 esp_err_to_name(touch.last_error));
+        return touch.last_error != ESP_OK ? touch.last_error : ESP_ERR_INVALID_STATE;
     }
     uint64_t wake_pins = 1ULL << kTouchInterrupt;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_IMU

@@ -760,6 +760,10 @@ void writeCodexLink(
     (void)json.quoted(activity.chat_id);
     (void)json.raw(",\"project\":");
     (void)json.quoted(activity.project);
+    (void)json.raw(",\"branch\":");
+    (void)json.quoted(activity.branch);
+    (void)json.raw(",\"description\":");
+    (void)json.quoted(activity.description);
     (void)json.format(",\"revision\":%llu}", static_cast<unsigned long long>(activity.revision));
     (void)json.raw("}");
 }

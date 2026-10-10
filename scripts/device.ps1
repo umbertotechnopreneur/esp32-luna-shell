@@ -46,6 +46,7 @@ param(
     [switch]$CloudJellyStudy,
     [switch]$MeshOverlay,
     [switch]$Ccp,
+    [switch]$ActivityPreview,
     [string]$PythonExecutable,
     [string]$Skin,
     [string]$Check = 'cody-alpha',

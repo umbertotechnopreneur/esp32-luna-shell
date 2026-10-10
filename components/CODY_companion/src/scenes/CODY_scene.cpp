@@ -1,4 +1,6 @@
 #include "CODY_scene.hpp"
+#include "CODY_activity_description.hpp"
+#include "CODY_activity_identity.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -12,6 +14,27 @@ namespace {
 constexpr char kTag[] = "CODY_scene";
 constexpr int32_t kCenter = 233;
 constexpr int32_t kRadiusSquared = kCenter * kCenter;
+constexpr uint32_t kActivityCycleUs = kActivityOverlayCycleUs;
+constexpr uint32_t kResponseAccentUs = kActivityOverlayResponseUs;
+constexpr uint32_t kActivityPaintStepUs = 50000;
+// state: Typed presentation identity admitted by the authenticated activity owner.
+bool valid_activity_overlay_state(ActivityOverlayState state)
+{
+    return state == ActivityOverlayState::Hidden || state == ActivityOverlayState::Working ||
+        state == ActivityOverlayState::Waiting || state == ActivityOverlayState::ResponseReady ||
+        state == ActivityOverlayState::Compacting;
+}
+
+// frame: Active-time overlay state; completed response accents stop producing damage.
+uint32_t activity_paint_tick(const ActivityOverlayFrame &frame)
+{
+    if (frame.state == ActivityOverlayState::Hidden) {
+        return 0;
+    }
+    return std::min(frame.elapsed_us,
+        frame.state == ActivityOverlayState::ResponseReady ? kResponseAccentUs : kActivityCycleUs) /
+        kActivityPaintStepUs;
+}
 
 // bounds: Nonempty half-open logical rectangle, including every visible content pixel.
 bool inside_circle(const DamageRect &bounds)
@@ -40,6 +63,37 @@ DamageRect text_bounds(const CODY2D::TextLine &line)
         static_cast<uint16_t>(line.bounds.y + line.bounds.height)};
 }
 } // namespace
+
+// frame: Prepared scene retaining the absolute activity layer and its active clock.
+// state: Authenticated activity or Hidden when unavailable, stale, disconnected or idle.
+// Exception: Returns invalid scene or activity identity without changing the frame.
+esp_err_t set_scene_activity_overlay(SceneFrame &frame, ActivityOverlayState state)
+{
+    if (!frame.valid || frame.definition == nullptr || !valid_activity_overlay_state(state)) {
+        ESP_LOGE(kTag, "Activity overlay state rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (frame.activity_overlay.state != state) {
+        frame.activity_overlay = {state, 0};
+    }
+    return ESP_OK;
+}
+
+// frame: Serialized current scene receiving bounded identity visual keys for damage planning.
+// identity: Stable route-owned native captions, or nullptr to clear the identity and timer.
+// revision: Monotonic owner generation changed by new identity text, retained across view resets.
+void capture_scene_activity_identity(SceneFrame &frame, const ActivityIdentityState *identity, uint32_t revision)
+{
+    // Retired frames keep their numeric visual keys when current route-owned text advances.
+    frame.activity_identity = identity;
+    frame.activity_identity_revision = identity ? revision : 0;
+    frame.activity_identity_timer_seconds = identity ? identity->timer_seconds : 0;
+    frame.activity_identity_timer_visible = identity && identity->timer_visible;
+    frame.activity_identity_offset = identity ?
+        (identity->branch_visible ? identity->branch_offset : identity->project_offset) : 0;
+    frame.activity_identity_opacity = identity ? identity->opacity : 0;
+    frame.activity_identity_branch = identity && identity->branch_visible;
+}
 
 // identity: Named generic scene, not a table position; demo has its own existing route.
 // definition: Receives an immutable flash-owned definition on success only.
@@ -229,6 +283,13 @@ esp_err_t advance_scene(SceneFrame &frame, int64_t active_delta_us)
         return presentation_error;
     }
     SceneFrame next = frame;
+    if (next.activity_overlay.state == ActivityOverlayState::ResponseReady) {
+        next.activity_overlay.elapsed_us = static_cast<uint32_t>(std::min<uint64_t>(
+            static_cast<uint64_t>(next.activity_overlay.elapsed_us) + active_delta_us, kResponseAccentUs));
+    } else if (next.activity_overlay.state != ActivityOverlayState::Hidden) {
+        next.activity_overlay.elapsed_us = static_cast<uint32_t>(
+            (static_cast<uint64_t>(next.activity_overlay.elapsed_us) + active_delta_us) % kActivityCycleUs);
+    }
     int64_t remaining_us = active_delta_us;
     // At most two phases are consumed, even after a delayed frame. Only time
     // left after full visibility belongs to the typewriter clock.
@@ -385,6 +446,13 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
     }
     const bool title_changed = previous.title.text.characters != current.title.text.characters ||
         previous.title.text.length != current.title.text.length;
+    if (previous.activity_overlay.state != current.activity_overlay.state ||
+        activity_paint_tick(previous.activity_overlay) != activity_paint_tick(current.activity_overlay)) {
+        const esp_err_t overlay_error = include_damage(plan, activity_overlay_bounds());
+        if (overlay_error != ESP_OK) {
+            return overlay_error;
+        }
+    }
     if (title_changed) {
         // Retitling can re-center or shrink. Clear the entire old extent, not
         // just the new prefix; the last completed frame still borrows old text.
@@ -421,6 +489,35 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
         return error;
     }
     const bool visibility_changed = old_presentation.content_visible != new_presentation.content_visible;
+    if (previous.activity_description != current.activity_description ||
+        previous.activity_description_revision != current.activity_description_revision ||
+        (visibility_changed && (previous.activity_description != nullptr || current.activity_description != nullptr))) {
+        error = include_damage(plan, {73, 360, 393, 388});
+        if (error != ESP_OK) {
+            return error;
+        }
+    }
+    if (previous.activity_identity != current.activity_identity ||
+        previous.activity_identity_revision != current.activity_identity_revision ||
+        previous.activity_identity_offset != current.activity_identity_offset ||
+        previous.activity_identity_opacity != current.activity_identity_opacity ||
+        previous.activity_identity_branch != current.activity_identity_branch ||
+        (visibility_changed && (previous.activity_identity != nullptr || current.activity_identity != nullptr))) {
+        error = include_damage(plan, {73, 300, 393, 328});
+        if (error != ESP_OK) {
+            return error;
+        }
+    }
+    if (previous.activity_identity != current.activity_identity ||
+        previous.activity_identity_timer_visible != current.activity_identity_timer_visible ||
+        (current.activity_identity_timer_visible &&
+         previous.activity_identity_timer_seconds != current.activity_identity_timer_seconds) ||
+        (visibility_changed && (previous.activity_identity != nullptr || current.activity_identity != nullptr))) {
+        error = include_damage(plan, {153, 330, 313, 358});
+        if (error != ESP_OK) {
+            return error;
+        }
+    }
     if (visibility_changed ||
         old_content.revision != new_content.revision || old_content.state != new_content.state ||
         old_content.draw_rows != new_content.draw_rows || old_content.bounds.left != new_content.bounds.left ||
@@ -475,9 +572,15 @@ esp_err_t draw_scene_rows(const SceneFrame &frame, CODY2D::Surface strip,
     if (presentation_error != ESP_OK || !presentation.content_visible) {
         return presentation_error;
     }
-    const esp_err_t error = frame.definition->title_visible
+    esp_err_t error = frame.definition->title_visible
         ? CODY2D::draw_text_rows(frame.title, frame.visible_characters, strip, first_row, first_column)
         : ESP_OK;
+    if (error == ESP_OK && frame.activity_description != nullptr) {
+        error = draw_activity_description(*frame.activity_description, strip, first_row, first_column);
+    }
+    if (error == ESP_OK && frame.activity_identity != nullptr) {
+        error = draw_activity_identity(*frame.activity_identity, strip, first_row, first_column);
+    }
     if (error != ESP_OK || frame.content.draw_rows == nullptr) {
         return error;
     }

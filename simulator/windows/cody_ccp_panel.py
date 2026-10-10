@@ -7,13 +7,28 @@ import sys
 import re
 import tkinter as tk
 from dataclasses import replace
+from datetime import datetime
+from pathlib import Path
 from tkinter import messagebox, ttk
 
 from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
 from cody_ccp_event_view import EventView
-from cody_native import NativePersonalityPainter
+from cody_native import NativePersonalityPainter, NativePanelInputs, NativePanelMetric, NativePanelObservation
 from cody_native_debug import render_debug_channels
 from cody_personality import PersonalityPresentation
+from runtime_paths import resolve_runtime_output
+
+
+# point: Logical desktop projection before the acquired integer coordinate boundary.
+# Returns the acquired pixel or unavailable outside the round display; no clipping is invented.
+# Raises ValueError for unsupported numeric pointer coordinates.
+def acquired_touch_pixel(point):
+    if point is None:
+        return None
+    x, y = point
+    if (x - 233) ** 2 + (y - 233) ** 2 > 233 ** 2:
+        return None
+    return round(x), round(y)
 
 
 # snapshot: One isolated, authenticated simulator observation, never a firmware snapshot.
@@ -44,9 +59,10 @@ def presentation(snapshot: SimulatorSnapshot, code: str) -> tuple[str, str, tupl
                   "running": "working", "ready": "response-ready", "paused": "session-paused",
                   "interrupted": "session-paused", "ended": "session-ended",
                   "unavailable": "activity-unavailable"}
-    # The protocol permits 24 project characters; the native caption slot holds 21.
-    lines = tuple(snapshot.project[offset:offset + 21] for offset in range(0, len(snapshot.project), 21))
-    return identities[snapshot.phase], "", lines
+    titles = {"working": "Working", "editing": "Editing code", "running": "Running command",
+              "paused": "Waiting for you", "ready": "Reply ready"}
+    # Native identity rendering measures full bounded project/branch names in the fixed row.
+    return identities[snapshot.phase], titles.get(snapshot.phase, ""), ()
 
 
 class CcpPanel:
@@ -69,6 +85,22 @@ class CcpPanel:
         self._display_code = ""
         self._frame_key = None
         self._frame = None
+        self._activity_phase_key = None
+        self._activity_description_key = None
+        self._activity_overlay_elapsed_us = 0
+        self._activity_description_elapsed_us = 0
+        self._activity_clock = time.monotonic()
+        self._activity_observation_clock_us = 0
+        self._activity_identity_key = None
+        self._activity_identity_elapsed_us = 0
+        self._operation_elapsed_us = -1
+        self._admitted_phase = "none"
+        self._companion_panel = 0
+        self._panel_started = time.monotonic()
+        self._gesture_point = None
+        self._gesture_rotation = 0
+        self._passive_visible = False
+        self._shake_jobs = []
         self._debug_mode = "normal"
         self._debug_scroll = 0
         self._debug_press = None
@@ -80,6 +112,18 @@ class CcpPanel:
         self._last_base_values = None
         self._debug_base_values = None
         self._route_face_state = None
+        self.activity_preview = tk.BooleanVar(value=False)
+        self.preview_phase = tk.StringVar(value="working")
+        self.preview_scenario = tk.StringVar(value="Normal")
+        self.preview_project = tk.StringVar(value="ESP32 Luna Shell")
+        self.preview_branch = tk.StringVar(value="codex/audio-settings")
+        self.preview_description = tk.StringVar(value="Updating Cody audio cues and quiet-hours settings, then preparing the firmware for the device with clearer activity feedback and a distraction-free desktop experience.")
+        self.preview_message = tk.StringVar(value="Preview is off. Synthetic metadata never enters the CCP endpoint.")
+        self._preview_snapshot = None
+        self._preview_saved_follow = True
+        self._preview_saved_playing = True
+        self._preview_capture_due = None
+        self._preview_capture_delay_ms = None
         section = window.add_section(parent, "SIMULATED / CCP1",
             "Real CCP packets on this PC. This identity belongs only to Cody Studio.")
         ttk.Checkbutton(section, text="Show CCP on the display", variable=self.follow).pack(anchor="w")
@@ -99,6 +143,30 @@ class CcpPanel:
         ttk.Label(section, style="Muted.TLabel", wraplength=310,
             text="In Codex, explicitly ask to connect the SIMULATED Cody Studio and give its visible code. "
                  "The latest genuine user prompt selects the chat. Clicking a tab does not send a prompt.").pack(fill="x", pady=(16, 0))
+        preview = window.add_section(parent, "SIMULATED / Activity preview",
+            "Local synthetic metadata through the shared C++ renderer. No pairing or packets are required; the authenticated endpoint remains separate.")
+        ttk.Checkbutton(preview, text="Show SIMULATED activity preview", variable=self.activity_preview,
+                        command=self.change_preview).pack(anchor="w")
+        ttk.Label(preview, text="SIMULATED technical scenario").pack(anchor="w", pady=(12, 2))
+        scenarios = ttk.Combobox(preview, textvariable=self.preview_scenario, state="readonly",
+            values=("Normal", "Attention", "Reply ready", "Nearly full", "Long compaction",
+                    "Refreshed / pending", "Counters updated", "Missing / stale", "Model changed", "Link lost", "Custom"))
+        scenarios.pack(fill="x")
+        scenarios.bind("<<ComboboxSelected>>", self.select_preview_scenario)
+        ttk.Button(preview, text="SIMULATED shake: return Home", command=self.simulate_shake).pack(fill="x", pady=(8, 4))
+        ttk.Label(preview, text="Phase").pack(anchor="w", pady=(12, 2))
+        phase = ttk.Combobox(preview, textvariable=self.preview_phase, state="readonly",
+            values=("active", "working", "editing", "running", "ready", "paused", "interrupted", "ended", "unavailable", "none"))
+        phase.pack(fill="x")
+        phase.bind("<<ComboboxSelected>>", self.apply_preview)
+        for label, variable in (("Project", self.preview_project), ("Branch", self.preview_branch),
+                                ("Description (printable ASCII, up to 192 characters)", self.preview_description)):
+            ttk.Label(preview, text=label, wraplength=310).pack(anchor="w", pady=(8, 2))
+            ttk.Entry(preview, textvariable=variable).pack(fill="x")
+        ttk.Button(preview, text="Apply / replay preview", command=self.apply_preview).pack(fill="x", pady=(12, 4))
+        self.preview_capture_button = ttk.Button(preview, text="Save annotated preview PNG", command=self.save_preview, state="disabled")
+        self.preview_capture_button.pack(fill="x")
+        ttk.Label(preview, textvariable=self.preview_message, style="Muted.TLabel", wraplength=310).pack(fill="x", pady=(8, 0))
         try:
             self.window.renderer.require_native()
             self.endpoint.start()
@@ -261,47 +329,340 @@ class CcpPanel:
     def change_network(self):
         self.act("network", self.network.get())
 
-    # self: Authenticated-state preview using existing authored scenes and exact font coverage.
+    # self: Explicit host-only preview switch; authenticated endpoint state is never modified.
+    # Exceptions: Invalid synthetic values stay visible and prevent preview admission.
+    def change_preview(self):
+        if self.activity_preview.get():
+            self._preview_saved_follow = self.follow.get()
+            self._preview_saved_playing = self.window.playing.get()
+            self.apply_preview()
+            if self._preview_snapshot is None:
+                self.activity_preview.set(False)
+        else:
+            self._preview_snapshot = None
+            self._preview_capture_due = None
+            self._preview_capture_delay_ms = None
+            self.follow.set(self._preview_saved_follow)
+            self.window.playing.set(self._preview_saved_playing)
+            self.preview_capture_button.configure(state="disabled")
+            self.preview_message.set("Preview is off. Showing the actual SIMULATED CCP endpoint.")
+            self._route_key = None
+            self._frame_key = None
+
+    # self: Rendering-only synthetic input owner, separate from pairing, packets and snapshots.
+    # event: Optional Tk selection event; no remote or firmware command is admitted.
+    # Exceptions: Rejected text or phase is shown without substituting a default.
+    def apply_preview(self, event=None):
+        if not self.activity_preview.get():
+            return
+        if event is not None:
+            self.preview_scenario.set("Custom")
+        values = (("Project", self.preview_project.get(), 64), ("Branch", self.preview_branch.get(), 64),
+                  ("Description", self.preview_description.get(), 192))
+        for label, value, maximum in values:
+            if len(value) > maximum or any(not 32 <= ord(character) <= 126 for character in value):
+                self.preview_message.set(f"{label} rejected: use at most {maximum} printable ASCII characters.")
+                return
+        phase = self.preview_phase.get()
+        if phase not in {"none", "active", "working", "editing", "running", "ready", "paused", "interrupted", "ended", "unavailable"}:
+            self.preview_message.set("Preview phase rejected: select an actual activity phase.")
+            return
+        # This value belongs only to the rendering path. Never publish or persist
+        # it in SimulatorEndpoint, its authenticated packets or firmware snapshots.
+        self._preview_snapshot = SimulatorSnapshot(source="SIMULATED PREVIEW", state=LinkState.CONNECTED,
+            network_ready=True, retained_pairing=True, phase=phase, project=self.preview_project.get(), branch=self.preview_branch.get(),
+            description=self.preview_description.get(), chat="f" * 64, activity_valid=True)
+        if self.preview_scenario.get() == "Link lost":
+            self._preview_snapshot = replace(self._preview_snapshot, state=LinkState.DISCOVERING, activity_valid=False)
+        self._route_key = None
+        self._frame_key = None
+        self._activity_phase_key = None
+        self._activity_description_key = None
+        self._activity_identity_key = None
+        self._activity_overlay_elapsed_us = 0
+        self._activity_description_elapsed_us = 0
+        self._activity_identity_elapsed_us = 0
+        self.window.renderer.require_native().observe_activity("none", "", False,
+            self._activity_observation_clock_us)
+        self._activity_clock = time.monotonic()
+        self._panel_started = self._activity_clock
+        self.follow.set(True)
+        self.window.playing.set(True)
+        self.preview_capture_button.configure(state="normal")
+        self.preview_message.set(f"SIMULATED preview: {phase}. Replay restarts native fade, marquee and operation clocks.")
+
+    # self: Explicit synthetic scenario owner, never an endpoint or firmware data writer.
+    # event: Optional Tk selection event; its contents are not used as telemetry.
+    # Exceptions: Original preview metadata rejection remains visible through apply_preview.
+    def select_preview_scenario(self, event=None):
+        phases = {"Attention": "paused", "Reply ready": "ready", "Long compaction": "working",
+                  "Refreshed / pending": "working", "Counters updated": "working", "Missing / stale": "unavailable"}
+        self.preview_phase.set(phases.get(self.preview_scenario.get(), "working"))
+        self.apply_preview()
+
+    # self: Rendering-only DTO owner for visibly synthetic technical observations.
+    # snapshot: Isolated preview metadata; never the live authenticated endpoint.
+    # elapsed_us: Real active presentation elapsed used only to animate synthetic durations.
+    # Returns native typed facts; all invented counters are confined to this explicit preview.
+    def preview_panel_inputs(self, snapshot, elapsed_us):
+        inputs = NativePanelInputs()
+        for name, value in (("project", snapshot.project), ("branch", snapshot.branch),
+                            ("description", snapshot.description), ("chat_id", snapshot.chat),
+                            ("model", "SIMULATED-model-v2" if self.preview_scenario.get() == "Model changed" else "SIMULATED-model-v1")):
+            setattr(inputs, name, value.encode("ascii"))
+        phases = ("none", "active", "working", "editing", "running", "ready", "paused", "interrupted", "ended", "unavailable")
+        inputs.phase = phases.index(snapshot.phase)
+        inputs.simulated = True
+        inputs.connected = snapshot.state == LinkState.CONNECTED
+        inputs.link = 1 if inputs.connected else 2
+        inputs.activity = 1 if snapshot.activity_valid else 2
+        inputs.model_state = 1
+        inputs.activity_age_us = NativePanelMetric(elapsed_us, 1)
+        inputs.turn_elapsed_us = NativePanelMetric(elapsed_us, 1)
+        scenario = self.preview_scenario.get()
+        if scenario == "Long compaction":
+            inputs.compaction = 1
+            inputs.compaction_elapsed_us = NativePanelMetric(90000000 + elapsed_us, 1)
+        elif scenario in {"Refreshed / pending", "Counters updated"}:
+            inputs.compaction = 2
+            inputs.counters_pending = scenario == "Refreshed / pending"
+        if scenario in {"Nearly full", "Counters updated"}:
+            inputs.used = NativePanelMetric(118000 if scenario == "Nearly full" else 78000, 1)
+            inputs.capacity = NativePanelMetric(128000, 1)
+            inputs.threshold = NativePanelMetric(115000, 1)
+            inputs.cumulative = NativePanelMetric(180000, 1)
+            inputs.usage_age_us = NativePanelMetric(elapsed_us, 1)
+            inputs.context_coherent = True
+        elif scenario == "Missing / stale":
+            inputs.model_state = 2
+            inputs.activity = 2
+            inputs.activity_age_us = NativePanelMetric(130000000 + elapsed_us, 2)
+        elif scenario == "Link lost":
+            inputs.model_state = 2
+            inputs.activity_age_us = NativePanelMetric(elapsed_us, 2)
+        return inputs
+
+    # self: Live Studio projection owner using the firmware's canonical age and panel mapper.
+    # snapshot: Authenticated endpoint observation with separate transport/source ages.
+    # Returns raw facts only; source aging and presentation validity belong to shared C++.
+    def panel_observation(self, snapshot):
+        observation = NativePanelObservation()
+        technical = snapshot.technical
+        for name, value in (("project", snapshot.project), ("branch", snapshot.branch),
+                            ("description", snapshot.description), ("chat_id", snapshot.chat),
+                            ("technical_chat_id", technical.chat if technical else ""),
+                            ("model", technical.model if technical else ""), ("effort", "")):
+            setattr(observation, name, value.encode("ascii"))
+        phases = ("none", "active", "working", "editing", "running", "ready", "paused", "interrupted", "ended", "unavailable")
+        compactions = ("none", "active", "refreshed", "orphaned", "interrupted", "stale")
+        observation.phase = phases.index(snapshot.phase)
+        observation.compaction = compactions.index(technical.compaction.value) if technical else 0
+        observation.connected = snapshot.state == LinkState.CONNECTED and snapshot.network_ready
+        observation.link_valid = bool(snapshot.retained_pairing)
+        observation.link_stale = not observation.connected
+        observation.activity_valid = snapshot.activity_valid
+        observation.activity_stale = not snapshot.activity_valid
+        observation.technical_valid = snapshot.technical_valid
+        observation.receipt_age_us = max(0, snapshot.technical_age_ms or 0) * 1000
+        if technical is not None:
+            for field, source in (("model", technical.model_age_ms), ("compaction", technical.compaction_age_ms),
+                                  ("activity", technical.activity_age_ms), ("turn_elapsed", technical.turn_elapsed_ms)):
+                valid_name = "model_valid" if field == "model" else field + "_age_valid" if field in {"compaction", "activity"} else "turn_elapsed_valid"
+                setattr(observation, valid_name, source is not None)
+                setattr(observation, field + "_age_us" if field != "turn_elapsed" else "turn_elapsed_us", (source or 0) * 1000)
+            observation.compaction_valid = technical.compaction.value != "none"
+        return observation
+
+    # self: Explicit CLI preview owner; the visible simulator remains open after its one native capture.
+    # delay_ms: Real host animation time requested through the public simulator AtMs option.
+    # Raises ValueError for a negative or non-integer capture delay.
+    def start_cli_preview(self, delay_ms):
+        if type(delay_ms) is not int or delay_ms < 0:
+            raise ValueError("SIMULATED preview capture delay must be a non-negative integer")
+        self.activity_preview.set(True)
+        self.change_preview()
+        if self._preview_snapshot is not None:
+            self._preview_capture_delay_ms = delay_ms
+
+    # self: Saves only the most recently rendered explicit synthetic frame using the existing capture sheet.
+    # Exceptions: Native, filesystem and Tk errors remain visible; no substitute image is generated.
+    def save_preview(self):
+        if (not self.activity_preview.get() or self._frame is None or self._frame_key is None
+                or self._frame_key[0] != "ccp-preview"):
+            self.preview_message.set("No SIMULATED preview frame is available yet.")
+            return
+        try:
+            phase = self._preview_snapshot.phase
+            name = f"ccp-activity-preview-{datetime.now():%Y%m%d-%H%M%S-%f}-{phase}.png"
+            destination = resolve_runtime_output(Path(name))
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            rotation = self.window.rotation.get()
+            if rotation not in (0, 90, 180, 270):
+                raise ValueError(f"Unsupported capture rotation: {rotation}")
+            image = self._frame[0].copy().rotate(-rotation)
+            seconds = self._activity_overlay_elapsed_us / 1000000
+            caption = f"CCP preview / {phase} / {seconds:.1f}s / {rotation} deg"
+            self.window.renderer.capture_sheet(image, caption).save(destination)
+            self.preview_message.set(f"Saved actual shared-renderer frame:\n{destination}")
+            print(destination, flush=True)
+        except (OSError, RuntimeError, ValueError, tk.TclError) as error:
+            self.preview_message.set(f"SIMULATED preview capture failed: {error}")
+            print(f"SIMULATED preview capture failed: {error}", file=sys.stderr, flush=True)
+
+    # self: Existing authored scenes with authenticated metadata or an explicitly isolated synthetic preview.
     # rotation: Cardinal display rotation; the parent rotates the complete image.
     # Returns an image, its evaluated cloud and a semantic render key.
     # Raises ValueError for invalid authored geometry, bounded text or protocol state.
     def render(self, rotation):
         self.refresh()
-        snapshot, code = self._snapshot, self._display_code
-        if self._debug_mode != "normal":
+        preview = self.activity_preview.get() and self._preview_snapshot is not None
+        snapshot, code = (self._preview_snapshot, "") if preview else (self._snapshot, self._display_code)
+        if not preview and self._debug_mode != "normal":
             return self.render_debug(rotation)
-        if self.events.visible(snapshot, self.endpoint):
+        if not preview and self.events.visible(snapshot, self.endpoint):
+            self.window.renderer.require_native().pause_activity()
+            # Interaction dwell pauses both observed work and local identity/purpose animation clocks.
+            self._activity_clock = time.monotonic()
             result = self.events.render(snapshot, self.window, rotation, self.prepare_personality, self.compose_scene)
             return result
-        identity, title, lines = presentation(snapshot, code)
+        self.update_activity_observation(snapshot)
+        identity, title, lines = presentation(replace(snapshot, phase=self._admitted_phase), code)
+        compacting = self.is_compacting(snapshot, preview)
+        if compacting:
+            identity, title, lines = "working", "Compacting context", ()
         painter = self.window.renderer.scene_painter
         definition = painter.definition(identity)
         title = title or definition["title"]["text"]
-        route_key = (identity, title, lines, code)
+        route_key = (identity, title, lines, code, self._companion_panel)
         if route_key != self._route_key:
             self._route_key, self._route_started = route_key, time.monotonic()
         elapsed = (time.monotonic() - self._route_started) * 1000
         count = max(0, int(elapsed / 45))
         total = len(title) + sum(len(line) for line in lines)
-        key = ("ccp", route_key, min(count, total), rotation, round(elapsed / 33))
+        self._passive_visible = bool(self._companion_panel or count >= total)
+        key = ("ccp-preview" if preview else "ccp", route_key, min(count, total), rotation, round(elapsed / 33))
         cloud = definition["cloud"]
         placement = painter.cloud_transform(identity, elapsed)
         scene, values = self.compose_scene(painter.face(identity), placement, rotation)
-        exclusions = [(73, 210, 393, 240), (73, 266, 393, 330), (73, 334, 393, 365), (73, 420, 393, 445)]
-        self.prepare_personality(snapshot, identity, scene, cloud["scale"], rotation, elapsed, exclusions)
+        if self._companion_panel:
+            panel_elapsed = max(0, round((time.monotonic() - self._panel_started) * 1000000))
+            native = self.window.renderer.require_native()
+            if preview:
+                native.prepare_companion_panel(scene, self._companion_panel,
+                    self.preview_panel_inputs(snapshot, panel_elapsed), panel_elapsed)
+            else:
+                native.prepare_companion_observation(scene, self._companion_panel,
+                    self.panel_observation(snapshot), panel_elapsed)
+        else:
+            self.prepare_activity(snapshot, scene, compacting)
+        exclusions = [(73, 210, 393, 250), (73, 300, 393, 328), (153, 330, 313, 358),
+                      (73, 360, 393, 388), (73, 420, 393, 445), (324, 118, 374, 179)]
+        if not self._companion_panel:
+            self.prepare_personality(snapshot, identity, scene, cloud["scale"], rotation, elapsed, exclusions)
+        elif self._native_personality is not None:
+            self._native_personality.disable(elapsed)
+            self.window.renderer.personality_painter = None
         image = self.window.renderer.draw_scene(scene, debug=False, navigation_visible=False,
                                                 background_rgb565=definition["background_rgb565"]).convert("RGB")
         # A changing packet counter never restarts the text clock. Code is a complete static control value.
-        painter.paint_text(image, title, 210, definition["title"]["color_rgb565"], visible=min(len(title), count))
+        if not self._companion_panel:
+            painter.paint_text(image, title, 210, definition["title"]["color_rgb565"], visible=min(len(title), count))
         preceding = len(title)
-        for row, line in enumerate(lines):
+        for row, line in enumerate(lines if not self._companion_panel else ()):
             painter.paint_text(image, line, 266 + row * 28, body=True, visible=min(len(line), max(0, count - preceding)))
             preceding += len(line)
-        if code and count >= preceding:
+        if code and count >= preceding and not self._companion_panel:
             painter.paint_text(image, code, 334, color=2047)
-        painter.paint_text(image, "SIMULATED", 420, color=64704, body=True)
+        painter.paint_text(image, "SIMULATED PREVIEW" if preview else "SIMULATED", 420, color=64704, body=True)
         self._frame_key, self._frame = key, (image.copy(), scene)
+        if preview and self._preview_capture_delay_ms is not None:
+            self._preview_capture_due = time.monotonic() + self._preview_capture_delay_ms / 1000
+            self._preview_capture_delay_ms = None
+        if preview and self._preview_capture_due is not None and time.monotonic() >= self._preview_capture_due:
+            # The saved frame is the one just rendered by the ordinary native
+            # path; a failed capture stays visible and is never retried silently.
+            self._preview_capture_due = None
+            self.save_preview()
         return image, scene, key
+
+    # self: Persistent native observation policy; pausing animations freezes only its presentation clock.
+    # snapshot: Complete isolated CCP metadata or an explicitly SIMULATED preview.
+    # Raises ValueError or RuntimeError for genuine metadata or native policy errors.
+    def update_activity_observation(self, snapshot):
+        now = time.monotonic()
+        self._activity_delta_us = round(max(0, now - self._activity_clock) * 1000000) if self.window.playing.get() else 0
+        self._activity_clock = now
+        self._activity_observation_clock_us += self._activity_delta_us
+        current = snapshot.activity_valid and snapshot.state == LinkState.CONNECTED and snapshot.network_ready
+        self._admitted_phase, self._operation_elapsed_us = self.window.renderer.require_native().observe_activity(
+            snapshot.phase, snapshot.chat, current, self._activity_observation_clock_us)
+
+    # self: Retains only local animation clocks; metadata continues to come from the isolated CCP owner.
+    # snapshot: Authenticated SIMULATED phase and explicit purpose, never a physical-device observation.
+    # scene: Actual native frame receiving the shared C++ activity and description rastering.
+    # compacting: Authoritative current lifecycle or explicitly labelled synthetic preview.
+    # Raises ValueError or RuntimeError for invalid metadata and original native preparation errors.
+    def prepare_activity(self, snapshot, scene, compacting=False):
+        elapsed = self._activity_delta_us
+        current = snapshot.activity_valid and snapshot.state == LinkState.CONNECTED and snapshot.network_ready
+        working = current and snapshot.phase in {"working", "editing", "running"}
+        overlay = 4 if compacting else 1 if working else 2 if current and snapshot.phase == "paused" else 3 if current and snapshot.phase == "ready" else 0
+        captions = {"active": "Ready when you are", "working": "Processing your request",
+                    "editing": "Editing your code", "running": "Running a command", "ready": "Open Codex to review",
+                    "paused": "Approve on your PC", "interrupted": "Paused in Codex"}
+        description = (snapshot.description if working and snapshot.description else
+                       captions.get(self._admitted_phase, "")) if current else ""
+        if compacting:
+            description = "Refreshing working context"
+        elif (snapshot.technical_valid and snapshot.technical is not None
+                and snapshot.technical.compaction.value == "refreshed"
+                and snapshot.technical.compaction_age_ms is not None
+                and snapshot.technical.compaction_age_ms + (snapshot.technical_age_ms or 0) < 8000):
+            description = "Context refreshed"
+        elif (self.activity_preview.get() and self.preview_scenario.get() in {"Refreshed / pending", "Counters updated"}):
+            description = "Context refreshed; counts pending" if self.preview_scenario.get() == "Refreshed / pending" else "Context refreshed"
+        phase_key = (snapshot.chat, overlay, current, snapshot.phase)
+        description_key = (snapshot.chat, description, current)
+        attention = compacting or current and snapshot.phase == "paused"
+        identity_key = (snapshot.chat, snapshot.project, snapshot.branch, current, attention)
+        if phase_key != self._activity_phase_key:
+            self._activity_phase_key = phase_key
+            self._activity_overlay_elapsed_us = 0
+        else:
+            self._activity_overlay_elapsed_us = min(0xffffffff, self._activity_overlay_elapsed_us + elapsed)
+        if description_key != self._activity_description_key:
+            self._activity_description_key = description_key
+            self._activity_description_elapsed_us = 0
+        else:
+            self._activity_description_elapsed_us += elapsed
+        if identity_key != self._activity_identity_key:
+            self._activity_identity_key = identity_key
+            self._activity_identity_elapsed_us = 0
+        else:
+            self._activity_identity_elapsed_us += elapsed
+        native = self.window.renderer.require_native()
+        operation_elapsed = self._operation_elapsed_us if working else -1
+        if compacting:
+            if self.activity_preview.get():
+                operation_elapsed = 90000000 + self._activity_identity_elapsed_us
+            else:
+                operation_elapsed = (snapshot.technical.compaction_age_ms + (snapshot.technical_age_ms or 0)) * 1000
+        native.prepare_activity_identity(scene, snapshot.project if current else "", snapshot.branch if current else "",
+            self._activity_identity_elapsed_us, attention, operation_elapsed, compacting)
+        native.prepare_activity(scene, overlay,
+            self._activity_overlay_elapsed_us, description, self._activity_description_elapsed_us)
+
+    # self: Companion presentation owner; no threshold or tool-duration inference is admitted.
+    # snapshot: Genuine transport metadata or an isolated explicit preview snapshot.
+    # preview: Whether visibly synthetic scenario data was explicitly selected.
+    # Returns true only for a current genuine compact start or the named synthetic scenario.
+    def is_compacting(self, snapshot, preview):
+        if preview:
+            return self.preview_scenario.get() == "Long compaction"
+        technical = snapshot.technical
+        return bool(snapshot.technical_valid and technical is not None
+            and technical.compaction.value == "active" and technical.compaction_age_ms is not None
+            and technical.compaction_age_ms + (snapshot.technical_age_ms or 0) <= 120000)
 
     # self: Transient Debug presentation retaining the normal authored route and session preferences.
     # rotation: Same logical orientation applied to native graphics and acquired pointer coordinates.
@@ -331,24 +692,53 @@ class CcpPanel:
     # Errors are retained by the endpoint and shown without making a synthetic reply.
     def press(self, point):
         self.refresh()
-        if self._debug_mode != "normal":
+        point = acquired_touch_pixel(point)
+        preview = self.activity_preview.get() and self._preview_snapshot is not None
+        if not preview and self._debug_mode != "normal":
             self._debug_press = point
             if point is not None and (point[0] - 40) ** 2 + (point[1] - 233) ** 2 <= 900:
                 self._debug_mode = "normal"
                 self.follow.set(self._debug_normal_follow)
                 self._frame_key = None
             return
-        if self.events.visible(self._snapshot, self.endpoint):
+        if not preview and self.events.visible(self._snapshot, self.endpoint):
             try:
                 self.events.press(point, self._snapshot, self.endpoint)
             except (OSError, RuntimeError, ValueError) as error:
                 messagebox.showerror("SIMULATED CCP", str(error), parent=self.window.root)
+            return
+        snapshot = self._preview_snapshot if preview else self._snapshot
+        eligible = self._passive_visible and point is not None and (snapshot.state == LinkState.CONNECTED or snapshot.retained_pairing)
+        self._gesture_point = point
+        self._gesture_rotation = self.window.display_rotation
+        if point is None:
+            self.window.renderer.require_native().cancel_companion_tap()
+            return
+        self.window.renderer.require_native().observe_companion_tap(point[0], point[1], True, True,
+            round(time.perf_counter() * 1000000), self._gesture_rotation, eligible, False)
+
+    # self: Retained native contact recognizer; movement never selects a panel directly.
+    # point: Successfully projected logical pointer sample or unavailable when outside the display.
+    # Raises RuntimeError for the original shared gesture error.
+    def drag(self, point):
+        point = acquired_touch_pixel(point)
+        if self._gesture_point is None:
+            return
+        native = self.window.renderer.require_native()
+        if point is None:
+            native.cancel_companion_tap()
+            return
+        self._gesture_point = point
+        native.observe_companion_tap(point[0], point[1], True, False,
+            round(time.perf_counter() * 1000000), self.window.display_rotation, True, False)
 
     # self: Read-only PR failure-list navigation.
     # point: Logical released point; vertical swipes page complete names, never select a row.
     def release(self, point):
         self.refresh()
-        if self._debug_mode != "normal":
+        point = acquired_touch_pixel(point)
+        preview = self.activity_preview.get() and self._preview_snapshot is not None
+        if not preview and self._debug_mode != "normal":
             if (self._debug_mode == "face_channels" and point is not None and self._debug_press is not None
                     and 73 <= self._debug_press[0] < 393 and 100 <= self._debug_press[1] < 366
                     and abs(point[0] - self._debug_press[0]) <= 80):
@@ -359,10 +749,56 @@ class CcpPanel:
                     self._debug_scroll = max(0, min(count - 1, self._debug_scroll + (rows if displacement > 0 else -rows)))
             self._debug_press = None
             return
-        if self.events.visible(self._snapshot, self.endpoint):
+        if not preview and self.events.visible(self._snapshot, self.endpoint):
             self.events.release(point, self._snapshot)
+            self.window.renderer.require_native().cancel_companion_tap()
+            self._gesture_point = None
+            return
+        native = self.window.renderer.require_native()
+        if self._gesture_point is None:
+            return
+        if point is None:
+            native.cancel_companion_tap()
+        release_point = self._gesture_point
+        accepted = native.observe_companion_tap(release_point[0], release_point[1], False, False,
+            round(time.perf_counter() * 1000000), self.window.display_rotation, point is not None, False)
+        self._gesture_point = None
+        if accepted:
+            self._companion_panel = native.next_companion_panel(self._companion_panel)
+            self._panel_started = time.monotonic()
+            self._route_key = None
+
+    # self: Explicit SIMULATED motion source; a real shared recognizer alone chooses Home.
+    # Exceptions: Tk or native gesture errors remain visible and never become successful navigation.
+    def simulate_shake(self):
+        for job in self._shake_jobs:
+            self.window.root.after_cancel(job)
+        self._shake_jobs.clear()
+        # Calm samples arm the same recognizer as the device. Three alternating
+        # acquired peaks are separated by real host-clock intervals and calm samples.
+        samples = [(index * 50, 0.0) for index in range(12)]
+        samples += [(600, 12.0), (650, 0.0), (700, -12.0), (750, 0.0), (800, 12.0)]
+        for delay, acceleration in samples:
+            job = self.window.root.after(delay, self.publish_simulated_shake, acceleration)
+            self._shake_jobs.append(job)
+
+    # self: Explicit synthetic motion acquisition callback, never a physical IMU publisher.
+    # acceleration: Original finite synthetic X-axis acceleration in metres per second squared.
+    # Raises RuntimeError for the actual native recognition failure.
+    def publish_simulated_shake(self, acceleration):
+        now_us = round(time.perf_counter() * 1000000)
+        preview = self.activity_preview.get() and self._preview_snapshot is not None
+        blocked = not preview and (self._debug_mode != "normal" or self.events.visible(self._snapshot, self.endpoint))
+        if self.window.renderer.require_native().observe_companion_shake(acceleration, 0.0, 9.81,
+                now_us, now_us, self.follow.get() and not blocked):
+            self._companion_panel = 0
+            self._panel_started = time.monotonic()
+            self._route_key = None
 
     # self: Optional endpoint owner stopped before the containing Tk window is destroyed.
     # Raises RuntimeError or OSError if endpoint shutdown cannot complete.
     def close(self):
+        for job in self._shake_jobs:
+            self.window.root.after_cancel(job)
+        self._shake_jobs.clear()
         self.endpoint.close()

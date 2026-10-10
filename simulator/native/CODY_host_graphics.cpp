@@ -3,6 +3,12 @@
 #include "CODY_connection_personality.hpp"
 #include "CODY_jelly.hpp"
 #include "CODY_scene.hpp"
+#include "CODY_activity_description.hpp"
+#include "CODY_activity_identity.hpp"
+#include "CODY_activity_observation.hpp"
+#include "CODY_technical_panels.hpp"
+#include "CODY_companion_gestures.hpp"
+#include "LUNASHELL_snapshot_aging.hpp"
 #include "CODY_response.hpp"
 #include "CODY2D_controls.hpp"
 #include "CODY_debug_views.hpp"
@@ -25,11 +31,19 @@ namespace {
 struct HostScene {
     CODY::RigScene rig{};
     CODY::RigDebugStrokeCache debug{};
+    CODY::ActivityOverlayFrame activity_overlay{};
+    CODY::ActivityDescriptionState activity_description{};
+    CODY::ActivityIdentityState activity_identity{};
+    CODY::PanelPresentation companion_panel{};
+    LUNASHELL::CodexTechnicalObservation panel_observation{};
 };
 struct HostState {
     CODY::PersonalityLag personality{};
     CODY::ConnectionPersonalityState connection{};
     CODY::ResponseState response = CODY::make_response_state(CODY::Data::response);
+    CODY::ActivityObservationState activity_observation{};
+    CODY::CompanionTapState companion_tap{};
+    CODY::CompanionShakeState companion_shake{};
 };
 // Wire data contains PC-only observations. It never enters DeviceSnapshotService.
 struct HostResponseInputs {
@@ -54,6 +68,52 @@ struct HostResponseInputs {
     uint8_t idle_allowed;
     uint8_t eye;
 };
+// The PC transfers original source durations; the canonical C++ policy ages them once.
+struct HostPanelObservation {
+    const char *project;
+    const char *branch;
+    const char *description;
+    const char *chat_id;
+    const char *technical_chat_id;
+    const char *model;
+    const char *effort;
+    uint8_t phase;
+    uint8_t compaction;
+    bool connected;
+    bool link_valid;
+    bool link_stale;
+    bool activity_valid;
+    bool activity_stale;
+    bool technical_valid;
+    bool model_valid;
+    bool effort_valid;
+    bool compaction_valid;
+    bool compaction_age_valid;
+    bool activity_age_valid;
+    bool turn_elapsed_valid;
+    uint64_t model_age_us;
+    uint64_t compaction_age_us;
+    uint64_t activity_age_us;
+    uint64_t turn_elapsed_us;
+    uint64_t receipt_age_us;
+};
+
+// source: Borrowed NUL-terminated printable ASCII producer string.
+// destination: Fixed owner buffer, including terminator space.
+// Exception: Rejects original overlong or non-ASCII metadata without repairing it.
+template <size_t Size>
+esp_err_t copy_panel_source(const char *source, char (&destination)[Size])
+{
+    if (!source) { return ESP_ERR_INVALID_ARG; }
+    for (size_t index = 0; index < Size; ++index) {
+        if (source[index] == '\0') {
+            std::memcpy(destination, source, index + 1U);
+            return ESP_OK;
+        }
+        if (source[index] < 32 || source[index] > 126) { return ESP_ERR_INVALID_ARG; }
+    }
+    return ESP_ERR_INVALID_SIZE;
+}
 
 // operation: Actual host boundary operation that failed.
 // error: Original error returned by portable firmware code.
@@ -254,11 +314,308 @@ CODY_HOST_EXPORT int cody_host_draw(void *handle, uint16_t *pixels, uint32_t cap
     for (uint16_t first = 0; first < 466; first += 16) {
         const uint16_t height = std::min<uint16_t>(16, 466 - first);
         CODY2D::Surface strip{pixels + first * 466U, 466, height, 466, uint32_t(height) * 466U};
-        const esp_err_t error = CODY::draw_rig_rows(frame.rig, strip, first, debug, selected,
+        if (frame.companion_panel.valid) {
+            esp_err_t panel_error = CODY2D::clear(strip, 0);
+            if (panel_error == ESP_OK) {
+                panel_error = CODY::draw_companion_panel_rows(frame.companion_panel, strip, first, 0);
+            }
+            if (panel_error != ESP_OK) { return host_result("draw_companion_panel", panel_error); }
+            continue;
+        }
+        esp_err_t error = CODY::draw_rig_rows(frame.rig, strip, first, debug, selected,
             nullptr, paused, 0, debug ? &frame.debug : nullptr,
-            navigation_visible, navigation_opacity, background);
+            navigation_visible, navigation_opacity, background,
+            CODY::RigControlState::Idle, &frame.activity_overlay);
         if (error != ESP_OK) { return host_result("draw_rig_rows", error); }
+        if (frame.activity_description.length != 0) {
+            error = CODY::draw_activity_description(frame.activity_description, strip, first, 0);
+            if (error != ESP_OK) { return host_result("draw_activity_description", error); }
+        }
+        error = CODY::draw_activity_identity(frame.activity_identity, strip, first, 0);
+        if (error != ESP_OK) { return host_result("draw_activity_identity", error); }
     }
+    return ESP_OK;
+}
+
+// handle: Native rig owner whose absolute layer is retained through rasterization.
+// state: Shared typed activity identity derived from real or visibly SIMULATED activity.
+// elapsed_us: Active presentation clock supplied by the host route owner.
+// Exception: Returns invalid handle or unknown activity identity without changing state.
+CODY_HOST_EXPORT int cody_host_activity_overlay(void *handle, uint8_t state, uint32_t elapsed_us)
+{
+    if (!handle) {
+        return host_result("activity_overlay", ESP_ERR_INVALID_ARG);
+    }
+    const auto identity = static_cast<CODY::ActivityOverlayState>(state);
+    switch (identity) {
+    case CODY::ActivityOverlayState::Hidden:
+        elapsed_us = 0;
+        break;
+    case CODY::ActivityOverlayState::Working:
+    case CODY::ActivityOverlayState::Waiting:
+    case CODY::ActivityOverlayState::Compacting:
+        elapsed_us %= CODY::kActivityOverlayCycleUs;
+        break;
+    case CODY::ActivityOverlayState::ResponseReady:
+        elapsed_us = std::min(elapsed_us, CODY::kActivityOverlayResponseUs);
+        break;
+    default:
+        return host_result("activity_overlay", ESP_ERR_INVALID_ARG);
+    }
+    static_cast<HostScene *>(handle)->activity_overlay = {identity, elapsed_us};
+    return ESP_OK;
+}
+
+// current: Typed Home or technical identity supplied by the passive navigation owner.
+// next: Receives the shared native next-page identity.
+// Exception: Returns invalid pointer or the real native identity rejection.
+CODY_HOST_EXPORT int cody_host_panel_next(uint8_t current, uint8_t *next)
+{
+    if (!next) { return host_result("panel_next", ESP_ERR_INVALID_ARG); }
+    CODY::CompanionPanel selected = CODY::CompanionPanel::Home;
+    const esp_err_t error = CODY::next_companion_panel(static_cast<CODY::CompanionPanel>(current), selected);
+    if (error == ESP_OK) { *next = static_cast<uint8_t>(selected); }
+    return host_result("panel_next", error);
+}
+
+// handle: Native scene retaining stable technical captions until raster retirement.
+// panel: Explicit page identity; Home clears the technical layer.
+// inputs: Borrowed typed PC projection, consumed during this call only.
+// active_time_us: Nonnegative presentation clock for the indeterminate compaction accent.
+// Exception: Returns real input, metric or shared native layout errors.
+CODY_HOST_EXPORT int cody_host_panel_prepare(void *handle, uint8_t panel,
+    const CODY::PanelInputs *inputs, int64_t active_time_us)
+{
+    if (!handle || !inputs || active_time_us < 0) { return host_result("panel_prepare", ESP_ERR_INVALID_ARG); }
+    auto &owner = *static_cast<HostScene *>(handle);
+    if (panel == static_cast<uint8_t>(CODY::CompanionPanel::Home)) {
+        owner.companion_panel.valid = false;
+        return ESP_OK;
+    }
+    CODY::SceneContent content{};
+    return host_result("panel_prepare", CODY::prepare_companion_panel(
+        static_cast<CODY::CompanionPanel>(panel), *inputs, CODY::SceneData::body_font,
+        active_time_us, owner.companion_panel, content));
+}
+
+// handle: Native frame owning the canonical-shaped PC-only scratch and prepared panel.
+// panel: Explicit selected technical page; Home removes the technical layer.
+// source: Original observed metadata and source-relative ages, without synthetic counters.
+// active_time_us: Local active presentation clock for a restrained indeterminate accent.
+// Exception: Returns actual metadata, clock or shared canonical preparation failure.
+CODY_HOST_EXPORT int cody_host_panel_observation(void *handle, uint8_t panel,
+    const HostPanelObservation *source, int64_t active_time_us)
+{
+    if (!handle || !source || active_time_us < 0 || source->phase > 9 || source->compaction > 5 ||
+        source->receipt_age_us > static_cast<uint64_t>(INT64_MAX - 1)) {
+        return host_result("panel_observation", ESP_ERR_INVALID_ARG);
+    }
+    auto &owner = *static_cast<HostScene *>(handle);
+    if (panel == 0) { owner.companion_panel.valid = false; return ESP_OK; }
+    auto &observation = owner.panel_observation;
+    // Every supported field below is overwritten in place. Unsupported metric flags stay absent;
+    // an aggregate reset here would create a large nested temporary on some compilers.
+    auto &link = observation.link;
+    auto &technical = observation.technical;
+    esp_err_t error = copy_panel_source(source->project, link.activity.project);
+    if (error == ESP_OK) { error = copy_panel_source(source->branch, link.activity.branch); }
+    if (error == ESP_OK) { error = copy_panel_source(source->description, link.activity.description); }
+    if (error == ESP_OK) { error = copy_panel_source(source->chat_id, link.activity.chat_id); }
+    if (error == ESP_OK) { error = copy_panel_source(source->technical_chat_id, technical.chat_id); }
+    if (error == ESP_OK) { error = copy_panel_source(source->model, technical.model); }
+    if (error == ESP_OK) { error = copy_panel_source(source->effort, technical.effort); }
+    if (error != ESP_OK) { return host_result("panel_observation_source", error); }
+    link.state = source->connected ? LUNASHELL::CodexLinkState::Connected : LUNASHELL::CodexLinkState::Idle;
+    link.data_valid = source->link_valid;
+    link.data_stale = source->link_stale;
+    link.activity.state = static_cast<LUNASHELL::CodexActivityState>(source->phase);
+    link.activity.data_valid = source->activity_valid;
+    link.activity.data_stale = source->activity_stale;
+    technical.data_valid = source->technical_valid;
+    // A positive arbitrary receipt origin plus a duration recreates the same aging semantics.
+    // This scratch never enters DeviceSnapshotService or a physical firmware snapshot.
+    technical.received_at_us = 1;
+    technical.model_valid = source->model_valid;
+    technical.model_source = source->model_valid ? LUNASHELL::CodexModelSource::HookMetadata : LUNASHELL::CodexModelSource::Unavailable;
+    technical.model_age_at_receive_us = source->model_age_us;
+    technical.effort_valid = source->effort_valid;
+    technical.compaction = static_cast<LUNASHELL::CodexCompactionState>(source->compaction);
+    technical.compaction_valid = source->compaction_valid;
+    technical.compaction_age_valid = source->compaction_age_valid;
+    technical.compaction_age_at_receive_us = source->compaction_age_us;
+    technical.activity_age_valid = source->activity_age_valid;
+    technical.activity_age_at_receive_us = source->activity_age_us;
+    technical.turn_elapsed_valid = source->turn_elapsed_valid;
+    technical.turn_elapsed_at_receive_us = source->turn_elapsed_us;
+    const int64_t observation_time = static_cast<int64_t>(source->receipt_age_us) + 1;
+    LUNASHELL::age_codex_technical(technical, observation_time);
+    CODY::SceneContent content{};
+    error = CODY::prepare_companion_panel_from_observation(static_cast<CODY::CompanionPanel>(panel),
+        link, technical, CODY::SceneData::body_font, observation_time, owner.companion_panel, content);
+    if (error == ESP_OK) {
+        bool changed = false;
+        error = CODY::advance_companion_panel(owner.companion_panel, active_time_us, changed);
+    }
+    return host_result("panel_observation", error);
+}
+
+// handle: Persistent host recognizer owner, independent of recreated drawing frames.
+// x: Original logical acquired touch coordinate.
+// y: Original logical acquired touch coordinate.
+// pressed: Acquired contact state, including release.
+// pressed_edge: Original contact-start edge.
+// sampled_at_us: Original local acquisition time, strictly monotonic during contact.
+// rotation_degrees: Current logical display orientation.
+// eligible: Passive companion content was visible for the acquired contact.
+// consumed: Explicit controls or another gesture own this sample.
+// accepted: Receives the shared recognizer's accepted passive release.
+// Exception: Returns invalid boundary state; never invents a release or navigation.
+CODY_HOST_EXPORT int cody_host_panel_tap(void *handle, int16_t x, int16_t y, bool pressed,
+    bool pressed_edge, int64_t sampled_at_us, uint16_t rotation_degrees, bool eligible,
+    bool consumed, bool *accepted)
+{
+    if (!handle || !accepted || sampled_at_us <= 0 || rotation_degrees > 270 || rotation_degrees % 90 != 0) {
+        return host_result("panel_tap", ESP_ERR_INVALID_ARG);
+    }
+    *accepted = CODY::observe_companion_tap(static_cast<HostState *>(handle)->companion_tap,
+        x, y, pressed, pressed_edge, sampled_at_us, rotation_degrees, eligible, consumed);
+    return ESP_OK;
+}
+
+// handle: Persistent host recognizer owner.
+// Exception: Returns invalid owner; cancellation never fabricates an accepted release.
+CODY_HOST_EXPORT int cody_host_panel_cancel_tap(void *handle)
+{
+    if (!handle) { return host_result("panel_cancel_tap", ESP_ERR_INVALID_ARG); }
+    CODY::cancel_companion_tap(static_cast<HostState *>(handle)->companion_tap);
+    return ESP_OK;
+}
+
+// handle: Persistent host motion recognizer, isolated from physical snapshots.
+// x: Explicit SIMULATED acquired X acceleration in m/s2.
+// y: Explicit SIMULATED acquired Y acceleration in m/s2.
+// z: Explicit SIMULATED acquired Z acceleration in m/s2.
+// sampled_at_us: Original local synthetic acquisition timestamp.
+// now_us: Observation time used by the same canonical freshness rule.
+// active: Whether a visible awake companion view admits the motion.
+// accepted: Receives acceptance after shared calm, reversal and debounce checks.
+// Exception: Rejects invalid owner, pointers, clocks or nonfinite samples.
+CODY_HOST_EXPORT int cody_host_panel_shake(void *handle, float x, float y, float z,
+    int64_t sampled_at_us, int64_t now_us, bool active, bool *accepted)
+{
+    if (!handle || !accepted || sampled_at_us <= 0 || now_us < sampled_at_us ||
+        !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+        return host_result("panel_shake", ESP_ERR_INVALID_ARG);
+    }
+    CODY::MotionSample sample{};
+    sample.stamp = {CODY::SampleHealth::Current, CODY::InputOrigin::Simulator, sampled_at_us, ESP_OK};
+    sample.acceleration_mps2.values[0] = x;
+    sample.acceleration_mps2.values[1] = y;
+    sample.acceleration_mps2.values[2] = z;
+    *accepted = CODY::observe_companion_shake(static_cast<HostState *>(handle)->companion_shake,
+        sample, now_us, active);
+    return ESP_OK;
+}
+
+// handle: Persistent host motion recognizer owner.
+// now_us: Actual local presentation clock at wake or explicit suspension.
+// Exception: Rejects invalid owner or clock without synthesizing motion.
+CODY_HOST_EXPORT int cody_host_panel_suspend_shake(void *handle, int64_t now_us)
+{
+    if (!handle || now_us < 0) { return host_result("panel_suspend_shake", ESP_ERR_INVALID_ARG); }
+    CODY::suspend_companion_shake(static_cast<HostState *>(handle)->companion_shake, now_us);
+    return ESP_OK;
+}
+
+// handle: Native rig owner retaining a bounded description independently of Python text.
+// text: NUL-terminated bounded ASCII with at least length plus one readable bytes.
+// length: Explicit source byte count; zero removes the description layer.
+// elapsed_us: Nonnegative active time since this description changed; host frames may be recreated.
+// Exception: Returns real metadata, font or layout errors without truncating text.
+CODY_HOST_EXPORT int cody_host_activity_description(void *handle, const char *text,
+    uint32_t length, int64_t elapsed_us)
+{
+    if (!handle || !text || length > 192U || text[length] != '\0' ||
+        std::memchr(text, '\0', length) != nullptr || elapsed_us < 0) {
+        return host_result("activity_description", ESP_ERR_INVALID_ARG);
+    }
+    auto &state = static_cast<HostScene *>(handle)->activity_description;
+    if (length == 0) {
+        state = {};
+        return ESP_OK;
+    }
+    esp_err_t error = ESP_OK;
+    if (state.length != length || std::memcmp(state.text, text, length) != 0) {
+        error = CODY::prepare_activity_description(state, CODY::SceneData::body_font, text, 0);
+    }
+    bool changed = false;
+    if (error == ESP_OK) {
+        error = CODY::advance_activity_description(state, CODY::SceneData::body_font, elapsed_us, changed);
+    }
+    return host_result("activity_description", error);
+}
+
+// handle: Native scene owner retaining prepared identity text through rasterization.
+// project: NUL-terminated bounded ASCII project; empty clears its line.
+// branch: NUL-terminated bounded ASCII selected branch; empty reports no branch metadata.
+// elapsed_us: Active time since this identity changed, independent of recreated host frames.
+// attention: Genuine or explicitly SIMULATED attention priority retaining the project.
+// operation_elapsed_us: Observed operation interval; negative explicitly means unavailable.
+// compacting: Authoritative lifecycle switches the timer to genuine observed compaction elapsed.
+// Exception: Returns genuine identity, clock, font or elapsed rendering errors.
+CODY_HOST_EXPORT int cody_host_activity_identity(void *handle, const char *project,
+    const char *branch, int64_t elapsed_us, bool attention, int64_t operation_elapsed_us, bool compacting)
+{
+    if (!handle || !project || !branch || elapsed_us < 0) {
+        return host_result("activity_identity", ESP_ERR_INVALID_ARG);
+    }
+    auto &state = static_cast<HostScene *>(handle)->activity_identity;
+    esp_err_t error = CODY::prepare_activity_identity(state, CODY::SceneData::body_font,
+        project, branch, 0);
+    bool changed = false;
+    if (error == ESP_OK) {
+        // Recreated host frames receive time since the caller's identity/attention transition.
+        state.attention_active = attention;
+        state.compaction_timer = compacting;
+        error = CODY::advance_activity_identity(state, CODY::SceneData::body_font,
+            elapsed_us, attention, operation_elapsed_us, changed);
+    }
+    return host_result("activity_identity", error);
+}
+
+// handle: Persistent native state surviving recreated host raster frames.
+// phase: Genuine or explicitly SIMULATED typed Codex activity identity.
+// chat: Exact bounded lowercase SHA-256 selected chat identity.
+// current: Coherent activity freshness and connectivity admission.
+// elapsed_us: Monotonic pausable active time, independent of repaint and tool description changes.
+// display_phase: Receives the shared admitted subtype; attention/completion are immediate.
+// operation_elapsed_us: Receives the genuine observed work interval, or negative unavailable state.
+// Exception: Returns invalid boundary inputs or the original observation-policy error.
+CODY_HOST_EXPORT int cody_host_activity_observe(void *handle, uint8_t phase, const char *chat,
+    bool current, int64_t elapsed_us, uint8_t *display_phase, int64_t *operation_elapsed_us)
+{
+    if (!handle || !display_phase || !operation_elapsed_us ||
+        phase > static_cast<uint8_t>(LUNASHELL::CodexActivityState::Unavailable)) {
+        return host_result("activity_observe", ESP_ERR_INVALID_ARG);
+    }
+    auto &state = static_cast<HostState *>(handle)->activity_observation;
+    const esp_err_t error = CODY::advance_activity_observation(state,
+        static_cast<LUNASHELL::CodexActivityState>(phase), current, chat, elapsed_us);
+    if (error == ESP_OK) {
+        *display_phase = static_cast<uint8_t>(state.presented_phase);
+        *operation_elapsed_us = state.operation_elapsed_us;
+    }
+    return host_result("activity_observe", error);
+}
+
+// handle: Persistent native activity observation paused by a genuine interaction screen.
+// Exception: Returns invalid argument for a missing owner without changing observed timing.
+CODY_HOST_EXPORT int cody_host_activity_pause(void *handle)
+{
+    if (!handle) {
+        return host_result("activity_pause", ESP_ERR_INVALID_ARG);
+    }
+    CODY::pause_activity_observation(static_cast<HostState *>(handle)->activity_observation);
     return ESP_OK;
 }
 

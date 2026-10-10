@@ -8,6 +8,7 @@
 #include "CODY_damage.hpp"
 #include "CODY_personality.hpp"
 #include "CODY_raster_profile.hpp"
+#include "CODY_activity_overlay.hpp"
 #if CODY_ENABLE_PEARL_JELLY
 #include "CODY_jelly.hpp"
 #endif
@@ -330,6 +331,8 @@ Channels animate_rig(const Channels &base, uint32_t elapsed_ms);
 // navigation_opacity: Wall-clock toolbar fade, independent of character/animation pause.
 // background_rgb565: Logical scene background; the default plain rig is black.
 // screenshot_state: Visible result of the independent on-demand capture operation.
+// activity_overlay: Optional immutable absolute layer painted behind the character.
+// Exception: Returns the original surface, geometry, profiling or primitive drawing error.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected = kNoPoint,
                         RigRasterProfile *profile = nullptr, bool paused = false,
@@ -337,7 +340,8 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         const RigDebugStrokeCache *debug_cache = nullptr,
                         bool navigation_visible = true, uint8_t navigation_opacity = 255,
                         uint16_t background_rgb565 = 0,
-                        RigControlState screenshot_state = RigControlState::Idle);
+                        RigControlState screenshot_state = RigControlState::Idle,
+                        const ActivityOverlayFrame *activity_overlay = nullptr);
 
 // strip: Valid compact destination receiving controls above all informational chrome.
 // first_row: Logical tile y origin in the canonical circular canvas.

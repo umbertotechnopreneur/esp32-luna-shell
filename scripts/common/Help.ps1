@@ -24,6 +24,7 @@ function Show-DeviceHelp {
     Write-DeviceHelpSection -Title 'Interactive Cody and boot screens' -Icon '🤖' -Width $width -Color Magenta -Subsection
     Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator' -Description 'Open Cody with rig, face, contour and debug controls.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Ccp' -Description 'Open the SIMULATED CCP1 endpoint and visible pairing panel on loopback.' -Detail 'Uses a separate persistent identity. In Codex explicitly request SIMULATED discovery; the physical device remains separate.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Ccp -ActivityPreview -AtMs 6500' -Description 'Open the shared native activity renderer with visibly synthetic project, branch and long-description metadata.' -Detail 'No pairing is required. Save one annotated native frame after AtMs (default 1000) under artifacts/simulator; the visible panel can replay phases and save more frames.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Skin assets/characters/example.yaml' -Description 'Preview an explicitly selected character skin YAML.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Screen boot-ready -Rotation 180' -Description 'Preview a boot stage in the selected display orientation.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Screen greeting' -Description 'Open the greeting scene with visibly synthetic host stimuli.' -Width $width

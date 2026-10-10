@@ -2479,6 +2479,23 @@ DeviceSnapshot DeviceSnapshotService::snapshot() const
     return copy;
 }
 
+// observation: Original touch service readiness and acquisition error, without hardware reads.
+// Exception: Returns the original lock/release failure without changing the destination.
+esp_err_t DeviceSnapshotService::readTouchHealthObservation(ComponentSnapshot &observation) const
+{
+    const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "touch health read");
+    if (error != ESP_OK) {
+        return error;
+    }
+    const ComponentSnapshot copy = s_snapshot.ui.touch;
+    const esp_err_t release_error = give_snapshot_mutex("touch health read");
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    observation = copy;
+    return ESP_OK;
+}
+
 // observation: Bounded canonical settings and orientation; no settings or sensor reads.
 // Exception: Returns the original lock/release error without assigning a partial result.
 esp_err_t DeviceSnapshotService::readCodyOptionsObservation(CodyOptionsObservation &observation) const
@@ -2510,6 +2527,33 @@ esp_err_t DeviceSnapshotService::readCodexEventObservation(CodexEventSnapshot &o
         return release_error;
     }
     observation = copy;
+    return ESP_OK;
+}
+
+// observation: Bounded canonical telemetry; no network, filesystem or sensor reads.
+// Exception: Returns the original mutex error; callers must not consume output on failure.
+esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObservation &observation) const
+{
+    const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "Codex technical read");
+    if (error != ESP_OK) {
+        return error;
+    }
+    // The caller owns a persistent buffer; avoid a nested link-plus-telemetry stack copy.
+    observation.link = s_snapshot.radios.codex_link;
+    observation.technical = s_snapshot.codex_technical;
+    const esp_err_t release_error = give_snapshot_mutex("Codex technical read");
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    age_codex_technical(observation.technical, esp_timer_get_time());
+    if (observation.link.state != CodexLinkState::Connected) {
+        observation.technical.data_stale = observation.technical.received_at_us > 0;
+        observation.technical.model_stale = observation.technical.model_valid;
+        observation.technical.context_stale = observation.technical.context_valid;
+        if (observation.technical.compaction == CodexCompactionState::Active) {
+            observation.technical.compaction = CodexCompactionState::Stale;
+        }
+    }
     return ESP_OK;
 }
 

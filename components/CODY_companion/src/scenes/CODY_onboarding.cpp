@@ -1,6 +1,12 @@
 #include "CODY_onboarding.hpp"
 #include "CODY_codex_event_presentation.hpp"
 
+#include "CODY_onboarding.hpp"
+#include "CODY_activity_description.hpp"
+#include "CODY_activity_identity.hpp"
+#include "CODY_activity_observation.hpp"
+#include "CODY_codex_event_presentation.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
@@ -197,6 +203,9 @@ struct ContentView {
     CODY2D::Rect qr_bounds{};
     char error_text[32]{};
     char debug_text[kContentLineCapacity][kDebugLineBytes]{};
+    // Serialized scene-owned metadata and one bounded font window, outside the UI task stack.
+    ActivityDescriptionState activity_description{};
+    ActivityIdentityState activity_identity{};
 };
 #ifdef ESP_PLATFORM
 // IDF constructs the default view after PSRAM startup; host fixtures use ordinary RAM.
@@ -205,6 +214,17 @@ ContentView &s_view = *new (s_view_storage) ContentView{};
 #else
 ContentView s_view;
 #endif
+#ifdef ESP_PLATFORM
+// One canonical observation stays outside the nested display worker call chain.
+alignas(LUNASHELL::CodexTechnicalObservation) EXT_RAM_BSS_ATTR
+    uint8_t s_technical_observation_storage[sizeof(LUNASHELL::CodexTechnicalObservation)]{};
+LUNASHELL::CodexTechnicalObservation &s_technical_observation =
+    *new (s_technical_observation_storage) LUNASHELL::CodexTechnicalObservation{};
+#else
+LUNASHELL::CodexTechnicalObservation s_technical_observation{};
+#endif
+LUNASHELL::CodexCompactionState s_presented_compaction = LUNASHELL::CodexCompactionState::None;
+bool s_presented_compaction_feedback = false;
 Route s_route = Route::None;
 bool s_options_from_setup = false;
 esp_err_t s_preference_error = ESP_OK;
@@ -215,6 +235,10 @@ bool s_setup_returns_to_companion = false;
 bool s_companion_seen_selection = false;
 int64_t s_session_ended_at_us = -1;
 LUNASHELL::CodexActivitySnapshot s_presented_activity{};
+uint32_t s_activity_description_revision = 0;
+uint32_t s_activity_identity_revision = 0;
+ActivityObservationState s_activity_observation{};
+LUNASHELL::CodexActivityState s_presented_work_phase = LUNASHELL::CodexActivityState::Working;
 LUNASHELL::CodexEventSnapshot s_presented_event{};
 EventStage s_event_stage = EventStage::Notice;
 EventRetry s_event_retry = EventRetry::None;
@@ -1267,6 +1291,11 @@ esp_err_t attach_content(SceneFrame &scene)
         ? DamageRect{40, top, 426, 356}
         : choice ? DamageRect{73, 260, 393, 364}
         : DamageRect{113, top, 353, static_cast<uint16_t>(content.bottom_action_visible ? s_view.action.bounds.y : 430)};
+    scene.activity_description = s_view.activity_description.length > 0 ? &s_view.activity_description : nullptr;
+    scene.activity_description_revision = s_activity_description_revision;
+    capture_scene_activity_identity(scene,
+        s_view.activity_identity.project_line.valid ? &s_view.activity_identity : nullptr,
+        s_activity_identity_revision);
     if (s_route == Route::SetupMenu || s_route == Route::CodexReplace) {
         content.bottom_action_bounds = {153, 376, 313, 428};
     } else if (s_route == Route::CodexForget) {
@@ -1995,6 +2024,8 @@ Route codex_event_destination()
 // Exception: Returns original route/layout errors.
 esp_err_t render_codex_event(SceneFrame &scene, bool preserve_typing = false)
 {
+    // A real question/notification owns this view; its dwell cannot be charged as observed work.
+    pause_activity_observation(s_activity_observation);
     const Route destination = codex_event_destination();
     const bool keep_time = preserve_typing && destination == s_route;
     const SceneFrame previous = scene;
@@ -2137,15 +2168,23 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
     if (s_route == Route::ReplySent31) {
         if (std::strcmp(s_last_delivered_audio_request, observed.request_id) != 0) {
             std::memcpy(s_last_delivered_audio_request, observed.request_id, sizeof(s_last_delivered_audio_request));
-            notify_event_audio(CodexAudioCue::ResponseReady);
+            notify_event_audio(CodexAudioCue::AnswerReceived);
         }
         std::memcpy(s_last_event_audio_request, observed.request_id, sizeof(s_last_event_audio_request));
     } else if (std::strcmp(s_last_event_audio_request, observed.request_id) != 0) {
         std::memcpy(s_last_event_audio_request, observed.request_id, sizeof(s_last_event_audio_request));
-        const bool needs_attention = observed.kind == Kind::Question || observed.kind == Kind::ApprovalOnPc ||
-            observed.kind == Kind::ChecksFailed;
-        notify_event_audio(needs_attention ? CodexAudioCue::Paused :
-            observed.kind == Kind::ChecksRunning ? CodexAudioCue::Running : CodexAudioCue::ResponseReady);
+        // Each sound names an observed event. A completed response is not proof
+        // of passed checks, and a permission request is still handled on the PC.
+        switch (observed.kind) {
+        case Kind::Question: notify_event_audio(CodexAudioCue::Question); break;
+        case Kind::ApprovalOnPc: notify_event_audio(CodexAudioCue::ApprovalRequired); break;
+        case Kind::ChecksFailed: notify_event_audio(CodexAudioCue::ChecksFailed); break;
+        case Kind::ChecksPassed: notify_event_audio(CodexAudioCue::ChecksPassed); break;
+        case Kind::ChecksRunning: notify_event_audio(CodexAudioCue::Running); break;
+        case Kind::PrPending:
+        case Kind::Notice: notify_event_audio(CodexAudioCue::ResponseReady); break;
+        case Kind::None: break;
+        }
     }
     return advance_checks_passed_dwell(scene, active_time_us, changed);
 }
@@ -2203,20 +2242,122 @@ esp_err_t activate_codex_event(SceneFrame &scene, OnboardingAction action)
     return render_codex_event(scene, true);
 }
 
-// link: Coherent canonical owner snapshot; no transport or host reads occur in this consumer.
-// active_time_us: Pausable UI clock used only for the session-ended presentation dwell.
+// message: Genuine hook phase caption used when no current explicit purpose is available.
+// description: Bounded authenticated ASCII purpose, empty when absent or expired.
+// active_time_us: Pausable scene clock used only for local readable marquee dwell.
+// Exception: Returns rejected metadata size or the original native text layout error.
+esp_err_t prepare_activity_detail(const char *message, const char *description, int64_t active_time_us)
+{
+    // Purpose and fallback captions share the real 320-pixel native viewport.
+    // Reusing unchanged text retains its marquee clock across admitted phase changes.
+    const char *effective_description = description[0] == '\0' ? message : description;
+    const bool text_changed = std::strcmp(s_view.activity_description.text, effective_description) != 0;
+    s_view.line_count = 0;
+    const esp_err_t description_error = prepare_activity_description(
+        s_view.activity_description, SceneData::body_font, effective_description, active_time_us);
+    if (description_error != ESP_OK) {
+        return description_error;
+    }
+    if (text_changed) {
+        ++s_activity_description_revision;
+    }
+    return ESP_OK;
+}
+
+// active_time_us: Pausable scene clock; this animation never extends real activity freshness.
+// scene: Current frame whose description-only damage is refreshed at each visible pixel step.
+// changed: Receives a native render request only when the measured text offset changes.
+// Exception: Returns the original native text or content preparation error.
+esp_err_t advance_activity_description(int64_t active_time_us, SceneFrame &scene, bool &changed)
+{
+    bool moved = false;
+    const esp_err_t error = CODY::advance_activity_description(
+        s_view.activity_description, SceneData::body_font, active_time_us, moved);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (moved) {
+        ++s_activity_description_revision;
+        scene.activity_description_revision = s_activity_description_revision;
+        changed = true;
+    }
+    return ESP_OK;
+}
+
+// active_time_us: Pausable UI clock used only for session dwell and description scrolling.
 // scene: Current frame replaced only when visible state or selected identity changes.
 // changed: Receives whether scene content needs a new native render.
 // Exception: Returns the original layout/text error without disguising it as connection success.
-esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
-                                    int64_t active_time_us, SceneFrame &scene, bool &changed)
+esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, bool &changed)
 {
     if (!is_companion_route(s_route)) {
         return ESP_OK;
     }
+    const esp_err_t technical_error = LUNASHELL::DeviceSnapshotService::instance().readCodexTechnicalObservation(
+        s_technical_observation);
+    if (technical_error != ESP_OK) {
+        ESP_LOGE(kTag, "Companion technical observation failed (%s)", esp_err_to_name(technical_error));
+        return technical_error;
+    }
+    // Both activity and lifecycle now come from the same canonical mutex acquisition.
+    const auto &link = s_technical_observation.link;
+    const auto &technical = s_technical_observation.technical;
     using Activity = LUNASHELL::CodexActivityState;
+    using Compaction = LUNASHELL::CodexCompactionState;
     const auto &activity = link.activity;
+    const bool current_link = link.data_valid && !link.data_stale && link.state == CodexState::Connected;
+    const bool technical_owner = technical.data_valid && technical.compaction_valid && technical.chat_id[0] != '\0' &&
+        std::strcmp(technical.chat_id, activity.chat_id) == 0;
+    Compaction compaction = technical_owner ? technical.compaction : Compaction::None;
+    if ((!current_link || technical.data_stale) && compaction == Compaction::Active) { compaction = Compaction::Stale; }
+    const bool compacting = compaction == Compaction::Active && current_link && !technical.data_stale;
+    const int64_t now_us = esp_timer_get_time();
+    const uint64_t receipt_age_us = technical.received_at_us > 0 && now_us >= technical.received_at_us ?
+        static_cast<uint64_t>(now_us - technical.received_at_us) : 0;
+    const bool refreshed_feedback = compaction == Compaction::Refreshed && !technical.data_stale &&
+        technical.compaction_age_valid && technical.compaction_age_at_receive_us < 3000000 &&
+        receipt_age_us < 3000000 - technical.compaction_age_at_receive_us;
+    const bool compaction_changed = compaction != s_presented_compaction || refreshed_feedback != s_presented_compaction_feedback;
+    const bool current_work = current_link && activity.data_valid && !activity.data_stale &&
+        (activity.state == Activity::Working || activity.state == Activity::Editing || activity.state == Activity::Running);
+    const char *description = current_work && link.state == LUNASHELL::CodexLinkState::Connected ?
+        activity.description : "";
+    if (compacting) { description = "Compacting context; please wait"; }
+    else if (refreshed_feedback) { description = technical.context_valid && !technical.context_stale ?
+        "Context refreshed" : "Context refreshed; counters pending"; }
+    else if (compaction == Compaction::Orphaned) { description = "Compaction ended; start unobserved"; }
+    else if (compaction == Compaction::Interrupted) { description = "Compaction interrupted"; }
+    else if (compaction == Compaction::Stale) { description = "Compaction updates are STALE"; }
+    ActivityOverlayState overlay = ActivityOverlayState::Hidden;
+    if (current_link && activity.data_valid && !activity.data_stale) {
+        if (current_work) {
+            overlay = ActivityOverlayState::Working;
+        } else if (activity.state == Activity::Paused) {
+            overlay = ActivityOverlayState::Waiting;
+        } else if (activity.state == Activity::ResponseReady) {
+            overlay = ActivityOverlayState::ResponseReady;
+        }
+    }
+    if (compacting) { overlay = ActivityOverlayState::Compacting; }
+    const bool overlay_changed = scene.activity_overlay.state != overlay;
+    const esp_err_t overlay_error = set_scene_activity_overlay(scene, overlay);
+    if (overlay_error != ESP_OK) {
+        return overlay_error;
+    }
+    changed = changed || overlay_changed;
     const bool same_chat = std::strcmp(activity.chat_id, s_presented_activity.chat_id) == 0;
+    const bool attention = compacting || (current_link && activity.data_valid && !activity.data_stale && activity.state == Activity::Paused);
+    const esp_err_t observation_error = advance_activity_observation(s_activity_observation, activity.state,
+        current_link && activity.data_valid && !activity.data_stale, activity.chat_id, active_time_us);
+    if (observation_error != ESP_OK) {
+        return observation_error;
+    }
+    const Activity work_phase = s_activity_observation.presented_phase;
+    // Canonical Active compaction already passed source/receipt TTLs, so its elapsed sum is bounded.
+    const int64_t displayed_elapsed_us = compacting && technical.compaction_age_valid ?
+        static_cast<int64_t>(technical.compaction_age_at_receive_us + receipt_age_us) :
+        current_work ? s_activity_observation.operation_elapsed_us : -1;
+    s_view.activity_identity.compaction_timer = compacting;
     Route destination = Route::Connected15;
     const char *message = kCodexInvitationCaption;
     if (!link.data_valid || link.data_stale || link.state != CodexState::Connected) {
@@ -2244,23 +2385,23 @@ esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
             break;
         case Activity::Working:
             destination = Route::Working18;
-            message = "Making it happen";
+            message = "Processing your request";
             break;
         case Activity::Editing:
             destination = Route::Working18;
-            message = "Shaping your code";
+            message = work_phase == Activity::Editing ? "Editing your code" : "Processing your request";
             break;
         case Activity::Running:
             destination = Route::Working18;
-            message = "Running a command";
+            message = work_phase == Activity::Running ? "Running a command" : "Processing your request";
             break;
         case Activity::ResponseReady:
             destination = Route::Response19;
-            message = "Your reply is ready";
+            message = "Open Codex to review";
             break;
         case Activity::Paused:
             destination = Route::Paused20;
-            message = "Continue in Codex";
+            message = "Approve on your PC";
             break;
         case Activity::Interrupted:
             destination = Route::Paused20;
@@ -2286,74 +2427,111 @@ esp_err_t present_companion_activity(const LUNASHELL::CodexLinkSnapshot &link,
             s_companion_seen_selection = true;
         }
     }
-    if (s_route == destination && same_chat && activity.state == s_presented_activity.state &&
+    if (compacting) {
+        destination = Route::Working18;
+        message = "Compacting context";
+    }
+    if (!compaction_changed && s_route == destination && same_chat && activity.state == s_presented_activity.state &&
         std::strcmp(activity.project, s_presented_activity.project) == 0 &&
+        std::strcmp(activity.branch, s_presented_activity.branch) == 0 &&
+        std::strcmp(activity.description, s_presented_activity.description) == 0 &&
+        work_phase == s_presented_work_phase &&
         activity.data_valid == s_presented_activity.data_valid &&
         activity.data_stale == s_presented_activity.data_stale) {
-        return ESP_OK;
+        esp_err_t error = advance_activity_description(active_time_us, scene, changed);
+        bool identity_changed = false;
+        if (error == ESP_OK) {
+            error = advance_activity_identity(s_view.activity_identity, SceneData::body_font, active_time_us,
+                attention, displayed_elapsed_us, identity_changed);
+        }
+        if (identity_changed) {
+            capture_scene_activity_identity(scene, &s_view.activity_identity, s_activity_identity_revision);
+            changed = true;
+        }
+        return error;
     }
     const bool only_work_detail_changed = s_route == Route::Working18 && destination == s_route &&
         same_chat && std::strcmp(activity.project, s_presented_activity.project) == 0 &&
+        std::strcmp(activity.branch, s_presented_activity.branch) == 0 &&
         activity.data_valid && s_presented_activity.data_valid &&
-        !activity.data_stale && !s_presented_activity.data_stale && s_view.line_count > 0;
+        !activity.data_stale && !s_presented_activity.data_stale && s_view.activity_identity.project_line.valid;
     const Route previous_route = s_route;
+    const bool headline_changed = work_phase != s_presented_work_phase || compaction_changed;
+    const char *headline = compacting ? "Compacting" : !current_link ? "Disconnected" : !activity.data_valid || activity.data_stale ? nullptr : current_work ?
+        (work_phase == Activity::Editing ? "Editing code" : work_phase == Activity::Running ? "Running command" : "Working") :
+        activity.state == Activity::Paused ? "Waiting for you" :
+        activity.state == Activity::ResponseReady ? "Reply ready" :
+        activity.state == Activity::Interrupted ? "Interrupted" : nullptr;
     s_presented_activity = activity;
+    s_presented_work_phase = work_phase;
+    s_presented_compaction = compaction;
+    s_presented_compaction_feedback = refreshed_feedback;
     if (only_work_detail_changed) {
-        // Fast tool transitions must not restart the headline/project typewriter.
-        const uint8_t detail = s_view.line_count - 1;
-        esp_err_t error = prepare_caption(message, 360, s_view.lines[detail]);
-        s_view.instant_lines[detail] = true;
+        // Only an admitted subtype changes the headline; purpose updates preserve its reveal clock.
+        esp_err_t error = prepare_activity_detail(message, description, active_time_us);
+        if (error == ESP_OK) {
+            bool identity_changed = false;
+            error = advance_activity_identity(s_view.activity_identity, SceneData::body_font, active_time_us,
+                attention, displayed_elapsed_us, identity_changed);
+        }
+        if (error == ESP_OK && headline_changed && headline != nullptr) {
+            ++s_text_generation;
+            error = set_scene_title(scene, {headline, static_cast<uint16_t>(std::strlen(headline))});
+        }
         changed = true;
         if (error == ESP_OK) {
             error = attach_content(scene);
         }
-        if (error == ESP_OK) {
+        if (error == ESP_OK && !compacting && !compaction_changed) {
             notify_companion_transition(previous_route, destination, activity.state, activity.chat_id);
         }
         return error;
     }
     esp_err_t error = enter_route(destination, scene);
-    if (error != ESP_OK || destination == Route::Connected15) {
+    if (error != ESP_OK) {
         changed = true;
         return error;
     }
-    // Copy the label into persistent view storage. Derive wrapping from the
-    // actual font, preferring a word boundary within the existing content width.
-    const size_t project_length = std::strlen(activity.project);
-    if (project_length > 0 && destination != Route::CompanionIdle16) {
-        const auto &font = SceneData::body_font;
-        const size_t capacity = (kCaptionWidth - font.width) / font.advance + 1;
-        size_t first_length = std::min(capacity, project_length);
-        size_t second_start = first_length;
-        if (project_length > capacity) {
-            for (size_t index = first_length; index > 0; --index) {
-                if (activity.project[index] == ' ') {
-                    first_length = index;
-                    second_start = index + 1;
-                    break;
-                }
-            }
-        }
-        std::memcpy(s_view.debug_text[0], activity.project, first_length);
-        error = prepare_caption(s_view.debug_text[0], 300, s_view.lines[0]);
-        s_view.line_count = 1;
-        if (error == ESP_OK && project_length > second_start) {
-            std::memcpy(s_view.debug_text[1], activity.project + second_start, project_length - second_start);
-            error = prepare_caption(s_view.debug_text[1], 327, s_view.lines[1]);
-            s_view.line_count = 2;
+    error = set_scene_activity_overlay(scene, overlay);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (headline != nullptr) {
+        ++s_text_generation;
+        error = set_scene_title(scene, {headline, static_cast<uint16_t>(std::strlen(headline))});
+        if (error != ESP_OK) {
+            return error;
         }
     }
+    if (destination == Route::Connected15) {
+        changed = true;
+        return error;
+    }
+    // The shared native identity layer measures long labels and owns branch alternation.
+    // Its fixed row replaces both legacy project-copy slots and their small debug buffers.
+    const char *project = destination == Route::CompanionIdle16 ? "" : activity.project;
+    const char *branch = current_link && activity.data_valid && !activity.data_stale ? activity.branch : "";
+    error = prepare_activity_identity(s_view.activity_identity, SceneData::body_font,
+        project, branch, active_time_us);
     if (error == ESP_OK) {
-        error = prepare_caption(message, 360, s_view.lines[s_view.line_count]);
-        s_view.instant_lines[s_view.line_count] = true;
-        ++s_view.line_count;
+        bool identity_changed = false;
+        s_view.activity_identity.compaction_timer = compacting;
+        error = advance_activity_identity(s_view.activity_identity, SceneData::body_font, active_time_us,
+            attention, displayed_elapsed_us, identity_changed);
+        ++s_activity_identity_revision;
+    }
+    s_view.line_count = 0;
+    if (error == ESP_OK) {
+        error = prepare_activity_detail(message, description, active_time_us);
     }
     if (error == ESP_OK) {
         error = attach_content(scene);
     }
     if (error == ESP_OK) {
         set_companion_audio_visible(true);
-        notify_companion_transition(previous_route, destination, activity.state, activity.chat_id);
+        if (!compacting && !compaction_changed) {
+            notify_companion_transition(previous_route, destination, activity.state, activity.chat_id);
+        }
     }
     changed = true;
     return error;
@@ -2790,6 +2968,8 @@ void reset_onboarding()
     s_companion_seen_selection = false;
     s_session_ended_at_us = -1;
     s_presented_activity = {};
+    s_activity_observation = {};
+    s_presented_work_phase = LUNASHELL::CodexActivityState::Working;
     ++s_generation;
     s_presentation_generation.store(s_generation, std::memory_order_release);
     s_route = Route::None;
@@ -3372,7 +3552,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             s_route == Route::LookingForPc14 ||
             is_companion_route(s_route)) {
             if (is_companion_route(s_route)) {
-                return present_companion_activity(codex_link, active_time_us, scene, changed);
+                return present_companion_activity(active_time_us, scene, changed);
             }
             return ESP_OK;
         }

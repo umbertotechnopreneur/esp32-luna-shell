@@ -1,9 +1,23 @@
 # Deferred work
 
+## Cody companion follow-up - 2026-10-10
+
+- [ ] Add an explicit Away preference to the existing settings owner after the
+  companion panels and physical gesture thresholds are reviewed. Preserve the
+  requested notification/voice/standby service policy and actual link reachability;
+  do not introduce another wireless transport or silently change saved preferences.
+- [ ] Integrate a supported observer of this desktop chat's App Server token-usage
+  notifications when available. Current context occupancy/capacity, reasoning effort,
+  cumulative usage and compaction threshold remain explicitly unavailable; do not
+  read transcripts or infer model capacity to fill them.
+
 These items are not active commitments. Move an item to [TODO.md](TODO.md) when
 activated; authorization still follows [AGENTS.md](AGENTS.md).
 
 ## Cody product
+
+- [ ] Linux/macOS companion support stays deferred as requested. Keep the current
+  hardware acquisition and CCP work focused on the existing Windows companion.
 
 - [ ] Valuto un relay remoto dopo la chiusura degli screen: un adapter accanto
   all'istanza Codex pubblica eventi reali, un backend ASP.NET Core descritto con

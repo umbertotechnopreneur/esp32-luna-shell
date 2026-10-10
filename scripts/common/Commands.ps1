@@ -14,7 +14,7 @@ function Get-DeviceActionParameters {
     return @{
         menu = $idf + $serial + @('Jobs','PythonExecutable','Rotation')
         help = @(); list = @(); 'clean-artifacts' = @('BuildDir')
-        simulator = $preview + @('OutputPath','Ccp')
+        simulator = $preview + @('OutputPath','Ccp','ActivityPreview')
         'boot-screens' = @('Rotation','AtMs','SafeGuide','PythonExecutable')
         'simulator-luna' = @('PythonExecutable','ToolArguments')
         'package-simulator' = @()
@@ -53,6 +53,9 @@ function Assert-DeviceActionParameters($RequestedAction, $BoundParameters, $Cont
             ($BoundParameters.ContainsKey('Screen') -and $BoundParameters.Screen -ne 'rig') -or
             $BoundParameters.CloudMaterialStudy -or $BoundParameters.CloudPngMeshStudy -or $BoundParameters.CloudJellyStudy)) {
         throw '-Ccp requires the interactive rig simulator without an output capture or rendering study.'
+    }
+    if ($BoundParameters.ActivityPreview -and -not $BoundParameters.Ccp) {
+        throw '-ActivityPreview requires simulator -Ccp; it is an explicitly synthetic interactive view.'
     }
 }
 
@@ -150,6 +153,7 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                 if ($Options.CloudJellyStudy) { $arguments += '--cloud-jelly-study' }
                 if ($Options.MeshOverlay) { $arguments += '--mesh-overlay' }
                 if ($Options.Ccp) { $arguments += '--ccp' }
+                if ($Options.ActivityPreview) { $arguments += '--activity-preview' }
                 $capture = if ($RequestedAction -eq 'boot-screens') {
                     Resolve-ArtifactPath '' "artifacts/simulator/$screenName.png"
                 } else { $Options.OutputPath }

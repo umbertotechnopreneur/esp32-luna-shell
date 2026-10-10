@@ -162,11 +162,6 @@ void deferred_boot_worker(void *context)
             publish_deferred_failure("clock observation", clock_error);
             break;
         }
-        if (!LUNASHELL::clock_observation_current(clock)) {
-            // The observation may have aged or failed after the renderer signalled it.
-            s_boot_cue_state.store(BootCueState::WaitingClock, std::memory_order_release);
-            continue;
-        }
         const auto policy = LUNASHELL::clock_cue_policy(clock);
         if (policy == LUNASHELL::ClockCuePolicy::QuietHours) {
             s_boot_cue_state.store(BootCueState::Suppressed, std::memory_order_release);
@@ -210,7 +205,7 @@ void deferred_boot_worker(void *context)
 } // namespace
 
 // No parameters: observes pending clock/Sounds policy without waiting for audio.
-// Actual observation/admission failures are logged and published, not retried as success.
+// Exception: Actual observation/admission failures are logged and published, not retried as success.
 extern "C" void CODY_boot_cues_observe_pending(void)
 {
     if (s_boot_cue_state.load(std::memory_order_acquire) != BootCueState::WaitingClock) {
@@ -236,9 +231,7 @@ extern "C" void CODY_boot_cues_observe_pending(void)
         }
         return;
     }
-    if (!LUNASHELL::clock_observation_current(clock)) {
-        return;
-    }
+    // Disabled quiet hours explicitly permit boot audio before clock synchronization.
     const auto policy = LUNASHELL::clock_cue_policy(clock);
     if (policy != LUNASHELL::ClockCuePolicy::Allowed &&
         policy != LUNASHELL::ClockCuePolicy::QuietHours) {
@@ -298,7 +291,7 @@ extern "C" esp_err_t CODY_boot_cues_configure_diagnostics(void)
     return ESP_OK; // The snapshot read completed; no filesystem operation was attempted.
 }
 
-// No parameters: play once with verified time, or admit a bounded pending boot request.
+// No parameters: play once under the configured quiet policy, or admit a bounded pending request.
 // Exception: Returns original clock, worker admission, asset or playback errors.
 extern "C" esp_err_t CODY_boot_cues_play_eyes_open(void)
 {
@@ -323,9 +316,8 @@ extern "C" esp_err_t CODY_boot_cues_play_eyes_open(void)
         return observation_error;
     }
     const auto policy = LUNASHELL::clock_cue_policy(clock);
-    if (!LUNASHELL::clock_observation_current(clock) ||
-        (policy != LUNASHELL::ClockCuePolicy::Allowed &&
-         policy != LUNASHELL::ClockCuePolicy::QuietHours)) {
+    if (policy != LUNASHELL::ClockCuePolicy::Allowed &&
+        policy != LUNASHELL::ClockCuePolicy::QuietHours) {
         TaskHandle_t worker = nullptr;
         if (xTaskCreateWithCaps(deferred_boot_worker, "CODY_boot_audio", kDeferredWorkerStackBytes,
                 nullptr, 2, &worker, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {

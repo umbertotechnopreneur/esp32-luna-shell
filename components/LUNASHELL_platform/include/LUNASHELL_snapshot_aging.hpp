@@ -14,4 +14,8 @@ int64_t measured_sample_ttl_us(const DeviceSnapshot &snapshot);
 // snapshot: Owner-provided observations; original sample timestamps remain unchanged.
 // now_us: Explicit monotonic observation time; no clock or hardware access occurs here.
 void apply_measured_sample_aging(DeviceSnapshot &snapshot, int64_t now_us);
+
+// technical: Owner projection retaining original source ages and receipt timestamp.
+// now_us: Device observation clock, used only for elapsed time since receipt.
+void age_codex_technical(CodexTechnicalSnapshot &technical, int64_t now_us);
 }

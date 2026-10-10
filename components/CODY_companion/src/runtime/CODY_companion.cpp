@@ -24,6 +24,8 @@
 #include "CODY_dirty_plan.hpp"
 #include "CODY_response.hpp"
 #include "CODY_petting.hpp"
+#include "CODY_companion_gestures.hpp"
+#include "CODY_technical_panels.hpp"
 #include "CODY_demo.hpp"
 #include "CODY_scene.hpp"
 #include "CODY_typewriter_audio.hpp"
@@ -197,7 +199,19 @@ std::atomic<bool> s_power_screenshot_enabled{LUNASHELL::build_mode::kDevelopment
 std::atomic<bool> s_capture_sequence_active{false};
 std::atomic<bool> s_capture_request_pending{false};
 CODY::SceneFrame s_cached_scene;
+CODY::CompanionPanel s_cached_companion_panel = CODY::CompanionPanel::Home;
+uint32_t s_cached_panel_revision = 0;
 struct CompanionState {
+    CODY::CompanionPanel companion_panel = CODY::CompanionPanel::Home;
+    CODY::CompanionTapState companion_tap{};
+    CODY::CompanionShakeState companion_shake{};
+    CODY::PanelPresentation technical_panel{};
+    // Serialized renderer-owned projection stays off the nested raster stack.
+    LUNASHELL::CodexTechnicalObservation technical_observation{};
+    uint64_t panel_activity_revision = 0;
+    uint64_t panel_technical_revision = 0;
+    int64_t panel_prepared_second = -1;
+    uint32_t panel_source_status = 0;
 #if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
     LUNASHELL::CodexDebugScreen debug_screen = LUNASHELL::CodexDebugScreen::Normal;
     uint8_t debug_channel_scroll = 0;
@@ -296,6 +310,13 @@ struct CompanionState {
     bool routine_greeting_pending = true;
     bool routine_scene = false;
     LUNASHELL::RoutinePeriod routine_period = LUNASHELL::RoutinePeriod::Unavailable;
+    // Native text borrows this display-owned buffer until the whole frame retires.
+    char routine_user_name[25]{};
+    CODY2D::TextLine routine_user_name_line{};
+    uint32_t routine_user_name_revision = 0;
+    uint32_t routine_user_name_content_revision = 0;
+    esp_err_t routine_user_name_error = ESP_OK;
+    bool routine_user_name_available = false;
     CODY::ResponseState response{};
     CODY::ResponseFrame response_frame{};
     bool response_sources_logged = false;
@@ -459,7 +480,7 @@ esp_err_t resolve_personality_device_cues(CODY::PersonalityCue requested,
 // rig_visible: The current frame really renders the evaluated character.
 bool main_companion_view_active(bool rig_visible)
 {
-    if (debug_view_active()) {
+    if (debug_view_active() || s_state.companion_panel != CODY::CompanionPanel::Home) {
         return false;
     }
     // The automatic clock greeting is the ordinary idle companion, not an
@@ -468,6 +489,70 @@ bool main_companion_view_active(bool rig_visible)
         s_state.scene.definition != nullptr && s_state.scene.definition->id == CODY::SceneId::Greeting;
     return rig_visible && CODY::lifecycle_is_resting(s_state.lifecycle) &&
         (!s_state.scene.valid || routine_main) && !s_state.resume_scene_pending;
+}
+
+// No parameters: admit only ordinary companion routes, never setup or remote controls.
+bool companion_home_route_active()
+{
+    if (s_state.resume_scene_pending || s_state.boot_phase != BootPhase::Ready ||
+        !s_state.rig_visible || debug_view_active() || !CODY::lifecycle_is_resting(s_state.lifecycle)) {
+        return false;
+    }
+    if (!s_state.scene.valid || s_state.routine_scene) {
+        return true;
+    }
+    switch (s_state.scene.definition->id) {
+    case CODY::SceneId::Connected:
+    case CODY::SceneId::ProjectActive:
+    case CODY::SceneId::Working:
+    case CODY::SceneId::ResponseReady:
+    case CODY::SceneId::SessionPaused:
+    case CODY::SceneId::SessionEnded:
+    case CODY::SceneId::ConnectionLost:
+    case CODY::SceneId::CompanionIdle:
+    case CODY::SceneId::ActivityUnavailable:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// No parameters: stored panel choice survives explicit route preemption without owning hidden touch.
+bool technical_panel_view_active()
+{
+    // Remote questions, approvals, setup and Debug retain their real controls and attention.
+    // Completing that explicit route resumes the selected panel without a timeout or remote ACK.
+    return s_state.companion_panel != CODY::CompanionPanel::Home && companion_home_route_active();
+}
+
+// panel: Local information view; never acknowledges or changes a remote request.
+void select_companion_panel(CODY::CompanionPanel panel)
+{
+    if (s_state.companion_panel == panel) {
+        return;
+    }
+    s_state.companion_panel = panel;
+    CODY::cancel_companion_tap(s_state.companion_tap);
+    CODY::cancel_petting(s_state.petting);
+    s_state.setup_hold_candidate = false;
+    s_state.setup_hold_eligible = false;
+    s_state.body_drag_active = false;
+    s_resources.previous_frame_valid = false;
+    s_state.frame_dirty.store(true, std::memory_order_release);
+    ESP_LOGI(kTag, "Local companion panel selected: %u", static_cast<unsigned>(panel));
+}
+
+// No parameters: advance the current local information view after an admitted release.
+// Exception: Returns an invalid typed panel identity without changing the route.
+esp_err_t advance_local_companion_panel()
+{
+    CODY::CompanionPanel next = CODY::CompanionPanel::Home;
+    const esp_err_t error = CODY::next_companion_panel(s_state.companion_panel, next);
+    if (error != ESP_OK) {
+        return error;
+    }
+    select_companion_panel(next);
+    return ESP_OK;
 }
 
 // rig_visible: The current frame really renders the evaluated character.
@@ -1624,6 +1709,70 @@ esp_err_t routine_greeting_title(LUNASHELL::RoutinePeriod period, CODY2D::TextSp
     return ESP_ERR_INVALID_RESPONSE;
 }
 
+// state: Display-owned native name line, stable until every tile retires.
+// strip: Borrowed native RGB565 tile already containing the character and greeting.
+// first_row: Logical y origin shared by text, clipping and orientation.
+// first_column: Logical x origin shared by text, clipping and orientation.
+// Exception: Returns missing state or the original native text drawing error.
+esp_err_t draw_routine_user_name(const void *state, CODY2D::Surface strip,
+                                uint16_t first_row, uint16_t first_column)
+{
+    if (state == nullptr) {
+        ESP_LOGE(kTag, "Routine name raster state unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const auto &line = *static_cast<const CODY2D::TextLine *>(state);
+    return CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
+}
+
+// profile: Readback-confirmed canonical user name or its explicit unavailable state.
+// scene: Existing idle greeting; a name never changes the user's current route.
+// Exception: Returns genuine metadata or native layout errors without substituting a name.
+esp_err_t prepare_routine_user_name(const LUNASHELL::CodyUserNameSnapshot &profile,
+                                  CODY::SceneFrame &scene)
+{
+    const bool available = profile.data_valid && !profile.data_stale && profile.last_error == ESP_OK;
+    const char *text = available ? profile.name : "NAME UNAVAILABLE";
+    const size_t length = std::strlen(text);
+    if (length >= sizeof(s_state.routine_user_name)) {
+        ESP_LOGE(kTag, "Routine user name length rejected: length=%u (%s)",
+            static_cast<unsigned>(length), esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    scene.content = {};
+    s_state.routine_user_name_line = {};
+    if (length > 0) {
+        std::memcpy(s_state.routine_user_name, text, length + 1U);
+        const auto &font = CODY::SceneData::body_font;
+        const uint16_t width = (length - 1U) * font.advance + font.width;
+        const int16_t left = (kPanelWidth - width) / 2;
+        const uint16_t bottom = 390U + font.height;
+        // The maximum 24-character name fits the narrowest occupied lower chord.
+        const int32_t horizontal = kPanelWidth / 2 - left;
+        const int32_t vertical = bottom - 1U - kPanelHeight / 2;
+        if (horizontal * horizontal + vertical * vertical >= (kPanelWidth / 2) * (kPanelWidth / 2)) {
+            ESP_LOGE(kTag, "Routine user name exceeds its circular chord (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+            return ESP_ERR_INVALID_SIZE;
+        }
+        const esp_err_t error = CODY2D::prepare_text_line(font,
+            {s_state.routine_user_name, static_cast<uint16_t>(length)}, {left, 390}, 0xF7BE,
+            s_state.routine_user_name_line);
+        if (error != ESP_OK) {
+            return error;
+        }
+        scene.content.bounds = {static_cast<uint16_t>(left), 390,
+            static_cast<uint16_t>(left + width), bottom};
+        scene.content.state = &s_state.routine_user_name_line;
+        scene.content.draw_rows = draw_routine_user_name;
+    }
+    // Availability can change without a durable name revision; retire those visual changes too.
+    scene.content.revision = ++s_state.routine_user_name_content_revision;
+    s_state.routine_user_name_revision = profile.revision;
+    s_state.routine_user_name_error = profile.last_error;
+    s_state.routine_user_name_available = available;
+    return ESP_OK;
+}
+
 // clock: Canonical time and validated configuration, never a direct sensor read.
 // lifecycle: Existing phase; routines cannot wake the device or interrupt boot/Sleep/Wake.
 // scene: Caller-owned next frame; the immutable generic layout is reused, not cloned.
@@ -1644,10 +1793,22 @@ esp_err_t update_routine_greeting(const LUNASHELL::ClockSnapshot &clock,
     }
     const auto period = LUNASHELL::clock_observation_current(clock)
         ? clock.period : LUNASHELL::RoutinePeriod::Unavailable;
+    if (!s_state.routine_scene && (!s_state.routine_greeting_pending || scene.valid)) {
+        return ESP_OK;
+    }
+    // This bounded canonical preference projection adds no sensor or storage reads.
+    // Keep its nested greeting-frame contribution explicit as the profile schema grows.
+    static_assert(sizeof(LUNASHELL::CodyOptionsObservation) <= 256U);
+    LUNASHELL::CodyOptionsObservation options;
+    const esp_err_t options_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(options);
+    if (options_error != ESP_OK) {
+        ESP_LOGE(kTag, "Routine user name observation failed (%s)", esp_err_to_name(options_error));
+        return options_error;
+    }
+    const auto &profile = options.preferences.user_name;
+    const bool profile_available = profile.data_valid && !profile.data_stale && profile.last_error == ESP_OK;
+    const bool title_changed = !s_state.routine_scene || period != s_state.routine_period;
     if (!s_state.routine_scene) {
-        if (!s_state.routine_greeting_pending || scene.valid) {
-            return ESP_OK;
-        }
         const CODY::SceneDefinition *definition = nullptr;
         esp_err_t error = CODY::find_scene(CODY::SceneId::Greeting, definition);
         if (error == ESP_OK) {
@@ -1659,13 +1820,22 @@ esp_err_t update_routine_greeting(const LUNASHELL::ClockSnapshot &clock,
         // Wake/boot already owns its presentation. Only start the English title.
         scene.intro_phase = CODY::SceneIntroPhase::Complete;
         scene.intro_elapsed_us = 0;
-    } else if (period == s_state.routine_period) {
+    } else if (period == s_state.routine_period && profile.revision == s_state.routine_user_name_revision &&
+               profile.last_error == s_state.routine_user_name_error &&
+               profile_available == s_state.routine_user_name_available) {
         return ESP_OK;
     }
-    CODY2D::TextSpan title;
-    esp_err_t error = routine_greeting_title(period, title);
+    esp_err_t error = ESP_OK;
+    if (title_changed) {
+        // A name-only update retains the greeting's reveal clock and typing audio count.
+        CODY2D::TextSpan title;
+        error = routine_greeting_title(period, title);
+        if (error == ESP_OK) {
+            error = CODY::set_scene_title(scene, title);
+        }
+    }
     if (error == ESP_OK) {
-        error = CODY::set_scene_title(scene, title);
+        error = prepare_routine_user_name(profile, scene);
     }
     if (error != ESP_OK) {
         return error;
@@ -1740,6 +1910,16 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     const esp_err_t observation_error = CODY::observe_response_inputs(inputs, &clock);
     if (observation_error != ESP_OK) {
         return observation_error;
+    }
+    if (resume_animation) {
+        CODY::suspend_companion_shake(s_state.companion_shake, frame_started_us);
+        CODY::cancel_companion_tap(s_state.companion_tap);
+    }
+    const bool gesture_eligible = companion_home_route_active() || technical_panel_view_active();
+    if (CODY::observe_companion_shake(s_state.companion_shake, inputs.motion,
+            esp_timer_get_time(), gesture_eligible)) {
+        // Home consumes a deliberate shake without changing chats or remote state.
+        select_companion_panel(CODY::CompanionPanel::Home);
     }
     const bool routine_current = LUNASHELL::clock_observation_current(clock) && clock.routines_enabled;
     const bool softer_routine = routine_current && (clock.quiet ||
@@ -2386,9 +2566,12 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     CODY::DirtyPlan dirty_plan;
     const bool frame_overlay = debug_view_active();
     const bool frame_channel_list = debug_channel_view_active();
-    const bool frame_debug = s_state.rig_debug && !frame_overlay;
-    const bool footer_blocks_readout = !frame_overlay && s_state.scene.valid &&
-        s_state.scene.content.bottom_action_visible;
+    bool frame_technical = technical_panel_view_active();
+    const bool frame_debug = s_state.rig_debug && !frame_overlay && !frame_technical;
+    // Real content in the lower arc reserves it, including a personalized greeting.
+    const bool footer_blocks_readout = frame_technical || (!frame_overlay && s_state.scene.valid &&
+        (s_state.scene.content.bottom_action_visible ||
+         (s_state.scene.content.draw_rows != nullptr && s_state.scene.content.bounds.bottom > 390)));
     // A paused redraw has no active animation interval, even after a long wall-clock gap.
     s_state.personality_delta_us = 0;
     if (s_state.rig_visible) {
@@ -2481,9 +2664,55 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         timings.geometry_us = esp_timer_get_time() - timings.started_us;
     }
     timings.geometry_completed_us = esp_timer_get_time();
+    // A deliberate shake may select Home during the canonical motion observation.
+    frame_technical = technical_panel_view_active();
     CODY::ScenePresentation presentation{};
-    const bool frame_scene_visible = !frame_overlay && s_state.scene.valid &&
+    const bool frame_scene_visible = !frame_overlay && !frame_technical && s_state.scene.valid &&
         CODY::lifecycle_is_resting(s_state.lifecycle) && !s_state.resume_scene_pending;
+    if (frame_technical) {
+        const esp_err_t observation_error = LUNASHELL::DeviceSnapshotService::instance()
+            .readCodexTechnicalObservation(s_state.technical_observation);
+        if (observation_error != ESP_OK) {
+            return frame.finish({observation_error, false, 0});
+        }
+        const auto &link = s_state.technical_observation.link;
+        const auto &technical = s_state.technical_observation.technical;
+        const int64_t panel_now_us = esp_timer_get_time();
+        const int64_t second = panel_now_us / 1000000;
+        const uint32_t status = static_cast<uint32_t>(link.state) |
+            (static_cast<uint32_t>(link.data_valid) << 8) |
+            (static_cast<uint32_t>(link.data_stale) << 9) |
+            (static_cast<uint32_t>(link.activity.data_valid) << 10) |
+            (static_cast<uint32_t>(link.activity.data_stale) << 11) |
+            (static_cast<uint32_t>(technical.data_valid) << 12) |
+            (static_cast<uint32_t>(technical.data_stale) << 13) |
+            (static_cast<uint32_t>(technical.model_stale) << 14) |
+            (static_cast<uint32_t>(technical.context_stale) << 15);
+        esp_err_t panel_error = ESP_OK;
+        if (!s_state.technical_panel.valid || s_state.technical_panel.panel != s_state.companion_panel ||
+            s_state.panel_activity_revision != link.activity.revision ||
+            s_state.panel_technical_revision != technical.revision ||
+            s_state.panel_source_status != status || s_state.panel_prepared_second != second) {
+            CODY::SceneContent panel_content{};
+            panel_error = CODY::prepare_companion_panel_from_observation(
+                s_state.companion_panel, link, technical, CODY::SceneData::body_font,
+                panel_now_us, s_state.technical_panel, panel_content);
+            if (panel_error == ESP_OK) {
+                s_state.panel_activity_revision = link.activity.revision;
+                s_state.panel_technical_revision = technical.revision;
+                s_state.panel_source_status = status;
+                s_state.panel_prepared_second = second;
+            }
+        }
+        if (panel_error == ESP_OK) {
+            bool animation_changed = false;
+            panel_error = CODY::advance_companion_panel(
+                s_state.technical_panel, panel_now_us, animation_changed);
+        }
+        if (panel_error != ESP_OK) {
+            return frame.finish({panel_error, false, 0});
+        }
+    }
     if (frame_scene_visible) {
         const esp_err_t presentation_error = CODY::prepare_scene_presentation(s_state.scene, presentation);
         if (presentation_error != ESP_OK) {
@@ -2501,7 +2730,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const uint8_t navigation_opacity = s_state.navigation_visibility.opacity(timings.started_us);
     const uint16_t scene_background = frame_scene_visible ? s_state.scene.definition->background_rgb565 :
         CODY::Data::palette[CODY::to_index(CODY::Data::background_color)];
-    const bool frame_navigation_visible = !frame_overlay && !s_state.raster_benchmark_active && kRenderDiagnosticsEnabled && navigation_opacity != 0 &&
+    const bool frame_navigation_visible = !frame_overlay && !frame_technical && !s_state.raster_benchmark_active && kRenderDiagnosticsEnabled && navigation_opacity != 0 &&
         lifecycle_navigation_allowed && !presentation.boot_bitmap_visible;
     const bool frame_status_visible = !frame_overlay && !s_state.raster_benchmark_active && !s_state.onboarding.effective_first_boot &&
         navigation_opacity != 0 && lifecycle_navigation_allowed && frame_was_rig;
@@ -2586,6 +2815,10 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         };
         uint8_t exclusion_count = 2;
         if (frame_scene_visible) {
+            if (s_state.scene.activity_overlay.state != CODY::ActivityOverlayState::Hidden) {
+                // Manga keeps its own admitted footprint; activity never follows or covers it.
+                exclusions[exclusion_count++] = CODY::activity_overlay_bounds();
+            }
             // Connection reactions cannot borrow QR, narrative or action space.
             const auto &content = s_state.scene.content;
             if (content.bounds.right > content.bounds.left && content.bounds.bottom > content.bounds.top) {
@@ -2692,12 +2925,23 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const bool reuse_previous = !frame_overlay && previous_frame_available && !resume_animation &&
         s_rendered_revision.load(std::memory_order_acquire) == revision &&
         s_state.rig_visible && s_cache_was_rig &&
+        s_cached_companion_panel == (frame_technical ? s_state.companion_panel : CODY::CompanionPanel::Home) &&
         s_cached_scene_visible == frame_scene_visible &&
         s_cached_scene.valid == s_state.scene.valid &&
         s_cached_scene.definition == s_state.scene.definition;
     esp_err_t plan_error = ESP_OK;
     if (!reuse_previous || presentation.boot_bitmap_visible || screenshot_capture_active) {
         plan_error = CODY::include_damage(dirty_plan, {0, 0, kPanelWidth, kPanelHeight});
+    } else if (frame_technical) {
+        if (s_cached_panel_revision != s_state.technical_panel.revision) {
+            plan_error = CODY::include_damage(dirty_plan, {73, 73, 393, 393});
+        }
+        if (plan_error == ESP_OK &&
+            (s_cached_navigation_opacity != navigation_opacity ||
+             s_cached_status_visible != frame_status_visible ||
+             !CODY::status_overlay_equal(s_cached_status_overlay, s_state.status_overlay))) {
+            plan_error = CODY::include_damage(dirty_plan, CODY::status_overlay_damage_bounds());
+        }
     } else if (s_state.raster_benchmark_active) {
         // A static pose would otherwise disappear from the dirty plan after its first frame.
         // Force the exact same artwork region; warmup excludes the initial full-canvas clear.
@@ -2833,13 +3077,14 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             };
             const int64_t raster_started_us = esp_timer_get_time();
             if (frame_was_rig) {
-                result = frame_channel_list ? CODY2D::clear(strip, scene_background) : CODY::draw_rig_rows(
+                result = (frame_channel_list || frame_technical) ? CODY2D::clear(strip, scene_background) : CODY::draw_rig_rows(
                     *s_resources.rig, strip, damage.top, frame_debug, s_state.selected_point,
                     kExecutionTimingsEnabled ? &timings.raster_profile : nullptr,
                     s_state.animation_paused, damage.left,
                     frame_debug ? s_resources.rig_debug_strokes : nullptr,
                     false, navigation_opacity, scene_background,
-                    screenshot_control_state(frame_screenshot_state)
+                    screenshot_control_state(frame_screenshot_state),
+                    frame_scene_visible ? &s_state.scene.activity_overlay : nullptr
                 );
                 if (result == ESP_OK && presentation.opacity != 255) {
                     result = CODY2D::fade_to_black(strip, presentation.opacity);
@@ -2847,7 +3092,11 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 if (result == ESP_OK && frame_scene_visible && presentation.content_visible) {
                     result = CODY::draw_scene_rows(s_state.scene, strip, damage.top, damage.left);
                 }
-                if (result == ESP_OK && presentation.content_visible) {
+                if (result == ESP_OK && frame_technical) {
+                    result = CODY::draw_companion_panel_rows(
+                        s_state.technical_panel, strip, damage.top, damage.left);
+                }
+                if (result == ESP_OK && presentation.content_visible && !frame_technical) {
                     result = CODY::draw_onboarding_navigation(strip, damage.top, damage.left);
                 }
                 if (result == ESP_OK && frame_status_visible) {
@@ -2856,7 +3105,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                         strip, damage.top, damage.left
                     );
                 }
-                if (result == ESP_OK && frame_navigation_visible) {
+                if (result == ESP_OK && frame_navigation_visible && !frame_technical) {
                     result = CODY::draw_rig_navigation_rows(
                         strip, damage.top, frame_debug, s_state.animation_paused,
                         damage.left, navigation_opacity, scene_background,
@@ -2973,7 +3222,10 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_cached_capture_visual = frame_capture_visual;
         s_cached_scene = s_state.scene;
         s_cached_scene_visible = frame_scene_visible;
-        const esp_err_t audio_error = frame_overlay ? ESP_OK : notify_completed_typewriter(s_cached_scene, presentation);
+        s_cached_companion_panel = frame_technical ? s_state.companion_panel : CODY::CompanionPanel::Home;
+        s_cached_panel_revision = s_state.technical_panel.revision;
+        const esp_err_t audio_error = (frame_overlay || frame_technical) ? ESP_OK :
+            notify_completed_typewriter(s_cached_scene, presentation);
         if (audio_error != ESP_OK) {
             // The audio owner already retains/publishes its real failure. This
             // optional cue cannot invalidate a successfully retired panel frame.
@@ -3556,6 +3808,8 @@ esp_err_t apply_lifecycle_requests()
         return audio_error;
     }
     s_state.lifecycle_request = request;
+    CODY::cancel_companion_tap(s_state.companion_tap);
+    CODY::suspend_companion_shake(s_state.companion_shake, esp_timer_get_time());
     // A retained contact must start a fresh visible hold after the wake handoff.
     s_state.setup_hold_candidate = false;
     s_state.setup_hold_eligible = false;
@@ -3759,6 +4013,21 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         return ESP_OK;
     }
     const bool pressed_edge = point.pressed && !s_state.touch_pressed;
+    const bool panel_open = technical_panel_view_active();
+    const bool companion_eligible = LUNASHELL_display_runtime_writes_allowed() &&
+        (companion_home_route_active() || panel_open);
+    const bool passive_tap = CODY::observe_companion_tap(s_state.companion_tap,
+        static_cast<int16_t>(point.x), static_cast<int16_t>(point.y), point.pressed,
+        pressed_edge, point.sample_timestamp_us, s_state.rendered_rotation_degrees,
+        companion_eligible, (!pressed_edge && s_state.petting.triggered) || s_state.setup_hold_opened);
+    if (panel_open) {
+        s_state.touch_pressed = point.pressed;
+        if (passive_tap) {
+            return advance_local_companion_panel();
+        }
+        // A contact on a technical panel never reaches a hidden home control.
+        return ESP_OK;
+    }
     if (pressed_edge && s_typewriter_audio_prepared && s_state.boot_phase == BootPhase::Ready &&
         LUNASHELL_display_runtime_writes_allowed()) {
         // A held finger and its motion samples produce no additional clicks.
@@ -3809,10 +4078,12 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         s_state.navigation_touch_active = false;
     }
     if (debug_control_contact && !pressed_edge) {
+        CODY::cancel_companion_tap(s_state.companion_tap);
         CODY::cancel_petting(s_state.petting);
         return ESP_OK; // A Debug-control contact never becomes an onboarding swipe.
     }
     if (reveal_only) {
+        CODY::cancel_companion_tap(s_state.companion_tap);
         s_state.body_drag_active = false;
         CODY::cancel_petting(s_state.petting);
         return ESP_OK;
@@ -3826,6 +4097,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         classify_rig_touch(point) == TouchAction::None;
     const esp_err_t setup_error = handle_setup_hold(point, pressed_edge, setup_eligible, setup_consumed);
     if (setup_error != ESP_OK || setup_consumed) {
+        CODY::cancel_companion_tap(s_state.companion_tap);
         return setup_error;
     }
     if (!debug_control_contact && !s_state.resume_scene_pending && s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed() &&
@@ -3843,6 +4115,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
             return policy_error;
         }
         if (consumed) {
+            CODY::cancel_companion_tap(s_state.companion_tap);
             cancel_transient_affection();
             if (!point.pressed && s_state.body_drag_active) {
                 const esp_err_t release_error = publish_body_gesture(point, false);
@@ -3866,6 +4139,9 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
             }
         } else {
             const TouchAction action = classify_rig_touch(point);
+            if (action != TouchAction::None) {
+                CODY::cancel_companion_tap(s_state.companion_tap);
+            }
             if (action == TouchAction::ReturnToIdle) {
                 const esp_err_t policy_error = apply_scene_standby_policy({});
                 if (policy_error != ESP_OK) {
@@ -3923,6 +4199,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
                     return hit_error;
                 }
                 if (eye != CODY::EyeId::None) {
+                    CODY::cancel_companion_tap(s_state.companion_tap);
                     using Kind = LUNASHELL::CharacterInteractionSnapshot::Kind;
                     const auto kind = eye == CODY::EyeId::Left ? Kind::EyeLeftTap : Kind::EyeRightTap;
                     const esp_err_t event_error = LUNASHELL::DeviceSnapshotService::instance()
@@ -3937,7 +4214,11 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
             s_state.frame_dirty.store(true, std::memory_order_release);
         }
     }
-    return publish_body_gesture(point, pressed_edge);
+    const esp_err_t body_error = publish_body_gesture(point, pressed_edge);
+    if (body_error == ESP_OK && passive_tap && !s_state.petting.triggered) {
+        return advance_local_companion_panel();
+    }
+    return body_error;
 }
 
 // point: Receives a real report, retaining its original timestamp and error.
@@ -3996,6 +4277,7 @@ bool optional_runtime_touch_failure(const TouchPollResult &sample)
 // error: Real rejected report error, preserved by ui.touch and character_touch.
 void interrupt_touch_gestures(esp_err_t error)
 {
+    CODY::cancel_companion_tap(s_state.companion_tap);
     s_touch_contact_interrupted = true;
     s_state.setup_hold_candidate = false;
     s_state.setup_hold_eligible = false;

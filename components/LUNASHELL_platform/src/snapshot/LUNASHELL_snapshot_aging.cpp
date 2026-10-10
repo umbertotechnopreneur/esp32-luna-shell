@@ -51,6 +51,7 @@ void apply_measured_sample_aging(
     int64_t now_us
 )
 {
+    age_codex_technical(snapshot.codex_technical, now_us);
     const int64_t ttl_us = measured_sample_ttl_us(snapshot);
     age_measured_sample(snapshot.battery, now_us, ttl_us);
     age_measured_sample(snapshot.rtc, now_us, ttl_us);
@@ -76,6 +77,34 @@ void apply_measured_sample_aging(
     age_measured_sample(snapshot.memory, now_us, ttl_us);
     age_measured_sample(snapshot.processor, now_us, ttl_us);
     age_measured_sample(snapshot.storage.logger_capture, now_us, ttl_us);
+}
+
+// technical: Independent source measurements; missing values remain unavailable.
+// now_us: Device clock used only relative to this packet's device receipt.
+void age_codex_technical(CodexTechnicalSnapshot &technical, int64_t now_us)
+{
+    constexpr uint64_t source_ttl_us = 120000000;
+    constexpr uint64_t transport_ttl_us = 8000000;
+    if (technical.received_at_us <= 0) {
+        return;
+    }
+    const bool clock_discontinuity = now_us < technical.received_at_us;
+    const uint64_t elapsed = clock_discontinuity ? transport_ttl_us :
+        static_cast<uint64_t>(now_us - technical.received_at_us);
+    technical.data_stale = clock_discontinuity || elapsed >= transport_ttl_us;
+    technical.model_stale = technical.model_valid && (technical.data_stale ||
+        technical.model_age_at_receive_us >= source_ttl_us ||
+        elapsed >= source_ttl_us - technical.model_age_at_receive_us);
+    if (technical.compaction == CodexCompactionState::Active &&
+        (technical.data_stale || !technical.compaction_age_valid ||
+         technical.compaction_age_at_receive_us >= source_ttl_us ||
+         elapsed >= source_ttl_us - technical.compaction_age_at_receive_us)) {
+        // Loss of observation never becomes successful completion.
+        technical.compaction = CodexCompactionState::Stale;
+    }
+    technical.context_stale = technical.context_valid && (technical.data_stale ||
+        technical.usage_age_at_receive_us >= source_ttl_us ||
+        elapsed >= source_ttl_us - technical.usage_age_at_receive_us);
 }
 
 }

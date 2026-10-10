@@ -16,6 +16,7 @@ from typing import Any
 
 import ccp_server as ccp
 from ccp_activity import EVENTS
+from ccp_repository import read_branch
 from ccp_windows import (CONTROL_PORT, configure_exclusive_socket, control_port_available,
                          launch_runtime, runtime_directory)
 
@@ -290,7 +291,8 @@ def dispatch(server: ControlServer, operation: str, payload: dict[str, Any]) -> 
         if (payload.get("method") == "tools/call" and isinstance(params, dict)
                 and params.get("name") in {"ccp_ask_question", "ccp_publish_notification",
                                            "ccp_poll_request", "ccp_cancel_request", "ccp_reset_device", "ccp_factory_reset_device",
-                                           "ccp_debug_screen"}):
+                                           "ccp_debug_screen", "ccp_read_clock", "ccp_configure_clock", "ccp_report_progress",
+                                           "ccp_read_name", "ccp_set_name"}):
             return ccp.handle_request(payload, server.service)
         # Pair/discovery cache operations are serialized; UDP liveness and hooks
         # remain independent while a pairing exchange waits for its device.
@@ -335,9 +337,12 @@ def run_hook() -> int:
     original = json.loads(raw)
     if not isinstance(original, dict) or original.get("hook_event_name") not in EVENTS:
         raise ValueError("CCP hook event is not supported")
-    allowed = ("hook_event_name", "session_id", "cwd", "turn_id", "tool_name", "tool_use_id")
+    allowed = ("hook_event_name", "session_id", "cwd", "turn_id", "tool_name", "tool_use_id", "model", "trigger")
     event = {key: original[key] for key in allowed if key in original}
     event["emitted_ns"] = emitted_ns
+    # Only checkout metadata is read; tool arguments and all chat contents remain discarded.
+    if isinstance(event.get("cwd"), str) and 0 < len(event["cwd"]) <= 4096:
+        event["branch"] = read_branch(event["cwd"])
     # Only lifecycle entry points can start the owner. Interrupt must finish
     # within Codex's three-second limit, even when the runtime is unavailable.
     secret = (ensure_runtime() if event["hook_event_name"] in {"SessionStart", "UserPromptSubmit"}
