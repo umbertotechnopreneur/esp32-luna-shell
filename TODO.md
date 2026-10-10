@@ -44,10 +44,11 @@ CCP-07. No rates, dollar amounts or session-cost estimation are sent to Cody.
 
 ## CCP, hooks and companion
 
-- [ ] **CCP-01 - Coordinated security rollout.** Install CCP 0.6.3 and matching
-  READY/COMMITTED firmware together when requested. Inspect affected compiled
-  frames and measured stacks; run prepared security regressions with fresh suite
-  authorization. Observe real pairing, retained recovery, packet/ACK loss,
+- [ ] **CCP-01 - Coordinated security rollout.** Security implementation is
+  retained in dedicated checkpoint `bbb11e10`. Install current CCP 0.6.4 and
+  matching READY/COMMITTED plus TECH v2 firmware together when requested.
+  Inspect affected compiled frames and measured stacks; run prepared security
+  regressions with fresh suite authorization. Observe real pairing, retained recovery, packet/ACK loss,
   broker restart, consecutive questions and notice routing; tune bounded ingress
   from measured bursts. Older 0.6.0/0.6.2 installation evidence is historical.
 - [ ] **CCP-02 - Native hook delivery.** Restart/review modified hooks in `/hooks`
