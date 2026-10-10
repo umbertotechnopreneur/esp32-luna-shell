@@ -48,6 +48,7 @@ LUNASHELL::ClockPreferences s_clock_preferences;
 bool s_clock_preferences_ready;
 esp_err_t s_clock_preferences_error = ESP_ERR_INVALID_STATE;
 constexpr char kClockPreferencesKey[] = "clock_routine";
+constexpr char kClockCompanionInitializedKey[] = "clock_adopted";
 struct DriftBaseline {
     bool valid = false;
     int32_t offset_seconds = 0;
@@ -125,7 +126,7 @@ esp_err_t load_clock_preferences(const char *default_timezone)
                 esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
             return ESP_ERR_NOT_SUPPORTED;
         }
-        ESP_LOGI(TAG, "First boot: key '%s' absent; persist routines=1 quiet=1 22:00-07:00 zone=%s",
+        ESP_LOGI(TAG, "First boot: key '%s' absent; persist routines=1 quiet=0 22:00-07:00 zone=%s",
             kClockPreferencesKey, default_timezone);
         error = settings.setUInt32(kClockPreferencesKey, encode_clock_preferences(loaded));
     } else if (error == ESP_OK) {
@@ -876,6 +877,7 @@ esp_err_t read_clock_preferences(ClockPreferences &preferences)
 }
 
 // preferences: Explicit runtime change; one persisted key prevents partial quiet windows.
+// Exception: Returns original validation, durable readback, timezone or publication failures.
 esp_err_t configure_clock_preferences(const ClockPreferences &preferences)
 {
     const esp_err_t validation_error = validate_clock_preferences(preferences);
@@ -891,6 +893,13 @@ esp_err_t configure_clock_preferences(const ClockPreferences &preferences)
     esp_err_t error = apply_timezone(clock_timezone_spec(preferences.timezone));
     if (error == ESP_OK) {
         error = UserSettingsService::instance().setUInt32(kClockPreferencesKey, encode_clock_preferences(preferences));
+    }
+    if (error == ESP_OK) {
+        uint32_t confirmed = 0;
+        error = UserSettingsService::instance().getUInt32(kClockPreferencesKey, &confirmed);
+        if (error == ESP_OK && confirmed != encode_clock_preferences(preferences)) {
+            error = ESP_ERR_INVALID_RESPONSE;
+        }
     }
     if (error != ESP_OK) {
         ESP_LOGE(TAG, "Clock preferences update failed (%s); retaining original configuration", esp_err_to_name(error));
@@ -915,6 +924,144 @@ esp_err_t configure_clock_preferences(const ClockPreferences &preferences)
         s_timezone, preferences.routines_enabled, preferences.quiet_hours_enabled,
         preferences.quiet_start_minute, preferences.quiet_end_minute);
     return publish_clock_observation();
+}
+
+// preferences: Receives only validated settings belonging to the time owner.
+// initialized: Receives the strict durable companion-initialization marker.
+// Exception: Returns the original read error; absence is uninitialized, never an invalid value repair.
+esp_err_t read_remote_clock_preferences(ClockPreferences &preferences, bool &initialized)
+{
+    ClockPreferences current;
+    esp_err_t error = read_clock_preferences(current);
+    if (error != ESP_OK) {
+        return error;
+    }
+    uint32_t durable_preferences = 0;
+    error = UserSettingsService::instance().getUInt32(kClockPreferencesKey, &durable_preferences);
+    if (error == ESP_OK && durable_preferences != encode_clock_preferences(current)) {
+        error = ESP_ERR_INVALID_STATE;
+    }
+    if (error != ESP_OK) {
+        // A failed commit/readback may leave durable and runtime state different.
+        // An acknowledgement cannot present either candidate as confirmed configuration.
+        ESP_LOGE(TAG, "Clock companion preferences readback unavailable (%s)", esp_err_to_name(error));
+        return error;
+    }
+    uint32_t marker = 0;
+    error = UserSettingsService::instance().getUInt32(kClockCompanionInitializedKey, &marker);
+    if (error == ESP_ERR_NVS_NOT_FOUND) {
+        // This marker is written only by an authenticated initialization or explicit change.
+        marker = 0;
+        error = ESP_OK;
+    }
+    if (error == ESP_OK && marker > 1U) {
+        error = ESP_ERR_INVALID_ARG;
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Clock companion marker read rejected: value=%lu (%s)",
+            static_cast<unsigned long>(marker), esp_err_to_name(error));
+        return error;
+    }
+    preferences = current;
+    initialized = marker == 1U;
+    return ESP_OK;
+}
+
+// No parameters: seals automatic timezone adoption without ever clearing user intent.
+// Exception: Returns original write/readback errors or an exact-value mismatch.
+static esp_err_t persist_clock_companion_marker()
+{
+    auto &settings = UserSettingsService::instance();
+    esp_err_t error = settings.setUInt32(kClockCompanionInitializedKey, 1U);
+    uint32_t confirmed = 0;
+    if (error == ESP_OK) {
+        error = settings.getUInt32(kClockCompanionInitializedKey, &confirmed);
+    }
+    if (error == ESP_OK && confirmed != 1U) {
+        error = ESP_ERR_INVALID_RESPONSE;
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Clock companion marker persistence failed (%s)", esp_err_to_name(error));
+    }
+    return error;
+}
+
+// operation: Authenticated read, initial timezone adoption or explicit configuration.
+// timezone: Typed timezone 0..2 or -1 to preserve it.
+// enabled: Quiet-hours flag 0/1 or -1 to preserve it.
+// start_minute: Half-open quiet-window start 0..1439 or -1 to preserve it.
+// end_minute: Half-open quiet-window end 0..1439 or -1 to preserve it.
+// preferences: Receives actual validated settings, including partial-operation outcomes.
+// initialized: Receives the actual durable adoption seal.
+// Exception: Preserves the first validation/persistence/publication error and logs readback failures.
+esp_err_t apply_remote_clock_preferences(ClockRemoteOperation operation, int timezone,
+    int enabled, int start_minute, int end_minute, ClockPreferences &preferences, bool &initialized)
+{
+    esp_err_t error = read_remote_clock_preferences(preferences, initialized);
+    if (error != ESP_OK) {
+        return error;
+    }
+    const bool unchanged = timezone == -1 && enabled == -1 && start_minute == -1 && end_minute == -1;
+    const bool valid_values = timezone >= -1 && timezone <= 2 && enabled >= -1 && enabled <= 1 &&
+        start_minute >= -1 && start_minute < 1440 && end_minute >= -1 && end_minute < 1440;
+    bool valid_operation = false;
+    switch (operation) {
+    case ClockRemoteOperation::Read:
+        valid_operation = unchanged;
+        break;
+    case ClockRemoteOperation::Initialize:
+        valid_operation = timezone >= 0 && enabled == -1 && start_minute == -1 && end_minute == -1;
+        break;
+    case ClockRemoteOperation::Configure:
+        valid_operation = !unchanged;
+        break;
+    }
+    if (!valid_values || !valid_operation) {
+        ESP_LOGE(TAG, "Remote clock values rejected: operation=%u zone=%d enabled=%d start=%d end=%d (%s)",
+            static_cast<unsigned>(operation), timezone, enabled, start_minute, end_minute,
+            esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (operation == ClockRemoteOperation::Read ||
+        (operation == ClockRemoteOperation::Initialize && initialized)) {
+        return ESP_OK;
+    }
+    ClockPreferences requested = preferences;
+    if (timezone != -1) {
+        requested.timezone = static_cast<ClockTimezone>(timezone);
+    }
+    if (enabled != -1) {
+        requested.quiet_hours_enabled = enabled == 1;
+    }
+    if (start_minute != -1) {
+        requested.quiet_start_minute = static_cast<uint16_t>(start_minute);
+    }
+    if (end_minute != -1) {
+        requested.quiet_end_minute = static_cast<uint16_t>(end_minute);
+    }
+    error = validate_clock_preferences(requested);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (operation == ClockRemoteOperation::Configure && !initialized) {
+        // Persist explicit user intent before changing preferences: a partial failure
+        // must never let a later automatic reconnect replace that user's choice.
+        error = persist_clock_companion_marker();
+    }
+    if (error == ESP_OK) {
+        error = configure_clock_preferences(requested);
+    }
+    if (error == ESP_OK && operation == ClockRemoteOperation::Initialize) {
+        error = persist_clock_companion_marker();
+    }
+    const esp_err_t readback_error = read_remote_clock_preferences(preferences, initialized);
+    if (readback_error != ESP_OK) {
+        ESP_LOGE(TAG, "Remote clock outcome readback failed (%s)", esp_err_to_name(readback_error));
+        if (error == ESP_OK) {
+            error = readback_error;
+        }
+    }
+    return error;
 }
 
 } // namespace LUNASHELL

@@ -14,7 +14,7 @@ struct ClockSnapshot;
 struct ClockPreferences {
     ClockTimezone timezone = ClockTimezone::Utc;
     bool routines_enabled = true;
-    bool quiet_hours_enabled = true;
+    bool quiet_hours_enabled = false;
     uint16_t quiet_start_minute = 22 * 60;
     uint16_t quiet_end_minute = 7 * 60;
 };
@@ -37,6 +37,23 @@ inline const char *clock_timezone_spec(ClockTimezone timezone)
 esp_err_t read_clock_preferences(ClockPreferences &preferences);
 // preferences: Explicit runtime request, persisted atomically through the NVS owner.
 esp_err_t configure_clock_preferences(const ClockPreferences &preferences);
+enum class ClockRemoteOperation : uint8_t { Read, Initialize, Configure };
+
+// preferences: Receives the existing validated configuration only on a successful read.
+// initialized: Receives the durable first-companion initialization marker.
+// Exception: Returns original preference/marker read errors; invalid marker values are rejected.
+esp_err_t read_remote_clock_preferences(ClockPreferences &preferences, bool &initialized);
+
+// operation: Authenticated read, first-companion initialization or explicit user configuration.
+// timezone: Typed timezone value 0..2, or -1 to preserve the existing choice.
+// enabled: Quiet-hours switch 0/1, or -1 to preserve its existing choice.
+// start_minute: Quiet window start 0..1439, or -1 to preserve it.
+// end_minute: Quiet window end 0..1439, or -1 to preserve it.
+// preferences: Receives the actual validated preferences after the operation when available.
+// initialized: Receives the actual durable initialization marker when available.
+// Exception: Returns original validation/storage/publication failures; no default repairs occur.
+esp_err_t apply_remote_clock_preferences(ClockRemoteOperation operation, int timezone,
+    int enabled, int start_minute, int end_minute, ClockPreferences &preferences, bool &initialized);
 // clock: Canonical, aged observation; an invalid/stale value cannot select a routine.
 bool clock_observation_current(const ClockSnapshot &clock);
 // clock: User opt-out is explicit; otherwise unknown time conservatively suppresses cues.

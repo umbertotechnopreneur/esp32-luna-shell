@@ -1,23 +1,6 @@
 #include "CODY_benchmark.hpp"
 #include "CODY_demo.hpp"
 #include "CODY_response.hpp"
-#include "CODY_damage.hpp"
-#include "CODY_debug_hud.hpp"
-#include "host_diagnostics.hpp"
-#include "cloud_rig_data.hpp"
-#include "runtime_settings.hpp"
-#include <cmath>
-#include <cstdio>
-#include <cstdlib>
-#include <initializer_list>
-#include <vector>
-#include <algorithm>
-#include <cstring>
-#include "CODY2D_paths.hpp"
-
-#include "CODY_benchmark.hpp"
-#include "CODY_demo.hpp"
-#include "CODY_response.hpp"
 #include "CODY_companion_gestures.hpp"
 #include "CODY_damage.hpp"
 #include "CODY_debug_hud.hpp"
