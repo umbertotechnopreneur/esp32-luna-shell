@@ -1,0 +1,937 @@
+[
+  {
+    "page": 1,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 1,
+    "source": "Cody / Atlante della navigazione\n",
+    "translation": "Cody / Navigation atlas"
+  },
+  {
+    "page": 1,
+    "source": "Notifiche, domande e PR in sola lettura; conservo il pairing e lo storico.\n",
+    "translation": "Notifications, questions and read-only PRs; preserve pairing and history."
+  },
+  {
+    "page": 1,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 1,
+    "source": "CODY-NOTIFICATIONS-20261010 | Riferimenti per screen ID\n1\n",
+    "translation": "CODY-NOTIFICATIONS-20261010 | Refer to screen IDs\n1\n"
+  },
+  {
+    "page": 1,
+    "source": "Conservo il PC, poi ricevo il lavoro\n",
+    "translation": "Keep the PC, then receive the work"
+  },
+  {
+    "page": 1,
+    "source": "Tengo distinti pairing, presenza LAN e attivita' dell'ultimo prompt reale.\nL'estensione EVENT porta avvisi e domande esplicite; non inventa una chat\nquando manca un hook. Il contesto dichiarato e' un'etichetta.\n",
+    "translation": "Keep pairing, LAN presence and activity from the latest genuine prompt distinct. EVENT carries explicit notices and questions; a missing hook never invents a chat. The declared context is a label."
+  },
+  {
+    "page": 1,
+    "source": "Decido soltanto dopo aver letto\n",
+    "translation": "Decide only after reading"
+  },
+  {
+    "page": 1,
+    "source": "Da Codex needs you apro due o tre scelte. La selezione apre un riepilogo con\nSend e Back. Mostro Reply sent solo dopo l'ACK del destinatario. Una domanda\ndura 180 secondi; la scadenza non sceglie al mio posto.\n",
+    "translation": "Codex needs you opens two or three choices. Selecting one opens a Send/Back review. Show Reply sent only after the recipient ACK. A question lasts 180 seconds; expiry never chooses an answer."
+  },
+  {
+    "page": 1,
+    "source": "Le PR restano in sola lettura\n",
+    "translation": "PRs remain read-only"
+  },
+  {
+    "page": 1,
+    "source": "Conservo la decisione A03: gli screen 21-24 riportano stati e nomi dei check\nfalliti. Il 25 e' ritirato; diagnosi e azioni PR restano sul PC. Un'approvazione nativa\nrimanda a On your PC, senza Allow o Deny su Cody.\n",
+    "translation": "Retain decision A03: screens 21-24 show states and failed-check names. Screen 25 is retired; PR diagnosis and actions stay on the PC. Native approval points to On your PC, without Allow or Deny on Cody."
+  },
+  {
+    "page": 1,
+    "source": "Come leggo questa revisione\n",
+    "translation": "How to read this revision"
+  },
+  {
+    "page": 1,
+    "source": "Ho aggiornato pagine principali e limiti del flow. Conservo gli addenda\nprecedenti e aggiungo errata datate. Distinguo il contratto nei sorgenti dalle\nprove host e fisiche; registro gli esiti correnti in done.md.\n",
+    "translation": "Main pages and flow boundaries are updated. Earlier addenda and dated corrections remain. Source contracts, host checks and physical evidence are distinct; done.md records current results."
+  },
+  {
+    "page": 5,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 5,
+    "source": "Chi porta l'attivita', chi invia una domanda\n",
+    "translation": "Activity and questions have separate owners"
+  },
+  {
+    "page": 5,
+    "source": "Screen 15-20 e 26 / hook reali e richieste MCP esplicite hanno identita' separate.\n",
+    "translation": "Screens 15-20 and 26 / genuine hooks and explicit MCP requests have separate identities."
+  },
+  {
+    "page": 5,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 5,
+    "source": "CODY-NOTIFICATIONS-20261010 | Riferimenti per screen ID\n5\n",
+    "translation": "CODY-NOTIFICATIONS-20261010 | Refer to screen IDs\n5\n"
+  },
+  {
+    "page": 5,
+    "source": "Ricevo una domanda dal chiamante MCP esplicito; per gli avvisi mostro From\nCodex. Leggo testo inglese ASCII. Il contesto e' dichiarato dal chiamante, senza\nattribuirgli l'identita' verificata della chat o degli hook.\n",
+    "translation": "An explicit MCP caller sends a question; notices show From Codex. Text is English ASCII. The caller declares context; it is not presented as a verified chat or hook identity."
+  },
+  {
+    "page": 5,
+    "source": "26 -> 27 / Apro la domanda\n",
+    "translation": "26 -> 27 / Open the question"
+  },
+  {
+    "page": 5,
+    "source": "Con Open leggo le due o tre risposte e le rispettive descrizioni. Conservo una\nsola domanda aperta per dispositivo. Attivita', notifiche successive e indicatori\nbatteria non la sostituiscono.\n",
+    "translation": "Open shows two or three replies and their descriptions. Keep one open question per device. Activity, later notices and battery indicators cannot replace it."
+  },
+  {
+    "page": 5,
+    "source": "Approvazioni / On your PC\n",
+    "translation": "Approvals / On your PC"
+  },
+  {
+    "page": 5,
+    "source": "Un PermissionRequest puo' richiamare la mia attenzione, ma la decisione nativa\nresta nel computer. Non aggiungo Allow, Deny o un'autorizzazione generica\nricavata da un testo incompleto.\n",
+    "translation": "PermissionRequest may require attention, but native approval stays on the computer. Do not add Allow, Deny or generic authorization inferred from incomplete text."
+  },
+  {
+    "page": 5,
+    "source": "Notifica non significa risposta\n",
+    "translation": "A notice is not a reply"
+  },
+  {
+    "page": 5,
+    "source": "Una notifica non offre scelte e non produce REPLY. Riservo Reply sent alle\nrisposte consegnate. Per le PR ammetto soltanto gli stati e la lista read-only\nprevisti da A03; nessuna azione operativa.\n",
+    "translation": "A notice has no choices and produces no REPLY. Reserve Reply sent for delivered answers. PRs support only A03's states and read-only list, with no operational actions."
+  },
+  {
+    "page": 6,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 6,
+    "source": "L'attivita' non chiude una domanda\n",
+    "translation": "Activity does not close a question"
+  },
+  {
+    "page": 6,
+    "source": "Screen 17-20, 26 e 27 / proteggo il contenuto ancora da decidere.\n",
+    "translation": "Screens 17-20, 26 and 27 / protect content awaiting a decision."
+  },
+  {
+    "page": 6,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 6,
+    "source": "CODY-NOTIFICATIONS-20261010 | Riferimenti per screen ID\n6\n",
+    "translation": "CODY-NOTIFICATIONS-20261010 | Refer to screen IDs\n6\n"
+  },
+  {
+    "page": 6,
+    "source": "Domanda protetta\n",
+    "translation": "Protect the question"
+  },
+  {
+    "page": 6,
+    "source": "Una domanda aperta resta davanti agli aggiornamenti ordinari. Conservo\nselezione e percorso. Batteria, charging o un avviso successivo non fanno sparire\nuna decisione che devo ancora leggere.\n",
+    "translation": "An open question stays ahead of routine updates. Preserve selection and route. Battery, charging or a later notice cannot hide a decision that still needs to be read."
+  },
+  {
+    "page": 6,
+    "source": "Conservo il contenuto e cerco il PC salvato. La scadenza continua: tornare sulla\nLAN non rinnova i 180 secondi. Timeout, Cancel e disconnessione non scelgono\nun'opzione e non confermano consegna.\n",
+    "translation": "Keep content and search the saved PC. The deadline continues: reconnecting to LAN does not renew 180 seconds. Timeout, Cancel and disconnection neither choose an option nor confirm delivery."
+  },
+  {
+    "page": 6,
+    "source": "Scadenza e annullamento\n",
+    "translation": "Expiry and cancellation"
+  },
+  {
+    "page": 6,
+    "source": "Prima di Send mostro Request expired; dopo Send, Reply unconfirmed e Check\non your PC. Uso Request cancelled o Reply rejected per gli altri esiti, con Done.\nNon riapro stati terminali.\n",
+    "translation": "Before Send, show Request expired; after Send, Reply unconfirmed and Check on your PC. Other outcomes use Request cancelled or Reply rejected with Done. Never reopen terminal states."
+  },
+  {
+    "page": 6,
+    "source": "35A / 35B e nuovi avvisi\n",
+    "translation": "35A / 35B and new notices"
+  },
+  {
+    "page": 6,
+    "source": "Mantengo Wi-Fi durante lo standby di Cody associato. Accodo il wake per un\navviso autenticato al worker power, preservando AFE e wake word. Registro a\nparte gli esiti del risveglio fisico.\n",
+    "translation": "Keep Wi-Fi during paired Cody standby. Queue wake for an authenticated notice through the power worker, preserving AFE and wake word. Record physical wake results separately."
+  },
+  {
+    "page": 7,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 7,
+    "source": "Le pull request restano in sola lettura\n",
+    "translation": "Pull requests remain read-only"
+  },
+  {
+    "page": 7,
+    "source": "Screen 21-24 / applico A03 del 4 ottobre; il 25 e' ritirato.\n",
+    "translation": "Screens 21-24 / apply A03 from 4 October; screen 25 is retired."
+  },
+  {
+    "page": 7,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 7,
+    "source": "CODY-NOTIFICATIONS-20261010 | Riferimenti per screen ID\n7\n",
+    "translation": "CODY-NOTIFICATIONS-20261010 | Refer to screen IDs\n7\n"
+  },
+  {
+    "page": 7,
+    "source": "Osservo soltanto il PR indicato. Conservo l'esatto head dello snapshot esplicito\nfornito da Codex. Non uso Stop come prova dei check e non offro merge,\napprove, close, rerun o comment.\n",
+    "translation": "Observe only the indicated PR. Preserve the exact head in Codex's explicit snapshot. Stop is not check evidence; no merge, approve, close, rerun or comment is offered."
+  },
+  {
+    "page": 7,
+    "source": "22 / Checks running e Checks passed\n",
+    "translation": "22 / Checks running and Checks passed"
+  },
+  {
+    "page": 7,
+    "source": "Mostro numeri solo da un elenco completo e attuale sullo stesso head. Checks\npassed non ha pulsanti: attendo la fine della narrativa e tre secondi, poi torno al\nlavoro.\n",
+    "translation": "Show numbers only from a complete current list for the same head. Checks passed has no buttons: wait for the narrative and three seconds, then resume work."
+  },
+  {
+    "page": 7,
+    "source": "L'unica azione apre i nomi reali dei check falliti: al massimo sei, fino a 48 caratteri\nASCII ciascuno. Un input non rappresentabile viene rifiutato esplicitamente; non\ntaglio nomi e non invento totali.\n",
+    "translation": "The only action opens real failed-check names: at most six, each up to 48 ASCII characters. Explicitly reject unrepresentable input; never truncate names or invent totals."
+  },
+  {
+    "page": 7,
+    "source": "24 sola lettura / 25 ritirato\n",
+    "translation": "24 read-only / 25 retired"
+  },
+  {
+    "page": 7,
+    "source": "Mostro tre nomi per pagina, fino a due righe ciascuno; scorro verticalmente e\ntengo Back laterale. Non offro View log o righe selezionabili. Log, diagnosi e\ncorrezioni restano sul PC.\n",
+    "translation": "Show three names per page, up to two lines each; scroll vertically and keep Back lateral. No View log or selectable rows. Logs, diagnosis and corrections stay on the PC."
+  },
+  {
+    "page": 8,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 8,
+    "source": "Leggo, scelgo e confermo\n",
+    "translation": "Read, choose and confirm"
+  },
+  {
+    "page": 8,
+    "source": "Screen 26 -> 27 -> riepilogo 27 -> 31 / aspetto l'ACK del destinatario.\n",
+    "translation": "Screen 26 -> 27 -> review 27 -> 31 / wait for the recipient ACK."
+  },
+  {
+    "page": 8,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 8,
+    "source": "CODY-NOTIFICATIONS-20261010 | Riferimenti per screen ID\n8\n",
+    "translation": "CODY-NOTIFICATIONS-20261010 | Refer to screen IDs\n8\n"
+  },
+  {
+    "page": 8,
+    "source": "26 / Codex needs you e Open\n",
+    "translation": "26 / Codex needs you and Open"
+  },
+  {
+    "page": 8,
+    "source": "Mostro il contesto dichiarato, il titolo e l'avviso. La richiesta ha un ticket distinto e\ndura 180 secondi. Aprire o chiudere una vista non allunga la scadenza e non\nseleziona una risposta.\n",
+    "translation": "Show declared context, title and notice. The request has its own ticket and lasts 180 seconds. Opening or closing a view neither extends the deadline nor selects an answer."
+  },
+  {
+    "page": 8,
+    "source": "Uso due card affiancate; con tre aggiungo quella centrata sotto. Ogni scelta ha\nun ID stabile e un significato proprio. Back torna a 26 e conserva la domanda,\nsenza inviare.\n",
+    "translation": "Use two cards side by side; with three, add one centered below. Each choice has a stable ID and meaning. Back returns to 26 and preserves the question without sending."
+  },
+  {
+    "page": 8,
+    "source": "La scelta apre un riepilogo con descrizione e capsula Send. Back mi riporta alle\nopzioni. Dopo Send tengo la scelta ferma e mostro Sending reply. Non aggiungo\nun quarto pulsante sotto tre card.\n",
+    "translation": "A choice opens a review with its description and Send capsule. Back returns to options. After Send, keep the choice fixed and show Sending reply. Do not add a fourth button below three cards."
+  },
+  {
+    "page": 8,
+    "source": "31 / Reply sent dopo consegna\n",
+    "translation": "31 / Reply sent after delivery"
+  },
+  {
+    "page": 8,
+    "source": "L'ACK UDP received lascia Waiting for Codex: CCP ha registrato la scelta. Solo\ncon delivered mostro Reply sent e Delivered to Codex; Done riprende il contesto\nprecedente 17, 18 o 16.\n",
+    "translation": "UDP received ACK leaves Waiting for Codex: CCP recorded the choice. Only delivered shows Reply sent and Delivered to Codex; Done resumes the previous context, 17, 18 or 16."
+  },
+  {
+    "page": 9,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 9,
+    "source": "Il percorso voce resta futuro\n",
+    "translation": "Voice remains a future route"
+  },
+  {
+    "page": 9,
+    "source": "Screen 28-30 / non confondo la risposta a card con registrazione o trascrizione.\n",
+    "translation": "Screens 28-30 / card replies are separate from recording or transcription."
+  },
+  {
+    "page": 9,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 9,
+    "source": "CODY-NOTIFICATIONS-20261010 | Riferimenti per screen ID\n9\n",
+    "translation": "CODY-NOTIFICATIONS-20261010 | Refer to screen IDs\n9\n"
+  },
+  {
+    "page": 9,
+    "source": "27 -> 28 / Recording - futuro\n",
+    "translation": "27 -> 28 / Recording - future"
+  },
+  {
+    "page": 9,
+    "source": "Conservo il percorso pensato per push to talk. L'ingresso voce e la cattura non\nsono parte di questa estensione. Le card e il riepilogo esplicito coprono la\ndecisione corrente.\n",
+    "translation": "Retain the planned push-to-talk route. Voice input and capture are outside this extension. Cards and explicit review cover the current decision."
+  },
+  {
+    "page": 9,
+    "source": "28 -> 29 / Transcribing - futuro\n",
+    "translation": "28 -> 29 / Transcribing - future"
+  },
+  {
+    "page": 9,
+    "source": "Prevedo uno stato distinto dopo il rilascio. Cancel deve tornare alla domanda\nsenza scegliere per me. Non dichiaro una trascrizione disponibile per il solo fatto\nche il microfono funziona.\n",
+    "translation": "Plan a separate state after release. Cancel returns to the question without choosing an answer. A working microphone alone does not mean a transcript is available."
+  },
+  {
+    "page": 9,
+    "source": "30 / Review transcript - futuro\n",
+    "translation": "30 / Review transcript - future"
+  },
+  {
+    "page": 9,
+    "source": "Leggo prima di Send, posso registrare di nuovo o tornare alle opzioni con la\nbozza conservata. Errori di cattura o trascrizione devono restare visibili, senza\nReply sent falso.\n",
+    "translation": "Read before Send; record again or return to options with the draft retained. Capture and transcription errors remain visible, without a false Reply sent."
+  },
+  {
+    "page": 9,
+    "source": "31 / La stessa regola di consegna\n",
+    "translation": "31 / The same delivery rule"
+  },
+  {
+    "page": 9,
+    "source": "La conferma finale richiede l'ACK del destinatario. Il trasporto attuale delle scelte\nnon implementa automaticamente il futuro percorso voce. Tengo i due perimetri\nseparati.\n",
+    "translation": "Final confirmation requires the recipient ACK. The current choice transport does not automatically implement future voice. Keep those scopes separate."
+  },
+  {
+    "page": 10,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 10,
+    "source": "Offline, scadenza e risveglio\n",
+    "translation": "Offline, expiry and wake"
+  },
+  {
+    "page": 10,
+    "source": "Screen 26/27, 32 e 35A/35B / nessuna risposta automatica.\n",
+    "translation": "Screens 26/27, 32 and 35A/35B / no automatic answer."
+  },
+  {
+    "page": 10,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 10,
+    "source": "CODY-NOTIFICATIONS-20261010 | Riferimenti per screen ID\n10\n",
+    "translation": "CODY-NOTIFICATIONS-20261010 | Refer to screen IDs\n10\n"
+  },
+  {
+    "page": 10,
+    "source": "Domanda protetta\n",
+    "translation": "Protect the question"
+  },
+  {
+    "page": 10,
+    "source": "Una domanda aperta resta davanti agli aggiornamenti ordinari. Conservo\nselezione e percorso. Batteria, charging o un avviso successivo non fanno sparire\nuna decisione che devo ancora leggere.\n",
+    "translation": "An open question stays ahead of routine updates. Preserve selection and route. Battery, charging or a later notice cannot hide a decision that still needs to be read."
+  },
+  {
+    "page": 10,
+    "source": "Conservo il contenuto e cerco il PC salvato. La scadenza continua: tornare sulla\nLAN non rinnova i 180 secondi. Timeout, Cancel e disconnessione non scelgono\nun'opzione e non confermano consegna.\n",
+    "translation": "Keep content and search the saved PC. The deadline continues: reconnecting to LAN does not renew 180 seconds. Timeout, Cancel and disconnection neither choose an option nor confirm delivery."
+  },
+  {
+    "page": 10,
+    "source": "Scadenza e annullamento\n",
+    "translation": "Expiry and cancellation"
+  },
+  {
+    "page": 10,
+    "source": "Prima di Send mostro Request expired; dopo Send, Reply unconfirmed e Check\non your PC. Uso Request cancelled o Reply rejected per gli altri esiti, con Done.\nNon riapro stati terminali.\n",
+    "translation": "Before Send, show Request expired; after Send, Reply unconfirmed and Check on your PC. Other outcomes use Request cancelled or Reply rejected with Done. Never reopen terminal states."
+  },
+  {
+    "page": 10,
+    "source": "35A / 35B e nuovi avvisi\n",
+    "translation": "35A / 35B and new notices"
+  },
+  {
+    "page": 10,
+    "source": "Mantengo Wi-Fi durante lo standby di Cody associato. Accodo il wake per un\navviso autenticato al worker power, preservando AFE e wake word. Registro a\nparte gli esiti del risveglio fisico.\n",
+    "translation": "Keep Wi-Fi during paired Cody standby. Queue wake for an authenticated notice through the power worker, preserving AFE and wake word. Record physical wake results separately."
+  },
+  {
+    "page": 29,
+    "source": "The initial analysis omitted startup with Wi-Fi already configured but no saved Codex pairing, and did not define a reversible user entry to setup. This was an\noriginal analysis gap (buco di analisi iniziale), now addressed in source.\n",
+    "translation": "The initial analysis omitted startup with Wi-Fi already configured but no saved Codex pairing, and did not define a reversible user entry to setup. This was an\noriginal analysis gap, now addressed in source.\n"
+  },
+  {
+    "page": 31,
+    "source": "The first analysis did not reconcile the legacy Welcome timeout/touch path with reopening setup after standby. This was an original analysis gap (buco di analisi\niniziale).\n",
+    "translation": "The first analysis did not reconcile the legacy Welcome timeout/touch path with reopening setup after standby. This was an original analysis gap.\n"
+  },
+  {
+    "page": 34,
+    "source": "The initial analysis omitted Options re-entry and did not distinguish an optional malformed runtime touch report from renderer failure. This was a buco di analisi\niniziale. Options now opens 10 and returns to Setup after preferences/skin.\n",
+    "translation": "The initial analysis omitted Options re-entry and did not distinguish an optional malformed runtime touch report from renderer failure. This was an initial analysis gap. Options now opens 10 and returns to Setup after preferences/skin.\n"
+  },
+  {
+    "page": 36,
+    "source": "Screen 15 originally proved PC presence only. The initial analysis omitted explicit chat selection, shared runtime lifetime and event freshness. This was a buco di\nanalisi iniziale; it is now addressed in source.\n",
+    "translation": "Screen 15 originally proved PC presence only. The initial analysis omitted explicit chat selection, shared runtime lifetime and event freshness. This was an initial analysis gap; it is now addressed in source.\n"
+  },
+  {
+    "page": 38,
+    "source": "The old Choose/Pick a chat prerequisite was an initial analysis gap (buco di\nanalisi iniziale). CCP associates the latest genuine prompt automatically. Cody\nonly presents the supplied context. Background chat events do not change it.\n",
+    "translation": "The old Choose/Pick a chat prerequisite was an initial analysis gap. CCP associates the latest genuine prompt automatically. Cody\nonly presents the supplied context. Background chat events do not change it.\n"
+  },
+  {
+    "page": 39,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 39,
+    "source": "Addendum / pairing conservato\n",
+    "translation": "Addendum / retained pairing"
+  },
+  {
+    "page": 39,
+    "source": "Registro della decisione / 10 ottobre 2026 / screen 04-16, 35B, 36 e 40-42.\n",
+    "translation": "Decision record / 10 October 2026 / screens 04-16, 35B, 36 and 40-42."
+  },
+  {
+    "page": 39,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 39,
+    "source": "CODY-RETAINED-FLOW-20261010 | Riferimenti per screen ID\n39\n",
+    "translation": "CODY-RETAINED-FLOW-20261010 | Refer to screen IDs\n39\n"
+  },
+  {
+    "page": 39,
+    "source": "Primo avvio / Dispositivo gia' configurato\n",
+    "translation": "First boot / Already configured"
+  },
+  {
+    "page": 39,
+    "source": "Senza Wi-Fi salvato apro 04-09. Con credenziali ma senza IP uso 42. Con LAN e\nsenza pairing offro 40. Con un record valido riprendo 14-15, senza verificare\nInternet.\n",
+    "translation": "Without saved Wi-Fi, open 04-09. With credentials but no IP, use 42. With LAN but no pairing, offer 40. A valid record resumes 14-15 without checking Internet."
+  },
+  {
+    "page": 39,
+    "source": "Setup / Consenso alla sostituzione\n",
+    "translation": "Setup / Consent to replace"
+  },
+  {
+    "page": 39,
+    "source": "Apro 41 tenendo premuto il personaggio per 1,5 secondi. Con un pairing salvato\nmostro Already paired: Keep pairing, Pair again oppure Forget. Retry riprende la\nricerca senza codice nuovo.\n",
+    "translation": "Hold the character for 1.5 seconds to open 41. A saved pair shows Already paired: Keep pairing, Pair again or Forget. Retry resumes discovery without a new code."
+  },
+  {
+    "page": 39,
+    "source": "Pairing / Presenza / Attivita'\n",
+    "translation": "Pairing / Presence / Activity"
+  },
+  {
+    "page": 39,
+    "source": "Con 13 confermo il pairing. Let's go cerca subito il PC. Su 15 confermo CCP e\nattendo il prompt reale. Gli hook seguono la sua chat automaticamente: ho\neliminato la scelta manuale.\n",
+    "translation": "13 confirms pairing. Let's go searches the PC immediately. 15 confirms CCP and waits for a genuine prompt. Hooks follow its chat automatically; manual selection is removed."
+  },
+  {
+    "page": 39,
+    "source": "Options / Scelte locali\n",
+    "translation": "Options / Local choices"
+  },
+  {
+    "page": 39,
+    "source": "Apro Make it yours da Options e riutilizzo Settings e Skin. Torno al chiamante\ncorretto. Tengo separati preferenze, sostituzione del PC e qualsiasi cancellazione\nesplicita.\n",
+    "translation": "Options opens Make it yours and reuses Settings and Skin. Return to the correct caller. Keep preferences, PC replacement and explicit erasure separate."
+  },
+  {
+    "page": 40,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 40,
+    "source": "Addendum / casi di recupero\n",
+    "translation": "Addendum / recovery cases"
+  },
+  {
+    "page": 40,
+    "source": "Screen 14-16, 18U, 32, 35A/35B e 42 / conservo l'identita' salvata.\n",
+    "translation": "Screens 14-16, 18U, 32, 35A/35B and 42 / preserve the saved identity."
+  },
+  {
+    "page": 40,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 40,
+    "source": "CODY-RETAINED-FLOW-20261010 | Riferimenti per screen ID\n40\n",
+    "translation": "CODY-RETAINED-FLOW-20261010 | Refer to screen IDs\n40\n"
+  },
+  {
+    "page": 40,
+    "source": "Internet giu', LAN funzionante\n",
+    "translation": "Internet down, LAN working"
+  },
+  {
+    "page": 40,
+    "source": "Continuo a usare il collegamento Wi-Fi/IP locale tra Cody e CCP. Tengo separata\nla disponibilita' dei servizi online di Codex: il PC presente sulla LAN non mi\ngarantisce una risposta del modello.\n",
+    "translation": "Continue using local Wi-Fi/IP between Cody and CCP. Codex online services are separate: a PC present on the LAN does not guarantee a model response."
+  },
+  {
+    "page": 40,
+    "source": "Wi-Fi o IP locale assenti\n",
+    "translation": "Wi-Fi or local IP unavailable"
+  },
+  {
+    "page": 40,
+    "source": "Conservo credenziali e PC associato. All'avvio mostro 42 con Network setup o\nLater. Durante il recupero attendo la LAN e riprovo con l'identita' salvata. Gli\nerrori reali del trasporto restano visibili nello stato.\n",
+    "translation": "Preserve credentials and paired PC. Startup shows 42 with Network setup or Later. Recovery waits for LAN and retries the saved identity. Real transport errors remain visible in state."
+  },
+  {
+    "page": 40,
+    "source": "PC o CCP assenti\n",
+    "translation": "PC or CCP unavailable"
+  },
+  {
+    "page": 40,
+    "source": "Continuo la ricerca su 14; uso 32 per la perdita dopo un'attivita' gia' seguita.\nRetry riprende la ricerca senza nuovo codice. Posso comunque tenere premuto\nCody per 1,5 secondi e aprire Setup.\n",
+    "translation": "Keep searching on 14; use 32 after loss of previously followed activity. Retry searches without a new code. A 1.5-second Cody hold can still open Setup."
+  },
+  {
+    "page": 40,
+    "source": "35A / 35B e aggiornamento firmware\n",
+    "translation": "35A / 35B and firmware updates"
+  },
+  {
+    "page": 40,
+    "source": "Con lo standby ordinario conservo percorso e pairing. Al risveglio recupero la\npresenza autenticata. Un flash applicativo normale preserva NVS; cancellazione,\ndati danneggiati o altra identita' PC sono casi distinti.\n",
+    "translation": "Ordinary standby preserves route and pairing. Wake restores authenticated presence. A normal application flash preserves NVS; erasure, damaged data or another PC identity are separate cases."
+  },
+  {
+    "page": 41,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 41,
+    "source": "Addendum / conferma e reset\n",
+    "translation": "Addendum / confirmation and reset"
+  },
+  {
+    "page": 41,
+    "source": "Screen 12, 13, 40 e 41 / conservo rete, skin, preferenze e log.\n",
+    "translation": "Screens 12, 13, 40 and 41 / preserve network, skin, preferences and logs."
+  },
+  {
+    "page": 41,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 41,
+    "source": "CODY-RETAINED-FLOW-20261010 | Riferimenti per screen ID\n41\n",
+    "translation": "CODY-RETAINED-FLOW-20261010 | Refer to screen IDs\n41\n"
+  },
+  {
+    "page": 41,
+    "source": "Due candidati, attivi conservati\n",
+    "translation": "Two candidates, active records retained"
+  },
+  {
+    "page": 41,
+    "source": "Sul PC salvo il candidato DPAPI prima di PAIR; sul Cody uso ccp_pending. Tengo\nseparati i vecchi attivi. CONFIRM oppure READY fresco provano il PC e\nconsentono commit e rilettura sul Cody.\n",
+    "translation": "Persist the PC's DPAPI candidate before PAIR; Cody uses ccp_pending. Preserve previous active records separately. CONFIRM or fresh READY proves the PC and allows Cody commit/readback."
+  },
+  {
+    "page": 41,
+    "source": "Chiudo con una prova del commit\n",
+    "translation": "Close with proof of commit"
+  },
+  {
+    "page": 41,
+    "source": "Il PC promuove dopo ACTIVE o COMMITTED autenticati, mai per il solo FIND.\nDopo ogni READY valido Cody ripete COMMITTED con il nonce corrente:\nrecupero riavvii e ACK persi senza un altro codice.\n",
+    "translation": "The PC promotes after authenticated ACTIVE or COMMITTED, never FIND alone. Each valid READY makes Cody repeat COMMITTED with the current nonce, recovering restarts and lost ACKs without a new code."
+  },
+  {
+    "page": 41,
+    "source": "Cancel / Chiudo il tentativo\n",
+    "translation": "Cancel / End the attempt"
+  },
+  {
+    "page": 41,
+    "source": "Dal codice pronto scarto il candidato Cody. Conservo il vecchio link operativo;\nsul PC il candidato resta pending. Per sostituirlo richiedo nuovo codice e\nreplace_pending:true esplicito. Una prova con la vecchia chiave non autorizza la\ncancellazione.\n",
+    "translation": "Cancel from the ready-code screen discards Cody's candidate and preserves the old operational link; the PC candidate stays pending. Replacement requires a new code and explicit replace_pending:true. Old-key proof cannot authorize deletion."
+  },
+  {
+    "page": 41,
+    "source": "Forget / Solo il pairing Codex\n",
+    "translation": "Forget / Codex pairing only"
+  },
+  {
+    "page": 41,
+    "source": "Confermo Forget pairing con Go back / Forget e Only Codex is reset. Cancello\nsolo i record CCP di Cody; il PC conserva il suo. Dopo l'esito reale mostro\nUnpaired / Pairing removed, poi Done -> Setup.\n",
+    "translation": "Confirm Forget pairing with Go back / Forget and Only Codex is reset. Delete only Cody's CCP records; the PC keeps its record. After the result, show Unpaired / Pairing removed, then Done -> Setup."
+  },
+  {
+    "page": 42,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 42,
+    "source": "Data revisione: 10 ottobre 2026 / CODY-RETAINED-FLOW-20261010\n",
+    "translation": "Revision date: 10 October 2026 / CODY-RETAINED-FLOW-20261010"
+  },
+  {
+    "page": 42,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 42,
+    "source": "CODY-RETAINED-FLOW-20261010 | Riferimenti per screen ID\n42\n",
+    "translation": "CODY-RETAINED-FLOW-20261010 | Refer to screen IDs\n42\n"
+  },
+  {
+    "page": 42,
+    "source": "Pagine originali 1, 2, 3, 4, 5, 6, 10, 12\n",
+    "translation": "Original pages 1, 2, 3, 4, 5, 6, 10, 12"
+  },
+  {
+    "page": 42,
+    "source": "Ho integrato il flow corrente nelle pagine principali, conservando quelle non\ncoinvolte e tutti gli addenda/errata precedenti. Riferisco il percorso agli screen ID\nanche quando cambia la paginazione.\n",
+    "translation": "Current flow is integrated into the main pages while preserving unrelated content and earlier addenda/corrections. Refer to screen IDs even when pagination changes."
+  },
+  {
+    "page": 42,
+    "source": "Screen 10-16, 32, 35B e 40-42\n",
+    "translation": "Screens 10-16, 32, 35B and 40-42"
+  },
+  {
+    "page": 42,
+    "source": "Options salva quattro preferenze; Already paired offre Keep pairing, Pair again e\nForget. Separo Retry, Cancel e reset. Uso journal separati e COMMITTED per il\ncommit reale. Let's go cerca subito.\n",
+    "translation": "Options saves four preferences; Already paired offers Keep pairing, Pair again and Forget. Separate Retry, Cancel and reset. Journals and COMMITTED prove commit. Let's go searches immediately."
+  },
+  {
+    "page": 42,
+    "source": "Buco di analisi iniziale e responsabilita'\n",
+    "translation": "Initial analysis gap and responsibilities"
+  },
+  {
+    "page": 42,
+    "source": "Avevo mescolato commissioning, recupero e attivita', senza chiedere conferma\ndella sostituzione. Ho esplicitato queste decisioni. CCP segue il prompt\nautentico; ho ritirato la vecchia scelta manuale della chat.\n",
+    "translation": "Commissioning, recovery and activity were previously conflated, without replacement confirmation. Those decisions are now explicit. CCP follows the genuine prompt; the earlier manual chat selection is retired."
+  },
+  {
+    "page": 42,
+    "source": "Decisione UI ed evidenza\n",
+    "translation": "UI decision and evidence"
+  },
+  {
+    "page": 42,
+    "source": "Conservo il linguaggio approvato: gradienti, icone, coppia orizzontale o capsula\nsingola e pulsanti senza teletype. Con questa revisione aggiorno sorgenti e\ndocumenti; elenco separatamente le prove di dispositivo, hook e simulatore\nancora da completare.\n",
+    "translation": "Retain the approved language: gradients, icons, horizontal pairs or a single capsule, and buttons without teletype. This revision updates source and documents; pending device, hook and simulator evidence is listed separately."
+  },
+  {
+    "page": 43,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 43,
+    "source": "Addendum / notifiche e decisioni\n",
+    "translation": "Addendum / notices and decisions"
+  },
+  {
+    "page": 43,
+    "source": "Revisione 10 ottobre 2026 / screen 26, 27 e 31.\n",
+    "translation": "Revision date: 10 October 2026 / screens 26, 27 and 31."
+  },
+  {
+    "page": 43,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 43,
+    "source": "CODY-NOTIFICATIONS-20261010 | Riferimenti per screen ID\n43\n",
+    "translation": "CODY-NOTIFICATIONS-20261010 | Refer to screen IDs\n43\n"
+  },
+  {
+    "page": 43,
+    "source": "26 / Codex needs you e Open\n",
+    "translation": "26 / Codex needs you and Open"
+  },
+  {
+    "page": 43,
+    "source": "Mostro il contesto dichiarato, il titolo e l'avviso. La richiesta ha un ticket distinto e\ndura 180 secondi. Aprire o chiudere una vista non allunga la scadenza e non\nseleziona una risposta.\n",
+    "translation": "Show declared context, title and notice. The request has its own ticket and lasts 180 seconds. Opening or closing a view neither extends the deadline nor selects an answer."
+  },
+  {
+    "page": 43,
+    "source": "Uso due card affiancate; con tre aggiungo quella centrata sotto. Ogni scelta ha\nun ID stabile e un significato proprio. Back torna a 26 e conserva la domanda,\nsenza inviare.\n",
+    "translation": "Use two cards side by side; with three, add one centered below. Each choice has a stable ID and meaning. Back returns to 26 and preserves the question without sending."
+  },
+  {
+    "page": 43,
+    "source": "La scelta apre un riepilogo con descrizione e capsula Send. Back mi riporta alle\nopzioni. Dopo Send tengo la scelta ferma e mostro Sending reply. Non aggiungo\nun quarto pulsante sotto tre card.\n",
+    "translation": "A choice opens a review with its description and Send capsule. Back returns to options. After Send, keep the choice fixed and show Sending reply. Do not add a fourth button below three cards."
+  },
+  {
+    "page": 43,
+    "source": "31 / Reply sent dopo consegna\n",
+    "translation": "31 / Reply sent after delivery"
+  },
+  {
+    "page": 43,
+    "source": "L'ACK UDP received lascia Waiting for Codex: CCP ha registrato la scelta. Solo\ncon delivered mostro Reply sent e Delivered to Codex; Done riprende il contesto\nprecedente 17, 18 o 16.\n",
+    "translation": "UDP received ACK leaves Waiting for Codex: CCP recorded the choice. Only delivered shows Reply sent and Delivered to Codex; Done resumes the previous context, 17, 18 or 16."
+  },
+  {
+    "page": 44,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 44,
+    "source": "Addendum / PR solo in lettura\n",
+    "translation": "Addendum / read-only PRs"
+  },
+  {
+    "page": 44,
+    "source": "A03 resta in vigore / screen 21-24; 25 ritirato.\n",
+    "translation": "A03 remains in force / screens 21-24; screen 25 retired."
+  },
+  {
+    "page": 44,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 44,
+    "source": "CODY-NOTIFICATIONS-20261010 | Riferimenti per screen ID\n44\n",
+    "translation": "CODY-NOTIFICATIONS-20261010 | Refer to screen IDs\n44\n"
+  },
+  {
+    "page": 44,
+    "source": "Osservo soltanto il PR indicato. Conservo l'esatto head dello snapshot esplicito\nfornito da Codex. Non uso Stop come prova dei check e non offro merge,\napprove, close, rerun o comment.\n",
+    "translation": "Observe only the indicated PR. Preserve the exact head in Codex's explicit snapshot. Stop is not check evidence; no merge, approve, close, rerun or comment is offered."
+  },
+  {
+    "page": 44,
+    "source": "22 / Checks running e Checks passed\n",
+    "translation": "22 / Checks running and Checks passed"
+  },
+  {
+    "page": 44,
+    "source": "Mostro numeri solo da un elenco completo e attuale sullo stesso head. Checks\npassed non ha pulsanti: attendo la fine della narrativa e tre secondi, poi torno al\nlavoro.\n",
+    "translation": "Show numbers only from a complete current list for the same head. Checks passed has no buttons: wait for the narrative and three seconds, then resume work."
+  },
+  {
+    "page": 44,
+    "source": "L'unica azione apre i nomi reali dei check falliti: al massimo sei, fino a 48 caratteri\nASCII ciascuno. Un input non rappresentabile viene rifiutato esplicitamente; non\ntaglio nomi e non invento totali.\n",
+    "translation": "The only action opens real failed-check names: at most six, each up to 48 ASCII characters. Explicitly reject unrepresentable input; never truncate names or invent totals."
+  },
+  {
+    "page": 44,
+    "source": "24 sola lettura / 25 ritirato\n",
+    "translation": "24 read-only / 25 retired"
+  },
+  {
+    "page": 44,
+    "source": "Mostro tre nomi per pagina, fino a due righe ciascuno; scorro verticalmente e\ntengo Back laterale. Non offro View log o righe selezionabili. Log, diagnosi e\ncorrezioni restano sul PC.\n",
+    "translation": "Show three names per page, up to two lines each; scroll vertically and keep Back lateral. No View log or selectable rows. Logs, diagnosis and corrections stay on the PC."
+  },
+  {
+    "page": 45,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 45,
+    "source": "Addendum / consegna e comandi\n",
+    "translation": "Addendum / delivery and commands"
+  },
+  {
+    "page": 45,
+    "source": "Screen 31, 32 e nuovo setup / distinguo accettazione e risultato.\n",
+    "translation": "Screens 31, 32 and new setup / distinguish acceptance from outcome."
+  },
+  {
+    "page": 45,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 45,
+    "source": "CODY-NOTIFICATIONS-20261010 | Riferimenti per screen ID\n45\n",
+    "translation": "CODY-NOTIFICATIONS-20261010 | Refer to screen IDs\n45\n"
+  },
+  {
+    "page": 45,
+    "source": "received non e' delivered\n",
+    "translation": "received is not delivered"
+  },
+  {
+    "page": 45,
+    "source": "Il poll restituisce scelta e answer_id. Un poll successivo con\nacknowledge_answer_id uguale prova la ricezione del chiamante: solo allora\npasso a delivered e allo screen 31.\n",
+    "translation": "Poll returns the choice and answer_id. A later poll with matching acknowledge_answer_id proves caller receipt; only then enter delivered and screen 31."
+  },
+  {
+    "page": 45,
+    "source": "Scadenza e consegna incerta\n",
+    "translation": "Expiry and uncertain delivery"
+  },
+  {
+    "page": 45,
+    "source": "I 180 secondi valgono anche in received. Se ho gia' ammesso Send mostro Reply\nunconfirmed: puo' mancare solo l'ACK. Prima di Send uso Request expired.\nNessun Retry o ACK tardivo riapre la domanda.\n",
+    "translation": "The 180-second deadline also applies in received. After Send, show Reply unconfirmed: only the ACK may be missing. Before Send, show Request expired. Retry or a late ACK cannot reopen the question."
+  },
+  {
+    "page": 45,
+    "source": "Riavvio esplicito / dati conservati\n",
+    "translation": "Explicit restart / Data retained"
+  },
+  {
+    "page": 45,
+    "source": "Scrivo 'resetta il device codice 043533477' nel messaggio corrente: nove cifre,\nzero compreso. E' un controllo anti-equivoco, non una password; non lo\ncompleto dai documenti. Uso il peer paired LAN, dati conservati. ACK =\naccepted; boot = nuova presenza.\n",
+    "translation": "Write 'restart the device, code 043533477' in the current message: nine digits, including zero. It prevents mistakes; it is not a password. Never fill it from documents. Use the paired LAN peer and retain data. ACK = accepted; boot = fresh presence."
+  },
+  {
+    "page": 45,
+    "source": "Factory reset / primo setup\n",
+    "translation": "Factory reset / First setup"
+  },
+  {
+    "page": 45,
+    "source": "Con 'formatta cody 043533477' elimino preferenze, Wi-Fi e pairing; conservo\nfirmware, asset e SD. ACK indica ammissione. Riavvio solo dopo cancellazione\nverificata; poi riparto dal setup Wi-Fi. Un errore resta visibile e non avvia il\nreboot.\n",
+    "translation": "'Factory reset Cody, code 043533477' removes preferences, Wi-Fi and pairing; retain firmware, assets and SD. ACK means admission. Reboot after verified erasure, then restart Wi-Fi setup. A failure stays visible and never triggers reboot."
+  },
+  {
+    "page": 46,
+    "source": "CODY / NAVIGATION ATLAS / FLOW ATTUALE\n",
+    "translation": "CODY / NAVIGATION ATLAS / CURRENT FLOW\n"
+  },
+  {
+    "page": 46,
+    "source": "Data revisione: 10 ottobre 2026 / CODY-NOTIFICATIONS-20261010\n",
+    "translation": "Revision date: 10 October 2026 / CODY-NOTIFICATIONS-20261010"
+  },
+  {
+    "page": 46,
+    "source": "Umberto Giacobbi | hello@umbertogiacobbi.biz | riservato\n",
+    "translation": "Umberto Giacobbi | hello@umbertogiacobbi.biz | confidential\n"
+  },
+  {
+    "page": 46,
+    "source": "CODY-NOTIFICATIONS-20261010 | Riferimenti per screen ID\n46\n",
+    "translation": "CODY-NOTIFICATIONS-20261010 | Refer to screen IDs\n46\n"
+  },
+  {
+    "page": 46,
+    "source": "Pagine originali 1, 5, 6, 7, 8, 9, 10\n",
+    "translation": "Original pages 1, 5, 6, 7, 8, 9, 10"
+  },
+  {
+    "page": 46,
+    "source": "Ho aggiornato le pagine principali coinvolte, mantenendo quelle estranee al flow\ne gli addenda precedenti. Uso gli screen ID.\n",
+    "translation": "Affected main pages are updated while preserving unrelated flow pages and earlier addenda. Use screen IDs."
+  },
+  {
+    "page": 46,
+    "source": "Screen 21-27 e 31-32\n",
+    "translation": "Screens 21-27 and 31-32"
+  },
+  {
+    "page": 46,
+    "source": "Ho applicato A03: PR in sola lettura e 25 ritirato. Ho rimosso View log e il vecchio\nelenco verticale. Ora 27 ha card e riepilogo Send; 31 richiede delivered dopo\nl'ACK del destinatario.\n",
+    "translation": "Apply A03: PRs are read-only and 25 is retired. View log and the old vertical list are removed. 27 now uses cards and a Send review; 31 requires delivered after recipient ACK."
+  },
+  {
+    "page": 46,
+    "source": "Buco di analisi iniziale\n",
+    "translation": "Initial analysis gap"
+  },
+  {
+    "page": 46,
+    "source": "Avevo lasciato ambigui ricevuta, consegna e scadenza, oltre a illustrazioni PR\nsuperate. Li separo con ticket, received/delivered e 180 secondi. Timeout e\noffline non scelgono risposte.\n",
+    "translation": "Receipt, delivery and expiry were ambiguous, alongside outdated PR illustrations. Separate them with tickets, received/delivered and 180 seconds. Timeout and offline never choose answers."
+  },
+  {
+    "page": 46,
+    "source": "Storico, comandi e prove\n",
+    "translation": "History, commands and evidence"
+  },
+  {
+    "page": 46,
+    "source": "Ho separato riavvio e factory reset: il primo conserva i dati, il secondo cancella la\nconfigurazione per tornare al setup. ACK indica ammissione. Conservo storico ed\nerrori reali; gli esiti host e fisici sono in done.md.\n",
+    "translation": "Separate restart and factory reset: restart retains data; factory reset removes configuration to return to setup. ACK means admission. Preserve history and real errors; done.md records host and physical results."
+  }
+]

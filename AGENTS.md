@@ -65,6 +65,9 @@ instruction file; do not add parallel agent or Copilot contracts.
 
 - Write repository documentation, code comments, user-facing text, log messages
   and commit messages in English.
+  Conversation with the user may remain Italian. The English requirement also
+  covers PDF titles, diagrams, captions, footers and historical text in revised
+  documents; preserve original dates, screen IDs and evidence when translating.
 
 - Cody action layout decision (2026-10-09): two actions use rounded gradient
   cards side by side; three use the same pair plus one centered action below.

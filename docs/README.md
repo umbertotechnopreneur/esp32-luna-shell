@@ -47,7 +47,17 @@ Author through the public CLI:
 ./scripts/device.ps1 generate -Generator cody-connection-atlas
 ./scripts/device.ps1 generate -Generator cody-pairing-flyer
 ./scripts/device.ps1 generate -Generator cody-security-atlases
+./scripts/device.ps1 generate -Generator cody-pdf-english
 ```
+
+All document text is English, including preserved historical pages, diagrams,
+captions and footers. The English revision uses exact page/text mappings in
+`assets/cody/docs/translations/` and keeps original artwork and page identities.
+It stores protected originals and authoring receipts under `artifacts/docs/`;
+an unchanged translated PDF is skipped, and an unexpected later edit is rejected.
+Use `-ToolArguments @('--redraft')` only to revise translations from those
+protected originals. Review any newly authored historical content before adding
+or updating its mapping; the generator never guesses a translation.
 
 Documentation drawings are source-based illustrations, not physical captures.
 Security implementation, compilation and physical verification are separate
@@ -74,7 +84,6 @@ Earlier [pairing notes](planning/2026-10-03-pairing-atlas-addendum.md) and
 ## Hardware and tooling
 
 - [Verified hardware inventory](hardware/hardware-inventory.md)
-- [Dual-UART ToF wiring](hardware/tof400f-dual-uart.md)
 - [ESP-IDF 6 constraints](esp-idf-6-migration.md)
 - [Public development CLI](../scripts/README.md)
 - [Repository rules](../AGENTS.md)

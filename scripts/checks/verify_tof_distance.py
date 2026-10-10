@@ -290,7 +290,6 @@ def main() -> int:
     service = ROOT / "components/LUNASHELL_platform/src/distance/LUNASHELL_distance_service.cpp"
     snapshot = ROOT / "components/LUNASHELL_platform/include/LUNASHELL_device_snapshot.hpp"
     hardware = ROOT / "components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp"
-    wiring = ROOT / "docs/hardware/tof400f-dual-uart.md"
     sdkconfig_defaults = read_profile_defaults()
     gui_root = ROOT / "components/LUNASHELL_app/gui/root.json"
 
@@ -489,10 +488,6 @@ def main() -> int:
     ):
         require_contains(hardware, fragment)
 
-    require_contains(wiring, "must never be connected together")
-    require_contains(wiring, "one 500 ms")
-    require_contains(wiring, "version-1 record is not migrated")
-    require_contains(wiring, "four 500-sample windows live in PSRAM")
     require(
         "CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y" in sdkconfig_defaults,
         "full profile must allow firmware BSS in external memory",

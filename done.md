@@ -7,6 +7,27 @@ Older `artifacts/` paths may be historical references only: the complete cleanup
 requested on 2026-10-05 removed that unversioned evidence. New results identify
 the preserved copies within the build directory.
 
+## English PDF correction and obsolete wiring guide removal - 2026-10-11
+
+- Reviewed all seven live Cody PDFs. Translated Italian historical text, titles,
+  diagram captions, mixed-language notes and footers in the Navigation, Planning,
+  historical service and historical Codex connection atlases. Original dates,
+  stable screen IDs, technical values, artwork and evidence qualifications remain.
+- Added one final dated English Errata and corrections grid to each revised
+  atlas. Navigation and Planning now have 53 pages; the historical service and
+  connection documents have 33 and 37. The consolidated 22-page guide, 31-page
+  manga atlas and four-page A5 flyer were already English and remain unchanged.
+- Added exact source-block translation mappings and the public
+  `cody-pdf-english` generator with protected originals and authoring receipts in
+  artifacts. Rendered and visually reviewed translated pages and final registers;
+  this is document evidence, not firmware or physical-device verification.
+- Clarified AGENTS.md: conversation may be Italian, but all repository outputs,
+  including preserved historical document text, are English.
+- Removed the obsolete dual-UART ToF wiring guide and its documentation link.
+  Removed source-check assertions that depended on that deleted document; sensor
+  code, configuration and the remaining hardware-contract checks are unchanged.
+  No firmware build, suite, flash, simulator or serial operation ran.
+
 ## CCP security source and document consolidation - 2026-10-10
 
 - Combined the former 32-page service and 36-page connection atlases into the
