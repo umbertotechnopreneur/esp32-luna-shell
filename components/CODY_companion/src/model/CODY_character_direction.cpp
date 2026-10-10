@@ -12,6 +12,9 @@ namespace {
 constexpr char kTag[] = "CODY_direction";
 constexpr uint32_t kAfterglowUs = 30000000;
 constexpr uint32_t kReleaseUs = 2000000;
+constexpr uint32_t kReactionUs = 1800000;
+constexpr uint32_t kWorkCycleUs = 12000000;
+constexpr float kPi = 3.14159265358979323846f;
 
 // field: Exact rejected contract field.
 // value: Original invalid value, without substitution.
@@ -44,6 +47,12 @@ bool valid_chat(const char *chat)
     return chat[64] == '\0';
 }
 
+// turn: Optional exact SHA-256 identity; empty means no coherent turn was observed.
+bool valid_turn(const char *turn)
+{
+    return turn != nullptr && (turn[0] == '\0' || valid_chat(turn));
+}
+
 // point: Actual admitted logical information or acquired touch target.
 bool valid_point(CODY2D::Vec2 point)
 {
@@ -55,12 +64,15 @@ bool valid_point(CODY2D::Vec2 point)
 // Exception: Returns the real invalid identity, timer or artistic value.
 esp_err_t validate_state(const CharacterDirectionState &state)
 {
-    if (state.pose > CharacterCompactionPose::Release || state.afterglow_remaining_us > kAfterglowUs ||
+    if (state.pose > CharacterCompactionPose::Release || state.reaction > CharacterReaction::Interrupted ||
+        state.work_kind > CharacterWorkKind::Running || state.work_elapsed_us >= kWorkCycleUs ||
+        state.reaction_remaining_us > kReactionUs || !valid_turn(state.turn) ||
+        state.afterglow_remaining_us > kAfterglowUs ||
         state.release_remaining_us > kReleaseUs || state.consumed_caress_at_us < 0 ||
         (state.current && !valid_chat(state.chat))) {
         return reject("state.identity_or_clock", static_cast<unsigned>(state.pose));
     }
-    for (float value : {state.warmth, state.compaction}) {
+    for (float value : {state.warmth, state.compaction, state.work}) {
         if (!std::isfinite(value) || value < 0 || value > 1) {
             return reject("state.weight", value);
         }
@@ -92,6 +104,24 @@ void offset_channel(Channels &face, FaceChannel channel, float amount)
     const float target = amount >= 0 ? Data::channel_max[index] : Data::channel_min[index];
     face[channel] += (target - face[channel]) * std::fabs(amount);
 }
+
+// state: Current reaction and current observed phase after this frame's projection.
+// same_chat: Continuous visible observation of the same selected Codex chat.
+// same_turn: Exact continuous turn identity, required for task outcomes.
+// No exceptions: This admission helper owns neither observations nor animation time.
+bool reaction_supported(const CharacterDirectionState &state, bool same_chat, bool same_turn)
+{
+    if (!same_chat) {
+        return false;
+    }
+    switch (state.reaction) {
+    case CharacterReaction::Attention: return state.attention;
+    case CharacterReaction::ReplyReady: return same_turn && state.ready && !state.attention && !state.compacting;
+    case CharacterReaction::Interrupted: return same_turn && state.interrupted && !state.attention && !state.compacting;
+    case CharacterReaction::None: return false;
+    }
+    return false;
+}
 } // namespace
 
 // link: Coherent canonical source retaining independent link/activity health.
@@ -113,13 +143,22 @@ esp_err_t project_character_activity(const LUNASHELL::CodexLinkSnapshot &link,
     using Phase = LUNASHELL::CodexActivityState;
     switch (link.activity.state) {
     case Phase::Working:
+        result.working = true;
+        result.work_kind = CharacterWorkKind::Thinking;
+        break;
     case Phase::Editing:
-    case Phase::Running: result.working = true; break;
+        result.working = true;
+        result.work_kind = CharacterWorkKind::Editing;
+        break;
+    case Phase::Running:
+        result.working = true;
+        result.work_kind = CharacterWorkKind::Running;
+        break;
     case Phase::Paused: result.attention = true; break;
+    case Phase::ResponseReady: result.ready = true; break;
+    case Phase::Interrupted: result.interrupted = true; break;
     case Phase::None:
     case Phase::Active:
-    case Phase::ResponseReady:
-    case Phase::Interrupted:
     case Phase::Ended: break;
     case Phase::Unavailable:
         observation = result;
@@ -128,10 +167,19 @@ esp_err_t project_character_activity(const LUNASHELL::CodexLinkSnapshot &link,
     }
     result.current = true;
     result.chat = link.activity.chat_id;
-    const bool same_owner = current_component(technical) && technical.compaction_valid &&
+    const bool same_owner = current_component(technical) &&
         technical.revision == link.activity.revision &&
         std::strncmp(technical.chat_id, link.activity.chat_id, sizeof(technical.chat_id)) == 0;
     if (same_owner) {
+        if (!valid_turn(technical.turn_id)) {
+            return reject("activity.turn", 0);
+        }
+        // An all-zero wire identity denotes absence, not a turn that can complete.
+        if (technical.turn_id[0] != '\0' && std::strspn(technical.turn_id, "0") != 64) {
+            result.turn = technical.turn_id;
+        }
+    }
+    if (same_owner && technical.compaction_valid) {
         result.compaction_sequence = technical.compaction_sequence;
         using Compaction = LUNASHELL::CodexCompactionState;
         switch (technical.compaction) {
@@ -188,34 +236,55 @@ esp_err_t advance_character_direction(const CharacterDirectionInputs &inputs, in
         (inputs.gaze_visible && !valid_point(inputs.gaze_point))) {
         return reject("input.geometry", inputs.placement.scale);
     }
-    if ((inputs.activity.current && !valid_chat(inputs.activity.chat)) ||
-        (inputs.activity.compacting && inputs.activity.refreshed)) {
+    if ((inputs.activity.current && (!valid_chat(inputs.activity.chat) || !valid_turn(inputs.activity.turn))) ||
+        inputs.activity.work_kind > CharacterWorkKind::Running ||
+        (inputs.activity.compacting && inputs.activity.refreshed) ||
+        (inputs.activity.ready && (inputs.activity.working || inputs.activity.attention || inputs.activity.interrupted))) {
         return reject("input.activity", 0);
     }
     CharacterDirectionState result = state;
     const bool same_chat = !inputs.rebase && state.current && inputs.activity.current &&
         std::strcmp(state.chat, inputs.activity.chat) == 0;
+    const bool same_turn = same_chat && state.turn[0] != '\0' && inputs.activity.turn[0] != '\0' &&
+        std::strcmp(state.turn, inputs.activity.turn) == 0;
     const bool compacting = inputs.activity.current && inputs.activity.compacting;
     // Success requires observing the real end of the same sequence, without a source gap or wake.
     const bool refreshed = state.enabled && same_chat && state.compacting && inputs.activity.refreshed &&
         state.compaction_sequence == inputs.activity.compaction_sequence;
     const bool caress = !inputs.rebase && inputs.caress_at_us > state.consumed_caress_at_us;
+    const bool attention_edge = state.enabled && same_chat && !state.attention && inputs.activity.attention;
+    const bool reply_edge = state.enabled && same_turn && state.working && inputs.activity.ready &&
+        !state.interrupted && !compacting;
+    const bool interrupted_edge = state.enabled && same_turn && state.working &&
+        inputs.activity.interrupted && !compacting;
     result.current = inputs.activity.current;
     result.compacting = compacting;
     result.attention = inputs.activity.current && inputs.activity.attention;
+    result.working = inputs.activity.current && inputs.activity.working;
+    result.ready = inputs.activity.current && inputs.activity.ready;
+    result.interrupted = inputs.activity.current && inputs.activity.interrupted;
+    result.work_kind = result.working ? inputs.activity.work_kind : CharacterWorkKind::None;
     result.compaction_sequence = inputs.activity.current ? inputs.activity.compaction_sequence : 0;
     result.consumed_caress_at_us = std::max(state.consumed_caress_at_us, inputs.caress_at_us);
     if (inputs.activity.current) {
         std::memcpy(result.chat, inputs.activity.chat, sizeof(result.chat));
+        if (inputs.activity.turn[0] != '\0') {
+            std::memcpy(result.turn, inputs.activity.turn, sizeof(result.turn));
+        } else {
+            result.turn[0] = '\0';
+        }
     } else {
         result.chat[0] = '\0';
+        result.turn[0] = '\0';
     }
     if (!inputs.enabled) {
         // Exact Debug/preset/setup poses keep ownership; hidden events cannot replay on exit.
         result.enabled = false;
         result.pose = CharacterCompactionPose::Neutral;
         result.afterglow_remaining_us = result.release_remaining_us = 0;
-        result.gaze_x = result.gaze_y = result.warmth = result.compaction = 0;
+        result.reaction = CharacterReaction::None;
+        result.reaction_remaining_us = result.work_elapsed_us = 0;
+        result.gaze_x = result.gaze_y = result.warmth = result.compaction = result.work = 0;
         next = result;
         return ESP_OK;
     }
@@ -227,7 +296,36 @@ esp_err_t advance_character_direction(const CharacterDirectionInputs &inputs, in
         return ESP_OK;
     }
     result.enabled = true;
+    // One current performance replaces the previous one; observed edges never form a backlog.
+    if (!reaction_supported(result, same_chat, same_turn)) {
+        result.reaction = CharacterReaction::None;
+        result.reaction_remaining_us = 0;
+    }
+    if (attention_edge) {
+        result.reaction = CharacterReaction::Attention;
+        result.reaction_remaining_us = kReactionUs;
+    } else if (reply_edge) {
+        result.reaction = CharacterReaction::ReplyReady;
+        result.reaction_remaining_us = kReactionUs;
+    } else if (interrupted_edge) {
+        result.reaction = CharacterReaction::Interrupted;
+        result.reaction_remaining_us = kReactionUs;
+    } else {
+        result.reaction_remaining_us -= static_cast<uint32_t>(
+            std::min<int64_t>(active_delta_us, result.reaction_remaining_us));
+        if (result.reaction_remaining_us == 0) {
+            result.reaction = CharacterReaction::None;
+        }
+    }
+    const bool work_active = result.working && !compacting && !result.attention;
+    result.work_elapsed_us = work_active && same_chat ? static_cast<uint32_t>(
+        (state.work_elapsed_us + static_cast<uint64_t>(active_delta_us)) % kWorkCycleUs) : 0;
+    result.work = approach(state.work, work_active ? 1.f : 0.f, active_delta_us, .4f);
     if (!same_chat || (state.compacting && !compacting && !refreshed)) {
+        result.pose = CharacterCompactionPose::Neutral;
+        result.release_remaining_us = 0;
+    }
+    if (result.attention) {
         result.pose = CharacterCompactionPose::Neutral;
         result.release_remaining_us = 0;
     }
@@ -270,7 +368,7 @@ esp_err_t advance_character_direction(const CharacterDirectionInputs &inputs, in
     return error;
 }
 
-// state: Valid artistic gaze, warmth and compaction presentation.
+// state: Valid artistic gaze, warmth, observed Codex activity and compaction presentation.
 // frame: Native composition; closed eyes, measured audio mouth and acquired root motion survive.
 // Exception: Returns original rig/contour errors without committing a partial frame.
 esp_err_t compose_character_direction(const CharacterDirectionState &state, ResponseFrame &frame)
@@ -290,14 +388,46 @@ esp_err_t compose_character_direction(const CharacterDirectionState &state, Resp
     }
     face[FaceChannel::GazeX] += (state.gaze_x - face[FaceChannel::GazeX]) * .85f;
     face[FaceChannel::GazeY] += (state.gaze_y - face[FaceChannel::GazeY]) * .85f;
+    const float work_phase = static_cast<float>(state.work_elapsed_us) / kWorkCycleUs;
+    const float work_accent = std::sin(2.f * kPi * work_phase);
+    const bool editing = state.work_kind == CharacterWorkKind::Editing;
+    const bool running = state.work_kind == CharacterWorkKind::Running;
+    offset_channel(face, FaceChannel::BrowHeightLeft, state.work * (.08f + .035f * work_accent));
+    offset_channel(face, FaceChannel::BrowHeightRight, state.work * (editing ? .1f : .035f));
+    offset_channel(face, FaceChannel::EyeUpperLeft, -.08f * state.work);
+    offset_channel(face, FaceChannel::EyeUpperRight, -.08f * state.work);
+    // Keep the acquired gaze target; only a small cheek/brow asymmetry accents long work.
+    offset_channel(face, FaceChannel::CheekRaiseRight, .05f * state.work * work_accent);
     offset_channel(face, FaceChannel::BrowHeightLeft, .14f * state.compaction);
     offset_channel(face, FaceChannel::EyeCurveLeft, -.1f * state.compaction);
     offset_channel(face, FaceChannel::EyeCurveRight, -.1f * state.compaction);
     face[FaceChannel::MouthWidth] += (.92f - face[FaceChannel::MouthWidth]) * .22f * state.compaction;
     const float release_phase = 1.f - static_cast<float>(state.release_remaining_us) / kReleaseUs;
-    const float sine = std::sin(3.14159265358979323846f * release_phase);
+    const float sine = std::sin(kPi * release_phase);
     const float stretch = state.pose == CharacterCompactionPose::Release ? .18f * sine * sine : 0;
-    const float smile = .28f * state.warmth + stretch;
+    const float reaction_phase = 1.f - static_cast<float>(state.reaction_remaining_us) / kReactionUs;
+    const float reaction_sine = std::sin(kPi * reaction_phase);
+    const float reaction_weight = state.reaction == CharacterReaction::None ? 0 : reaction_sine * reaction_sine;
+    const float celebration = state.reaction == CharacterReaction::ReplyReady ? .3f * reaction_weight : 0;
+    if (state.reaction == CharacterReaction::Attention) {
+        // Extra eyelid closure multiplies the existing blink/protective pose; it never forces eyes open.
+        float blink = 0;
+        for (const float start : {.12f, .36f}) {
+            const float phase = (reaction_phase - start) / .12f;
+            if (phase >= 0 && phase <= 1) {
+                const float value = std::sin(kPi * phase);
+                blink = std::max(blink, value * value);
+            }
+        }
+        face[FaceChannel::EyeLeft] *= 1.f - blink;
+        face[FaceChannel::EyeRight] *= 1.f - blink;
+        offset_channel(face, FaceChannel::BrowHeightLeft, .2f * reaction_weight);
+        offset_channel(face, FaceChannel::BrowHeightRight, .2f * reaction_weight);
+    } else if (state.reaction == CharacterReaction::Interrupted) {
+        offset_channel(face, FaceChannel::BrowHeightLeft, .22f * reaction_weight);
+        offset_channel(face, FaceChannel::BrowCurveRight, -.16f * reaction_weight);
+    }
+    const float smile = .28f * state.warmth + stretch + celebration;
     offset_channel(face, FaceChannel::MouthCornerLeft, smile);
     offset_channel(face, FaceChannel::MouthCornerRight, smile * .85f);
     offset_channel(face, FaceChannel::CheekOpacity, .35f * smile);
@@ -306,6 +436,12 @@ esp_err_t compose_character_direction(const CharacterDirectionState &state, Resp
     auto &fullness = contour.controls[ContourControl::Fullness];
     fullness += (-.18f - fullness) * .35f * state.compaction;
     fullness += (1.f - fullness) * stretch;
+    // A small squash followed by a softer stretch stays in contour space, preserving root motion.
+    const float celebration_shape = state.reaction == CharacterReaction::ReplyReady ?
+        -.14f * reaction_weight * std::sin(2.f * kPi * reaction_phase) : 0;
+    fullness += ((celebration_shape >= 0 ? 1.f : -1.f) - fullness) * std::fabs(celebration_shape);
+    auto &amplitude = contour.controls[ContourControl::Amplitude];
+    amplitude += (1.f - amplitude) * state.work * (running ? .035f : .015f) * std::fabs(work_accent);
     // Existing breathing, body springs and manga fading retain their own clocks and parameters.
     frame.face = face;
     frame.contour = contour.controls;
@@ -315,7 +451,18 @@ esp_err_t compose_character_direction(const CharacterDirectionState &state, Resp
 // state: Semantic admission rather than the slowly decaying artistic compaction weight.
 PersonalityCue character_direction_cue(const CharacterDirectionState &state)
 {
-    return state.enabled && state.current && state.compacting && !state.attention
-        ? PersonalityCue::Confusion : PersonalityCue::None;
+    if (!state.enabled || !state.current) {
+        return PersonalityCue::None;
+    }
+    if (state.attention) {
+        return PersonalityCue::Curiosity;
+    }
+    if (state.compacting) {
+        return PersonalityCue::Confusion;
+    }
+    if (state.reaction == CharacterReaction::ReplyReady) {
+        return PersonalityCue::Joy;
+    }
+    return state.reaction == CharacterReaction::Interrupted ? PersonalityCue::Confusion : PersonalityCue::None;
 }
 } // namespace CODY

@@ -1,3 +1,19 @@
+# VBWR B
+#
+# Project: ESP32 Luna Shell
+# Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+# Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+#
+# VibeWare: Human intent, AI execution, and plenty of tokens
+# Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+#
+# Modified with AI: OpenAI Codex; added VibeWare branding on 2026-10-10.
+# Human guidance: Umberto Giacobbi; requested VibeWare branding.
+#
+# Copyright (c) 2026 Umberto Giacobbi
+#
+# VBWR E
+
 """Build the PC graphics driver from Cody's production C++ sources."""
 import argparse
 import hashlib
@@ -37,6 +53,7 @@ SOURCES = (
     "components/CODY2D/src/CODY2D_text.cpp",
     "components/CODY_companion/src/model/CODY_rig.cpp",
     "components/CODY_companion/src/model/CODY_response.cpp",
+    "components/CODY_companion/src/model/CODY_character_direction.cpp",
     "components/CODY_companion/src/model/CODY_happiness.cpp",
     "components/CODY_companion/src/model/CODY_petting.cpp",
     "components/CODY_companion/src/model/CODY_connection_personality.cpp",

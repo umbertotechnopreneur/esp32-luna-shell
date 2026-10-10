@@ -1,4 +1,20 @@
 #!/usr/bin/env python3
+# VBWR B
+#
+# Project: ESP32 Luna Shell
+# Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+# Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+#
+# VibeWare: Human intent, AI execution, and plenty of tokens
+# Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+#
+# Modified with AI: OpenAI Codex; added VibeWare branding on 2026-10-10.
+# Human guidance: Umberto Giacobbi; requested VibeWare branding.
+#
+# Copyright (c) 2026 Umberto Giacobbi
+#
+# VBWR E
+
 """Package the Imagegen boot sources into flash-owned indexed RGB565 resources.
 
 This converts an existing asset; it does not configure or validate firmware.

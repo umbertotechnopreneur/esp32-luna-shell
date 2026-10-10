@@ -1,3 +1,19 @@
+/* VBWR B
+ *
+ * Project: ESP32 Luna Shell
+ * Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+ * Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+ *
+ * VibeWare: Human intent, AI execution, and plenty of tokens
+ * Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+ *
+ * Modified with AI: OpenAI Codex; added VibeWare branding on 2026-10-10.
+ * Human guidance: Umberto Giacobbi; requested VibeWare branding.
+ *
+ * Copyright (c) 2026 Umberto Giacobbi
+ *
+ * VBWR E */
+
 #include <cstdio>
 #include <cstdlib>
 
@@ -164,6 +180,13 @@ esp_err_t DeviceSnapshotService::readCodyOptionsObservation(CodyOptionsObservati
 // Unnamed observation: Questions are supplied explicitly to the presenter under test.
 // Exception: Aborts instead of reading or replacing the canonical snapshot.
 esp_err_t DeviceSnapshotService::readCodexEventObservation(CodexEventSnapshot &) const
+{
+    unexpected_owner(__func__);
+}
+
+// Unnamed observation: No technical telemetry is acquired by an event-only layout fixture.
+// Exception: Aborts instead of publishing a fabricated companion observation.
+esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObservation &) const
 {
     unexpected_owner(__func__);
 }

@@ -1,3 +1,19 @@
+/* VBWR B
+ *
+ * Project: ESP32 Luna Shell
+ * Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+ * Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+ *
+ * VibeWare: Human intent, AI execution, and plenty of tokens
+ * Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+ *
+ * Modified with AI: OpenAI Codex; added VibeWare branding on 2026-10-10.
+ * Human guidance: Umberto Giacobbi; requested VibeWare branding.
+ *
+ * Copyright (c) 2026 Umberto Giacobbi
+ *
+ * VBWR E */
+
 /* ESP32-S3 PIE kernel. Arithmetic follows the ESP32-S3 TRM v1.8, chapter 1.
  * Two RGBA pixels occupy eight unsigned 16-bit lanes after ZIP widening.
  * Every lerp computes (first*(256-weight) + second*weight + 128) >> 8.

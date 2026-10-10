@@ -1,3 +1,19 @@
+/* VBWR B
+ *
+ * Project: ESP32 Luna Shell
+ * Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+ * Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+ *
+ * VibeWare: Human intent, AI execution, and plenty of tokens
+ * Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+ *
+ * Modified with AI: OpenAI Codex; added VibeWare branding on 2026-10-10.
+ * Human guidance: Umberto Giacobbi; requested VibeWare branding.
+ *
+ * Copyright (c) 2026 Umberto Giacobbi
+ *
+ * VBWR E */
+
 #include "CODY_personality.hpp"
 #include "CODY_personality_config.hpp"
 
@@ -414,7 +430,7 @@ void clear_personality_presentation(PersonalityLag &lag)
 // latch: Single caller-owned threshold latch.
 // alert: Receives current low-battery state on success only.
 // Exception: Returns invalid authored thresholds or measured percentage without repairing either.
-esp_err_t update_personality_battery_latch(bool current_percentage, int percentage,
+esp_err_t update_personality_battery_latch(bool current_percentage, float percentage,
                                          PersonalityBatteryLatch &latch, bool &alert)
 {
     if (PersonalityConfig::low_battery_enter_percent >= PersonalityConfig::low_battery_exit_percent ||
@@ -430,8 +446,8 @@ esp_err_t update_personality_battery_latch(bool current_percentage, int percenta
         alert = false;
         return ESP_OK;
     }
-    if (percentage < 0 || percentage > 100) {
-        ESP_LOGE(kTag, "Measured battery percentage=%d rejected (%s)", percentage,
+    if (!std::isfinite(percentage) || percentage < 0 || percentage > 100) {
+        ESP_LOGE(kTag, "Measured battery percentage=%f rejected (%s)", percentage,
                  esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
         return ESP_ERR_INVALID_RESPONSE;
     }
@@ -441,6 +457,28 @@ esp_err_t update_personality_battery_latch(bool current_percentage, int percenta
         latch.low_battery_active = false;
     }
     alert = latch.low_battery_active;
+    return ESP_OK;
+}
+
+// observation: Current Cody battery state; unavailable numbers are never interpreted.
+// latch: One existing hysteresis owner, committed together with the selected identity.
+// cue: Current power symbol; connecting a charger does not claim the battery has recovered.
+// Exception: Returns the original percentage/threshold error without changing either output.
+esp_err_t select_personality_power_cue(const PersonalityPowerObservation &observation,
+    PersonalityBatteryLatch &latch, PersonalityCue &cue)
+{
+    auto next = latch;
+    bool alert = false;
+    const bool present = observation.current && observation.battery_present;
+    const esp_err_t error = update_personality_battery_latch(present && observation.percentage_valid,
+        observation.level_percent, next, alert);
+    if (error != ESP_OK) {
+        return error;
+    }
+    // Charging remains truthful even when the owner cannot supply a percentage.
+    cue = present && observation.charging ? PersonalityCue::Charging :
+        alert ? PersonalityCue::LowBattery : PersonalityCue::None;
+    latch = next;
     return ESP_OK;
 }
 

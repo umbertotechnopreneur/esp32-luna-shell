@@ -7,8 +7,12 @@ tests, scans, generators, builds, simulators or physical operations.
 
 The 2026-10-11 Cody Debug wake-word build, personality/runtime checks, 34 CCP
 simulator cases and five character Studio cases passed. These results do not
-cover physical behavior, every profile or the entire remaining matrix below.
+cover the later Codex acting/power-cue increment, physical behavior, every profile
+or the entire remaining matrix below.
 Stable IDs identify work; their order is not a domain identity.
+Continue development on the single local `codex/cody` branch; checkpoint history
+is consolidated there. The relative model-cost badge remains a proposal in
+planned-todo.md, without prices or session-cost estimation on Cody.
 
 ## Reproduced device faults
 
@@ -68,6 +72,17 @@ Stable IDs identify work; their order is not a domain identity.
   Preserve protective closure, root motion, audio mouth, source-gap rejection and
   Debug/preset/setup isolation. Inspect nested compiled frames/device stack minima.
   Expression-debug screen 38 remains a separate existing task.
+- [ ] **CCP-06 - Codex acting final validation, 2026-10-11.** Regenerate the
+  native Studio driver, then run the prepared runtime/personality/Studio cases
+  with fresh command-specific authorization. Cover Thinking/Editing/Running
+  accents, one attention double blink, exact-turn reply/interruption, repeated
+  frames, source gaps, hidden routes/pause and the real PC approval view. Verify
+  automatic Cody low-battery/charging cues, fractional threshold boundaries,
+  missing percentage/presence and immediate source-expiry invalidation. Build
+  only after integration; inspect compiled frames and physical stack headroom
+  for the 208-byte director and display-owned status projection. Earlier test
+  results cover the preceding revision. Python additions are platform-neutral;
+  the existing Windows credential/launcher boundary still needs a separate port.
 
 ## Cody routes and presentation
 

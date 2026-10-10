@@ -1,3 +1,19 @@
+# VBWR B
+#
+# Project: ESP32 Luna Shell
+# Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+# Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+#
+# VibeWare: Human intent, AI execution, and plenty of tokens
+# Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+#
+# Modified with AI: OpenAI Codex; added VibeWare branding on 2026-10-10.
+# Human guidance: Umberto Giacobbi; requested VibeWare branding.
+#
+# Copyright (c) 2026 Umberto Giacobbi
+#
+# VBWR E
+
 # Toolchain- and architecture-wide defaults shared by every product profile.
 CONFIG_IDF_TARGET="esp32s3"
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y

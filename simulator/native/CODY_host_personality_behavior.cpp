@@ -1,8 +1,27 @@
+/* VBWR B
+ *
+ * Project: ESP32 Luna Shell
+ * Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+ * Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+ *
+ * VibeWare: Human intent, AI execution, and plenty of tokens
+ * Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+ *
+ * Modified with AI: OpenAI Codex; added VibeWare branding on 2026-10-10.
+ * Human guidance: Umberto Giacobbi; requested VibeWare branding.
+ *
+ * Copyright (c) 2026 Umberto Giacobbi
+ *
+ * VBWR E */
+
 // Desktop transport for the unchanged firmware mood and caress models.
 #include "CODY_happiness.hpp"
 #include "CODY_petting.hpp"
+#include "CODY_character_direction.hpp"
+#include "CODY_personality.hpp"
 #include "personality_rules.hpp"
 #include "esp_log.h"
+#include <algorithm>
 #include <new>
 
 #if defined(_WIN32)
@@ -20,6 +39,30 @@ namespace {
 struct HostBehavior {
     CODY::HappinessState happiness{};
     CODY::PettingState petting{};
+    CODY::CharacterDirectionState direction{};
+    CODY::PersonalityBatteryLatch power{};
+};
+
+// PC-only presentation inputs; no synthetic observation enters firmware snapshots.
+struct HostCharacterInputs {
+    const char *chat;
+    uint64_t sequence;
+    const char *turn;
+    float placement[3];
+    float gaze[2];
+    bool current;
+    bool working;
+    bool attention;
+    bool compacting;
+    bool refreshed;
+    bool ready;
+    bool interrupted;
+    bool enabled;
+    bool paused;
+    bool rebase;
+    bool gaze_visible;
+    bool affection_allowed;
+    uint8_t work_kind;
 };
 
 // operation: Actual rejected host boundary or firmware operation.
@@ -58,6 +101,32 @@ CODY_BEHAVIOR_EXPORT int cody_host_behavior_create(void **output)
 CODY_BEHAVIOR_EXPORT void cody_host_behavior_destroy(void *handle)
 {
     delete static_cast<HostBehavior *>(handle);
+}
+
+// handle: Existing isolated character owner; no synthetic observation enters firmware snapshots.
+// current: Whether the original synthetic source is still valid and fresh.
+// present: Explicitly synthetic battery presence.
+// percentage_valid: Whether the synthetic owner actually supplied the charge percentage.
+// percentage: Original synthetic percentage, without rounding or clamping.
+// charging: Explicitly synthetic charge-state fact, independent from percentage availability.
+// cue: Receives the exact shared selector's current symbol on success only.
+// low_active: Receives the native owner's current low-battery support for visible-frame invalidation.
+// Exception: Returns boundary errors or the original native power-selection error.
+CODY_BEHAVIOR_EXPORT int cody_host_power_cue(void *handle, bool current, bool present,
+    bool percentage_valid, float percentage, bool charging, uint8_t *cue, bool *low_active)
+{
+    if (handle == nullptr || cue == nullptr || low_active == nullptr) {
+        return behavior_result("power_cue", ESP_ERR_INVALID_ARG);
+    }
+    CODY::PersonalityCue selected{};
+    const CODY::PersonalityPowerObservation observation{current, present, percentage_valid, charging, percentage};
+    const esp_err_t error = CODY::select_personality_power_cue(observation,
+        static_cast<HostBehavior *>(handle)->power, selected);
+    if (error == ESP_OK) {
+        *cue = static_cast<uint8_t>(selected);
+        *low_active = static_cast<HostBehavior *>(handle)->power.low_battery_active;
+    }
+    return behavior_result("power_cue", error);
 }
 
 // handle: Native mood owner; no Python-owned mood state is accepted.
@@ -150,4 +219,64 @@ CODY_BEHAVIOR_EXPORT int cody_host_petting_observe(void *handle, const void *fra
 CODY_BEHAVIOR_EXPORT int64_t cody_host_petting_affection_us()
 {
     return CODY::PettingConfig::affection_us;
+}
+
+// handle: Existing native mood/caress owner; the director retains no second mood value.
+// wire: Borrowed visibly SIMULATED presentation facts, validated by the shared director.
+// elapsed_us: Active animation time; pause supplies zero and consumes source edges.
+// face: Complete native response channels, or nullptr while a non-character route is visible.
+// count: Exact channel count, or zero when face and contour are both absent.
+// contour: Four native response controls, committed with face only after success.
+// cue: Receives the native optional manga request after a successful update.
+// Exception: Returns original boundary, mood or direction errors without a partial commit.
+CODY_BEHAVIOR_EXPORT int cody_host_character_compose(void *handle, const HostCharacterInputs *wire,
+    int64_t elapsed_us, float *face, uint32_t count, float *contour, uint8_t *cue)
+{
+    if (handle == nullptr || wire == nullptr || cue == nullptr) {
+        return behavior_result("character_inputs", ESP_ERR_INVALID_ARG);
+    }
+    const bool no_frame = face == nullptr && contour == nullptr && count == 0;
+    const bool complete_frame = face != nullptr && contour != nullptr && count == CODY::kFaceChannelCount;
+    if ((!no_frame && !complete_frame) || (no_frame && wire->enabled)) {
+        return behavior_result("character_frame_shape", ESP_ERR_INVALID_ARG);
+    }
+    auto &owner = *static_cast<HostBehavior *>(handle);
+    CODY::CharacterDirectionInputs inputs{};
+    inputs.activity = {wire->chat, wire->sequence, wire->current, wire->working,
+        wire->attention, wire->compacting, wire->refreshed};
+    inputs.activity.turn = wire->turn;
+    inputs.activity.work_kind = static_cast<CODY::CharacterWorkKind>(wire->work_kind);
+    inputs.activity.ready = wire->ready;
+    inputs.activity.interrupted = wire->interrupted;
+    inputs.placement = {wire->placement[0], wire->placement[1], wire->placement[2]};
+    inputs.gaze_point = {wire->gaze[0], wire->gaze[1]};
+    inputs.caress_at_us = owner.petting.last_triggered_at_us;
+    inputs.enabled = wire->enabled;
+    inputs.paused = wire->paused;
+    inputs.rebase = wire->rebase;
+    inputs.gaze_visible = wire->gaze_visible;
+    inputs.affection_allowed = wire->affection_allowed;
+    esp_err_t error = CODY::positive_character_affect(CODY::PersonalityData::happiness,
+        owner.happiness, inputs.positive_affect);
+    CODY::CharacterDirectionState next{};
+    if (error == ESP_OK) {
+        error = CODY::advance_character_direction(inputs, elapsed_us, owner.direction, next);
+    }
+    // These bounded host-only locals never consume an ESP32 display-task stack.
+    CODY::ResponseFrame frame{};
+    if (error == ESP_OK && face != nullptr) {
+        std::copy(face, face + count, frame.face.values);
+        std::copy(contour, contour + CODY::kContourControlCount, frame.contour.values);
+        error = CODY::compose_character_direction(next, frame);
+    }
+    if (error != ESP_OK) {
+        return behavior_result("character_compose", error);
+    }
+    if (face != nullptr) {
+        std::copy(frame.face.values, frame.face.values + count, face);
+        std::copy(frame.contour.values, frame.contour.values + CODY::kContourControlCount, contour);
+    }
+    owner.direction = next;
+    *cue = static_cast<uint8_t>(CODY::character_direction_cue(next));
+    return ESP_OK;
 }

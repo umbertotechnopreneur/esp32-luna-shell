@@ -1,3 +1,19 @@
+/* VBWR B
+ *
+ * Project: ESP32 Luna Shell
+ * Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+ * Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+ *
+ * VibeWare: Human intent, AI execution, and plenty of tokens
+ * Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+ *
+ * Modified with AI: OpenAI Codex; added VibeWare branding on 2026-10-10.
+ * Human guidance: Umberto Giacobbi; requested VibeWare branding.
+ *
+ * Copyright (c) 2026 Umberto Giacobbi
+ *
+ * VBWR E */
+
 // Windows-only audio output owner. The real Cody cue modules are linked unchanged.
 #include "CODY_personality_audio.hpp"
 #include "CODY_typewriter_audio.hpp"

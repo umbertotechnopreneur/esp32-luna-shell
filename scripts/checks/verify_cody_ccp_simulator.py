@@ -1,3 +1,19 @@
+# VBWR B
+#
+# Project: ESP32 Luna Shell
+# Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+# Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+#
+# VibeWare: Human intent, AI execution, and plenty of tokens
+# Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+#
+# Modified with AI: OpenAI Codex; added VibeWare branding on 2026-10-10.
+# Human guidance: Umberto Giacobbi; requested VibeWare branding.
+#
+# Copyright (c) 2026 Umberto Giacobbi
+#
+# VBWR E
+
 """SIMULATED CCP1 regressions, including ephemeral loopback UDP; no Tk/device/live hooks."""
 
 from __future__ import annotations
@@ -1007,15 +1023,15 @@ class SimulatorProtocolTests(unittest.TestCase):
         for name in names:
             self.assertEqual("".join(wrapped(name)), name)
 
-    # self: Maximum wire label compared with the native caption slot.
-    # Raises AssertionError if the preview overflows a caption or hides its simulated identity.
+    # self: Connected preview whose project is owned by the native identity row.
+    # Raises AssertionError if the obsolete body slot duplicates the project or missing data is hidden.
     def test_preview_bounds_long_project_and_missing_activity(self):
         snapshot = simulated.SimulatorSnapshot(state=simulated.LinkState.CONNECTED,
             activity_valid=True, phase="working", project="P" * 24, chat="d" * 64)
         identity, title, lines = presentation(snapshot, "")
         self.assertEqual(identity, "working")
-        self.assertEqual("".join(lines), "P" * 24)
-        self.assertTrue(all(len(line) <= 21 for line in lines))
+        self.assertEqual(lines, ())
+        self.assertEqual(snapshot.project, "P" * 24)
         self.assertEqual(presentation(simulated.SimulatorSnapshot(state=simulated.LinkState.CONNECTED), "")[1], "UNAVAILABLE")
 
     # self: Preview contract coupled to the actual generated native glyphs and authored scene identities.

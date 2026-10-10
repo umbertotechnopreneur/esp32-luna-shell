@@ -1,3 +1,19 @@
+# VBWR B
+#
+# Project: ESP32 Luna Shell
+# Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+# Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+#
+# VibeWare: Human intent, AI execution, and plenty of tokens
+# Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+#
+# Modified with AI: OpenAI Codex; added VibeWare branding on 2026-10-10.
+# Human guidance: Umberto Giacobbi; requested VibeWare branding.
+#
+# Copyright (c) 2026 Umberto Giacobbi
+#
+# VBWR E
+
 """SIMULATED interaction routes with the native layout, ASCII glyphs and explicit Send."""
 
 from __future__ import annotations
@@ -5,6 +21,7 @@ from __future__ import annotations
 import time
 
 from cody_native_debug import render_debug_channels
+from cody_native_behavior import CharacterActivity
 
 from cody_native_event_presentation import NativeEventPresentation, EventAction, ascii_field, wrapped, paint_native_actions
 
@@ -127,8 +144,9 @@ class EventView:
     # rotation: Cardinal orientation handled by the caller for image and touch together.
     # personality: Native shared connection/scene cue preparation before the C++ raster.
     # compose: Shared C++ response owner supplying exactly the current displayed face.
+    # activity: Coherence-qualified Codex observation; only the explicit PC approval admits acting.
     # Raises ValueError for invalid scene/glyph/action geometry.
-    def render(self, snapshot, window, rotation, personality=None, compose=None):
+    def render(self, snapshot, window, rotation, personality=None, compose=None, activity=CharacterActivity()):
         identity, lines, actions, back = self.plan(snapshot)
         painter = window.renderer.scene_painter
         definition = painter.definition(identity)
@@ -149,7 +167,10 @@ class EventView:
         cloud = definition["cloud"]
         if compose is None:
             raise RuntimeError("CCP event rendering requires the shared native response owner")
-        scene, values = compose(painter.face(identity), painter.cloud_transform(identity, elapsed), rotation)
+        approval = identity == "approval-on-pc"
+        scene, values = compose(painter.face(identity), painter.cloud_transform(identity, elapsed), rotation,
+            character_enabled=approval, activity=activity,
+            source="ccp" if approval else "ccp-hidden")
         if personality is not None:
             top = min([definition["title"]["top"]] + [top for _, top in lines])
             bottom = max([definition["title"]["top"] + 30] + [top + 25 for _, top in lines])

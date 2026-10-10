@@ -18,9 +18,10 @@
 
 ## Cody character ideas kept simple - 2026-10-10
 
-- [ ] Consider wake stretch, attention double blink and a few nonrepeating variants
-  only after reviewing the three basic device reactions. These extra performances
-  were explicitly left out to keep the first revision small.
+- [ ] Consider wake stretch and a few nonrepeating idle variants after physical
+  review. Attention double blink, observed reply/interruption and work-kind
+  acting are now implemented in the 2026-10-11 Codex increment, with final
+  execution still pending in TODO.md.
 - [ ] Consider richer time-of-day personality and long-task acting only if existing
   synchronized clock, day/night greetings and quiet rhythm prove insufficient.
   Reuse their owner; no new calendar, wellbeing reminders or inferred work fatigue.
@@ -33,14 +34,36 @@
   notifications when available. Current context occupancy/capacity, reasoning effort,
   cumulative usage and compaction threshold remain explicitly unavailable; do not
   read transcripts or infer model capacity to fill them.
+- [ ] Add a relative model cost badge after the current Codex validation gate.
+  Proposed identities are Economy, Balanced, Expensive and Unknown; no displayed
+  dollar amount, account balance or session-cost estimate. A platform-neutral
+  Python pricing owner refreshes an official catalog once at the first plugin
+  start on each local calendar day, using the existing exclusive broker instead
+  of each hook process. Keep a validated persistent cache with its source,
+  retrieval date and explicit stale/unavailable state; network or parse failure
+  never overwrites the last valid catalog or blocks hook/approval delivery.
+  Resolve only the exact observed model identity, with explicit supported aliases;
+  do not guess a price for an unknown slug. The PC sends the selected typed band
+  through a coordinated authenticated technical-schema update into the canonical
+  snapshot. Cody renders a small Model & Context badge and performs no price
+  calculation. Preserve context-row priority and compaction visibility on Home.
+  Relative-band thresholds and the source basis still need a product decision:
+  [Codex credit rates](https://learn.chatgpt.com/docs/pricing) and
+  [API token rates](https://developers.openai.com/api/docs/pricing) are distinct.
+  The documented [model-list endpoint](https://developers.openai.com/api/reference/resources/models/methods/list)
+  does not supply prices. Keep speed separate; a price is not evidence of latency.
+  This is a recorded proposal, not an implemented downloader or display feature.
 
 These items are not active commitments. Move an item to [TODO.md](TODO.md) when
 activated; authorization still follows [AGENTS.md](AGENTS.md).
 
 ## Cody product
 
-- [ ] Linux/macOS companion support stays deferred as requested. Keep the current
-  hardware acquisition and CCP work focused on the existing Windows companion.
+- [ ] Complete Linux/macOS credential and launcher owners for the existing Codex
+  Python plugin before claiming multiplatform support. The 2026-10-11 scope
+  requires platform-neutral Python additions and excludes a new Windows service
+  or general PC observer. Current character changes preserve that boundary;
+  they do not port the existing Windows DPAPI/hidden-launch implementation.
 
 - [ ] Explore a remote relay after the screen work: an adapter beside the Codex
   instance publishes genuine events to an ASP.NET Core/Azure backend, and Cody

@@ -15,6 +15,10 @@ private local diagnostics, not publication artifacts.
 
 ## Current verification - 2026-10-11
 
+The results below precede the later 2026-10-11 Codex acting/power-cue increment.
+That increment has source review and prepared cases only; its fresh execution
+gate is CCP-06 in TODO.md.
+
 - Cody Debug wake-word built with ESP-IDF 6.0.2, eight jobs and shared cleanup.
   Identity `cody-86-ge2ae6191-dirty`; application `0x6a9800` bytes, with 49% of
   its `0xd23000` partition free. This operation did not flash/access hardware.
@@ -51,6 +55,8 @@ private local diagnostics, not publication artifacts.
 
 | Date | Implementation/checkpoint | Evidence and remaining scope |
 | --- | --- | --- |
+| 2026-10-11 | Codex-only Thinking/Editing/Running accents, one attention double blink, exact-turn reply/interruption acting, and automatic canonical Cody low-battery/charging cues. Studio transports the same native direction/power owners through Python; no new host OS observer/service. | Static source integration only. Prepared native/Studio cases remain unexecuted; regenerate the driver and obtain fresh final build/check authorization. Compiled frames, physical timings/stack headroom and existing plugin Linux/macOS credential/launch support remain open. |
+| 2026-10-11 | Consolidated the shared working-tree changes and character checkpoint history onto the single local `codex/cody` work branch. Restored the two approved action-layout PNG references still required by AGENTS.md and three document generators. Recorded a relative-cost badge proposal without implementing pricing acquisition or session-cost estimates. | Local Git/source work only; no push, PR, test, generator, build, simulator or physical operation in this consolidation. Existing standalone display/readiness behavior was retained rather than reverting to its older branch tree. |
 | 2026-10-10 | Minimal native director: acquired-target gaze, positive-only happiness/30-s caress warmth, coherent compaction concentration and exact-end two-second release. Studio binds the same native owner. | Source review initially; generation/build/host cases completed 2026-10-11 above. No new sensor reads, inferred compaction, hook transport or screen-38 implementation. Physical timing/stack headroom open. |
 | 2026-10-10 | Companion Home and Activity/Model & Context/Session & Link with persistent released-tap selection, deliberate-shake Home, attention arbitration and revision-qualified technical projections. Desk/Away strict persistence/Usage options. | Refined details place Cody at (233,115), scale 50, with four curated facts; Options retains five rows. Measured gesture projection precedes animation smoothing. Source review and later named host cases do not prove full physical panel interaction. |
 | 2026-10-10 | Genuine compaction lifecycle and telemetry with unavailable/STALE states, current chat/revision coherence and approval priority. | Source integration; genuine reviewed hook delivery/turn correlation remains open. No transcripts, guessed context capacity, inferred CPU or fabricated source metrics. |

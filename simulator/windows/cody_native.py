@@ -1,3 +1,19 @@
+# VBWR B
+#
+# Project: ESP32 Luna Shell
+# Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+# Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+#
+# VibeWare: Human intent, AI execution, and plenty of tokens
+# Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+#
+# Modified with AI: OpenAI Codex; added VibeWare branding on 2026-10-10.
+# Human guidance: Umberto Giacobbi; requested VibeWare branding.
+#
+# Copyright (c) 2026 Umberto Giacobbi
+#
+# VBWR E
+
 """Transport to the unchanged firmware C++ rig and RGB565 renderer on this PC."""
 from __future__ import annotations
 
@@ -797,6 +813,22 @@ class NativePersonalityPainter:
         self.last_frame = PersonalityFrame()
         self.channel = SimpleNamespace(cue=PersonalityCue.NONE)
         self.active = False
+
+    # self: Existing native channel, with the last actually prepared symbol identity.
+    # low_supported: Current support returned by the shared native battery hysteresis owner.
+    # charging_supported: Current explicitly synthetic charging fact.
+    # Raises ValueError for untyped facts; no hardware observation or timing is fabricated.
+    def observe_power_support(self, low_supported, charging_supported):
+        if type(low_supported) is not bool or type(charging_supported) is not bool:
+            raise ValueError("Native personality power support requires actual booleans")
+        stale = (self.last_frame.cue == PersonalityCue.LOW_BATTERY and not low_supported or
+                 self.last_frame.cue == PersonalityCue.CHARGING and not charging_supported)
+        if stale:
+            # Cancel unsupported device truth while preserving native admission cooldowns.
+            self.native.api.cody_host_personality_clear(self.native.state)
+            self.last_frame = PersonalityFrame()
+            self.channel.cue = PersonalityCue.NONE
+            self.active = False
 
     # self: Native personality channel owner.
     # scene: Actual evaluated native rig frame.

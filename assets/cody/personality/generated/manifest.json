@@ -1,7 +1,7 @@
 {
   "schema": "cody.personality.generated.v2",
   "source": "assets/cody/personality.yaml",
-  "source_sha256": "3c44edd225b498a8a9a33f56acab19311f1c3ebc4946ca4d4bb485d254f1e33b",
+  "source_sha256": "257597d420efbc6fdbe859ccfc84922833cd446691bc1587a5bdf5233a2afc5b",
   "headers": [
     "assets/cody/personality/generated/personality_rules.hpp",
     "assets/cody/personality/generated/personality_catalog.hpp",
@@ -11,7 +11,7 @@
   "rules": {
     "schema": "cody.personality.v2",
     "scope": "session",
-    "face_binding": "disabled",
+    "face_binding": "positive_only",
     "catalog": {
       "events": [
         {

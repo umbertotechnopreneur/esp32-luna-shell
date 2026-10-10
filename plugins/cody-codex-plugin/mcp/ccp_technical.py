@@ -1,3 +1,19 @@
+# VBWR B
+#
+# Project: ESP32 Luna Shell
+# Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+# Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+#
+# VibeWare: Human intent, AI execution, and plenty of tokens
+# Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+#
+# Modified with AI: OpenAI Codex; added bounded technical metadata on 2026-10-10.
+# Human guidance: Umberto Giacobbi; requested truthful companion telemetry.
+#
+# Copyright (c) 2026 Umberto Giacobbi
+#
+# VBWR E
+
 """Bounded technical metadata projection; no transcript or desktop session acquisition."""
 
 from __future__ import annotations

@@ -1,4 +1,20 @@
 @echo off
+@REM VBWR B
+@REM
+@REM Project: ESP32 Luna Shell
+@REM Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+@REM Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+@REM
+@REM VibeWare: Human intent, AI execution, and plenty of tokens
+@REM Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+@REM
+@REM Modified with AI: OpenAI Codex; added VibeWare branding on 2026-10-10.
+@REM Human guidance: Umberto Giacobbi; requested VibeWare branding.
+@REM
+@REM Copyright (c) 2026 Umberto Giacobbi
+@REM
+@REM VBWR E
+
 setlocal enabledelayedexpansion
 
 :: Preflight checks

@@ -1,11 +1,27 @@
-/*
+/* VBWR B
+ *
+ * Project: ESP32 Luna Shell
+ * Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+ * Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+ *
+ * VibeWare: Human intent, AI execution, and plenty of tokens
+ * Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+ *
+ * Modified with AI: OpenAI Codex; added VibeWare branding on 2026-10-10.
+ * Human guidance: Umberto Giacobbi; requested VibeWare branding.
+ *
+ * Copyright (c) 2026 Umberto Giacobbi
+ * Original file notice:
+ *
  * Firmware backend support module.
  *
  * Copyright (c) 2026
  *
  * This file owns bounded JSON serialization. HTTP lifecycle, authentication,
  * rate limiting, and Wi-Fi event handling remain in LUNASHELL_http_server.cpp.
- */
+ *
+ * VBWR E */
+
 
 // JSON serialization helpers for the read-only HTTP API.
 // Converts device snapshots and metrics into compact response bodies.

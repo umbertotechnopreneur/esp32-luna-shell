@@ -1,3 +1,19 @@
+/* VBWR B
+ *
+ * Project: ESP32 Luna Shell
+ * Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
+ * Creator: Umberto Giacobbi | https://umbertogiacobbi.biz
+ *
+ * VibeWare: Human intent, AI execution, and plenty of tokens
+ * Manifesto: https://umbertogiacobbi.biz/vibeware/manifesto
+ *
+ * Modified with AI: OpenAI Codex; added shared Cody boot typography on 2026-10-10.
+ * Human guidance: Umberto Giacobbi; requested Cody boot title and subtitle.
+ *
+ * Copyright (c) 2026 Umberto Giacobbi
+ *
+ * VBWR E */
+
 // Compile the unchanged production C decoder/resources as C++ for the existing host ESP error/log transport.
 #include "../../components/LUNASHELL_boot/src/ui/VIBEWARE_boot_animation.c"
 #include "../../assets/branding/VibeWare/generated/vibeware_boot_data.c"
