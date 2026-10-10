@@ -31,19 +31,28 @@
 - [x] Complete static source integration and prepare regression cases for source
   gaps, revision/sequence/chat mismatch, pause/resume, positive-only affect,
   preserved protective closure/audio/root motion and invalid-input transactions.
-- [ ] Regenerate the personality source provenance for `face_binding: positive_only`
-  through `scripts/device.ps1 generate -Generator cody-personality-rules` after
-  authorization. Existing numeric constants and happiness decay are unchanged.
-- [ ] Run the prepared checks only after fresh exact-command authorization:
-  `scripts/device.ps1 check -Check cody-runtime` and, separately,
-  `scripts/device.ps1 check -Check cody-personality`. No suite was executed here.
-- [ ] Authorize the final firmware build and physical observation separately.
-  Inspect Home compaction visibility, exact-end release, touch gaze at all cardinal
-  rotations, warmth after a real caress, debug isolation, paused navigation and
-  deepest nested renderer stack headroom. No build, simulator or flash accompanied
-  this source change. The other agents own Codex bugfixing and debug screen 38.
-- [x] Record the handoff: Studio binding and extra performances are intentionally
-  deferred in `planned-todo.md`; do not present them as implemented.
+- [x] Bind the same native director into Studio's existing rig and SIMULATED CCP
+  views. Reuse recognized caresses, fresh logical pointer samples and admitted
+  activity/compaction sequences; keep Debug, presets, setup and questions isolated.
+- [x] On 2026-10-11, regenerate personality/runtime assets and build both Studio
+  native drivers through `scripts/device.ps1`. Numeric personality constants and
+  happiness decay are unchanged.
+- [x] Complete the requested Debug wake-word firmware build with ESP-IDF 6.0.2
+  and eight jobs. The image fits its application partition with 49% free.
+- [x] Pass `cody-runtime`, `cody-personality`, `cody-ccp-simulator` (34 tests) and
+  `cody-character-studio` (5 tests). Exercise the real Python/C++ direction binding,
+  accepted caress geometry, matching completion, hidden-route/source-gap admission
+  and the real Tk frame loop with Debug isolation. Review labelled native captures.
+  Reports and captures: `artifacts/build-cody-companion-wake-word-evidence/character-20261011/`.
+- [ ] Authorize physical observation/flash separately. Inspect Home compaction
+  visibility and exact-end release, gaze at all cardinal rotations, warmth after a
+  real caress, paused tap/shake navigation, compiled renderer frames and measured
+  device stack headroom. Full CCP panel visual/interaction review and expression
+  debug screen 38 remain separate from these character tests. No device was flashed.
+  The other agents own Codex bugfixing and debug screen 38.
+- [x] Record the remaining work: optional extra performances stay deferred in
+  `planned-todo.md`; firmware compilation and synthetic Studio execution are now
+  verified, while physical behavior remains unverified.
 
 ## Cody companion panels and genuine compaction - 2026-10-10
 

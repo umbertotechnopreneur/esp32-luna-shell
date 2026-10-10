@@ -52,6 +52,49 @@ the preserved copies within the build directory.
   only; no suite, firmware compilation, simulator/device execution or network
   probe ran. Runtime checks and measured stack headroom remain in TODO.md.
 
+## Cody character build and simulator verification - 2026-10-11
+
+- Completed the requested ESP-IDF 6.0.2 Debug wake-word build through
+  `scripts/device.ps1`, using eight jobs and the shared transient cleanup.
+  Build identity: `cody-86-ge2ae6191-dirty`; application image 0x6a9800 bytes,
+  49% of its 0xd23000-byte partition free. No flash or hardware access occurred.
+- Regenerated personality/runtime provenance and compiled both Studio host
+  drivers. Personality verification passed 1,142 native assertions, 122 parity
+  frames and 118 host assertions; runtime verification passed its 500 response
+  ticks, character contracts, shared source groups, event UI and settings checks.
+- Passed all 34 isolated CCP simulator cases and five new character Studio cases.
+  The latter execute the real ctypes/C++ boundary and a withdrawn Tk window's
+  scheduled frame loop, with gaze, real native caress recognition, compaction
+  completion, source gaps and Debug isolation. Reviewed native synthetic captures.
+- Updated stale test expectations for the native project identity row, centered
+  capsule icon geometry and muted semantic palette. Added the missing excluded
+  technical-snapshot owner symbol to the event UI fixture; it still aborts if
+  accidentally invoked. Fixed the new GUI test to count actual presentations
+  instead of the periodically reset FPS counter. No firmware fix was necessary.
+- Retained logs, reports and captures under
+  `artifacts/build-cody-companion-wake-word-evidence/character-20261011/`.
+  Final passing logs: `runtime-check-5.log`, `personality-check.log`,
+  `ccp-simulator-check.log`, `character-studio-check-final.log`.
+  Earlier failed attempts remain visible. Physical gestures, all-rotation review,
+  full CCP panel interaction and device stack headroom remain in `TODO.md`.
+
+## Studio character direction source integration - 2026-10-10
+
+- Bound the same native character director to the existing Studio mood/caress
+  owner. Python transfers observations and preserves the rest of the native
+  response; it does not reproduce gaze, warmth or compaction animation equations.
+- Ordinary rig contact drives gaze and recognized caresses drive positive warmth.
+  SIMULATED CCP views use existing text/pointer targets and admitted lifecycle
+  sequence IDs. Existing Long compaction and Refreshed / pending previews can
+  demonstrate the same native transition without publishing synthetic metadata.
+- Preserved Debug/preset/setup/question ownership, source-gap handling and
+  tap/shake navigation. CCP is awake time for the existing native mood clock;
+  pause freezes artistic direction and manga presentation while consuming edges.
+- This checkpoint received source review only; generation, build and synthetic
+  verification were subsequently completed on 2026-10-11 as recorded above.
+  Physical observations remain pending in `TODO.md`.
+  No Codex hook/protocol or expression-debug screen implementation was changed.
+
 ## Minimal character direction source integration - 2026-10-10
 
 - Added gaze towards canonical body touch or admitted visible information, a
@@ -64,8 +107,8 @@ the preserved copies within the build directory.
   No Codex protocol/hook or expression-debug screen change accompanied this work.
 - Registered focused native regression cases but did not execute them. Only
   static source review was performed; generation, build, device behavior and
-  stack headroom remain pending in `TODO.md`. Studio binding and optional extra
-  performances are deferred in `planned-todo.md` per the requested simple scope.
+  stack headroom remain pending in `TODO.md`. The subsequent Studio binding is
+  recorded above; optional extra performances remain in `planned-todo.md`.
 
 ## Companion detail and shake refinement source integration - 2026-10-10
 

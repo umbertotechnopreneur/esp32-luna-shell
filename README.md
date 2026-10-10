@@ -109,3 +109,21 @@ Per i dati uso lo snapshot canonico con validita', errore e timestamp originali.
 Per geometria e touch seguo il [contratto del display circolare](docs/architecture/circular-display-layout.md).
 Conservo distinti risultato host e comportamento fisico: una compilazione riuscita
 non mi dice ancora come Cody si risveglia sulla scrivania.
+
+---
+
+<p align="right">
+  <a href="https://umbertogiacobbi.biz/vibeware/manifesto">
+    <img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="160">
+  </a><br>
+  <strong>VibeWare</strong><br>
+  <em>Human intent, AI execution, and plenty of tokens</em>
+</p>
+
+### What is VibeWare?
+
+I coined the term [VibeWare](https://umbertogiacobbi.biz) and started an open initiative for developers who build with AI and care about the craft. I challenge the assumption that vibe coding is synonymous with low-quality code, while openly acknowledging the weaknesses and risks of AI-generated software: experienced developers must guide the process, test carefully, check security and take responsibility for the result. With this footer, I acknowledge that I developed this software with AI and ask you to judge the quality of the work.
+
+[**Read the VibeWare manifesto**](https://umbertogiacobbi.biz/vibeware/manifesto)
+
+*You are welcome to explore, adapt and reuse the open-source VibeWare materials under the project license — my contribution to the developer community.*

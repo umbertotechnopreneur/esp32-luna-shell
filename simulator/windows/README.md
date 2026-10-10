@@ -89,8 +89,9 @@ The old PC record remains separate; nothing is deleted on the physical device,
 in firmware or on the SD card.
 
 The preview shows existing scenes/fonts and the state received from the broker.
-Project names occupy at most two lines of 21 characters; activity appears only
-after fresh packets arrive. After eight seconds without updates, activity is
+Project and branch share the native fading identity row; the narrative body does
+not duplicate the project. Activity appears only after fresh packets arrive.
+After eight seconds without updates, activity is
 treated as **UNAVAILABLE**. Chat changes follow the actual prompt sent to Codex;
 there is no local selector or fabricated hook producer.
 
@@ -122,6 +123,22 @@ The semantic `sleep` and `sleeping` presets activate Sleep; closing the eyes wit
 a slider does not mean falling asleep. A manual face change removes the preset's
 identity. Greeting, boot and Micro do not display the symbol.
 To explore automatic petting, disable the diagnostic rig and select None.
+
+The ordinary rig also uses the firmware character director for fresh pointer gaze
+and a gentle warmth tail after a recognized caress. Explicit face presets, the
+diagnostic rig, boot/setup/question routes and material studies retain their own
+poses. These contributions share the native mood owner and preserve the response's
+body motion, protective eye closure and audio mouth; pause freezes artistic time.
+
+In the existing **SIMULATED PREVIEW** controls, select **Long compaction**, let its
+face appear, then select **Refreshed / pending** to preview concentration followed
+by release. Opening the completion scenario alone does not imply an observed start.
+The authenticated simulator endpoint uses its admitted chat/sequence and source
+freshness instead. Pointer gaze and visible activity text use logical coordinates
+at the selected rotation; synthetic preview facts never enter that endpoint.
+The 2026-10-11 verification built the native driver, passed the character binding
+and real Tk frame-loop checks, and reviewed labelled synthetic captures. Physical
+behavior and full CCP panel interaction remain pending in [TODO.md](../../TODO.md).
 
 IDs, priorities, timing, gestures and mood come from `assets/cody/personality.yaml`.
 The channel waits for a stable request for 300 ms, enters over 400 ms, remains for
@@ -263,6 +280,7 @@ by [AGENTS.md](../../AGENTS.md) before each execution:
 ```powershell
 .\scripts\device.ps1 check -Check cody-ccp
 .\scripts\device.ps1 check -Check cody-ccp-simulator
+.\scripts\device.ps1 check -Check cody-character-studio
 .\scripts\device.ps1 check -Check cody-runtime
 .\scripts\device.ps1 check -Check cody-preview-raster
 .\scripts\device.ps1 check -Check simulator
@@ -271,6 +289,11 @@ by [AGENTS.md](../../AGENTS.md) before each execution:
 The two CCP suites do not open windows or send hooks to Codex. The simulator suite
 includes real UDP on temporary loopback ports and isolated synthetic state, with
 no LAN broadcast or access to personal associations.
+The character suite runs the real C++ direction binding, saves labelled synthetic
+frames and exercises a withdrawn Tk window with its scheduled renderer. Prepare
+both `cody-simulator-graphics` and `cody-simulator-audio` through the console first.
+It checks gaze, accepted caress warmth, matching compaction completion, source
+gaps and Debug isolation; it does not connect to a physical Cody or live Codex.
 The raster suite compares pixels with the per-pixel compositor and an independent
 coverage oracle on small masks. The Luna suite covers fixtures, actions, redaction
 and loopback transport. Results and limitations are recorded in

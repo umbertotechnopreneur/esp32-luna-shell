@@ -18,8 +18,6 @@
 
 ## Cody character ideas kept simple - 2026-10-10
 
-- [ ] Bind the shared native character director into Cody Studio for labelled
-  synthetic gaze/caress/compaction previews; do not duplicate its arithmetic in Python.
 - [ ] Consider wake stretch, attention double blink and a few nonrepeating variants
   only after reviewing the three basic device reactions. These extra performances
   were explicitly left out to keep the first revision small.
