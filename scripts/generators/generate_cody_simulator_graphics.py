@@ -84,6 +84,7 @@ def source_provenance():
         "assets/cody/navigation.json", "assets/cody/personality.yaml",
         "assets/cody/appearance/jelly-scanline/skins.json",
         "scripts/generators/generate_cody_simulator_graphics.py",
+        "simulator/native/CODY_host_snapshot.hpp",
         "scripts/common/cody_native_checks.py",
         "scripts/common/cody_host_compiler.py",
     ))

@@ -6,17 +6,25 @@ import time
 
 from cody_native_debug import render_debug_channels
 
-from cody_native_event_presentation import NativeEventPresentation, EventAction, ascii_field, wrapped, paint_native_action
+from cody_native_event_presentation import NativeEventPresentation, EventAction, ascii_field, wrapped, paint_native_actions
 
 
 # image: Logical RGB framebuffer prior to rotation.
 # painter: Native glyph coverage owner.
 # action: One approved gradient card/capsule and its complete untimed caption.
-# Raises RuntimeError if native rendering is unavailable or a native control fails.
+# Raises ValueError or RuntimeError for invalid plan data, unavailable rendering or native failure.
 def paint_action(image, painter, action: EventAction) -> None:
+    paint_actions(image, painter, (action,))
+
+
+# image: Logical RGB framebuffer prior to rotation.
+# painter: Native glyph coverage owner.
+# actions: Complete approved control set; all captions remain outside narrative timing.
+# Raises ValueError or RuntimeError for invalid plan data, unavailable rendering or native failure.
+def paint_actions(image, painter, actions: tuple[EventAction, ...]) -> None:
     if painter.native is None:
         raise RuntimeError("CCP actions require the actual Cody C++ graphics backend")
-    paint_native_action(image, action, painter.native.api)
+    paint_native_actions(image, actions, painter.native.api)
 
 
 class EventView:
@@ -166,8 +174,7 @@ class EventView:
             if not line.instant:
                 preceding += len(text)
         if controls_visible:
-            for action in actions:
-                paint_action(image, painter, action)
+            paint_actions(image, painter, actions)
         if back and controls_visible:
             image = render_debug_channels(window.renderer.require_native(), values, 0, image)
         # With three actions the lower capsule reaches y428; keep the synthetic

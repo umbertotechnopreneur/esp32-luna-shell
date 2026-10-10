@@ -228,21 +228,25 @@ def wrapped(text: str) -> tuple[str, ...]:
 
 
 # image: Existing logical SIMULATED RGB framebuffer updated only after native success.
-# action: Immutable packed action returned by the actual shared model.
+# actions: Complete immutable action tuple returned by the actual shared model, bounded to three.
 # api: Already verified actual Cody native graphics library, configured independently here.
 # Raises ValueError or RuntimeError for missing plan provenance or actual C++ raster errors.
-def paint_native_action(image, action: EventAction, api) -> None:
+def paint_native_actions(image, actions: tuple[EventAction, ...], api) -> None:
     from PIL import Image
-    if image.mode != "RGB" or image.size != (466, 466) or len(action.native_action) != C.sizeof(Action):
+    if image.mode != "RGB" or image.size != (466, 466) or len(actions) > 3:
         raise ValueError("Native event drawing requires a complete production plan and logical RGB framebuffer")
-    native = Action.from_buffer_copy(action.native_action)
-    function = api.cody_host_event_paint
-    function.argtypes = [C.POINTER(C.c_uint16), C.c_uint32, C.POINTER(Action)]
+    if any(len(action.native_action) != C.sizeof(Action) for action in actions):
+        raise ValueError("Native event action lacks its complete shared-model ABI projection")
+    if not actions:
+        return
+    native = (Action * len(actions))(*(Action.from_buffer_copy(action.native_action) for action in actions))
+    function = api.cody_host_event_paint_actions
+    function.argtypes = [C.POINTER(C.c_uint16), C.c_uint32, C.POINTER(Action), C.c_uint32]
     function.restype = C.c_int
     pixels = (C.c_uint16 * (466 * 466))()
     for index, (red, green, blue) in enumerate(image.getdata()):
         pixels[index] = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
-    checked("paint", function(pixels, len(pixels), C.byref(native)))
+    checked("paint_actions", function(pixels, len(pixels), native, len(actions)))
     output = bytearray(len(pixels) * 3)
     for index, color in enumerate(pixels):
         output[index * 3] = ((color >> 11) & 31) * 255 // 31

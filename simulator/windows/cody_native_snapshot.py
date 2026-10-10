@@ -14,6 +14,14 @@ ERRORS = {"ESP_OK": 0, "ESP_FAIL": -1, "ESP_ERR_NO_MEM": 0x101,
           "ESP_ERR_NOT_SUPPORTED": 0x106, "ESP_ERR_TIMEOUT": 0x107,
           "ESP_ERR_INVALID_RESPONSE": 0x108}
 
+MAXIMUM_INPUT_FIELDS = 2048
+MAXIMUM_COMPONENTS = 128
+COMPONENT_METADATA_FIELDS = 6
+
+
+class FieldInput(C.Structure):
+    _fields_ = [("path", C.c_char_p), ("value", C.c_char_p)]
+
 
 # value: Original host value; conversion does not repair or synthesize observations.
 # Raises ValueError or UnicodeError for unsupported values or non-ASCII text.
@@ -21,7 +29,10 @@ def literal(value):
     if isinstance(value, bool):
         return b"true" if value else b"false"
     if isinstance(value, str):
-        return value.encode("ascii")
+        encoded = value.encode("ascii")
+        if b"\0" in encoded:
+            raise ValueError("Native snapshot text cannot contain an embedded NUL")
+        return encoded
     if type(value) in (int, float):
         return str(value).encode("ascii")
     raise ValueError(f"Unsupported native snapshot value {value!r}")
@@ -46,9 +57,10 @@ class NativeSnapshot:
         self.api = load_runtime_library()
         signatures = {
             "create": (C.c_void_p, ()), "destroy": (None, (C.c_void_p,)),
-            "set": (C.c_int, (C.c_void_p, C.c_char_p, C.c_char_p)),
-            "age": (C.c_int, (C.c_void_p, C.c_int64)),
-            "component": (C.c_int, (C.c_void_p, C.c_char_p, C.POINTER(C.c_int64))),
+            "import": (C.c_int, (C.c_void_p, C.POINTER(FieldInput), C.c_size_t,
+                                 C.c_int64, C.POINTER(C.c_size_t))),
+            "components": (C.c_int, (C.c_void_p, C.POINTER(C.c_char_p), C.c_size_t,
+                                     C.POINTER(C.c_int64), C.c_size_t)),
             "rtc": (C.c_int, (C.c_void_p, C.POINTER(C.c_uint8), C.c_int64)),
             "json": (C.c_int, (C.c_void_p, C.c_char_p, C.c_int64,
                                C.POINTER(C.c_char_p), C.POINTER(C.c_size_t))),
@@ -64,43 +76,72 @@ class NativeSnapshot:
         self._components = []
         try:
             self._load(snapshot)
-            checked("aging", self.api.cody_host_snapshot_age(self.handle, now_us))
         except Exception:
             self.release()
             raise
 
-    # self: Exclusive host owner importing bounded scenario data.
-    # value: Current subtree or original leaf value.
-    # path: Complete schema identity; indices are confined to this transport traversal.
-    # Raises the original conversion/schema error for every rejected leaf.
-    def _load(self, value, path=""):
+    # self: Exclusive host owner preparing a complete original acquisition batch.
+    # value: Complete original mapping, with numeric history and source timestamps.
+    # Raises original schema/conversion errors; the native owner commits only the complete batch.
+    def _load(self, value):
+        fields = []
+        self._collect_fields(value, "", fields)
+        if not fields or len(fields) > MAXIMUM_INPUT_FIELDS:
+            raise ValueError("Native snapshot field batch exceeds its supported bounds")
+        batch = (FieldInput * len(fields))(*(FieldInput(path, text) for path, text in fields))
+        failed_index = C.c_size_t(len(fields))
+        # Both the encoded byte records and ctypes pointers remain borrowed for
+        # this entire synchronous call. Native code owns validation and aging.
+        error = self.api.cody_host_snapshot_import(self.handle, batch, len(batch), self.now_us,
+                                                   C.byref(failed_index))
+        operation = "import"
+        if error and failed_index.value < len(fields):
+            operation += " " + fields[failed_index.value][0].decode("ascii")
+        checked(operation, error)
+
+    # self: Host transport collecting metadata identities without native side effects.
+    # value: Current original input subtree or leaf.
+    # path: Exact dotted schema identity; indices occur only at array boundaries.
+    # fields: Encoded borrowed leaf records kept alive until the batch call returns.
+    # Raises original ASCII/value errors; no field is silently dropped or repaired.
+    def _collect_fields(self, value, path, fields):
         if isinstance(value, dict):
             if {"health", "last_error", "data_valid", "data_stale"}.issubset(value):
                 self._components.append(path)
             for name, child in value.items():
-                self._load(child, f"{path}.{name}" if path else name)
+                self._collect_fields(child, f"{path}.{name}" if path else name, fields)
         elif isinstance(value, (list, tuple)):
             for index, child in enumerate(value):
-                self._load(child, f"{path}.{index}")
+                self._collect_fields(child, f"{path}.{index}", fields)
         else:
             if path.endswith("error") and isinstance(value, str):
                 if value not in ERRORS:
                     raise ValueError(f"Unsupported synthetic error {path}={value!r}")
                 value = ERRORS[value]
-            checked(path, self.api.cody_host_snapshot_set(self.handle, path.encode("ascii"), literal(value)))
+            identity = path.encode("ascii")
+            if not identity or b"\0" in identity:
+                raise ValueError("Native snapshot field identity is invalid")
+            fields.append((identity, literal(value)))
 
     # self: Host observation owner after the production aging rules have run.
     # original: Original acquisition mapping whose numbers and timestamps must be preserved.
     # Raises the original native read error; only metadata is projected back into this host generation.
     def aged_mapping(self, original):
+        count = len(self._components)
+        if count > MAXIMUM_COMPONENTS:
+            raise ValueError("Native snapshot component batch exceeds its supported bounds")
+        paths = (C.c_char_p * count)(*(path.encode("ascii") for path in self._components))
+        values = (C.c_int64 * (count * COMPONENT_METADATA_FIELDS))()
+        checked("metadata", self.api.cody_host_snapshot_components(self.handle, paths, count,
+                                                                    values, len(values)))
         result = copy.deepcopy(original)
-        for path in self._components:
-            values = (C.c_int64 * 6)()
-            checked(path, self.api.cody_host_snapshot_component(self.handle, path.encode("ascii"), values))
+        for index, path in enumerate(self._components):
             component = result
             for name in path.split("."):
                 component = component[int(name)] if isinstance(component, list) else component[name]
-            component["data_valid"], component["data_stale"] = bool(values[2]), bool(values[3])
+            offset = index * COMPONENT_METADATA_FIELDS
+            component["data_valid"] = bool(values[offset + 2])
+            component["data_stale"] = bool(values[offset + 3])
         return result
 
     # self: Exclusive synthetic output owner.

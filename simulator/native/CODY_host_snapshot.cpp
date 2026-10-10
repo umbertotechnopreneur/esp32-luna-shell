@@ -3,6 +3,7 @@
 #include "LUNASHELL_snapshot_aging.hpp"
 #include "LUNASHELL_http_json.hpp"
 #include "LUNASHELL_rtc_calendar.hpp"
+#include "CODY_host_snapshot.hpp"
 #include "esp_log.h"
 #include <charconv>
 #include <cerrno>
@@ -12,9 +13,13 @@
 #include <cstring>
 #include <limits>
 #include <new>
+#include <memory>
 #include <string>
+#include <string_view>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
+#include <vector>
 
 #ifdef _WIN32
 #define HOST_EXPORT extern "C" __declspec(dllexport)
@@ -28,6 +33,22 @@ struct HostSnapshot {
     DeviceSnapshot snapshot;
     std::string output;
 };
+
+// text: Borrowed host literal or schema identity, including its terminating NUL.
+// capacity: Maximum byte capacity including the terminator.
+// Exception: Returns INVALID_ARG for null and INVALID_SIZE for an unterminated/oversized field.
+esp_err_t boundedText(const char *text, std::size_t capacity)
+{
+    if (text == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    for (std::size_t index = 0; index < capacity; ++index) {
+        if (text[index] == '\0') {
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_INVALID_SIZE;
+}
 
 // target: Explicit enum field whose semantic name is resolved below.
 // text: Original host label, never a storage or display index.
@@ -284,43 +305,121 @@ esp_err_t writeChunk(void *context, const char *data, std::size_t size, bool fin
 }
 
 // No parameters: stable ABI of the explicit synthetic runtime transport.
-HOST_EXPORT uint32_t cody_host_runtime_abi() { return 1; }
+HOST_EXPORT uint32_t cody_host_runtime_abi() { return 2; }
 // No parameters: allocates a host-only snapshot owner; nullptr reports real allocation failure.
 HOST_EXPORT void *cody_host_snapshot_create() { return new (std::nothrow) HostSnapshot{}; }
 // handle: Exclusive host owner previously allocated by this transport.
 HOST_EXPORT void cody_host_snapshot_destroy(void *handle) { delete static_cast<HostSnapshot *>(handle); }
-// handle: Exclusive synthetic destination owner.
-// path: Exact dotted leaf schema identity.
-// value: Original bounded ASCII literal.
-// Exception: Returns the actual schema or conversion error and logs the rejected field identity.
-HOST_EXPORT int cody_host_snapshot_set(void *handle, const char *path, const char *value)
+// handle: Exclusive host destination, unchanged until every original field is admitted.
+// fields: Borrowed unique schema identities and their bounded literals.
+// count: Exact number of fields in this synchronous batch.
+// now_us: Original virtual observation time for the production freshness policy.
+// failed_index: Receives the first failing record; count denotes a batch-wide failure.
+// Exception: Returns the real admission/allocation/conversion error with no partial owner mutation.
+HOST_EXPORT int cody_host_snapshot_import(void *handle, const CODY::host_snapshot::FieldInput *fields,
+    std::size_t count, int64_t now_us, std::size_t *failed_index)
 {
-    if (handle == nullptr || path == nullptr || value == nullptr || std::strlen(path) >= 96) { return ESP_ERR_INVALID_ARG; }
-    const auto error = setField(static_cast<HostSnapshot *>(handle)->snapshot, path, value);
-    if (error != ESP_OK) { ESP_LOGE("CODY_host_snapshot", "synthetic field %s rejected (%s)", path, esp_err_to_name(error)); }
-    return error;
-}
-// handle: Exclusive synthetic snapshot owner.
-// now_us: Explicit virtual observation time; never derived from a firmware clock.
-// Exception: Returns INVALID_ARG for an invalid owner or observation time.
-HOST_EXPORT int cody_host_snapshot_age(void *handle, int64_t now_us)
-{
-    if (handle == nullptr || now_us <= 0) { return ESP_ERR_INVALID_ARG; }
-    apply_measured_sample_aging(static_cast<HostSnapshot *>(handle)->snapshot, now_us);
+    using namespace CODY::host_snapshot;
+    if (failed_index != nullptr) {
+        *failed_index = count;
+    }
+    if (handle == nullptr || fields == nullptr || failed_index == nullptr || now_us <= 0) {
+        ESP_LOGE("CODY_host_snapshot", "synthetic import arguments rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (count == 0 || count > kMaximumInputFields) {
+        ESP_LOGE("CODY_host_snapshot", "synthetic import count %zu rejected (%s)", count, esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    auto &owner = *static_cast<HostSnapshot *>(handle);
+    try {
+        // The full candidate lives on the host heap, never on an embedded task
+        // stack. Failed imports cannot alter values, timestamps or output ownership.
+        auto candidate = std::make_unique<DeviceSnapshot>(owner.snapshot);
+        std::unordered_set<std::string_view> identities;
+        identities.reserve(count);
+        for (std::size_t index = 0; index < count; ++index) {
+            const auto &field = fields[index];
+            esp_err_t error = boundedText(field.path, kMaximumPathBytes);
+            if (error == ESP_OK) {
+                error = boundedText(field.value, kMaximumLiteralBytes);
+            }
+            if (error == ESP_OK && !identities.insert(field.path).second) {
+                error = ESP_ERR_INVALID_ARG;
+            }
+            if (error == ESP_OK) {
+                error = setField(*candidate, field.path, field.value);
+            }
+            if (error != ESP_OK) {
+                *failed_index = index;
+                // Never log arbitrary values or read an invalid field pointer.
+                ESP_LOGE("CODY_host_snapshot", "synthetic import field %zu rejected (%s)", index, esp_err_to_name(error));
+                return error;
+            }
+        }
+        apply_measured_sample_aging(*candidate, now_us);
+        owner.snapshot = *candidate;
+        owner.output.clear();
+    } catch (const std::bad_alloc &) {
+        ESP_LOGE("CODY_host_snapshot", "synthetic import allocation failed (%s)", esp_err_to_name(ESP_ERR_NO_MEM));
+        return ESP_ERR_NO_MEM;
+    }
     return ESP_OK;
 }
-// handle: Owner of the synthetic observations.
-// path: Exact component identity, not an acquisition operation.
-// values: Receives health, error, validity, staleness and original attempt/success timestamps.
-// Exception: Returns INVALID_ARG or NOT_FOUND without inventing an observation.
-HOST_EXPORT int cody_host_snapshot_component(void *handle, const char *path, int64_t *values)
+
+// handle: Owner of the original observations; this operation never refreshes them.
+// paths: Borrowed unique component identities.
+// count: Bounded component count, with order used only at this transport boundary.
+// values: Receives health, error, validity, staleness and original timestamps per component.
+// capacity: Exact number of int64 destination elements.
+// Exception: Returns original bounds/lookup/allocation errors before exposing any output.
+HOST_EXPORT int cody_host_snapshot_components(void *handle, const char *const *paths,
+    std::size_t count, int64_t *values, std::size_t capacity)
 {
-    if (handle == nullptr || path == nullptr || values == nullptr) { return ESP_ERR_INVALID_ARG; }
-    const auto *component = componentAt(static_cast<HostSnapshot *>(handle)->snapshot, path);
-    if (component == nullptr) { return ESP_ERR_NOT_FOUND; }
-    values[0] = static_cast<int64_t>(component->health); values[1] = component->last_error;
-    values[2] = component->data_valid; values[3] = component->data_stale;
-    values[4] = component->last_attempt_at_us; values[5] = component->last_success_at_us;
+    using namespace CODY::host_snapshot;
+    if (handle == nullptr || (count != 0 && (paths == nullptr || values == nullptr))) {
+        ESP_LOGE("CODY_host_snapshot", "synthetic metadata arguments rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (count > kMaximumComponents || capacity != count * kComponentMetadataFields) {
+        ESP_LOGE("CODY_host_snapshot", "synthetic metadata capacity rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    try {
+        std::vector<int64_t> projected(capacity);
+        std::unordered_set<std::string_view> identities;
+        identities.reserve(count);
+        for (std::size_t index = 0; index < count; ++index) {
+            esp_err_t error = boundedText(paths[index], kMaximumPathBytes);
+            const ComponentSnapshot *component = nullptr;
+            if (error == ESP_OK && !identities.insert(paths[index]).second) {
+                error = ESP_ERR_INVALID_ARG;
+            }
+            if (error == ESP_OK) {
+                component = componentAt(static_cast<HostSnapshot *>(handle)->snapshot, paths[index]);
+                if (component == nullptr) {
+                    error = ESP_ERR_NOT_FOUND;
+                }
+            }
+            if (error != ESP_OK) {
+                ESP_LOGE("CODY_host_snapshot", "synthetic metadata component %zu rejected (%s)", index, esp_err_to_name(error));
+                return error;
+            }
+            const auto offset = index * kComponentMetadataFields;
+            projected[offset] = static_cast<int64_t>(component->health);
+            projected[offset + 1] = component->last_error;
+            projected[offset + 2] = component->data_valid;
+            projected[offset + 3] = component->data_stale;
+            projected[offset + 4] = component->last_attempt_at_us;
+            projected[offset + 5] = component->last_success_at_us;
+        }
+        if (capacity != 0) {
+            std::memcpy(values, projected.data(), capacity * sizeof(*values));
+        }
+    } catch (const std::bad_alloc &) {
+        ESP_LOGE("CODY_host_snapshot", "synthetic metadata allocation failed (%s)", esp_err_to_name(ESP_ERR_NO_MEM));
+        return ESP_ERR_NO_MEM;
+    }
     return ESP_OK;
 }
 // handle: Exclusive host owner; its previous successful sample remains historical on failure.

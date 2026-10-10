@@ -231,12 +231,13 @@ def main(argv=None):
         run_stage([str(events), str(fixtures)], output, "events")
         # These host fixtures compile the same source modules used by firmware
         # and Studio. They never create a socket, sensor or canonical device owner.
-        shared_includes = ("simulator/native/platform", "components/LUNASHELL_platform/include",
+        shared_includes = ("simulator/native/platform", "simulator/native", "components/LUNASHELL_platform/include",
                            "components/LUNASHELL_platform/src/snapshot", "components/LUNASHELL_platform/src/power")
         shared_groups = {
             "shared-ccp": ("scripts/tests/shared_ccp.cpp", "components/LUNASHELL_platform/src/network/LUNASHELL_codex_transaction.cpp",
                            "components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp"),
-            "shared-snapshot": ("scripts/tests/shared_snapshot.cpp", "components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_aging.cpp",
+            "shared-snapshot": ("scripts/tests/shared_snapshot.cpp", "simulator/native/CODY_host_snapshot.cpp",
+                                "components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_aging.cpp",
                                 "components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_names.cpp",
                                 "components/LUNASHELL_platform/src/snapshot/LUNASHELL_rtc_calendar.cpp",
                                 "components/LUNASHELL_platform/src/runtime/LUNASHELL_clock_policy.cpp",

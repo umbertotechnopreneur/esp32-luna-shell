@@ -6,6 +6,28 @@ from device_model import ScenarioEngine, SemanticActionError, validate_snapshot
 
 
 class SharedSnapshotTests(unittest.TestCase):
+    # self: Actual host-native transport whose FFI operations are observed without replacing its policy.
+    # Raises AssertionError if a generation returns to per-leaf imports or per-component metadata reads.
+    def test_snapshot_uses_one_import_and_one_metadata_projection(self):
+        from cody_native_snapshot import NativeSnapshot
+        source = ScenarioEngine.from_scenario("healthy").snapshot()
+        baseline = NativeSnapshot(source, 1000000)
+        api = baseline.api
+        with patch.object(api, "cody_host_snapshot_import", wraps=api.cody_host_snapshot_import) as importing:
+            with patch.object(api, "cody_host_snapshot_components", wraps=api.cody_host_snapshot_components) as projecting:
+                owner = NativeSnapshot(source, 1000000)
+                projected = owner.aged_mapping(source)
+                self.assertEqual(importing.call_count, 1)
+                self.assertEqual(projecting.call_count, 1)
+        self.assertEqual(projected, source)
+
+    # self: Python text boundary before C string marshalling can truncate an original value.
+    # Raises AssertionError if embedded NUL is silently accepted as a shorter literal.
+    def test_snapshot_literal_rejects_embedded_nul(self):
+        from cody_native_snapshot import literal
+        with self.assertRaises(ValueError):
+            literal("visible\0hidden")
+
     # self: Deterministic native observation with no fresh acquisition after its initial timestamp.
     # Raises AssertionError if virtual time fabricates a new sample or Python JSON exposes stale numbers.
     def test_aging_preserves_measurement_and_native_json_masks_stale_value(self):

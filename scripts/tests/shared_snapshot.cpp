@@ -1,9 +1,13 @@
 #include "LUNASHELL_snapshot_aging.hpp"
 #include "LUNASHELL_http_json.hpp"
 #include "LUNASHELL_rtc_calendar.hpp"
+#include "CODY_host_snapshot.hpp"
 #include <cassert>
 #include <memory>
 #include <string>
+#include <algorithm>
+#include <array>
+#include <iterator>
 
 namespace {
 struct Sink {
@@ -24,6 +28,58 @@ esp_err_t write(void *context, const char *data, std::size_t size, bool final)
     else { sink.text.append(data, size); }
     return ESP_OK;
 }
+
+// No parameters: actual native batch boundary with valid, duplicate, unknown and overflowing records.
+// Exception: Assertion failure identifies partial owner mutation or partially exposed metadata.
+void verify_batch_snapshot_transport()
+{
+    using namespace CODY::host_snapshot;
+    std::unique_ptr<void, decltype(&cody_host_snapshot_destroy)> owner(
+        cody_host_snapshot_create(), &cody_host_snapshot_destroy);
+    assert(owner);
+    const FieldInput initial[] = {
+        {"battery.last_success_at_us", "1000000"}, {"battery.last_attempt_at_us", "1000000"},
+        {"battery.health", "ready"}, {"battery.last_error", "0"},
+        {"battery.data_valid", "true"}, {"battery.data_stale", "false"},
+        {"battery.battery_present", "true"},
+        {"battery.level_percent_valid", "true"}, {"battery.level_percent", "47"},
+        {"sequence", "11"}, {"last_update_attempt_at_us", "1000000"}
+    };
+    std::size_t failed = 0;
+    assert(cody_host_snapshot_import(owner.get(), initial, std::size(initial), 1000000, &failed) == ESP_OK);
+    assert(failed == std::size(initial));
+    const char *paths[] = {"battery"};
+    std::array<int64_t, kComponentMetadataFields> metadata{};
+    assert(cody_host_snapshot_components(owner.get(), paths, 1, metadata.data(), metadata.size()) == ESP_OK);
+    assert(metadata[2] == 1 && metadata[3] == 0 && metadata[4] == 1000000 && metadata[5] == 1000000);
+    const char *json = nullptr;
+    std::size_t size = 0;
+    assert(cody_host_snapshot_json(owner.get(), "/api/v1/info", 1000000, &json, &size) == ESP_OK);
+    const std::string original(json, size);
+    assert(original.find("\"level_percent\":47") != std::string::npos);
+    const FieldInput overflowing[] = {
+        {"battery.level_percent", "95"}, {"battery.last_success_at_us", "999999999999999999999999"}
+    };
+    assert(cody_host_snapshot_import(owner.get(), overflowing, 2, 1000000, &failed) == ESP_ERR_INVALID_SIZE);
+    assert(failed == 1);
+    const FieldInput duplicated[] = {{"battery.level_percent", "50"}, {"battery.level_percent", "51"}};
+    assert(cody_host_snapshot_import(owner.get(), duplicated, 2, 1000000, &failed) == ESP_ERR_INVALID_ARG);
+    assert(failed == 1);
+    const FieldInput unknown[] = {{"battery.level_percent", "52"}, {"battery.unknown_field", "0"}};
+    assert(cody_host_snapshot_import(owner.get(), unknown, 2, 1000000, &failed) == ESP_ERR_NOT_FOUND);
+    assert(failed == 1);
+    assert(cody_host_snapshot_import(owner.get(), initial, 0, 1000000, &failed) == ESP_ERR_INVALID_SIZE);
+    assert(cody_host_snapshot_import(owner.get(), initial, kMaximumInputFields + 1, 1000000, &failed) == ESP_ERR_INVALID_SIZE);
+    assert(cody_host_snapshot_json(owner.get(), "/api/v1/info", 1000000, &json, &size) == ESP_OK);
+    assert(std::string(json, size) == original);
+    std::array<int64_t, 2 * kComponentMetadataFields> unpublished;
+    unpublished.fill(-777);
+    const char *invalid_paths[] = {"battery", "unknown_component"};
+    assert(cody_host_snapshot_components(owner.get(), invalid_paths, 2, unpublished.data(), unpublished.size()) == ESP_ERR_NOT_FOUND);
+    // value: One output element that must remain untouched after a failed batch projection.
+    assert(std::all_of(unpublished.begin(), unpublished.end(), [](int64_t value) { return value == -777; }));
+    assert(cody_host_snapshot_components(owner.get(), nullptr, 0, nullptr, 0) == ESP_OK);
+}
 }
 
 // No parameters: deterministic host inputs exercising production aging, RTC and serializer.
@@ -31,6 +87,7 @@ esp_err_t write(void *context, const char *data, std::size_t size, bool final)
 int main()
 {
     using namespace LUNASHELL;
+    verify_batch_snapshot_transport();
     // The host owns this full schema on its heap, not an embedded task stack.
     auto snapshot = std::make_unique<DeviceSnapshot>();
     snapshot->battery.health = DeviceHealth::Ready;

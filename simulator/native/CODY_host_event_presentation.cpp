@@ -211,21 +211,36 @@ CODY_HOST_EXPORT int cody_host_event_dwell(const Input *input, const Presentatio
 
 // pixels: Existing logical SIMULATED RGB565 framebuffer owned by the host drawing backend.
 // capacity: Exact full-canvas pixel count.
-// action: Complete shared-model control, with production caption, style and geometry.
+// actions: Complete shared-model controls, with production captions, styles and geometry.
+// count: Number of controls in the current plan, bounded to one through three.
 // Exception: Returns original shared control/text/raster failure.
-CODY_HOST_EXPORT int cody_host_event_paint(uint16_t *pixels, uint32_t capacity, const Presentation::Action *action)
+CODY_HOST_EXPORT int cody_host_event_paint_actions(uint16_t *pixels, uint32_t capacity,
+    const Presentation::Action *actions, uint32_t count)
 {
-    if (!pixels || !action || capacity != 466U * 466U || !valid_text(action->label)) {
-        return result("paint", ESP_ERR_INVALID_ARG);
+    if (!pixels || !actions || capacity != 466U * 466U || count == 0 || count > 3) {
+        return result("paint_actions", ESP_ERR_INVALID_ARG);
     }
-    CODY2D::CapsuleControl control;
-    CODY2D::TextLine second;
-    esp_err_t error = Presentation::prepare_control(*action, CODY::SceneData::body_font, control, second);
+    // This bounded scratch belongs only to the host call. All preparations succeed
+    // before any pixel mutation; the Python drawing owner publishes only on ESP_OK.
+    CODY2D::CapsuleControl controls[3]{};
+    CODY2D::TextLine second_lines[3]{};
+    for (uint32_t index = 0; index < count; ++index) {
+        if (!valid_text(actions[index].label)) { return result("paint_actions", ESP_ERR_INVALID_ARG); }
+        const esp_err_t error = Presentation::prepare_control(actions[index], CODY::SceneData::body_font,
+            controls[index], second_lines[index]);
+        if (error != ESP_OK) { return result("paint_actions", error); }
+    }
     CODY2D::Surface surface{pixels, 466, 466, 466, capacity};
-    if (error == ESP_OK) { error = CODY2D::draw_capsule_rows(control, surface, 0, 0); }
-    // The production capsule renderer already composites its first caption once.
-    if (error == ESP_OK && second.valid) { error = CODY2D::draw_text_rows(second, second.text.length, surface, 0, 0); }
-    return result("paint", error);
+    for (uint32_t index = 0; index < count; ++index) {
+        // The production capsule renderer already composites its first caption once.
+        esp_err_t error = CODY2D::draw_capsule_rows(controls[index], surface, 0, 0);
+        if (error == ESP_OK && second_lines[index].valid) {
+            const auto &second = second_lines[index];
+            error = CODY2D::draw_text_rows(second, second.text.length, surface, 0, 0);
+        }
+        if (error != ESP_OK) { return result("paint_actions", error); }
+    }
+    return ESP_OK;
 }
 
 // navigation: Reversible local stage receiving actual endpoint admission outcome.

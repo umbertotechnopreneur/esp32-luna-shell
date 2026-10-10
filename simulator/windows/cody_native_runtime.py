@@ -20,7 +20,8 @@ def load_runtime_library():
         raise ValueError("Unsupported native runtime manifest; generate cody-simulator-graphics through device.ps1")
     inputs = manifest.get("inputs")
     required = {"scripts/generators/generate_cody_simulator_graphics.py",
-                "simulator/native/CODY_host_snapshot.cpp"}
+                "simulator/native/CODY_host_snapshot.cpp",
+                "simulator/native/CODY_host_snapshot.hpp"}
     if not isinstance(inputs, dict) or not required.issubset(inputs):
         raise ValueError("Native runtime provenance is incomplete; regenerate cody-simulator-graphics")
     for source, expected in inputs.items():
@@ -33,6 +34,6 @@ def load_runtime_library():
     api = ctypes.CDLL(str(library))
     api.cody_host_runtime_abi.argtypes = ()
     api.cody_host_runtime_abi.restype = ctypes.c_uint32
-    if api.cody_host_runtime_abi() != 1:
+    if api.cody_host_runtime_abi() != 2:
         raise ValueError("Unsupported native runtime ABI")
     return api
