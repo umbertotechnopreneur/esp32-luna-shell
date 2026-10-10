@@ -14,7 +14,7 @@ from tkinter import messagebox, ttk
 from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
 from cody_ccp_event_view import EventView
 from cody_native import NativePersonalityPainter, NativePanelInputs, NativePanelMetric, NativePanelObservation
-from cody_native_behavior import CharacterActivity
+from cody_native_behavior import CharacterActivity, CharacterWorkKind
 from cody_native_debug import render_debug_channels
 from cody_personality import PersonalityCue, PersonalityPresentation
 from runtime_paths import resolve_runtime_output
@@ -255,7 +255,7 @@ class CcpPanel:
     # placement: Authored logical resting root/scale shared by the response model.
     # rotation: Logical orientation also supplied to synthetic touch/motion observations.
     # passive_panel: Whether this call paints fixed passive artwork rather than an attention route.
-    # character_enabled: Admit acting only on ordinary companion content, never Debug/setup/questions.
+    # character_enabled: Admit ordinary companion/PC-approval acting; exclude Debug/setup/other questions.
     # activity: Current isolated CCP or explicit preview facts, without a fabricated lifecycle end.
     # gaze: Visible information or an original fresh logical pointer target.
     # source: Presentation owner identity; switching sources discards completion continuity.
@@ -316,8 +316,12 @@ class CcpPanel:
         cue = native.scene_personality(identity, connection)
         if cue == PersonalityCue.NONE:
             cue = self._direction_cue
+        cue = self.window.apply_automatic_power_cue(cue)
         if self._native_personality is None:
             self._native_personality = NativePersonalityPainter(native)
+        if self.window.native_behavior is not None:
+            self._native_personality.observe_power_support(self.window.native_behavior.power_low_active,
+                self.window.automatic_power_cue == PersonalityCue.CHARGING)
         # The existing optional audio path reads this exact visible frame.
         self.window.renderer.personality_painter = self._native_personality
         self._native_personality.prepare(scene, cue, scale, identity, rotation, elapsed_ms,
@@ -582,7 +586,8 @@ class CcpPanel:
             self.window.renderer.require_native().pause_activity()
             # Interaction dwell pauses both observed work and local identity/purpose animation clocks.
             self._activity_clock = time.monotonic()
-            result = self.events.render(snapshot, self.window, rotation, self.prepare_personality, self.compose_scene)
+            result = self.events.render(snapshot, self.window, rotation, self.prepare_personality, self.compose_scene,
+                activity=self.character_activity(snapshot, False))
             return result
         self.update_activity_observation(snapshot)
         identity, title, lines = presentation(replace(snapshot, phase=self._admitted_phase), code)
@@ -659,17 +664,24 @@ class CcpPanel:
     def character_activity(self, snapshot, preview):
         current = bool(snapshot.activity_valid and snapshot.network_ready and
             snapshot.state == LinkState.CONNECTED and snapshot.phase != "unavailable")
-        sequence, refreshed = 0, False
+        sequence, refreshed, turn = 0, False, ""
         if preview:
             sequence = self._preview_compaction_sequence
             refreshed = self.preview_scenario.get() in {"Refreshed / pending", "Counters updated"}
+            turn = "e" * 64 if current else ""
         elif self.has_coherent_technical(snapshot):
             sequence = snapshot.technical.compaction_sequence
             refreshed = snapshot.technical.compaction.value == "refreshed"
+            turn = snapshot.technical.turn if snapshot.technical.turn != "0" * 64 else ""
+        work_kinds = {"working": CharacterWorkKind.THINKING, "editing": CharacterWorkKind.EDITING,
+                      "running": CharacterWorkKind.RUNNING}
         return CharacterActivity(chat=snapshot.chat if current else "", sequence=sequence,
             current=current, working=current and snapshot.phase in {"working", "editing", "running"},
             attention=current and snapshot.phase == "paused",
-            compacting=current and self.is_compacting(snapshot, preview), refreshed=current and refreshed)
+            compacting=current and self.is_compacting(snapshot, preview), refreshed=current and refreshed,
+            turn=turn if current else "",
+            work_kind=work_kinds.get(snapshot.phase, CharacterWorkKind.NONE) if current else CharacterWorkKind.NONE,
+            ready=current and snapshot.phase == "ready", interrupted=current and snapshot.phase == "interrupted")
 
     # self: Current passive pointer/text presentation; no hardware or person tracking is inferred.
     # activity: Current native-director semantic projection for this same rendered frame.

@@ -2,6 +2,7 @@
 #include "CODY_happiness.hpp"
 #include "CODY_petting.hpp"
 #include "CODY_character_direction.hpp"
+#include "CODY_personality.hpp"
 #include "personality_rules.hpp"
 #include "esp_log.h"
 #include <algorithm>
@@ -23,12 +24,14 @@ struct HostBehavior {
     CODY::HappinessState happiness{};
     CODY::PettingState petting{};
     CODY::CharacterDirectionState direction{};
+    CODY::PersonalityBatteryLatch power{};
 };
 
 // PC-only presentation inputs; no synthetic observation enters firmware snapshots.
 struct HostCharacterInputs {
     const char *chat;
     uint64_t sequence;
+    const char *turn;
     float placement[3];
     float gaze[2];
     bool current;
@@ -36,11 +39,14 @@ struct HostCharacterInputs {
     bool attention;
     bool compacting;
     bool refreshed;
+    bool ready;
+    bool interrupted;
     bool enabled;
     bool paused;
     bool rebase;
     bool gaze_visible;
     bool affection_allowed;
+    uint8_t work_kind;
 };
 
 // operation: Actual rejected host boundary or firmware operation.
@@ -79,6 +85,32 @@ CODY_BEHAVIOR_EXPORT int cody_host_behavior_create(void **output)
 CODY_BEHAVIOR_EXPORT void cody_host_behavior_destroy(void *handle)
 {
     delete static_cast<HostBehavior *>(handle);
+}
+
+// handle: Existing isolated character owner; no synthetic observation enters firmware snapshots.
+// current: Whether the original synthetic source is still valid and fresh.
+// present: Explicitly synthetic battery presence.
+// percentage_valid: Whether the synthetic owner actually supplied the charge percentage.
+// percentage: Original synthetic percentage, without rounding or clamping.
+// charging: Explicitly synthetic charge-state fact, independent from percentage availability.
+// cue: Receives the exact shared selector's current symbol on success only.
+// low_active: Receives the native owner's current low-battery support for visible-frame invalidation.
+// Exception: Returns boundary errors or the original native power-selection error.
+CODY_BEHAVIOR_EXPORT int cody_host_power_cue(void *handle, bool current, bool present,
+    bool percentage_valid, float percentage, bool charging, uint8_t *cue, bool *low_active)
+{
+    if (handle == nullptr || cue == nullptr || low_active == nullptr) {
+        return behavior_result("power_cue", ESP_ERR_INVALID_ARG);
+    }
+    CODY::PersonalityCue selected{};
+    const CODY::PersonalityPowerObservation observation{current, present, percentage_valid, charging, percentage};
+    const esp_err_t error = CODY::select_personality_power_cue(observation,
+        static_cast<HostBehavior *>(handle)->power, selected);
+    if (error == ESP_OK) {
+        *cue = static_cast<uint8_t>(selected);
+        *low_active = static_cast<HostBehavior *>(handle)->power.low_battery_active;
+    }
+    return behavior_result("power_cue", error);
 }
 
 // handle: Native mood owner; no Python-owned mood state is accepted.
@@ -196,6 +228,10 @@ CODY_BEHAVIOR_EXPORT int cody_host_character_compose(void *handle, const HostCha
     CODY::CharacterDirectionInputs inputs{};
     inputs.activity = {wire->chat, wire->sequence, wire->current, wire->working,
         wire->attention, wire->compacting, wire->refreshed};
+    inputs.activity.turn = wire->turn;
+    inputs.activity.work_kind = static_cast<CODY::CharacterWorkKind>(wire->work_kind);
+    inputs.activity.ready = wire->ready;
+    inputs.activity.interrupted = wire->interrupted;
     inputs.placement = {wire->placement[0], wire->placement[1], wire->placement[2]};
     inputs.gaze_point = {wire->gaze[0], wire->gaze[1]};
     inputs.caress_at_us = owner.petting.last_triggered_at_us;

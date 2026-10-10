@@ -1,6 +1,12 @@
 # Cody behavior
 
 This guide owns the implemented artistic mood, petting and idle policy.
+
+The 2026-10-11 Codex acting increment adds work-kind accents, an attention double
+blink and exact-turn reply/interruption reactions through the existing native
+director. It adds no wellbeing session, inferred human fatigue or host OS event
+monitor. See [runtime](runtime.md#minimal-character-direction---2026-10-10) for
+source continuity, priorities, bounded state and pending validation.
 The 2026-10-04/05 exploration also produced a disabled native wellbeing model;
 its integration remains deferred. Routes belong to [navigation](navigation.md),
 cue raster/resources to [personality channel](personality-icons.md), and clocks/
@@ -36,6 +42,8 @@ does not change breathing, acquired motion or cue priorities. See
 [runtime](runtime.md#minimal-character-direction---2026-10-10) for admission,
 pause and debug isolation. The same native director is integrated into Studio; driver compilation and
 named synthetic character cases passed on 2026-10-11. Physical behavior remains open.
+Those results precede the later Codex acting/power-cue increment; its final
+validation remains open in TODO.md.
 The native getter exposes an artistic snapshot under the existing display
 lock. The Windows source reads the same YAML and displays synthetic diagnostic
 values; it does not write firmware observations.

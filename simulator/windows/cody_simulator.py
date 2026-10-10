@@ -800,6 +800,7 @@ class CodyWindow:
         self.personality_cue = tk.StringVar(value=PersonalityCue.NONE.name)
         self.native_behavior = None if renderer.offline_study else NativeBehavior(renderer.require_native())
         self.character_context = None
+        self.automatic_power_cue = PersonalityCue.NONE
         self.petting = self.native_behavior if self.native_behavior is not None else PettingRecognizer(load_petting_config(ROOT))
         self.affection_remaining_us = 0
         self.affection_owns_channel = False
@@ -1296,6 +1297,7 @@ class CodyWindow:
                          activity=CharacterActivity(), gaze=None, blocked=False):
         if self.native_behavior is None:
             return frame, PersonalityCue.NONE
+        self.observe_personality_power(inputs)
         rebase = context != self.character_context
         power = self.response_state.power_status
         low_battery = (power.health == SampleHealth.CURRENT and power.error == 0 and
@@ -1308,6 +1310,39 @@ class CodyWindow:
             affection_allowed=affection, activity=activity)
         self.character_context = context
         return frame, cue
+
+    # self: Synthetic source adapter to the same native Cody power selector as firmware.
+    # inputs: Original synthetic measurements; no PC battery or Windows API is consulted.
+    # Raises original source-contract/native errors; unavailable samples clear current symbols.
+    def observe_personality_power(self, inputs):
+        if self.native_behavior is None:
+            self.automatic_power_cue = PersonalityCue.NONE
+            return
+        now_us = round(time.perf_counter() * 1000000)
+        stamp = effective_stamp(inputs.power.stamp, now_us,
+            self.response_config["power"]["sample_timeout_seconds"], "personality.power")
+        current = stamp.health == SampleHealth.CURRENT and stamp.error == 0
+        self.automatic_power_cue = self.native_behavior.power_cue(current=current,
+            present=self.battery_present.get(), percentage_valid=current,
+            percentage=inputs.power.level_percent, charging=inputs.power.charging)
+        painter = self.renderer.personality_painter
+        if isinstance(painter, NativePersonalityPainter):
+            painter.observe_power_support(self.native_behavior.power_low_active,
+                self.automatic_power_cue == PersonalityCue.CHARGING)
+
+    # self: Current native power projection; manual art studies retain their separate owner.
+    # requested: Narrative/diagnostic target before the existing affection/eye selector.
+    # Returns one latest cue; semantic Sleep remains with the lifecycle owner.
+    def apply_automatic_power_cue(self, requested):
+        if self.native_behavior is not None:
+            if requested == PersonalityCue.LOW_BATTERY and not self.native_behavior.power_low_active:
+                requested = PersonalityCue.NONE
+            elif requested == PersonalityCue.CHARGING and self.automatic_power_cue != PersonalityCue.CHARGING:
+                requested = PersonalityCue.NONE
+        if requested != PersonalityCue.SLEEP and (self.automatic_power_cue == PersonalityCue.LOW_BATTERY or
+                requested == PersonalityCue.NONE):
+            return self.automatic_power_cue
+        return requested
 
     # self: Ordinary rig pointer owner; previous coordinates cannot masquerade as fresh contact.
     # inputs: Exact synthetic touch sample consumed by this frame's native response.
@@ -1826,9 +1861,9 @@ class CodyWindow:
                 painter.disable(self.elapsed_ms)
             self.affection_owns_channel = False
 
-    # self: Synthetic preview owner selecting urgent alerts or a finishing interaction.
+    # self: Synthetic preview owner selecting current power, urgent alerts or a finishing interaction.
     def effective_personality_cue(self):
-        selected = PersonalityCue[self.personality_cue.get()]
+        selected = self.apply_automatic_power_cue(PersonalityCue[self.personality_cue.get()])
         desired, _ = self.renderer.select_personality(selected, self.personality_sleep,
             self.affection_remaining_us > 0, self.eye_reaction)
         return desired
@@ -2042,6 +2077,12 @@ class CodyWindow:
             cloud = self.renderer.scene_painter.definition("greeting")["cloud"]
             transform = [cloud[key] for key in ("x", "y", "scale")]
         inputs = self.observe_stimuli(int(started * 1_000_000), rotation)
+        self.observe_personality_power(inputs)
+        selected_cue = self.apply_automatic_power_cue(selected_cue)
+        desired, release_affection = self.renderer.select_personality(selected_cue, self.personality_sleep,
+            self.affection_remaining_us > 0, self.eye_reaction)
+        if release_affection:
+            self.affection_remaining_us = 0
         inputs = replace(inputs, idle_scene_allowed=(screen == Screen.RIG and self.playing.get() and
             not self.debug.get() and self.face_preset_name in (None, "calm", "happy", "drowsy", "curious") and
             not self.personality_sleep and selected_cue == PersonalityCue.NONE and

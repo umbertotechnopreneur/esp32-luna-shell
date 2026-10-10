@@ -8,6 +8,8 @@
 namespace {
 constexpr char kChat[] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 constexpr char kOtherChat[] = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+constexpr char kTurn[] = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+constexpr char kOtherTurn[] = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 
 // condition: Observable outcome of the real shared native implementation.
 // message: Concrete failure retained in stderr without changing runtime fixture JSON.
@@ -27,12 +29,90 @@ void admit(LUNASHELL::ComponentSnapshot &component)
     component.data_stale = false;
     component.last_error = ESP_OK;
 }
+
+// No parameters: genuine same-turn completion, one attention performance and protected native channels.
+// Exception: Returns a nonzero host contract result without publishing synthetic firmware samples.
+int check_codex_acting()
+{
+    using Reaction = CODY::CharacterReaction;
+    CODY::CharacterDirectionInputs inputs{};
+    inputs.enabled = true;
+    inputs.activity.chat = kChat;
+    inputs.activity.turn = kTurn;
+    inputs.activity.current = inputs.activity.working = true;
+    inputs.activity.work_kind = CODY::CharacterWorkKind::Editing;
+    CODY::CharacterDirectionState working{};
+    if (!expect(CODY::advance_character_direction(inputs, 1000000, working, working) == ESP_OK &&
+        working.work > 0 && working.work_kind == CODY::CharacterWorkKind::Editing,
+        "genuine editing did not contribute work acting")) { return 1; }
+    inputs.activity.working = false;
+    inputs.activity.work_kind = CODY::CharacterWorkKind::None;
+    inputs.activity.ready = true;
+    CODY::CharacterDirectionState ready{};
+    if (!expect(CODY::advance_character_direction(inputs, 0, working, ready) == ESP_OK &&
+        ready.reaction == Reaction::ReplyReady, "same-turn reply did not celebrate")) { return 1; }
+    if (!expect(CODY::advance_character_direction(inputs, 900000, ready, ready) == ESP_OK &&
+        CODY::character_direction_cue(ready) == CODY::PersonalityCue::Joy,
+        "visible same-turn completion lost its manga reaction")) { return 1; }
+    CODY::ResponseFrame frame{};
+    frame.face = CODY::Data::ready;
+    frame.face[CODY::FaceChannel::EyeLeft] = 0;
+    frame.face[CODY::FaceChannel::MouthOpen] = .63f;
+    frame.contour = CODY::contour_defaults();
+    frame.transform = {251, 210, 130};
+    const float smile = frame.face[CODY::FaceChannel::MouthCornerLeft];
+    if (!expect(CODY::compose_character_direction(ready, frame) == ESP_OK &&
+        frame.face[CODY::FaceChannel::MouthCornerLeft] > smile &&
+        frame.face[CODY::FaceChannel::EyeLeft] == 0 && frame.face[CODY::FaceChannel::MouthOpen] == .63f &&
+        frame.transform.x == 251 && frame.transform.y == 210 && frame.transform.scale == 130,
+        "completion failed to smile or replaced protective/audio/root ownership")) { return 1; }
+    if (!expect(CODY::advance_character_direction(inputs, 1800000, ready, ready) == ESP_OK &&
+        ready.reaction == Reaction::None, "repeated ready frames restarted celebration")) { return 1; }
+    CODY::CharacterDirectionState rejected{};
+    inputs.activity.turn = kOtherTurn;
+    if (!expect(CODY::advance_character_direction(inputs, 100000, working, rejected) == ESP_OK &&
+        rejected.reaction == Reaction::None, "different turn became a completed task")) { return 1; }
+    inputs.activity.turn = "";
+    if (!expect(CODY::advance_character_direction(inputs, 100000, working, rejected) == ESP_OK &&
+        rejected.reaction == Reaction::None, "missing turn became a completed task")) { return 1; }
+    inputs.activity.turn = kTurn;
+    inputs.activity.current = false;
+    CODY::CharacterDirectionState gap{};
+    if (!expect(CODY::advance_character_direction(inputs, 100000, working, gap) == ESP_OK,
+        "source-gap contract rejected an unavailable observation")) { return 1; }
+    inputs.activity.current = true;
+    if (!expect(CODY::advance_character_direction(inputs, 100000, gap, rejected) == ESP_OK &&
+        rejected.reaction == Reaction::None, "source recovery celebrated an unobserved end")) { return 1; }
+    inputs.paused = true;
+    if (!expect(CODY::advance_character_direction(inputs, 100000, working, gap) == ESP_OK,
+        "pause could not consume a reply edge")) { return 1; }
+    inputs.paused = false;
+    if (!expect(CODY::advance_character_direction(inputs, 100000, gap, rejected) == ESP_OK &&
+        rejected.reaction == Reaction::None, "paused reply replayed a celebration")) { return 1; }
+    inputs.activity.ready = false;
+    inputs.activity.attention = true;
+    CODY::CharacterDirectionState attention{};
+    if (!expect(CODY::advance_character_direction(inputs, 0, working, attention) == ESP_OK &&
+        attention.reaction == Reaction::Attention, "attention edge did not start its performance")) { return 1; }
+    if (!expect(CODY::advance_character_direction(inputs, 324000, attention, attention) == ESP_OK &&
+        attention.reaction == Reaction::Attention, "persistent attention cancelled its double blink")) { return 1; }
+    frame.face = CODY::Data::ready;
+    const float open = frame.face[CODY::FaceChannel::EyeRight];
+    if (!expect(CODY::compose_character_direction(attention, frame) == ESP_OK &&
+        frame.face[CODY::FaceChannel::EyeRight] < open * .1f &&
+        CODY::character_direction_cue(attention) == CODY::PersonalityCue::Curiosity,
+        "attention failed to blink or lost its current cue")) { return 1; }
+    if (!expect(CODY::advance_character_direction(inputs, 1800000, attention, attention) == ESP_OK &&
+        attention.reaction == Reaction::None, "persistent attention replayed a transient blink")) { return 1; }
+    return 0;
+}
 } // namespace
 
 // No parameters: exercise truthful completion, gaze/affect composition and route/pause isolation.
 // Exception: Returns a nonzero contract result; no sensor or hardware service is executed.
 int check_character_direction_contract()
 {
+    if (check_codex_acting() != 0) { return 1; }
     using Pose = CODY::CharacterCompactionPose;
     CODY::CharacterDirectionInputs inputs{};
     inputs.enabled = inputs.affection_allowed = true;
@@ -94,9 +174,14 @@ int check_character_direction_contract()
     if (!expect(CODY::project_character_activity(link, technical, observation) == ESP_OK &&
         observation.current && !observation.compacting, "revision mismatch animated current compaction")) { return 1; }
     technical.revision = 3;
+    std::strcpy(technical.turn_id, kTurn);
+    if (!expect(CODY::project_character_activity(link, technical, observation) == ESP_OK &&
+        std::strcmp(observation.turn, kTurn) == 0 && observation.work_kind == CODY::CharacterWorkKind::Thinking,
+        "coherent turn/work kind did not reach the director")) { return 1; }
     technical.data_stale = true;
     if (!expect(CODY::project_character_activity(link, technical, observation) == ESP_OK &&
-        !observation.compacting, "stale technical source animated compaction")) { return 1; }
+        !observation.compacting && observation.turn[0] == '\0',
+        "stale technical source retained compaction/turn acting")) { return 1; }
     link.data_stale = true;
     if (!expect(CODY::project_character_activity(link, technical, observation) == ESP_OK &&
         !observation.current, "stale link retained current acting")) { return 1; }

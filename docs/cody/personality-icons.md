@@ -31,6 +31,22 @@ radio with no connected link. Stale or disproven facts immediately invalidate
 their current symbol, so artistic hold never preserves a false device status.
 Canonical read/contract failures retain their real errors.
 
+From 2026-10-11 the worker also selects current Cody power cues automatically.
+LowBattery overrides ordinary narrative requests and retains the existing
+15-percent enter/20-percent recovery hysteresis. A supported Charging cue fills
+an otherwise empty narrative target and waits behind affection/attention.
+Charging takes the automatic power selection when its actual charging fact is
+current, while a measured low percentage remains independently latched. Charging
+also works without an available percentage. Absence or source expiry clears the
+power support immediately, including a currently displayed sprite. Semantic
+Sleep retains priority. These facts refer to Cody's battery, not the PC battery.
+
+The canonical status projection is retained by the display owner instead of
+copied onto the nested frame stack. Studio uses the same native selector with
+explicitly synthetic source facts and cancels unsupported power artwork. The
+new selector and Codex acting regression cases await fresh final authorization;
+the previous results below do not validate this increment.
+
 ## Timing and semantic Sleep
 
 The channel advances through Hidden, FadeIn, Visible and FadeOut using elapsed

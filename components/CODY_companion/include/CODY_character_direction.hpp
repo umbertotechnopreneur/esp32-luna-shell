@@ -12,6 +12,8 @@ struct CodexTechnicalSnapshot;
 namespace CODY {
 
 enum class CharacterCompactionPose : uint8_t { Neutral, Concentrating, Release };
+enum class CharacterWorkKind : uint8_t { None, Thinking, Editing, Running };
+enum class CharacterReaction : uint8_t { None, Attention, ReplyReady, Interrupted };
 
 // Identity is borrowed for one synchronous update, then copied into the bounded artistic owner.
 struct CharacterActivityObservation {
@@ -22,6 +24,10 @@ struct CharacterActivityObservation {
     bool attention = false;
     bool compacting = false;
     bool refreshed = false;
+    const char *turn = "";
+    CharacterWorkKind work_kind = CharacterWorkKind::None;
+    bool ready = false;
+    bool interrupted = false;
 };
 
 struct CharacterDirectionInputs {
@@ -41,21 +47,31 @@ static_assert(sizeof(CharacterDirectionInputs) <= 96, "Character inputs must rem
 // One small artistic owner; no telemetry history, event queue or second happiness value.
 struct CharacterDirectionState {
     char chat[65]{};
+    char turn[65]{};
     uint64_t compaction_sequence = 0;
     int64_t consumed_caress_at_us = 0;
     uint32_t afterglow_remaining_us = 0;
     uint32_t release_remaining_us = 0;
+    uint32_t reaction_remaining_us = 0;
+    uint32_t work_elapsed_us = 0;
     float gaze_x = 0;
     float gaze_y = 0;
     float warmth = 0;
     float compaction = 0;
+    float work = 0;
     CharacterCompactionPose pose = CharacterCompactionPose::Neutral;
+    CharacterWorkKind work_kind = CharacterWorkKind::None;
+    CharacterReaction reaction = CharacterReaction::None;
     bool current = false;
     bool compacting = false;
     bool attention = false;
     bool enabled = false;
+    bool working = false;
+    bool ready = false;
+    bool interrupted = false;
 };
-static_assert(sizeof(CharacterDirectionState) <= 128, "Character state must stay outside large frame buffers");
+static_assert(sizeof(CharacterDirectionState) <= 208,
+    "Character acting and exact turn identity must remain in the display-owned bounded state");
 
 // link: Canonical link/activity with their original independent health.
 // technical: Canonical technical source with exact ACTIVITY ownership and source freshness.
@@ -79,12 +95,12 @@ esp_err_t positive_character_affect(const HappinessConfig &config,
 esp_err_t advance_character_direction(const CharacterDirectionInputs &inputs, int64_t active_delta_us,
     const CharacterDirectionState &state, CharacterDirectionState &next);
 
-// state: Current bounded gaze, warmth and genuine compaction presentation.
+// state: Current bounded gaze, warmth, Codex work/reaction and genuine compaction presentation.
 // frame: Native response; acquired motion, audio and protective eye closure retain ownership.
 // Exception: Returns original rig/contour errors without mutating a rejected frame.
 esp_err_t compose_character_direction(const CharacterDirectionState &state, ResponseFrame &frame);
 
-// state: Current source admission; a stale compaction never retains its manga request.
+// state: Current source admission and acting; unavailable facts never retain their manga request.
 PersonalityCue character_direction_cue(const CharacterDirectionState &state);
 
 } // namespace CODY

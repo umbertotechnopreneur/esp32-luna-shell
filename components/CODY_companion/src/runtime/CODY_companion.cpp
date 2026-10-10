@@ -243,6 +243,10 @@ struct CompanionState {
     CODY::CharacterDirectionState next_character_direction{};
     CODY::PersonalityLag personality_lag{};
     CODY::PersonalityBatteryLatch personality_battery{};
+    // Shared canonical status projection is serialized by the display owner, outside nested frame stacks.
+    LUNASHELL::DeviceStatusObservation personality_observation{};
+    static_assert(sizeof(LUNASHELL::DeviceStatusObservation) <= 1024,
+        "Personality status must remain a bounded display-owned canonical projection");
     CODY::PersonalityFrame retired_personality{};
     CODY::PersonalityPresentationStatus personality_status = CODY::PersonalityPresentationStatus::Hidden;
     int64_t personality_delta_us = 0;
@@ -448,26 +452,28 @@ esp_err_t resolve_personality_device_cues(CODY::PersonalityCue requested,
 {
     desired = requested;
     invalidate_current = false;
-    if (!CODY::personality_cue_is_device(requested) && !CODY::personality_cue_is_device(displayed)) {
-        return ESP_OK;
-    }
-    LUNASHELL::DeviceStatusObservation observation;
+    auto &observation = s_state.personality_observation;
     esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readDeviceStatusObservation(observation);
     if (error != ESP_OK) {
         s_state.personality_battery.low_battery_active = false;
         ESP_LOGE(kTag, "Personality canonical observation failed (%s)", esp_err_to_name(error));
         return error;
     }
-    if (requested == CODY::PersonalityCue::LowBattery || displayed == CODY::PersonalityCue::LowBattery) {
-        const auto &battery = observation.battery;
-        const bool current_percentage = personality_sample_current(battery) && battery.battery_present &&
-            battery.level_percent_valid;
-        bool alert = false;
-        error = CODY::update_personality_battery_latch(current_percentage, battery.level_percent,
-                                                      s_state.personality_battery, alert);
-        if (error != ESP_OK) {
-            return error;
-        }
+    const auto &battery = observation.battery;
+    CODY::PersonalityPowerObservation power{};
+    power.current = personality_sample_current(battery);
+    power.battery_present = battery.battery_present;
+    power.percentage_valid = battery.level_percent_valid;
+    power.level_percent = battery.level_percent;
+    power.charging = std::strcmp(battery.power_state, "charging") == 0;
+    CODY::PersonalityCue automatic = CODY::PersonalityCue::None;
+    error = CODY::select_personality_power_cue(power, s_state.personality_battery, automatic);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (requested != CODY::PersonalityCue::Sleep &&
+        (automatic == CODY::PersonalityCue::LowBattery || requested == CODY::PersonalityCue::None)) {
+        requested = automatic;
     }
     error = admit_personality_device_cue(observation, requested, desired);
     if (error != ESP_OK) {
@@ -1926,8 +1932,9 @@ esp_err_t observe_character_direction(const CODY::ResponseInputs &inputs,
     direction.paused = s_state.animation_paused;
     direction.rebase = rebase;
     direction.caress_at_us = s_state.last_caress_at_us;
+    const bool approval_view = scene.valid && scene.definition->id == CODY::SceneId::ApprovalOnPc;
     direction.enabled = CODY::lifecycle_is_resting(lifecycle) && !s_state.resume_scene_pending &&
-        companion_home_route_active() && !debug_view_active() &&
+        (companion_home_route_active() || approval_view) && !debug_view_active() &&
         !s_state.rig_debug && !s_state.expression_override;
     if (CODY::lifecycle_is_resting(lifecycle)) {
         // Reuse the serialized technical buffer; never copy the full canonical snapshot onto this stack.

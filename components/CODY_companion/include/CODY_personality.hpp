@@ -86,6 +86,14 @@ struct PersonalityBatteryLatch {
     bool low_battery_active = false;
 };
 
+struct PersonalityPowerObservation {
+    bool current = false;
+    bool battery_present = false;
+    bool percentage_valid = false;
+    bool charging = false;
+    float level_percent = 0;
+};
+
 // lag: Presentation and geometry to clear while preserving repeat admission times and active clock.
 void clear_personality_presentation(PersonalityLag &lag);
 
@@ -94,8 +102,15 @@ void clear_personality_presentation(PersonalityLag &lag);
 // latch: Caller-owned hysteresis state, cleared on unavailable samples.
 // alert: Receives the latched low-battery decision only after validation.
 // Exception: Returns invalid thresholds or a real invalid measured percentage without mutation.
-esp_err_t update_personality_battery_latch(bool current_percentage, int percentage,
+esp_err_t update_personality_battery_latch(bool current_percentage, float percentage,
                                          PersonalityBatteryLatch &latch, bool &alert);
+
+// observation: Canonical Cody battery facts, or explicitly synthetic host facts.
+// latch: Caller-owned low-battery hysteresis, cleared whenever its source becomes unavailable.
+// cue: Receives the currently supported power symbol, never a manufactured charge percentage.
+// Exception: Returns invalid measured percentage/thresholds without partially committing state.
+esp_err_t select_personality_power_cue(const PersonalityPowerObservation &observation,
+    PersonalityBatteryLatch &latch, PersonalityCue &cue);
 
 // cue: Typed identity whose catalog membership is requested.
 bool personality_cue_valid(PersonalityCue cue);

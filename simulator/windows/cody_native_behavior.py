@@ -3,12 +3,20 @@ from __future__ import annotations
 
 import ctypes as C
 from dataclasses import dataclass, replace
+from enum import IntEnum
 import weakref
 
 from cody_native import bounded_integer, checked
 from cody_petting import PettingZone
 from cody_happiness import PersonalityEvent
 from cody_personality import PersonalityCue
+
+
+class CharacterWorkKind(IntEnum):
+    NONE = 0
+    THINKING = 1
+    EDITING = 2
+    RUNNING = 3
 
 
 @dataclass(frozen=True)
@@ -20,14 +28,19 @@ class CharacterActivity:
     attention: bool = False
     compacting: bool = False
     refreshed: bool = False
+    turn: str = ""
+    work_kind: CharacterWorkKind = CharacterWorkKind.NONE
+    ready: bool = False
+    interrupted: bool = False
 
 
 class HostCharacterInputs(C.Structure):
-    """Transport only; firmware C++ owns gaze, warmth and compaction arithmetic."""
-    _fields_ = [("chat", C.c_char_p), ("sequence", C.c_uint64),
+    """Transport only; firmware C++ owns Codex acting and completion continuity."""
+    _fields_ = [("chat", C.c_char_p), ("sequence", C.c_uint64), ("turn", C.c_char_p),
         ("placement", C.c_float * 3), ("gaze", C.c_float * 2)] + [
         (name, C.c_bool) for name in ("current", "working", "attention", "compacting", "refreshed",
-            "enabled", "paused", "rebase", "gaze_visible", "affection_allowed")]
+            "ready", "interrupted", "enabled", "paused", "rebase", "gaze_visible", "affection_allowed")
+    ] + [("work_kind", C.c_uint8)]
 
 
 @dataclass(frozen=True)
@@ -56,6 +69,8 @@ class NativeBehavior:
             "petting_observe": (C.c_int, (pointer, pointer, C.c_float, C.c_float, C.c_bool,
                                           C.c_bool, C.c_int64, C.POINTER(C.c_uint8))),
             "petting_affection_us": (C.c_int64, ()),
+            "power_cue": (C.c_int, (pointer, C.c_bool, C.c_bool, C.c_bool, C.c_float,
+                                   C.c_bool, C.POINTER(C.c_uint8), C.POINTER(C.c_bool))),
             "character_compose": (C.c_int, (pointer, C.POINTER(HostCharacterInputs), C.c_int64,
                 C.POINTER(C.c_float), C.c_uint32, C.POINTER(C.c_float), C.POINTER(C.c_uint8))),
         }
@@ -69,6 +84,23 @@ class NativeBehavior:
         self.handle = handle
         self.release = weakref.finalize(self, self.api.cody_host_behavior_destroy, handle)
         self.config = {"affection_us": self.api.cody_host_petting_affection_us()}
+        self.power_low_active = False
+
+    # self: Existing isolated native character owner and its shared battery hysteresis.
+    # current: Original synthetic sample freshness and validity.
+    # present: Explicit synthetic battery-presence selection.
+    # percentage_valid: Whether this source supplied a percentage.
+    # percentage: Original charge value; native validation retains any actual rejection.
+    # charging: Explicit synthetic charger state, never inferred from percentage.
+    # Raises ValueError for non-boolean admission; RuntimeError for actual native power errors.
+    def power_cue(self, *, current, present, percentage_valid, percentage, charging):
+        if any(type(value) is not bool for value in (current, present, percentage_valid, charging)):
+            raise ValueError("Native power admission requires actual booleans")
+        cue, low_active = C.c_uint8(), C.c_bool()
+        checked("power_cue", self.api.cody_host_power_cue(self.handle, current, present,
+            percentage_valid, percentage, charging, C.byref(cue), C.byref(low_active)))
+        self.power_low_active = low_active.value
+        return PersonalityCue(cue.value)
 
     # self: Native artistic mood owner, with no duplicated desktop arithmetic.
     # Raises RuntimeError for actual native state/configuration errors.
@@ -139,16 +171,23 @@ class NativeBehavior:
                 (activity.current and (len(activity.chat) != 64 or
                     any(value not in "0123456789abcdef" for value in activity.chat)))):
             raise ValueError("Character direction requires an exact current chat identity")
+        if (not isinstance(activity.turn, str) or (activity.turn and
+                (len(activity.turn) != 64 or any(value not in "0123456789abcdef" for value in activity.turn)))):
+            raise ValueError("Character direction requires an exact observed turn identity or absence")
+        if not isinstance(activity.work_kind, CharacterWorkKind):
+            raise ValueError("Character direction requires a typed Codex work kind")
         flags = (activity.current, activity.working, activity.attention, activity.compacting,
-                 activity.refreshed, enabled, paused, rebase, gaze is not None, affection_allowed)
+                 activity.refreshed, activity.ready, activity.interrupted,
+                 enabled, paused, rebase, gaze is not None, affection_allowed)
         if any(type(value) is not bool for value in flags):
             raise ValueError("Character direction admission requires actual booleans")
         if len(placement) != 3 or (gaze is not None and len(gaze) != 2) or (enabled and frame is None):
             raise ValueError("Character direction requires complete displayed geometry")
         if frame is not None and (len(frame.face) != self.channel_count or set(frame.contour) != set(self.contour_names)):
             raise ValueError("Character direction requires the complete native response")
-        wire = HostCharacterInputs(activity.chat.encode("ascii"), activity.sequence,
-            (C.c_float * 3)(*placement), (C.c_float * 2)(*(gaze if gaze is not None else (0, 0))), *flags)
+        wire = HostCharacterInputs(activity.chat.encode("ascii"), activity.sequence, activity.turn.encode("ascii"),
+            (C.c_float * 3)(*placement), (C.c_float * 2)(*(gaze if gaze is not None else (0, 0))),
+            *flags, int(activity.work_kind))
         face = (C.c_float * self.channel_count)(*frame.face) if frame is not None else None
         contour = (C.c_float * 4)(*(frame.contour[name] for name in self.contour_names)) if frame is not None else None
         cue = C.c_uint8()

@@ -18,9 +18,10 @@
 
 ## Cody character ideas kept simple - 2026-10-10
 
-- [ ] Consider wake stretch, attention double blink and a few nonrepeating variants
-  only after reviewing the three basic device reactions. These extra performances
-  were explicitly left out to keep the first revision small.
+- [ ] Consider wake stretch and a few nonrepeating idle variants after physical
+  review. Attention double blink, observed reply/interruption and work-kind
+  acting are now implemented in the 2026-10-11 Codex increment, with final
+  execution still pending in TODO.md.
 - [ ] Consider richer time-of-day personality and long-task acting only if existing
   synchronized clock, day/night greetings and quiet rhythm prove insufficient.
   Reuse their owner; no new calendar, wellbeing reminders or inferred work fatigue.
@@ -39,8 +40,11 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
 
 ## Cody product
 
-- [ ] Linux/macOS companion support stays deferred as requested. Keep the current
-  hardware acquisition and CCP work focused on the existing Windows companion.
+- [ ] Complete Linux/macOS credential and launcher owners for the existing Codex
+  Python plugin before claiming multiplatform support. The 2026-10-11 scope
+  requires platform-neutral Python additions and excludes a new Windows service
+  or general PC observer. Current character changes preserve that boundary;
+  they do not port the existing Windows DPAPI/hidden-launch implementation.
 
 - [ ] Explore a remote relay after the screen work: an adapter beside the Codex
   instance publishes genuine events to an ASP.NET Core/Azure backend, and Cody

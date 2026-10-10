@@ -8,7 +8,32 @@ damage/DMA contract and [onboarding](navigation.md) for route gates.
 
 ## Minimal character direction - 2026-10-10
 
-`CODY_character_direction` adds three small artistic contributions after the
+The 2026-10-11 increment stays within the Codex companion. The shared director
+adds restrained, continuously composed Thinking/Editing/Running accents,
+one double blink on an observed attention edge, a smile and contour squash/stretch
+on an observed same-turn reply, and a short puzzled reaction on interruption.
+The PC approval route permits the attention performance while retaining its
+existing controls. Other questions, setup and exact Debug/preset poses keep their
+own presentation ownership.
+
+Reply/interruption acting requires the exact current chat and turn identity from
+coherent ACTIVITY/TECH publications. A missing/stale/mismatched turn, source gap,
+pause, hidden route or rebase discards completion continuity. Repeated Ready or
+Attention frames never restart a performance; animation elapsed time is not
+evidence of task completion. Existing explicit compaction presentation, including
+its Home indicator and exact sequence-end release, remains independent.
+
+Character observations remain bounded to 96 bytes and their display-owned state
+to 208 bytes after adding the exact turn identity and reaction clock. Transaction
+copies remain bounded; compiled nested frames and physical stack headroom require
+the final validation recorded in TODO.md. No task stack was enlarged.
+
+Python only transports typed source observations into the native C++ director;
+the new host code adds no operating-system observers or companion service.
+Prepared native/Studio regression cases have not yet been executed for this
+increment. Earlier 2026-10-11 results describe the preceding revision.
+
+The initial `CODY_character_direction` revision added three artistic contributions after the
 existing native response: gaze towards acquired body touch or visible information,
 positive warmth after a recognized caress, and concentration/release during genuine
 compaction. Rendering and touch keep the existing logical coordinates. Gaze can
@@ -16,7 +41,7 @@ follow the last fully retired manga bounds without a second face/icon evaluation
 An approval faces forward. No person tracking or new sensor sampling is introduced.
 
 The display-lock owner retains bounded inputs (at most 96 bytes) and direction
-state (at most 128 bytes). Existing native motion, blinking/protective eye closure,
+state (at most 208 bytes). Existing native motion, blinking/protective eye closure,
 audio-driven mouth opening, breathing, quiet hours, day/night routine and Desk/Away
 policy retain their owners. Debug, explicit expression presets, setup and the
 startup/Sleep/Wake lifecycle suppress these contributions and consume hidden events.
@@ -42,12 +67,14 @@ Studio now binds this same director through its native mood/caress owner. The
 ordinary rig supplies fresh acquired desktop pointer targets and recognized
 caresses. SIMULATED CCP supplies visible text/pointer targets and coherence-qualified
 compaction sequence IDs; changing the source or rotation breaks completion
-continuity. Debug, explicit presets, setup and questions disable the contribution.
+continuity. Debug, explicit presets, setup and questions other than PC approval
+disable the contribution.
 The existing Long compaction and Refreshed / pending preview scenarios retain one
 rendering-only sequence; opening the latter alone cannot fabricate an observed end.
 Python does not duplicate the director's animation equations, and synthetic facts
-never enter firmware snapshots. The drivers and named synthetic cases passed
-on 2026-10-11; this does not establish device behavior. Optional extra gestures stay in
+never enter firmware snapshots. The preceding three-contribution revision's drivers
+and named synthetic cases passed on 2026-10-11; this does not validate the later
+Codex acting/power-cue increment or establish device behavior. Optional extra gestures stay in
 [planned-todo.md](../../planned-todo.md); authorized generation/build/device
 work is tracked in [TODO.md](../../TODO.md).
 

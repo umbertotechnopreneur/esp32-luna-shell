@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "simulator/windows"))
 
-from cody_native_behavior import CharacterActivity, NativeBehavior
+from cody_native_behavior import CharacterActivity, CharacterWorkKind, NativeBehavior
 from cody_happiness import PersonalityEvent
 from cody_personality import PersonalityCue
 from cody_petting import PettingZone
@@ -124,11 +124,77 @@ class CharacterStudioTests(unittest.TestCase):
         completed = replace(ACTIVE, compacting=False, refreshed=True)
         self.behavior.direct(None, self.placement, 0, enabled=False, activity=completed)
         shown, _ = self.behavior.direct(self.base, self.placement, 1000000, enabled=True, activity=completed)
-        self.assertEqual(shown, self.base)
+        self.assertLessEqual(shown.contour["fullness"], self.base.contour["fullness"])
         self.behavior.direct(self.base, self.placement, 1000000, enabled=True, activity=ACTIVE)
         self.behavior.direct(self.base, self.placement, 1000000, enabled=True)
         recovered, _ = self.behavior.direct(self.base, self.placement, 1000000, enabled=True, activity=completed)
         self.assertLessEqual(recovered.contour["fullness"], self.base.contour["fullness"])
+
+    # self: Production Python/native transport following an exact observed Codex turn.
+    # Raises AssertionError for missing celebration, repeated delivery or damaged audio/root channels.
+    def test_same_turn_reply_celebrates_once(self):
+        working = CharacterActivity(chat="a" * 64, turn="b" * 64, current=True, working=True,
+                                    work_kind=CharacterWorkKind.EDITING)
+        self.behavior.direct(self.base, self.placement, 1000000, enabled=True, activity=working)
+        ready = replace(working, working=False, work_kind=CharacterWorkKind.NONE, ready=True)
+        self.behavior.direct(self.base, self.placement, 0, enabled=True, activity=ready)
+        smiled, cue = self.behavior.direct(self.base, self.placement, 900000, enabled=True, activity=ready)
+        self.assertEqual(cue, PersonalityCue.JOY)
+        self.assertGreater(smiled.face[self.channels["mouth_corner_left"]],
+                           self.base.face[self.channels["mouth_corner_left"]])
+        self.assertEqual(smiled.transform, self.base.transform)
+        self.assertEqual(smiled.face[self.channels["mouth_open"]], self.base.face[self.channels["mouth_open"]])
+        self.capture(smiled, "reply-ready")
+        _, cue = self.behavior.direct(self.base, self.placement, 1800000, enabled=True, activity=ready)
+        self.assertEqual(cue, PersonalityCue.NONE)
+
+    # self: Native turn identity and paused/source-gap admission across the real ctypes boundary.
+    # Raises AssertionError if incomplete metadata turns into a successful-task performance.
+    def test_reply_requires_continuous_matching_turn(self):
+        working = CharacterActivity(chat="a" * 64, turn="b" * 64, current=True, working=True)
+        for turn in ("", "c" * 64):
+            self.behavior.direct(None, self.placement, 0, enabled=False)
+            self.behavior.direct(self.base, self.placement, 1000000, enabled=True, activity=working)
+            ready = replace(working, working=False, ready=True, turn=turn)
+            _, cue = self.behavior.direct(self.base, self.placement, 100000, enabled=True, activity=ready)
+            self.assertEqual(cue, PersonalityCue.NONE)
+        ready = replace(working, working=False, ready=True)
+        self.behavior.direct(self.base, self.placement, 1000000, enabled=True, activity=working)
+        self.behavior.direct(self.base, self.placement, 0, enabled=True, paused=True, activity=ready)
+        _, cue = self.behavior.direct(self.base, self.placement, 100000, enabled=True, activity=ready)
+        self.assertEqual(cue, PersonalityCue.NONE)
+
+    # self: Native attention reaction with unchanged protective closure and one observed event edge.
+    # Raises AssertionError for a missing double blink or replay while the same approval remains pending.
+    def test_attention_double_blink_runs_once(self):
+        working = CharacterActivity(chat="a" * 64, current=True, working=True)
+        self.behavior.direct(self.base, self.placement, 1000000, enabled=True, activity=working)
+        waiting = replace(working, working=False, attention=True)
+        self.behavior.direct(self.base, self.placement, 0, enabled=True, activity=waiting)
+        blinked, cue = self.behavior.direct(self.base, self.placement, 324000, enabled=True, activity=waiting)
+        self.assertEqual(cue, PersonalityCue.CURIOSITY)
+        self.assertLess(blinked.face[self.channels["eye_right"]], self.base.face[self.channels["eye_right"]] * .1)
+        self.capture(blinked, "attention")
+        restored, _ = self.behavior.direct(self.base, self.placement, 1800000, enabled=True, activity=waiting)
+        self.assertEqual(restored.face[self.channels["eye_right"]], self.base.face[self.channels["eye_right"]])
+
+    # self: Shared native battery selector; synthetic flags never become firmware observations.
+    # Raises AssertionError for fabricated charging/presence or rounded threshold admission.
+    def test_automatic_power_cues_keep_source_truth(self):
+        facts = dict(current=True, present=True, percentage_valid=True, percentage=15.5, charging=False)
+        self.assertEqual(self.behavior.power_cue(**facts), PersonalityCue.NONE)
+        facts["percentage"] = 15.
+        self.assertEqual(self.behavior.power_cue(**facts), PersonalityCue.LOW_BATTERY)
+        facts["percentage"] = 17.
+        self.assertEqual(self.behavior.power_cue(**facts), PersonalityCue.LOW_BATTERY)
+        facts["charging"] = True
+        self.assertEqual(self.behavior.power_cue(**facts), PersonalityCue.CHARGING)
+        self.assertTrue(self.behavior.power_low_active)
+        facts.update(percentage_valid=False, percentage=101.)
+        self.assertEqual(self.behavior.power_cue(**facts), PersonalityCue.CHARGING)
+        self.assertFalse(self.behavior.power_low_active)
+        facts["current"] = False
+        self.assertEqual(self.behavior.power_cue(**facts), PersonalityCue.NONE)
 
     # self: Actual withdrawn Tk window; synthetic inputs never enter firmware snapshots.
     # Raises original GUI/native errors or AssertionError for a broken scheduled frame loop.

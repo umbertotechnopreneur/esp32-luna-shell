@@ -797,6 +797,40 @@ void check_battery_hysteresis()
             latch.low_battery_active && alert, "negative actual percentage is rejected with its real cause");
 }
 
+// No parameters: automatic Cody power cues follow actual presence, freshness and independent charging.
+// Exceptions: None; rejected measurements retain the prior native selector state.
+void check_automatic_power_cues()
+{
+    PersonalityBatteryLatch latch{};
+    PersonalityCue cue = PersonalityCue::None;
+    PersonalityPowerObservation observation{true, true, true, false, 15.5f};
+    require(select_personality_power_cue(observation, latch, cue) == ESP_OK && cue == PersonalityCue::None,
+            "fractional percentage above enter threshold is not rounded into a false warning");
+    observation.level_percent = 15;
+    require(select_personality_power_cue(observation, latch, cue) == ESP_OK && cue == PersonalityCue::LowBattery,
+            "current low Cody battery automatically selects its symbol");
+    observation.level_percent = 17;
+    require(select_personality_power_cue(observation, latch, cue) == ESP_OK && cue == PersonalityCue::LowBattery,
+            "automatic warning retains the existing recovery hysteresis");
+    observation.charging = true;
+    require(select_personality_power_cue(observation, latch, cue) == ESP_OK && cue == PersonalityCue::Charging &&
+            latch.low_battery_active, "charging does not manufacture a recovered percentage");
+    observation.level_percent = 101;
+    require(select_personality_power_cue(observation, latch, cue) == ESP_ERR_INVALID_RESPONSE &&
+            cue == PersonalityCue::Charging && latch.low_battery_active,
+            "invalid measured charge cannot partially replace the native selector result");
+    observation.percentage_valid = false;
+    require(select_personality_power_cue(observation, latch, cue) == ESP_OK && cue == PersonalityCue::Charging &&
+            !latch.low_battery_active, "charging remains available independently from percentage");
+    observation.current = false;
+    require(select_personality_power_cue(observation, latch, cue) == ESP_OK && cue == PersonalityCue::None,
+            "source expiry immediately removes automatic power truth");
+    observation.current = true;
+    observation.battery_present = false;
+    require(select_personality_power_cue(observation, latch, cue) == ESP_OK && cue == PersonalityCue::None,
+            "absent battery cannot appear as charging");
+}
+
 // cue: Stable identity whose authored repeat interval is requested by a fixture.
 int64_t repeat_interval(PersonalityCue cue)
 {
@@ -1088,6 +1122,7 @@ int main()
     check_happiness();
     check_symbol_arbitration();
     check_battery_hysteresis();
+    check_automatic_power_cues();
     check_repeat_suppression();
     check_wellbeing();
     std::printf("],\"assertions\":%d,\"host_controller_bytes\":%llu,\"repeat_slots\":%llu,\"repeat_bytes\":%llu}\n",
