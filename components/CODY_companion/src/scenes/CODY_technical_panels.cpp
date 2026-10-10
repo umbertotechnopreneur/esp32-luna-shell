@@ -1,5 +1,6 @@
 #include "CODY_technical_panels.hpp"
 #include "CODY2D_controls.hpp"
+#include "CODY_cost_badge.hpp"
 #include "esp_log.h"
 #include <algorithm>
 #include <cstdio>
@@ -23,30 +24,6 @@ constexpr uint8_t kModelDetailRows = 3;
 uint8_t detail_capacity(const PanelPresentation &presentation)
 {
     return presentation.panel == CompanionPanel::ModelContext ? kModelDetailRows : kDetailRows;
-}
-
-// band: Host-classified typed Standard reference; no prices enter the renderer.
-const char *cost_band_text(LUNASHELL::CodexCostBand band)
-{
-    using Band = LUNASHELL::CodexCostBand;
-    switch (band) {
-    case Band::Economy: return "Economy";
-    case Band::Balanced: return "Balanced";
-    case Band::Expensive: return "Expensive";
-    default: return "Unknown";
-    }
-}
-
-// band: Current typed qualitative reference, or explicit Unknown.
-uint16_t cost_band_color(LUNASHELL::CodexCostBand band)
-{
-    using Band = LUNASHELL::CodexCostBand;
-    switch (band) {
-    case Band::Economy: return 0x87EF;
-    case Band::Balanced: return kCyan;
-    case Band::Expensive: return kAmber;
-    default: return kMuted;
-    }
 }
 
 // operation: Specific rejected panel boundary or native rendering operation.

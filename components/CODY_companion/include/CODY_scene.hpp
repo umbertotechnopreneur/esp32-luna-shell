@@ -20,10 +20,13 @@
 #include "CODY_dirty_plan.hpp"
 #include "CODY_activity_overlay.hpp"
 
+namespace LUNASHELL { enum class CodexCostBand : uint8_t; }
+
 namespace CODY {
 
 struct ActivityDescriptionState;
 struct ActivityIdentityState;
+enum class ActivityIdentityKind : uint8_t;
 
 // Explicit IDs do not change if authoring declarations are reordered.
 enum class SceneId : uint16_t {
@@ -117,7 +120,9 @@ struct SceneFrame {
     uint64_t activity_identity_timer_seconds = 0;
     uint16_t activity_identity_offset = 0;
     uint8_t activity_identity_opacity = 0;
-    bool activity_identity_branch = false;
+    ActivityIdentityKind activity_identity_kind{};
+    LUNASHELL::CodexCostBand activity_cost_band{};
+    bool activity_cost_visible = false;
     bool activity_identity_timer_visible = false;
     bool valid = false;
 };

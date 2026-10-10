@@ -178,7 +178,7 @@ class NativeRig:
             "draw": (C.c_int, (P, U16, C.c_uint32, C.c_bool, C.c_char_p, C.c_bool, C.c_bool, C.c_uint8, C.c_uint16)),
             "activity_overlay": (C.c_int, (P, C.c_uint8, C.c_uint32)),
             "activity_description": (C.c_int, (P, C.c_char_p, C.c_uint32, C.c_int64)),
-            "activity_identity": (C.c_int, (P, C.c_char_p, C.c_char_p, C.c_int64, C.c_bool, C.c_int64, C.c_bool)),
+            "activity_identity": (C.c_int, (P, C.c_char_p, C.c_char_p, C.POINTER(NativePanelObservation), C.c_int64, C.c_bool, C.c_int64, C.c_bool)),
             "activity_observe": (C.c_int, (P, C.c_uint8, C.c_char_p, C.c_bool, C.c_int64, C.POINTER(C.c_uint8), C.POINTER(C.c_int64))),
             "activity_pause": (C.c_int, (P,)),
             "panel_next": (C.c_int, (C.c_uint8, C.POINTER(C.c_uint8))),
@@ -349,19 +349,21 @@ class NativeRig:
     # scene: Independent evaluated rig frame whose native owner borrows its identity buffers.
     # project: Actual bounded ASCII project label, empty when no context is available.
     # branch: Actual bounded ASCII checkout branch, empty when unavailable.
+    # observation: Original PC facts; shared C++ admits/ages the model and catalog band.
     # elapsed_us: Active time since the identity or attention state changed.
     # attention: Genuine paused/question state freezing the project caption.
     # operation_elapsed_us: Shared native observed work interval, negative when unavailable.
     # compacting: Authoritative compaction lifecycle; elapsed then means actual observed start duration.
     # Raises ValueError for unsupported metadata; RuntimeError for original native preparation errors.
-    def prepare_activity_identity(self, scene, project, branch, elapsed_us, attention, operation_elapsed_us, compacting):
+    def prepare_activity_identity(self, scene, project, branch, observation, elapsed_us, attention, operation_elapsed_us, compacting):
         if (any(not isinstance(value, str) or len(value) > 64 or
                     any(not 32 <= ord(character) <= 126 for character in value) for value in (project, branch))
+                or not isinstance(observation, NativePanelObservation)
                 or type(elapsed_us) is not int or not 0 <= elapsed_us <= 0x7fffffffffffffff
                 or type(attention) is not bool or type(compacting) is not bool or type(operation_elapsed_us) is not int):
             raise ValueError("Native activity identity metadata is invalid")
         checked("activity_identity", self.api.cody_host_activity_identity(scene["_native_scene"].handle,
-            project.encode("ascii"), branch.encode("ascii"), elapsed_us, attention, operation_elapsed_us, compacting))
+            project.encode("ascii"), branch.encode("ascii"), C.byref(observation), elapsed_us, attention, operation_elapsed_us, compacting))
 
     # self: Shared native renderer transport owner.
     # current: Explicit Home=0/Activity=1/ModelContext=2/SessionLink=3 identity.

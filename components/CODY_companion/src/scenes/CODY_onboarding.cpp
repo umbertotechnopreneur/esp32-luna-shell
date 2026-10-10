@@ -2461,6 +2461,16 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
         destination = Route::Working18;
         message = "Compacting context";
     }
+    // Model/cost changes update Home without re-entering the route or replaying speech/title reveal.
+    const auto model_cost = observed_model_cost(link, technical);
+    const bool home_identity = destination != Route::CompanionIdle16 && destination != Route::Connected15;
+    const char *home_model = home_identity ? model_cost.model : "";
+    const auto home_cost = home_identity ? model_cost.band : LUNASHELL::CodexCostBand::Unknown;
+    bool model_cost_changed = false;
+    const esp_err_t model_error = set_activity_model_cost(s_view.activity_identity, SceneData::body_font,
+        home_model, home_cost, active_time_us, model_cost_changed);
+    if (model_error != ESP_OK) { return model_error; }
+    if (model_cost_changed) { ++s_activity_identity_revision; }
     if (!compaction_changed && s_route == destination && same_chat && activity.state == s_presented_activity.state &&
         std::strcmp(activity.project, s_presented_activity.project) == 0 &&
         std::strcmp(activity.branch, s_presented_activity.branch) == 0 &&
@@ -2474,7 +2484,7 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
             error = advance_activity_identity(s_view.activity_identity, SceneData::body_font, active_time_us,
                 attention, displayed_elapsed_us, identity_changed);
         }
-        if (identity_changed) {
+        if (identity_changed || model_cost_changed) {
             capture_scene_activity_identity(scene, &s_view.activity_identity, s_activity_identity_revision);
             changed = true;
         }
@@ -2537,12 +2547,16 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
         changed = true;
         return error;
     }
-    // The shared native identity layer measures long labels and owns branch alternation.
+    // The shared native identity layer measures long labels and owns project/branch/model rotation.
     // Its fixed row replaces both legacy project-copy slots and their small debug buffers.
     const char *project = destination == Route::CompanionIdle16 ? "" : activity.project;
     const char *branch = current_link && activity.data_valid && !activity.data_stale ? activity.branch : "";
     error = prepare_activity_identity(s_view.activity_identity, SceneData::body_font,
         project, branch, active_time_us);
+    if (error == ESP_OK) {
+        error = set_activity_model_cost(s_view.activity_identity, SceneData::body_font,
+            home_model, home_cost, active_time_us, model_cost_changed);
+    }
     if (error == ESP_OK) {
         bool identity_changed = false;
         s_view.activity_identity.compaction_timer = compacting;

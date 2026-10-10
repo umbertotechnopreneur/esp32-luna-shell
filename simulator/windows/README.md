@@ -89,8 +89,14 @@ The old PC record remains separate; nothing is deleted on the physical device,
 in firmware or on the SD card.
 
 The preview shows existing scenes/fonts and the state received from the broker.
-Project and branch share the native fading identity row; the narrative body does
-not duplicate the project. Activity appears only after fresh packets arrive.
+Project, branch and a current reported model share the native fading identity
+row; the narrative body does not duplicate the project. Home keeps a separate
+green/orange/red/gray Economy/Balanced/Expensive!/Unknown chip, including while
+compacting. The real authenticated cost band and source lease are aged and drawn
+by the same C++ used in firmware. Explicit **Economy model**, **Balanced model**
+and **Expensive model** preview scenarios supply labeled SIMULATED fixtures only;
+they never download prices or change the live endpoint or firmware snapshot.
+Activity appears only after fresh packets arrive.
 After eight seconds without updates, activity is
 treated as **UNAVAILABLE**. Chat changes follow the actual prompt sent to Codex;
 there is no local selector or fabricated hook producer.

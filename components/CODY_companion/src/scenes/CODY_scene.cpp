@@ -105,10 +105,11 @@ void capture_scene_activity_identity(SceneFrame &frame, const ActivityIdentitySt
     frame.activity_identity_revision = identity ? revision : 0;
     frame.activity_identity_timer_seconds = identity ? identity->timer_seconds : 0;
     frame.activity_identity_timer_visible = identity && identity->timer_visible;
-    frame.activity_identity_offset = identity ?
-        (identity->branch_visible ? identity->branch_offset : identity->project_offset) : 0;
+    frame.activity_identity_offset = identity ? activity_identity_offset(*identity) : 0;
     frame.activity_identity_opacity = identity ? identity->opacity : 0;
-    frame.activity_identity_branch = identity && identity->branch_visible;
+    frame.activity_identity_kind = identity ? identity->selected : ActivityIdentityKind::Project;
+    frame.activity_cost_band = identity ? identity->cost_band : LUNASHELL::CodexCostBand::Unknown;
+    frame.activity_cost_visible = identity && identity->project_line.valid && identity->cost_line.valid;
 }
 
 // identity: Named generic scene, not a table position; demo has its own existing route.
@@ -517,7 +518,7 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
         previous.activity_identity_revision != current.activity_identity_revision ||
         previous.activity_identity_offset != current.activity_identity_offset ||
         previous.activity_identity_opacity != current.activity_identity_opacity ||
-        previous.activity_identity_branch != current.activity_identity_branch ||
+        previous.activity_identity_kind != current.activity_identity_kind ||
         (visibility_changed && (previous.activity_identity != nullptr || current.activity_identity != nullptr))) {
         error = include_damage(plan, {73, 300, 393, 328});
         if (error != ESP_OK) {
@@ -525,11 +526,13 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
         }
     }
     if (previous.activity_identity != current.activity_identity ||
+        previous.activity_cost_band != current.activity_cost_band ||
+        previous.activity_cost_visible != current.activity_cost_visible ||
         previous.activity_identity_timer_visible != current.activity_identity_timer_visible ||
         (current.activity_identity_timer_visible &&
          previous.activity_identity_timer_seconds != current.activity_identity_timer_seconds) ||
         (visibility_changed && (previous.activity_identity != nullptr || current.activity_identity != nullptr))) {
-        error = include_damage(plan, {153, 330, 313, 358});
+        error = include_damage(plan, {73, 330, 393, 358});
         if (error != ESP_OK) {
             return error;
         }

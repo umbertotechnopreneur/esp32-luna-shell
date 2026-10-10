@@ -172,7 +172,8 @@ class CcpPanel:
         ttk.Label(preview, text="SIMULATED technical scenario").pack(anchor="w", pady=(12, 2))
         scenarios = ttk.Combobox(preview, textvariable=self.preview_scenario, state="readonly",
             values=("Normal", "Attention", "Reply ready", "Nearly full", "Long compaction",
-                    "Refreshed / pending", "Counters updated", "Missing / stale", "Model changed", "Link lost", "Custom"))
+                    "Refreshed / pending", "Counters updated", "Missing / stale", "Model changed", "Link lost",
+                    "Economy model", "Balanced model", "Expensive model", "Custom"))
         scenarios.pack(fill="x")
         scenarios.bind("<<ComboboxSelected>>", self.select_preview_scenario)
         ttk.Label(preview, text="SIMULATED companion mode").pack(anchor="w", pady=(8, 2))
@@ -486,6 +487,12 @@ class CcpPanel:
         inputs.activity_age_us = NativePanelMetric(elapsed_us, 1)
         inputs.turn_elapsed_us = NativePanelMetric(elapsed_us, 1)
         scenario = self.preview_scenario.get()
+        bands = {"Economy model": (1, b"SIMULATED-gpt-6-luna"),
+                 "Balanced model": (2, b"SIMULATED-gpt-6-sol"),
+                 "Expensive model": (3, b"SIMULATED-gpt-6-astra")}
+        if scenario in bands:
+            inputs.cost_band, inputs.model = bands[scenario]
+            inputs.cost_state = 1
         if scenario == "Long compaction":
             inputs.compaction = 1
             inputs.compaction_elapsed_us = NativePanelMetric(90000000 + elapsed_us, 1)
@@ -507,6 +514,22 @@ class CcpPanel:
             inputs.model_state = 2
             inputs.activity_age_us = NativePanelMetric(elapsed_us, 2)
         return inputs
+
+    # self: Explicit rendering-only preview owner; no live endpoint/cache/snapshot is changed.
+    # snapshot: Isolated SIMULATED preview identity selected in Studio.
+    # elapsed_us: Active preview clock; synthetic durations stay confined to native host scratch.
+    # Returns raw synthetic metadata so Home uses the same native model/badge placement and aging.
+    def preview_home_observation(self, snapshot, elapsed_us):
+        observation = self.panel_observation(snapshot)
+        inputs = self.preview_panel_inputs(snapshot, elapsed_us)
+        observation.technical_chat_id = snapshot.chat.encode("ascii")
+        observation.technical_valid = True
+        observation.model = inputs.model
+        observation.model_valid = True
+        observation.model_age_us = 130000000 if inputs.model_state == 2 else 0
+        observation.cost_band = inputs.cost_band
+        observation.cost_valid_for_us = 3600000000 if inputs.cost_band else 0
+        return observation
 
     # self: Live Studio projection owner using the firmware's canonical age and panel mapper.
     # snapshot: Authenticated endpoint observation with separate transport/source ages.
@@ -769,7 +792,8 @@ class CcpPanel:
         phase_key = (snapshot.chat, overlay, current, snapshot.phase)
         description_key = (snapshot.chat, description, current)
         attention = compacting or current and snapshot.phase == "paused"
-        identity_key = (snapshot.chat, snapshot.project, snapshot.branch, current, attention)
+        model_identity = snapshot.technical.model if self.has_coherent_technical(snapshot) and snapshot.technical else ""
+        identity_key = (snapshot.chat, snapshot.project, snapshot.branch, model_identity, current, attention)
         if phase_key != self._activity_phase_key:
             self._activity_phase_key = phase_key
             self._activity_overlay_elapsed_us = 0
@@ -793,7 +817,8 @@ class CcpPanel:
             else:
                 operation_elapsed = (snapshot.technical.compaction_age_ms + (snapshot.technical_age_ms or 0)) * 1000
         native.prepare_activity_identity(scene, snapshot.project if current else "", snapshot.branch if current else "",
-            self._activity_identity_elapsed_us, attention, operation_elapsed, compacting)
+            self.preview_home_observation(snapshot, self._activity_identity_elapsed_us) if self.activity_preview.get()
+            else self.panel_observation(snapshot), self._activity_identity_elapsed_us, attention, operation_elapsed, compacting)
         native.prepare_activity(scene, overlay,
             self._activity_overlay_elapsed_us, description, self._activity_description_elapsed_us)
 

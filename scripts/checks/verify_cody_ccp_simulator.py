@@ -154,8 +154,9 @@ class SimulatorProtocolTests(unittest.TestCase):
     # self: Authenticated model coupled directly to the real CCP responder with no OS transport.
     # pending_restart: Exercise recovery of a durable candidate instead of confirmed pairing.
     # drop_committed: Deliberately lose the first post-READY acknowledgement before broker admission.
+    # activity_owner: Optional explicit synthetic activity/technical source for extension regressions.
     # Returns accepted responder messages for replay/tampering assertions.
-    def exchange_presence(self, pending_restart=False, drop_committed=False):
+    def exchange_presence(self, pending_restart=False, drop_committed=False, activity_owner=None):
         identity, key = self.pair_candidate()
         if pending_restart:
             self.now += simulated.PAIRING_SECONDS + 1
@@ -164,7 +165,7 @@ class SimulatorProtocolTests(unittest.TestCase):
             self.confirm(identity, key)
         state = Mock(pc_id=self.pc)
         state.retained_keys.return_value = protocol.RetainedKeys(None, key) if pending_restart else protocol.RetainedKeys(key, None)
-        activity = synthetic_activity("working", "SIMULATED fixture")
+        activity = synthetic_activity("working", "SIMULATED fixture") if activity_owner is None else activity_owner
         listener = Mock()
         self.requests = interactions.InteractionStore(lambda: self.now)
         responder = protocol.CompanionResponder(state, listener, activity, self.requests)
@@ -199,6 +200,25 @@ class SimulatorProtocolTests(unittest.TestCase):
             self.link.handle_datagram(activity_reply, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
         self.now += simulated.PRESENCE_SECONDS + .1
         self.assertFalse(self.link.snapshot().activity_valid)
+
+    # self: Real paired responder/simulator with one explicitly synthetic current Astra price band.
+    # Raises AssertionError if the authenticated TECH extension loses the band, source lease or model identity.
+    def test_authenticated_cost_band_reaches_the_simulator(self):
+        owner = synthetic_activity("working", "SIMULATED pricing")
+        _, technical = owner.snapshot_bundle.return_value
+        technical.update(turn="e" * 64, model="gpt-6-astra".encode("ascii").hex(), modelage="0",
+                         cost="expensive", costage="1000", costttl="3600000")
+        replies = self.exchange_presence(activity_owner=owner)
+        snapshot = self.link.snapshot()
+        self.assertEqual(snapshot.technical.model, "gpt-6-astra")
+        self.assertEqual(snapshot.technical.cost_band.value, "expensive")
+        self.assertEqual(snapshot.technical.cost_age_ms, 1000)
+        self.assertEqual(snapshot.technical.cost_valid_for_ms, 3600000)
+        packet = next(reply for reply in replies if protocol.parse_datagram(reply)[0] == "TECH")
+        self.assertLessEqual(len(packet), protocol.MAX_TECHNICAL_DATAGRAM_BYTES)
+        with self.assertRaisesRegex(ValueError, "one reply per nonce"):
+            self.link.handle_datagram(packet, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        self.assertEqual(self.link.snapshot().technical.cost_band.value, "expensive")
 
     # self: Restart after PAIR/PC persistence but before CONFIRM.
     # Raises AssertionError if another visible code is required or unauthenticated state is promoted.

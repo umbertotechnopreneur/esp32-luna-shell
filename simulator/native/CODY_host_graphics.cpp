@@ -434,21 +434,16 @@ CODY_HOST_EXPORT int cody_host_panel_prepare(void *handle, uint8_t panel,
         active_time_us, owner.companion_panel, content));
 }
 
-// handle: Native frame owning the canonical-shaped PC-only scratch and prepared panel.
-// panel: Explicit selected technical page; Home removes the technical layer.
-// source: Original observed metadata and source-relative ages, without synthetic counters.
-// active_time_us: Local active presentation clock for a restrained indeterminate accent.
-// Exception: Returns actual metadata, clock or shared canonical preparation failure.
-CODY_HOST_EXPORT int cody_host_panel_observation(void *handle, uint8_t panel,
-    const HostPanelObservation *source, int64_t active_time_us)
+// source: Original PC-observed metadata and source-relative ages, without synthetic counters.
+// observation: Component-owned host scratch; never published into DeviceSnapshotService.
+// Exception: Returns original metadata/clock errors; the shared canonical owner ages the projection.
+static esp_err_t project_host_panel_observation(const HostPanelObservation *source,
+    LUNASHELL::CodexTechnicalObservation &observation)
 {
-    if (!handle || !source || active_time_us < 0 || source->phase > 9 || source->compaction > 5 || source->cost_band > 3 ||
+    if (!source || source->phase > 9 || source->compaction > 5 || source->cost_band > 3 ||
         source->receipt_age_us > static_cast<uint64_t>(INT64_MAX - 1)) {
         return host_result("panel_observation", ESP_ERR_INVALID_ARG);
     }
-    auto &owner = *static_cast<HostScene *>(handle);
-    if (panel == 0) { owner.companion_panel.valid = false; return ESP_OK; }
-    auto &observation = owner.panel_observation;
     // Every supported field below is overwritten in place. Unsupported metric flags stay absent;
     // an aggregate reset here would create a large nested temporary on some compilers.
     auto &link = observation.link;
@@ -490,9 +485,27 @@ CODY_HOST_EXPORT int cody_host_panel_observation(void *handle, uint8_t panel,
     technical.turn_elapsed_at_receive_us = source->turn_elapsed_us;
     const int64_t observation_time = static_cast<int64_t>(source->receipt_age_us) + 1;
     LUNASHELL::age_codex_technical(technical, observation_time);
+    return ESP_OK;
+}
+
+// handle: Native frame owning the canonical-shaped PC-only scratch and prepared panel.
+// panel: Explicit selected technical page; Home removes the technical layer.
+// source: Original observed metadata and source-relative ages, without synthetic counters.
+// active_time_us: Local active presentation clock for a restrained indeterminate accent.
+// Exception: Returns actual metadata, clock or shared canonical preparation failure.
+CODY_HOST_EXPORT int cody_host_panel_observation(void *handle, uint8_t panel,
+    const HostPanelObservation *source, int64_t active_time_us)
+{
+    if (!handle || active_time_us < 0) { return host_result("panel_observation", ESP_ERR_INVALID_ARG); }
+    auto &owner = *static_cast<HostScene *>(handle);
+    auto &observation = owner.panel_observation;
+    esp_err_t error = project_host_panel_observation(source, observation);
+    if (error != ESP_OK) { return error; }
+    if (panel == 0) { owner.companion_panel.valid = false; return ESP_OK; }
+    const int64_t observation_time = static_cast<int64_t>(source->receipt_age_us) + 1;
     CODY::SceneContent content{};
     error = CODY::prepare_companion_panel_from_observation(static_cast<CODY::CompanionPanel>(panel),
-        link, technical, CODY::SceneData::body_font, observation_time, owner.companion_panel, content);
+        observation.link, observation.technical, CODY::SceneData::body_font, observation_time, owner.companion_panel, content);
     if (error == ESP_OK) {
         bool changed = false;
         error = CODY::advance_companion_panel(owner.companion_panel, active_time_us, changed);
@@ -599,21 +612,31 @@ CODY_HOST_EXPORT int cody_host_activity_description(void *handle, const char *te
 // handle: Native scene owner retaining prepared identity text through rasterization.
 // project: NUL-terminated bounded ASCII project; empty clears its line.
 // branch: NUL-terminated bounded ASCII selected branch; empty reports no branch metadata.
+// source: Original coherent technical observation; native C++ owns model/catalog aging and admission.
 // elapsed_us: Active time since this identity changed, independent of recreated host frames.
 // attention: Genuine or explicitly SIMULATED attention priority retaining the project.
 // operation_elapsed_us: Observed operation interval; negative explicitly means unavailable.
 // compacting: Authoritative lifecycle switches the timer to genuine observed compaction elapsed.
 // Exception: Returns genuine identity, clock, font or elapsed rendering errors.
 CODY_HOST_EXPORT int cody_host_activity_identity(void *handle, const char *project,
-    const char *branch, int64_t elapsed_us, bool attention, int64_t operation_elapsed_us, bool compacting)
+    const char *branch, const HostPanelObservation *source, int64_t elapsed_us,
+    bool attention, int64_t operation_elapsed_us, bool compacting)
 {
     if (!handle || !project || !branch || elapsed_us < 0) {
         return host_result("activity_identity", ESP_ERR_INVALID_ARG);
     }
-    auto &state = static_cast<HostScene *>(handle)->activity_identity;
-    esp_err_t error = CODY::prepare_activity_identity(state, CODY::SceneData::body_font,
-        project, branch, 0);
+    auto &owner = *static_cast<HostScene *>(handle);
+    auto &state = owner.activity_identity;
+    esp_err_t error = project_host_panel_observation(source, owner.panel_observation);
+    if (error != ESP_OK) { return error; }
+    const auto model_cost = CODY::observed_model_cost(owner.panel_observation.link, owner.panel_observation.technical);
+    error = CODY::prepare_activity_identity(state, CODY::SceneData::body_font, project, branch, 0);
     bool changed = false;
+    if (error == ESP_OK) {
+        error = CODY::set_activity_model_cost(state, CODY::SceneData::body_font,
+            project[0] != '\0' ? model_cost.model : "",
+            project[0] != '\0' ? model_cost.band : LUNASHELL::CodexCostBand::Unknown, 0, changed);
+    }
     if (error == ESP_OK) {
         // Recreated host frames receive time since the caller's identity/attention transition.
         state.attention_active = attention;

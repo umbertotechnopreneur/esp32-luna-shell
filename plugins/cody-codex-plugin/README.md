@@ -10,8 +10,14 @@ and returns matching COMMITTED before the broker admits presence, events or
 current activity/technical data. Earlier handshake formats are rejected.
 Source changes do not install the plugin or flash the device.
 
-The **Model & Context** panel includes a colored **Standard: Economy / Balanced /
-Expensive / Unknown** badge. The portable Python catalog owner downloads the
+Home keeps a visible **Economy / Balanced / Expensive! / Unknown** chip below
+the project/branch/model carousel. Economy is green, Balanced orange, Expensive!
+red, and Unknown gray. The warning remains visible during attention and genuine
+compaction, beside its elapsed timer. A band-only update does not restart the
+carousel, title reveal or sound. The **Model & Context** panel repeats the same
+band as **Standard: ...**, keeping compaction and context status separate.
+
+The portable Python catalog owner downloads the
 official [Codex Standard credit table](https://learn.chatgpt.com/docs/pricing)
 in the existing broker's background thread on its first start each local day.
 It makes no API call and requires no API key. Hooks never download prices.

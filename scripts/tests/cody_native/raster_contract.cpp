@@ -26,6 +26,8 @@
 #include "CODY_connection_personality.hpp"
 #include "CODY_scene.hpp"
 #include "CODY_technical_panels.hpp"
+#include "CODY_activity_identity.hpp"
+#include "LUNASHELL_snapshot_aging.hpp"
 #include "scene_data.hpp"
 #include "CODY_navigation_visibility.hpp"
 #include "LUNASHELL_button_hold.hpp"
@@ -1699,6 +1701,115 @@ void check_technical_panel_owner_contract()
         std::strstr(presentation.captions[0], "unknown-model") != nullptr,
         "a genuine model slug containing a placeholder word is retained");
 }
+// No parameters: synthetic canonical metadata covers the actual cost lease, Home carousel and native panels.
+// Exception: Reports native preparation, timing, raster or provenance failures through require.
+void check_cost_badge_contract()
+{
+    static LUNASHELL::CodexLinkSnapshot link{};
+    static LUNASHELL::CodexTechnicalSnapshot technical{};
+    static CODY::ActivityIdentityState identity{};
+    static CODY::PanelPresentation presentation{};
+    link.state = LUNASHELL::CodexLinkState::Connected;
+    link.data_valid = true;
+    link.activity.data_valid = true;
+    link.activity.state = LUNASHELL::CodexActivityState::Working;
+    link.activity.revision = 5;
+    std::memset(link.activity.chat_id, 'a', 64);
+    std::memcpy(technical.chat_id, link.activity.chat_id, 65);
+    technical.revision = 5;
+    technical.data_valid = true;
+    technical.received_at_us = 1000000;
+    technical.model_valid = true;
+    technical.model_source = LUNASHELL::CodexModelSource::HookMetadata;
+    std::strcpy(technical.model, "gpt-6-astra");
+    technical.cost_band = LUNASHELL::CodexCostBand::Expensive;
+    technical.cost_source = LUNASHELL::CodexCostSource::CodexStandardCatalog;
+    technical.cost_age_at_receive_us = 3600000000;
+    technical.cost_valid_for_us = 2000000;
+    LUNASHELL::age_codex_technical(technical, 2999999);
+    require(!technical.cost_stale && CODY::observed_model_cost(link, technical).band ==
+        LUNASHELL::CodexCostBand::Expensive, "catalog remains current immediately before its independent lease boundary");
+    LUNASHELL::age_codex_technical(technical, 3000000);
+    require(technical.cost_stale && !technical.model_stale && !technical.data_stale &&
+        CODY::observed_model_cost(link, technical).band == LUNASHELL::CodexCostBand::Unknown,
+        "catalog expiry becomes Unknown while transport and the model are still current");
+    technical.cost_valid_for_us = 3600000000;
+    LUNASHELL::age_codex_technical(technical, 1000000);
+    bool changed = false;
+    require(CODY::prepare_activity_identity(identity, CODY::SceneData::body_font,
+        "SIMULATED project", "codex/cody", 0) == ESP_OK &&
+        CODY::set_activity_model_cost(identity, CODY::SceneData::body_font, technical.model,
+            technical.cost_band, 0, changed) == ESP_OK && changed,
+        "Home prepares exact model text and a persistent host-classified band");
+    require(std::strcmp(identity.cost_caption, "Expensive!") == 0 && identity.cost_line.color == 0xF986,
+        "Expensive has an explicit red exclamation chip");
+    for (const auto moment : {0LL, 5500000LL, 9000000LL, 13500000LL}) {
+        const auto expected = moment == 5500000 ? CODY::ActivityIdentityKind::Branch :
+            moment == 9000000 ? CODY::ActivityIdentityKind::Model : CODY::ActivityIdentityKind::Project;
+        require(CODY::advance_activity_identity(identity, CODY::SceneData::body_font,
+            moment, false, -1, changed) == ESP_OK && identity.selected == expected &&
+            identity.opacity == 255 && identity.cost_line.valid,
+            "project/branch/model uses the shared fade cycle while the chip stays visible");
+    }
+    require(CODY::advance_activity_identity(identity, CODY::SceneData::body_font,
+        16000000, true, -1, changed) == ESP_OK && identity.selected == CODY::ActivityIdentityKind::Project &&
+        std::strcmp(identity.cost_caption, "Expensive!") == 0,
+        "attention retains the project and does not suppress the cost warning");
+    identity.compaction_timer = true;
+    require(CODY::advance_activity_identity(identity, CODY::SceneData::body_font,
+        17000000, true, 90000000, changed) == ESP_OK && identity.timer_visible &&
+        identity.timer_line.origin.x >= 258 && std::strcmp(identity.timer, "01:30") == 0,
+        "authoritative compaction time remains beside the cost chip without overlap");
+
+    // Host-only heap canvases compare complete native rendering with tile retirement; no firmware allocation.
+    constexpr uint16_t size = 466;
+    std::vector<uint16_t> full_pixels(size * size, 0);
+    std::vector<uint16_t> tiled_pixels(size * size, 0);
+    const CODY2D::Surface full{full_pixels.data(), size, size, size, static_cast<uint32_t>(full_pixels.size())};
+    require(CODY::draw_activity_identity(identity, full, 0, 0) == ESP_OK, "Home cost/timer renders in native RGB565");
+    for (uint16_t row = 0; row < size; row += 17) {
+        const uint16_t rows = std::min<uint16_t>(17, size - row);
+        const CODY2D::Surface tile{tiled_pixels.data() + row * size, size, rows, size,
+            static_cast<uint32_t>(tiled_pixels.size() - row * size)};
+        require(CODY::draw_activity_identity(identity, tile, row, 0) == ESP_OK, "Home badge strip uses logical native coordinates");
+    }
+    require(full_pixels == tiled_pixels, "Home badge and timer have complete-frame/strip parity");
+    require(full_pixels[343 * size + 87] != 0 && full_pixels[343 * size + 158] != 0,
+        "the visible red chip occupies its dedicated left slot beside the compaction timer");
+
+    const int64_t baseline = identity.started_at_us;
+    require(CODY::set_activity_model_cost(identity, CODY::SceneData::body_font, technical.model,
+        LUNASHELL::CodexCostBand::Economy, 18000000, changed) == ESP_OK && changed &&
+        identity.started_at_us == baseline && identity.cost_line.color == 0x87EF,
+        "a price-only update changes the green chip without restarting the identity carousel");
+    technical.context_valid = true;
+    technical.used = 95;
+    technical.capacity = 100;
+    technical.effort_valid = true;
+    std::strcpy(technical.effort, "high");
+    std::memset(technical.model, 'M', 128);
+    technical.model[128] = '\0';
+    technical.compaction = LUNASHELL::CodexCompactionState::Active;
+    technical.compaction_valid = true;
+    technical.compaction_age_valid = true;
+    technical.compaction_age_at_receive_us = 1000000;
+    CODY::SceneContent content{};
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
+        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        presentation.line_count == 3 && std::strcmp(presentation.captions[2], "Context used: 95%") == 0 &&
+        presentation.context_bar_visible && presentation.compaction_active && presentation.cost_line.valid &&
+        presentation.lines[2].origin.y == 327 && std::strcmp(presentation.cost_caption, "Standard: Expensive!") == 0,
+        "long model and badge yield optional effort/counts to context and compaction");
+    technical.cost_stale = true;
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
+        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        std::strcmp(presentation.cost_caption, "Standard: Unknown") == 0 && presentation.compaction_active,
+        "stale price becomes Unknown without hiding actual compacting state");
+    technical.cost_stale = false;
+    ++technical.revision;
+    require(CODY::observed_model_cost(link, technical).model[0] == '\0',
+        "another revision cannot lend Home a current model or band");
+}
 }  // namespace
 
 // No parameters: host-only portable contracts never touch a driver or serial port.
@@ -1730,6 +1841,7 @@ int main()
         check_lifecycle_contract();
         check_scene_typewriter_contract();
         check_technical_panel_owner_contract();
+        check_cost_badge_contract();
     } catch (const std::exception &error) {
         std::fprintf(stderr, "Native contract failed: %s\n", error.what());
         return 1;

@@ -290,15 +290,24 @@ and purpose changes, pauses during genuine interaction views and disappears on
 completion/unavailability. Its timer appears only after ten observed seconds;
 it is neither a CPU measurement nor a progress estimate.
 
-The fixed project row holds for at least five seconds, fades out for 200 ms, remains black
-for 100 ms, then fades in `branch: <actual branch>` over 200 ms. Branch holds for
-at least three seconds before the reverse transition. Project is white; branch uses
-WhiteSmoke. Actual attention keeps the project visible. Native font metrics
+The fixed identity row rotates project, `branch: <actual branch>` and
+`model: <current reported model>` with minimum holds of five, three and four
+seconds. Each transition fades out for 200 ms, remains black for 100 ms, then
+fades in for 200 ms. Missing branch/model observations are omitted. Project is
+white; branch uses WhiteSmoke, and model uses its current cost-band color.
+Actual attention keeps the project visible. Native font metrics
 measure long identity captions and scroll their bounded native viewport. Long
 identity dwell extends until its full scroll and end hold complete. A purpose fitting
 the 320-pixel viewport stays still; overflow scrolls at 20 pixels per second
 with 1.2-second start and 1.8-second end holds. This animation never triggers
 hook activity, typewriter counts, touch admission or repeated audio.
+
+Home reserves a separate persistent chip at y=330-357: green Economy, orange
+Balanced, red Expensive!, gray Unknown. It stays centered without a timer, or
+moves into the left slot beside a current work/compaction timer. This chip does
+not participate in the identity fade and never replaces compaction feedback.
+Model/catalog freshness comes from the canonical observation; a band-only
+change redraws the chip without restarting the carousel or replaying audio.
 
 ## Authenticated technical metadata
 
@@ -362,8 +371,10 @@ The currently unsupported fields must be `-`; decoders reject numeric values
 until an actual source and its semantics are implemented. No model-global
 capacity, last-request input count, cumulative counter or guessed threshold is
 substituted for current context occupancy. No percentage or free-token bar is
-derived from missing data. Source ages use the PC monotonic clock and genuine
-hook emission timestamp, distinct from receiver-local transport timestamps.
+derived from missing data. Hook source ages use the PC monotonic clock and genuine
+emission timestamp, distinct from receiver-local transport timestamps. Catalog
+retrieval age and its local-day lease use the PC wall clock; the receiver expires
+that lease using its own monotonic elapsed time, without comparing wall clocks.
 Reported model and active compaction observations expire independently after
 120 seconds. Same-turn steering preserves the observed turn start and active
 tools; a new actual turn clears the previous model and compaction scope.

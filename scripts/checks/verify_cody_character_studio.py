@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "simulator/windows"))
 
 from cody_native_behavior import CharacterActivity, CharacterWorkKind, NativeBehavior
+from cody_native import NativePanelObservation
 from cody_happiness import PersonalityEvent
 from cody_personality import PersonalityCue
 from cody_petting import PettingZone
@@ -62,6 +63,31 @@ class CharacterStudioTests(unittest.TestCase):
         OUTPUT.mkdir(parents=True, exist_ok=True)
         self.renderer.capture_sheet(image, f"SIMULATED / {name}").save(OUTPUT / f"{name}.png")
         return scene
+
+    # self: Actual Studio C++ boundary with a visibly synthetic current model and independent catalog lease.
+    # Raises AssertionError if Home cannot show Expensive, retain the timer or expire the chip without losing the model.
+    def test_home_expensive_chip_and_catalog_expiry_use_native_rendering(self):
+        source = NativePanelObservation()
+        source.project = b"SIMULATED price badge"
+        source.chat_id = source.technical_chat_id = b"a" * 64
+        source.model = b"gpt-6-astra"
+        source.phase = 2
+        source.connected = source.link_valid = source.activity_valid = source.technical_valid = source.model_valid = True
+        source.cost_band = 3
+        source.cost_age_us = 3600000000
+        source.cost_valid_for_us = 1000000
+        OUTPUT.mkdir(parents=True, exist_ok=True)
+        pixels = []
+        for name, receipt_age in (("home-expensive", 0), ("home-price-expired", 1000000)):
+            source.receipt_age_us = receipt_age
+            scene = self.native.evaluate(self.base.face, (233., 145., 95.), self.base.contour | {"phase": 0.})
+            self.native.prepare_activity_identity(scene, "SIMULATED price badge", "codex/cody", source,
+                9000000, False, 12000000, False)
+            image = self.renderer.draw_scene(scene, debug=False, navigation_visible=False).convert("RGB")
+            self.renderer.capture_sheet(image, f"SIMULATED / {name}").save(OUTPUT / f"{name}.png")
+            pixels.append(image.getpixel((87, 343)))
+        self.assertGreater(pixels[0][0], pixels[0][1] * 2)
+        self.assertLess(abs(pixels[1][0] - pixels[1][1]), 16)
 
     # self: Real ctypes transport with a deliberately closed eye and audio mouth pose.
     # Raises AssertionError for gaze failure or damage to channels owned by the response model.

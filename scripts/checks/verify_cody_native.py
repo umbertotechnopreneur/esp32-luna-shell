@@ -98,6 +98,7 @@ def main(argv=None) -> None:
                    "components/CODY_companion/src/runtime/CODY_lifecycle.cpp",
                    "components/CODY_companion/src/scenes/CODY_scene.cpp",
                    "components/CODY_companion/src/scenes/CODY_technical_panels.cpp",
+                   "components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_aging.cpp",
                    "components/CODY_companion/src/model/CODY_expression_catalog.cpp",
                    "components/CODY_companion/src/model/CODY_connection_personality.cpp",
                    "assets/cody/scenes/generated/scene_font.cpp",

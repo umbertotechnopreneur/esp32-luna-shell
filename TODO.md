@@ -11,8 +11,8 @@ cover the later Codex acting/power-cue increment, physical behavior, every profi
 or the entire remaining matrix below.
 Stable IDs identify work; their order is not a domain identity.
 Continue development on the single local `codex/cody` branch; checkpoint history
-is consolidated there. The daily Codex Standard cache and qualitative Model &
-Context badge are implemented; source integration/validation remains open in
+is consolidated there. The daily Codex Standard cache, Home warning/carousel
+and Model & Context badge are implemented; final validation remains open in
 CCP-07. No rates, dollar amounts or session-cost estimation are sent to Cody.
 
 ## Reproduced device faults
@@ -91,10 +91,12 @@ CCP-07. No rates, dollar amounts or session-cost estimation are sent to Cody.
   Portable Python daily cache, strict public Standard table, exact model IDs,
   durable once-per-day attempts and authenticated TECH v2 are implemented.
   Native Model & Context displays the band without displacing compaction or a
-  measured context row. Complete Home project/branch/model rotation and a
-  persistent green/orange/red band chip, then obtain fresh named authorization
+  measured context row. Home project/branch/model rotation and a persistent
+  green/orange/red/gray band chip are integrated with compaction priority,
+  partial-frame damage and native Studio previews. Obtain fresh named authorization
   for CCP, native aging/rendering, Studio/simulator and firmware validation.
-  Prepared pricing cases have not run. Regeneration, compiled frames and device
+  Prepared cache, signed transport, expiry, raster and Studio cases have not run.
+  Regeneration, compiled frames and device
   stack headroom remain unverified; source work does not install or flash CCP 0.6.4.
 
 - [ ] **UI-01 - Setup and retained onboarding.** Exercise first-run versus
