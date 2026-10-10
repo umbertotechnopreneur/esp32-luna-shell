@@ -84,7 +84,7 @@ def inspect_packages(executable, catalog, names, include_runtime=False):
                 hooks = entry["hooks"]
                 fields = ("event", "eventName", "event_name", "enabled", "trusted",
                           "isTrusted", "approvalStatus", "status", "trustStatus",
-                          "pluginId", "source", "sourcePath")
+                          "pluginId", "source", "sourcePath", "statusMessage")
                 runtime.append({
                     "cwd": entry["cwd"],
                     "hook_count": len(hooks),
@@ -199,7 +199,7 @@ def main():
             if case["errors"]:
                 print(f"    Errors: {case['errors']}")
         for entry in runtime:
-            summaries = [{key: hook[key] for key in ("eventName", "enabled", "trustStatus")
+            summaries = [{key: hook[key] for key in ("eventName", "statusMessage", "enabled", "trustStatus")
                           if key in hook} for hook in entry["hooks"]]
             print(f"  Installed runtime: {entry['hook_count']} hooks; metadata: {summaries}")
     filename = "installed-report.json" if arguments.installed else "report.json"
@@ -215,6 +215,9 @@ def main():
                 raise RuntimeError("The runtime hook list did not expose the expected eight hooks.")
             if any(entry["errors"] for entry in item["runtime"]):
                 raise RuntimeError("The runtime reported a hook discovery error; see the report.")
+            if any(not (hook.get("statusMessage") or "").strip()
+                   for entry in item["runtime"] for hook in entry["hooks"]):
+                raise RuntimeError("An installed hook has no readable review label.")
 
 
 if __name__ == "__main__":

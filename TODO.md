@@ -19,8 +19,10 @@
   0.6.2 cache. Native plugin/read and hooks/list now expose all eight hooks on
   WinGet 0.161.0 and app 0.162.0-alpha.17.2; hook/config hashes are unchanged.
 - [ ] Complete native hook review in /hooks after restarting the client, then
-  observe a genuine user prompt. All eight discovered hooks remain untrusted;
-  metadata enablement is not permission to execute them.
+  observe a genuine user prompt. The eight renamed hooks now report modified
+  trust status and require native review; enablement is not execution permission.
+- [x] Give all eight installed CCP hooks descriptive English review labels through
+  statusMessage; verify native discovery returns those labels on both clients.
 
 
 ## Cody black-screen startup regression - 2026-10-10

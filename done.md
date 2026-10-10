@@ -2245,3 +2245,21 @@ the preserved copies within the build directory.
   no chat event was fabricated, and hashes confirm config.toml plus source/cache
   hooks.json are unchanged. Restart/review through native /hooks and a genuine
   user prompt remain pending; no firmware, simulator or physical-device validation.
+
+## CCP readable hook review labels - 2026-10-10
+
+- Replaced the native dialog's Hook 1-8 fallback through the supported
+  statusMessage field on all eight handlers, in source and the installed 0.6.2
+  cache. Local inspection of hooks-settings-copy in the installed desktop app
+  confirmed that review row titles use the configured status message.
+- Labels identify Cody and chat opening/closing, latest-prompt following,
+  tool start/finish, approval on the PC, reply readiness and interruption.
+  Event identities, commands, handler types and timeouts are unchanged.
+- Native installed inspection passed on 0.161.0 and 0.162.0-alpha.17.2:
+  eight hooks with nonempty labels, no warnings/errors and modified trust status.
+  The inspector reports labels and rejects a missing review label. Config hash
+  remains unchanged; trust records were not edited or bypassed. Inspection does
+  not execute hook commands. Native review of the changed definitions remains
+  required; visual confirmation after restarting the client is pending.
+- Backups and this revision's native report are under
+  artifacts/ccp-hook-labels-20261010. No firmware or physical-device validation.
