@@ -4,11 +4,38 @@
 uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
 for pairing; public Internet availability is a separate condition.
 
-CCP 0.6.3 and its firmware must be updated together. Signed READY binds a fresh
+CCP 0.6.4 and its firmware must be updated together. Signed READY binds a fresh
 broker challenge to the observed device endpoint. Cody validates the endpoint
 and returns matching COMMITTED before the broker admits presence, events or
 current activity/technical data. Earlier handshake formats are rejected.
 Source changes do not install the plugin or flash the device.
+
+The **Model & Context** panel includes a colored **Standard: Economy / Balanced /
+Expensive / Unknown** badge. The portable Python catalog owner downloads the
+official [Codex Standard credit table](https://learn.chatgpt.com/docs/pricing)
+in the existing broker's background thread on its first start each local day.
+It makes no API call and requires no API key. Hooks never download prices.
+Rates, source, retrieval time and the daily attempt record stay in
+`%LOCALAPPDATA%/CodyCodexPlugin/artifacts/pricing/codex-standard.json`.
+
+The product's qualitative policy uses uncached input and output credits per
+million tokens: Economy requires input <= 10 and output <= 50; Balanced requires
+input <= 100 and output <= 500; other recognized rates are Expensive. These
+thresholds describe a Standard reference, not OpenAI's model categories, account
+balance, speed, included-plan allowance or the cost of a chat. Cached-input rates
+are retained for source completeness and never used to guess chat expenditure.
+No dollar amount, rate or token-cost calculation is sent to Cody.
+
+Only explicitly mapped exact hook model IDs qualify. Missing/unsupported models,
+expired observations, an old-day catalog, failed refresh/persistence, or invalid
+cache produce Unknown. A failed download is attempted only once that day, even
+across broker restarts; it preserves the last valid catalog without presenting
+it as current. Midnight alone does not fetch: the badge expires and the next
+broker start or newly attached MCP transport triggers the daily refresh.
+Lease renewals and ordinary hooks never fetch. Corrupt cache is
+reported and left intact for explicit repair. The normal activity/link still
+works when this optional metadata fails. The existing credential/launch boundary
+remains Windows-specific; the new pricing module uses only portable Python.
 
 Recipient delivery and device closure remain distinct confirmations through
 EVENTACK and FIND `events=2`. A question surviving broker restart is retired

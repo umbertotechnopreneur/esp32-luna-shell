@@ -525,6 +525,8 @@ class CcpPanel:
         compactions = ("none", "active", "refreshed", "orphaned", "interrupted", "stale")
         observation.phase = phases.index(snapshot.phase)
         observation.compaction = compactions.index(technical.compaction.value) if technical else 0
+        bands = ("unknown", "economy", "balanced", "expensive")
+        observation.cost_band = bands.index(technical.cost_band.value) if coherent and technical else 0
         if known and not coherent:
             if technical.compaction.value == "active":
                 observation.compaction = compactions.index("stale")
@@ -541,6 +543,8 @@ class CcpPanel:
         observation.technical_valid = known
         observation.receipt_age_us = max(0, snapshot.technical_age_ms or 0) * 1000
         if technical is not None:
+            observation.cost_age_us = (technical.cost_age_ms or 0) * 1000
+            observation.cost_valid_for_us = (technical.cost_valid_for_ms or 0) * 1000
             for field, source in (("model", technical.model_age_ms), ("compaction", technical.compaction_age_ms),
                                   ("activity", technical.activity_age_ms), ("turn_elapsed", technical.turn_elapsed_ms)):
                 valid_name = "model_valid" if field == "model" else field + "_age_valid" if field in {"compaction", "activity"} else "turn_elapsed_valid"

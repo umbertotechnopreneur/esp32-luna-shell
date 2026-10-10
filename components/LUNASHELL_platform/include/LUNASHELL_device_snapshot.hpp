@@ -282,6 +282,8 @@ struct CodexActivitySnapshot : ComponentSnapshot {
 };
 
 enum class CodexModelSource : uint8_t { Unavailable, HookMetadata };
+enum class CodexCostBand : uint8_t { Unknown, Economy, Balanced, Expensive };
+enum class CodexCostSource : uint8_t { Unavailable, CodexStandardCatalog };
 enum class CodexCompactionState : uint8_t { None, Active, Refreshed, Orphaned, Interrupted, Stale };
 
 // Technical measurements are separate from link liveness and tool-phase snapshots.
@@ -321,6 +323,12 @@ struct CodexTechnicalSnapshot : ComponentSnapshot {
     uint64_t output = 0;
     uint64_t threshold = 0;
     uint64_t usage_age_at_receive_us = 0;
+    // Host-classified Standard reference, not a bill; expiry is the PC's next local midnight.
+    uint64_t cost_age_at_receive_us = 0;
+    uint64_t cost_valid_for_us = 0;
+    CodexCostBand cost_band = CodexCostBand::Unknown;
+    CodexCostSource cost_source = CodexCostSource::Unavailable;
+    bool cost_stale = false;
 };
 static_assert(sizeof(CodexTechnicalSnapshot) <= 512,
     "Technical telemetry projection must remain bounded to a 512-byte caller frame");

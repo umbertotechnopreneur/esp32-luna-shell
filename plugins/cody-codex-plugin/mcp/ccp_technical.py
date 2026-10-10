@@ -21,11 +21,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 import re
+from ccp_pricing import CostBand, MAX_DAY_MS
 
 
 FIELDS = ("device", "pc", "nonce", "chat", "turn", "revision", "model", "effort", "modelage",
           "compaction", "compactseq", "compactage", "activityage", "turnelapsed",
-          "used", "capacity", "cumulative", "input", "output", "threshold", "usageage")
+          "used", "capacity", "cumulative", "input", "output", "threshold", "usageage",
+          "cost", "costage", "costttl")
 UNAVAILABLE_FIELDS = ("effort", "used", "capacity", "cumulative", "input", "output", "threshold", "usageage")
 
 
@@ -60,6 +62,9 @@ class TechnicalProjection:
     output_tokens: int | None = None
     compact_threshold: int | None = None
     usage_age_ms: int | None = None
+    cost_band: CostBand = CostBand.UNKNOWN
+    cost_age_ms: int | None = None
+    cost_valid_for_ms: int | None = None
 
 
 # value: Exact decimal uint32 milliseconds or the explicit unavailable token.
@@ -95,10 +100,19 @@ def decode_projection(fields: dict[str, str]) -> TechnicalProjection:
     compact_age = milliseconds(fields["compactage"], "compactage")
     activity_age = milliseconds(fields["activityage"], "activityage")
     turn_elapsed = milliseconds(fields["turnelapsed"], "turnelapsed")
+    cost = CostBand(fields["cost"])
+    cost_age = milliseconds(fields["costage"], "costage")
+    cost_ttl = milliseconds(fields["costttl"], "costttl")
     compaction = CompactionState(fields["compaction"])
     sequence = int(fields["compactseq"], 16)
     if bool(model) != (model_age is not None):
         raise ValueError("TECH model metadata and source age are incoherent")
+    if cost == CostBand.UNKNOWN:
+        if cost_age is not None or cost_ttl is not None:
+            raise ValueError("TECH Unknown cost must not claim current catalog durations")
+    elif (not model or model_age is None or model_age >= 120000 or cost_age is None
+          or cost_age > MAX_DAY_MS or cost_ttl is None or not 0 < cost_ttl <= MAX_DAY_MS):
+        raise ValueError("TECH known cost requires a current model and bounded catalog age/expiry")
     if (compaction == CompactionState.NONE) != (sequence == 0) or sequence == 0 and compact_age is not None:
         raise ValueError("TECH compaction identity and source age are incoherent")
     if fields["chat"] == "0" * 64:
@@ -107,4 +121,5 @@ def decode_projection(fields: dict[str, str]) -> TechnicalProjection:
     elif fields["turn"] == "0" * 64 and (model or sequence or turn_elapsed is not None):
         raise ValueError("TECH turn-scoped metadata requires its observed turn identity")
     return TechnicalProjection(fields["chat"], fields["turn"], fields["revision"], model,
-        model_age, compaction, sequence, compact_age, activity_age, turn_elapsed)
+        model_age, compaction, sequence, compact_age, activity_age, turn_elapsed,
+        cost_band=cost, cost_age_ms=cost_age, cost_valid_for_ms=cost_ttl)

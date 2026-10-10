@@ -97,6 +97,7 @@ struct HostPanelObservation {
     const char *effort;
     uint8_t phase;
     uint8_t compaction;
+    uint8_t cost_band;
     bool connected;
     bool link_valid;
     bool link_stale;
@@ -114,6 +115,8 @@ struct HostPanelObservation {
     uint64_t activity_age_us;
     uint64_t turn_elapsed_us;
     uint64_t receipt_age_us;
+    uint64_t cost_age_us;
+    uint64_t cost_valid_for_us;
 };
 
 // source: Borrowed NUL-terminated printable ASCII producer string.
@@ -439,7 +442,7 @@ CODY_HOST_EXPORT int cody_host_panel_prepare(void *handle, uint8_t panel,
 CODY_HOST_EXPORT int cody_host_panel_observation(void *handle, uint8_t panel,
     const HostPanelObservation *source, int64_t active_time_us)
 {
-    if (!handle || !source || active_time_us < 0 || source->phase > 9 || source->compaction > 5 ||
+    if (!handle || !source || active_time_us < 0 || source->phase > 9 || source->compaction > 5 || source->cost_band > 3 ||
         source->receipt_age_us > static_cast<uint64_t>(INT64_MAX - 1)) {
         return host_result("panel_observation", ESP_ERR_INVALID_ARG);
     }
@@ -471,6 +474,11 @@ CODY_HOST_EXPORT int cody_host_panel_observation(void *handle, uint8_t panel,
     technical.model_valid = source->model_valid;
     technical.model_source = source->model_valid ? LUNASHELL::CodexModelSource::HookMetadata : LUNASHELL::CodexModelSource::Unavailable;
     technical.model_age_at_receive_us = source->model_age_us;
+    technical.cost_band = static_cast<LUNASHELL::CodexCostBand>(source->cost_band);
+    technical.cost_source = source->cost_band != 0 ? LUNASHELL::CodexCostSource::CodexStandardCatalog :
+        LUNASHELL::CodexCostSource::Unavailable;
+    technical.cost_age_at_receive_us = source->cost_age_us;
+    technical.cost_valid_for_us = source->cost_valid_for_us;
     technical.effort_valid = source->effort_valid;
     technical.compaction = static_cast<LUNASHELL::CodexCompactionState>(source->compaction);
     technical.compaction_valid = source->compaction_valid;

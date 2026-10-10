@@ -40,6 +40,7 @@ import ccp_reset as reset
 import ccp_clock as clock
 import ccp_name as preferred_name
 import ccp_technical as technical_metadata
+from ccp_pricing import PriceCache
 from ccp_security import DatagramAdmission, RejectionReporter
 from ccp_windows import configure_exclusive_socket, protect_secret, unprotect_secret, runtime_directory
 
@@ -52,7 +53,7 @@ MAX_ACTIVITY_DATAGRAM_BYTES = 1024
 MAX_TECHNICAL_DATAGRAM_BYTES = 1024
 TECHNICAL_FIELDS = technical_metadata.FIELDS
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.3"
+SERVER_VERSION = "0.6.4"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CHALLENGE_TIMEOUT_SECONDS = 2.0
 MAX_DISCOVERY_OFFERS = 16
@@ -672,10 +673,10 @@ class CompanionResponder:
         with_activity = with_events or set(fields) == {"device", "pc", "nonce", "activity", "proof"}
         if not with_activity and set(fields) != {"device", "pc", "nonce", "proof"}:
             raise ValueError("CCP FIND has unexpected or missing fields")
-        if with_activity and fields["activity"] not in {"1", "2", "3"}:
+        if with_activity and fields["activity"] not in {"1", "2", "4"}:
             raise ValueError("Unsupported CCP activity capability")
-        with_description = with_activity and fields["activity"] in {"2", "3"}
-        with_technical = with_activity and fields["activity"] == "3"
+        with_description = with_activity and fields["activity"] in {"2", "4"}
+        with_technical = with_activity and fields["activity"] == "4"
         if with_events:
             if fields["events"] != "2":
                 raise ValueError("Unsupported CCP events capability")
@@ -699,7 +700,7 @@ class CompanionResponder:
             if with_description:
                 domain = "find-events-activity-v2" if with_events else "find-activity-v2"
             if with_technical:
-                domain = "find-events-activity-v3" if with_events else "find-activity-v3"
+                domain = "find-events-activity-v4" if with_events else "find-activity-v4"
             values = [fields["device"], fields["pc"], fields["nonce"]]
             if with_events:
                 values.extend((fields["current"], fields["state"]))
@@ -738,8 +739,8 @@ class CompanionResponder:
         retained = self._state.retained_keys(fields["device"])
         with_events = "events" in fields
         with_activity = "activity" in fields
-        with_description = with_activity and fields["activity"] in {"2", "3"}
-        with_technical = with_activity and fields["activity"] == "3"
+        with_description = with_activity and fields["activity"] in {"2", "4"}
+        with_technical = with_activity and fields["activity"] == "4"
         now = time.monotonic()
         self._state.mark_seen(fields["device"], source[0])
         if with_activity:
@@ -768,7 +769,7 @@ class CompanionResponder:
                 # One locked projection binds both packets to the same chat and activity revision.
                 technical_fields = {"device": fields["device"], "pc": fields["pc"], "nonce": fields["nonce"], **technical}
                 values = [technical_fields[name] for name in TECHNICAL_FIELDS]
-                proof = make_proof(link_key, "technical-v1", *values)
+                proof = make_proof(link_key, "technical-v2", *values)
                 payload = encode_datagram("TECH", list(zip(TECHNICAL_FIELDS, values)) + [("proof", proof)])
                 self._socket.sendto(payload, source)
         if with_events and retained.active is not None and hmac.compare_digest(link_key, retained.active):
@@ -1037,8 +1038,9 @@ class CompanionResponder:
 
 class CcpService:
     # self: Loads protected state and starts the local authenticated responder.
+    # pricing: Optional portable catalog owned and started by the exclusive runtime broker.
     # Raises RuntimeError or OSError when state or the fixed UDP listener is unavailable.
-    def __init__(self) -> None:
+    def __init__(self, pricing: PriceCache | None = None) -> None:
         if os.name != "nt":
             raise RuntimeError("CCP requires Windows for protected pairing persistence")
         # Acquire ownership first: a second process must fail without creating,
@@ -1046,7 +1048,7 @@ class CcpService:
         listener = open_companion_listener()
         try:
             self.state = StateStore()
-            self.activity = ActivityStore()
+            self.activity = ActivityStore(pricing)
             self.interactions = interactions.InteractionStore()
             self.notifications_error: str | None = None
             self.responder = CompanionResponder(self.state, listener, self.activity, self.interactions)

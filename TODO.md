@@ -11,8 +11,9 @@ cover the later Codex acting/power-cue increment, physical behavior, every profi
 or the entire remaining matrix below.
 Stable IDs identify work; their order is not a domain identity.
 Continue development on the single local `codex/cody` branch; checkpoint history
-is consolidated there. The relative model-cost badge remains a proposal in
-planned-todo.md, without prices or session-cost estimation on Cody.
+is consolidated there. The daily Codex Standard cache and qualitative Model &
+Context badge are implemented; source integration/validation remains open in
+CCP-07. No rates, dollar amounts or session-cost estimation are sent to Cody.
 
 ## Reproduced device faults
 
@@ -85,6 +86,16 @@ planned-todo.md, without prices or session-cost estimation on Cody.
   the existing Windows credential/launcher boundary still needs a separate port.
 
 ## Cody routes and presentation
+
+- [ ] **CCP-07 - Daily Codex price bands and Home visibility, 2026-10-11.**
+  Portable Python daily cache, strict public Standard table, exact model IDs,
+  durable once-per-day attempts and authenticated TECH v2 are implemented.
+  Native Model & Context displays the band without displacing compaction or a
+  measured context row. Complete Home project/branch/model rotation and a
+  persistent green/orange/red band chip, then obtain fresh named authorization
+  for CCP, native aging/rendering, Studio/simulator and firmware validation.
+  Prepared pricing cases have not run. Regeneration, compiled frames and device
+  stack headroom remain unverified; source work does not install or flash CCP 0.6.4.
 
 - [ ] **UI-01 - Setup and retained onboarding.** Exercise first-run versus
   retained pairing, missing/saved Wi-Fi, reconnect/DHCP, unavailable/stale data,

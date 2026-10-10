@@ -31,6 +31,7 @@ import time
 from typing import Any
 
 import ccp_server as ccp
+from ccp_pricing import PriceCache
 from ccp_activity import EVENTS
 from ccp_repository import read_branch
 from ccp_security import RejectionReporter, configure_runtime_logging
@@ -309,6 +310,7 @@ def dispatch(server: ControlServer, operation: str, payload: dict[str, Any]) -> 
         identity = payload.get("id")
         if set(payload) != {"id"} or not isinstance(identity, str) or ccp.HEX_PATTERNS["pc"].fullmatch(identity) is None:
             raise ValueError("Invalid CCP transport lease identity")
+        new_transport = False
         with server.lease_lock:
             if operation == "lease":
                 now = time.monotonic()
@@ -316,9 +318,17 @@ def dispatch(server: ControlServer, operation: str, payload: dict[str, Any]) -> 
                                  if now - observed <= IDLE_GRACE_SECONDS}
                 if identity not in server.leases and len(server.leases) >= 64:
                     raise ValueError("CCP active transport limit reached")
+                new_transport = identity not in server.leases
                 server.leases[identity] = time.monotonic()
             else:
                 server.leases.pop(identity, None)
+        if new_transport:
+            # A new MCP transport is a plugin start, including when yesterday's broker stayed alive.
+            # Lease renewals and hooks never fetch; the cache durably enforces one daily attempt.
+            try:
+                server.pricing.start_daily_refresh()
+            except (OSError, ValueError, RuntimeError) as error:
+                print(f"CCP pricing plugin-start refresh failed: {error}", file=sys.stderr, flush=True)
         return {}
     if operation == "hook":
         server.service.activity.observe(payload)
@@ -363,13 +373,21 @@ def run_broker() -> int:
         # Only the exclusive runtime owner may rotate the shared broker diagnostic files.
         configure_runtime_logging(runtime_directory())
         server.secret = control_secret(create=True)
-        server.service = ccp.CcpService()
+        pricing = PriceCache(runtime_directory() / "artifacts" / "pricing" / "codex-standard.json")
+        server.pricing = pricing
+        server.service = ccp.CcpService(pricing)
         server.leases = {}
         server.lease_lock = threading.Lock()
         server.tool_lock = threading.Lock()
         server.last_hook = time.monotonic()
         server.timeout = 1.0
         try:
+            # Pricing is optional metadata. Its real error remains in PriceCache and the log;
+            # a catalog failure must not prevent hooks, native approvals or pairing delivery.
+            try:
+                pricing.start_daily_refresh()
+            except (OSError, ValueError, RuntimeError) as error:
+                print(f"CCP pricing startup failed: {error}", file=sys.stderr, flush=True)
             while True:
                 server.service.responder.require_running()
                 server.handle_request()
@@ -378,7 +396,10 @@ def run_broker() -> int:
                     if time.monotonic() - latest > IDLE_GRACE_SECONDS:
                         break
         finally:
-            server.service.close()
+            try:
+                server.service.close()
+            finally:
+                pricing.close()
     return 0
 
 

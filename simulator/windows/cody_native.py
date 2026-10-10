@@ -91,6 +91,7 @@ class NativePanelInputs(C.Structure):
     _fields_ = [(name, C.c_char_p) for name in ("project", "branch", "description", "chat_id", "model", "effort")] + [
         ("phase", C.c_uint8), ("compaction", C.c_uint8),
         ("link", C.c_uint8), ("activity", C.c_uint8), ("model_state", C.c_uint8), ("effort_state", C.c_uint8),
+        ("cost_band", C.c_uint8), ("cost_state", C.c_uint8),
         ("connected", C.c_bool), ("simulated", C.c_bool), ("context_coherent", C.c_bool),
         ("context_estimated", C.c_bool), ("counters_pending", C.c_bool)] + [
         (name, NativePanelMetric) for name in ("used", "capacity", "threshold", "cumulative",
@@ -107,12 +108,12 @@ class NativePanelInputs(C.Structure):
 class NativePanelObservation(C.Structure):
     """Raw authenticated PC metadata; shared C++ owns receipt/source aging and presentation."""
     _fields_ = [(name, C.c_char_p) for name in ("project", "branch", "description", "chat_id",
-        "technical_chat_id", "model", "effort")] + [("phase", C.c_uint8), ("compaction", C.c_uint8)] + [
+        "technical_chat_id", "model", "effort")] + [("phase", C.c_uint8), ("compaction", C.c_uint8), ("cost_band", C.c_uint8)] + [
         (name, C.c_bool) for name in ("connected", "link_valid", "link_stale", "activity_valid",
             "activity_stale", "technical_valid", "model_valid", "effort_valid", "compaction_valid",
             "compaction_age_valid", "activity_age_valid", "turn_elapsed_valid")] + [
         (name, C.c_uint64) for name in ("model_age_us", "compaction_age_us", "activity_age_us",
-            "turn_elapsed_us", "receipt_age_us")]
+            "turn_elapsed_us", "receipt_age_us", "cost_age_us", "cost_valid_for_us")]
 
     # self: Raw source projection consumed synchronously by the native scratch owner.
     # Raises no exceptions; absent fields retain unavailable flags rather than numeric claims.

@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 from typing import Any
+from ccp_pricing import PriceCache, PriceProjection
 
 
 class Phase(str, Enum):
@@ -146,9 +147,11 @@ class Session:
 
 
 class ActivityStore:
-    # No parameters: a new broker waits for a genuine prompt before following a chat.
-    def __init__(self) -> None:
+    # self: New broker waits for a genuine prompt before following a chat.
+    # pricing: Optional memory-only catalog owner; absence leaves the qualitative band Unknown.
+    def __init__(self, pricing: PriceCache | None = None) -> None:
         self._lock = threading.Lock()
+        self._pricing = pricing
         self._sessions: dict[str, Session] = {}
         self._followed_session_id = ""
         self._last_prompt_ns = 0
@@ -400,4 +403,10 @@ class ActivityStore:
                 **{key: "-" for key in ("effort", "used", "capacity", "cumulative", "input", "output", "threshold", "usageage")}}
             if technical["modelage"] == "-":
                 technical["model"] = "-"
+            price = (self._pricing.projection(session.model)
+                     if self._pricing is not None and session is not None and technical["model"] != "-"
+                     and now - session.model_observed_at < ACTIVITY_LEASE_SECONDS else PriceProjection())
+            technical.update(cost=price.band.value,
+                             costage=str(price.age_ms) if price.age_ms is not None else "-",
+                             costttl=str(price.valid_for_ms) if price.valid_for_ms is not None else "-")
             return activity, technical

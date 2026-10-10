@@ -140,7 +140,7 @@ time never authorize automatic deletion.
 The displayed code, verifier and pairing salt are wiped when the attempt ends.
 Neither side logs them.
 
-## Authenticated rediscovery (CCP 0.6.3)
+## Authenticated rediscovery (CCP 0.6.4)
 
 After commissioning, a retained boot or reconnection, Cody broadcasts a new
 128-bit client nonce every two seconds. The authenticated FIND capabilities
@@ -195,23 +195,23 @@ an unrelated pending candidate. `pairing_pending` and `retained_pairing` remain
 separate. The exclusive local listener is acquired before protected identity
 access, and a stopped responder remains an actual MCP tool error.
 
-CCP 0.6.3, firmware and the explicit simulator must be updated together.
+CCP 0.6.4, firmware and the explicit simulator must be updated together.
 Earlier READY/COMMITTED layouts and HMAC domains are rejected; there is no
 compatibility fallback. The saved pairing record format remains unchanged.
 
 ## Authenticated chat activity and purpose
 
-Current firmware negotiates `activity=3`, with or without the separate events
+Current firmware negotiates `activity=4`, with or without the separate events
 capability. Each capability is bound to its own HMAC domain; stripping or
 changing a capability never reuses a presence proof. Version three adds the
 separate TECH projection below; its ACTIVITY payload keeps version-two fields.
 
 ```text
-CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=3|proof=<64hex>
-HMAC input: find-activity-v3|<device>|<pc>|<nonce>
+CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=4|proof=<64hex>
+HMAC input: find-activity-v4|<device>|<pc>|<nonce>
 
-CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=3|events=2|current=<32hex>|state=<device-state>|proof=<64hex>
-HMAC input: find-events-activity-v3|<device>|<pc>|<nonce>|<current>|<state>
+CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=4|events=2|current=<32hex>|state=<device-state>|proof=<64hex>
+HMAC input: find-events-activity-v4|<device>|<pc>|<nonce>|<current>|<state>
 
 CCP1|ACTIVITY|device=<12hex>|pc=<32hex>|nonce=<32hex>|chat=<64hex>|revision=<16hex>|phase=<token>|project=<hex or ->|description=<hex or ->|branch=<hex or ->|proof=<64hex>
 HMAC input: activity-v2|<device>|<pc>|<nonce>|<chat>|<revision>|<phase>|<project>|<description>|<branch>
@@ -302,14 +302,14 @@ hook activity, typewriter counts, touch admission or repeated audio.
 
 ## Authenticated technical metadata
 
-Version-three FIND yields READY; fresh COMMITTED then yields ACTIVITY and TECH. Activity and technical
+Version-four FIND yields READY; fresh COMMITTED then yields ACTIVITY and TECH. Activity and technical
 metadata are acquired under one ActivityStore lock, preserving one chat and
 revision even when a hook arrives during UDP transmission. EVENT and other
 independent extensions retain their own authenticated contracts.
 
 ```text
-CCP1|TECH|device=<12hex>|pc=<32hex>|nonce=<32hex>|chat=<64hex>|turn=<64hex>|revision=<16hex>|model=<hex or ->|effort=-|modelage=<ms or ->|compaction=<token>|compactseq=<16hex>|compactage=<ms or ->|activityage=<ms or ->|turnelapsed=<ms or ->|used=-|capacity=-|cumulative=-|input=-|output=-|threshold=-|usageage=-|proof=<64hex>
-HMAC input: technical-v1|<device>|<pc>|<nonce>|<chat>|<turn>|<revision>|<model>|<effort>|<modelage>|<compaction>|<compactseq>|<compactage>|<activityage>|<turnelapsed>|<used>|<capacity>|<cumulative>|<input>|<output>|<threshold>|<usageage>
+CCP1|TECH|device=<12hex>|pc=<32hex>|nonce=<32hex>|chat=<64hex>|turn=<64hex>|revision=<16hex>|model=<hex or ->|effort=-|modelage=<ms or ->|compaction=<token>|compactseq=<16hex>|compactage=<ms or ->|activityage=<ms or ->|turnelapsed=<ms or ->|used=-|capacity=-|cumulative=-|input=-|output=-|threshold=-|usageage=-|cost=<band>|costage=<ms or ->|costttl=<ms or ->|proof=<64hex>
+HMAC input: technical-v2|<device>|<pc>|<nonce>|<chat>|<turn>|<revision>|<model>|<effort>|<modelage>|<compaction>|<compactseq>|<compactage>|<activityage>|<turnelapsed>|<used>|<capacity>|<cumulative>|<input>|<output>|<threshold>|<usageage>|<cost>|<costage>|<costttl>
 ```
 
 Field order is mandatory. TECH accepts at most 1024 bytes without fragmentation.
@@ -346,6 +346,17 @@ an ended chat preserves the known chat without inventing a new turn.
 | used, capacity | UNAVAILABLE: no connected desktop-owned usage/capacity stream |
 | cumulative, input, output | UNAVAILABLE: no connected desktop-owned token counters |
 | threshold, usageage | UNAVAILABLE: no observed automatic threshold or token sample |
+| cost | Exact-model qualitative Codex Standard catalog band: `unknown`, `economy`, `balanced`, `expensive`; no rates/currency/bill |
+| costage | Original public-catalog retrieval age on the PC, independent of hook/packet liveness |
+| costttl | Remaining PC local-calendar lease until next midnight; no receiver wall-clock comparison |
+
+Known cost requires a current model observation (model age < 120000 ms), and
+catalog age/expiry <= 93600000 ms (26 hours, permitting DST); expiry must be
+positive. Unknown requires both durations to be `-`. Firmware independently
+expires cost on this lease, stale model/transport or disconnection. Repeated
+packets do not change the original retrieval age or the catalog's local day.
+The source, numeric rates, attempt/error state and classification thresholds
+remain on the PC; see the [catalog policy](../README.md).
 
 The currently unsupported fields must be `-`; decoders reject numeric values
 until an actual source and its semantics are implemented. No model-global

@@ -27,6 +27,7 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -39,6 +40,7 @@ import ccp_windows as windows
 import ccp_interactions as interactions
 import ccp_technical as technical_metadata
 import ccp_security as security
+import ccp_pricing as pricing
 from cody_ccp_event_vectors import event_vectors
 
 
@@ -344,8 +346,8 @@ class CcpContractTests(unittest.TestCase):
         source = ("192.0.2.10", ccp.DEVICE_PORT)
         values = ["abcdef012345", state.pc_id, "b" * 32]
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values))
-            + [("activity", "3"), ("events", "2"), ("current", "0" * 32), ("state", "none"),
-               ("proof", ccp.make_proof(key, "find-events-activity-v3", *values, "0" * 32, "none"))])
+            + [("activity", "4"), ("events", "2"), ("current", "0" * 32), ("state", "none"),
+               ("proof", ccp.make_proof(key, "find-events-activity-v4", *values, "0" * 32, "none"))])
         return state, responder, key, source, find
 
     # self: Replayed broadcast FIND arriving from a different untrusted endpoint.
@@ -732,7 +734,7 @@ class ChatActivityTests(unittest.TestCase):
         self.observe("UserPromptSubmit", cwd="E:/" + "P" * 64)
         self.assertEqual(bytes.fromhex(self.store.snapshot()["project"]), b"P" * 64)
 
-    # self: Synthetic authenticated version-three peer with the full reported model identity.
+    # self: Synthetic authenticated version-four peer with the full reported model identity.
     # Raises AssertionError if technical metadata loses activity correlation or admits invented token counts.
     def test_technical_reply_matches_activity_and_rejects_unobserved_metrics(self) -> None:
         self.observe("UserPromptSubmit", model="M" * 128)
@@ -743,9 +745,9 @@ class ChatActivityTests(unittest.TestCase):
         listener = Mock()
         responder = ccp.CompanionResponder(state, listener, self.store)
         values = ["abcdef012345", state.pc_id, "b" * 32]
-        proof = ccp.make_proof(link_key, "find-activity-v3", *values)
+        proof = ccp.make_proof(link_key, "find-activity-v4", *values)
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
-                                   [("activity", "3"), ("proof", proof)])
+                                   [("activity", "4"), ("proof", proof)])
         responder._handle_datagram(find, ("192.0.2.10", ccp.DEVICE_PORT))
         self.assertEqual([ccp.parse_datagram(call.args[0])[0] for call in listener.sendto.call_args_list], ["READY"])
         acknowledge_ready(responder, link_key, ("192.0.2.10", ccp.DEVICE_PORT))
@@ -756,7 +758,7 @@ class ChatActivityTests(unittest.TestCase):
         self.assertEqual(technical_fields["revision"], activity_fields["revision"])
         self.assertEqual(technical_fields["nonce"], values[2])
         authenticated = [technical_fields[name] for name in technical_metadata.FIELDS]
-        self.assertEqual(technical_fields["proof"], ccp.make_proof(link_key, "technical-v1", *authenticated))
+        self.assertEqual(technical_fields["proof"], ccp.make_proof(link_key, "technical-v2", *authenticated))
         self.assertLessEqual(len(listener.sendto.call_args_list[2].args[0]), 1024)
         projected = technical_metadata.decode_projection(technical_fields)
         self.assertEqual(projected.model, "M" * 128)
@@ -839,9 +841,11 @@ class ChatActivityTests(unittest.TestCase):
         server.lease_lock = threading.Lock()
         server.leases = {}
         runtime.dispatch(server, "lease", {"id": "a" * 32})
+        runtime.dispatch(server, "lease", {"id": "a" * 32})
         runtime.dispatch(server, "lease", {"id": "b" * 32})
         runtime.dispatch(server, "release", {"id": "a" * 32})
         self.assertEqual(set(server.leases), {"b" * 32})
+        self.assertEqual(server.pricing.start_daily_refresh.call_count, 2)
 
     # self: Mocked Winsock reservation with no real socket or state access.
     # Raises AssertionError if availability depends on a failed connection attempt.
@@ -1505,6 +1509,192 @@ class DebugScreenContractTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.responder.debug_screen(self.device, mode, scroll, True)
         self.listener.sendto.assert_not_called()
+
+
+# Isolated public-document fixture. Values are reference data, not a real account or chat bill.
+PRICING_HTML = """<table><tr><th>Credits per 1M tokens</th><th>Input Tokens</th>
+<th>Cached input tokens</th><th>Output Tokens</th></tr>
+<tr><td>GPT-6 Luna</td><td>2.5 credits</td><td>0.25 credits</td><td>12.5 credits</td></tr>
+<tr><td>GPT-6 Sol</td><td>50 credits</td><td>5 credits</td><td>250 credits</td></tr>
+<tr><td>GPT-6 Astra</td><td>250 credits</td><td>25 credits</td><td>1,250 credits</td></tr>
+<tr><td colspan="4">These are Standard credit rates.</td></tr></table>"""
+
+
+class PricingContractTests(unittest.TestCase):
+    # self: Portable pricing fixture; all files are under artifacts and all downloads are injected.
+    # Raises original filesystem errors before running any contract assertion.
+    def setUp(self) -> None:
+        directory = ROOT / "artifacts/checks/cody-ccp"
+        directory.mkdir(parents=True, exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(dir=directory)
+        self.addCleanup(temporary.cleanup)
+        self.path = Path(temporary.name) / "pricing/codex-standard.json"
+        self.now = time.mktime((2026, 10, 11, 12, 0, 0, 0, 0, -1))
+        self.fetch = Mock(return_value=pricing.parse_catalog(PRICING_HTML))
+
+    # self: Synthetic local calendar and bounded cache-file owner.
+    # fetch: Optional injected failure/source for this particular broker start.
+    # Returns a started background owner and waits only for its bounded fixture worker.
+    # Raises original cache errors; no HTTP, socket, DPAPI, Codex or device is used.
+    def start_cache(self, fetch=None):
+        owner = pricing.PriceCache(self.path, self.fetch if fetch is None else fetch, lambda: self.now)
+        self.addCleanup(owner.close)
+        owner.start_daily_refresh()
+        owner.close()
+        return owner
+
+    # self: Current public-table fixture plus each malformed/ambiguous source variant.
+    # Raises AssertionError if a different price basis or guessed alias is silently accepted.
+    def test_only_qualified_unambiguous_standard_table_is_accepted(self):
+        rates = pricing.parse_catalog(PRICING_HTML)
+        self.assertEqual(set(rates), {"gpt-6-luna", "gpt-6-sol", "gpt-6-astra"})
+        self.assertEqual(str(rates["gpt-6-astra"][2]), "1250")
+        for document in (PRICING_HTML.replace("Standard credit rates", "Batch credit rates"),
+                         PRICING_HTML + PRICING_HTML,
+                         PRICING_HTML.replace("GPT-6 Luna", "GPT-6 Sol"),
+                         PRICING_HTML.replace("50 credits", "$50"),
+                         PRICING_HTML.replace("1,250 credits", "12,50 credits"),
+                         PRICING_HTML.replace("0.25 credits", "3 credits"),
+                         PRICING_HTML.replace("</table>", "")):
+            with self.subTest(document=document[-80:]):
+                with self.assertRaises(ValueError):
+                    pricing.parse_catalog(document)
+
+    # self: Documented input/output thresholds, including equality and a single exceeded dimension.
+    # Raises AssertionError if a high input/output reference is mislabeled by the other dimension.
+    def test_policy_uses_both_uncached_input_and_output_rates(self):
+        for input_rate, output_rate, expected in (
+            ("10", "50", pricing.CostBand.ECONOMY), ("10.1", "50", pricing.CostBand.BALANCED),
+            ("10", "50.1", pricing.CostBand.BALANCED), ("100", "500", pricing.CostBand.BALANCED),
+            ("100.1", "50", pricing.CostBand.EXPENSIVE), ("50", "500.1", pricing.CostBand.EXPENSIVE)):
+            self.assertEqual(pricing.classify(pricing.rate(input_rate), pricing.rate(output_rate)), expected)
+
+    # self: Cold start, additional MCP startup and new broker in the same local day.
+    # Raises AssertionError if first-start caching repeats a download or loses original source age.
+    def test_daily_cache_survives_broker_restarts_and_plugin_starts(self):
+        owner = self.start_cache()
+        self.assertEqual(owner.projection("gpt-6-luna").band, pricing.CostBand.ECONOMY)
+        self.assertEqual(owner.projection("gpt-6-sol").band, pricing.CostBand.BALANCED)
+        self.assertEqual(owner.projection("gpt-6-astra").band, pricing.CostBand.EXPENSIVE)
+        self.now += 60
+        owner.start_daily_refresh()
+        restarted = self.start_cache()
+        self.fetch.assert_called_once()
+        self.assertEqual(restarted.projection("gpt-6-sol").age_ms, 60000)
+        state = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(state["source"], pricing.SOURCE)
+        self.assertEqual(state["policy"], pricing.POLICY)
+        self.assertEqual(state["attempted_day"], "2026-10-11")
+
+    # self: Broker kept alive across midnight; no refresh until a new plugin startup.
+    # Raises AssertionError if yesterday's rates are presented as current or lookup performs a download.
+    def test_midnight_expires_and_next_plugin_start_refreshes(self):
+        owner = self.start_cache()
+        self.now = time.mktime((2026, 10, 12, 0, 0, 0, 0, 0, -1))
+        self.assertEqual(owner.projection("gpt-6-sol"), pricing.PriceProjection())
+        self.fetch.assert_called_once()
+        owner.start_daily_refresh()
+        owner.close()
+        self.assertEqual(self.fetch.call_count, 2)
+        self.assertEqual(owner.projection("gpt-6-sol").band, pricing.CostBand.BALANCED)
+        self.start_cache()
+        self.assertEqual(self.fetch.call_count, 2)
+
+    # self: Last valid catalog followed by a failed first refresh on the next local day.
+    # Raises AssertionError if offline failure loses the catalog, retries that day or publishes an old band.
+    def test_failed_daily_refresh_preserves_catalog_and_does_not_retry(self):
+        self.start_cache()
+        previous = json.loads(self.path.read_text(encoding="utf-8"))["catalog"]
+        self.now = time.mktime((2026, 10, 12, 12, 0, 0, 0, 0, -1))
+        failed = Mock(side_effect=OSError("Synthetic offline source"))
+        owner = self.start_cache(failed)
+        self.assertEqual(owner.projection("gpt-6-sol"), pricing.PriceProjection())
+        self.assertIn("Synthetic offline source", owner.error)
+        state = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(state["catalog"], previous)
+        self.assertEqual(state["attempted_day"], "2026-10-12")
+        self.assertEqual(self.start_cache(failed).projection("gpt-6-sol"), pricing.PriceProjection())
+        failed.assert_called_once()
+
+    # self: Exact model IDs, missing models, unsupported names and backwards PC wall time.
+    # Raises AssertionError if a substring alias or future retrieval timestamp becomes a current badge.
+    def test_unrecognized_model_and_future_catalog_are_unknown(self):
+        owner = self.start_cache()
+        for model in ("", "gpt-6-sol-fast", "gpt-6-sol-2026-10-11", "GPT-6 Sol", "new-mini-model"):
+            self.assertEqual(owner.projection(model), pricing.PriceProjection())
+        self.now -= 1
+        self.assertEqual(owner.projection("gpt-6-sol"), pricing.PriceProjection())
+
+    # self: Malformed persisted data with a source download that must never be called.
+    # Raises AssertionError if cache corruption is treated as absence or silently overwritten.
+    def test_corrupt_cache_is_preserved_and_reported(self):
+        self.path.parent.mkdir(parents=True)
+        raw = b'{"schema":1,"schema":1}'
+        self.path.write_bytes(raw)
+        owner = pricing.PriceCache(self.path, self.fetch, lambda: self.now)
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            owner.start_daily_refresh()
+        self.fetch.assert_not_called()
+        self.assertEqual(self.path.read_bytes(), raw)
+        self.assertIn("duplicate", owner.error)
+        self.assertEqual(owner.projection("gpt-6-sol"), pricing.PriceProjection())
+
+    # self: Atomic attempt publication failure before any network work is admitted.
+    # Raises AssertionError if a failed durable claim still fetches or supplies a current band.
+    def test_failed_attempt_persistence_prevents_download(self):
+        owner = pricing.PriceCache(self.path, self.fetch, lambda: self.now)
+        with patch.object(Path, "replace", side_effect=OSError("Synthetic read-only cache")):
+            with self.assertRaisesRegex(OSError, "read-only"):
+                owner.start_daily_refresh()
+        self.fetch.assert_not_called()
+        self.assertFalse(self.path.exists())
+        self.assertEqual(owner.projection("gpt-6-sol"), pricing.PriceProjection())
+        self.assertIn("read-only", owner.error)
+
+    # self: Real activity store, exact observed model and authenticated responder with a synthetic socket.
+    # Raises AssertionError if prices leak, a stale model retains a band or any badge field lacks HMAC binding.
+    def test_band_is_bound_to_the_followed_current_model_and_signed_fields(self):
+        owner = self.start_cache()
+        activity_store = activity.ActivityStore(owner)
+        event = {"hook_event_name": "UserPromptSubmit", "session_id": "priced-chat", "cwd": "E:/fixture",
+                 "turn_id": "priced-turn", "model": "gpt-6-sol", "emitted_ns": time.monotonic_ns()}
+        activity_store.observe(event)
+        state = Mock(pc_id="a" * 32)
+        key = bytes(range(32))
+        state.retained_keys.return_value = ccp.RetainedKeys(key, None)
+        listener = Mock()
+        responder = ccp.CompanionResponder(state, listener, activity_store)
+        values = ["abcdef012345", state.pc_id, "b" * 32]
+        find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
+            [("activity", "4"), ("proof", ccp.make_proof(key, "find-activity-v4", *values))])
+        source = ("192.0.2.10", ccp.DEVICE_PORT)
+        responder._handle_datagram(find, source)
+        acknowledge_ready(responder, key, source)
+        raw = next(call.args[0] for call in listener.sendto.call_args_list if call.args[0].startswith(b"CCP1|TECH|"))
+        _, fields = ccp.parse_datagram(raw)
+        decoded = technical_metadata.decode_projection(fields)
+        self.assertEqual(decoded.cost_band, pricing.CostBand.BALANCED)
+        self.assertEqual(decoded.cost_age_ms, 0)
+        self.assertGreater(decoded.cost_valid_for_ms, 0)
+        self.assertLessEqual(len(raw), ccp.MAX_TECHNICAL_DATAGRAM_BYTES)
+        for name, changed in (("cost", "economy"), ("costage", "1000"), ("costttl", "1")):
+            tampered = dict(fields)
+            tampered[name] = changed
+            self.assertNotEqual(fields["proof"], ccp.make_proof(key, "technical-v2",
+                *(tampered[field] for field in technical_metadata.FIELDS)))
+        for name, changed in (("cost", "cheap"), ("cost", "unknown"), ("costage", "-"),
+                              ("costttl", "0"), ("costttl", "93600001"), ("modelage", "120000")):
+            invalid = dict(fields)
+            invalid[name] = changed
+            with self.assertRaises(ValueError):
+                technical_metadata.decode_projection(invalid)
+        with patch.object(activity.time, "monotonic", return_value=time.monotonic() + 121):
+            _, stale = activity_store.snapshot_bundle()
+        self.assertEqual((stale["cost"], stale["costage"], stale["costttl"]), ("unknown", "-", "-"))
+        activity_store.observe({**event, "model": "gpt-6-luna", "emitted_ns": time.monotonic_ns()})
+        _, switched = activity_store.snapshot_bundle()
+        self.assertEqual(switched["cost"], "economy")
+        self.assertTrue(all(switched[name] == "-" for name in technical_metadata.UNAVAILABLE_FIELDS))
 
 
 if __name__ == "__main__":

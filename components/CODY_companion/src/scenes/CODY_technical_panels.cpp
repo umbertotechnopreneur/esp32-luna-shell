@@ -17,6 +17,37 @@ constexpr uint16_t kNeutral = 0x632C;
 constexpr uint16_t kPanelWidth = 320;
 constexpr uint16_t kBarWidth = 296;
 constexpr uint8_t kDetailRows = 4;
+constexpr uint8_t kModelDetailRows = 3;
+
+// presentation: Prepared page identity; the dedicated badge reserves one row only on Model & Context.
+uint8_t detail_capacity(const PanelPresentation &presentation)
+{
+    return presentation.panel == CompanionPanel::ModelContext ? kModelDetailRows : kDetailRows;
+}
+
+// band: Host-classified typed Standard reference; no prices enter the renderer.
+const char *cost_band_text(LUNASHELL::CodexCostBand band)
+{
+    using Band = LUNASHELL::CodexCostBand;
+    switch (band) {
+    case Band::Economy: return "Economy";
+    case Band::Balanced: return "Balanced";
+    case Band::Expensive: return "Expensive";
+    default: return "Unknown";
+    }
+}
+
+// band: Current typed qualitative reference, or explicit Unknown.
+uint16_t cost_band_color(LUNASHELL::CodexCostBand band)
+{
+    using Band = LUNASHELL::CodexCostBand;
+    switch (band) {
+    case Band::Economy: return 0x87EF;
+    case Band::Balanced: return kCyan;
+    case Band::Expensive: return kAmber;
+    default: return kMuted;
+    }
+}
 
 // operation: Specific rejected panel boundary or native rendering operation.
 // error: Original error returned by that operation.
@@ -180,7 +211,7 @@ void format_duration(char (&destination)[32], const char *label, const PanelMetr
 void append_detail(PanelPresentation &presentation, const CODY2D::MonoFont &font,
                    const char *source, const char *prefix = "", uint16_t color = kMuted)
 {
-    if (!has_detail_value(source) || presentation.line_count >= kDetailRows) { return; }
+    if (!has_detail_value(source) || presentation.line_count >= detail_capacity(presentation)) { return; }
     const uint8_t row = presentation.line_count++;
     format_caption(presentation.captions[row], font, source, prefix);
     presentation.lines[row].color = color;
@@ -191,7 +222,7 @@ void append_detail(PanelPresentation &presentation, const CODY2D::MonoFont &font
 // metric: Original observation with independent validity; unavailable is intentionally omitted.
 void append_metric(PanelPresentation &presentation, const char *label, const PanelMetric &metric)
 {
-    if (metric.state == PanelValueState::Unavailable || presentation.line_count >= kDetailRows) { return; }
+    if (metric.state == PanelValueState::Unavailable || presentation.line_count >= detail_capacity(presentation)) { return; }
     format_metric(presentation.captions[presentation.line_count++], label, metric);
 }
 
@@ -200,7 +231,7 @@ void append_metric(PanelPresentation &presentation, const char *label, const Pan
 // metric: Original observed duration; missing data never consumes a row.
 void append_duration(PanelPresentation &presentation, const char *label, const PanelMetric &metric)
 {
-    if (metric.state == PanelValueState::Unavailable || presentation.line_count >= kDetailRows) { return; }
+    if (metric.state == PanelValueState::Unavailable || presentation.line_count >= detail_capacity(presentation)) { return; }
     format_duration(presentation.captions[presentation.line_count++], label, metric);
 }
 
@@ -322,6 +353,7 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
 {
     const bool previously_valid = presentation.valid;
     const CompanionPanel previous_panel = presentation.panel;
+    const auto previous_cost_band = presentation.cost_band;
     const uint16_t previous_bar_pixels = presentation.bar_pixels;
     const uint16_t previous_bar_color = presentation.bar_color;
     const bool previous_bar_visible = presentation.context_bar_visible;
@@ -357,7 +389,8 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     }
     if (static_cast<uint8_t>(inputs.phase) > 9 || static_cast<uint8_t>(inputs.compaction) > 5 ||
         static_cast<uint8_t>(inputs.link) > 3 || static_cast<uint8_t>(inputs.activity) > 3 ||
-        static_cast<uint8_t>(inputs.model_state) > 3 || static_cast<uint8_t>(inputs.effort_state) > 3) {
+        static_cast<uint8_t>(inputs.model_state) > 3 || static_cast<uint8_t>(inputs.effort_state) > 3 ||
+        static_cast<uint8_t>(inputs.cost_band) > 3 || static_cast<uint8_t>(inputs.cost_state) > 3) {
         return panel_result("prepare_identity", ESP_ERR_INVALID_ARG);
     }
     const PanelMetric *metrics[] = {&inputs.used, &inputs.capacity, &inputs.threshold, &inputs.cumulative,
@@ -375,6 +408,9 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     presentation.bar_color = kNeutral;
     presentation.bar_pixels = 0;
     presentation.line_count = 0;
+    presentation.cost_band = LUNASHELL::CodexCostBand::Unknown;
+    presentation.cost_caption[0] = '\0';
+    presentation.cost_line = {};
     for (auto &caption : presentation.captions) { caption[0] = '\0'; }
     // Preparation is serialized and invalid until completion; reuse the existing
     // line foregrounds for semantic staging instead of allocating another owner array.
@@ -393,6 +429,12 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
         if (presentation.line_count == 0) { append_detail(presentation, font, "Start a chat in Codex"); }
     } else if (panel == CompanionPanel::ModelContext) {
         std::strcpy(presentation.title, "Model & Context");
+        // A known band follows the exact current model and catalog lease; stale metadata is Unknown.
+        if (inputs.cost_state == PanelValueState::Current && inputs.model_state == PanelValueState::Current) {
+            presentation.cost_band = inputs.cost_band;
+        }
+        std::snprintf(presentation.cost_caption, sizeof(presentation.cost_caption), "Standard: %s",
+            cost_band_text(presentation.cost_band));
         if (inputs.model_state == PanelValueState::Current && has_detail_value(inputs.model)) {
             const size_t row_capacity = std::min<size_t>(31, (kPanelWidth - font.width) / font.advance + 1U);
             if (std::strlen(inputs.model) + 12U > row_capacity) {
@@ -404,18 +446,22 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
         } else if (inputs.model_state == PanelValueState::Stale || inputs.model_state == PanelValueState::Invalid) {
             append_detail(presentation, font, value_state_text(inputs.model_state), "Model: ");
         }
-        if (inputs.effort_state == PanelValueState::Current) { append_detail(presentation, font, inputs.effort, "Effort: "); }
-        else if (inputs.effort_state == PanelValueState::Stale || inputs.effort_state == PanelValueState::Invalid) {
-            append_detail(presentation, font, value_state_text(inputs.effort_state), "Effort: ");
+        const bool context_status = measured || inputs.used.state == PanelValueState::Invalid ||
+            inputs.capacity.state == PanelValueState::Invalid || inputs.used.state == PanelValueState::Stale ||
+            inputs.capacity.state == PanelValueState::Stale;
+        // Two model rows still leave a guaranteed context row. Optional effort and counts yield to it.
+        if (presentation.line_count + (context_status ? 1U : 0U) < kModelDetailRows) {
+            if (inputs.effort_state == PanelValueState::Current) { append_detail(presentation, font, inputs.effort, "Effort: "); }
+            else if (inputs.effort_state == PanelValueState::Stale || inputs.effort_state == PanelValueState::Invalid) {
+                append_detail(presentation, font, value_state_text(inputs.effort_state), "Effort: ");
+            }
         }
         if (measured) {
             const uint16_t percent = scaled_usage(inputs.used.value, inputs.capacity.value, 100);
             presentation.bar_pixels = scaled_usage(inputs.used.value, inputs.capacity.value, kBarWidth);
             presentation.bar_color = percent >= 90 ? kRed : percent >= 70 ? kAmber : kCyan;
             presentation.context_bar_visible = true;
-            // Two model rows plus one effort row leave one guaranteed context
-            // slot; subsequent optional counts yield to these higher-priority facts.
-            if (presentation.line_count >= kDetailRows) {
+            if (presentation.line_count >= kModelDetailRows) {
                 return panel_result("context_row_capacity", ESP_ERR_INVALID_SIZE);
             }
             const uint8_t context_row = presentation.line_count++;
@@ -459,8 +505,15 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     esp_err_t error = prepare_centered_line(font, presentation.title, 170, kWhite, presentation.title_line);
     if (error == ESP_OK) { error = prepare_centered_line(font, presentation.banner, 208, kAmber, presentation.banner_line); }
     if (error == ESP_OK) { error = prepare_centered_line(font, presentation.hint, 367, kMuted, presentation.hint_line); }
+    if (error == ESP_OK && panel == CompanionPanel::ModelContext) {
+        const size_t length = std::strlen(presentation.cost_caption);
+        const size_t width = (length - 1U) * font.advance + font.width;
+        if (width > 248) { return panel_result("cost_badge_width", ESP_ERR_INVALID_SIZE); }
+        error = prepare_centered_line(font, presentation.cost_caption,
+            234 + (28 - font.height) / 2, cost_band_color(presentation.cost_band), presentation.cost_line);
+    }
     for (uint8_t row = 0; error == ESP_OK && row < presentation.line_count; ++row) {
-        const uint16_t y = 234 + row * 30;
+        const uint16_t y = (panel == CompanionPanel::ModelContext ? 267 : 234) + row * 30;
         const uint16_t color = presentation.lines[row].color;
         error = prepare_panel_line(font, presentation.captions[row],
             {73, static_cast<int16_t>(y)}, color, presentation.lines[row]);
@@ -473,6 +526,7 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
         row_colors |= static_cast<uint64_t>(presentation.lines[row].color) << (row * 16U);
     }
     const bool visual_changed = !previously_valid || previous_panel != presentation.panel ||
+        previous_cost_band != presentation.cost_band ||
         previous_row_colors != row_colors ||
         previous_bar_pixels != presentation.bar_pixels || previous_bar_color != presentation.bar_color ||
         previous_bar_visible != presentation.context_bar_visible ||
@@ -547,6 +601,10 @@ esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
         inputs.model = technical.model;
         inputs.effort = technical.effort;
         inputs.model_state = observed_value_state(technical.model_valid && technical.model_source == LUNASHELL::CodexModelSource::HookMetadata, stale || technical.model_stale);
+        inputs.cost_band = technical.cost_band;
+        inputs.cost_state = observed_value_state(technical.cost_band != LUNASHELL::CodexCostBand::Unknown &&
+            technical.cost_source == LUNASHELL::CodexCostSource::CodexStandardCatalog,
+            stale || technical.cost_stale || technical.model_stale || receipt_age >= technical.cost_valid_for_us);
         inputs.effort_state = observed_value_state(technical.effort_valid, stale || technical.effort_stale);
         inputs.compaction = technical.compaction_valid ? technical.compaction : LUNASHELL::CodexCompactionState::None;
         if (stale && inputs.compaction == LUNASHELL::CodexCompactionState::Active) { inputs.compaction = LUNASHELL::CodexCompactionState::Stale; }
@@ -592,7 +650,17 @@ esp_err_t draw_companion_panel_rows(const PanelPresentation &presentation, CODY2
 {
     if (!presentation.valid) { return panel_result("draw_state", ESP_ERR_INVALID_STATE); }
     esp_err_t error = CODY2D::validate_surface(strip);
-    const CODY2D::TextLine *fixed[] = {&presentation.title_line, &presentation.page_line, &presentation.banner_line, &presentation.hint_line};
+    if (error == ESP_OK && presentation.cost_line.valid) {
+        CODY2D::CapsuleControl badge{};
+        badge.bounds = {101, 234, 264, 28};
+        const uint16_t color = cost_band_color(presentation.cost_band);
+        badge.top_color = CODY2D::blend_rgb565(color, 0, 40);
+        badge.bottom_color = CODY2D::blend_rgb565(color, 0, 20);
+        badge.border_color = CODY2D::blend_rgb565(color, 0, 112);
+        error = CODY2D::draw_capsule_rows(badge, strip, first_row, first_column);
+    }
+    const CODY2D::TextLine *fixed[] = {&presentation.title_line, &presentation.page_line,
+        &presentation.banner_line, &presentation.hint_line, &presentation.cost_line};
     for (const auto *line : fixed) {
         if (error == ESP_OK && line->valid) { error = CODY2D::draw_text_rows(*line, line->text.length, strip, first_row, first_column); }
     }

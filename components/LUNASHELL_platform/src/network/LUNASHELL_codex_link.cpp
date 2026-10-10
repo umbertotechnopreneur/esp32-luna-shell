@@ -1578,7 +1578,7 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
         ? std::snprintf(
             proof_input,
             sizeof(proof_input),
-            "find-events-activity-v3|%s|%s|%s|%s|%s",
+            "find-events-activity-v4|%s|%s|%s|%s|%s",
             device_id,
             pc_id,
             nonce_hex,
@@ -1601,7 +1601,7 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
         ? std::snprintf(
             request,
             sizeof(request),
-            "%s|FIND|device=%s|pc=%s|nonce=%s|activity=3|events=2|current=%s|state=%s|proof=%s",
+            "%s|FIND|device=%s|pc=%s|nonce=%s|activity=4|events=2|current=%s|state=%s|proof=%s",
             kProtocol,
             device_id,
             pc_id,
@@ -2280,10 +2280,10 @@ esp_err_t acceptTechnical(const char *payload, const sockaddr_in &source)
     constexpr const char *names[] = {"device", "pc", "nonce", "chat", "turn", "revision",
         "model", "effort", "modelage", "compaction", "compactseq", "compactage",
         "activityage", "turnelapsed", "used", "capacity", "cumulative", "input",
-        "output", "threshold", "usageage", "proof"};
-    char *values[22]{};
+        "output", "threshold", "usageage", "cost", "costage", "costttl", "proof"};
+    char *values[25]{};
     if (std::strlen(payload) > kMaximumActivityDatagramBytes ||
-        !parseEventFields(payload, "CCP1|TECH|", names, 22, values)) {
+        !parseEventFields(payload, "CCP1|TECH|", names, 25, values)) {
         return ESP_ERR_INVALID_ARG;
     }
     std::lock_guard<std::mutex> guard(s_mutex);
@@ -2296,8 +2296,8 @@ esp_err_t acceptTechnical(const char *payload, const sockaddr_in &source)
     }
     // Reuse owner scratch and preserve every signed field, including unavailable sentinels.
     size_t used = static_cast<size_t>(std::snprintf(s_event_proof_input,
-        sizeof(s_event_proof_input), "technical-v1"));
-    for (size_t index = 0; index < 21; ++index) {
+        sizeof(s_event_proof_input), "technical-v2"));
+    for (size_t index = 0; index < 24; ++index) {
         const int count = std::snprintf(s_event_proof_input + used,
             sizeof(s_event_proof_input) - used, "|%s", values[index]);
         if (count <= 0 || static_cast<size_t>(count) >= sizeof(s_event_proof_input) - used) {
@@ -2305,7 +2305,7 @@ esp_err_t acceptTechnical(const char *payload, const sockaddr_in &source)
         }
         used += static_cast<size_t>(count);
     }
-    error = verifyEventProofLocked(values[21]);
+    error = verifyEventProofLocked(values[24]);
     if (error != ESP_OK) {
         return error;
     }
@@ -2346,6 +2346,35 @@ esp_err_t acceptTechnical(const char *payload, const sockaddr_in &source)
         model_age_present != (technical.model[0] != '\0')) {
         return ESP_ERR_INVALID_ARG;
     }
+    using Band = LUNASHELL::CodexCostBand;
+    struct CostEntry { const char *token; Band band; };
+    constexpr CostEntry bands[] = {{"unknown", Band::Unknown}, {"economy", Band::Economy},
+        {"balanced", Band::Balanced}, {"expensive", Band::Expensive}};
+    bool cost_found = false;
+    for (const auto &entry : bands) {
+        if (std::strcmp(values[21], entry.token) == 0) {
+            technical.cost_band = entry.band;
+            cost_found = true;
+            break;
+        }
+    }
+    bool cost_age_present = false;
+    bool cost_ttl_present = false;
+    constexpr uint64_t maximum_day_us = 26ULL * 60 * 60 * 1000000;
+    if (!cost_found ||
+        !parseTechnicalDuration(values[22], cost_age_present, technical.cost_age_at_receive_us) ||
+        !parseTechnicalDuration(values[23], cost_ttl_present, technical.cost_valid_for_us)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const bool known_cost = technical.cost_band != Band::Unknown;
+    if ((!known_cost && (cost_age_present || cost_ttl_present)) ||
+        (known_cost && (!model_age_present || technical.model_age_at_receive_us >= 120000000 ||
+            !cost_age_present || !cost_ttl_present || technical.cost_age_at_receive_us > maximum_day_us ||
+            technical.cost_valid_for_us == 0 || technical.cost_valid_for_us > maximum_day_us))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    technical.cost_source = known_cost ? LUNASHELL::CodexCostSource::CodexStandardCatalog :
+        LUNASHELL::CodexCostSource::Unavailable;
     using Compact = LUNASHELL::CodexCompactionState;
     struct Entry { const char *token; Compact state; };
     constexpr Entry states[] = {{"none", Compact::None}, {"active", Compact::Active},

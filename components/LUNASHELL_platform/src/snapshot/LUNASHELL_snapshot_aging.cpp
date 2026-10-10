@@ -111,6 +111,11 @@ void age_codex_technical(CodexTechnicalSnapshot &technical, int64_t now_us)
     technical.model_stale = technical.model_valid && (technical.data_stale ||
         technical.model_age_at_receive_us >= source_ttl_us ||
         elapsed >= source_ttl_us - technical.model_age_at_receive_us);
+    // Heartbeats carry the remaining host calendar lease; they cannot renew a yesterday catalog.
+    technical.cost_stale = technical.cost_band != CodexCostBand::Unknown &&
+        (technical.data_stale || technical.model_stale ||
+         technical.cost_source != CodexCostSource::CodexStandardCatalog ||
+         elapsed >= technical.cost_valid_for_us);
     if (technical.compaction == CodexCompactionState::Active &&
         (technical.data_stale || !technical.compaction_age_valid ||
          technical.compaction_age_at_receive_us >= source_ttl_us ||

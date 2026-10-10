@@ -446,9 +446,9 @@ class SimulatorLink:
         current_id, current_state = "0" * 32, "none"
         if self._event_payload is not None and self._event_payload.kind == interactions.EventKind.QUESTION:
             current_id, current_state = self._request_id, self._event_state
-        fields = [("device", self.device_id), ("pc", pc), ("nonce", nonce), ("activity", "3"),
+        fields = [("device", self.device_id), ("pc", pc), ("nonce", nonce), ("activity", "4"),
                   ("events", "2"), ("current", current_id), ("state", current_state)]
-        proof = protocol.make_proof(key, "find-events-activity-v3", self.device_id, pc, nonce, current_id, current_state)
+        proof = protocol.make_proof(key, "find-events-activity-v4", self.device_id, pc, nonce, current_id, current_state)
         send(protocol.encode_datagram("FIND", fields + [("proof", proof)]), (LOOPBACK, protocol.PLUGIN_PORT))
         self._nonce = nonce
         # A retained Connected state does not authenticate this new FIND yet.
@@ -803,7 +803,7 @@ class SimulatorLink:
                 or fields["chat"] != self.chat or fields["revision"] != self._activity_revision):
             raise ValueError("TECH requires the current accepted ACTIVITY identity and one reply per nonce")
         key = protocol.unprotect_secret(self.active["protected_link_key"])
-        proof = protocol.make_proof(key, "technical-v1", *(fields[name] for name in technical_metadata.FIELDS))
+        proof = protocol.make_proof(key, "technical-v2", *(fields[name] for name in technical_metadata.FIELDS))
         if not hmac.compare_digest(proof, fields["proof"]):
             raise ValueError("TECH authentication failed")
         technical = technical_metadata.decode_projection(fields)

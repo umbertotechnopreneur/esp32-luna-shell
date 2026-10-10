@@ -32,6 +32,8 @@ struct PanelInputs {
     PanelValueState activity = PanelValueState::Unavailable;
     PanelValueState model_state = PanelValueState::Unavailable;
     PanelValueState effort_state = PanelValueState::Unavailable;
+    LUNASHELL::CodexCostBand cost_band = LUNASHELL::CodexCostBand::Unknown;
+    PanelValueState cost_state = PanelValueState::Unavailable;
     bool connected = false;
     bool simulated = false;
     bool context_coherent = false;
@@ -55,16 +57,19 @@ struct PanelPresentation {
     char page[4]{};
     char banner[32]{};
     char hint[32]{};
+    char cost_caption[32]{};
     CODY2D::TextLine title_line{};
     CODY2D::TextLine page_line{};
     CODY2D::TextLine banner_line{};
     CODY2D::TextLine hint_line{};
+    CODY2D::TextLine cost_line{};
     // Serialized prior captions avoid a large temporary copy in the nested preparation frame.
     char prior_captions[8][32]{};
     char prior_title[32]{};
     char prior_banner[32]{};
     char prior_hint[32]{};
     CompanionPanel panel = CompanionPanel::Home;
+    LUNASHELL::CodexCostBand cost_band = LUNASHELL::CodexCostBand::Unknown;
     uint32_t revision = 0;
     uint32_t compaction_clock_us = 0;
     uint16_t bar_pixels = 0;
