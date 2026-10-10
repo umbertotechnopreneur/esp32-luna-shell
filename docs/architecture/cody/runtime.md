@@ -37,7 +37,16 @@ the authored initial value contributes additional warmth. Low/unattended happine
 does not create a sad expression. All numeric mood rules and their awake clock stay
 unchanged. Physical timing, visual strength and nested stack headroom remain
 unverified. The source-only regression cases are registered in `cody-runtime`.
-Studio presentation binding and optional extra gestures remain deferred in
+Studio now binds this same director through its native mood/caress owner. The
+ordinary rig supplies fresh acquired desktop pointer targets and recognized
+caresses. SIMULATED CCP supplies visible text/pointer targets and coherence-qualified
+compaction sequence IDs; changing the source or rotation breaks completion
+continuity. Debug, explicit presets, setup and questions disable the contribution.
+The existing Long compaction and Refreshed / pending preview scenarios retain one
+rendering-only sequence; opening the latter alone cannot fabricate an observed end.
+Python does not duplicate the director's animation equations, and synthetic facts
+never enter firmware snapshots. Native-driver compilation and Studio execution
+remain unverified. Optional extra gestures stay in
 [planned-todo.md](../../../planned-todo.md); authorized generation/build/device
 work is tracked in [TODO.md](../../../TODO.md).
 

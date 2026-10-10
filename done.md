@@ -31,6 +31,22 @@ the preserved copies within the build directory.
   only; no suite, firmware compilation, simulator/device execution or network
   probe ran. Runtime checks and measured stack headroom remain in TODO.md.
 
+## Studio character direction source integration - 2026-10-10
+
+- Bound the same native character director to the existing Studio mood/caress
+  owner. Python transfers observations and preserves the rest of the native
+  response; it does not reproduce gaze, warmth or compaction animation equations.
+- Ordinary rig contact drives gaze and recognized caresses drive positive warmth.
+  SIMULATED CCP views use existing text/pointer targets and admitted lifecycle
+  sequence IDs. Existing Long compaction and Refreshed / pending previews can
+  demonstrate the same native transition without publishing synthetic metadata.
+- Preserved Debug/preset/setup/question ownership, source-gap handling and
+  tap/shake navigation. CCP is awake time for the existing native mood clock;
+  pause freezes artistic direction and manga presentation while consuming edges.
+- Reviewed source integration only. Personality generation, native-driver build,
+  tests, Studio execution and physical observations remain pending in `TODO.md`.
+  No Codex hook/protocol or expression-debug screen implementation was changed.
+
 ## Minimal character direction source integration - 2026-10-10
 
 - Added gaze towards canonical body touch or admitted visible information, a
@@ -43,8 +59,8 @@ the preserved copies within the build directory.
   No Codex protocol/hook or expression-debug screen change accompanied this work.
 - Registered focused native regression cases but did not execute them. Only
   static source review was performed; generation, build, device behavior and
-  stack headroom remain pending in `TODO.md`. Studio binding and optional extra
-  performances are deferred in `planned-todo.md` per the requested simple scope.
+  stack headroom remain pending in `TODO.md`. The subsequent Studio binding is
+  recorded above; optional extra performances remain in `planned-todo.md`.
 
 ## Companion detail and shake refinement source integration - 2026-10-10
 

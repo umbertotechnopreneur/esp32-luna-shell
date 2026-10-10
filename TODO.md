@@ -31,9 +31,17 @@
 - [x] Complete static source integration and prepare regression cases for source
   gaps, revision/sequence/chat mismatch, pause/resume, positive-only affect,
   preserved protective closure/audio/root motion and invalid-input transactions.
+- [x] Bind the same native director into Studio's existing rig and SIMULATED CCP
+  views. Reuse recognized caresses, fresh logical pointer samples and admitted
+  activity/compaction sequences; keep Debug, presets, setup and questions isolated.
 - [ ] Regenerate the personality source provenance for `face_binding: positive_only`
   through `scripts/device.ps1 generate -Generator cody-personality-rules` after
   authorization. Existing numeric constants and happiness decay are unchanged.
+- [ ] After authorization, rebuild the Studio native driver with
+  `scripts/device.ps1 generate -Generator cody-simulator-graphics`, then authorize
+  Studio execution separately. Review gaze/caress in the ordinary rig and the
+  existing Long compaction -> Refreshed / pending previews, source gaps, pause,
+  rotation and exact preset/Debug isolation. No host compilation or GUI ran here.
 - [ ] Run the prepared checks only after fresh exact-command authorization:
   `scripts/device.ps1 check -Check cody-runtime` and, separately,
   `scripts/device.ps1 check -Check cody-personality`. No suite was executed here.
@@ -42,8 +50,8 @@
   rotations, warmth after a real caress, debug isolation, paused navigation and
   deepest nested renderer stack headroom. No build, simulator or flash accompanied
   this source change. The other agents own Codex bugfixing and debug screen 38.
-- [x] Record the handoff: Studio binding and extra performances are intentionally
-  deferred in `planned-todo.md`; do not present them as implemented.
+- [x] Record the remaining work: optional extra performances stay deferred in
+  `planned-todo.md`; Studio is source-integrated but not build/runtime verified.
 
 ## Cody companion panels and genuine compaction - 2026-10-10
 

@@ -123,6 +123,21 @@ a slider does not mean falling asleep. A manual face change removes the preset's
 identity. Greeting, boot and Micro do not display the symbol.
 To explore automatic petting, disable the diagnostic rig and select None.
 
+The ordinary rig also uses the firmware character director for fresh pointer gaze
+and a gentle warmth tail after a recognized caress. Explicit face presets, the
+diagnostic rig, boot/setup/question routes and material studies retain their own
+poses. These contributions share the native mood owner and preserve the response's
+body motion, protective eye closure and audio mouth; pause freezes artistic time.
+
+In the existing **SIMULATED PREVIEW** controls, select **Long compaction**, let its
+face appear, then select **Refreshed / pending** to preview concentration followed
+by release. Opening the completion scenario alone does not imply an observed start.
+The authenticated simulator endpoint uses its admitted chat/sequence and source
+freshness instead. Pointer gaze and visible activity text use logical coordinates
+at the selected rotation; synthetic preview facts never enter that endpoint.
+This binding has source review only; native-driver generation and runtime inspection
+are pending in [TODO.md](../../TODO.md).
+
 IDs, priorities, timing, gestures and mood come from `assets/cody/personality.yaml`.
 The channel waits for a stable request for 300 ms, enters over 400 ms, remains for
 at least 2,500 ms and disappears over 600 ms. Semantic Sleep skips the initial

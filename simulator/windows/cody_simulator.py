@@ -34,7 +34,7 @@ from scripts.common.cody_navigation import load_navigation, control_contains, Na
 from scripts.common.cody_runtime_contract import load_settings, demo_targets  # noqa: E402
 from scripts.common.cody_personality_contract import load_personality_rules  # noqa: E402
 from cody_native import NativeRig, NativePersonalityPainter  # noqa: E402
-from cody_native_behavior import NativeBehavior  # noqa: E402
+from cody_native_behavior import CharacterActivity, NativeBehavior  # noqa: E402
 from cody_stimuli import SyntheticStimulusSource  # noqa: E402
 from cody_coverage import FULL_COVERAGE, coverage_mask  # noqa: E402
 from cody_cloud_material import paint_cloud_material  # noqa: E402
@@ -799,6 +799,7 @@ class CodyWindow:
         self.face_follows_body = tk.BooleanVar(value=renderer.face_follows_body)
         self.personality_cue = tk.StringVar(value=PersonalityCue.NONE.name)
         self.native_behavior = None if renderer.offline_study else NativeBehavior(renderer.require_native())
+        self.character_context = None
         self.petting = self.native_behavior if self.native_behavior is not None else PettingRecognizer(load_petting_config(ROOT))
         self.affection_remaining_us = 0
         self.affection_owns_channel = False
@@ -1280,6 +1281,51 @@ class CodyWindow:
             microphone_health=self.microphone_health.get(), playback_level=self.playback_level.get(),
             playback_active=self.playback_active.get(), playback_health=self.playback_health.get())
 
+    # self: Studio presentation owner; native C++ retains all character arithmetic.
+    # frame: Existing response, or None while a non-character route consumes hidden events.
+    # placement: Actual nominal logical position and scale before native body motion.
+    # inputs: This frame's synthetic source bundle with original acquisition stamps.
+    # active_ms: Visible animation duration; pause supplies zero to the director.
+    # context: Stable presentation-source/orientation identity, independent of activity phase.
+    # enabled: Whether ordinary acting owns this face rather than an exact preset/debug/study.
+    # activity: Coherence-qualified CCP metadata or explicitly selected synthetic preview facts.
+    # gaze: Actual visible information or fresh pointer target, otherwise None.
+    # blocked: Existing scene/eye attention that suppresses optional affection.
+    # Raises ValueError or RuntimeError for rejected source facts or native character composition.
+    def direct_character(self, frame, placement, inputs, active_ms, context, *, enabled=False,
+                         activity=CharacterActivity(), gaze=None, blocked=False):
+        if self.native_behavior is None:
+            return frame, PersonalityCue.NONE
+        rebase = context != self.character_context
+        power = self.response_state.power_status
+        low_battery = (power.health == SampleHealth.CURRENT and power.error == 0 and
+            inputs.power.level_percent <= self.personality_rules["icons"]["low_battery"]["enter_percent"])
+        affection = (enabled and not blocked and not low_battery and
+            self.eye_reaction_remaining_us == 0 and self.response_state.annoyance < .1)
+        frame, cue = self.native_behavior.direct(frame, placement,
+            round(active_ms * 1000) if self.playing.get() else 0,
+            enabled=enabled, paused=not self.playing.get(), rebase=rebase, gaze=gaze,
+            affection_allowed=affection, activity=activity)
+        self.character_context = context
+        return frame, cue
+
+    # self: Ordinary rig pointer owner; previous coordinates cannot masquerade as fresh contact.
+    # inputs: Exact synthetic touch sample consumed by this frame's native response.
+    # now_us: Original frame observation clock for the existing contact timeout.
+    # rotation: Same cardinal basis as this frame's renderer.
+    # Raises ValueError for invalid timestamp or source health.
+    def character_touch_target(self, inputs, now_us, rotation):
+        touch = inputs.body_touch
+        stamp = effective_stamp(touch.stamp, now_us,
+            self.response_config["touch"]["event_timeout_seconds"], "character.touch")
+        point = self.body_drag_point
+        if (stamp.health == SampleHealth.CURRENT and stamp.error == 0 and touch.pressed and
+                self.body_drag_origin is not None and point is not None and
+                touch.rendering_rotation_degrees == rotation and self.body_drag_rotation == rotation and
+                0 <= point[0] < SIZE and 0 <= point[1] < SIZE):
+            return point
+        return None
+
     # self: Preview controller owning source and artistic-state readouts.
     # inputs: The exact synthetic snapshot consumed by this frame, never a device observation.
     # screen: Current route; boot artwork freezes the response animation.
@@ -1749,8 +1795,8 @@ class CodyWindow:
             raise ValueError(f"Happiness acquisition clock rejected: {sampled_us!r}")
         elapsed_us = sampled_us - self.happiness_sampled_us
         if self.native_behavior is not None:
-            # The sleeping route rebases awake time; animation pause remains awake.
-            if self.screen.get() == Screen.BOOT_SLEEP:
+            # Only the visible sleeping route rebases awake time; CCP and pause remain awake.
+            if self.screen.get() == Screen.BOOT_SLEEP and not (self.ccp_panel is not None and self.ccp_panel.follow.get()):
                 elapsed_us = 0
             self.happiness_state = self.native_behavior.advance(elapsed_us)
         else:
@@ -1933,7 +1979,7 @@ class CodyWindow:
 
     # self: Preview controller advancing sources, model, geometry and presentation once.
     # Optional PC audio errors are retained without stopping visual/touch updates.
-    # Raises ValueError or tk.TclError; tick exposes the original error and stops.
+    # Raises ValueError, RuntimeError or tk.TclError; tick exposes the original error and stops.
     def render_tick(self):
         started = time.perf_counter()
         if self.ccp_panel is not None:
@@ -2031,6 +2077,13 @@ class CodyWindow:
                     self.eye_reaction_remaining_us = 0
             self.response_frame = self.renderer.compose_model(self.response_state, values, targets,
                                                    transform, rotation, self.playing.get())
+        direction_enabled = (screen == Screen.RIG and not self.debug.get() and self.face_preset_name is None and
+            not self.demo_enabled.get() and not self.renderer.jelly_study_enabled and not self.personality_sleep)
+        gaze = self.character_touch_target(inputs, int(started * 1000000), rotation)
+        self.response_frame, _ = self.direct_character(self.response_frame, transform, inputs, active_ms,
+            ("studio", screen, rotation), enabled=direction_enabled,
+            gaze=gaze, blocked=desired in (PersonalityCue.FEAR, PersonalityCue.FRUSTRATION))
+        if self.response_frame is not None:
             values = self.response_frame.face
             targets = self.response_frame.contour
             transform = self.response_frame.transform
@@ -2097,10 +2150,10 @@ class CodyWindow:
 
     # self: Studio owner presenting its isolated authenticated CCP state.
     # started: Current host clock; freezes the independent rig clock while CCP owns the view.
-    # Raises ValueError or tk.TclError for rejected content or failed presentation.
+    # Raises ValueError, RuntimeError or tk.TclError for rejected content or failed presentation.
     def render_ccp_tick(self, started):
         self.last_tick = started
-        self.happiness_sampled_us = int(started * 1_000_000)
+        self.advance_happiness_clock(int(started * 1_000_000))
         self.body_drag_origin = None
         self.petting.cancel()
         self.remove_unused_labels(set())
