@@ -14,8 +14,9 @@ from tkinter import messagebox, ttk
 from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
 from cody_ccp_event_view import EventView
 from cody_native import NativePersonalityPainter, NativePanelInputs, NativePanelMetric, NativePanelObservation
+from cody_native_behavior import CharacterActivity
 from cody_native_debug import render_debug_channels
-from cody_personality import PersonalityPresentation
+from cody_personality import PersonalityCue, PersonalityPresentation
 from runtime_paths import resolve_runtime_output
 
 
@@ -99,6 +100,7 @@ class CcpPanel:
         self._panel_started = time.monotonic()
         self._gesture_point = None
         self._gesture_rotation = 0
+        self._gesture_sampled_us = 0
         self._passive_visible = False
         self._shake_jobs = []
         self._debug_mode = "normal"
@@ -106,6 +108,7 @@ class CcpPanel:
         self._debug_press = None
         self._debug_normal_follow = True
         self._native_personality = None
+        self._direction_cue = PersonalityCue.NONE
         self._connection_sampled = time.monotonic()
         self._model_sampled = time.perf_counter()
         self._displayed_values = None
@@ -121,6 +124,7 @@ class CcpPanel:
         self.preview_description = tk.StringVar(value="Updating Cody audio cues and quiet-hours settings, then preparing the firmware for the device with clearer activity feedback and a distraction-free desktop experience.")
         self.preview_message = tk.StringVar(value="Preview is off. Synthetic metadata never enters the CCP endpoint.")
         self._preview_snapshot = None
+        self._preview_compaction_sequence = 0
         self._preview_saved_follow = True
         self._preview_saved_playing = True
         self._preview_capture_due = None
@@ -251,9 +255,14 @@ class CcpPanel:
     # placement: Authored logical resting root/scale shared by the response model.
     # rotation: Logical orientation also supplied to synthetic touch/motion observations.
     # passive_panel: Whether this call paints fixed passive artwork rather than an attention route.
+    # character_enabled: Admit acting only on ordinary companion content, never Debug/setup/questions.
+    # activity: Current isolated CCP or explicit preview facts, without a fabricated lifecycle end.
+    # gaze: Visible information or an original fresh logical pointer target.
+    # source: Presentation owner identity; switching sources discards completion continuity.
     # Returns native evaluated geometry and its exact composed face values.
     # Raises RuntimeError for original response/contour/geometry failures.
-    def compose_scene(self, base, placement, rotation, *, passive_panel=False):
+    def compose_scene(self, base, placement, rotation, *, passive_panel=False, character_enabled=False,
+                      activity=CharacterActivity(), gaze=None, source="ccp-hidden"):
         now = time.perf_counter()
         active_ms = max(0, (now - self._model_sampled) * 1000) if self.window.playing.get() else 0
         self._model_sampled = now
@@ -274,6 +283,8 @@ class CcpPanel:
         targets = {name: value.get() for name, value in self.window.contour_values.items()}
         frame = self.window.renderer.compose_model(self.window.response_state, self._route_face_state, targets,
                                                    placement, rotation, self.window.playing.get())
+        frame, self._direction_cue = self.window.direct_character(frame, placement, inputs, active_ms,
+            (source, rotation), enabled=character_enabled, activity=activity, gaze=gaze)
         self.window.response_frame = frame
         if self.window.contour_playing.get():
             self.window.contour_state = self.window.renderer.advance_shape(self.window.contour_state,
@@ -303,12 +314,15 @@ class CcpPanel:
             snapshot.state == LinkState.CONNECTED,
             snapshot.state in (LinkState.DISCOVERING, LinkState.PAIRING, LinkState.INCOMPLETE), delta_us)
         cue = native.scene_personality(identity, connection)
+        if cue == PersonalityCue.NONE:
+            cue = self._direction_cue
         if self._native_personality is None:
             self._native_personality = NativePersonalityPainter(native)
         # The existing optional audio path reads this exact visible frame.
         self.window.renderer.personality_painter = self._native_personality
         self._native_personality.prepare(scene, cue, scale, identity, rotation, elapsed_ms,
-                                         exclusions, presentation=PersonalityPresentation.MAIN)
+                                         exclusions, presentation=PersonalityPresentation.MAIN,
+                                         paused=not self.window.playing.get())
 
     # self: Explicit desktop action owner; failures are shown and remain in endpoint state.
     # action: Fixed local simulator action, never a hook or manual chat-selection message.
@@ -404,6 +418,8 @@ class CcpPanel:
             description=self.preview_description.get(), chat="f" * 64, activity_valid=True)
         if self.preview_scenario.get() == "Link lost":
             self._preview_snapshot = replace(self._preview_snapshot, state=LinkState.DISCOVERING, activity_valid=False)
+        if self.preview_scenario.get() == "Long compaction":
+            self._preview_compaction_sequence += 1
         self._route_key = None
         self._frame_key = None
         self._activity_phase_key = None
@@ -588,8 +604,13 @@ class CcpPanel:
         cloud = definition["cloud"]
         placement = (self.window.renderer.require_native().companion_panel_transform()
             if self._companion_panel else painter.cloud_transform(identity, elapsed))
+        activity = self.character_activity(snapshot, preview)
+        character_enabled = bool(self._companion_panel or
+            (snapshot.state == LinkState.CONNECTED and snapshot.network_ready))
         scene, values = self.compose_scene(painter.face(identity), placement, rotation,
-            passive_panel=bool(self._companion_panel))
+            passive_panel=bool(self._companion_panel), character_enabled=character_enabled,
+            activity=activity, gaze=self.character_gaze(activity, rotation),
+            source="ccp-preview" if preview else "ccp")
         if self._companion_panel:
             panel_elapsed = max(0, round((time.monotonic() - self._panel_started) * 1000000))
             native = self.window.renderer.require_native()
@@ -630,6 +651,40 @@ class CcpPanel:
             self._preview_capture_due = None
             self.save_preview()
         return image, scene, key
+
+    # self: Studio presentation adapter; protocol and freshness admission remain with the endpoint.
+    # snapshot: One complete isolated CCP observation or explicitly selected preview snapshot.
+    # preview: Whether the visible SIMULATED PREVIEW owns rendering-only facts.
+    # Returns a bounded semantic projection for the shared native character director.
+    def character_activity(self, snapshot, preview):
+        current = bool(snapshot.activity_valid and snapshot.network_ready and
+            snapshot.state == LinkState.CONNECTED and snapshot.phase != "unavailable")
+        sequence, refreshed = 0, False
+        if preview:
+            sequence = self._preview_compaction_sequence
+            refreshed = self.preview_scenario.get() in {"Refreshed / pending", "Counters updated"}
+        elif self.has_coherent_technical(snapshot):
+            sequence = snapshot.technical.compaction_sequence
+            refreshed = snapshot.technical.compaction.value == "refreshed"
+        return CharacterActivity(chat=snapshot.chat if current else "", sequence=sequence,
+            current=current, working=current and snapshot.phase in {"working", "editing", "running"},
+            attention=current and snapshot.phase == "paused",
+            compacting=current and self.is_compacting(snapshot, preview), refreshed=current and refreshed)
+
+    # self: Current passive pointer/text presentation; no hardware or person tracking is inferred.
+    # activity: Current native-director semantic projection for this same rendered frame.
+    # rotation: Shared cardinal logical orientation of rendering and pointer acquisition.
+    # Returns only fresh original contact or already visible information; attention faces forward.
+    def character_gaze(self, activity, rotation):
+        point = self._gesture_point
+        age_us = round(time.perf_counter() * 1000000) - self._gesture_sampled_us
+        timeout_us = self.window.response_config["touch"]["event_timeout_seconds"] * 1000000
+        if (point is not None and self._gesture_sampled_us > 0 and 0 <= age_us <= timeout_us and
+                self._gesture_rotation == rotation and 0 <= point[0] < 466 and 0 <= point[1] < 466):
+            return point
+        if self._passive_visible and not activity.attention and (activity.working or activity.compacting):
+            return (233, 225)
+        return None
 
     # self: Persistent native observation policy; pausing animations freezes only its presentation clock.
     # snapshot: Complete isolated CCP metadata or an explicitly SIMULATED preview.
@@ -786,11 +841,12 @@ class CcpPanel:
         eligible = self._passive_visible and point is not None and (snapshot.state == LinkState.CONNECTED or snapshot.retained_pairing)
         self._gesture_point = point
         self._gesture_rotation = self.window.display_rotation
+        self._gesture_sampled_us = round(time.perf_counter() * 1000000) if point is not None else 0
         if point is None:
             self.window.renderer.require_native().cancel_companion_tap()
             return
         self.window.renderer.require_native().observe_companion_tap(point[0], point[1], True, True,
-            round(time.perf_counter() * 1000000), self._gesture_rotation, eligible, False)
+            self._gesture_sampled_us, self._gesture_rotation, eligible, False)
 
     # self: Retained native contact recognizer; movement never selects a panel directly.
     # point: Successfully projected logical pointer sample or unavailable when outside the display.
@@ -802,15 +858,19 @@ class CcpPanel:
         native = self.window.renderer.require_native()
         if point is None:
             native.cancel_companion_tap()
+            self._gesture_sampled_us = 0
             return
         self._gesture_point = point
+        self._gesture_sampled_us = round(time.perf_counter() * 1000000)
         native.observe_companion_tap(point[0], point[1], True, False,
-            round(time.perf_counter() * 1000000), self.window.display_rotation, True, False)
+            self._gesture_sampled_us, self.window.display_rotation, True, False)
 
-    # self: Read-only PR failure-list navigation.
-    # point: Logical released point; vertical swipes page complete names, never select a row.
+    # self: Existing Debug/event/passive navigation owner; release also retires character gaze contact.
+    # point: Logical released point, or None outside the display; existing tap/swipe rules retain ownership.
+    # Raises RuntimeError for original native navigation errors.
     def release(self, point):
         self.refresh()
+        self._gesture_sampled_us = 0
         point = acquired_touch_pixel(point)
         preview = self.activity_preview.get() and self._preview_snapshot is not None
         if not preview and self._debug_mode != "normal":

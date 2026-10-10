@@ -1,8 +1,10 @@
 // Desktop transport for the unchanged firmware mood and caress models.
 #include "CODY_happiness.hpp"
 #include "CODY_petting.hpp"
+#include "CODY_character_direction.hpp"
 #include "personality_rules.hpp"
 #include "esp_log.h"
+#include <algorithm>
 #include <new>
 
 #if defined(_WIN32)
@@ -20,6 +22,25 @@ namespace {
 struct HostBehavior {
     CODY::HappinessState happiness{};
     CODY::PettingState petting{};
+    CODY::CharacterDirectionState direction{};
+};
+
+// PC-only presentation inputs; no synthetic observation enters firmware snapshots.
+struct HostCharacterInputs {
+    const char *chat;
+    uint64_t sequence;
+    float placement[3];
+    float gaze[2];
+    bool current;
+    bool working;
+    bool attention;
+    bool compacting;
+    bool refreshed;
+    bool enabled;
+    bool paused;
+    bool rebase;
+    bool gaze_visible;
+    bool affection_allowed;
 };
 
 // operation: Actual rejected host boundary or firmware operation.
@@ -150,4 +171,60 @@ CODY_BEHAVIOR_EXPORT int cody_host_petting_observe(void *handle, const void *fra
 CODY_BEHAVIOR_EXPORT int64_t cody_host_petting_affection_us()
 {
     return CODY::PettingConfig::affection_us;
+}
+
+// handle: Existing native mood/caress owner; the director retains no second mood value.
+// wire: Borrowed visibly SIMULATED presentation facts, validated by the shared director.
+// elapsed_us: Active animation time; pause supplies zero and consumes source edges.
+// face: Complete native response channels, or nullptr while a non-character route is visible.
+// count: Exact channel count, or zero when face and contour are both absent.
+// contour: Four native response controls, committed with face only after success.
+// cue: Receives the native optional manga request after a successful update.
+// Exception: Returns original boundary, mood or direction errors without a partial commit.
+CODY_BEHAVIOR_EXPORT int cody_host_character_compose(void *handle, const HostCharacterInputs *wire,
+    int64_t elapsed_us, float *face, uint32_t count, float *contour, uint8_t *cue)
+{
+    if (handle == nullptr || wire == nullptr || cue == nullptr) {
+        return behavior_result("character_inputs", ESP_ERR_INVALID_ARG);
+    }
+    const bool no_frame = face == nullptr && contour == nullptr && count == 0;
+    const bool complete_frame = face != nullptr && contour != nullptr && count == CODY::kFaceChannelCount;
+    if ((!no_frame && !complete_frame) || (no_frame && wire->enabled)) {
+        return behavior_result("character_frame_shape", ESP_ERR_INVALID_ARG);
+    }
+    auto &owner = *static_cast<HostBehavior *>(handle);
+    CODY::CharacterDirectionInputs inputs{};
+    inputs.activity = {wire->chat, wire->sequence, wire->current, wire->working,
+        wire->attention, wire->compacting, wire->refreshed};
+    inputs.placement = {wire->placement[0], wire->placement[1], wire->placement[2]};
+    inputs.gaze_point = {wire->gaze[0], wire->gaze[1]};
+    inputs.caress_at_us = owner.petting.last_triggered_at_us;
+    inputs.enabled = wire->enabled;
+    inputs.paused = wire->paused;
+    inputs.rebase = wire->rebase;
+    inputs.gaze_visible = wire->gaze_visible;
+    inputs.affection_allowed = wire->affection_allowed;
+    esp_err_t error = CODY::positive_character_affect(CODY::PersonalityData::happiness,
+        owner.happiness, inputs.positive_affect);
+    CODY::CharacterDirectionState next{};
+    if (error == ESP_OK) {
+        error = CODY::advance_character_direction(inputs, elapsed_us, owner.direction, next);
+    }
+    // These bounded host-only locals never consume an ESP32 display-task stack.
+    CODY::ResponseFrame frame{};
+    if (error == ESP_OK && face != nullptr) {
+        std::copy(face, face + count, frame.face.values);
+        std::copy(contour, contour + CODY::kContourControlCount, frame.contour.values);
+        error = CODY::compose_character_direction(next, frame);
+    }
+    if (error != ESP_OK) {
+        return behavior_result("character_compose", error);
+    }
+    if (face != nullptr) {
+        std::copy(frame.face.values, frame.face.values + count, face);
+        std::copy(frame.contour.values, frame.contour.values + CODY::kContourControlCount, contour);
+    }
+    owner.direction = next;
+    *cue = static_cast<uint8_t>(CODY::character_direction_cue(next));
+    return ESP_OK;
 }
