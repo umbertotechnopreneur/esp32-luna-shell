@@ -54,7 +54,7 @@ instruction file; do not add parallel agent or Copilot contracts.
 - Rendering, clipping and touch share logical coordinates at 0/90/180/270 degrees.
   Back remains visually left in the chosen orientation; never mirror text or
   rotate touch independently. Read
-  [circular-display-layout](docs/architecture/circular-display-layout.md) before
+  [circular-display-layout](docs/bsp/boards/waveshare-esp32s3-touch-amoled-1.75/display-geometry.md) before
   changing layouts.
 - Cody companion technical panels are a scoped exception to lateral Back:
   a short passive tap advances Activity, Model & Context, Session & Link, then
@@ -74,7 +74,7 @@ instruction file; do not add parallel agent or Copilot contracts.
   One action uses a centered wide capsule with its icon to the left of its label.
   Apply semantic colors, restrained gradients and action icons to all Cody
   screens. Preserve the separate lateral Back, QR quiet zones and local chords.
-  Approved references: `docs/Cody/ui-proposals/20261009/selected-multi-action.png`
+  Approved references: `docs/cody/ui-proposals/20261009/selected-multi-action.png`
   and `selected-single-action.png` in the same directory.
   Button/card captions do not use teletype. Reveal complete controls together
   after the title and main body line finish; admit touch only while visible.
@@ -141,7 +141,7 @@ instruction file; do not add parallel agent or Copilot contracts.
   and addenda into this register without losing their dates or substance.
   Apply this reusable layout to PDFs in scope, including documents outside the
   repository. Keep security entries under a clearly labeled Security section.
-- Exception: `docs/Cody/cody-ccp-pairing-quickstart-a5-v1.pdf` is a four-page A5
+- Exception: `docs/cody/cody-ccp-pairing-quickstart-a5-v1.pdf` is a four-page A5
   flyer for nontechnical users. Keep its instructions current directly in those
   four pages; never append a revision register, errata, addenda or technical
   security appendix to this file.

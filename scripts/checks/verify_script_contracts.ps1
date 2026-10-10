@@ -589,7 +589,7 @@ $lowercaseReferencePaths = @(
     (Join-Path $scriptsRoot '..\components\LUNASHELL_boot\CMakeLists.txt'),
     (Join-Path $scriptsRoot 'commands\package-simulator.ps1'),
     (Join-Path $scriptsRoot '..\simulator\windows\lunashell_simulator.py'),
-    (Join-Path $scriptsRoot '..\docs\ui\round-display-guidelines.md')
+    (Join-Path $scriptsRoot '..\docs\luna-shell\ui-guidelines.md')
 )
 foreach ($referencePath in $lowercaseReferencePaths) {
     $referenceText = Get-Content -Raw -LiteralPath $referencePath

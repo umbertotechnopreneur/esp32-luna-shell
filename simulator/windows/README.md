@@ -3,7 +3,7 @@
 I use these previews to explore the 466 × 466 circular UI and the behavior described
 by the assets. **SYNTHETIC** and **SIMULATED** remain clearly visible: values
 generated on the PC never enter firmware snapshots. Host FPS, Pillow images and
-PC audio remain host observations; Cody's electrical behavior is verified on Cody.
+PC audio remain host observations; electrical behavior requires device evidence.
 
 ## Open Cody Studio
 
@@ -81,7 +81,7 @@ The panel supports:
 
 CCP can explicitly request a restart or factory reset of this **SIMULATED** target,
 using the distinct phrases and code described in the
-[plugin README](../../plugins/cody-codex-plugin/README.md#riavvio-o-ricomincio-dal-setup).
+[plugin README](../../plugins/cody-codex-plugin/README.md#explicit-restart-or-settings-reset).
 A restart preserves the store; a factory reset deletes only simulator settings
 and associations and leaves the simulated LAN unconfigured even after reopening.
 To resume, enable **SIMULATED LAN available** and start new pairing.
@@ -153,7 +153,7 @@ maximum deformation of two pixels. Geometry history does not queue symbols.
 Palette, coverage and opacity come from generated RGB565 assets.
 Back and the status region remain reserved: if a symbol does not fit, the result
 is `BLOCKED_BY_LAYOUT`, without unexpectedly shrinking or moving it.
-The complete contract is in [personality icons](../../docs/architecture/cody/personality-icons.md).
+The complete contract is in [personality icons](../../docs/cody/personality-icons.md).
 
 Three studies remain separate for the cloud's appearance:
 
@@ -272,7 +272,7 @@ and synthetic/no-cache headers. Health is public; other GET requests require an
 exact Bearer token, with a limit after twenty errors in sixty seconds.
 The public fixture token is `LUNASHELL-SIMULATOR-ONLY-NOT-A-SECRET`.
 The separate `/__simulator/` control handles load/advance/action; contracts are
-documented in [HTTP device API](../../docs/architecture/http-device-api.md).
+documented in [HTTP device API](../../docs/bsp/services/http-device-api.md).
 
 Prepare these checks through the console, then request the authorization required
 by [AGENTS.md](../../AGENTS.md) before each execution:
@@ -299,10 +299,46 @@ coverage oracle on small masks. The Luna suite covers fixtures, actions, redacti
 and loopback transport. Results and limitations are recorded in
 [done.md](../../done.md) and [TODO.md](../../TODO.md).
 For interpreters, paths and packaging, see the [console](../../scripts/README.md);
-for the device, see the [runtime](../../docs/architecture/cody/runtime.md) and
-[rendering](../../docs/architecture/cody/rendering.md) contracts.
+for the device, see the [runtime](../../docs/cody/runtime.md) and
+[rendering](../../docs/cody/rendering.md) contracts.
 
 `cody-runtime` includes regression definitions for the shared C++ modules;
 `simulator` includes aging, RTC, publication errors and native JSON. The presence
 of these definitions does not establish that they were executed. Suites loading
 the library require an up-to-date driver before they start.
+
+## Host audio and inspection ownership
+
+The Windows interactive preview has a host-only fake output owner. The public
+`device.ps1 simulator` route first compiles `cody_fake_audio.dll` below
+`artifacts/build-cody-simulator-audio/`; the explicit generator is
+`device.ps1 generate -Generator cody-simulator-audio`. An installed Windows C++
+toolchain is required. No toolchain is installed automatically.
+
+The DLL links the unchanged Cody personality selector, whistle and typewriter
+modules to fake `LUNASHELL_audio_*` output functions. Python copies their actual
+PCM into WAV memory and uses the existing Windows `winsound` playback backend
+on one bounded worker. Presented symbols, the visible whistle generation,
+new greeting glyphs and pointer presses request sounds automatically. Boot
+artwork routes and manual previews use the existing generated boot WAVs.
+The PC sound toggle cancels pending clips; optional admission/playback failures
+remain visible in the simulator status and host log without stopping the UI.
+This is one output voice, with no mixer. PC playback is labelled synthetic and
+never published into firmware snapshots. Capture-only routes do not initialize
+the audio owner or play sound. DLL compilation does not establish audible output;
+interactive playback remains a separate authorized observation.
+
+Cody Studio uses Consolas for host controls and inspection labels. The four
+inspector tabs share a seven-character label width and identical padding in
+selected/unselected states; the Clam selected-tab padding/expansion defaults
+are explicitly overridden. Character scene typography retains its authored
+device assets. Palette text provenance is normalized both by the generator
+and the Windows painter; indexed coverage and PCM binary hashes remain exact.
+
+The studio header bundles the approved VibeWare floppy PNG unchanged from
+`Obsidian/20_Execution/Projects/VibeWare/Branding/vibeware-logo.png`; the host
+copy, original MIT notice and provenance are under
+`simulator/windows/assets/branding/`. The buttons open the Cody GitHub project,
+`https://umbertogiacobbi.biz` and the published VibeWare `MANIFESTO.md` on GitHub
+only on a user click. The planned website manifesto is not used as a published
+destination. Browser launch failures remain in the simulator status/console.

@@ -113,7 +113,7 @@ def insert_replacement(page, block, translation):
 # Raises OSError for missing source, mapping, fonts or output files.
 def translate_document(key, redraft):
     name = DOCUMENTS[key]
-    destination = ROOT / "docs/Cody" / name
+    destination = ROOT / "docs/cody" / name
     baseline = STAGING / name
     receipt = STAGING / (key + "-receipt.json")
     mapping_path = MAPPINGS / (key + "-en.json")

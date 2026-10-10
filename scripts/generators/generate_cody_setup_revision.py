@@ -370,7 +370,7 @@ def interface_page(pdf, dimensions, label, number):
     image_size = 164 if compact else 218
     image_top = 160
     gap = (width - 2 * margin - 2 * image_size) / 3
-    images = ROOT / "docs/Cody/ui-proposals/20261009"
+    images = ROOT / "docs/cody/ui-proposals/20261009"
     for offset, name in enumerate(("selected-multi-action.png", "selected-single-action.png")):
         x = margin + gap + offset * (image_size + gap)
         pdf.drawImage(str(images / name), x, height - image_top - image_size,

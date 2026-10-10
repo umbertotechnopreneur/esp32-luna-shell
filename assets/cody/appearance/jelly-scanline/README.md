@@ -37,8 +37,8 @@ Runtime `CODY_companion_set_face_deformation()` /
 Disabling jelly excludes textures/mapping state. No sensor acquisition belongs here.
 
 Current renderer/face/damage/memory contracts:
-[rendering](../../../../docs/architecture/cody/rendering.md).
-Selection/persistence: [onboarding](../../../../docs/architecture/cody/onboarding.md).
+[rendering](../../../../docs/cody/rendering.md).
+Selection/persistence: [onboarding](../../../../docs/cody/navigation.md).
 40-ms scheduling and synthetic GIF playback are targets, not measured device FPS.
 Host captures, flashing and old measurements do not validate current physical
 output, performance or the unresolved display/touch stop.

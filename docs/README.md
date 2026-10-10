@@ -1,89 +1,56 @@
-# Documentation map
+# Documentation
 
-Current guides describe supported behavior; module READMEs identify code
-ownership. [TODO.md](../TODO.md) tracks active work, [done.md](../done.md)
-records implementation and evidence, and [lessons.md](../lessons.md) records
-recurring lessons.
+Choose the task first. Each guide has one owner; commands, installation and wire
+formats stay in their canonical guides.
 
-## Cody and CCP
-
-| Topic | Guide |
+| I want to... | Start here |
 | --- | --- |
-| Cody components and ownership | [Cody architecture](architecture/cody/README.md) |
-| First boot, settings, pairing, notifications and questions | [Cody flow](architecture/cody/onboarding.md) |
-| Scenes, runtime clocks and Debug | [Runtime](architecture/cody/runtime.md) |
-| Rig, rendering and performance | [Rendering](architecture/cody/rendering.md) |
-| Clock and RTC | [Clock](architecture/cody/clock.md) |
-| Installation, hooks, tools and CCP broker | [CCP guide](../plugins/cody-codex-plugin/README.md) |
-| LAN packet format and authentication | [CCP1 protocol](../plugins/cody-codex-plugin/protocol/CCP1.md) |
-| Windows preview and explicitly simulated pairing | [Cody Studio](../simulator/windows/README.md) |
+| Use Cody, finish setup or recover a connection | [Cody navigation](cody/navigation.md) |
+| Develop the native character or its screens | [Cody](cody/README.md) |
+| Develop the LVGL/Brookesia application | [Luna Shell](luna-shell/README.md) |
+| Work on display/touch or integrate a board | [BSP](bsp/README.md) |
+| Select a firmware profile, feature or build mode | [Toolchain and profiles](bsp/toolchain-and-profiles.md) |
+| Build, generate assets, capture logs or run an authorized check | [Public console](../scripts/README.md) |
+| Install CCP and review its hooks | [CCP installation and operation](../plugins/cody-codex-plugin/README.md) |
+| Preview the interface on Windows | [Simulator](../simulator/windows/README.md) |
 
-## Illustrated documents
+## Three documentation areas
 
-| PDF | Purpose |
+- **Cody** owns the native 2D interface, character, routes and presentation.
+- **Luna Shell** owns LVGL below Brookesia System Super/Core and declarative UI.
+- **BSP** owns the display/touch baseline, shared service contracts and board
+  details. Optional services do not become requirements of the minimal baseline.
+
+Physical board, interface, optional services and Debug/Release mode are separate
+selections. The supported physical adapter is currently the Waveshare ESP32-S3
+Touch AMOLED 1.75. Other Espressif devices are a future integration direction;
+the folder structure does not claim additional firmware support.
+
+## Illustrated Cody references
+
+| Current document | Purpose |
 | --- | --- |
-| [Navigation Atlas](Cody/cody-navigation-atlas-v1.pdf) | Routes, returns, questions and read-only PR updates |
-| [Planning Atlas](Cody/cody-planning-atlas-v1.pdf) | Screen inventory, layout and product boundaries |
-| [Pairing Quickstart](Cody/cody-ccp-pairing-quickstart-a5-v1.pdf) | Four-page A5 flyer for nontechnical users |
-| [CCP Connection Atlas](Cody/cody-ccp-connection-atlas-v1.pdf) | Combined journey, broker ownership, protocol, persistence and security |
-| [Manga Status Atlas](Cody/cody-manga-status-atlas-v1.pdf) | Expressive cues, artwork and boot identity |
+| [Navigation Atlas](cody/cody-navigation-atlas-v1.pdf) | Routes, returns, questions and read-only PR updates |
+| [Planning Atlas](cody/cody-planning-atlas-v1.pdf) | Screen inventory, layout and product boundaries |
+| [Pairing Quickstart](cody/cody-ccp-pairing-quickstart-a5-v1.pdf) | Four-page A5 flyer for nontechnical users |
+| [CCP Connection Atlas](cody/cody-ccp-connection-atlas-v1.pdf) | Combined connection, broker, persistence and security reference |
+| [Manga Status Atlas](cody/cody-manga-status-atlas-v1.pdf) | Expressive cues, artwork and boot identity |
 
-The CCP Connection Atlas consolidates the former service and Codex connection
-atlases. Their original PDFs remain historical sources, rather than parallel
-current guides. Screen IDs identify routes independently of physical page numbers.
+The former [service atlas](cody/cody-ccp-service-atlas-v1.pdf) and
+[Codex connection atlas](cody/cody-codex-connection-atlas-v1.pdf) are historical
+sources. Screen IDs remain stable independently of page numbers. PDF authoring
+commands and translation provenance are in the [console guide](../scripts/README.md).
+Document illustrations and simulator frames are synthetic evidence.
 
-Revised atlases end with a dedicated revision register. Each row places its date
-and intervention type (Security, Errata, Addendum or Change) on the left, with
-the description, affected pages/screens and optional supporting artwork on the
-right. The shared authoring template is
-[cody_pdf_revision_register.py](../scripts/common/cody_pdf_revision_register.py).
-Historical dates and corrections remain traceable. The pairing flyer is the
-explicit exception in [AGENTS.md](../AGENTS.md): four A5 pages, with no technical
-appendices or revision register.
+## Work and evidence
 
-Author through the public CLI:
-
-```powershell
-./scripts/device.ps1 generate -Generator cody-connection-atlas
-./scripts/device.ps1 generate -Generator cody-pairing-flyer
-./scripts/device.ps1 generate -Generator cody-security-atlases
-./scripts/device.ps1 generate -Generator cody-pdf-english
-```
-
-All document text is English, including preserved historical pages, diagrams,
-captions and footers. The English revision uses exact page/text mappings in
-`assets/cody/docs/translations/` and keeps original artwork and page identities.
-It stores protected originals and authoring receipts under `artifacts/docs/`;
-an unchanged translated PDF is skipped, and an unexpected later edit is rejected.
-Use `-ToolArguments @('--redraft')` only to revise translations from those
-protected originals. Review any newly authored historical content before adding
-or updating its mapping; the generator never guesses a translation.
-
-Documentation drawings are source-based illustrations, not physical captures.
-Security implementation, compilation and physical verification are separate
-evidence levels; pending device validation remains in the root work records.
-Native approvals and PR management stay on the computer.
-
-Earlier [pairing notes](planning/2026-10-03-pairing-atlas-addendum.md) and
-[look notes](planning/2026-10-04-cody-look-atlas-addendum.md) remain historical.
-
-## Platform and Luna
-
-| Area | Technical guide |
+| Record | Purpose |
 | --- | --- |
-| Geometry | [Circular display](architecture/circular-display-layout.md), [UI guidelines](ui/round-display-guidelines.md) |
-| Display and touch | [Runtime owner](architecture/display-touch-runtime.md) |
-| Startup and logging | [Startup](architecture/startup-and-logger.md), [SD/USB logs](architecture/offline-logging-usb.md) |
-| Hardware data | [Snapshot](architecture/device-snapshot.md), [Hardware API](architecture/hardware-api.md) |
-| Power | [Low-power policy](architecture/low-power-management.md), [Release deep sleep](architecture/release-deep-sleep.md) |
-| Network | [Provisioning](architecture/connectivity-pairing.md), [HTTP API](architecture/http-device-api.md) |
-| Audio | [Wake word](architecture/wake-on-word.md), [Optional TTS](architecture/text-to-speech.md) |
-| Configuration | [Board configuration](architecture/board-build-configuration.md), [Build modes](architecture/firmware-build-modes.md) |
-| Release | [Open-source checklist](release/open-source-pre-release-checklist.md) |
+| [AGENTS.md](../AGENTS.md) | Repository rules and authorization |
+| [TODO.md](../TODO.md) | Open work and remaining validation |
+| [planned-todo.md](../planned-todo.md) | Deferred work and activation conditions |
+| [done.md](../done.md) | Dated implementation and observed evidence |
+| [lessons.md](../lessons.md) | Causes and practical lessons from recurring errors |
 
-## Hardware and tooling
-
-- [Verified hardware inventory](hardware/hardware-inventory.md)
-- [ESP-IDF 6 constraints](esp-idf-6-migration.md)
-- [Public development CLI](../scripts/README.md)
-- [Repository rules](../AGENTS.md)
+Guides describe source contracts. Build, host execution, flash and physical
+behavior retain their own evidence levels and dates in the root records.

@@ -8,6 +8,8 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
 - Keep radio-state verification separate from standby policy reassertion. A
   service requirement can retain software standby even when Release permits
   Deep-sleep; expected service policy must not become a failed sleep/Active rollback.
+  Setting `consistent=false` to force a callback broke the paired Cody LAN gate.
+  Use an explicit reapplication parameter and retain observed state/real errors.
 - Recipient delivery and device retirement are separate CCP observations.
   Hold a published terminal question until its authenticated device ACK before
   publishing its successor; a UI dwell timeout does not prove device closure.
@@ -29,7 +31,7 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
   an intermittent trigger. A flashed/ELF mismatch invalidates symbolic diagnosis.
   Compare complete-frame/stage costs, payload and CPU together; a higher frame
   rate alone is not lower CPU. Establish an actually static route baseline.
-  [Response and rendering](docs/architecture/cody/rendering.md).
+  [Response and rendering](docs/cody/rendering.md).
 - A requested double DMA buffer is not evidence of overlap: inspect the admitted
   slot count in the complete connected firmware. Aggregate free memory does not
   guarantee two large contiguous blocks. Prefer bounded independently owned,
@@ -51,7 +53,7 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
   before diagnostic writes; secondary logging failure is separate.
 - Capture before best-effort USB output. Release storage/logger locks before USB
   transmission. File revisions/CRCs prove transfer identity, not a freeze's cause.
-  [Offline logging](docs/architecture/offline-logging-usb.md).
+  [Offline logging](docs/bsp/services/storage-and-logging.md).
 
 ## Continuous audio ownership
 
@@ -81,7 +83,7 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
 - Keep fresh build roots empty until IDF creates them; generated assets/stamps
   belong to each build, not shared source staging. Debug/Release is independent
   of hardware composition; existing Release output is not user intent.
-  [Build modes](docs/architecture/firmware-build-modes.md).
+  [Build modes](docs/bsp/toolchain-and-profiles.md#debug-and-release).
 - System Core is the app runtime, not System Super startup overlays/services.
   One lazy route owns its document/subscriptions/maps; unload releases captures,
   and callbacks are destroyed outside registry locks. On partial failure retain
@@ -126,8 +128,8 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
 - CO5300 QSPI cannot safely use direct PSRAM DMA here. Bounded internal bounce
   strips preserve completion ownership; smaller tiles must not create unbounded
   deferred touch work. Protect the BLE startup budget before Wi-Fi.
-  [Mitigations](docs/architecture/display-touch-runtime.md),
-  [rendering](docs/architecture/cody/rendering.md).
+  [Mitigations](docs/bsp/core/display-touch-runtime.md),
+  [rendering](docs/cody/rendering.md).
 - On Cody, reserve the BLE DMA budget before SD/display startup, then drain
   and briefly park frame-owned display DMA during Wi-Fi/BLE startup. Keep
   aggregate and per-block admission distinct. Do not infer a malloc size from
@@ -143,11 +145,6 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
 
 ## Power, wake and audio
 
-- Ho separato la riapplicazione della policy standby dalla consistenza reale
-  delle risorse. Impostare `consistent=false` per forzare il callback faceva
-  fallire il gate che conserva la LAN di Cody associato. Uso un parametro
-  esplicito di riapplicazione; conservo lo stato osservato e i veri errori.
-
 - Complete Sleep before closing display writes; prepare Wake while dark before
   panel exposure. Lock display/brightness/rotation before settings, defer
   rotation while off and require fresh orientation before replay.
@@ -160,7 +157,7 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
   Replacement/scroll/resume silently re-prime; cancellation and pending payload
   must share one coherent generation/mailbox. Admission does not prove playback;
   use existing codec/quiet/volume ownership and retain real async failures.
-  [Runtime and scenes](docs/architecture/cody/runtime.md).
+  [Runtime and scenes](docs/cody/runtime.md).
 - Standby quiesces producers before consumers; wake restores consumers dark,
   then producers before exposure. Failed transitions roll back or remain explicitly
   inconsistent. Diagnostic microphone handoff rechecks ownership under the lock.
@@ -180,9 +177,9 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
 - RTC oscillator-stop remains unavailable until trusted write/readback. LC76G
   I2C control timing/terminal ACK parsing and bounded failed-read backoff matter
   to shared-lock responsiveness. Polling slower alone does not power down IMU.
-  [Deep-sleep](docs/architecture/release-deep-sleep.md),
-  [low-power](docs/architecture/low-power-management.md),
-  [hardware](hardware-inventory.md).
+  [Deep-sleep](docs/bsp/services/power-management.md#standby-and-wake),
+  [low-power](docs/bsp/services/power-management.md#acquisition-policy),
+  [hardware](docs/bsp/boards/waveshare-esp32s3-touch-amoled-1.75/power-reference.md).
 
 ## Watchdogs
 

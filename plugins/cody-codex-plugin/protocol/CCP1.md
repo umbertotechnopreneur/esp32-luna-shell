@@ -13,9 +13,9 @@ transcripts or audio.
 - A PC ID is 32 random lowercase hexadecimal digits retained by CCP.
 - The displayed code contains six characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`.
 
-Per il simulatore uso un'identita' separata di 12 cifre esadecimali e la indico
-sempre come SIMULATED. La discovery deve includerlo esplicitamente; non pubblico
-quell'identita' come un MAC misurato su un dispositivo fisico.
+The simulator uses a separate 12-hex-digit identity, always labelled SIMULATED.
+Discovery requires explicit inclusion; this identity is never represented as a
+measured physical-device MAC.
 
 Every datagram is printable ASCII and uses `|` separators. Ordinary packets
 admit 512 bytes; ACTIVITY and TECH admit 1024; EVENT admits 1280.
@@ -44,11 +44,11 @@ HMAC-SHA256 using that verifier over:
 offer|<request>|<device>|<session>|<salt>
 ```
 
-Derivo un verifier per ogni offerta usando il codice ricevuto dall'utente e
-richiedo una sola corrispondenza. Prima del primo PAIR genero il nonce, derivo
-la chiave del link come descritto sotto e salvo il candidato PC in
-`pending-pairings.json`, protetto con DPAPI e separato dall'attivo `state.json`.
-Posso cosi' recuperare anche se tutte le risposte PAIRED vanno perse. Poi invio:
+Derive each offer's verifier from the user-provided code and require exactly
+one match. Before the first PAIR, generate the nonce, derive the link key below
+and persist the DPAPI-protected PC candidate in `pending-pairings.json`, separate
+from active `state.json`. This permits recovery even if every PAIRED reply is lost.
+Then send:
 
 ```text
 CCP1|PAIR|device=<12 hex>|session=<8 hex>|pc=<32 hex>|port=42118|nonce=<32 hex>|proof=<64 hex>
@@ -66,11 +66,10 @@ Both peers derive the link key as HMAC-SHA256 using the verifier over:
 link|<device>|<session>|<pc>|<nonce>
 ```
 
-Salvo sul Cody il candidato autenticato in `ccp_pending`, separato dal record
-attivo `ccp_pairing`. Mantengo lo schema v1 dell'attivo e i messaggi di pairing;
-aggiungo la conferma post-commit `COMMITTED` descritta sotto.
-Il vecchio link resta attivo finche' ricevo la prova che il PC ha salvato il
-candidato. Dopo la scrittura riuscita del pending rispondo con:
+Cody persists the authenticated candidate in `ccp_pending`, separate from active
+`ccp_pairing`. The active v1 schema and pairing messages are retained, with the
+post-commit COMMITTED confirmation below. The previous link remains active until
+proof that the PC persisted the candidate. Only a successful pending write permits:
 
 ```text
 CCP1|PAIRED|device=<12 hex>|session=<8 hex>|pc=<32 hex>|nonce=<32 hex>|proof=<64 hex>
@@ -82,9 +81,9 @@ The confirmation proof uses the link key over:
 paired|<device>|<session>|<pc>|<nonce>
 ```
 
-Con `PAIRED` confermo che Cody ha conservato il candidato, non che il nuovo link
-e' gia' attivo. Il candidato sul PC e' gia' persistito, senza sostituire il
-vecchio attivo; dopo PAIRED valido posso inviare:
+PAIRED confirms Cody retained the candidate, without claiming an active new link.
+The PC candidate is already persisted without replacing its old active record.
+After validating PAIRED, the PC may send:
 
 ```text
 CCP1|CONFIRM|device=<12 hex>|session=<8 hex>|pc=<32 hex>|nonce=<32 hex>|proof=<64 hex>
@@ -96,9 +95,9 @@ The proof uses the persisted link key over:
 confirm|<device>|<session>|<pc>|<nonce>
 ```
 
-Tengo la schermata di pairing fino alla prova valida del PC. Con `CONFIRM`
-autenticato promuovo il candidato nel record attivo e rimuovo il pending;
-solo dopo queste operazioni riuscite rispondo:
+Keep the pairing screen until valid PC proof. Authenticated CONFIRM promotes
+the candidate to active storage and removes pending; only successful completion
+of both operations permits:
 
 ```text
 CCP1|ACTIVE|device=<12 hex>|session=<8 hex>|pc=<32 hex>|nonce=<32 hex>|proof=<64 hex>
@@ -110,39 +109,33 @@ The activation proof covers:
 active|<device>|<session>|<pc>|<nonce>
 ```
 
-Nel commissioning chiudo con successo il tool e promuovo il candidato PC
-soltanto dopo `ACTIVE` autenticato; sul Cody mostro All set dopo l'invio
-riuscito di `ACTIVE`.
-Conservo per una breve finestra la tupla non segreta di attivazione, cosi' un
-`CONFIRM` ripetuto e valido puo' recuperare una risposta finale persa senza
-trattenere il codice o il materiale temporaneo di derivazione.
+Commissioning completes the tool and promotes the PC candidate only after
+authenticated ACTIVE. Cody shows All set after successfully sending ACTIVE.
+For a short window, retain the nonsecret activation tuple so repeated valid
+CONFIRM can recover a lost final reply without retaining code/derivation material.
 
-Se un riavvio interrompe la transazione, recupero `ccp_pending` e cerco il PC
-con quel candidato. Un `READY` fresco, autenticato e legato alla richiesta
-corrente dimostra che il PC conserva il link: posso promuoverlo e chiudere il
-journal anche senza ripresentare un codice. Invio poi `COMMITTED`, cosi' anche
-il PC puo' promuovere il suo candidato dopo una prova del commit sul dispositivo.
-Non invento una risposta positiva a un vecchio tool. Senza la prova del PC
-mantengo attesa o errore reali.
+After an interrupted transaction, recover `ccp_pending` and discover the PC with
+that candidate. Fresh authenticated READY tied to the current request proves PC
+retention and permits Cody to promote it and close its journal without a new code.
+The matching COMMITTED then proves device commit so the PC can promote its candidate.
+Recovery never fabricates success for an old tool. Missing proof retains real wait/error.
 
-Rifiuto un candidato diverso mentre il journal ne conserva gia' uno, fino a
-Cancel oppure a una nuova sostituzione esplicita. Cancel chiude il tentativo e
-rimuove il pending sul Cody, preservando l'attivo. Sul dispositivo, una lettura,
-scrittura, validazione o cancellazione storage fallita resta repair-required; la sola
-scelta di Retry non la trasforma in successo.
+Reject a different candidate while the journal holds one, until Cancel or explicit
+replacement. Cancel closes the attempt and removes Cody pending while retaining
+active storage. Failed reads, writes, validation or deletion remain repair-required;
+Retry alone does not turn them into success.
 
-Con Forget confermato elimino sul dispositivo soltanto `ccp_pairing` e
-`ccp_pending`. Mantengo Wi-Fi, skin, preferenze e log. Il record DPAPI sul PC
-rimane; questo comando non invia una revoca remota. Uso questa azione esplicita
-anche per rimuovere un record danneggiato, senza migrazioni o reset automatici.
+Confirmed Forget removes only `ccp_pairing` and `ccp_pending` on Cody. Wi-Fi,
+skin, preferences and logs remain, as does the independent PC DPAPI record.
+There is no remote revocation. Explicit Forget may remove a damaged record;
+there is no automatic migration or reset.
 
-Non prometto un rollback atomico distribuito. Se Cancel torna a un vecchio link,
-conservo il vecchio collegamento operativo e lascio il candidato PC irrisolto.
-Un `COMMITTED` con la vecchia chiave non lo cancella: puo' essere un pacchetto
-precedente riprodotto. Anche dopo Cancel, Forget o una prima associazione
-interrotta richiedo un nuovo codice visibile e `replace_pending:true`
-esplicitamente autorizzato per sostituire il candidato PC. Non lo elimino
-automaticamente per un pacchetto vecchio o per il solo trascorrere del tempo.
+The two stores do not promise atomic distributed rollback. Cancel may restore the
+previous operational link while leaving the PC candidate unresolved. COMMITTED
+under the old key cannot delete that candidate because it may be replayed.
+After Cancel, Forget or interrupted first pairing, PC replacement still requires
+a new visible code and explicit `replace_pending:true`. Old packets and elapsed
+time never authorize automatic deletion.
 
 The displayed code, verifier and pairing salt are wiped when the attempt ends.
 Neither side logs them.
@@ -386,14 +379,13 @@ App Server, chat resume/start or transcript parsing is introduced to simulate
 that channel. Changed plugin hooks require native review before execution;
 enabling the plugin alone does not establish trusted live hook delivery.
 
-## Notifiche e decisioni autentiche (CCP 0.6)
+## Authentic notifications and decisions (CCP 0.6)
 
-Tengo separati i metadati automatici della chat e le richieste esplicite MCP.
-Per una richiesta MCP genero un ticket casuale di 128 bit e una capability di
-256 bit, consegnata solo alla chiamata creatrice. `context` e' un'etichetta
-dichiarata dal chiamante, non l'identita' o il focus di una chat. Non invento
-hook per spedire una domanda. Un vero `PermissionRequest` produce soltanto un
-avviso `On your PC`: l'autorizzazione nativa rimane nel normale prompt Codex.
+Automatic chat metadata and explicit MCP requests have separate ownership.
+An MCP request creates a random 128-bit ticket and 256-bit capability, disclosed
+only to its creator. `context` is caller-declared, without establishing chat identity
+or focus. Explicit questions need no invented hook. Genuine PermissionRequest
+produces only On your PC; native authorization stays in the normal Codex prompt.
 
 ```text
 CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=1|events=2|current=<32hex>|state=<device-state>|proof=<64hex>
@@ -412,129 +404,111 @@ CCP1|EVENTACK|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|state=<terminal
 HMAC input: event-ack|<device>|<pc>|<nonce>|<id>|<state>
 ```
 
-The `events=2` capability accepts activity version 1, 2 or 3, with its matching
-HMAC domain. `current` is the observed question ID, or all zeroes when absent;
-`state` is `none` only for zero ID, otherwise pending, sending, received,
-delivered, cancelled, expired or rejected. Notifications are not open questions.
-EVENT admits at most 1280 bytes; ACTIVITY version 2 and TECH admit 1024; other packets
+`events=2` accepts activity version 1, 2 or 3 with the matching HMAC domain.
+`current` is the observed question ID, or all zeroes when absent. `state=none`
+requires zero ID; other device states are pending, sending, received, delivered,
+cancelled, expired or rejected. Notifications are not open questions.
+EVENT admits 1280 bytes, ACTIVITY v2 and TECH admit 1024, and other packets
 retain 512. Application messages are never fragmented.
 
-EVENT e' uno snapshot completo e immutabile del contenuto del ticket, firmato
-con la chiave del link e il nonce FIND corrente. Ammetto una sola pubblicazione
-EVENT per nonce e solamente dopo READY. `state` e' `pending`, `received`,
-`delivered`, `cancelled`, `expired`, `unavailable` oppure `none`. Il caso `none` usa ID tutto
-zero, `ttl=0` e `data=-`; non costituisce una risposta. `ttl` e' il numero
-intero di secondi residui arrotondato per eccesso (0..180), non un timestamp
-UTC; `pending` e `received` richiedono almeno un secondo. Una ripetizione non
-allunga la scadenza locale originale. Offline conservo la domanda e il suo
-percorso: nessun timeout, riavvio o ritorno LAN sceglie un'opzione.
+EVENT is a complete immutable ticket snapshot, signed by the link key and current
+FIND nonce. Admit one EVENT publication per nonce after the current authenticated
+rediscovery handshake. States are pending, received, delivered, cancelled, expired,
+unavailable or none. None uses zero ID, ttl=0 and data=-; it is not an answer.
+TTL is remaining seconds rounded up, 0..180, not UTC; pending/received require
+at least one second. Repetition never extends the original local deadline.
+Offline retains question/route; timeout, restart or LAN return never selects a choice.
 
-Da CCP 0.6.2, se il FIND dichiara una domanda aperta che il broker non ha mai
-pubblicato per l'associazione attiva (ad esempio dopo il suo riavvio), rispondo
-prima con EVENT `unavailable`, lo stesso ID, `ttl=0`, `data=-`. Non pubblico
-ancora una nuova domanda gia' accodata. Cody accetta il ritiro soltanto per
-la propria domanda e conserva la scelta locale come consegna non confermata;
-pubblica `rejected` con `ESP_ERR_NOT_FOUND`. Il successivo FIND firmato con
-stato terminale, oppure assenza dopo Done, conferma il ritiro prima della
-nuova pubblicazione. Se il frame o la pubblicazione canonica falliscono,
-ripeto il ritiro; non serve EVENTACK per un ticket che il nuovo broker ignora.
-Questo flusso non ricostruisce risposte perse e non prolunga le scadenze.
+Since CCP 0.6.2, an open question unknown to the current association's broker
+(for example after restart) first receives EVENT unavailable with the same ID,
+ttl=0 and data=-. A queued successor waits. Cody retires only its own question,
+keeps the local choice as unconfirmed delivery and publishes rejected with
+ESP_ERR_NOT_FOUND. A later signed terminal FIND, or absence after Done, confirms
+retirement before new publication. Frame/canonical publication failure repeats
+retirement. An unknown ticket needs no EVENTACK; this cannot reconstruct answers
+or extend deadlines.
 
-Decodifico `data` come byte esadecimali minuscoli. Il payload v1 contiene,
-nell'ordine:
+`data` is lowercase hexadecimal bytes. The v1 payload contains these fields in order:
 
-| Campo | Formato e limite |
+| Field | Format and limit |
 | --- | --- |
-| version | u8, valore 1 |
+| version | u8, value 1 |
 | kind | u8: 1 notice, 2 question, 3 approval_on_pc, 4 pr_pending, 5 checks_running, 6 checks_failed, 7 checks_passed |
-| context | u8 lunghezza + 0..24 byte ASCII stampabili |
-| title | u8 lunghezza + 1..24 byte ASCII stampabili |
-| body | u8 lunghezza + 1..63 byte ASCII stampabili |
-| choice_count | u8: 2 o 3 solo per question, 0 negli altri casi |
-| choices | Per scelta: id, label, detail, tone nel formato sotto |
-| selected_id | u8 lunghezza + 0..12 byte; vuoto finche' nessuna risposta |
-| failure_count | u8, massimo 6; diverso da zero solo per checks_failed |
-| failure_names | Per nome: u8 lunghezza + 1..48 byte ASCII stampabili |
-| progress_valid | u8, esattamente 0 o 1 |
-| passed | u16 big endian; zero se progress_valid=0 |
-| total | u16 big endian; zero se progress_valid=0 |
+| context | u8 length + 0..24 printable ASCII bytes |
+| title | u8 length + 1..24 printable ASCII bytes |
+| body | u8 length + 1..63 printable ASCII bytes |
+| choice_count | u8: 2 or 3 for question only, otherwise 0 |
+| choices | Per choice: id, label, detail, tone as below |
+| selected_id | u8 length + 0..12 bytes; empty until an answer |
+| failure_count | u8, at most 6; nonzero only for checks_failed |
+| failure_names | Per name: u8 length + 1..48 printable ASCII bytes |
+| progress_valid | u8, exactly 0 or 1 |
+| passed | u16 big endian; zero when progress_valid=0 |
+| total | u16 big endian; zero when progress_valid=0 |
 
-Ogni scelta contiene `id` (u8 lunghezza + 1..12 byte, pattern
-`[a-z][a-z0-9_]{0,11}`), `label` (u8 + 1..12 ASCII), `detail` (u8 + 1..63
-ASCII) e `tone` u8: 0 neutral, 1 positive, 2 negative, 3 info. ID ed etichette
-sono univoci; gli ID non dipendono dalla posizione. I testi obbligatori non
-possono contenere soltanto spazi. Il decoder rifiuta campi eccedenti,
-byte residui, combinazioni incoerenti e contenuto fuori budget: niente tagli
-silenziosi. Per PR richiedo head esatto; pubblico progresso solo da un elenco
-completo, corrente e riferito allo stesso head. Non deduco checks passati da
-Stop. I nomi dei fallimenti sono quelli forniti da Codex: se non entrano,
-rifiuto la notifica con rimando al computer. Non esistono azioni PR nel wire.
-Con progresso valido richiedo `0 <= passed <= total`, `total > 0`; per
-checks_failed i nomi non possono superare `total - passed`, per checks_passed
-tutti i check devono essere passati.
+Each choice contains id (u8 length + 1..12 bytes, `[a-z][a-z0-9_]{0,11}`),
+label (u8 + 1..12 ASCII), detail (u8 + 1..63 ASCII), and u8 tone:
+0 neutral, 1 positive, 2 negative, 3 info. IDs/labels are unique; IDs survive
+reordering. Mandatory text cannot be all spaces. Reject excess fields, trailing
+bytes, incoherent combinations and oversized content without silent truncation.
+PR progress needs the exact head and complete current check list. Stop never
+implies passed checks. Failure names come from Codex; reject excess content with
+a return to the PC. There are no PR actions in the wire. Valid progress requires
+0 <= passed <= total and total > 0. checks_failed names cannot exceed total-passed;
+checks_passed requires every check to have passed.
 
-REPLY riguarda soltanto question. Una risposta valida passa a `received`:
-CCP l'ha registrata, ma non dichiaro ancora screen 31. Il primo poll MCP del
-destinatario restituisce risposta e `answer_id` casuale; un poll successivo
-con `acknowledge_answer_id` uguale conferma che il destinatario l'ha ricevuta
-e passa a `delivered`. Solo REPLYACK `delivered`, o EVENT con quello stato,
-autorizza `Reply sent`. Gli altri status REPLYACK sono `received`, `expired`,
-`cancelled`, `conflict`, `unknown`. Ripetere la stessa scelta e' idempotente;
-una scelta diversa non sovrascrive la prima. Non azzero lo stato per un ACK
-perso: il successivo FIND o REPLY ne riporta lo stato autenticato.
+REPLY applies only to question. A valid choice becomes received, meaning the broker
+recorded it without authorizing screen 31. The recipient's first MCP poll returns
+the choice and random answer_id. A second poll with matching acknowledge_answer_id
+confirms receipt and becomes delivered. Only REPLYACK delivered or that EVENT state
+permits Reply sent. Other REPLYACK states are received, expired, cancelled, conflict
+and unknown. Repeating one choice is idempotent; another cannot overwrite it.
+Lost ACK does not clear state: later authenticated FIND/REPLY reports it.
 
-Da CCP 0.6.1 distinguo la conferma del destinatario dalla chiusura osservata
-sul dispositivo. Una domanda gia' pubblicata e chiusa dal broker precede la
-successiva finche' Cody non applica lo stato terminale e invia EVENTACK.
-L'ACK ammette solo `delivered`, `cancelled`, `expired` o `rejected`, con chiave
-attiva, endpoint osservato e nonce FIND corrente. Non contiene una scelta,
-non approva operazioni e non modifica il risultato del destinatario.
-Una scadenza locale puo' precedere il frame `delivered`: conservo la reale
-chiusura locale senza inventare `Reply sent` e senza riscrivere la risposta MCP.
+Since CCP 0.6.1, recipient receipt and observed device closure are separate.
+A published broker-terminal question precedes its successor until Cody applies
+the terminal state and sends EVENTACK. It admits delivered, cancelled, expired
+or rejected only, with active key, observed endpoint and current FIND nonce.
+It carries no choice, grants no operation permission and does not change the
+recipient result. Local expiry may precede delivered: preserve real local closure
+without inventing Reply sent or rewriting the MCP answer.
 
-| Passaggio | Proprietario | Effetto |
+| Transition | Owner | Effect |
 | --- | --- | --- |
-| pending -> sending | Cody, dopo Send esplicito | Scelta confermata localmente; consegna ancora ignota |
-| pending -> received | Broker, dopo REPLY autenticato | Risposta registrata; il destinatario deve confermarla |
-| received -> delivered | Agent, poll con answer_id esatto | Destinatario confermato; Cody deve ancora osservare la chiusura |
-| terminal -> EVENTACK | Cody, dopo pubblicazione canonica | Consente al broker di pubblicare la domanda successiva |
+| pending -> sending | Cody after explicit Send | Locally confirmed choice; delivery unknown |
+| pending -> received | Broker after authenticated REPLY | Recorded answer awaiting recipient confirmation |
+| received -> delivered | Agent poll with exact answer_id | Recipient confirmed; device closure still pending |
+| terminal -> EVENTACK | Cody after canonical publication | Broker may publish the next question |
 
-Ritrasmetto lo snapshot terminale anche oltre gli otto secondi della normale
-presentazione, finche' ricevo l'ACK. Se l'ACK si perde, il FIND successivo
-ripete la chiusura e Cody la riconferma, anche dopo Done. Una domanda mai
-pubblicata non richiede una chiusura sul dispositivo. Le scadenze iniziano
-all'accodamento: l'attesa della chiusura precedente non prolunga il TTL.
-Il firmware che implementa EVENTACK, FIND events=2 e CCP 0.6.2 vanno aggiornati insieme;
-non rilascio la successiva domanda per un semplice timeout di presentazione.
+Repeat terminal snapshots beyond the ordinary eight-second presentation until ACK.
+Lost ACK is repeated by the next FIND, and Cody confirms it even after Done.
+Unpublished questions need no device closure. Deadlines begin at enqueue;
+waiting for earlier closure never extends TTL. Update coordinated firmware/plugin
+versions together; a presentation timeout never releases the next question.
 
-Tengo una sola domanda aperta per dispositivo, senza soppiantarla con attivita',
-batteria o notifiche. La selezione sullo screen 27 rimane reversibile finche'
-non confermo; Back torna al 26 conservandola. Poll e cancel richiedono ticket
-e capability della chiamata creatrice; la capability non viaggia sulla LAN.
-L'attesa del poll e' limitata a 15 secondi e non trattiene il lock delle altre
-operazioni MCP. La cache volatile di risultati/scadenze e' limitata; il riavvio
-del broker non rigioca richieste o risposte. Cody Studio usa lo stesso wire,
-sempre dichiarato SIMULATED e soltanto con opt-in esplicito.
+Only one question is open per device; activity, battery and notices cannot displace
+it. Screen 27 selection stays reversible before Send; Back to 26 preserves it.
+Poll/cancel need the creator's ticket/capability; capability never travels over LAN.
+Poll waits at most 15 s without retaining other MCP-operation locks. Volatile
+results/deadlines have a bounded cache; broker restart does not replay requests
+or answers. Cody Studio uses the same wire with explicit SIMULATED opt-in.
 
-Una nuova notifica informativa ritira quelle precedenti per lo stesso device:
-una vecchia PR fallita non torna quando scade la notifica successiva. La domanda
-aperta mantiene la precedenza. Lego ogni ticket al digest della chiave attiva;
-un cambio pairing lo ritira anche se la prima operazione successiva e' REPLY.
-Le notifiche native terminano con il loro contesto hook reale. La scadenza
-copre anche `received`: senza conferma del destinatario entro il TTL non
-pubblico `delivered` e non espongo la risposta come decisione utilizzabile.
+A new informational notice retires previous notices for the device, so an old
+failed PR cannot return after a newer notice expires. Open questions keep priority.
+Each ticket is bound to the active-key digest; pairing changes retire it even if
+the next operation is REPLY. Native notices end with their authentic hook context.
+TTL also covers received: absent recipient confirmation means no delivered state
+or answer exposed as a usable decision.
 
-## Riavvio e ripristino espliciti (CCP 0.6)
+## Explicit restart and settings reset (CCP 0.6)
 
-Tengo distinti `ccp_reset_device` e `ccp_factory_reset_device`. Il primo
-riavvia conservando tutte le impostazioni; il secondo cancella le impostazioni
-del dispositivo, inclusi Wi-Fi e pairing, e riparte dal primo setup. Firmware,
-asset e SD restano intatti. Entrambi richiedono target gia' paired e presente,
-`confirmation_code` come stringa esatta `043533477` e intenzione corrispondente
-nel messaggio utente corrente. La skill riconosce rispettivamente
-`resetta il device codice 043533477` e `formatta cody 043533477`; non ricava
-il codice da questo documento o da messaggi precedenti. Il codice evita
-equivoci, non e' una password; l'autenticazione resta il link CCP.
+ccp_reset_device restarts while preserving settings. ccp_factory_reset_device
+deletes settings including Wi-Fi/pairing and returns to setup; firmware, assets
+and SD remain. Both require a paired present target, exact string confirmation_code
+043533477 and corresponding intent in the current user message. Literal recognized
+examples are `resetta il device codice 043533477` and `formatta cody 043533477`.
+The skill never derives authorization from this document or an earlier message.
+The code prevents ambiguity; authenticated CCP supplies security.
 
 ```text
 CCP1|RESET|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|code=043533477|proof=<64hex>
@@ -548,24 +522,21 @@ CCP1|FACTORYRESETACK|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|status=a
 HMAC input: factory-reset-ack|<device>|<pc>|<nonce>|<id>|accepted
 ```
 
-I quattro pacchetti restano entro 512 byte. Genero un ID casuale di 128 bit
-e accodo una sola operazione per device. Attendo un FIND `events=2` fresco
-autenticato con la chiave attiva; dopo READY ed EVENT invio il comando una sola
-volta, all'endpoint osservato e con quel nonce. Il device risponde dalla porta
-42117 alla 42118, ammette un ID una volta e non sposta la scadenza quando riceve
-una copia identica. Tipo di comando, ID, nonce, chiave ed endpoint devono
-corrispondere anche nell'ACK: non scambio riavvio e formattazione.
+All four packets fit 512 bytes. A random 128-bit ID owns one operation per device.
+Wait for fresh authenticated FIND events=2 under the active key, then send once
+after the current READY/COMMITTED and EVENT sequence, using its observed endpoint
+and nonce. Cody replies from 42117 to 42118, admits an ID once and does not move
+the deadline for identical copies. Command type, ID, nonce, key and endpoint must
+also match in ACK, without confusing restart and settings reset.
 
-Aspetto al massimo cinque secondi dall'accodamento. Senza una trasmissione
-ritorno `not_sent`; dopo un invio senza ACK valido ritorno `ambiguous`.
-`accepted` prova soltanto l'ammissione. Non dichiaro verificati boot o
-cancellazione e non ritrasmetto automaticamente. Dopo l'ACK il device attende
-almeno 500 ms prima del riavvio; per il factory reset cancella le impostazioni
-attraverso il relativo owner e riavvia solo dopo il successo. Un errore storage
-rimane un errore e non viene nascosto dal riavvio. Il record PC puo' restare
-salvato ma senza presenza: non lo elimino su un esito incerto e non avvio
-pairing automatici. Il simulatore applica le stesse regole solo al proprio
-store, con `include_simulator: true` esplicito e identita' sempre SIMULATED.
+Wait at most five seconds from enqueue. No transmission returns not_sent;
+transmission without valid ACK returns ambiguous. accepted proves admission only,
+not later boot or deletion, and does not trigger automatic retransmission.
+After ACK, Cody waits at least 500 ms before restart. Factory reset uses the
+settings owner and restarts only after success; storage failure remains visible.
+The PC record may remain saved but absent. Uncertainty never deletes it or starts
+automatic pairing. The simulator applies these rules only to its own store with
+explicit include_simulator:true and SIMULATED identity.
 
 ## Clock preferences and quiet hours
 

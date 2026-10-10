@@ -306,7 +306,7 @@ def draw_screens(pdf, dimensions, spec, top):
 # Raises ValueError for text overflowing the page.
 def draw_action_language(pdf, dimensions, top):
     width, height = dimensions
-    references = ROOT / "docs/Cody/ui-proposals/20261009"
+    references = ROOT / "docs/cody/ui-proposals/20261009"
     for index, filename in enumerate(("selected-multi-action.png", "selected-single-action.png")):
         x = 34 + index * 236
         pdf.drawImage(str(references / filename), x, height - top - 230,
@@ -530,7 +530,7 @@ def redraft_originals(staging):
         record = by_name[document.filename]
         if record.get("identity") != identity.value:
             raise ValueError("Redraft document identity differs: " + document.filename)
-        current = (ROOT / "docs/Cody" / document.filename).read_bytes()
+        current = (ROOT / "docs/cody" / document.filename).read_bytes()
         original = (staging / (Path(document.filename).stem + "-original.pdf")).read_bytes()
         if sha256(current).hexdigest() != record.get("revised_sha256"):
             raise ValueError("Current PDF changed after the recorded draft: " + document.filename)
@@ -554,7 +554,7 @@ def redraft_originals(staging):
 # Raises OSError or ValueError for unexpected source topology or duplicate revisions.
 def revise(identity, staging, original_bytes=None):
     document = DOCUMENTS[identity]
-    source = ROOT / "docs/Cody" / document.filename
+    source = ROOT / "docs/cody" / document.filename
     if original_bytes is None:
         original_bytes = source.read_bytes()
     reader = PdfReader(BytesIO(original_bytes))

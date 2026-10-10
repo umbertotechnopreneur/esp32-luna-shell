@@ -269,7 +269,7 @@ def errata_page(document, page_number, kind, original_pages):
     document.showPage()
 
 
-# No parameters: append only, retain backups and mirror the finished atlases into docs/Cody.
+# No parameters: append only, retain backups and mirror the finished atlases into docs/cody.
 # Raises file, PDF or rendering-library errors; existing documents are replaced atomically.
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
@@ -309,7 +309,7 @@ def main():
         staging = ATLAS / (name + ".writing")
         shutil.copy2(intermediate, staging)
         staging.replace(target)
-        shutil.copy2(target, ROOT / "docs/Cody" / name)
+        shutil.copy2(target, ROOT / "docs/cody" / name)
         result = {"path": str(target), "original_pages": base_count,
                   "appended_pages": [base_count + 1, base_count + 2, base_count + 3]}
         results.append(result)

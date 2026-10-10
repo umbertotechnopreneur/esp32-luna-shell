@@ -39,8 +39,9 @@ DOCUMENTS = (
 # Raises AssertionError for incomplete changes or modified retained pages.
 # Raises CalledProcessError or OSError for an unreadable versioned baseline.
 def check_document(spec):
-    relative = "docs/Cody/" + spec.filename
-    original = subprocess.run(["git", "show", BASELINE + ":" + relative], cwd=ROOT,
+    relative = "docs/cody/" + spec.filename
+    # The historical Git tree retains its original case-sensitive directory name.
+    original = subprocess.run(["git", "show", BASELINE + ":docs/Cody/" + spec.filename], cwd=ROOT,
                               check=True, capture_output=True).stdout
     before = PdfReader(BytesIO(original))
     after = PdfReader(ROOT / relative)
@@ -94,7 +95,7 @@ def render_document(spec, renderer, output):
     directory = output / spec.filename.removesuffix(".pdf")
     directory.mkdir(parents=True, exist_ok=True)
     prefix = directory / "page"
-    subprocess.run([renderer, "-scale-to", "1300", "-png", str(ROOT / "docs/Cody" / spec.filename),
+    subprocess.run([renderer, "-scale-to", "1300", "-png", str(ROOT / "docs/cody" / spec.filename),
                     str(prefix)], check=True)
     pages = sorted(directory.glob("page-*.png"))
     if len(pages) != spec.original_pages + ADDED_PAGES:

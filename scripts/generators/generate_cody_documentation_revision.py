@@ -251,7 +251,7 @@ def errata(document, number, kind, original_count):
         text(document, heading, 36, y, 10, INK, "BodyBold")
         y = paragraph(document, copy, 36, y + 17, W - 72, 9.5) + 12
     y = paragraph(document, f"Preserved pages 01-{original_count:02d}, including earlier errata. Firmware checkpoint de9b8b18 built/flashed on COM10; newer mouth/Whistle checkpoint f5ae5e2 has not been compiled or flashed. Two approved checks passed; four stopped/failed and have not been rerun. No physical visual/audio observation is claimed.", 36, y + 1, W - 72, 9, MUTED)
-    block(document, "Canonical sources for this revision", "assets/cody/cody.yaml; assets/cody/personality.yaml; CODY_rig.cpp / CODY_response.cpp; docs/architecture/cody/runtime.md, idle-scenes.md and personality-icons.md; simulator/windows/cody_simulator.py and cody_fake_audio.py. Clip durations come from the versioned personality audio manifest.", 36, y + 17, W - 72)
+    block(document, "Canonical sources for this revision", "assets/cody/cody.yaml; assets/cody/personality.yaml; CODY_rig.cpp / CODY_response.cpp; docs/cody/runtime.md, behavior.md and personality-icons.md; simulator/windows/cody_simulator.py and cody_fake_audio.py. Clip durations come from the versioned personality audio manifest.", 36, y + 17, W - 72)
     document.showPage()
 
 
@@ -297,7 +297,7 @@ def main():
             if sha256((OUTPUT / item["file"]).read_bytes()).hexdigest() != item["revised_sha256"]:
                 raise ValueError(f"Staged PDF changed during review: {item['file']}")
         for item in manifest["documents"]:
-            for destination in (ATLAS / item["file"], ROOT / "docs/Cody" / item["file"]):
+            for destination in (ATLAS / item["file"], ROOT / "docs/cody" / item["file"]):
                 shutil.copy2(OUTPUT / item["file"], destination)
                 print("Published", destination)
         shutil.copy2(OUTPUT / "manifest.json", ATLAS / "source/documentation-2026-10-06-manifest.json")

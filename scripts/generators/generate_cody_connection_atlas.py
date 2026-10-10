@@ -21,7 +21,7 @@ INK = colors.HexColor("#18283E")
 MUTED = colors.HexColor("#64748B")
 TEAL = colors.HexColor("#147D86")
 LINE = colors.HexColor("#DEE6EF")
-DEFAULT_OUTPUT = ROOT / "docs" / "Cody" / "cody-ccp-connection-atlas-v1.pdf"
+DEFAULT_OUTPUT = ROOT / "docs" / "cody" / "cody-ccp-connection-atlas-v1.pdf"
 
 
 CORE = (
@@ -209,7 +209,7 @@ def core_pdf():
 
 # Raises OSError when the optional approved reference image is unreadable.
 def revision_history():
-    approved = ROOT / "docs" / "Cody" / "ui-proposals" / "20261009" / "selected-multi-action.png"
+    approved = ROOT / "docs" / "cody" / "ui-proposals" / "20261009" / "selected-multi-action.png"
     return [
         RevisionRecord("2026-10-04", "Change", "A03: PRs remain read-only", ("Retain PR/check states and the indicated head, show only real failed-check names, and leave diagnosis/actions on the PC. Screen 25 is retired. Native approvals remain computer-owned; voice screens 28-30 are future work.",), "Service scope/security; Connection 9-14; screens 21-30", "Original design decision; not a physical capture."),
         RevisionRecord("2026-10-09", "Addendum", "Startup decisions and reversible Setup", ("The earlier analysis omitted saved Wi-Fi without Codex pairing and a reversible Setup entry. Add 40 / Yes-No, 41 / character hold and 42 / reconnect wait. No/Later causes no persistence or new CCP request. Saved pairing searches 14 and requires current authentication for 15.", "PWR/BOOT do not clear saved pairing. A factory erase remains separately authorized."), "Service 11-13; Connection 15-17; original screens 12-16, 40-42", "Source/static review only in this revision; firmware, host and physical verification remained pending."),

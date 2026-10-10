@@ -1,11 +1,11 @@
-# Console di sviluppo
+# Development console
 
-Uso `scripts/device.ps1` come unico ingresso pubblico per firmware, simulatori,
-generatori e verifiche, da PowerShell nella checkout. Menu, `help` e `list`
-restano inerti: carico ESP-IDF o apro simulatori, check e seriale solo quando
-scelgo un'operazione. Lascio help ed etichette della console in inglese.
+Use `scripts/device.ps1` from PowerShell at the repository root for firmware,
+simulators, generators and checks. Menu, `help` and `list` are inert: they do
+not load ESP-IDF, start a simulator or access serial hardware until an operation
+is selected. Execution authorization is defined in [AGENTS.md](../AGENTS.md).
 
-## Comandi
+## Choose an operation
 
 ```powershell
 .\scripts\device.ps1 help
@@ -22,19 +22,16 @@ scelgo un'operazione. Lascio help ed etichette della console in inglese.
 .\scripts\device.ps1 clean-artifacts
 ```
 
-Questi sono esempi d'uso, non autorizzazioni automatiche. Seguo
-[AGENTS.md](../AGENTS.md) e le autorizzazioni esplicite della sessione per test,
-build e operazioni sul dispositivo; prima di usare la seriale confermo la porta.
+These are command examples, not permission to execute them. Each invocation
+defaults to `Debug` and `cody-companion`. Select `-BuildMode Release` on each
+corresponding command; the menu keeps a selection for its session.
+`-BoardConfig` owns its profile and cannot combine with `-Profile`/`-Feature`.
+Read [toolchain and profiles](../docs/bsp/toolchain-and-profiles.md) for composition,
+configuration guards and dependency-lock review. Confirm device identity and
+port before authorized serial operations.
 
-A ogni invocazione parto da `Debug` e `cody-companion`. Richiedo
-`-BuildMode Release` su ciascun comando corrispondente; nel menu posso scegliere
-il modo per quella sessione. `-BoardConfig` possiede il suo profilo e non si
-combina con `-Profile`/`-Feature`. Conservo i controlli di configurazione e la
-revisione del dependency lock: dettagli nei
-[modi di build](../docs/architecture/firmware-build-modes.md).
-
-Con `list` leggo gli identificatori correnti di check e generatori. Passo gli
-argomenti aggiuntivi come valori letterali, mai come codice shell da valutare:
+Use `list` for current check and generator identifiers. Additional arguments
+are literal string values, never shell code:
 
 ```powershell
 .\scripts\device.ps1 check -Check cody-alpha -ToolArguments @('--previews')
@@ -42,50 +39,44 @@ argomenti aggiuntivi come valori letterali, mai come codice shell da valutare:
 .\scripts\device.ps1 simulator-luna -ToolArguments @('--screen', 'battery', '--capture', 'battery.png')
 ```
 
-La scansione segreti con `--base-ref` comprende anche i checkpoint locali e non
-esegue fetch; senza quel parametro comprende soltanto file dirty/untracked.
-Nel menu inserisco gli argomenti aggiuntivi come array JSON di stringhe.
-Propago gli errori al chiamante della CLI; nel menu conservo l'esito fallito
-prima di offrire un'altra scelta.
+The secret check with `--base-ref` includes local checkpoints without fetching;
+without that option it inspects dirty/untracked files only. Menu arguments use
+a JSON array of strings. CLI errors propagate to the caller; the menu retains
+the failed result before offering another operation.
 
-## Simulatore Cody e CCP
+## Simulator and CCP
 
-Con `simulator -Ccp` apro Cody Studio con il pannello CCP e un endpoint reale
-CCP1 su `127.0.0.1:42117`. Tengo la discovery del simulatore esplicita attraverso
-`include_simulator:true`; il default rimane il dispositivo fisico. Marco preview
-e risultati `SIMULATED`. La GUI host permette rete sintetica, pairing e attivita'
-CCP, senza eseguire ESP-IDF o riprodurre tutte le gesture dell'onboarding nativo.
+`simulator -Ccp` opens Cody Studio with its CCP panel and loopback CCP1 endpoint
+at `127.0.0.1:42117`. Discovery includes it only through explicit
+`include_simulator:true`; the default targets physical devices. Host network,
+pairing and activity remain labelled `SIMULATED` and do not reproduce every
+native onboarding gesture. Protected state in `artifacts/cody-simulator-state/`
+survives transient cleanup.
 
-Conservo lo stato protetto separato in `artifacts/cody-simulator-state/`, anche
-durante la pulizia dei transitori. Per uso e limiti rimando alla
-[guida del simulatore](../simulator/windows/README.md); per installare o abilitare
-CCP uso la [guida del plugin](../plugins/cody-codex-plugin/README.md).
+See the [simulator guide](../simulator/windows/README.md) for controls and limits
+and the [CCP guide](../plugins/cody-codex-plugin/README.md) for installation/trust.
 
-## Sintesi vocale opzionale
+## Optional speech assets
 
-Lascio la sintesi vocale disabilitata nel firmware ordinario. Con
-`-Feature tts-sd` seleziono inglese, italiano, mandarino e cantonese su microSD;
-con `-Feature tts-flash` incorporo solo l'inglese. Sono feature dei profili
-`cody-companion` e `full`, con configurazione, build e dipendenze isolate;
-nel menu espongo la stessa scelta.
+Ordinary firmware leaves TTS disabled. `-Feature tts-sd` selects English,
+Italian, Mandarin and Cantonese on microSD; `-Feature tts-flash` embeds English.
+Both apply to `cody-companion` and `full` with isolated configuration, build
+output and dependencies. The menu exposes the same selection.
 
-`tts-sd` abilita `CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN`: al termine delle fasi
-obbligatorie accodo una volta la frase fissa "Ciao questa è una sintesi vocale
-di test 5 ottobre 2026". `tts-flash` parte in silenzio. Posso disabilitare il
-simbolo di test separatamente. La sintesi usa core 0; Cody/LVGL renderizzano su
-core 1. Nessuna scena richiede automaticamente parlato. Il test al boot richiede
-pacchetto SD verificato, alimentazione attiva e volume salvato diverso da zero;
-salta la policy orologio/quiet hours.
+`tts-sd` enables the diagnostic `CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN`: after
+mandatory startup, it queues one fixed Italian phrase dated 5 October 2026.
+`tts-flash` starts silently; the diagnostic flag can be disabled separately.
+Synthesis uses core 0 and Cody/LVGL rendering uses core 1. Scenes do not request
+speech automatically. The boot diagnostic requires a verified SD package,
+active power and nonzero saved volume; it bypasses clock/quiet-hours policy.
 
-Il generatore esplicito `tts-assets` richiede
-`-ToolArguments @('--backend', 'sd')` oppure `@('--backend', 'flash')`.
-Scrivo soltanto sotto `artifacts/`: non preparo una scheda fisica e non eseguo
-flash. Le build ordinarie non richiamano il generatore. Tengo API, percorsi SD,
-limiti di memoria e verifiche ancora aperte nella
-[guida TTS](../docs/architecture/text-to-speech.md); applico le autorizzazioni
-richieste per generazione, configurazione, build e uso dell'hardware.
+The explicit `tts-assets` generator requires `-ToolArguments @('--backend', 'sd')`
+or `@('--backend', 'flash')`. It writes under `artifacts/`, never prepares a
+physical card or flashes firmware, and ordinary builds do not invoke it.
+See [TTS](../docs/bsp/services/text-to-speech.md) for API, packages, memory and
+outstanding evidence.
 
-## Seriale e log salvati
+## Serial capture and stored logs
 
 ```powershell
 .\scripts\device.ps1 capture -Port COM10 -DurationSeconds 45 -ResetBeforeCapture -OutputPath artifacts/serial/boot.log
@@ -93,51 +84,62 @@ richieste per generazione, configurazione, build e uso dell'hardware.
 .\scripts\device.ps1 sd-log -Port COM10 -StoredLog previous
 ```
 
-Con `-ResetBeforeCapture` richiedo esplicitamente un reset prima della cattura.
-Il download dei log salvati non riavvia e non formatta: richiede firmware
-aggiornato, dispositivo sveglio e SD montata. Chiudo prima gli altri monitor.
-Il percorso predefinito e' `artifacts/serial/sd-log-<name>.log`; controllo i
-blocchi prima di sostituire il file locale. `-WaitSeconds` limita ogni risposta
-USB. L'ownership rimane nella [guida logging](../docs/architecture/offline-logging-usb.md).
+`-ResetBeforeCapture` explicitly requests a reset. Stored-log download does not
+reset or format: it requires current firmware, an awake device and mounted SD.
+Close other monitors first. The default download path is
+`artifacts/serial/sd-log-<name>.log`; verified blocks precede replacement of the
+local file. `-WaitSeconds` bounds each USB response.
+[Storage and logging](../docs/bsp/services/storage-and-logging.md) owns the protocol.
 
-## Strumenti host
+## PDF authoring
 
-Con `-PythonExecutable` scelgo Python per gli strumenti host; con `-PythonExe`
-scelgo l'interprete ESP-IDF. Per l'host cerco prima
-`artifacts/python/simulator/Scripts/python.exe`, poi PATH. Gli strumenti Cody
-richiedono Pillow e PyYAML. Avviare un simulatore non installa automaticamente
-l'ambiente. `package-simulator` prepara e impacchetta esplicitamente il
-simulatore Luna ereditato; Cody viene eseguito dai sorgenti.
+The documentation index links published PDF artifacts; authoring operations
+remain explicit generators through this console:
 
-## Responsabilita' e output
+```powershell
+.\scripts\device.ps1 generate -Generator cody-connection-atlas
+.\scripts\device.ps1 generate -Generator cody-pairing-flyer
+.\scripts\device.ps1 generate -Generator cody-security-atlases
+.\scripts\device.ps1 generate -Generator cody-pdf-english
+```
 
-| Percorso | Responsabilita' |
+PDF revisions preserve original dates, page/screen IDs and evidence, and use
+the shared final revision register required by [AGENTS.md](../AGENTS.md).
+The pairing flyer remains exactly four A5 pages with current instructions;
+it has no appended register or technical appendix. English conversion uses
+the mappings in `assets/cody/docs/translations/`, preserves originals under
+`artifacts/docs/`, skips unchanged output and rejects unexpected source edits.
+It does not invent translations beyond those mappings. Documentation moves
+do not revise existing PDF contents.
+
+## Host tools and output ownership
+
+`-PythonExecutable` chooses host Python; `-PythonExe` chooses ESP-IDF Python.
+Host discovery prefers `artifacts/python/simulator/Scripts/python.exe`, then
+PATH. Cody tools require Pillow and PyYAML; opening a preview does not install
+them. `package-simulator` explicitly prepares/packages Luna; Cody runs from source.
+
+| Path | Responsibility |
 | --- | --- |
-| `device.ps1` | Dispatcher pubblico |
-| `commands/` | Firmware, menu, packaging e manutenzione banner |
-| `common/` | Routing condiviso, console/help, policy artifact e contratti sorgente |
-| `generators/` | Trasformazioni delle risorse autoriali |
-| `checks/`, `tests/` | Runner espliciti e fixture native |
+| `device.ps1` | Public dispatcher |
+| `commands/` | Firmware, menu, packaging and banner maintenance |
+| `common/` | Shared routing, console/help, artifact policy and source contracts |
+| `generators/` | Authored-resource transformations |
+| `checks/`, `tests/` | Explicit runners and native fixtures |
 
-CMake puo' richiamare direttamente gli input interni di generatori/check;
-i flussi manuali pubblici passano comunque dal dispatcher. La copia MenuManager
-che mantengo non dipende a runtime da `E:\tools`. Non aggiungo alias pubblici
-paralleli per menu o cattura.
+CMake may invoke internal generator/check inputs; manual operations use the
+dispatcher. Bundled MenuManager has no runtime dependency on `E:\tools`.
 
-Tengo gli output eliminabili dentro `artifacts/` di questa checkout. Anche
-`-BuildDir`, `-LogPath`, `-OutputPath` e `-SizeOutputFile` espliciti devono stare
-li'; risolvo i percorsi pubblici relativi rispetto alla checkout. I nomi semplici
-di cattura Python finiscono in `artifacts/simulator/`.
+Disposable output belongs under this checkout's `artifacts/`, including explicit
+`-BuildDir`, `-LogPath`, `-OutputPath` and `-SizeOutputFile`. Relative public paths
+resolve from the checkout; simple Python capture names go to `artifacts/simulator/`.
+Before authorized build/flash/combo/recover, shared cleanup removes transient
+logs, serial captures, reports, previews, check output and temporary files.
+It preserves firmware builds, locks, board configuration/overlays, Python caches
+and simulator protected state. `fullclean` affects only the selected firmware
+build. Writers hold exclusive artifact locks; cleanup bounds targets and rejects
+reparse points. Close active simulators/monitors before another writer.
 
-Prima di build/flash/combo/recover pulisco log transitori, catture seriali,
-report, preview, output dei check e temporanei. Conservo build firmware,
-dependency lock, configurazioni e overlay delle schede, cache Python e
-`artifacts/cody-simulator-state/`. Con `fullclean` pulisco esplicitamente soltanto
-la build firmware selezionata. I writer tengono un lock esclusivo sugli artifact:
-chiudo simulatori e monitor attivi prima di un altro writer. La pulizia controlla
-i target e rifiuta i reparse point.
-
-`assets/**/generated` versionati e `managed_components/` scaricati sono input,
-non scarti di build. I default sono `artifacts/logs/<action>.log`,
-`artifacts/serial/capture.log` e `artifacts/reports/size.<format>` rispettivamente
-per log, catture e report dimensioni.
+Versioned `assets/**/generated` and downloaded `managed_components/` are inputs.
+Default outputs are `artifacts/logs/<action>.log`, `artifacts/serial/capture.log`
+and `artifacts/reports/size.<format>`.

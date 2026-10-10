@@ -22,6 +22,6 @@ Actions have unique names; setting actions pair explicit IDs with handlers.
 Table positions are traversal details, never action identities. The UI-minimal
 shell has its own source list and does not adopt document lifecycle ownership.
 
-See [display/touch](../../docs/architecture/display-touch-runtime.md),
-[snapshots](../../docs/architecture/device-snapshot.md) and
-[pairing](../../docs/architecture/connectivity-pairing.md).
+See [display/touch](../../docs/bsp/core/display-touch-runtime.md),
+[snapshots](../../docs/bsp/core/device-snapshot.md) and
+[pairing](../../docs/bsp/services/connectivity-pairing.md).

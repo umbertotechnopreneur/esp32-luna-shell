@@ -52,7 +52,7 @@ The main character view and full-size Sleep admit a single fading symbol;
 onboarding, settings, QR, boot and header scenes disable it. Original synthesized
 sound companions and a listening reel are in [audio](audio/README.md).
 The implementation and performance limits are documented in
-[personality rendering](../../../docs/architecture/cody/personality-icons.md).
+[personality rendering](../../../docs/cody/personality-icons.md).
 The v2 source and generated artwork were reviewed. Focused host checks and a
 Debug firmware build/flash are authorized for this revision; their results are
 recorded in the repository's `done.md`. Physical readability remains unverified

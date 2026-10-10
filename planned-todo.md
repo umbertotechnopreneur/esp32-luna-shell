@@ -42,23 +42,20 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
 - [ ] Linux/macOS companion support stays deferred as requested. Keep the current
   hardware acquisition and CCP work focused on the existing Windows companion.
 
-- [ ] Valuto un relay remoto dopo la chiusura degli screen: un adapter accanto
-  all'istanza Codex pubblica eventi reali, un backend ASP.NET Core descritto con
-  Aspire li smista su Azure, Cody apre una connessione TLS in uscita. Mantengo
-  associazione utente/device, snapshot corrente con sequenza/scadenza e recupero
-  dopo disconnessione. Questa e' un'idea richiesta il 2026-10-10, non un servizio
-  gia' implementato o autorizzato al deployment. L'utente ha ribadito di non
-  implementare Aspire. Prima verifico dove l'istanza
-  remota espone davvero gli eventi: il relay non puo' inventare gli hook mancanti.
-- [ ] Per parlare con Codex da Cody valuto prima il canale audio dell'App Server:
-  nello schema esportato da Codex 0.147.0 il 2026-10-10 ho trovato i metodi
-  sperimentali `thread/realtime/start`, `thread/realtime/appendAudio` e
-  `thread/realtime/outputAudio/delta`, con trascrizioni e output audio oppure
-  testo. Quindi trascrizione e sintesi esterne non sono un requisito gia' deciso.
-  Gli hook restano il canale degli eventi di attivita'; l'audio avrebbe un
-  trasporto distinto via CCP. Devo ancora verificare disponibilita' sull'account,
-  formato audio e accesso alla chat desktop aperta. Questa e' solo ricerca:
-  non ho avviato sessioni vocali ne' implementato il trasporto sul device.
+- [ ] Explore a remote relay after the screen work: an adapter beside the Codex
+  instance publishes genuine events to an ASP.NET Core/Azure backend, and Cody
+  opens outbound TLS. Preserve user/device association, sequence/expiry and
+  disconnect recovery. This 2026-10-10 idea is not implemented or authorized for
+  deployment; the user explicitly deferred Aspire implementation. Verify where
+  the remote instance exposes events before designing a relay around them.
+- [ ] First investigate the App Server audio channel for speech from Cody.
+  The exported Codex 0.147.0 schema inspected on 2026-10-10 contained experimental
+  `thread/realtime/start`, `thread/realtime/appendAudio` and
+  `thread/realtime/outputAudio/delta`, with transcription and audio/text output.
+  External transcription/synthesis is therefore not a decided requirement.
+  Hooks remain activity metadata; audio needs separate transport. Account
+  availability, audio format and access to an already open desktop chat remain
+  unverified. No voice session or device transport was started by that research.
 
 - [ ] Explore three nontechnical product directions: everyday memory ("Remind
   me to..."), reviewed dictation to Codex/other supported AI destinations, and
@@ -86,15 +83,15 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
   typed IDs, timezone/quiet preferences, snooze/missed-event policy and trusted
   canonical time. Schedule Deep-sleep wake through the existing power/timer
   owner; external RTC INT is not directly connected to ESP.
-  [RTC](docs/architecture/cody/clock.md).
+  [RTC](docs/cody/clock.md).
   Begin exploration with one-time reminders, countdown, snooze and a daily
   overview; named lists, quick notes and recurrence are later candidates.
-- [ ] Estendo in futuro gli eventi CCP con messaggi e risposte confermate.
-  Prima verifico il canale App Server sperimentale descritto sopra; non fisso
-  gia' una trascrizione esterna. Valuto push-to-talk, anteprima, destinazione,
-  Send/Cancel e ripresa della bozza, mantenendo le credenziali sul PC e la
-  wake word gia' funzionante. Distinguo invio, ricezione e completamento del
-  compito: un pacchetto ricevuto non significa che Codex abbia finito il lavoro.
+- [ ] Explore explicit confirmed message/reply events over CCP after researching
+  the experimental App Server channel above. Consider push-to-talk, preview,
+  destination, Send/Cancel and draft recovery, retaining credentials on the PC
+  and the existing wake word. Distinguish send, receipt and task completion;
+  packet receipt never means Codex completed the work. Additional TTS triggers
+  beyond the existing boot diagnostic need a separate product decision.
 - [ ] Explore explicit focus timers and gentle break suggestions, with "later",
   break/resume and silence-until controls. Base the first flow on user-started
   sessions; optional PC activity needs a separate consent/integration decision
@@ -103,21 +100,63 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
   mood and short reactions, with one stable latest-cue selector. Host session
   identity/activity/liveness must establish actual counted time; disconnection
   is Unknown. Consider one combined rest/drink invitation after a configurable
-  120-minute active session, with snooze/acknowledgement/quiet rules. Preserve
+  active session, with snooze/acknowledgement/quiet rules. The 120-minute
+  October 4 exploration was later superseded by the disabled model's
+  60-minute screen-break default; delivery remains unimplemented. Preserve
   existing motion-driven stress and battery-driven fatigue causes. See
-  [Personality behavior](docs/architecture/cody/personality-behavior.md).
+  [Personality behavior](docs/cody/behavior.md).
 - [ ] Choose rig antialiasing/tessellation/dirty-region policy from target
   timings; extend validity-aware environmental composition while retaining
   shared palette, independent face channels and time-based animation.
 - [ ] Review the opt-in PNG/triangle cloud with the user before native port:
   texture sampling/CPU, extreme motion/navigation clearance and visual approval.
   Retain the host-only 99-vertex/138-triangle study; the approved pearl scanline
-  renderer is distinct. [Experiment](assets/cody/experiments/png-mesh/README.md).
+  renderer is distinct. [Experiment](assets/cody/appearance/png-mesh/README.md).
 - [ ] Resume cloud-volume/jelly-IMU default exploration only when activated.
   The billows-v5 height-field study was rejected; synthetic previews are not
   native performance evidence. Review final motion/clearance/assets before a
   requested target measurement.
-  [Cloud evidence](docs/architecture/cody/rendering.md).
+  [Cloud evidence](docs/cody/rendering.md).
+
+## Deferred wellbeing integration - 2026-10-04/05
+
+The disabled native reminder model is described in
+[behavior](docs/cody/behavior.md#dormant-wellbeing-logic). Its tested state logic
+does not provide a host-session adapter, reminder timer, selector or visible UI.
+Future activation should preserve the independent domains explored below:
+
+| Domain | Candidate states | Explicit source |
+| --- | --- | --- |
+| Activity | Idle, Listening, Working, WaitingForUser, Break, Sleeping | Local interaction, host events and lifecycle |
+| Rest need | Rested, Due, Deferred, Recovering | Defined active-session time and pause/resume |
+| Drink reminder | Quiet, Due, Deferred, Acknowledged | Configured interval and acknowledgement |
+| Meal reminder | Quiet, Due, Deferred, Acknowledged | Opt-in schedule and trusted time |
+| Mood | Neutral, Content, Uneasy, Frustrated | Named bounded artistic reactions |
+| Reaction | None, Affection, Surprise, Fear | Recognized expiring gesture/event |
+
+Do not replace these with one mutually exclusive mood enum. Preserve motion-driven
+stress and battery-driven fatigue; work-session rest needs get separate identities
+and composition. Hunger/thirst/fatigue are authored reminder metaphors, without
+establishing the person's health or continuous work from an open chat.
+
+Start with one user-started session: start/pause/resume/end and Unknown on lost
+host liveness. Retain identity and monotonic event order; do not count an unknown
+gap on reconnect. A local offline timer needs its own explicit policy. Publish
+new host facts through an owner before consumers use them; no sensor-side reads.
+
+The selector emits one currently eligible latest cue, with no decorative backlog.
+Keep true device/lifecycle facts first, explicit priorities, reaction expiry,
+cooldown and enter/exit hysteresis. Persistent Due state is separate from queuing
+icons: snooze sets one deadline, acknowledgement rearms only its configured cycle.
+Suppress during dictation/quiet/sleep and reevaluate relevant overdue needs on return.
+A caress does not complete a reminder or prove a drink/break happened.
+
+The original implementation sequence was petting first (now present), then an
+explicit session clock, combined rest/drink invitation with snooze/quiet, bounded
+mood reactions, and finally opt-in meals/additional needs after UX review.
+Use fixed state/deadlines and event or low-rate ticks, without a new framebuffer.
+The historical 120-minute invitation was an exploration example, superseded by
+the later disabled model's defaults; no user health recommendation is implied.
 
 ## Board and dependency graph
 
@@ -145,7 +184,7 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
 - [ ] Future PCB: route PMU/expander IRQ to an ESP RTC GPIO for asynchronous PWR
   wake. Execute the deferred target evidence matrix: battery presence, RTC
   oscillator-stop, reboot metadata, serial/task wakeups and image-tagged current.
-  [Low-power](docs/architecture/low-power-management.md).
+  [Low-power](docs/bsp/services/power-management.md#acquisition-policy).
 
 ## Maintenance
 

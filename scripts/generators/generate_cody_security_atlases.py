@@ -95,7 +95,7 @@ def main(argv=None):
     records = {item["file"]: item for item in manifest.get("documents", [])}
     prepared = []
     for name in DOCUMENTS:
-        source = ROOT / "docs/Cody" / name
+        source = ROOT / "docs/cody" / name
         current = source.read_bytes()
         backup = STAGING / (source.stem + "-original.pdf")
         if args.redraft:

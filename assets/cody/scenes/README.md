@@ -24,7 +24,7 @@ v1 assets above remain 2bpp until a separately authorized full bake supplies the
 licensed font source. Definition-only generation preserves the validated format.
 
 Layout, setting behavior, content lifetime, costs and deferred validation are
-documented in `docs/architecture/cody/runtime.md`.
+documented in `docs/cody/runtime.md`.
 
 ## Product voice - 2026-10-10
 

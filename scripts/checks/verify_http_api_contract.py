@@ -10,7 +10,7 @@ HEADER = ROOT / "components/LUNASHELL_platform/include/LUNASHELL_http_server.hpp
 JSON_HEADER = ROOT / "components/LUNASHELL_platform/include/LUNASHELL_http_json.hpp"
 SOURCE = ROOT / "components/LUNASHELL_platform/src/http/LUNASHELL_http_server.cpp"
 JSON_SOURCE = ROOT / "components/LUNASHELL_platform/src/http/LUNASHELL_http_json.cpp"
-DOC = ROOT / "docs/architecture/http-device-api.md"
+DOC = ROOT / "docs/bsp/services/http-device-api.md"
 
 MEMORY_FIELDS = (
     "internal_heap_total_bytes",

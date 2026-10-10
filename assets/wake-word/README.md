@@ -27,4 +27,4 @@ The generated model image belongs under the selected `artifacts/build-*`
 folder and is included by ESP-SR in the normal authorized firmware flash flow.
 When intentionally replacing weights, perform an explicitly authorized clean
 feature build so the upstream packer cannot retain its previous image.
-See [wake-on-word architecture](../../docs/architecture/wake-on-word.md).
+See [wake-on-word architecture](../../docs/bsp/services/wake-on-word.md).

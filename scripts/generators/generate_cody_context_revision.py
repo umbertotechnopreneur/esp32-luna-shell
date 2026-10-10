@@ -332,7 +332,7 @@ def authored_page(specification, dimensions, kind, number):
 # staging: Owned artifacts directory, never a root build directory.
 # Raises OSError or ValueError for changed source topology or unsafe repeated edits.
 def revise(kind, staging):
-    source = ROOT / "docs/Cody" / ("cody-" + kind.lower() + "-atlas-v1.pdf")
+    source = ROOT / "docs/cody" / ("cody-" + kind.lower() + "-atlas-v1.pdf")
     reader = PdfReader(source)
     texts = [page.extract_text() or "" for page in reader.pages]
     if any(REVISION in text for text in texts):

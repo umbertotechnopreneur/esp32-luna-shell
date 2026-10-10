@@ -1,114 +1,56 @@
 # ESP32 Luna Shell / Cody Companion
 
-Qui sviluppo Cody e Luna sulla Waveshare ESP32-S3 Touch AMOLED 1.75: display
-circolare 466 x 466, touch, 16 MB di flash e 8 MB di PSRAM. Uso **ESP-IDF 6.0.2**
-e tengo separati dispositivo fisico e interfaccia scelta.
+Two interfaces share an Espressif hardware platform:
 
-- **Cody Companion**, profilo predefinito: personaggio e UI nativi 2D, senza LVGL.
-- **Luna Shell**: UI diagnostica con ESP-Brookesia 0.8 System Core e documenti
-  dichiarativi. Carico le dipendenze in base al profilo.
+- **Cody Companion** is the default native 2D character/interface, using `CODY2D`.
+- **Luna Shell** uses official ESP-Brookesia 0.8 System Super/Core and declarative
+  GUI packages, with LVGL underneath.
 
-Tengo il testo del dispositivo in inglese ASCII. Nei documenti racconto invece
-in italiano cosa ho deciso, cosa ho implementato e cosa devo ancora verificare.
+The current adapter is the Waveshare ESP32-S3 Touch AMOLED 1.75: round 466 x 466
+display, touch, 16 MB flash and 8 MB PSRAM. The supported SDK is **ESP-IDF 6.0.2**.
+Board, interface, optional services and Debug/Release mode are separate choices.
+Other Espressif boards require explicit integration; see [BSP](docs/bsp/README.md).
 
-## Da dove parto
+## Start with the task
 
-Uso la [mappa della documentazione](docs/README.md) come indice unico delle guide
-tecniche e dei cinque atlanti Cody. Per il percorso dal primo avvio al PC leggo
-[onboarding e connessione](docs/architecture/cody/onboarding.md); per installare
-CCP e autorizzare i suoi hook uso la [guida del plugin](plugins/cody-codex-plugin/README.md).
-
-CCP segue automaticamente la chat dell'ultimo prompt reale. Cody conserva il PC
-associato e distingue pairing salvato, presenza sulla LAN e attivita' della chat.
-Ho eliminato la scelta manuale della chat e il nuovo codice a ogni riconnessione:
-un po' meno burocrazia, finalmente.
-
-Ho integrato notifiche e domande esplicite da CCP: scelgo tra due o tre
-opzioni, rileggo e confermo con Send. Reply sent arriva dopo l'ACK del
-destinatario. Tengo le PR in sola lettura secondo A03 e le approvazioni native
-sul computer. Il [flow completo](docs/architecture/cody/onboarding.md) distingue
-il contratto nei sorgenti dalle evidenze host e fisiche registrate in [done.md](done.md).
-
-Per chiedere un riavvio remoto scrivo **resetta il device codice 043533477**.
-Il plugin richiede intento e codice nel messaggio corrente: non completa il
-codice da questa pagina. Conservo pairing e preferenze; distinguo il comando
-accettato dalla presenza osservata dopo il boot. Tengo il contratto nella
-[guida Cody](docs/architecture/cody/onboarding.md#riavvio-remoto-con-dati-conservati).
-
-Con **formatta cody 043533477** chiedo invece il factory reset: cancello
-configurazione, Wi-Fi e pairing e torno al primo setup. Conservo firmware,
-asset e SD. Un errore di cancellazione resta visibile e impedisce il riavvio;
-l'ACK da solo non dimostra che la cancellazione sia finita.
-
-Conservo un solo registro per ogni scopo:
-
-| Mi serve... | Lo tengo qui |
+| Task | Guide |
 | --- | --- |
-| Regole del repository e autorizzazioni | [AGENTS.md](AGENTS.md) |
-| Lavoro attivo e prove mancanti | [TODO.md](TODO.md) |
-| Lavoro rinviato | [planned-todo.md](planned-todo.md) |
-| Implementazioni concluse ed evidenze | [done.md](done.md) |
-| Errori da non ripetere | [lessons.md](lessons.md) |
+| Use Cody or recover setup/pairing | [Cody navigation](docs/cody/navigation.md) |
+| Develop native character/screens | [Cody](docs/cody/README.md) |
+| Develop LVGL/Brookesia screens | [Luna Shell](docs/luna-shell/README.md) |
+| Work on display/touch, services or a board | [BSP](docs/bsp/README.md) |
+| Install and operate CCP on Windows | [CCP](plugins/cody-codex-plugin/README.md) |
+| Build, generate, capture or run an authorized check | [Public console](scripts/README.md) |
 
-## Branch e checkpoint
+[Documentation](docs/README.md) is the complete guide and atlas index.
+Repository documentation, device text and logs are English; Cody text is
+bounded printable ASCII.
 
-Uso questi tag come punti fermi dei sorgenti; il tag da solo non certifica una
-build o una prova sul dispositivo.
+## Work and evidence
 
-| Tag | Commit di partenza | Branch della variante |
-| --- | --- | --- |
-| `base-display-touch` | `3283a194` | `codex/base-display-touch` |
-| `luna-shell` | `369e5026` | `codex/luna-shell` |
-| `cody` | `9d2fe8c5` | `codex/cody`, anche `main` al momento del tag |
+[AGENTS.md](AGENTS.md) owns repository rules and authorization.
+[TODO.md](TODO.md) owns open work, [planned-todo.md](planned-todo.md) deferred
+work, [done.md](done.md) dated checkpoints/evidence, and [lessons.md](lessons.md)
+recurring engineering lessons. Build/host/flash results and physical behavior
+retain separate evidence levels.
 
-Ho integrato in `main` il lavoro avviato da `cody` su `codex/cody-onboarding`,
-poi ho eliminato il branch temporaneo e il worktree. Conservo quattro branch
-canonici: `main` e le tre varianti nella tabella. Mantengo i tag fermi, faccio
-checkpoint locali coerenti e pubblico con l'autorizzazione al push.
-Le varianti storiche restano riferimenti dei sorgenti, senza aggiungere altri SDK.
+Use `scripts/device.ps1` as the public CLI/menu. Operations follow the explicit
+authorization rules; help and list are read-only entry points. Builds, logs,
+captures and temporary output belong in `artifacts/`.
 
-## Come ci lavoro
+## Source ownership
 
-Da PowerShell uso **solo** `scripts/device.ps1` per firmware, simulatori,
-generatori e verifiche. Menu, `help` e `list` non avviano build e non aprono la
-seriale.
-
-```powershell
-.\scripts\device.ps1 help
-.\scripts\device.ps1 list
-.\scripts\device.ps1
-```
-
-Tengo i comandi operativi nella [guida della console](scripts/README.md), senza
-ricopiarli in ogni documento. Il default e' Debug / `cody-companion`; scelgo
-Release esplicitamente e limito le compilazioni a otto job. Per prove e operazioni
-hardware seguo [AGENTS.md](AGENTS.md), verificando prima la porta effettiva.
-
-## Dove vive il codice
-
-| Area | Responsabilita' |
+| Area | Owner |
 | --- | --- |
-| `main/` | Avvio e composizione del profilo |
-| [CODY_companion](components/CODY_companion/README.md) | Runtime, scene, modello e diagnostica del personaggio |
-| [CODY2D](components/CODY2D/README.md) | Primitive native 2D, testo e controlli |
-| [LUNASHELL_platform](components/LUNASHELL_platform/README.md) | Snapshot, display, alimentazione, audio, rete e storage |
-| [LUNASHELL_app](components/LUNASHELL_app/README.md) | Documenti, navigazione e shell Luna |
-| [LUNASHELL_boot](components/LUNASHELL_boot/README.md) | UI e audio di avvio |
-| [LUNASHELL_logger](components/LUNASHELL_logger/README.md) | Log persistenti e download USB |
-| [LUNASHELL_tof400f](components/LUNASHELL_tof400f/README.md) | Trasporto del sensore di distanza |
-| `plugins/cody-codex-plugin/` | CCP: broker locale, MCP, hook e protocollo LAN |
-| `assets/`, `config/`, `gui/` | Risorse, configurazione e input generati del firmware |
-| `scripts/` | Comandi, helper, generatori e verifiche esplicite |
-
-Organizzo l'implementazione in `src/` e le API pubbliche in `include/`; lascio i
-vendor alle loro strutture. Metto build, log, catture e file temporanei in
-`artifacts/`. La pulizia conserva firmware selezionato, configurazione e cache;
-le risorse versionate restano sorgenti.
-
-Per i dati uso lo snapshot canonico con validita', errore e timestamp originali.
-Per geometria e touch seguo il [contratto del display circolare](docs/architecture/circular-display-layout.md).
-Conservo distinti risultato host e comportamento fisico: una compilazione riuscita
-non mi dice ancora come Cody si risveglia sulla scrivania.
+| `main/` | Profile composition and startup orchestration |
+| [CODY_companion](components/CODY_companion/README.md) | Character runtime, scenes, model and diagnostics |
+| [CODY2D](components/CODY2D/README.md) | Native 2D primitives, text and controls |
+| [LUNASHELL_platform](components/LUNASHELL_platform/README.md) | Shared hardware, snapshots and services |
+| [LUNASHELL_app](components/LUNASHELL_app/README.md) | Luna documents, chrome and navigation |
+| [LUNASHELL_boot](components/LUNASHELL_boot/README.md) | Boot UI and audio |
+| [LUNASHELL_logger](components/LUNASHELL_logger/README.md) | Canonical logging and readback |
+| [LUNASHELL_tof400f](components/LUNASHELL_tof400f/README.md) | Optional distance transport |
+| `plugins/`, `assets/`, `config/`, `scripts/` | CCP, authored resources, firmware composition and tooling |
 
 ---
 

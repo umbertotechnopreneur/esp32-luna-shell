@@ -14,7 +14,7 @@ from reportlab.pdfgen import canvas
 
 
 ROOT = Path(__file__).resolve().parents[2]
-OUTPUT = ROOT / "docs/Cody/cody-ccp-pairing-quickstart-a5-v1.pdf"
+OUTPUT = ROOT / "docs/cody/cody-ccp-pairing-quickstart-a5-v1.pdf"
 ARTWORK = ROOT / "assets/cody/docs/pairing-companion-pc.png"
 WIDTH, HEIGHT = A5
 MARGIN = 27

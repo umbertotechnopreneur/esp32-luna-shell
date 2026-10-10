@@ -297,7 +297,7 @@ def main(argv=None):
         raise ValueError("Document staging must remain under repository artifacts")
     staging.mkdir(parents=True, exist_ok=True)
     register_fonts(Path("C:/Windows/Fonts"))
-    names = tuple(path.name for path in sorted((ROOT / "docs/Cody").glob("*.pdf")))
+    names = tuple(path.name for path in sorted((ROOT / "docs/cody").glob("*.pdf")))
     originals = {}
     if args.redraft:
         manifest_bytes = (staging / "manifest.json").read_bytes()
@@ -309,7 +309,7 @@ def main(argv=None):
         if set(by_name) != set(names):
             raise ValueError("Redraft manifest document identities differ")
         for name in names:
-            current = (ROOT / "docs/Cody" / name).read_bytes()
+            current = (ROOT / "docs/cody" / name).read_bytes()
             original = (staging / (Path(name).stem + "-original.pdf")).read_bytes()
             if sha256(current).hexdigest() != by_name[name]["revised_sha256"]:
                 raise ValueError("Current draft changed outside this revision: " + name)
@@ -320,10 +320,10 @@ def main(argv=None):
         archive.mkdir(parents=True, exist_ok=False)
         (archive / "manifest.json").write_bytes(manifest_bytes)
         for name in names:
-            (archive / name).write_bytes((ROOT / "docs/Cody" / name).read_bytes())
+            (archive / name).write_bytes((ROOT / "docs/cody" / name).read_bytes())
     prepared = []
     for name in names:
-        source = ROOT / "docs/Cody" / name
+        source = ROOT / "docs/cody" / name
         original = originals[name] if args.redraft else source.read_bytes()
         reader = PdfReader(BytesIO(original))
         if any(REVISION in (page.extract_text() or "") for page in reader.pages):
