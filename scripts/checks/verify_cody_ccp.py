@@ -941,5 +941,80 @@ class InteractionTests(unittest.TestCase):
         self.assertFalse(any("approve" in tool["name"] or "permission" in tool["name"] for tool in ccp.tool_catalog()))
 
 
+class DebugScreenContractTests(unittest.TestCase):
+    # self: Pure authenticated Debug fixture with no socket/files/device/UI side effects.
+    def setUp(self):
+        self.device = "abcdef012345"
+        self.key = bytes(range(32))
+        self.state = Mock(pc_id="a" * 32)
+        self.state.retained_keys.return_value = ccp.RetainedKeys(self.key, None)
+        self.listener = Mock()
+        self.responder = ccp.CompanionResponder(self.state, self.listener, activity.ActivityStore())
+        self.source = ("127.0.0.1", ccp.DEVICE_PORT)
+        self.peer = ccp.EventPeer("b" * 32, self.key, self.source, ccp.time.monotonic())
+        self.responder._event_peers[self.device] = self.peer
+
+    # self: Fixture with a genuine active event lease but no automatic Debug capability.
+    # proof: Optional exact proof substitution for a forged capability case.
+    # Returns a real bounded signed capability envelope.
+    def capability(self, proof=None):
+        values = [self.device, self.state.pc_id, self.peer.nonce, "1"]
+        return ccp.encode_datagram("DEBUGCAP", list(zip(("device", "pc", "nonce", "debug"), values))
+            + [("proof", proof or ccp.make_proof(self.key, "debug-cap", *values))])
+
+    # self: Synthetic UDP transport which authenticates the UI worker's actual signed result.
+    # packet: Real DEBUG packet emitted by the production responder.
+    # destination: Exact authenticated endpoint selected by the responder.
+    def reject_view(self, packet, destination):
+        kind, fields = ccp.parse_datagram(packet)
+        self.assertEqual(kind, "DEBUG")
+        self.assertEqual(destination, self.source)
+        names = ("device", "pc", "nonce", "id", "mode", "scroll", "status", "error", "count")
+        values = [fields[name] for name in names[:6]] + ["rejected", "-1", "34"]
+        ack = ccp.encode_datagram("DEBUGACK", list(zip(names, values))
+            + [("proof", ccp.make_proof(self.key, "debug-ack", *values))])
+        self.responder._handle_datagram(ack, self.source)
+
+    # self: Debug capability/authentication boundary without a live connection.
+    # Raises AssertionError if forged, missing or wrong-source capabilities authorize a command.
+    def test_debug_capability_requires_active_key_and_exact_endpoint(self):
+        with self.assertRaisesRegex(ValueError, "No recent authenticated Debug"):
+            self.responder.debug_screen(self.device, "character", 0, True)
+        with self.assertRaisesRegex(ValueError, "authentication failed"):
+            self.responder._handle_datagram(self.capability("0" * 64), self.source)
+        with self.assertRaisesRegex(ValueError, "authentication failed"):
+            self.responder._handle_datagram(self.capability(), (self.source[0], self.source[1] + 1))
+        self.listener.sendto.assert_not_called()
+
+    # self: Production Debug round trip with a native worker rejecting ESP_FAIL.
+    # Raises AssertionError if a signed failure is coerced to success/u32, or same-nonce replay reauthorizes a command.
+    def test_debug_ack_preserves_signed_error_and_never_claims_pixels(self):
+        self.responder._handle_datagram(self.capability(), self.source)
+        with self.assertRaisesRegex(ValueError, "explicit include_simulator"):
+            self.responder.debug_screen(self.device, "character", 0, False)
+        self.listener.sendto.side_effect = self.reject_view
+        result = self.responder.debug_screen(self.device, "face_channels", 2, True)
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["error"], -1)
+        self.assertEqual(result["channel_count"], 34)
+        self.assertFalse(result["pixels_verified"])
+        self.assertEqual(result["source"], "SIMULATED")
+        self.responder._handle_datagram(self.capability(), self.source)
+        with self.assertRaisesRegex(ValueError, "No recent authenticated Debug"):
+            self.responder.debug_screen(self.device, "normal", 0, True)
+        self.listener.sendto.assert_called_once()
+
+    # self: Malformed MCP inputs which must remain structured invalid-command errors.
+    # Raises AssertionError if nonhashable modes or non-list offsets escape as TypeError or authorize a command.
+    def test_debug_rejects_untyped_commands_before_network_use(self):
+        for mode in ([], {}, None):
+            with self.assertRaises(ValueError):
+                self.responder.debug_screen(self.device, mode, 0, True)
+        for mode, scroll in (("normal", 1), ("face_channels", True), ("face_channels", 256)):
+            with self.assertRaises(ValueError):
+                self.responder.debug_screen(self.device, mode, scroll, True)
+        self.listener.sendto.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -33,6 +33,8 @@ from scripts.common.cody_response_contract import Axis, validate_response_config
 from scripts.common.cody_navigation import load_navigation, control_contains, NavigationVisibility  # noqa: E402
 from scripts.common.cody_runtime_contract import load_settings, demo_targets  # noqa: E402
 from scripts.common.cody_personality_contract import load_personality_rules  # noqa: E402
+from cody_native import NativeRig, NativePersonalityPainter  # noqa: E402
+from cody_native_behavior import NativeBehavior  # noqa: E402
 from cody_stimuli import SyntheticStimulusSource  # noqa: E402
 from cody_coverage import FULL_COVERAGE, coverage_mask  # noqa: E402
 from cody_cloud_material import paint_cloud_material  # noqa: E402
@@ -94,9 +96,10 @@ class CodyRenderer:
     # root: Active checkout owning the preview sources.
     # skin_path: Selected YAML character; changing the skin does not change the renderer.
     # jelly_study: Select the isolated pearlescent scanline renderer for this preview.
+    # offline_study: Explicit opt-in material/mesh study; ordinary simulation always executes C++.
     # self: Renderer owning immutable authoring tables and optional cached artwork.
     # Raises OSError or ValueError for unreadable artwork or invalid authoring data.
-    def __init__(self, root=ROOT, skin_path="assets/cody/cody.yaml", *, jelly_study=False):
+    def __init__(self, root=ROOT, skin_path="assets/cody/cody.yaml", *, jelly_study=False, offline_study=False):
         self.navigation = load_navigation(root)
         self.navigation_opacity = 255
         self.navigation_paused = False
@@ -115,10 +118,135 @@ class CodyRenderer:
         self.root = root
         self.png_mesh = None
         self.jelly_study_enabled = jelly_study
+        self.offline_study = offline_study or jelly_study
         self.jelly_sprite = None
         self.face_follows_body = True
         self.personality_painter = None
+        self.native = None
         self.scene_painter = ScenePainter(root, self.rig)
+
+    # self: Studio renderer owning its lazy C++ transport.
+    # Raises OSError or ValueError for a missing, stale or incompatible native library.
+    def require_native(self):
+        if self.native is None:
+            self.native = NativeRig(self.root, self.rig)
+            self.scene_painter.native = self.native
+        return self.native
+
+    # self: Renderer selecting the shared C++ rig for ordinary simulation.
+    # values: Current independent channel controls.
+    # transform: Logical x/y/scale.
+    # contour: Optional named shape controls and phase.
+    # study: Explicit offline material-study selection, retaining its authoring evaluator.
+    # Raises RuntimeError for real native geometry errors; no implicit fallback exists.
+    def evaluate_scene(self, values, transform, contour=None, *, study=False):
+        if study or self.offline_study:
+            return evaluate(self.rig, values, transform, contour=contour)
+        return self.require_native().evaluate(values, transform, contour, self.face_follows_body)
+
+    # self: Studio renderer selecting native facial smoothing in ordinary simulation.
+    # state: Current channels.
+    # target: Requested channels.
+    # delta_ms: Nonnegative active elapsed time.
+    # Raises RuntimeError for the original native transition error.
+    def advance_face(self, state, target, delta_ms):
+        if self.offline_study:
+            return advance_face(self.rig, state, target, delta_ms)
+        return self.require_native().advance_face(state, target, delta_ms)
+
+    # self: Renderer selecting firmware blink/breathing in ordinary simulation.
+    # values: Current independent controls.
+    # elapsed_ms: Active animation clock.
+    # Raises RuntimeError or ValueError for rejected native animation input.
+    def animate_face(self, values, elapsed_ms):
+        if self.offline_study:
+            return animate(values, elapsed_ms)
+        return self.require_native().animate(values, elapsed_ms)
+
+    # self: Renderer selecting firmware contour integration in ordinary simulation.
+    # state: Current named controls and phase.
+    # target: Requested named controls.
+    # delta_ms: Nonnegative active elapsed time.
+    # Raises RuntimeError for rejected native contour transitions.
+    def advance_shape(self, state, target, delta_ms):
+        if self.offline_study:
+            return advance_contour(self.rig, state, target, delta_ms)
+        return self.require_native().advance_contour(state, target, delta_ms)
+
+    # self: Renderer selecting a host-owned native response state.
+    # config: Current immutable authored settings; ordinary native compilation owns their gains.
+    # seed: Explicit nonzero artistic idle seed supplied by Studio initialization/reset.
+    # Raises RuntimeError for native model errors.
+    def reset_model(self, config, seed):
+        if self.offline_study:
+            state = make_response_state(config)
+            state.idle_random_state = seed
+            return state
+        return self.require_native().reset_response(seed)
+
+    # self: Response owner crossing an active route boundary.
+    # state: Copied inspector state; actual ordinary dynamics remain owned by C++.
+    # Raises RuntimeError for unavailable native state.
+    def rebase_model(self, state):
+        if self.offline_study:
+            return rebase_response_motion(state)
+        return self.require_native().rebase_response()
+
+    # self: Renderer selecting actual firmware response math for ordinary simulation.
+    # config: Authored settings with explicit Studio motion sensitivity override.
+    # state: Copied inspector state; offline studies own their independent Python state.
+    # inputs: One explicitly synthetic driver bundle with original timestamps and errors.
+    # delta_ms: Nonnegative active elapsed time.
+    # now_us: Original host observation clock.
+    # animate_rhythm: Whether native breath/blink timing advances.
+    # Raises RuntimeError for actual native input/configuration/model errors.
+    def advance_model(self, config, state, inputs, delta_ms, now_us, animate_rhythm):
+        if self.offline_study:
+            return advance_response(config, state, inputs, delta_ms, now_us, animate_rhythm)
+        return self.require_native().advance_response(inputs, config['motion']['sensitivity'], delta_ms, now_us, animate_rhythm)
+
+    # self: Renderer selecting actual firmware response composition.
+    # state: Copied inspector state; ordinary dynamics are retained inside C++.
+    # values: Independent authored face channels.
+    # targets: Independent authored contour controls.
+    # transform: Resting logical root and scale.
+    # rotation: Shared cardinal display and touch rotation.
+    # animate_rhythm: Whether the composition includes breathing/blink.
+    # Raises RuntimeError for native composition errors.
+    def compose_model(self, state, values, targets, transform, rotation, animate_rhythm):
+        if self.offline_study:
+            return compose_response(self.rig, state, values, targets, transform, rotation, animate_rhythm)
+        return self.require_native().compose_response(values, targets, transform, rotation, animate_rhythm)
+
+    # self: Renderer selecting actual firmware manga arbitration for ordinary simulation.
+    # requested: Typed synthetic baseline cue.
+    # sleeping: Explicit semantic Sleep presentation permission.
+    # affection: Whether an accepted host caress still has active lifetime.
+    # eye_reaction: Current typed pointer-derived eye reaction.
+    # Raises RuntimeError for native cue/selection errors.
+    def select_personality(self, requested, sleeping, affection, eye_reaction=PersonalityCue.NONE):
+        if self.offline_study:
+            return select_personality_target(requested, sleeping, affection, eye_reaction)
+        return self.require_native().select_target(requested, sleeping, affection, eye_reaction)
+
+    # self: Native displayed-geometry owner.
+    # scene: Exactly the currently displayed evaluated scene.
+    # point: Logical pointer coordinate after cardinal rotation mapping.
+    # radius: Authored normalized eye hit radius.
+    # Raises RuntimeError for native geometry/hit failures.
+    def hit_eye(self, scene, point, radius):
+        if self.offline_study:
+            return hit_test_eye(scene, point, radius)
+        return self.require_native().hit(scene, point, radius)[0]
+
+    # self: Native displayed-geometry owner.
+    # scene: Exactly the currently displayed evaluated scene.
+    # point: Logical pointer coordinate after cardinal rotation mapping.
+    # Raises RuntimeError for native body-geometry/hit failures.
+    def hit_body(self, scene, point):
+        if self.offline_study:
+            return hit_test_body(scene, point)
+        return self.require_native().hit(scene, point, self.rig['response']['touch']['eye_hit_radius'])[1]
 
     # color is the initial palette slot of a fresh full logical canvas.
     def indexed(self, color=None):
@@ -293,6 +421,26 @@ class CodyRenderer:
             raise ValueError('Choose only one cloud rendering study')
         if mesh_overlay and not png_mesh_study:
             raise ValueError('Mesh overlay requires the PNG mesh study')
+        if not (material_study or png_mesh_study or self.jelly_study_enabled):
+            image = self.require_native().draw(scene, debug, selected, self.navigation_paused,
+                navigation_visible and self.debug_controls_enabled, self.navigation_opacity,
+                self.native_palette[self.rig['style']['background']] if background_rgb565 is None else background_rgb565)
+            # Desktop inspection annotations surround actual C++ geometry; device artwork
+            # and its skeleton are already rasterized by draw_rig_rows.
+            colors = {name: rgb565(self.native_palette[slot]) for name, slot in self.rig['style']['debug'].items()}
+            draw = ImageDraw.Draw(image)
+            if rest_outline:
+                vertices = scene['rest_outline']
+                for index in range(0, len(vertices) - 1, 2):
+                    draw.line(vertices[index:index + 2], fill=colors['handle'], width=2)
+            if outline:
+                body = next(path for path in scene['paths'] if path['definition']['name'] == self.rig['contour']['path'])
+                draw.line(body['vertices'], fill=colors['selected'], width=2)
+            if response_frame is not None:
+                self.draw_response_roots(image, response_frame, colors)
+            if guide:
+                draw.rectangle((73, 73, 392, 392), outline=colors['selected'])
+            return image
         image = self.indexed()
         if background_rgb565 is not None:
             if type(background_rgb565) is not int or not 0 <= background_rgb565 <= 65535:
@@ -480,7 +628,9 @@ class CodyRenderer:
     def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False, scene_elapsed_ms=0, personality_cue=PersonalityCue.NONE, personality_elapsed_ms=0, personality_nominal_scale=None, personality_sleep=False, personality_paused=False):
         if screen not in SCREEN_NAMES:
             raise ValueError(f"Unknown Cody screen: {screen}")
-        scene = evaluate(self.rig, values, transform, contour=contour)
+        study = material_study or png_mesh_study or self.jelly_study_enabled
+        scene = (self.evaluate_scene(values, transform, contour, study=study)
+                 if screen in ANIMATED_SCREENS else None)
         boot_visible, opacity, content_visible = (False, 255, True)
         if screen == Screen.GREETING:
             boot_visible, opacity, content_visible = self.scene_painter.presentation("greeting", scene_elapsed_ms)
@@ -489,16 +639,11 @@ class CodyRenderer:
                 if self.jelly_sprite is None:
                     self.jelly_sprite = JellyScanlineStudy(self.root, self.rig)
                 self.jelly_sprite.deform_face(scene)
-            image = self.draw_scene(scene, debug, selected, guide,
-                                    outline=outline, rest_outline=rest_outline, response_frame=response_frame,
-                                    material_study=material_study, png_mesh_study=png_mesh_study,
-                                    mesh_overlay=mesh_overlay,
-                                    navigation_visible=not boot_visible,
-                                    background_rgb565=self.scene_painter.definition("greeting")["background_rgb565"]
-                                    if screen == Screen.GREETING else None)
+            cue_frame = None
             if self.personality_painter is not None or personality_cue != PersonalityCue.NONE or personality_sleep:
                 if self.personality_painter is None:
-                    self.personality_painter = PersonalityPainter(self.root, self.rig)
+                    self.personality_painter = (PersonalityPainter(self.root, self.rig) if study
+                                                else NativePersonalityPainter(self.require_native()))
                 # Reserve the native status layer even while its touch opacity is zero.
                 exclusions = [(10, 203, 70, 263), (122, 32, 365, 64)]
                 presentation = PersonalityPresentation.DISABLED
@@ -512,6 +657,14 @@ class CodyRenderer:
                     transform[2] if personality_nominal_scale is None else personality_nominal_scale,
                     screen, rotation, personality_elapsed_ms, exclusions, body_top,
                     presentation=presentation, paused=personality_paused)
+            image = self.draw_scene(scene, debug, selected, guide,
+                                    outline=outline, rest_outline=rest_outline, response_frame=response_frame,
+                                    material_study=material_study, png_mesh_study=png_mesh_study,
+                                    mesh_overlay=mesh_overlay,
+                                    navigation_visible=not boot_visible,
+                                    background_rgb565=self.scene_painter.definition("greeting")["background_rgb565"]
+                                    if screen == Screen.GREETING else None)
+            if cue_frame is not None:
                 self.personality_painter.paint(image, cue_frame)
             if screen == Screen.GREETING:
                 image = self.boot[Screen.BOOT_READY].copy() if boot_visible else image
@@ -615,6 +768,7 @@ class CodyWindow:
     # Raises OSError or AttributeError if required Windows monitor APIs are unavailable.
     # Raises RuntimeError if the window DPI context or work-area bounds are invalid.
     # Raises OSError or RuntimeError if the fake audio DLL cannot be loaded/prepared.
+    # Raises ValueError or RuntimeError when the required native graphics/behavior owner cannot initialize.
     def __init__(self, root, renderer, args):
         self.root, self.renderer = root, renderer
         self.audio = FakeAudioDriver(ROOT)
@@ -643,7 +797,8 @@ class CodyWindow:
         self.preview_hz = tk.IntVar(value=25 if self.jelly_study else 30)
         self.face_follows_body = tk.BooleanVar(value=renderer.face_follows_body)
         self.personality_cue = tk.StringVar(value=PersonalityCue.NONE.name)
-        self.petting = PettingRecognizer(load_petting_config(ROOT))
+        self.native_behavior = None if renderer.offline_study else NativeBehavior(renderer.require_native())
+        self.petting = self.native_behavior if self.native_behavior is not None else PettingRecognizer(load_petting_config(ROOT))
         self.affection_remaining_us = 0
         self.affection_owns_channel = False
         self.eye_reaction = PersonalityCue.NONE
@@ -652,7 +807,8 @@ class CodyWindow:
         self.petting_context = None
         self.petting_selected_cue = PersonalityCue.NONE
         self.personality_rules = load_personality_rules(ROOT / "assets/cody/personality.yaml")
-        self.happiness_state = initial_state(self.personality_rules)
+        self.happiness_state = (self.native_behavior.snapshot() if self.native_behavior is not None
+                                else initial_state(self.personality_rules))
         self.happiness_sampled_us = int(time.perf_counter() * 1_000_000)
         self.contour_playing = tk.BooleanVar(value=True)
         self.contour_state = make_contour_state(renderer.rig)
@@ -662,8 +818,7 @@ class CodyWindow:
         self.face_preset_name = None
         self.personality_sleep = False
         self.response_config = deepcopy(renderer.rig["response"])
-        self.response_state = make_response_state(self.response_config)
-        self.response_state.idle_random_state = randbits(32) | 1
+        self.response_state = renderer.reset_model(self.response_config, randbits(32) | 1)
         self.stimulus_source = SyntheticStimulusSource()
         self.runtime_settings = load_settings(ROOT / "assets/cody/runtime.yaml")
         self.demo_enabled = tk.BooleanVar(value=False)
@@ -1063,8 +1218,9 @@ class CodyWindow:
 
     # self: Host controller; only a successfully presented frame may request scene audio.
     # screen: Semantic identity accepted by Tk, sharing the displayed hit geometry.
+    # personality_only: Admit only the actual visible manga cue on CCP/debug presentations.
     # Raises ValueError for an invalid authored scene clock or identity.
-    def present_audio(self, screen):
+    def present_audio(self, screen, *, personality_only=False):
         self.audio.set_enabled(self.audio_enabled.get())
         painter = self.renderer.personality_painter
         frame = painter.last_frame if painter is not None else None
@@ -1073,6 +1229,8 @@ class CodyWindow:
         if cue != PersonalityCue.NONE and cue != self.last_audio_cue:
             self.audio.personality(cue.value)
         self.last_audio_cue = cue
+        if personality_only:
+            return
         if (screen == Screen.RIG and self.playing.get() and
                 self.response_state.idle_scene == IdleSceneId.WHISTLE and
                 self.response_state.idle_scene_weight >= .8 and
@@ -1102,8 +1260,7 @@ class CodyWindow:
 
     # self: Preview controller receiving an explicit debug-only reset of model state.
     def reset_response(self):
-        self.response_state = make_response_state(self.response_config)
-        self.response_state.idle_random_state = randbits(32) | 1
+        self.response_state = self.renderer.reset_model(self.response_config, randbits(32) | 1)
         self.response_frame = None
 
     # self: Preview controller that reads controls and obtains one synthetic snapshot.
@@ -1489,10 +1646,10 @@ class CodyWindow:
                 return
         # Debug leaders never override the device's fixed navigation touch targets.
         if self.scene is not None:
-            eye = hit_test_eye(self.scene, (x, y), self.response_config["touch"]["eye_hit_radius"])
+            eye = self.renderer.hit_eye(self.scene, (x, y), self.response_config["touch"]["eye_hit_radius"])
             if eye != EyeId.NONE:
                 self.stimulus_source.tap_eye(eye, int(time.perf_counter() * 1_000_000))
-            if self.playing.get() and hit_test_body(self.scene, (x, y)):
+            if self.playing.get() and self.renderer.hit_body(self.scene, (x, y)):
                 self.body_drag_origin = (x, y)
                 self.body_drag_point = (x, y)
                 self.body_drag_rotation = self.display_rotation
@@ -1552,9 +1709,16 @@ class CodyWindow:
     # pressed_edge: First pointer report of the contact.
     # sampled_us: Original monotonic desktop event timestamp.
     # Raises ValueError for rejected pointer time or displayed geometry.
+    # Raises RuntimeError for the actual native caress or mood error in ordinary Studio.
     def observe_petting(self, point, pressed_edge, sampled_us):
         if (self.scene is None or self.display_screen != Screen.RIG or not self.playing.get() or
                 self.debug.get() or self.personality_sleep or self.body_drag_rotation != self.display_rotation):
+            self.petting.cancel()
+            return
+        # An explicitly selected authoring study has no displayed C++ frame. Never
+        # feed its independent geometry to the ordinary native caress classifier.
+        if self.native_behavior is not None and (self.renderer.offline_study or
+                self.renderer.jelly_study_enabled or '_native_scene' not in self.scene):
             self.petting.cancel()
             return
         if not 0 <= point[0] < SIZE or not 0 <= point[1] < SIZE:
@@ -1564,7 +1728,10 @@ class CodyWindow:
         if zone != PettingZone.NONE:
             self.advance_happiness_clock(sampled_us)
             event = PersonalityEvent[self.personality_rules["caress"]["event"].upper()]
-            self.happiness_state = apply_event(self.personality_rules, self.happiness_state, event)
+            if self.native_behavior is not None:
+                self.happiness_state = self.native_behavior.apply_event(event)
+            else:
+                self.happiness_state = apply_event(self.personality_rules, self.happiness_state, event)
             # Match firmware arbitration: normal symbols cannot drop an accepted stroke.
             self.affection_remaining_us = self.petting.config["affection_us"]
             self.affection_owns_channel = True
@@ -1572,10 +1739,26 @@ class CodyWindow:
     # self: Synthetic mood owner with an independent awake clock.
     # sampled_us: Monotonic host time, including time during animation pause.
     # Raises ValueError for a backwards clock or invalid artistic state.
+    # Raises RuntimeError for actual native mood failures in ordinary Studio.
     def advance_happiness_clock(self, sampled_us):
+        if type(sampled_us) is not int or sampled_us < self.happiness_sampled_us:
+            raise ValueError(f"Happiness acquisition clock rejected: {sampled_us!r}")
         elapsed_us = sampled_us - self.happiness_sampled_us
-        self.happiness_state = advance_happiness(self.personality_rules, self.happiness_state, elapsed_us)
+        if self.native_behavior is not None:
+            # The sleeping route rebases awake time; animation pause remains awake.
+            if self.screen.get() == Screen.BOOT_SLEEP:
+                elapsed_us = 0
+            self.happiness_state = self.native_behavior.advance(elapsed_us)
+        else:
+            self.happiness_state = advance_happiness(self.personality_rules, self.happiness_state, elapsed_us)
         self.happiness_sampled_us = sampled_us
+
+    # self: Ordinary native mood snapshot or the explicitly selected offline study state.
+    # Raises ValueError for an invalid offline artistic state.
+    def happiness_sadness(self):
+        if self.native_behavior is not None:
+            return self.happiness_state.sadness
+        return sadness(self.personality_rules, self.happiness_state)
 
     # self: Pointer reaction owner, preserving explicitly selected Affection.
     # preserve_fade: Keep the current visible heart for a smooth semantic Sleep handoff.
@@ -1596,7 +1779,7 @@ class CodyWindow:
     # self: Synthetic preview owner selecting urgent alerts or a finishing interaction.
     def effective_personality_cue(self):
         selected = PersonalityCue[self.personality_cue.get()]
-        desired, _ = select_personality_target(selected, self.personality_sleep,
+        desired, _ = self.renderer.select_personality(selected, self.personality_sleep,
             self.affection_remaining_us > 0, self.eye_reaction)
         return desired
 
@@ -1629,13 +1812,11 @@ class CodyWindow:
             phase_id, face_targets, targets = demo_targets(self.runtime_settings, self.renderer.rig, self.elapsed_ms)
             phase = next(step for step in self.runtime_settings["demo"]["steps"] if step["id"] == phase_id)
             self.personality_sleep = phase["face"] in ("sleep", "sleeping")
-        self.face_state = advance_face(
-            self.renderer.rig, self.face_state, face_targets, active_ms
-        )
+        self.face_state = self.renderer.advance_face(self.face_state, face_targets, active_ms)
         self.previous_animation_screen = screen
         values = self.face_state
         if self.playing.get() and screen not in ANIMATED_SCREENS:
-            values = animate(self.face_state, self.elapsed_ms)
+            values = self.renderer.animate_face(self.face_state, self.elapsed_ms)
         # The single response composer adds effects before the contour transition.
         return values, targets
 
@@ -1782,7 +1963,7 @@ class CodyWindow:
                 self.affection_remaining_us = 0
                 self.affection_owns_channel = False
             else:
-                _, release_affection = select_personality_target(
+                _, release_affection = self.renderer.select_personality(
                     selected_cue, self.personality_sleep, self.affection_remaining_us > 0)
                 if release_affection:
                     self.affection_remaining_us = 0
@@ -1798,7 +1979,7 @@ class CodyWindow:
             if self.eye_reaction_remaining_us == 0:
                 self.eye_reaction = PersonalityCue.NONE
         self.petting_context = petting_context
-        desired, release_affection = select_personality_target(selected_cue, self.personality_sleep,
+        desired, release_affection = self.renderer.select_personality(selected_cue, self.personality_sleep,
             self.affection_remaining_us > 0, self.eye_reaction)
         if release_affection:
             self.affection_remaining_us = 0
@@ -1817,11 +1998,11 @@ class CodyWindow:
         self.response_frame = None
         if screen in ANIMATED_SCREENS:
             if self.display_screen not in ANIMATED_SCREENS:
-                self.response_state = rebase_response_motion(self.response_state)
+                self.response_state = self.renderer.rebase_model(self.response_state)
             self.response_config["motion"]["sensitivity"] = self.motion_sensitivity.get()
             validate_response_config(self.response_config)
             previous_response = self.response_state
-            self.response_state = advance_response(self.response_config, self.response_state, inputs,
+            self.response_state = self.renderer.advance_model(self.response_config, self.response_state, inputs,
                                                    active_ms, int(started * 1_000_000), self.playing.get())
             if (screen == Screen.RIG and not self.debug.get() and self.playing.get() and
                     not self.personality_sleep and self.response_state.consumed_eye_tap_at_us >
@@ -1835,21 +2016,21 @@ class CodyWindow:
                     reaction = PersonalityCue.FRUSTRATION if reaction == PersonalityCue.FEAR else PersonalityCue.FEAR
                 self.eye_reaction = self.last_eye_reaction = reaction
                 self.eye_reaction_remaining_us = 4_000_000
-                _, release_affection = select_personality_target(selected_cue, False,
+                _, release_affection = self.renderer.select_personality(selected_cue, False,
                     self.affection_remaining_us > 0, reaction)
                 if release_affection:
                     self.affection_remaining_us = 0
-                desired, _ = select_personality_target(selected_cue, False, False, reaction)
+                desired, _ = self.renderer.select_personality(selected_cue, False, False, reaction)
                 if desired != reaction:
                     self.eye_reaction = PersonalityCue.NONE
                     self.eye_reaction_remaining_us = 0
-            self.response_frame = compose_response(self.renderer.rig, self.response_state, values, targets,
+            self.response_frame = self.renderer.compose_model(self.response_state, values, targets,
                                                    transform, rotation, self.playing.get())
             values = self.response_frame.face
             targets = self.response_frame.contour
             transform = self.response_frame.transform
             if self.contour_playing.get():
-                self.contour_state = advance_contour(self.renderer.rig, self.contour_state, targets, active_ms)
+                self.contour_state = self.renderer.advance_shape(self.contour_state, targets, active_ms)
         presentation_key = self.presentation_key(screen, rotation, layout, values, transform)
         changed = presentation_key != self.last_presentation_key
         if changed:
@@ -1898,7 +2079,7 @@ class CodyWindow:
             self.status_sampled_at = finished
             self.timing.configure(
                 text=f"SYNTHETIC / symbol {personality_status} / "
-                     f"happiness {self.happiness_state.happiness} / sadness {sadness(self.personality_rules, self.happiness_state)}\n"
+                     f"happiness {self.happiness_state.happiness} / sadness {self.happiness_sadness()}\n"
                      f"Host presented {observed_fps:.1f} fps / tick {duration_ms:.1f} ms / interval {interval_seconds * 1000:.1f} ms / "
                      f"target {target_hz} Hz / frame {'UPDATED' if changed else 'UNCHANGED'} / ESP32 UNMEASURED\n"
                      f"PC fake audio: {repr(self.audio.last_error) if self.audio.last_error is not None else 'READY'}"
@@ -1929,6 +2110,8 @@ class CodyWindow:
             image.putalpha(mask)
             self.present_frame(orient(image, rotation), layout, Screen.GREETING, rotation)
             self.last_presentation_key = key
+            # Optional SFX follow the exact native cue only after its frame was presented.
+            self.present_audio(Screen.GREETING, personality_only=True)
         self.timing.configure(text="SIMULATED CCP1 / loopback only / real authenticated packets / ESP32 UNMEASURED")
         self.after_id = self.root.after(100, self.tick)
 
@@ -1987,7 +2170,8 @@ def main(argv=None):
             args.capture = resolve_runtime_output(args.capture)
         except (OSError, RuntimeError, ValueError) as error:
             parser.error(str(error))
-    renderer = CodyRenderer(skin_path=args.skin, jelly_study=args.cloud_jelly_study)
+    renderer = CodyRenderer(skin_path=args.skin, jelly_study=args.cloud_jelly_study,
+        offline_study=args.cloud_material_study or args.cloud_png_mesh_study or args.cloud_jelly_study)
     if args.capture:
         destination = args.capture
         if sprite_study and destination.suffix.lower() == '.gif':
@@ -1995,8 +2179,9 @@ def main(argv=None):
             print(destination)
             return
         face = renderer.scene_painter.face("greeting") if args.screen == Screen.GREETING else renderer.rig['boot_channels']['ready']
-        values = face if args.screen == Screen.GREETING else animate(face,args.at_ms)
-        contour = advance_contour(renderer.rig,make_contour_state(renderer.rig),contour_defaults(renderer.rig),args.at_ms)
+        values = face if args.screen not in ANIMATED_SCREENS or args.screen == Screen.GREETING else renderer.animate_face(face,args.at_ms)
+        contour = (renderer.advance_shape(make_contour_state(renderer.rig),contour_defaults(renderer.rig),args.at_ms)
+                   if args.screen in ANIMATED_SCREENS else None)
         # Captures show the same clean artwork as the device's initial view.
         # Interactive inspection still exposes its separate debug controls.
         placement = renderer.scene_painter.definition("greeting")["cloud"] if args.screen == Screen.GREETING else renderer.rig['default_transform']

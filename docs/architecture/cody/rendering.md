@@ -14,12 +14,37 @@ immutable C++ tables live in internal flash; never hand-edit them. The RGB565
 source palette has 256 entries; partial coverage/alpha compositing can legitimately
 produce blended display colors outside that palette.
 
-The face has ten channels and the contour has four controls: fullness, amplitude,
+The face has 34 channels and the contour has four controls: fullness, amplitude,
 speed and phase spread. Lobe motion affects authored anchors/descendants, not a
 frame-random silhouette. Integrated phase follows speed without resetting on
 preset changes; zero amplitude/fullness preserves the source outline. Face and
 contour smoothing/breath/blink phase also survive preset changes and pause. Vector
 drawing, debug geometry and semantic hit testing consume the same evaluated pose.
+
+The original ten facial channels retain their identities. Twenty-four additional
+controls move the shared gaze, shape each eye and eyelid independently, adjust
+brow height/curve, lift either cheek, control each mouth corner and the mouth
+curve/position, move the nose and fade the tongue. Named additive point bindings
+compose before local scaling and parent transforms. Closed-eye curvature is gated
+by the inverse opening; eyelid shaping is gated by opening, preserving blinks.
+Eye highlights clip to their eyes. Rounded four-cubic lips and thicker brows keep
+smooth endpoints; the native stroke rasterizer already uses round caps.
+
+Waiting routes use the curious face; pairing/connection failures and failed checks
+use the afraid face. A shared C++ connection model admits a short joy reaction on
+PC connection, fear on an observed loss and the network symbol during current
+Wi-Fi search. Unavailable observations cancel transient reactions and break edge
+continuity. Scene reactions use the existing manga assets and audio admission;
+their artwork reserves titles, content, controls, status and lateral Back space.
+
+The PC graphics driver compiles these same C++ rig, response and raster sources
+behind a checked C ABI. Python owns the Studio window, input controls and RGB565
+presentation. Native frames and animation state retain separate ownership; a
+missing or stale library is an error. Explicit offline material studies retain
+their own study renderer. Build output and provenance stay under `artifacts/`.
+The host-only `CODY_HOST_SIMULATOR` origin labels synthetic driver samples before
+the shared response math; firmware retains its hardware-only input boundary and
+rejects compilation with the host flag. The PC never publishes firmware snapshots.
 
 The shared lip control points are 18 percent wider, preserving each preset's
 relative width and opening. The existing breathing clock now closes and opens
@@ -179,8 +204,8 @@ cache; avoiding a framebuffer is an ownership/memory choice, not a measured gain
 These are authored payload/structure budgets, not a current linked-image size or
 measured free-heap/high-water result. Fonts have no Unicode ranges, TTF runtime or
 heap-owned text. Ordinary scenes add fixed state, not a framebuffer/render task.
-The tongue brings the authored rig to 200 points, 62 cubics and 16 paths; point
-storage is bounded at 200 and the debug tangent cache at 124. Clipped fills share
+The rounded lip brings the authored rig to 202 points, 63 cubics and 16 paths;
+point storage is bounded at 203 and the debug tangent cache at 126. Clipped fills share
 the existing 256-intersection scratch between subject and containing polygon,
 without an additional raster array or mask allocation. Runtime stack, timing and
 physical appearance after this mouth change remain unverified.

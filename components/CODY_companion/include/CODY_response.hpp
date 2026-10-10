@@ -2,6 +2,10 @@
 
 #include "CODY_rig.hpp"
 
+#if defined(ESP_PLATFORM) && defined(CODY_HOST_SIMULATOR) && CODY_HOST_SIMULATOR
+#error "The simulator input origin must never be compiled into firmware"
+#endif
+
 namespace LUNASHELL { struct ClockSnapshot; }
 
 namespace CODY {
@@ -9,8 +13,14 @@ namespace CODY {
 enum class StimulusId : uint8_t { MotionAcceleration, PowerCharge, MicrophoneLevel, SpeakerPlayback };
 enum class Axis : uint8_t { X, Y, Z, Count };
 enum class SampleHealth : uint8_t { Unavailable, Current, Stale, Error };
-// The firmware input boundary deliberately has no synthetic source.
-enum class InputOrigin : uint8_t { Hardware };
+// Firmware accepts acquired hardware only. The PC driver labels its own inputs;
+// its origin does not exist in the firmware build or snapshot service.
+enum class InputOrigin : uint8_t {
+    Hardware,
+#if defined(CODY_HOST_SIMULATOR) && CODY_HOST_SIMULATOR
+    Simulator,
+#endif
+};
 enum class EyeId : uint8_t { None, Left, Right };
 // Transient presentations within screen 16; these IDs never enter route history.
 enum class IdleSceneId : uint32_t { None = 0, Yawn = 0xC002, Whistle = 0xC003, Greeting = 0xC004 };

@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
 import time
 
-from PIL import Image, ImageDraw
+from cody_native_debug import render_debug_channels
 
 from ccp_interactions import EventKind, Tone
-from scripts.common.cody_rig_contract import evaluate
 
 
 @dataclass(frozen=True)
@@ -27,65 +25,14 @@ def wrapped(text: str) -> tuple[str, ...]:
     return tuple(text[offset:offset + 27] for offset in range(0, len(text), 27))
 
 
-# width: Logical control width from the approved layout.
-# height: Logical control height from the approved layout.
-# tone: Semantic color shared by the card, border and icon.
-# Returns a cached antialiased gradient surface; immutable geometry costs no repeated supersampling.
-@lru_cache(maxsize=32)
-def control_surface(width: int, height: int, tone: Tone) -> Image.Image:
-    colors = {Tone.NEUTRAL: ((45, 48, 54), (16, 18, 23), (106, 111, 121)),
-              Tone.POSITIVE: ((0, 72, 65), (0, 24, 25), (35, 222, 203)),
-              Tone.NEGATIVE: ((83, 38, 29), (28, 15, 17), (247, 134, 90)),
-              Tone.INFO: ((12, 50, 100), (5, 20, 43), (44, 151, 251))}
-    top, bottom, border = colors[tone]
-    scale = 4
-    size = width * scale, height * scale
-    mask = Image.new("L", size, 0)
-    radius = min(28, height // 2) * scale
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, size[0] - 1, size[1] - 1), radius=radius, fill=255)
-    color = Image.new("RGB", size)
-    draw = ImageDraw.Draw(color)
-    for row in range(size[1]):
-        weight = row / max(1, size[1] - 1)
-        shade = tuple(round(first * (1 - weight) + last * weight) for first, last in zip(top, bottom))
-        draw.line((0, row, size[0] - 1, row), fill=shade)
-    draw.rounded_rectangle((scale, scale, size[0] - scale - 1, size[1] - scale - 1),
-                           radius=max(0, radius - scale), outline=border, width=2 * scale)
-    color.putalpha(mask)
-    return color.resize((width, height), Image.Resampling.LANCZOS)
-
-
 # image: Logical RGB framebuffer prior to rotation.
 # painter: Native glyph coverage owner.
 # action: One approved gradient card/capsule and its complete untimed caption.
-# Raises ValueError if a control/caption leaves the declared slot or circle.
+# Raises RuntimeError if native rendering is unavailable or a native control fails.
 def paint_action(image, painter, action: EventAction) -> None:
-    x, y, width, height = action.bounds
-    tone = action.tone if action.enabled else Tone.NEUTRAL
-    if any((px - 233) ** 2 + (py - 233) ** 2 > 233 ** 2
-           for px in (x, x + width - 1) for py in (y, y + height - 1)):
-        raise ValueError("SIMULATED event action leaves the circular chord")
-    surface = control_surface(width, height, tone)
-    image.paste(surface, (x, y), surface)
-    card = height > 80
-    icon_x = x + width // 2 if card else x + 31
-    icon_y = y + 35 if card else y + height // 2 + 4
-    draw = ImageDraw.Draw(image)
-    color = (161, 244, 226) if tone == Tone.POSITIVE else (244, 244, 247)
-    if action.tone == Tone.NEGATIVE:
-        draw.line((icon_x - 7, icon_y - 7, icon_x + 7, icon_y + 7), fill=color, width=3)
-        draw.line((icon_x + 7, icon_y - 7, icon_x - 7, icon_y + 7), fill=color, width=3)
-    elif action.tone == Tone.POSITIVE:
-        draw.line((icon_x - 9, icon_y, icon_x - 2, icon_y + 7, icon_x + 10, icon_y - 8),
-                  fill=color, width=3, joint="curve")
-    else:
-        draw.line((icon_x - 9, icon_y, icon_x + 9, icon_y), fill=color, width=3)
-        draw.line((icon_x + 2, icon_y - 7, icon_x + 9, icon_y, icon_x + 2, icon_y + 7),
-                  fill=color, width=3, joint="curve")
-    center = x + width // 2 if card else x + (width + 40) // 2
-    top = y + 64 if card else y + (height - painter.font["body_font"]["height"]) // 2
-    painter.paint_text(image, action.label, top, body=True, center_x=center,
-                       max_width=width - (20 if card else 64))
+    if painter.native is None:
+        raise RuntimeError("CCP actions require the actual Cody C++ graphics backend")
+    painter.native.paint_action(image, action.bounds, action.label, action.tone, action.enabled)
 
 
 class EventView:
@@ -187,8 +134,10 @@ class EventView:
     # snapshot: One immutable simulator observation.
     # window: Existing rig renderer and native ScenePainter owner.
     # rotation: Cardinal orientation handled by the caller for image and touch together.
+    # personality: Native shared connection/scene cue preparation before the C++ raster.
+    # compose: Shared C++ response owner supplying exactly the current displayed face.
     # Raises ValueError for invalid scene/glyph/action geometry.
-    def render(self, snapshot, window, rotation):
+    def render(self, snapshot, window, rotation, personality=None, compose=None):
         identity, lines, actions, back = self.plan(snapshot)
         painter = window.renderer.scene_painter
         definition = painter.definition(identity)
@@ -209,7 +158,19 @@ class EventView:
             self._delivered_at = time.monotonic()
         self._actions, self._back = actions, back
         cloud = definition["cloud"]
-        scene = evaluate(window.renderer.rig, painter.face(identity), tuple(cloud[key] for key in ("x", "y", "scale")))
+        if compose is None:
+            raise RuntimeError("CCP event rendering requires the shared native response owner")
+        scene, values = compose(painter.face(identity), painter.cloud_transform(identity, elapsed), rotation)
+        if personality is not None:
+            top = min([definition["title"]["top"]] + [top for _, top in lines])
+            bottom = max([definition["title"]["top"] + 30] + [top + 25 for _, top in lines])
+            # The shared native cue context admits six exclusions. One content
+            # rectangle reserves all text without dropping any action or Back.
+            exclusions = [(73, top, 393, bottom), (73, 22, 393, 47)]
+            exclusions += [(x, y, x + width, y + height) for action in actions for x, y, width, height in (action.bounds,)]
+            if back:
+                exclusions.append((10, 203, 70, 263))
+            personality(snapshot, identity, scene, cloud["scale"], rotation, elapsed, exclusions)
         image = window.renderer.draw_scene(scene, debug=False, navigation_visible=False,
                                            background_rgb565=definition["background_rgb565"]).convert("RGB")
         painter.paint_text(image, title, definition["title"]["top"], visible=min(len(title), visible))
@@ -222,13 +183,11 @@ class EventView:
             for action in actions:
                 paint_action(image, painter, action)
         if back:
-            draw = ImageDraw.Draw(image)
-            draw.ellipse((10, 203, 69, 262), fill=(22, 24, 29), outline=(63, 66, 73), width=2)
-            draw.line((44, 222, 35, 233, 44, 244), fill=(239, 239, 243), width=4, joint="curve")
+            image = render_debug_channels(window.renderer.require_native(), values, 0, image)
         # With three actions the lower capsule reaches y428; keep the synthetic
         # identity in the unobstructed top chord instead of covering that action.
         painter.paint_text(image, "SIMULATED", 22, color=64704, body=True)
-        key = ("ccp-event", route, min(visible, total), lines, actions, snapshot.event_fresh, rotation)
+        key = ("ccp-event", route, min(visible, total), lines, actions, snapshot.event_fresh, rotation, round(elapsed / 33))
         return image, scene, key
 
     # self: Pointer owner whose selection remains local until the explicit Send action.

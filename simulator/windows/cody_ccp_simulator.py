@@ -11,6 +11,7 @@ import hmac
 import json
 import math
 import os
+import re
 from pathlib import Path
 import secrets
 import socket
@@ -213,6 +214,10 @@ class SimulatorLink:
         self._reset_attempted = False
         self._reset_error = ""
         self.reset_count = 0
+        self._debug_request: dict | None = None
+        self._debug_ready_nonce = ""
+        self._debug_used_nonce = ""
+        self.debug_capability = False
 
     @property
     # self: Owner whose active record changes only after durable CONFIRM/READY commit.
@@ -399,10 +404,12 @@ class SimulatorLink:
             self._accept_pair(fields, source, send)
         elif kind == "CONFIRM":
             self._accept_confirm(fields, source, send)
-        elif kind in ("READY", "ACTIVITY", "EVENT", "REPLYACK", "RESET", "FACTORYRESET"):
+        elif kind in ("READY", "ACTIVITY", "EVENT", "REPLYACK", "RESET", "FACTORYRESET", "DEBUG"):
             if source[1] != protocol.PLUGIN_PORT:
                 raise ValueError("CCP presence sender port is invalid")
-            if kind == "EVENT":
+            if kind == "DEBUG":
+                self._accept_debug(fields, source)
+            elif kind == "EVENT":
                 self._accept_event(fields, source)
             elif kind == "REPLYACK":
                 self._accept_reply_ack(fields)
@@ -414,6 +421,71 @@ class SimulatorLink:
         else:
             raise ValueError("Unsupported CCP datagram kind")
         self.accepted_packets += 1
+
+    # self: Loopback protocol owner admitting only bounded transient Debug views.
+    # fields: Exact DEBUG envelope; channel offsets are validated by the actual C++ UI.
+    # source: Exact authenticated READY endpoint, never a caller-supplied destination.
+    # Raises ValueError or RuntimeError for forged, expired, replayed or conflicting requests.
+    def _accept_debug(self, fields: dict[str, str], source: tuple[str, int]) -> None:
+        names = ("device", "pc", "nonce", "id", "mode", "scroll")
+        if set(fields) != {*names, "proof"} or not self.debug_capability:
+            raise ValueError("SIMULATED debug capability unavailable or malformed fields")
+        require_hex({name: fields[name] for name in ("device", "pc", "nonce", "proof")})
+        if (interactions.IDENTITY.fullmatch(fields["id"]) is None
+                or fields["mode"] not in {"face_channels", "character", "normal"}
+                or re.fullmatch(r"0|[1-9][0-9]{0,2}", fields["scroll"]) is None
+                or int(fields["scroll"]) > 255
+                or (fields["mode"] != "face_channels" and fields["scroll"] != "0")):
+            raise ValueError("SIMULATED Debug typed command rejected")
+        if (self.active is None or self.pending or self.state != LinkState.CONNECTED
+                or fields["device"] != self.device_id or fields["pc"] != self.active["pc_id"]
+                or fields["nonce"] != self._debug_ready_nonce or fields["nonce"] == self._debug_used_nonce
+                or self._ready_at is None or self.clock() - self._ready_at >= PRESENCE_SECONDS):
+            raise ValueError("SIMULATED Debug command has no current active READY lease")
+        key = protocol.unprotect_secret(self.active["protected_link_key"])
+        if not hmac.compare_digest(protocol.make_proof(key, "debug", *(fields[name] for name in names)), fields["proof"]):
+            raise ValueError("SIMULATED Debug command authentication failed")
+        if self._debug_request is not None and self._debug_request["deadline"] > self.clock():
+            raise ValueError("SIMULATED Debug request already pending")
+        self._debug_used_nonce = fields["nonce"]
+        self._debug_request = {"fields": fields.copy(), "source": source, "key": key,
+                               "deadline": self.clock() + 4.0, "taken": False}
+
+    # self: Protocol owner transferring a command once to the simulator's rendering thread.
+    # Returns public bounded fields only; no keys/proofs leave the transport owner.
+    def take_debug(self) -> dict | None:
+        request = self._debug_request
+        if request is None or request["taken"] or request["deadline"] <= self.clock():
+            return None
+        request["taken"] = True
+        fields = request["fields"]
+        return {"id": fields["id"], "mode": fields["mode"], "scroll": int(fields["scroll"])}
+
+    # self: Transport owner acknowledging actual rendering-thread mode application.
+    # request_id: Exact transient identity previously taken by that thread.
+    # error: Original signed UI/native error; zero only after the mode is accepted.
+    # count: Actual C++ channel catalog count.
+    # send: Sole endpoint sender; ACK is attempted once, never auto-retried.
+    # Raises ValueError, RuntimeError or OSError for retired leases or send failure.
+    def complete_debug(self, request_id: str, error: int, count: int, send: Send) -> None:
+        request = self._debug_request
+        if (request is None or not request["taken"] or request["fields"]["id"] != request_id
+                or request["deadline"] <= self.clock() or self.active is None or self.pending
+                or self.state != LinkState.CONNECTED or self.active["pc_id"] != request["fields"]["pc"]
+                or not hmac.compare_digest(protocol.unprotect_secret(self.active["protected_link_key"]), request["key"])):
+            raise ValueError("SIMULATED Debug completion lease retired")
+        if type(error) is not int or not -(2 ** 31) <= error < 2 ** 31 or not 1 <= count <= 255:
+            raise ValueError("SIMULATED Debug result malformed")
+        fields = request["fields"]
+        values = [fields[name] for name in ("device", "pc", "nonce", "id", "mode", "scroll")]
+        values += ["applied" if error == 0 else "rejected", str(error), str(count)]
+        self._debug_request = None
+        if error:
+            self.record_error("optional Debug view", RuntimeError(f"esp_err_t={error}"))
+        packet = protocol.encode_datagram("DEBUGACK", list(zip(
+            ("device", "pc", "nonce", "id", "mode", "scroll", "status", "error", "count"), values))
+            + [("proof", protocol.make_proof(request["key"], "debug-ack", *values))])
+        send(packet, request["source"])
 
     # self: Simulated reset admission owner; no physical PC or device settings are touched.
     # fields: Exact reset command fields authenticated by the currently active pairing.
@@ -575,6 +647,11 @@ class SimulatorLink:
             # the host candidate or require another commissioning code.
             send(protocol.encode_datagram("COMMITTED", list(zip(("device", "pc", "nonce"), values))
                                           + [("proof", proof)]), source)
+            if self.debug_capability:
+                self._debug_ready_nonce = fields["nonce"]
+                values = [fields[name] for name in ("device", "pc", "nonce")] + ["1"]
+                send(protocol.encode_datagram("DEBUGCAP", list(zip(("device", "pc", "nonce", "debug"), values))
+                    + [("proof", protocol.make_proof(key, "debug-cap", *values))]), source)
             return
         if self.state != LinkState.CONNECTED or self._activity_nonce == fields["nonce"]:
             raise ValueError("ACTIVITY requires READY and one reply per nonce")
@@ -806,6 +883,40 @@ class SimulatorEndpoint:
                 snapshot = SimulatorSnapshot(**{**snapshot.__dict__, "state": LinkState.STOPPED,
                     "activity_valid": False, "last_error": f"Endpoint stopped: {self._fatal_error}"})
             return snapshot, self._link.display_code()
+
+    # self: Actual loopback socket owner; this address is a PC fact, never a firmware snapshot.
+    # Returns the real bound IPv4 address, or unavailable while stopped.
+    # Raises OSError for an actual socket-query failure.
+    def bound_address(self) -> str | None:
+        with self._lock:
+            return self._socket.getsockname()[0] if self._socket is not None else None
+
+    # self: Simulator protocol owner enabling Debug only after its native UI exists.
+    # enabled: Actual rendering availability; never a claim about physical firmware.
+    def enable_debug(self, enabled: bool) -> None:
+        with self._lock:
+            if self._link is not None:
+                self._link.debug_capability = enabled
+
+    # self: Endpoint sharing a bounded request with the actual Tk rendering thread.
+    def take_debug(self) -> dict | None:
+        with self._lock:
+            return self._link.take_debug() if self._link is not None else None
+
+    # self: Endpoint preserving actual UI errors and authenticating its accepted view ACK.
+    # request_id: Exact transient request identity.
+    # error: Original signed C++ or UI error.
+    # count: Actual native compiled catalog count.
+    # Raises ValueError, RuntimeError or OSError for retired state or transport failure.
+    def complete_debug(self, request_id: str, error: int, count: int) -> None:
+        with self._lock:
+            if self._link is None or self._socket is None or self._fatal_error is not None:
+                raise RuntimeError("SIMULATED CCP endpoint unavailable")
+            try:
+                self._link.complete_debug(request_id, error, count, self._socket.sendto)
+            except (OSError, RuntimeError, ValueError) as failure:
+                self._link.record_error("Debug acknowledgement", failure)
+                raise
 
     # self: Socket lifetime owner accepting explicit simulator UI operations only.
     # action: Fixed action name; this is never a hook or chat-selection endpoint.

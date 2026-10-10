@@ -69,6 +69,29 @@ risultati indico sotto le copie preservate dentro la directory del build.
   segreti su 73 file cambiati/non tracciati e otto firme. Ho rilasciato la lease
   diagnostica CCP con exit 0, senza terminare il broker o altri client.
 
+## Facial controls and rounded expressions - 2026-10-10
+
+- Extended the original ten facial channel identities to 34 with named, bounded
+  additive bindings. Each eye, eyelid, brow, cheek and mouth corner is independently
+  controllable; gaze, nose and mouth placement and tongue opacity are explicit.
+- Replaced pointed lip ends with a four-cubic rounded contour and corrected
+  center tangents of eyes/lips across deformation. Eyelid bindings respect opening
+  and closure; highlights clip to their corresponding eyes.
+- Waiting routes use Curious, failed checks use Afraid, and connection loss keeps
+  its authored Afraid face. Canonical connection reactions and scene arbitration
+  select the existing manga assets and SFX admission without acquiring sensors.
+- Authored host/native regression coverage and reviewed sources statically. No
+  tests, simulator execution, compilation or physical appearance/audio checks
+  have been performed for this revision; those remain open in TODO.md.
+- Saved the rig in `12d68bb` and firmware personality/private Debug integration
+  in `fcf68a5`, with a separate PC-driver integration checkpoint; physical
+  rendering remains unverified.
+- Added a Windows C++ graphics driver and source-provenance generator through
+  `scripts/device.ps1`. Ordinary Studio uses the production rig, response, caress,
+  mood, manga, text and control raster code; PC inputs are explicitly synthetic.
+  Boot-only captures keep their artwork path and explicit studies keep their
+  study renderer. No DLL has been compiled or loaded for this revision.
+
 ## Pairing recuperabile, Options e simulatore CCP - 2026-10-10
 
 - Ho salvato firmware e preferenze in `959931f3`, dopo il primo checkpoint

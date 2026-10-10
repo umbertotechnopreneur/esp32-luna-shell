@@ -1,5 +1,18 @@
 # Active work
 
+## Cody: facial rig, personality and shared native simulator - 2026-10-10
+
+- [x] Extend the ten existing facial identities with 24 independent controls;
+  author rounded eyes/lips, guarded eyelids, clipped highlights and explicit presets.
+- [x] Connect waiting, failure and success routes to distinct expressions and
+  existing manga/SFX admission, using canonical connectivity on firmware.
+- [x] Integrate the PC C++ driver and private debug commands; regenerate rig and
+  scene tables. Review source integration; runtime validation remains separate.
+- [ ] Final checks, simulator execution and firmware compilation remain pending;
+  implementation alone is not execution or physical display/audio evidence.
+- [x] Save focused rig and firmware checkpoints (`12d68bb`, `fcf68a5`) and a
+  separate PC-driver integration checkpoint, preserving concurrent event-flow work.
+
 ## Cody: notifiche e decisioni dall'atlante - 2026-10-10
 
 - [x] Ho integrato CCP/MCP, firmware e simulatore SIMULATED: notifiche, domande

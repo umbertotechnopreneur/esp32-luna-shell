@@ -15,6 +15,7 @@ class ScenePainter:
     # rig: Already-loaded current rig providing the canonical facial channel limits.
     # Raises OSError for missing assets and ValueError for stale or invalid generated data.
     def __init__(self, root, rig):
+        self.native = None
         self.document = load_scenes(root, rig)
         self.scenes = {scene["id"]: scene for scene in self.document["scenes"]}
         generated = root / "assets/cody/scenes/generated"
@@ -82,6 +83,8 @@ class ScenePainter:
     # active_ms: Active scene elapsed time; pause/standby time is excluded by the caller.
     # Raises ValueError for invalid time or scene identity.
     def visible_characters(self, identity, active_ms):
+        if self.native is not None:
+            return int(self.native.scene_timing(identity, active_ms)[6])
         if type(active_ms) not in (int, float) or not math.isfinite(active_ms) or active_ms < 0:
             raise ValueError(f"Invalid scene clock: {active_ms!r}")
         scene = self.definition(identity)
@@ -98,6 +101,8 @@ class ScenePainter:
     # active_ms: Active presentation time, excluding standby and pause.
     # Raises ValueError for invalid time or an unknown scene identity.
     def cloud_transform(self, identity, active_ms):
+        if self.native is not None:
+            return self.native.scene_timing(identity, active_ms)[:3]
         if type(active_ms) not in (int, float) or not math.isfinite(active_ms) or active_ms < 0:
             raise ValueError(f"Invalid scene entrance clock: {active_ms!r}")
         scene = self.definition(identity)
@@ -118,6 +123,8 @@ class ScenePainter:
     # preceding_characters: Title and preceding caption characters.
     # Raises ValueError for invalid counts, identity or time.
     def content_characters(self, identity, active_ms, length, preceding_characters):
+        if self.native is not None:
+            return int(self.native.scene_timing(identity, active_ms, length, preceding_characters)[7])
         if any(type(value) is not int or not 0 <= value <= 65535 for value in (length, preceding_characters)):
             raise ValueError("Invalid counted scene content")
         if not self.presentation(identity, active_ms)[2]:
@@ -136,6 +143,9 @@ class ScenePainter:
     # Returns the selected boot layer, global opacity and content admission.
     # Raises ValueError for invalid time or identity.
     def presentation(self, identity, active_ms):
+        if self.native is not None:
+            values = self.native.scene_timing(identity, active_ms)
+            return bool(values[3]), int(values[4]), bool(values[5])
         if type(active_ms) not in (int, float) or not math.isfinite(active_ms) or active_ms < 0:
             raise ValueError(f"Invalid scene intro clock: {active_ms!r}")
         intro = self.definition(identity)["intro"]
@@ -154,6 +164,8 @@ class ScenePainter:
     # opacity: Valid global opacity in 0..255, quantized in native RGB565 channels.
     # Raises ValueError for unsupported input; padding/rotation happen after this layer.
     def fade_to_black(self, image, opacity):
+        if self.native is not None:
+            return self.native.fade_to_black(image, opacity)
         if image.mode != "RGB" or image.size != (466, 466) or type(opacity) is not int or not 0 <= opacity <= 255:
             raise ValueError("Scene fade requires a 466x466 RGB image and 0..255 opacity")
         if opacity == 255:
@@ -188,6 +200,9 @@ class ScenePainter:
     # Raises ValueError for unsupported pixels, text, extent or glyph counts.
     def paint_text(self, image, text, top, color=65535, *, body=False, visible=None,
                    center_x=233, max_width=None):
+        if self.native is not None:
+            return self.native.paint_text(image, text, top, color, body=body, visible=visible,
+                center_x=center_x, max_width=max_width)
         if image.mode != "RGB" or image.size != (466, 466):
             raise ValueError("Scene text requires a 466x466 RGB framebuffer")
         if not isinstance(text, str) or any(not 32 <= ord(character) <= 126 for character in text):

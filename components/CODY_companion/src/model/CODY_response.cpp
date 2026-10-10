@@ -53,7 +53,21 @@ esp_err_t reject_axis_value(const char *field, Axis axis, float value)
     return ESP_ERR_INVALID_ARG;
 }
 
-// stamp: Original observation status, including the last successful sample timestamp.
+// origin: Classified acquisition source at the active platform's input boundary.
+// No exceptions: Firmware never admits the simulator-only origin.
+constexpr bool response_origin_supported(InputOrigin origin)
+{
+    if (origin == InputOrigin::Hardware) {
+        return true;
+    }
+#if defined(CODY_HOST_SIMULATOR) && CODY_HOST_SIMULATOR
+    return origin == InputOrigin::Simulator;
+#else
+    return false;
+#endif
+}
+
+// stamp: Original status and timestamps, explicitly labelled synthetic on the PC.
 // now_us: Monotonic time at which this input is consumed.
 // timeout_seconds: Reviewed maximum lifetime for the source.
 // source: Stable identity named in rejected-metadata logs.
@@ -62,7 +76,7 @@ esp_err_t effective_stamp(const SampleStamp &stamp, int64_t now_us,
                           float timeout_seconds, const char *source,
                           SampleStamp &effective)
 {
-    if (stamp.origin != InputOrigin::Hardware || stamp.sampled_at_us < 0 ||
+    if (!response_origin_supported(stamp.origin) || stamp.sampled_at_us < 0 ||
         stamp.sampled_at_us > now_us ||
         (stamp.health != SampleHealth::Unavailable && stamp.health != SampleHealth::Current &&
          stamp.health != SampleHealth::Stale && stamp.health != SampleHealth::Error)) {

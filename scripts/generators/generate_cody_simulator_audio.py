@@ -1,39 +1,12 @@
 """Build the Windows fake output driver linked to unchanged Cody audio modules."""
 import argparse
-import os
 from pathlib import Path
-import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
-
-
-# No parameters: loads an installed MSVC toolchain into this generator process only.
-# Raises FileNotFoundError or RuntimeError for missing installation or setup failure.
-def prepare_host_compiler():
-    try:
-        return resolve_compiler(None)
-    except FileNotFoundError:
-        locator = Path(os.environ["ProgramFiles(x86)"]) / "Microsoft Visual Studio/Installer/vswhere.exe"
-        installation = subprocess.run([str(locator), "-latest", "-prerelease", "-products", "*",
-            "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "-property", "installationPath"],
-            capture_output=True, text=True, check=True).stdout.strip()
-        if not installation:
-            raise FileNotFoundError("An installed Windows C++ compiler is required; nothing is installed automatically.")
-        setup = Path(installation) / "Common7/Tools/VsDevCmd.bat"
-        # Only the fixed installed setup script enters cmd; environment values are never logged.
-        command = f'cmd.exe /d /s /c ""{setup}" -no_logo -arch=x64 -host_arch=x64 >nul && set"'
-        # A literal Windows command line preserves cmd's outer quotes; list2cmdline
-        # would escape the batch path for a different argument parser.
-        result = subprocess.run(command,
-            capture_output=True, text=True, check=True)
-        for line in result.stdout.splitlines():
-            name, separator, value = line.partition("=")
-            if separator and name and not name.startswith("="):
-                os.environ[name] = value
-        return resolve_compiler(None)
+from scripts.common.cody_host_compiler import prepare_host_compiler
 
 
 # argv: Optional literal host compiler selection forwarded by the device CLI.

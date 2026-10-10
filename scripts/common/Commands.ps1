@@ -126,6 +126,12 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                 -StoredLog $storedLog -Destination $Options.OutputPath -ResponseTimeoutSeconds $responseTimeout
         }
         { $_ -in @('simulator','boot-screens') } {
+            $nativeStudy = $Options.CloudMaterialStudy -or $Options.CloudPngMeshStudy -or $Options.CloudJellyStudy
+            if ($RequestedAction -eq 'simulator' -and -not $nativeStudy) {
+                # The ordinary simulator executes production C++; preparation never launches it.
+                $graphicsTool = Find-DeviceTool 'generators' 'cody-simulator-graphics'
+                Invoke-HostTool $graphicsTool.Path @() $Options.PythonExecutable
+            }
             if ($RequestedAction -eq 'simulator' -and -not $Options.OutputPath) {
                 # Compile only the host output owner; captures never initialize or play audio.
                 $audioTool = Find-DeviceTool 'generators' 'cody-simulator-audio'

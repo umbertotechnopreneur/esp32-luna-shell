@@ -24,6 +24,7 @@ import cody_ccp_simulator as simulated
 from cody_ccp_panel import presentation
 from cody_ccp_event_view import EventView, paint_action, wrapped
 from cody_scene import ScenePainter
+from cody_native import NativeRig
 from scripts.common.cody_rig_contract import load_contract
 from PIL import Image
 
@@ -623,6 +624,9 @@ class SimulatorProtocolTests(unittest.TestCase):
         view.visible(snapshot)
         rig, _ = load_contract(ROOT)
         painter = ScenePainter(ROOT, rig)
+        # Control raster is the actual C++ backend. Regenerate its library before
+        # authorizing this suite; missing/stale native output is an explicit failure.
+        painter.native = NativeRig(ROOT, rig)
         for stage in ("notice", "choices", "confirm"):
             view.stage, view.selected_id = stage, "memory"
             identity, lines, actions, _ = view.plan(snapshot)
