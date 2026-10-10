@@ -154,6 +154,7 @@ struct OrientationState {
     uint32_t change_sequence = 0;
     int64_t sampled_at_us = 0;
     int64_t changed_at_us = 0;
+    int64_t last_rotation_error_log_us = 0;
     LUNASHELL::ComponentSnapshot component;
 };
 
@@ -1073,6 +1074,8 @@ esp_err_t persist_display_rotation(uint16_t rendering_degrees)
 }
 
 // Commit the desired panel angle while allowing touch activity to defer it.
+// No parameters: reconcile the orientation owner's pending panel/touch rotation.
+// Exception: Returns original display, persistence or publication failures.
 esp_err_t apply_pending_display_rotation()
 {
 #if !CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
@@ -1176,8 +1179,8 @@ esp_err_t apply_pending_display_rotation()
             esp_err_to_name(publication_error)
         );
     }
-    if (now - s_orientation.last_error_log_us >= 5000000) {
-        s_orientation.last_error_log_us = now;
+    if (now - s_orientation.last_rotation_error_log_us >= 5000000) {
+        s_orientation.last_rotation_error_log_us = now;
         ESP_LOGW(
             TAG,
             "Cardinal display rotation pending (%s)",

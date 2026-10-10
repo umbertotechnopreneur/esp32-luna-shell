@@ -25,6 +25,23 @@ the preserved copies within the build directory.
   the owning translation units. Static cross-component review is complete; compilation,
   contract suites and device stack/headroom evidence are tracked separately in TODO.
 
+- Final authorized build: `device.ps1 build -Profile cody-companion -Feature wake-word
+  -BuildMode Debug -Jobs 8` succeeded after restoring a rotation-owned log timestamp
+  that had shared the old IMU log field. All seven new translation units compiled.
+  Cody includes PMU/battery, RTC, IMU, audio and wake-word; its GNSS-enabled branch
+  remains excluded and requires another profile's separately authorized build.
+- Linked image `cody-75-gede5d53f-dirty`, including the staged rotation fix:
+  6,879,520 bytes, SHA256
+  `590dc15b76b55b1655513fbda95a1ba117fe144086298934cca734ef1bb17d9d`.
+  Both build attempts and the final 31-test simulator log are retained under
+  `artifacts/build-cody-companion-wake-word-debug/diagnostics/` as
+  `20261010-acquisition-build.log`, `20261010-acquisition-build-retry.log` and
+  `20261010-ccp-simulator.log`. The normal build cleanup removed earlier transient
+  check/generator directories; the tracked records retain observed results.
+- The authorized changed-file `git diff --check` passed after removing four extra
+  end-of-file blank lines. No firmware flash, reset, serial capture, hardware suites,
+  extra profile build or device stack/headroom measurements were performed.
+
 ## CCP contract verification and transport parity - 2026-10-10
 
 - The authorized `device.ps1 check -Check cody-ccp` rerun passed all 59 tests.

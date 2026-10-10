@@ -11,9 +11,9 @@
   bounded projections, the existing IMU worker stack and original timestamps/errors.
 - [x] Register the new translation units and update existing owner-specific source
   contract assertions. Static integration review completed.
-- [ ] Complete the authorized Cody Debug/wake-word build and changed-file diff check.
+- [x] Complete the authorized Cody Debug/wake-word build and changed-file diff check.
 - [ ] Run hardware/status/RTC/snapshot/power/TOF suites only after fresh exact-command
-  authorization. Additional profile compilation and device stack headroom remain
+  authorization. Enabled GNSS acquisition in another profile and device stack headroom remain
   pending; no firmware flash, serial capture or physical verification is requested.
 - [ ] Linux/macOS companion support stays deferred as requested.
 
