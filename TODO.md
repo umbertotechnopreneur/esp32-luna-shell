@@ -11,10 +11,12 @@
   `scripts/device.ps1 generate -Generator cody-scenes -ToolArguments @('--definitions-only')`.
 - [ ] Run any requested checks, firmware build or simulator only after the
   corresponding exact command receives fresh authorization. Physical UI is pending.
-- [ ] Resolve why CCP hooks are absent from runtime hooks/list despite the plugin
-  being installed/enabled and its eight hook definitions being present. Read-only
-  inspection returned zero hooks with no warnings/errors for both WinGet 0.156.1
-  and the app's 0.162.0-alpha.17.2. Hook trust, config and pairing were not changed.
+- [x] Diagnose missing CCP hooks. Isolated native plugin/read comparisons on
+  WinGet 0.161.0 and app 0.162.0-alpha.17.2 recognize all eight authored hooks
+  through .codex-plugin/plugin.json alone; portable plugin.json, including the
+  dual-manifest package, returns zero. Hook trust, config and pairing were not changed.
+- [ ] Apply the diagnosed packaging remedy to CCP distribution/installed cache,
+  then separately complete native hook review and observe a genuine user prompt.
 
 
 ## Cody black-screen startup regression - 2026-10-10

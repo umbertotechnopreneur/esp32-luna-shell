@@ -2203,3 +2203,22 @@ the preserved copies within the build directory.
 - Static source review only beyond that generation: no tests, validation scans,
   firmware build, simulator launch, flash or physical display/touch inspection.
   The installed plugin cache and PC configuration/trust/pairing remain unchanged.
+
+## CCP hook discovery diagnosis - 2026-10-10
+
+- Added an explicitly selected native parser inspection through
+  `scripts/device.ps1 check -Check cody-hook-discovery -ToolArguments
+  @('--codex-executable', '<native Codex executable>')`. Fixtures and reports
+  are under artifacts/ccp-hook-discovery-20261010/parser-probes. No hook runs,
+  plugin installations, trust edits, chat turns or device operations are requested.
+- After the user authorized diagnostic tests for this session, compared 20
+  isolated packages on WinGet 0.161.0 and app 0.162.0-alpha.17.2. Both native
+  loaders recognize eight authored CCP hooks with the legacy manifest alone;
+  portable and dual-manifest packages return zero, without hook parse warnings.
+  Alternate event casing, a direct event object, top-level portable hooks and
+  default discovery do not repair portable loading in either inspected binary.
+- The format discrepancy occurs before trust review. Current official OpenAI
+  plugin documentation advertises portable extensions.com.openai.hooks and
+  portable-over-legacy precedence; observed native loading does not honor that
+  hook declaration here. Keep the packaging remedy and real end-to-end event
+  validation pending: installed CCP, PC configuration/trust and pairing are unchanged.
