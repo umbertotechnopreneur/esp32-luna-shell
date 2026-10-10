@@ -1,0 +1,276 @@
+"""Author the consolidated English CCP service and connection reference atlas."""
+
+from io import BytesIO
+from pathlib import Path
+import argparse
+import sys
+
+from pypdf import PdfReader, PdfWriter
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.pdfgen import canvas
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts" / "common"))
+from cody_pdf_revision_register import RevisionRecord, plain_paragraph, register_fonts, render_revision_register
+
+PAGE_SIZE = landscape(A4)
+WIDTH, HEIGHT = PAGE_SIZE
+INK = colors.HexColor("#18283E")
+MUTED = colors.HexColor("#64748B")
+TEAL = colors.HexColor("#147D86")
+LINE = colors.HexColor("#DEE6EF")
+DEFAULT_OUTPUT = ROOT / "docs" / "Cody" / "cody-ccp-connection-atlas-v1.pdf"
+
+
+CORE = (
+    ("One connection, three different facts", "01 / Orientation", (
+        ("Pairing", "Cody remembers one PC identity and a retained link key. A saved record does not prove that the PC is reachable."),
+        ("Presence", "Authenticated current replies establish that the retained PC service is reachable on the local LAN. Public Internet is a separate condition."),
+        ("Activity", "Genuine Codex hook observations describe a chat and its work. An explicit question has its own ticket; its context label cannot invent a chat."),
+        ("Read this atlas", "Pages 2-5 cover setup and retained pairing; 6-8 explain activity, replies and PRs; 9-11 record controls, trust and evidence. The final Revision register preserves dated changes and earlier qualifications."),
+    )),
+    ("Start from the saved state", "02 / Boot and network / screens 01-11, 39-42", (
+        ("No Wi-Fi profile", "A genuinely absent saved profile opens Welcome 04, installation 05-06, Bluetooth provisioning 07 and local connection 09. Debug can show handoff 39. Continue opens preferences 10, Personalization 36 and skin 11."),
+        ("Saved Wi-Fi, no local IP", "42 / No connection preserves credentials while the Wi-Fi owner reconnects. Network setup explicitly reopens 04-09; Later returns to Idle. Invalid or stale observations never count as a valid connection."),
+        ("LAN ready", "Without a saved Codex pairing, 40 offers Yes or No. No starts no CCP request and changes no settings. With a retained pairing, search the saved PC on 14; enter 15 only after current authentication."),
+        ("Boot and provisioning boundaries", "Cody AI Companion and A distraction-free sidekick sit above the full 192 x 219 floppy artwork at (137,164); title y=60, subtitle y=110. The 42-frame animation has a 3.5-second cycle; startup can extend wall time. Installation QR 06 starts no radio; Pair Cody starts Bluetooth 07. Its session QR exists only when ready to scan."),
+    )),
+    ("Pair from the intended Codex PC", "03 / First pairing / screens 12-15", (
+        ("Prepare the code", "Hold the visible Cody still for 1.5 seconds, release, then choose Connect Codex. Preparing secure code / Please wait / About 30 seconds precedes the actual code. That text is an estimate, not a progress measurement."),
+        ("Discover, then use the visible code", "Ask Codex to discover Cody and pair using all six characters currently shown on the intended physical device. Use no old code from a screenshot or document. Zero or multiple matching offers is an explicit error; the first responder is never selected automatically."),
+        ("Keep the code screen open", "A request admitted by the service is not completed pairing. Wait for both sides to persist and confirm the relationship. The backend code window is five minutes; code-screen inactivity is three minutes from readiness."),
+        ("All set -> connected -> actual work", "13 / You're all set follows the persisted handshake. Let's go searches the saved PC immediately on 14 or reuses authenticated presence on 15. The old ten-second Idle detour is retired. Send a real prompt to establish activity; pairing does not manufacture hook events."),
+    )),
+    ("Commit the relationship on both sides", "04 / Transaction ownership / CCP1", (
+        ("Prepare without destroying the active pair", "The PC protects and persists its candidate with Windows DPAPI before PAIR. Cody writes a separate ccp_pending record. Each side preserves its previous active pairing until the authenticated commit is established."),
+        ("Prove the candidate and the commit", "CONFIRM or signed READY proves the PC and permits Cody's commit/readback. READY now carries a fresh random challenge and the observed device address/port. Cody answers COMMITTED for that endpoint. Only the fresh matching response admits broker presence, promotion and current data; FIND alone does not. Lost acknowledgements and restarts can recover through another challenge."),
+        ("Cancel and replace are different", "Cancel discards Cody's candidate and preserves the operational old link. The PC candidate can remain pending. Replacing it requires a new visible code and explicit replace_pending:true. Possession of the old key does not authorize deleting the candidate."),
+        ("Failures remain real", "Storage corruption, failed writes/readback and ambiguous state are explicit failures, not missing settings. No silent repair, default substitution or success is reported. Pairing paused and Pairing error retain the incomplete candidate or storage cause."),
+    )),
+    ("Recover the same PC", "05 / Setup, office networks and standby / screens 14-16, 32, 35, 41-42", (
+        ("One identity on a busy network", "Even among 100 PCs, Cody searches the retained relationship. Other responding PCs remain outside it. Keep pairing resumes discovery; Pair again explicitly permits replacement; Forget requires a second confirmation."),
+        ("Four independent outages", "Public Internet down with a working LAN does not break local CCP presence. Missing Wi-Fi/IP preserves credentials and the pair. Missing PC/service preserves identity and retries discovery. A terminated or unavailable chat is distinct from loss of the paired PC."),
+        ("Standby and wake", "Ordinary connected standby preserves the route and pairing and is designed to retain notification reception. An authenticated notice requests wake through the power owner. Deep sleep, wake-word listening and radio retention are separate service decisions; physical recovery must be observed independently."),
+        ("A deliberate escape", "A stationary character hold opens Setup only from eligible resting routes; movement over 12 px, gaps over 250 ms, rotation or interruption cancels it. A hold spanning wake starts only after a fresh sample and restored artwork. Busy operations and pending cleanup cannot be bypassed. A normal application flash preserves NVS; erase and damaged storage are separate cases."),
+    )),
+    ("Describe work without inventing it", "06 / Hook activity / screens 16-20 and 32", (
+        ("Real observations", "Reviewed/trusted plugin hooks observe the actual prompt and tool lifecycle. The current route follows the latest genuine prompt automatically; the old manual chat-selection proposal is historical. The shared local PC runtime can serve several open chats while retaining pairing."),
+        ("Meaningful text", "Working, Editing code and Running command describe observed phases. A phrase such as Building firmware needs a concrete operation or explicit agent progress. Project and branch labels are context; Reply ready means a response is available and does not certify task success."),
+        ("Independent freshness", "Presence normally polls every two seconds and expires after eight seconds without current replies. Hook activity expires after 120 seconds. An old observation is unavailable/stale, not new work. Paused, approval waiting and session ended retain their distinct meanings."),
+        ("Native approvals remain on the computer", "PermissionRequest can produce On your PC; Cody does not grant native tool permissions. Explicit semantic questions and MCP notifications have their own identities and cannot create UserPromptSubmit, a fabricated session or an authorization."),
+    )),
+    ("A choice is delivered only after its recipient ACK", "07 / Questions / screens 26, 27 and 31", (
+        ("Read, choose, review", "26 / Codex needs you shows the stated context, title and body. Open reveals two cards, or the pair plus one centered third card. Stable choice IDs preserve meaning. A selection opens Review choice; only Send transmits. Back returns without answering."),
+        ("Pending -> Sending -> received -> delivered", "The local device keeps the chosen answer fixed while sending. received means the broker recorded it. The caller polls its private ticket/capability and obtains answer_id; a subsequent matching acknowledge_answer_id proves recipient receipt. Only delivered produces Reply sent."),
+        ("Expiry never chooses an answer", "A question lasts at most 180 seconds; duplicates, reopening a view and reconnecting do not renew it. Before Send show Request expired; after Send show Reply unconfirmed / Check on your PC when delivery is uncertain. Cancelled/rejected and expired requests stay terminal."),
+        ("Consecutive requests and offline recovery", "The broker waits for the device to acknowledge closure before replacing a question. An active question stays ahead of routine activity and battery updates. Repeating the same answer is idempotent; another answer cannot overwrite it. Offline preserves the question and its original deadline."),
+    )),
+    ("PR status stays read-only", "08 / Decision A03 / screens 21-24; screen 25 retired", (
+        ("Watch the explicitly supplied PR head", "21 / PR pending displays the indicated PR and exact head from the caller's snapshot. A Stop hook does not prove check status. Cody does not merge, approve, close, rerun or comment on a PR."),
+        ("Only complete current check data supports totals", "22 / Checks running or Checks passed uses numeric totals only from a complete check list for the same head. Checks passed has no buttons; after the narrative and three seconds the prior work view resumes."),
+        ("Show names, not logs", "23 / View failures opens real failed-check names: at most six, each at most 48 printable ASCII characters. Unrepresentable input is rejected instead of truncated. 24 shows three names per page with up to two lines each, vertical scroll and lateral Back."),
+        ("Keep diagnosis on the PC", "Check rows are not selectable actions. View log and diagnostic screen 25 are retired. Logs, traces and repairs remain on the computer. Screens 26/27 are not a substitute PR action channel. Recording 28, Transcribing 29 and Review transcript 30 remain a separate future voice route."),
+    )),
+    ("Settings, gestures and consistent controls", "09 / Local preferences / screens 10, 11, 36 and 41", (
+        ("Options returns to its caller", "Setup shows Connect Codex and Network setup as a pair, with Options centered below. Options opens Make it yours, Personalization and Cody's look, then returns to the correct caller. Local preferences do not replace the paired PC or erase the network."),
+        ("Persist before confirming", "Shake to wake, Auto-rotate and Sounds are On/Off settings. Orientation is Auto while auto-rotate is on; manual 0 or 180 is available while it is off. Sounds Off stops playback without disabling microphone/wake word. Skins use stable IDs: Pearl Mist, Aurora Veil, Cosmic Stardust, Enchanted Mosaic, Dreamwave. Write/readback failure preserves the requested value and original error."),
+        ("Action language", "Two actions use semantic gradient cards side by side; three add one centered card below; one uses an icon-left wide capsule. Labels have no teletype. Controls appear and admit touch together after title/body. Back remains left at (10,203), 60 x 60. Protect each circular chord and every QR quiet zone."),
+        ("Physical buttons remain separate", "PWR standby/wake follows build policy; Debug can expose screenshot/restart gestures. BOOT restores a sleeping panel or toggles its existing display mode; its Debug long hold restarts. Neither normal restart nor entering Setup removes saved Wi-Fi/pairing. Explicit erase is a separate user operation."),
+    )),
+    ("Trust boundaries and security backlog", "10 / Security / source review, not a production certification", (
+        ("Authentication is not confidentiality", "CCP1 uses HMAC with identity/nonce checks. Payloads remain readable on the LAN; CRC detects storage corruption without encrypting a key. Windows DPAPI protects PC persistence. The six-character code is not sent in clear, but the captured verifier transcript permits offline guessing; PBKDF2 alone is not a PAKE."),
+        ("Private capabilities and explicit destructive intent", "MCP ticket/capability values stay on the PC. Signed reset/erase admission does not prove completion. Restart preserves configuration; factory reset removes preferences, Wi-Fi and pairing while retaining firmware, assets and SD, and reboots only after verified erasure. The nine-digit anti-mistake confirmation is not a password and must not be filled from documentation."),
+        ("Source hardening in this revision", "Endpoint-bound one-time READY/COMMITTED challenges prevent recorded FIND from selecting a current-data peer. Firmware receive-pass and global/per-source ingress budgets protect maintenance. PC discovery and PBKDF2 work have explicit limits; rejected-traffic summaries and rotating logs bound diagnostics. The firmware and plugin must be updated together."),
+        ("Still requires design and evidence", "A standard PAKE or high-entropy out-of-band pairing plus authenticated encryption needs a separate protocol decision. Do not call a LAN trusted merely because it is local. Firmware compilation, adversarial checks and physical pairing/recovery evidence are separate from this PDF consolidation."),
+    )),
+    ("Keep evidence and open decisions visible", "11 / Working notes / carried forward from the connection atlas", (
+        ("Evidence levels", "Source implementation, static cross-component review, host assertions, successful build/flash and physical observation are different claims. This atlas is a source-based document; screenshots/schematics are not current device evidence. done.md records dated results."),
+        ("Earlier observed failure retained", "A prior authorized capture showed Yes at 16497 ms, Connect Codex at 16498 ms, then a CST9217 report of fifteen FF bytes with ACK=FF at 17112 ms (expected AB). ESP_ERR_INVALID_RESPONSE stopped rendering. The optional runtime-acquisition correction does not establish the hardware root cause."),
+        ("Scope of the touch correction", "After startup only, an invalid touch report can interrupt gestures while rendering continues. The acquisition owner keeps the actual error, clears queued gesture reports and requires a genuine acquired release. No release is fabricated; other startup/locking/route failures remain terminal."),
+        ("Use the review worksheet", "Record the observed device route, PC/service state, connection flow, decision to retain and open question. Preserve screen IDs across repagination. A failure or partial failure is not a successful delivery, current sensor reading or permission."),
+    )),
+)
+
+
+# surface: PDF canvas receiving a bounded paragraph.
+# text: Plain printable text.
+# x: Left edge in PDF points.
+# y: Top edge in PDF points.
+# width: Available line width.
+# size: Font size.
+# bold: Whether to use the bold face.
+# Raises ValueError if a paragraph exceeds the page content area.
+def paragraph(surface, text, x, y, width, size=12, bold=False):
+    style = ParagraphStyle("AtlasText", fontName="CodyDocBold" if bold else "CodyDoc", fontSize=size, leading=size * 1.38, textColor=INK)
+    item = plain_paragraph(text, style)
+    _, needed = item.wrap(width, HEIGHT)
+    if y - needed < 48:
+        raise ValueError("Atlas paragraph exceeds the reserved footer")
+    item.drawOn(surface, x, y - needed)
+    return y - needed
+
+
+# surface: PDF page canvas.
+# title: Main page heading.
+# section: Section label above the heading.
+# number: Absolute page number.
+def frame(surface, title, section, number):
+    surface.setFillColor(colors.white)
+    surface.rect(0, 0, WIDTH, HEIGHT, fill=1, stroke=0)
+    surface.setFillColor(TEAL)
+    surface.setFont("CodyDocBold", 10)
+    surface.drawString(42, HEIGHT - 35, "CODY / CCP CONNECTION ATLAS")
+    surface.setFillColor(MUTED)
+    surface.setFont("CodyDoc", 10)
+    surface.drawRightString(WIDTH - 42, HEIGHT - 35, "10 October 2026 / v1 consolidated")
+    paragraph(surface, title, 42, HEIGHT - 57, WIDTH - 84, 27, True)
+    surface.setFillColor(MUTED)
+    surface.setFont("CodyDoc", 10)
+    surface.drawString(42, HEIGHT - 109, section)
+    surface.setStrokeColor(LINE)
+    surface.line(42, 35, WIDTH - 42, 35)
+    surface.setFont("CodyDoc", 8)
+    surface.drawString(42, 21, "Cody / confidential / source-based reference; runtime evidence recorded separately")
+    surface.drawRightString(WIDTH - 42, 21, str(number))
+
+
+# surface: Page canvas receiving the simple relationship diagram.
+# labels: Ordered labels describing independent stages.
+# y: Vertical center in PDF points.
+def process_strip(surface, labels, y):
+    gap = 16
+    box_width = (WIDTH - 84 - gap * (len(labels) - 1)) / len(labels)
+    for index, label in enumerate(labels):
+        x = 42 + index * (box_width + gap)
+        surface.setFillColor(colors.HexColor("#EDF5F6"))
+        surface.setStrokeColor(colors.HexColor("#CBE1E4"))
+        surface.roundRect(x, y - 24, box_width, 48, 8, fill=1, stroke=1)
+        surface.setFillColor(TEAL)
+        surface.setFont("CodyDocBold", 11)
+        surface.drawCentredString(x + box_width / 2, y - 4, label)
+        if index:
+            surface.setStrokeColor(TEAL)
+            surface.line(x - gap + 3, y, x - 3, y)
+            surface.line(x - 7, y + 3, x - 3, y)
+            surface.line(x - 7, y - 3, x - 3, y)
+
+
+# Raises ValueError if authored content exceeds the fixed page layout.
+def core_pdf():
+    register_fonts()
+    output = BytesIO()
+    surface = canvas.Canvas(output, pagesize=PAGE_SIZE)
+    surface.setTitle("Cody CCP Connection Atlas v1")
+    for number, (title, section, blocks) in enumerate(CORE, 1):
+        frame(surface, title, section, number)
+        y = HEIGHT - 143
+        for heading, body in blocks:
+            y = paragraph(surface, heading, 42, y, WIDTH - 84, 13, True) - 5
+            y = paragraph(surface, body, 42, y, WIDTH - 84, 11) - 15
+        if number in (1, 3, 4, 7) and y > 108:
+            labels = {1: ("Saved pairing", "Fresh presence", "Observed activity"), 3: ("12 / Code", "13 / All set", "14 / Search", "15 / Connected"), 4: ("Candidate", "Peer proof", "Persist + readback", "Commit proof"), 7: ("Pending", "Sending", "received", "Recipient ACK", "delivered")}[number]
+            process_strip(surface, labels, 77)
+        surface.showPage()
+    frame(surface, "Source crosswalk", "12 / Original pagination retained as references", 12)
+    groups = (
+        ("Current concepts and trust", "Service 1-2, 7-10; Connection 1, 9-11, 13", "1, 6-8, 10"),
+        ("First pairing and persistence", "Service 3-6; Connection 2-8, 12", "2-5"),
+        ("Setup decision and recovery", "Service 11-15; Connection 15-19", "2, 5, 9 + register"),
+        ("UI decision and touch cause", "Service 16-18; Connection 20-22", "9, 11 + register"),
+        ("Earlier activity proposal", "Service 19-20; Connection 23-24", "6 + dated register"),
+        ("Retained pairing revision", "Service 21-24; Connection 25-28", "2-5 + register"),
+        ("Notifications and PR revision", "Service 25-28; Connection 29-32", "7-8, 10 + register"),
+        ("Boot, settings and controls", "Service 29-32; Connection 33-36", "2-3, 9 + register"),
+        ("Sketch and open decisions", "Connection 14", "11, 13"),
+    )
+    y = HEIGHT - 145
+    for topic, original, current in groups:
+        y = paragraph(surface, topic, 42, y, 255, 11, True)
+        paragraph(surface, original, 306, y + 15, 350, 9)
+        paragraph(surface, current, 668, y + 15, 125, 9)
+        y -= 20
+        surface.setStrokeColor(LINE)
+        surface.line(42, y + 6, WIDTH - 42, y + 6)
+    paragraph(surface, "Service means the former 32-page CCP Service Atlas. Connection means the former 36-page Codex Connection Atlas. All substantive topics and dated evidence are carried forward once, in English. Repeated preservation boilerplate is consolidated here. Earlier diagrams remain in Git; no historical illustration becomes proof of current physical behavior.", 42, 125, WIDTH - 84, 10)
+    surface.showPage()
+    frame(surface, "Connection review worksheet", "13 / Sketch the next refinement / original Connection page 14", 13)
+    for x, y, w, h, label in ((42, 288, 360, 160, "DEVICE / observed route and input"), (422, 288, 378, 160, "PC / CODEX / service and chat"), (42, 153, 758, 112, "CONNECTION FLOW / identities, messages and timing"), (42, 52, 360, 79, "DECISIONS TO KEEP"), (422, 52, 378, 79, "OPEN QUESTIONS")):
+        surface.setStrokeColor(LINE)
+        surface.roundRect(x, y, w, h, 5, stroke=1, fill=0)
+        surface.setFillColor(MUTED)
+        surface.setFont("CodyDocBold", 9)
+        surface.drawString(x + 12, y + h - 20, label)
+    surface.showPage()
+    surface.save()
+    return output.getvalue()
+
+
+# Raises OSError when the optional approved reference image is unreadable.
+def revision_history():
+    approved = ROOT / "docs" / "Cody" / "ui-proposals" / "20261009" / "selected-multi-action.png"
+    return [
+        RevisionRecord("2026-10-04", "Change", "A03: PRs remain read-only", ("Retain PR/check states and the indicated head, show only real failed-check names, and leave diagnosis/actions on the PC. Screen 25 is retired. Native approvals remain computer-owned; voice screens 28-30 are future work.",), "Service scope/security; Connection 9-14; screens 21-30", "Original design decision; not a physical capture."),
+        RevisionRecord("2026-10-09", "Addendum", "Startup decisions and reversible Setup", ("The earlier analysis omitted saved Wi-Fi without Codex pairing and a reversible Setup entry. Add 40 / Yes-No, 41 / character hold and 42 / reconnect wait. No/Later causes no persistence or new CCP request. Saved pairing searches 14 and requires current authentication for 15.", "PWR/BOOT do not clear saved pairing. A factory erase remains separately authorized."), "Service 11-13; Connection 15-17; original screens 12-16, 40-42", "Source/static review only in this revision; firmware, host and physical verification remained pending."),
+        RevisionRecord("2026-10-09", "Errata", "Setup recovery after standby", ("The legacy Welcome timeout path obscured reopening Setup. A resting Welcome tap release or eligible stationary hold can reopen 41. Wake time cannot count toward the hold until fresh acquisition and visible restoration; movement, gaps and rotation cancel it. Busy provisioning and pending cleanup are excluded.",), "Service 14-15; Connection 18-19; screens 04-06, 12, 35B, 41", "A 90-second capture showed LAN/DHCP, inactivity return and standby, but no Connect Codex press. Corrected physical behavior was still pending."),
+        RevisionRecord("2026-10-09", "Change", "Approved action layout and Options entry", ("Two semantic gradient cards sit side by side; a third is centered below. A single action is an icon-left wide capsule. Back stays lateral, render/touch share bounds, and QR quiet zones are protected. Options reopens preferences and skin before returning to Setup.",), "Service 16-18; Connection 20-22; screens 05-15, 35B, 36, 40-42", "Approved design reference, not a device screenshot.", str(approved) if approved.exists() else None, "Approved multi-action reference / 09 October 2026."),
+        RevisionRecord("2026-10-09", "Errata", "Malformed touch report interrupted rendering", ("The original analysis failed to distinguish an optional runtime touch error from renderer failure. A capture recorded Yes at 16497 ms, Connect Codex at 16498 ms, then fifteen FF report bytes and ACK=FF at 17112 ms. The expected ACK was AB; ESP_ERR_INVALID_RESPONSE stopped rendering.", "The owner preserves the original error. Only after startup, invalid acquisition may interrupt gestures while rendering continues, with queued reports discarded and a real release required. The FF hardware root cause was not established."), "Service 17-18; Connection 21-22; screens 12 and 35B", "Measured failure retained; corrected physical touch behavior remained pending."),
+        RevisionRecord("2026-10-10", "Addendum", "Earlier CCP 0.3 activity proposal", ("Metadata-only hooks, shared local runtime, explicit manual session selection and nonce-bound ACTIVITY were the proposal recorded then. Screen 15 proved PC presence only; 18U made unavailable activity explicit. Two-second polling, eight-second presence and 120-second hook freshness were separate.", "Historical limitation: branch acquisition, notifications and voice were then future work. Manual chat selection was later retired in favor of the genuine latest prompt; later source revisions supersede that policy."), "Service 19-20; Connection 23-24; original Service 1-2, 7-8, 10 / Connection 10-11, 13", "User-reported Connected applied to earlier firmware/CCP 0.2, not proof of the new 0.3 activity proposal."),
+        RevisionRecord("2026-10-10", "Change", "Retained pairing and two-sided commit", ("Separate commissioning, recovery and real chat activity. Already paired offers Keep pairing, Pair again and explicitly confirmed Forget. Retry keeps the same PC; Cancel abandons the candidate; Forget removes only Cody's CCP records. Preferences and Wi-Fi remain separate.", "PC DPAPI candidate and Cody ccp_pending preserve old active records. CONFIRM/fresh READY proves the peer; persisted ACTIVE/COMMITTED proves promotion. Repeat COMMITTED on each current READY to recover lost acknowledgement. Explicit replacement is required for an existing pending PC candidate."), "Service 21-24; Connection 25-28; screens 04-16, 32, 35B, 36, 40-42", "Source revision; paired Internet outages, restarts and wake behavior require their own device evidence."),
+        RevisionRecord("2026-10-10", "Addendum", "Notifications, choices and recipient delivery", ("26 opens a bounded explicit ticket; 27 uses cards plus a separate Send review. The recipient must acknowledge answer_id before delivered / Reply sent. The 180-second deadline applies even to received; neither disconnection, timeout nor cancellation chooses a reply. Terminal states do not reopen.", "The recorded wire revision used activity=1/events=1 and a 1280-byte EVENT ceiling, versus 512-byte ordinary packets. Context/title/body and choice text are bounded printable ASCII; capabilities stay private on the PC. Later capability revisions must be read from current source, not this historical example."), "Service 25-28; Connection 29-32; screens 21-27, 31-32", "Source contract; original 24/24/63-character context/title/body and 12/63 label/detail limits are historical revision facts."),
+        RevisionRecord("2026-10-10", "Errata", "Acknowledgement is admission, not reset completion", ("Restart retains configuration; factory reset removes preferences, Wi-Fi and pairing but preserves firmware, assets and SD. Destructive intent and its nine-digit anti-mistake confirmation must come from the current user message. Never complete it from a document. Signed ACK means accepted; new presence proves reboot, and verified erasure precedes factory-reset reboot.",), "Service 27-28; Connection 31-32; reset and factory-reset commands", "Real erase/boot outcomes remain distinct from authenticated command admission."),
+        RevisionRecord("2026-10-10", "Change", "Current boot, setup and complete controls", ("Boot gains the title/subtitle above complete floppy art. Installation QR starts no radio, Bluetooth session QR exists only when ready, and local Wi-Fi/IP gates Continue. Code preparation estimates do not fabricate progress. All set searches immediately, removing the old Idle detour.", "Four local preference rows, stable skin IDs and readback-confirmed saves retain real errors. Controls appear together after narrative completion, without teletype labels. Historic artwork sizes and obsolete route sketches remain dated references, not the current contract."), "Service 29-32; Connection 33-36; boot 01-03, Wi-Fi 04-09/42, preferences 10/36/11, Codex 12-15/40/41", "Static source geometry and approved art only; this document revision executed no simulator or physical-device validation."),
+        RevisionRecord("2026-10-10", "Change", "Consolidated service and connection atlas", ("Merge the former 32-page service atlas and 36-page connection atlas into one English reference. Deduplicate shared setup/notification history, retain original page/screen crosswalks and the review worksheet, and replace scattered closing errata with this reusable dated register.", "The register uses a fixed Date/Type column and a separate narrative/artwork column, repeating its header across pages. Supported categories are Security, Errata, Addendum and Change. Old source documents remain recoverable in Git; their historical evidence and qualifications are preserved above."), "Both source atlases in full; consolidated pages 1-13 and Revision register", "PDF authoring and visual review are document checks, not firmware/security runtime validation."),
+    ]
+
+
+# Returns dated source-implementation records, without claiming runtime evidence.
+def security_history():
+    return (
+        RevisionRecord("2026-10-10", "Security", "Fresh endpoint-bound proof before current data", (
+            "A captured authenticated FIND can request a challenge, but cannot establish presence, change the current notification destination or obtain ACTIVITY, TECH or EVENT. READY is signed over device, pc, nonce, a random challenge, observed device IPv4 address and UDP port. Cody verifies that endpoint and answers COMMITTED.",
+            "The ready-v2 and committed-v2 authentication domains require the matching fresh one-time response from that endpoint before commit recovery, liveness and current-data delivery. This is a coordinated firmware/plugin update; no old-handshake fallback is provided.",
+        ), "Core page 4; FIND / READY / COMMITTED; screens 12-15 and current activity/questions", "CCP 0.6.3 source implementation/static review only; no deployment, pairing or adversarial runtime evidence accompanies this PDF."),
+        RevisionRecord("2026-10-10", "Security", "Bound unauthenticated work and retained logs", (
+            "Firmware limits each UDP receive pass by packet count and time, then runs local commands and protocol maintenance even while traffic remains queued. Fixed global and per-source ingress budgets precede expensive authentication. Rotating source addresses cannot bypass the global budget.",
+            "PC discovery bounds total packets/offers and per-source offers; verifier work also has a time/work ceiling. Overflow is an explicit failure with no association staged, not an incomplete result labelled complete. Broker admission precedes credential work; rejection summaries and the exclusively owned rotating broker log bound network diagnostic growth.",
+            "Residual: startup-only runtime.log still appends across launches. LAN UDP rejection traffic cannot grow that bootstrap file; bounding repeated-launch output is deferred separately from the implemented broker/network log rotation.",
+        ), "Core page 10; device worker, PC discovery/pairing, broker ingress and runtime logs", "Source-only limits need measurement against real pairing/reconnection bursts. No suite, flood probe, build or flash is claimed."),
+        RevisionRecord("2026-10-10", "Security", "Remaining protocol risks are explicit", (
+            "Preserve local pairing admission, expiring codes, constant-time proofs, distinct active/pending journals, strict packet/identity checks, signed choices/settings/debug/reset and loopback-authenticated PC control. Native approval stays on the PC; storage/authentication failures remain failures.",
+            "Six-character pairing transcripts still permit offline candidate checking; rate limiting does not solve it. CCP payloads remain authenticated and unencrypted. Standard PAKE or high-entropy QR admission followed by authenticated encryption is deferred as a coordinated redesign. An enabled optional device HTTP service needs its own review.",
+        ), "Pairing verifier/link-key derivation; ACTIVITY / TECH / EVENT; optional HTTP", "No confidentiality or production-security certification. Compilation, stack headroom and physical recovery remain pending."),
+    )
+
+
+# argv: Optional CLI arguments supplied by the public device.ps1 generator route.
+# Raises OSError for inaccessible output files.
+# Raises ValueError for unrepresentable authored layout or invalid register entries.
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    arguments = parser.parse_args(argv)
+    writer = PdfWriter()
+    writer.append(PdfReader(BytesIO(core_pdf())))
+    writer.add_outline_item("Connection and service reference", 0)
+    writer.add_outline_item("Source crosswalk", 11)
+    writer.add_outline_item("Review worksheet", 12)
+    first_register_page = len(writer.pages)
+    register = render_revision_register(revision_history(), PAGE_SIZE, "Cody CCP Connection Atlas", start_page=first_register_page + 1)
+    writer.append(PdfReader(BytesIO(register)))
+    writer.add_outline_item("Revision register", first_register_page)
+    first_security_page = len(writer.pages)
+    security = render_revision_register(security_history(), PAGE_SIZE, "Cody CCP Connection Atlas", start_page=first_security_page + 1, section_title="Security")
+    writer.append(PdfReader(BytesIO(security)))
+    writer.add_outline_item("Security", first_security_page)
+    writer.add_metadata({"/Title": "Cody CCP Connection Atlas v1", "/Author": "Umberto Giacobbi", "/Subject": "Consolidated service, pairing, activity and dated revisions"})
+    arguments.output.parent.mkdir(parents=True, exist_ok=True)
+    with arguments.output.open("wb") as destination:
+        writer.write(destination)
+    print(f"Generated {arguments.output} ({len(writer.pages)} pages)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

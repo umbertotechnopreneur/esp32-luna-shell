@@ -1,70 +1,80 @@
-# Mappa della documentazione
+# Documentation map
 
-Uso questa pagina come indice. Nelle guide tengo il comportamento corrente;
-nei README delle cartelle spiego chi possiede il codice. Registro il lavoro
-aperto in [TODO.md](../TODO.md), le evidenze in [done.md](../done.md) e le lezioni
-in [lessons.md](../lessons.md). Evito una guida nuova per ogni correzione: di
-addenda ne abbiamo gia' una discreta collezione.
+Current guides describe supported behavior; module READMEs identify code
+ownership. [TODO.md](../TODO.md) tracks active work, [done.md](../done.md)
+records implementation and evidence, and [lessons.md](../lessons.md) records
+recurring lessons.
 
-## Cody e CCP
+## Cody and CCP
 
-| Voglio capire... | Leggo... |
+| Topic | Guide |
 | --- | --- |
-| Come e' composto Cody | [Architettura Cody](architecture/cody/README.md) |
-| Primo avvio, Options, pairing, notifiche e decisioni | [Flow Cody](architecture/cody/onboarding.md) |
-| Scene, orologi del runtime e Debug | [Runtime](architecture/cody/runtime.md) |
-| Rig, rendering e prestazioni | [Rendering](architecture/cody/rendering.md) |
-| Orologio e RTC | [Clock](architecture/cody/clock.md) |
-| Installazione, hook, tool e broker CCP | [Guida CCP](../plugins/cody-codex-plugin/README.md) |
-| Formato e autenticazione dei messaggi LAN | [Protocollo CCP1](../plugins/cody-codex-plugin/protocol/CCP1.md) |
-| Preview Windows e pairing CCP simulato | [Cody Studio](../simulator/windows/README.md) |
+| Cody components and ownership | [Cody architecture](architecture/cody/README.md) |
+| First boot, settings, pairing, notifications and questions | [Cody flow](architecture/cody/onboarding.md) |
+| Scenes, runtime clocks and Debug | [Runtime](architecture/cody/runtime.md) |
+| Rig, rendering and performance | [Rendering](architecture/cody/rendering.md) |
+| Clock and RTC | [Clock](architecture/cody/clock.md) |
+| Installation, hooks, tools and CCP broker | [CCP guide](../plugins/cody-codex-plugin/README.md) |
+| LAN packet format and authentication | [CCP1 protocol](../plugins/cody-codex-plugin/protocol/CCP1.md) |
+| Windows preview and explicitly simulated pairing | [Cody Studio](../simulator/windows/README.md) |
 
-I maintain six PDFs with distinct responsibilities. When a flow changes, I update
-the main pages, preserve earlier addenda and append a dated **Errata and corrections**
-page. Screen IDs identify routes independently of physical PDF page numbers.
+## Illustrated documents
 
-| PDF | A cosa mi serve |
+| PDF | Purpose |
 | --- | --- |
-| [Navigation Atlas](Cody/cody-navigation-atlas-v1.pdf) | Percorsi, ritorni, domande e PR in sola lettura |
-| [Planning Atlas](Cody/cody-planning-atlas-v1.pdf) | Inventario degli screen, layout e confini del prodotto |
-| [Pairing Quickstart](Cody/cody-ccp-pairing-quickstart-a5-v1.pdf) | Installazione e collegamento dal PC, in formato A5 |
-| [CCP Service Atlas](Cody/cody-ccp-service-atlas-v1.pdf) | Owner, protocollo, persistenza e limiti delle prove |
-| [Codex Connection Atlas](Cody/cody-codex-connection-atlas-v1.pdf) | Esperienza dal codice iniziale al recupero del PC e della chat |
+| [Navigation Atlas](Cody/cody-navigation-atlas-v1.pdf) | Routes, returns, questions and read-only PR updates |
+| [Planning Atlas](Cody/cody-planning-atlas-v1.pdf) | Screen inventory, layout and product boundaries |
+| [Pairing Quickstart](Cody/cody-ccp-pairing-quickstart-a5-v1.pdf) | Four-page A5 flyer for nontechnical users |
+| [CCP Connection Atlas](Cody/cody-ccp-connection-atlas-v1.pdf) | Combined journey, broker ownership, protocol, persistence and security |
 | [Manga Status Atlas](Cody/cody-manga-status-atlas-v1.pdf) | Expressive cues, artwork and boot identity |
 
-The 10 October 2026 screen revision updates affected current pages in all six
-PDFs for boot, Wi-Fi pairing, Codex connection and preferences. Each document
-ends with three topic addenda and a dated **Errata and corrections** page naming
-the affected original pages and screen IDs. Earlier addenda and unrelated pages
-remain intact. Screen drawings are static documentation schematics, not device
-captures. Reauthor through `scripts/device.ps1 generate -Generator cody-screen-revision`;
-`-ToolArguments --redraft` requires the recorded draft and protected originals.
+The CCP Connection Atlas consolidates the former service and Codex connection
+atlases. Their original PDFs remain historical sources, rather than parallel
+current guides. Screen IDs identify routes independently of physical page numbers.
 
-Tengo i vecchi [appunti sul pairing](planning/2026-10-03-pairing-atlas-addendum.md)
-e [sull'aspetto](planning/2026-10-04-cody-look-atlas-addendum.md) come storico.
-Per il comportamento attuale parto dalla guida e dalle pagine principali dei PDF.
-Per la nuova estensione notifiche/decisioni tengo distinta l'implementazione nei
-sorgenti dalla suite finale e dalla prova fisica. A03 continua a lasciare gestione
-PR, log e diagnosi sul computer, con lo screen 25 ritirato.
+Revised atlases end with a dedicated revision register. Each row places its date
+and intervention type (Security, Errata, Addendum or Change) on the left, with
+the description, affected pages/screens and optional supporting artwork on the
+right. The shared authoring template is
+[cody_pdf_revision_register.py](../scripts/common/cody_pdf_revision_register.py).
+Historical dates and corrections remain traceable. The pairing flyer is the
+explicit exception in [AGENTS.md](../AGENTS.md): four A5 pages, with no technical
+appendices or revision register.
 
-## Piattaforma e Luna
+Author through the public CLI:
 
-| Area | Guida tecnica |
+```powershell
+./scripts/device.ps1 generate -Generator cody-connection-atlas
+./scripts/device.ps1 generate -Generator cody-pairing-flyer
+./scripts/device.ps1 generate -Generator cody-security-atlases
+```
+
+Documentation drawings are source-based illustrations, not physical captures.
+Security implementation, compilation and physical verification are separate
+evidence levels; pending device validation remains in the root work records.
+Native approvals and PR management stay on the computer.
+
+Earlier [pairing notes](planning/2026-10-03-pairing-atlas-addendum.md) and
+[look notes](planning/2026-10-04-cody-look-atlas-addendum.md) remain historical.
+
+## Platform and Luna
+
+| Area | Technical guide |
 | --- | --- |
-| Geometria | [Display circolare](architecture/circular-display-layout.md), [indicazioni UI](ui/round-display-guidelines.md) |
-| Display e touch | [Owner del runtime](architecture/display-touch-runtime.md) |
-| Avvio e log | [Startup](architecture/startup-and-logger.md), [log SD/USB](architecture/offline-logging-usb.md) |
-| Dati hardware | [Snapshot](architecture/device-snapshot.md), [API hardware](architecture/hardware-api.md) |
-| Alimentazione | [Politica low power](architecture/low-power-management.md), [deep sleep Release](architecture/release-deep-sleep.md) |
-| Rete | [Provisioning](architecture/connectivity-pairing.md), [API HTTP](architecture/http-device-api.md) |
-| Audio | [Wake-on-word](architecture/wake-on-word.md), [TTS opzionale](architecture/text-to-speech.md) |
-| Configurazione | [Board](architecture/board-build-configuration.md), [Debug/Release](architecture/firmware-build-modes.md) |
-| Rilascio | [Checklist open source](release/open-source-pre-release-checklist.md) |
+| Geometry | [Circular display](architecture/circular-display-layout.md), [UI guidelines](ui/round-display-guidelines.md) |
+| Display and touch | [Runtime owner](architecture/display-touch-runtime.md) |
+| Startup and logging | [Startup](architecture/startup-and-logger.md), [SD/USB logs](architecture/offline-logging-usb.md) |
+| Hardware data | [Snapshot](architecture/device-snapshot.md), [Hardware API](architecture/hardware-api.md) |
+| Power | [Low-power policy](architecture/low-power-management.md), [Release deep sleep](architecture/release-deep-sleep.md) |
+| Network | [Provisioning](architecture/connectivity-pairing.md), [HTTP API](architecture/http-device-api.md) |
+| Audio | [Wake word](architecture/wake-on-word.md), [Optional TTS](architecture/text-to-speech.md) |
+| Configuration | [Board configuration](architecture/board-build-configuration.md), [Build modes](architecture/firmware-build-modes.md) |
+| Release | [Open-source checklist](release/open-source-pre-release-checklist.md) |
 
-## Hardware e console
+## Hardware and tooling
 
-- [Inventario hardware verificato](hardware/hardware-inventory.md)
-- [Cablaggio ToF con doppia UART](hardware/tof400f-dual-uart.md)
-- [Vincoli ESP-IDF 6](esp-idf-6-migration.md)
-- [Console pubblica di sviluppo](../scripts/README.md)
-- [Regole del repository](../AGENTS.md)
+- [Verified hardware inventory](hardware/hardware-inventory.md)
+- [Dual-UART ToF wiring](hardware/tof400f-dual-uart.md)
+- [ESP-IDF 6 constraints](esp-idf-6-migration.md)
+- [Public development CLI](../scripts/README.md)
+- [Repository rules](../AGENTS.md)

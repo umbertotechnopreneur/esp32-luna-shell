@@ -130,10 +130,18 @@ instruction file; do not add parallel agent or Copilot contracts.
 
 ## Artifacts and checkpoints
 
-- For every user-requested PDF revision, append a final "Errata and corrections"
-  page with the revision date, a concise list of changes and affected original
-  page/screen IDs. Preserve earlier errata and unrelated pages; apply this rule
-  to any PDF in scope, including documents stored outside the repository.
+- For every user-requested PDF revision, maintain a dedicated final revision
+  register. Use a structured grid with date and intervention type (Security,
+  Errata, Addendum or Change) in the left column, and the description, affected
+  original page/screen IDs and optional supporting images in the right column.
+  Preserve earlier corrections and unrelated content; consolidate older errata
+  and addenda into this register without losing their dates or substance.
+  Apply this reusable layout to PDFs in scope, including documents outside the
+  repository. Keep security entries under a clearly labeled Security section.
+- Exception: `docs/Cody/cody-ccp-pairing-quickstart-a5-v1.pdf` is a four-page A5
+  flyer for nontechnical users. Keep its instructions current directly in those
+  four pages; never append a revision register, errata, addenda or technical
+  security appendix to this file.
 - Keep firmware/simulator build output, generated build state, logs, captures,
   reports, temporary files and local simulator environments under `artifacts/`,
   not root build trees.
