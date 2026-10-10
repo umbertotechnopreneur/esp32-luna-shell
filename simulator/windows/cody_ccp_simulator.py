@@ -685,11 +685,18 @@ class SimulatorLink:
     # Raises ValueError, RuntimeError or OSError for malformed input or crypto/storage/send failures.
     def _accept_presence(self, kind: str, fields: dict[str, str], source: tuple[str, int], send: Send) -> None:
         expected = {"device", "pc", "nonce", "proof"}
-        if kind == "ACTIVITY":
+        if kind == "READY":
+            expected |= {"challenge", "address", "port"}
+        else:
             expected |= {"chat", "revision", "phase", "project", "description", "branch"}
         if set(fields) != expected:
             raise ValueError("Malformed CCP presence fields")
         require_hex({name: fields[name] for name in ("device", "pc", "nonce", "proof")})
+        if kind == "READY":
+            require_hex({"challenge": fields["challenge"]})
+            if (fields["address"] != LOOPBACK or fields["port"] != str(protocol.DEVICE_PORT)
+                    or source[1] != protocol.PLUGIN_PORT):
+                raise ValueError("SIMULATED READY challenge belongs to another socket endpoint")
         record = self.pending or self.active
         if (record is None or (self._code and not self.pending) or
                 not self._nonce or fields["nonce"] != self._nonce):
@@ -697,8 +704,9 @@ class SimulatorLink:
         if fields["device"] != self.device_id or fields["pc"] != record["pc_id"]:
             raise ValueError("CCP presence identity differs")
         key = protocol.unprotect_secret(record["protected_link_key"])
-        names = ("device", "pc", "nonce") if kind == "READY" else ("device", "pc", "nonce", "chat", "revision", "phase", "project", "description", "branch")
-        domain = "ready" if kind == "READY" else "activity-v2"
+        names = (("device", "pc", "nonce", "challenge", "address", "port") if kind == "READY" else
+                 ("device", "pc", "nonce", "chat", "revision", "phase", "project", "description", "branch"))
+        domain = "ready-v2" if kind == "READY" else "activity-v2"
         if not hmac.compare_digest(protocol.make_proof(key, domain, *(fields[name] for name in names)), fields["proof"]):
             raise ValueError("CCP presence authentication failed")
         if kind == "READY":
@@ -710,11 +718,11 @@ class SimulatorLink:
                 self._clear_code()
             self.state, self._ready_at, self.last_error = LinkState.CONNECTED, self.clock(), ""
             self._ready_nonce = fields["nonce"]
-            values = [fields[name] for name in ("device", "pc", "nonce")]
-            proof = protocol.make_proof(key, "committed", *values)
+            values = [fields[name] for name in names]
+            proof = protocol.make_proof(key, "committed-v2", *values)
             # Resend even after prior activation: lost COMMITTED must not strand
             # the host candidate or require another commissioning code.
-            send(protocol.encode_datagram("COMMITTED", list(zip(("device", "pc", "nonce"), values))
+            send(protocol.encode_datagram("COMMITTED", list(zip(names, values))
                                           + [("proof", proof)]), source)
             if self.debug_capability:
                 self._debug_ready_nonce = fields["nonce"]

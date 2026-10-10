@@ -17,6 +17,7 @@ from typing import Any
 import ccp_server as ccp
 from ccp_activity import EVENTS
 from ccp_repository import read_branch
+from ccp_security import RejectionReporter, configure_runtime_logging
 from ccp_windows import (CONTROL_PORT, configure_exclusive_socket, control_port_available,
                          launch_runtime, runtime_directory)
 
@@ -25,6 +26,7 @@ MAX_REQUEST_BYTES = 65536
 IDLE_GRACE_SECONDS = 60.0
 LEASE_RENEW_SECONDS = 10.0
 LEASE_RETRY_SECONDS = (1.0, 3.0, 10.0, 30.0)
+MAX_CONTROL_CONNECTIONS = 32
 
 
 class BrokerTransportError(RuntimeError):
@@ -193,6 +195,41 @@ class ControlServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
 
+    # self: Exclusive control listener with bounded worker and rejection accounting.
+    # server_address: Fixed loopback endpoint chosen by the broker.
+    # handler_class: Local authenticated control handler, never supplied by a request.
+    # Raises OSError when exclusive socket ownership cannot be acquired.
+    def __init__(self, server_address: tuple[str, int], handler_class: type[BaseHTTPRequestHandler]) -> None:
+        self._connection_slots = threading.BoundedSemaphore(MAX_CONTROL_CONNECTIONS)
+        self._connection_rejections = RejectionReporter()
+        super().__init__(server_address, handler_class)
+
+    # self: Single-threaded control listener reserving worker capacity.
+    # request: Accepted loopback socket; bounded before any worker is created.
+    # client_address: Socket-observed local client endpoint.
+    # Raises the original worker-start failure after releasing its reservation.
+    def process_request(self, request: Any, client_address: tuple[str, int]) -> None:
+        if not self._connection_slots.acquire(blocking=False):
+            try:
+                self._connection_rejections.reject("control ingress", "active connection budget exhausted")
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._connection_slots.release()
+            raise
+
+    # self: Control worker releasing exactly the reservation acquired by its listener.
+    # request: Accepted socket owned by this connection's reserved worker.
+    # client_address: Socket-observed local client endpoint.
+    def process_request_thread(self, request: Any, client_address: tuple[str, int]) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._connection_slots.release()
+
     # self: Control listener acquiring sole PC ownership before loading or creating any state.
     # Raises OSError when another process owns the loopback port.
     def server_bind(self) -> None:
@@ -307,6 +344,8 @@ def run_broker() -> int:
     if os.name != "nt":
         raise RuntimeError("CCP requires Windows for its protected local runtime")
     with ControlServer(("127.0.0.1", CONTROL_PORT), ControlHandler) as server:
+        # Only the exclusive runtime owner may rotate the shared broker diagnostic files.
+        configure_runtime_logging(runtime_directory())
         server.secret = control_secret(create=True)
         server.service = ccp.CcpService()
         server.leases = {}

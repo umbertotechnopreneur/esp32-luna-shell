@@ -1,11 +1,6 @@
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_codex_debug.hpp"
-#include "LUNASHELL_codex_transaction.hpp"
-
-#include "LUNASHELL_platform.h"
-#include "LUNASHELL_device_snapshot.hpp"
-#include "LUNASHELL_codex_debug.hpp"
 #include "LUNASHELL_codex_name.hpp"
 #include "LUNASHELL_codex_transaction.hpp"
 
@@ -18,6 +13,7 @@
 #include "LUNASHELL_task_affinity.hpp"
 
 #include <cerrno>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -55,6 +51,14 @@ constexpr int64_t kFindIntervalUs = 2LL * 1000000LL;
 constexpr int64_t kReadyExpiryUs = 8LL * 1000000LL;
 constexpr int64_t kActivationReplayUs = 10LL * 1000000LL;
 constexpr uint32_t kWorkerPollMs = 100;
+constexpr uint32_t kMaximumPacketsPerPass = 8;
+constexpr int64_t kMaximumReceivePassUs = 5000;
+constexpr uint32_t kGlobalIngressRate = 32;
+constexpr uint32_t kGlobalIngressBurst = 64;
+constexpr uint32_t kSourceIngressRate = 16;
+constexpr uint32_t kSourceIngressBurst = 32;
+constexpr uint32_t kIngressTokenUnit = 1000000;
+constexpr int64_t kRejectionReportUs = 5LL * 1000000LL;
 constexpr size_t kWorkerStackSize = 8192;
 constexpr UBaseType_t kWorkerPriority = 1;
 constexpr uint8_t kPersistedVersion = 1;
@@ -111,6 +115,8 @@ bool s_activity_received_for_nonce = false;
 bool s_technical_received_for_nonce = false;
 // Serialized network-owner projection; large metadata never enters nested task frames.
 LUNASHELL::CodexTechnicalSnapshot s_technical_snapshot{};
+// READY endpoint checks borrow only the canonical projection owned by acquisition.
+LUNASHELL::ConnectivityObservation s_ready_connectivity{};
 bool s_event_received_for_nonce = false;
 char s_ready_nonce[33]{};
 LUNASHELL::CodexEventSnapshot s_event_snapshot{};
@@ -160,6 +166,90 @@ EXT_RAM_BSS_ATTR char s_receive_buffer[kMaximumEventDatagramBytes + 2]{};
 EXT_RAM_BSS_ATTR char s_event_parse_buffer[kMaximumEventDatagramBytes + 1]{};
 EXT_RAM_BSS_ATTR char s_event_proof_input[kMaximumEventDatagramBytes + 1]{};
 EXT_RAM_BSS_ATTR char s_event_ack_packet[kMaximumDatagramBytes + 1]{};
+// Fixed receive accounting belongs to the serialized CCP worker, never to a task frame.
+struct IngressBucket {
+    uint32_t credit = 0;
+    int64_t updated_at_us = 0;
+};
+struct SourceIngressBucket {
+    uint32_t address = 0;
+    bool occupied = false;
+    IngressBucket budget{};
+};
+IngressBucket s_global_ingress{kGlobalIngressBurst * kIngressTokenUnit, 0};
+SourceIngressBucket s_source_ingress[16]{};
+static_assert(sizeof(s_source_ingress) <= 512, "CCP source ingress accounting exceeds its static budget");
+uint32_t s_suppressed_rejections = 0;
+int64_t s_next_rejection_report_us = 0;
+
+// operation: Static non-secret receive operation or rejection reason.
+// error: Original rejection cause; incoming packet bytes and secrets are never logged.
+void reportDatagramRejection(const char *operation, esp_err_t error)
+{
+    const int64_t now = esp_timer_get_time();
+    if (now < s_next_rejection_report_us) {
+        if (s_suppressed_rejections != UINT32_MAX) {
+            ++s_suppressed_rejections;
+        }
+        return;
+    }
+    ESP_LOGW(kTag, "CCP %s rejected (%s); additional_rejections=%lu", operation,
+        esp_err_to_name(error), static_cast<unsigned long>(s_suppressed_rejections));
+    s_suppressed_rejections = 0;
+    s_next_rejection_report_us = now + kRejectionReportUs;
+}
+
+// bucket: One worker-owned token budget.
+// now_us: Local monotonic time, never packet metadata.
+// rate: Sustained replenishment in packets per second.
+// burst: Maximum accumulated packet credits.
+bool consumeIngressToken(IngressBucket &bucket, int64_t now_us, uint32_t rate, uint32_t burst)
+{
+    const uint32_t capacity = burst * kIngressTokenUnit;
+    const int64_t elapsed = std::max<int64_t>(0, now_us - bucket.updated_at_us);
+    // Clamp before multiplying so long sleeps cannot overflow the fixed-point accumulator.
+    const uint64_t replenished = static_cast<uint64_t>(std::min<int64_t>(elapsed, capacity)) * rate;
+    bucket.credit = static_cast<uint32_t>(std::min<uint64_t>(capacity,
+        static_cast<uint64_t>(bucket.credit) + replenished));
+    bucket.updated_at_us = now_us;
+    if (bucket.credit < kIngressTokenUnit) {
+        return false;
+    }
+    bucket.credit -= kIngressTokenUnit;
+    return true;
+}
+
+// source: Socket-observed IPv4 sender; claimed device/PC IDs never bypass ingress budgets.
+bool admitDatagram(const sockaddr_in &source)
+{
+    const int64_t now = esp_timer_get_time();
+    if (!consumeIngressToken(s_global_ingress, now, kGlobalIngressRate, kGlobalIngressBurst)) {
+        return false;
+    }
+    SourceIngressBucket *selected = nullptr;
+    SourceIngressBucket *oldest = &s_source_ingress[0];
+    for (auto &entry : s_source_ingress) {
+        if (entry.occupied && entry.address == source.sin_addr.s_addr) {
+            selected = &entry;
+            break;
+        }
+        if (!entry.occupied && selected == nullptr) {
+            selected = &entry;
+        }
+        if (entry.budget.updated_at_us < oldest->budget.updated_at_us) {
+            oldest = &entry;
+        }
+    }
+    if (selected == nullptr) {
+        selected = oldest;
+    }
+    if (!selected->occupied || selected->address != source.sin_addr.s_addr) {
+        selected->address = source.sin_addr.s_addr;
+        selected->occupied = true;
+        selected->budget = {kSourceIngressBurst * kIngressTokenUnit, now};
+    }
+    return consumeIngressToken(selected->budget, now, kSourceIngressRate, kSourceIngressBurst);
+}
 
 // bytes: Secret or transient storage to erase with volatile writes.
 // size: Exact byte count owned by the caller.
@@ -775,8 +865,12 @@ struct ReadyResponse {
     char device_id[13]{};
     char pc_id[33]{};
     char nonce[33]{};
+    char challenge[33]{};
+    char address[16]{};
+    char port[6]{};
     char proof[65]{};
 };
+static_assert(sizeof(ReadyResponse) <= 208, "CCP READY exceeded its bounded worker projection");
 
 // payload: Candidate canonical READY datagram.
 // response: Receives validated-width lowercase fields.
@@ -787,16 +881,21 @@ bool parseReady(const char *payload, ReadyResponse &response)
     const int fields = std::sscanf(
         payload,
         "CCP1|READY|device=%12[0-9a-f]|pc=%32[0-9a-f]|nonce=%32[0-9a-f]"
-        "|proof=%64[0-9a-f]%n",
+        "|challenge=%32[0-9a-f]|address=%15[0-9.]|port=%5[0-9]|proof=%64[0-9a-f]%n",
         response.device_id,
         response.pc_id,
         response.nonce,
+        response.challenge,
+        response.address,
+        response.port,
         response.proof,
         &consumed
     );
-    return fields == 4 && std::strlen(response.device_id) == 12 &&
+    return fields == 7 && std::strlen(response.device_id) == 12 &&
         std::strlen(response.pc_id) == 32 &&
         std::strlen(response.nonce) == 32 &&
+        std::strlen(response.challenge) == 32 &&
+        std::strcmp(response.port, "42117") == 0 &&
         std::strlen(response.proof) == 64 &&
         consumed == static_cast<int>(std::strlen(payload));
 }
@@ -1037,7 +1136,6 @@ esp_err_t acceptPair(const PairRequest &request, const sockaddr_in &source)
         if (s_candidate_present &&
             (std::strcmp(s_pairing_pc_id, request.pc_id) != 0 ||
              std::strcmp(s_pairing_nonce, request.nonce) != 0)) {
-            ESP_LOGE(kTag, "CCP PAIR rejected: an existing candidate owns this window; cancel or replace explicitly");
             return ESP_ERR_INVALID_STATE;
         }
         std::memcpy(expected_device_id, s_link_snapshot.device_id, sizeof(expected_device_id));
@@ -1078,7 +1176,6 @@ esp_err_t acceptPair(const PairRequest &request, const sockaddr_in &source)
     if (error == ESP_OK &&
         !constantTimeEqual(expected_proof, received_proof, sizeof(expected_proof))) {
         error = ESP_ERR_INVALID_CRC;
-        ESP_LOGE(kTag, "CCP PAIR proof rejected (%s)", esp_err_to_name(error));
     }
     if (error != ESP_OK) {
         wipe(verifier, sizeof(verifier));
@@ -1294,7 +1391,6 @@ esp_err_t acceptConfirm(const PairRequest &request, const sockaddr_in &source)
     if (error == ESP_OK &&
         !constantTimeEqual(expected_proof, received_proof, sizeof(expected_proof))) {
         error = ESP_ERR_INVALID_CRC;
-        ESP_LOGE(kTag, "CCP CONFIRM proof rejected (%s)", esp_err_to_name(error));
     }
     if (error == ESP_OK && accepted_state == State::Pairing) {
         std::lock_guard<std::mutex> guard(s_mutex);
@@ -1565,12 +1661,13 @@ esp_err_t sendCommittedLocked(const ReadyResponse &response, const sockaddr_in &
     if (!s_link_present || s_candidate_present) {
         return ESP_ERR_INVALID_STATE;
     }
-    char proof_input[128]{};
+    char proof_input[192]{};
     uint8_t proof[32]{};
     char proof_hex[65]{};
-    char payload[256]{};
+    char payload[320]{};
     const int input_length = std::snprintf(proof_input, sizeof(proof_input),
-        "committed|%s|%s|%s", response.device_id, response.pc_id, response.nonce);
+        "committed-v2|%s|%s|%s|%s|%s|%s", response.device_id, response.pc_id,
+        response.nonce, response.challenge, response.address, response.port);
     esp_err_t error = input_length > 0 && static_cast<size_t>(input_length) < sizeof(proof_input)
         ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), proof_input, proof)
         : ESP_ERR_INVALID_SIZE;
@@ -1579,8 +1676,9 @@ esp_err_t sendCommittedLocked(const ReadyResponse &response, const sockaddr_in &
     }
     if (error == ESP_OK) {
         const int length = std::snprintf(payload, sizeof(payload),
-            "CCP1|COMMITTED|device=%s|pc=%s|nonce=%s|proof=%s",
-            response.device_id, response.pc_id, response.nonce, proof_hex);
+            "CCP1|COMMITTED|device=%s|pc=%s|nonce=%s|challenge=%s|address=%s|port=%s|proof=%s",
+            response.device_id, response.pc_id, response.nonce, response.challenge,
+            response.address, response.port, proof_hex);
         error = length > 0 && static_cast<size_t>(length) < sizeof(payload)
             ? sendDatagram(payload, source.sin_addr, ntohs(source.sin_port), "CCP COMMITTED")
             : ESP_ERR_INVALID_SIZE;
@@ -1713,6 +1811,17 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
     if (ntohs(source.sin_port) != kPluginPort) {
         return ESP_ERR_INVALID_ARG;
     }
+    const esp_err_t connectivity_error =
+        LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(s_ready_connectivity);
+    if (connectivity_error != ESP_OK) {
+        return connectivity_error;
+    }
+    // A relay must not turn Cody into a signing oracle for an attacker's socket endpoint.
+    if (!wifiOnline(s_ready_connectivity) ||
+        std::strcmp(response.address, s_ready_connectivity.radios.wifi.ip_address) != 0 ||
+        std::strcmp(response.port, "42117") != 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
     char device_id[13]{};
     char pc_id[33]{};
     char nonce_hex[33]{};
@@ -1742,15 +1851,18 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
          std::strcmp(response.nonce, nonce_hex) != 0)) {
         error = ESP_ERR_INVALID_STATE;
     }
-    char proof_input[128]{};
+    char proof_input[192]{};
     const int input_length = error == ESP_OK
         ? std::snprintf(
             proof_input,
             sizeof(proof_input),
-            "ready|%s|%s|%s",
+            "ready-v2|%s|%s|%s|%s|%s|%s",
             device_id,
             pc_id,
-            nonce_hex
+            nonce_hex,
+            response.challenge,
+            response.address,
+            response.port
         )
         : -1;
     uint8_t expected_proof[32]{};
@@ -2951,7 +3063,6 @@ esp_err_t acceptMaintenance(const char *payload, const sockaddr_in &source, Main
         return error;
     }
     if (!LUNASHELL::validCodexResetCode(values[4])) {
-        ESP_LOGW(kTag, "CCP reset rejected: confirmation code does not match");
         return ESP_ERR_INVALID_ARG;
     }
     uint8_t request_bytes[16]{};
@@ -3035,15 +3146,15 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
         if (parsePair(payload, request)) {
             const esp_err_t error = acceptPair(request, source);
             if (error != ESP_OK) {
-                ESP_LOGE(kTag, "CCP PAIR processing failed (%s)", esp_err_to_name(error));
+                reportDatagramRejection("PAIR", error);
             }
         } else if (parseConfirm(payload, request)) {
             const esp_err_t error = acceptConfirm(request, source);
             if (error != ESP_OK) {
-                ESP_LOGE(kTag, "CCP CONFIRM processing failed (%s)", esp_err_to_name(error));
+                reportDatagramRejection("CONFIRM", error);
             }
         } else if (std::strncmp(payload, "CCP1|", 5) == 0) {
-            ESP_LOGE(kTag, "CCP pairing datagram rejected: malformed field contract");
+            reportDatagramRejection("pairing fields", ESP_ERR_INVALID_ARG);
         }
         return;
     }
@@ -3066,14 +3177,14 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
         if (std::strncmp(payload, "CCP1|CLOCK|", 11) == 0) {
             const esp_err_t error = acceptClock(payload, source);
             if (error != ESP_OK) {
-                ESP_LOGE(kTag, "CCP CLOCK rejected or acknowledgement unavailable (%s)", esp_err_to_name(error));
+                reportDatagramRejection("CLOCK", error);
             }
             return;
         }
         if (std::strncmp(payload, "CCP1|NAME|", 10) == 0) {
             const esp_err_t error = acceptName(payload, source);
             if (error != ESP_OK) {
-                ESP_LOGE(kTag, "CCP NAME rejected or acknowledgement unavailable (%s)", esp_err_to_name(error));
+                reportDatagramRejection("NAME", error);
             }
             return;
         }
@@ -3081,7 +3192,7 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
         if (std::strncmp(payload, "CCP1|DEBUG|", 11) == 0) {
             const esp_err_t error = acceptDebugScreen(payload, source);
             if (error != ESP_OK) {
-                ESP_LOGE(kTag, "CCP Debug command rejected (%s)", esp_err_to_name(error));
+                reportDatagramRejection("DEBUG", error);
             }
             return;
         }
@@ -3089,14 +3200,14 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
         if (std::strncmp(payload, "CCP1|FACTORYRESET|", 18) == 0) {
             const esp_err_t error = acceptMaintenance(payload, source, MaintenanceCommand::FactoryReset);
             if (error != ESP_OK) {
-                ESP_LOGE(kTag, "CCP FACTORYRESET rejected or acknowledgement unavailable (%s)", esp_err_to_name(error));
+                reportDatagramRejection("FACTORYRESET", error);
             }
             return;
         }
         if (std::strncmp(payload, "CCP1|RESET|", 11) == 0) {
             const esp_err_t error = acceptMaintenance(payload, source, MaintenanceCommand::Restart);
             if (error != ESP_OK) {
-                ESP_LOGE(kTag, "CCP RESET rejected or acknowledgement unavailable (%s)", esp_err_to_name(error));
+                reportDatagramRejection("RESET", error);
             }
             return;
         }
@@ -3105,14 +3216,14 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
             const bool acknowledgement = std::strncmp(payload, "CCP1|REPLYACK|", 14) == 0;
             const esp_err_t error = acknowledgement ? acceptReplyAck(payload, source) : acceptEvent(payload, source);
             if (error != ESP_OK) {
-                ESP_LOGE(kTag, "CCP %s rejected (%s)", acknowledgement ? "REPLYACK" : "EVENT", esp_err_to_name(error));
+                reportDatagramRejection(acknowledgement ? "REPLYACK" : "EVENT", error);
             }
             return;
         }
         if (std::strncmp(payload, "CCP1|TECH|", 10) == 0) {
             const esp_err_t error = acceptTechnical(payload, source);
             if (error != ESP_OK) {
-                ESP_LOGE(kTag, "CCP technical projection rejected (%s)", esp_err_to_name(error));
+                reportDatagramRejection("TECH", error);
             }
             return;
         }
@@ -3121,7 +3232,7 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
             const esp_err_t error = parseActivity(payload, s_activity_response)
                 ? acceptActivity(s_activity_response) : ESP_ERR_INVALID_ARG;
             if (error != ESP_OK) {
-                ESP_LOGE(kTag, "CCP ACTIVITY rejected (%s)", esp_err_to_name(error));
+                reportDatagramRejection("ACTIVITY", error);
             }
             return;
         }
@@ -3129,18 +3240,22 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
         if (parseReady(payload, response)) {
             const esp_err_t error = acceptReady(response, source);
             if (error != ESP_OK) {
-                ESP_LOGE(kTag, "CCP READY processing failed (%s)", esp_err_to_name(error));
+                reportDatagramRejection("READY", error);
             }
         } else if (std::strncmp(payload, "CCP1|", 5) == 0) {
-            ESP_LOGE(kTag, "CCP liveness datagram rejected: malformed field contract");
+            reportDatagramRejection("liveness fields", ESP_ERR_INVALID_ARG);
         }
     }
 }
 
-// No parameters: drains every currently queued bounded UDP datagram.
+// No parameters: processes one bounded receive slice before protocol maintenance.
 void receiveDatagrams()
 {
-    for (;;) {
+    const int64_t started_at_us = esp_timer_get_time();
+    for (uint32_t packet_index = 0; packet_index < kMaximumPacketsPerPass; ++packet_index) {
+        if (packet_index != 0 && esp_timer_get_time() - started_at_us >= kMaximumReceivePassUs) {
+            return;
+        }
         char *payload = s_receive_buffer;
         sockaddr_in source{};
         socklen_t source_size = sizeof(source);
@@ -3158,12 +3273,16 @@ void receiveDatagrams()
             }
             return;
         }
+        if (!admitDatagram(source)) {
+            reportDatagramRejection("ingress budget", ESP_ERR_TIMEOUT);
+            continue;
+        }
         if (received == 0 || received > static_cast<int>(kMaximumEventDatagramBytes)) {
-            ESP_LOGE(kTag, "CCP datagram rejected: length=%d", received);
+            reportDatagramRejection("datagram length", ESP_ERR_INVALID_SIZE);
             continue;
         }
         if (std::memchr(payload, '\0', static_cast<size_t>(received)) != nullptr) {
-            ESP_LOGE(kTag, "CCP datagram rejected: embedded NUL");
+            reportDatagramRejection("embedded NUL", ESP_ERR_INVALID_ARG);
             continue;
         }
         payload[received] = '\0';
@@ -3173,7 +3292,7 @@ void receiveDatagrams()
             received <= static_cast<int>(kMaximumActivityDatagramBytes);
         if (received > static_cast<int>(kMaximumDatagramBytes) &&
             std::strncmp(payload, "CCP1|EVENT|", 11) != 0 && !extended_activity && !extended_technical) {
-            ESP_LOGE(kTag, "CCP ordinary datagram rejected: length=%d exceeds 512", received);
+            reportDatagramRejection("ordinary datagram length", ESP_ERR_INVALID_SIZE);
             continue;
         }
         handleDatagram(payload, source);

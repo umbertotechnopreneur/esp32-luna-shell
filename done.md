@@ -7,6 +7,30 @@ Older `artifacts/` paths may be historical references only: the complete cleanup
 requested on 2026-10-05 removed that unversioned evidence. New results identify
 the preserved copies within the build directory.
 
+## CCP security source and document consolidation - 2026-10-10
+
+- Combined the former 32-page service and 36-page connection atlases into the
+  English 22-page `docs/Cody/cody-ccp-connection-atlas-v1.pdf`, retaining source
+  crosswalks, dated qualifications and a review worksheet. Former source PDFs
+  remain historical; docs/README.md points to the single current reference.
+- Added the reusable paginated Date/Type revision grid, supported artwork and
+  explicit continuations. Navigation and Planning preserve their first 46 pages,
+  reflow the latest four supplements and finish with dedicated Security grids.
+- Rebuilt the nontechnical pairing flyer as exactly four A5 pages, using original
+  4 October artwork. Git's first flyer was two pages; later technical appendices
+  had expanded it to 25. AGENTS.md now explicitly forbids appendices in this flyer.
+- Coordinated CCP 0.6.3 READY/COMMITTED fields and HMAC domains bind a fresh
+  broker challenge to the observed device endpoint. Presence/current projections
+  and event routing require its matching one-time response. Old wire handshakes
+  are rejected; plugin installation and firmware update must happen together.
+- Bounded firmware UDP processing, global/per-source ingress, PC discovery and
+  PBKDF2 work, local control concurrency and diagnostic retention. Short-code
+  offline guessing and plaintext payloads remain documented protocol risks.
+- Generated the requested PDFs through scripts/device.ps1 and rendered/visually
+  reviewed the authored pages with Poppler. Security code received static review
+  only; no suite, firmware compilation, simulator/device execution or network
+  probe ran. Runtime checks and measured stack headroom remain in TODO.md.
+
 ## Minimal character direction source integration - 2026-10-10
 
 - Added gaze towards canonical body touch or admitted visible information, a

@@ -32,6 +32,31 @@ protocol = simulated.protocol
 interactions = simulated.interactions
 
 
+# key: Synthetic retained device key for this isolated fixture.
+# ready: Exact endpoint-bound challenge from the real responder.
+# Raises ValueError if the held packet is not a complete READY.
+def committed_for_ready(key, ready):
+    kind, fields = protocol.parse_datagram(ready)
+    names = ("device", "pc", "nonce", "challenge", "address", "port")
+    if kind != "READY" or set(fields) != {*names, "proof"}:
+        raise ValueError("Fixture requires an exact fresh READY challenge")
+    values = [fields[name] for name in names]
+    return protocol.encode_datagram("COMMITTED", list(zip(names, values))
+        + [("proof", protocol.make_proof(key, "committed-v2", *values))])
+
+
+# phase: Explicit synthetic work phase.
+# project: Explicitly SIMULATED display label.
+# Returns coherent activity/technical fixture projections without inventing measured metrics.
+def synthetic_activity(phase, project):
+    owner = Mock()
+    activity, technical = protocol.ActivityStore().snapshot_bundle()
+    activity.update(chat="d" * 64, revision="1" * 16, phase=phase, project=project.encode("ascii").hex())
+    technical.update(chat=activity["chat"], revision=activity["revision"], activityage="0")
+    owner.snapshot_bundle.return_value = activity, technical
+    return owner
+
+
 class SimulatorProtocolTests(unittest.TestCase):
     # self: Pure protocol fixture with deterministic clocks and isolated temporary persistence.
     # Raises OSError if its artifacts directory cannot be created.
@@ -112,8 +137,9 @@ class SimulatorProtocolTests(unittest.TestCase):
 
     # self: Authenticated model coupled directly to the real CCP responder with no OS transport.
     # pending_restart: Exercise recovery of a durable candidate instead of confirmed pairing.
+    # drop_committed: Deliberately lose the first post-READY acknowledgement before broker admission.
     # Returns accepted responder messages for replay/tampering assertions.
-    def exchange_presence(self, pending_restart=False):
+    def exchange_presence(self, pending_restart=False, drop_committed=False):
         identity, key = self.pair_candidate()
         if pending_restart:
             self.now += simulated.PAIRING_SECONDS + 1
@@ -122,9 +148,7 @@ class SimulatorProtocolTests(unittest.TestCase):
             self.confirm(identity, key)
         state = Mock(pc_id=self.pc)
         state.retained_keys.return_value = protocol.RetainedKeys(None, key) if pending_restart else protocol.RetainedKeys(key, None)
-        activity = Mock()
-        activity.snapshot.return_value = {"chat": "d" * 64, "revision": "1" * 16,
-            "phase": "working", "project": "SIMULATED fixture".encode("ascii").hex()}
+        activity = synthetic_activity("working", "SIMULATED fixture")
         listener = Mock()
         self.requests = interactions.InteractionStore(lambda: self.now)
         responder = protocol.CompanionResponder(state, listener, activity, self.requests)
@@ -133,14 +157,16 @@ class SimulatorProtocolTests(unittest.TestCase):
         find, destination = self.send.call_args.args
         self.assertEqual(destination, (simulated.LOOPBACK, protocol.PLUGIN_PORT))
         responder._handle_datagram(find, (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        self.assertEqual([protocol.parse_datagram(call.args[0])[0]
+            for call in listener.sendto.call_args_list], ["READY"])
+        state.mark_seen.assert_not_called()
+        self.accept_presence_packets(drop_committed)
         replies = [call.args[0] for call in listener.sendto.call_args_list]
-        for payload in replies:
-            self.link.handle_datagram(payload, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
-            if protocol.parse_datagram(payload)[0] == "READY":
-                committed = self.send.call_args.args[0]
-                self.assertEqual(protocol.parse_datagram(committed)[0], "COMMITTED")
-                responder._handle_datagram(committed, (simulated.LOOPBACK, protocol.DEVICE_PORT))
-        state.confirm_device_choice.assert_called_once()
+        if drop_committed:
+            state.confirm_device_choice.assert_not_called()
+            state.mark_seen.assert_not_called()
+        else:
+            state.confirm_device_choice.assert_called_once()
         return replies
 
     # self: Real nonce/HMAC protocol round trip with an explicitly synthetic activity source.
@@ -178,6 +204,60 @@ class SimulatorProtocolTests(unittest.TestCase):
         self.assertEqual(fields["nonce"], protocol.parse_datagram(replies[0])[1]["nonce"])
         self.assertEqual(self.link.state, simulated.LinkState.CONNECTED)
 
+    # self: One dropped COMMITTED packet followed by a distinct fresh FIND challenge.
+    # Raises AssertionError if lost delivery leaks current data or forces a new display-code pairing.
+    def test_lost_committed_recovers_with_the_next_fresh_challenge(self):
+        replies = self.exchange_presence(drop_committed=True)
+        self.assertEqual([protocol.parse_datagram(packet)[0] for packet in replies], ["READY"])
+        self.assertFalse(self.link.snapshot().activity_valid)
+        first = protocol.parse_datagram(replies[0])[1]
+        self.deliver_events()
+        next_ready = protocol.parse_datagram(self.host_listener.sendto.call_args_list[0].args[0])[1]
+        self.assertNotEqual(next_ready["challenge"], first["challenge"])
+        self.assertTrue(self.link.snapshot().activity_valid)
+        self.assertEqual(self.link.display_code(), "")
+        self.host._state.confirm_device_choice.assert_called_once()
+
+    # self: Broker challenge honestly signed for a different observed device endpoint.
+    # Raises AssertionError if signed relayed READY activates a route or emits a COMMITTED packet.
+    def test_signed_ready_for_another_endpoint_is_rejected(self):
+        self.exchange_presence()
+        self.now += simulated.FIND_SECONDS + .01
+        self.send.reset_mock()
+        self.host_listener.reset_mock()
+        self.link.tick(self.send)
+        find = next(call.args[0] for call in self.send.call_args_list
+                    if protocol.parse_datagram(call.args[0])[0] == "FIND")
+        self.host._handle_datagram(find, (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        _, ready = protocol.parse_datagram(self.host_listener.sendto.call_args.args[0])
+        key = protocol.unprotect_secret(self.link.active["protected_link_key"])
+        names = ("device", "pc", "nonce", "challenge", "address", "port")
+        prior_nonce = self.link._ready_nonce
+        for name, value in (("address", "127.0.0.2"), ("port", str(protocol.DEVICE_PORT + 1))):
+            fields = dict(ready)
+            fields[name] = value
+            values = [fields[field] for field in names]
+            packet = protocol.encode_datagram("READY", list(zip(names, values))
+                + [("proof", protocol.make_proof(key, "ready-v2", *values))])
+            self.send.reset_mock()
+            with self.assertRaisesRegex(ValueError, "another socket endpoint"):
+                self.link.handle_datagram(packet, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+            self.send.assert_not_called()
+            self.assertEqual(self.link._ready_nonce, prior_nonce)
+
+    # self: Genuine device proof whose broker challenge has already been consumed.
+    # Raises AssertionError if duplicate acknowledgement emits new projections or renews the event peer.
+    def test_broker_rejects_consumed_simulated_commit(self):
+        self.exchange_presence()
+        committed = next(call.args[0] for call in self.send.call_args_list
+                         if protocol.parse_datagram(call.args[0])[0] == "COMMITTED")
+        peer = self.host._event_peers[self.link.device_id]
+        self.host_listener.reset_mock()
+        with self.assertRaisesRegex(ValueError, "fresh endpoint challenge"):
+            self.host._handle_datagram(committed, (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        self.assertEqual(self.host._event_peers[self.link.device_id], peer)
+        self.host_listener.sendto.assert_not_called()
+
     # self: Real service and simulator model communicating through isolated ephemeral loopback sockets.
     # Raises AssertionError for handshake/activity/persistence failure; original OS failures remain visible.
     def test_real_udp_pairing_and_activity_use_isolated_loopback_ports(self):
@@ -197,9 +277,7 @@ class SimulatorProtocolTests(unittest.TestCase):
                 isolated_home = str(self.path.parent / "host")
                 with patch.multiple(protocol, **ports), patch.dict(os.environ, {"LOCALAPPDATA": isolated_home}):
                     state = protocol.StateStore()
-                    fixture_activity = Mock()
-                    fixture_activity.snapshot.return_value = {"chat": "d" * 64, "revision": "1" * 16,
-                        "phase": "editing", "project": "SIMULATED UDP".encode("ascii").hex()}
+                    fixture_activity = synthetic_activity("editing", "SIMULATED UDP")
                     responder = protocol.CompanionResponder(state, host_socket, fixture_activity)
 
                     # No parameters: owns only the fixture's ephemeral socket and synthetic simulator state.
@@ -505,7 +583,7 @@ class SimulatorProtocolTests(unittest.TestCase):
         self.deliver_events()
         return created
 
-    # self: Fixture sending one new authenticated FIND and its complete READY/ACTIVITY/EVENT replies.
+    # self: Fixture completing FIND -> READY -> COMMITTED before admitting current projections.
     # Raises AssertionError or the real protocol error if the contract is incoherent.
     def deliver_events(self):
         self.now += simulated.FIND_SECONDS + .01
@@ -515,11 +593,25 @@ class SimulatorProtocolTests(unittest.TestCase):
         find = next(call.args[0] for call in reversed(self.send.call_args_list)
                     if protocol.parse_datagram(call.args[0])[0] == "FIND")
         self.host._handle_datagram(find, (simulated.LOOPBACK, protocol.DEVICE_PORT))
-        for call in self.host_listener.sendto.call_args_list:
-            self.link.handle_datagram(call.args[0], (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        self.accept_presence_packets()
+
+    # self: Isolated fixture delivering the real responder's challenge and subsequent packets.
+    # drop_committed: Model a lost acknowledgement without admitting any dependent capabilities.
+    # Raises ValueError or the original protocol error if either endpoint rejects the round trip.
+    def accept_presence_packets(self, drop_committed=False):
+        index = 0
+        while index < len(self.host_listener.sendto.call_args_list):
+            payload = self.host_listener.sendto.call_args_list[index].args[0]
+            index += 1
+            before = len(self.send.call_args_list)
+            self.link.handle_datagram(payload, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+            # Deliver generated COMMITTED before any capability using its newly authenticated peer.
+            if protocol.parse_datagram(payload)[0] == "READY" and not drop_committed:
+                for call in self.send.call_args_list[before:]:
+                    self.host._handle_datagram(call.args[0], (simulated.LOOPBACK, protocol.DEVICE_PORT))
 
     # self: Real responder fixture holding its next presence packets for explicit receive ordering.
-    # Returns authenticated READY/ACTIVITY/EVENT packets without admitting them on the device.
+    # Returns authenticated projections held for intentional device-admission ordering assertions.
     # Raises AssertionError or the original protocol error if no FIND was transmitted.
     def pending_presence_packets(self):
         self.now += simulated.FIND_SECONDS + .01
@@ -529,6 +621,11 @@ class SimulatorProtocolTests(unittest.TestCase):
         find = next(call.args[0] for call in self.send.call_args_list
                     if protocol.parse_datagram(call.args[0])[0] == "FIND")
         self.host._handle_datagram(find, (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        ready = self.host_listener.sendto.call_args.args[0]
+        key = protocol.unprotect_secret(self.link.active["protected_link_key"])
+        # Model the device's proof of possession while holding its incoming READY. This
+        # creates reordered receive fixtures; it never bypasses the broker's challenge.
+        self.host._handle_datagram(committed_for_ready(key, ready), (simulated.LOOPBACK, protocol.DEVICE_PORT))
         return [call.args[0] for call in self.host_listener.sendto.call_args_list]
 
     # self: Source-only input fixture; native preparation still owns the complete action geometry.
@@ -777,9 +874,14 @@ class SimulatorProtocolTests(unittest.TestCase):
         find = next(call.args[0] for call in self.send.call_args_list
                     if protocol.parse_datagram(call.args[0])[0] == "FIND")
         self.host._handle_datagram(find, (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        ready = self.host_listener.sendto.call_args.args[0]
+        self.link.handle_datagram(ready, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        committed = next(call.args[0] for call in reversed(self.send.call_args_list)
+            if protocol.parse_datagram(call.args[0])[0] == "COMMITTED")
+        self.host._handle_datagram(committed, (simulated.LOOPBACK, protocol.DEVICE_PORT))
         # Admit READY before changing the clock. Do not run tick at the deadline.
         for call in self.host_listener.sendto.call_args_list:
-            if protocol.parse_datagram(call.args[0])[0] != "EVENT":
+            if protocol.parse_datagram(call.args[0])[0] not in {"READY", "EVENT"}:
                 self.link.handle_datagram(call.args[0], (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
         payload = self.link.snapshot().event_payload
         if incoming == "pending":

@@ -1,5 +1,28 @@
 # Active work
 
+## CCP security and reference documents - 2026-10-10
+
+- [x] Consolidate the service and Codex connection atlases into one English
+  reference with an original-page crosswalk and a reusable dated revision grid.
+  Preserve the former PDFs as historical sources, outside the current guide index.
+- [x] Restore the quickstart's flyer purpose: exactly four A5 pages, practical
+  English instructions, original artwork, and no errata/addenda. Record its
+  explicit exception in AGENTS.md. Git contained a two-page original, not a
+  four-page version; the final flyer is reauthored from that reference.
+- [x] Reorganize the latest Navigation/Planning supplement pages into the shared
+  revision grid and add dedicated Security sections recording scope and limits.
+- [x] Implement coordinated CCP 0.6.3 endpoint-bound READY/COMMITTED freshness,
+  bounded firmware receive slices, UDP ingress, discovery/PBKDF2 admission,
+  rejection summaries, rotating broker logs and bounded local control workers.
+- [ ] Complete separately authorized firmware compilation and inspect affected
+  compiled frames/device stack headroom. Update installed plugin and firmware
+  together; the earlier READY/COMMITTED handshake is deliberately rejected.
+- [ ] Observe real pairing, retained recovery, lost acknowledgement, consecutive
+  questions and notification routing on Cody. Tune budgets from measured bursts.
+- [ ] Execute prepared CCP source regressions only after fresh exact-command
+  authorization. No suites, firmware build/flash, simulator or traffic probes
+  accompanied this implementation. PDF rendering is document-only visual review.
+
 ## Minimal Cody character direction - 2026-10-10
 
 - [x] Implement native gaze, positive caress warmth and genuine compaction

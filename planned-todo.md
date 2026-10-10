@@ -1,5 +1,21 @@
 # Deferred work
 
+## CCP protocol security follow-up - 2026-10-10
+
+- [ ] Evaluate standard PAKE or high-entropy out-of-band QR pairing. The current
+  six-character code and verifier transcript still permit offline guessing;
+  online ingress limits and code expiry cannot invalidate captured transcripts.
+- [ ] Design standard authenticated encryption with explicit session/nonce and
+  replay discipline. CCP's current HMAC authenticates readable LAN payloads;
+  the new challenge gate does not add confidentiality or custom cryptography.
+- [ ] Review optional device HTTP separately: plaintext bearer transport,
+  authentication-failure isolation and the cost/data scope of public health.
+  CCP hardening does not establish physical HTTP configuration or protect a
+  compromised local PC. Keep Windows credential ownership for this phase.
+- [ ] Bound startup-only runtime.log across repeated PC launches with explicit
+  multi-process ownership. Network rejection diagnostics already use the
+  exclusive broker's rotating log and cannot grow the bootstrap file.
+
 ## Cody character ideas kept simple - 2026-10-10
 
 - [ ] Bind the shared native character director into Cody Studio for labelled

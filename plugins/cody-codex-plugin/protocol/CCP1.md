@@ -1,8 +1,9 @@
 # CCP1 local pairing protocol
 
 CCP1 connects one physical Cody device to one local Cody's Codex Plugin (CCP)
-runtime. It provides bounded UDP commissioning, liveness and the explicit
-chat-activity extension below. It does not transport user messages or replies.
+runtime. It provides bounded UDP commissioning, liveness, selected chat
+activity and semantic question/answer exchange. It does not transport full chat
+transcripts or audio.
 
 ## Identity and ports
 
@@ -146,63 +147,64 @@ automaticamente per un pacchetto vecchio o per il solo trascorrere del tempo.
 The displayed code, verifier and pairing salt are wiped when the attempt ends.
 Neither side logs them.
 
-## Authenticated rediscovery
+## Authenticated rediscovery (CCP 0.6.3)
 
-Dopo Let's go, al boot con record salvato o durante il recupero, avvio subito
-la ricerca autenticata, senza una pausa Idle intermedia. Cody invia:
+After commissioning, a retained boot or reconnection, Cody broadcasts a new
+128-bit client nonce every two seconds. The authenticated FIND capabilities
+below retain their existing HMAC domains. FIND alone establishes neither
+current presence nor permission to return activity, questions or technical data.
 
 ```text
 CCP1|FIND|device=<12 hex>|pc=<32 hex>|nonce=<32 hex>|proof=<64 hex>
+HMAC input: find|<device>|<pc>|<nonce>
 ```
 
-The proof uses the stored link key over:
+The matching broker verifies the retained key and returns a fresh, signed,
+128-bit server challenge. Its `address` and `port` are the device endpoint
+observed by the receiving socket, not fields chosen by the requester.
 
 ```text
-find|<device>|<pc>|<nonce>
+CCP1|READY|device=<12 hex>|pc=<32 hex>|nonce=<32 hex>|challenge=<32 hex>|address=<IPv4>|port=42117|proof=<64 hex>
+HMAC input: ready-v2|<device>|<pc>|<nonce>|<challenge>|<address>|<port>
 ```
 
-Only the CCP process with the matching PC ID and link key replies:
+Cody verifies the HMAC, current client nonce, fixed broker source port and its
+own endpoint: `address` must match current canonical Wi-Fi IPv4 and `port` must
+be 42117. The simulator requires its explicit loopback endpoint. A relay cannot
+ask Cody to sign a challenge addressed to the relay's socket. No consumer reads
+radio hardware or guesses an unavailable address.
+
+READY can finish a retained candidate transaction after reboot. Only after the
+active device key is durably written and read back does Cody acknowledge it:
 
 ```text
-CCP1|READY|device=<12 hex>|pc=<32 hex>|nonce=<32 hex>|proof=<64 hex>
+CCP1|COMMITTED|device=<12 hex>|pc=<32 hex>|nonce=<32 hex>|challenge=<32 hex>|address=<IPv4>|port=42117|proof=<64 hex>
+HMAC input: committed-v2|<device>|<pc>|<nonce>|<challenge>|<address>|<port>
 ```
 
-The reply proof covers:
+The broker retains at most 128 endpoint-scoped challenges for two monotonic
+seconds. A duplicate FIND for the same endpoint and nonce does not renew that
+challenge's deadline. COMMITTED must match its original socket endpoint,
+nonce, fresh challenge and proof. The challenge is consumed before persistence
+or outgoing effects; duplicate, expired and previously captured acknowledgements
+cannot renew liveness or disclose another snapshot.
 
-```text
-ready|<device>|<pc>|<nonce>
-```
+Only this completed exchange marks the device seen, admits the event peer and
+returns ACTIVITY, TECH or EVENT. An old captured FIND can obtain a fresh
+challenge but cannot obtain current metadata without proving the retained key
+at the signed device endpoint. A failed or lost exchange waits for Cody's next
+fresh FIND. The ten-second PC presence lease uses monotonic time; UTC timestamps
+are retained only for status presentation.
 
-Con un link attivo, gli scambi FIND/READY ripetuti provano la presenza. Nel
-recupero di un candidato pending, una risposta fresca e valida prova anche che
-il PC conserva quel candidato e permette la promozione descritta sopra.
-In entrambi i casi aspetto eventi separati per task, progetto, chat o messaggi.
-On the PC, a newly persisted pairing has no liveness timestamp. The responder
-marks it seen only after verifying FIND and successfully sending READY. The
-ten-second PC presence deadline uses a monotonic clock; wall time is retained
-only for the reported observation timestamp. A stopped responder is an actual
-MCP tool error. The listener is acquired before any protected-state access so a
-second local process cannot race first-use identity creation.
+The broker promotes a matching pending candidate after the fresh COMMITTED.
+Proof with the previous active key preserves that association without retiring
+an unrelated pending candidate. `pairing_pending` and `retained_pairing` remain
+separate. The exclusive local listener is acquired before protected identity
+access, and a stopped responder remains an actual MCP tool error.
 
-### Conferma post-commit sul dispositivo
-
-Dopo ogni READY valido invio questo ACK solo quando il record attivo e'
-durabilmente scritto e riletto. Lo ripeto anche per un link gia' attivo, cosi'
-recupero un ACK perso al successivo giro di presenza:
-
-```text
-CCP1|COMMITTED|device=<12 hex>|pc=<32 hex>|nonce=<32 hex>|proof=<64 hex>
-HMAC input: committed|<device>|<pc>|<nonce>
-```
-
-Uso la chiave del link attivo e il nonce FIND corrente. Sul PC confronto prova,
-identita', sorgente e nonce con un FIND osservato negli ultimi dieci secondi.
-Se corrisponde al candidato, lo promuovo; se prova il ritorno al vecchio attivo,
-mantengo operativo quel link e lascio il candidato irrisolto. Non ricavo da
-una prova con la vecchia chiave un'autorizzazione a cancellare il candidato;
-serve la sostituzione esplicita descritta sopra. Un FIND da solo non autorizza
-alcuna promozione.
-Lascio `pairing_pending` e `retained_pairing` distinti nello stato pubblico.
+CCP 0.6.3, firmware and the explicit simulator must be updated together.
+Earlier READY/COMMITTED layouts and HMAC domains are rejected; there is no
+compatibility fallback. The saved pairing record format remains unchanged.
 
 ## Authenticated chat activity and purpose
 
@@ -222,7 +224,7 @@ CCP1|ACTIVITY|device=<12hex>|pc=<32hex>|nonce=<32hex>|chat=<64hex>|revision=<16h
 HMAC input: activity-v2|<device>|<pc>|<nonce>|<chat>|<revision>|<phase>|<project>|<description>|<branch>
 ```
 
-The PC sends ordinary READY before this complete activity snapshot. The link
+The PC sends this complete activity snapshot only after the fresh COMMITTED. The link
 key authenticates every field, in exactly the documented order. `chat` is the
 SHA-256 of the followed opaque Codex session ID; all zeroes denote no followed
 prompt. `revision` is a volatile diagnostic counter, not a persisted ordering
@@ -307,7 +309,7 @@ hook activity, typewriter counts, touch admission or repeated audio.
 
 ## Authenticated technical metadata
 
-Version-three FIND yields READY, ACTIVITY, then TECH. Activity and technical
+Version-three FIND yields READY; fresh COMMITTED then yields ACTIVITY and TECH. Activity and technical
 metadata are acquired under one ActivityStore lock, preserving one chat and
 revision even when a hook arrives during UDP transmission. EVENT and other
 independent extensions retain their own authenticated contracts.
@@ -621,11 +623,56 @@ rejected ACK, so inspect both its status and values. An ACK confirms the setting
 operation, not physical audio output or clock synchronization. NVS operations
 run through the settings executor outside the CCP state mutex.
 
-## Security boundary
+## Resource budgets and security boundary
 
-The six-character code is never sent in a datagram. PBKDF2 makes captured
-offers more expensive to brute-force, and every successful pairing rotates the
-salt, nonce and link key. This compact commissioning protocol is not a formal
-PAKE and must not be presented as equivalent to TLS, SPAKE2 or security
-certification. A later production review can replace commissioning without
-changing the stable device and PC identities.
+Ingress budgets apply before decoding, DPAPI unprotect or HMAC work. Source
+identities come from the socket; an IP budget never substitutes for authentication.
+Global budgets remain in force when spoofed sources churn the bounded peer table.
+
+| Owner | Initial source limits |
+| --- | --- |
+| Firmware receive slice | At most 8 packets or 5 ms, followed by state/event maintenance |
+| Firmware UDP ingress | 32 packets/s, burst 64 globally; 16 packets/s, burst 32 per IPv4; 16 fixed source slots |
+| PC UDP ingress | 64 packets/s, burst 128 globally; 16 packets/s, burst 32 per IP; 64 source slots |
+| Discovery | 16 offers globally, 4 per source, 128 received packets per bounded discovery pass |
+| Pairing verification | At most 16 PBKDF2 candidates and a 2-second local verification budget |
+| Endpoint challenges | 128 entries, 2-second monotonic lifetime, consumed once |
+| Local control HTTP | Loopback only, bearer authentication, 32 concurrent workers, 3-second socket deadline, 64 KiB body |
+| Rejection diagnostics | At most one summary per 5 seconds, with suppressed rejection count |
+| Resident broker log | 2 MiB per file; active broker.log plus 2 rotated backups |
+
+The exclusive loopback control listener is acquired before the resident owner
+opens these rotating files. Losing startup processes cannot rotate the running
+owner's log. The separate launcher `runtime.log` still retains startup failures
+in append-only form; it no longer receives resident UDP rejection traffic.
+Bounding that bootstrap history remains separate hardening work.
+
+Ambiguous discovery identities or exhausted offer/packet budgets discard the
+whole result with an explicit failure. Pairing work overflow fails before any
+new candidate is persisted. Firmware receive budgeting prevents a permanently
+non-empty socket queue from postponing maintenance indefinitely. Individual
+blocking storage or crypto calls are not preempted by the receive time slice.
+These initial values bound local resources; tuning and physical timing still
+need separately authorized runtime verification. They cannot guarantee service
+availability on a hostile or jammed network.
+
+The six-character code is never transmitted, but its 30-bit search space and
+public OFFER tag permit offline candidate checking. PBKDF2 increases the work
+per guess; it does not remove the offline oracle. A captured full pairing
+transcript also contains the public fields needed to derive the resulting link
+key after the code is recovered. Expiry and online rate limits do not invalidate
+such a captured transcript. No attack-cost benchmark or security certification
+has been performed.
+
+CCP authenticates ASCII/hex payloads with HMAC; it does not encrypt them. A LAN
+observer able to capture unicast traffic can read project names, purpose,
+questions and technical metadata. Replay hardening does not provide
+confidentiality or protection against a compromised local computer. Windows
+DPAPI protects persisted keys for its current-user boundary, not against code
+already executing as that user.
+
+An evaluated standard PAKE or high-entropy QR secret, followed by authenticated
+encryption with explicit session/replay ownership, remains deferred. Do not
+introduce custom PAKE or present this commissioning protocol as equivalent to
+TLS, SPAKE2 or a production security audit. Stable device and PC identities can
+be retained when that coordinated future protocol is designed.

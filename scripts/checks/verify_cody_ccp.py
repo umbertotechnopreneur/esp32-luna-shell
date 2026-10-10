@@ -22,7 +22,32 @@ import ccp_runtime as runtime
 import ccp_windows as windows
 import ccp_interactions as interactions
 import ccp_technical as technical_metadata
+import ccp_security as security
 from cody_ccp_event_vectors import event_vectors
+
+
+# link_key: Synthetic retained key belonging to the READY target.
+# ready: Exact broker challenge packet produced by the real responder.
+# Raises ValueError for a malformed READY envelope.
+def committed_for_ready(link_key, ready):
+    kind, fields = ccp.parse_datagram(ready)
+    names = ("device", "pc", "nonce", "challenge", "address", "port")
+    if kind != "READY" or set(fields) != {*names, "proof"}:
+        raise ValueError("Fixture requires the exact fresh READY challenge")
+    values = [fields[name] for name in names]
+    return ccp.encode_datagram("COMMITTED", list(zip(names, values))
+        + [("proof", ccp.make_proof(link_key, "committed-v2", *values))])
+
+
+# responder: Real broker responder whose UDP socket is a Mock.
+# link_key: Synthetic retained device key.
+# source: Device endpoint that requested the latest READY.
+# Raises ValueError or the original responder failure if challenge admission fails.
+def acknowledge_ready(responder, link_key, source):
+    ready = responder._socket.sendto.call_args.args[0]
+    committed = committed_for_ready(link_key, ready)
+    responder._handle_datagram(committed, source)
+    return committed
 
 
 class CcpContractTests(unittest.TestCase):
@@ -137,8 +162,8 @@ class CcpContractTests(unittest.TestCase):
         service.state.public_status.assert_not_called()
 
     # self: Synthetic authenticated rediscovery fixture; the UDP socket is a mock.
-    # Raises AssertionError if an invalid proof marks presence or READY loses nonce binding.
-    def test_presence_requires_verified_find_and_ready(self) -> None:
+    # Raises AssertionError if FIND alone marks presence or READY loses endpoint binding.
+    def test_presence_requires_verified_find_and_fresh_committed(self) -> None:
         state = Mock()
         state.pc_id = "a" * 32
         link_key = bytes(range(32))
@@ -160,9 +185,16 @@ class CcpContractTests(unittest.TestCase):
         kind, response = ccp.parse_datagram(payload)
         self.assertEqual(kind, "READY")
         self.assertEqual(response["nonce"], nonce)
-        expected_proof = ccp.make_proof(link_key, "ready", device_id, state.pc_id, nonce)
+        names = ("device", "pc", "nonce", "challenge", "address", "port")
+        self.assertEqual(set(response), {*names, "proof"})
+        self.assertRegex(response["challenge"], r"^[0-9a-f]{32}$")
+        self.assertEqual((response["address"], response["port"]), ("192.0.2.10", str(ccp.DEVICE_PORT)))
+        expected_proof = ccp.make_proof(link_key, "ready-v2", *(response[name] for name in names))
         self.assertEqual(response["proof"], expected_proof)
         self.assertEqual(destination, ("192.0.2.10", ccp.DEVICE_PORT))
+        state.mark_seen.assert_not_called()
+        state.confirm_device_choice.assert_not_called()
+        acknowledge_ready(responder, link_key, destination)
         state.mark_seen.assert_called_once_with(device_id, "192.0.2.10")
 
     # self: Synthetic pairing fixture with mocked exchanges and persistence.
@@ -256,12 +288,14 @@ class CcpContractTests(unittest.TestCase):
         values = ["abcdef012345", state.pc_id, "b" * 32]
         fields = list(zip(("device", "pc", "nonce"), values))
         find = ccp.encode_datagram("FIND", fields + [("proof", ccp.make_proof(new_key, "find", *values))])
-        committed = ccp.encode_datagram("COMMITTED", fields + [("proof", ccp.make_proof(new_key, "committed", *values))])
         responder._handle_datagram(find, source)
+        committed = committed_for_ready(new_key, responder._socket.sendto.call_args.args[0])
         self.assertEqual(state.retained_keys(values[0]), ccp.RetainedKeys(old_key, new_key))
-        with self.assertRaisesRegex(ValueError, "recent authenticated FIND"):
+        with self.assertRaisesRegex(ValueError, "fresh endpoint challenge"):
             responder._handle_datagram(committed, (source[0], source[1] + 1))
-        forged = ccp.encode_datagram("COMMITTED", fields + [("proof", "0" * 64)])
+        _, committed_fields = ccp.parse_datagram(committed)
+        forged = ccp.encode_datagram("COMMITTED", [(name, "0" * 64 if name == "proof" else value)
+            for name, value in committed_fields.items()])
         with self.assertRaisesRegex(ValueError, "proof is invalid"):
             responder._handle_datagram(forged, source)
         state.stage_pairing(values[0], bytes(32), "127.0.0.1", True)
@@ -269,9 +303,9 @@ class CcpContractTests(unittest.TestCase):
             responder._handle_datagram(committed, source)
         self.assertEqual(state.retained_keys(values[0]).active, old_key)
 
-    # self: A durable PC candidate receiving a valid device commit and later repeated presence.
-    # Raises AssertionError if missing ACK retry requires a fresh code or duplicate acknowledgement mutates identity.
-    def test_committed_retry_promotes_once_and_remains_idempotent(self):
+    # self: A durable PC candidate receiving separate fresh challenge acknowledgements.
+    # Raises AssertionError if recovery requires a fresh display code or later presence changes the key.
+    def test_fresh_committed_retry_preserves_the_promoted_identity(self):
         state, _, new_key = self.transaction_fixture()
         state.stage_pairing("abcdef012345", new_key, "127.0.0.1")
         responder = ccp.CompanionResponder(state, Mock(), ccp.ActivityStore())
@@ -281,9 +315,82 @@ class CcpContractTests(unittest.TestCase):
             fields = list(zip(("device", "pc", "nonce"), values))
             responder._handle_datagram(ccp.encode_datagram("FIND", fields +
                 [("proof", ccp.make_proof(new_key, "find", *values))]), source)
-            responder._handle_datagram(ccp.encode_datagram("COMMITTED", fields +
-                [("proof", ccp.make_proof(new_key, "committed", *values))]), source)
+            acknowledge_ready(responder, new_key, source)
             self.assertEqual(state.retained_keys(values[0]), ccp.RetainedKeys(new_key, None))
+
+    # self: Isolated real responder using synthetic retained credentials and a mocked socket.
+    # Returns its state owner, responder, key, source endpoint and authenticated capability FIND.
+    def challenge_fixture(self):
+        state = Mock(pc_id="a" * 32)
+        key = bytes(range(32))
+        state.retained_keys.return_value = ccp.RetainedKeys(key, None)
+        responder = ccp.CompanionResponder(state, Mock(), ccp.ActivityStore())
+        source = ("192.0.2.10", ccp.DEVICE_PORT)
+        values = ["abcdef012345", state.pc_id, "b" * 32]
+        find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values))
+            + [("activity", "3"), ("events", "2"), ("current", "0" * 32), ("state", "none"),
+               ("proof", ccp.make_proof(key, "find-events-activity-v3", *values, "0" * 32, "none"))])
+        return state, responder, key, source, find
+
+    # self: Replayed broadcast FIND arriving from a different untrusted endpoint.
+    # Raises AssertionError if replay exposes current projections, renews presence or steals the event route.
+    def test_replayed_find_cannot_replace_the_authenticated_peer(self):
+        state, responder, key, source, find = self.challenge_fixture()
+        responder._handle_datagram(find, source)
+        original_commit = acknowledge_ready(responder, key, source)
+        original_peer = responder._event_peers["abcdef012345"]
+        responder._socket.reset_mock()
+        attacker = ("192.0.2.99", ccp.DEVICE_PORT)
+        responder._handle_datagram(find, attacker)
+        packets = [ccp.parse_datagram(call.args[0])[0] for call in responder._socket.sendto.call_args_list]
+        self.assertEqual(packets, ["READY"])
+        self.assertEqual(responder._event_peers["abcdef012345"], original_peer)
+        state.mark_seen.assert_called_once_with("abcdef012345", source[0])
+        with self.assertRaisesRegex(ValueError, "fresh endpoint challenge"):
+            responder._handle_datagram(original_commit, attacker)
+        self.assertEqual(len(responder._socket.sendto.call_args_list), 1)
+
+    # self: A consumed genuine COMMITTED envelope and a retained authenticated association.
+    # Raises AssertionError if replay repeats persistence, liveness or current projections.
+    def test_committed_challenge_is_single_use(self):
+        state, responder, key, source, find = self.challenge_fixture()
+        responder._handle_datagram(find, source)
+        committed = acknowledge_ready(responder, key, source)
+        responder._socket.reset_mock()
+        with self.assertRaisesRegex(ValueError, "fresh endpoint challenge"):
+            responder._handle_datagram(committed, source)
+        state.confirm_device_choice.assert_called_once()
+        state.mark_seen.assert_called_once()
+        responder._socket.sendto.assert_not_called()
+
+    # self: A fresh broker challenge followed by delayed device proof of possession.
+    # Raises AssertionError if an expired challenge creates presence or exposes current projections.
+    def test_committed_challenge_expires_without_presence(self):
+        state, responder, key, source, find = self.challenge_fixture()
+        with patch.object(ccp.time, "monotonic", return_value=100.0):
+            responder._handle_datagram(find, source)
+            committed = committed_for_ready(key, responder._socket.sendto.call_args.args[0])
+        with patch.object(ccp.time, "monotonic", return_value=100.0 + ccp.CHALLENGE_TIMEOUT_SECONDS + .001):
+            with self.assertRaisesRegex(ValueError, "fresh endpoint challenge"):
+                responder._handle_datagram(committed, source)
+        state.mark_seen.assert_not_called()
+        state.confirm_device_choice.assert_not_called()
+        self.assertEqual(responder._event_peers, {})
+
+    # self: Persistence failure after an otherwise valid fresh challenge acknowledgement.
+    # Raises AssertionError if a failed commit publishes data or its consumed envelope can be retried.
+    def test_failed_committed_persistence_consumes_the_challenge(self):
+        state, responder, key, source, find = self.challenge_fixture()
+        responder._handle_datagram(find, source)
+        committed = committed_for_ready(key, responder._socket.sendto.call_args.args[0])
+        state.confirm_device_choice.side_effect = RuntimeError("synthetic persistence denied")
+        responder._socket.reset_mock()
+        with self.assertRaisesRegex(RuntimeError, "persistence denied"):
+            responder._handle_datagram(committed, source)
+        with self.assertRaisesRegex(ValueError, "fresh endpoint challenge"):
+            responder._handle_datagram(committed, source)
+        state.mark_seen.assert_not_called()
+        responder._socket.sendto.assert_not_called()
 
     # self: Partial local storage where the candidate file survived but its PC identity did not.
     # Raises AssertionError if startup creates an unrelated PC identity over ambiguous state.
@@ -308,6 +415,76 @@ class CcpContractTests(unittest.TestCase):
             wiring = json.loads((plugin_root / wiring_path).read_text(encoding="utf-8"))["mcpServers"]["ccp"]
             self.assertEqual(wiring["cwd"], "${PLUGIN_ROOT}")
             self.assertEqual(wiring["args"], ["-B", "${PLUGIN_ROOT}/mcp/ccp_server.py", "--stdio"])
+
+
+class CcpAdmissionTests(unittest.TestCase):
+    # self: Pure memory fixture with no socket, protected state or actual clock dependency.
+    # Raises AssertionError if one source's burst consumes another source's independent allowance.
+    def test_source_burst_is_bounded_and_other_sources_still_admit(self):
+        with patch.object(security.time, "monotonic", return_value=100.0):
+            budget = security.DatagramAdmission()
+            self.assertTrue(all(budget.admit("192.0.2.10") for _ in range(int(security.SOURCE_PACKET_BURST))))
+            self.assertFalse(budget.admit("192.0.2.10"))
+            self.assertTrue(budget.admit("192.0.2.20"))
+
+    # self: More distinct untrusted sources than the fixed admission table can retain.
+    # Raises AssertionError if source churn grows memory or bypasses the aggregate burst.
+    def test_global_packet_budget_and_source_table_stay_bounded(self):
+        with patch.object(security.time, "monotonic", return_value=100.0):
+            budget = security.DatagramAdmission()
+            for index in range(int(security.GLOBAL_PACKET_BURST)):
+                self.assertTrue(budget.admit(f"192.0.2.{index}"))
+            self.assertEqual(len(budget._sources), security.MAX_SOURCE_BUCKETS)
+            self.assertFalse(budget.admit("198.51.100.1"))
+            self.assertEqual(len(budget._sources), security.MAX_SOURCE_BUCKETS)
+
+    # self: Exhausted source receiving only its configured monotonic replenishment.
+    # Raises AssertionError if refill grants an unbounded fresh burst.
+    def test_source_refill_matches_its_sustained_rate(self):
+        with patch.object(security.time, "monotonic", return_value=100.0):
+            budget = security.DatagramAdmission()
+            for _ in range(int(security.SOURCE_PACKET_BURST)):
+                self.assertTrue(budget.admit("192.0.2.10"))
+        with patch.object(security.time, "monotonic", return_value=101.0):
+            self.assertTrue(all(budget.admit("192.0.2.10") for _ in range(int(security.SOURCE_PACKET_RATE))))
+            self.assertFalse(budget.admit("192.0.2.10"))
+
+    # self: Repeated diagnostic rejection reasons confined to an in-memory stream.
+    # Raises AssertionError if repeated rejections create per-packet output or lose the suppressed count.
+    def test_rejection_reporter_aggregates_a_burst(self):
+        output = io.StringIO()
+        reporter = security.RejectionReporter()
+        with contextlib.redirect_stderr(output), patch.object(security.time, "monotonic", return_value=100.0):
+            for _ in range(4):
+                reporter.reject("fixture packet", "synthetic malformed input")
+        self.assertEqual(len(output.getvalue().splitlines()), 1)
+        with contextlib.redirect_stderr(output), patch.object(security.time, "monotonic", return_value=105.0):
+            reporter.reject("fixture packet", "synthetic malformed input")
+        self.assertEqual(len(output.getvalue().splitlines()), 2)
+        self.assertIn("additional_rejections=3", output.getvalue())
+
+    # self: Oversized cached offers that must be rejected before any expensive verifier derivation.
+    # Raises AssertionError if a rejected pairing still starts PBKDF2 work.
+    def test_matching_offer_cap_precedes_key_derivation(self):
+        service = ccp.CcpService.__new__(ccp.CcpService)
+        with patch.object(ccp, "derive_verifier") as derive:
+            with self.assertRaisesRegex(ValueError, "offer budget"):
+                service._matching_offers("ABCDEF", [Mock()] * (ccp.MAX_DISCOVERY_OFFERS + 1))
+        derive.assert_not_called()
+
+    # self: Synthetic verifier work exceeding the complete pairing-verification deadline.
+    # Raises AssertionError if deadline exhaustion returns a partial match or continues work.
+    def test_matching_deadline_discards_partial_matches(self):
+        service = ccp.CcpService.__new__(ccp.CcpService)
+        values = ("a" * 16, "abcdef012345", "a" * 8, "a" * 32)
+        offer = Mock(request_id=values[0], device_id=values[1], session_id=values[2], salt=values[3],
+                     tag=ccp.make_proof(bytes(32), "offer", *values))
+        times = [100.0, 100.0, 100.0, 100.0 + ccp.PAIRING_VERIFICATION_SECONDS]
+        with patch.object(ccp.time, "monotonic", side_effect=times):
+            with patch.object(ccp, "derive_verifier", return_value=bytes(32)) as derive:
+                with self.assertRaisesRegex(ValueError, "verification budget"):
+                    service._matching_offers("ABCDEF", [offer, offer])
+        derive.assert_called_once_with("ABCDEF", offer.salt)
 
 
 class ChatActivityTests(unittest.TestCase):
@@ -554,6 +731,8 @@ class ChatActivityTests(unittest.TestCase):
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
                                    [("activity", "3"), ("proof", proof)])
         responder._handle_datagram(find, ("192.0.2.10", ccp.DEVICE_PORT))
+        self.assertEqual([ccp.parse_datagram(call.args[0])[0] for call in listener.sendto.call_args_list], ["READY"])
+        acknowledge_ready(responder, link_key, ("192.0.2.10", ccp.DEVICE_PORT))
         packets = [ccp.parse_datagram(call.args[0]) for call in listener.sendto.call_args_list]
         self.assertEqual([kind for kind, _ in packets], ["READY", "ACTIVITY", "TECH"])
         activity_fields, technical_fields = packets[1][1], packets[2][1]
@@ -591,6 +770,7 @@ class ChatActivityTests(unittest.TestCase):
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
                                    [("activity", "1"), ("proof", proof)])
         responder._handle_datagram(find, ("192.0.2.10", ccp.DEVICE_PORT))
+        acknowledge_ready(responder, link_key, ("192.0.2.10", ccp.DEVICE_PORT))
         raw, _ = listener.sendto.call_args.args
         kind, fields = ccp.parse_datagram(raw)
         self.assertEqual(kind, "ACTIVITY")
@@ -837,9 +1017,7 @@ class ResetTests(unittest.TestCase):
         state, listener = Mock(), Mock()
         state.pc_id = pc
         state.retained_keys.return_value = ccp.RetainedKeys(key, None)
-        source_activity = Mock()
-        source_activity.snapshot.return_value = {"chat": "0" * 64, "revision": "0" * 16,
-                                                  "phase": "none", "project": ""}
+        source_activity = ccp.ActivityStore()
         for operation in ccp.reset.ResetOperation:
             responder = ccp.CompanionResponder(state, listener, source_activity)
             responder._resets = self.store = ccp.reset.ResetRequests(lambda: self.now)
@@ -851,6 +1029,7 @@ class ResetTests(unittest.TestCase):
                                          ("proof", ccp.make_proof(key, "find-events-v2", *values, "0" * 32, "none"))])
             listener.sendto.reset_mock()
             responder._handle_datagram(find, self.endpoint)
+            acknowledge_ready(responder, key, self.endpoint)
             command, acknowledgement, _, ack_domain = ccp.reset.COMMANDS[operation]
             sent = [call.args[0] for call in listener.sendto.call_args_list]
             self.assertEqual(ccp.parse_datagram(sent[-1])[0], command)
@@ -880,6 +1059,7 @@ class ResetTests(unittest.TestCase):
             self.assertEqual(self.store.wait(identity)["state"], "accepted")
             before = len(listener.sendto.call_args_list)
             responder._handle_datagram(find, self.endpoint)
+            acknowledge_ready(responder, key, self.endpoint)
             self.assertFalse(any(ccp.parse_datagram(call.args[0])[0] == command
                                  for call in listener.sendto.call_args_list[before:]))
 
@@ -893,9 +1073,9 @@ class ResetTests(unittest.TestCase):
                 ccp.call_tool(service, name, {"device_id": self.device})
             service.state.public_status.assert_not_called()
         skill = (ROOT / "plugins/cody-codex-plugin/skills/cody-codex/SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("messaggio utente corrente", skill)
-        self.assertIn("resetta il device codice 043533477", skill)
-        self.assertIn("formatta cody 043533477", skill)
+        self.assertIn("current user", skill)
+        self.assertIn("ccp_reset_device", skill)
+        self.assertIn("ccp_factory_reset_device", skill)
         definitions = {item["name"]: item for item in ccp.tool_catalog()}
         self.assertFalse(definitions["ccp_reset_device"]["annotations"]["destructiveHint"])
         self.assertTrue(definitions["ccp_factory_reset_device"]["annotations"]["destructiveHint"])
@@ -939,6 +1119,7 @@ class InteractionTests(unittest.TestCase):
                 responder._handle_datagram(ccp.encode_datagram("FIND", altered + [("proof", proof)]), source)
         self.assertFalse(self.store._tickets[queued["request_id"]].published)
         responder._handle_datagram(ccp.encode_datagram("FIND", fields + [("proof", proof)]), source)
+        acknowledge_ready(responder, key, source)
         kind, event = ccp.parse_datagram(listener.sendto.call_args.args[0])
         self.assertEqual((kind, event["id"], event["state"], event["data"]),
                          ("EVENT", values[3], "unavailable", "-"))
@@ -946,6 +1127,7 @@ class InteractionTests(unittest.TestCase):
         fields = list(zip(("device", "pc", "nonce", "current", "state"), values))
         responder._handle_datagram(ccp.encode_datagram("FIND", fields + [("activity", "1"), ("events", "2"),
             ("proof", ccp.make_proof(key, "find-events-v2", *values))]), source)
+        acknowledge_ready(responder, key, source)
         self.assertEqual(ccp.parse_datagram(listener.sendto.call_args.args[0])[1]["id"], queued["request_id"])
 
     # self: Two sequential questions with a lost terminal packet/ACK and one active association.
@@ -1003,6 +1185,7 @@ class InteractionTests(unittest.TestCase):
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
             [("activity", "1"), ("events", "2"), ("current", "0" * 32), ("state", "none"), ("proof", ccp.make_proof(key, "find-events-v2", *values, "0" * 32, "none"))])
         responder._handle_datagram(find, source)
+        acknowledge_ready(responder, key, source)
         self.store.cancel(first["request_id"], first["capability"])
         second = self.store.enqueue(self.device, self.payload, "LAN", association_id=association)
         ack_values = values + [first["request_id"], "cancelled"]
@@ -1183,6 +1366,7 @@ class InteractionTests(unittest.TestCase):
             [("activity", "1"), ("events", "2"), ("current", "0" * 32), ("state", "none"), ("proof", ccp.make_proof(key, "find-events-v2", *values, "0" * 32, "none"))])
         source = ("192.0.2.10", ccp.DEVICE_PORT)
         responder._handle_datagram(find, source)
+        acknowledge_ready(responder, key, source)
         kind, event = ccp.parse_datagram(listener.sendto.call_args.args[0])
         self.assertEqual(kind, "EVENT")
         self.assertEqual(event["id"], created["request_id"])

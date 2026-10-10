@@ -24,6 +24,7 @@ import ccp_reset as reset
 import ccp_clock as clock
 import ccp_name as preferred_name
 import ccp_technical as technical_metadata
+from ccp_security import DatagramAdmission, RejectionReporter
 from ccp_windows import configure_exclusive_socket, protect_secret, unprotect_secret, runtime_directory
 
 
@@ -35,8 +36,13 @@ MAX_ACTIVITY_DATAGRAM_BYTES = 1024
 MAX_TECHNICAL_DATAGRAM_BYTES = 1024
 TECHNICAL_FIELDS = technical_metadata.FIELDS
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.2"
+SERVER_VERSION = "0.6.3"
 LIVENESS_TIMEOUT_SECONDS = 10.0
+CHALLENGE_TIMEOUT_SECONDS = 2.0
+MAX_DISCOVERY_OFFERS = 16
+MAX_DISCOVERY_OFFERS_PER_SOURCE = 4
+MAX_DISCOVERY_PACKETS = 128
+PAIRING_VERIFICATION_SECONDS = 2.0
 CODE_PATTERN = re.compile(r"^[A-HJ-NP-Z2-9]{6}$")
 HEX_PATTERNS = {
     "request": re.compile(r"^[0-9a-f]{16}$"),
@@ -47,6 +53,7 @@ HEX_PATTERNS = {
     "pc": re.compile(r"^[0-9a-f]{32}$"),
     "nonce": re.compile(r"^[0-9a-f]{32}$"),
     "proof": re.compile(r"^[0-9a-f]{64}$"),
+    "challenge": re.compile(r"^[0-9a-f]{32}$"),
 }
 
 
@@ -84,6 +91,8 @@ class CommitChallenge:
     pending_key: bytes | None
     source: tuple[str, int]
     observed_at: float
+    challenge: str
+    find_fields: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -538,7 +547,9 @@ class CompanionResponder:
         self._stop = threading.Event()
         self._socket = listener
         self._receive_error: OSError | None = None
-        self._commit_challenges: dict[str, CommitChallenge] = {}
+        self._admission = DatagramAdmission()
+        self._rejections = RejectionReporter()
+        self._commit_challenges: dict[tuple[str, str, int], CommitChallenge] = {}
         self._event_peers: dict[str, EventPeer] = {}
         self._event_lock = threading.Lock()
         self._resets = reset.ResetRequests()
@@ -571,6 +582,17 @@ class CompanionResponder:
         if not self._thread.is_alive():
             raise RuntimeError("CCP responder is not running")
 
+    # self: Sole responder preserving log failures in its structured failure state.
+    # operation: Static non-secret receive operation.
+    # reason: Bounded diagnostic cause; never credentials or incoming packet contents.
+    # Records original log I/O failures for require_running instead of losing the worker's cause.
+    def _report_rejection(self, operation: str, reason: str) -> None:
+        try:
+            self._rejections.reject(operation, reason)
+        except OSError as error:
+            self._receive_error = error
+            self._stop.set()
+
     # self: Sole socket worker receiving bounded FIND/COMMITTED/REPLY/RESETACK messages without MCP stdout output.
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -584,9 +606,12 @@ class CompanionResponder:
                     print(f"CCP UDP receive failed: {error}", file=sys.stderr, flush=True)
                 return
             try:
+                if not self._admission.admit(source[0]):
+                    self._report_rejection("UDP ingress", "packet budget exhausted")
+                    continue
                 self._handle_datagram(payload, source)
             except (OSError, RuntimeError, ValueError) as error:
-                print(f"CCP presence message rejected from {source[0]}: {error}", file=sys.stderr, flush=True)
+                self._report_rejection("presence message", str(error))
 
     # self: Authenticated responder; retained candidate keys are never promoted from FIND alone.
     # payload: Candidate CCP1 FIND, COMMITTED, REPLY or RESETACK datagram.
@@ -668,29 +693,38 @@ class CompanionResponder:
                 break
         if link_key is None:
             raise ValueError("CCP FIND proof does not match the retained identity")
-        proof = make_proof(
-            link_key, "ready", fields["device"], fields["pc"], fields["nonce"]
-        )
-        response = encode_datagram(
-            "READY",
-            [
-                ("device", fields["device"]),
-                ("pc", fields["pc"]),
-                ("nonce", fields["nonce"]),
-                ("proof", proof),
-            ],
-        )
-        self._socket.sendto(response, source)
-        # Only the newest authenticated challenge per retained identity is live.
-        # A strict cap also bounds memory if a user accumulates many associations.
+        # FIND is a request for a fresh endpoint-bound challenge, not proof of current presence.
         now = time.monotonic()
-        self._commit_challenges = {device: value for device, value in self._commit_challenges.items()
-                                   if 0 <= now - value.observed_at <= LIVENESS_TIMEOUT_SECONDS}
-        if len(self._commit_challenges) >= 128 and fields["device"] not in self._commit_challenges:
-            oldest = min(self._commit_challenges, key=lambda device: self._commit_challenges[device].observed_at)
-            del self._commit_challenges[oldest]
-        self._commit_challenges[fields["device"]] = CommitChallenge(
-            fields["nonce"], link_key, retained.pending, source, now)
+        self._commit_challenges = {identity: value for identity, value in self._commit_challenges.items()
+                                   if 0 <= now - value.observed_at <= CHALLENGE_TIMEOUT_SECONDS}
+        identity = (fields["device"], source[0], source[1])
+        challenge = self._commit_challenges.get(identity)
+        if challenge is None or challenge.nonce != fields["nonce"] or challenge.find_fields != fields:
+            if len(self._commit_challenges) >= 128 and identity not in self._commit_challenges:
+                raise ValueError("CCP endpoint challenge registry is full")
+            challenge = CommitChallenge(fields["nonce"], link_key, retained.pending, source, now,
+                                        secrets.token_hex(16), dict(fields))
+            self._commit_challenges[identity] = challenge
+        names = ("device", "pc", "nonce", "challenge", "address", "port")
+        values = [fields["device"], fields["pc"], fields["nonce"], challenge.challenge,
+                  source[0], str(source[1])]
+        response = encode_datagram("READY", list(zip(names, values))
+                                   + [("proof", make_proof(link_key, "ready-v2", *values))])
+        self._socket.sendto(response, source)
+
+    # self: Sole responder exposing current data only after fresh endpoint proof of possession.
+    # challenge: One consumed READY challenge containing the verified original FIND capabilities.
+    # Raises OSError, RuntimeError or ValueError for projection, queue or send failures.
+    def _send_confirmed_projection(self, challenge: CommitChallenge) -> None:
+        fields = challenge.find_fields
+        source = challenge.source
+        link_key = challenge.key
+        retained = self._state.retained_keys(fields["device"])
+        with_events = "events" in fields
+        with_activity = "activity" in fields
+        with_description = with_activity and fields["activity"] in {"2", "3"}
+        with_technical = with_activity and fields["activity"] == "3"
+        now = time.monotonic()
         self._state.mark_seen(fields["device"], source[0])
         if with_activity:
             activity, technical = self._activity.snapshot_bundle()
@@ -958,27 +992,31 @@ class CompanionResponder:
                                  + [("status", status), ("proof", proof)])
         self._socket.sendto(payload, source)
 
-    # self: Responder owning the bounded, transient challenge cache.
-    # fields: Exact nonce-bound device acknowledgement after durable active commit.
-    # source: Must equal the authenticated FIND source, including its UDP port.
-    # Raises ValueError for stale/forged/ambiguous confirmation, or RuntimeError for persistence failure.
+    # self: Responder consuming fresh broker challenges before exposing current state.
+    # fields: Exact signed endpoint-bound acknowledgement after durable active commit.
+    # source: Must equal the original FIND source, including its UDP port.
+    # Raises ValueError for replay, endpoint or proof failure; RuntimeError for persistence failure.
     def _accept_committed(self, fields: dict[str, str], source: tuple[str, int]) -> None:
-        if set(fields) != {"device", "pc", "nonce", "proof"}:
+        names = ("device", "pc", "nonce", "challenge", "address", "port")
+        if set(fields) != {*names, "proof"}:
             raise ValueError("CCP COMMITTED has unexpected or missing fields")
-        for name in fields:
+        for name in ("device", "pc", "nonce", "challenge", "proof"):
             if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
                 raise ValueError(f"CCP COMMITTED field {name!r} is malformed")
-        challenge = self._commit_challenges.get(fields["device"])
-        if (fields["pc"] != self._state.pc_id or challenge is None or source != challenge.source or
-                fields["nonce"] != challenge.nonce or
-                not 0 <= time.monotonic() - challenge.observed_at <= LIVENESS_TIMEOUT_SECONDS):
-            raise ValueError("CCP COMMITTED does not match a recent authenticated FIND")
-        expected = make_proof(challenge.key, "committed", fields["device"], fields["pc"], fields["nonce"])
+        identity = (fields["device"], source[0], source[1])
+        challenge = self._commit_challenges.get(identity)
+        if (fields["pc"] != self._state.pc_id or challenge is None
+                or fields["nonce"] != challenge.nonce or fields["challenge"] != challenge.challenge
+                or fields["address"] != source[0] or fields["port"] != str(source[1])
+                or not 0 <= time.monotonic() - challenge.observed_at <= CHALLENGE_TIMEOUT_SECONDS):
+            raise ValueError("CCP COMMITTED does not match a fresh endpoint challenge")
+        expected = make_proof(challenge.key, "committed-v2", *(fields[name] for name in names))
         if not hmac.compare_digest(expected, fields["proof"]):
             raise ValueError("CCP COMMITTED proof is invalid")
+        # Consume before persistence or outgoing effects; a failure waits for the next fresh FIND.
+        del self._commit_challenges[identity]
         self._state.confirm_device_choice(fields["device"], challenge.key, challenge.pending_key)
-        # Remove only after persistence succeeds; the next READY also requests a new proof.
-        self._commit_challenges.pop(fields["device"], None)
+        self._send_confirmed_projection(challenge)
 
 
 class CcpService:
@@ -1097,7 +1135,7 @@ class CcpService:
     # self: Service replacing its current, non-secret discovery cache.
     # timeout_ms: Bounded LAN collection window requested by the MCP caller.
     # include_simulator: Explicitly admit the separately labelled loopback simulator.
-    # Raises ValueError or OSError for invalid bounds or socket failures.
+    # Raises ValueError or OSError for invalid bounds, exhausted budgets or socket failures.
     def discover(self, timeout_ms: int, include_simulator: bool = False) -> list[Offer]:
         if timeout_ms < 250 or timeout_ms > 3000:
             raise ValueError("timeout_ms must be between 250 and 3000")
@@ -1106,6 +1144,11 @@ class CcpService:
         request_id = secrets.token_hex(8)
         query = encode_datagram("DISCOVER", [("request", request_id)])
         found: dict[tuple[str, str], Offer] = {}
+        source_offers: dict[str, int] = {}
+        received_packets = 0
+        # A rejected discovery must not leave older offers looking like its successful result.
+        with self._offers_lock:
+            self._offers = {}
         deadline = time.monotonic() + timeout_ms / 1000.0
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as transport:
             transport.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -1119,6 +1162,9 @@ class CcpService:
                     payload, source = transport.recvfrom(MAX_DATAGRAM_BYTES + 1)
                 except socket.timeout:
                     continue
+                received_packets += 1
+                if received_packets > MAX_DISCOVERY_PACKETS:
+                    raise ValueError("CCP discovery packet budget exhausted; discovery result discarded")
                 if observation_source(source[0]) == "SIMULATED" and not include_simulator:
                     continue
                 try:
@@ -1128,18 +1174,38 @@ class CcpService:
                     offer = offer_from_fields(fields, source[0], request_id)
                 except ValueError:
                     continue
-                found[(offer.device_id, offer.session_id)] = offer
+                identity = (offer.device_id, offer.session_id)
+                existing = found.get(identity)
+                if existing is not None:
+                    if (existing.address != offer.address or existing.salt != offer.salt
+                            or existing.tag != offer.tag):
+                        raise ValueError("CCP discovery identity is ambiguous; discovery result discarded")
+                    continue
+                if (len(found) >= MAX_DISCOVERY_OFFERS
+                        or source_offers.get(offer.address, 0) >= MAX_DISCOVERY_OFFERS_PER_SOURCE):
+                    raise ValueError("CCP discovery offer budget exhausted; discovery result discarded")
+                found[identity] = offer
+                source_offers[offer.address] = source_offers.get(offer.address, 0) + 1
         with self._offers_lock:
             self._offers = found
         return sorted(found.values(), key=lambda value: (value.device_id, value.address))
 
+    # self: Pairing owner bounding candidate verification before persistence.
     # code: Six-character value supplied from the selected physical or explicitly simulated display.
     # offers: Bounded offers from one discovery window.
     # Returns every cryptographically matching offer and its derived verifier.
+    # Raises ValueError for oversized input or expired local verification budget.
     def _matching_offers(self, code: str, offers: list[Offer]) -> list[tuple[Offer, bytes]]:
+        if len(offers) > MAX_DISCOVERY_OFFERS:
+            raise ValueError("CCP pairing offer budget exceeded")
+        deadline = time.monotonic() + PAIRING_VERIFICATION_SECONDS
         matches: list[tuple[Offer, bytes]] = []
         for offer in offers:
+            if time.monotonic() >= deadline:
+                raise ValueError("CCP pairing verification budget exhausted; no association staged")
             verifier = derive_verifier(code, offer.salt)
+            if time.monotonic() >= deadline:
+                raise ValueError("CCP pairing verification budget exhausted; no association staged")
             expected = make_proof(
                 verifier,
                 "offer",

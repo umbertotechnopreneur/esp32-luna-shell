@@ -1,17 +1,36 @@
 # CCP - Cody's Codex Plugin
 
-Ho chiamato questo pezzo **CCP**: collego Cody a Codex dalla stessa LAN, con un
-piccolo omaggio nel nome e senza chiedere alla nuvola di diventare un server.
-Uso Python standard su Windows, MCP locale per Codex e CCP1 per il dispositivo.
-Mi bastano Wi-Fi e IP sulla LAN: l'accesso a Internet non decide il pairing.
+**CCP** connects Cody to Codex over the local LAN. The Windows Python service
+uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
+for pairing; public Internet availability is a separate condition.
 
-CCP 0.6.2 richiede il firmware con EVENTACK e FIND `events=2`: prima di mostrare una seconda
-domanda attendo la chiusura autenticata della prima sul dispositivo. La conferma
-dell'agent e quella di Cody restano distinte; i dettagli sono nel
-[contratto CCP1](protocol/CCP1.md). Questo checkpoint aggiorna i sorgenti;
-l'installazione del pacchetto e il caricamento del firmware sono operazioni separate.
-Il FIND dichiara anche la domanda corrente autenticata: dopo il riavvio del
-broker ritiro quella non piu' disponibile prima di inviare una nuova domanda.
+CCP 0.6.3 and its firmware must be updated together. Signed READY now carries a
+fresh broker challenge and the observed device endpoint. Cody validates that
+endpoint and returns the matching COMMITTED proof before the broker admits
+presence, routes events or returns current activity/technical data. Earlier
+READY/COMMITTED formats are rejected. This source checkpoint does not install
+the plugin or flash the device.
+
+Question closure still requires EVENTACK and FIND `events=2`: recipient delivery
+and device closure are distinct confirmations. A current question reported after
+broker restart is retired before a new one is offered. See the
+[CCP1 contract](protocol/CCP1.md) and the consolidated
+[Connection Atlas](../../docs/Cody/cody-ccp-connection-atlas-v1.pdf).
+
+## Security scope
+
+Unauthenticated work has bounded ingress, firmware receive passes, PC discovery
+and pairing verification budgets. Rejected traffic is summarized and broker
+logs rotate. These limits protect finite resources; their tuning and the new
+handshake still require separately authorized runtime/device verification.
+The separate startup-only runtime.log still appends across launches; UDP
+rejection traffic cannot grow it. Multi-process bootstrap logging is deferred.
+
+The six-character pairing code remains susceptible to offline guessing from a
+captured transcript, and CCP payloads remain authenticated but unencrypted.
+Standard PAKE or a high-entropy QR secret plus authenticated encryption is
+deferred. This change does not claim confidentiality or protection against a
+compromised local computer.
 
 `mcp/ccp_windows.py` possiede DPAPI, percorsi utente, esclusivita' Winsock e
 avvio nascosto. Trasporto e broker mantengono il formato delle chiavi salvate.
