@@ -6,6 +6,7 @@
 namespace Presentation = CODY::event_presentation;
 
 // No parameters: regression scenarios use the actual shared firmware presentation model.
+// Exception: Assertion failure identifies a broken semantic action, geometry or delivery contract.
 void verify_shared_event_presentation()
 {
     LUNASHELL::CodexEventSnapshot event{};
@@ -45,7 +46,8 @@ void verify_shared_event_presentation()
     CODY2D::TextLine second;
     assert(Presentation::prepare_control(plan.actions[2], CODY::SceneData::body_font, control, second) == ESP_OK);
     assert(control.icon == CODY2D::ActionIcon::Link && control.top_color == plan.actions[2].colors[0]);
-    assert(control.icon_center.y == 406);
+    // The 25-pixel caption rounds its shared icon center one pixel above the even capsule center.
+    assert(control.icon_center.y == 401);
     assert(!Presentation::hit_back(plan, false, 40, 233));
     assert(Presentation::hit_back(plan, true, 40, 233));
     assert(!Presentation::hit_back(plan, true, 10, 203));
@@ -56,8 +58,9 @@ void verify_shared_event_presentation()
     assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK);
     assert(plan.actions[0].id == Presentation::ActionId::Send && !plan.actions[0].enabled);
     assert(Presentation::prepare_control(plan.actions[0], CODY::SceneData::body_font, control, second) == ESP_OK);
-    assert(control.icon == CODY2D::ActionIcon::Link && control.top_color == 0x6002);
-    assert(!control.enabled && control.bounds.y == 352 && control.icon_center.y == 394);
+    assert(plan.actions[0].tone == LUNASHELL::CodexChoiceTone::Negative);
+    assert(control.icon == CODY2D::ActionIcon::Link && control.top_color == 0x28A4);
+    assert(!control.enabled && control.bounds.y == 352 && control.icon_center.y == 387);
     assert(Presentation::activate(event, context, plan.actions[0], navigation, effect) == ESP_ERR_INVALID_STATE);
     context.online = true;
     assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK);

@@ -168,6 +168,13 @@ esp_err_t DeviceSnapshotService::readCodexEventObservation(CodexEventSnapshot &)
     unexpected_owner(__func__);
 }
 
+// Unnamed observation: No technical telemetry is acquired by an event-only layout fixture.
+// Exception: Aborts instead of publishing a fabricated companion observation.
+esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObservation &) const
+{
+    unexpected_owner(__func__);
+}
+
 // Unnamed operation: No look persistence observation is published.
 // Exception: Aborts instead of changing the canonical snapshot.
 esp_err_t DeviceSnapshotService::reportCharacterLookSave(const CharacterLookSaveSnapshot &)
