@@ -19,10 +19,9 @@ addenda ne abbiamo gia' una discreta collezione.
 | Formato e autenticazione dei messaggi LAN | [Protocollo CCP1](../plugins/cody-codex-plugin/protocol/CCP1.md) |
 | Preview Windows e pairing CCP simulato | [Cody Studio](../simulator/windows/README.md) |
 
-Mantengo cinque PDF con responsabilita' diverse. Aggiorno le pagine principali
-quando cambia il flow; conservo in fondo gli addenda precedenti e aggiungo sempre
-la pagina datata **Errata and corrections**. Per orientarmi uso gli screen ID,
-non il numero stampato della pagina.
+I maintain six PDFs with distinct responsibilities. When a flow changes, I update
+the main pages, preserve earlier addenda and append a dated **Errata and corrections**
+page. Screen IDs identify routes independently of physical PDF page numbers.
 
 | PDF | A cosa mi serve |
 | --- | --- |
@@ -31,6 +30,15 @@ non il numero stampato della pagina.
 | [Pairing Quickstart](Cody/cody-ccp-pairing-quickstart-a5-v1.pdf) | Installazione e collegamento dal PC, in formato A5 |
 | [CCP Service Atlas](Cody/cody-ccp-service-atlas-v1.pdf) | Owner, protocollo, persistenza e limiti delle prove |
 | [Codex Connection Atlas](Cody/cody-codex-connection-atlas-v1.pdf) | Esperienza dal codice iniziale al recupero del PC e della chat |
+| [Manga Status Atlas](Cody/cody-manga-status-atlas-v1.pdf) | Expressive cues, artwork and boot identity |
+
+The 10 October 2026 screen revision updates affected current pages in all six
+PDFs for boot, Wi-Fi pairing, Codex connection and preferences. Each document
+ends with three topic addenda and a dated **Errata and corrections** page naming
+the affected original pages and screen IDs. Earlier addenda and unrelated pages
+remain intact. Screen drawings are static documentation schematics, not device
+captures. Reauthor through `scripts/device.ps1 generate -Generator cody-screen-revision`;
+`-ToolArguments --redraft` requires the recorded draft and protected originals.
 
 Tengo i vecchi [appunti sul pairing](planning/2026-10-03-pairing-atlas-addendum.md)
 e [sull'aspetto](planning/2026-10-04-cody-look-atlas-addendum.md) come storico.

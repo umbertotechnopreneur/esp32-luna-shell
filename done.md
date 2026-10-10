@@ -7,6 +7,26 @@ Older `artifacts/` paths may be historical references only: the complete cleanup
 requested on 2026-10-05 removed that unversioned evidence. New results identify
 the preserved copies within the build directory.
 
+## Cody documentation screen revision - 2026-10-10
+
+- Revised 22 affected current pages across all six Cody PDFs for cold-boot
+  branding, Wi-Fi provisioning, retained Codex pairing, Setup and preferences.
+  Added three topic addenda and a final dated **Errata and corrections** page
+  to each PDF, with original page and screen references. Earlier addenda,
+  errata, unrelated pages, source dimensions and bookmarks are retained.
+- Current page replacements: Navigation 2/3/4/12; Planning 4/5/6/7/8;
+  A5 Quickstart 1/2; CCP Service 3/4/6; Codex Connection 2/3/4/6/7/8/12;
+  Manga Status 2. Final lengths: 50/50/25/32/36/31 pages respectively.
+- Added the public `cody-screen-revision` generator with protected originals,
+  draft hash checks, preserved draft history and staged authoring of all six
+  outputs. Static diagrams use source layout and the original boot artwork;
+  they are explicitly illustrative, not firmware or simulator captures.
+- Document QA: all 46 changed/added pages rendered through Poppler and visually
+  reviewed. All 178 retained pages have unchanged decoded content and text.
+  Originals, manifest and renders reside in
+  `artifacts/docs/cody-screens-20261010/`. This is document review only; no
+  firmware build, simulator, tests, validation scans or hardware operations ran.
+
 ## Cody boot PCM alignment fix - 2026-10-10
 
 - The user reported a black screen after the firmware upload. The explicitly
