@@ -22,8 +22,23 @@ the preserved copies within the build directory.
   both PCM files as object dependencies. Rejected views log their real bounds.
 - Initial failure evidence: `artifacts/build-cody-companion-wake-word-debug/
   diagnostics/20261010-black-screen.log` and `20261010-black-screen.map`.
-  Source review is complete; corrected-image upload and startup evidence are
-  tracked separately in TODO.md. No test suites or validation scans executed.
+  Source checkpoint: `ab98f2c`, directly on main, preserving concurrent branding.
+- Corrected Debug/wake-word image `cody-67-gab98f2c1-dirty` compiled and flashed
+  successfully on COM10; all four image hashes verified and normal reset issued.
+  Application: 6,881,200 bytes, SHA256
+  `3125e9d8f23fc381eef0526f5b0d133099e920802d916ffd36dd02da78106629`.
+  Matching PCM start addresses are now `0x3c6179fe` and `0x3c619900`.
+- The separately authorized 30-second reset/boot capture reached the native
+  renderer (3473 ms), Ready frame (4229 ms), VibeWare cycle retirement (8507 ms)
+  and returning-device welcome (14036 ms). One boot was recorded; no panic,
+  abort or repeated boot occurred within the capture. The companion worker's
+  observed minimum free stack was 3648/12288 bytes during this window; this
+  does not cover every route or deepest compiled call chain.
+- The boot still reports optional SD mount timeouts and a missing `ccp_pending`
+  NVS key. These remain visible and did not prevent observed renderer startup.
+  Physical appearance/touch remains uninspected; no test suites or validation
+  scans executed. Additional logs in the same diagnostics directory:
+  `20261010-aligned-flash.log` and `20261010-aligned-boot.log`.
 
 ## Requested Cody firmware upload - 2026-10-10
 

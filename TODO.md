@@ -7,9 +7,15 @@
 - [x] Identify odd PCM start addresses in the matching linked image and replace
   byte-aligned binary embedding with per-asset two-byte-aligned assembly.
   Preserve the original PCM bytes, end bounds and runtime rejection behavior.
-- [ ] Rebuild and upload the corrected firmware under the existing upload request.
-- [ ] Capture a new boot only after explicit authorization of the exact command;
-  startup recovery and physical UI remain unverified until observed.
+- [x] Rebuild and upload corrected image `cody-67-gab98f2c1-dirty` on COM10;
+  esptool verified all four images and reset the target.
+- [x] Capture the explicitly authorized new boot for 30 seconds. Renderer startup,
+  Ready frame, boot-cycle retirement and returning-device welcome were observed;
+  no panic or repeated boot appeared during this capture.
+- [ ] Inspect physical appearance/touch separately; serial frame retirement does
+  not attest the user's observed display or all routes.
+- [ ] Follow up the SD mount timeouts and missing `ccp_pending` key observed in
+  this boot without treating them as the fixed PCM startup failure.
 
 ## Native UI polish and Cody boot identity - 2026-10-10
 
