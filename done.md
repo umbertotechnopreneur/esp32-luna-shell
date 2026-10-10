@@ -7,6 +7,20 @@ Conservo la storia in Git e nei documenti di architettura. I vecchi percorsi
 richiesta il 2026-10-05 ha rimosso quelle prove non versionate. Per i nuovi
 risultati indico sotto le copie preservate dentro la directory del build.
 
+## Integrazione in main e chiusura del worktree - 2026-10-10
+
+- Ho portato in `main` tutti i checkpoint di `codex/cody-onboarding` fino a
+  `80c49ddd`, compresi rig, viste Debug e moduli C++ condivisi con Cody Studio.
+  Ho controllato anche gli ultimi due file UI segnalati come modificati:
+  dopo la normalizzazione Git il loro contenuto coincide con quello salvato.
+- Ho riallineato il catalogo locale CCP a `E:\ESP32 Luna Shell` e rimosso
+  il worktree `E:\Cody-Notifications` insieme alla sua cartella. Ho conservato
+  le 22 prove diagnostiche, con copie identiche, negli artifacts del repository
+  principale. Il checkout attivo e ora `main`.
+- Le prove firmware registrate sotto restano riferite a `e3f72b3c`. In questo
+  passaggio ho integrato i sorgenti e chiuso il worktree; build e installazione
+  del nuovo insieme di sorgenti mantengono le verifiche aperte in TODO.md.
+
 ## Notifiche, decisioni e comandi di manutenzione - 2026-10-10
 
 - Ho salvato il trasporto firmware in `a1a2d356` e l'integrazione completa in
@@ -43,8 +57,9 @@ risultati indico sotto le copie preservate dentro la directory del build.
   Ho completato size; ELF SHA-256:
   `475d53e915df60a47d1e878677695a1e227e99f3c9ddd6cb231918e10c488d84`.
 - Ho installato CCP 0.6.0 dalla copia isolata, verificando 13 file del pacchetto
-  e conservando gli archivi del pairing e DPAPI. Il catalogo locale punta a
-  quella copia. Il client pubblico diagnostico vede il Cody fisico autenticato;
+  e conservando gli archivi del pairing e DPAPI. Durante quella prova il catalogo
+  locale puntava alla copia isolata; ora usa il repository principale. Il client
+  pubblico diagnostico vede il Cody fisico autenticato;
   il trasporto MCP della chat corrente restituisce ancora Transport closed.
   Non ho osservato hook reali o inventato una chat per aggirare questa assenza.
 - Ho completato con exit 0 la cattura COM10 di 300 secondi dopo reset
