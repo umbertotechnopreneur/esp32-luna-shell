@@ -75,7 +75,14 @@ struct ImuSnapshot : ComponentSnapshot {
     float calibration_gyro_max_span_dps = 0.0F;
     float acceleration_bias_mps2[3] = {};
     float angular_velocity_bias_dps[3] = {};
+    // Same measured acceleration before software smoothing, with the admitted bias applied.
+    // Consumers also require current canonical IMU validity and the matching success timestamp.
+    float gesture_acceleration_mps2[3] = {};
+    bool gesture_acceleration_valid = false;
+    int64_t gesture_sampled_at_us = 0;
 };
+static_assert(sizeof(ImuSnapshot) <= 152,
+    "Review acquisition and nested observation stack budgets before growing IMU data");
 
 struct RtcSnapshot : ComponentSnapshot {
     ComponentSnapshot system_time;

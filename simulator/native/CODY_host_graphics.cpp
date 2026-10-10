@@ -317,7 +317,10 @@ CODY_HOST_EXPORT int cody_host_draw(void *handle, uint16_t *pixels, uint32_t cap
         const uint16_t height = std::min<uint16_t>(16, 466 - first);
         CODY2D::Surface strip{pixels + first * 466U, 466, height, 466, uint32_t(height) * 466U};
         if (frame.companion_panel.valid) {
-            esp_err_t panel_error = CODY2D::clear(strip, 0);
+            // Details retain the same live native character beneath the transparent text layer.
+            esp_err_t panel_error = CODY::draw_rig_rows(frame.rig, strip, first, false,
+                CODY::kNoPoint, nullptr, paused, 0, nullptr, false, 0, background,
+                CODY::RigControlState::Idle, nullptr);
             if (panel_error == ESP_OK) {
                 panel_error = CODY::draw_companion_panel_rows(frame.companion_panel, strip, first, 0);
             }
@@ -378,6 +381,18 @@ CODY_HOST_EXPORT int cody_host_panel_next(uint8_t current, uint8_t *next)
     const esp_err_t error = CODY::next_companion_panel(static_cast<CODY::CompanionPanel>(current), selected);
     if (error == ESP_OK) { *next = static_cast<uint8_t>(selected); }
     return host_result("panel_next", error);
+}
+
+// transform: Receives the shared passive-panel logical x/y/scale, in that order.
+// Exception: Returns invalid argument for a missing destination.
+CODY_HOST_EXPORT int cody_host_panel_transform(float *transform)
+{
+    if (!transform) { return host_result("panel_transform", ESP_ERR_INVALID_ARG); }
+    const auto &placement = CODY::kCompanionPanelCharacterTransform;
+    transform[0] = placement.x;
+    transform[1] = placement.y;
+    transform[2] = placement.scale;
+    return ESP_OK;
 }
 
 // handle: Native scene retaining stable technical captions until raster retirement.

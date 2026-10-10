@@ -556,6 +556,33 @@ esp_err_t advance_local_companion_panel()
     return ESP_OK;
 }
 
+// now_us: Monotonic frame time used to exclude wake-causing movement.
+// resumed: Whether this frame resumes after a display park.
+// Exception: Returns the original canonical projection failure; animation stays frozen.
+esp_err_t observe_paused_companion_navigation(int64_t now_us, bool resumed)
+{
+    if (resumed) {
+        CODY::suspend_companion_shake(s_state.companion_shake, now_us);
+        CODY::cancel_companion_tap(s_state.companion_tap);
+    }
+    const bool eligible = companion_home_route_active();
+    if (!eligible) {
+        CODY::suspend_companion_shake(s_state.companion_shake, now_us);
+        return ESP_OK;
+    }
+    // A bounded canonical projection keeps navigation independent of the artistic Play/Pause clock.
+    CODY::ResponseInputs inputs{};
+    const esp_err_t error = CODY::observe_response_inputs(inputs);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (CODY::observe_companion_shake(s_state.companion_shake, inputs.navigation_motion,
+            esp_timer_get_time(), eligible)) {
+        select_companion_panel(CODY::CompanionPanel::Home);
+    }
+    return ESP_OK;
+}
+
 // rig_visible: The current frame really renders the evaluated character.
 // Scene permission depends on semantic route/pose identity, independently of character size.
 CODY::PersonalityPresentation personality_presentation(bool rig_visible)
@@ -1929,7 +1956,7 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
         CODY::cancel_companion_tap(s_state.companion_tap);
     }
     const bool gesture_eligible = companion_home_route_active() || technical_panel_view_active();
-    if (CODY::observe_companion_shake(s_state.companion_shake, inputs.motion,
+    if (CODY::observe_companion_shake(s_state.companion_shake, inputs.navigation_motion,
             esp_timer_get_time(), gesture_eligible)) {
         // Home consumes a deliberate shake without changing chats or remote state.
         select_companion_panel(CODY::CompanionPanel::Home);
@@ -1995,6 +2022,10 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
         if (scene_error != ESP_OK) {
             return scene_error;
         }
+    }
+    const bool panel_artwork = technical_panel_view_active();
+    if (panel_artwork) {
+        base_transform = CODY::kCompanionPanelCharacterTransform;
     }
     if (CODY::lifecycle_is_resting(next_lifecycle) && !s_state.expression_override &&
         next_connection_cue != CODY::PersonalityCue::None) {
@@ -2079,6 +2110,10 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     );
     if (composition_error != ESP_OK) {
         return composition_error;
+    }
+    if (panel_artwork) {
+        // Keep the small character in its reserved slot while its face and contour remain alive.
+        response_frame.transform = CODY::kCompanionPanelCharacterTransform;
     }
     CODY::ContourState next_contour{};
     const esp_err_t contour_error = CODY::advance_contour(
@@ -2216,7 +2251,9 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
     }
 
     // Let late frames go. Schedule from this frame's real timestamp.
-    const uint32_t period_ms = s_state.animation_paused ? kPausedReadoutPeriodMs : kRigFramePeriodMs;
+    const bool paused_navigation = s_state.animation_paused && companion_home_route_active();
+    const uint32_t period_ms = s_state.animation_paused && !paused_navigation
+        ? kPausedReadoutPeriodMs : kRigFramePeriodMs;
     s_state.next_frame_us = timings.started_us + period_ms * 1000LL;
     if (s_state.raster_benchmark_active) {
         const CODY::FrameCosts measured{
@@ -2590,6 +2627,13 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     // A paused redraw has no active animation interval, even after a long wall-clock gap.
     s_state.personality_delta_us = 0;
     if (s_state.rig_visible) {
+        if (s_state.animation_paused) {
+            const esp_err_t navigation_error = observe_paused_companion_navigation(timings.started_us, resume_animation);
+            if (navigation_error != ESP_OK) {
+                return frame.finish({navigation_error, false, 0});
+            }
+            frame_technical = technical_panel_view_active();
+        }
         if (resume_animation) {
             s_state.frame_rate = {};
             s_benchmark.reset();
@@ -2616,12 +2660,33 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             geometry_error = evaluate_companion_geometry(timings.started_us, resume_animation);
         } else if (!s_resources.rig->valid) {
             geometry_error = ESP_ERR_INVALID_STATE;
+        } else if (s_cached_companion_panel != (frame_technical
+                       ? s_state.companion_panel : CODY::CompanionPanel::Home)) {
+            // A passive page change repositions a paused pose without advancing its expression.
+            CODY::Transform placement = CODY::kCompanionPanelCharacterTransform;
+            if (!frame_technical) {
+                geometry_error = s_state.scene.valid
+                    ? CODY::scene_cloud_transform(s_state.scene, placement) : ESP_OK;
+                if (!s_state.scene.valid) {
+                    placement = CODY::Data::placement;
+                }
+            }
+            if (geometry_error == ESP_OK) {
+                geometry_error = CODY::evaluate_rig(s_state.response_frame.face, placement,
+                    *s_resources.rig, &s_state.contour, s_state.face_follows_body);
+            }
+            if (geometry_error == ESP_OK) {
+                s_state.response_frame.transform = placement;
+            }
         } else if (s_state.scene.valid && (!s_cached_scene.valid ||
                    s_cached_scene.definition != s_state.scene.definition)) {
             // Navigation may change layout while animation is paused. Reposition
             // the saved face/contour without advancing time or sampling sensors.
             CODY::Transform placement;
             geometry_error = CODY::scene_cloud_transform(s_state.scene, placement);
+            if (frame_technical) {
+                placement = CODY::kCompanionPanelCharacterTransform;
+            }
             if (geometry_error == ESP_OK) {
                 geometry_error = CODY::evaluate_rig(s_state.response_frame.face, placement,
                     *s_resources.rig, &s_state.contour, s_state.face_follows_body);
@@ -2948,8 +3013,11 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     if (!reuse_previous || presentation.boot_bitmap_visible || screenshot_capture_active) {
         plan_error = CODY::include_damage(dirty_plan, {0, 0, kPanelWidth, kPanelHeight});
     } else if (frame_technical) {
-        if (s_cached_panel_revision != s_state.technical_panel.revision) {
-            plan_error = CODY::include_damage(dirty_plan, {73, 73, 393, 393});
+        // The detail layer is transparent; keep the character's old and new pixels in damage.
+        plan_error = CODY::plan_rig_damage(*s_resources.previous_rig, *s_resources.rig,
+            false, false, CODY::kNoPoint, CODY::kNoPoint, dirty_plan);
+        if (plan_error == ESP_OK && s_cached_panel_revision != s_state.technical_panel.revision) {
+            plan_error = CODY::include_damage(dirty_plan, CODY::kCompanionPanelContentBounds);
         }
         if (plan_error == ESP_OK &&
             (s_cached_navigation_opacity != navigation_opacity ||
@@ -3092,7 +3160,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             };
             const int64_t raster_started_us = esp_timer_get_time();
             if (frame_was_rig) {
-                result = (frame_channel_list || frame_technical) ? CODY2D::clear(strip, scene_background) : CODY::draw_rig_rows(
+                result = frame_channel_list ? CODY2D::clear(strip, scene_background) : CODY::draw_rig_rows(
                     *s_resources.rig, strip, damage.top, frame_debug, s_state.selected_point,
                     kExecutionTimingsEnabled ? &timings.raster_profile : nullptr,
                     s_state.animation_paused, damage.left,
@@ -4376,7 +4444,7 @@ void companion_worker(void *context)
         uint32_t wait_ms = kSamplePeriodMs;
         if (parked) {
             wait_ms = kStandbySamplePeriodMs;
-        } else if (s_state.animation_paused && !kRenderDiagnosticsEnabled) {
+        } else if (s_state.animation_paused && !kRenderDiagnosticsEnabled && !companion_home_route_active()) {
             wait_ms = kSamplePeriodMs;
         } else if (s_state.rig_visible) {
             wait_ms = remaining_us > 0 ?
@@ -4470,7 +4538,8 @@ void companion_worker(void *context)
         // The cue owner bounds this canonical-only check; terminal requests do no work.
         CODY_boot_cues_observe_pending();
         const uint32_t revision = LUNASHELL_display_runtime_content_revision();
-        const bool paused_release_frame = s_state.animation_paused && !kRenderDiagnosticsEnabled;
+        const bool paused_release_frame = s_state.animation_paused && !kRenderDiagnosticsEnabled &&
+            !companion_home_route_active();
         if (!parked && s_state.rig_visible &&
             (paused_release_frame || esp_timer_get_time() < s_state.next_frame_us) &&
             !s_state.frame_dirty.load(std::memory_order_acquire) &&

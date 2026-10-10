@@ -373,6 +373,7 @@ void publish_imu_profile_failure(esp_err_t error, int64_t attempted_at_us)
     const esp_err_t publication_error = update_snapshot(
         [error, attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
             mark_sample_failure(snapshot.imu, error, attempted_at_us);
+            snapshot.imu.gesture_acceleration_valid = false;
         }
     );
     log_snapshot_publication_failure(
@@ -446,6 +447,7 @@ esp_err_t init_imu(i2c_master_bus_handle_t bus)
     }
     update_snapshot([error](LUNASHELL::DeviceSnapshot &snapshot) {
         set_component(snapshot.imu, error == ESP_OK, error);
+        snapshot.imu.gesture_acceleration_valid = false;
     });
     if (!s_imu_ready) {
         s_imu_profile_valid = false;
@@ -458,6 +460,7 @@ esp_err_t init_imu(i2c_master_bus_handle_t bus)
     const esp_err_t error = ESP_ERR_NOT_SUPPORTED;
     update_snapshot([error](LUNASHELL::DeviceSnapshot &snapshot) {
         set_component(snapshot.imu, false, error);
+        snapshot.imu.gesture_acceleration_valid = false;
     });
     ESP_LOGI(TAG, "IMU: disabled by board hardware selection");
     return error;
@@ -502,6 +505,7 @@ esp_err_t calibrate_imu()
                                 LUNASHELL::DeviceSnapshot &snapshot
                             ) {
                 mark_sample_failure(snapshot.imu, error, attempted_at_us);
+                snapshot.imu.gesture_acceleration_valid = false;
                 mark_sample_failure(
                     snapshot.imu.calibration,
                     error,
@@ -670,6 +674,7 @@ esp_err_t sample_imu(
                 ESP_ERR_NOT_SUPPORTED,
                 attempted_at_us
             );
+            snapshot.imu.gesture_acceleration_valid = false;
             if (track_orientation) {
                 invalidate_orientation_sample(
                     snapshot, ESP_ERR_NOT_SUPPORTED, attempted_at_us
@@ -699,6 +704,7 @@ esp_err_t sample_imu(
                     ESP_ERR_INVALID_STATE,
                     attempted_at_us
                 );
+                snapshot.imu.gesture_acceleration_valid = false;
                 if (track_orientation) {
                     invalidate_orientation_sample(
                         snapshot, ESP_ERR_INVALID_STATE, attempted_at_us
@@ -740,6 +746,9 @@ esp_err_t sample_imu(
                 acceleration[axis] - (s_imu_calibrated ? s_accel_bias[axis] : 0.0F);
             const float angular_velocity_corrected =
                 angular_velocity[axis] - (s_imu_calibrated ? s_gyro_bias[axis] : 0.0F);
+            // Gestures retain the measured impulse from this acquisition; the EMA
+            // below remains the existing source for animation, power and fusion.
+            sample.gesture_acceleration_mps2[axis] = acceleration_corrected;
             if (!s_imu_filter_ready) {
                 s_accel_filtered[axis] = acceleration_corrected;
                 s_gyro_filtered[axis] = angular_velocity_corrected;
@@ -755,6 +764,8 @@ esp_err_t sample_imu(
             sample.angular_velocity_dps[axis] = s_gyro_filtered[axis];
         }
         s_imu_filter_ready = true;
+        sample.gesture_acceleration_valid = true;
+        sample.gesture_sampled_at_us = attempted_at_us;
         sample.temperature_c = data.temperature;
         if (track_orientation) {
             process_orientation_sample(data, attempted_at_us);
@@ -771,6 +782,7 @@ esp_err_t sample_imu(
                 LUNASHELL::DeviceSnapshot &snapshot
             ) {
                 mark_sample_failure(snapshot.imu, error, attempted_at_us);
+                snapshot.imu.gesture_acceleration_valid = false;
                 if (track_orientation) {
                     invalidate_orientation_sample(
                         snapshot, error, attempted_at_us

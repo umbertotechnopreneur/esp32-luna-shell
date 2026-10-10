@@ -165,6 +165,7 @@ class NativeRig:
             "activity_observe": (C.c_int, (P, C.c_uint8, C.c_char_p, C.c_bool, C.c_int64, C.POINTER(C.c_uint8), C.POINTER(C.c_int64))),
             "activity_pause": (C.c_int, (P,)),
             "panel_next": (C.c_int, (C.c_uint8, C.POINTER(C.c_uint8))),
+            "panel_transform": (C.c_int, (F,)),
             "panel_prepare": (C.c_int, (P, C.c_uint8, C.POINTER(NativePanelInputs), C.c_int64)),
             "panel_observation": (C.c_int, (P, C.c_uint8, C.POINTER(NativePanelObservation), C.c_int64)),
             "panel_tap": (C.c_int, (P, C.c_int16, C.c_int16, C.c_bool, C.c_bool, C.c_int64,
@@ -367,6 +368,13 @@ class NativeRig:
             raise ValueError("Technical panels require the typed native metadata projection")
         checked("panel_prepare", self.api.cody_host_panel_prepare(scene["_native_scene"].handle,
             panel, C.byref(inputs), elapsed_us))
+
+    # self: Shared native transport owner.
+    # Raises RuntimeError for the actual native layout boundary error.
+    def companion_panel_transform(self):
+        transform = (C.c_float * 3)()
+        checked("panel_transform", self.api.cody_host_panel_transform(transform))
+        return tuple(transform)
 
     # self: Shared native transport owner.
     # scene: Existing native frame retaining its canonical-shaped PC-only source scratch.

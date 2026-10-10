@@ -2,6 +2,15 @@
 
 ## Cody companion panels and genuine compaction - 2026-10-10
 
+- [x] Refine passive details with the live native character, four curated rows,
+  semantic hierarchy and omitted absent/unknown optional fields. Firmware and
+  Studio share artwork placement and transparent detail rasterization.
+- [x] Fix missed shake reversals without requiring a sampled zero crossing;
+  publish a measured gesture projection before IMU software smoothing while
+  retaining filtered animation/fusion inputs. Paused artwork retains navigation.
+- [ ] Build and inspect the refined panels and measured gesture projection on
+  the device; verify deliberate shake, walking rejection, missing metadata and
+  paused navigation. The current refinement has only static source review.
 - [x] Implement strict Desk/Away persistence and the existing Usage options row;
   share calmer native presentation with explicitly SIMULATED Studio previews.
 - [x] Preserve native approval priority during compaction, use truthful orphan
@@ -18,7 +27,8 @@
   rendering in native C++; keep owner buffers outside the rendering task stack.
 - [x] Add authenticated TECH metadata on the existing CCP transport, independent
   freshness and genuine PreCompact/PostCompact lifecycle admission. Hook model
-  provenance is explicit; unsupported effort and token metrics stay UNAVAILABLE.
+  provenance is explicit; unsupported effort and token metrics remain unavailable
+  in canonical state and are omitted from passive details.
 - [x] Finish eleven labelled SIMULATED scenarios and inspect a native Home frame.
   Technical-page visual inspection and physical navigation remain separate.
 - [x] Compile and flash the integrated Debug/wake-word image on COM10, then inspect

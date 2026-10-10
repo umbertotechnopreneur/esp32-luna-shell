@@ -130,19 +130,34 @@ a discontinuity, a control action, a caress or a long settings hold invalidates
 navigation. A view opens only after the acquired release; that contact never
 reaches controls on the new view. Eye reactions retain their existing action.
 
-Shake recognition consumes only distinct, fresh canonical IMU response samples.
+Shake recognition consumes only distinct, fresh canonical measured acceleration.
+The acquisition owner publishes a separate bias-corrected gesture projection
+before software smoothing, from the same successful read and original timestamp.
+Filtered animation/fusion inputs retain their existing smoothing. Current component
+health, gesture validity and timestamp agreement are required; there is no driver
+read or filtered-data fallback in the renderer.
 Three alternating acceleration peaks within 900 ms require a previously settled
 baseline; hysteresis, a 1.5-second cooldown and a new calm interval prevent replay.
+Strong opposing samples qualify even when the 100-ms acquisition cadence misses
+their intervening zero crossing. Sustained same-direction samples do not qualify.
 Wake suppresses navigation recognition for two seconds. Missing, stale or invalid
 IMU data cancels recognition. These initial thresholds require physical calibration;
 source review and serial startup do not establish gesture quality while walking.
+Pausing artistic animation does not pause passive navigation sampling.
 
 Technical panels share native formatting, numeric validity, page identities and
 raster with Studio. Panel content and its coherent canonical observation belong
 to the serialized PSRAM renderer state, not nested frame-stack copies. Technical
-labels and numbers bypass typewriter timing and its audio. A page transition
-clears the retired full composition; subsequent changes damage the panel viewport
-and independent status footprint. The base home route continues receiving events
+labels and numbers bypass typewriter timing and its audio. Every passive detail
+page retains Cody at logical (233, 115), scale 50, above a transparent content
+viewport beginning at y=170. At most four curated facts replace the old dense
+field list; unavailable or exact unknown placeholder values contribute no rows.
+Known STALE/INVALID states, genuine compaction and confirmed connection loss remain
+visible. A page with no model information offers one concise neutral explanation.
+An unmeasured context bar is omitted instead of suggesting a value.
+A page transition clears the retired full composition; subsequent changes damage
+the character's old/new artwork, detail viewport and independent status footprint.
+The base home route continues receiving events
 without forwarding panel touches to its hidden controls.
 
 | Metric | Actual source and meaning | Availability in this integration |
@@ -150,7 +165,7 @@ without forwarding panel touches to its hidden controls.
 | Hook model | Common hook metadata for the followed chat/turn; full bounded slug | Available when an admitted genuine hook includes it; labelled Hook model |
 | Reasoning effort | A per-turn authoritative field, not a global default | UNAVAILABLE: current documented hook schema does not provide it |
 | Current context used / capacity | Coherent current session occupancy and declared capacity | UNAVAILABLE: no supported observer of this desktop chat's App Server channel established |
-| Free context / percent / colored bar | Derived only from valid coherent used and positive capacity | Neutral bar and UNAVAILABLE until both source measurements exist |
+| Free context / percent / colored bar | Derived only from valid coherent used and positive capacity | Omitted until both source measurements exist; known stale/invalid remains explicit |
 | Session cumulative tokens | Distinct cumulative counters, excluding double-counted subcategories | UNAVAILABLE through the currently connected plugin transport |
 | Automatic compaction threshold | Explicit source threshold, distinct from capacity | UNAVAILABLE |
 | Turn elapsed | Host monotonic duration since genuine UserPromptSubmit, transported as a duration | Available only for the admitted observed turn; unobserved time is not operation work |
@@ -163,6 +178,8 @@ App Server uses its own stdio channel. The plugin MCP transport does not forward
 that channel. Starting another server, reading transcript text or guessing capacity
 from the model name would not establish this chat's telemetry and is not used.
 The missing supported observation channel is an explicit integration boundary.
+Unsupported optional fields remain unavailable internally and are hidden in the
+passive UI, rather than filling the page with unavailable labels.
 
 Compaction remains visible on Home and all panels. Ordinary tool phases cannot
 cancel it. A genuine completion may show Context refreshed while context counters

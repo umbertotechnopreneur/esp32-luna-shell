@@ -99,6 +99,8 @@ esp_err_t observe_response_inputs(ResponseInputs &inputs, LUNASHELL::ClockSnapsh
         }
     }
     result.motion.stamp = published_stamp(observation.imu, true);
+    result.navigation_motion.stamp = published_stamp(observation.imu,
+        observation.imu.gesture_acceleration_valid);
     result.power.stamp = published_stamp(observation.battery,
                                          observation.battery.battery_present && observation.battery.level_percent_valid);
     if (result.motion.stamp.health == SampleHealth::Current) {
@@ -106,6 +108,18 @@ esp_err_t observe_response_inputs(ResponseInputs &inputs, LUNASHELL::ClockSnapsh
         result.motion.acceleration_mps2[Axis::X] = observation.imu.acceleration_mps2[0];
         result.motion.acceleration_mps2[Axis::Y] = observation.imu.acceleration_mps2[1];
         result.motion.acceleration_mps2[Axis::Z] = observation.imu.acceleration_mps2[2];
+    }
+    if (result.navigation_motion.stamp.health == SampleHealth::Current) {
+        if (observation.imu.gesture_sampled_at_us != observation.imu.last_success_at_us) {
+            ESP_LOGE(kTag, "Navigation acceleration timestamp disagrees with its acquisition (%s)",
+                esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+        // Both projections belong to one successful read; navigation keeps its measured peaks.
+        result.navigation_motion.stamp.sampled_at_us = observation.imu.gesture_sampled_at_us;
+        result.navigation_motion.acceleration_mps2[Axis::X] = observation.imu.gesture_acceleration_mps2[0];
+        result.navigation_motion.acceleration_mps2[Axis::Y] = observation.imu.gesture_acceleration_mps2[1];
+        result.navigation_motion.acceleration_mps2[Axis::Z] = observation.imu.gesture_acceleration_mps2[2];
     }
     if (result.power.stamp.health == SampleHealth::Current) {
         result.power.level_percent = observation.battery.level_percent;

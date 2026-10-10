@@ -184,6 +184,7 @@ esp_err_t setField(DeviceSnapshot &snapshot, const char *path, const char *text)
     FIELD(battery.die_temperature_c) FIELD(battery.power_state) FIELD(battery.charger_phase)
     FIELD(imu.temperature_c) FIELD(imu.calibrated) FIELD(imu.calibration_stationary) FIELD(imu.calibration_samples)
     FIELD(imu.calibration_accel_max_span_mps2) FIELD(imu.calibration_gyro_max_span_dps)
+    FIELD(imu.gesture_acceleration_valid) FIELD(imu.gesture_sampled_at_us)
     FIELD(sensor_fusion.gravity_dominant) FIELD(sensor_fusion.stationary)
     FIELD(sensor_fusion.acceleration_magnitude_mps2) FIELD(sensor_fusion.angular_speed_dps)
     FIELD(distance.settings.sample_count) FIELD(distance.settings.reference_distance_mm) FIELD(distance.settings.sample_interval_ms)
@@ -261,6 +262,7 @@ esp_err_t setField(DeviceSnapshot &snapshot, const char *path, const char *text)
     for (std::size_t i = 0; i < 3; ++i) {
 #define VECTOR(member) std::snprintf(indexed, sizeof(indexed), #member ".%zu", i); if (std::strcmp(path, indexed) == 0) { return assign(snapshot.member[i], text); }
         VECTOR(imu.acceleration_mps2) VECTOR(imu.angular_velocity_dps)
+        VECTOR(imu.gesture_acceleration_mps2)
         VECTOR(imu.acceleration_bias_mps2) VECTOR(imu.angular_velocity_bias_dps)
 #undef VECTOR
     }

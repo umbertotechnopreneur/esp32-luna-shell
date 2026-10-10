@@ -9,6 +9,10 @@ namespace CODY {
 enum class CompanionPanel : uint8_t { Home = 0, Activity = 1, ModelContext = 2, SessionLink = 3 };
 enum class PanelValueState : uint8_t { Unavailable = 0, Current = 1, Stale = 2, Invalid = 3 };
 
+// Shared passive-detail artwork and transparent content layout; these are logical coordinates.
+inline constexpr Transform kCompanionPanelCharacterTransform{233.f, 115.f, 50.f};
+inline constexpr DamageRect kCompanionPanelContentBounds{73, 170, 393, 393};
+
 struct PanelMetric {
     uint64_t value = 0;
     PanelValueState state = PanelValueState::Unavailable;
@@ -82,7 +86,7 @@ esp_err_t next_companion_panel(CompanionPanel current, CompanionPanel &next);
 // font: Actual immutable native body font; technical text never uses typewriter timing.
 // active_time_us: Nonnegative active presentation time for an indeterminate compaction accent.
 // presentation: Serialized caption owner, retained in place until every frame retires.
-// content: Receives a full-safe-square direct compositor callback on successful preparation.
+// content: Receives a transparent detail callback below the reserved character artwork.
 // Exception: Returns the original metadata, metric or native font/layout error.
 esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &inputs,
     const CODY2D::MonoFont &font, int64_t active_time_us,
@@ -94,7 +98,7 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
 // font: Actual native body font retained by prepared glyph lines.
 // now_us: Local monotonic observation time; remote ages are durations, never remote clock values.
 // presentation: Serialized stable caption owner outside the rendering task stack.
-// content: Receives the direct native safe-square callback on success.
+// content: Receives the transparent native detail callback below the artwork on success.
 // Exception: Returns the real projection or native preparation error.
 esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
     const LUNASHELL::CodexLinkSnapshot &link, const LUNASHELL::CodexTechnicalSnapshot &technical,

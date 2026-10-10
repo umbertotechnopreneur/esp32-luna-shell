@@ -1603,28 +1603,30 @@ void check_technical_panel_owner_contract()
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
         link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK,
         "prepare same-chat technical packet gap without borrowing previous-turn data");
-    require(std::strstr(presentation.captions[0], "UNAVAILABLE") != nullptr &&
-            std::strcmp(presentation.captions[2], "Context: UNAVAILABLE") == 0 &&
+    require(std::strcmp(presentation.captions[0], "No model details yet") == 0 &&
+            presentation.line_count == 1 && !presentation.context_bar_visible &&
             presentation.bar_pixels == 0 && !presentation.compaction_active &&
             std::strcmp(presentation.banner, "Compaction: STALE") == 0,
             "revision mismatch hides model and counters while retaining uncertain compaction");
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::Activity,
         link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
-        std::strstr(presentation.captions[7], "UNAVAILABLE") != nullptr,
-        "revision mismatch cannot show a previous turn wall clock");
+        presentation.line_count == 1 && std::strcmp(presentation.captions[0], "Working") == 0 &&
+        presentation.lines[0].origin.y == 234 && presentation.lines[0].color == 0x07FF,
+        "revision mismatch omits optional fields and cannot show a previous turn wall clock");
 
     technical.revision = link.activity.revision;
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
         link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
         std::strstr(presentation.captions[0], "observed-model") != nullptr &&
-        std::strcmp(presentation.captions[2], "Context used: 50%") == 0 &&
+        std::strcmp(presentation.captions[1], "Context used: 50%") == 0 &&
+        presentation.line_count <= 4 && presentation.context_bar_visible &&
         presentation.compaction_active,
         "matching revision restores genuinely available fields and compaction");
 
     link.activity.data_stale = true;
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
         link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
-        std::strstr(presentation.captions[0], "UNAVAILABLE") != nullptr &&
+        std::strcmp(presentation.captions[0], "No model details yet") == 0 &&
         std::strcmp(presentation.banner, "Compaction: STALE") == 0,
         "stale activity cannot confer current ownership on matching technical data");
     link.activity.data_stale = false;
@@ -1634,13 +1636,14 @@ void check_technical_panel_owner_contract()
         require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
             link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
             std::strstr(presentation.captions[0], "STALE") != nullptr &&
-            std::strcmp(presentation.captions[2], "Context: STALE") == 0 &&
+            std::strcmp(presentation.captions[1], "Context: STALE") == 0 &&
             presentation.bar_pixels == 0 && !presentation.compaction_active &&
             std::strcmp(presentation.banner, "Compaction: STALE") == 0,
             "invalid or stale link cannot make retained connected technical data current");
         require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::SessionLink,
             link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
-            std::strcmp(presentation.captions[3], health == 0 ? "PC: UNAVAILABLE" : "PC: STALE") == 0,
+            std::strcmp(presentation.captions[0], health == 0 ? "Waiting for PC connection" : "PC link: STALE") == 0 &&
+            std::strcmp(presentation.captions[1], "Chat ID aaaaaa...aaaaaa") == 0 && presentation.line_count <= 4,
             "canonical link health takes precedence over retained connected state");
     }
     link.state = LUNASHELL::CodexLinkState::Idle;
@@ -1648,15 +1651,37 @@ void check_technical_panel_owner_contract()
     link.data_stale = false;
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::SessionLink,
         link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
-        std::strcmp(presentation.captions[3], "PC: UNAVAILABLE") == 0,
+        std::strcmp(presentation.captions[0], "Waiting for PC connection") == 0,
         "an invalid initial link cannot fabricate a disconnected observation");
     link.state = LUNASHELL::CodexLinkState::Connected;
     link.data_valid = true;
     std::memset(technical.chat_id, 'b', 64);
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
         link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
-        presentation.banner[0] == '\0' && std::strstr(presentation.captions[0], "UNAVAILABLE") != nullptr,
+        presentation.banner[0] == '\0' && std::strcmp(presentation.captions[0], "No model details yet") == 0,
         "a different chat cannot donate model or historical compaction state");
+    require(content.bounds.top == 170 && content.bounds.bottom == 393 &&
+        presentation.title_line.origin.y == 170 && presentation.hint_line.origin.y == 367,
+        "transparent detail content reserves the character artwork and keeps footer within the safe square");
+    std::memcpy(technical.chat_id, link.activity.chat_id, 65);
+    technical.context_valid = false;
+    technical.compaction = LUNASHELL::CodexCompactionState::None;
+    technical.compaction_valid = false;
+    technical.model_valid = true;
+    technical.model_source = LUNASHELL::CodexModelSource::HookMetadata;
+    std::strcpy(technical.model, "unknown");
+    technical.effort_valid = true;
+    std::strcpy(technical.effort, "N/A");
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
+        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        presentation.line_count == 1 && std::strcmp(presentation.captions[0], "No model details yet") == 0 &&
+        !presentation.context_bar_visible,
+        "whole-value producer placeholders are omitted without fabricating a context bar");
+    std::strcpy(technical.model, "unknown-model");
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
+        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        std::strstr(presentation.captions[0], "unknown-model") != nullptr,
+        "a genuine model slug containing a placeholder word is retained");
 }
 }  // namespace
 

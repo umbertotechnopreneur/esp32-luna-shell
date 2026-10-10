@@ -82,6 +82,8 @@ struct BodyTouchSample {
 
 struct ResponseInputs {
     MotionSample motion{};
+    // Navigation consumes measured peaks before artistic software smoothing.
+    MotionSample navigation_motion{};
     PowerSample power{};
     uint16_t rendering_rotation_degrees = 0;
     MicrophoneSample microphone{};
@@ -95,6 +97,7 @@ struct ResponseInputs {
         EyeId eye = EyeId::None;
     } eye_tap;
 };
+static_assert(sizeof(ResponseInputs) <= 384, "Response projection exceeds the bounded renderer input budget");
 
 struct AxisMapping {
     Axis axis = Axis::X;

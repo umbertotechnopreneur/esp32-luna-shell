@@ -32,6 +32,7 @@ void require(bool condition, const char *message)
 }
 
 // No parameters: synthetic acquisition fixtures exercise the actual shared recognizers.
+// Exception: Reports a violated acquisition or navigation contract through require.
 void companion_navigation_gesture_contracts()
 {
     CODY::CompanionTapState tap{};
@@ -96,6 +97,50 @@ void companion_navigation_gesture_contracts()
     sample.stamp.health = CODY::SampleHealth::Stale;
     require(!CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true),
         "stale canonical IMU data must never navigate");
+
+    shake = {};
+    sample = {};
+    sample.stamp.health = CODY::SampleHealth::Current;
+    sample.acceleration_mps2[CODY::Axis::Z] = 9.81f;
+    for (int index = 0; index <= 6; ++index) {
+        sample.stamp.sampled_at_us = 4000000 + index * 100000;
+        require(!CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true),
+            "the real 100 ms acquisition cadence can arm after measured calm");
+    }
+    for (int index = 0; index < 3; ++index) {
+        sample.stamp.sampled_at_us += 100000;
+        sample.acceleration_mps2[CODY::Axis::X] = index == 1 ? -12.f : 12.f;
+        const bool accepted = CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true);
+        require(accepted == (index == 2),
+            "three measured opposed peaks navigate without an invented zero-crossing sample");
+        require(!CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true),
+            "replaying a strong opposed measurement cannot provide an extra peak or navigation");
+    }
+    shake = {};
+    sample.acceleration_mps2[CODY::Axis::X] = 0;
+    for (int index = 0; index <= 6; ++index) {
+        sample.stamp.sampled_at_us += 100000;
+        CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true);
+    }
+    for (int index = 0; index < 5; ++index) {
+        sample.stamp.sampled_at_us += 100000;
+        sample.acceleration_mps2[CODY::Axis::X] = 12.f;
+        require(!CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true),
+            "sustained acceleration cannot become three alternating peaks");
+    }
+    shake = {};
+    sample.acceleration_mps2[CODY::Axis::X] = 0;
+    for (int index = 0; index <= 6; ++index) {
+        sample.stamp.sampled_at_us += 100000;
+        CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true);
+    }
+    require(shake.armed, "walking rejection is exercised after genuine calm arming");
+    for (int index = 0; index < 8; ++index) {
+        sample.stamp.sampled_at_us += 100000;
+        sample.acceleration_mps2[CODY::Axis::X] = index % 2 == 0 ? 3.f : -3.f;
+        require(!CODY::observe_companion_shake(shake, sample, sample.stamp.sampled_at_us, true),
+            "ordinary alternating walking-sized acceleration remains below the deliberate threshold");
+    }
 }
 
 // component: Host-only measured fixture used to exercise the actual HUD formatter.

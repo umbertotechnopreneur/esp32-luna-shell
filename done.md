@@ -7,6 +7,29 @@ Older `artifacts/` paths may be historical references only: the complete cleanup
 requested on 2026-10-05 removed that unversioned evidence. New results identify
 the preserved copies within the build directory.
 
+## Companion detail and shake refinement source integration - 2026-10-10
+
+- Restored the live native character on all passive technical pages at the shared
+  logical placement (233, 115), scale 50. Transparent details retain at most four
+  curated facts, compact navigation guidance and genuine lifecycle status;
+  absent/unknown optional fields do not produce placeholder rows.
+- Character geometry participates in partial-frame damage while changing detail
+  captions repaint only their reserved viewport. Studio uses the same placement,
+  native character and transparent compositor rather than a separate mockup.
+- Fixed missed opposing shake peaks when the 100-ms canonical acquisition cadence
+  skips an intervening calm trough. Threshold, calm arming, wake exclusion,
+  freshness, replay rejection and cooldown remain explicit and unchanged.
+- The acquisition owner publishes bias-corrected measured acceleration before
+  software smoothing, using its existing read and original success timestamp.
+  Failed acquisition clears gesture validity; filtered animation/fusion data
+  remains separate. IMU schema growth is bounded to 24 bytes, with explicit
+  152-byte IMU and 384-byte response-projection compile-time budgets.
+- Paused passive artwork continues consuming canonical navigation samples without
+  advancing its artistic clock. Source regressions cover unsampled troughs,
+  stale/replayed samples, sustained movement and concise missing-data panels.
+  No tests, generators, simulator, build, flash or serial capture ran for this
+  refinement; physical gesture quality, layout and stack headroom remain pending.
+
 ## Desk/Away and companion coherence source integration - 2026-10-10
 
 - Implemented a typed Desk/Away preference in the existing settings owner, with

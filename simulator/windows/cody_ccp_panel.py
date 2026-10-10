@@ -250,9 +250,10 @@ class CcpPanel:
     # base: Current independent authored face controls, before native animation composition.
     # placement: Authored logical resting root/scale shared by the response model.
     # rotation: Logical orientation also supplied to synthetic touch/motion observations.
+    # passive_panel: Whether this call paints fixed passive artwork rather than an attention route.
     # Returns native evaluated geometry and its exact composed face values.
     # Raises RuntimeError for original response/contour/geometry failures.
-    def compose_scene(self, base, placement, rotation):
+    def compose_scene(self, base, placement, rotation, *, passive_panel=False):
         now = time.perf_counter()
         active_ms = max(0, (now - self._model_sampled) * 1000) if self.window.playing.get() else 0
         self._model_sampled = now
@@ -279,7 +280,9 @@ class CcpPanel:
                                                                            frame.contour, active_ms)
         self._last_base_values = list(base)
         self._displayed_values = list(frame.face)
-        scene = self.window.renderer.evaluate_scene(frame.face, frame.transform, self.window.contour_state)
+        # Details keep their artwork inside the same fixed native slot as firmware.
+        transform = placement if passive_panel else frame.transform
+        scene = self.window.renderer.evaluate_scene(frame.face, transform, self.window.contour_state)
         return scene, self._displayed_values
 
     # self: Shared native connection-cue model retained across genuine CCP observations.
@@ -583,8 +586,10 @@ class CcpPanel:
         self._passive_visible = bool(self._companion_panel or count >= total)
         key = ("ccp-preview" if preview else "ccp", route_key, min(count, total), rotation, round(elapsed / 33))
         cloud = definition["cloud"]
-        placement = painter.cloud_transform(identity, elapsed)
-        scene, values = self.compose_scene(painter.face(identity), placement, rotation)
+        placement = (self.window.renderer.require_native().companion_panel_transform()
+            if self._companion_panel else painter.cloud_transform(identity, elapsed))
+        scene, values = self.compose_scene(painter.face(identity), placement, rotation,
+            passive_panel=bool(self._companion_panel))
         if self._companion_panel:
             panel_elapsed = max(0, round((time.monotonic() - self._panel_started) * 1000000))
             native = self.window.renderer.require_native()

@@ -94,6 +94,7 @@ inline void suspend_companion_shake(CompanionShakeState &state, int64_t now_us)
 // sample: Existing response projection of the canonical IMU sample, never a driver read.
 // now_us: Device observation time used only for freshness and gesture debounce.
 // active: Whether navigation can operate on an awake, visible companion view.
+// Exception: Rejects invalid, stale, replayed or non-finite measurements without navigation.
 inline bool observe_companion_shake(CompanionShakeState &state,
     const MotionSample &sample, int64_t now_us, bool active)
 {
@@ -150,23 +151,33 @@ inline bool observe_companion_shake(CompanionShakeState &state,
     if (magnitude_squared < 16.f) {
         state.above_threshold = false;
     }
-    if (!state.armed || magnitude_squared < 49.f || state.above_threshold || now_us < state.blocked_until_us) {
+    if (!state.armed || magnitude_squared < 49.f || now_us < state.blocked_until_us) {
         return false;
     }
-    state.above_threshold = true;
-    if (state.alternating_peaks == 0 || timestamp - state.burst_started_us > 900000) {
-        state.burst_started_us = timestamp;
-        state.alternating_peaks = 1;
-    } else {
+    bool opposing_peak = false;
+    if (state.alternating_peaks != 0) {
         float dot = 0;
         float previous_squared = 0;
         for (uint8_t axis = 0; axis < 3; ++axis) {
             dot += dynamic[axis] * state.previous_peak[axis];
             previous_squared += state.previous_peak[axis] * state.previous_peak[axis];
         }
-        if (dot < -.35f * std::sqrt(previous_squared * magnitude_squared)) {
-            ++state.alternating_peaks;
-        }
+        opposing_peak = dot < -.35f * std::sqrt(previous_squared * magnitude_squared);
+    }
+    // Discrete canonical samples can measure opposite strong vectors without
+    // ever measuring their intervening zero crossing.
+    // Preserve same-direction hysteresis, but admit a genuinely measured reversal.
+    if (state.above_threshold && !opposing_peak) {
+        return false;
+    }
+    state.above_threshold = true;
+    if (state.alternating_peaks == 0 || timestamp - state.burst_started_us > 900000) {
+        state.burst_started_us = timestamp;
+        state.alternating_peaks = 1;
+    } else if (opposing_peak) {
+        ++state.alternating_peaks;
+    } else {
+        return false;
     }
     for (uint8_t axis = 0; axis < 3; ++axis) {
         state.previous_peak[axis] = dynamic[axis];

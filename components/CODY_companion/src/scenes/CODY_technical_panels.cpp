@@ -16,6 +16,7 @@ constexpr uint16_t kRed = 0xF986;
 constexpr uint16_t kNeutral = 0x632C;
 constexpr uint16_t kPanelWidth = 320;
 constexpr uint16_t kBarWidth = 296;
+constexpr uint8_t kDetailRows = 4;
 
 // operation: Specific rejected panel boundary or native rendering operation.
 // error: Original error returned by that operation.
@@ -84,13 +85,13 @@ const char *phase_text(LUNASHELL::CodexActivityState phase)
     switch (phase) {
     case Phase::Active: return "Active";
     case Phase::Working: return "Working";
-    case Phase::Editing: return "Editing";
-    case Phase::Running: return "Running";
+    case Phase::Editing: return "Editing code";
+    case Phase::Running: return "Running command";
     case Phase::ResponseReady: return "Reply ready";
     case Phase::Paused: return "Waiting for you";
     case Phase::Interrupted: return "Interrupted";
     case Phase::Ended: return "Ended";
-    default: return "UNAVAILABLE";
+    default: return "Activity updates unavailable";
     }
 }
 
@@ -134,6 +135,16 @@ void format_two_rows(char (&first)[32], char (&second)[32], const CODY2D::MonoFo
     format_caption(second, font, source + consumed, "");
 }
 
+// text: Bounded producer value, not a diagnostic status or an arbitrary substring.
+// Returns false only for absence or explicit whole-value placeholder spellings.
+bool has_detail_value(const char *text)
+{
+    return text[0] != '\0' && std::strcmp(text, "UNKNOWN") != 0 &&
+        std::strcmp(text, "unknown") != 0 && std::strcmp(text, "Unknown") != 0 &&
+        std::strcmp(text, "UNAVAILABLE") != 0 && std::strcmp(text, "unavailable") != 0 &&
+        std::strcmp(text, "N/A") != 0 && std::strcmp(text, "n/a") != 0;
+}
+
 // destination: Stable bounded caption storage.
 // label: Authored technical metric label.
 // metric: Original numeric value and independent freshness.
@@ -161,6 +172,54 @@ void format_duration(char (&destination)[32], const char *label, const PanelMetr
         static_cast<unsigned long long>(seconds / 60U), static_cast<unsigned long long>(seconds % 60U));
 }
 
+// presentation: Serialized detail owner; at most four curated rows are admitted.
+// font: Actual glyph metrics used to project text without changing canonical metadata.
+// source: Known bounded display value; an absent optional field contributes no row.
+// prefix: Authored semantic label, distinct from the canonical identity.
+// color: Semantic foreground staged in the existing owner-retained prepared line.
+void append_detail(PanelPresentation &presentation, const CODY2D::MonoFont &font,
+                   const char *source, const char *prefix = "", uint16_t color = kMuted)
+{
+    if (!has_detail_value(source) || presentation.line_count >= kDetailRows) { return; }
+    const uint8_t row = presentation.line_count++;
+    format_caption(presentation.captions[row], font, source, prefix);
+    presentation.lines[row].color = color;
+}
+
+// presentation: Serialized owner with reserved space for curated numeric facts.
+// label: Short authored metric identity, bounded so a complete uint64 count fits.
+// metric: Original observation with independent validity; unavailable is intentionally omitted.
+void append_metric(PanelPresentation &presentation, const char *label, const PanelMetric &metric)
+{
+    if (metric.state == PanelValueState::Unavailable || presentation.line_count >= kDetailRows) { return; }
+    format_metric(presentation.captions[presentation.line_count++], label, metric);
+}
+
+// presentation: Serialized owner retaining the prepared duration caption.
+// label: Short authored duration identity.
+// metric: Original observed duration; missing data never consumes a row.
+void append_duration(PanelPresentation &presentation, const char *label, const PanelMetric &metric)
+{
+    if (metric.state == PanelValueState::Unavailable || presentation.line_count >= kDetailRows) { return; }
+    format_duration(presentation.captions[presentation.line_count++], label, metric);
+}
+
+// font: Actual native glyph metrics for centering within the central viewport.
+// text: Owner-retained bounded caption; empty text clears the optional prepared line.
+// top: Logical top row below the reserved character artwork.
+// color: Native semantic foreground.
+// line: Receives the measured centered native line.
+// Exception: Returns the original glyph/layout error.
+esp_err_t prepare_centered_line(const CODY2D::MonoFont &font, const char *text,
+                               uint16_t top, uint16_t color, CODY2D::TextLine &line)
+{
+    const size_t length = std::strlen(text);
+    const size_t width = length ? (length - 1U) * font.advance + font.width : 0;
+    if (width > kPanelWidth) { return ESP_ERR_INVALID_SIZE; }
+    return prepare_panel_line(font, text, {static_cast<int16_t>(233 - width / 2U),
+        static_cast<int16_t>(top)}, color, line);
+}
+
 // numerator: Original used context count; never replaced by a saturated count.
 // denominator: Positive coherent capacity.
 // scale: Small bounded display scale, at most the native bar width.
@@ -186,7 +245,9 @@ void format_compaction(const PanelInputs &inputs, PanelPresentation &presentatio
     presentation.compaction_active = inputs.compaction == State::Active;
     switch (inputs.compaction) {
     case State::Active:
-        format_duration(presentation.banner, "Compacting", inputs.compaction_elapsed_us);
+        if (inputs.compaction_elapsed_us.state == PanelValueState::Unavailable) {
+            std::strcpy(presentation.banner, "Compacting context");
+        } else { format_duration(presentation.banner, "Compacting", inputs.compaction_elapsed_us); }
         break;
     case State::Refreshed:
         std::snprintf(presentation.banner, sizeof(presentation.banner), "%s",
@@ -263,8 +324,13 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     const CompanionPanel previous_panel = presentation.panel;
     const uint16_t previous_bar_pixels = presentation.bar_pixels;
     const uint16_t previous_bar_color = presentation.bar_color;
+    const bool previous_bar_visible = presentation.context_bar_visible;
     const bool previous_compaction_active = presentation.compaction_active;
     const uint32_t previous_compaction_clock = presentation.compaction_clock_us;
+    uint64_t previous_row_colors = 0;
+    for (uint8_t row = 0; row < kDetailRows; ++row) {
+        previous_row_colors |= static_cast<uint64_t>(presentation.lines[row].color) << (row * 16U);
+    }
     std::memcpy(presentation.prior_captions, presentation.captions, sizeof(presentation.captions));
     std::memcpy(presentation.prior_title, presentation.title, sizeof(presentation.title));
     std::memcpy(presentation.prior_banner, presentation.banner, sizeof(presentation.banner));
@@ -305,82 +371,111 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
         return panel_result("context_zero_capacity", ESP_ERR_INVALID_ARG);
     }
     presentation.panel = panel;
-    presentation.context_bar_visible = panel == CompanionPanel::ModelContext;
+    presentation.context_bar_visible = false;
     presentation.bar_color = kNeutral;
     presentation.bar_pixels = 0;
-    presentation.line_count = 8;
+    presentation.line_count = 0;
     for (auto &caption : presentation.captions) { caption[0] = '\0'; }
+    // Preparation is serialized and invalid until completion; reuse the existing
+    // line foregrounds for semantic staging instead of allocating another owner array.
+    for (uint8_t row = 0; row < kDetailRows; ++row) { presentation.lines[row].color = kMuted; }
     format_compaction(inputs, presentation);
-    std::strcpy(presentation.hint, inputs.simulated ? "SIMULATED  Tap: next" : "Tap: next   Shake: home");
     if (panel == CompanionPanel::Activity) {
         std::strcpy(presentation.title, "Activity");
-        format_two_rows(presentation.captions[0], presentation.captions[1], font,
-            inputs.project[0] ? inputs.project : "UNAVAILABLE", "Project: ");
-        format_two_rows(presentation.captions[2], presentation.captions[3], font,
-            inputs.branch[0] ? inputs.branch : "UNAVAILABLE", "branch: ");
-        std::snprintf(presentation.captions[4], 32, "State: %s", inputs.activity == PanelValueState::Current ?
-            phase_text(inputs.phase) : value_state_text(inputs.activity));
-        format_two_rows(presentation.captions[5], presentation.captions[6], font,
-            inputs.description[0] ? inputs.description : "UNAVAILABLE", "");
-        format_duration(presentation.captions[7], "Turn wall", inputs.turn_elapsed_us);
+        append_detail(presentation, font, inputs.project, "", kWhite);
+        append_detail(presentation, font, inputs.branch, "branch: ");
+        if (inputs.activity == PanelValueState::Current && inputs.phase != LUNASHELL::CodexActivityState::None) {
+            append_detail(presentation, font, phase_text(inputs.phase), "", kCyan);
+        } else if (inputs.activity == PanelValueState::Stale || inputs.activity == PanelValueState::Invalid) {
+            append_detail(presentation, font, value_state_text(inputs.activity), "Activity: ", kAmber);
+        }
+        if (inputs.activity == PanelValueState::Current) { append_detail(presentation, font, inputs.description); }
+        if (presentation.line_count == 0) { append_detail(presentation, font, "Start a chat in Codex"); }
     } else if (panel == CompanionPanel::ModelContext) {
         std::strcpy(presentation.title, "Model & Context");
-        format_caption(presentation.captions[0], font, inputs.model_state == PanelValueState::Current ?
-            inputs.model : value_state_text(inputs.model_state), "Hook model: ");
-        format_caption(presentation.captions[1], font, inputs.effort_state == PanelValueState::Current ?
-            inputs.effort : value_state_text(inputs.effort_state), "Effort: ");
+        if (inputs.model_state == PanelValueState::Current && has_detail_value(inputs.model)) {
+            const size_t row_capacity = std::min<size_t>(31, (kPanelWidth - font.width) / font.advance + 1U);
+            if (std::strlen(inputs.model) + 12U > row_capacity) {
+                format_two_rows(presentation.captions[0], presentation.captions[1], font, inputs.model, "Hook model: ");
+                presentation.line_count = 2;
+                presentation.lines[0].color = kWhite;
+                presentation.lines[1].color = kWhite;
+            } else { append_detail(presentation, font, inputs.model, "Hook model: ", kWhite); }
+        } else if (inputs.model_state == PanelValueState::Stale || inputs.model_state == PanelValueState::Invalid) {
+            append_detail(presentation, font, value_state_text(inputs.model_state), "Model: ");
+        }
+        if (inputs.effort_state == PanelValueState::Current) { append_detail(presentation, font, inputs.effort, "Effort: "); }
+        else if (inputs.effort_state == PanelValueState::Stale || inputs.effort_state == PanelValueState::Invalid) {
+            append_detail(presentation, font, value_state_text(inputs.effort_state), "Effort: ");
+        }
         if (measured) {
             const uint16_t percent = scaled_usage(inputs.used.value, inputs.capacity.value, 100);
             presentation.bar_pixels = scaled_usage(inputs.used.value, inputs.capacity.value, kBarWidth);
             presentation.bar_color = percent >= 90 ? kRed : percent >= 70 ? kAmber : kCyan;
-            if (inputs.used.value > inputs.capacity.value) { std::strcpy(presentation.captions[2], "Context: OVER LIMIT"); }
-            else { std::snprintf(presentation.captions[2], 32, "Context used: %u%%%s", percent, inputs.context_estimated ? " ESTIMATE" : ""); }
+            presentation.context_bar_visible = true;
+            // Two model rows plus one effort row leave one guaranteed context
+            // slot; subsequent optional counts yield to these higher-priority facts.
+            if (presentation.line_count >= kDetailRows) {
+                return panel_result("context_row_capacity", ESP_ERR_INVALID_SIZE);
+            }
+            const uint8_t context_row = presentation.line_count++;
+            presentation.lines[context_row].color = presentation.bar_color;
+            auto &caption = presentation.captions[context_row];
+            if (inputs.used.value > inputs.capacity.value) { std::strcpy(caption, "Context: OVER LIMIT"); }
+            else { std::snprintf(caption, sizeof(caption), "Context used: %u%%%s", percent, inputs.context_estimated ? " ESTIMATE" : ""); }
+            append_metric(presentation, "Used", inputs.used);
+            append_metric(presentation, "Limit", inputs.capacity);
         } else {
-            const PanelValueState state = inputs.used.state == PanelValueState::Stale || inputs.capacity.state == PanelValueState::Stale ?
-                PanelValueState::Stale : PanelValueState::Unavailable;
-            std::snprintf(presentation.captions[2], 32, "Context: %s", value_state_text(state));
+            const bool invalid = inputs.used.state == PanelValueState::Invalid || inputs.capacity.state == PanelValueState::Invalid;
+            const bool stale = inputs.used.state == PanelValueState::Stale || inputs.capacity.state == PanelValueState::Stale;
+            if (invalid || stale) {
+                presentation.context_bar_visible = true;
+                append_detail(presentation, font, invalid ? "INVALID" : "STALE", "Context: ");
+            }
         }
-        format_metric(presentation.captions[3], "Used", inputs.used);
-        format_metric(presentation.captions[4], "Limit", inputs.capacity);
-        if (measured && inputs.used.value <= inputs.capacity.value) {
-            format_metric(presentation.captions[5], "Free", {inputs.capacity.value - inputs.used.value, PanelValueState::Current});
-        } else { std::strcpy(presentation.captions[5], "Free UNAVAILABLE"); }
-        format_metric(presentation.captions[6], "Auto", inputs.threshold);
-        presentation.line_count = 7;
+        append_metric(presentation, "Auto", inputs.threshold);
+        if (presentation.line_count == 0) { append_detail(presentation, font, "No model details yet"); }
     } else {
         std::strcpy(presentation.title, "Session & Link");
-        const size_t length = std::strlen(inputs.chat_id);
-        if (!has_observed_chat(inputs.chat_id, inputs.phase)) { std::strcpy(presentation.captions[0], "Chat UNAVAILABLE"); }
-        else {
-            // Complete SHA-256 identity occupies three rows, never a guessed short-name identity.
-            std::snprintf(presentation.captions[0], 32, "Chat %.24s", inputs.chat_id);
-            std::snprintf(presentation.captions[1], 32, "%.29s", inputs.chat_id + std::min<size_t>(24, length));
-            std::snprintf(presentation.captions[2], 32, "%.29s", inputs.chat_id + std::min<size_t>(53, length));
-        }
         // An invalid initial snapshot cannot prove disconnection; retained state
         // cannot override the canonical link's independent freshness either.
-        std::snprintf(presentation.captions[3], 32, "PC: %s", inputs.link != PanelValueState::Current ?
-            value_state_text(inputs.link) : inputs.connected ? "CONNECTED" : "DISCONNECTED");
-        format_duration(presentation.captions[4], "Activity age", inputs.activity_age_us);
-        format_metric(presentation.captions[5], "Total", inputs.cumulative);
-        format_duration(presentation.captions[6], "Usage age", inputs.usage_age_us);
-        std::strcpy(presentation.captions[7], "Total != context occupancy");
+        if (inputs.link == PanelValueState::Current) {
+            append_detail(presentation, font, inputs.connected ? "PC connected" : "PC disconnected", "",
+                inputs.connected ? kCyan : kAmber);
+        } else if (inputs.link == PanelValueState::Unavailable) {
+            append_detail(presentation, font, "Waiting for PC connection");
+        } else { append_detail(presentation, font, value_state_text(inputs.link), "PC link: ", kAmber); }
+        if (has_observed_chat(inputs.chat_id, inputs.phase) && presentation.line_count < kDetailRows) {
+            // This caption is an explicitly abbreviated display, never a domain identity.
+            std::snprintf(presentation.captions[presentation.line_count++], 32,
+                "Chat ID %.6s...%.6s", inputs.chat_id, inputs.chat_id + 58);
+        }
+        append_duration(presentation, "Updated", inputs.activity_age_us);
+        append_metric(presentation, "Total", inputs.cumulative);
     }
     std::snprintf(presentation.page, sizeof(presentation.page), "%u/3", static_cast<unsigned>(panel));
-    esp_err_t error = prepare_panel_line(font, presentation.title, {73, 78}, kWhite, presentation.title_line);
-    if (error == ESP_OK) { error = prepare_panel_line(font, presentation.page, {354, 78}, kMuted, presentation.page_line); }
-    if (error == ESP_OK) { error = prepare_panel_line(font, presentation.banner, {73, 108}, kAmber, presentation.banner_line); }
-    if (error == ESP_OK) { error = prepare_panel_line(font, presentation.hint, {73, 367}, kMuted, presentation.hint_line); }
+    std::snprintf(presentation.hint, sizeof(presentation.hint), "%s  Tap next; shake Home", presentation.page);
+    presentation.page_line = {};
+    esp_err_t error = prepare_centered_line(font, presentation.title, 170, kWhite, presentation.title_line);
+    if (error == ESP_OK) { error = prepare_centered_line(font, presentation.banner, 208, kAmber, presentation.banner_line); }
+    if (error == ESP_OK) { error = prepare_centered_line(font, presentation.hint, 367, kMuted, presentation.hint_line); }
     for (uint8_t row = 0; error == ESP_OK && row < presentation.line_count; ++row) {
-        const uint16_t y = panel == CompanionPanel::ModelContext && row >= 3 ? 242 + (row - 3) * 28 : 142 + row * 28;
+        const uint16_t y = 234 + row * 30;
+        const uint16_t color = presentation.lines[row].color;
         error = prepare_panel_line(font, presentation.captions[row],
-            {73, static_cast<int16_t>(y)}, kWhite, presentation.lines[row]);
+            {73, static_cast<int16_t>(y)}, color, presentation.lines[row]);
     }
     if (error != ESP_OK) { return panel_result("prepare_text", error); }
     presentation.compaction_clock_us = static_cast<uint32_t>(active_time_us % 1800000 / 50000 * 50000);
     presentation.valid = true;
+    uint64_t row_colors = 0;
+    for (uint8_t row = 0; row < kDetailRows; ++row) {
+        row_colors |= static_cast<uint64_t>(presentation.lines[row].color) << (row * 16U);
+    }
     const bool visual_changed = !previously_valid || previous_panel != presentation.panel ||
+        previous_row_colors != row_colors ||
         previous_bar_pixels != presentation.bar_pixels || previous_bar_color != presentation.bar_color ||
+        previous_bar_visible != presentation.context_bar_visible ||
         previous_compaction_active != presentation.compaction_active ||
         (presentation.compaction_active && previous_compaction_clock != presentation.compaction_clock_us) ||
         std::memcmp(presentation.prior_captions, presentation.captions, sizeof(presentation.captions)) != 0 ||
@@ -389,7 +484,7 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
         std::strcmp(presentation.prior_hint, presentation.hint) != 0;
     if (visual_changed) { ++presentation.revision; }
     content = {};
-    content.bounds = {73, 73, 393, 393};
+    content.bounds = kCompanionPanelContentBounds;
     content.state = &presentation;
     content.revision = presentation.revision;
     content.draw_rows = draw_panel_callback;
@@ -507,7 +602,7 @@ esp_err_t draw_companion_panel_rows(const PanelPresentation &presentation, CODY2
     }
     if (error == ESP_OK && presentation.context_bar_visible) {
         CODY2D::CapsuleControl track{};
-        track.bounds = {85, 226, kBarWidth, 12};
+        track.bounds = {85, 354, kBarWidth, 12};
         track.top_color = kNeutral;
         track.bottom_color = kNeutral;
         track.border_color = kNeutral;
@@ -532,7 +627,7 @@ esp_err_t draw_companion_panel_rows(const PanelPresentation &presentation, CODY2
     }
     if (error == ESP_OK && presentation.compaction_active) {
         CODY2D::CapsuleControl accent{};
-        accent.bounds = {73, 135, 320, 3};
+        accent.bounds = {73, 199, 320, 3};
         const uint32_t half = presentation.compaction_clock_us < 900000 ? presentation.compaction_clock_us : 1800000 - presentation.compaction_clock_us;
         const uint8_t opacity = static_cast<uint8_t>(80 + half * 175 / 900000);
         accent.top_color = CODY2D::blend_rgb565(kAmber, 0, opacity);
