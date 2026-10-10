@@ -460,14 +460,14 @@ class ChatActivityTests(unittest.TestCase):
         self.observe("UserPromptSubmit", session="chat-b")
         self.assertEqual(self.store.snapshot()["phase"], "working")
 
-    # self: Public MCP API that must not expose manual chat selection or fake activity.
+    # self: Public MCP API, including authenticated Debug screens, without manual chat selection.
     # Raises AssertionError if the obsolete selection tools remain callable or advertised.
     def test_manual_selection_is_removed_from_public_tools(self) -> None:
         names = {tool["name"] for tool in ccp.tool_catalog()}
         self.assertEqual(names, {"ccp_discover_devices", "ccp_pair_device",
                                  "ccp_connection_status", "ccp_list_sessions", "ccp_ask_question",
                                  "ccp_publish_notification", "ccp_poll_request", "ccp_cancel_request",
-                                 "ccp_reset_device", "ccp_factory_reset_device"})
+                                 "ccp_reset_device", "ccp_factory_reset_device", "ccp_debug_screen"})
         for name in ("ccp_select_session", "ccp_clear_session"):
             with self.assertRaisesRegex(ValueError, "Unknown CCP tool"):
                 ccp.call_tool(Mock(), name, {})

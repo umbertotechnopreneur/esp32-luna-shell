@@ -7,6 +7,23 @@ Older `artifacts/` paths may be historical references only: the complete cleanup
 requested on 2026-10-05 removed that unversioned evidence. New results identify
 the preserved copies within the build directory.
 
+## CCP contract verification and transport parity - 2026-10-10
+
+- The authorized `device.ps1 check -Check cody-ccp` rerun passed all 59 tests.
+  Its first run found a stale catalog expectation omitting the existing Debug
+  tool; protocol/closure regressions passed throughout. The fixture is corrected.
+- Studio distinguishes the latest FIND, its accepted READY and the last successfully
+  sent REPLY. EVENT waits for current READY; a delayed REPLYACK remains admissible
+  across FIND. Reconnect retires the old reply admission. Firmware now changes its
+  reply nonce only after a successful send, retaining the previous nonce on failure.
+- After the authorized native graphics regeneration, the final authorized
+  `device.ps1 check -Check cody-ccp-simulator` rerun passed all 31 tests. Five new
+  regressions exercise nonce order, failed send/retry and association retirement.
+  Three previous fixtures were aligned with current native action bounds, rendered
+  identity and visibility gates, including explicit hidden-touch rejection.
+- These results cover broker state, shared C++ transactions and isolated loopback
+  transport. They do not establish device radio timing or physical UI behavior.
+
 ## Cody documentation screen revision - 2026-10-10
 
 - Revised 22 affected current pages across all six Cody PDFs for cold-boot

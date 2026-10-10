@@ -2288,8 +2288,11 @@ void maintainEvent()
             } else if (inet_pton(AF_INET, s_link_snapshot.peer_ip_address, &address) != 1) {
                 error = ESP_ERR_INVALID_STATE;
             } else {
-                std::memcpy(s_reply_nonce, s_ready_nonce, sizeof(s_reply_nonce));
                 error = sendDatagram(packet, address, kPluginPort, "CCP REPLY");
+                if (error == ESP_OK) {
+                    // A failed retry must retain ACK admission for the last transmitted reply.
+                    std::memcpy(s_reply_nonce, s_ready_nonce, sizeof(s_reply_nonce));
+                }
             }
         }
         wipe(proof, sizeof(proof));

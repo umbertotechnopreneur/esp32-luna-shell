@@ -518,6 +518,146 @@ class SimulatorProtocolTests(unittest.TestCase):
         for call in self.host_listener.sendto.call_args_list:
             self.link.handle_datagram(call.args[0], (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
 
+    # self: Real responder fixture holding its next presence packets for explicit receive ordering.
+    # Returns authenticated READY/ACTIVITY/EVENT packets without admitting them on the device.
+    # Raises AssertionError or the original protocol error if no FIND was transmitted.
+    def pending_presence_packets(self):
+        self.now += simulated.FIND_SECONDS + .01
+        self.send.reset_mock()
+        self.host_listener.reset_mock()
+        self.link.tick(self.send)
+        find = next(call.args[0] for call in self.send.call_args_list
+                    if protocol.parse_datagram(call.args[0])[0] == "FIND")
+        self.host._handle_datagram(find, (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        return [call.args[0] for call in self.host_listener.sendto.call_args_list]
+
+    # self: Source-only input fixture; native preparation still owns the complete action geometry.
+    # view: Actual preview whose next input must match the last presented observation.
+    # snapshot: Complete event observation represented by the simulated displayed frame.
+    # controls_visible: Explicit reveal gate, allowing hidden-control rejection to be tested.
+    # Returns the complete native action plan for semantic target lookup.
+    def present_event_plan(self, view, snapshot, controls_visible=True):
+        _, _, view._actions, view._back = view.plan(snapshot)
+        view._controls_visible = controls_visible
+        view._rendered_event = view.rendered_identity(snapshot)
+        return view._actions
+
+    # self: Input fixture selecting a semantic action from the actual native plan.
+    # actions: Complete native plan previously represented by the displayed observation.
+    # identity: Stable action identity, independent of its position or storage order.
+    # Returns the center of its native touch bounds.
+    # Raises StopIteration if the expected semantic action is absent.
+    def action_center(self, actions, identity):
+        action = next(action for action in actions if action.identity == identity)
+        x, y, width, height = action.bounds
+        return x + width // 2, y + height // 2
+
+    # self: Real reply receipt delayed while the device transmits a new FIND.
+    # Raises AssertionError if FIND rotation rejects the last transmitted REPLY or accepts a forged ACK.
+    def test_reply_ack_keeps_sent_nonce_across_find(self):
+        created = self.question()
+        self.link.submit_reply("memory", self.send)
+        self.host._handle_datagram(self.send.call_args.args[0], (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        receipt = self.host_listener.sendto.call_args.args[0]
+        sent_nonce = protocol.parse_datagram(receipt)[1]["nonce"]
+        deadline = self.link._event_expires
+        packets = self.pending_presence_packets()
+        self.assertNotEqual(self.link._nonce, sent_nonce)
+        corrupted = receipt[:-1] + (b"0" if receipt[-1:] != b"0" else b"1")
+        with self.assertRaisesRegex(ValueError, "authentication"):
+            self.link.handle_datagram(corrupted, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        self.link.handle_datagram(receipt, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        snapshot = self.link.snapshot()
+        self.assertEqual((snapshot.request_id, snapshot.event_state), (created["request_id"], "received"))
+        self.assertEqual(snapshot.event_payload.selected_id, "memory")
+        self.assertEqual(self.link._event_expires, deadline)
+        for packet in packets:
+            self.link.handle_datagram(packet, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        self.assertEqual(self.link.snapshot().event_state, "received")
+
+    # self: Pending choice retransmitted successfully under a newer authenticated READY.
+    # Raises AssertionError if the earlier send nonce remains admissible after the new REPLY is transmitted.
+    def test_next_successful_reply_replaces_ack_admission_nonce(self):
+        self.question()
+        self.link.submit_reply("memory", self.send)
+        _, earlier = protocol.parse_datagram(self.send.call_args.args[0])
+        key = protocol.unprotect_secret(self.link.active["protected_link_key"])
+        values = [earlier[name] for name in ("device", "pc", "nonce", "id", "choice")] + ["received"]
+        old_receipt = protocol.encode_datagram("REPLYACK", list(zip(
+            ("device", "pc", "nonce", "id", "choice", "status"), values))
+            + [("proof", protocol.make_proof(key, "reply-ack", *values))])
+        for packet in self.pending_presence_packets():
+            self.link.handle_datagram(packet, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        self.now += simulated.FIND_SECONDS + .01
+        self.send.reset_mock()
+        self.link.tick(self.send)
+        reply = next(call.args[0] for call in self.send.call_args_list
+                     if protocol.parse_datagram(call.args[0])[0] == "REPLY")
+        self.assertNotEqual(protocol.parse_datagram(reply)[1]["nonce"], earlier["nonce"])
+        with self.assertRaisesRegex(ValueError, "current active FIND"):
+            self.link.handle_datagram(old_receipt, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        self.assertEqual(self.link.snapshot().event_state, "sending")
+        self.host._handle_datagram(reply, (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        self.link.handle_datagram(self.host_listener.sendto.call_args.args[0],
+                                  (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        self.assertEqual(self.link.snapshot().event_state, "received")
+
+    # self: New authenticated EVENT reordered ahead of its READY while the previous connection stays live.
+    # Raises AssertionError if the previous READY admits a new FIND's EVENT or rejection mutates the question.
+    def test_current_event_waits_for_matching_ready(self):
+        self.question()
+        previous = self.link.snapshot()
+        deadline = self.link._event_expires
+        packets = self.pending_presence_packets()
+        event = next(packet for packet in packets if protocol.parse_datagram(packet)[0] == "EVENT")
+        self.assertEqual(self.link.state, simulated.LinkState.CONNECTED)
+        with self.assertRaisesRegex(ValueError, "current active FIND"):
+            self.link.handle_datagram(event, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        self.assertEqual(self.link.snapshot().event_payload, previous.event_payload)
+        self.assertEqual(self.link._event_expires, deadline)
+        ready = next(packet for packet in packets if protocol.parse_datagram(packet)[0] == "READY")
+        self.link.handle_datagram(ready, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        self.link.handle_datagram(event, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        self.assertEqual(self.link.snapshot().event_state, "pending")
+        self.assertTrue(self.link.snapshot().event_fresh)
+
+    # self: Confirmed local choice whose first socket send fails before any REPLY is transmitted.
+    # Raises AssertionError if a forged receipt for the unsent packet is admitted or the real retry loses its choice.
+    def test_failed_reply_send_does_not_admit_ack_before_successful_retry(self):
+        self.question()
+        self.send.side_effect = OSError("fixture reply send failure")
+        with self.assertRaisesRegex(OSError, "fixture reply send failure"):
+            self.link.submit_reply("memory", self.send)
+        self.send.side_effect = None
+        key = protocol.unprotect_secret(self.link.active["protected_link_key"])
+        values = [self.link.device_id, self.pc, self.link._nonce, self.link._request_id, "memory", "received"]
+        forged = protocol.encode_datagram("REPLYACK", list(zip(
+            ("device", "pc", "nonce", "id", "choice", "status"), values))
+            + [("proof", protocol.make_proof(key, "reply-ack", *values))])
+        with self.assertRaisesRegex(ValueError, "current active FIND"):
+            self.link.handle_datagram(forged, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        self.assertEqual(self.link.snapshot().event_state, "sending")
+        self.link.tick(self.send)
+        self.host._handle_datagram(self.send.call_args.args[0], (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        self.link.handle_datagram(self.host_listener.sendto.call_args.args[0],
+                                  (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        self.assertEqual(self.link.snapshot().event_state, "received")
+        self.assertEqual(self.link.snapshot().event_payload.selected_id, "memory")
+
+    # self: Old valid receipt from an association whose transient network route was retired.
+    # Raises AssertionError if reconnect authenticates an old send nonce without transmitting a new REPLY.
+    def test_reconnect_retires_previous_reply_ack_nonce(self):
+        self.question()
+        self.link.submit_reply("memory", self.send)
+        self.host._handle_datagram(self.send.call_args.args[0], (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        receipt = self.host_listener.sendto.call_args.args[0]
+        self.link.set_network_ready(False)
+        self.link.set_network_ready(True)
+        self.deliver_events()
+        with self.assertRaisesRegex(ValueError, "current active FIND"):
+            self.link.handle_datagram(receipt, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        self.assertEqual(self.link.snapshot().event_state, "received")
+
     # self: Real HMAC reply path with local confirmation, receipt and later recipient acknowledgement.
     # Raises AssertionError if Send/socket success or UDP receipt produces Reply sent prematurely.
     def test_question_waits_for_the_original_mcp_recipient_ack(self):
@@ -686,7 +826,8 @@ class SimulatorProtocolTests(unittest.TestCase):
         view = EventView()
         view.visible(snapshot)
         _, lines, actions, _ = view.plan(snapshot)
-        self.assertIn(("Delivery unconfirmed", 196), lines)
+        self.assertEqual(lines[0][0], snapshot.event_payload.title)
+        self.assertIn("Delivery unconfirmed", [text for text, _ in lines])
         self.assertEqual([action.identity for action in actions], ["dismiss"])
         delivered = replace(snapshot, event_state="delivered")
         view._delivered_at = time.monotonic() - 10
@@ -702,19 +843,25 @@ class SimulatorProtocolTests(unittest.TestCase):
         endpoint = Mock()
         view.visible(snapshot)
         view.stage = "choices"
-        _, _, view._actions, view._back = view.plan(snapshot)
-        view._controls_visible = True
-        view.press((150, 315), snapshot, endpoint)
+        actions = self.present_event_plan(view, snapshot, controls_visible=False)
+        choice_point = self.action_center(actions, "choose:memory")
+        view.press(choice_point, snapshot, endpoint)
+        self.assertEqual((view.stage, view.selected_id), ("choices", ""))
+        endpoint.reply.assert_not_called()
+        self.present_event_plan(view, snapshot)
+        view.press(choice_point, snapshot, endpoint)
         self.assertEqual((view.stage, view.selected_id), ("confirm", "memory"))
         endpoint.reply.assert_not_called()
-        _, _, view._actions, view._back = view.plan(snapshot)
+        self.present_event_plan(view, snapshot)
+        self.assertTrue(view._back)
         view.press((40, 233), snapshot, endpoint)
         self.assertEqual(view.stage, "choices")
         self.assertEqual(view.selected_id, "memory")
-        view.stage = "confirm"
-        _, _, view._actions, view._back = view.plan(snapshot)
-        view._controls_visible = True
-        view.press((233, 385), snapshot, endpoint)
+        actions = self.present_event_plan(view, snapshot)
+        view.press(self.action_center(actions, "choose:memory"), snapshot, endpoint)
+        self.assertEqual(view.stage, "confirm")
+        actions = self.present_event_plan(view, snapshot)
+        view.press(self.action_center(actions, "send"), snapshot, endpoint)
         endpoint.reply.assert_called_once_with("memory")
 
     # self: Native glyph/card preview and read-only six-name pagination, without starting Tk.
@@ -747,6 +894,11 @@ class SimulatorProtocolTests(unittest.TestCase):
         view.visible(failed)
         view.stage = "failures"
         self.assertEqual(view.plan(failed)[2], ())
+        self.present_event_plan(view, failed, controls_visible=False)
+        view.press((250, 320), failed, Mock())
+        view.release((250, 220), failed)
+        self.assertEqual(view.page, 0)
+        self.present_event_plan(view, failed)
         view.press((250, 320), failed, Mock())
         view.release((250, 220), failed)
         self.assertEqual(view.page, 1)

@@ -190,6 +190,8 @@ class SimulatorLink:
         self._verifier = b""
         self._deadline = 0.0
         self._nonce = ""
+        self._ready_nonce = ""
+        self._reply_nonce = ""
         self._next_find = 0.0
         self._ready_at: float | None = None
         self._activity_at: float | None = None
@@ -262,6 +264,7 @@ class SimulatorLink:
         else:
             self._request_id, self._event_state, self._event_payload = "", "none", None
         self._reply_choice, self._event_error = "", 0
+        self._ready_nonce, self._reply_nonce = "", ""
 
     # self: Current owner; the result is consumed only by the visible simulator display.
     def display_code(self) -> str:
@@ -313,6 +316,7 @@ class SimulatorLink:
         self.store.save(self.active, None)
         self._clear_code()
         self._activation = None
+        self._ready_nonce, self._reply_nonce = "", ""
         self._next_find = 0.0
         self.state = (LinkState.NETWORK_DOWN if not self.network_ready else
                       LinkState.DISCOVERING if self.active else LinkState.UNPAIRED)
@@ -348,6 +352,7 @@ class SimulatorLink:
         self._next_find = 0.0
         if not ready:
             self._nonce = ""
+            self._ready_nonce, self._reply_nonce = "", ""
             self._ready_at = self._activity_at = None
             self._event_at = None
             self.last_error = "SIMULATED network is offline"
@@ -392,7 +397,7 @@ class SimulatorLink:
             self.last_error = "No authenticated READY for eight seconds"
         if (self._reply_choice and self._event_state == "sending"
                 and self.state == LinkState.CONNECTED and now >= self._reply_after
-                and self._event_peer is not None):
+                and self._event_peer is not None and self._ready_nonce):
             self._send_reply(send)
         if now < self._next_find:
             return
@@ -408,6 +413,8 @@ class SimulatorLink:
         proof = protocol.make_proof(key, "find-events-v2", self.device_id, pc, nonce, current_id, current_state)
         send(protocol.encode_datagram("FIND", fields + [("proof", proof)]), (LOOPBACK, protocol.PLUGIN_PORT))
         self._nonce = nonce
+        # A retained Connected state does not authenticate this new FIND yet.
+        self._ready_nonce = ""
         if self.state != LinkState.CONNECTED:
             self.state = LinkState.INCOMPLETE if self.pending else LinkState.DISCOVERING
 
@@ -535,7 +542,7 @@ class SimulatorLink:
         reset.validate_confirmation(fields["code"])
         if self.pending is not None or self._code:
             raise ValueError("Reset is unavailable during incomplete commissioning")
-        key = self._event_key(fields)
+        key = self._event_key(fields, self._ready_nonce)
         if fields["id"] == "0" * 32:
             raise ValueError("A reset command requires a nonzero request identity")
         names = ("device", "pc", "nonce", "id", "code")
@@ -676,6 +683,7 @@ class SimulatorLink:
                 self._activation = (candidate["session"], candidate["pc_id"], candidate["nonce"], self.clock() + 10.0)
                 self._clear_code()
             self.state, self._ready_at, self.last_error = LinkState.CONNECTED, self.clock(), ""
+            self._ready_nonce = fields["nonce"]
             values = [fields[name] for name in ("device", "pc", "nonce")]
             proof = protocol.make_proof(key, "committed", *values)
             # Resend even after prior activation: lost COMMITTED must not strand
@@ -710,17 +718,18 @@ class SimulatorLink:
         self.phase, self.project, self.chat = fields["phase"], project, fields["chat"]
         self._activity_at, self._activity_nonce = self.clock(), fields["nonce"]
 
-    # self: Active link owner validating every interaction against the newest FIND and fixed PC identity.
+    # self: Active link owner validating every interaction against its purpose-specific nonce and PC identity.
     # fields: Common authenticated EVENT or REPLYACK envelope.
+    # expected_nonce: Accepted current READY for events, or last successfully transmitted REPLY for its ACK.
     # Returns the retained active key after identity, nonce and presence validation.
     # Raises ValueError or RuntimeError for stale/unconfirmed/malformed envelopes or storage failure.
-    def _event_key(self, fields: dict[str, str]) -> bytes:
+    def _event_key(self, fields: dict[str, str], expected_nonce: str) -> bytes:
         require_hex({name: fields[name] for name in ("device", "pc", "nonce", "proof")})
         if interactions.IDENTITY.fullmatch(fields["id"]) is None:
             raise ValueError("CCP interaction ticket identity is invalid")
         if (self.active is None or self.pending or self.state != LinkState.CONNECTED
                 or fields["device"] != self.device_id or fields["pc"] != self.active["pc_id"]
-                or not self._nonce or fields["nonce"] != self._nonce):
+                or not expected_nonce or fields["nonce"] != expected_nonce):
             raise ValueError("CCP interaction is not bound to the current active FIND")
         return protocol.unprotect_secret(self.active["protected_link_key"])
 
@@ -731,7 +740,7 @@ class SimulatorLink:
     def _accept_event(self, fields: dict[str, str], source: tuple[str, int]) -> None:
         if set(fields) != {"device", "pc", "nonce", "id", "state", "ttl", "data", "proof"}:
             raise ValueError("Malformed CCP EVENT fields")
-        key = self._event_key(fields)
+        key = self._event_key(fields, self._ready_nonce)
         names = ("device", "pc", "nonce", "id", "state", "ttl", "data")
         if not hmac.compare_digest(protocol.make_proof(key, "event", *(fields[name] for name in names)), fields["proof"]):
             raise ValueError("CCP EVENT authentication failed")
@@ -747,6 +756,7 @@ class SimulatorLink:
 
     # self: SIMULATED endpoint reporting actual retirement, separate from recipient delivery.
     # send: Sole authenticated socket callback; a lost ACK is retried on the next terminal EVENT.
+    # Returns without sending while the current FIND awaits its authenticated READY.
     # Raises ValueError, RuntimeError or OSError for missing route, crypto or send failure.
     def _send_terminal_ack(self, send: Send) -> None:
         if self._transaction is None:
@@ -754,11 +764,15 @@ class SimulatorLink:
         observation = self._transaction.terminal()
         if observation is None:
             return
-        if self.active is None or not self._nonce or self._event_peer is None:
+        if not self._ready_nonce:
+            # A delayed REPLYACK can retire the question while a new FIND awaits
+            # READY. Its next authenticated terminal EVENT retries this observation.
+            return
+        if self.active is None or self._event_peer is None:
             raise ValueError("No authenticated route for terminal observation")
         key = protocol.unprotect_secret(self.active["protected_link_key"])
         request_id, state = observation
-        values = [self.device_id, self.active["pc_id"], self._nonce, request_id, state]
+        values = [self.device_id, self.active["pc_id"], self._ready_nonce, request_id, state]
         send(protocol.encode_datagram("EVENTACK", list(zip(("device", "pc", "nonce", "id", "state"), values))
                                       + [("proof", protocol.make_proof(key, "event-ack", *values))]), self._event_peer)
 
@@ -780,15 +794,18 @@ class SimulatorLink:
 
     # self: Endpoint retaining one explicitly confirmed answer across retries and temporary offline periods.
     # send: Sole socket callback; only a later authenticated delivered acknowledgement shows Reply sent.
-    # Raises RuntimeError or OSError for cryptography or transport failure.
+    # Raises ValueError, RuntimeError or OSError for absent authentication, cryptography or transport failure.
     def _send_reply(self, send: Send) -> None:
-        if self.active is None or not self._nonce or self._event_peer is None:
+        if self.active is None or not self._ready_nonce or self._event_peer is None:
             raise ValueError("No active authenticated CCP reply route")
         key = protocol.unprotect_secret(self.active["protected_link_key"])
-        values = [self.device_id, self.active["pc_id"], self._nonce, self._request_id, self._reply_choice]
+        values = [self.device_id, self.active["pc_id"], self._ready_nonce, self._request_id, self._reply_choice]
         proof = protocol.make_proof(key, "reply", *values)
         send(protocol.encode_datagram("REPLY", list(zip(("device", "pc", "nonce", "id", "choice"), values))
                                       + [("proof", proof)]), self._event_peer)
+        # Failed sends retain the prior ACK admission nonce rather than admitting
+        # an acknowledgement for a packet that this owner never transmitted.
+        self._reply_nonce = self._ready_nonce
         self._reply_after = self.clock() + 1.0
 
     # self: Request owner whose received and delivered states have distinct UI meanings.
@@ -797,7 +814,7 @@ class SimulatorLink:
     def _accept_reply_ack(self, fields: dict[str, str]) -> None:
         if set(fields) != {"device", "pc", "nonce", "id", "choice", "status", "proof"}:
             raise ValueError("Malformed CCP REPLYACK fields")
-        key = self._event_key(fields)
+        key = self._event_key(fields, self._reply_nonce)
         names = ("device", "pc", "nonce", "id", "choice", "status")
         if not hmac.compare_digest(protocol.make_proof(key, "reply-ack", *(fields[name] for name in names)), fields["proof"]):
             raise ValueError("CCP REPLYACK authentication failed")

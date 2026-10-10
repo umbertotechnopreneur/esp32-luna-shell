@@ -1,5 +1,17 @@
 # Active work
 
+## CCP verification and transport parity - 2026-10-10
+
+- [x] Run the freshly authorized broker suite: 59 tests pass after updating the
+  public tool catalog fixture for the existing authenticated Debug screen tool.
+- [x] Align Studio EVENT admission with the current authenticated READY and retain
+  REPLYACK admission across FIND using the last successfully transmitted reply.
+  Firmware also retains the previous reply nonce when a newer retry fails.
+- [x] Regenerate the authorized native graphics driver and run the simulator CCP
+  suite: 31 tests pass, including five new nonce/reconnect/send-failure regressions.
+  Update three older presentation fixtures to actual native bounds and reveal gates.
+- [ ] Verify physical CCP behavior separately; these are broker/host observations.
+
 ## Cody product copy - 2026-10-10
 
 - [x] Review fixed scene titles, onboarding/activity captions, action labels and
