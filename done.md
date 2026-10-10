@@ -7,6 +7,31 @@ Conservo la storia in Git e nei documenti di architettura. I vecchi percorsi
 richiesta il 2026-10-05 ha rimosso quelle prove non versionate. Per i nuovi
 risultati indico sotto le copie preservate dentro la directory del build.
 
+## Review P1 e pulizia mirata su main - 2026-10-10
+
+- Checkpoint locale dell'implementazione: `667242c`, direttamente su `main`.
+- Ho conservato la correzione gia' presente del ramo radio: `reassert` richiama
+  il proprietario senza falsificare `wireless.consistent`. Ho estratto la
+  transizione delle risorse in un modulo dedicato, mantenendo ordine, rollback
+  e pubblicazione del flag audio nel power owner.
+- Release sceglie lo standby software quando la transazione conserva Codex o
+  quando e' richiesto l'ascolto wake word. Il deep sleep richiede entrambi i
+  servizi assenti e il profilo touch; l'API verifica anche il power owner.
+- CCP 0.6.1 ripete la chiusura della domanda pubblicata fino a EVENTACK firmato
+  dal dispositivo. Verifico endpoint, nonce, chiave attiva e ticket; l'ACK non
+  riscrive l'esito del destinatario. Firmware e Cody Studio SIMULATED mantengono
+  gli stati terminali reali, ritrasmettono l'ACK perso e non riaprono la domanda.
+- Ho separato calendario/decoder RTC, presentazione degli eventi e dipendenze
+  DPAPI/Winsock/avvio nascosto. Acquisizione I2C, timestamp e canonical snapshot
+  restano nel proprietario hardware; il formato protetto delle chiavi non cambia.
+  Il companion residente resta Windows, con la dipendenza isolata.
+- Ho scritto regressioni per domande consecutive, ACK perso, scadenza locale,
+  provenienza/nonce/proof/associazione errati e selezione C++ del sonno. Ho
+  aggiornato CMake, contratti sorgente, manifest e documentazione.
+- Evidenza: implementazione e revisione statica dei sorgenti. Nessun test,
+  scan di validazione, build, simulatore, installazione, flash o prova fisica
+  eseguito in questo passaggio; le verifiche restano in TODO.md. Nessun push.
+
 ## Integrazione in main e chiusura del worktree - 2026-10-10
 
 - Ho portato in `main` tutti i checkpoint di `codex/cody-onboarding` fino a

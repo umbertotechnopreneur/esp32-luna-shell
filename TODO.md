@@ -1,5 +1,20 @@
 # Active work
 
+## Static review fixes and component cleanup - 2026-10-10
+
+- [x] Work directly on main; retain the existing explicit radio-policy reassertion fix.
+- [x] Complete request closure acknowledgements across broker, firmware and SIMULATED endpoint.
+- [x] Select software/deep standby from retained connection and voice requirements.
+- [x] Extract resource transitions, RTC/calendar, event presentation and Windows credential/startup code.
+- [x] Add regression definitions and review CMake, callers and source-contract integration statically.
+- [ ] Execute CCP, CCP simulator, RTC/power contracts and native C++ policy checks only after
+  exact commands receive fresh authorization; no test/validation scan has run for this checkpoint.
+- [ ] Build and verify firmware stack frames, Release service standby and physical notification wake
+  separately when requested. Existing physical evidence refers to an earlier image.
+- [ ] Update the installed plugin and firmware together for EVENTACK (CCP 0.6.1), when requested.
+- [x] Save implementation checkpoint `667242c` directly on main and its canonical records.
+  No push, installation, build or hardware operation requested.
+
 ## Cody: facial rig, personality and shared native simulator - 2026-10-10
 
 - [x] Extend the ten existing facial identities with 24 independent controls;

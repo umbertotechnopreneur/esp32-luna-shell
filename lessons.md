@@ -5,6 +5,15 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
 
 ## Ownership and truthful evidence
 
+- Keep radio-state verification separate from standby policy reassertion. A
+  service requirement can retain software standby even when Release permits
+  Deep-sleep; expected service policy must not become a failed sleep/Active rollback.
+- Recipient delivery and device retirement are separate CCP observations.
+  Hold a published terminal question until its authenticated device ACK before
+  publishing its successor; a UI dwell timeout does not prove device closure.
+- A responsibility split must update CMake and source-contract families together.
+  Keep acquisition, timestamps, persistence format and publication in their owners;
+  moving DPAPI/launch code does not establish multiplatform runtime support.
 - After branch/worktree consolidation, describe the merged capability and exact
   commit rather than treating a deleted branch name as current state. Ignored
   `artifacts/` paths are disposable, not durable evidence; retain lasting results
