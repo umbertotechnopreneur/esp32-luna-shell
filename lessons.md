@@ -134,6 +134,11 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
 
 ## Power, wake and audio
 
+- Ho separato la riapplicazione della policy standby dalla consistenza reale
+  delle risorse. Impostare `consistent=false` per forzare il callback faceva
+  fallire il gate che conserva la LAN di Cody associato. Uso un parametro
+  esplicito di riapplicazione; conservo lo stato osservato e i veri errori.
+
 - Complete Sleep before closing display writes; prepare Wake while dark before
   panel exposure. Lock display/brightness/rotation before settings, defer
   rotation while off and require fresh orientation before replay.

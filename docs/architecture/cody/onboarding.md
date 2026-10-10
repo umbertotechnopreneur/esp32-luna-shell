@@ -571,12 +571,10 @@ nell'[API HTTP](../http-device-api.md).
 
 ## Cosa ho osservato e cosa resta da provare
 
-Conservo i dettagli dei checkpoint e delle catture in `done.md` e nei log locali.
-La cattura autorizzata di `3458237e` ha completato la derivazione in 27,790323
-secondi senza watchdog osservato; l'utente ha poi confermato il codice e,
-separatamente, All set/Connected. La correzione dello stack power ha raggiunto
-Connected con 5.820 byte liberi minimi su 8.192, ma la seriale e' caduta dopo
-circa 16 secondi: quell'intervallo non prova il ciclo standby/risveglio completo.
+Tengo build installata, hash, catture e misure dello stack nel registro
+[done.md](../../../done.md). Le prime catture interrotte restano nello storico;
+per lo stato corrente uso l'ultima prova completa, con il suo preciso perimetro.
+Il riscontro dell'utente su pairing e wake word resta distinto dalle mie misure.
 
 Per questa revisione registro separatamente build/installazione, prove host,
 revisione visiva dei PDF, gesture e salvataggi fisici, Cancel/reset e interruzioni

@@ -25,8 +25,49 @@ risultati indico sotto le copie preservate dentro la directory del build.
   errata, aggiungendo le nuove in fondo. QA documentale PASS, 173 pagine renderizzate
   e reviste visivamente; fonti/documenti in `0834a496` e `eab8bf3e`.
 - Ho eseguito le verifiche in `E:\Cody-Notifications`, una copia isolata dallo
-  sviluppo concorrente del rig/debug. Build, installazione e osservazione fisica
-  restano aperte in TODO.md; non considero i test host una prova sul display.
+  sviluppo concorrente del rig/debug. Il firmware installato corrisponde a
+  `e3f72b3c`; i successivi cambiamenti concorrenti del rig non sono in quell'immagine.
+- Ho individuato un overflow reale di LUNASHELL_full_ sul primo firmware
+  `16fce1cf`: due copie del DeviceSnapshot da 4560 byte producevano un frame
+  da 9920 byte. In `3cc10fcc` ho spostato 9120 byte di scratch in PSRAM, sotto
+  il mutex del suo owner, e ridotto il frame a 320 byte. Ho sostituito anche
+  il frame GATT da 5616 byte con una proiezione canonica: nuovo frame 1328 byte.
+  Non ho ingrandito gli stack. Ho aggiunto la regola esplicita in AGENTS.md.
+- Ho corretto in `e3f72b3c` la riapplicazione della policy standby: un flag
+  di consistenza falsificato impediva di mantenere la LAN del Cody associato.
+  Ho conservato lo stato reale e separato il comando di riapplicazione.
+  snapshot-integrity e power-policy sono passati dopo le rispettive correzioni.
+- Ho compilato a otto job e installato su COM10 `cody-49-ge3f72b3c`,
+  Debug wake-word/Sophia, con quattro hash di scrittura verificati.
+  L'applicazione occupa 6.847.456 byte e lascia libero il 50% della partizione.
+  Ho completato size; ELF SHA-256:
+  `475d53e915df60a47d1e878677695a1e227e99f3c9ddd6cb231918e10c488d84`.
+- Ho installato CCP 0.6.0 dalla copia isolata, verificando 13 file del pacchetto
+  e conservando gli archivi del pairing e DPAPI. Il catalogo locale punta a
+  quella copia. Il client pubblico diagnostico vede il Cody fisico autenticato;
+  il trasporto MCP della chat corrente restituisce ancora Transport closed.
+  Non ho osservato hook reali o inventato una chat per aggirare questa assenza.
+- Ho completato con exit 0 la cattura COM10 di 300 secondi dopo reset
+  (`boot-notifications-final.txt`). Pairing retained=1/pending=0 e presenza
+  autenticata a 14.139 ms; standby a 75.809 ms con Wi-Fi mantenuto.
+  Ho inviato una sola notifica `Firmware test` dal client pubblico diagnostico:
+  EVENT autenticato a 106.287 ms, awake per codex-notification a 107.313 ms
+  con ESP_OK, ripresa della scena codex-notice a 110.778 ms.
+  Alla scadenza informativa, 285.045 ms, torno a connected/companion-idle;
+  osservo il secondo standby a 286.760 ms. Nessun panic o nuovo reset
+  nell'intervallo; stack full minimo libero 9648/12288 e power 4940/8192 byte.
+  Lo stato CCP finale conferma ancora connected=true sulla LAN in standby.
+- Tengo aperti i timeout SD, le due disabilitazioni I2S prima dell'abilitazione
+  e le righe troppo lunghe segnalate dal logger; non li dichiaro risolti da
+  questa correzione. Non ho misurato direttamente i task BLE ne provato
+  gesture, riproduzione udibile, RESET remoto o factory reset sul device.
+  I comandi di manutenzione sono verificati sul PC e sul SIMULATED.
+- Conservo ELF/map del crash e dell'immagine finale, log e rapporti sotto
+  `artifacts/build-cody-companion-wake-word-debug/diagnostics/cody-notifications-20261010/`.
+  I risultati fisici non equivalgono a una revisione visiva o a un gesto touch.
+- Ho chiuso con PASS il controllo whitespace rispetto a `e6738f3b` e la scansione
+  segreti su 73 file cambiati/non tracciati e otto firme. Ho rilasciato la lease
+  diagnostica CCP con exit 0, senza terminare il broker o altri client.
 
 ## Pairing recuperabile, Options e simulatore CCP - 2026-10-10
 

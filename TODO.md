@@ -11,13 +11,29 @@
 - [x] Ho aggiornato e verificato i cinque PDF: 173 pagine renderizzate, pagine
   principali corrette e storico/errata preservati. README e guida seguono il flusso.
 - [x] Ho verificato 51 casi CCP, 21 casi simulatore, cody-runtime (26 vettori
-  Python/C++, presenter reale e owner settings), cody-native e snapshot-integrity.
-- [ ] Completo power-policy, build/flash, size e cattura sul dispositivo.
-  Non eseguo il factory reset fisico mentre l'utente e fuori studio.
-- [ ] Verifico la ricezione fisica delle notifiche e il riavvio conservativo;
-  touch, voce e hook reali richiedono evidenza distinta dalle prove sul PC.
-- [ ] Completo i checkpoint e il push preservando le modifiche concorrenti
-  al rig/debug, escluse dalla copia isolata usata per queste verifiche.
+  Python/C++, presenter reale e owner settings), cody-native, snapshot-integrity
+  e power-policy. Ho completato build Debug wake-word/Sophia, flash COM10 e size
+  di `e3f72b3c`: 6.847.456 byte, quattro hash verificati, 50% app libero.
+- [x] Ho aggiunto la regola sui budget dello stack e corretto le copie grandi
+  nell'acquisizione e nel callback BLE. Nel ciclo full osservo 9648/12288 byte
+  liberi; tengo distinta la misura diretta dei task BLE, ancora da acquisire.
+- [x] Ho osservato pairing ripristinato al reset, Wi-Fi mantenuto in standby
+  e risveglio per una notifica CCP autenticata, fino alla scena codex-notice.
+- [x] Ho completato la cattura di 300 secondi: scadenza della notifica, ritorno
+  al companion e secondo standby, senza nuovi panic/reset. Power minimo libero
+  4940/8192 byte. Registro tempi, hash e limiti in done.md.
+- [ ] Completo il collegamento nativo della chat: CCP 0.6.0 e installato e il
+  client pubblico diagnostico funziona, ma questa chat ha Transport closed
+  e zero hook reali osservati. Servono ricaricamento del plugin e revisione
+  degli hook; non creo attivita finta e non approvo il trust al posto dell'utente.
+- [ ] Provo con l'utente touch, scelta/Send/ACK sul display, voce e audio.
+  Non ho inviato RESET remoto ne eseguito il factory reset fisico: ho verificato
+  i comandi sul PC e sul SIMULATED, preservando il device mentre l'utente e via.
+- [ ] Misuro direttamente il margine dei task BLE; prima di abilitare altri
+  profili riesamino le copie snapshot nei percorsi HTTP, Luna e DeepSleepRelease.
+- [x] Ho mantenuto checkpoint distinti per le implementazioni, preservando il
+  lavoro concorrente del rig/debug, escluso dal firmware isolato installato.
+  Confronto il riferimento remoto al rilascio, senza duplicare qui il suo hash.
 
 ## Cody: chiudo il percorso completo - 2026-10-10
 
@@ -50,8 +66,9 @@
 - [x] Ho completato la cattura con reset di 300 secondi: pairing ripristinato,
   Connected a 14.198 ms e standby per inattivita a 75.904 ms con ESP_OK.
   Non ho osservato panic o nuovi reset; stack power minimo libero 5052/8192.
-- [ ] Osservo il risveglio fisico, le scelte Options, Cancel/Forget e gli effetti
-  sul display/audio. La cattura senza gesti non dimostra questi comportamenti.
+- [ ] Osservo il risveglio da gesto/voce, le scelte Options, Cancel/Forget e gli
+  effetti sul display/audio. Ho verificato il risveglio da notifica CCP nella
+  revisione piu recente; quella prova non dimostra questi altri comportamenti.
   Mantengo valida l'autorizzazione del 2026-10-10 a compilare, eseguire test e
   resettare il device quante volte serve; annuncio comunque i comandi.
 - [ ] Approfondisco gli errori separati presenti nel log finale: timeout SD,
@@ -75,8 +92,8 @@
   senza panic/reset e con almeno 5052 byte liberi nello stack power. La vecchia
   cattura su `579afee5`, interrotta da Windows dopo circa 16 secondi, resta
   documentata in done.md; non attribuisco una causa a quella perdita USB.
-- [ ] Mi restano risveglio fisico ed eventi hook reali, tracciati nel percorso
-  completo qui sopra. Una riconnessione CCP non dimostra da sola il risveglio.
+- [ ] Mi restano risveglio da gesto/voce ed eventi hook reali, tracciati sopra.
+  Ho osservato il risveglio da notifica, fino alla ripresa della scena, su e3f72b3c.
 
 ## Automatic CCP context and atlas consolidation - 2026-10-10
 
@@ -127,9 +144,11 @@
 
 ## Cody startup and setup access - 2026-10-09
 
-Ho installato per ultimo `ea0e3759`, `cody-41-gea0e3759`, Debug wake-word/Sophia,
-con build a otto job e flash COM10 il 2026-10-10. Nei 300 secondi di cattura ho
-osservato Connected e standby senza panic/reset; il risveglio resta da osservare.
+Per il firmware corrente uso la sezione notifiche in cima e le evidenze in done.md.
+Qui conservo lo storico: avevo installato `ea0e3759`, `cody-41-gea0e3759`,
+Debug wake-word/Sophia, con build a otto job e flash COM10 il 2026-10-10.
+In quella cattura di 300 secondi avevo osservato Connected e standby senza
+panic/reset, ma nessun risveglio.
 L'immagine precedente era `579afee5`, `cody-34-g579afee5`; quella ancora prima:
 `51b5d532`, `cody-32-g51b5d532-dirty`. Only the PDF revision
 and its authoring/check scripts were uncommitted at configuration time; firmware
