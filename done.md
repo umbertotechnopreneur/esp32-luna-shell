@@ -7,6 +7,35 @@ Conservo la storia in Git e nei documenti di architettura. I vecchi percorsi
 richiesta il 2026-10-05 ha rimosso quelle prove non versionate. Per i nuovi
 risultati indico sotto le copie preservate dentro la directory del build.
 
+## Follow-up P2: riavvio broker, scadenza e HTTP - 2026-10-10
+
+- Checkpoint locale dell'implementazione: `31665ca`, direttamente su `main`.
+- CCP 0.6.2 lega al proof FIND events=2 la domanda e lo stato osservati da Cody.
+  Se il broker ha perso un ticket aperto, pubblica prima unavailable per il suo
+  ID; il dispositivo conserva la scelta locale senza inventare consegna, pubblica
+  Rejected e ne conferma il ritiro nel FIND seguente. La nuova domanda attende
+  questo passaggio anche quando e' gia' accodata prima della riconnessione.
+- Cody Studio SIMULATED controlla la scadenza originale durante la ricezione
+  EVENT, anche prima di tick() e davanti a Received/Delivered con TTL positivo.
+  Conserva lo stato Expired e la prova della selezione locale.
+- HTTP usa un buffer di risposta PSRAM protetto per lettura, serializzazione e
+  invio. readSnapshot() restituisce gli errori canonici reali e applica aging e
+  timestamp senza acquisizione hardware. Il gestore invia 503 con la causa,
+  propaga l'errore originale e non legge il buffer fallito. I precedenti caller
+  dell'API by-value conservano il loro contratto; non ho aumentato lo stack HTTP.
+- Ho aggiunto regressioni per riavvio con successore accodato, autenticazione
+  della domanda corrente e pacchetti tardivi prima del tick; ho aggiornato i
+  contratti sorgente HTTP/snapshot, manifest e documentazione.
+- Evidenza: revisione statica locale e seconda revisione statica tramite subagent.
+  Nessun test, scan di validazione, build, esecuzione del simulatore, installazione,
+  flash o prova fisica eseguito. Stack compilato e contesa reale restano da verificare;
+  pacchetto installato e firmware fisico non sono aggiornati. Nessun push.
+- Un secondo subagent ha esaminato, senza modifiche o esecuzioni, i confini del
+  simulatore: rig/scene/font e parte dell'audio usano gia' C++ reale; le prossime
+  estrazioni proposte sono stati CCP, presentazione delle domande, politica di
+  standby, decoder/freshness/JSON e regole delle preferenze. Nessuna di queste
+  estrazioni ulteriori e' dichiarata implementata.
+
 ## Review P1 e pulizia mirata su main - 2026-10-10
 
 - Checkpoint locale dell'implementazione: `667242c`, direttamente su `main`.

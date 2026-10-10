@@ -1,5 +1,20 @@
 # Active work
 
+## Follow-up P2 review fixes - 2026-10-10
+
+- [x] Retire an unknown open device question before publishing a successor after broker restart.
+  FIND events=2 authenticates device identity/state; unavailable never invents a response.
+- [x] Enforce the original simulator decision deadline during EVENT admission, before tick().
+- [x] Move the HTTP full-response buffer to serialized PSRAM ownership and use a fallible canonical read.
+  Snapshot contention returns HTTP 503 with the real cause instead of resetting the firmware.
+- [x] Add broker/simulator regression definitions and update HTTP/snapshot source contracts.
+- [x] Complete independent static review and save source checkpoint `31665ca` on main.
+- [ ] Execute these regressions and source-contract checks only after exact commands get fresh approval.
+  No tests, validation scans, simulator execution, build or physical operations authorized here.
+- [ ] Build and inspect firmware stack frames and HTTP contention when separately requested.
+- [ ] Install CCP 0.6.2 and its matching events=2 firmware together when requested.
+  Source changes do not update the installed plugin or hardware.
+
 ## Static review fixes and component cleanup - 2026-10-10
 
 - [x] Work directly on main; retain the existing explicit radio-policy reassertion fix.
@@ -11,7 +26,7 @@
   exact commands receive fresh authorization; no test/validation scan has run for this checkpoint.
 - [ ] Build and verify firmware stack frames, Release service standby and physical notification wake
   separately when requested. Existing physical evidence refers to an earlier image.
-- [ ] Update the installed plugin and firmware together for EVENTACK (CCP 0.6.1), when requested.
+- [ ] Update the installed plugin and firmware together for EVENTACK and events=2 (CCP 0.6.2), when requested.
 - [x] Save implementation checkpoint `667242c` directly on main and its canonical records.
   No push, installation, build or hardware operation requested.
 
