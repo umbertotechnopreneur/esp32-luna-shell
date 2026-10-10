@@ -93,7 +93,8 @@ def load_selection():
         if type(cue["duration_ms"]) is not int:
             raise ValueError(f"Cody action audio: integer duration required for {cue['name']}")
         number(cue["duration_ms"], 1000 if boot else 50, 3000 if boot else 350, "cue.duration_ms")
-        number(cue["target_peak_dbfs"], -30, -9 if boot else -18, "cue.target_peak_dbfs")
+        # Keep authored headroom while allowing short notices to stand above quiet activity textures.
+        number(cue["target_peak_dbfs"], -30, -9 if boot else -12, "cue.target_peak_dbfs")
         if not isinstance(cue["intent"], str) or not cue["intent"].strip():
             raise ValueError(f"Cody action audio: explicit intent required for {cue['name']}")
         if not isinstance(cue["layers"], list) or not 1 <= len(cue["layers"]) <= 4:

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "selection_sha256": "4c5ae29a2f794c0828483b5bbe150e7bcace609d08557a82d4e6ec891ce6a61b",
+  "selection_sha256": "d5dd84fbc4bca1b954430c268811a5584d015844f824bde28a214d89a3e9be07",
   "generator": "scripts/device.ps1 generate -Generator cody-codex-sfx",
-  "generator_sha256": "3db74e2a447d07c309da15e37c68a2cd7407075741295339010b8c7c90a39ecb",
-  "contract_sha256": "6412b910cd67cbb18f6a672906a272fa109726d5f9300f756ccefb058aae90d2",
+  "generator_sha256": "acef3ac06bf610f5347bd346b192b7e13a612c7df61cfd282db08bd58e0b2f27",
+  "contract_sha256": "f0e6a641433187a23b8bfb7ef305adef63e18224a0c91c174b09403170af45f6",
   "licensing": {
     "status": "owner_confirmed_purchased_commercial",
     "scope": "The owner confirmed purchased perpetual commercial-use SFX licences on 2026-10-04 and requested this selection on 2026-10-10. Licence documents were not present in the inspected archive; the PDF files are package indexes.",
@@ -12,7 +12,7 @@
   "channels": 1,
   "encoding": "PCM16LE",
   "listening_review": "Authored first pass; perceived sound and device playback have not been evaluated.",
-  "action_pcm_bytes": 90240,
+  "action_pcm_bytes": 140800,
   "cues": [
     {
       "id": 1128464384,
@@ -146,11 +146,11 @@
       "sample_count": 3680,
       "pcm_bytes": 7360,
       "duration_ms": 230.0,
-      "target_peak_dbfs": -23.0,
-      "linear_gain_after_mix": 2729.0893549311827,
-      "peak_dbfs": -22.999239001376367,
-      "rms_dbfs": -42.51652152440036,
-      "pcm_sha256": "051d372d926042fc9379d421d70a9fd33ee533e0e0d03f3c6e5f8fec0b7c6373",
+      "target_peak_dbfs": -18.0,
+      "linear_gain_after_mix": 4853.083408030527,
+      "peak_dbfs": -18.00051964147548,
+      "rms_dbfs": -37.5164977142201,
+      "pcm_sha256": "7abf92f3f87a19921ac1b7df1fa33b6076c903ab32c01c0dd757b5122b78688e",
       "layers": [
         {
           "source": "pop",
@@ -223,7 +223,7 @@
           "normalization_gain_before_mix": 1.4204124620814782
         }
       ],
-      "wav_sha256": "887120e65bd2e198d0cc8ca4d6e6b783b0983271829304d7b56c1a8f7265e52e"
+      "wav_sha256": "26ea9cf7134f6016a2cc70044f4b8eb45c491b4eb9a3eeb18498a2ec4233af87"
     },
     {
       "id": 1128464386,
@@ -234,11 +234,11 @@
       "sample_count": 3360,
       "pcm_bytes": 6720,
       "duration_ms": 210.0,
-      "target_peak_dbfs": -26.0,
-      "linear_gain_after_mix": 1642.240208426483,
-      "peak_dbfs": -26.00153564352592,
-      "rms_dbfs": -51.649654769308746,
-      "pcm_sha256": "200133458e9d153f9c465916f47f4fc0c78ddfbf28e46910ee6f58934c33a423",
+      "target_peak_dbfs": -20.0,
+      "linear_gain_after_mix": 3276.7000000000003,
+      "peak_dbfs": -19.999469871546843,
+      "rms_dbfs": -45.64999150367966,
+      "pcm_sha256": "5507c5d47d59183d88971e83f80e3cce88837fa5a80b5030583a64e6d957519c",
       "layers": [
         {
           "source": "paper",
@@ -276,7 +276,7 @@
           "normalization_gain_before_mix": 34.0269989615784
         }
       ],
-      "wav_sha256": "8dbb6b5c3e4737564705decff140277ac3d9982fe344f286d61bd7a2d4465837"
+      "wav_sha256": "76cf8d4c05966bc7aa0d142f9d7541f5bbe175c7ddcc555627d8733c5aba2afc"
     },
     {
       "id": 1128464387,
@@ -287,11 +287,11 @@
       "sample_count": 3840,
       "pcm_bytes": 7680,
       "duration_ms": 240.0,
-      "target_peak_dbfs": -25.0,
-      "linear_gain_after_mix": 1842.623820251217,
-      "peak_dbfs": -24.99849199481288,
-      "rms_dbfs": -46.43586474565307,
-      "pcm_sha256": "b3a0d7bebedf99a56d4143aa98d2ee3b49a855cd95f8bc11bb4b34fd1aac68bc",
+      "target_peak_dbfs": -20.0,
+      "linear_gain_after_mix": 3276.7000000000003,
+      "peak_dbfs": -19.999469871546843,
+      "rms_dbfs": -41.43564569876322,
+      "pcm_sha256": "c13fda608972ab431875303fc1dc3c28ddb86ed6cd02547e13d162a988678585",
       "layers": [
         {
           "source": "typing",
@@ -329,7 +329,7 @@
           "normalization_gain_before_mix": 34.62318187076586
         }
       ],
-      "wav_sha256": "2dd4dda0f5dc3f2f068e85e94d04225485dfb22ed02ab60eff49a22ccb4efd72"
+      "wav_sha256": "b855a1a0ad615d1e961617b81b4ad01fcefda92edf05eca8229ef91f7bb85bbb"
     },
     {
       "id": 1128464388,
@@ -340,11 +340,11 @@
       "sample_count": 4480,
       "pcm_bytes": 8960,
       "duration_ms": 280.0,
-      "target_peak_dbfs": -24.0,
-      "linear_gain_after_mix": 2578.0084217764997,
-      "peak_dbfs": -24.00218916664859,
-      "rms_dbfs": -42.0764964906978,
-      "pcm_sha256": "e1595001d66f19d6c05dba4d8a6630816ed6f3c120f4cea57f754bf8447865ba",
+      "target_peak_dbfs": -18.0,
+      "linear_gain_after_mix": 5143.803051643046,
+      "peak_dbfs": -18.00051964147548,
+      "rms_dbfs": -36.07677801255007,
+      "pcm_sha256": "10bfb29b676fadc5754f8bd409439b0a10846be049b03610bb5199a392c0409d",
       "layers": [
         {
           "source": "pop",
@@ -452,7 +452,7 @@
           "normalization_gain_before_mix": 1.4675174782081666
         }
       ],
-      "wav_sha256": "527e2749b190bc50cb79426d1b1d24f89ac257c8681419b577391aef05c3328e"
+      "wav_sha256": "e8f1ff3b4027565f62bda222dc2379c1fb881e827dc5e6ae2cab287f909e89c9"
     },
     {
       "id": 1128464389,
@@ -463,11 +463,11 @@
       "sample_count": 5600,
       "pcm_bytes": 11200,
       "duration_ms": 350.0,
-      "target_peak_dbfs": -20.0,
-      "linear_gain_after_mix": 3276.7000000000003,
-      "peak_dbfs": -19.999469871546843,
-      "rms_dbfs": -26.475444674610525,
-      "pcm_sha256": "cfdaa936aac608be51d80dbae805a01e985e2e4942566e8e14cbcb0e09bb9d69",
+      "target_peak_dbfs": -14.0,
+      "linear_gain_after_mix": 6537.876027458528,
+      "peak_dbfs": -14.000100374307355,
+      "rms_dbfs": -20.475433679643956,
+      "pcm_sha256": "cbf2586ddb27b658476343567aba2d07111038176c0c8b05006d862bb67a1333",
       "layers": [
         {
           "source": "chime",
@@ -505,7 +505,7 @@
           "normalization_gain_before_mix": 4.5167083346962436
         }
       ],
-      "wav_sha256": "47bdb1e8d9680a917d1400f96d9a4f5f64738838e325c9e5bb46056dedfb07a1"
+      "wav_sha256": "5edcc7450e8359110d5ed7136e06fb98884107e758faaf1ca4d8e976cc5f66f0"
     },
     {
       "id": 1128464390,
@@ -516,11 +516,11 @@
       "sample_count": 4160,
       "pcm_bytes": 8320,
       "duration_ms": 260.0,
-      "target_peak_dbfs": -23.0,
-      "linear_gain_after_mix": 2729.0893549311827,
-      "peak_dbfs": -22.999239001376367,
-      "rms_dbfs": -42.23619241857213,
-      "pcm_sha256": "965b9a675b96eb5e29fbc13cf8dac5faaf733d53055b61f6426fd95b63334577",
+      "target_peak_dbfs": -16.0,
+      "linear_gain_after_mix": 6109.670027926271,
+      "peak_dbfs": -16.000632247293233,
+      "rms_dbfs": -35.23624356614373,
+      "pcm_sha256": "2d60a27d3a63666a8b959b909c97916c86435ac30840e4d350fb8e1cd942a4ba",
       "layers": [
         {
           "source": "pop",
@@ -593,7 +593,7 @@
           "normalization_gain_before_mix": 1.4502966642741733
         }
       ],
-      "wav_sha256": "8baad24f9f5d89bee99926054b372dc3167f3fbabc32e6452cc168a140c78735"
+      "wav_sha256": "700ce9f7c7cc021a5d8adcc9dc0d95b586f783ea36a76a52a56a97453fef4e94"
     },
     {
       "id": 1128464391,
@@ -604,11 +604,11 @@
       "sample_count": 3680,
       "pcm_bytes": 7360,
       "duration_ms": 230.0,
-      "target_peak_dbfs": -23.0,
-      "linear_gain_after_mix": 2319.725951691505,
-      "peak_dbfs": -22.999239001376367,
-      "rms_dbfs": -42.61033699886359,
-      "pcm_sha256": "34df3a7e6857b74aedbe9895be46560d66dfe6d294ba144d1b31b8bedd5f6854",
+      "target_peak_dbfs": -18.0,
+      "linear_gain_after_mix": 4125.120896825948,
+      "peak_dbfs": -18.00051964147548,
+      "rms_dbfs": -37.61030790142813,
+      "pcm_sha256": "a0313326fae90a01ff42a27bb4bd220707545e061044280c852a8fd64a055ebb",
       "layers": [
         {
           "source": "pop",
@@ -646,7 +646,7 @@
           "normalization_gain_before_mix": 1.4473770435515383
         }
       ],
-      "wav_sha256": "dfcbae3853ea0dbf9ba4a88e0340da615607e51db68152afdf0e4636069bd30d"
+      "wav_sha256": "40200274b66fcd45cf56baa387ad92e31a5405b9e2b7aa67342ffb593cd6fedf"
     },
     {
       "id": 1128464392,
@@ -657,11 +657,11 @@
       "sample_count": 5440,
       "pcm_bytes": 10880,
       "duration_ms": 340.0,
-      "target_peak_dbfs": -23.0,
-      "linear_gain_after_mix": 2319.725951691505,
-      "peak_dbfs": -22.999239001376367,
-      "rms_dbfs": -29.299239497751923,
-      "pcm_sha256": "36858f31bb5a3ff0dcd2e719a950952d562e3e07ae3534931c7b242cdc8ae25d",
+      "target_peak_dbfs": -18.0,
+      "linear_gain_after_mix": 4125.120896825948,
+      "peak_dbfs": -18.00051964147548,
+      "rms_dbfs": -24.29928023394791,
+      "pcm_sha256": "6d6c46ef69f5c7ee76c40361ddaec83bb59391160c269652fadbb5bbd56f29ce",
       "layers": [
         {
           "source": "chime",
@@ -699,7 +699,7 @@
           "normalization_gain_before_mix": 4.482818177931683
         }
       ],
-      "wav_sha256": "cbff84b75fb42f054ab95dc6a0aa789aaf85b79461f348a470ed8f0f1b7e4230"
+      "wav_sha256": "c02942375bbb53ad626b91a7f0b2834b975e6b7e8b6abad602a23ee20d1e9906"
     },
     {
       "id": 1128464393,
@@ -710,11 +710,11 @@
       "sample_count": 5440,
       "pcm_bytes": 10880,
       "duration_ms": 340.0,
-      "target_peak_dbfs": -22.0,
-      "linear_gain_after_mix": 3253.469158401316,
-      "peak_dbfs": -21.999515337009644,
-      "rms_dbfs": -29.026130975518292,
-      "pcm_sha256": "e4a973d7f8b56753f3efd0b9cbc06dac870d85698a6c8a96f54d95139a66894f",
+      "target_peak_dbfs": -16.0,
+      "linear_gain_after_mix": 6491.524404671663,
+      "peak_dbfs": -16.000632247293233,
+      "rms_dbfs": -23.026184299486513,
+      "pcm_sha256": "739e2df4c56609c7b4fd33919d07eb67a7e751db6bdc75fb7f857a450beb9108",
       "layers": [
         {
           "source": "chime",
@@ -787,7 +787,7 @@
           "normalization_gain_before_mix": 4.5225553038489545
         }
       ],
-      "wav_sha256": "393b64b3586e4e8654bc6c42fd9e7e7d5b636bf1d2981ae58a5a0eb2476867c2"
+      "wav_sha256": "c66b850b40a802f5c1e3ee6c5f49bf8b39c8e9a9a161953ad6eee3bfdbf05db5"
     },
     {
       "id": 1128464394,
@@ -798,11 +798,11 @@
       "sample_count": 5440,
       "pcm_bytes": 10880,
       "duration_ms": 340.0,
-      "target_peak_dbfs": -22.0,
-      "linear_gain_after_mix": 1877.0337687225947,
-      "peak_dbfs": -21.999515337009644,
-      "rms_dbfs": -31.709026952398936,
-      "pcm_sha256": "4d34ba193bf23b61b4b089e192eaba1e74ebb9ea3ef6a2142d1a8bde2e10a01a",
+      "target_peak_dbfs": -16.0,
+      "linear_gain_after_mix": 3745.1747426562056,
+      "peak_dbfs": -16.000632247293233,
+      "rms_dbfs": -25.70899951136419,
+      "pcm_sha256": "367722db61082c4e7963c3ddb0c20289cf885267112d12d86f9a0feb24fb34b2",
       "layers": [
         {
           "source": "chime",
@@ -875,7 +875,342 @@
           "normalization_gain_before_mix": 4.526435138951298
         }
       ],
-      "wav_sha256": "3684487c6cad685030ba067591cc12a9ca42f2ad0e094ced3354b2666e3003c2"
+      "wav_sha256": "6ce487e2d7ed924d60923f568ac0d89db8be37fd2e39bcc2c4742da9f01f4997"
+    },
+    {
+      "id": 1128464395,
+      "name": "Question",
+      "slug": "question",
+      "intent": "Two rising bell notes when a new question needs the user's decision.",
+      "sample_rate_hz": 16000,
+      "sample_count": 5440,
+      "pcm_bytes": 10880,
+      "duration_ms": 340.0,
+      "target_peak_dbfs": -14.0,
+      "linear_gain_after_mix": 7264.306697176143,
+      "peak_dbfs": -14.000100374307355,
+      "rms_dbfs": -23.289198317061718,
+      "pcm_sha256": "c9a1d0d236848ef2b66c8dd4946402c97a9810a13f6714819a0165a640fb217a",
+      "layers": [
+        {
+          "source": "bell",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 0,
+          "duration_ms": 180,
+          "pitch_ratio": 0.8,
+          "gain": 0.75,
+          "highpass_hz": 180,
+          "lowpass_hz": 3400,
+          "fade_in_ms": 5,
+          "fade_out_ms": 85,
+          "source_path": "1001 Sound Effects/Metal/Bell 01.wav",
+          "source_sha256": "d20864513e4028fd43ff01b3fb55eeb6314b1003a83a10ce1b086bc5eb937fa7",
+          "source_format": {
+            "duration_seconds": 1.706667,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=3400:p=2",
+            "aresample=16000",
+            "asetrate=12800",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 2080,
+          "actual_pitch_ratio": 0.8,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 2.9802518446476904
+        },
+        {
+          "source": "bell",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 135,
+          "duration_ms": 205,
+          "pitch_ratio": 1.07,
+          "gain": 0.9,
+          "highpass_hz": 180,
+          "lowpass_hz": 3400,
+          "fade_in_ms": 5,
+          "fade_out_ms": 100,
+          "source_path": "1001 Sound Effects/Metal/Bell 01.wav",
+          "source_sha256": "d20864513e4028fd43ff01b3fb55eeb6314b1003a83a10ce1b086bc5eb937fa7",
+          "source_format": {
+            "duration_seconds": 1.706667,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=3400:p=2",
+            "aresample=16000",
+            "asetrate=17120",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 1040,
+          "actual_pitch_ratio": 1.07,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 3.049673205465747
+        }
+      ],
+      "wav_sha256": "25ab657c1bcb41fd284fba057c3305570883c4d67968059aef378695ef6939d7"
+    },
+    {
+      "id": 1128464396,
+      "name": "AnswerReceived",
+      "slug": "answer-received",
+      "intent": "A short digital receipt only after the agent confirms delivery of the reply.",
+      "sample_rate_hz": 16000,
+      "sample_count": 4000,
+      "pcm_bytes": 8000,
+      "duration_ms": 250.0,
+      "target_peak_dbfs": -16.0,
+      "linear_gain_after_mix": 5193.219523737331,
+      "peak_dbfs": -16.000632247293233,
+      "rms_dbfs": -27.079099314459395,
+      "pcm_sha256": "ebd398df601772fe0781da942f9ab65613bc40d646a746639c9862cfd3debdc5",
+      "layers": [
+        {
+          "source": "digital",
+          "window_start_ms": 0,
+          "window_end_ms": 600,
+          "offset_ms": 0,
+          "duration_ms": 250,
+          "pitch_ratio": 1.0,
+          "gain": 1.0,
+          "highpass_hz": 200,
+          "lowpass_hz": 3100,
+          "fade_in_ms": 5,
+          "fade_out_ms": 70,
+          "source_path": "1001 Sound Effects/Sci Fi/Sci Fi Beep 05.wav",
+          "source_sha256": "af783ff70b432962971dc591068c87b77965b1e53a05cfdbdddd8cb2b445f6fe",
+          "source_format": {
+            "duration_seconds": 0.609569,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.600000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=200:p=2",
+            "lowpass=f=3100:p=2",
+            "aresample=16000",
+            "asetrate=16000",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 1040,
+          "actual_pitch_ratio": 1.0,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 1.6386457968695305
+        }
+      ],
+      "wav_sha256": "529d8eec0c44994cec60ddbda4100bd8dd0abaee4e5582d1686b19f94990acb0"
+    },
+    {
+      "id": 1128464397,
+      "name": "ChecksPassed",
+      "slug": "checks-passed",
+      "intent": "A bright single bell for explicitly observed passed checks, never inferred from response completion.",
+      "sample_rate_hz": 16000,
+      "sample_count": 5600,
+      "pcm_bytes": 11200,
+      "duration_ms": 350.0,
+      "target_peak_dbfs": -14.0,
+      "linear_gain_after_mix": 6537.876027458528,
+      "peak_dbfs": -14.000100374307355,
+      "rms_dbfs": -24.04773761167344,
+      "pcm_sha256": "adb01ff1c6897f09c44304719646be28885489194a2371374d9141d3ca74a566",
+      "layers": [
+        {
+          "source": "bell",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 0,
+          "duration_ms": 350,
+          "pitch_ratio": 1.15,
+          "gain": 1.0,
+          "highpass_hz": 180,
+          "lowpass_hz": 3600,
+          "fade_in_ms": 5,
+          "fade_out_ms": 180,
+          "source_path": "1001 Sound Effects/Metal/Bell 01.wav",
+          "source_sha256": "d20864513e4028fd43ff01b3fb55eeb6314b1003a83a10ce1b086bc5eb937fa7",
+          "source_format": {
+            "duration_seconds": 1.706667,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=3600:p=2",
+            "aresample=16000",
+            "asetrate=18400",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 160,
+          "actual_pitch_ratio": 1.15,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 2.883664449732422
+        }
+      ],
+      "wav_sha256": "ff14af66565939f2c16d367714ab2912c970a325315d59a69dc2a1d1e595a9fd"
+    },
+    {
+      "id": 1128464398,
+      "name": "ChecksFailed",
+      "slug": "checks-failed",
+      "intent": "Two descending bell notes for an observed check failure; no repeating alarm.",
+      "sample_rate_hz": 16000,
+      "sample_count": 5440,
+      "pcm_bytes": 10880,
+      "duration_ms": 340.0,
+      "target_peak_dbfs": -14.0,
+      "linear_gain_after_mix": 7264.306697176143,
+      "peak_dbfs": -14.000100374307355,
+      "rms_dbfs": -23.548356759987257,
+      "pcm_sha256": "07bef8a0f5b3eb3fee6c92f3fef18f8f83b9451052cbe1bd07d31ebf1e75822a",
+      "layers": [
+        {
+          "source": "bell_close",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 0,
+          "duration_ms": 170,
+          "pitch_ratio": 1.0,
+          "gain": 0.9,
+          "highpass_hz": 180,
+          "lowpass_hz": 3000,
+          "fade_in_ms": 5,
+          "fade_out_ms": 90,
+          "source_path": "1001 Sound Effects/Metal/Bell 03.wav",
+          "source_sha256": "f288a3de254c4d1d15105b6e39eeb0ad0fbd86942b1fb7e518adca2b4a41563d",
+          "source_format": {
+            "duration_seconds": 1.712222,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=3000:p=2",
+            "aresample=16000",
+            "asetrate=16000",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 2240,
+          "actual_pitch_ratio": 1.0,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 2.292430390373583
+        },
+        {
+          "source": "bell_close",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 145,
+          "duration_ms": 195,
+          "pitch_ratio": 0.7,
+          "gain": 0.85,
+          "highpass_hz": 180,
+          "lowpass_hz": 2600,
+          "fade_in_ms": 5,
+          "fade_out_ms": 110,
+          "source_path": "1001 Sound Effects/Metal/Bell 03.wav",
+          "source_sha256": "f288a3de254c4d1d15105b6e39eeb0ad0fbd86942b1fb7e518adca2b4a41563d",
+          "source_format": {
+            "duration_seconds": 1.712222,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=2600:p=2",
+            "aresample=16000",
+            "asetrate=11200",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 3440,
+          "actual_pitch_ratio": 0.7,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 2.543316234807622
+        }
+      ],
+      "wav_sha256": "e8815a24911957d3c50c7175aeba24973ab48486078ffe05da9b324c01415f87"
+    },
+    {
+      "id": 1128464399,
+      "name": "ApprovalRequired",
+      "slug": "approval-required",
+      "intent": "One lower bell notice for a native permission request that must be handled on the PC.",
+      "sample_rate_hz": 16000,
+      "sample_count": 4800,
+      "pcm_bytes": 9600,
+      "duration_ms": 300.0,
+      "target_peak_dbfs": -14.0,
+      "linear_gain_after_mix": 6537.876027458528,
+      "peak_dbfs": -14.000100374307355,
+      "rms_dbfs": -23.303120173270887,
+      "pcm_sha256": "b8d06e72213f86cf4dfc44a58bb92eb6a1e27ca45fee5d89aa8c17c3fc66229e",
+      "layers": [
+        {
+          "source": "bell",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 0,
+          "duration_ms": 300,
+          "pitch_ratio": 0.75,
+          "gain": 1.0,
+          "highpass_hz": 180,
+          "lowpass_hz": 3000,
+          "fade_in_ms": 5,
+          "fade_out_ms": 140,
+          "source_path": "1001 Sound Effects/Metal/Bell 01.wav",
+          "source_sha256": "d20864513e4028fd43ff01b3fb55eeb6314b1003a83a10ce1b086bc5eb937fa7",
+          "source_format": {
+            "duration_seconds": 1.706667,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=3000:p=2",
+            "aresample=16000",
+            "asetrate=12000",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 1360,
+          "actual_pitch_ratio": 0.75,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 3.3883060414655706
+        }
+      ],
+      "wav_sha256": "9ec412640c266148d15682a0ed83f6e2acee12864350d3712b4123d611a38a6a"
     }
   ],
   "audition": {
@@ -936,6 +1271,31 @@
         "cue": "ConnectionRestored",
         "start_ms": 15280,
         "duration_ms": 340.0
+      },
+      {
+        "cue": "Question",
+        "start_ms": 16620,
+        "duration_ms": 340.0
+      },
+      {
+        "cue": "AnswerReceived",
+        "start_ms": 17960,
+        "duration_ms": 250.0
+      },
+      {
+        "cue": "ChecksPassed",
+        "start_ms": 19210,
+        "duration_ms": 350.0
+      },
+      {
+        "cue": "ChecksFailed",
+        "start_ms": 20560,
+        "duration_ms": 340.0
+      },
+      {
+        "cue": "ApprovalRequired",
+        "start_ms": 21900,
+        "duration_ms": 300.0
       }
     ]
   }

@@ -22,6 +22,18 @@
     "typing": {
       "path": "SONY Loops/Home & Office/Computer Laptop Type.wav",
       "sha256": "67c9cbf5fc6bce0090d54e5ebc67361b6536357eb6f060c959c93653ae8cf49f"
+    },
+    "bell": {
+      "path": "1001 Sound Effects/Metal/Bell 01.wav",
+      "sha256": "d20864513e4028fd43ff01b3fb55eeb6314b1003a83a10ce1b086bc5eb937fa7"
+    },
+    "bell_close": {
+      "path": "1001 Sound Effects/Metal/Bell 03.wav",
+      "sha256": "f288a3de254c4d1d15105b6e39eeb0ad0fbd86942b1fb7e518adca2b4a41563d"
+    },
+    "digital": {
+      "path": "1001 Sound Effects/Sci Fi/Sci Fi Beep 05.wav",
+      "sha256": "af783ff70b432962971dc591068c87b77965b1e53a05cfdbdddd8cb2b445f6fe"
     }
   },
   "cues": [
@@ -37,7 +49,7 @@
     },
     {
       "name": "Working", "id": 1128464385, "slug": "working", "sample_rate_hz": 16000,
-      "duration_ms": 230, "target_peak_dbfs": -23.0,
+      "duration_ms": 230, "target_peak_dbfs": -18.0,
       "intent": "Two rounded opening taps when a selected chat starts a new turn; never looped.",
       "layers": [
         {"source": "pop", "window_start_ms": 0, "window_end_ms": 600, "offset_ms": 0, "duration_ms": 130, "pitch_ratio": 0.85, "gain": 0.85, "highpass_hz": 130, "lowpass_hz": 2400, "fade_in_ms": 7, "fade_out_ms": 45},
@@ -46,7 +58,7 @@
     },
     {
       "name": "Reading", "id": 1128464386, "slug": "reading", "sample_rate_hz": 16000,
-      "duration_ms": 210, "target_peak_dbfs": -26.0,
+      "duration_ms": 210, "target_peak_dbfs": -20.0,
       "intent": "A small paper movement; asset reserved until an actual reading event exists.",
       "layers": [
         {"source": "paper", "window_start_ms": 0, "window_end_ms": 2000, "offset_ms": 0, "duration_ms": 210, "pitch_ratio": 1.0, "gain": 1.0, "highpass_hz": 180, "lowpass_hz": 1700, "fade_in_ms": 25, "fade_out_ms": 75}
@@ -54,7 +66,7 @@
     },
     {
       "name": "Editing", "id": 1128464387, "slug": "editing", "sample_rate_hz": 16000,
-      "duration_ms": 240, "target_peak_dbfs": -25.0,
+      "duration_ms": 240, "target_peak_dbfs": -20.0,
       "intent": "A softened short typing texture for entry into a real edit action.",
       "layers": [
         {"source": "typing", "window_start_ms": 0, "window_end_ms": 2000, "offset_ms": 0, "duration_ms": 240, "pitch_ratio": 0.90, "gain": 1.0, "highpass_hz": 180, "lowpass_hz": 2200, "fade_in_ms": 12, "fade_out_ms": 60}
@@ -62,7 +74,7 @@
     },
     {
       "name": "Running", "id": 1128464388, "slug": "running", "sample_rate_hz": 16000,
-      "duration_ms": 280, "target_peak_dbfs": -24.0,
+      "duration_ms": 280, "target_peak_dbfs": -18.0,
       "intent": "A low-to-high triple pulse when a real command starts.",
       "layers": [
         {"source": "pop", "window_start_ms": 0, "window_end_ms": 600, "offset_ms": 0, "duration_ms": 110, "pitch_ratio": 0.70, "gain": 0.75, "highpass_hz": 150, "lowpass_hz": 2200, "fade_in_ms": 7, "fade_out_ms": 40},
@@ -72,7 +84,7 @@
     },
     {
       "name": "ResponseReady", "id": 1128464389, "slug": "response-ready", "sample_rate_hz": 16000,
-      "duration_ms": 350, "target_peak_dbfs": -20.0,
+      "duration_ms": 350, "target_peak_dbfs": -14.0,
       "intent": "One clear, gentle chime for a completed assistant response; does not claim task success.",
       "layers": [
         {"source": "chime", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 350, "pitch_ratio": 1.06, "gain": 1.0, "highpass_hz": 180, "lowpass_hz": 3200, "fade_in_ms": 10, "fade_out_ms": 160}
@@ -80,7 +92,7 @@
     },
     {
       "name": "Paused", "id": 1128464390, "slug": "paused", "sample_rate_hz": 16000,
-      "duration_ms": 260, "target_peak_dbfs": -23.0,
+      "duration_ms": 260, "target_peak_dbfs": -16.0,
       "intent": "Two soft descending taps for pause or a wait for permission.",
       "layers": [
         {"source": "pop", "window_start_ms": 0, "window_end_ms": 600, "offset_ms": 0, "duration_ms": 115, "pitch_ratio": 1.00, "gain": 0.85, "highpass_hz": 150, "lowpass_hz": 1700, "fade_in_ms": 8, "fade_out_ms": 45},
@@ -89,7 +101,7 @@
     },
     {
       "name": "Interrupted", "id": 1128464391, "slug": "interrupted", "sample_rate_hz": 16000,
-      "duration_ms": 230, "target_peak_dbfs": -23.0,
+      "duration_ms": 230, "target_peak_dbfs": -18.0,
       "intent": "One rounded low stop cue for explicit interruption; no alarm.",
       "layers": [
         {"source": "pop", "window_start_ms": 0, "window_end_ms": 600, "offset_ms": 0, "duration_ms": 230, "pitch_ratio": 0.58, "gain": 1.0, "highpass_hz": 130, "lowpass_hz": 1500, "fade_in_ms": 15, "fade_out_ms": 110}
@@ -97,7 +109,7 @@
     },
     {
       "name": "SessionEnded", "id": 1128464392, "slug": "session-ended", "sample_rate_hz": 16000,
-      "duration_ms": 340, "target_peak_dbfs": -23.0,
+      "duration_ms": 340, "target_peak_dbfs": -18.0,
       "intent": "A lower, warm closing chime for a genuinely ended selected chat.",
       "layers": [
         {"source": "chime", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 340, "pitch_ratio": 0.65, "gain": 1.0, "highpass_hz": 150, "lowpass_hz": 2400, "fade_in_ms": 15, "fade_out_ms": 180}
@@ -105,7 +117,7 @@
     },
     {
       "name": "ConnectionLost", "id": 1128464393, "slug": "connection-lost", "sample_rate_hz": 16000,
-      "duration_ms": 340, "target_peak_dbfs": -22.0,
+      "duration_ms": 340, "target_peak_dbfs": -16.0,
       "intent": "Two separated descending chimes when authenticated PC liveness is lost.",
       "layers": [
         {"source": "chime", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 140, "pitch_ratio": 0.95, "gain": 0.80, "highpass_hz": 180, "lowpass_hz": 2600, "fade_in_ms": 8, "fade_out_ms": 75},
@@ -114,11 +126,53 @@
     },
     {
       "name": "ConnectionRestored", "id": 1128464394, "slug": "connection-restored", "sample_rate_hz": 16000,
-      "duration_ms": 340, "target_peak_dbfs": -22.0,
+      "duration_ms": 340, "target_peak_dbfs": -16.0,
       "intent": "Two joined rising chimes when authenticated PC liveness returns.",
       "layers": [
         {"source": "chime", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 200, "pitch_ratio": 0.71, "gain": 0.75, "highpass_hz": 180, "lowpass_hz": 2900, "fade_in_ms": 10, "fade_out_ms": 90},
         {"source": "chime", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 115, "duration_ms": 225, "pitch_ratio": 0.95, "gain": 0.85, "highpass_hz": 180, "lowpass_hz": 2900, "fade_in_ms": 10, "fade_out_ms": 110}
+      ]
+    },
+    {
+      "name": "Question", "id": 1128464395, "slug": "question", "sample_rate_hz": 16000,
+      "duration_ms": 340, "target_peak_dbfs": -14.0,
+      "intent": "Two rising bell notes when a new question needs the user's decision.",
+      "layers": [
+        {"source": "bell", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 180, "pitch_ratio": 0.80, "gain": 0.75, "highpass_hz": 180, "lowpass_hz": 3400, "fade_in_ms": 5, "fade_out_ms": 85},
+        {"source": "bell", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 135, "duration_ms": 205, "pitch_ratio": 1.07, "gain": 0.90, "highpass_hz": 180, "lowpass_hz": 3400, "fade_in_ms": 5, "fade_out_ms": 100}
+      ]
+    },
+    {
+      "name": "AnswerReceived", "id": 1128464396, "slug": "answer-received", "sample_rate_hz": 16000,
+      "duration_ms": 250, "target_peak_dbfs": -16.0,
+      "intent": "A short digital receipt only after the agent confirms delivery of the reply.",
+      "layers": [
+        {"source": "digital", "window_start_ms": 0, "window_end_ms": 600, "offset_ms": 0, "duration_ms": 250, "pitch_ratio": 1.0, "gain": 1.0, "highpass_hz": 200, "lowpass_hz": 3100, "fade_in_ms": 5, "fade_out_ms": 70}
+      ]
+    },
+    {
+      "name": "ChecksPassed", "id": 1128464397, "slug": "checks-passed", "sample_rate_hz": 16000,
+      "duration_ms": 350, "target_peak_dbfs": -14.0,
+      "intent": "A bright single bell for explicitly observed passed checks, never inferred from response completion.",
+      "layers": [
+        {"source": "bell", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 350, "pitch_ratio": 1.15, "gain": 1.0, "highpass_hz": 180, "lowpass_hz": 3600, "fade_in_ms": 5, "fade_out_ms": 180}
+      ]
+    },
+    {
+      "name": "ChecksFailed", "id": 1128464398, "slug": "checks-failed", "sample_rate_hz": 16000,
+      "duration_ms": 340, "target_peak_dbfs": -14.0,
+      "intent": "Two descending bell notes for an observed check failure; no repeating alarm.",
+      "layers": [
+        {"source": "bell_close", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 170, "pitch_ratio": 1.0, "gain": 0.90, "highpass_hz": 180, "lowpass_hz": 3000, "fade_in_ms": 5, "fade_out_ms": 90},
+        {"source": "bell_close", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 145, "duration_ms": 195, "pitch_ratio": 0.70, "gain": 0.85, "highpass_hz": 180, "lowpass_hz": 2600, "fade_in_ms": 5, "fade_out_ms": 110}
+      ]
+    },
+    {
+      "name": "ApprovalRequired", "id": 1128464399, "slug": "approval-required", "sample_rate_hz": 16000,
+      "duration_ms": 300, "target_peak_dbfs": -14.0,
+      "intent": "One lower bell notice for a native permission request that must be handled on the PC.",
+      "layers": [
+        {"source": "bell", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 300, "pitch_ratio": 0.75, "gain": 1.0, "highpass_hz": 180, "lowpass_hz": 3000, "fade_in_ms": 5, "fade_out_ms": 140}
       ]
     }
   ]

@@ -1,6 +1,6 @@
 {
   "schema": "cody.runtime.v1",
-  "source_sha256": "b7a61a5e914bc1817d72fc519a72ca826ce5f01d736f711d8df92fa9f6ad1850",
+  "source_sha256": "552781c8c75b929da78878918dac640fcfbe5df32214a79c7cf992cf91fa02cb",
   "cues": {
     "audio_ready": {
       "pcm_bytes": 7938,
@@ -15,7 +15,7 @@
       "duration_seconds": 1.8,
       "sha256": "cd971ef8877bfa756fae37494516bbec33eb59bd283c0b773c4be817ce04c44d",
       "origin": "selected licensed samples transformed into Cody boot-rise",
-      "selection_sha256": "4c5ae29a2f794c0828483b5bbe150e7bcace609d08557a82d4e6ec891ce6a61b",
+      "selection_sha256": "d5dd84fbc4bca1b954430c268811a5584d015844f824bde28a214d89a3e9be07",
       "cue": "boot-rise",
       "layers": [
         {
