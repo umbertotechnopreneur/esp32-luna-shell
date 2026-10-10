@@ -1,5 +1,26 @@
 # Active work
 
+## Native UI polish and Cody boot identity - 2026-10-10
+
+- [x] Replace enlarged 8x8 action glyphs with native-size semantic vector masks;
+  improve rounded-edge coverage without per-frame supersampling or allocation.
+- [x] Unify restrained action palettes and icon/caption alignment across onboarding,
+  events and host controls; separate options from their footer and admit whole look rows.
+- [x] Implement 4bpp font baking/rendering with explicit format/hash validation,
+  preserving committed metrics and the original 2bpp assets until regeneration.
+- [x] Share Cody's boot title/subtitle, complete floppy placement and original timing
+  between firmware and Studio, with bounded serialized row ownership.
+- [x] Compile the PC graphics/audio drivers through the requested simulator launcher;
+  regenerate stale cody-rig tables after explicit authorization and launch Studio.
+  First frame presented and animation callback active; this is host preview evidence.
+- [x] Save implementation checkpoint `db9047e` on main; preserve unrelated branding.
+- [ ] Regenerate cody-scenes with the licensed font source only when requested.
+  The open preview still uses committed 2bpp glyphs; 4bpp visual quality is pending.
+- [ ] Run each requested suite only after its exact command receives fresh authorization.
+  New four-bit/tile regression definitions have not been executed.
+- [ ] Build firmware and inspect compiled stack/frame costs and physical UI separately
+  when requested; no firmware/hardware operations performed for this work.
+
 ## Native host batching optimizations - 2026-10-10
 
 - [x] Convert the frame once and rasterize all event actions in one production C++ call.

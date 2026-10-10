@@ -7,6 +7,42 @@ Older `artifacts/` paths may be historical references only: the complete cleanup
 requested on 2026-10-05 removed that unversioned evidence. New results identify
 the preserved copies within the build directory.
 
+## Native UI polish and Cody boot identity - 2026-10-10
+
+- Local implementation checkpoint `db9047e`, directly on `main`.
+- Native-size vector action icons replace enlarged 8x8 pixel glyphs. Motion,
+  rotation, sound and orientation have distinct typed identities. Rounded corners
+  use 8x8 immutable coverage with whole-cell rejection; vector masks are evaluated
+  in separate rows at compilation. Runtime drawing retains bounded tiles, byte
+  order, background compositing and original touch geometry.
+- Onboarding, events and host controls use restrained semantic palettes and aligned
+  icon/caption groups. Options have taller rows and a separate compact footer.
+  Settings text follows a consistent rhythm; the look list draws three whole
+  rows with matching touch admission, stepped scrolling and a proportional indicator.
+- The scene generator supports 4bpp coverage from 4x supersampled licensed glyphs,
+  preserving title/body metrics. Manifest, binary and C++ declarations share strict
+  format/hash validation. Existing committed fonts remain explicitly 2bpp; no
+  replacement glyph assets were generated. Four-bit regression definitions and
+  tile/byte-order expectations were added but not executed.
+- Cold boot displays `Cody AI Companion` at y=60 and
+  `A distraction-free sidekick` at y=110, centered from the real font metrics.
+  Firmware and Cody Studio share row decoding, typography and complete floppy
+  placement at (137,164), 192 x 219. All 42 frames and the 3500-ms cycle remain;
+  one source row belongs to the serialized owner. Generic Luna retains its layout.
+- Authorized host execution: `scripts/device.ps1 simulator -Screen boot-vibeware`
+  compiled the PC graphics/audio drivers. The first launch rejected stale rig
+  provenance. After explicit authorization, `scripts/device.ps1 generate -Generator
+  cody-rig` refreshed it and the same simulator command opened Cody Studio. The
+  launcher reported first-frame presentation and active animation; a Cody window
+  was observed. The simulator subsequently exited cleanly with code 0. Generated
+  rig provenance remains with its current workspace inputs.
+- Evidence limits: source review by the main agent and three subagents, plus host
+  compilation and boot-preview startup. No test suite, validation scan, font bake,
+  firmware build, flash, capture or physical operation was executed. The open
+  preview used 2bpp font assets; four-bit appearance, options/look behavior
+  on-device, compiled device stacks and frame cost remain pending. Concurrent
+  branding is preserved separately; no push.
+
 ## Native host batching optimizations - 2026-10-10
 
 - Local implementation checkpoint `0973e0b`, directly on `main`.
