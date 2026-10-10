@@ -1,5 +1,12 @@
 set(LUNASHELL_platform_srcs
     "src/snapshot/LUNASHELL_hardware.cpp"
+    "src/snapshot/LUNASHELL_acquisition_i2c.cpp"
+    "src/snapshot/LUNASHELL_acquisition_pmu.cpp"
+    "src/snapshot/LUNASHELL_acquisition_rtc.cpp"
+    "src/snapshot/LUNASHELL_acquisition_imu.cpp"
+    "src/snapshot/LUNASHELL_acquisition_gnss.cpp"
+    "src/snapshot/LUNASHELL_acquisition_audio.cpp"
+    "src/snapshot/LUNASHELL_acquisition_system.cpp"
     "src/snapshot/LUNASHELL_rtc_calendar.cpp"
     "src/snapshot/LUNASHELL_snapshot_aging.cpp"
     "src/snapshot/LUNASHELL_snapshot_names.cpp"

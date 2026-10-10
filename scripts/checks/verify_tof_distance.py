@@ -281,6 +281,8 @@ def rate_limited_warning_emissions(
     return emitted
 
 
+# No parameters: verify distance geometry against the current acquisition and publication owners.
+# Raises the original source, fixture or semantic contract failure.
 def main() -> int:
     driver = ROOT / "components/LUNASHELL_tof400f/include/LUNASHELL_tof400f.h"
     driver_cmake = ROOT / "components/LUNASHELL_tof400f/CMakeLists.txt"
@@ -480,7 +482,7 @@ def main() -> int:
     for fragment in (
         "#if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && "
         "CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART",
-        'sample_imu("distance-geometry", false)',
+        'imu::sample("distance-geometry", false)',
         "geometry->imu = s_snapshot.imu",
         "geometry->sensor_fusion = s_snapshot.sensor_fusion",
         "sampled_at_us > 0 ? sampled_at_us : esp_timer_get_time()",

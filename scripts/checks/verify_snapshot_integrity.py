@@ -301,6 +301,9 @@ def commit_snapshot_stage(store: SnapshotStoreModel, kind: str = "full") -> Devi
 # Raises AssertionError, OSError or ValueError when a required source invariant is absent.
 def verify_source_contract() -> None:
     source = read_component_source(SOURCE)
+    gnss_owner = (SOURCE.parent / "LUNASHELL_acquisition_gnss.cpp").read_text(encoding="utf-8")
+    system_owner = (SOURCE.parent / "LUNASHELL_acquisition_system.cpp").read_text(encoding="utf-8")
+    audio_owner = (SOURCE.parent / "LUNASHELL_acquisition_audio.cpp").read_text(encoding="utf-8")
     main_source = MAIN_SOURCE.read_text(encoding="utf-8")
     headless_source = HEADLESS_SOURCE.read_text(encoding="utf-8")
 
@@ -339,7 +342,7 @@ def verify_source_contract() -> None:
         "processor completion timestamp",
     )
 
-    gps_sample = function_text(source, "esp_err_t sample_gps(", "sample_gps")
+    gps_sample = function_text(gnss_owner, "esp_err_t sample_gps(", "sample_gps")
     full_refresh = function_text(
         source, "esp_err_t DeviceSnapshotService::refresh(", "Full refresh"
     )
@@ -351,24 +354,30 @@ def verify_source_contract() -> None:
         "s_gps_periodic_error = ESP_OK;",
     ):
         require_contains(gps_sample, fragment, "GPS failure and recovery")
+    gnss_dispatch = function_text(gnss_owner, "esp_err_t sample(", "GNSS acquisition dispatch")
     for fragment in (
         "s_gps_periodic_error != ESP_OK",
         "esp_timer_get_time() < s_gps_periodic_retry_after_us",
-        "record_first_error(s_gps_periodic_error, &aggregate);",
-        "record_first_error(sample_gps(phase), &aggregate);",
+        "return s_gps_periodic_error;",
+        "return sample_gps(phase);",
     ):
-        require_contains(full_refresh, fragment, "GPS retry under Full refresh")
+        require_contains(gnss_dispatch, fragment, "GPS retry under its acquisition owner")
     require_order(
-        full_refresh,
-        "record_first_error(s_gps_periodic_error, &aggregate);",
-        "record_first_error(sample_gps(phase), &aggregate);",
+        gnss_dispatch,
+        "return s_gps_periodic_error;",
+        "return sample_gps(phase);",
         "deferred GPS read must retain its real error",
+    )
+    require_contains(
+        full_refresh,
+        "record_first_error(gnss::sample(phase), &aggregate);",
+        "Full refresh preserves the GNSS owner's original deferred/read error",
     )
 
     system_sample = function_text(
-        source,
-        "esp_err_t sample_system_state(",
-        "sample_system_state",
+        system_owner,
+        "esp_err_t sample()",
+        "system acquisition sample",
     )
     memory_cache_at = system_sample.index(
         "if (s_static_memory_metadata.ready)"
@@ -482,7 +491,7 @@ def verify_source_contract() -> None:
     # Idle accounting must run on the measured core, not read a remote idle task
     # that may still be accumulating its current time slice.
     runtime_capture = function_text(
-        source,
+        system_owner,
         "void capture_processor_runtime_on_core(",
         "per-core CPU runtime capture",
     )
@@ -701,13 +710,24 @@ def verify_source_contract() -> None:
         "esp_err_t DeviceSnapshotService::initialize()",
         "DeviceSnapshotService initialization",
     )
-    require(
-        hardware_initialize.count(
-            "set_component(snapshot.audio.spectrum, false,"
-        ) >= 3,
-        "every unsupported, failed, or absent microphone initialization path "
-        "must publish spectrum as unavailable",
+    require_contains(hardware_initialize, "audio::initialize()", "audio initialization owner")
+    audio_initialize = function_text(audio_owner, "esp_err_t initialize()", "audio acquisition initialization")
+    require_contains(
+        audio_initialize,
+        "if (error != ESP_OK)",
+        "unsupported and failed codec initialization share explicit unavailable publication",
     )
+    require(
+        audio_initialize.count("set_component(snapshot.audio.spectrum, false,") == 2,
+        "codec failure/unsupported and absent microphone initialization paths "
+        "must each publish spectrum as unavailable",
+    )
+    require_contains(audio_initialize, "if (!s_microphone_ready)",
+                     "absent microphone topology has an explicit unavailable publication branch")
+    require_contains(audio_initialize, "set_component(snapshot.audio.spectrum, false, error)",
+                     "failed or unsupported codec keeps the actual error")
+    require_contains(audio_initialize, "set_component(snapshot.audio.spectrum, false, ESP_ERR_NOT_SUPPORTED)",
+                     "absent microphone topology remains explicitly unavailable")
 
     diagnostic_commit_index = source.index(
         "SnapshotStageKind::Diagnostic",
@@ -772,21 +792,21 @@ def verify_source_contract() -> None:
 
     registration = re.search(
         r"heap_caps_register_failed_alloc_callback\s*\(\s*&?([A-Za-z_]\w*)\s*\)",
-        source,
+        system_owner,
     )
     require(registration is not None, "heap allocation failure callback is not registered")
     require_contains(
-        source,
+        system_owner,
         '#include "xt_utils.h"',
         "native Xtensa compare-and-set helper",
     )
     require_contains(
-        source,
+        system_owner,
         "static_assert(sizeof(size_t) == sizeof(uint32_t));",
         "32-bit allocation callback size contract",
     )
     require_contains(
-        source,
+        system_owner,
         "xt_utils_compare_and_set(",
         "native lock-free allocation failure counters",
     )
@@ -796,19 +816,19 @@ def verify_source_contract() -> None:
         "s_failed_allocation_caps_seen_mask",
     ):
         require_contains(
-            source,
+            system_owner,
             f"DRAM_ATTR volatile uint32_t {counter_name}",
             f"internal-DRAM allocation failure counter {counter_name}",
         )
 
-    counter_helpers_start = source.index(
+    counter_helpers_start = system_owner.index(
         "FORCE_INLINE_ATTR void allocation_counter_update_max("
     )
-    counter_helpers_end = source.index(
+    counter_helpers_end = system_owner.index(
         "void IRAM_ATTR allocation_failed_hook(",
         counter_helpers_start,
     )
-    counter_helpers = source[counter_helpers_start:counter_helpers_end]
+    counter_helpers = system_owner[counter_helpers_start:counter_helpers_end]
     require(
         counter_helpers.count("xt_utils_compare_and_set(") == 3,
         "allocation failure helpers must use one native CAS loop per aggregate",
@@ -841,7 +861,7 @@ def verify_source_contract() -> None:
     definition = re.search(
         rf"(?P<signature>(?:static\s+)?(?:IRAM_ATTR\s+)?void"
         rf"(?:\s+IRAM_ATTR)?\s+{re.escape(callback_name)}\s*\([^)]*\))\s*\{{",
-        source,
+        system_owner,
     )
     require(definition is not None, f"failed-allocation callback {callback_name!r} is not defined")
     require(
@@ -852,16 +872,16 @@ def verify_source_contract() -> None:
     body_start = definition.end() - 1
     depth = 0
     body_end = -1
-    for index in range(body_start, len(source)):
-        if source[index] == "{":
+    for index in range(body_start, len(system_owner)):
+        if system_owner[index] == "{":
             depth += 1
-        elif source[index] == "}":
+        elif system_owner[index] == "}":
             depth -= 1
             if depth == 0:
                 body_end = index
                 break
     require(body_end > body_start, "failed-allocation callback body is incomplete")
-    callback_body = source[body_start : body_end + 1]
+    callback_body = system_owner[body_start : body_end + 1]
     allocation_hook_source = counter_helpers + callback_body
     for forbidden in (
         "ESP_LOG",

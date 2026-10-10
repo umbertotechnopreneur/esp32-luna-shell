@@ -989,6 +989,10 @@ def verify_source_contracts() -> None:
     power = read(POWER_SOURCE)
     shared_standby = read(ROOT / "components/LUNASHELL_platform/include/LUNASHELL_standby_transition.hpp")
     hardware = read(HARDWARE_SOURCE)
+    pmu_owner = read(HARDWARE_SOURCE.parent / "LUNASHELL_acquisition_pmu.cpp")
+    rtc_owner = read(HARDWARE_SOURCE.parent / "LUNASHELL_acquisition_rtc.cpp")
+    gnss_owner = read(HARDWARE_SOURCE.parent / "LUNASHELL_acquisition_gnss.cpp")
+    imu_owner = read(HARDWARE_SOURCE.parent / "LUNASHELL_acquisition_imu.cpp")
     header = read(PLATFORM_HEADER)
     device_snapshot = read(DEVICE_SNAPSHOT_HEADER)
     http_json = read(HTTP_JSON_SOURCE)
@@ -1128,7 +1132,7 @@ def verify_source_contracts() -> None:
     )
 
     sample_pmu = function_text(
-        hardware,
+        pmu_owner,
         "esp_err_t sample_pmu(",
         "LUNASHELL_hardware.cpp",
     )
@@ -1140,7 +1144,7 @@ def verify_source_contracts() -> None:
     )
 
     irq_reader = function_text(
-        hardware,
+        pmu_owner,
         "esp_err_t read_pmu_irq_status(",
         "LUNASHELL_hardware.cpp",
     )
@@ -1155,7 +1159,7 @@ def verify_source_contracts() -> None:
         "PMIC IRQ polling must not split INTSTS1..3 into repeated transactions",
     )
     irq_mask_verifier = function_text(
-        hardware,
+        pmu_owner,
         "esp_err_t verify_pmu_irq_enable_mask(",
         "LUNASHELL_hardware.cpp",
     )
@@ -1171,8 +1175,8 @@ def verify_source_contracts() -> None:
             "PMIC IRQ enable readback",
         )
     init_pmu = function_text(
-        hardware,
-        "esp_err_t init_pmu(",
+        pmu_owner,
+        "esp_err_t initialize(",
         "LUNASHELL_hardware.cpp",
     )
     require_regex(
@@ -1182,7 +1186,7 @@ def verify_source_contracts() -> None:
         "bounded XPowers callback initialization",
     )
     battery_detection = function_text(
-        hardware,
+        pmu_owner,
         "esp_err_t enable_and_verify_pmu_battery_detection(",
         "AXP2101 battery detector",
     )
@@ -1217,7 +1221,7 @@ def verify_source_contracts() -> None:
     )
 
     sample_pmu_locked = function_text(
-        hardware,
+        pmu_owner,
         "esp_err_t sample_pmu_locked(",
         "AXP2101 telemetry sample",
     )
@@ -1277,7 +1281,7 @@ def verify_source_contracts() -> None:
             f"probe and telemetry failures must invalidate cell fields: {fragment}",
         )
     pmu_lock_failure = function_text(
-        hardware,
+        pmu_owner,
         "esp_err_t publish_pmu_lock_failure(",
         "AXP2101 telemetry lock failure",
     )
@@ -1303,7 +1307,7 @@ def verify_source_contracts() -> None:
             "PMU periodic log policy",
         ),
         (
-            function_text(hardware, "esp_err_t sample_rtc(", "RTC sample"),
+            function_text(rtc_owner, "esp_err_t sample_rtc(", "RTC sample"),
             (
                 "high_frequency_sample_phase(phase)",
                 "ESP_LOGD(",
@@ -1313,7 +1317,7 @@ def verify_source_contracts() -> None:
             "RTC periodic log policy",
         ),
         (
-            function_text(hardware, "esp_err_t sample_gps(", "GNSS sample"),
+            function_text(gnss_owner, "esp_err_t sample_gps(", "GNSS sample"),
             (
                 "high_frequency_sample_phase(phase)",
                 "ESP_LOGD(",
@@ -1327,7 +1331,7 @@ def verify_source_contracts() -> None:
             require_contains(sample_text, fragment, label)
         require_contains(sample_text, failure_fragment, f"{label} error visibility")
     runtime_pmu_reader = function_text(
-        hardware,
+        pmu_owner,
         "esp_err_t read_pmu_registers(",
         "LUNASHELL_hardware.cpp",
     )
@@ -1341,7 +1345,7 @@ def verify_source_contracts() -> None:
         "runtime PMU reads must not use XPowers' unbounded IDF transaction",
     )
     irq_clearer = function_text(
-        hardware,
+        pmu_owner,
         "esp_err_t clear_and_verify_pmu_irq_status(",
         "LUNASHELL_hardware.cpp",
     )
@@ -1362,7 +1366,7 @@ def verify_source_contracts() -> None:
     )
 
     collector = function_text(
-        hardware,
+        pmu_owner,
         "esp_err_t collect_pmu_irq_events(",
         "LUNASHELL_hardware.cpp",
     )
@@ -1406,7 +1410,7 @@ def verify_source_contracts() -> None:
     )
 
     take_function = function_text(
-        hardware,
+        pmu_owner,
         "LUNASHELL_hardware_take_power_key_events(",
         "LUNASHELL_hardware.cpp",
     )
@@ -1452,7 +1456,7 @@ def verify_source_contracts() -> None:
         "PKEY poll error propagation",
     )
     for edge in ("XPOWERS_AXP2101_PKEY_NEGATIVE_IRQ", "XPOWERS_AXP2101_PKEY_POSITIVE_IRQ"):
-        require_contains(hardware, edge, "physical PWR press/release acquisition")
+        require_contains(pmu_owner, edge, "physical PWR press/release acquisition")
         require_contains(queued_before_clear, edge, "PWR edges queued before verified IRQ clear")
     for fragment in ("snapshot.input", "key.power_pressed_at_us", "key.power_button.data_valid",
                      "key.power_pressed_valid", "kPowerKeyFreshnessUs", "s_power_reset_hold.update(",
@@ -2531,13 +2535,13 @@ def verify_source_contracts() -> None:
         "LVGL resume",
     )
     imu_profile = function_text(
-        hardware,
+        imu_owner,
         "LUNASHELL_hardware_set_imu_low_power(",
         "IMU low-power profile",
     )
     require_contains(imu_profile, "configure_imu_profile(enabled)", "IMU profile")
-    require_contains(hardware, "QMI8658_ACCEL_ODR_31_25HZ", "IMU low-power ODR")
-    require_contains(hardware, "QMI8658_GYRO_ODR_31_25HZ", "IMU low-power ODR")
+    require_contains(imu_owner, "QMI8658_ACCEL_ODR_31_25HZ", "IMU low-power ODR")
+    require_contains(imu_owner, "QMI8658_GYRO_ODR_31_25HZ", "IMU low-power ODR")
     require_contains(
         hardware,
         "kUiMotionStandbySamplePeriodMs = 1000",

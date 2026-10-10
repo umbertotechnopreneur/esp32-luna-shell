@@ -469,7 +469,10 @@ def verify_gps_sync_model() -> None:
 # No parameters: verify the repository's published RTC ownership and UTC contracts.
 # Raises AssertionError for contract drift and preserves real source/model failures.
 def main() -> int:
-    hardware = read_component_source(HARDWARE)
+    hardware = HARDWARE.read_text(encoding="utf-8")
+    rtc_owner = (HARDWARE.parent / "LUNASHELL_acquisition_rtc.cpp").read_text(encoding="utf-8")
+    rtc_calendar = (HARDWARE.parent / "LUNASHELL_rtc_calendar.cpp").read_text(encoding="utf-8")
+    gnss_owner = (HARDWARE.parent / "LUNASHELL_acquisition_gnss.cpp").read_text(encoding="utf-8")
     time_source = read_component_source(TIME)
     wifi = WIFI.read_text(encoding="utf-8")
 
@@ -477,13 +480,13 @@ def main() -> int:
     require(not reset_calendar.integrity, "power-on OS flag must invalidate integrity")
     require(reset_calendar.year == 2000, "power-on year must decode structurally")
 
-    read_start = hardware.index("esp_err_t read_rtc_calendar(")
-    read_end = hardware.index("esp_err_t publish_rtc_read(", read_start)
-    rtc_acquisition = hardware[read_start:read_end]
+    read_start = rtc_owner.index("esp_err_t read_rtc_calendar(")
+    read_end = rtc_owner.index("esp_err_t publish_rtc_read(", read_start)
+    rtc_acquisition = rtc_owner[read_start:read_end]
     require_contains(rtc_acquisition, "read_register(s_rtc, PCF85063_REG_SECONDS", "RTC acquisition owner")
     require_contains(rtc_acquisition, "rtc_calendar::decode_registers(raw, *time)", "RTC calendar delegation")
-    decoder_start = hardware.index("esp_err_t decode_registers(")
-    rtc_read = hardware[decoder_start:]
+    decoder_start = rtc_calendar.index("esp_err_t decode_registers(")
+    rtc_read = rtc_calendar[decoder_start:]
     for fragment in (
         "valid_rtc_register_calendar(decoded)",
         "time = decoded;",
@@ -499,9 +502,9 @@ def main() -> int:
         < rtc_read.index("if (!valid_calendar_time(decoded))"),
         "RTC read must separate malformed registers, OS integrity, and trusted epoch",
     )
-    publish_start = hardware.index("esp_err_t publish_rtc_read(")
-    publish_end = hardware.index("esp_err_t sample_rtc(", publish_start)
-    rtc_publish = hardware[publish_start:publish_end]
+    publish_start = rtc_owner.index("esp_err_t publish_rtc_read(")
+    publish_end = rtc_owner.index("esp_err_t sample_rtc(", publish_start)
+    rtc_publish = rtc_owner[publish_start:publish_end]
     require_contains(
         rtc_publish,
         "error == ESP_ERR_INVALID_STATE &&",
@@ -540,16 +543,16 @@ def main() -> int:
         "copying current calendar data",
     )
     require_contains(
-        hardware,
+        rtc_owner,
         "RTC PCF85063: detected, 24-hour mode configured",
         "RTC initialization log",
     )
     require(
-        "oscillator running in 24-hour mode" not in hardware,
+        "oscillator running in 24-hour mode" not in rtc_owner,
         "RTC initialization must not claim oscillator integrity before reading OS",
     )
 
-    sample = function_text(hardware, "esp_err_t sample_rtc(", "sample_rtc")
+    sample = function_text(rtc_owner, "esp_err_t sample_rtc(", "sample_rtc")
     skip_at = sample.index("s_rtc_oscillator_stop_latched.load(")
     invalid_at = sample.index("return ESP_ERR_INVALID_STATE;", skip_at)
     attempt_at = sample.index("const int64_t attempted_at_us", invalid_at)
@@ -566,7 +569,7 @@ def main() -> int:
     )
 
     latch_observation = function_text(
-        hardware,
+        rtc_owner,
         "RtcLatchObservation make_rtc_latch_observation(",
         "RTC OS latch observation",
     )
@@ -585,7 +588,7 @@ def main() -> int:
         )
 
     latch_apply_locked = function_text(
-        hardware,
+        rtc_owner,
         "void apply_rtc_latch_observation_locked(",
         "locked RTC OS latch application",
     )
@@ -613,7 +616,7 @@ def main() -> int:
     )
 
     latch_apply = function_text(
-        hardware,
+        rtc_owner,
         "void apply_rtc_latch_observation(",
         "RTC OS latch application",
     )
@@ -631,7 +634,7 @@ def main() -> int:
     commit_at = refresh.index("const esp_err_t commit_error = commit_snapshot_stage(")
     committed_at = refresh.index("summary_available = commit_error == ESP_OK", commit_at)
     apply_at = refresh.index(
-        "apply_rtc_latch_observation(rtc_latch_observation)",
+        "rtc::apply_committed_observation(rtc_latch_observation)",
         committed_at,
     )
     require(
@@ -640,7 +643,7 @@ def main() -> int:
     )
 
     readback_match = function_text(
-        hardware,
+        rtc_calendar,
         "bool rtc_write_readback_matches(",
         "RTC write readback matching",
     )
@@ -651,7 +654,7 @@ def main() -> int:
     ):
         require_contains(readback_match, fragment, "RTC write readback matching")
     recovery_requirement = function_text(
-        hardware,
+        rtc_owner,
         "void require_rtc_recovery_readback(",
         "same-refresh RTC recovery requirement",
     )
@@ -682,7 +685,7 @@ def main() -> int:
     )
 
     rtc_write = function_text(
-        hardware,
+        rtc_owner,
         'extern "C" esp_err_t LUNASHELL_rtc_write(',
         "LUNASHELL_rtc_write",
     )
@@ -709,7 +712,7 @@ def main() -> int:
         "serialized trusted RTC write/readback",
     )
     direct_read = function_text(
-        hardware,
+        rtc_owner,
         'extern "C" esp_err_t LUNASHELL_rtc_read(',
         "LUNASHELL_rtc_read",
     )
@@ -914,7 +917,7 @@ def main() -> int:
         "DHCP-to-SNTP wiring",
     )
     require_contains(
-        hardware,
+        gnss_owner,
         "LUNASHELL_time_sync_from_gps(year, month, day, hour, minute, second);",
         "GPS-to-RTC wiring",
     )

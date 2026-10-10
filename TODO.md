@@ -1,5 +1,22 @@
 # Active work
 
+## Component-owned hardware acquisition - 2026-10-10
+
+- [x] Extract PMU/IRQ/battery, RTC, QMI8658/calibration, GNSS/NMEA, microphone/
+  spectrum and measured memory/CPU acquisition into separately compiled owners.
+- [x] Keep canonical snapshot, refresh staging, sample reuse, diagnostics leases
+  and orientation policy in the existing orchestrator. Components publish through
+  its synchronous mutation boundary and share the existing refresh barrier.
+- [x] Move component buffers/latches/mutexes with their owner, preserving PSRAM,
+  bounded projections, the existing IMU worker stack and original timestamps/errors.
+- [x] Register the new translation units and update existing owner-specific source
+  contract assertions. Static integration review completed.
+- [ ] Complete the authorized Cody Debug/wake-word build and changed-file diff check.
+- [ ] Run hardware/status/RTC/snapshot/power/TOF suites only after fresh exact-command
+  authorization. Additional profile compilation and device stack headroom remain
+  pending; no firmware flash, serial capture or physical verification is requested.
+- [ ] Linux/macOS companion support stays deferred as requested.
+
 ## CCP verification and transport parity - 2026-10-10
 
 - [x] Run the freshly authorized broker suite: 59 tests pass after updating the

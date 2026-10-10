@@ -7,6 +7,24 @@ Older `artifacts/` paths may be historical references only: the complete cleanup
 requested on 2026-10-05 removed that unversioned evidence. New results identify
 the preserved copies within the build directory.
 
+## Hardware acquisition component extraction - 2026-10-10
+
+- PMU owns XPowers handles, IRQ clearing/de-duplication, power-key events, battery
+  samples and its mutex. RTC owns register access, trusted write/readback, persistence
+  latches and operation serialization. IMU owns QMI8658 profiles, normalized reads,
+  smoothing, calibration and its unchanged worker stack.
+- GNSS owns LC76G transactions, NMEA validation, periodic retry state and acknowledged
+  power transitions. Audio acquisition owns the existing PSRAM capture buffer and
+  spectrum calculation, retaining the canonical AFE measurement path. System
+  acquisition owns measured memory/CPU metadata and internal allocation-failure counters.
+- DeviceSnapshotService remains the sole canonical snapshot/staging owner. No second
+  snapshot cache or sensor consumer was introduced. Refresh commit order, diagnostic
+  reuse and original validity/errors/timestamps are retained. Orientation consumes
+  the same bounded IMU sample through explicit owner callbacks.
+- The component CMake source list and five existing source-contract checks now name
+  the owning translation units. Static cross-component review is complete; compilation,
+  contract suites and device stack/headroom evidence are tracked separately in TODO.
+
 ## CCP contract verification and transport parity - 2026-10-10
 
 - The authorized `device.ps1 check -Check cody-ccp` rerun passed all 59 tests.

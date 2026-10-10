@@ -133,15 +133,14 @@ def verify_refresh_error_reporting() -> None:
 # Raises AssertionError when unavailable measurements or deferred radios are misrepresented.
 def main() -> None:
     hardware = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp")
+    gnss = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_acquisition_gnss.cpp")
+    rtc_calendar = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_rtc_calendar.cpp")
     status_bar = read("components/LUNASHELL_app/src/chrome/LUNASHELL_status_bar.cpp")
     scheduler = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_scheduler.cpp")
 
-    gps_start = hardware.index("esp_err_t sample_gps(")
-    gps_end = hardware.index(
-        "void build_audio_spectrum(",
-        gps_start,
-    )
-    gps_sample = hardware[gps_start:gps_end]
+    gps_start = gnss.index("esp_err_t sample_gps(")
+    gps_end = gnss.index("\n}\n", gps_start) + 3
+    gps_sample = gnss[gps_start:gps_end]
 
     # A successful empty queue is a healthy receiver waiting for NMEA.
     if "error = ESP_ERR_NOT_FOUND;" in gps_sample:
@@ -153,12 +152,12 @@ def main() -> None:
         "transport online, no NMEA bytes waiting",
         "GPS empty-queue handling",
     )
-    gps_exchange_start = hardware.index("esp_err_t gps_exchange(")
-    gps_exchange_end = hardware.index(
+    gps_exchange_start = gnss.index("esp_err_t gps_exchange(")
+    gps_exchange_end = gnss.index(
         "bool decimal_digits(",
         gps_exchange_start,
     )
-    gps_exchange = hardware[gps_exchange_start:gps_exchange_end]
+    gps_exchange = gnss[gps_exchange_start:gps_exchange_end]
     receive_at = gps_exchange.index(
         "i2c_master_receive(s_gps_read, data, data_length, 1000)"
     )
@@ -173,13 +172,13 @@ def main() -> None:
             "the next 0x50 control phase"
         )
     require(
-        hardware,
+        gnss,
         "constexpr TickType_t kGpsI2cProtocolDelayTicks = pdMS_TO_TICKS(10);",
         "LC76G I2C post-read phase delay",
     )
-    pair_ack_start = hardware.index("GpsPairAck gps_find_pair_ack(")
-    pair_ack_end = hardware.index("esp_err_t gps_send_pair_command(", pair_ack_start)
-    pair_ack = hardware[pair_ack_start:pair_ack_end]
+    pair_ack_start = gnss.index("GpsPairAck gps_find_pair_ack(")
+    pair_ack_end = gnss.index("esp_err_t gps_send_pair_command(", pair_ack_start)
+    pair_ack = gnss[pair_ack_start:pair_ack_end]
     require(
         pair_ack,
         "GpsPairAck observed = GpsPairAck::None;",
@@ -205,22 +204,22 @@ def main() -> None:
 
     # Rejected RTC values must expose the real register bytes.
     require(
-        hardware,
+        rtc_calendar,
         "RTC PCF85063 rejected non-BCD calendar: raw=[",
         "RTC validation",
     )
     require(
-        hardware,
+        rtc_calendar,
         "RTC PCF85063 rejected calendar range: decoded=",
         "RTC validation",
     )
     require(
-        hardware,
+        rtc_calendar,
         "RTC PCF85063 calendar integrity unavailable (oscillator-stop flag set):",
         "RTC validation",
     )
     require(
-        hardware,
+        rtc_calendar,
         "RTC PCF85063 calendar is structurally valid but not initialized",
         "RTC reset-state classification",
     )
