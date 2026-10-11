@@ -2844,6 +2844,41 @@ esp_err_t prepare_voice_identity()
     return ESP_OK;
 }
 
+// No parameters: immutable hints alternate on the current input's monotonic clock.
+// Exception: Returns original native font or glyph-window errors.
+esp_err_t prepare_voice_hint()
+{
+    const auto &font = CODY::SceneData::body_font;
+    esp_err_t error = CODY2D::validate_mono_font(font);
+    if (error != ESP_OK) return error;
+    if (font.height > 28) {
+        ESP_LOGE(kTag, "Voice hint height rejected: height=%u", unsigned(font.height));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    static constexpr char transcription[] = "We will send the audio to Codex for transcription";
+    const uint16_t transcription_length = sizeof(transcription) - 1;
+    const uint16_t transcription_width = (transcription_length - 1U) * font.advance + font.width;
+    const uint16_t overflow = transcription_width > 320 ? transcription_width - 320 : 0;
+    constexpr int64_t shake_duration = 4000000;
+    const int64_t transcription_duration = 3500000 + int64_t(overflow) * 35000;
+    const int64_t elapsed = std::max<int64_t>(0,
+        esp_timer_get_time() - s_voice_input_view.input.started_at_us) %
+        (shake_duration + transcription_duration);
+    const bool show_transcription = elapsed >= shake_duration;
+    const char *text = show_transcription ? transcription : "Shake to fade";
+    const uint16_t length = static_cast<uint16_t>(std::strlen(text));
+    const uint16_t width = (length - 1U) * font.advance + font.width;
+    const int64_t caption_elapsed = show_transcription ? elapsed - shake_duration : elapsed;
+    const uint16_t offset = show_transcription ? static_cast<uint16_t>(std::min<int64_t>(overflow,
+        std::max<int64_t>(0, caption_elapsed - 1500000) / 35000)) : 0;
+    // Native measured windows retain the complete literal; the renderer clips the moving edge.
+    error = CODY::prepare_activity_identity_window(font, text, length, width, offset, 0xAD75, s_voice_shake);
+    if (error != ESP_OK) return error;
+    s_voice_shake.origin.y += 65;
+    s_voice_shake.bounds.y += 65;
+    return ESP_OK;
+}
+
 // No parameters: priority input uses a small ribbon, genuine identity carousel and countdown.
 // Exception: Returns canonical, prepared-text, DMA lease or original transfer failure.
 esp_err_t draw_voice_input_rows()
@@ -2856,7 +2891,7 @@ esp_err_t draw_voice_input_rows()
         phase == Phase::Unconfirmed ? "Check on your PC" : "Audio failed";
     esp_err_t error = prepare_voice_caption(title, 92, 0xF7BE, s_voice_title);
     if (error != ESP_OK) return error;
-    error = prepare_voice_caption("Shake to cancel", 365, 0xAD75, s_voice_shake);
+    error = prepare_voice_hint();
     if (error != ESP_OK) return error;
     const int64_t elapsed = std::max<int64_t>(0, esp_timer_get_time() - s_voice_input_view.input.started_at_us);
     const uint32_t used = std::min<uint32_t>(60, phase == Phase::Listening ?
@@ -2882,7 +2917,8 @@ esp_err_t draw_voice_input_rows()
     const size_t pose = static_cast<size_t>((esp_timer_get_time() / 125000) % CODY::kVoiceWaveformFrameCount);
     for (uint16_t row = 0; row < kPanelHeight;) {
         // First retirement clears the old route. Later frames transfer only the changing bands.
-        if (!full && !((row >= 170 && row < 210) || (row >= 300 && row < 328) || (row >= 402 && row < 430))) {
+        if (!full && !((row >= 170 && row < 210) || (row >= 300 && row < 328) ||
+            (row >= 364 && row < 394) || (row >= 402 && row < 430))) {
             row += 2;
             continue;
         }
@@ -2913,7 +2949,18 @@ esp_err_t draw_voice_input_rows()
                 error = CODY2D::draw_text_rows(s_voice_carousel_line, s_voice_carousel_line.text.length, clipped, top, 73);
             }
         }
-        if (error == ESP_OK && cancellable) error = CODY2D::draw_text_rows(s_voice_shake, s_voice_shake.text.length, strip, row, 0);
+        if (error == ESP_OK && cancellable) {
+            const uint16_t top = std::max<uint16_t>(row, 365);
+            const uint16_t bottom = std::min<uint16_t>(row + rows, 393);
+            if (top < bottom) {
+                CODY2D::Surface clipped = strip;
+                clipped.pixels += (top - row) * strip.stride + 73;
+                clipped.pixel_capacity -= (top - row) * strip.stride + 73;
+                clipped.width = 320;
+                clipped.height = bottom - top;
+                error = CODY2D::draw_text_rows(s_voice_shake, s_voice_shake.text.length, clipped, top, 73);
+            }
+        }
         if (error == ESP_OK) error = CODY2D::draw_text_rows(s_voice_timer, s_voice_timer.text.length, strip, row, 0);
         if (error == ESP_OK) error = LUNASHELL_display_frame_submit_rgb565(0, row, 466, row + rows, storage);
         if (error != ESP_OK) return error;

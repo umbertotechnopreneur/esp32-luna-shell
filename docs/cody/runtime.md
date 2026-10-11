@@ -490,12 +490,15 @@ animation are suspended behind a synthetic ribbon at 8 FPS: sixteen immutable
 poses in a 440 x 40 logical-pixel band. Four phase-shifted curves use lightweight
 Q8 edge coverage and alpha composition for smooth overlaps; there is no runtime
 trigonometry, 3D rendering or microphone-amplitude following. After the first full retirement, only the
-ribbon, single identity row and timer bands transfer again. One measured,
+ribbon, single identity row, alternating hint and timer bands transfer again. One measured,
 fading/scrolling row cycles model, catalog cost band, thinking effort, branch,
 then project; unavailable fields disappear. No numeric price or bill is invented.
 The bottom timer shows elapsed and remaining seconds within the sixty-second
 budget, starting at `00s elapsed / 60s left`. Deliberate shake is the only cancellation
-gesture; there is no voice button or touch action. It cannot revoke a turn
+gesture; the hint alternates `Shake to fade` and
+`We will send the audio to Codex for transcription` in the same lower row.
+The full second message scrolls inside a clipped 320 x 28 viewport before repeating.
+The requested fade wording still invokes cancellation; there is no voice button or touch action. It cannot revoke a turn
 already accepted by Codex. End of
 speech uses 1.2 seconds of actual VAD silence after speech, with an eight-second
 no-speech deadline and a 60-second maximum utterance. The overall capture/delivery

@@ -21,6 +21,9 @@ private local diagnostics, not publication artifacts.
   elapsed/remaining seconds and one measured fade/scroll carousel ordered model,
   catalog cost band, thinking effort, branch, project. Unavailable captions disappear
   and no price is invented. The character remains hidden.
+- Changed the lower hint to alternate `Shake to fade` and
+  `We will send the audio to Codex for transcription`, with measured scrolling
+  inside the existing clipped row. Deliberate shake retains cancellation semantics.
 - Added sixteen synthetic waveform poses (1,024 bytes), a 440 x 40 logical-pixel
   ribbon with four phase-shifted curves, lightweight Q8 anti-aliasing and alpha
   composition, plus partial changing-band transfers after the first retirement.

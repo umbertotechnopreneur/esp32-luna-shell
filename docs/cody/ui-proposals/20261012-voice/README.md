@@ -1,3 +1,3 @@
 # Voice screen proposals
 
-Ten synthetic design studies, not device captures. Project/model/branch/cost captions are illustrative and never enter firmware snapshots. The firmware shares only the sixteen immutable waveform poses. The model price is a catalog cost band, not dollars or a measured session bill.
+Ten synthetic design studies, not device captures. Project/model/branch/cost captions are illustrative and never enter firmware snapshots. The firmware shares only the sixteen immutable waveform poses. The model price is a catalog cost band, not dollars or a measured session bill. The lower row alternates Shake to fade with We will send the audio to Codex for transcription; the long message scrolls within the clipped row. Shake still cancels input.

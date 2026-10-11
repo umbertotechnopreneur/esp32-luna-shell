@@ -55,7 +55,16 @@ def proposal(index, pose=None):
                 image.putpixel((x, y), tuple(round(a * opacity + b * (1 - opacity)) for a, b in zip(color, background)))
     labels = ['model: gpt-6.1', 'cost: Balanced', 'effort: high', 'branch: main', 'Cody']
     centered(draw, labels[index % 5], 300, 23, '#dceeff')
-    centered(draw, 'Shake to cancel', 365, 21, '#adb9cb')
+    if index % 2 == 0:
+        centered(draw, 'Shake to fade', 365, 21, '#adb9cb')
+    else:
+        # A native-width clipped row illustrates the long message's measured scroll.
+        hint = Image.new('RGB', (320, 28), 'black')
+        hint_draw = ImageDraw.Draw(hint)
+        hint_draw.text((-((index // 2) * 55), 0),
+                       'We will send the audio to Codex for transcription',
+                       font=font(21), fill='#adb9cb')
+        image.paste(hint, (73, 365))
     used = 1 + index * 5
     centered(draw, f'{used:02}s elapsed / {60 - used:02}s left', 402, 16, '#dceeff')
     return image
@@ -88,7 +97,9 @@ def main():
     (OUTPUT / 'README.md').write_text('# Voice screen proposals\n\nTen synthetic design studies, not device captures. '
         'Project/model/branch/cost captions are illustrative and never enter firmware snapshots. '
         'The firmware shares only the sixteen immutable waveform poses. The model price is a catalog '
-        'cost band, not dollars or a measured session bill.\n', encoding='ascii')
+        'cost band, not dollars or a measured session bill. The lower row alternates '
+        'Shake to fade with We will send the audio to Codex for transcription; '
+        'the long message scrolls within the clipped row. Shake still cancels input.\n', encoding='ascii')
     print(f'Authored ten proposals and contact sheet under {OUTPUT}')
 
 if __name__ == '__main__':
