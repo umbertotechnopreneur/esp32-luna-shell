@@ -32,7 +32,7 @@ void feedVoiceInput(const int16_t *samples, size_t count, bool speech, esp_err_t
 // peer_ip: Fresh authenticated READY source.
 // presence_nonce: Fresh authenticated CCP discovery nonce, binding START against replay.
 // connected: Whether that retained peer currently proves liveness.
-// Returns whether this owner still needs the bounded 20-ms audio service cadence.
+// Returns whether this owner still needs the bounded 5-ms audio service cadence (at least one tick).
 bool tickVoiceInputTransport(const uint8_t *link_key, const char *device_id,
                             const char *peer_ip, const char *presence_nonce, bool connected);
 // No parameters: retires the active utterance as an explicit local cancellation.

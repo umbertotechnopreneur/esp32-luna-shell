@@ -245,7 +245,13 @@ headroom and the prepared host/simulator cases remain unverified.
   pressure, lost/duplicate/reordered/forged ACKs, fresh-discovery replay binding,
   wake-word tail and first-command preservation without a fabricated pre-roll,
   expiry, native errors and changed followed chats. Prepared `cody-voice-input`
-  host cases have not run. Revisit all callers after the bounded voice snapshot
+  host cases have not run.
+  Audio reliability changes also need the four-packet cumulative ACK/gap/replay
+  cases, stale/unavailable native readiness, same-chat turn changes, approval ID
+  collision, short CCP outages and uncertain delivery after END. The additional
+  ciphertext window is component-owned (at most 4,352 bytes); verify native socket
+  recovery and the 5-ms/minimum-one-tick service cadence under actual load.
+  Revisit all callers after the bounded voice snapshot
   growth; inspect compiled AFE/CCP/render frames and measure stack/PSRAM headroom.
   Install plugin 0.6.5 with its optional audio dependencies and configure the real
   loopback desktop endpoint; verify native localAudio account/model access and

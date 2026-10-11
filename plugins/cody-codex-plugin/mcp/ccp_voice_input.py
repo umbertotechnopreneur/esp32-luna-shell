@@ -25,6 +25,7 @@ MAX_PACKET = 1025
 MAX_PCM = 16000 * 2 * 60
 MAX_RECORDINGS = 64
 MAX_ACTIVE = 4
+WINDOW = 4
 
 
 class NativeInputRejected(RuntimeError):
@@ -53,6 +54,8 @@ class Recording:
     finished: bool = False
     accepted: bool = False
     submitting: bool = False
+    native_turn_id: str = ""
+    artifact: str = ""
 
 
 # endpoint: Explicit local desktop/app-server endpoint; never a LAN listener.
@@ -85,22 +88,20 @@ def rpc(connection, identity: int, method: str, params: dict, deadline=None):
             raise TimeoutError("Codex native input deadline expired")
         connection.settimeout(remaining)
         message = json.loads(connection.recv())
+        if "id" in message and "method" in message:
+            # Request IDs belong to independent directions; an approval can share our ID.
+            raise NativeInputUnconfirmed("Native Codex action requires the desktop client on your PC")
         if message.get("id") == identity:
             if "error" in message:
                 raise NativeInputRejected(f"Codex {method} rejected audio: {message['error'].get('message', 'native error')}")
             return message["result"]
-        if "id" in message and "method" in message:
-            # The device/plugin must not answer native approvals or user questions.
-            raise NativeInputUnconfirmed("Native Codex action requires the desktop client on your PC")
     raise RuntimeError("Codex response exceeded the bounded notification budget")
 
 
-# recording: Authenticated utterance bound to the exact genuine followed chat at START.
-# path: Completed PCM WAV under the receiver's private runtime artifacts.
 # endpoint: Explicit already-running native desktop/app-server endpoint.
-# before_submit: Owner callback validating cancellation and chat identity at the send boundary.
-# Raises the original transport/native error; ambiguous send is never automatically repeated.
-def submit_native(recording: Recording, path: Path, endpoint: str, before_submit):
+# deadline: Shared monotonic budget including connection setup and initialization.
+# Raises original connection, credential or protocol errors; closes failed initialization.
+def connect_native(endpoint: str, deadline: float):
     import websocket
     headers = []
     token_file = os.environ.get("CODY_CODEX_AUDIO_TOKEN_FILE", "")
@@ -109,25 +110,63 @@ def submit_native(recording: Recording, path: Path, endpoint: str, before_submit
         if not token or "\n" in token or "\r" in token:
             raise ValueError("Codex WebSocket token file is invalid")
         headers.append("Authorization: Bearer " + token)
-    deadline = time.monotonic() + 15
-    connection = websocket.create_connection(local_endpoint(endpoint), timeout=15, suppress_origin=True, header=headers)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("Codex connection deadline expired")
+    connection = websocket.create_connection(local_endpoint(endpoint), timeout=remaining, suppress_origin=True, header=headers)
     try:
         rpc(connection, 1, "initialize", {"clientInfo": {"name": "cody_voice_input", "version": "0.6.5"},
             "capabilities": {"experimentalApi": True}}, deadline)
         connection.send(json.dumps({"method": "initialized", "params": {}}))
+        return connection
+    except Exception:
+        connection.close()
+        raise
+
+
+# thread_id: Genuine followed chat; readiness never creates or resumes a conversation.
+# endpoint: Explicit native endpoint checked before accepting START.
+# Raises original native/transport failure; this probe submits no user input.
+def probe_native(thread_id: str, endpoint: str):
+    deadline = time.monotonic() + 5
+    connection = connect_native(endpoint, deadline)
+    try:
+        current = rpc(connection, 2, "thread/read", {"threadId": thread_id, "includeTurns": False}, deadline)
+        if current["thread"]["id"] != thread_id or current["thread"].get("status", {}).get("type") not in ("active", "idle", "notLoaded"):
+            raise RuntimeError("The followed Codex chat is not available for audio input")
+    finally:
+        connection.close()
+
+
+# recording: Authenticated utterance bound to the exact genuine followed chat at START.
+# path: Completed PCM WAV under the receiver's private runtime artifacts.
+# endpoint: Explicit already-running native desktop/app-server endpoint.
+# before_submit: Returns the current followed turn at the actual native admission boundary.
+# Raises original errors; ambiguous input is never automatically repeated.
+def submit_native(recording: Recording, path: Path, endpoint: str, before_submit):
+    deadline = time.monotonic() + 15
+    connection = connect_native(endpoint, deadline)
+    try:
         current = rpc(connection, 2, "thread/read", {"threadId": recording.thread_id, "includeTurns": False}, deadline)
         thread = current["thread"]
         if thread["id"] != recording.thread_id:
             raise RuntimeError("Native Codex returned a different chat identity")
         status = thread.get("status", {}).get("type")
         input_items = [{"type": "localAudio", "path": str(path)}]
+        params = {"threadId": recording.thread_id, "input": input_items,
+                  "clientUserMessageId": recording.session.hex()}
         if status == "active":
-            before_submit()
-            return rpc(connection, 3, "turn/steer", {"threadId": recording.thread_id,
-                "expectedTurnId": recording.turn_id, "input": input_items}, deadline)
+            params["expectedTurnId"] = before_submit(True)
+            result = rpc(connection, 3, "turn/steer", params, deadline)
+            recording.native_turn_id = result["turnId"]
+            return result
+        if status not in ("idle", "notLoaded"):
+            raise RuntimeError("Codex chat is not in an input-ready state")
         rpc(connection, 3, "thread/resume", {"threadId": recording.thread_id, "excludeTurns": True}, deadline)
-        before_submit()
-        return rpc(connection, 4, "turn/start", {"threadId": recording.thread_id, "input": input_items}, deadline)
+        before_submit(False)
+        result = rpc(connection, 4, "turn/start", params, deadline)
+        recording.native_turn_id = result["turn"]["id"]
+        return result
     finally:
         connection.close()
 
@@ -147,6 +186,10 @@ class VoiceInputServer:
         self.stop = threading.Event()
         self.jobs = queue.Queue(maxsize=MAX_ACTIVE)
         self.endpoint = os.environ.get("CODY_CODEX_AUDIO_ENDPOINT", "")
+        self.ready_thread = ""
+        self.ready_at = 0.0
+        self.native_error = "Native audio readiness has not been checked"
+        self.next_probe = 0.0
         self.receiver = threading.Thread(target=self.receive, name="CCP-audio-receiver", daemon=True)
         self.delivery = threading.Thread(target=self.deliver, name="CCP-audio-delivery", daemon=True)
 
@@ -252,8 +295,10 @@ class VoiceInputServer:
                     followed[0]["session_id"] if len(followed) == 1 else "",
                     followed[0]["turn_id"] if len(followed) == 1 else "")
                 self.records[identity] = recording
-                if not recording.thread_id or not recording.turn_id:
+                if not recording.thread_id:
                     recording.status, recording.error = 5, "No genuine followed Codex chat"
+                elif self.ready_thread != recording.thread_id or not 0 <= now - self.ready_at <= 10:
+                    recording.status, recording.error = 5, self.native_error or "Native audio readiness expired"
             if recording.source != source or not hmac.compare_digest(key, recording.key):
                 raise ValueError("Audio input endpoint or retained key changed")
             if flag == 4 and size == 0:
@@ -264,10 +309,16 @@ class VoiceInputServer:
                 recording.expected = max(recording.expected, sequence + 1)
                 self.acknowledge(recording, sequence)
                 return
+            if recording.status == 5:
+                # Rejected START has no accepted prefix; acknowledge the failure, never sequence -1.
+                self.acknowledge(recording, sequence)
+                return
             if sequence > recording.expected:
-                raise ValueError("Audio packet arrived out of order")
-            if sequence < recording.expected and sequence != recording.expected - 1:
-                raise ValueError("Audio replay is outside the one-packet acknowledgement window")
+                # Cumulative ACK exposes the missing prefix; bounded device retries fill the gap.
+                self.acknowledge(recording, recording.expected - 1)
+                return
+            if sequence < recording.expected and sequence < recording.expected - WINDOW:
+                raise ValueError("Audio replay is outside the four-packet acknowledgement window")
             recording.touched = time.monotonic()
             if sequence == recording.expected and not recording.finished and recording.status != 5:
                 if flag == 1 and sequence != 0:
@@ -289,7 +340,7 @@ class VoiceInputServer:
                         except queue.Full:
                             recording.status, recording.error = 5, "Native audio delivery queue is full"
                 recording.expected += 1
-            self.acknowledge(recording, sequence)
+            self.acknowledge(recording, recording.expected - 1 if recording.expected else sequence)
 
     # self: Bounded receive/crypto worker independent of hooks and metadata.
     def receive(self):
@@ -314,9 +365,34 @@ class VoiceInputServer:
                     print(f"CCP audio receive rejected: {self.error}; rejected_packets={self.rejections}", file=sys.stderr, flush=True)
                     next_report = time.monotonic() + 5
 
+    # self: Native readiness owner; bounded read-only probe stays off the UDP worker.
+    # Exceptions: Probe failures become explicit unavailable state and are logged once per change.
+    def refresh_readiness(self):
+        if time.monotonic() < self.next_probe:
+            return
+        followed = [item for item in self.responder._activity.list_sessions() if item["followed"]]
+        thread_id = followed[0]["session_id"] if len(followed) == 1 else ""
+        error = ""
+        try:
+            if not thread_id:
+                raise RuntimeError("No genuine followed Codex chat")
+            probe_native(thread_id, self.endpoint)
+        except Exception as failure:
+            error = str(failure)
+        with self.lock:
+            if error and error != self.native_error:
+                print(f"CCP native audio unavailable: {error}", file=sys.stderr, flush=True)
+            self.native_error = error
+            self.ready_thread = thread_id if not error else ""
+            self.ready_at = time.monotonic() if not error else 0.0
+            self.next_probe = time.monotonic() + 5
+
     # self: File/native input worker, independent of authenticated UDP reception.
     def deliver(self):
         while not self.stop.is_set():
+            self.refresh_readiness()
+            if self.stop.is_set():
+                break
             try:
                 recording = self.jobs.get(timeout=0.2)
             except queue.Empty:
@@ -339,17 +415,23 @@ class VoiceInputServer:
                     output.setsampwidth(2)
                     output.setframerate(16000)
                     output.writeframes(pcm)
+                with self.lock:
+                    recording.artifact = str(path)
                 followed = [item for item in self.responder._activity.list_sessions() if item["followed"]]
                 if len(followed) != 1 or followed[0]["session_id"] != recording.thread_id:
                     raise RuntimeError("The followed Codex chat changed during audio capture")
-                # No parameters: checks explicit cancellation and current chat at native input admission.
+                # require_turn: Steering requires a genuine current turn in the same frozen chat.
                 # Raises RuntimeError without sending any user input if either owner changed.
-                def before_submit():
+                def before_submit(require_turn):
                     with self.lock:
                         current = [item for item in self.responder._activity.list_sessions() if item["followed"]]
                         if self.stop.is_set() or recording.status == 5 or len(current) != 1 or current[0]["session_id"] != recording.thread_id:
                             raise RuntimeError("Audio cancelled or followed chat changed before native submission")
+                        turn_id = current[0]["turn_id"]
+                        if require_turn and not turn_id:
+                            raise RuntimeError("Codex active turn is not yet observed; audio retained on PC")
                         recording.submitting = True
+                        return turn_id
 
                 submit_native(recording, path, self.endpoint, before_submit)
                 with self.lock:
@@ -369,10 +451,18 @@ class VoiceInputServer:
     # self: Reports transport/native state without PCM, keys or transcript contents.
     def status(self) -> dict:
         with self.lock:
+            followed = [item for item in self.responder._activity.list_sessions() if item["followed"]]
+            native_ready = (len(followed) == 1 and self.ready_thread == followed[0]["session_id"] and
+                            0 <= time.monotonic() - self.ready_at <= 10)
             return {"available": self.socket is not None, "error": self.error or None,
                 "rejected_packets": self.rejections,
                 "native_endpoint_configured": bool(self.endpoint),
+                "native_ready": native_ready,
+                "native_error": self.native_error or None,
                 "recordings": [{"device_id": item.device, "pc_received": item.finished,
+                    "recording_id": item.session.hex(), "thread_id": item.thread_id,
+                    "native_turn_id": item.native_turn_id or None, "artifact": item.artifact or None,
+                    "unconfirmed": item.status == 6,
                     "codex_accepted": item.accepted, "error": item.error or None} for item in self.records.values()]}
 
 

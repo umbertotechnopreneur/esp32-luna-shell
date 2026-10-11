@@ -512,14 +512,18 @@ seconds of **unacknowledged** 16 kHz mono audio. It is not an utterance-duration
 limit. Full buffers fail explicitly without overwriting unheard words. Neither SD
 nor internal flash stores audio on the device. Canonical `voice.input` contains
 typed phase/trigger, actual counters, original event times and errors; no consumer
-reads the microphone. The CCP worker borrows the transport with a 20-ms cadence
-only during an active input, restoring its normal 100-ms poll when idle.
+reads the microphone. The CCP worker borrows the transport with a 5-ms cadence
+only during an active input (at least one RTOS tick), restoring its normal 100-ms poll when idle.
 
 The dedicated Wi-Fi channel is UDP 42119, separate from CCP metadata. It uses
 AES-256-GCM, fresh per-utterance keys derived from the paired link and current
 authenticated discovery nonce, sequence numbers and independent data/ACK nonce
 domains. A block stays in the ring until its authenticated acknowledgement.
-Retransmission repeats identical ciphertext; START/END and delivery are distinct.
+Four DATA packets may be in flight with cumulative acknowledgement of the
+contiguous prefix. Retransmission repeats identical ciphertext; START/END and
+delivery are distinct. Temporary CCP loss consumes the ten-second ACK budget,
+preserving buffered PCM and resuming only with the same authenticated key and IP.
+Transport failure after END transmission remains Unconfirmed.
 The PC binds START to the exact genuinely followed chat, rejects a changed chat
 before submission and never selects a different destination on retry.
 
@@ -529,7 +533,12 @@ installed CLI's generated schema confirms `localAudio`; account/model support,
 desktop endpoint availability, native approval routing and actual delivery remain
 unverified. The explicit loopback `CODY_CODEX_AUDIO_ENDPOINT` must identify the
 intended desktop/app-server host; the implementation does not launch a second
-host or guess a chat. No endpoint means a real delivery error. Native approvals
+host or guess a chat. A periodic read-only native probe rejects START early if
+the endpoint or followed chat is unavailable; readiness expires after ten seconds.
+This does not certify audio/model capability. Steering uses the current turn in
+the frozen chat at submission; native conflicts preserve the WAV for inspection.
+Recording IDs, returned native turn IDs, artifact paths and uncertainty are
+available through audio status; ambiguous input is never automatically retried. Native approvals
 and questions are never answered by the device or plugin.
 
 This is source integration, not a claim of working device dictation. Firmware

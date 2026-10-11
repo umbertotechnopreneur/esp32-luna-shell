@@ -3575,7 +3575,7 @@ void codexLinkWorker(void *context)
         maintainDebugScreen();
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(voice_busy ? 20 : kWorkerPollMs));
+        ulTaskNotifyTake(pdTRUE, voice_busy ? std::max<TickType_t>(1, pdMS_TO_TICKS(5)) : pdMS_TO_TICKS(kWorkerPollMs));
 #else
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kWorkerPollMs));
 #endif

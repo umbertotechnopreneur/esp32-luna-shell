@@ -28,12 +28,27 @@ or chat is launched. The installed CLI protocol export confirms `localAudio` on
 an endpoint, that the account/model accepts audio or that approvals route to its UI.
 Those are required integration checks before treating dictation as operational.
 
-At authenticated START, bind the capture to the genuine followed chat/turn.
+The native worker performs a read-only initialization/thread-read probe with a
+five-second deadline, refreshed every five seconds. START requires a successful
+probe for the followed chat no more than ten seconds old. `native_ready` reports
+this reachability check, not proof of model audio support or transcription.
+At authenticated START, bind the capture to the genuine followed chat.
 After END, retain a private mono PCM16 16 kHz WAV under the runtime's
 `artifacts/voice`. A changed followed chat rejects submission, rather than retargeting
-it. `turn/steer` requires the exact originally followed active turn; otherwise a
-new turn is sent to the same existing chat. Native requests for approval or user
+it. `turn/steer` resolves the current hook-observed turn in that same chat at the
+submission boundary and passes it as `expectedTurnId`. A concurrent turn change
+can still cause an explicit native rejection; its WAV is retained. An idle chat
+receives a new turn. Native requests for approval or user
 input are never answered automatically. Ambiguous native submission is never retried.
+Each submission carries the recording identity as `clientUserMessageId` for
+correlation, without assuming server-side deduplication. Audio status includes
+the recording ID, frozen chat, returned native turn, retained WAV path and uncertainty.
+
+Four DATA packets may be in flight. The PC acknowledges the highest contiguous
+sequence; gaps are discarded and recovered by byte-identical retries. The device
+retains its ten-second unacknowledged ring through temporary CCP disconnections,
+resuming only with the same authenticated credential and IP. After END has been
+transmitted, transport failure is Unconfirmed rather than a claim of non-delivery.
 
 The receiver bounds utterances to 60 seconds (1,920,000 PCM bytes), four active buffers/delivery jobs,
 64 transient replay identities and 64 MiB/1,024 owned WAV artifacts. Full storage

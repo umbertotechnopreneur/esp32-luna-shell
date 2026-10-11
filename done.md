@@ -15,6 +15,12 @@ private local diagnostics, not publication artifacts.
 
 ## Voice presentation and unified communication reference - 2026-10-12
 
+- Hardened audio source delivery with early native reachability admission,
+  four-packet cumulative ACK transport, bounded reconnect grace, END-aware
+  uncertainty and current same-chat steering preconditions. Added recording/native
+  turn/artifact correlation and fixed independent JSON-RPC request-ID handling.
+  Prepared focused host regressions; static review only, no tests/build/flash.
+
 - Bounded capture and host PCM to sixty seconds / 1,920,000 bytes, retaining the
   independent ten-second PSRAM acknowledgement ring. Removed the voice Cancel
   capsule and touch action: the retired voice view owns deliberate shake. Added

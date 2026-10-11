@@ -33,6 +33,19 @@ uint8_t s_packet[kPacket]{};
 uint8_t s_reply[kPacket]{};
 uint8_t s_plain[16]{};
 uint8_t s_key[32]{};
+uint8_t s_retained_link_key[32]{};
+struct PendingAudioPacket {
+    uint8_t bytes[kPacket]{};
+    size_t size = 0;
+    size_t samples = 0;
+    uint32_t sequence = 0;
+    int64_t sent_at = 0;
+};
+constexpr size_t kWindow = 4;
+PendingAudioPacket s_window[kWindow]{};
+static_assert(sizeof(s_window) <= 4352, "Audio ciphertext window is component-owned, never task stack storage");
+size_t s_window_read, s_window_count, s_reserved;
+bool s_end_sent = false;
 uint32_t s_sequence, s_ack_counter;
 size_t s_packet_size;
 int s_socket = -1;
@@ -66,7 +79,7 @@ esp_err_t publish(LUNASHELL::VoiceInputPhase phase, esp_err_t error = ESP_OK)
     if (result != ESP_OK) ESP_LOGE(kTag, "Canonical voice input publication failed (%s)", esp_err_to_name(result));
     if (error != ESP_OK) ESP_LOGE(kTag, "Voice input operation failed (%s)", esp_err_to_name(error));
     if (result != ESP_OK) {
-        s_observation.phase = LUNASHELL::VoiceInputPhase::Failed;
+        s_observation.phase = s_end_sent ? LUNASHELL::VoiceInputPhase::Unconfirmed : LUNASHELL::VoiceInputPhase::Failed;
         s_observation.error = result;
     }
     return error != ESP_OK ? error : result;
@@ -78,6 +91,12 @@ bool active()
     return s_observation.phase == Phase::Listening || s_observation.phase == Phase::Sending ||
            s_observation.phase == Phase::Cancelling ||
            s_observation.phase == Phase::Received;
+}
+// error: Actual transport failure; END transmission makes delivery potentially irreversible.
+// Exception: Returns the original transport or canonical publication error.
+esp_err_t transportFailure(esp_err_t error)
+{
+    return publish(s_end_sent ? LUNASHELL::VoiceInputPhase::Unconfirmed : LUNASHELL::VoiceInputPhase::Failed, error);
 }
 // link_key: Existing paired credential; never exposed to consumers or logs.
 // presence_nonce: Fresh READY nonce; START must prove this exact current discovery event.
@@ -152,7 +171,7 @@ esp_err_t crypt(bool encrypt, const uint8_t *packet, size_t input_size,
     return ESP_OK;
 }
 // device_id: Paired identity already validated by CCP.
-// flags: Start=1, PCM=2 or end=3.
+// flags: Start=1, PCM=2, end=3 or explicit cancel=4.
 // Exception: Returns original crypto error, preserving queue contents until ACK.
 esp_err_t prepare(const char *device_id, uint8_t flags)
 {
@@ -165,12 +184,12 @@ esp_err_t prepare(const char *device_id, uint8_t flags)
     std::memcpy(s_packet + 26, s_presence, 16);
     put32(s_sequence, s_packet + 42);
     s_packet[46] = flags;
-    s_inflight_samples = flags == 2 ? std::min(kChunk, s_count) : 0;
+    s_inflight_samples = flags == 2 ? std::min(kChunk, s_count - s_reserved) : 0;
     const size_t bytes = s_inflight_samples * 2;
     s_packet[47] = static_cast<uint8_t>(bytes >> 8);
     s_packet[48] = static_cast<uint8_t>(bytes);
     for (size_t i = 0; i < s_inflight_samples; ++i) {
-        const uint16_t value = static_cast<uint16_t>(s_ring[(s_read + i) % kSamples]);
+        const uint16_t value = static_cast<uint16_t>(s_ring[(s_read + s_reserved + i) % kSamples]);
         s_packet[kHeader + i * 2] = static_cast<uint8_t>(value);
         s_packet[kHeader + i * 2 + 1] = static_cast<uint8_t>(value >> 8);
     }
@@ -202,6 +221,7 @@ esp_err_t LUNASHELL::requestVoiceInput(VoiceInputTrigger trigger)
         return error;
     }
     s_observation = {};
+    s_end_sent = false;
     s_observation.trigger = trigger;
     s_observation.started_at_us = esp_timer_get_time();
     if (s_ring == nullptr) s_ring = static_cast<int16_t *>(heap_caps_malloc(kSamples * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -212,6 +232,7 @@ esp_err_t LUNASHELL::requestVoiceInput(VoiceInputTrigger trigger)
     s_read = s_write = s_count = s_inflight_samples = 0;
     s_sequence = s_ack_counter = 0;
     s_packet_size = 0;
+    s_window_read = s_window_count = s_reserved = 0;
     s_begun = s_final = s_heard_speech = false;
     s_last_speech_at = s_last_ack_at = s_observation.started_at_us;
     esp_fill_random(s_session, sizeof(s_session));
@@ -253,7 +274,7 @@ void LUNASHELL::feedVoiceInput(const int16_t *samples, size_t count, bool speech
         publish(VoiceInputPhase::Failed, ESP_ERR_TIMEOUT);
     }
 }
-// No parameters: explicit touch cancellation never submits a partial recording.
+// No parameters: explicit shake cancellation never submits a partial recording.
 esp_err_t LUNASHELL::cancelVoiceInput()
 {
     std::lock_guard<std::mutex> guard(s_mutex);
@@ -268,6 +289,7 @@ esp_err_t LUNASHELL::cancelVoiceInput()
         // Retire the old ciphertext and use a new sequence/nonce for explicit CANCEL.
         ++s_sequence;
         s_packet_size = 0;
+        s_window_count = s_reserved = 0;
         return publish(VoiceInputPhase::Cancelling);
     }
 }
@@ -281,9 +303,9 @@ esp_err_t LUNASHELL::pauseVoiceInput()
     }
     s_count = 0;
     s_packet_size = 0;
+    s_window_count = s_reserved = 0;
     // A transmitted END can already have reached native input; a local pause cannot revoke it.
-    const bool input_may_have_left = s_observation.phase != VoiceInputPhase::Listening && s_begun;
-    return publish(input_may_have_left ? VoiceInputPhase::Unconfirmed : VoiceInputPhase::Cancelled);
+    return publish(s_end_sent ? VoiceInputPhase::Unconfirmed : VoiceInputPhase::Cancelled);
 }
 
 // link_key: Freshly retained paired credential, borrowed by the CCP worker.
@@ -302,19 +324,27 @@ bool LUNASHELL::tickVoiceInputTransport(const uint8_t *link_key, const char *dev
         if (error != ESP_OK) ESP_LOGE(kTag, "Failed voice observation publication retry (%s)", esp_err_to_name(error));
     }
     if (!active()) return false;
-    if (!connected) {
-        publish(VoiceInputPhase::Failed, ESP_ERR_INVALID_STATE);
-        return false;
-    }
     const int64_t now = esp_timer_get_time();
     LUNASHELL_power_manager_note_activity();
     if (now - s_observation.started_at_us > 90000000) {
-        publish(VoiceInputPhase::Failed, ESP_ERR_TIMEOUT);
+        transportFailure(ESP_ERR_TIMEOUT);
         return false;
     }
     if (now - s_last_ack_at > 10000000) {
-        publish(VoiceInputPhase::Failed, ESP_ERR_TIMEOUT);
+        transportFailure(ESP_ERR_TIMEOUT);
         return false;
+    }
+    // A temporary liveness gap consumes the existing ten-second buffer/deadline.
+    // Resume only the same credential and frozen IP; never redirect an utterance.
+    if (!connected) return true;
+    if (s_begun || s_packet_size != 0) {
+        in_addr current_address{};
+        if (std::memcmp(s_retained_link_key, link_key, sizeof(s_retained_link_key)) != 0 ||
+            inet_pton(AF_INET, peer_ip, &current_address) != 1 || current_address.s_addr != s_peer.sin_addr.s_addr) {
+            ESP_LOGE(kTag, "Audio resume rejected: authenticated peer changed");
+            transportFailure(ESP_ERR_INVALID_STATE);
+            return false;
+        }
     }
     if (s_socket < 0) {
         s_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -347,6 +377,7 @@ bool LUNASHELL::tickVoiceInputTransport(const uint8_t *link_key, const char *dev
             publish(VoiceInputPhase::Failed, key_error);
             return false;
         }
+        std::memcpy(s_retained_link_key, link_key, sizeof(s_retained_link_key));
         const esp_err_t error = prepare(device_id, 1);
         if (error != ESP_OK) { publish(VoiceInputPhase::Failed, error); return false; }
     }
@@ -361,13 +392,17 @@ bool LUNASHELL::tickVoiceInputTransport(const uint8_t *link_key, const char *dev
         std::memcmp(s_reply + 4, s_packet + 4, 38) == 0 && get32(s_reply + 42) > s_ack_counter) {
         size_t decoded = 0;
         const esp_err_t error = crypt(false, s_reply, size_t(received) - kHeader, s_plain, sizeof(s_plain), decoded);
-        if (error == ESP_OK && decoded == 5 && get32(s_plain) == s_sequence) {
+        const uint32_t acknowledged = decoded == 5 ? get32(s_plain) : 0;
+        const bool control_ack = s_packet_size != 0 && acknowledged == s_sequence;
+        const bool data_ack = s_window_count != 0 && acknowledged >= s_window[s_window_read].sequence &&
+            acknowledged < s_sequence;
+        if (error == ESP_OK && decoded == 5 && (control_ack || data_ack)) {
             s_ack_counter = get32(s_reply + 42);
             s_last_ack_at = now;
             const uint8_t status = s_plain[4];
             if (status < 1 || status > 6) {
                 ESP_LOGE(kTag, "Audio acknowledgement status rejected: %u", unsigned(status));
-                publish(VoiceInputPhase::Failed, ESP_ERR_INVALID_RESPONSE);
+                transportFailure(ESP_ERR_INVALID_RESPONSE);
                 return false;
             }
             if (status == 6) {
@@ -382,11 +417,19 @@ bool LUNASHELL::tickVoiceInputTransport(const uint8_t *link_key, const char *dev
             if (status == 4) { publish(VoiceInputPhase::Delivered); return false; }
             if (status == 3) {
                 s_final = true;
-                publish(VoiceInputPhase::Received);
-            } else if (!s_final && s_packet_size != 0) {
-                s_read = (s_read + s_inflight_samples) % kSamples;
-                s_count -= s_inflight_samples;
-                s_observation.acknowledged_samples += static_cast<uint32_t>(s_inflight_samples);
+                if (s_observation.phase != VoiceInputPhase::Received) publish(VoiceInputPhase::Received);
+            } else if (data_ack) {
+                // A cumulative authenticated ACK retires only the contiguous owned prefix.
+                while (s_window_count != 0 && s_window[s_window_read].sequence <= acknowledged) {
+                    const size_t samples = s_window[s_window_read].samples;
+                    s_read = (s_read + samples) % kSamples;
+                    s_count -= samples;
+                    s_reserved -= samples;
+                    s_observation.acknowledged_samples += static_cast<uint32_t>(samples);
+                    s_window_read = (s_window_read + 1) % kWindow;
+                    --s_window_count;
+                }
+            } else if (!s_final && control_ack) {
                 s_begun = true;
                 ++s_sequence;
                 s_packet_size = 0;
@@ -394,22 +437,61 @@ bool LUNASHELL::tickVoiceInputTransport(const uint8_t *link_key, const char *dev
         }
     } else if (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
         ESP_LOGE(kTag, "Audio receive failed: errno=%d", errno);
-        publish(VoiceInputPhase::Failed, ESP_FAIL);
+        transportFailure(ESP_FAIL);
         return false;
     }
-    if (s_packet_size == 0 && s_begun && (s_count != 0 || s_observation.phase == VoiceInputPhase::Sending ||
+    while (s_begun && !s_final && s_window_count < kWindow && s_count > s_reserved &&
+        (s_observation.phase == VoiceInputPhase::Listening || s_observation.phase == VoiceInputPhase::Sending)) {
+        const esp_err_t error = prepare(device_id, 2);
+        if (error != ESP_OK) { transportFailure(error); return false; }
+        auto &pending = s_window[(s_window_read + s_window_count) % kWindow];
+        std::memcpy(pending.bytes, s_packet, s_packet_size);
+        pending.size = s_packet_size;
+        pending.samples = s_inflight_samples;
+        pending.sequence = s_sequence++;
+        pending.sent_at = 0;
+        s_reserved += pending.samples;
+        ++s_window_count;
+        s_packet_size = 0;
+    }
+    if (s_packet_size == 0 && s_window_count == 0 && s_begun && (s_observation.phase == VoiceInputPhase::Sending ||
         s_observation.phase == VoiceInputPhase::Cancelling)) {
-        const esp_err_t error = prepare(device_id, s_observation.phase == VoiceInputPhase::Cancelling ? 4 : s_count == 0 ? 3 : 2);
-        if (error != ESP_OK) { publish(VoiceInputPhase::Failed, error); return false; }
+        const esp_err_t error = prepare(device_id, s_observation.phase == VoiceInputPhase::Cancelling ? 4 : 3);
+        if (error != ESP_OK) { transportFailure(error); return false; }
+    }
+    for (size_t offset = 0; offset < s_window_count; ++offset) {
+        auto &pending = s_window[(s_window_read + offset) % kWindow];
+        if (pending.sent_at != 0 && now - pending.sent_at < 100000) continue;
+        const int sent = sendto(s_socket, pending.bytes, pending.size, 0,
+            reinterpret_cast<const sockaddr *>(&s_peer), sizeof(s_peer));
+        if (sent != int(pending.size)) {
+            const int send_error = errno;
+            ESP_LOGE(kTag, "Audio window send failed: errno=%d", send_error);
+            if (sent < 0 && (send_error == EAGAIN || send_error == EWOULDBLOCK || send_error == ENOBUFS ||
+                send_error == ENETDOWN || send_error == ENETUNREACH || send_error == EHOSTUNREACH)) {
+                pending.sent_at = now;
+                break;
+            }
+            transportFailure(ESP_FAIL);
+            return false;
+        }
+        pending.sent_at = now;
     }
     if (s_packet_size != 0 && (s_sent_at == 0 || now - s_sent_at >= 100000)) {
         const int sent = sendto(s_socket, s_packet, s_packet_size, 0,
             reinterpret_cast<const sockaddr *>(&s_peer), sizeof(s_peer));
         if (sent != int(s_packet_size)) {
-            ESP_LOGE(kTag, "Audio send failed: errno=%d", errno);
-            publish(VoiceInputPhase::Failed, ESP_FAIL);
+            const int send_error = errno;
+            ESP_LOGE(kTag, "Audio send failed: errno=%d", send_error);
+            if (sent < 0 && (send_error == EAGAIN || send_error == EWOULDBLOCK || send_error == ENOBUFS ||
+                send_error == ENETDOWN || send_error == ENETUNREACH || send_error == EHOSTUNREACH)) {
+                s_sent_at = now;
+                return true;
+            }
+            transportFailure(ESP_FAIL);
             return false;
         }
+        if (s_packet[46] == 3) s_end_sent = true;
         s_sent_at = now;
     }
     return active();

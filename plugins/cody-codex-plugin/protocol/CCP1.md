@@ -680,8 +680,11 @@ The header is network-order `!4s6s16s16sIBH`: magic, binary device identity,
 uint8 kind and uint16 plaintext byte count. Device magic is `CYA1`; PC magic is
 `CYA2`. Device kinds are START=1 (sequence zero, no PCM), DATA=2 (at most 960 PCM
 bytes), END=3 (no PCM) and CANCEL=4 (no PCM, new sequence/nonce). PCM bytes are
-little-endian int16. Only the latest one-packet retransmission is acknowledged;
-out-of-order PCM never enters the host recording.
+little-endian int16. Up to four DATA packets may be in flight; START, END and
+CANCEL remain individually acknowledged. ACKs carry the highest contiguous
+sequence. Retries within the four-packet window never append PCM twice.
+Out-of-order PCM is discarded and receives an ACK for the preceding contiguous
+prefix; missing blocks are recovered through identical retries after 100 ms.
 
 The utterance key is HMAC-SHA256(link_key,
 `cody-audio-v1|<utterance lowercase hex>|<discovery nonce lowercase hex>`).
@@ -696,12 +699,25 @@ submission unconfirmed=6. An unconfirmed input is never automatically repeated.
 START requires both a fresh authenticated CCP peer and that peer's current
 discovery nonce. This prevents an old recorded START from reopening an utterance
 after the bounded transient record expires. Retained pairing alone never admits
-audio. Later blocks remain bound to the original endpoint, credential, utterance
+audio. A recent successful native initialization/thread-read probe for the followed
+chat is also required: five-second probe budget, five-second refresh, ten-second
+maximum age. This is reachability evidence, not model/audio capability evidence.
+Later blocks remain bound to the original endpoint, credential, utterance
 and discovery nonce; ordinary CCP challenge rotation does not rekey an active stream.
 
 The device retains every PCM block until its valid acknowledgement. Its ten-second
-ring fails explicitly on overflow. The PC freezes the genuine followed chat/turn
-at START and submits only a completed recording to that same native chat. END receipt
+ring survives temporary CCP liveness loss within the same ten-second ACK deadline
+and fails explicitly on overflow. Reconnection requires the same authenticated
+credential and IP. A transmitted END makes later transport failure Unconfirmed.
+The four ciphertext slots use at most 4,352 component-owned bytes, not task stack.
+The transport service cadence is five milliseconds, with a minimum of one RTOS tick.
+The PC freezes the genuine followed chat
+at START and submits only a completed recording to that same native chat. Steering
+uses the current same-chat hook turn at submission, protected by expectedTurnId;
+a concurrent conflict fails explicitly and retains the WAV. clientUserMessageId
+carries the utterance identity for correlation, not assumed deduplication. Status
+exposes that identity, native turn, WAV path and uncertainty without audio content.
+END receipt
 is not native acceptance, and native acceptance is not task completion. CANCEL
 cannot revoke a native submission already in flight; its actual eventual outcome
 is returned rather than claiming rollback. Metadata CCP packets remain authenticated
