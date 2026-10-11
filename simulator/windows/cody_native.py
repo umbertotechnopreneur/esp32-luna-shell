@@ -88,7 +88,7 @@ class NativePanelMetric(C.Structure):
 
 class NativePanelInputs(C.Structure):
     """Borrowed PC facts only; native firmware owns all formatting, layout and bar arithmetic."""
-    _fields_ = [(name, C.c_char_p) for name in ("project", "branch", "description", "chat_id", "model", "effort")] + [
+    _fields_ = [(name, C.c_char_p) for name in ("project", "branch", "description", "chat_id", "model", "effort", "peer_ip", "firmware_version")] + [
         ("phase", C.c_uint8), ("compaction", C.c_uint8),
         ("link", C.c_uint8), ("activity", C.c_uint8), ("model_state", C.c_uint8), ("effort_state", C.c_uint8),
         ("cost_band", C.c_uint8), ("cost_state", C.c_uint8),
@@ -101,7 +101,7 @@ class NativePanelInputs(C.Structure):
     # Raises no exceptions; absent strings and metrics remain explicitly unavailable.
     def __init__(self):
         super().__init__()
-        for name in ("project", "branch", "description", "chat_id", "model", "effort"):
+        for name in ("project", "branch", "description", "chat_id", "model", "effort", "peer_ip", "firmware_version"):
             setattr(self, name, b"")
 
 
@@ -191,7 +191,9 @@ class NativeRig:
             "panel_shake": (C.c_int, (P, C.c_float, C.c_float, C.c_float, C.c_int64, C.c_int64,
                 C.c_bool, C.POINTER(C.c_bool))),
             "panel_suspend_shake": (C.c_int, (P, C.c_int64)),
-            "connection": (C.c_int, (P, C.c_bool, C.c_bool, C.c_bool, C.c_bool, C.c_bool, C.c_int64, C.POINTER(C.c_uint8))),
+            "connection": (C.c_int, (P, C.c_bool, C.c_bool, C.c_bool, C.c_bool, C.c_bool, C.c_int64,
+                C.c_bool, C.c_bool, C.POINTER(C.c_uint8))),
+            "connection_face": (C.c_int, (P, C.POINTER(C.c_float), C.c_uint32, C.POINTER(C.c_bool))),
             "scene_cue": (C.c_int, (C.c_uint16, C.c_uint8, C.POINTER(C.c_uint8))),
             "scene_id": (C.c_int, (C.c_char_p, U16)),
             "advance_face": (C.c_int, (F, F, C.c_uint32, C.c_float, F)),
@@ -218,7 +220,7 @@ class NativeRig:
         for name, (result, arguments) in signatures.items():
             function = getattr(self.api, "cody_host_" + name)
             function.restype, function.argtypes = result, arguments
-        if self.api.cody_host_abi() != 1:
+        if self.api.cody_host_abi() != 2:
             raise ValueError("Incompatible Cody C++ graphics ABI")
         channels = [self.api.cody_host_channel_name(index).decode("ascii")
                     for index in range(self.api.cody_host_channel_count())]
@@ -523,15 +525,28 @@ class NativeRig:
     # pc_connected: Synthetic current authenticated PC connection.
     # pc_searching: Synthetic PC discovery activity.
     # active_delta_us: Nonnegative active elapsed time, zero while paused.
+    # wifi_connected: Explicit synthetic LAN connection; never inferred from validity alone.
+    # search_view_visible: Explicit synthetic discovery-screen visibility.
+    # Raises ValueError for untyped facts or unsupported active time.
     # Raises RuntimeError for the actual shared model's validation errors.
-    def connection_personality(self, wifi_current, wifi_searching, pc_current, pc_connected, pc_searching, active_delta_us):
-        if any(type(value) is not bool for value in (wifi_current, wifi_searching, pc_current, pc_connected, pc_searching)):
+    def connection_personality(self, wifi_current, wifi_searching, pc_current, pc_connected, pc_searching, active_delta_us,
+                               *, wifi_connected=False, search_view_visible=False):
+        if any(type(value) is not bool for value in (wifi_current, wifi_searching, pc_current, pc_connected, pc_searching,
+                                                   wifi_connected, search_view_visible)):
             raise ValueError('Native connection facts require explicitly typed synthetic booleans')
         bounded_integer(active_delta_us, 0, 0x7fffffffffffffff, 'connection.active_delta_us')
         cue = C.c_uint8()
         checked("connection_personality", self.api.cody_host_connection(self.state, wifi_current, wifi_searching,
-            pc_current, pc_connected, pc_searching, active_delta_us, C.byref(cue)))
+            pc_current, pc_connected, pc_searching, active_delta_us, wifi_connected, search_view_visible, C.byref(cue)))
         return PersonalityCue(cue.value)
+
+    # self: Native search narrative owner; returns no face when the cycle is inactive.
+    # Raises RuntimeError for the original native expression or capacity failure.
+    def connection_face(self):
+        channels = (C.c_float * len(self.rig['channels']))()
+        active = C.c_bool()
+        checked("connection_face", self.api.cody_host_connection_face(self.state, channels, len(channels), C.byref(active)))
+        return list(channels) if active.value else None
 
     # self: Native scene reaction resolver.
     # scene: Exact authored scene name.

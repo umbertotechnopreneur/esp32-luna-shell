@@ -63,13 +63,16 @@ Short released taps cycle the panels; a deliberate canonical-IMU shake returns
 Home. They retain the character at (233,115), scale 50 and at most four curated
 facts. Missing optional fields are omitted. Setup and questions retain their routes.
 
-Model & Context reserves a Standard cost badge at (101,234), 264 x 28, with
-three detail rows at y=267/297/327. Context status takes precedence over optional
-effort/count rows; the bar at y=354 and compaction banner at y=208 remain separate.
+Model & Context reserves a Standard price badge at (101,206), 264 x 28, with
+six detail rows starting at y=238, 25 pixels apart. A compaction banner at y=208
+moves the badge to y=234 and leaves four detail rows starting at y=267. The
+context bar occupies y=389 through 400. Session & Link admits six rows starting
+at y=234. These two panels omit the passive gesture hint to preserve row space;
+tap still advances and deliberate shake returns Home.
 Home uses the project/branch/model identity viewport at (73,300), 320 x 28.
-Its persistent 150 x 28 cost chip at y=330 is centered at x=233 without a timer,
-or moves to x=85 beside the timer centered at x=320. Colors are green Economy,
-orange Balanced, red Expensive!, and gray Unknown. Both layouts stay within
+Its Model-only 150 x 28 price chip at y=330 is centered at x=233 without a timer,
+or moves to x=85 beside the timer centered at x=320. Colors are green Cheap,
+orange Reasonable, red Expensive, and gray Unavailable. Both layouts stay within
 their occupied circular chords and retain the description viewport below y=360.
 
 The standalone status layer shows date at (122,32), local HH:MM at (122,47),

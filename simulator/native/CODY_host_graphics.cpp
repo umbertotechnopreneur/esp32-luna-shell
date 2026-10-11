@@ -174,7 +174,7 @@ esp_err_t cody_host_scene_model(const void *handle, const CODY::RigScene *&scene
 }
 
 // No parameters: versioned boundary rejects outdated libraries explicitly.
-CODY_HOST_EXPORT uint32_t cody_host_abi() { return 1; }
+CODY_HOST_EXPORT uint32_t cody_host_abi() { return 2; }
 // No parameters: exact compiled semantic facial channel count.
 CODY_HOST_EXPORT uint32_t cody_host_channel_count() { return CODY::kFaceChannelCount; }
 // index: Storage traversal offset; returned name retains domain identity.
@@ -690,18 +690,45 @@ CODY_HOST_EXPORT int cody_host_activity_pause(void *handle)
 // pc_connected: Synthetic PC link state.
 // pc_searching: Synthetic PC discovery state.
 // delta_us: Actual active time; paused frames supply zero.
+// wifi_connected: Explicit synthetic current LAN connection, independent of sample validity.
+// search_view_visible: Explicit synthetic discovery-screen visibility.
 // cue: Receives the shared model's cue identity on success.
 // Exception: Returns the actual model validation error.
 CODY_HOST_EXPORT int cody_host_connection(void *state, bool wifi_current, bool wifi_searching,
-    bool pc_current, bool pc_connected, bool pc_searching, int64_t delta_us, uint8_t *cue)
+    bool pc_current, bool pc_connected, bool pc_searching, int64_t delta_us,
+    bool wifi_connected, bool search_view_visible, uint8_t *cue)
 {
     if (!state || !cue) { return host_result("connection", ESP_ERR_INVALID_ARG); }
     CODY::PersonalityCue result{};
     const esp_err_t error = CODY::advance_connection_personality(
-        {wifi_current, wifi_searching, pc_current, pc_connected, pc_searching}, delta_us,
+        {wifi_current, wifi_searching, pc_current, pc_connected, pc_searching, wifi_connected, search_view_visible}, delta_us,
         static_cast<HostState *>(state)->connection, result);
     if (error == ESP_OK) { *cue = static_cast<uint8_t>(result); }
     return host_result("advance_connection_personality", error);
+}
+
+// state: Native owner retaining only explicitly synthetic connection observations.
+// channels: Receives the shared authored search expression when the cycle is active.
+// count: Exact host facial-channel capacity.
+// active: Receives whether the visible search narrative currently owns expression selection.
+// Exception: Returns the original pointer, capacity or expression contract failure.
+CODY_HOST_EXPORT int cody_host_connection_face(void *state, float *channels, uint32_t count, bool *active)
+{
+    if (!state || !channels || !active || count != std::size(CODY::Channels{}.values)) {
+        return host_result("connection_face", ESP_ERR_INVALID_ARG);
+    }
+    const auto &connection = static_cast<HostState *>(state)->connection;
+    *active = connection.search_active;
+    if (!*active) {
+        return ESP_OK;
+    }
+    CODY::Channels face{};
+    const esp_err_t error = CODY::expression_channels(
+        CODY::connection_search_presentation(connection).expression, face);
+    if (error == ESP_OK) {
+        std::copy(std::begin(face.values), std::end(face.values), channels);
+    }
+    return host_result("connection_face", error);
 }
 
 // scene: Stable authored route ID rather than table index.

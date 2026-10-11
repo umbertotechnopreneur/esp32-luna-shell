@@ -29,7 +29,7 @@
 namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_personality";
-// The 256-pixel masters cover every admitted destination without magnifying pixels.
+// Legacy bitmap masters have 256 pixels; compact native connection symbols use their own coverage.
 constexpr uint16_t kMaximumSpriteExtent = 231;
 static_assert(PersonalityConfig::position_window_us > 0 &&
     PersonalityConfig::position_window_us <= PersonalityConfig::scale_window_us &&
@@ -43,8 +43,81 @@ static_assert(PersonalityConfig::history_bucket_count ==
     PersonalityConfig::history_bucket_count <= UINT8_MAX,
     "History needs the full scale window and one partial bucket with a bounded index");
 static_assert(sizeof(PersonalityFollowBucket) == 24, "Each fixed geometry history bucket uses 24 bytes");
-static_assert(PersonalityConfig::cue_rule_count == 14, "Repeat storage follows the fourteen stable cue IDs");
-static_assert(sizeof(PersonalityLag) <= 768, "Controller, geometry and fourteen repeat timestamps stay bounded");
+static_assert(PersonalityConfig::cue_rule_count == 18, "Repeat storage follows the eighteen stable cue IDs");
+static_assert(sizeof(PersonalityLag) <= 768, "Controller, geometry and repeat timestamps stay bounded");
+
+// cue: Typed native artwork identity, separate from the fourteen bitmap masters.
+// x: Quarter-pixel horizontal position on the immutable 64-pixel source canvas.
+// y: Quarter-pixel vertical position on that same canvas.
+constexpr bool connection_symbol_ink(PersonalityCue cue, int x, int y)
+{
+    if (cue == PersonalityCue::BatteryReady || cue == PersonalityCue::BatteryLow) {
+        const bool body = x >= 44 && x <= 208 && y >= 84 && y <= 172 &&
+            (x <= 54 || x >= 198 || y <= 94 || y >= 162);
+        const bool terminal = x >= 208 && x <= 224 && y >= 108 && y <= 148;
+        const bool mark = cue == PersonalityCue::BatteryLow
+            ? (x >= 120 && x <= 132 && ((y >= 104 && y <= 138) || (y >= 148 && y <= 154)))
+            : ((x >= 96 && x <= 124 && y - x >= 10 && y - x <= 22) ||
+               (x >= 118 && x <= 160 && x + y >= 254 && x + y <= 266));
+        return body || terminal || mark;
+    }
+    if (cue == PersonalityCue::WifiConnected) {
+        const int dx = x - 128;
+        const int dy = y - 196;
+        const int distance = dx * dx + dy * dy;
+        const bool arc_sector = dy < 0 && dx >= -100 && dx <= 100 && dx >= dy * 2 && dx <= -dy * 2;
+        const bool arcs = arc_sector &&
+            ((distance >= 150 * 150 && distance <= 162 * 162) ||
+             (distance >= 100 * 100 && distance <= 112 * 112) ||
+             (distance >= 50 * 50 && distance <= 62 * 62));
+        const bool dot = distance <= 10 * 10;
+        const bool check_start = x >= 148 && x <= 174 && y - x >= 32 && y - x <= 44;
+        const bool check_finish = x >= 166 && x <= 214 && x + y >= 366 && x + y <= 378;
+        return arcs || dot || check_start || check_finish;
+    }
+    const int dx = x - 108;
+    const int dy = y - 108;
+    const int distance = dx * dx + dy * dy;
+    const bool rim = distance >= 48 * 48 && distance <= 62 * 62;
+    const bool handle = x >= 150 && x <= 214 && y >= 150 && y <= 214 && x - y >= -10 && x - y <= 10;
+    const bool sparkle = (x >= 202 && x <= 210 && y >= 42 && y <= 74) ||
+        (x >= 190 && x <= 222 && y >= 54 && y <= 62);
+    return rim || handle || sparkle;
+}
+
+// cue: Stable native symbol; coverage is sampled at four subpixel positions at compile time.
+constexpr std::array<uint8_t, 4096> connection_symbol_coverage(PersonalityCue cue)
+{
+    std::array<uint8_t, 4096> coverage{};
+    for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 64; ++x) {
+            unsigned samples = 0;
+            for (int sub_y = 1; sub_y <= 3; sub_y += 2) {
+                for (int sub_x = 1; sub_x <= 3; sub_x += 2) {
+                    samples += connection_symbol_ink(cue, x * 4 + sub_x, y * 4 + sub_y) ? 1U : 0U;
+                }
+            }
+            coverage[y * 64 + x] = static_cast<uint8_t>((samples * 255U + 2U) / 4U);
+        }
+    }
+    return coverage;
+}
+
+constexpr auto kWifiConnectedCoverage = connection_symbol_coverage(PersonalityCue::WifiConnected);
+constexpr auto kSearchCoverage = connection_symbol_coverage(PersonalityCue::Search);
+constexpr auto kBatteryReadyCoverage = connection_symbol_coverage(PersonalityCue::BatteryReady);
+constexpr auto kBatteryLowCoverage = connection_symbol_coverage(PersonalityCue::BatteryLow);
+// Native symbols use a single semantic color and own no palette-index plane.
+constexpr PersonalityAssets::Sprite kWifiConnectedSprite{PersonalityCue::WifiConnected, 64, 64,
+    nullptr, kWifiConnectedCoverage.data()};
+constexpr PersonalityAssets::Sprite kSearchSprite{PersonalityCue::Search, 64, 64,
+    nullptr, kSearchCoverage.data()};
+constexpr PersonalityAssets::Sprite kBatteryReadySprite{PersonalityCue::BatteryReady, 64, 64,
+    nullptr, kBatteryReadyCoverage.data()};
+constexpr PersonalityAssets::Sprite kBatteryLowSprite{PersonalityCue::BatteryLow, 64, 64,
+    nullptr, kBatteryLowCoverage.data()};
+constexpr int8_t kSearchOffsetX[]{0, 1, 2, 1, 0, -1, -2, -1};
+constexpr int8_t kSearchOffsetY[]{-1, 0, 1, 2, 1, 0, -1, -2};
 
 // state: Fixed geometry history whose internal invariants must remain coherent.
 bool follow_history_valid(const PersonalityLag &state)
@@ -347,6 +420,18 @@ void advance_channel(PersonalityLag &state, const PersonalityContext &context, i
 // cue: Stable symbol identity; integer offsets are used only for flash-table traversal.
 const PersonalityAssets::Sprite *find_sprite(PersonalityCue cue)
 {
+    if (cue == PersonalityCue::WifiConnected) {
+        return &kWifiConnectedSprite;
+    }
+    if (cue == PersonalityCue::Search) {
+        return &kSearchSprite;
+    }
+    if (cue == PersonalityCue::BatteryReady) {
+        return &kBatteryReadySprite;
+    }
+    if (cue == PersonalityCue::BatteryLow) {
+        return &kBatteryLowSprite;
+    }
     for (const auto &sprite : PersonalityAssets::sprites) {
         if (sprite.cue == cue) {
             return &sprite;
@@ -412,7 +497,47 @@ bool personality_cue_valid(PersonalityCue cue)
 bool personality_cue_is_device(PersonalityCue cue)
 {
     return cue == PersonalityCue::LowBattery || cue == PersonalityCue::Charging ||
-        cue == PersonalityCue::NoWifi;
+        cue == PersonalityCue::NoWifi || cue == PersonalityCue::WifiConnected ||
+        cue == PersonalityCue::BatteryReady || cue == PersonalityCue::BatteryLow;
+}
+
+// observation: Original current battery sample; absence, stale data and charging suppress the prelude.
+// working: True only for the actual resumed Working route.
+// delta_us: Active elapsed time, excluding hidden or unretired presentation time.
+// state: Single-use display state armed by a real standby wake.
+// Exception: Returns the actual timing/percentage contract error without mutation.
+esp_err_t advance_wake_battery_prelude(const PersonalityPowerObservation &observation,
+    bool working, int64_t delta_us, WakeBatteryPrelude &state)
+{
+    constexpr int64_t visible_duration_us = 4000000;
+    if (delta_us < 0 || (observation.current && observation.battery_present && observation.percentage_valid &&
+        (!std::isfinite(observation.level_percent) || observation.level_percent < 0 || observation.level_percent > 100))) {
+        ESP_LOGE(kTag, "Wake battery prelude rejected: delta=%lld percentage=%f (%s)",
+            static_cast<long long>(delta_us), observation.level_percent, esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!working || !observation.current || !observation.battery_present ||
+        !observation.percentage_valid || observation.charging) {
+        state = {};
+        return ESP_OK;
+    }
+    if (state.pending) {
+        state.pending = false;
+        state.active = true;
+        state.retired = false;
+        state.visible_us = 0;
+    } else if (state.active && state.retired) {
+        state.visible_us += std::min(delta_us, visible_duration_us - state.visible_us);
+        if (state.visible_us == visible_duration_us) {
+            state = {};
+            return ESP_OK;
+        }
+    }
+    if (state.active) {
+        state.cue = observation.level_percent <= PersonalityConfig::low_battery_enter_percent
+            ? PersonalityCue::BatteryLow : PersonalityCue::BatteryReady;
+    }
+    return ESP_OK;
 }
 
 // lag: Current presentation whose artistic repeat history must survive route/geometry resets.
@@ -859,6 +984,9 @@ esp_err_t prepare_personality_frame(
         frame.cue = next.cue;
         frame.bounds = admitted;
         frame.status = PersonalityPresentationStatus::Visible;
+        if (next.cue == PersonalityCue::Search) {
+            frame.animation_phase = static_cast<uint8_t>((next.active_elapsed_us / 125000) % 8);
+        }
     } else if (next.phase == PersonalityPhase::Hidden && next.desired != PersonalityCue::None &&
                !repeat_ready(next, next.desired)) {
         frame.cue = next.desired;
@@ -904,13 +1032,24 @@ esp_err_t draw_personality_rows(const PersonalityFrame &frame, CODY2D::Surface s
         const uint16_t source_y = (y - bounds.top) * sprite->height / height;
         auto *destination = strip.pixels + (y - first_row) * strip.stride;
         for (uint16_t x = left; x < right; ++x) {
-            const uint16_t source_x = (x - bounds.left) * sprite->width / width;
-            const uint32_t source = source_y * sprite->width + source_x;
+            int source_x = (x - bounds.left) * sprite->width / width;
+            int animated_y = source_y;
+            if (frame.cue == PersonalityCue::Search) {
+                source_x -= kSearchOffsetX[frame.animation_phase % 8];
+                animated_y -= kSearchOffsetY[frame.animation_phase % 8];
+                if (source_x < 0 || source_x >= sprite->width || animated_y < 0 || animated_y >= sprite->height) {
+                    continue;
+                }
+            }
+            const uint32_t source = animated_y * sprite->width + source_x;
             const uint8_t coverage = (static_cast<uint16_t>(sprite->coverage[source]) * frame.opacity + 127) / 255;
             if (coverage == 0) {
                 continue;
             }
-            const uint16_t foreground = PersonalityAssets::palette[sprite->indices[source]];
+            const uint16_t foreground = frame.cue == PersonalityCue::BatteryLow ? 0xF986 :
+                frame.cue == PersonalityCue::BatteryReady ? 0x07E0 :
+                frame.cue == PersonalityCue::WifiConnected || frame.cue == PersonalityCue::Search
+                    ? 0x5EDD : PersonalityAssets::palette[sprite->indices[source]];
             auto &pixel = destination[x - first_column];
             const uint16_t background = CODY2D::rgb565_stored_to_native(pixel, strip.byte_order);
             pixel = CODY2D::rgb565_native_to_stored(
@@ -925,7 +1064,8 @@ esp_err_t draw_personality_rows(const PersonalityFrame &frame, CODY2D::Surface s
 bool same_personality_frame(const PersonalityFrame &previous, const PersonalityFrame &current)
 {
     return previous.cue == current.cue && previous.opacity == current.opacity &&
-        previous.status == current.status && previous.bounds.left == current.bounds.left &&
+        previous.status == current.status && previous.animation_phase == current.animation_phase &&
+        previous.bounds.left == current.bounds.left &&
         previous.bounds.top == current.bounds.top && previous.bounds.right == current.bounds.right &&
         previous.bounds.bottom == current.bounds.bottom;
 }

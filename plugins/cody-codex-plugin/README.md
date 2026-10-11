@@ -62,12 +62,12 @@ desktop approval routing and physical voice behavior are separate evidence. This
 0.6.5 source increment is unbuilt/uninstalled; the previous installed plugin and
 device remain on their earlier images until explicitly updated.
 
-Home keeps a visible **Economy / Balanced / Expensive! / Unknown** chip below
-the project/branch/model carousel. Economy is green, Balanced orange, Expensive!
-red, and Unknown gray. The warning remains visible during attention and genuine
-compaction, beside its elapsed timer. A band-only update does not restart the
-carousel, title reveal or sound. The **Model & Context** panel repeats the same
-band as **Standard: ...**, keeping compaction and context status separate.
+Home shows a **Cheap / Reasonable / Expensive / Unavailable** price chip only
+while the Model carousel item is visible. Cheap is green, Reasonable orange,
+Expensive red, and Unavailable gray. The elapsed timer remains independent.
+A band-only update does not restart the carousel, title reveal or sound.
+**Model & Context** repeats known bands as **Std price: ...** and otherwise
+shows **Price unavailable**, keeping compaction and context status separate.
 
 The portable Python catalog owner downloads the
 official [Codex Standard credit table](https://learn.chatgpt.com/docs/pricing)
@@ -77,7 +77,7 @@ Rates, source, retrieval time and the daily attempt record stay in
 `%LOCALAPPDATA%/CodyCodexPlugin/artifacts/pricing/codex-standard.json`.
 
 The product's qualitative policy uses uncached input and output credits per
-million tokens: Economy requires input <= 10 and output <= 50; Balanced requires
+million tokens: Cheap requires input <= 10 and output <= 50; Reasonable requires
 input <= 100 and output <= 500; other recognized rates are Expensive. These
 thresholds describe a Standard reference, not OpenAI's model categories, account
 balance, speed, included-plan allowance or the cost of a chat. Cached-input rates

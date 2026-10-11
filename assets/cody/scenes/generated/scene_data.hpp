@@ -133,7 +133,7 @@ inline constexpr SceneDefinition definitions[] = {
         {"Finding your PC", 15},
         210, 65535, 45, false, true, true,
         {{233.000000000f, 130.000000000f, 75.000000000f}, 0, 0}, 0,
-        60U
+        600U
     },
     {
         SceneId::Connected, "connected", {233.000000000f, 130.000000000f, 75.000000000f},
@@ -187,7 +187,7 @@ inline constexpr SceneDefinition definitions[] = {
         {"Working", 7},
         210, 2047, 45, false, true, true,
         {{233.000000000f, 130.000000000f, 75.000000000f}, 0, 0}, 0,
-        60U
+        180U
     },
     {
         SceneId::ResponseReady, "response-ready", {233.000000000f, 130.000000000f, 75.000000000f},

@@ -52,7 +52,9 @@ struct PersonalityFrame {
     DamageRect bounds{};
     uint8_t opacity = 0;
     PersonalityPresentationStatus status = PersonalityPresentationStatus::Hidden;
+    uint8_t animation_phase = 0;
 };
+static_assert(sizeof(PersonalityFrame) <= 16, "Retired personality metadata must remain a small projection");
 
 struct PersonalityFollowTarget {
     float center_x = 0;
@@ -109,6 +111,22 @@ struct PersonalityPowerObservation {
     bool charging = false;
     float level_percent = 0;
 };
+
+struct WakeBatteryPrelude {
+    bool pending = false;
+    bool active = false;
+    bool retired = false;
+    PersonalityCue cue = PersonalityCue::None;
+    int64_t visible_us = 0;
+};
+
+// observation: Fresh canonical battery facts, never an inference from USB presence.
+// working: The first resumed route is the real Working view.
+// delta_us: Active time; only a fully retired prelude contributes visible dwell.
+// state: Display-owned single-use wake presentation.
+// Exception: Returns invalid timing or measured percentage without changing state.
+esp_err_t advance_wake_battery_prelude(const PersonalityPowerObservation &observation,
+    bool working, int64_t delta_us, WakeBatteryPrelude &state);
 
 enum class BatteryNotice : uint8_t { None, Low, Critical, Charging, Full };
 enum class BatteryWarningBand : uint8_t { None, Low, Critical };

@@ -126,6 +126,7 @@ class CcpPanel:
         self._native_personality = None
         self._direction_cue = PersonalityCue.NONE
         self._connection_sampled = time.monotonic()
+        self._connection_face = None
         self._model_sampled = time.perf_counter()
         self._displayed_values = None
         self._last_base_values = None
@@ -173,7 +174,7 @@ class CcpPanel:
         scenarios = ttk.Combobox(preview, textvariable=self.preview_scenario, state="readonly",
             values=("Normal", "Attention", "Reply ready", "Nearly full", "Long compaction",
                     "Refreshed / pending", "Counters updated", "Missing / stale", "Model changed", "Link lost",
-                    "Economy model", "Balanced model", "Expensive model", "Custom"))
+                    "Cheap model", "Reasonable model", "Expensive model", "Custom"))
         scenarios.pack(fill="x")
         scenarios.bind("<<ComboboxSelected>>", self.select_preview_scenario)
         ttk.Label(preview, text="SIMULATED companion mode").pack(anchor="w", pady=(8, 2))
@@ -283,6 +284,8 @@ class CcpPanel:
         now = time.perf_counter()
         active_ms = max(0, (now - self._model_sampled) * 1000) if self.window.playing.get() else 0
         self._model_sampled = now
+        if self._route_key and self._route_key[0] == "looking-for-pc" and self._connection_face is not None:
+            base = self._connection_face
         if self._route_face_state is None:
             self._route_face_state = list(base)
         self._route_face_state = self.window.renderer.advance_face(self._route_face_state, base, active_ms)
@@ -325,13 +328,15 @@ class CcpPanel:
     def prepare_personality(self, snapshot, identity, scene, scale, rotation, elapsed_ms, exclusions):
         native = self.window.renderer.require_native()
         now = time.monotonic()
-        delta_us = max(0, round((now - self._connection_sampled) * 1000000))
+        delta_us = max(0, round((now - self._connection_sampled) * 1000000)) if self.window.playing.get() else 0
         self._connection_sampled = now
         connection = native.connection_personality(True, not snapshot.network_ready, True,
             snapshot.state == LinkState.CONNECTED,
-            snapshot.state in (LinkState.DISCOVERING, LinkState.PAIRING, LinkState.INCOMPLETE), delta_us)
+            snapshot.state in (LinkState.DISCOVERING, LinkState.PAIRING, LinkState.INCOMPLETE), delta_us,
+            wifi_connected=bool(snapshot.network_ready), search_view_visible=identity == "looking-for-pc")
+        self._connection_face = native.connection_face()
         cue = native.scene_personality(identity, connection)
-        if cue == PersonalityCue.NONE:
+        if cue == PersonalityCue.NONE and identity != "looking-for-pc":
             cue = self._direction_cue
         cue = self.window.apply_automatic_power_cue(cue)
         if self._native_personality is None:
@@ -487,8 +492,8 @@ class CcpPanel:
         inputs.activity_age_us = NativePanelMetric(elapsed_us, 1)
         inputs.turn_elapsed_us = NativePanelMetric(elapsed_us, 1)
         scenario = self.preview_scenario.get()
-        bands = {"Economy model": (1, b"SIMULATED-gpt-6-luna"),
-                 "Balanced model": (2, b"SIMULATED-gpt-6-sol"),
+        bands = {"Cheap model": (1, b"SIMULATED-gpt-6-luna"),
+                 "Reasonable model": (2, b"SIMULATED-gpt-6-sol"),
                  "Expensive model": (3, b"SIMULATED-gpt-6-astra")}
         if scenario in bands:
             inputs.cost_band, inputs.model = bands[scenario]

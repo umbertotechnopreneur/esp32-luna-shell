@@ -11,7 +11,8 @@ suppresses symbols. All skins use the same fourteen fixed-palette masters.
 ## Selection and ownership
 
 `set_personality_cue()` selects a narrative target. `set_personality_device_cue()`
-selects None, LowBattery, Charging or NoWifi. Repeating the same request does not
+selects None, LowBattery, Charging, NoWifi, WifiConnected, BatteryReady or
+BatteryLow. Repeating the same request does not
 restart its fade, stability period or hold. Only the latest desired identity is
 retained; there is no queue of previous requests and no per-symbol animation task.
 
@@ -30,6 +31,19 @@ Charging follows the actual charging state; NoWifi requires a started/configured
 radio with no connected link. Stale or disproven facts immediately invalidate
 their current symbol, so artistic hold never preserves a false device status.
 Canonical read/contract failures retain their real errors.
+
+On a real software-standby wake into Working, a current detected battery with
+a valid percentage can precede working content for four visible seconds.
+BatteryLow is red with a worried face at or below 20 percent; BatteryReady is
+green with a happy face above that threshold. Charging, absent, invalid or stale
+battery data skips this prelude. No USB connection is inferred from absence.
+Backend processing continues; route changes or unavailable layout cancel the
+prelude. Its timer starts only after a visible frame retires.
+
+Four native compile-time 64 x 64 alpha planes complement the fourteen bitmap
+masters: WifiConnected, Search, BatteryReady and BatteryLow. These new cues are
+silent; Search animates eight small lens poses without per-frame trigonometry or
+a separate task. Runtime rendering and stack headroom remain unverified.
 
 From 2026-10-11 the firmware admits short battery notices after ten uninterrupted
 seconds on free Home. Touch, affection, other narrative cues, work, questions,

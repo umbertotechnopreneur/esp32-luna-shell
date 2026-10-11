@@ -21,6 +21,19 @@ headroom and the prepared host/simulator cases remain unverified.
 
 ## Reproduced device faults
 
+- [ ] **UI-ACTIVITY-02 - Connection and activity presentation evidence.** Source
+  adds silent discovery faces/lens, ten-minute search and three-minute Working
+  standby, a four-visible-second valid-battery wake prelude, Model-only
+  Cheap/Reasonable/Expensive chip, current tool identity and expanded technical
+  panels with canonical IP/firmware identity. Compilation, geometry/rendering
+  and physical stack-headroom evidence remain pending explicit authorization.
+  The installed image remains `cody-114-g33377507`.
+- [ ] **CCP-USAGE-01 - Authoritative Desktop usage source.** App Server documents
+  `thread/tokenUsage/updated`, but current Desktop hooks provide no owned stream
+  for this exact chat. Reasoning, context and token fields remain unavailable.
+  Never infer last-turn usage, execution model or bills from price classes,
+  transcripts or another Codex session.
+
 - [ ] **FAULT-04 - Reported Codex-choice reboot loop.** The 12 October passive
   COM10 capture of `cody-114-g33377507` retained reset reason 4 (`ESP_RST_PANIC`)
   from the preceding boot, but no panic/backtrace occurred in the 30-second

@@ -391,8 +391,41 @@ def field_order(operation,protocol):
     return " -> ".join(re.findall(r"(?:^|\|)([a-z]+)=",packets[-1]))
 
 
-# start_page: Physical page number of this technical chapter's first page.
-# Raises ValueError if a technical grid exceeds its bounded page layout.
+# surface: Page canvas receiving illustrative, explicitly non-physical Debug views.
+# No live channel names or sensor measurements are fabricated by these diagrams.
+def debug_view_diagram(surface):
+    positions = (168, WIDTH / 2, WIDTH - 168)
+    for x, mode in zip(positions, ("face_channels", "character", "normal")):
+        surface.setFillColor(CYAN)
+        surface.setFont("CodyDocBold", 13)
+        surface.drawCentredString(x, 440, mode)
+        surface.setFillColor(colors.black)
+        surface.setStrokeColor(LINE)
+        surface.circle(x, 337, 85, fill=1, stroke=1)
+    surface.setFillColor(CYAN)
+    surface.setFont("CodyDocBold", 11)
+    surface.drawCentredString(positions[0], 358, "LIVE CHANNELS")
+    surface.setFillColor(colors.white)
+    surface.setFont("CodyDoc", 10)
+    for y, text in ((339, "Actual composed rows"), (321, "Count from worker ACK"), (303, "Scroll locally or by tool")):
+        surface.drawCentredString(positions[0], y, text)
+    cody_identity(surface, positions[1], 347)
+    cody_identity(surface, positions[2], 337)
+    surface.setFillColor(colors.HexColor("#A9C3D2"))
+    surface.setFont("CodyDoc", 8)
+    surface.drawCentredString(positions[1], 280, "Canonical diagnostics")
+    descriptions = (
+        "Request the live list, then use the returned channel_count. No fixed names or count are invented here.",
+        "Inspect the native character with canonical snapshot diagnostics. Invalid or stale data stays explicit.",
+        "Restore the retained normal route. Session-only views preserve settings, pairing and ordinary work.",
+    )
+    for x, text in zip(positions, descriptions):
+        paragraph(surface, text, x - 107, 229, 214, 11)
+    notes(surface)
+
+
+# start_page: Absolute physical page number of the first technical chapter.
+# Raises ValueError if any authored table overlaps notes or footer.
 def technical_pdf(start_page):
     protocol = PROTOCOL.read_text(encoding="utf-8")
     output = BytesIO()
@@ -500,12 +533,69 @@ def technical_pdf(start_page):
             ("Native localAudio",'input=[{"type":"localAudio","path":completedWAV}]. Preserve the START chat; resolve its current hook turn at submission. Active turn: turn/steer(expectedTurnId); otherwise thread/resume then turn/start. clientUserMessageId is the recording hex ID.',"Revalidate followed-chat identity and cancellation. Concurrent native turn conflicts fail explicitly; retain the WAV and never retry automatically. The correlation ID provides no idempotency guarantee."),
             ("Native approvals and uncertainty","The whole submission has a 15-second monotonic deadline. Authorization and user questions stay on the desktop. Status exposes recording ID, native turn, WAV artifact and uncertainty.","Explicit rejection means Failed. Uncertain submission means status 6: Check on your PC. Endpoint attachment, installation, account/backend, dependencies and physical audio remain unverified."),
         ),(150,314,WIDTH-84-464))
+    add("CCP and the plugin: who does what?","Operator guide / source inventory / the Codex plugin is not a second device server",
+        ("OWNER","RESPONSIBILITY","CONFIGURATION / LIMIT"),(
+            ("Cody firmware / client","Own Wi-Fi, canonical measurements, screen composition, durable preferences and authenticated commands. Discover the retained PC and receive its genuine metadata.","Release supports customer operations; Debug additionally advertises DEBUGCAP. A build choice is not a remote permission switch."),
+            ("CCP PC broker / server","One hidden Windows Python runtime serves MCP clients and trusted hooks. Own DPAPI pairing journals, observed chats, question tickets, delivery acknowledgement and optional audio reception.","MCP attaches using the installed .mcp.json. No OpenAI API key is required for normal CCP; no Codex credential goes over LAN."),
+            ("Codex plugin / skills","Package the MCP entrypoint, ten native hooks and three skills. Tools express operations; skills constrain when an agent may use them. The latest genuine prompt chooses the followed chat.","Install/enable the local package and review hooks separately. Editing this repository does not update an installed plugin or flash Cody."),
+            ("Native audio endpoint","Optional existing loopback WebSocket receives localAudio in the genuine followed chat. The broker receives encrypted PCM on a separate UDP channel.","Explicit endpoint/dependencies/account integration required. Native acceptance is not transcription or work completion; no second chat is created to bypass missing integration."),
+        ),(148,306,WIDTH-84-454))
+    add("Configure once; diagnose the correct layer","Operator setup / no action in this document authorizes installation, trust or hardware changes",
+        ("STEP","OPERATOR ACTION","WHAT IT ESTABLISHES"),(
+            ("1 / Install plugin","Make Python available to the desktop environment. Register the local catalog with codex plugin marketplace add . from the repository root if absent. Install/enable CCP in Cody local plugins; open a chat loading that package.","Installed version and package path must match the intended source. Canonical manifest: .codex-plugin/plugin.json. Do not add a competing root plugin.json."),
+            ("2 / Review hooks","Open /hooks in a local Codex session; review and authorize the discovered CCP command hooks. Send a real prompt afterwards.","Installation does not grant hook trust. Empty sessions call for environment/trust diagnosis; never fabricate hooks or edit trust records to create activity."),
+            ("3 / Pair physical Cody","Allow private LAN Python UDP 42117/42118. Open Setup > Connect Codex on the intended device; discover and use only its currently visible six-character code. Read ccp_connection_status afterwards.","Retained identity, pending pairing and authenticated current presence differ. Public Internet is independent of local LAN. Simulator inclusion is false unless explicitly requested."),
+            ("4 / Optional audio","Install mcp/requirements-audio.txt in the plugin Python environment. Configure CODY_CODEX_AUDIO_ENDPOINT for an existing literal-loopback WebSocket; optional CODY_CODEX_AUDIO_TOKEN_FILE points to its existing token file. Allow audio UDP 42119 as needed.","ccp_audio_status reports dependency/bind/native errors and recent readiness. Never publish tokens. The read-only probe does not prove localAudio/model support or physical capture."),
+        ),(125,362,WIDTH-84-487))
+    add("Customer tools: connection and actual work","Complete tool inventory / available without a Debug screen capability",
+        ("EXACT MCP TOOL","USE / ARGUMENTS","RESULT / BOUNDARY"),(
+            ("ccp_discover_devices / ccp_pair_device","Discover current offers; pair the unique cryptographic match for the visible code. include_simulator defaults false. replace_pending:true requires explicit replacement intent and a new visible code.","Never select the first responder. A request or saved candidate is not completed pairing. Ambiguous pairing is not automatically repeated."),
+            ("ccp_connection_status / ccp_list_sessions","Read retained identities, current presence, broker status and genuine hook-observed sessions. followed identifies the chat, not its project label.","No manual chat selector, transcript reader or window-focus inference. Status does not prove displayed pixels."),
+            ("ccp_report_progress","Use the exact currently followed session_id and turn_id; report actual English ASCII work, at most 192 characters.","No invented percentage, estimate, completion, prompt excerpts or shell output. A stale identity is rejected; re-read rather than overwrite selection."),
+            ("ccp_ask_question / ccp_publish_notification","Ask a self-contained two/three-choice question, or send known milestone/read-only PR facts. PR reports require exact head and real complete/current check data.","Private ticket/capability remains on PC. Questions do not grant native approvals. No PR merge, approve, rerun, close or comment operations."),
+            ("ccp_poll_request / ccp_cancel_request","Poll the caller's private ticket; after received, acknowledge its answer_id in a second poll. Cancel only a ticket whose capability belongs to the caller.","Only delivered proves recipient receipt. Poll waits at most 15 seconds. Default question lifetime 180 seconds; expiry never supplies a default choice."),
+        ),(182,294,WIDTH-84-476))
+    add("Customer tools: preferences, voice and reset","No Debug build required / fresh authenticated capability still required where applicable",
+        ("EXACT MCP TOOL","USE / ARGUMENTS","RESULT / BOUNDARY"),(
+            ("ccp_read_clock / ccp_configure_clock","Select device_id. Supported timezone values: UTC, Europe/Rome, Asia/Ho_Chi_Minh. Quiet-hours start/end use HH:MM; omit preferences not requested.","Fresh clock capability and awake target. Applied with error 0 confirms durable result. Ambiguous write: read after a fresh heartbeat; do not repeat automatically."),
+            ("ccp_read_name / ccp_set_name","Read stored availability or set preferred_name explicitly supplied by the user: up to 24 printable ASCII characters, no edge spaces. Empty string clears only the name.","Fresh name capability. Never infer a name from login, repository, profile or pairing identity; never truncate/transliterate unsupported input."),
+            ("ccp_audio_status","Read receiver/dependency/bind status, native readiness, utterance/native turn identity, retained WAV artifact and uncertainty.","No PCM or secret export. This tool does not start recording, select another chat or prove transcription. Wake word/double tap owns the device trigger."),
+            ("ccp_reset_device","Restart the intended paired target only with current-message explicit restart intent and exact confirmation_code string.","Preserves Wi-Fi, pairing and preferences. accepted proves admission only. New authenticated presence is separate boot evidence."),
+            ("ccp_factory_reset_device","Erase settings only with current-message explicit factory-reset intent and exact confirmation_code string.","Clears preferences, Wi-Fi and pairing; preserves firmware, assets and SD. Verified erasure precedes reboot. Do not infer wipe from LAN disappearance."),
+        ),(190,288,WIDTH-84-478))
+    add("Debug screen control: observe, do not override","ccp_debug_screen / only current authenticated Debug devices advertise the capability",
+        ("MODE / CALL","OBSERVED OUTPUT","PREREQUISITES / HONEST RESULT"),(
+            ("face_channels","Show the actual composed character channels as a scrollable list. Read real channel_count from the worker ACK; scroll is the absolute first row, 0-255. Touch may scroll locally.","Select the current device_id through ccp_connection_status. Use mode:face_channels, scroll:0 initially; do not assume a fixed count or invent channel values."),
+            ("character","Show the native character and diagnostics from the canonical snapshot underneath, including actual IP or explicit unavailable/stale state.","Use mode:character and scroll:0. No consumer-side sensor/I2C reads, fabricated freshness or remote face-channel override."),
+            ("normal","Restore the retained normal route. Debug views are session-only; they do not change durable preferences or paired identity.","Use mode:normal and scroll:0. The request must refer to the intended currently paired Debug target; do not pair again to bypass missing capability."),
+            ("Application / timeout","applied comes only from an authenticated worker ACK; rejected preserves the real error. A timeout means unknown; never infer success or automatically repeat.","pixels_verified:false means the ACK does not attest visible pixels. Release has no Debug capability. SIMULATED inclusion needs explicit simulator intent."),
+            ("Not exposed","No arbitrary shell, file/mount browser, raw hardware register access, channel setter, remote screenshot/capture, firmware updater or generic settings writer.","A tool appearing in the PC catalog does not grant its capability to Release firmware. Host capture/flash/check commands are separate operations, not CCP commands."),
+        ),(135,325,WIDTH-84-460))
+    add("Restart, factory reset and the first-boot flag","Different operations / neither this manual nor an old message provides destructive authorization",
+        ("INTENTION","SOURCE CONTRACT","WHAT TO DO INSTEAD OF GUESSING"),(
+            ("Restart","ccp_reset_device uses signed RESET / RESETACK. Both Debug and Release can request the power owner to restart while preserving saved state.","Require corresponding explicit intent and the exact nine-digit confirmation string in the current user message. Never derive it from documentation, memory or an earlier request."),
+            ("Factory reset","ccp_factory_reset_device uses signed FACTORYRESET / FACTORYRESETACK. Settings owner erases and verifies the intended durable settings before requesting reboot.","Requires its separate erasure intent and exact current-message confirmation string. Do not use it to fix a routine disconnect or firmware update. PC retained pairing is not automatically removed."),
+            ("Admission / uncertainty","One transmission and at most five seconds for authenticated admission. accepted, not_sent and ambiguous are different outcomes.","An accepted ACK proves neither later boot nor successful wipe. Do not automatically retry ambiguity, independently re-pair or erase the PC record."),
+            ("First boot","CODY settings store a persisted first-boot preference. CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT is a compile-time development override; it never overwrites a stored false or repairs a read error.","There is no MCP/CCP runtime first-boot toggle. The internal persist_first_boot function is not a remote command. Factory reset reopens setup by erasing broader settings, not by toggling one flag."),
+        ),(144,310,WIDTH-84-454))
+    add("Three skills, ten hooks and separate host diagnostics","Source paths: plugins/cody-codex-plugin/skills and hooks/hooks.json; firmware command handlers",
+        ("CONTRACT","SUPPORTED OPERATIONS","BOUNDARY / EXAMPLE REQUEST"),(
+            ("cody-codex","Pair/status; genuine progress; notices; semantic questions with recipient acknowledgement; explicit confirmed restart or factory reset.","Examples: Show Cody connection status; send a known milestone. Skills guide tool use; they are not additional protocol commands or permission grants."),
+            ("cody-debug","face_channels, character and normal through ccp_debug_screen on the intended authenticated Debug target.","Examples: Show the live face channels; show character diagnostics; restore Cody's normal screen. Requests do not authorize settings changes or restart."),
+            ("cody-settings","Read/configure timezone and quiet hours; read/set/clear explicitly supplied preferred name. Preserve omitted and unrelated preferences.","Examples: Set timezone to Rome; quiet hours 22:00 to 07:00; disable quiet hours while retaining the schedule. Unsupported input is rejected."),
+            ("Ten real hooks","SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest, Stop, Interrupt, PreCompact, PostCompact and SessionEnd.","A genuine prompt selects the followed chat. PermissionRequest leaves authorization on PC; Stop means reply ready, not task success. Hooks require native review/trust."),
+            ("USB / local engineering CLI","scripts/device.ps1 is the sole public CLI: capture, monitor, sd-log, reset, flash, erase, recover; named checks/generators and simulator routes remain separate.","No CCP mount browser exists. USB logs and owner status can explain storage errors after a separately authorized operation. No implicit SD format, firmware flash or test suite."),
+        ),(148,305,WIDTH-84-453))
     for offset,(title,section,columns,rows,widths) in enumerate(chapters):
         frame(surface,title,section,start_page+offset)
         technical_table(surface,columns,rows,widths)
         surface.showPage()
+    title = "Debug views: three explicit requests"
+    frame(surface,title,"Illustrative request diagrams, not device captures / no fabricated channels or measurements",start_page+len(chapters))
+    debug_view_diagram(surface)
+    surface.showPage()
     surface.save()
-    return output.getvalue(),[title for title,*_ in chapters]
+    return output.getvalue(),[heading for heading,*_ in chapters]+[title]
 
 
 # records: All semantic historical revisions retained from the source atlas.
@@ -608,6 +698,12 @@ def main(argv=None):
         "Use the recording hex ID as clientUserMessageId for correlation without promising idempotency. Status exposes recording ID, native turn, WAV artifact and uncertainty. These source changes supersede the earlier single-packet and START-frozen-turn description without erasing that dated history.",),
         "Current main pages 24-26; original voice screens 28-30; firmware voice owner and PC native-audio broker",
         "Source implementation and PDF authoring only; tests, build, scans, installation and physical capture/delivery remain unverified."))
+    history.append(RevisionRecord("2026-10-12","Addendum","Operator capabilities, customer tools and Debug boundaries",(
+        "Add a source-backed operator guide for firmware/client, Windows CCP broker/server and the Codex plugin. Record installation and hook-review prerequisites, physical LAN pairing and explicit optional loopback audio configuration without publishing keys or tokens.",
+        "List all seventeen MCP tools and all three supported skills, plus the ten genuine hook types. Separate customer/Release operations from Debug-only face_channels, character and normal views. Worker applied ACK is not physical pixel evidence; unknown timeouts and ambiguous mutations never become success or automatic retries.",
+        "Document restart versus verified factory erasure, current-message intention and confirmation requirements, preserved data and admitted-versus-completed evidence. There is no CCP mount browser, arbitrary shell, face override or runtime first-boot setter; preserve the explicit persisted/compile-time distinction and separate USB engineering operations.",),
+        "Original Communication main pages 1-28, protocol/MCP control chapters; added operator pages 27-34; CODY first-boot settings, plugin catalog, skills and command handlers",
+        "Static source review and PDF generation/rendering/visual inspection only; no live tools, settings changes, tests, simulator, build, hardware, reboot, reset or audio submission."))
     register = compact_history(history,first_register_page+1)
     writer.append(PdfReader(BytesIO(register)))
     writer.add_outline_item("Revision register", first_register_page)

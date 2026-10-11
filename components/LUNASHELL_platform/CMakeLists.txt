@@ -51,6 +51,7 @@ set(LUNASHELL_platform_requires
     esp_hw_support
     esp_system
     app_update
+    esp_app_format
     bootloader_support
     esp_psram
     spi_flash

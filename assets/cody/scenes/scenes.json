@@ -908,7 +908,7 @@
       "id": "looking-for-pc",
       "identity": 14,
       "background_rgb565": 0,
-      "standby_override_seconds": 60,
+      "standby_override_seconds": 600,
       "entrance": {
         "from": {
           "x": 233,
@@ -1322,7 +1322,7 @@
       "id": "working",
       "identity": 20,
       "background_rgb565": 0,
-      "standby_override_seconds": 60,
+      "standby_override_seconds": 180,
       "entrance": {
         "from": {
           "x": 233,

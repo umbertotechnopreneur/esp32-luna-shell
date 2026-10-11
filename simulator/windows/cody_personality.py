@@ -216,7 +216,9 @@ class PersonalityPainter:
                     raise ValueError(f"Reserved palette slot in personality cue: {cue.name}")
                 rgba.extend((*colors[slot], alpha))
             self.images[cue] = Image.frombytes("RGBA", (extent, extent), bytes(rgba))
-        if set(self.images) != set(PersonalityCue) - {PersonalityCue.NONE}:
+        native_only = {PersonalityCue.WIFI_CONNECTED, PersonalityCue.SEARCH,
+                       PersonalityCue.BATTERY_READY, PersonalityCue.BATTERY_LOW}
+        if set(self.images) != set(PersonalityCue) - {PersonalityCue.NONE} - native_only:
             raise ValueError("Personality symbol catalog is incomplete")
 
     # self: Geometry history owner; cue phase, opacity and hold remain untouched.
@@ -441,6 +443,9 @@ class PersonalityPainter:
         if presentation == PersonalityPresentation.DISABLED or size == CodySize.MICRO:
             self.disable(elapsed_ms, paused)
             return self.last_frame
+        if cue != PersonalityCue.NONE and cue not in self.images and presentation != PersonalityPresentation.SLEEP:
+            # The optional bitmap study renderer cannot reinterpret firmware-native coverage.
+            raise ValueError(f"Personality cue {cue.name} requires the native C++ renderer")
         delta_us = self.advance_active_clock(elapsed_ms, paused)
         if presentation == PersonalityPresentation.SLEEP:
             cue = PersonalityCue.SLEEP
