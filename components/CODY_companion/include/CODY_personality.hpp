@@ -111,6 +111,7 @@ struct PersonalityPowerObservation {
 };
 
 enum class BatteryNotice : uint8_t { None, Low, Critical, Charging, Full };
+enum class BatteryWarningBand : uint8_t { None, Low, Critical };
 
 // Display-owner state only: no sensor cache, allocations or independent task.
 struct BatteryNoticeState {
@@ -119,7 +120,7 @@ struct BatteryNoticeState {
     bool observed = false;
     bool was_charging = false;
     bool was_full = false;
-    uint8_t warned_band = 0;
+    BatteryWarningBand warned_band = BatteryWarningBand::None;
     int64_t idle_us = 0;
     int64_t visible_us = 0;
     int64_t reminder_us = 0;

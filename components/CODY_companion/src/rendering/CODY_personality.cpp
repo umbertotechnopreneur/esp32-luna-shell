@@ -498,22 +498,30 @@ void advance_battery_notice(const PersonalityPowerObservation &observation, bool
         return;
     }
     const bool full = observation.percentage_valid && observation.level_percent == 100;
-    const uint8_t band = !observation.percentage_valid || observation.charging || full ? 0 :
-        observation.level_percent <= 10 ? 2 : observation.level_percent <= 20 ? 1 : 0;
+    BatteryWarningBand band = BatteryWarningBand::None;
+    if (observation.percentage_valid && !observation.charging && !full) {
+        if (observation.level_percent <= 10) {
+            band = BatteryWarningBand::Critical;
+        } else if (observation.level_percent <= 20) {
+            band = BatteryWarningBand::Low;
+        }
+    }
     state.reminder_us = std::min<int64_t>(300000000, state.reminder_us + elapsed);
     if (full && (!state.observed || !state.was_full)) {
         state.pending = BatteryNotice::Full;
     } else if (observation.charging && (!state.observed || !state.was_charging)) {
         state.pending = BatteryNotice::Charging;
     } else if (band > state.warned_band ||
-               (band != 0 && state.reminder_us >= (band == 2 ? 60000000 : 300000000))) {
-        state.pending = band == 2 ? BatteryNotice::Critical : BatteryNotice::Low;
+               (band != BatteryWarningBand::None && state.reminder_us >=
+                (band == BatteryWarningBand::Critical ? 60000000 : 300000000))) {
+        state.pending = band == BatteryWarningBand::Critical ? BatteryNotice::Critical : BatteryNotice::Low;
     }
     // Hysteresis re-arms warnings after recovery, without clamping a measurement.
     if (observation.charging || (observation.percentage_valid && observation.level_percent >= 25)) {
-        state.warned_band = 0;
-    } else if (observation.percentage_valid && observation.level_percent >= 15 && state.warned_band == 2) {
-        state.warned_band = 1;
+        state.warned_band = BatteryWarningBand::None;
+    } else if (observation.percentage_valid && observation.level_percent >= 15 &&
+               state.warned_band == BatteryWarningBand::Critical) {
+        state.warned_band = BatteryWarningBand::Low;
     }
     state.observed = true;
     state.was_charging = observation.charging;
@@ -521,8 +529,8 @@ void advance_battery_notice(const PersonalityPowerObservation &observation, bool
     // notice: Pending or active event whose original device condition must still hold.
     const auto supported = [&](BatteryNotice notice) {
         switch (notice) {
-        case BatteryNotice::Low: return band == 1;
-        case BatteryNotice::Critical: return band == 2;
+        case BatteryNotice::Low: return band == BatteryWarningBand::Low;
+        case BatteryNotice::Critical: return band == BatteryWarningBand::Critical;
         case BatteryNotice::Charging: return observation.charging && !full;
         case BatteryNotice::Full: return full;
         case BatteryNotice::None: return true;
