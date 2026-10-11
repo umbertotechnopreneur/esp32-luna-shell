@@ -190,7 +190,7 @@ def core_pdf(start_page=1,crosswalk_page=12):
         for heading, body in blocks:
             body = body.replace("Keep pairing", "Keep link")
             if heading == "Read this atlas":
-                body = "Pages 1-2 map device, broker and native-chat ownership. Pages 4-7 cover commissioning and recovery; pages 8-13 preserve activity, questions, observations and trust. Pages 14-26 specify wire, API and audio contracts. The source crosswalk on page 27 and the final dated register retain earlier decisions and evidence."
+                body = "Pages 1-4 give the nontechnical picture: pairing, voice input and the rule that a changed chat rejects the recording. Pages 5-15 cover commissioning, recovery, activity, questions, observations and trust. The detailed wire, API and audio reference follows from page 16. The source crosswalk and final dated register retain earlier decisions and evidence."
             if number == 8 and heading == "Keep diagnosis on the PC":
                 body = body.replace("Recording 28, Transcribing 29 and Review transcript 30 remain a separate future voice route.",
                     "Screens 28-30 originated as a future voice route. Source version 0.6.5 now adds one-way capture, transport and native input; installation and physical delivery remain unverified, as qualified in the audio chapter.")
@@ -343,37 +343,50 @@ def cody_identity(surface,x,y):
     surface.drawImage(illustration,x-target_width/2,y-target_height/2,width=target_width,height=target_height,mask="auto")
 
 
-# Returns the two introductory system/ownership pages.
-# Raises ValueError if a diagram/table cannot fit the authoring contract.
+# Raises ValueError if an introductory diagram cannot fit the authoring contract.
+# Returns four plain-language introductory pages before the detailed reference.
 def introduction_pdf():
     output = BytesIO()
     surface = canvas.Canvas(output,pagesize=PAGE_SIZE)
-    frame(surface,"Cody / CCP Communication Atlas","System map / commissioning, metadata, questions and one-way audio",1)
+    frame(surface,"Cody, the PC helper and your chat","A plain-English map / read this before the detailed reference",1)
     cody_identity(surface,132,HEIGHT-229)
-    paragraph(surface,"CODY DEVICE",42,HEIGHT-310,180,12,True)
-    paragraph(surface,"Native 2D UI, canonical snapshot, AFE microphone acquisition, retained pairing and encrypted audio transport.",42,HEIGHT-334,190,11)
-    for x,title,body in ((305,"WINDOWS CCP BROKER","Pairing journals, authenticated LAN presence, hook state, question tickets and optional audio receiver."),
-                         (566,"EXACT CODEX CHAT","Actual prompt/turn identity, native input and desktop approvals. No guessed chat or independent substitute session.")):
+    paragraph(surface,"CODY",42,HEIGHT-310,180,12,True)
+    paragraph(surface,"Your device. It shows its own status, listens only when admitted, and remembers its paired PC.",42,HEIGHT-334,190,11)
+    for x,title,body in ((305,"YOUR PC HELPER","The installed CCP plugin and its local helper keep the pairing, pass genuine chat activity to Cody, and receive optional voice audio."),
+                         (566,"YOUR ACTUAL CODEX CHAT","The chat you are already using. It keeps approvals and decisions on the desktop. Cody never makes a replacement chat.")):
         surface.setFillColor(colors.HexColor("#EDF5FA"))
         surface.setStrokeColor(LINE)
         surface.roundRect(x,HEIGHT-295,232,124,10,fill=1,stroke=1)
         paragraph(surface,title,x+12,HEIGHT-187,208,12,True)
         paragraph(surface,body,x+12,HEIGHT-214,208,11)
     surface.setStrokeColor(CYAN)
-    for x in (205,538):
+    for x in (205,):
         surface.line(x,HEIGHT-234,x+62,HEIGHT-234)
         surface.line(x+62,HEIGHT-234,x+55,HEIGHT-230)
         surface.line(x+62,HEIGHT-234,x+55,HEIGHT-238)
-    paragraph(surface,"A saved relationship, a fresh reachable peer, a genuine followed chat and an accepted audio input are four different facts. Source code is not a deployment or physical-behavior certificate.",42,HEIGHT-422,WIDTH-84,11)
+    process_strip(surface,("Pair once", "See real activity", "Optionally speak", "Keep decisions on PC"),160)
     notes(surface,95)
     surface.showPage()
-    frame(surface,"Owners and transport boundaries","Each data source has one acquisition/authorization owner",2)
-    technical_table(surface,("OWNER","OWNED DATA / ACTION","BOUNDARY"),(
-        ("Device snapshot / AFE","Real enhanced PCM, VAD and sensor observations; acquisition errors and timestamps.","Consumers never reread hardware or invent freshness. Device voice ring belongs to transport, not an alternate microphone."),
-        ("Device CCP + UI","NVS active/pending association, canonical voice states, routes and visible controls.","Wake word and double tap request capture. No duplicate capture; current input prerequisites and safe-route admission apply."),
-        ("PC CCP runtime","DPAPI journals, discovery/presence, hook ActivityStore, tickets, AES-GCM receiver and completed WAV.","Explicit questions have private capabilities. Unauthenticated data cannot establish presence or select the target chat."),
-        ("Codex native endpoint","Exact thread/turn read, steering or start with localAudio; desktop-owned approvals.","Explicit loopback endpoint required. Installation, authorization, dependencies and current desktop-chat attachment remain unverified."),
-    ),(146,304,WIDTH-84-450))
+    frame(surface,"Pairing is recognition, not a promise","A simple connection flow / it does not prove a chat or audio is ready",2)
+    process_strip(surface,("Show a fresh code", "Choose that one Cody", "Both sides remember", "Check it is reachable"),HEIGHT-190)
+    paragraph(surface,"1. On Cody, open Connect Codex and use the code currently visible on the intended physical device. 2. On the PC, the plugin accepts only one matching offer; ambiguous offers stay errors. 3. Both sides save the relationship only after their protected handshake completes. 4. Later, Cody still checks that this same PC is actually present before treating it as connected.",42,HEIGHT-270,WIDTH-84,12)
+    paragraph(surface,"What pairing does: lets the device and the local PC helper recognize each other on the private LAN. What it does not do: prove the Internet, a desktop chat, voice recording, transcription, a model response, or permission to approve an action.",42,HEIGHT-360,WIDTH-84,12,True)
+    paragraph(surface,"If the PC or service is absent, Cody keeps the remembered relationship and reports the real unavailable state. It does not quietly choose another PC.",42,HEIGHT-407,WIDTH-84,11)
+    notes(surface,95)
+    surface.showPage()
+    frame(surface,"Speaking to Cody: one careful handoff","Optional voice input / no device audio archive",3)
+    process_strip(surface,("Double tap Cody", "Record one message", "PC keeps a private WAV", "Same chat may receive it"),HEIGHT-190)
+    paragraph(surface,"A double tap on the visible character requests voice input. The device listens to a single recording, shows its listening state, and ends after real silence or the time limit. A deliberate shake can stop listening or sending; it cannot revoke a submission the desktop has already accepted.",42,HEIGHT-270,WIDTH-84,12)
+    paragraph(surface,"While the recording is active, its sound is sent only to the paired PC helper. The device does not save the recording to its SD card or internal flash. The PC helper keeps a private WAV only for the handoff and any needed review of an uncertain result.",42,HEIGHT-361,WIDTH-84,12)
+    paragraph(surface,"The PC helper then asks the already configured desktop connection to place that WAV in the same genuine Codex chat. This source path exists, but end-to-end delivery, model support and transcription have not yet been verified on a real device and desktop.",42,HEIGHT-432,WIDTH-84,11,True)
+    notes(surface,95)
+    surface.showPage()
+    frame(surface,"If you change chat while recording","The recording is protected from being sent to the wrong place",4)
+    process_strip(surface,("START freezes followed chat", "You change the followed chat", "Plugin refuses the mismatch", "Private WAV stays for review"),HEIGHT-190)
+    paragraph(surface,"At the beginning of the recording, the PC helper binds it to the exact chat Cody was genuinely following. Before submitting the finished WAV, it checks that identity again.",42,HEIGHT-270,WIDTH-84,12)
+    paragraph(surface,"If you changed the followed chat in the meantime, the plugin rejects the recording instead of sending it into the new chat. It does not silently select the new chat, create a second chat, or automatically retry an ambiguous submission. The private WAV and its status remain available on the PC for review.",42,HEIGHT-340,WIDTH-84,12,True)
+    paragraph(surface,"The same cautious result applies when the desktop endpoint is unavailable, when a native turn conflicts, or when acceptance cannot be confirmed: tell the user to check the PC rather than claiming that Cody understood or sent the audio.",42,HEIGHT-422,WIDTH-84,11)
+    notes(surface,95)
     surface.showPage()
     surface.save()
     return output.getvalue()
@@ -664,9 +677,9 @@ def main(argv=None):
     preserve_sources(STAGING/"protected-sources")
     writer = PdfWriter()
     introduction = PdfReader(BytesIO(introduction_pdf()))
-    technical_bytes,technical_titles = technical_pdf(14)
+    technical_bytes,technical_titles = technical_pdf(16)
     technical = PdfReader(BytesIO(technical_bytes))
-    core = PdfReader(BytesIO(core_pdf(start_page=3,crosswalk_page=14+len(technical.pages))))
+    core = PdfReader(BytesIO(core_pdf(start_page=5,crosswalk_page=16+len(technical.pages))))
     writer.append(introduction)
     writer.append(core,pages=(0,11))
     writer.append(technical)
@@ -704,11 +717,17 @@ def main(argv=None):
         "Document restart versus verified factory erasure, current-message intention and confirmation requirements, preserved data and admitted-versus-completed evidence. There is no CCP mount browser, arbitrary shell, face override or runtime first-boot setter; preserve the explicit persisted/compile-time distinction and separate USB engineering operations.",),
         "Original Communication main pages 1-28, protocol/MCP control chapters; added operator pages 27-34; CODY first-boot settings, plugin catalog, skills and command handlers",
         "Static source review and PDF generation/rendering/visual inspection only; no live tools, settings changes, tests, simulator, build, hardware, reboot, reset or audio submission."))
+    history.append(RevisionRecord("2026-10-12","Change","Plain-language pairing and voice handoff",(
+        "Add four illustrated plain-English opening pages to the canonical atlas. They explain the separate roles of Cody, the paired PC helper and the genuine desktop chat without requiring the reader to understand packet formats or endpoints.",
+        "Document the current source rule for voice input: a visible-character double tap requests one recording; the PC binds START to the genuinely followed chat; a changed followed chat rejects the finished recording before native submission. The plugin keeps the private WAV for review, never chooses the new chat, creates no substitute chat, and never retries ambiguous native delivery automatically.",
+        "Clarify that device audio is neither written to SD nor internal flash, and that actual end-to-end desktop acceptance, model support and transcription are still unverified. The detailed source chapters and their existing evidence boundaries remain after the new overview pages.",),
+        "Current atlas opening pages 1-4; source voice screens 28-30; original communication pages 1-28; CCP voice input source increment",
+        "Static source review plus PDF generation/rendering/visual inspection only. No tests, configure/build/size, simulator, flash, hardware capture, pairing, or native audio submission."))
     register = compact_history(history,first_register_page+1)
     writer.append(PdfReader(BytesIO(register)))
     writer.add_outline_item("Revision register", first_register_page)
     first_security_page = len(writer.pages)
-    security = compact_history(security_history(),first_security_page+1,"Revision register / Security")
+    security = compact_history(security_history(),first_security_page+1,"Security")
     writer.append(PdfReader(BytesIO(security)))
     writer.add_outline_item("Security", first_security_page)
     writer.add_metadata({"/Title": "Cody CCP Communication Atlas v1", "/Author": "Umberto Giacobbi", "/Subject": "Canonical device/PC roles, commissioning, protocol, native voice input and dated history"})

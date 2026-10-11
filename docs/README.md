@@ -33,7 +33,7 @@ the folder structure does not claim additional firmware support.
 | [Navigation Atlas](cody/cody-navigation-atlas-v1.pdf) | Routes, returns, questions and read-only PR updates |
 | [Planning Atlas](cody/cody-planning-atlas-v1.pdf) | Screen inventory, layout and product boundaries |
 | [Pairing Quickstart](cody/cody-ccp-pairing-quickstart-a5-v1.pdf) | Four-page A5 flyer for nontechnical users |
-| [CCP Communication Atlas](cody/cody-ccp-connection-atlas-v1.pdf) | Canonical technical reference for the PC service, device client, protocol, audio and security |
+| [CCP Communication Atlas](cody/cody-ccp-connection-atlas-v1.pdf) | One canonical pairing, plugin and voice reference: plain-English flow first, detailed source/security reference after |
 | [Manga Status Atlas](cody/cody-manga-status-atlas-v1.pdf) | Expressive cues, artwork and boot identity |
 
 Earlier service and Codex connection atlases are historical sources retained in
