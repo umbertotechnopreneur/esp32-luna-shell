@@ -10,12 +10,13 @@ simulator cases and five character Studio cases passed. These results do not
 cover the later Codex acting/power-cue increment, physical behavior, every profile
 or the entire remaining matrix below.
 Stable IDs identify work; their order is not a domain identity.
-Continue development on the single local `codex/cody` branch; checkpoint history
-is consolidated there. The daily Codex Standard cache, Home warning/carousel
+The battery/audio source checkpoints are on `main`; the USB flash evidence is
+prepared on `codex/voice-firmware-flash`. The daily Codex Standard cache, Home warning/carousel
 and Model & Context badge are implemented; final validation remains open in
 CCP-07. No rates, dollar amounts or session-cost estimation are sent to Cody.
-Latest firmware `cody-99-g8cfb6ce3` was built and flashed on COM10 on 2026-10-11
-with four image hashes verified and NVS excluded. Post-reset behavior, stack
+Latest firmware `cody-114-g33377507` was built and flashed on COM10 on 2026-10-12
+with five image hashes verified, the two-OTA-slot table installed and NVS excluded.
+App 7,011,312 bytes; 263,184 bytes remain per wake-word slot. Post-reset behavior, stack
 headroom and the prepared host/simulator cases remain unverified.
 
 ## Reproduced device faults
@@ -26,8 +27,8 @@ headroom and the prepared host/simulator cases remain unverified.
   removal, startup/charging transitions, periodic reminders, route/touch deferral,
   caption/artwork clearance at all rotations, compiled frames and physical stack
   headroom. Studio automatic notice/caption parity remains pending; manual power
-  studies keep their factual selector. No build, tests or physical run authorized
-  for this increment.
+  studies keep their factual selector. The integrated Debug/wake-word image was
+  built and flashed on 12 October; battery behavior and host cases are unverified.
 
 - [ ] **FAULT-01 - SD warm-reset initialization.** Capture SD VDD and CLK/CMD
   across the known working-card-to-reset transition. ACMD41 stays busy before
@@ -255,8 +256,9 @@ headroom and the prepared host/simulator cases remain unverified.
   growth; inspect compiled AFE/CCP/render frames and measure stack/PSRAM headroom.
   Install plugin 0.6.5 with its optional audio dependencies and configure the real
   loopback desktop endpoint; verify native localAudio account/model access and
-  native approval routing. No build, size, test, install, simulator or flash of
-  this increment has occurred; the previously installed image is unchanged.
+  native approval routing. This session did not install the modified PC plugin.
+  Integrated firmware build/flash completed on
+  12 October; no host suite, native delivery, simulator or post-reset capture was run.
 - [ ] **TTS-01 - Storage and audible speech.** Resolve FAULT-01 before claiming
   SD synthesis. The prepared four-language card and corrected `58757005` boot
   did not establish an intelligible Italian phrase. Observe the one-shot boot
@@ -333,12 +335,12 @@ headroom and the prepared host/simulator cases remain unverified.
 
 ## Decisions, documentation and publication
 
-- [ ] **OTA-01 - Two application slots.** Prepared aligned 16 MiB partition
-  tables with otadata, ota_0/ota_1 and independent shared model/LittleFS. Confirm
-  the final linked wake-word image fits 7,274,496 bytes per slot; the earlier
-  6,990,864-byte image leaves only 283,632 bytes. USB repartitioning, explicit
-  storage handling, authenticated Wi-Fi upload, boot verification and rollback
-  policy remain pending. No new build, size check or flash accompanies this edit.
+- [ ] **OTA-01 - Two application slots.** The aligned 16 MiB wake-word table,
+  otadata initialization and ota_0 firmware were installed by USB on 12 October.
+  The linked image fits: 7,011,312 of 7,274,496 bytes, 263,184 bytes remain per slot.
+  Model/LittleFS remain independent shared partitions. Physical boot selection,
+  explicit storage handling, authenticated Wi-Fi upload and rollback policy
+  remain pending. This is partition/USB-flash evidence, not OTA-service validation.
 
 - [ ] **PRODUCT-01 - Character presets.** Decide whether 04/05 share one size
   (three total) or retain separate presets (four); preserve response/QR clearance.
