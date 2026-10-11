@@ -13,6 +13,21 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## PDF covers and contents - 2026-10-12
+
+- Updated the five canonical Cody documentation PDFs with coordinated VibeWare
+  covers, Umberto Giacobbi copyright, Draft / Confidential / Internal use only,
+  clickable major-section contents, bookmarks and current PDF page labels.
+  Section headings, rather than historical offsets, determine destinations.
+  Existing content, dates, screen IDs and security records are preserved.
+- The explicit all-document request adds cover and contents to the A5 quickstart;
+  its four instructional pages remain together without a technical appendix.
+  The Luna logo PDF is a graphic source asset and is not a documentation guide.
+- Publication uses the public generator, refreshes front matter after document
+  generation, and checks byte-identical Obsidian mirrors. All pages rendered for
+  contact-sheet review; covers and contents reviewed at readable resolution.
+  No firmware builds, tests, simulator or device operations were part of this task.
+
 ## Connection, activity and CCP operator reference - 2026-10-12
 
 - Follow-up: the middle price band now reads `Reasonable price` in full.

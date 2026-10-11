@@ -188,6 +188,12 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
             $name = if ($Options.Generator) { $Options.Generator } else { 'cody-rig' }
             $tool = Find-DeviceTool 'generators' $name
             Invoke-HostTool $tool.Path $Options.ToolArguments $Options.PythonExecutable
+            # Document regeneration must also refresh contents and the identical Obsidian copy.
+            if ($name -in @('cody-connection-atlas','cody-navigation-atlas','cody-planning-atlas',
+                    'cody-idle-atlas','cody-security-atlases','cody-pdf-english','cody-pairing-flyer')) {
+                $publisher = Find-DeviceTool 'generators' 'cody-pdf-frontmatter'
+                Invoke-HostTool $publisher.Path @() $Options.PythonExecutable
+            }
         }
         'banner' { Invoke-HostTool (Join-Path $ProjectRoot 'scripts/commands/add-source-banner.ps1') $Options.ToolArguments '' }
         'clean-artifacts' { Write-Host 'Transient artifacts removed; firmware, configuration and Python caches retained.' }
