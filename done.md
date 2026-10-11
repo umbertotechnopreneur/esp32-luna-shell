@@ -15,6 +15,20 @@ private local diagnostics, not publication artifacts.
 
 ## Quiet battery notice source - 2026-10-11
 
+## OTA partition preparation - 2026-10-11
+
+- Replaced the single factory application with otadata and two aligned application
+  slots in both selected 16 MiB layouts. Wake-word slots are 7,274,496 bytes each
+  (6.9375 MiB); ordinary slots are 7,798,784 bytes each (7.4375 MiB). Model and
+  LittleFS remain independent shared partitions, with no SD use.
+- Against the recorded 6,990,864-byte Debug wake-word image, each new wake-word
+  slot has 283,632 bytes of arithmetic headroom. This is not a new linked size:
+  subsequent battery/audio edits, boot selection and OTA transfer remain unbuilt
+  and unverified. Initial repartitioning requires a deliberate USB installation;
+  the currently flashed partition table and its storage contents are unchanged.
+
+## Quiet battery notice implementation - 2026-10-11
+
 - Added display-owned event state for measured 20/10-percent warnings, actual
   charging entry and measured 100-percent charge. Free Home admits caption and
   existing manga together after ten seconds, with four seconds of retired-frame

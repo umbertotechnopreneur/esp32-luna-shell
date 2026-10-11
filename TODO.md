@@ -311,6 +311,13 @@ headroom and the prepared host/simulator cases remain unverified.
 
 ## Decisions, documentation and publication
 
+- [ ] **OTA-01 - Two application slots.** Prepared aligned 16 MiB partition
+  tables with otadata, ota_0/ota_1 and independent shared model/LittleFS. Confirm
+  the final linked wake-word image fits 7,274,496 bytes per slot; the earlier
+  6,990,864-byte image leaves only 283,632 bytes. USB repartitioning, explicit
+  storage handling, authenticated Wi-Fi upload, boot verification and rollback
+  policy remain pending. No new build, size check or flash accompanies this edit.
+
 - [ ] **PRODUCT-01 - Character presets.** Decide whether 04/05 share one size
   (three total) or retain separate presets (four); preserve response/QR clearance.
 - [ ] **DOC-01 - Reference continuity.** The approved 2026-10-09 UI-proposal
