@@ -669,3 +669,38 @@ encryption with explicit session/replay ownership, remains deferred. Do not
 introduce custom PAKE or present this commissioning protocol as equivalent to
 TLS, SPAKE2 or a production security audit. Stable device and PC identities can
 be retained when that coordinated future protocol is designed.
+## One-way encrypted audio channel (plugin 0.6.5 source increment)
+
+UDP port 42119 carries a separate one-way enhanced PCM16 mono 16 kHz stream.
+The header is network-order `!4s6s16s16sIBH`: magic, binary device identity,
+16-byte utterance identity, 16-byte authenticated discovery nonce, uint32 sequence,
+uint8 kind and uint16 plaintext byte count. Device magic is `CYA1`; PC magic is
+`CYA2`. Device kinds are START=1 (sequence zero, no PCM), DATA=2 (at most 960 PCM
+bytes), END=3 (no PCM) and CANCEL=4 (no PCM, new sequence/nonce). PCM bytes are
+little-endian int16. Only the latest one-packet retransmission is acknowledged;
+out-of-order PCM never enters the host recording.
+
+The utterance key is HMAC-SHA256(link_key,
+`cody-audio-v1|<utterance lowercase hex>|<discovery nonce lowercase hex>`).
+AES-256-GCM uses the entire 49-byte header as authenticated data, a 16-byte tag
+and the 12-byte nonce `DAT1 || uint64(sequence)` for device packets. Retries repeat
+identical ciphertext, never different plaintext under the same nonce. PC ACKs
+use `ACK1 || uint64(ack counter)` with a strictly increasing counter. ACK plaintext
+is `!IB`: acknowledged device sequence plus status START accepted=1, PCM received=2,
+whole utterance received=3, native Codex accepted=4, failed/cancelled=5 or native
+submission unconfirmed=6. An unconfirmed input is never automatically repeated.
+
+START requires both a fresh authenticated CCP peer and that peer's current
+discovery nonce. This prevents an old recorded START from reopening an utterance
+after the bounded transient record expires. Retained pairing alone never admits
+audio. Later blocks remain bound to the original endpoint, credential, utterance
+and discovery nonce; ordinary CCP challenge rotation does not rekey an active stream.
+
+The device retains every PCM block until its valid acknowledgement. Its ten-second
+ring fails explicitly on overflow. The PC freezes the genuine followed chat/turn
+at START and submits only a completed recording to that same native chat. END receipt
+is not native acceptance, and native acceptance is not task completion. CANCEL
+cannot revoke a native submission already in flight; its actual eventual outcome
+is returned rather than claiming rollback. Metadata CCP packets remain authenticated
+plaintext; this audio extension does not replace or strengthen the existing pairing
+scheme. Cryptographic/wire/physical checks of this source increment remain pending.

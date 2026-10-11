@@ -85,6 +85,14 @@ function Assert-WakeWordConfiguration {
         LUNASHELL_BUILD_WAKE_WORD_SOPHIA = $wakeEnabled
         LUNASHELL_BUILD_WAKE_WORD_STANDBY_LISTENING = $wakeEnabled
     }
+    $expectedFlags.LUNASHELL_BUILD_ENABLE_VOICE_INPUT = $wakeEnabled -and
+        [regex]::IsMatch($SdkconfigText, '(?m)^CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION=y\r?$') -and
+        [regex]::IsMatch($SdkconfigText, '(?m)^CONFIG_LUNASHELL_BUILD_ENABLE_WIFI=y\r?$') -and
+        [regex]::IsMatch($SdkconfigText, '(?m)^CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX=y\r?$')
+    if ($expectedFlags.LUNASHELL_BUILD_ENABLE_VOICE_INPUT) {
+        $expectedFlags.MBEDTLS_AES_C = $true
+        $expectedFlags.MBEDTLS_GCM_C = $true
+    }
     if ($wakeEnabled) {
         $expectedFlags.LUNASHELL_BUILD_ENABLE_POWER_INPUTS = $true
         $expectedFlags.LUNASHELL_BUILD_VOICE_CAPTURE_AVAILABLE = $true

@@ -103,6 +103,11 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD)
     list(APPEND LUNASHELL_platform_requires esp-sr)
 endif()
 
+if(CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT)
+    list(APPEND LUNASHELL_platform_srcs "src/audio/LUNASHELL_voice_input.cpp")
+    list(APPEND LUNASHELL_platform_requires mbedtls lwip)
+endif()
+
 if(CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY)
     list(APPEND LUNASHELL_platform_srcs "src/display/LUNASHELL_display_settings.cpp")
 else()

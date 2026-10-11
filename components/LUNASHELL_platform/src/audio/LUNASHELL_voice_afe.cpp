@@ -27,6 +27,7 @@
 #endif
 #include "LUNASHELL_task_affinity.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_voice_input.hpp"
 #include "LUNASHELL_snapshot_internal.hpp"
 #include "esp_timer.h"
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
@@ -457,6 +458,9 @@ void voice_fetch_task(void *arg)
             continue;
         }
         if (result == nullptr) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+            LUNASHELL::feedVoiceInput(nullptr, 0, false, ESP_FAIL);
+#endif
             ESP_LOGE(kTag, "AFE fetch returned null (%s)", esp_err_to_name(ESP_FAIL));
             publish_voice(LUNASHELL::VoiceState::Failed, ESP_FAIL);
             s_running.store(false, std::memory_order_release);
@@ -476,6 +480,9 @@ void voice_fetch_task(void *arg)
             break;
         }
         if (result->ret_value != ESP_OK) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+            LUNASHELL::feedVoiceInput(nullptr, 0, false, result->ret_value);
+#endif
             ESP_LOGE(kTag, "AFE fetch failed (%s)", esp_err_to_name(result->ret_value));
             publish_voice(LUNASHELL::VoiceState::Failed, result->ret_value);
             s_running.store(false, std::memory_order_release);
@@ -507,6 +514,19 @@ void voice_fetch_task(void *arg)
         }
 #endif
         publish_voice(LUNASHELL::VoiceState::Listening, ESP_OK, detected_at_us);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        if (detected_at_us != 0) {
+            // The explicit event is handled even while Cody is already awake.
+            const esp_err_t error = LUNASHELL::requestVoiceInput(LUNASHELL::VoiceInputTrigger::WakeWord);
+            if (error != ESP_OK) ESP_LOGE(kTag, "Wake-word capture admission failed (%s)", esp_err_to_name(error));
+        }
+        if (result->data_size <= 0 || (result->data_size % int(sizeof(int16_t))) != 0) {
+            LUNASHELL::feedVoiceInput(nullptr, 0, false, ESP_ERR_INVALID_SIZE);
+        } else {
+            LUNASHELL::feedVoiceInput(result->data, size_t(result->data_size) / sizeof(int16_t),
+                result->vad_state == VAD_SPEECH, ESP_OK);
+        }
+#endif
     }
     s_fetch_paused.store(false, std::memory_order_release);
     {
@@ -542,6 +562,13 @@ esp_err_t apply_afe_standby_locked(bool standby)
 
     constexpr TickType_t kPauseTimeout = pdMS_TO_TICKS(1000);
     if (standby) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        const esp_err_t input_error = LUNASHELL::pauseVoiceInput();
+        if (input_error != ESP_OK) {
+            ESP_LOGE(kTag, "AFE voice input pause failed (%s)", esp_err_to_name(input_error));
+            return input_error;
+        }
+#endif
         s_standby_requested.store(true, std::memory_order_release);
         const TickType_t started_at = xTaskGetTickCount();
         while (!s_feed_paused.load(std::memory_order_acquire) ||

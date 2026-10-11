@@ -13,9 +13,28 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
-## Quiet battery notice source - 2026-10-11
+## One-way voice input source integration - 2026-10-11
 
-## OTA partition preparation - 2026-10-11
+- Added a derived Cody/Wi-Fi/Codex capture consumer to Sophia events and acquired
+  double taps. The canonical voice projection publishes typed capture/delivery
+  state; the existing AFE supplies enhanced mono PCM. A separate priority view
+  retains the interrupted route, suspends character evaluation and shows four
+  precomputed waveform poses at 8 FPS with a local Cancel capsule.
+- Added the 320,000-byte PSRAM acknowledgement ring, VAD end-of-speech and explicit
+  bounds/failures. The existing CCP worker owns independent UDP 42119 delivery,
+  with AES-256-GCM, fresh-discovery session binding, nonce-separated ACKs, exact
+  ciphertext retransmission and explicit cancellation. No device SD/flash audio
+  storage or new firmware task/stack enlargement was introduced.
+- Plugin 0.6.5 adds bounded receive/delivery workers, private PCM WAV artifacts,
+  exact followed-chat binding and native localAudio submission. The installed
+  Codex schema was exported through `device.ps1 generate -Generator cody-codex-audio-schema`
+  and confirms localAudio; desktop endpoint/account/model/approval integration is
+  still unverified. Missing dependencies/endpoints and native rejection remain
+  explicit failures. Prepared host boundary cases and updated MCP catalog assertion
+  were not run. Static source integration only; VOICE-01 retains build, size,
+  installation, wire/gesture/stack/CPU and physical gates. No new firmware flash.
+
+## OTA application slot layout - 2026-10-11
 
 - Replaced the single factory application with otadata and two aligned application
   slots in both selected 16 MiB layouts. Wake-word slots are 7,274,496 bytes each

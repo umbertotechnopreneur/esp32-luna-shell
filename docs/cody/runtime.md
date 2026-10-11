@@ -472,3 +472,49 @@ storage owner and never alter saved logging preferences. For log capture, rotati
 and readback use [offline USB/SD logging](../bsp/services/storage-and-logging.md); those device
 operations still require approval. The intermittent mandatory display/touch stop
 has not been resolved by short successful captures.
+## One-way voice input source increment
+
+The 2026-10-11 firmware source adds an explicit voice-input event for **Sophia**
+and an acquired double tap on the visible character. A single character tap waits
+420 ms before opening Activity; technical-panel taps still advance immediately.
+Movement, stale/broken touch, rotation and explicit controls disqualify a double
+tap. The existing power owner handles standby wake; speech inference and enhanced
+mono PCM remain owned by the sole existing ESP-SR AFE.
+
+Voice input has presentation priority while retaining the interrupted route and
+its real question deadlines. The character, geometry evaluation and normal scene
+animation are suspended behind a small four-frame waveform at 8 FPS. Cancel is a
+visible local control; it cannot revoke a turn already accepted by Codex. End of
+speech uses 1.2 seconds of actual VAD silence after speech, with an eight-second
+no-speech deadline and a 120-second maximum utterance. The overall capture/delivery
+budget is 150 seconds. New triggers never start a second simultaneous capture.
+
+The component-owned PSRAM ring is 160,000 PCM16 samples: 320,000 bytes, or ten
+seconds of **unacknowledged** 16 kHz mono audio. It is not an utterance-duration
+limit. Full buffers fail explicitly without overwriting unheard words. Neither SD
+nor internal flash stores audio on the device. Canonical `voice.input` contains
+typed phase/trigger, actual counters, original event times and errors; no consumer
+reads the microphone. The CCP worker borrows the transport with a 20-ms cadence
+only during an active input, restoring its normal 100-ms poll when idle.
+
+The dedicated Wi-Fi channel is UDP 42119, separate from CCP metadata. It uses
+AES-256-GCM, fresh per-utterance keys derived from the paired link and current
+authenticated discovery nonce, sequence numbers and independent data/ACK nonce
+domains. A block stays in the ring until its authenticated acknowledgement.
+Retransmission repeats identical ciphertext; START/END and delivery are distinct.
+The PC binds START to the exact genuinely followed chat, rejects a changed chat
+before submission and never selects a different destination on retry.
+
+Plugin 0.6.5 receives bounded PCM, writes a private WAV under its runtime
+`artifacts/voice` and passes `localAudio` to the exact native Codex chat. The
+installed CLI's generated schema confirms `localAudio`; account/model support,
+desktop endpoint availability, native approval routing and actual delivery remain
+unverified. The explicit loopback `CODY_CODEX_AUDIO_ENDPOINT` must identify the
+intended desktop/app-server host; the implementation does not launch a second
+host or guess a chat. No endpoint means a real delivery error. Native approvals
+and questions are never answered by the device or plugin.
+
+This is source integration, not a claim of working device dictation. Firmware
+build/size, authenticated transport tests, native desktop integration and measured
+stack/CPU/PSRAM headroom remain in `VOICE-01` in the root TODO. The atlases retain
+their planned audio flow until end-to-end verification establishes its behavior.

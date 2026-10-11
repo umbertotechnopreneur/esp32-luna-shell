@@ -366,6 +366,16 @@ config LUNASHELL_BUILD_ENABLE_WAKE_WORD
         adapter, a dual-core supported processor, PSRAM and the power owner.
         This is the sole voice-engine gate. Use a wake-word build variant.
 
+config LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    bool
+    depends on LUNASHELL_BUILD_ENABLE_WAKE_WORD && LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    depends on LUNASHELL_BUILD_ENABLE_WIFI && LUNA_SHELL_CODY_ENABLE_CODEX
+    default y
+    help
+        Routes explicit Cody wake-word and double-tap events to bounded one-way
+        PCM capture and the paired PC. Other products retain recognition only.
+        This derived consumer gate does not select or read another microphone.
+
 choice LUNASHELL_BUILD_WAKE_WORD_MODEL
     prompt "Wake word model"
     depends on LUNASHELL_BUILD_ENABLE_WAKE_WORD

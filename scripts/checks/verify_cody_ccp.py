@@ -829,7 +829,7 @@ class ChatActivityTests(unittest.TestCase):
                                  "ccp_publish_notification", "ccp_poll_request", "ccp_cancel_request",
                                  "ccp_reset_device", "ccp_factory_reset_device", "ccp_debug_screen",
                                  "ccp_read_clock", "ccp_configure_clock", "ccp_report_progress",
-                                 "ccp_read_name", "ccp_set_name"})
+                                 "ccp_read_name", "ccp_set_name", "ccp_audio_status"})
         for name in ("ccp_select_session", "ccp_clear_session"):
             with self.assertRaisesRegex(ValueError, "Unknown CCP tool"):
                 ccp.call_tool(Mock(), name, {})

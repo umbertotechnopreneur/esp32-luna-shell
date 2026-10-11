@@ -197,6 +197,25 @@ esp_err_t DeviceSnapshotService::reportCharacterLookSave(const CharacterLookSave
 }
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+// input: Capture/transport result; its original timestamps and error remain intact.
+// Exception: Returns the canonical publication error without changing sensor freshness.
+esp_err_t DeviceSnapshotService::reportVoiceInput(const VoiceInputObservation &input)
+{
+    const bool known_phase = input.phase == VoiceInputPhase::Idle || input.phase == VoiceInputPhase::Listening ||
+        input.phase == VoiceInputPhase::Sending || input.phase == VoiceInputPhase::Cancelling || input.phase == VoiceInputPhase::Received ||
+        input.phase == VoiceInputPhase::Delivered || input.phase == VoiceInputPhase::Cancelled ||
+        input.phase == VoiceInputPhase::Unconfirmed || input.phase == VoiceInputPhase::Failed;
+    if (!known_phase || (input.trigger != VoiceInputTrigger::WakeWord && input.trigger != VoiceInputTrigger::DoubleTap) ||
+        input.acknowledged_samples > input.captured_samples || input.started_at_us < 0 || input.changed_at_us <= 0 ||
+        input.changed_at_us > esp_timer_get_time() || (input.phase == VoiceInputPhase::Failed && input.error == ESP_OK)) {
+        ESP_LOGE(TAG, "Voice input publication rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    return update_snapshot([&](DeviceSnapshot &snapshot) {
+        snapshot.voice.input = input;
+    });
+}
+
 // state: Confirmed AFE state, including optional startup failures.
 // error: Original operation error; a failed state never appears healthy.
 // detected_at_us: Confirmed Sophia event timestamp, zero for a heartbeat.

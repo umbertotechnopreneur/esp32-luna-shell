@@ -28,6 +28,7 @@
 
 #include "LUNASHELL_provisioning_state.hpp"
 #include "LUNASHELL_codex_events.hpp"
+#include "LUNASHELL_voice_input.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -210,6 +211,7 @@ enum class VoiceState : uint8_t {
 };
 
 struct VoiceSnapshot : ComponentSnapshot {
+    VoiceInputObservation input{};
     VoiceState state = VoiceState::Disabled;
     WakeWordId configured_word = WakeWordId::None;
     WakeWordId detected_word = WakeWordId::None;
@@ -1071,6 +1073,9 @@ public:
     // voice: Receives canonical recognition state and the last historical event.
     esp_err_t readVoiceObservation(VoiceSnapshot &voice) const;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    // input: Real capture/transport state from the sole voice-input owner.
+    // Returns the original snapshot publication failure.
+    esp_err_t reportVoiceInput(const VoiceInputObservation &input);
     // state: Confirmed AFE lifecycle state.
     // error: Original initialization, capture or inference error.
     // detected_at_us: Real Sophia detection time, or zero for a status-only update.

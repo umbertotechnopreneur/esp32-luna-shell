@@ -17,6 +17,7 @@
 #include "CODY_companion.h"
 #include "CODY_personality.hpp"
 #include "CODY_personality_audio.hpp"
+#include "CODY_codex_audio.hpp"
 #include "CODY_happiness.hpp"
 #include "CODY_connection_personality.hpp"
 
@@ -69,6 +70,7 @@
 #include "cody_waking_pearl.hpp"
 #include "cody_ready_pearl.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_voice_input.hpp"
 #include "LUNASHELL_codex_debug.hpp"
 #include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_task_affinity.hpp"
@@ -2664,6 +2666,97 @@ esp_err_t draw_branding_rows(uint16_t frame_index)
     return ESP_OK;
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+// Display-owned bounded projection and prepared glyphs never enter nested frame stacks.
+LUNASHELL::VoiceSnapshot s_voice_input_view{};
+CODY2D::TextLine s_voice_title{}, s_voice_cancel{};
+bool s_voice_view_visible = false;
+LUNASHELL::VoiceInputPhase s_voice_view_phase = LUNASHELL::VoiceInputPhase::Idle;
+int64_t s_voice_view_started_at_us = 0;
+int64_t s_voice_tap_due_us = 0;
+uint16_t s_voice_tap_rotation = 0;
+int16_t s_voice_tap_x = 0, s_voice_tap_y = 0;
+
+// No parameters: listens and sends on a separate visual channel while retaining the route.
+// Exception: Returns canonical, prepared-text, DMA lease or original transfer failure.
+esp_err_t draw_voice_input_rows()
+{
+    using Phase = LUNASHELL::VoiceInputPhase;
+    const auto phase = s_voice_input_view.input.phase;
+    const char *title = phase == Phase::Listening ? "Listening" : phase == Phase::Sending ? "Sending audio" :
+        phase == Phase::Cancelling ? "Cancelling" :
+        phase == Phase::Received ? "On your PC" : phase == Phase::Delivered ? "Sent to Codex" :
+        phase == Phase::Cancelled ? "Cancelled" : phase == Phase::Unconfirmed ? "Check on your PC" : "Audio failed";
+    const auto &font = CODY::SceneData::body_font;
+    const uint16_t length = static_cast<uint16_t>(std::strlen(title));
+    const uint16_t width = static_cast<uint16_t>((length - 1U) * font.advance + font.width);
+    if (width > 320 || font.height > 35) return ESP_ERR_INVALID_SIZE;
+    esp_err_t error = CODY2D::prepare_text_line(font, {title, length},
+        {static_cast<int16_t>((466 - width) / 2), 285}, 0xF7BE, s_voice_title);
+    if (error != ESP_OK) return error;
+    constexpr char cancel[] = "Cancel";
+    constexpr uint16_t cancel_length = sizeof(cancel) - 1;
+    const uint16_t cancel_width = static_cast<uint16_t>((cancel_length - 1U) * font.advance + font.width);
+    error = CODY2D::prepare_text_line(font, {cancel, cancel_length},
+        {static_cast<int16_t>((466 - cancel_width) / 2 + 12), 343}, 0xF7BE, s_voice_cancel);
+    if (error != ESP_OK) return error;
+    constexpr uint8_t heights[4][7] = {{22,40,62,82,62,40,22}, {30,56,78,60,78,56,30},
+        {40,66,48,86,48,66,40}, {30,50,72,64,72,50,30}};
+    const size_t wave_frame = static_cast<size_t>((esp_timer_get_time() / 125000) % 4);
+    const bool cancellable = phase == Phase::Listening || phase == Phase::Sending;
+    for (uint16_t row = 0; row < kPanelHeight;) {
+        error = LUNASHELL_display_frame_check_deadline();
+        if (error != ESP_OK) return error;
+        void *storage = nullptr;
+        size_t capacity = 0;
+        error = LUNASHELL_display_frame_buffer(&storage, &capacity);
+        if (error != ESP_OK) return error;
+        const size_t available_rows = (capacity / (466 * sizeof(uint16_t))) & ~size_t{1};
+        if (storage == nullptr || available_rows < 2 || available_rows > 466) return ESP_ERR_INVALID_SIZE;
+        const uint16_t rows = static_cast<uint16_t>(std::min<size_t>(available_rows, 466 - row));
+        CODY2D::Surface strip{static_cast<uint16_t *>(storage), 466, rows, 466,
+            static_cast<uint32_t>(capacity / sizeof(uint16_t)), CODY2D::Rgb565ByteOrder::ByteSwapped};
+        error = CODY2D::clear(strip, 0);
+        for (uint16_t bar = 0; error == ESP_OK && bar < 7; ++bar) {
+            const int top = 215 - heights[wave_frame][bar] / 2;
+            const int bottom = top + heights[wave_frame][bar];
+            const int clipped_top = std::max<int>(top, row);
+            const int clipped_bottom = std::min<int>(bottom, row + rows);
+            if (clipped_top < clipped_bottom) error = CODY2D::fill_rect(strip,
+                {static_cast<uint16_t>(152 + bar * 24), static_cast<uint16_t>(clipped_top - row), 14,
+                    static_cast<uint16_t>(clipped_bottom - clipped_top)}, 0x2D5F);
+        }
+        // The single Cancel action uses a semantic capsule with an icon before its label.
+        if (cancellable) {
+            for (uint16_t offset = 0; error == ESP_OK && offset < rows; ++offset) {
+                const int y = row + offset;
+                if (y >= 333 && y < 385) {
+                    constexpr uint8_t inset[26] = {26,19,16,14,12,10,9,8,7,6,5,4,4,3,3,2,2,1,1,1,1,0,0,0,0,0};
+                    const size_t edge = static_cast<size_t>(std::min(y - 333, 384 - y));
+                    const uint16_t left = static_cast<uint16_t>(103 + inset[edge]);
+                    const uint16_t color = static_cast<uint16_t>((12 + (y - 333) / 13) << 11 | 8 << 5 | 7);
+                    error = CODY2D::fill_rect(strip, {left, offset,
+                        static_cast<uint16_t>(363 - inset[edge] - left), 1}, color);
+                    const int icon_row = y - 353;
+                    if (error == ESP_OK && icon_row >= 0 && icon_row < 14) {
+                        const uint16_t icon_left = static_cast<uint16_t>((466 - cancel_width) / 2 - 18);
+                        error = CODY2D::fill_rect(strip, {static_cast<uint16_t>(icon_left + icon_row), offset, 2, 1}, 0xF7BE);
+                        if (error == ESP_OK) error = CODY2D::fill_rect(strip,
+                            {static_cast<uint16_t>(icon_left + 13 - icon_row), offset, 2, 1}, 0xF7BE);
+                    }
+                }
+            }
+        }
+        if (error == ESP_OK) error = CODY2D::draw_text_rows(s_voice_title, length, strip, row, 0);
+        if (error == ESP_OK && cancellable) error = CODY2D::draw_text_rows(s_voice_cancel, cancel_length, strip, row, 0);
+        if (error == ESP_OK) error = LUNASHELL_display_frame_submit_rgb565(0, row, 466, row + rows, storage);
+        if (error != ESP_OK) return error;
+        row += rows;
+    }
+    return ESP_OK;
+}
+#endif
+
 // Hold the shared recursive panel lock across every strip so rotation and standby
 // cannot alter the panel/touch mapping in the middle of one complete redraw.
 // resume_animation: Skip parked time when restarting the animation clocks after standby.
@@ -2700,6 +2793,53 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         const bool parked = renderer_is_parked();
         return frame.finish({ESP_ERR_INVALID_STATE, parked, 0});
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    if (s_voice_tap_due_us != 0 && esp_timer_get_time() >= s_voice_tap_due_us) {
+        s_voice_tap_due_us = 0;
+        if (companion_home_route_active()) {
+            const esp_err_t panel_error = advance_local_companion_panel();
+            if (panel_error != ESP_OK) return frame.finish({panel_error, false, 0});
+        }
+    }
+    const esp_err_t voice_read = LUNASHELL::DeviceSnapshotService::instance().readVoiceObservation(s_voice_input_view);
+    if (voice_read != ESP_OK) return frame.finish({voice_read, false, 0});
+    using VoicePhase = LUNASHELL::VoiceInputPhase;
+    const auto voice_phase = s_voice_input_view.input.phase;
+    const bool voice_active = voice_phase == VoicePhase::Listening || voice_phase == VoicePhase::Sending ||
+        voice_phase == VoicePhase::Cancelling || voice_phase == VoicePhase::Received;
+    const bool voice_terminal = voice_phase == VoicePhase::Delivered || voice_phase == VoicePhase::Cancelled ||
+        voice_phase == VoicePhase::Unconfirmed || voice_phase == VoicePhase::Failed;
+    const bool voice_visible = voice_active || (voice_terminal && s_voice_input_view.input.changed_at_us > 0 &&
+        esp_timer_get_time() - s_voice_input_view.input.changed_at_us < 3000000);
+    if (voice_visible) {
+        esp_err_t error = set_companion_typewriter_suspended(true);
+        suspend_optional_personality_audio(true);
+        if (error == ESP_OK) error = CODY::set_codex_audio_suspended(true);
+        if (error == ESP_OK) error = draw_voice_input_rows();
+        const DrawResult completed = frame.finish({error, false, LUNASHELL_display_runtime_content_revision()});
+        if (completed.error == ESP_OK) {
+            // Only a fully retired frame admits its visible Cancel control.
+            s_voice_view_visible = true;
+            s_voice_view_phase = voice_phase;
+            s_voice_view_started_at_us = s_voice_input_view.input.started_at_us;
+            s_state.frame_dirty.store(false, std::memory_order_release);
+        }
+        s_voice_tap_due_us = 0;
+        s_state.animation_sampled_us = 0;
+        s_state.onboarding_sampled_us = 0;
+        s_resources.previous_frame_valid = false;
+        s_state.next_frame_us = esp_timer_get_time() + 125000;
+        return completed;
+    }
+    if (s_voice_view_visible) {
+        s_voice_view_visible = false;
+        const esp_err_t codex_audio_error = CODY::set_codex_audio_suspended(false);
+        if (codex_audio_error != ESP_OK) return frame.finish({codex_audio_error, false, 0});
+        s_state.animation_sampled_us = 0;
+        s_state.onboarding_sampled_us = 0;
+        s_resources.previous_frame_valid = false;
+    }
+#endif
     if (!s_state.branding_complete) {
         const int64_t now_us = esp_timer_get_time();
         uint16_t candidate = s_state.branding_frame;
@@ -2738,6 +2878,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             return completed;
         }
     }
+
     const esp_err_t audio_resume_error = set_companion_typewriter_suspended(
         s_state.lifecycle.phase == CODY::LifecyclePhase::Sleep || debug_view_active());
     if (audio_resume_error != ESP_OK) {
@@ -4303,6 +4444,18 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         return ESP_OK;
     }
     const bool pressed_edge = point.pressed && !s_state.touch_pressed;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    if (s_voice_view_visible) {
+        s_state.touch_pressed = point.pressed;
+        CODY::cancel_companion_tap(s_state.companion_tap);
+        if (pressed_edge && point.x >= 103 && point.x < 363 && point.y >= 333 && point.y < 385 &&
+            (s_voice_input_view.input.phase == LUNASHELL::VoiceInputPhase::Listening ||
+             s_voice_input_view.input.phase == LUNASHELL::VoiceInputPhase::Sending)) {
+            return LUNASHELL::cancelVoiceInput();
+        }
+        return ESP_OK;
+    }
+#endif
     const bool panel_open = technical_panel_view_active();
     const bool companion_eligible = LUNASHELL_display_runtime_writes_allowed() &&
         (companion_home_route_active() || panel_open);
@@ -4506,6 +4659,28 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
     }
     const esp_err_t body_error = publish_body_gesture(point, pressed_edge);
     if (body_error == ESP_OK && passive_tap && !s_state.petting.triggered) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        bool on_character = false;
+        const auto &tap = s_state.companion_tap;
+        const esp_err_t hit_error = CODY::hit_test_body(*s_resources.rig,
+            {static_cast<float>(tap.origin_x), static_cast<float>(tap.origin_y)}, on_character);
+        if (hit_error != ESP_OK) return hit_error;
+        if (on_character) {
+            const int dx = tap.origin_x - s_voice_tap_x;
+            const int dy = tap.origin_y - s_voice_tap_y;
+            if (s_voice_tap_due_us != 0 && point.sample_timestamp_us <= s_voice_tap_due_us &&
+                s_voice_tap_rotation == s_state.rendered_rotation_degrees && dx * dx + dy * dy <= 1600) {
+                s_voice_tap_due_us = 0;
+                return LUNASHELL::requestVoiceInput(LUNASHELL::VoiceInputTrigger::DoubleTap);
+            }
+            s_voice_tap_due_us = point.sample_timestamp_us + 420000;
+            s_voice_tap_rotation = s_state.rendered_rotation_degrees;
+            s_voice_tap_x = tap.origin_x;
+            s_voice_tap_y = tap.origin_y;
+            s_state.frame_dirty.store(true, std::memory_order_release);
+            return ESP_OK;
+        }
+#endif
         return advance_local_companion_panel();
     }
     return body_error;
@@ -4567,6 +4742,9 @@ bool optional_runtime_touch_failure(const TouchPollResult &sample)
 // error: Real rejected report error, preserved by ui.touch and character_touch.
 void interrupt_touch_gestures(esp_err_t error)
 {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    s_voice_tap_due_us = 0;
+#endif
     CODY::cancel_companion_tap(s_state.companion_tap);
     s_touch_contact_interrupted = true;
     s_state.setup_hold_candidate = false;
@@ -4712,6 +4890,29 @@ void companion_worker(void *context)
             break;
         }
         const bool display_available = LUNASHELL_display_runtime_writes_allowed();
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        // Recognition can preempt a static non-character route as well as Home.
+        const esp_err_t voice_error = LUNASHELL::DeviceSnapshotService::instance().readVoiceObservation(s_voice_input_view);
+        if (voice_error != ESP_OK) {
+            bsp_display_unlock();
+            fail_consumer("Voice input observation", voice_error, false);
+            break;
+        }
+        const auto input_phase = s_voice_input_view.input.phase;
+        const bool recent_terminal = (input_phase == LUNASHELL::VoiceInputPhase::Delivered ||
+            input_phase == LUNASHELL::VoiceInputPhase::Cancelled || input_phase == LUNASHELL::VoiceInputPhase::Unconfirmed ||
+            input_phase == LUNASHELL::VoiceInputPhase::Failed) && s_voice_input_view.input.changed_at_us > 0 &&
+            esp_timer_get_time() - s_voice_input_view.input.changed_at_us < 3000000;
+        const bool voice_attention = input_phase == LUNASHELL::VoiceInputPhase::Listening ||
+            input_phase == LUNASHELL::VoiceInputPhase::Sending || input_phase == LUNASHELL::VoiceInputPhase::Cancelling ||
+            input_phase == LUNASHELL::VoiceInputPhase::Received || s_voice_view_visible || recent_terminal;
+        if ((voice_attention && (input_phase != s_voice_view_phase ||
+            s_voice_view_started_at_us != s_voice_input_view.input.started_at_us ||
+            esp_timer_get_time() >= s_state.next_frame_us)) ||
+            (s_voice_tap_due_us != 0 && esp_timer_get_time() >= s_voice_tap_due_us)) {
+            s_state.frame_dirty.store(true, std::memory_order_release);
+        }
+#endif
         const bool display_parked = !display_available && renderer_is_parked();
         // The same admission snapshot owns the independent mood clock. A brief
         // radio DMA drain must rebase it without replaying a parked caress later.

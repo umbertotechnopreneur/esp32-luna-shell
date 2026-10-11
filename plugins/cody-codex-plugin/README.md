@@ -4,11 +4,48 @@
 uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
 for pairing; public Internet availability is a separate condition.
 
-CCP 0.6.4 and its firmware must be updated together. Signed READY binds a fresh
+CCP 0.6.5 adds an optional one-way audio channel; source changes do not activate it.
+Its signed READY handshake retains the 0.6.4 endpoint-binding contract. Signed READY binds a fresh
 broker challenge to the observed device endpoint. Cody validates the endpoint
 and returns matching COMMITTED before the broker admits presence, events or
 current activity/technical data. Earlier handshake formats are rejected.
 Source changes do not install the plugin or flash the device.
+
+## One-way voice input preparation
+
+The dedicated encrypted receiver uses UDP 42119, independently of CCP metadata
+ports 42117/42118. It requires `mcp/requirements-audio.txt` in the plugin's Python
+environment. A missing dependency, bind failure, missing followed chat or native
+Codex rejection remains an explicit optional error, available through the
+read-only `ccp_audio_status` tool. Audio failure does not fabricate a CCP disconnect.
+
+Set `CODY_CODEX_AUDIO_ENDPOINT` to an explicit already-running **loopback** native
+desktop/app-server WebSocket endpoint. When that host requires a capability token,
+`CODY_CODEX_AUDIO_TOKEN_FILE` names its existing local token file; keys and tokens
+never appear in prompts or logs. No endpoint is guessed and no second Codex host
+or chat is launched. The installed CLI protocol export confirms `localAudio` on
+`turn/start` and `turn/steer`; it does not prove that this desktop version exposes
+an endpoint, that the account/model accepts audio or that approvals route to its UI.
+Those are required integration checks before treating dictation as operational.
+
+At authenticated START, bind the capture to the genuine followed chat/turn.
+After END, retain a private mono PCM16 16 kHz WAV under the runtime's
+`artifacts/voice`. A changed followed chat rejects submission, rather than retargeting
+it. `turn/steer` requires the exact originally followed active turn; otherwise a
+new turn is sent to the same existing chat. Native requests for approval or user
+input are never answered automatically. Ambiguous native submission is never retried.
+
+The receiver bounds utterances to 120 seconds, four active buffers/delivery jobs,
+64 transient replay identities and 64 MiB/1,024 owned WAV artifacts. Full storage
+rejects new delivery explicitly; recordings are not silently erased. PCM is cleared
+from the transient record after file/native processing. An immutable file-write
+copy may temporarily double one recording's host memory. No device SD/flash writes
+are involved. PC receipt, native acceptance and task completion remain distinct.
+
+Generation, installation, firmware build/size, wire tests, account/model access,
+desktop approval routing and physical voice behavior are separate evidence. This
+0.6.5 source increment is unbuilt/uninstalled; the previous installed plugin and
+device remain on their earlier images until explicitly updated.
 
 Home keeps a visible **Economy / Balanced / Expensive! / Unknown** chip below
 the project/branch/model carousel. Economy is green, Balanced orange, Expensive!
@@ -46,7 +83,7 @@ remains Windows-specific; the new pricing module uses only portable Python.
 Recipient delivery and device closure remain distinct confirmations through
 EVENTACK and FIND `events=2`. A question surviving broker restart is retired
 before a new one is offered. See the [wire contract](protocol/CCP1.md) and
-[Connection Atlas](../../docs/cody/cody-ccp-connection-atlas-v1.pdf).
+[Communication Atlas](../../docs/cody/cody-ccp-connection-atlas-v1.pdf).
 
 ## Install and review hooks
 

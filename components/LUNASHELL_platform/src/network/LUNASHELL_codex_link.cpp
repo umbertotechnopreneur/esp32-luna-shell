@@ -45,6 +45,7 @@
 #include "freertos/task.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
+#include "LUNASHELL_voice_input.hpp"
 #include "psa/crypto.h"
 #include "unistd.h"
 
@@ -3559,10 +3560,25 @@ void codexLinkWorker(void *context)
         receiveDatagrams();
         maintainState();
         maintainEvent();
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        bool voice_busy = false;
+        {
+            // Reuse the serialized CCP owner; the AFE never blocks on network work.
+            std::lock_guard<std::mutex> guard(s_mutex);
+            voice_busy = LUNASHELL::tickVoiceInputTransport(s_persisted_link.link_key,
+                s_link_snapshot.device_id, s_link_snapshot.peer_ip_address, s_ready_nonce,
+                s_link_present && !s_candidate_present && s_pending == Command::None &&
+                s_link_snapshot.state == State::Connected);
+        }
+#endif
 #if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
         maintainDebugScreen();
 #endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(voice_busy ? 20 : kWorkerPollMs));
+#else
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kWorkerPollMs));
+#endif
     }
 }
 

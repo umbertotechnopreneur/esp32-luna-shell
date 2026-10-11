@@ -40,6 +40,7 @@ import ccp_reset as reset
 import ccp_clock as clock
 import ccp_name as preferred_name
 import ccp_technical as technical_metadata
+import ccp_voice_input as voice_input
 from ccp_pricing import PriceCache
 from ccp_security import DatagramAdmission, RejectionReporter
 from ccp_windows import configure_exclusive_socket, protect_secret, unprotect_secret, runtime_directory
@@ -53,7 +54,7 @@ MAX_ACTIVITY_DATAGRAM_BYTES = 1024
 MAX_TECHNICAL_DATAGRAM_BYTES = 1024
 TECHNICAL_FIELDS = technical_metadata.FIELDS
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.4"
+SERVER_VERSION = "0.6.5"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CHALLENGE_TIMEOUT_SECONDS = 2.0
 MAX_DISCOVERY_OFFERS = 16
@@ -576,20 +577,26 @@ class CompanionResponder:
         self.clock = clock.ClockRequests(self, sys.modules[__name__])
         self.names = preferred_name.NameRequests(self, sys.modules[__name__])
         self._thread = threading.Thread(target=self._run, name="CCP-responder", daemon=True)
+        self.audio = voice_input.VoiceInputServer(self)
 
     # No parameters: starts exactly one background authenticated liveness responder.
     def start(self) -> None:
         self._thread.start()
+        self.audio.start()
 
     # No parameters: requests shutdown and closes the owned socket after the worker exits.
     # Raises RuntimeError if the worker still owns the socket after the shutdown deadline.
     # Raises OSError if socket closure fails.
     def close(self) -> None:
-        self._stop.set()
-        self._thread.join(timeout=1.0)
-        if self._thread.is_alive():
-            raise RuntimeError("CCP responder did not stop before the shutdown deadline")
-        self._socket.close()
+        try:
+            self.audio.close()
+        finally:
+            # Optional audio failure must still retire the metadata owner.
+            self._stop.set()
+            self._thread.join(timeout=1.0)
+            if self._thread.is_alive():
+                raise RuntimeError("CCP responder did not stop before the shutdown deadline")
+            self._socket.close()
 
     # No parameters: requires the lifetime listener to remain alive for every tool operation.
     # Raises the original receive OSError or RuntimeError for an unexpectedly stopped worker.
@@ -1463,6 +1470,10 @@ def tool_result(payload: dict[str, Any], summary: str, is_error: bool = False) -
 # Raises OSError or RuntimeError for responder, network or persistence failures.
 def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     service.responder.require_running()
+    if name == "ccp_audio_status":
+        if arguments:
+            raise ValueError("Audio status takes no arguments")
+        return tool_result(service.responder.audio.status(), "Actual PC audio transport and native admission state.")
     if name == "ccp_discover_devices":
         if set(arguments) - {"timeout_ms", "include_simulator"}:
             raise ValueError("Discovery arguments contain unexpected fields")
@@ -1696,7 +1707,7 @@ def tool_catalog() -> list[dict[str, Any]]:
                 "openWorldHint": False,
             },
         },
-    ] + activity_tool_catalog() + interactions.tool_catalog() + clock.tool_catalog() + preferred_name.tool_catalog() + [debug_tool_definition()] + [reset.tool_definition(operation) for operation in reset.ResetOperation]
+    ] + activity_tool_catalog() + interactions.tool_catalog() + clock.tool_catalog() + preferred_name.tool_catalog() + [voice_input.tool_definition(), debug_tool_definition()] + [reset.tool_definition(operation) for operation in reset.ResetOperation]
 
 
 # No parameters: private bounded Debug screen tool, omitted from public manuals.

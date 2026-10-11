@@ -235,6 +235,18 @@ headroom and the prepared host/simulator cases remain unverified.
   old-event rejection, diagnostic/Performance Mode pause/resume, CPU/PSRAM/current
   and model/capture failures. Single-model Sophia wake was physically confirmed
   on 2026-10-07; full/Release and broader reliability remain open.
+  The new Cody source consumer starts capture from awake/standby Sophia events or
+  acquired double taps. Validate the derived Cody/Wi-Fi/Codex-only gate, 420-ms
+  single-tap delay, failed/stale touch and rotation, route restoration, waveform
+  layout/cancellation and actual 8-FPS CPU savings. Exercise ten-second PSRAM
+  pressure, lost/duplicate/reordered/forged ACKs, fresh-discovery replay binding,
+  expiry, native errors and changed followed chats. Prepared `cody-voice-input`
+  host cases have not run. Revisit all callers after the bounded voice snapshot
+  growth; inspect compiled AFE/CCP/render frames and measure stack/PSRAM headroom.
+  Install plugin 0.6.5 with its optional audio dependencies and configure the real
+  loopback desktop endpoint; verify native localAudio account/model access and
+  native approval routing. No build, size, test, install, simulator or flash of
+  this increment has occurred; the previously installed image is unchanged.
 - [ ] **TTS-01 - Storage and audible speech.** Resolve FAULT-01 before claiming
   SD synthesis. The prepared four-language card and corrected `58757005` boot
   did not establish an intelligible Italian phrase. Observe the one-shot boot
