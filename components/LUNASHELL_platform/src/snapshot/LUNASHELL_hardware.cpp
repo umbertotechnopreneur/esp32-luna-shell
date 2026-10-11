@@ -2553,17 +2553,17 @@ esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObs
 {
     const auto *application = esp_app_get_description();
     if (application == nullptr) {
-        ESP_LOGE(kTag, "Firmware identity unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        ESP_LOGE(TAG, "Firmware identity unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
     const size_t version_length = strnlen(application->version, sizeof(application->version));
     if (version_length == 0 || version_length == sizeof(application->version)) {
-        ESP_LOGE(kTag, "Firmware version has no bounded identity (%s)", esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+        ESP_LOGE(TAG, "Firmware version has no bounded identity (%s)", esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
         return ESP_ERR_INVALID_RESPONSE;
     }
     for (size_t index = 0; index < version_length; ++index) {
         if (application->version[index] < 32 || application->version[index] > 126) {
-            ESP_LOGE(kTag, "Firmware version contains an invalid byte at %u (%s)",
+            ESP_LOGE(TAG, "Firmware version contains an invalid byte at %u (%s)",
                 static_cast<unsigned>(index), esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
             return ESP_ERR_INVALID_RESPONSE;
         }
