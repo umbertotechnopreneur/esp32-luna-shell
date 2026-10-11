@@ -101,7 +101,7 @@ class VoiceInputBoundaries(unittest.TestCase):
         self.assertFalse(recording.accepted)
         self.assertEqual(len(recording.pcm), 0)
 
-    # self: Receiver fixture with a full bounded utterance.
+    # self: Receiver fixture with a full sixty-second utterance.
     # Raises AssertionError if new audio overwrites or exceeds retained PCM.
     def test_full_buffer_fails_without_overwriting(self):
         self.receiver.accept(self.packet(0, 1), self.source)

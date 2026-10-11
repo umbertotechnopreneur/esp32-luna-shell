@@ -35,7 +35,7 @@ it. `turn/steer` requires the exact originally followed active turn; otherwise a
 new turn is sent to the same existing chat. Native requests for approval or user
 input are never answered automatically. Ambiguous native submission is never retried.
 
-The receiver bounds utterances to 120 seconds, four active buffers/delivery jobs,
+The receiver bounds utterances to 60 seconds (1,920,000 PCM bytes), four active buffers/delivery jobs,
 64 transient replay identities and 64 MiB/1,024 owned WAV artifacts. Full storage
 rejects new delivery explicitly; recordings are not silently erased. PCM is cleared
 from the transient record after file/native processing. An immutable file-write

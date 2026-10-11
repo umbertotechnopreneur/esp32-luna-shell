@@ -19,6 +19,7 @@
 namespace {
 constexpr char kTag[] = "LUNASHELL_voice_input";
 constexpr size_t kSamples = 160000; // Ten seconds of unacknowledged mono PCM16.
+constexpr uint32_t kUtteranceSamples = 60U * 16000U;
 constexpr size_t kChunk = 480;
 constexpr size_t kHeader = 49;
 constexpr size_t kPacket = kHeader + kChunk * 2 + 16;
@@ -227,7 +228,8 @@ void LUNASHELL::feedVoiceInput(const int16_t *samples, size_t count, bool speech
 {
     std::lock_guard<std::mutex> guard(s_mutex);
     if (s_observation.phase != VoiceInputPhase::Listening) return;
-    if (error != ESP_OK || samples == nullptr || count == 0 || count > kSamples - s_count) {
+    const size_t admitted = std::min<size_t>(count, kUtteranceSamples - s_observation.captured_samples);
+    if (error != ESP_OK || samples == nullptr || count == 0 || admitted > kSamples - s_count) {
         publish(VoiceInputPhase::Failed, error != ESP_OK ? error : ESP_ERR_INVALID_SIZE);
         return;
     }
@@ -236,14 +238,16 @@ void LUNASHELL::feedVoiceInput(const int16_t *samples, size_t count, bool speech
         s_heard_speech = true;
         s_last_speech_at = now;
     }
-    for (size_t i = 0; i < count; ++i) {
+    // Preserve only the acquired prefix admitted by the one-minute utterance bound.
+    for (size_t i = 0; i < admitted; ++i) {
         s_ring[s_write] = samples[i];
         s_write = (s_write + 1) % kSamples;
     }
-    s_count += count;
-    s_observation.captured_samples += static_cast<uint32_t>(count);
+    s_count += admitted;
+    s_observation.captured_samples += static_cast<uint32_t>(admitted);
     LUNASHELL_power_manager_note_activity();
-    if ((s_heard_speech && now - s_last_speech_at >= 1200000) || now - s_observation.started_at_us >= 120000000) {
+    if ((s_heard_speech && now - s_last_speech_at >= 1200000) ||
+        now - s_observation.started_at_us >= 60000000 || s_observation.captured_samples == kUtteranceSamples) {
         publish(VoiceInputPhase::Sending);
     } else if (!s_heard_speech && now - s_observation.started_at_us >= 8000000) {
         publish(VoiceInputPhase::Failed, ESP_ERR_TIMEOUT);
@@ -304,7 +308,7 @@ bool LUNASHELL::tickVoiceInputTransport(const uint8_t *link_key, const char *dev
     }
     const int64_t now = esp_timer_get_time();
     LUNASHELL_power_manager_note_activity();
-    if (now - s_observation.started_at_us > 150000000) {
+    if (now - s_observation.started_at_us > 90000000) {
         publish(VoiceInputPhase::Failed, ESP_ERR_TIMEOUT);
         return false;
     }

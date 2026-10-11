@@ -486,11 +486,17 @@ of an immediately following command still need physical observation.
 
 Voice input has presentation priority while retaining the interrupted route and
 its real question deadlines. The character, geometry evaluation and normal scene
-animation are suspended behind a small four-frame waveform at 8 FPS. Cancel is a
-visible local control; it cannot revoke a turn already accepted by Codex. End of
+animation are suspended behind a synthetic ribbon at 8 FPS: sixteen immutable
+poses in a 440 x 40 logical-pixel band. After the first full retirement, only the
+ribbon, identity/cost rows and countdown bands transfer again. The existing
+measured fade carousel shows current project, branch and model with its catalog
+cost band; unavailable fields disappear. No numeric price or bill is invented.
+The bottom countdown starts at 01:00. Deliberate shake is the only cancellation
+gesture; there is no voice button or touch action. It cannot revoke a turn
+already accepted by Codex. End of
 speech uses 1.2 seconds of actual VAD silence after speech, with an eight-second
-no-speech deadline and a 120-second maximum utterance. The overall capture/delivery
-budget is 150 seconds. New triggers never start a second simultaneous capture.
+no-speech deadline and a 60-second maximum utterance. The overall capture/delivery
+budget is 90 seconds. New triggers never start a second simultaneous capture.
 Explicit sleep and microphone pauses stop this input even when standby retains
 the recognition microphone. If END may already have left the device, the result
 is `Unconfirmed`, requiring review on the PC rather than claiming cancellation.

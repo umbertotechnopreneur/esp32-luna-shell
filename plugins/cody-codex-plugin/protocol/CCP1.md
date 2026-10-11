@@ -672,6 +672,9 @@ be retained when that coordinated future protocol is designed.
 ## One-way encrypted audio channel (plugin 0.6.5 source increment)
 
 UDP port 42119 carries a separate one-way enhanced PCM16 mono 16 kHz stream.
+An utterance is at most 60 seconds, or 1,920,000 real PCM bytes. The device has a
+separate ten-second acknowledgement ring, not a sixty-second recording buffer.
+Deliberate shake requests cancellation; no voice touch control is presented.
 The header is network-order `!4s6s16s16sIBH`: magic, binary device identity,
 16-byte utterance identity, 16-byte authenticated discovery nonce, uint32 sequence,
 uint8 kind and uint16 plaintext byte count. Device magic is `CYA1`; PC magic is

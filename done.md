@@ -13,6 +13,26 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Voice presentation and unified communication reference - 2026-10-12
+
+- Bounded capture and host PCM to sixty seconds / 1,920,000 bytes, retaining the
+  independent ten-second PSRAM acknowledgement ring. Removed the voice Cancel
+  capsule and touch action: the retired voice view owns deliberate shake. Added
+  an actual 01:00 countdown, current project/branch/model fade carousel and catalog
+  cost band without invented prices. The character remains hidden.
+- Added sixteen synthetic waveform poses (1,024 bytes), a 440 x 40 logical-pixel
+  ribbon and partial changing-band transfers after the first full retirement.
+  Ten code-authored visual proposals share the waveform data; their metadata and
+  fonts are illustrative, not device captures or simulator evidence. Source
+  review only: no tests, builds, size checks, simulator run or device flash.
+- Consolidated the technical pairing PDFs into the 34-page CCP Communication
+  Atlas, preserving fourteen dated revision entries, three Security entries and
+  original page/screen crosswalks. All pages were rendered and independently
+  reviewed. The corrected quickstart remains four A5 pages, also visually reviewed.
+  Retired duplicate technical PDFs remain in Git history; current generators and
+  document links use one canonical technical reference. The context checker was
+  updated but not executed.
+
 ## One-way voice input source integration - 2026-10-11
 
 - Added a derived Cody/Wi-Fi/Codex capture consumer to Sophia events and acquired

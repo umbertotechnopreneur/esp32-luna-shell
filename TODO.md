@@ -239,7 +239,9 @@ headroom and the prepared host/simulator cases remain unverified.
   acquired double taps. Validate the derived Cody/Wi-Fi/Codex-only gate, 420-ms
   single-tap delay, failed/stale touch and rotation, route restoration, explicit
   sleep with retained wake-word microphone, microphone pause, waveform
-  layout/cancellation and actual 8-FPS CPU savings. Exercise ten-second PSRAM
+  layout/shake-only cancellation, the 60-second countdown/PCM bound, partial-band
+  redraws at every orientation, genuine-data fade carousel and actual 8-FPS CPU
+  savings. Exercise ten-second PSRAM
   pressure, lost/duplicate/reordered/forged ACKs, fresh-discovery replay binding,
   wake-word tail and first-command preservation without a fabricated pre-roll,
   expiry, native errors and changed followed chats. Prepared `cody-voice-input`

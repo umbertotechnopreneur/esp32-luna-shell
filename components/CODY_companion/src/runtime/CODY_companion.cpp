@@ -18,6 +18,8 @@
 #include "CODY_personality.hpp"
 #include "CODY_personality_audio.hpp"
 #include "CODY_codex_audio.hpp"
+#include "CODY_activity_identity.hpp"
+#include "CODY_voice_waveform.hpp"
 #include "CODY_happiness.hpp"
 #include "CODY_connection_personality.hpp"
 
@@ -629,11 +631,19 @@ esp_err_t advance_local_companion_panel()
     return ESP_OK;
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+// No parameters: only a retired input view owns its shake gesture.
+bool voice_input_view_active();
+#endif
+
 // now_us: Monotonic frame time used to exclude wake-causing movement.
 // resumed: Whether this frame resumes after a display park.
 // Exception: Returns the original canonical projection failure; animation stays frozen.
 esp_err_t observe_paused_companion_navigation(int64_t now_us, bool resumed)
 {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    if (voice_input_view_active()) return ESP_OK;
+#endif
     if (resumed) {
         CODY::suspend_companion_shake(s_state.companion_shake, now_us);
         CODY::cancel_companion_tap(s_state.companion_tap);
@@ -2669,42 +2679,140 @@ esp_err_t draw_branding_rows(uint16_t frame_index)
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
 // Display-owned bounded projection and prepared glyphs never enter nested frame stacks.
 LUNASHELL::VoiceSnapshot s_voice_input_view{};
-CODY2D::TextLine s_voice_title{}, s_voice_cancel{};
+CODY2D::TextLine s_voice_title{}, s_voice_shake{}, s_voice_timer{};
+char s_voice_countdown[6]{};
+CODY::ActivityIdentityState s_voice_identity{};
+LUNASHELL::CodexTechnicalObservation s_voice_metadata{};
+CODY::ResponseInputs s_voice_motion{};
 bool s_voice_view_visible = false;
+uint16_t s_voice_view_rotation = 0;
+bool s_voice_force_full = false;
 LUNASHELL::VoiceInputPhase s_voice_view_phase = LUNASHELL::VoiceInputPhase::Idle;
 int64_t s_voice_view_started_at_us = 0;
 int64_t s_voice_tap_due_us = 0;
 uint16_t s_voice_tap_rotation = 0;
 int16_t s_voice_tap_x = 0, s_voice_tap_y = 0;
 
-// No parameters: listens and sends on a separate visual channel while retaining the route.
+// No parameters: only the fully retired voice view can own shake cancellation.
+bool voice_input_view_active()
+{
+    return s_voice_view_visible;
+}
+
+// text: Stable display-owned printable caption.
+// top: Logical top edge within the available circular chord.
+// color: Semantic native RGB565 foreground.
+// line: Receives glyph references retained until frame retirement.
+// Exception: Returns the original font or measured-layout failure.
+esp_err_t prepare_voice_caption(const char *text, int16_t top, uint16_t color, CODY2D::TextLine &line)
+{
+    const auto &font = CODY::SceneData::body_font;
+    const uint16_t length = static_cast<uint16_t>(std::strlen(text));
+    if (length == 0 || font.height > 28) return ESP_ERR_INVALID_SIZE;
+    const uint16_t width = static_cast<uint16_t>((length - 1U) * font.advance + font.width);
+    if (width > 320) return ESP_ERR_INVALID_SIZE;
+    return CODY2D::prepare_text_line(font, {text, length},
+        {static_cast<int16_t>((466 - width) / 2), top}, color, line);
+}
+
+// strip: Borrowed DMA tile in logical coordinates.
+// row: First logical row of the tile.
+// pose: Authored synthetic waveform identity, never measured microphone amplitude.
+// Exception: Returns the original native raster failure.
+esp_err_t draw_voice_ribbon(CODY2D::Surface strip, uint16_t row, size_t pose)
+{
+    if (row >= 210 || row + strip.height <= 170) return ESP_OK;
+    for (uint16_t x = 13; x < 453; ++x) {
+        const uint32_t position = (x - 13U) * 63U;
+        const size_t first = std::min<size_t>(62, position / 439U);
+        const int fraction = static_cast<int>(position - first * 439U);
+        const int value = CODY::kVoiceWaveform[pose][first] +
+            (CODY::kVoiceWaveform[pose][first + 1] - CODY::kVoiceWaveform[pose][first]) * fraction / 439;
+        const uint16_t color = CODY2D::blend_rgb565(0x9B1F, 0x2E7F,
+            static_cast<uint8_t>((x - 13U) * 255U / 439U));
+        for (int layer = 0; layer < 3; ++layer) {
+            const int offset = layer == 0 ? value : layer == 1 ? -value * 3 / 4 + 3 : value / 2 - 3;
+            const int top = std::max<int>(190 + offset - 1, row);
+            const int bottom = std::min<int>(190 + offset + 2, row + strip.height);
+            if (top >= bottom) continue;
+            const uint16_t foreground = layer == 0 ? color : CODY2D::fade_rgb565_to_black(color, layer == 1 ? 150 : 90);
+            const esp_err_t error = CODY2D::fill_rect(strip, {x, static_cast<uint16_t>(top - row),
+                1, static_cast<uint16_t>(bottom - top)}, foreground);
+            if (error != ESP_OK) return error;
+        }
+    }
+    return ESP_OK;
+}
+
+// No parameters: fresh canonical metadata feeds the existing measured fade carousel.
+// Exception: Returns original snapshot, metadata or glyph errors; unavailable values stay empty.
+esp_err_t prepare_voice_identity()
+{
+    esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readCodexTechnicalObservation(s_voice_metadata);
+    if (error != ESP_OK) return error;
+    const auto &link = s_voice_metadata.link;
+    const auto &activity = link.activity;
+    const bool current = link.data_valid && !link.data_stale && link.state == LUNASHELL::CodexLinkState::Connected &&
+        activity.data_valid && !activity.data_stale;
+    const char *project = current ? activity.project : "";
+    const char *branch = current ? activity.branch : "";
+    const char *previous_branch = s_voice_identity.branch[0] == '\0' ? "" : s_voice_identity.branch + 8;
+    const int64_t now = esp_timer_get_time();
+    if (std::strcmp(s_voice_identity.project, project) != 0 || std::strcmp(previous_branch, branch) != 0 ||
+        !s_voice_view_visible || s_voice_view_started_at_us != s_voice_input_view.input.started_at_us) {
+        error = CODY::prepare_activity_identity(s_voice_identity, CODY::SceneData::body_font, project, branch, now);
+        if (error != ESP_OK) return error;
+    }
+    const auto model_cost = CODY::observed_model_cost(link, s_voice_metadata.technical);
+    bool changed = false;
+    error = CODY::set_activity_model_cost(s_voice_identity, CODY::SceneData::body_font,
+        model_cost.model, model_cost.band, now, changed);
+    if (error != ESP_OK) return error;
+    // The voice countdown has its own meaning; no work-duration estimate is substituted.
+    return CODY::advance_activity_identity(s_voice_identity, CODY::SceneData::body_font, now, false, -1, changed);
+}
+
+// No parameters: priority input uses a small ribbon, genuine identity carousel and countdown.
 // Exception: Returns canonical, prepared-text, DMA lease or original transfer failure.
 esp_err_t draw_voice_input_rows()
 {
     using Phase = LUNASHELL::VoiceInputPhase;
     const auto phase = s_voice_input_view.input.phase;
     const char *title = phase == Phase::Listening ? "Listening" : phase == Phase::Sending ? "Sending audio" :
-        phase == Phase::Cancelling ? "Cancelling" :
-        phase == Phase::Received ? "On your PC" : phase == Phase::Delivered ? "Sent to Codex" :
-        phase == Phase::Cancelled ? "Cancelled" : phase == Phase::Unconfirmed ? "Check on your PC" : "Audio failed";
-    const auto &font = CODY::SceneData::body_font;
-    const uint16_t length = static_cast<uint16_t>(std::strlen(title));
-    const uint16_t width = static_cast<uint16_t>((length - 1U) * font.advance + font.width);
-    if (width > 320 || font.height > 35) return ESP_ERR_INVALID_SIZE;
-    esp_err_t error = CODY2D::prepare_text_line(font, {title, length},
-        {static_cast<int16_t>((466 - width) / 2), 285}, 0xF7BE, s_voice_title);
+        phase == Phase::Cancelling ? "Cancelling" : phase == Phase::Received ? "On your PC" :
+        phase == Phase::Delivered ? "Sent to Codex" : phase == Phase::Cancelled ? "Cancelled" :
+        phase == Phase::Unconfirmed ? "Check on your PC" : "Audio failed";
+    esp_err_t error = prepare_voice_caption(title, 92, 0xF7BE, s_voice_title);
     if (error != ESP_OK) return error;
-    constexpr char cancel[] = "Cancel";
-    constexpr uint16_t cancel_length = sizeof(cancel) - 1;
-    const uint16_t cancel_width = static_cast<uint16_t>((cancel_length - 1U) * font.advance + font.width);
-    error = CODY2D::prepare_text_line(font, {cancel, cancel_length},
-        {static_cast<int16_t>((466 - cancel_width) / 2 + 12), 343}, 0xF7BE, s_voice_cancel);
+    error = prepare_voice_caption("Shake to cancel", 365, 0xAD75, s_voice_shake);
     if (error != ESP_OK) return error;
-    constexpr uint8_t heights[4][7] = {{22,40,62,82,62,40,22}, {30,56,78,60,78,56,30},
-        {40,66,48,86,48,66,40}, {30,50,72,64,72,50,30}};
-    const size_t wave_frame = static_cast<size_t>((esp_timer_get_time() / 125000) % 4);
+    const int64_t elapsed = std::max<int64_t>(0, esp_timer_get_time() - s_voice_input_view.input.started_at_us);
+    const uint32_t remaining = phase == Phase::Listening ? static_cast<uint32_t>(std::max<int64_t>(0, 60000000 - elapsed) + 999999) / 1000000U : 0;
+    const int count = std::snprintf(s_voice_countdown, sizeof(s_voice_countdown), "%02u:%02u",
+        static_cast<unsigned>(remaining / 60U), static_cast<unsigned>(remaining % 60U));
+    if (count != 5) return ESP_ERR_INVALID_SIZE;
+    error = prepare_voice_caption(s_voice_countdown, 402, 0xF7BE, s_voice_timer);
+    if (error != ESP_OK) return error;
+    error = prepare_voice_identity();
+    if (error != ESP_OK) return error;
     const bool cancellable = phase == Phase::Listening || phase == Phase::Sending;
+    error = CODY::observe_response_inputs(s_voice_motion);
+    if (error != ESP_OK) return error;
+    if (CODY::observe_companion_shake(s_state.companion_shake, s_voice_motion.navigation_motion,
+            esp_timer_get_time(), cancellable && s_voice_view_visible)) {
+        error = LUNASHELL::cancelVoiceInput();
+        if (error != ESP_OK) return error;
+    }
+    const bool full = s_voice_force_full || !s_voice_view_visible || s_voice_view_phase != phase ||
+        s_voice_view_started_at_us != s_voice_input_view.input.started_at_us ||
+        s_voice_view_rotation != s_state.rendered_rotation_degrees;
+    const size_t pose = static_cast<size_t>((esp_timer_get_time() / 125000) % CODY::kVoiceWaveformFrameCount);
     for (uint16_t row = 0; row < kPanelHeight;) {
+        // First retirement clears the old route. Later frames transfer only the changing bands.
+        if (!full && !((row >= 170 && row < 210) || (row >= 300 && row < 358) || (row >= 402 && row < 430))) {
+            row += 2;
+            continue;
+        }
         error = LUNASHELL_display_frame_check_deadline();
         if (error != ESP_OK) return error;
         void *storage = nullptr;
@@ -2713,42 +2821,16 @@ esp_err_t draw_voice_input_rows()
         if (error != ESP_OK) return error;
         const size_t available_rows = (capacity / (466 * sizeof(uint16_t))) & ~size_t{1};
         if (storage == nullptr || available_rows < 2 || available_rows > 466) return ESP_ERR_INVALID_SIZE;
-        const uint16_t rows = static_cast<uint16_t>(std::min<size_t>(available_rows, 466 - row));
+        // Two rows keep all partial regions aligned with the native DMA contract.
+        constexpr uint16_t rows = 2;
         CODY2D::Surface strip{static_cast<uint16_t *>(storage), 466, rows, 466,
             static_cast<uint32_t>(capacity / sizeof(uint16_t)), CODY2D::Rgb565ByteOrder::ByteSwapped};
         error = CODY2D::clear(strip, 0);
-        for (uint16_t bar = 0; error == ESP_OK && bar < 7; ++bar) {
-            const int top = 215 - heights[wave_frame][bar] / 2;
-            const int bottom = top + heights[wave_frame][bar];
-            const int clipped_top = std::max<int>(top, row);
-            const int clipped_bottom = std::min<int>(bottom, row + rows);
-            if (clipped_top < clipped_bottom) error = CODY2D::fill_rect(strip,
-                {static_cast<uint16_t>(152 + bar * 24), static_cast<uint16_t>(clipped_top - row), 14,
-                    static_cast<uint16_t>(clipped_bottom - clipped_top)}, 0x2D5F);
-        }
-        // The single Cancel action uses a semantic capsule with an icon before its label.
-        if (cancellable) {
-            for (uint16_t offset = 0; error == ESP_OK && offset < rows; ++offset) {
-                const int y = row + offset;
-                if (y >= 333 && y < 385) {
-                    constexpr uint8_t inset[26] = {26,19,16,14,12,10,9,8,7,6,5,4,4,3,3,2,2,1,1,1,1,0,0,0,0,0};
-                    const size_t edge = static_cast<size_t>(std::min(y - 333, 384 - y));
-                    const uint16_t left = static_cast<uint16_t>(103 + inset[edge]);
-                    const uint16_t color = static_cast<uint16_t>((12 + (y - 333) / 13) << 11 | 8 << 5 | 7);
-                    error = CODY2D::fill_rect(strip, {left, offset,
-                        static_cast<uint16_t>(363 - inset[edge] - left), 1}, color);
-                    const int icon_row = y - 353;
-                    if (error == ESP_OK && icon_row >= 0 && icon_row < 14) {
-                        const uint16_t icon_left = static_cast<uint16_t>((466 - cancel_width) / 2 - 18);
-                        error = CODY2D::fill_rect(strip, {static_cast<uint16_t>(icon_left + icon_row), offset, 2, 1}, 0xF7BE);
-                        if (error == ESP_OK) error = CODY2D::fill_rect(strip,
-                            {static_cast<uint16_t>(icon_left + 13 - icon_row), offset, 2, 1}, 0xF7BE);
-                    }
-                }
-            }
-        }
-        if (error == ESP_OK) error = CODY2D::draw_text_rows(s_voice_title, length, strip, row, 0);
-        if (error == ESP_OK && cancellable) error = CODY2D::draw_text_rows(s_voice_cancel, cancel_length, strip, row, 0);
+        if (error == ESP_OK) error = draw_voice_ribbon(strip, row, pose);
+        if (error == ESP_OK) error = CODY2D::draw_text_rows(s_voice_title, s_voice_title.text.length, strip, row, 0);
+        if (error == ESP_OK) error = CODY::draw_activity_identity(s_voice_identity, strip, row, 0);
+        if (error == ESP_OK && cancellable) error = CODY2D::draw_text_rows(s_voice_shake, s_voice_shake.text.length, strip, row, 0);
+        if (error == ESP_OK) error = CODY2D::draw_text_rows(s_voice_timer, s_voice_timer.text.length, strip, row, 0);
         if (error == ESP_OK) error = LUNASHELL_display_frame_submit_rgb565(0, row, 466, row + rows, storage);
         if (error != ESP_OK) return error;
         row += rows;
@@ -2813,14 +2895,23 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const bool voice_visible = voice_active || (voice_terminal && s_voice_input_view.input.changed_at_us > 0 &&
         esp_timer_get_time() - s_voice_input_view.input.changed_at_us < 3000000);
     if (voice_visible) {
+        s_voice_force_full = resume_animation;
         esp_err_t error = set_companion_typewriter_suspended(true);
         suspend_optional_personality_audio(true);
         if (error == ESP_OK) error = CODY::set_codex_audio_suspended(true);
         if (error == ESP_OK) error = draw_voice_input_rows();
         const DrawResult completed = frame.finish({error, false, LUNASHELL_display_runtime_content_revision()});
         if (completed.error == ESP_OK) {
-            // Only a fully retired frame admits its visible Cancel control.
+            // Only a fully retired frame admits the visible shake-only input gesture.
+            if (!s_voice_view_visible) {
+                CODY::cancel_companion_tap(s_state.companion_tap);
+                CODY::cancel_petting(s_state.petting);
+                s_state.setup_hold_candidate = false;
+                s_state.setup_hold_eligible = false;
+                s_state.body_drag_active = false;
+            }
             s_voice_view_visible = true;
+            s_voice_view_rotation = s_state.rendered_rotation_degrees;
             s_voice_view_phase = voice_phase;
             s_voice_view_started_at_us = s_voice_input_view.input.started_at_us;
             s_state.frame_dirty.store(false, std::memory_order_release);
@@ -4449,11 +4540,6 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
     if (s_voice_view_visible) {
         s_state.touch_pressed = point.pressed;
         CODY::cancel_companion_tap(s_state.companion_tap);
-        if (pressed_edge && point.x >= 103 && point.x < 363 && point.y >= 333 && point.y < 385 &&
-            (s_voice_input_view.input.phase == LUNASHELL::VoiceInputPhase::Listening ||
-             s_voice_input_view.input.phase == LUNASHELL::VoiceInputPhase::Sending)) {
-            return LUNASHELL::cancelVoiceInput();
-        }
         return ESP_OK;
     }
 #endif

@@ -22,7 +22,7 @@ from ccp_windows import configure_exclusive_socket, runtime_directory
 HEADER = struct.Struct("!4s6s16s16sIBH")
 PORT = 42119
 MAX_PACKET = 1025
-MAX_PCM = 16000 * 2 * 120
+MAX_PCM = 16000 * 2 * 60
 MAX_RECORDINGS = 64
 MAX_ACTIVE = 4
 
@@ -274,7 +274,7 @@ class VoiceInputServer:
                     raise ValueError("Audio START replay is invalid")
                 if flag == 2:
                     if size == 0 or len(recording.pcm) + size > MAX_PCM:
-                        recording.status, recording.error = 5, "Audio input exceeds its 120-second bound"
+                        recording.status, recording.error = 5, "Audio input exceeds its 60-second bound"
                     else:
                         recording.pcm.extend(plaintext)
                         recording.status = 2
