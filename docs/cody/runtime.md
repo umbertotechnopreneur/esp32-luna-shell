@@ -480,6 +480,9 @@ and an acquired double tap on the visible character. A single character tap wait
 Movement, stale/broken touch, rotation and explicit controls disqualify a double
 tap. The existing power owner handles standby wake; speech inference and enhanced
 mono PCM remain owned by the sole existing ESP-SR AFE.
+Wake-word admission skips its detection block and begins with the next real AFE
+block. No wake-word cache is prepended; wake-word tail exclusion and preservation
+of an immediately following command still need physical observation.
 
 Voice input has presentation priority while retaining the interrupted route and
 its real question deadlines. The character, geometry evaluation and normal scene
@@ -488,6 +491,9 @@ visible local control; it cannot revoke a turn already accepted by Codex. End of
 speech uses 1.2 seconds of actual VAD silence after speech, with an eight-second
 no-speech deadline and a 120-second maximum utterance. The overall capture/delivery
 budget is 150 seconds. New triggers never start a second simultaneous capture.
+Explicit sleep and microphone pauses stop this input even when standby retains
+the recognition microphone. If END may already have left the device, the result
+is `Unconfirmed`, requiring review on the PC rather than claiming cancellation.
 
 The component-owned PSRAM ring is 160,000 PCM16 samples: 320,000 bytes, or ten
 seconds of **unacknowledged** 16 kHz mono audio. It is not an utterance-duration

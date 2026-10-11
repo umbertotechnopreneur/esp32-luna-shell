@@ -241,6 +241,7 @@ headroom and the prepared host/simulator cases remain unverified.
   sleep with retained wake-word microphone, microphone pause, waveform
   layout/cancellation and actual 8-FPS CPU savings. Exercise ten-second PSRAM
   pressure, lost/duplicate/reordered/forged ACKs, fresh-discovery replay binding,
+  wake-word tail and first-command preservation without a fabricated pre-roll,
   expiry, native errors and changed followed chats. Prepared `cody-voice-input`
   host cases have not run. Revisit all callers after the bounded voice snapshot
   growth; inspect compiled AFE/CCP/render frames and measure stack/PSRAM headroom.

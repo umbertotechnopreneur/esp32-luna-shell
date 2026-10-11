@@ -515,10 +515,17 @@ void voice_fetch_task(void *arg)
 #endif
         publish_voice(LUNASHELL::VoiceState::Listening, ESP_OK, detected_at_us);
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        bool capture_started_here = false;
         if (detected_at_us != 0) {
             // The explicit event is handled even while Cody is already awake.
             const esp_err_t error = LUNASHELL::requestVoiceInput(LUNASHELL::VoiceInputTrigger::WakeWord);
+            capture_started_here = error == ESP_OK;
             if (error != ESP_OK) ESP_LOGE(kTag, "Wake-word capture admission failed (%s)", esp_err_to_name(error));
+        }
+        // Detection is the admission event, not the user's first audio packet.
+        // Start with the next acquired block; do not prepend a wake-word cache.
+        if (capture_started_here) {
+            continue;
         }
         if (result->data_size <= 0 || (result->data_size % int(sizeof(int16_t))) != 0) {
             LUNASHELL::feedVoiceInput(nullptr, 0, false, ESP_ERR_INVALID_SIZE);
