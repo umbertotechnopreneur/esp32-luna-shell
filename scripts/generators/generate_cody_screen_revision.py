@@ -69,24 +69,6 @@ def replacements(name):
     return {
         "cody-navigation-atlas-v1.pdf": {2: BOOT, 3: NETWORK, 4: SETUP, 12: PREFERENCES},
         "cody-planning-atlas-v1.pdf": {4: BOOT, 5: NETWORK, 6: Page("Finish Wi-Fi without inventing success", NETWORK.subtitle, NETWORK.sections), 7: PREFERENCES, 8: PAIRING},
-        "cody-ccp-pairing-quickstart-a5-v1.pdf": {
-            1: Page("Install CCP and pair the intended Cody", "Local plugin, LAN and the visible six-character code.", (
-                ("1 / Install the local plugin", "From the repository root run codex plugin marketplace add .; install and enable CCP - Cody's Codex Plugin from Cody local plugins. Python must be available as python."),
-                ("2 / Open the correct pairing route", "Complete Wi-Fi first. Hold Cody for 1.5 seconds to open Setup, then Connect Codex. Keep pairing retains a saved PC; Pair again explicitly replaces it. Wait for the actual six-character code on 12, discover Cody, then pair from the intended PC."),
-                ("3 / Confirm actual outcomes", "You're all set confirms the two-sided saved handshake. Let's go searches the retained PC immediately. Connected requires authenticated presence. An absent PC does not require another pairing code."),
-            )),
-            2: Page("Reconnect, personalize and respond", "Setup 41 / Options 10-36-11 / decisions 26-27-31.", (
-                ("Preferences preserve pairing", "Options opens Shake to wake, Auto-rotate, Sounds and Orientation. Next -> Settings -> Continue -> Skin; Done returns to Setup. Values change only after successful saving. Sounds Off preserves microphone and wake word."),
-                ("Read before sending", "Open a question, read its two or three choices, then review the selection. Send submits it; Back returns to the choices. Reply sent requires the recipient's delivery acknowledgment. An expired or cancelled question never selects for you."),
-                ("Keep the existing boundaries", "Genuine prompt hooks supply chat activity; an explicit MCP question supplies its own context. PR views remain read-only and native approvals stay On your PC. The previous notification and decision addenda remain in force."),
-            )),
-        },
-        "cody-ccp-service-atlas-v1.pdf": {
-            3: Page("Discovery follows the intended UI route", "Screens 40-42 and 12 / provisioning and authenticated rediscovery remain separate.", SETUP.sections),
-            4: Page("The visible code identifies the candidate", PAIRING.subtitle, PAIRING.sections),
-            6: Page("One retained identity, explicit recovery", SETUP.subtitle, (SETUP.sections[1], PAIRING.sections[1])),
-        },
-        "cody-codex-connection-atlas-v1.pdf": {2: PAIRING, 3: Page("Before connecting Codex", NETWORK.subtitle, (NETWORK.sections[1], SETUP.sections[0])), 4: Page("Wait for the actual secure code", PAIRING.subtitle, PAIRING.sections, ("code",)), 6: Page("All set, then connect immediately", PAIRING.subtitle, PAIRING.sections, ("all-set", "connected")), 7: SETUP, 8: Page("Search the same retained PC", "Screen 14 / absence of a PC is not absence of pairing.", (PAIRING.sections[1], SETUP.sections[1])), 12: Page("Retry the failed operation", "Screens 08, 12, 14 and 40 / preserve the original error and identity.", (NETWORK.sections[0], PREFERENCES.sections[1], SETUP.sections[1]))},
         "cody-manga-status-atlas-v1.pdf": {2: Page("Identity before expressive cues", "Current boot and setup context / the fourteen cue identities remain stable.", (BOOT.sections[0], ("Cues respect the route", "Boot, onboarding, settings and small headers suppress manga symbols. Main/Idle and semantic Sleep keep their existing cue rules. Preferences and pairing do not fabricate device health or replace canonical snapshot data.")), ("boot",))},
     }[name]
 
@@ -297,7 +279,10 @@ def main(argv=None):
         raise ValueError("Document staging must remain under repository artifacts")
     staging.mkdir(parents=True, exist_ok=True)
     register_fonts(Path("C:/Windows/Fonts"))
-    names = tuple(path.name for path in sorted((ROOT / "docs/cody").glob("*.pdf")))
+    # This historical revision targets only its three original editable atlases.
+    # The canonical communication atlas and four-page flyer have dedicated owners.
+    names = ("cody-navigation-atlas-v1.pdf", "cody-planning-atlas-v1.pdf",
+             "cody-manga-status-atlas-v1.pdf")
     originals = {}
     if args.redraft:
         manifest_bytes = (staging / "manifest.json").read_bytes()

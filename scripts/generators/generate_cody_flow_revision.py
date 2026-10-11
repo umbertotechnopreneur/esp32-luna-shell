@@ -14,7 +14,7 @@
 #
 # VBWR E
 
-"""Revise the five Cody flow PDFs in place while preserving their dated history."""
+"""Reproduce the dated planning/navigation flow revision from its historical inputs."""
 
 import argparse
 from dataclasses import dataclass
@@ -46,9 +46,6 @@ WHITE = HexColor("#FFFFFF")
 class DocumentId(str, Enum):
     Navigation = "navigation"
     Planning = "planning"
-    Quickstart = "ccp-pairing-quickstart-a5"
-    Service = "ccp-service"
-    Connection = "codex-connection"
 
 
 class Layout(str, Enum):
@@ -77,9 +74,6 @@ class DocumentSpec:
 DOCUMENTS = {
     DocumentId.Navigation: DocumentSpec("cody-navigation-atlas-v1.pdf", "NAVIGATION ATLAS", 42, 12),
     DocumentId.Planning: DocumentSpec("cody-planning-atlas-v1.pdf", "PLANNING ATLAS", 42, 22),
-    DocumentId.Quickstart: DocumentSpec("cody-ccp-pairing-quickstart-a5-v1.pdf", "CCP QUICK START", 17, 2),
-    DocumentId.Service: DocumentSpec("cody-ccp-service-atlas-v1.pdf", "CCP SERVICE ATLAS", 24, 10),
-    DocumentId.Connection: DocumentSpec("cody-codex-connection-atlas-v1.pdf", "CODEX CONNECTION ATLAS", 28, 14),
 }
 
 COVER = (
@@ -441,51 +435,6 @@ def main_revisions(identity):
             21: PageSpec("Un linguaggio UI, anche per decidere", "Riferimenti approvati / card 2 o 2+1; riepilogo separato con capsula Send.", (), Layout.Actions),
             22: PageSpec("Dove finisce il compito di Cody", "A03 resta in vigore / approvazioni native e diagnosi non passano al dispositivo.", SCOPE),
         }
-    if identity == DocumentId.Quickstart:
-        return {
-            1: PageSpec("Installo CCP sul mio PC", "Windows / plugin locale / Python disponibile come comando python.", (
-                ("1 / Registro la sorgente locale", "Dalla radice del repository eseguo "
-                 "codex plugin marketplace add . per registrare il catalogo incluso. "
-                 "Installo e abilito CCP - Cody's Codex Plugin dal catalogo Cody local plugins."),
-                ("2 / Collego il dispositivo", "Uso il codice visibile su Cody. Se e' "
-                 "gia' associato scelgo Keep pairing; Pair again richiede consenso. "
-                 "Un'interruzione della LAN non richiede un codice nuovo."),
-                ("3 / Attivita' oppure richiesta esplicita", "Gli hook autorizzati "
-                 "seguono l'ultimo prompt reale con orchestrazione locale. Posso "
-                 "inviare avvisi/domande con MCP senza inventare hook o identita' di chat."),
-                ("4 / Tengo il perimetro chiaro", "Per CCP bastano Wi-Fi e IP sulla LAN. "
-                 "Le PR restano in sola lettura e le approvazioni native On your PC. "
-                 "Tengo separate le prove dai sorgenti e registro gli esiti in done.md."),
-            )),
-            2: PageSpec("Leggo, scelgo, invio", "Screen 26 -> 27 -> 31 / una ricezione UDP non basta a dire consegnato.", QUESTIONS),
-        }
-    if identity == DocumentId.Service:
-        return {
-            1: PageSpec("CCP porta stati e richieste esplicite", "Presenza, attivita', ticket e consegna hanno prove diverse.", COVER),
-            2: PageSpec("Hook e ticket hanno identita' separate", "CCP 0.6 / non uso context per inventare una chat seguita.", SCOPE),
-            7: PageSpec("Estendo CCP1 con EVENT e REPLY", "Screen 26/27 e PR 21-24 / messaggi autenticati e contenuti rappresentabili.", WIRE),
-            8: PageSpec("La ricevuta del broker non e' la consegna", "Screen 31 / ticket privato, poll del chiamante e ACK esplicito.", DELIVERY),
-            9: PageSpec("Confini di contenuto e fiducia", "Decisioni limitate / niente capability sulla LAN o azioni PR nel wire.", (
-                ("Conservo le protezioni del pairing", "Uso salt e sessione nuovi, prove HMAC "
-                 "legate alle identita' e un solo match del codice. Il PC protegge le chiavi "
-                 "con DPAPI; Cody conserva un record NVS versionato."),
-                ("Autenticazione, non cifratura", "CCP1 non e' PAKE o TLS. PBKDF2 rende piu' "
-                 "costosi i tentativi offline; il CRC NVS rileva corruzione, senza cifrare "
-                 "la chiave. Anche il contenuto EVENT e' autenticato, non cifrato."),
-                DELIVERY[0],
-                ("Rete locale e revisione di produzione", "Il codice di pairing a sei caratteri non viaggia in chiaro "
-                 "nei pacchetti CCP1; non e' una promessa sulla cronologia Codex. Tengo "
-                 "aperta la revisione di guessing, replay/rate limit, key storage e reti ostili."),
-            )),
-            10: PageSpec("Rete, durata e limiti delle prove", "Domanda 180 secondi / presenza 8 / attivita' hook 120.", RECOVERY),
-        }
-    if identity == DocumentId.Connection:
-        return {
-            1: PageSpec("Cody / Dal collegamento alla decisione", "Conservo il PC; distinguo notifica, scelta e conferma di consegna.", COVER),
-            10: PageSpec("Connected, poi avvisi e domande", "Screen 15, 26 e 27 / l'etichetta context non e' l'identita' della chat.", NOTICES),
-            11: PageSpec("Offline non risponde per me", "Screen 26/27, 32 e 35A/35B / conservo il percorso e rispetto la scadenza.", RECOVERY),
-            13: PageSpec("Chi conferma la risposta?", "Screen 31 / il destinatario MCP deve riconoscere la ricezione.", DELIVERY),
-        }
     raise ValueError("Unknown flow document identity: " + str(identity))
 
 
@@ -494,12 +443,8 @@ def main_revisions(identity):
 # Returns four pages ending with the mandatory current revision errata.
 def appendix_revisions(identity, changed):
     page_list = ", ".join(str(page) for page in sorted(changed))
-    if identity == DocumentId.Quickstart:
-        page_copy = "Ho aggiornato le due pagine iniziali: installazione locale, " \
-            "richieste esplicite e flow 26/27/31. Conservo lo storico precedente."
-    else:
-        page_copy = "Ho aggiornato le pagine principali coinvolte, mantenendo " \
-            "quelle estranee al flow e gli addenda precedenti. Uso gli screen ID."
+    page_copy = "Ho aggiornato le pagine principali coinvolte, mantenendo " \
+        "quelle estranee al flow e gli addenda precedenti. Uso gli screen ID."
     errata = (
         ("Pagine originali " + page_list, page_copy),
         ("Screen 21-27 e 31-32", "Ho applicato A03: PR in sola lettura e 25 ritirato. "

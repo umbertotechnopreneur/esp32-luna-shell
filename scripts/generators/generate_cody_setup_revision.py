@@ -14,7 +14,7 @@
 #
 # VBWR E
 
-"""Append the requested startup/setup correction to the five existing Cody PDFs."""
+"""Reproduce dated setup corrections for the planning and navigation atlases."""
 
 import argparse
 from enum import Enum
@@ -56,15 +56,6 @@ DOCUMENTS = {
     "cody-planning-atlas-v1.pdf": (
         "PLANNING ATLAS", "Original pages 02 (inventory), 07 (preferences/PC setup) and 26 "
         "(A04 handoff); screens 04-16, 35B, 36. The inventory gains 40, 41 and 42."),
-    "cody-ccp-pairing-quickstart-a5-v1.pdf": (
-        "CCP QUICK START", "Original page 01 (ZIP installation concept) and page 02 "
-        "(pairing entry and reconnect); screens 11-16. The original two-sided leaflet is retained."),
-    "cody-ccp-service-atlas-v1.pdf": (
-        "CCP SERVICE ATLAS", "Original pages 01 (scope), 06 (retained link) and 07 "
-        "(rediscovery); screens 12-16. Existing protocol/security qualifications remain in force."),
-    "cody-codex-connection-atlas-v1.pdf": (
-        "CODEX CONNECTION ATLAS", "Original pages 02 (whole journey), 03 (prerequisites), "
-        "04 (code), 07-08 (Idle/search), 11 (returning PC) and 13 (owners); screens 11-16."),
 }
 
 
@@ -534,9 +525,6 @@ def activity_errata_page(pdf, dimensions, label, name, number, original_count):
     affected = {
         "cody-navigation-atlas-v1.pdf": "Original pages 5-6 and 8; screens 15-20, 26-27, 31-32.",
         "cody-planning-atlas-v1.pdf": "Original pages 9-10 and 25; screens 17-20, 21-24 and 32.",
-        "cody-ccp-service-atlas-v1.pdf": "Original pages 1-2, 7-8 and 10; scope and runtime ownership.",
-        "cody-codex-connection-atlas-v1.pdf": "Original pages 10-11 and 13; screen 15 and reconnect ownership.",
-        "cody-ccp-pairing-quickstart-a5-v1.pdf": "Original pages 1-2 and setup addendum page 5; installation and screen 15.",
     }[name]
     width, height = dimensions
     margin = 26 if width < 500 else 34
@@ -579,6 +567,10 @@ def selected_revision_id(revision):
 # revision: Explicit typed revision; each can be appended exactly once.
 # Raises OSError or ValueError for missing/ambiguous inputs; publishes only fully authored PDFs.
 def revise(name, label, affected, staging, revision):
+    # Historical appendices are never valid input for the dedicated four-page flyer
+    # or the canonical communication atlas, even through a direct helper call.
+    if name not in DOCUMENTS:
+        raise ValueError("Unsupported historical setup atlas: " + name)
     source = ROOT / "docs/cody" / name
     reader = PdfReader(source)
     revision_id = selected_revision_id(revision)
@@ -605,16 +597,13 @@ def revise(name, label, affected, staging, revision):
         added = 2
     elif revision == RevisionKind.Recovery:
         recovery_page(pdf, dimensions, label, original_count + 1)
-        setup_page_number = original_count - (2 if "quickstart" in name else 1)
+        setup_page_number = original_count - 1
         recovery_errata_page(pdf, dimensions, label, original_count + 2, original_count, setup_page_number)
         added = 1
     else:
         startup_page(pdf, dimensions, label, original_count + 1)
         setup_page(pdf, dimensions, label, original_count + 2)
         added = 2
-        if "quickstart" in name:
-            install_page(pdf, dimensions, label, original_count + 3)
-            added += 1
         errata_page(pdf, dimensions, label, affected, original_count + added + 1, original_count)
     pdf.save()
     buffer.seek(0)

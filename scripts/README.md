@@ -99,9 +99,15 @@ remain explicit generators through this console:
 ```powershell
 .\scripts\device.ps1 generate -Generator cody-connection-atlas
 .\scripts\device.ps1 generate -Generator cody-pairing-flyer
-.\scripts\device.ps1 generate -Generator cody-security-atlases
-.\scripts\device.ps1 generate -Generator cody-pdf-english
+.\scripts\device.ps1 generate -Generator cody-planning-atlas
+.\scripts\device.ps1 generate -Generator cody-navigation-atlas
 ```
+
+`cody-connection-atlas` authors the single CCP Communication Atlas, including
+server/client ownership, pairing, protocol messages, native audio and its final
+dated Security/revision grid. The A5 flyer remains a separate four-page guide.
+Historical flow/setup/screen/security/translation generators retain reproduction
+safeguards and are not the current authoring path for these documents.
 
 PDF revisions preserve original dates, page/screen IDs and evidence, and use
 the shared final revision register required by [AGENTS.md](../AGENTS.md).

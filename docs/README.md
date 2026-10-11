@@ -33,12 +33,13 @@ the folder structure does not claim additional firmware support.
 | [Navigation Atlas](cody/cody-navigation-atlas-v1.pdf) | Routes, returns, questions and read-only PR updates |
 | [Planning Atlas](cody/cody-planning-atlas-v1.pdf) | Screen inventory, layout and product boundaries |
 | [Pairing Quickstart](cody/cody-ccp-pairing-quickstart-a5-v1.pdf) | Four-page A5 flyer for nontechnical users |
-| [CCP Connection Atlas](cody/cody-ccp-connection-atlas-v1.pdf) | Combined connection, broker, persistence and security reference |
+| [CCP Communication Atlas](cody/cody-ccp-connection-atlas-v1.pdf) | Canonical technical reference for the PC service, device client, protocol, audio and security |
 | [Manga Status Atlas](cody/cody-manga-status-atlas-v1.pdf) | Expressive cues, artwork and boot identity |
 
-The former [service atlas](cody/cody-ccp-service-atlas-v1.pdf) and
-[Codex connection atlas](cody/cody-codex-connection-atlas-v1.pdf) are historical
-sources. Screen IDs remain stable independently of page numbers. PDF authoring
+Earlier service and Codex connection atlases are historical sources retained in
+Git; their substantive history belongs to the Communication Atlas revision
+register. The four-page Pairing Quickstart remains a separate nontechnical flyer.
+Screen IDs remain stable independently of page numbers. PDF authoring
 commands and translation provenance are in the [console guide](../scripts/README.md).
 Document illustrations and simulator frames are synthetic evidence.
 

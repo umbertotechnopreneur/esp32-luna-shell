@@ -171,7 +171,7 @@ def pairing_page(pdf):
     text(pdf, "Replace ... with the code on Cody.", MARGIN + 31, y - 46, 10, color=MUTED)
     y -= 79
     y = step(pdf, 3, "Wait for confirmation", "Wait for You're all set on Cody, then tap Let's go. Cody looks for your PC straight away. Connected means it has found CCP.", y)
-    callout(pdf, "If Cody already remembers a PC", "Choose Keep pairing to reconnect. Use Pair again only when you intend to replace it. A temporary disconnection needs no new code.", min(y + 5, 144), 78)
+    callout(pdf, "If Cody already remembers a PC", "Choose Keep link to reconnect. Use Pair again only when you intend to replace it. A temporary disconnection needs no new code.", min(y + 5, 144), 78)
     pdf.showPage()
 
 

@@ -19,8 +19,6 @@ MAPPINGS = ROOT / "assets/cody/docs/translations"
 DOCUMENTS = {
     "navigation": "cody-navigation-atlas-v1.pdf",
     "planning": "cody-planning-atlas-v1.pdf",
-    "service": "cody-ccp-service-atlas-v1.pdf",
-    "legacy-connection": "cody-codex-connection-atlas-v1.pdf",
 }
 
 
