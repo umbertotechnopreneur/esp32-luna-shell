@@ -237,7 +237,8 @@ headroom and the prepared host/simulator cases remain unverified.
   on 2026-10-07; full/Release and broader reliability remain open.
   The new Cody source consumer starts capture from awake/standby Sophia events or
   acquired double taps. Validate the derived Cody/Wi-Fi/Codex-only gate, 420-ms
-  single-tap delay, failed/stale touch and rotation, route restoration, waveform
+  single-tap delay, failed/stale touch and rotation, route restoration, explicit
+  sleep with retained wake-word microphone, microphone pause, waveform
   layout/cancellation and actual 8-FPS CPU savings. Exercise ten-second PSRAM
   pressure, lost/duplicate/reordered/forged ACKs, fresh-discovery replay binding,
   expiry, native errors and changed followed chats. Prepared `cody-voice-input`

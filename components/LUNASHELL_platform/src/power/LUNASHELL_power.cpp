@@ -21,6 +21,7 @@
 
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_voice_input.hpp"
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_power_policy.hpp"
 #include "LUNASHELL_standby_policy.hpp"
@@ -1686,6 +1687,14 @@ esp_err_t set_standby(
     }
 
     if (standby) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        // Explicit sleep also stops input when wake-word listening retains the microphone.
+        const esp_err_t input_error = LUNASHELL::pauseVoiceInput();
+        if (input_error != ESP_OK) {
+            ESP_LOGE(kTag, "Standby voice input retirement failed (%s)", esp_err_to_name(input_error));
+            return input_error;
+        }
+#endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
         const uint32_t activity_before_standby =
             s_activity_sequence.load(std::memory_order_acquire);

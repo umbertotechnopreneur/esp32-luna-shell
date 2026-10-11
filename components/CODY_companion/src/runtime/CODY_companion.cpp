@@ -2796,7 +2796,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     if (s_voice_tap_due_us != 0 && esp_timer_get_time() >= s_voice_tap_due_us) {
         s_voice_tap_due_us = 0;
-        if (companion_home_route_active()) {
+        if (companion_home_route_active() && !s_state.touch_pressed &&
+            s_voice_tap_rotation == s_state.rendered_rotation_degrees) {
             const esp_err_t panel_error = advance_local_companion_panel();
             if (panel_error != ESP_OK) return frame.finish({panel_error, false, 0});
         }

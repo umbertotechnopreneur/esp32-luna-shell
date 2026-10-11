@@ -25,6 +25,10 @@ private local diagnostics, not publication artifacts.
   with AES-256-GCM, fresh-discovery session binding, nonce-separated ACKs, exact
   ciphertext retransmission and explicit cancellation. No device SD/flash audio
   storage or new firmware task/stack enlargement was introduced.
+- Explicit sleep and acquisition pauses retire active audio even when standby
+  retains the wake-word microphone. An already transmitted input stays unconfirmed
+  instead of claiming cancellation; a held or rotated second tap does not advance
+  the technical panels. Native submission uses one bounded 15-second deadline.
 - Plugin 0.6.5 adds bounded receive/delivery workers, private PCM WAV artifacts,
   exact followed-chat binding and native localAudio submission. The installed
   Codex schema was exported through `device.ps1 generate -Generator cody-codex-audio-schema`
