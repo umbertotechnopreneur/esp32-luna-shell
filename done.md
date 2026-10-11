@@ -13,6 +13,17 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## VibeWare repository presentation and license - 2026-10-12
+
+- Aligned the root README with the VibeWare initiative: `This is VibeWare`
+  heading, approved logo, canonical manifesto, both GitHub repositories,
+  personal site, Terms and Privacy. Removed the generic software-with-AI
+  disclosure; website links carry GitHub referral UTM fields with distinct
+  placements. Added the project MIT license from the owner's brand template
+  and expanded existing third-party notices for speech, wake-word and branding
+  license boundaries. Recorded the footer convention in AGENTS.md. Static
+  document review only; no website availability, build or runtime checks.
+
 ## Voice presentation and unified communication reference - 2026-10-12
 
 - Replaced the three working dots with three rotating gears, with the middle

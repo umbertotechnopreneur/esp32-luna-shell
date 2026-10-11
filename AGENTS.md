@@ -68,6 +68,13 @@ instruction file; do not add parallel agent or Copilot contracts.
   Conversation with the user may remain Italian. The English requirement also
   covers PDF titles, diagrams, captions, footers and historical text in revised
   documents; preserve original dates, screen IDs and evidence when translating.
+- Keep the root README footer headed `This is VibeWare` with the canonical
+  manifesto, approved logo, project/VibeWare GitHub links, personal site,
+  Terms and Privacy. Explain the initiative without claiming the software is
+  finished or using a generic "I created this software with AI" disclosure.
+  Website footer links use `utm_source=github`, `utm_medium=referral`,
+  `utm_campaign=esp32-luna-shell` and placement-specific `utm_content`.
+  Preserve the root license and third-party license boundaries.
 
 - Cody action layout decision (2026-10-09): two actions use rounded gradient
   cards side by side; three use the same pair plus one centered action below.
