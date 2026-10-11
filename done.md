@@ -15,6 +15,11 @@ private local diagnostics, not publication artifacts.
 
 ## Connection, activity and CCP operator reference - 2026-10-12
 
+- Follow-up: the middle price band now reads `Reasonable price` in full.
+  Expanded the Model-only chip to 196 pixels and kept its independent timer
+  inside the same 320-pixel row. The price chip fades with Model and disappears
+  during Project/Branch. Static review only; no additional checks or flash.
+
 - Implemented a silent active-time discovery cycle: connected Wi-Fi symbol,
   question mark, moving lens, worry/fear and recovery. Search standby is ten
   minutes; Working is three minutes. A real software-standby wake into Working

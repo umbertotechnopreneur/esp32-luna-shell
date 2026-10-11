@@ -70,9 +70,10 @@ context bar occupies y=389 through 400. Session & Link admits six rows starting
 at y=234. These two panels omit the passive gesture hint to preserve row space;
 tap still advances and deliberate shake returns Home.
 Home uses the project/branch/model identity viewport at (73,300), 320 x 28.
-Its Model-only 150 x 28 price chip at y=330 is centered at x=233 without a timer,
-or moves to x=85 beside the timer centered at x=320. Colors are green Cheap,
-orange Reasonable, red Expensive, and gray Unavailable. Both layouts stay within
+Its Model-only 196 x 28 price chip at y=330 is centered at x=233 without a timer,
+or moves to x=73 beside the timer centered at x=335. The timer has a 116-pixel
+slot; both controls remain inside the existing 320-pixel damage row. Colors are
+green Cheap, orange Reasonable price, red Expensive, and gray Unavailable. Both layouts stay within
 their occupied circular chords and retain the description viewport below y=360.
 
 The standalone status layer shows date at (122,32), local HH:MM at (122,47),

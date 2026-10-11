@@ -415,6 +415,8 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
         }
         if (presentation.cost_band == LUNASHELL::CodexCostBand::Unknown) {
             std::strcpy(presentation.cost_caption, "Price unavailable");
+        } else if (presentation.cost_band == LUNASHELL::CodexCostBand::Balanced) {
+            std::strcpy(presentation.cost_caption, cost_band_text(presentation.cost_band));
         } else {
             std::snprintf(presentation.cost_caption, sizeof(presentation.cost_caption), "Std price: %s",
                 cost_band_text(presentation.cost_band));

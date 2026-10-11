@@ -62,11 +62,12 @@ desktop approval routing and physical voice behavior are separate evidence. This
 0.6.5 source increment is unbuilt/uninstalled; the previous installed plugin and
 device remain on their earlier images until explicitly updated.
 
-Home shows a **Cheap / Reasonable / Expensive / Unavailable** price chip only
-while the Model carousel item is visible. Cheap is green, Reasonable orange,
+Home shows a **Cheap / Reasonable price / Expensive / Unavailable** price chip only
+while the Model carousel item is visible. Cheap is green, Reasonable price orange,
 Expensive red, and Unavailable gray. The elapsed timer remains independent.
 A band-only update does not restart the carousel, title reveal or sound.
-**Model & Context** repeats known bands as **Std price: ...** and otherwise
+**Model & Context** shows **Reasonable price** or the other known bands as
+**Std price: ...** and otherwise
 shows **Price unavailable**, keeping compaction and context status separate.
 
 The portable Python catalog owner downloads the

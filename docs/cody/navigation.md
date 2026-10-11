@@ -11,7 +11,7 @@ hidden or sleeping views do not advance the narrative.
 
 Working uses a three-minute screen standby interval. Project, Branch and Model
 are explicit carousel labels; Model is orange and its price chip appears only
-during Model. Display bands are Cheap, Reasonable and Expensive; missing price
+during Model. Display bands are Cheap, Reasonable price and Expensive; missing price
 metadata remains unavailable. These Standard catalog classes do not measure chat
 spending or model quality. The activity timer is retained. Current native tool
 names supplement absent progress descriptions; arguments and command bodies are

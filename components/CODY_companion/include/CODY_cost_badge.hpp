@@ -11,7 +11,7 @@ constexpr const char *cost_band_text(LUNASHELL::CodexCostBand band)
     using Band = LUNASHELL::CodexCostBand;
     switch (band) {
     case Band::Economy: return "Cheap";
-    case Band::Balanced: return "Reasonable";
+    case Band::Balanced: return "Reasonable price";
     case Band::Expensive: return "Expensive";
     default: return "Unavailable";
     }
