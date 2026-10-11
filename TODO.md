@@ -21,6 +21,20 @@ headroom and the prepared host/simulator cases remain unverified.
 
 ## Reproduced device faults
 
+- [ ] **FAULT-04 - Reported Codex-choice reboot loop.** The 12 October passive
+  COM10 capture of `cody-114-g33377507` retained reset reason 4 (`ESP_RST_PANIC`)
+  from the preceding boot, but no panic/backtrace occurred in the 30-second
+  window or the later 60-second window (device uptime reached 277.954 seconds).
+  Recover the first panic with the matching ELF while the actual choice occurs;
+  the trigger and cause remain unconfirmed. Observed companion minimum free
+  stack reached 2,736/12,288 bytes. Keep the original ELF and captures in
+  `artifacts/build-cody-companion-wake-word-evidence/reboot-20261012-33377507/`.
+- [ ] **UI-ACCENT-01 - Animated activity icons.** Source replaces working dots
+  with three counter-rotating gears and waiting/compaction accents with a fast
+  two-hand clock. Validate the final build, visible animation, partial repaint
+  retirement, rotations and device stack headroom when explicitly authorized.
+  The changed icon source has not been built, simulated or flashed.
+
 - [ ] **BATTERY-01 - Quiet battery notices.** Firmware source implements free-Home
   admission after ten seconds, four-second caption/manga dwell, 20/10-percent
   warnings, charging-entry and measured-full events. Validate canonical stale/error

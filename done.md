@@ -15,6 +15,22 @@ private local diagnostics, not publication artifacts.
 
 ## Voice presentation and unified communication reference - 2026-10-12
 
+- Replaced the three working dots with three rotating gears, with the middle
+  gear turning in the opposite direction. Waiting and compaction use a fast
+  two-hand analog clock instead of pause bars/hourglass. Antialiased polygons
+  remain in the existing `[324,374) x [118,179)` damage region, with active-time
+  animation and unchanged hidden/ready behavior. Gear and hand pose tables use
+  5,120 compile-time bytes; rendering borrows flash-owned vertices without a
+  new task, heap allocation or per-frame trigonometry. Static review only;
+  this icon source has not been compiled, simulated or flashed.
+- Acquired two requested passive COM10 captures, 30 and 60 seconds, without
+  resetting or changing firmware. The first retained reset reason 4 (panic)
+  from the preceding boot; neither window contains a new panic/backtrace.
+  The later window reached 277.954 seconds uptime in standby. Companion
+  stack minimum free was 2,736/12,288 bytes in the first window. This confirms
+  a preceding panic but neither reproduces the reported loop nor identifies
+  the trigger; FAULT-04 retains the open investigation and matching artifacts.
+
 - Built and USB-flashed clean source `33377507` on COM10 with ESP-IDF 6.0.2,
   Cody Debug/wake-word, eight compiler jobs and the shared transient cleanup.
   Firmware identity: `cody-114-g33377507`. The app is 7,011,312 bytes

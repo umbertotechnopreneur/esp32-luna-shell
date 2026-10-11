@@ -34,11 +34,22 @@ constexpr uint32_t kActivityPaintStepUs = 50000;
 constexpr std::array<uint16_t, 256> kWorkingPalette{0x5EDD};
 constexpr std::array<uint16_t, 256> kWaitingPalette{0xF58B};
 constexpr std::array<uint16_t, 256> kReadyPalette{0x77B9};
+constexpr std::array<uint16_t, 256> kAccentInsetPalette{0x0841};
+constexpr std::array<CODY2D::Vec2, 32> kAccentDirections{{
+    {1, 0}, {.980785f, .195090f}, {.923880f, .382683f}, {.831470f, .555570f},
+    {.707107f, .707107f}, {.555570f, .831470f}, {.382683f, .923880f}, {.195090f, .980785f},
+    {0, 1}, {-.195090f, .980785f}, {-.382683f, .923880f}, {-.555570f, .831470f},
+    {-.707107f, .707107f}, {-.831470f, .555570f}, {-.923880f, .382683f}, {-.980785f, .195090f},
+    {-1, 0}, {-.980785f, -.195090f}, {-.923880f, -.382683f}, {-.831470f, -.555570f},
+    {-.707107f, -.707107f}, {-.555570f, -.831470f}, {-.382683f, -.923880f}, {-.195090f, -.980785f},
+    {0, -1}, {.195090f, -.980785f}, {.382683f, -.923880f}, {.555570f, -.831470f},
+    {.707107f, -.707107f}, {.831470f, -.555570f}, {.923880f, -.382683f}, {.980785f, -.195090f},
+}};
 
 // center_x: Absolute logical x coordinate, independent of the cloud pose.
 // center_y: Absolute logical y coordinate, independent of the cloud pose.
 // radius: Bounded artwork radius for immutable flash-owned polygon vertices.
-constexpr std::array<CODY2D::Vec2, 16> activity_dot(float center_x, float center_y, float radius)
+constexpr std::array<CODY2D::Vec2, 16> activity_disc(float center_x, float center_y, float radius)
 {
     constexpr CODY2D::Vec2 unit[]{
         {1, 0}, {.923880f, .382683f}, {.707107f, .707107f}, {.382683f, .923880f},
@@ -53,36 +64,66 @@ constexpr std::array<CODY2D::Vec2, 16> activity_dot(float center_x, float center
     return result;
 }
 
-constexpr std::array<std::array<CODY2D::Vec2, 16>, 3> kActivityDots{
-    activity_dot(332, 126, 7), activity_dot(366, 148, 7), activity_dot(332, 170, 7),
-};
-constexpr CODY2D::Vec2 kPauseLeft[]{
-    {333, 129}, {341, 129}, {344, 132}, {344, 164},
-    {341, 167}, {333, 167}, {330, 164}, {330, 132},
-};
-constexpr CODY2D::Vec2 kPauseRight[]{
-    {357, 129}, {365, 129}, {368, 132}, {368, 164},
-    {365, 167}, {357, 167}, {354, 164}, {354, 132},
-};
+// center: Fixed logical center inside the existing activity damage rectangle.
+// phase: Precomputed rotation step; eight teeth repeat after four direction steps.
+constexpr std::array<CODY2D::Vec2, 32> activity_gear(CODY2D::Vec2 center, size_t phase)
+{
+    std::array<CODY2D::Vec2, 32> vertices{};
+    for (size_t index = 0; index < vertices.size(); ++index) {
+        const float radius = index % 4 == 1 || index % 4 == 2 ? 11.5f : 8.f;
+        const auto direction = kAccentDirections[(index + phase) % kAccentDirections.size()];
+        vertices[index] = {center.x + direction.x * radius, center.y + direction.y * radius};
+    }
+    return vertices;
+}
+
+// No parameters: construct flash-owned gear poses without task-owned scratch arrays.
+constexpr auto activity_gears()
+{
+    std::array<std::array<std::array<CODY2D::Vec2, 32>, 3>, 4> frames{};
+    for (size_t phase = 0; phase < frames.size(); ++phase) {
+        frames[phase] = {{activity_gear({337, 133}, phase),
+            activity_gear({360, 148}, (4 - phase) % 4), activity_gear({337, 163}, phase)}};
+    }
+    return frames;
+}
+
+constexpr auto kActivityGears = activity_gears();
+constexpr std::array<std::array<CODY2D::Vec2, 16>, 3> kGearHubs{{
+    activity_disc(337, 133, 3.5f), activity_disc(360, 148, 3.5f), activity_disc(337, 163, 3.5f),
+}};
+constexpr auto kClockFace = activity_disc(349, 148, 22);
+constexpr auto kClockInset = activity_disc(349, 148, 18);
+constexpr auto kClockPin = activity_disc(349, 148, 2.5f);
+
+// phase: Flash table direction of the hand, with zero at twelve o'clock.
+// length: Distinct hand length so the clock remains recognizable while moving.
+constexpr std::array<CODY2D::Vec2, 4> activity_clock_hand(size_t phase, float length)
+{
+    const auto direction = kAccentDirections[(phase + 24) % kAccentDirections.size()];
+    const CODY2D::Vec2 side{-direction.y * 1.25f, direction.x * 1.25f};
+    const CODY2D::Vec2 tip{349 + direction.x * length, 148 + direction.y * length};
+    return {{{349 + side.x, 148 + side.y}, {tip.x + side.x, tip.y + side.y},
+        {tip.x - side.x, tip.y - side.y}, {349 - side.x, 148 - side.y}}};
+}
+
+// No parameters: both rapidly moving hands are generated at compile time.
+constexpr auto activity_clock_hands()
+{
+    std::array<std::array<std::array<CODY2D::Vec2, 4>, 2>, 32> frames{};
+    for (size_t phase = 0; phase < frames.size(); ++phase) {
+        frames[phase] = {{activity_clock_hand(phase, 15), activity_clock_hand(phase * 2 + 8, 10)}};
+    }
+    return frames;
+}
+
+constexpr auto kClockHands = activity_clock_hands();
+static_assert(sizeof(kActivityGears) + sizeof(kClockHands) <= 5120,
+    "Activity animation poses must stay in a small flash-owned table");
 constexpr CODY2D::Vec2 kResponseSpark[]{
     {349, 124}, {355, 142}, {373, 148}, {355, 154},
     {349, 172}, {343, 154}, {325, 148}, {343, 142},
 };
-constexpr CODY2D::Vec2 kCompactionHourglass[]{
-    {330, 125}, {368, 125}, {368, 132}, {355, 148},
-    {368, 164}, {368, 171}, {330, 171}, {330, 164},
-    {343, 148}, {330, 132},
-};
-
-// elapsed_us: Quantized active animation time; changing brightness never changes placement.
-// offset_us: Fixed phase offset differentiating the three stationary working dots.
-uint8_t activity_pulse(uint32_t elapsed_us, uint32_t offset_us)
-{
-    const uint32_t phase = (elapsed_us + offset_us) % kActivityCycleUs;
-    const uint32_t triangle = phase < kActivityCycleUs / 2 ? phase : kActivityCycleUs - phase;
-    return static_cast<uint8_t>(56U + triangle * 184U / (kActivityCycleUs / 2));
-}
-
 static_assert(std::size(Data::points) <= kMaxPoints);
 static_assert(std::size(Data::paths) <= kMaxPaths);
 static_assert(std::size(Data::curves) * kSubdivisions + std::size(Data::paths) <= kMaxVertices);
@@ -923,46 +964,59 @@ esp_err_t draw_activity_overlay_rows(const ActivityOverlayFrame &frame,
         first_column >= bounds.right || first_column + strip.width <= bounds.left) {
         return ESP_OK;
     }
-    // At most three tiny flash-owned polygons; no heap, scratch frame or sensor read.
+    // All poses live in flash. Tiles borrow them without allocating or evaluating trigonometry.
     const uint32_t elapsed_us = (frame.state == ActivityOverlayState::ResponseReady ?
         std::min(frame.elapsed_us, kResponseAccentUs) : frame.elapsed_us % kActivityCycleUs) /
         kActivityPaintStepUs * kActivityPaintStepUs;
     if (frame.state == ActivityOverlayState::Working) {
-        for (size_t index = 0; index < kActivityDots.size(); ++index) {
-            const auto &vertices = kActivityDots[index];
-            const esp_err_t error = CODY2D::fill_path_rows(strip, first_row,
+        const size_t phase = static_cast<uint64_t>(elapsed_us) * kAccentDirections.size() /
+            kActivityCycleUs % kActivityGears.size();
+        const auto &gears = kActivityGears[phase];
+        for (size_t index = 0; index < gears.size(); ++index) {
+            const auto &vertices = gears[index];
+            esp_err_t error = CODY2D::fill_path_rows(strip, first_row,
                 vertices.data(), vertices.size(), kWorkingPalette.data(), 0, 0,
-                activity_pulse(elapsed_us, index * 600000U), first_column,
+                255, first_column,
                 CODY2D::FillAntialiasing::Coverage);
+            if (error == ESP_OK) {
+                const auto &hub = kGearHubs[index];
+                error = CODY2D::fill_path_rows(strip, first_row,
+                    hub.data(), hub.size(), kAccentInsetPalette.data(), 0, 0,
+                    255, first_column, CODY2D::FillAntialiasing::Coverage);
+            }
             if (error != ESP_OK) {
-                ESP_LOGE(kTag, "Activity dot draw failed (%s)", esp_err_to_name(error));
+                ESP_LOGE(kTag, "Activity gear draw failed (%s)", esp_err_to_name(error));
                 return error;
             }
         }
         return ESP_OK;
     }
-    if (frame.state == ActivityOverlayState::Compacting) {
-        const esp_err_t error = CODY2D::fill_path_rows(strip, first_row,
-            kCompactionHourglass, std::size(kCompactionHourglass), kWaitingPalette.data(), 0, 0,
-            static_cast<uint8_t>(112U + activity_pulse(elapsed_us, 0) / 2U), first_column,
-            CODY2D::FillAntialiasing::Coverage);
-        if (error != ESP_OK) {
-            ESP_LOGE(kTag, "Compaction accent draw failed (%s)", esp_err_to_name(error));
-        }
-        return error;
-    }
-    if (frame.state == ActivityOverlayState::Waiting) {
-        const uint8_t opacity = static_cast<uint8_t>(144U + activity_pulse(elapsed_us, 0) / 3U);
+    if (frame.state == ActivityOverlayState::Waiting || frame.state == ActivityOverlayState::Compacting) {
+        const size_t phase = static_cast<uint64_t>(elapsed_us) * kClockHands.size() / kActivityCycleUs;
         esp_err_t error = CODY2D::fill_path_rows(strip, first_row,
-            kPauseLeft, std::size(kPauseLeft), kWaitingPalette.data(), 0, 0,
-            opacity, first_column, CODY2D::FillAntialiasing::Coverage);
+            kClockFace.data(), kClockFace.size(), kWaitingPalette.data(), 0, 0,
+            255, first_column,
+            CODY2D::FillAntialiasing::Coverage);
         if (error == ESP_OK) {
             error = CODY2D::fill_path_rows(strip, first_row,
-                kPauseRight, std::size(kPauseRight), kWaitingPalette.data(), 0, 0,
-                opacity, first_column, CODY2D::FillAntialiasing::Coverage);
+                kClockInset.data(), kClockInset.size(), kAccentInsetPalette.data(), 0, 0,
+                255, first_column, CODY2D::FillAntialiasing::Coverage);
+        }
+        for (const auto &hand : kClockHands[phase]) {
+            if (error != ESP_OK) {
+                break;
+            }
+            error = CODY2D::fill_path_rows(strip, first_row,
+                hand.data(), hand.size(), kWaitingPalette.data(), 0, 0,
+                255, first_column, CODY2D::FillAntialiasing::Coverage);
+        }
+        if (error == ESP_OK) {
+            error = CODY2D::fill_path_rows(strip, first_row,
+                kClockPin.data(), kClockPin.size(), kReadyPalette.data(), 0, 0,
+                255, first_column, CODY2D::FillAntialiasing::Coverage);
         }
         if (error != ESP_OK) {
-            ESP_LOGE(kTag, "Activity pause draw failed (%s)", esp_err_to_name(error));
+            ESP_LOGE(kTag, "Activity clock draw failed (%s)", esp_err_to_name(error));
         }
         return error;
     }
