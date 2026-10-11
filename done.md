@@ -15,6 +15,39 @@ private local diagnostics, not publication artifacts.
 
 ## Voice presentation and unified communication reference - 2026-10-12
 
+- Replaced the three working dots with three rotating gears, with the middle
+  gear turning in the opposite direction. Waiting and compaction use a fast
+  two-hand analog clock instead of pause bars/hourglass. Antialiased polygons
+  remain in the existing `[324,374) x [118,179)` damage region, with active-time
+  animation and unchanged hidden/ready behavior. Gear and hand pose tables use
+  5,120 compile-time bytes; rendering borrows flash-owned vertices without a
+  new task, heap allocation or per-frame trigonometry. Static review only;
+  this icon source has not been compiled, simulated or flashed.
+- Acquired two requested passive COM10 captures, 30 and 60 seconds, without
+  resetting or changing firmware. The first retained reset reason 4 (panic)
+  from the preceding boot; neither window contains a new panic/backtrace.
+  The later window reached 277.954 seconds uptime in standby. Companion
+  stack minimum free was 2,736/12,288 bytes in the first window. This confirms
+  a preceding panic but neither reproduces the reported loop nor identifies
+  the trigger; FAULT-04 retains the open investigation and matching artifacts.
+
+- Built and USB-flashed clean source `33377507` on COM10 with ESP-IDF 6.0.2,
+  Cody Debug/wake-word, eight compiler jobs and the shared transient cleanup.
+  Firmware identity: `cody-114-g33377507`. The app is 7,011,312 bytes
+  (`0x6afbf0`), leaving 263,184 bytes (`0x40410`, 257.015625 KiB) in each
+  7,274,496-byte OTA slot. The build's partition check passed; no separate size
+  command was run. App SHA256:
+  `457265df464e74ea92cfbea6d6c73a905542850dafabc7af7f275d340e739e7d`.
+  Esptool identified the ESP32-S3 on COM10 and verified all five image hashes:
+  bootloader at 0, partition table at 0x8000, initial otadata at 0x10000,
+  app at 0x20000 and the 873,368-byte model pack at 0xe00000. NVS was not a
+  write target; no full erase or storage format was requested. Flash exited zero
+  and issued the normal RTS reset. Log retained under
+  `artifacts/build-cody-companion-wake-word-evidence/firmware-20261012-33377507-flash.log`.
+  Post-reset startup, two-slot boot selection, battery/gesture/audio behavior,
+  native PC delivery and physical stack/CPU/PSRAM headroom remain unverified.
+  This operation did not run host suites, simulator checks, monitor or capture.
+
 - Hardened audio source delivery with early native reachability admission,
   four-packet cumulative ACK transport, bounded reconnect grace, END-aware
   uncertainty and current same-chat steering preconditions. Added recording/native
@@ -77,9 +110,10 @@ private local diagnostics, not publication artifacts.
   LittleFS remain independent shared partitions, with no SD use.
 - Against the recorded 6,990,864-byte Debug wake-word image, each new wake-word
   slot has 283,632 bytes of arithmetic headroom. This is not a new linked size:
-  subsequent battery/audio edits, boot selection and OTA transfer remain unbuilt
-  and unverified. Initial repartitioning requires a deliberate USB installation;
-  the currently flashed partition table and its storage contents are unchanged.
+  at this checkpoint subsequent battery/audio edits, boot selection and OTA
+  transfer remained unbuilt and unverified. The deliberate 12 October USB
+  installation and newly linked size are recorded above; OTA transfer and
+  physical boot selection still require separate evidence.
 
 ## Quiet battery notice implementation - 2026-10-11
 
