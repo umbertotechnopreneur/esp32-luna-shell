@@ -20,6 +20,15 @@ headroom and the prepared host/simulator cases remain unverified.
 
 ## Reproduced device faults
 
+- [ ] **BATTERY-01 - Quiet battery notices.** Firmware source implements free-Home
+  admission after ten seconds, four-second caption/manga dwell, 20/10-percent
+  warnings, charging-entry and measured-full events. Validate canonical stale/error
+  removal, startup/charging transitions, periodic reminders, route/touch deferral,
+  caption/artwork clearance at all rotations, compiled frames and physical stack
+  headroom. Studio automatic notice/caption parity remains pending; manual power
+  studies keep their factual selector. No build, tests or physical run authorized
+  for this increment.
+
 - [ ] **FAULT-01 - SD warm-reset initialization.** Capture SD VDD and CLK/CMD
   across the known working-card-to-reset transition. ACMD41 stays busy before
   FAT; reinsertion restores access, while memory-only SDIO exclusion and explicit

@@ -25,27 +25,39 @@ The existing Cody worker owns the channel under the display lock. Real device
 cues use one coherent `DeviceSnapshotService` projection for both the desired
 and current channel identities, including a just-started, zero-opacity fade.
 The component must be Ready, valid, fresh, error-free and timestamped. LowBattery
-requires a measured percentage at or below the existing 15-percent threshold;
+requires a measured percentage at or below the 20-percent threshold;
 Charging follows the actual charging state; NoWifi requires a started/configured
 radio with no connected link. Stale or disproven facts immediately invalidate
 their current symbol, so artistic hold never preserves a false device status.
 Canonical read/contract failures retain their real errors.
 
-From 2026-10-11 the worker also selects current Cody power cues automatically.
-LowBattery overrides ordinary narrative requests and retains the existing
-15-percent enter/20-percent recovery hysteresis. A supported Charging cue fills
-an otherwise empty narrative target and waits behind affection/attention.
-Charging takes the automatic power selection when its actual charging fact is
-current, while a measured low percentage remains independently latched. Charging
-also works without an available percentage. Absence or source expiry clears the
-power support immediately, including a currently displayed sprite. Semantic
-Sleep retains priority. These facts refer to Cody's battery, not the PC battery.
+From 2026-10-11 the firmware admits short battery notices after ten uninterrupted
+seconds on free Home. Touch, affection, other narrative cues, work, questions,
+setup and technical panels defer admission. Semantic Sleep retains priority;
+notices never extend standby or replace a route. The latest supported pending
+event is retained, not a queue of old battery announcements.
+
+| Current fact | Caption | Manga | Repeat |
+| --- | --- | --- | --- |
+| Discharging at or below 20 percent | A little tired. Charge me? | LowBattery | Five awake minutes |
+| Discharging at or below 10 percent | Please charge me soon. | LowBattery | One awake minute |
+| Actual charging starts | Thanks! Recharging. | Charging | Once per observed entry |
+| Measured percentage reaches exactly 100 | All charged. Happy! | Joy | Once per observed entry |
+
+The caption and matching visible manga dwell together for four awake seconds.
+Charging without a valid percentage can announce its real charging state;
+continuous charging is otherwise silent. No percentages, cable-presence claims
+or spoken synthesis are added. The existing optional cue sound remains governed
+by Sounds/quiet preferences. A 25-percent recovery re-arms low warnings; critical
+warnings re-arm at 15 percent. Source loss immediately clears pending and active
+notices. These facts refer to Cody's battery, not the PC battery.
 
 The canonical status projection is retained by the display owner instead of
-copied onto the nested frame stack. Studio uses the same native selector with
-explicitly synthetic source facts and cancels unsupported power artwork. The
-new selector and Codex acting regression cases await fresh final authorization;
-the previous results below do not validate this increment.
+copied onto the nested frame stack. Studio's manual power studies retain the
+native factual selector and explicitly synthetic facts; they do not establish
+the firmware's automatic notice timing or caption behavior. That integration,
+compiled frames, stack headroom and physical behavior remain pending validation.
+The previous results below do not validate this increment.
 
 ## Timing and semantic Sleep
 

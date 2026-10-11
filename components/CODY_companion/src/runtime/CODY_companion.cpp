@@ -259,6 +259,9 @@ struct CompanionState {
     CODY::CharacterDirectionState next_character_direction{};
     CODY::PersonalityLag personality_lag{};
     CODY::PersonalityBatteryLatch personality_battery{};
+    CODY::BatteryNoticeState battery_notice{};
+    CODY2D::TextLine battery_notice_line{};
+    CODY::BatteryNotice retired_battery_notice = CODY::BatteryNotice::None;
     // Shared canonical status projection is serialized by the display owner, outside nested frame stacks.
     LUNASHELL::DeviceStatusObservation personality_observation{};
     static_assert(sizeof(LUNASHELL::DeviceStatusObservation) <= 1024,
@@ -482,14 +485,48 @@ esp_err_t resolve_personality_device_cues(CODY::PersonalityCue requested,
     power.percentage_valid = battery.level_percent_valid;
     power.level_percent = battery.level_percent;
     power.charging = std::strcmp(battery.power_state, "charging") == 0;
+    if (power.current && power.battery_present && !power.charging &&
+        std::strcmp(battery.power_state, "discharging") != 0 &&
+        std::strcmp(battery.power_state, "standby") != 0) {
+        ESP_LOGE(kTag, "Battery notice power state='%s' rejected (%s)",
+            battery.power_state, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+        return ESP_ERR_INVALID_RESPONSE;
+    }
     CODY::PersonalityCue automatic = CODY::PersonalityCue::None;
     error = CODY::select_personality_power_cue(power, s_state.personality_battery, automatic);
     if (error != ESP_OK) {
         return error;
     }
-    if (requested != CODY::PersonalityCue::Sleep &&
-        (automatic == CODY::PersonalityCue::LowBattery || requested == CODY::PersonalityCue::None)) {
-        requested = automatic;
+    const bool idle = s_state.lifecycle.phase == CODY::LifecyclePhase::Idle &&
+        s_state.companion_panel == CODY::CompanionPanel::Home &&
+        (!s_state.scene.valid || s_state.routine_scene ||
+         s_state.scene.definition->id == CODY::SceneId::CompanionIdle) &&
+        !s_state.resume_scene_pending && !s_state.touch_pressed && !s_state.animation_paused &&
+        !debug_view_active() && !s_state.rig_debug &&
+        s_state.affection_remaining_us == 0 && s_state.eye_reaction_remaining_us == 0 &&
+        requested == CODY::PersonalityCue::None;
+    // A notice's dwell begins only after its caption and manga reached a retired frame.
+    const int64_t notice_delta_us = s_state.battery_notice.active != CODY::BatteryNotice::None &&
+        s_state.retired_battery_notice == CODY::BatteryNotice::None ? 0 : s_state.personality_delta_us;
+    CODY::advance_battery_notice(power, idle, notice_delta_us, s_state.battery_notice);
+    s_state.battery_notice_line = {};
+    if (s_state.battery_notice.active != CODY::BatteryNotice::None) {
+        const char *text = CODY::battery_notice_text(s_state.battery_notice.active);
+        const auto &font = CODY::SceneData::body_font;
+        const uint16_t length = static_cast<uint16_t>(std::strlen(text));
+        const uint16_t width = static_cast<uint16_t>((length - 1U) * font.advance + font.width);
+        if (width > 320 || font.height > 35) {
+            ESP_LOGE(kTag, "Battery notice caption exceeds safe bounds (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+            return ESP_ERR_INVALID_SIZE;
+        }
+        error = CODY2D::prepare_text_line(font, {text, length},
+            {static_cast<int16_t>((kPanelWidth - width) / 2), 345}, 0xF7BE,
+            s_state.battery_notice_line);
+        if (error != ESP_OK) {
+            ESP_LOGE(kTag, "Battery notice caption preparation failed (%s)", esp_err_to_name(error));
+            return error;
+        }
+        requested = CODY::battery_notice_cue(s_state.battery_notice.active);
     }
     error = admit_personality_device_cue(observation, requested, desired);
     if (error != ESP_OK) {
@@ -503,6 +540,12 @@ esp_err_t resolve_personality_device_cues(CODY::PersonalityCue requested,
     // Presentation dwell cannot preserve a stale or disproven device fact.
     invalidate_current = CODY::personality_cue_is_device(displayed) &&
         admitted_current == CODY::PersonalityCue::None;
+    // Full-charge Joy also loses support immediately if its observation expires.
+    if (displayed == CODY::PersonalityCue::Joy &&
+        s_state.retired_battery_notice == CODY::BatteryNotice::Full &&
+        s_state.battery_notice.active != CODY::BatteryNotice::Full) {
+        invalidate_current = true;
+    }
     return ESP_OK;
 }
 
@@ -2995,13 +3038,17 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         if (!sleeping && cue == CODY::PersonalityCue::None) {
             cue = CODY::character_direction_cue(s_state.character_direction);
         }
-        if (context.presentation == CODY::PersonalityPresentation::Disabled) {
-            cue = CODY::PersonalityCue::None;
-        } else if (cue_error == ESP_OK) {
+        if (cue_error == ESP_OK) {
             // Device truth is checked before artistic arbitration, including while
             // Charging waits behind a still-live heart. No device fact bypasses validity.
             cue_error = resolve_personality_device_cues(cue, s_state.personality_lag.cue,
                                                        cue, context.invalidate_current);
+            if (context.presentation == CODY::PersonalityPresentation::Disabled) {
+                cue = CODY::PersonalityCue::None;
+                s_state.battery_notice.active = CODY::BatteryNotice::None;
+                s_state.battery_notice.idle_us = 0;
+                s_state.battery_notice_line = {};
+            }
             if (cue_error == ESP_OK) {
                 bool release_affection = false;
                 cue_error = CODY::select_personality_target(cue, sleeping,
@@ -3025,10 +3072,13 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
         // The full-screen layout reserves status space even when its touch fade is hidden.
         // This prevents touch from resizing or relocating an already visible symbol.
-        CODY::DamageRect exclusions[6] = {
+        CODY::DamageRect exclusions[7] = {
             {10, 203, 70, 263}, CODY::status_overlay_damage_bounds()
         };
         uint8_t exclusion_count = 2;
+        if (s_state.battery_notice_line.valid) {
+            exclusions[exclusion_count++] = {73, 345, 393, 380};
+        }
         if (frame_scene_visible) {
             if (s_state.scene.activity_overlay.state != CODY::ActivityOverlayState::Hidden) {
                 // Manga keeps its own admitted footprint; activity never follows or covers it.
@@ -3058,6 +3108,12 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         if (cue_error != ESP_OK) {
             return frame.finish({cue_error, false, 0});
         }
+        if (s_state.battery_notice_line.valid &&
+            (s_resources.rig->personality.cue != CODY::battery_notice_cue(s_state.battery_notice.active) ||
+             s_resources.rig->personality.status != CODY::PersonalityPresentationStatus::Visible ||
+             s_resources.rig->personality.opacity < 128)) {
+            s_state.battery_notice_line = {};
+        }
         const auto status = s_resources.rig->personality.status;
         if (status != s_state.personality_status) {
             if (status == CODY::PersonalityPresentationStatus::BlockedByLayout) {
@@ -3078,6 +3134,11 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     if (frame_overlay) {
         // Symbols and motion marks cannot fade through the isolated diagnostic face.
         s_resources.rig->personality = {};
+    }
+    if (!frame_was_rig || frame_overlay) {
+        s_state.battery_notice_line = {};
+        s_state.battery_notice.active = CODY::BatteryNotice::None;
+        s_state.battery_notice.idle_us = 0;
     }
     if (frame_status_visible &&
         (s_state.status_sampled_at_us == 0 ||
@@ -3229,6 +3290,10 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
     }
     timings.damage_us = esp_timer_get_time() - damage_started_us;
+    if (plan_error == ESP_OK && (s_state.battery_notice_line.valid ||
+        s_state.retired_battery_notice != CODY::BatteryNotice::None)) {
+        plan_error = CODY::include_damage(dirty_plan, {73, 345, 393, 380});
+    }
     if (plan_error != ESP_OK) {
         if (screenshot_capture_active) {
             (void)CODY::finish_screenshot_capture(screenshot_capture, plan_error);
@@ -3309,6 +3374,10 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 }
                 if (result == ESP_OK && frame_scene_visible && presentation.content_visible) {
                     result = CODY::draw_scene_rows(s_state.scene, strip, damage.top, damage.left);
+                }
+                if (result == ESP_OK && s_state.battery_notice_line.valid) {
+                    result = CODY2D::draw_text_rows(s_state.battery_notice_line,
+                        s_state.battery_notice_line.text.length, strip, damage.top, damage.left);
                 }
                 if (result == ESP_OK && frame_technical) {
                     result = CODY::draw_companion_panel_rows(
@@ -3424,6 +3493,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
         const CODY::PersonalityFrame previous_personality = s_state.retired_personality;
         s_state.retired_personality = frame_was_rig ? s_resources.rig->personality : CODY::PersonalityFrame{};
+        s_state.retired_battery_notice = s_state.battery_notice_line.valid ?
+            s_state.battery_notice.active : CODY::BatteryNotice::None;
         notify_completed_personality(previous_personality, s_state.retired_personality,
                                      main_companion_view_active(frame_was_rig));
         notify_completed_idle_scene(main_companion_view_active(frame_was_rig));

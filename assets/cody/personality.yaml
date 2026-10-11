@@ -50,7 +50,7 @@ catalog:
     - {id: 5, name: thirst, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
     - {id: 6, name: heat, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
     - {id: 7, name: cold, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
-    - {id: 8, name: low_battery, priority: 900, interrupts: true, repeat_cooldown_seconds: 0, sfx_enabled: true}
+    - {id: 8, name: low_battery, priority: 100, interrupts: false, repeat_cooldown_seconds: 0, sfx_enabled: true}
     - {id: 9, name: charging, priority: 100, interrupts: false, repeat_cooldown_seconds: 20, sfx_enabled: true}
     - {id: 10, name: no_wifi, priority: 100, interrupts: false, repeat_cooldown_seconds: 20, sfx_enabled: true}
     - {id: 11, name: curiosity, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
@@ -126,7 +126,7 @@ icons:
       size_multiplier: 3.6
       allow_body_overlap: true
   # Hysteresis uses valid current canonical measurements only.
-  low_battery: {enter_percent: 15, exit_percent: 20}
+  low_battery: {enter_percent: 20, exit_percent: 25}
 
 # Sound is admitted only for a newly visible, successfully retired frame.
 # Both this global switch and each catalog icon's sfx_enabled must be true.

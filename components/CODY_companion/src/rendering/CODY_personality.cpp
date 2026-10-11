@@ -482,6 +482,112 @@ esp_err_t select_personality_power_cue(const PersonalityPowerObservation &observ
     return ESP_OK;
 }
 
+// observation: Canonical power projection already checked by the caller.
+// idle: Only an unobstructed Home pause permits a notice to appear.
+// delta_us: Awake elapsed time, bounded by the existing animation owner.
+// state: Caller-owned transition memory; at most one latest event is retained.
+void advance_battery_notice(const PersonalityPowerObservation &observation, bool idle,
+                            int64_t delta_us, BatteryNoticeState &state)
+{
+    const int64_t elapsed = std::max<int64_t>(0, delta_us);
+    if (!observation.current || !observation.battery_present) {
+        state.pending = BatteryNotice::None;
+        state.active = BatteryNotice::None;
+        state.idle_us = 0;
+        state.visible_us = 0;
+        return;
+    }
+    const bool full = observation.percentage_valid && observation.level_percent == 100;
+    const uint8_t band = !observation.percentage_valid || observation.charging || full ? 0 :
+        observation.level_percent <= 10 ? 2 : observation.level_percent <= 20 ? 1 : 0;
+    state.reminder_us = std::min<int64_t>(300000000, state.reminder_us + elapsed);
+    if (full && (!state.observed || !state.was_full)) {
+        state.pending = BatteryNotice::Full;
+    } else if (observation.charging && (!state.observed || !state.was_charging)) {
+        state.pending = BatteryNotice::Charging;
+    } else if (band > state.warned_band ||
+               (band != 0 && state.reminder_us >= (band == 2 ? 60000000 : 300000000))) {
+        state.pending = band == 2 ? BatteryNotice::Critical : BatteryNotice::Low;
+    }
+    // Hysteresis re-arms warnings after recovery, without clamping a measurement.
+    if (observation.charging || (observation.percentage_valid && observation.level_percent >= 25)) {
+        state.warned_band = 0;
+    } else if (observation.percentage_valid && observation.level_percent >= 15 && state.warned_band == 2) {
+        state.warned_band = 1;
+    }
+    state.observed = true;
+    state.was_charging = observation.charging;
+    state.was_full = full;
+    // notice: Pending or active event whose original device condition must still hold.
+    const auto supported = [&](BatteryNotice notice) {
+        switch (notice) {
+        case BatteryNotice::Low: return band == 1;
+        case BatteryNotice::Critical: return band == 2;
+        case BatteryNotice::Charging: return observation.charging && !full;
+        case BatteryNotice::Full: return full;
+        case BatteryNotice::None: return true;
+        }
+        return false;
+    };
+    if (!supported(state.pending)) {
+        state.pending = BatteryNotice::None;
+    }
+    if (!supported(state.active)) {
+        state.active = BatteryNotice::None;
+        state.visible_us = 0;
+    }
+    if (!idle) {
+        // A real conversation or touch retires the notice; it never replaces that route.
+        if (state.active != BatteryNotice::None && state.pending == BatteryNotice::None) {
+            state.pending = state.active;
+        }
+        state.active = BatteryNotice::None;
+        state.visible_us = 0;
+        state.idle_us = 0;
+        return;
+    }
+    state.idle_us = std::min<int64_t>(10000000, state.idle_us + elapsed);
+    if (state.active != BatteryNotice::None) {
+        state.visible_us += elapsed;
+        if (state.visible_us >= 4000000) {
+            state.active = BatteryNotice::None;
+            state.visible_us = 0;
+        }
+    } else if (state.idle_us >= 10000000 && state.pending != BatteryNotice::None) {
+        state.active = state.pending;
+        state.pending = BatteryNotice::None;
+        state.visible_us = 0;
+        state.reminder_us = 0;
+        state.warned_band = band;
+    }
+}
+
+// notice: Valid domain identity; no percentage or electrical status is exposed in prose.
+const char *battery_notice_text(BatteryNotice notice)
+{
+    switch (notice) {
+    case BatteryNotice::Low: return "A little tired. Charge me?";
+    case BatteryNotice::Critical: return "Please charge me soon.";
+    case BatteryNotice::Charging: return "Thanks! Recharging.";
+    case BatteryNotice::Full: return "All charged. Happy!";
+    case BatteryNotice::None: return "";
+    }
+    return "";
+}
+
+// notice: Power event reusing the stable LowBattery, Charging and Joy sprite identities.
+PersonalityCue battery_notice_cue(BatteryNotice notice)
+{
+    switch (notice) {
+    case BatteryNotice::Low:
+    case BatteryNotice::Critical: return PersonalityCue::LowBattery;
+    case BatteryNotice::Charging: return PersonalityCue::Charging;
+    case BatteryNotice::Full: return PersonalityCue::Joy;
+    case BatteryNotice::None: return PersonalityCue::None;
+    }
+    return PersonalityCue::None;
+}
+
 // admitted_request: Canonical-admitted baseline; this helper never samples a driver or snapshot.
 // semantic_sleep: Authored Sleep presentation, above device and artistic selections.
 // affection_active: Current automatic caress lifetime, independent of an explicit Affection request.

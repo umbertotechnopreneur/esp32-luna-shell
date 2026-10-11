@@ -110,6 +110,34 @@ struct PersonalityPowerObservation {
     float level_percent = 0;
 };
 
+enum class BatteryNotice : uint8_t { None, Low, Critical, Charging, Full };
+
+// Display-owner state only: no sensor cache, allocations or independent task.
+struct BatteryNoticeState {
+    BatteryNotice pending = BatteryNotice::None;
+    BatteryNotice active = BatteryNotice::None;
+    bool observed = false;
+    bool was_charging = false;
+    bool was_full = false;
+    uint8_t warned_band = 0;
+    int64_t idle_us = 0;
+    int64_t visible_us = 0;
+    int64_t reminder_us = 0;
+};
+
+// observation: Validated canonical battery facts; unavailable values are never interpreted.
+// idle: Home is free of conversation, controls, touch and other expressive cues.
+// delta_us: Elapsed awake animation time; standby contributes zero.
+// state: Display-owned transition and bounded reminder state.
+void advance_battery_notice(const PersonalityPowerObservation &observation, bool idle,
+                            int64_t delta_us, BatteryNoticeState &state);
+
+// notice: Typed battery event whose short English caption is requested.
+const char *battery_notice_text(BatteryNotice notice);
+
+// notice: Typed battery event mapped to an existing manga master.
+PersonalityCue battery_notice_cue(BatteryNotice notice);
+
 // lag: Presentation and geometry to clear while preserving repeat admission times and active clock.
 void clear_personality_presentation(PersonalityLag &lag);
 

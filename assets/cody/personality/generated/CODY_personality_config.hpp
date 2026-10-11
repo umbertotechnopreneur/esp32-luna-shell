@@ -42,7 +42,7 @@ inline constexpr CueRule cue_rules[] = {
     {PersonalityCue::Thirst, 100, false, 15000000, true},
     {PersonalityCue::Heat, 100, false, 15000000, true},
     {PersonalityCue::Cold, 100, false, 15000000, true},
-    {PersonalityCue::LowBattery, 900, true, 0, true},
+    {PersonalityCue::LowBattery, 100, false, 0, true},
     {PersonalityCue::Charging, 100, false, 20000000, true},
     {PersonalityCue::NoWifi, 100, false, 20000000, true},
     {PersonalityCue::Curiosity, 100, false, 15000000, true},
@@ -51,8 +51,8 @@ inline constexpr CueRule cue_rules[] = {
     {PersonalityCue::Frustration, 300, true, 0, true},
 };
 inline constexpr uint8_t cue_rule_count = 14;
-inline constexpr uint8_t low_battery_enter_percent = 15;
-inline constexpr uint8_t low_battery_exit_percent = 20;
+inline constexpr uint8_t low_battery_enter_percent = 20;
+inline constexpr uint8_t low_battery_exit_percent = 25;
 } // namespace CODY::PersonalityConfig
 namespace CODY::PersonalityAudioConfig {
 inline constexpr bool enabled = true;

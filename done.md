@@ -15,6 +15,19 @@ private local diagnostics, not publication artifacts.
 
 ## Current firmware installation - 2026-10-11
 
+### Quiet battery notice source - 2026-10-11
+
+- Added display-owned event state for measured 20/10-percent warnings, actual
+  charging entry and measured 100-percent charge. Free Home admits caption and
+  existing manga together after ten seconds, with four seconds of retired-frame
+  dwell. Source expiry clears notices; conversations, touch, setup and Sleep retain
+  their routes and standby timing. Ongoing charging remains silent.
+- Updated the authored low-battery latch to 20/25-percent hysteresis and regenerated
+  its immutable rule headers through `scripts/device.ps1 generate`. State and text
+  preparation remain in the existing display owner; no new sampler, task or stack
+  enlargement. Static integration review only: builds, tests, Studio automatic
+  notice parity and physical validation remain open in BATTERY-01.
+
 - Built and flashed clean source checkpoint `8cfb6ce3` through the public
   `scripts/device.ps1 flash -Profile cody-companion -Feature wake-word
   -BuildMode Debug -Port COM10 -Jobs 8` workflow with shared transient cleanup.

@@ -1,7 +1,7 @@
 {
   "schema": "cody.personality.generated.v2",
   "source": "assets/cody/personality.yaml",
-  "source_sha256": "257597d420efbc6fdbe859ccfc84922833cd446691bc1587a5bdf5233a2afc5b",
+  "source_sha256": "f6a369fef4a6ad03b3c15369d3362346a5ad861c197f0bc01e82b17dab38ce7f",
   "headers": [
     "assets/cody/personality/generated/personality_rules.hpp",
     "assets/cody/personality/generated/personality_catalog.hpp",
@@ -145,8 +145,8 @@
         {
           "id": 8,
           "name": "low_battery",
-          "priority": 900,
-          "interrupts": true,
+          "priority": 100,
+          "interrupts": false,
           "repeat_cooldown_seconds": 0,
           "sfx_enabled": true
         },
@@ -276,8 +276,8 @@
         }
       },
       "low_battery": {
-        "enter_percent": 15,
-        "exit_percent": 20
+        "enter_percent": 20,
+        "exit_percent": 25
       }
     },
     "audio": {
