@@ -11,7 +11,7 @@ enum class PanelValueState : uint8_t { Unavailable = 0, Current = 1, Stale = 2, 
 
 // Shared passive-detail artwork and transparent content layout; these are logical coordinates.
 inline constexpr Transform kCompanionPanelCharacterTransform{233.f, 115.f, 50.f};
-inline constexpr DamageRect kCompanionPanelContentBounds{73, 170, 393, 393};
+inline constexpr DamageRect kCompanionPanelContentBounds{73, 170, 393, 402};
 
 struct PanelMetric {
     uint64_t value = 0;
@@ -26,6 +26,8 @@ struct PanelInputs {
     const char *chat_id = "";
     const char *model = "";
     const char *effort = "";
+    const char *peer_ip = "";
+    const char *firmware_version = "";
     LUNASHELL::CodexActivityState phase = LUNASHELL::CodexActivityState::None;
     LUNASHELL::CodexCompactionState compaction = LUNASHELL::CodexCompactionState::None;
     PanelValueState link = PanelValueState::Unavailable;
@@ -68,6 +70,7 @@ struct PanelPresentation {
     char prior_title[32]{};
     char prior_banner[32]{};
     char prior_hint[32]{};
+    uint16_t prior_row_colors[8]{};
     CompanionPanel panel = CompanionPanel::Home;
     LUNASHELL::CodexCostBand cost_band = LUNASHELL::CodexCostBand::Unknown;
     uint32_t revision = 0;
@@ -104,10 +107,12 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
 // now_us: Local monotonic observation time; remote ages are durations, never remote clock values.
 // presentation: Serialized stable caption owner outside the rendering task stack.
 // content: Receives the transparent native detail callback below the artwork on success.
+// firmware_version: Canonical running-image identity; absent host metadata remains unavailable.
 // Exception: Returns the real projection or native preparation error.
 esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
     const LUNASHELL::CodexLinkSnapshot &link, const LUNASHELL::CodexTechnicalSnapshot &technical,
-    const CODY2D::MonoFont &font, int64_t now_us, PanelPresentation &presentation, SceneContent &content);
+    const CODY2D::MonoFont &font, int64_t now_us, PanelPresentation &presentation, SceneContent &content,
+    const char *firmware_version = "");
 
 // presentation: Successfully prepared serialized panel state.
 // active_time_us: Nonnegative active clock; this changes only the compaction accent.

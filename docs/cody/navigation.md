@@ -1,5 +1,29 @@
 # Cody navigation and recovery
 
+## Connection search and working presentation - 2026-10-12
+
+Looking for PC uses a ten-minute screen standby interval. A current Wi-Fi link
+with an acquired IP first requests the connected symbol, followed by a repeating
+96-second discovery presentation: question mark, calm gaps, moving search lens,
+worry, brief fear and recovery. This silent narrative does not assert Internet
+reachability or failed pairing. Real canonical link transitions take priority;
+hidden or sleeping views do not advance the narrative.
+
+Working uses a three-minute screen standby interval. Project, Branch and Model
+are explicit carousel labels; Model is orange and its price chip appears only
+during Model. Display bands are Cheap, Reasonable price and Expensive; missing price
+metadata remains unavailable. These Standard catalog classes do not measure chat
+spending or model quality. The activity timer is retained. Current native tool
+names supplement absent progress descriptions; arguments and command bodies are
+not transmitted.
+
+Model & Context labels model, reasoning, context/window, free space and token
+availability explicitly. Current Desktop hooks provide no authoritative usage
+stream; unavailable counts remain unavailable. Session & Link includes canonical
+PC IP and running firmware identity. The valid-battery wake prelude is described
+in [the personality contract](personality-icons.md). Source changes remain
+pending authorized compilation, simulator and physical validation.
+
 This is the current source contract for device routes. Screen IDs come from the
 atlases and remain independent of physical page numbers. Installation belongs
 to the [CCP guide](../../plugins/cody-codex-plugin/README.md); authentication,

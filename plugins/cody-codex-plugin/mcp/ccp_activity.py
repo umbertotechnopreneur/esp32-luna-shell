@@ -132,6 +132,7 @@ class Session:
     last_event_ns: int = 0
     observed_at: float = 0.0
     tools: dict[str, Phase] = field(default_factory=dict)
+    tool_labels: dict[str, str] = field(default_factory=dict)
     interrupted: bool = False
     description: str = ""
     description_observed_at: float = 0.0
@@ -206,6 +207,7 @@ class ActivityStore:
                     session.turn_started_at = emitted_ns / 1_000_000_000
                     session.turn_ended_at = 0.0
                     session.tools.clear()
+                    session.tool_labels.clear()
                     session.model = ""
                     session.model_observed_at = 0.0
                     session.compaction = Compaction.NONE
@@ -230,6 +232,7 @@ class ActivityStore:
                     session.phase = Phase.ACTIVE
                     session.turn_id = ""
                     session.tools.clear()
+                    session.tool_labels.clear()
                     session.model = ""
                     session.model_observed_at = 0.0
                     session.turn_started_at = 0.0
@@ -242,6 +245,7 @@ class ActivityStore:
             elif name == "SessionEnd":
                 session.phase = Phase.ENDED
                 session.tools.clear()
+                session.tool_labels.clear()
                 session.description = ""
                 if session.turn_started_at and not session.turn_ended_at:
                     session.turn_ended_at = emitted_ns / 1_000_000_000
@@ -264,12 +268,19 @@ class ActivityStore:
                         raise ValueError("Duplicate tool identity or too many concurrent tools")
                     phase = tool_phase(event.get("tool_name"))
                     session.tools[tool_id] = phase
+                    tool_name = event["tool_name"]
+                    if len(tool_name) <= MAX_DESCRIPTION_LENGTH - 6:
+                        session.tool_labels[tool_id] = "Tool: " + tool_name
+                    else:
+                        print("CCP tool label unavailable: native name exceeds the display field", file=sys.stderr)
+                        session.tool_labels[tool_id] = "Tool name exceeds display limit"
                     session.phase = phase
                 elif name == "PostToolUse":
                     tool_id = require_id(event.get("tool_use_id"), "tool_use_id")
                     if tool_id not in session.tools:
                         raise ValueError("Tool completion has no matching start")
                     del session.tools[tool_id]
+                    del session.tool_labels[tool_id]
                     # A late command completion cannot undo Stop/Interrupt.
                     if session.phase != Phase.READY and not session.interrupted:
                         session.phase = next(reversed(session.tools.values()), Phase.WORKING)
@@ -375,6 +386,9 @@ class ActivityStore:
             description = (session.description if session and
                 phase in {Phase.WORKING, Phase.EDITING, Phase.RUNNING} and
                 now - session.description_observed_at <= ACTIVITY_LEASE_SECONDS else "")
+            if not description and session and session.tools and phase in {Phase.WORKING, Phase.EDITING, Phase.RUNNING}:
+                # Only the current native tool identity is exposed; arguments and shell commands stay on the PC.
+                description = session.tool_labels[next(reversed(session.tools))]
             # Full digests preserve opaque identity without exposing native Codex identifiers.
             identity = {"chat": hashlib.sha256(session.session_id.encode("ascii")).hexdigest() if session else "0" * 64,
                         "revision": f"{self._revision:016x}"}

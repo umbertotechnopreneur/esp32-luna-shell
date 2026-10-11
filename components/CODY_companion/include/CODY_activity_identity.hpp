@@ -11,14 +11,14 @@
 namespace CODY {
 
 enum class ActivityIdentityKind : uint8_t { Project, Branch, Model };
-inline constexpr char kActivityModelPrefix[] = "model: ";
+inline constexpr char kActivityModelPrefix[] = "Model: ";
 
 // Serialized route-owned text; prepared lines borrow these stable buffers through retirement.
 struct ActivityIdentityState {
     char project[80]{};
     char branch[80]{};
     char model[144]{};
-    char cost_caption[16]{};
+    char cost_caption[24]{};
     char timer[24]{};
     CODY2D::TextLine project_line{};
     CODY2D::TextLine branch_line{};
@@ -49,6 +49,9 @@ static_assert(sizeof(ActivityIdentityState) <= 896,
 constexpr CODY2D::Rect kActivityIdentityBounds{73, 300, 320, 28};
 constexpr CODY2D::Rect kActivityTimerBounds{153, 330, 160, 28};
 constexpr CODY2D::Rect kActivityCostRowBounds{73, 330, 320, 28};
+constexpr uint16_t kActivityCostChipWidth = 196;
+constexpr uint16_t kActivityCostTimerWidth = 116;
+constexpr uint16_t kActivityCostTimerCenter = 335;
 
 // font: Validated native font whose measured advance determines the whole caption capacity.
 // source: Printable ASCII identity, bounded by its canonical producer.
@@ -142,11 +145,11 @@ inline esp_err_t prepare_activity_identity(ActivityIdentityState &state, const C
     }
     esp_err_t error = CODY2D::validate_mono_font(font);
     if (error == ESP_OK) {
-        error = prepare_activity_identity_caption(font, project, "", state.project, state.project_line,
+        error = prepare_activity_identity_caption(font, project, "Project: ", state.project, state.project_line,
             0xFFFF, state.project_length, state.project_width, 64);
     }
     if (error == ESP_OK) {
-        error = prepare_activity_identity_caption(font, branch, "branch: ", state.branch, state.branch_line,
+        error = prepare_activity_identity_caption(font, branch, "Branch: ", state.branch, state.branch_line,
             0xF7BE, state.branch_length, state.branch_width, 64);
     }
     if (error != ESP_OK) {
@@ -192,7 +195,7 @@ inline esp_err_t set_activity_model_cost(ActivityIdentityState &state, const COD
     const bool model_changed = std::strcmp(model, previous_model) != 0;
     if (model_changed) {
         const esp_err_t error = prepare_activity_identity_caption(font, model, kActivityModelPrefix,
-            state.model, state.model_line, cost_band_color(band), state.model_length, state.model_width, 128);
+            state.model, state.model_line, 0xFD20, state.model_length, state.model_width, 128);
         if (error != ESP_OK) { return error; }
         state.model_offset = 0;
         state.started_at_us = active_time_us;
@@ -203,7 +206,7 @@ inline esp_err_t set_activity_model_cost(ActivityIdentityState &state, const COD
         std::strcpy(state.cost_caption, cost_band_text(band));
         const uint16_t length = static_cast<uint16_t>(std::strlen(state.cost_caption));
         const uint16_t width = (length - 1U) * font.advance + font.width;
-        if (width > 134 || font.height > 28) {
+        if (width > kActivityCostChipWidth - 16 || font.height > 28) {
             ESP_LOGE("CODY_identity", "Cost chip size rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
             return ESP_ERR_INVALID_SIZE;
         }
@@ -271,7 +274,7 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
         {ActivityIdentityKind::Branch, state.branch, &state.branch_line, &state.branch_offset,
             state.branch_length, state.branch_width, 0xF7BE, 3000000},
         {ActivityIdentityKind::Model, state.model, &state.model_line, &state.model_offset,
-            state.model_length, state.model_width, cost_band_color(state.cost_band), 4000000}};
+            state.model_length, state.model_width, 0xFD20, 4000000}};
     Caption *sequence[3]{};
     size_t count = 0;
     int64_t cycle_us = 0;
@@ -320,7 +323,9 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
         (state.compaction_timer ? operation_elapsed_us >= 0 : !attention && operation_elapsed_us >= 10000000);
     if (state.timer_visible) {
         state.timer_seconds = static_cast<uint64_t>(operation_elapsed_us / 1000000);
-        if (!old_timer || old_seconds != state.timer_seconds || !state.timer_line.valid) {
+        // Reposition on the same frame as Model/chip visibility changes, even within one timer second.
+        if (!old_timer || old_seconds != state.timer_seconds || !state.timer_line.valid ||
+            old_selected != state.selected || (old_opacity == 0) != (state.opacity == 0)) {
             const int count = std::snprintf(state.timer, sizeof(state.timer), "%02llu:%02llu",
                 static_cast<unsigned long long>(state.timer_seconds / 60U),
                 static_cast<unsigned long long>(state.timer_seconds % 60U));
@@ -329,14 +334,16 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
                 return ESP_ERR_INVALID_SIZE;
             }
             const uint16_t width = (count - 1U) * font.advance + font.width;
-            const bool cost_visible = state.cost_line.valid && state.project_line.valid;
-            if (width > (cost_visible ? 124 : kActivityTimerBounds.width)) {
+            const bool cost_visible = state.selected == ActivityIdentityKind::Model && state.opacity != 0 &&
+                state.cost_line.valid && state.project_line.valid;
+            if (width > (cost_visible ? kActivityCostTimerWidth : kActivityTimerBounds.width)) {
                 ESP_LOGE("CODY_identity", "Elapsed caption width rejected: width=%u (%s)", width, esp_err_to_name(ESP_ERR_INVALID_SIZE));
                 return ESP_ERR_INVALID_SIZE;
             }
             const esp_err_t error = CODY2D::prepare_text_line(font,
                 {state.timer, static_cast<uint16_t>(count)},
-                {static_cast<int16_t>((cost_visible ? 640U : 466U) / 2U - width / 2U), 330}, 0xC618, state.timer_line);
+                {static_cast<int16_t>((cost_visible ? kActivityCostTimerCenter : 233U) - width / 2U), 330},
+                0xC618, state.timer_line);
             if (error != ESP_OK) {
                 return error;
             }
@@ -378,10 +385,13 @@ inline esp_err_t draw_activity_identity(const ActivityIdentityState &state, CODY
     if (error == ESP_OK && state.timer_visible && state.timer_line.valid) {
         error = CODY2D::draw_text_rows(state.timer_line, state.timer_line.text.length, strip, first_row, first_column);
     }
-    if (error == ESP_OK && state.project_line.valid && state.cost_line.valid) {
+    if (error == ESP_OK && state.selected == ActivityIdentityKind::Model && state.opacity != 0 &&
+        state.project_line.valid && state.cost_line.valid) {
         CODY2D::CapsuleControl chip{};
-        chip.bounds = {static_cast<uint16_t>(state.timer_visible ? 85 : 158), 330, 150, 28};
-        const uint16_t color = cost_band_color(state.cost_band);
+        // Keep the complete price phrase beside the independent timer within the existing damage row.
+        chip.bounds = {static_cast<uint16_t>(state.timer_visible ? 73 : (466 - kActivityCostChipWidth) / 2),
+            330, kActivityCostChipWidth, 28};
+        const uint16_t color = CODY2D::blend_rgb565(cost_band_color(state.cost_band), 0, state.opacity);
         chip.top_color = CODY2D::blend_rgb565(color, 0, 64);
         chip.bottom_color = CODY2D::blend_rgb565(color, 0, 32);
         chip.border_color = color;
@@ -390,6 +400,7 @@ inline esp_err_t draw_activity_identity(const ActivityIdentityState &state, CODY
             // One small borrowed line relocates with the timer; its counted text stays in the owner.
             static_assert(sizeof(CODY2D::TextLine) <= 64, "Cost placement must not copy caption storage");
             CODY2D::TextLine caption = state.cost_line;
+            caption.color = CODY2D::blend_rgb565(caption.color, 0, state.opacity);
             const uint16_t width = (caption.text.length - 1U) * caption.font->advance + caption.font->width;
             caption.origin.x = static_cast<int16_t>(chip.bounds.x + (chip.bounds.width - width) / 2);
             caption.bounds.x = caption.origin.x;

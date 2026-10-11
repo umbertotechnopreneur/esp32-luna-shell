@@ -371,6 +371,8 @@ struct RadioSnapshot {
 struct CodexTechnicalObservation {
     CodexLinkSnapshot link;
     CodexTechnicalSnapshot technical;
+    // Immutable running-image identity, acquired only by the canonical owner.
+    char firmware_version[33]{};
 };
 
 enum class StorageMountOutcome : uint8_t {

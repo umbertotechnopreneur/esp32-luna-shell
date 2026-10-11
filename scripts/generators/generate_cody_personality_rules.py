@@ -91,7 +91,7 @@ def generated_personality_config(rules):
         lines.append(f"    {{PersonalityCue::{enum_name(entry['name'])}, {entry['priority']}, "
                      f"{str(entry['interrupts']).lower()}, {entry['repeat_cooldown_seconds'] * 1_000_000}, "
                      f"{str(entry['sfx_enabled']).lower()}}},")
-    lines.extend(("};", "inline constexpr uint8_t cue_rule_count = 14;"))
+    lines.extend(("};", f"inline constexpr uint8_t cue_rule_count = {len(rules['catalog']['icons'])};"))
     for name, value in icons["low_battery"].items():
         lines.append(f"inline constexpr uint8_t low_battery_{name} = {value};")
     lines.append("} // namespace CODY::PersonalityConfig")

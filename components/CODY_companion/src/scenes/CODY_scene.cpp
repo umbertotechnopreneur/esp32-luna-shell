@@ -109,7 +109,8 @@ void capture_scene_activity_identity(SceneFrame &frame, const ActivityIdentitySt
     frame.activity_identity_opacity = identity ? identity->opacity : 0;
     frame.activity_identity_kind = identity ? identity->selected : ActivityIdentityKind::Project;
     frame.activity_cost_band = identity ? identity->cost_band : LUNASHELL::CodexCostBand::Unknown;
-    frame.activity_cost_visible = identity && identity->project_line.valid && identity->cost_line.valid;
+    frame.activity_cost_visible = identity && identity->selected == ActivityIdentityKind::Model &&
+        identity->opacity != 0 && identity->project_line.valid && identity->cost_line.valid;
 }
 
 // identity: Named generic scene, not a table position; demo has its own existing route.

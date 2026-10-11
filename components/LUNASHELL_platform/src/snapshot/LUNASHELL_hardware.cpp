@@ -55,6 +55,7 @@
 #endif
 #include "driver/i2c_master.h"
 #include "esp_attr.h"
+#include "esp_app_desc.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -2547,9 +2548,26 @@ esp_err_t DeviceSnapshotService::readCodexEventObservation(CodexEventSnapshot &o
 }
 
 // observation: Bounded canonical telemetry; no network, filesystem or sensor reads.
-// Exception: Returns the original mutex error; callers must not consume output on failure.
+// Exception: Returns the original mutex or immutable image-identity error; output is unusable on failure.
 esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObservation &observation) const
 {
+    const auto *application = esp_app_get_description();
+    if (application == nullptr) {
+        ESP_LOGE(kTag, "Firmware identity unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    const size_t version_length = strnlen(application->version, sizeof(application->version));
+    if (version_length == 0 || version_length == sizeof(application->version)) {
+        ESP_LOGE(kTag, "Firmware version has no bounded identity (%s)", esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    for (size_t index = 0; index < version_length; ++index) {
+        if (application->version[index] < 32 || application->version[index] > 126) {
+            ESP_LOGE(kTag, "Firmware version contains an invalid byte at %u (%s)",
+                static_cast<unsigned>(index), esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+    }
     const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "Codex technical read");
     if (error != ESP_OK) {
         return error;
@@ -2557,6 +2575,7 @@ esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObs
     // The caller owns a persistent buffer; avoid a nested link-plus-telemetry stack copy.
     observation.link = s_snapshot.radios.codex_link;
     observation.technical = s_snapshot.codex_technical;
+    std::memcpy(observation.firmware_version, application->version, version_length + 1);
     const esp_err_t release_error = give_snapshot_mutex("Codex technical read");
     if (release_error != ESP_OK) {
         return release_error;

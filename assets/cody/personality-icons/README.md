@@ -5,6 +5,12 @@ Veil, Cosmic Stardust, Enchanted Mosaic and Dreamwave. They contain no cloud,
 character, skin paint, embedded caption or sensor value. Only one symbol is
 active at a time; `None` is the default session request.
 
+Four additional typed cues use native 64 x 64 compile-time alpha coverage rather
+than bitmap masters: Wi-Fi connected, animated search, battery ready and battery
+low. Their stable IDs are 15 through 18. Four subpixel samples provide edge
+coverage; the four planes occupy 16 KiB of flash. These silent symbols use
+semantic cyan, green and red, while the original fourteen masters remain intact.
+
 ![Quantized symbol masters](generated/preview.png)
 
 The preserved ImageGen sources and exact prompts are in `source/`. On 2026-10-07

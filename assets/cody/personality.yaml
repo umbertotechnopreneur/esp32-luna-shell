@@ -57,6 +57,10 @@ catalog:
     - {id: 12, name: confusion, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
     - {id: 13, name: affection, priority: 200, interrupts: true, repeat_cooldown_seconds: 0, sfx_enabled: true}
     - {id: 14, name: frustration, priority: 300, interrupts: true, repeat_cooldown_seconds: 0, sfx_enabled: true}
+    - {id: 15, name: wifi_connected, priority: 100, interrupts: false, repeat_cooldown_seconds: 0, sfx_enabled: false}
+    - {id: 16, name: search, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: false}
+    - {id: 17, name: battery_ready, priority: 100, interrupts: false, repeat_cooldown_seconds: 0, sfx_enabled: false}
+    - {id: 18, name: battery_low, priority: 100, interrupts: false, repeat_cooldown_seconds: 0, sfx_enabled: false}
 
 # The only currently active mood value. A caress never restarts its decay clock.
 happiness:

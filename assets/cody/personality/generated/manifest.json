@@ -1,7 +1,7 @@
 {
   "schema": "cody.personality.generated.v2",
   "source": "assets/cody/personality.yaml",
-  "source_sha256": "f6a369fef4a6ad03b3c15369d3362346a5ad861c197f0bc01e82b17dab38ce7f",
+  "source_sha256": "34bbc5299fe607e840d9be5b3421f970656a627008c1fe66b85882b164154843",
   "headers": [
     "assets/cody/personality/generated/personality_rules.hpp",
     "assets/cody/personality/generated/personality_catalog.hpp",
@@ -197,6 +197,38 @@
           "interrupts": true,
           "repeat_cooldown_seconds": 0,
           "sfx_enabled": true
+        },
+        {
+          "id": 15,
+          "name": "wifi_connected",
+          "priority": 100,
+          "interrupts": false,
+          "repeat_cooldown_seconds": 0,
+          "sfx_enabled": false
+        },
+        {
+          "id": 16,
+          "name": "search",
+          "priority": 100,
+          "interrupts": false,
+          "repeat_cooldown_seconds": 15,
+          "sfx_enabled": false
+        },
+        {
+          "id": 17,
+          "name": "battery_ready",
+          "priority": 100,
+          "interrupts": false,
+          "repeat_cooldown_seconds": 0,
+          "sfx_enabled": false
+        },
+        {
+          "id": 18,
+          "name": "battery_low",
+          "priority": 100,
+          "interrupts": false,
+          "repeat_cooldown_seconds": 0,
+          "sfx_enabled": false
         }
       ]
     },

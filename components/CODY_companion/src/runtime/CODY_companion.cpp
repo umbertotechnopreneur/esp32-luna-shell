@@ -213,6 +213,7 @@ CODY::DebugReadout s_cached_readout;
 bool s_cached_readout_visible = false;
 bool s_cached_navigation_visible = false;
 bool s_cached_scene_visible = false;
+bool s_cached_wake_battery_active = false;
 uint8_t s_cached_navigation_opacity = 0;
 CODY::StatusOverlay s_cached_status_overlay;
 bool s_cached_status_visible = false;
@@ -281,6 +282,7 @@ struct CompanionState {
     CODY::OnboardingSettings onboarding{};
     CODY::SceneFrame scene{};
     bool resume_scene_pending = false;
+    CODY::WakeBatteryPrelude wake_battery{};
     bool animation_paused_before_standby = false;
     bool rig_debug_before_standby = false;
 #if CONFIG_LUNASHELL_CODY_DIAGNOSTICS_READOUT
@@ -438,6 +440,13 @@ esp_err_t admit_personality_device_cue(const LUNASHELL::DeviceStatusObservation 
         return ESP_OK;
     }
     cue = CODY::PersonalityCue::None;
+    if (requested == CODY::PersonalityCue::WifiConnected) {
+        if (personality_sample_current(observation.wifi) && observation.wifi.connected &&
+            observation.wifi.ip_acquired) {
+            cue = requested;
+        }
+        return ESP_OK;
+    }
     if (requested == CODY::PersonalityCue::NoWifi) {
         if (personality_sample_current(observation.wifi) && observation.wifi.started &&
             observation.wifi.credentials_configured && !observation.wifi.connected) {
@@ -458,6 +467,13 @@ esp_err_t admit_personality_device_cue(const LUNASHELL::DeviceStatusObservation 
             ESP_LOGE(kTag, "Personality charge state='%s' rejected (%s)",
                 battery.power_state, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
             return ESP_ERR_INVALID_RESPONSE;
+        }
+    } else if (requested == CODY::PersonalityCue::BatteryReady || requested == CODY::PersonalityCue::BatteryLow) {
+        if (battery.level_percent_valid && std::strcmp(battery.power_state, "charging") != 0) {
+            const bool low = battery.level_percent <= CODY::PersonalityConfig::low_battery_enter_percent;
+            if ((requested == CODY::PersonalityCue::BatteryLow) == low) {
+                cue = requested;
+            }
         }
     } else if (s_state.personality_battery.low_battery_active) {
         cue = requested;
@@ -995,6 +1011,13 @@ void notify_completed_personality(const CODY::PersonalityFrame &previous,
         s_state.response.idle_scene == CODY::IdleSceneId::Whistle && idle_view_visible;
     suspend_optional_personality_audio(!visible && !idle_whistle_visible);
     const bool appeared = visible && (previous.opacity == 0 || previous.cue != current.cue);
+    if (s_state.connection_personality.search_active &&
+        (current.cue == CODY::PersonalityCue::Curiosity || current.cue == CODY::PersonalityCue::Search ||
+         current.cue == CODY::PersonalityCue::Fear)) {
+        // Repeated waiting poses are silent; real connection edges retain their existing cues.
+        s_pending_personality_sound = CODY::PersonalityCue::None;
+        return;
+    }
     const int64_t now_us = esp_timer_get_time();
     if (appeared) {
         s_pending_personality_sound = current.cue;
@@ -1984,6 +2007,10 @@ esp_err_t observe_connection_personality(int64_t active_delta_us,
     inputs.pc_current = personality_sample_current(pc);
     inputs.pc_connected = inputs.pc_current && pc.state == LUNASHELL::CodexLinkState::Connected;
     inputs.pc_searching = inputs.pc_current && pc.state == LUNASHELL::CodexLinkState::Discovering;
+    inputs.wifi_connected = inputs.wifi_current && wifi.connected && wifi.ip_acquired;
+    inputs.search_view_visible = s_state.scene.valid &&
+        s_state.scene.definition->id == CODY::SceneId::LookingForPc &&
+        !debug_view_active() && !technical_panel_view_active();
     return CODY::advance_connection_personality(inputs, active_delta_us, state, cue);
 }
 
@@ -2005,7 +2032,7 @@ esp_err_t observe_character_direction(const CODY::ResponseInputs &inputs,
     direction.rebase = rebase;
     direction.caress_at_us = s_state.last_caress_at_us;
     const bool approval_view = scene.valid && scene.definition->id == CODY::SceneId::ApprovalOnPc;
-    direction.enabled = CODY::lifecycle_is_resting(lifecycle) && !s_state.resume_scene_pending &&
+    direction.enabled = CODY::lifecycle_is_resting(lifecycle) && !s_state.resume_scene_pending && !s_state.wake_battery.active &&
         (companion_home_route_active() || approval_view) && !debug_view_active() &&
         !s_state.rig_debug && !s_state.expression_override;
     if (CODY::lifecycle_is_resting(lifecycle)) {
@@ -2075,6 +2102,36 @@ esp_err_t observe_character_direction(const CODY::ResponseInputs &inputs,
         }
     }
     return ESP_OK;
+}
+
+// working: First resumed route is the visible Working screen, with no technical/debug override.
+// delta_us: Active elapsed time from the same display clock as the retired frame.
+// Exception: Returns the original snapshot, state or measured battery error.
+esp_err_t advance_wake_battery_visual(bool working, int64_t delta_us)
+{
+    if (!s_state.wake_battery.pending && !s_state.wake_battery.active) {
+        return ESP_OK;
+    }
+    auto &observation = s_state.personality_observation;
+    const esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readDeviceStatusObservation(observation);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Wake battery observation failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    const auto &battery = observation.battery;
+    CODY::PersonalityPowerObservation power{};
+    power.current = personality_sample_current(battery);
+    power.battery_present = battery.battery_present;
+    power.percentage_valid = battery.level_percent_valid;
+    power.level_percent = battery.level_percent;
+    power.charging = std::strcmp(battery.power_state, "charging") == 0;
+    if (power.current && power.battery_present && !power.charging &&
+        std::strcmp(battery.power_state, "discharging") != 0 && std::strcmp(battery.power_state, "standby") != 0) {
+        ESP_LOGE(kTag, "Wake battery power state rejected: '%s' (%s)",
+            battery.power_state, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return CODY::advance_wake_battery_prelude(power, working, delta_us, s_state.wake_battery);
 }
 
 // frame_started_us: Real timestamp sampled while the display lock is held.
@@ -2161,6 +2218,14 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
         }
     }
     const bool scene_active = CODY::lifecycle_is_resting(next_lifecycle) && !s_state.resume_scene_pending;
+    if (scene_active) {
+        const bool working = next_scene.valid && next_scene.definition->id == CODY::SceneId::Working &&
+            !technical_panel_view_active() && !debug_view_active() && !s_state.expression_override;
+        const esp_err_t battery_error = advance_wake_battery_visual(working, animation_delta_us);
+        if (battery_error != ESP_OK) {
+            return battery_error;
+        }
+    }
     const esp_err_t routine_error = scene_active && !debug_view_active()
         ? update_routine_greeting(clock, next_lifecycle, next_scene) : ESP_OK;
     if (routine_error != ESP_OK) {
@@ -2189,7 +2254,8 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     }
     if (scene_active && next_scene.valid) {
         // The overlay retains its route and title timing while live facial response continues.
-        esp_err_t scene_error = debug_view_active() ? ESP_OK : CODY::advance_scene(next_scene, animation_delta_us);
+        esp_err_t scene_error = debug_view_active() || s_state.wake_battery.active
+            ? ESP_OK : CODY::advance_scene(next_scene, animation_delta_us);
         if (scene_error == ESP_OK) {
             scene_error = CODY::scene_cloud_transform(next_scene, base_transform);
         }
@@ -2202,12 +2268,15 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
         base_transform = CODY::kCompanionPanelCharacterTransform;
     }
     if (CODY::lifecycle_is_resting(next_lifecycle) && !s_state.expression_override &&
-        next_connection_cue != CODY::PersonalityCue::None) {
+        (next_connection_cue != CODY::PersonalityCue::None || next_connection.search_active)) {
         const bool reaction_scene = !next_scene.valid || s_state.routine_scene ||
             next_scene.definition->id == CODY::SceneId::Connected ||
             next_scene.definition->id == CODY::SceneId::LookingForPc;
         if (reaction_scene) {
-            const CODY::ExpressionId reaction = next_connection_cue == CODY::PersonalityCue::Joy
+            const CODY::ExpressionId reaction = next_connection.search_active
+                ? CODY::connection_search_presentation(next_connection).expression
+                : next_connection_cue == CODY::PersonalityCue::Joy ||
+                    next_connection_cue == CODY::PersonalityCue::WifiConnected
                 ? CODY::ExpressionId::Happy
                 : next_connection_cue == CODY::PersonalityCue::Curiosity
                     ? CODY::ExpressionId::Curious
@@ -2217,6 +2286,14 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
             if (expression_error != ESP_OK) {
                 return expression_error;
             }
+        }
+    }
+    if (s_state.wake_battery.active) {
+        const auto expression = s_state.wake_battery.cue == CODY::PersonalityCue::BatteryLow
+            ? CODY::ExpressionId::Worried : CODY::ExpressionId::Happy;
+        const esp_err_t battery_face_error = CODY::expression_channels(expression, target_face);
+        if (battery_face_error != ESP_OK) {
+            return battery_face_error;
         }
     }
     // Eyes must actually close before the hold begins, not merely approach zero.
@@ -3042,6 +3119,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 s_state.body_drag_active = false;
             }
             s_voice_view_visible = true;
+            s_state.wake_battery = {};
             s_voice_view_rotation = s_state.rendered_rotation_degrees;
             s_voice_view_phase = voice_phase;
             s_voice_view_started_at_us = s_voice_input_view.input.started_at_us;
@@ -3286,6 +3364,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     // A deliberate shake may select Home during the canonical motion observation.
     frame_technical = technical_panel_view_active();
     CODY::ScenePresentation presentation{};
+    const bool frame_wake_battery_active = s_state.wake_battery.active;
     const bool frame_scene_visible = !frame_overlay && !frame_technical && s_state.scene.valid &&
         CODY::lifecycle_is_resting(s_state.lifecycle) && !s_state.resume_scene_pending;
     if (frame_technical) {
@@ -3315,7 +3394,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             CODY::SceneContent panel_content{};
             panel_error = CODY::prepare_companion_panel_from_observation(
                 s_state.companion_panel, link, technical, CODY::SceneData::body_font,
-                panel_now_us, s_state.technical_panel, panel_content);
+                panel_now_us, s_state.technical_panel, panel_content, s_state.technical_observation.firmware_version);
             if (panel_error == ESP_OK) {
                 s_state.panel_activity_revision = link.activity.revision;
                 s_state.panel_technical_revision = technical.revision;
@@ -3391,15 +3470,20 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_state.personality_was_sleep = sleeping;
         context.release_immediately = s_state.personality_release_sleep;
         CODY::PersonalityCue cue = sleeping ? CODY::PersonalityCue::Sleep : s_state.requested_personality;
+        if (!sleeping && s_state.wake_battery.active) {
+            cue = s_state.wake_battery.cue;
+        }
         if (!sleeping && cue == CODY::PersonalityCue::None) {
             cue = CODY::resolve_scene_personality_cue(frame_scene_visible
                 ? s_state.scene.definition->id : CODY::SceneId::CompanionIdle,
                 s_state.connection_cue);
         }
-        if (!sleeping && cue == CODY::PersonalityCue::None && s_state.welcome_remaining_us > 0) {
+        const bool quiet_search = s_state.connection_personality.search_active && frame_scene_visible &&
+            s_state.scene.definition->id == CODY::SceneId::LookingForPc;
+        if (!sleeping && !quiet_search && cue == CODY::PersonalityCue::None && s_state.welcome_remaining_us > 0) {
             cue = s_state.welcome_cue;
         }
-        if (!sleeping && cue == CODY::PersonalityCue::None) {
+        if (!sleeping && !quiet_search && cue == CODY::PersonalityCue::None) {
             cue = CODY::character_direction_cue(s_state.character_direction);
         }
         if (cue_error == ESP_OK) {
@@ -3563,6 +3647,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     // Geometry can enter/leave the reusable routine scene. Decide reuse after
     // that transition, or old title pixels would survive (or damage would fail).
     const bool reuse_previous = !frame_overlay && previous_frame_available && !resume_animation &&
+        s_cached_wake_battery_active == s_state.wake_battery.active &&
         s_rendered_revision.load(std::memory_order_acquire) == revision &&
         s_state.rig_visible && s_cache_was_rig &&
         s_cached_companion_panel == (frame_technical ? s_state.companion_panel : CODY::CompanionPanel::Home) &&
@@ -3731,12 +3816,12 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                     frame_debug ? s_resources.rig_debug_strokes : nullptr,
                     false, navigation_opacity, scene_background,
                     screenshot_control_state(frame_screenshot_state),
-                    frame_scene_visible ? &s_state.scene.activity_overlay : nullptr
+                    frame_scene_visible && !s_state.wake_battery.active ? &s_state.scene.activity_overlay : nullptr
                 );
                 if (result == ESP_OK && presentation.opacity != 255) {
                     result = CODY2D::fade_to_black(strip, presentation.opacity);
                 }
-                if (result == ESP_OK && frame_scene_visible && presentation.content_visible) {
+                if (result == ESP_OK && frame_scene_visible && presentation.content_visible && !s_state.wake_battery.active) {
                     result = CODY::draw_scene_rows(s_state.scene, strip, damage.top, damage.left);
                 }
                 if (result == ESP_OK && s_state.battery_notice_line.valid) {
@@ -3857,6 +3942,16 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
         const CODY::PersonalityFrame previous_personality = s_state.retired_personality;
         s_state.retired_personality = frame_was_rig ? s_resources.rig->personality : CODY::PersonalityFrame{};
+        if (frame_wake_battery_active) {
+            const auto &retired = s_state.retired_personality;
+            s_state.wake_battery.retired = retired.cue == s_state.wake_battery.cue && retired.opacity != 0 &&
+                retired.status == CODY::PersonalityPresentationStatus::Visible;
+            if (retired.status == CODY::PersonalityPresentationStatus::BlockedByLayout) {
+                // A decorative notice cannot leave the working content hidden indefinitely.
+                s_state.wake_battery = {};
+                s_state.frame_dirty.store(true, std::memory_order_release);
+            }
+        }
         s_state.retired_battery_notice = s_state.battery_notice_line.valid ?
             s_state.battery_notice.active : CODY::BatteryNotice::None;
         notify_completed_personality(previous_personality, s_state.retired_personality,
@@ -3875,9 +3970,10 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_cached_capture_visual = frame_capture_visual;
         s_cached_scene = s_state.scene;
         s_cached_scene_visible = frame_scene_visible;
+        s_cached_wake_battery_active = frame_wake_battery_active;
         s_cached_companion_panel = frame_technical ? s_state.companion_panel : CODY::CompanionPanel::Home;
         s_cached_panel_revision = s_state.technical_panel.revision;
-        const esp_err_t audio_error = (frame_overlay || frame_technical) ? ESP_OK :
+        const esp_err_t audio_error = (frame_overlay || frame_technical || frame_wake_battery_active) ? ESP_OK :
             notify_completed_typewriter(s_cached_scene, presentation);
         if (audio_error != ESP_OK) {
             // The audio owner already retains/publishes its real failure. This
@@ -4457,6 +4553,8 @@ esp_err_t apply_lifecycle_requests()
         return benchmark_error;
     }
     const bool sleeping = (request & 1U) != 0;
+    s_state.wake_battery = {};
+    s_state.wake_battery.pending = !sleeping;
     const esp_err_t audio_error = set_companion_typewriter_suspended(sleeping);
     if (audio_error != ESP_OK) {
         return audio_error;

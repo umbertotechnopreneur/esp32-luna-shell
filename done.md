@@ -13,6 +13,46 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Connection, activity and CCP operator reference - 2026-10-12
+
+- Follow-up: the middle price band now reads `Reasonable price` in full.
+  Expanded the Model-only chip to 196 pixels and kept its independent timer
+  inside the same 320-pixel row. The price chip fades with Model and disappears
+  during Project/Branch. Static review only; no additional checks or flash.
+
+- Implemented a silent active-time discovery cycle: connected Wi-Fi symbol,
+  question mark, moving lens, worry/fear and recovery. Search standby is ten
+  minutes; Working is three minutes. A real software-standby wake into Working
+  can show a four-visible-second red/unhappy or green/happy battery cue;
+  charging, absent or non-current samples skip it. Backend work continues.
+- Clarified Project/Branch/Model labels, orange Model text and a Model-only
+  Cheap/Reasonable/Expensive price chip. Added bounded current tool labels
+  without transmitting arguments/commands. Expanded technical labels and
+  canonical PC IP/running firmware identity. Missing token/context/reasoning
+  data remains unavailable; no Desktop usage or billing bridge was implemented.
+  Native host ABI and preview source match the changed interfaces.
+- Added four 64 x 64 compile-time native alpha planes (16 KiB flash), typed IDs
+  15-18, source/generated declarations and generator contract. Static review
+  only: no tests, scans, firmware builds, simulator execution or hardware
+  operations. Compiled frames, stack headroom and runtime rendering remain open.
+- Revised the CCP Communication Atlas to 43 pages. Operator pages 27-34 cover
+  configuration, Debug/Release capabilities, 17 tools, three skills, ten hooks,
+  audio and reset boundaries. Final register pages 40-43 preserve earlier
+  corrections and Security history. The PDF agent rendered all pages and
+  visually inspected each new/operator/register page. This is document-render
+  evidence, not execution of CCP commands or firmware validation.
+
+## VibeWare repository presentation and license - 2026-10-12
+
+- Aligned the root README with the VibeWare initiative: `This is VibeWare`
+  heading, approved logo, canonical manifesto, both GitHub repositories,
+  personal site, Terms and Privacy. Removed the generic software-with-AI
+  disclosure; website links carry GitHub referral UTM fields with distinct
+  placements. Added the project MIT license from the owner's brand template
+  and expanded existing third-party notices for speech, wake-word and branding
+  license boundaries. Recorded the footer convention in AGENTS.md. Static
+  document review only; no website availability, build or runtime checks.
+
 ## Voice presentation and unified communication reference - 2026-10-12
 
 - Replaced the three working dots with three rotating gears, with the middle
