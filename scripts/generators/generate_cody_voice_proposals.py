@@ -27,32 +27,37 @@ def centered(surface, label, y, size, color):
     surface.text(((466 - width) / 2, y), label, font=face, fill=color)
 
 # index: Stable proposal number.
+# pose: Optional independent animation pose, preserving the surrounding proposal.
 # Raises OSError for artifact publication failures.
-def proposal(index):
+def proposal(index, pose=None):
     image = Image.new('RGB', (466, 466), '#161e29')
     draw = ImageDraw.Draw(image)
     draw.ellipse((0, 0, 465, 465), fill='black')
     centered(draw, 'Listening', 92, 28, '#dceeff')
     palette = [('#28c8ff', '#9264ff'), ('#28e0d1', '#4c94ff'), ('#6ebeff', '#f090e0'),
                ('#299fff', '#d95fff'), ('#39d8ff', '#848cff')][index % 5]
-    data = samples(index)
-    for layer in range(3):
+    for layer in range(4):
+        data = samples(((index if pose is None else pose) + layer * 4) % 16)
         for x in range(13, 452):
             position = (x - 13) * 63 / 439
             first = min(62, int(position))
             value = data[first] + (data[first + 1] - data[first]) * (position - first)
-            value = value if layer == 0 else -value * .75 + 3 if layer == 1 else value * .55 - 3
+            value = value * (1, .75, .5, .875)[layer] + (0, 3, -3, -1)[layer]
             color_a = tuple(int(palette[0][part:part + 2], 16) for part in (1, 3, 5))
             color_b = tuple(int(palette[1][part:part + 2], 16) for part in (1, 3, 5))
             mix = (x - 13) / 439
-            shade = 1 if layer == 0 else .55 if layer == 1 else .35
-            color = tuple(round((a * (1 - mix) + b * mix) * shade) for a, b in zip(color_a, color_b))
-            draw.line((x, 190 + value - 1, x, 190 + value + 1), fill=color)
-    labels = ['Cody', 'branch: main', 'model: gpt-6.1', 'Cody', 'branch: codex/voice']
+            color = tuple(round(a * (1 - mix) + b * mix) for a, b in zip(color_a, color_b))
+            center = 190 + value
+            for y in range(max(170, math.floor(center - 2)), min(210, math.ceil(center + 2))):
+                coverage = max(0, min(1, 2 - abs(y + .5 - center)))
+                opacity = coverage * (230, 155, 120, 170)[layer] / 255
+                background = image.getpixel((x, y))
+                image.putpixel((x, y), tuple(round(a * opacity + b * (1 - opacity)) for a, b in zip(color, background)))
+    labels = ['model: gpt-6.1', 'cost: Balanced', 'effort: high', 'branch: main', 'Cody']
     centered(draw, labels[index % 5], 300, 23, '#dceeff')
-    centered(draw, 'Balanced', 333, 18, '#929eb2')
     centered(draw, 'Shake to cancel', 365, 21, '#adb9cb')
-    centered(draw, f'00:{max(0, 59 - index * 5):02}', 402, 27, '#dceeff')
+    used = 1 + index * 5
+    centered(draw, f'{used:02}s elapsed / {60 - used:02}s left', 402, 16, '#dceeff')
     return image
 
 # No parameters: publishes proposal images and a small immutable waveform table.
@@ -77,6 +82,9 @@ def main():
         sheet.paste(image, (x, y))
         draw.text((x + 8, y + 476), f'{index + 1:02} / concept', font=font(20), fill='#18283e')
     sheet.save(OUTPUT / 'contact-sheet.png')
+    animation = [proposal(0, pose=frame) for frame in range(16)]
+    animation[0].save(OUTPUT / 'voice-animation.gif', save_all=True, append_images=animation[1:],
+                      duration=125, loop=0, disposal=2)
     (OUTPUT / 'README.md').write_text('# Voice screen proposals\n\nTen synthetic design studies, not device captures. '
         'Project/model/branch/cost captions are illustrative and never enter firmware snapshots. '
         'The firmware shares only the sixteen immutable waveform poses. The model price is a catalog '

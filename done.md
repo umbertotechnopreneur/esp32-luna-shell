@@ -18,10 +18,12 @@ private local diagnostics, not publication artifacts.
 - Bounded capture and host PCM to sixty seconds / 1,920,000 bytes, retaining the
   independent ten-second PSRAM acknowledgement ring. Removed the voice Cancel
   capsule and touch action: the retired voice view owns deliberate shake. Added
-  an actual 01:00 countdown, current project/branch/model fade carousel and catalog
-  cost band without invented prices. The character remains hidden.
+  elapsed/remaining seconds and one measured fade/scroll carousel ordered model,
+  catalog cost band, thinking effort, branch, project. Unavailable captions disappear
+  and no price is invented. The character remains hidden.
 - Added sixteen synthetic waveform poses (1,024 bytes), a 440 x 40 logical-pixel
-  ribbon and partial changing-band transfers after the first full retirement.
+  ribbon with four phase-shifted curves, lightweight Q8 anti-aliasing and alpha
+  composition, plus partial changing-band transfers after the first retirement.
   Ten code-authored visual proposals share the waveform data; their metadata and
   fonts are illustrative, not device captures or simulator evidence. Source
   review only: no tests, builds, size checks, simulator run or device flash.

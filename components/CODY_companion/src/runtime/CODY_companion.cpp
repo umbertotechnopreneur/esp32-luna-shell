@@ -31,6 +31,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <limits>
@@ -2680,8 +2681,21 @@ esp_err_t draw_branding_rows(uint16_t frame_index)
 // Display-owned bounded projection and prepared glyphs never enter nested frame stacks.
 LUNASHELL::VoiceSnapshot s_voice_input_view{};
 CODY2D::TextLine s_voice_title{}, s_voice_shake{}, s_voice_timer{};
-char s_voice_countdown[6]{};
-CODY::ActivityIdentityState s_voice_identity{};
+char s_voice_countdown[32]{};
+enum class VoiceCaptionKind : uint8_t { Model, Cost, Effort, Branch, Project };
+struct VoiceCaption {
+    VoiceCaptionKind kind;
+    char text[144]{};
+    CODY2D::TextLine line{};
+    uint16_t length = 0;
+    uint16_t width = 0;
+    uint16_t color = 0xF7BE;
+};
+VoiceCaption s_voice_captions[] = {{VoiceCaptionKind::Model}, {VoiceCaptionKind::Cost},
+    {VoiceCaptionKind::Effort}, {VoiceCaptionKind::Branch}, {VoiceCaptionKind::Project}};
+int64_t s_voice_carousel_started_us = 0;
+CODY2D::TextLine s_voice_carousel_line{};
+static_assert(sizeof(s_voice_captions) <= 1280, "Voice carousel storage belongs to the display owner, never its frame stack");
 LUNASHELL::CodexTechnicalObservation s_voice_metadata{};
 CODY::ResponseInputs s_voice_motion{};
 bool s_voice_view_visible = false;
@@ -2708,9 +2722,15 @@ esp_err_t prepare_voice_caption(const char *text, int16_t top, uint16_t color, C
 {
     const auto &font = CODY::SceneData::body_font;
     const uint16_t length = static_cast<uint16_t>(std::strlen(text));
-    if (length == 0 || font.height > 28) return ESP_ERR_INVALID_SIZE;
+    if (length == 0 || font.height > 28) {
+        ESP_LOGE(kTag, "Voice caption rejected: length=%u font_height=%u", unsigned(length), unsigned(font.height));
+        return ESP_ERR_INVALID_SIZE;
+    }
     const uint16_t width = static_cast<uint16_t>((length - 1U) * font.advance + font.width);
-    if (width > 320) return ESP_ERR_INVALID_SIZE;
+    if (width > 320) {
+        ESP_LOGE(kTag, "Voice caption width rejected: width=%u", unsigned(width));
+        return ESP_ERR_INVALID_SIZE;
+    }
     return CODY2D::prepare_text_line(font, {text, length},
         {static_cast<int16_t>((466 - width) / 2), top}, color, line);
 }
@@ -2721,24 +2741,40 @@ esp_err_t prepare_voice_caption(const char *text, int16_t top, uint16_t color, C
 // Exception: Returns the original native raster failure.
 esp_err_t draw_voice_ribbon(CODY2D::Surface strip, uint16_t row, size_t pose)
 {
+    const esp_err_t surface_error = CODY2D::validate_surface(strip);
+    if (surface_error != ESP_OK) return surface_error;
+    if (strip.width != kPanelWidth || row + strip.height > kPanelHeight || pose >= CODY::kVoiceWaveformFrameCount) {
+        ESP_LOGE(kTag, "Voice ribbon bounds rejected: width=%u row=%u height=%u pose=%u",
+            unsigned(strip.width), unsigned(row), unsigned(strip.height), unsigned(pose));
+        return ESP_ERR_INVALID_ARG;
+    }
     if (row >= 210 || row + strip.height <= 170) return ESP_OK;
     for (uint16_t x = 13; x < 453; ++x) {
         const uint32_t position = (x - 13U) * 63U;
         const size_t first = std::min<size_t>(62, position / 439U);
         const int fraction = static_cast<int>(position - first * 439U);
-        const int value = CODY::kVoiceWaveform[pose][first] +
-            (CODY::kVoiceWaveform[pose][first + 1] - CODY::kVoiceWaveform[pose][first]) * fraction / 439;
         const uint16_t color = CODY2D::blend_rgb565(0x9B1F, 0x2E7F,
             static_cast<uint8_t>((x - 13U) * 255U / 439U));
-        for (int layer = 0; layer < 3; ++layer) {
-            const int offset = layer == 0 ? value : layer == 1 ? -value * 3 / 4 + 3 : value / 2 - 3;
-            const int top = std::max<int>(190 + offset - 1, row);
-            const int bottom = std::min<int>(190 + offset + 2, row + strip.height);
-            if (top >= bottom) continue;
-            const uint16_t foreground = layer == 0 ? color : CODY2D::fade_rgb565_to_black(color, layer == 1 ? 150 : 90);
-            const esp_err_t error = CODY2D::fill_rect(strip, {x, static_cast<uint16_t>(top - row),
-                1, static_cast<uint16_t>(bottom - top)}, foreground);
-            if (error != ESP_OK) return error;
+        constexpr int scale[] = {256, 192, 128, 224};
+        constexpr int shift[] = {0, 3, -3, -1};
+        constexpr uint8_t strength[] = {230, 155, 120, 170};
+        for (size_t layer = 0; layer < 4; ++layer) {
+            const size_t wave_pose = (pose + layer * 4) % CODY::kVoiceWaveformFrameCount;
+            // Q8 interpolation gives subpixel edge coverage without floats, trigonometry or supersampled buffers.
+            const int value_q8 = int(CODY::kVoiceWaveform[wave_pose][first]) * 256 +
+                (CODY::kVoiceWaveform[wave_pose][first + 1] - CODY::kVoiceWaveform[wave_pose][first]) * fraction * 256 / 439;
+            const int center_q8 = (190 + shift[layer]) * 256 + value_q8 * scale[layer] / 256;
+            for (uint16_t offset = 0; offset < strip.height; ++offset) {
+                const int y = row + offset;
+                if (y < 170 || y >= 210) continue;
+                const int coverage = std::clamp(512 - std::abs(y * 256 + 128 - center_q8), 0, 256);
+                if (coverage == 0) continue;
+                const size_t pixel = offset * strip.stride + x;
+                const uint16_t background = CODY2D::rgb565_stored_to_native(strip.pixels[pixel], strip.byte_order);
+                const uint8_t opacity = static_cast<uint8_t>(coverage * strength[layer] / 256);
+                const uint16_t blended = CODY2D::blend_rgb565(color, background, opacity);
+                strip.pixels[pixel] = CODY2D::rgb565_native_to_stored(blended, strip.byte_order);
+            }
         }
     }
     return ESP_OK;
@@ -2756,20 +2792,56 @@ esp_err_t prepare_voice_identity()
         activity.data_valid && !activity.data_stale;
     const char *project = current ? activity.project : "";
     const char *branch = current ? activity.branch : "";
-    const char *previous_branch = s_voice_identity.branch[0] == '\0' ? "" : s_voice_identity.branch + 8;
     const int64_t now = esp_timer_get_time();
-    if (std::strcmp(s_voice_identity.project, project) != 0 || std::strcmp(previous_branch, branch) != 0 ||
-        !s_voice_view_visible || s_voice_view_started_at_us != s_voice_input_view.input.started_at_us) {
-        error = CODY::prepare_activity_identity(s_voice_identity, CODY::SceneData::body_font, project, branch, now);
-        if (error != ESP_OK) return error;
-    }
     const auto model_cost = CODY::observed_model_cost(link, s_voice_metadata.technical);
-    bool changed = false;
-    error = CODY::set_activity_model_cost(s_voice_identity, CODY::SceneData::body_font,
-        model_cost.model, model_cost.band, now, changed);
-    if (error != ESP_OK) return error;
-    // The voice countdown has its own meaning; no work-duration estimate is substituted.
-    return CODY::advance_activity_identity(s_voice_identity, CODY::SceneData::body_font, now, false, -1, changed);
+    const auto &technical = s_voice_metadata.technical;
+    const bool technical_current = current && technical.data_valid && !technical.data_stale && technical.chat_id[0] != '\0' &&
+        technical.revision == activity.revision && std::strcmp(technical.chat_id, activity.chat_id) == 0;
+    const char *effort = technical_current && technical.effort_valid && !technical.effort_stale ? technical.effort : "";
+    bool changed = !s_voice_view_visible || s_voice_view_started_at_us != s_voice_input_view.input.started_at_us;
+    size_t count = 0;
+    int64_t total_us = 0;
+    for (auto &caption : s_voice_captions) {
+        const char *source = "";
+        const char *prefix = "";
+        switch (caption.kind) {
+        case VoiceCaptionKind::Model: source = model_cost.model; prefix = "model: "; break;
+        case VoiceCaptionKind::Cost:
+            source = model_cost.band == LUNASHELL::CodexCostBand::Unknown ? "" : CODY::cost_band_text(model_cost.band);
+            prefix = "cost: "; break;
+        case VoiceCaptionKind::Effort: source = effort; prefix = "effort: "; break;
+        case VoiceCaptionKind::Branch: source = branch; prefix = "branch: "; break;
+        case VoiceCaptionKind::Project: source = project; prefix = ""; break;
+        }
+        const char *old_source = caption.length == 0 ? "" : caption.text + std::strlen(prefix);
+        changed = changed || std::strcmp(old_source, source) != 0;
+        caption.color = caption.kind == VoiceCaptionKind::Cost ? CODY::cost_band_color(model_cost.band) : 0xF7BE;
+        error = CODY::prepare_activity_identity_caption(CODY::SceneData::body_font, source, prefix,
+            caption.text, caption.line, caption.color, caption.length, caption.width, 128);
+        if (error != ESP_OK) return error;
+        if (caption.length == 0) continue;
+        ++count;
+        // Long labels finish their measured scroll before the fade advances.
+        const uint16_t overflow = caption.width > 320 ? caption.width - 320 : 0;
+        total_us += 3500000 + int64_t(overflow) * 35000 + 500000;
+    }
+    if (changed || s_voice_carousel_started_us == 0) s_voice_carousel_started_us = now;
+    s_voice_carousel_line = {};
+    if (count == 0) return ESP_OK;
+    int64_t elapsed = (now - s_voice_carousel_started_us) % total_us;
+    for (auto &caption : s_voice_captions) {
+        if (caption.length == 0) continue;
+        const uint16_t overflow = caption.width > 320 ? caption.width - 320 : 0;
+        const int64_t hold = 3500000 + int64_t(overflow) * 35000;
+        if (elapsed >= hold + 500000) { elapsed -= hold + 500000; continue; }
+        uint8_t opacity = 255;
+        if (count > 1 && elapsed < 200000) opacity = static_cast<uint8_t>(elapsed * 255 / 200000);
+        if (count > 1 && elapsed > hold) opacity = static_cast<uint8_t>(std::max<int64_t>(0, 200000 - (elapsed - hold)) * 255 / 200000);
+        const uint16_t offset = static_cast<uint16_t>(std::min<int64_t>(overflow, std::max<int64_t>(0, elapsed - 1500000) / 35000));
+        return CODY::prepare_activity_identity_window(CODY::SceneData::body_font, caption.text,
+            caption.length, caption.width, offset, CODY2D::fade_rgb565_to_black(caption.color, opacity), s_voice_carousel_line);
+    }
+    return ESP_OK;
 }
 
 // No parameters: priority input uses a small ribbon, genuine identity carousel and countdown.
@@ -2787,10 +2859,11 @@ esp_err_t draw_voice_input_rows()
     error = prepare_voice_caption("Shake to cancel", 365, 0xAD75, s_voice_shake);
     if (error != ESP_OK) return error;
     const int64_t elapsed = std::max<int64_t>(0, esp_timer_get_time() - s_voice_input_view.input.started_at_us);
-    const uint32_t remaining = phase == Phase::Listening ? static_cast<uint32_t>(std::max<int64_t>(0, 60000000 - elapsed) + 999999) / 1000000U : 0;
-    const int count = std::snprintf(s_voice_countdown, sizeof(s_voice_countdown), "%02u:%02u",
-        static_cast<unsigned>(remaining / 60U), static_cast<unsigned>(remaining % 60U));
-    if (count != 5) return ESP_ERR_INVALID_SIZE;
+    const uint32_t used = std::min<uint32_t>(60, phase == Phase::Listening ?
+        static_cast<uint32_t>(elapsed / 1000000) : s_voice_input_view.input.captured_samples / 16000U);
+    const int count = std::snprintf(s_voice_countdown, sizeof(s_voice_countdown), "%02us elapsed / %02us left",
+        static_cast<unsigned>(used), static_cast<unsigned>(60U - used));
+    if (count <= 0 || count >= int(sizeof(s_voice_countdown))) return ESP_ERR_INVALID_SIZE;
     error = prepare_voice_caption(s_voice_countdown, 402, 0xF7BE, s_voice_timer);
     if (error != ESP_OK) return error;
     error = prepare_voice_identity();
@@ -2809,7 +2882,7 @@ esp_err_t draw_voice_input_rows()
     const size_t pose = static_cast<size_t>((esp_timer_get_time() / 125000) % CODY::kVoiceWaveformFrameCount);
     for (uint16_t row = 0; row < kPanelHeight;) {
         // First retirement clears the old route. Later frames transfer only the changing bands.
-        if (!full && !((row >= 170 && row < 210) || (row >= 300 && row < 358) || (row >= 402 && row < 430))) {
+        if (!full && !((row >= 170 && row < 210) || (row >= 300 && row < 328) || (row >= 402 && row < 430))) {
             row += 2;
             continue;
         }
@@ -2828,7 +2901,18 @@ esp_err_t draw_voice_input_rows()
         error = CODY2D::clear(strip, 0);
         if (error == ESP_OK) error = draw_voice_ribbon(strip, row, pose);
         if (error == ESP_OK) error = CODY2D::draw_text_rows(s_voice_title, s_voice_title.text.length, strip, row, 0);
-        if (error == ESP_OK) error = CODY::draw_activity_identity(s_voice_identity, strip, row, 0);
+        if (error == ESP_OK && s_voice_carousel_line.valid) {
+            const uint16_t top = std::max<uint16_t>(row, 300);
+            const uint16_t bottom = std::min<uint16_t>(row + rows, 328);
+            if (top < bottom) {
+                CODY2D::Surface clipped = strip;
+                clipped.pixels += (top - row) * strip.stride + 73;
+                clipped.pixel_capacity -= (top - row) * strip.stride + 73;
+                clipped.width = 320;
+                clipped.height = bottom - top;
+                error = CODY2D::draw_text_rows(s_voice_carousel_line, s_voice_carousel_line.text.length, clipped, top, 73);
+            }
+        }
         if (error == ESP_OK && cancellable) error = CODY2D::draw_text_rows(s_voice_shake, s_voice_shake.text.length, strip, row, 0);
         if (error == ESP_OK) error = CODY2D::draw_text_rows(s_voice_timer, s_voice_timer.text.length, strip, row, 0);
         if (error == ESP_OK) error = LUNASHELL_display_frame_submit_rgb565(0, row, 466, row + rows, storage);
