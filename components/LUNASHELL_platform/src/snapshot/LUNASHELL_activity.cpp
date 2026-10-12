@@ -98,9 +98,21 @@ void worker(void *unused)
     const esp_err_t model_error = model == nullptr ? ESP_ERR_NO_MEM : inspect_model(*model, input, output);
     if (model_error != ESP_OK) {
         ESP_LOGE(TAG, "Model initialization failed (%s)", esp_err_to_name(model_error));
-        std::lock_guard<std::mutex> lock(s_mutex);
-        s_model_failed.store(true, std::memory_order_release);
-        publish_rejection(LUNASHELL::ActivityRejection::ModelError, model_error, esp_timer_get_time());
+        {
+            std::lock_guard<std::mutex> lock(s_mutex);
+            s_model_failed.store(true, std::memory_order_release);
+            s_pending_ready = false;
+            publish_rejection(LUNASHELL::ActivityRejection::ModelError, model_error, esp_timer_get_time());
+        }
+        // The worker alone owns the partially loaded model. Release its tensors
+        // and loader outside the acquisition mutex; no new samples are admitted.
+        delete model;
+        // WithCaps self-deletion allocates a temporary internal cleanup task in
+        // IDF. Park this existing worker on the failure path instead of requiring
+        // another allocation while reporting a possible memory failure.
+        for (;;) {
+            (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        }
     }
     for (;;) {
         (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);

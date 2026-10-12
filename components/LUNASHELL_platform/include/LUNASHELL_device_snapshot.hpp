@@ -795,7 +795,8 @@ struct CoreSnapshot {
     bool utilization_available = false;
     uint8_t utilization_percent = 0;
     char current_task[24] = "unavailable";
-    uint32_t stack_high_water_words = 0;
+    // ESP-IDF reports the minimum remaining task stack in bytes.
+    uint32_t stack_high_water_bytes = 0;
     uint32_t priority = 0;
 };
 
@@ -1070,6 +1071,9 @@ public:
     // observation: Coherent radio, button, motion and voice inputs, with original timestamps.
     // Exception: Returns the original lock/release error without changing the destination.
     esp_err_t readPowerControlObservation(PowerControlObservation &observation) const;
+    // power: Bounded canonical state and transition identity; no hardware access.
+    // Exception: Returns the original lock/release error without changing the destination.
+    esp_err_t readPowerState(PowerManagementSnapshot &power) const;
     // observation: Current applied panel policy from the canonical owner, without hardware I/O.
     // Exception: Returns the original lock/release error without changing the destination.
     esp_err_t readDisplayPolicyObservation(DisplayPolicyObservation &observation) const;

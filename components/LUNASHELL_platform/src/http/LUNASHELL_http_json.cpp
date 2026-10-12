@@ -1137,6 +1137,8 @@ void writeMemory(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::MemorySnapsho
     );
 }
 
+// json: Existing bounded response writer.
+// processor: Canonical counters; stack watermarks use ESP-IDF byte units.
 void writeProcessor(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::ProcessorSnapshot &processor)
 {
     writeComponentStart(json, processor);
@@ -1165,8 +1167,8 @@ void writeProcessor(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::ProcessorS
         (void)json.raw(",\"current_task\":");
         (void)json.quoted(processor.cores[index].current_task);
         (void)json.format(
-            ",\"stack_high_water_words\":%lu,\"priority\":%lu}",
-            static_cast<unsigned long>(processor.cores[index].stack_high_water_words),
+            ",\"stack_high_water_bytes\":%lu,\"priority\":%lu}",
+            static_cast<unsigned long>(processor.cores[index].stack_high_water_bytes),
             static_cast<unsigned long>(processor.cores[index].priority)
         );
     }

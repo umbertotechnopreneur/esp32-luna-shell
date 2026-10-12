@@ -291,7 +291,7 @@ esp_err_t setField(DeviceSnapshot &snapshot, const char *path, const char *text)
 #undef SENSOR_FIELD
 #define CORE_FIELD(member) std::snprintf(indexed, sizeof(indexed), "processor.cores.%zu." #member, i); if (std::strcmp(path, indexed) == 0) { return assign(snapshot.processor.cores[i].member, text); }
         CORE_FIELD(available) CORE_FIELD(utilization_available) CORE_FIELD(utilization_percent)
-        CORE_FIELD(current_task) CORE_FIELD(stack_high_water_words) CORE_FIELD(priority)
+        CORE_FIELD(current_task) CORE_FIELD(stack_high_water_bytes) CORE_FIELD(priority)
 #undef CORE_FIELD
 #define PAIR_FIELD(member) std::snprintf(indexed, sizeof(indexed), #member ".%zu", i); if (std::strcmp(path, indexed) == 0) { return assign(snapshot.member[i], text); }
         PAIR_FIELD(distance.calibration.accepted_samples) PAIR_FIELD(distance.calibration.rejected_samples)

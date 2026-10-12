@@ -140,6 +140,10 @@ public:
     }
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
+    // context: Existing shell GUI and timer ownership.
+    // timer_id: Original periodic timer identity.
+    // name: Original timer name, checked before any state read.
+    // Exception: Returns the real read or GUI failure without guessing power state.
     std::expected<void, std::string> on_timer(
         esp_brookesia::system::core::AppContext &context,
         esp_brookesia::system::core::TimerId timer_id,
@@ -149,7 +153,12 @@ public:
         if (timer_id != power_timer_ || name != kPowerTimer) {
             return {};
         }
-        const auto power = DeviceSnapshotService::instance().snapshot().power;
+        PowerManagementSnapshot power;
+        const auto power_error = DeviceSnapshotService::instance().readPowerState(power);
+        if (power_error != ESP_OK) {
+            ESP_LOGE(kTag, "Shell power state read failed: %s", esp_err_to_name(power_error));
+            return std::unexpected(std::string("Shell power state read failed: ") + esp_err_to_name(power_error));
+        }
         if (power.state == DeviceOperatingState::Active) {
             if (!standby_->input_blocked) {
                 return {};
@@ -192,12 +201,19 @@ public:
         // quiesce_input drains AppInput, GUIInput and GUI work. Acknowledging
         // earlier would allow the power task to pause LVGL during a touch update.
         auto result = context.gui().quiesce_input(
+            // drained: Original asynchronous GUI quiescence result.
             [session, generation, sequence](std::expected<void, std::string> drained) {
                 const auto state = session.lock();
                 if (!state || !state->running || state->generation != generation) {
                     return;
                 }
-                const auto current = DeviceSnapshotService::instance().snapshot().power;
+                PowerManagementSnapshot current;
+                const auto read_error = DeviceSnapshotService::instance().readPowerState(current);
+                if (read_error != ESP_OK) {
+                    ESP_LOGE(kTag, "Shell drain power state read failed: %s", esp_err_to_name(read_error));
+                    LUNASHELL_power_manager_note_ui_standby_result(sequence, read_error);
+                    return;
+                }
                 if (current.state != DeviceOperatingState::EnteringStandby ||
                     current.transition_sequence != sequence) {
                     return;

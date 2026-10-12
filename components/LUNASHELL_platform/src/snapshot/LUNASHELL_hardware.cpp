@@ -2666,6 +2666,23 @@ esp_err_t DeviceSnapshotService::refreshBatteryForEndurance()
     return error;
 }
 
+// power: Receives only the canonical power state after a successful locked read.
+// Exception: Returns the original lock/release error without changing the destination.
+esp_err_t DeviceSnapshotService::readPowerState(PowerManagementSnapshot &power) const
+{
+    const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "power state read");
+    if (error != ESP_OK) {
+        return error;
+    }
+    const PowerManagementSnapshot copy = s_snapshot.power;
+    const esp_err_t release_error = give_snapshot_mutex("power state read");
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    power = copy;
+    return ESP_OK;
+}
+
 // No parameters: legacy by-value consumers retain their explicit fatal read contract.
 // Exception: Aborts on canonical read failure; fallible consumers must call readSnapshot().
 DeviceSnapshot DeviceSnapshotService::snapshot() const

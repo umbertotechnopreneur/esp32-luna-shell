@@ -169,6 +169,15 @@ idf_component_register(
 if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
     idf_component_optional_requires(PRIVATE esp-dl)
     set(activity_model "${PROJECT_DIR}/artifacts/models/activity/activity.espdl")
+    # These files participate in configure-time provenance and graph validation.
+    # Reconfigure before an incremental compile can consume changed model bytes,
+    # preprocessing constants or their manifest; object dependencies alone cannot
+    # enforce those checks. Absolute paths are independent of component cwd.
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${activity_model}"
+        "${PROJECT_DIR}/artifacts/models/activity/activity_preprocessing.hpp"
+        "${PROJECT_DIR}/artifacts/models/activity/provenance.json"
+    )
     if(NOT EXISTS "${activity_model}")
         message(FATAL_ERROR "Generate the local pretrained model with scripts/device.ps1 generate -Generator activity-model before enabling activity inference")
     endif()
