@@ -1622,8 +1622,18 @@ void diagnostic_monitor_task(void *arg)
         if (!wait_indefinitely && wait_ticks == 0) {
             wait_ticks = 1;
         }
-        if (activity_active && wait_ticks > pdMS_TO_TICKS(LUNASHELL::snapshot_detail::activity::kPeriodMs)) {
-            wait_ticks = pdMS_TO_TICKS(LUNASHELL::snapshot_detail::activity::kPeriodMs);
+        if (activity_active) {
+            // Wake at the remaining owner deadline, not another whole period
+            // after acquisition. A faster UI wake must not push the 50 ms lease
+            // to its next UI tick; acquisition/commit time also counts as elapsed.
+            const TickType_t activity_period =
+                pdMS_TO_TICKS(LUNASHELL::snapshot_detail::activity::kPeriodMs);
+            const TickType_t elapsed = xTaskGetTickCount() - last_activity_sample;
+            const TickType_t remaining = last_activity_sample == 0 || elapsed >= activity_period
+                ? 0 : activity_period - elapsed;
+            if (wait_ticks > remaining) {
+                wait_ticks = remaining;
+            }
         }
         // Configuration setters notify this task, so an idle monitor has no
         // polling wakeup and any newly requested consumer starts immediately.

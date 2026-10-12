@@ -232,7 +232,7 @@ void accept(const ImuSnapshot &sample, esp_err_t error, int64_t sampled_at_us)
 {
 #if CONFIG_LUNASHELL_ACTIVITY_MODEL
     std::lock_guard<std::mutex> lock(s_mutex);
-    if (!s_active) {
+    if (!s_active || s_model_failed.load(std::memory_order_acquire)) {
         return;
     }
     if (error != ESP_OK || !sample.gesture_acceleration_valid) {
@@ -245,6 +245,7 @@ void accept(const ImuSnapshot &sample, esp_err_t error, int64_t sampled_at_us)
     if (s_task == nullptr && xTaskCreateWithCaps(worker, "activity_inference", 8192, nullptr, 1,
                                                &s_task, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         ESP_LOGE(TAG, "Worker allocation failed (%s)", esp_err_to_name(ESP_ERR_NO_MEM));
+        s_model_failed.store(true, std::memory_order_release);
         publish_rejection(ActivityRejection::ModelError, ESP_ERR_NO_MEM, sampled_at_us);
         return;
     }
