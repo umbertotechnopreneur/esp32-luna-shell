@@ -18,6 +18,8 @@
 #define pdMS_TO_TICKS(value) (value)
 
 namespace LUNASHELL {
+// requested: Recorder boundary is injected; its real persistence is tested separately.
+esp_err_t battery_endurance_power_off(bool requested);
 #include "power_health_under_test.inc"
 // Only fields consumed by the real predicate are injected; health is copied
 // verbatim from the production typed enum, not replaced by integer conventions.
@@ -49,12 +51,14 @@ public:
 }
 namespace {
 enum class Call { Wake, Prepare, SpeechSeal, Standby, SettingsSeal, UsbSeal,
-                  Pmu, Wait, UsbOpen, SettingsOpen, SpeechOpen, DisplayError };
+                  Pmu, Wait, UsbOpen, SettingsOpen, SpeechOpen, DisplayError,
+                  EnduranceRequest, EnduranceCancel };
 std::vector<Call> calls;
 LUNASHELL::DeviceStatusObservation canonical_observation;
 esp_err_t observation_error;
 unsigned observation_reads;
 esp_err_t prepare_error, speech_error, standby_error, settings_error, usb_error, pmu_error;
+esp_err_t settings_open_error, endurance_error;
 bool usb_quiesced;
 bool s_shutdown_in_progress, s_shutdown_admission_closed, s_power_long_press_consumed;
 esp_err_t s_shutdown_error;
@@ -117,7 +121,13 @@ LUNASHELL::UserSettingsService &LUNASHELL::UserSettingsService::instance()
 esp_err_t LUNASHELL::UserSettingsService::setPowerOffSealed(bool sealed)
 {
     calls.push_back(sealed ? Call::SettingsSeal : Call::SettingsOpen);
-    return sealed ? settings_error : ESP_OK;
+    return sealed ? settings_error : settings_open_error;
+}
+// requested: Record ordering while injecting optional recorder failure independently.
+esp_err_t LUNASHELL::battery_endurance_power_off(bool requested)
+{
+    calls.push_back(requested ? Call::EnduranceRequest : Call::EnduranceCancel);
+    return endurance_error;
 }
 // sealed: Records logger TX admission independently from delivery.
 // status: Reports whether the injected failure concerns ownership or optional USB delivery.
@@ -142,6 +152,7 @@ void reset_case()
     observation_error = ESP_OK;
     observation_reads = 0;
     prepare_error = speech_error = standby_error = settings_error = usb_error = ESP_OK;
+    settings_open_error = endurance_error = ESP_OK;
     pmu_error = ESP_FAIL;
     usb_quiesced = true;
     s_shutdown_in_progress = s_shutdown_admission_closed = s_power_long_press_consumed = false;
@@ -251,6 +262,18 @@ int main()
     assert(std::find(calls.begin(), calls.end(), Call::Prepare) < std::find(calls.begin(), calls.end(), Call::Standby));
     assert(std::find(calls.begin(), calls.end(), Call::SettingsSeal) < std::find(calls.begin(), calls.end(), Call::Pmu));
     assert(std::find(calls.begin(), calls.end(), Call::UsbSeal) < std::find(calls.begin(), calls.end(), Call::Pmu));
+    assert(std::find(calls.begin(), calls.end(), Call::EnduranceRequest) <
+           std::find(calls.begin(), calls.end(), Call::SettingsSeal));
+    assert(std::find(calls.begin(), calls.end(), Call::SettingsOpen) <
+           std::find(calls.begin(), calls.end(), Call::EnduranceCancel));
+    reset_case();
+    endurance_error = ESP_ERR_INVALID_RESPONSE;
+    assert(request_power_off() == ESP_FAIL && called(Call::Pmu));
+    assert(called(Call::EnduranceRequest) && called(Call::EnduranceCancel));
+    reset_case();
+    settings_open_error = ESP_ERR_TIMEOUT;
+    assert(request_power_off() == ESP_FAIL && called(Call::SettingsOpen));
+    assert(!called(Call::EnduranceCancel));
 
     LUNASHELL::ButtonHold hold;
     assert(!hold.update(false, 0, true, 100, 3000000));

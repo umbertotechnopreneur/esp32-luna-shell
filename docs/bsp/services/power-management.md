@@ -255,6 +255,55 @@ guaranteed**. No undocumented register is changed to pretend otherwise. Test
 USB-connected and battery-only shutdown separately. The 40-uA typical shutdown
 figure describes one PMU condition, not whole-board current or zero consumption.
 
+## Battery-only runtime recording
+
+Cody records a session when a fresh canonical PMU sample reports a present battery
+with USB absent and VBUS not good. Disconnecting USB after startup can start a
+session. Observed USB presence or good VBUS closes it; reconnecting USB does not
+continue a battery-only measurement. A later unplug starts a distinct session.
+
+The existing power loop saves a last-alive checkpoint approximately every 60
+seconds and immediately records the first completed standby wake. Monotonic elapsed
+time includes software standby. This recorder creates no task, wake timer or wake
+lease; it does not change voice, radio or standby policy. At checkpoints, the PMU
+acquisition owner refreshes battery telemetry through its existing serialized path.
+Unknown/stale power observations remain flagged as source gaps, including intervals
+in standby when the ordinary acquisition monitor is suspended. Elapsed time then
+describes liveness since the observed battery-only start, with those gaps disclosed.
+Recording and occasional NVS commits have not had their energy cost measured.
+
+A bounded CRC/version-checked internal NVS record retains the current and preceding
+session atomically. Only a genuinely absent key initializes empty data. Wrong type,
+size, schema, CRC or storage errors preserve the record and disable further writes
+for that boot; the original error is published in the canonical endurance projection.
+The recorder is an optional observation service: its failures never prevent a real
+wake or bypass mandatory shutdown owners. No SD card is required.
+
+`SHUTDOWN_REQUESTED` records the ordered shutdown request before settings are sealed.
+An aborted transaction reopens it only after settings access is restored. This
+marker is not proof of rail power loss. A boot finding a saved `RUNNING` session
+retains it as `INTERRUPTED_UNKNOWN`. Battery exhaustion, reset and other interruptions
+cannot be distinguished from that flag alone. No monotonic clock is bridged across
+boots, and no battery-death timestamp is inferred.
+
+For a battery run, disconnect USB, use Cody normally, and leave the configured
+standby/wake behavior enabled. After it stops, reconnect USB and turn it on if
+necessary. The current/preceding durable records repeat in `Endurance` serial reports
+every 60 seconds, so reading them does not depend on catching startup logs:
+
+```powershell
+./scripts/device.ps1 capture -Profile cody-companion -Feature wake-word -ActivityClassifier -Port COM10 -DurationSeconds 120 -OutputPath artifacts/serial/battery-runtime.log
+```
+
+Use the currently identified port. `liveness_lower_bound_ms` is the elapsed time
+at the last successful commit. For example, 3600000 means it was known alive at
+least one hour after the observed start. `first_wake_recorded` identifies the wake
+ping, and `source_gaps` discloses incomplete power-source observation. Valid UTC
+fields contain original observed epoch seconds; unavailable time prints `UNAVAILABLE`.
+The final unsaved interval is unknown: scheduling, storage failures or power loss
+can make it longer than the nominal 60-second heartbeat. Battery-only duration,
+whole-board shutdown and restart still require a physical run.
+
 ## Evidence and deferred policy
 
 Build modes are in [toolchain and profiles](../toolchain-and-profiles.md#debug-and-release).

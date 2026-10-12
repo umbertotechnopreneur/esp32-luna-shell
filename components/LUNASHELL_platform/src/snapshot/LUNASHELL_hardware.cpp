@@ -2601,6 +2601,71 @@ esp_err_t DeviceSnapshotService::readActivity(ActivitySnapshot &destination) con
     return ESP_OK;
 }
 
+// destination: Bounded persisted endurance observation, never a synthesized measurement.
+// Exception: Returns the original canonical lock/release error.
+esp_err_t DeviceSnapshotService::readBatteryEndurance(BatteryEnduranceSnapshot &destination) const
+{
+    const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "endurance read");
+    if (error != ESP_OK) {
+        return error;
+    }
+    const BatteryEnduranceSnapshot copy = s_snapshot.battery_endurance;
+    const esp_err_t release_error = give_snapshot_mutex("endurance read");
+    if (release_error == ESP_OK) {
+        destination = copy;
+    }
+    return release_error;
+}
+
+// report: Owner status including retained durable records on a failed write.
+// Exception: Returns the original canonical publication error.
+esp_err_t DeviceSnapshotService::reportBatteryEndurance(const BatteryEnduranceSnapshot &report)
+{
+    return update_snapshot([&report](DeviceSnapshot &snapshot) {
+        snapshot.battery_endurance = report;
+    }, SnapshotPublicationPolicy::Optional);
+}
+
+// destination: Aged canonical battery projection; no driver access is performed.
+// Exception: Returns the original canonical lock/release error.
+esp_err_t DeviceSnapshotService::readBatteryObservation(BatterySnapshot &destination) const
+{
+    const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "battery observation");
+    if (error != ESP_OK) {
+        return error;
+    }
+    BatterySnapshot copy = s_snapshot.battery;
+    const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
+    const esp_err_t release_error = give_snapshot_mutex("battery observation");
+    if (release_error == ESP_OK) {
+        age_measured_sample(copy, esp_timer_get_time(), ttl_us);
+        destination = copy;
+    }
+    return release_error;
+}
+
+// No parameters: one PMU-owner acquisition reuses the existing refresh serialization.
+// Exception: Returns original acquisition/lock errors without replacing failed samples.
+esp_err_t DeviceSnapshotService::refreshBatteryForEndurance()
+{
+    SemaphoreHandle_t mutex = ensure_refresh_mutex();
+    if (mutex == nullptr) {
+        ESP_LOGE(TAG, "Endurance PMU refresh mutex unavailable (%s)", esp_err_to_name(ESP_ERR_NO_MEM));
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+        ESP_LOGE(TAG, "Endurance PMU refresh lock failed (%s)", esp_err_to_name(ESP_ERR_TIMEOUT));
+        return ESP_ERR_TIMEOUT;
+    }
+    esp_err_t error = acquisition_pmu::ready()
+        ? acquisition_pmu::sample("endurance") : ESP_ERR_INVALID_STATE;
+    record_first_error(give_refresh_mutex(mutex, "endurance PMU refresh"), &error);
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Endurance PMU owner sample failed (%s)", esp_err_to_name(error));
+    }
+    return error;
+}
+
 // No parameters: legacy by-value consumers retain their explicit fatal read contract.
 // Exception: Aborts on canonical read failure; fallible consumers must call readSnapshot().
 DeviceSnapshot DeviceSnapshotService::snapshot() const

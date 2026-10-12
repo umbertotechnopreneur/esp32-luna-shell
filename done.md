@@ -13,6 +13,28 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Battery endurance recorder implementation - 2026-10-12
+
+Added current/previous battery-start, last-alive, first-wake and shutdown-request
+records in one versioned CRC-protected 112-byte NVS journal. The canonical power
+loop schedules 60-second commits without a new task, timer or wake lease. PMU
+sampling remains with its owner. Any observed USB ends the run; stale/unknown
+source intervals stay flagged. Boot retains an interrupted run's last durable
+liveness lower bound with unknown cause. UTC is optional original observation;
+missing time is shown as unavailable. Storage/type/size/schema/CRC failures preserve
+the journal. Recorder failures remain real optional component errors and do not
+undo a completed wake or bypass mandatory shutdown owners.
+
+The real service passed twelve host scenarios, including USB reconnect/unplug,
+intervening source gaps, standby elapsed time, immediate first wake, shutdown abort,
+reboot retention, unavailable UTC and failed/corrupt/oversized storage. Real NVS
+owner tests reject invalid sizes before allocation/data read, preserve destinations
+on failure and honor shutdown sealing. Updated Power-owner and runtime checks and
+snapshot integrity passed. Firmware size/flash, compiled stack reports, device
+watermarks and actual battery-only duration are not established by these host tests.
+The [power guide](docs/bsp/services/power-management.md#battery-only-runtime-recording)
+documents the physical run and interpretation.
+
 ## Cody power and pretrained observer implementation - 2026-10-12
 
 Follow-up validation was explicitly authorized on 12 October, including repeated

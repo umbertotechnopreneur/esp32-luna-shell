@@ -1047,6 +1047,54 @@ esp_err_t UserSettingsService::setBlob(const char *key, const void *data, size_t
     return submit_request();
 }
 
+// key: Exact record whose type and length must already match the caller's schema.
+// data: Caller-owned bounded destination, unchanged on a failed operation.
+// size: Required nonzero byte count; persisted length never controls allocation.
+// Exception: Returns the original owner/NVS failure or mismatched record size.
+esp_err_t UserSettingsService::getBlobExact(const char *key, void *data, size_t size) const
+{
+    if (data == nullptr || size == 0) {
+        log_operation_failure(SettingsOperation::GetBlob, key, ESP_ERR_INVALID_ARG);
+        return ESP_ERR_INVALID_ARG;
+    }
+    std::lock_guard<std::mutex> lock(_mutex);
+    esp_err_t error = ensureInitialized();
+    if (error == ESP_OK) {
+        error = prepare_request(SettingsOperation::GetBlobSize, _handle, key);
+    }
+    if (error == ESP_OK) {
+        error = submit_request();
+    }
+    if (error == ESP_OK && s_request.size != size) {
+        error = ESP_ERR_INVALID_SIZE;
+    }
+    if (error != ESP_OK) {
+        log_operation_failure(SettingsOperation::GetBlob, key, error);
+        return error;
+    }
+    error = prepare_request(SettingsOperation::GetBlob, _handle, key);
+    if (error != ESP_OK) {
+        return error;
+    }
+    s_request_buffer = allocate_internal(size, SettingsOperation::GetBlob, key);
+    if (s_request_buffer == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    RequestBufferReleaseGuard release_buffer;
+    s_request.data = s_request_buffer.get();
+    s_request.size = size;
+    error = submit_request();
+    if (error == ESP_OK && s_request.size != size) {
+        error = ESP_ERR_INVALID_SIZE;
+    }
+    if (error == ESP_OK) {
+        std::memcpy(data, s_request_buffer.get(), size);
+    } else {
+        log_operation_failure(SettingsOperation::GetBlob, key, error);
+    }
+    return error;
+}
+
 esp_err_t UserSettingsService::getBlob(const char *key, std::vector<uint8_t> *data) const
 {
     if (data == nullptr) {

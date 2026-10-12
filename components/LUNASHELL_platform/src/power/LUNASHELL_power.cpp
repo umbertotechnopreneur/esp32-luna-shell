@@ -1985,6 +1985,14 @@ esp_err_t set_standby(
     const esp_err_t optional_error = optional_errors.first_error();
     publish_power(optional_error);
     record_standby_trace(StandbyTracePhase::Awake, optional_error);
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    // Recording is optional and owns its canonical error; an NVS failure must
+    // not undo a completed wake or become a new power-policy dependency.
+    const esp_err_t endurance_error = LUNASHELL::battery_endurance_woke();
+    if (endurance_error != ESP_OK) {
+        ESP_LOGE(kTag, "Optional endurance wake ping failed (%s)", esp_err_to_name(endurance_error));
+    }
+#endif
     if constexpr (LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
         s_deferred_standby_trace_report_at_us =
             esp_timer_get_time() + kDeferredStandbyTraceReportDelayUs;
@@ -2408,6 +2416,12 @@ esp_err_t request_power_off()
     }
     bool settings_sealed = false;
     if (error == ESP_OK) {
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+        const esp_err_t endurance_error = LUNASHELL::battery_endurance_power_off(true);
+        if (endurance_error != ESP_OK) {
+            ESP_LOGE(kTag, "Optional endurance off marker failed (%s)", esp_err_to_name(endurance_error));
+        }
+#endif
         error = LUNASHELL::UserSettingsService::instance().setPowerOffSealed(true);
         settings_sealed = error == ESP_OK;
     }
@@ -2453,12 +2467,24 @@ esp_err_t request_power_off()
             ESP_LOGE(kTag, "Power-off logger recovery failed (%s)", esp_err_to_name(logger_error));
         }
     }
+    bool settings_available = !settings_sealed;
     if (settings_sealed) {
         const esp_err_t reopen_error = LUNASHELL::UserSettingsService::instance().setPowerOffSealed(false);
+        settings_available = reopen_error == ESP_OK;
         if (reopen_error != ESP_OK) {
             ESP_LOGE(kTag, "Power-off persistence recovery failed (%s)", esp_err_to_name(reopen_error));
         }
     }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    if (settings_available) {
+        const esp_err_t endurance_error = LUNASHELL::battery_endurance_power_off(false);
+        if (endurance_error != ESP_OK) {
+            ESP_LOGE(kTag, "Optional endurance off cancellation failed (%s)", esp_err_to_name(endurance_error));
+        }
+    }
+#else
+    (void)settings_available;
+#endif
     s_shutdown_in_progress = false;
     const esp_err_t wake_error = set_standby(false, LUNASHELL::DeviceStateReason::PowerButton);
     if (speech_seal_attempted) {
@@ -2961,6 +2987,18 @@ void power_task(void *argument)
                 }
             }
         }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+        // The existing loop remains the only scheduler; storage failures stay
+        // in the recorder's canonical status and never inhibit standby.
+        const esp_err_t endurance_error = LUNASHELL::battery_endurance_tick(
+            s_state == LUNASHELL::DeviceOperatingState::Standby);
+        static int64_t next_endurance_error_report_us = 0;
+        const int64_t endurance_now_us = esp_timer_get_time();
+        if (endurance_error != ESP_OK && endurance_now_us >= next_endurance_error_report_us) {
+            ESP_LOGW(kTag, "Optional endurance recorder unavailable (%s)", esp_err_to_name(endurance_error));
+            next_endurance_error_report_us = endurance_now_us + 60000000;
+        }
+#endif
         if (LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
             // IDF reports bytes here. Log only substantial new minima, after
             // the nested policy/wake paths have returned, to bound log traffic.

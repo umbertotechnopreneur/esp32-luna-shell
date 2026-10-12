@@ -30,6 +30,7 @@
 #include "LUNASHELL_codex_events.hpp"
 #include "LUNASHELL_voice_input.hpp"
 #include "LUNASHELL_activity.hpp"
+#include "LUNASHELL_battery_endurance.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -856,6 +857,7 @@ struct CodyOptionsObservation {
 };
 
 struct DeviceSnapshot {
+    BatteryEnduranceSnapshot battery_endurance;
     ActivitySnapshot activity;
     CodexEventSnapshot codex_event;
     CodexTechnicalSnapshot codex_technical;
@@ -1022,6 +1024,18 @@ public:
     // destination: Small caller-owned projection, no full snapshot on its stack.
     // Exception: Returns the original canonical snapshot lock error.
     esp_err_t readActivity(ActivitySnapshot &destination) const;
+    // destination: Bounded canonical record projection with original persistence status.
+    // Exception: Returns the real canonical lock or release error.
+    esp_err_t readBatteryEndurance(BatteryEnduranceSnapshot &destination) const;
+    // destination: Aged canonical PMU measurement, never a consumer-side I2C read.
+    // Exception: Returns the real canonical lock or release error.
+    esp_err_t readBatteryObservation(BatterySnapshot &destination) const;
+    // No parameters: asks the canonical PMU owner for one serialized endurance checkpoint.
+    // Exception: Returns original acquisition, publication or ownership errors.
+    esp_err_t refreshBatteryForEndurance();
+    // report: Recorder-owned persisted values and actual optional-operation error.
+    // Exception: Returns original canonical publication error.
+    esp_err_t reportBatteryEndurance(const BatteryEnduranceSnapshot &report);
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
     // observation: Coherent speech policy and card availability; never samples hardware.
     // Exception: Returns the original canonical lock or release error.

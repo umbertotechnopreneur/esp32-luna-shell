@@ -51,9 +51,12 @@ Physical interactions, stack headroom and host/simulator cases remain open.
 - [ ] **BATTERY-ENDURANCE-01 - Persistent battery-only timing.** User requested
   start, last-alive and first-wake pings for actual battery operation without USB.
   Preserve interrupted-run evidence across boot with unknown end cause; do not
-  invent the time at which battery power disappeared. Add bounded internal storage,
-  canonical source validity, ordinary/failed shutdown markers and low-rate progress
-  through the existing owner without an additional wake lease.
+  invent the time at which battery power disappeared. Implementation adds a bounded
+  CRC-protected 112-byte NVS journal, canonical source validity, ordinary/failed
+  shutdown markers and low-rate progress through the existing owner without an
+  additional wake lease. Twelve real-service host scenarios and real settings-owner
+  bounds/error/seal tests passed. Target size, flash, stack frames/watermarks and
+  actual unplugged-battery duration remain pending.
 
 ## Reproduced device faults
 

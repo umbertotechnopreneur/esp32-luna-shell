@@ -282,15 +282,21 @@ endforeach()
 if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
     idf_component_get_property(activity_dl_library espressif__esp-dl COMPONENT_LIB)
     target_compile_options(${activity_dl_library} PRIVATE
-        "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>")
+        "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>"
+        "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-usage>")
     foreach(activity_control_component LUNASHELL_platform LUNASHELL_logger main)
         idf_component_get_property(activity_control_library ${activity_control_component} COMPONENT_LIB)
         target_compile_options(${activity_control_library} PRIVATE
-            "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>")
+            "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>"
+            "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-usage>")
     endforeach()
     # Control, policy and diagnostic panels need a bounded flash footprint.
     # Keep drawing, the geometric rig and benchmark translation units at speed.
     idf_component_get_property(activity_cody_library CODY_companion COMPONENT_LIB)
+    # Compiler sidecars remain in this build's artifacts; they do not change
+    # firmware behavior and make schema/callback stack growth reviewable.
+    target_compile_options(${activity_cody_library} PRIVATE
+        "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-usage>")
     get_target_property(activity_cody_sources ${activity_cody_library} SOURCES)
     foreach(activity_cody_source IN LISTS activity_cody_sources)
         if(activity_cody_source MATCHES "(^|/)src/(runtime|scenes|model|diagnostics)/.*[.]cpp$" AND

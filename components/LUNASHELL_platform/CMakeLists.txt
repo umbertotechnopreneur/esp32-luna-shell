@@ -21,6 +21,7 @@ set(LUNASHELL_platform_srcs
     "src/snapshot/LUNASHELL_acquisition_rtc.cpp"
     "src/snapshot/LUNASHELL_acquisition_imu.cpp"
     "src/snapshot/LUNASHELL_activity.cpp"
+    "src/power/LUNASHELL_battery_endurance.cpp"
     "src/snapshot/LUNASHELL_acquisition_gnss.cpp"
     "src/snapshot/LUNASHELL_acquisition_audio.cpp"
     "src/snapshot/LUNASHELL_acquisition_system.cpp"
