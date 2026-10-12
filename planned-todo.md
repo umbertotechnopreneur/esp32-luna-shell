@@ -13,6 +13,24 @@
   binary that embeds the locally downloaded weights. ESP-DL's MIT license does
   not establish the author's weight license.
 
+## Measured energy and maintenance follow-up - 2026-10-12
+
+- [ ] Replace the AFE fetch worker's 20-ms paused polling only after implementing
+  explicit wake/stop notifications for resume, suspend rollback and terminal
+  failure. The feed worker already blocks. Include lost-wakeup and teardown
+  coverage; a simple infinite wait would strand the fetch worker today. Measure
+  power on the device before claiming a battery-life improvement.
+- [ ] Add real HAR window-boundary coverage for timestamp gaps/span, calibration
+  changes, standby generations and pressure rejection before increasing reliance
+  on the experimental classifier. Keep original model labels and no training.
+- [ ] Review remaining full-snapshot Luna app/pairing consumers against their
+  actual field needs and measured call-chain budgets. Prefer narrow projections
+  only where justified; do not replace all reads with a speculative abstraction.
+- [ ] Measure Release against Debug with the same workload, battery and starting
+  conditions after explicit endurance readback is available. Preserve the PCB's
+  software-standby constraint; lower diagnostics alone do not prove a particular
+  current draw or runtime gain.
+
 ## CCP protocol security follow-up - 2026-10-10
 
 - [ ] Evaluate standard PAKE or high-entropy out-of-band QR pairing. The current

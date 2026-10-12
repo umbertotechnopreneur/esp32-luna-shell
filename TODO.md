@@ -47,8 +47,9 @@ Physical interactions, complete stack headroom and battery duration remain open.
   profile and snapshot checks passed after the user's continuous authorization.
   Individual compiled task frames passed; Cody's USB-connected worker minimum free
   was 2504/12288 bytes. Physical input/rail evidence and complete stack headroom
-  remain open. Correct the hardware-monitor watermark's word scaling before using
-  it as measured IDF byte headroom. Unselected display-touch/full-wake-word locks are absent
+  remain open. Stack telemetry now names its units as bytes; IDF 6.0.2 Xtensa
+  uses a one-byte StackType_t, so the previous monitor multiplication did not
+  alter the numeric result. Unselected display-touch/full-wake-word locks are absent
   in the whole-catalog check; do not report those variants as verified.
 - [ ] **BATTERY-ENDURANCE-01 - Persistent battery-only timing.** User requested
   start, last-alive and first-wake pings for actual battery operation without USB.
@@ -62,6 +63,24 @@ Physical interactions, complete stack headroom and battery duration remain open.
   canonical PMU and retained one optional publication timeout without disabling
   recording. Actual unplugged-battery duration and physical first-wake retention
   remain pending; no USB-only result is an endurance measurement.
+
+## Energy, memory and maintenance review - 2026-10-12
+
+- [ ] **AUDIT-TARGET-01 - Validate the integrated review on target.** The source
+  coalesces unchanged endurance publications, releases a rejected HAR model,
+  reads bounded power state in Luna shell callbacks and revalidates model inputs
+  when their files change. Host evidence belongs in done.md. Compile/size, final
+  nested stack headroom, failure-path memory recovery and incremental model-tamper
+  rejection still require target validation. Preserve the installed battery-run
+  image and its NVS journal until the ongoing battery experiment is read back.
+- [ ] **RELEASE-ENDURANCE-01 - Explicit durable-record readback.** Release keeps
+  the NVS recorder but compiles out its INFO serial summaries at WARN maximum.
+  Provide a bounded, explicitly requested readback through the canonical owner
+  before relying on Release for an unattended battery test. Do not enable all
+  INFO logs or treat an absent summary as an empty journal.
+
+The owner confirmed the SD/PCB limitation and standby/wake workaround on
+2026-10-12. This review does not add another SD software-defect investigation.
 
 ## Reproduced device faults
 
@@ -102,13 +121,6 @@ Physical interactions, complete stack headroom and battery duration remain open.
   studies keep their factual selector. The integrated Debug/wake-word image was
   built and flashed on 12 October; battery behavior and host cases are unverified.
 
-- [ ] **FAULT-01 - SD warm-reset initialization.** Capture SD VDD and CLK/CMD
-  across the known working-card-to-reset transition. ACMD41 stays busy before
-  FAT; reinsertion restores access, while memory-only SDIO exclusion and explicit
-  400-kHz probing did not fix it. Preserve original errors and the official
-  one-bit GPIO2/1/3 baseline, external pull-ups and `SDMMC_SLOT_NO_CD`.
-  No more unchanged reset loops/card swaps, implicit formatting or shared-rail
-  cycling. Keep TTS blocked storage and Release endurance open separately.
 - [ ] **FAULT-02 - CST9217 and caress freeze.** Identify the first rejected packet
   or terminal transition. Verify legitimate two-contact reports, D000/AB ACK,
   normal-mode restoration, malformed fifteen-FF-byte isolation, invalid snapshots,
@@ -331,8 +343,9 @@ Physical interactions, complete stack headroom and battery duration remain open.
   native approval routing. This session did not install the modified PC plugin.
   Integrated firmware build/flash completed on
   12 October; no host suite, native delivery, simulator or post-reset capture was run.
-- [ ] **TTS-01 - Storage and audible speech.** Resolve FAULT-01 before claiming
-  SD synthesis. The prepared four-language card and corrected `58757005` boot
+- [ ] **TTS-01 - Storage and audible speech.** Require observed SD availability
+  after the accepted standby/wake workaround before claiming SD synthesis.
+  The prepared four-language card and corrected `58757005` boot
   did not establish an intelligible Italian phrase. Observe the one-shot boot
   diagnostic, bounded initial wait, real failures and diagnostic-only quiet bypass.
 - [ ] **TTS-02 - Variant contracts and budgets.** Validate engine/task/data

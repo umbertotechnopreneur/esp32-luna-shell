@@ -13,6 +13,57 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Energy, memory and maintenance review - 2026-10-12
+
+Three independent review scopes covered power/endurance, memory/performance and
+architecture/documentation. The installed battery-run firmware is unchanged;
+the following corrections are source and host evidence, not target validation.
+
+| Area | Implemented correction | Scope and limit |
+| --- | --- | --- |
+| Endurance publication | Coalesce unchanged metadata instead of republishing every second; retain original timestamps, real errors and failed-publication retries. Durable record changes always publish. | Keeps the same 60-second NVS commit cadence. No measured current reduction is claimed. |
+| Luna shell memory | Read a bounded power-state projection in the 200-ms timer and asynchronous drain callback; propagate real read errors. | Avoids full snapshot copies in those two paths. This is Luna shell code, not the installed native Cody renderer. |
+| HAR failure lifetime | Delete a rejected model outside the acquisition mutex and stop admitting work. | Frees model-owned allocations; deliberately retains the parked 8192-byte worker because IDF capabilities-task cleanup needs another allocation. Target failure injection remains open. |
+| Stack telemetry | Rename canonical, HTTP and simulator fields to stack_high_water_bytes. | JSON consumers must update the field name. IDF 6.0.2 Xtensa numeric values are unchanged. |
+| Incremental builds | Track model bytes, preprocessing and provenance as CMake configure dependencies. | Existing configure-time rejection runs again when those inputs change; target incremental/tamper execution remains open. |
+| Check evidence | Atomically replace endurance reports with running, passed or failed status and the actual failing stage. | An intentionally missing compiler replaced an existing passed report with failed/compiler-discovery and a nonzero exit. |
+| Documentation | Align battery hysteresis, PWR/BOOT controls, Cody software standby and Release readback limitations with source. | The user-confirmed PCB/SD limitation and standby/wake workaround are accepted operating context, not a new SD defect task. |
+
+The real endurance service passed all 15 host scenarios, including coalescing,
+publication recovery and publication while persistence is disabled. The shell
+lifecycle passed with PMU enabled and disabled, including timer/drain read errors;
+the same public suite passed mocked build-clean boundary/error checks. HTTP and
+snapshot integrity contracts passed. The native simulator graphics DLL rebuilt,
+its visibly synthetic boot-ready preview was inspected, and all seven simulator
+groups passed, including 22 loopback HTTP tests. Logs are retained under
+`artifacts/checks/energy-memory-review/`; the endurance report remains under
+`artifacts/checks/battery-endurance/`. The deliberately failed report is isolated
+in `energy-memory-review/report-failure/`, not presented as a firmware failure.
+
+The review found sound canonical acquisition ownership, explicit PSRAM/internal
+memory placement and conservative DMA retirement. Remaining opportunities are
+the AFE fetch worker's 20-ms paused polling, other field-specific Luna consumers
+that still copy full snapshots, and stronger real HAR window-boundary coverage.
+AFE notification/stop ownership must be designed before replacing polling with
+an infinite wait. No training or classifier-driven shutdown was added.
+
+Historical USB evidence for the installed image reports only 2368 bytes of OTA
+headroom, internal heap minimum 12063 bytes and largest free internal block
+12800 bytes at 65.113 seconds (the retained endurance monitor log). These are
+baseline constraints, not edited-image measurements or current battery results.
+No firmware configure/build/size/flash, physical interaction or current measurement
+was performed in this review. TODO.md retains target validation and a bounded
+explicit Release endurance readback; planned-todo.md retains measured optimization
+follow-up. The battery-only experiment continues independently on the installed image.
+
+FAULT-01 is retired from the active software investigation at the user's direction,
+not claimed fixed: historical ACMD41 busy-before-FAT and recovery after reinsertion
+remain evidence; memory-only SDIO exclusion and explicit 400-kHz probing did not
+resolve it. The official one-bit GPIO2/1/3 baseline, external pull-ups, no-card-detect
+configuration and real errors remain unchanged. The accepted operating workaround
+is standby/wake. No extra reset loops, formatting or shared-rail cycling were added;
+storage-dependent TTS still requires observed availability and audible evidence.
+
 ## Battery endurance recorder implementation - 2026-10-12
 
 Added current/previous battery-start, last-alive, first-wake and shutdown-request
@@ -60,8 +111,10 @@ The endurance tick uses 192 bytes; its bounded clock/battery projections and
 These are individual frames, not a complete nested-call bound. Cody's captured
 worker minimum free was 2,504/12,288 bytes. Power/HAR headroom during physical
 standby/wake/off, actual battery-only duration and whole-board shutdown remain open.
-The hardware monitor's existing watermark log scales IDF byte units as words;
-that value is not accepted as measured stack headroom.
+Correction from the subsequent source review: IDF 6.0.2 Xtensa defines
+StackType_t as uint8_t, so the monitor's multiplication by sizeof(StackType_t)
+leaves the IDF byte count unchanged. The misleading canonical field name was
+corrected to stack_high_water_bytes; no fourfold numeric error was established.
 
 Final checks passed: twelve endurance service scenarios, real runtime/settings
 contracts, production Power owner with fake peripherals, native raster/lifecycle,
@@ -74,7 +127,8 @@ Changed-file secret scanning covered seventy current files with eight signatures
 `git diff --check 3240a4b2` passed. Whole-catalog dependency verification remains
 blocked by missing unrelated display-touch/full-wake-word locks, as recorded below.
 No physical key actuation, USB disconnection, battery depletion or rail-power
-measurement was performed. The first unplugged run is still required.
+measurement was performed during that capture. The user subsequently started
+the unplugged run; its saved records are still awaiting USB reconnection/readback.
 
 ## Cody power and pretrained observer implementation - 2026-10-12
 

@@ -279,6 +279,12 @@ for that boot; the original error is published in the canonical endurance projec
 The recorder is an optional observation service: its failures never prevent a real
 wake or bypass mandatory shutdown owners. No SD card is required.
 
+Canonical metadata publication coalesces unchanged power-loop ticks: unchanged
+error, initialization and source-current state do not refresh `observed_at_us`.
+Committed record changes still publish immediately, including wake/off/cancel
+events at the same clock value. Failed publication remains retryable without
+another NVS commit or a change to the durable commit timestamp.
+
 `SHUTDOWN_REQUESTED` records the ordered shutdown request before settings are sealed.
 An aborted transaction reopens it only after settings access is restored. This
 marker is not proof of rail power loss. A boot finding a saved `RUNNING` session
@@ -288,12 +294,20 @@ boots, and no battery-death timestamp is inferred.
 
 For a battery run, disconnect USB, use Cody normally, and leave the configured
 standby/wake behavior enabled. After it stops, reconnect USB and turn it on if
-necessary. The current/preceding durable records repeat in `Endurance` serial reports
-every 60 seconds, so reading them does not depend on catching startup logs:
+necessary. In Debug with INFO output enabled, the current/preceding durable records
+repeat in `Endurance` serial reports every 60 seconds, so reading them does not
+depend on catching startup logs:
 
 ```powershell
 ./scripts/device.ps1 capture -Profile cody-companion -Feature wake-word -ActivityClassifier -Port COM10 -DurationSeconds 120 -OutputPath artifacts/serial/battery-runtime.log
 ```
+
+Release still records the same NVS endurance journal, but its compiled maximum
+and default log level are WARN, so these INFO serial reports are suppressed.
+The capture command alone therefore cannot read the endurance records from a
+Release image. A bounded, explicitly requested readback path is pending; logging
+levels are not raised to work around that missing path. Persistence and later
+readback are separate evidence requirements for a Release endurance experiment.
 
 Use the currently identified port. `liveness_lower_bound_ms` is the elapsed time
 at the last successful commit. For example, 3600000 means it was known alive at

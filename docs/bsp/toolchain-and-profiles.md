@@ -93,15 +93,15 @@ cannot accidentally reuse a Release build.
 | Bootloader logging | INFO | WARN |
 | Boot identity | Debug notice | One Release notice warning about the USB sleep limitation |
 | Automatic Light-sleep | Disabled for USB debugging | Enabled when power management is present and workloads permit it |
-| Inactivity sleep | CPU/USB remain awake in software standby | Software standby for retained Codex or voice listening; otherwise Deep-sleep with touch wake |
+| Inactivity sleep | CPU/USB remain awake in software standby | Cody always uses software standby for PWR wake; other profiles retain software standby for Codex or voice listening, otherwise Deep-sleep with touch wake |
 | Screen inactivity and fade | Runtime `idle_sleep_s`, default 60 s; 800-ms fade | Same timeout and fades |
-| Standby motion observation | 10-Hz host snapshots | Accelerometer-only hardware WoM; no host polling during Deep-sleep |
+| Standby motion observation | 10-Hz host snapshots | Software observation in Cody/retained-service standby; accelerometer-only hardware WoM without host polling during Deep-sleep |
 | CPU frequency | Existing 80--240 MHz dynamic policy | Same 80--240 MHz policy |
 | Sleep residency diagnostics | Callback counters available | Debug-only callback instrumentation disabled |
 | Repeated post-wake trace reports | Available | Disabled; retained failure trace remains available |
 | Cody frame diagnostics | Authored execution timings, frame distributions and FPS/CPU HUD | No collection/reporting of diagnostic frame distributions, raster stage profiling or HUD |
-| Cody PWR screenshot | One click waits 500 ms, then starts the existing countdown | Admission disabled; no shutter worker |
-| Button software reset | PWR double click within 500 ms or 3-second PWR/BOOT hold | Excluded; ordinary standby/fullscreen controls remain |
+| Cody PWR | Short click enters/wakes standby; valid continuous 3-second hold requests farewell and PMU shutdown | Same dedicated power controls; no PWR screenshot or software reset |
+| BOOT software reset | 3-second BOOT hold | Excluded; ordinary BOOT controls remain |
 | Cody static/parked worker | Existing 50 ms/200 ms waits; paused HUD refresh | 1000 ms functional gate checks; touch IRQ wakes immediately; unchanged paused frames do not redraw |
 | Active animation | Existing selected 40 ms or 33 ms target | Same target |
 | Compiler optimization | Existing performance optimization (`-O2`) | Same optimization for comparable rendering behavior |
@@ -114,12 +114,21 @@ diagnostic services are functional features and are not silently disabled.
 Performance Mode restores the compiled log default when it ends, so it cannot
 turn Release INFO logging back on.
 
-Release enters Deep-sleep after confirmed standby on touch-enabled profiles
-only when the power owner retains neither the Codex radio association nor
-wake-word standby listening. Those services keep software standby, without
-attempting sleep and restoring Active due to an expected policy rejection;
-touch GPIO11 and accelerometer-only IMU INT2/GPIO21 provide physical wake.
-The normal inactivity timer adds no periodic wake and PWR polling stops.
+The battery-endurance NVS journal remains active in Release. Its periodic
+`Endurance` readback messages are INFO and are suppressed by the compiled WARN
+maximum; passive serial capture alone cannot retrieve those records from a
+Release image. A bounded explicit readback path is pending, without raising
+normal logging. See [battery-only runtime recording](services/power-management.md#battery-only-runtime-recording)
+for the persistence contract and current Debug readback procedure.
+
+Cody keeps software standby in both modes so the PMU PWR key can wake it; that
+key has no ESP Deep-sleep wake route. Other touch-enabled Release profiles enter
+Deep-sleep after confirmed standby only when the power owner retains neither
+the Codex radio association nor wake-word standby listening. Those services keep
+software standby without attempting sleep and restoring Active due to an expected
+policy rejection. During Deep-sleep, touch GPIO11 and accelerometer-only IMU
+INT2/GPIO21 provide physical wake; PWR polling stops and the normal inactivity
+timer adds no periodic wake.
 Debug keeps CPU/USB awake and retains 10-Hz software motion observation.
 See [power lifecycle](services/power-management.md) for runtime settings,
 IRQ/revision checks, rollback, startup and shared-rail limits. Whole-board
