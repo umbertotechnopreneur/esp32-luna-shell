@@ -284,10 +284,12 @@ if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
     target_compile_options(${activity_dl_library} PRIVATE
         "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>"
         "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-usage>")
+    # GCC's -Oz reduces control-plane code further to keep the endurance journal
+    # inside both existing OTA slots; inference kernels retain their -Os setting.
     foreach(activity_control_component LUNASHELL_platform LUNASHELL_logger main)
         idf_component_get_property(activity_control_library ${activity_control_component} COMPONENT_LIB)
         target_compile_options(${activity_control_library} PRIVATE
-            "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>"
+            "$<$<COMPILE_LANGUAGE:C,CXX>:-Oz>"
             "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-usage>")
     endforeach()
     # Control, policy and diagnostic panels need a bounded flash footprint.
@@ -303,7 +305,7 @@ if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
            NOT activity_cody_source MATCHES "/CODY_(rig|benchmark|raster_benchmark|jelly_simd_validation)[.]cpp$")
             set_property(SOURCE "${activity_cody_source}"
                 DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/components/CODY_companion"
-                APPEND PROPERTY COMPILE_OPTIONS -Os)
+                APPEND PROPERTY COMPILE_OPTIONS -Oz)
         endif()
     endforeach()
 endif()
