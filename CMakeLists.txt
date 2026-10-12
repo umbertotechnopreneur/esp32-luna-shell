@@ -284,10 +284,10 @@ if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
     target_compile_options(${activity_dl_library} PRIVATE
         "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>"
         "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-usage>")
-    # Storage, pairing and HTTP are control-plane services too; size-optimize
+    # Storage, OTA, provisioning and HTTP are control-plane services; size-optimize
     # their source libraries rather than changing model assets or OTA geometry.
     foreach(activity_control_component LUNASHELL_platform LUNASHELL_logger main
-            nvs_flash esp_http_server protocomm)
+            nvs_flash app_update espressif__network_provisioning esp_http_server protocomm)
         idf_component_get_property(activity_control_library ${activity_control_component} COMPONENT_LIB)
         target_compile_options(${activity_control_library} PRIVATE
             "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>"
