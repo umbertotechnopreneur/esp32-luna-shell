@@ -1655,9 +1655,17 @@ class PricingContractTests(unittest.TestCase):
     # Raises AssertionError if prices leak, a stale model retains a band or any badge field lacks HMAC binding.
     def test_band_is_bound_to_the_followed_current_model_and_signed_fields(self):
         owner = self.start_cache()
+        # Distinct synthetic prompts must not depend on the host clock advancing
+        # between two fast observations. Keep admission and projection clocks coherent.
+        monotonic_clock = patch.object(activity.time, "monotonic", return_value=100.0)
+        emission_clock = patch.object(activity.time, "monotonic_ns", return_value=100_000_000_000)
+        self.addCleanup(monotonic_clock.stop)
+        self.addCleanup(emission_clock.stop)
+        monotonic_clock.start()
+        emission_clock.start()
         activity_store = activity.ActivityStore(owner)
         event = {"hook_event_name": "UserPromptSubmit", "session_id": "priced-chat", "cwd": "E:/fixture",
-                 "turn_id": "priced-turn", "model": "gpt-6-sol", "emitted_ns": time.monotonic_ns()}
+                 "turn_id": "priced-turn", "model": "gpt-6-sol", "emitted_ns": 99_000_000_000}
         activity_store.observe(event)
         state = Mock(pc_id="a" * 32)
         key = bytes(range(32))
@@ -1691,7 +1699,7 @@ class PricingContractTests(unittest.TestCase):
         with patch.object(activity.time, "monotonic", return_value=time.monotonic() + 121):
             _, stale = activity_store.snapshot_bundle()
         self.assertEqual((stale["cost"], stale["costage"], stale["costttl"]), ("unknown", "-", "-"))
-        activity_store.observe({**event, "model": "gpt-6-luna", "emitted_ns": time.monotonic_ns()})
+        activity_store.observe({**event, "model": "gpt-6-luna", "emitted_ns": 99_000_000_001})
         _, switched = activity_store.snapshot_bundle()
         self.assertEqual(switched["cost"], "economy")
         self.assertTrue(all(switched[name] == "-" for name in technical_metadata.UNAVAILABLE_FIELDS))

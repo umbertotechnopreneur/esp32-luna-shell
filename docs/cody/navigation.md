@@ -36,10 +36,19 @@ After branding and local checkpoints, read one canonical observation:
 | Saved and observed state | Route |
 | --- | --- |
 | Wi-Fi profile genuinely absent | 04 / Welcome, then network setup 05-09 |
-| Credentials present, association or IP unavailable | 42 / No connection: Network setup or Later |
+| Credentials present, association or IP pending | Passive connection wait for up to 15 seconds; advance immediately on valid Wi-Fi/IP |
+| Saved profile still offline after that wait | 42 / No connection: Network setup or Later |
 | Wi-Fi/IP valid, Codex pairing absent | 40 / Connect Codex?: Yes or No |
 | Retained pairing valid | 14 / Looking for PC, then 15 after authenticated READY |
 | Read, type, CRC or storage failure | Visible original error; never substitute an absent profile |
+
+The saved-profile wait shows `Connecting to Wi-Fi` and `Please wait`, with no
+setup or Codex action while the radio owner makes its existing attempt. Repeated
+frames do not extend the deadline. The wait changes presentation only: it never
+blocks the worker, starts a scan, rewrites credentials or claims Internet access.
+An explicit startup retry starts a new bounded wait. A genuinely absent profile
+still goes directly to first setup. A saved profile's observation failure remains
+logged and canonical during grace, then appears with the recovery choices.
 
 LAN connectivity and Internet availability are separate observations. No returns
 to Idle without starting CCP or persisting a refusal. A later boot may offer

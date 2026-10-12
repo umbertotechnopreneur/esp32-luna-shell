@@ -766,6 +766,10 @@ esp_err_t LUNASHELL_wifi_connect(const char *ssid, const char *password, bool pe
  */
 esp_err_t LUNASHELL_wifi_disconnect(void);
 
+// No parameters: shorten one existing reconnect wait after a completed wake.
+// Exception: Returns timer/owner errors; never starts a new connection intent.
+esp_err_t LUNASHELL_wifi_expedite_reconnect(void);
+
 /**
  * Start one asynchronous all-channel scan.
  */
@@ -840,6 +844,9 @@ typedef enum {
 
 /** No parameters: initialize the bounded CCP1 commissioning and liveness owner. */
 esp_err_t LUNASHELL_codex_link_service_init(void);
+// No parameters: prompt the existing retained-link worker after wake or acquired IP.
+// Exception: Returns owner/notification errors; admission never proves PC presence.
+esp_err_t LUNASHELL_codex_link_notify_network_ready(void);
 /** action: Explicit pairing, confirmed replacement, discovery, or cancellation request. */
 /** expected_attempt_id: Exact canonical attempt observed by the caller. */
 esp_err_t LUNASHELL_codex_link_request(

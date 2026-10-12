@@ -25,6 +25,7 @@
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_wifi_provisioning.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "esp_log.h"
 
 namespace {
 
@@ -62,6 +63,15 @@ extern "C" esp_err_t LUNASHELL_wifi_connect(
 
 extern "C" esp_err_t LUNASHELL_wifi_disconnect(void)
 {
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// No parameters: disabled Wi-Fi has no reconnect owner to expedite.
+// Exception: Returns NOT_SUPPORTED; no connection intent or timer is created.
+extern "C" esp_err_t LUNASHELL_wifi_expedite_reconnect(void)
+{
+    ESP_LOGW("LUNASHELL_wifi", "Wake reconnect unavailable (%s)",
+        esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
     return ESP_ERR_NOT_SUPPORTED;
 }
 

@@ -103,6 +103,10 @@ actually retired to the panel it remains readable for one active second before
 05. There is no second bitmap intro. Normal startup now selects network setup,
 the optional Codex choice (40), reconnect waiting (42), or authenticated PC search
 from the canonical saved-profile/link state; see [onboarding](navigation.md).
+An existing saved Wi-Fi profile receives a passive `Connecting to Wi-Fi` /
+`Please wait` presentation for up to 15 seconds before recovery choices appear.
+Valid association and IP advance immediately; the interval adds no polling task
+or forced minimum delay and does not infer Internet or authenticated PC presence.
 Only explicit development force-first-boot replays 04 regardless of that state.
 Returning devices with validated first-boot false receive one four-second
 random Affection or Joy request on entering Idle, using the existing icon and
@@ -142,6 +146,12 @@ and touch to resume; uncertain cleanup still rejects wake. The original radio
 error remains in the power snapshot, return value, trace and logs until verified
 radio recovery. Ordinary touch/motion publication cannot erase it. A subsequent
 standby reasserts radio shutdown through its owner after any explicit pairing.
+
+For a retained Cody/Codex association, the radio owners normally stay alive and
+authenticated traffic continues during the display transition. Completed wake
+prompts an existing Wi-Fi retry and CCP discovery once; acquired IP prompts CCP
+again. This does not increase periodic standby traffic or fabricate Online.
+See [wake reconnect](../bsp/services/connectivity-pairing.md#cody-wake-reconnect).
 
 Software wake first renders Sleeping behind the dark panel, exposes it through
 the shared 800-ms panel fade, then gives Waking 1.5 seconds and Ready 2 seconds. It does

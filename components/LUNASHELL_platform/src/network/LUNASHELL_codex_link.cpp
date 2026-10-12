@@ -108,6 +108,8 @@ static_assert(sizeof(s_worker_stack) == kWorkerStackSize,
     "The ESP-IDF Xtensa CCP task stack budget is 8192 bytes, not 8192 words");
 TaskHandle_t s_worker = nullptr;
 Command s_pending = Command::None;
+bool s_network_ready_pending = false;
+uint32_t s_network_ready_attempt_id = 0;
 int s_socket = -1;
 LUNASHELL::CodexLinkSnapshot s_link_snapshot{};
 PersistedLink s_persisted_link{};
@@ -578,11 +580,9 @@ void clearActivationReplayLocked()
 bool wifiOnline(const LUNASHELL::ConnectivityObservation &observation)
 {
     const auto &wifi = observation.radios.wifi;
-    // Paired Cody retains its radio owners during software standby. Canonical
-    // Wi-Fi readiness, not the display state, admits authenticated traffic.
-    return (observation.operating_state == LUNASHELL::DeviceOperatingState::Active ||
-        observation.operating_state == LUNASHELL::DeviceOperatingState::Standby) &&
-        wifi.data_valid && !wifi.data_stale &&
+    // The display/power transition is not network readiness. Retained radios
+    // can carry authenticated traffic while the UI is suspending or waking.
+    return wifi.data_valid && !wifi.data_stale && wifi.started &&
         wifi.health == LUNASHELL::DeviceHealth::Ready &&
         wifi.last_error == ESP_OK && wifi.connected && wifi.ip_acquired &&
         wifi.ip_address[0] != '\0' && wifi.mac_address[0] != '\0';
@@ -1915,6 +1915,7 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                     error = commitCandidateLocked();
                 }
                 if (error == ESP_OK) {
+                    const bool newly_connected = s_link_snapshot.state != State::Connected;
                     s_last_ready_at_us = esp_timer_get_time();
                     std::memcpy(s_ready_nonce, response.nonce, sizeof(s_ready_nonce));
                     s_link_snapshot.ready_at_us = s_last_ready_at_us;
@@ -1924,6 +1925,9 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                     // READY still proves liveness if the outbound ACK fails;
                     // retain the real error and retry COMMITTED on the next READY.
                     publishLocked(State::Connected, error);
+                    if (newly_connected) {
+                        ESP_LOGI(kTag, "CCP peer authenticated");
+                    }
 #if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
                     const esp_err_t debug_error = sendDebugCapabilityLocked(response, source);
                     if (debug_error != ESP_OK) {
@@ -3345,6 +3349,27 @@ void receiveDatagrams()
     }
 }
 
+// No parameters: caller holds s_mutex; explicit commands keep priority over readiness hints.
+bool networkReadyAdmittedLocked()
+{
+    return s_pending == Command::None && (s_link_present || s_candidate_present) &&
+        (s_link_snapshot.state == State::Discovering || s_link_snapshot.state == State::Connected);
+}
+
+// No parameters: caller holds s_mutex; consume at most one hint for its original attempt.
+void consumeNetworkReadyLocked()
+{
+    if (s_network_ready_pending) {
+        s_network_ready_pending = false;
+        if (networkReadyAdmittedLocked() &&
+            s_network_ready_attempt_id == s_link_snapshot.attempt_id) {
+            // Only scheduling changes. Nonce, proof admission and READY expiry
+            // remain owned by the normal authenticated protocol transaction.
+            s_next_find_at_us = 0;
+        }
+    }
+}
+
 // No parameters: expires code windows and retries retained discovery across LAN/standby loss.
 // Exception: Read and send failures stay canonical until an authenticated READY succeeds.
 void maintainState()
@@ -3357,6 +3382,7 @@ void maintainState()
     uint32_t attempt_id = 0;
     {
         std::lock_guard<std::mutex> guard(s_mutex);
+        consumeNetworkReadyLocked();
         if (s_pending != Command::None) {
             return;
         }
@@ -3660,6 +3686,33 @@ esp_err_t LUNASHELL::completeCodexDebugScreen(const CodexDebugScreenRequest &req
 }
 #endif
 
+// No parameters: a canonical LAN-ready or completed-wake event requests one prompt recheck.
+// Exception: Returns INVALID_STATE before initialization or the actual notification failure.
+extern "C" esp_err_t LUNASHELL_codex_link_notify_network_ready(void)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    // Before initialization there is no owner to publish into.
+    esp_err_t error = ESP_ERR_INVALID_STATE;
+    if (s_worker != nullptr) {
+        if (!networkReadyAdmittedLocked() || (s_network_ready_pending &&
+            s_network_ready_attempt_id == s_link_snapshot.attempt_id)) {
+            // Dormant/pairing/explicit-command states need no discovery wake.
+            // An already queued hint is coalesced; neither case claims presence.
+            return ESP_OK;
+        }
+        if (xTaskNotifyGive(s_worker) == pdPASS) {
+            // The worker cannot consume this until the owner lock is released.
+            s_network_ready_attempt_id = s_link_snapshot.attempt_id;
+            s_network_ready_pending = true;
+            return ESP_OK;
+        }
+        error = ESP_FAIL;
+        publishLocked(s_link_snapshot.state, error);
+    }
+    ESP_LOGE(kTag, "CCP hint failed (%s)", esp_err_to_name(error));
+    return error;
+}
+
 // No parameters: loads exact retained state and binds the fixed CCP1 device port.
 // Exception: Returns the original storage/crypto error or the logged socket/task failure.
 extern "C" esp_err_t LUNASHELL_codex_link_service_init(void)
@@ -3925,6 +3978,13 @@ extern "C" esp_err_t LUNASHELL_codex_event_reply(const char *expected_request_id
 extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_id)
 {
     (void)expected_request_id;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// No parameters: CCP1 is unavailable outside the selected Cody Wi-Fi profile.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED; no worker notification was attempted.
+extern "C" esp_err_t LUNASHELL_codex_link_notify_network_ready(void)
+{
     return ESP_ERR_NOT_SUPPORTED;
 }
 

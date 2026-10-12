@@ -13,6 +13,55 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Saved-network startup and wake reconnect - 2026-10-13
+
+Three agents covered Wi-Fi retry ownership, CCP/startup integration and host
+verification. A saved Wi-Fi profile receives a passive `Please wait` /
+`Connecting to Wi-Fi` view for up to 15 seconds from its first eligible offline
+evaluation. Boot branding does not consume the interval. A fresh healthy Wi-Fi
+observation with association and IP advances immediately; genuinely absent
+credentials still enter first setup. The existing recovery choices return after
+timeout. Hidden actions have no admitted targets, repeated frames do not restart
+the deadline, and failed content preparation cannot be cached as successful.
+Original observation errors remain logged and canonical during the grace.
+
+Completed wake shortens only an existing distant Wi-Fi retry to one second,
+without resetting the ordinary exponential backoff, initiating a new connection
+or postponing an imminent retry. The accepted timer command retains its deadline
+against stale callbacks. Wake and acquired IP prompt the existing CCP worker's
+next FIND; canonical LAN readiness remains usable during power/display
+transitions. Hints coalesce within their original attempt and preserve explicit
+command priority, authentication and eight-second READY expiry. A new
+authenticated-peer log supports later wake-to-PC timing. No additional polling
+task, periodic timer, large array or snapshot is introduced.
+
+Final host checks passed: real extracted Wi-Fi scheduling/callback and CCP
+admission helpers, real startup selector/presenter, all 87 CCP tests, power-policy
+contracts and liveness contracts. The first CCP run exposed a nondeterministic
+pricing fixture that reused a host prompt timestamp; the corrected fixture uses
+coherent explicit synthetic clocks without changing production admission. Two
+host-fixture shadow warnings were fixed by renaming fake state. Final fixture
+compilation is warning-free. These tests use fake RTOS/renderer boundaries; they
+do not measure pixels, radio timing, current or physical wake behavior.
+
+The first linked Debug image exceeded its OTA slot by 416 bytes. Direct passive
+content preparation and shared error reporting removed duplicated work; a second
+image still exceeded by 32 bytes. Consolidated diagnostic strings retained the
+real operation/component causes and produced a passing IDF 6.0.2 wake-word/activity
+build at eight jobs. No feature, partition or warning gate was removed. Final app
+size is 7,274,448 bytes, only 48 bytes free in each unchanged OTA slot; further
+Debug growth requires a footprint reduction. Static DIRAM is 245,028 bytes
+(16 more than the previous image). Binary SHA256 is
+`7e04efe769e315a6eae6879e832432003e0cc2420af140786a1d98d20c634335`.
+
+Size and individual compiled-frame checks passed. The two new owner hint APIs
+each use a 32-byte frame; the grace gate uses 32, network presenter 64 and startup
+selector 976 bytes. These are individual records, not nested stack bounds or
+device watermarks. Build/size logs, first failures and final host fixtures are
+retained in `artifacts/build-cody-companion-wake-word-evidence/wake-reconnect-20261013/`.
+Target timing and installed-device UI remain open in `WAKE-RECONNECT-01`; no
+flash or reset was performed, preserving the ongoing battery image and NVS journal.
+
 ## Voice recording controls, rendering and polling - 2026-10-12
 
 Three agents reviewed acquisition lifecycle, voice ownership/transport and host

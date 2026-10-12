@@ -1488,6 +1488,25 @@ bool update_power_key_component(esp_err_t error)
     return report_due;
 }
 
+// No parameters: one optional connectivity prompt after an actual completed wake.
+// Exception: Optional owner errors are logged and published without undoing wake.
+// Component owners retain timer/notification errors in their canonical state;
+// failed acceleration must not tear down working radios or undo a visible wake.
+void prompt_wake_connectivity()
+{
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
+    const esp_err_t wifi_error = LUNASHELL_wifi_expedite_reconnect();
+    esp_err_t codex_error = ESP_OK;
+#if CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+    codex_error = LUNASHELL_codex_link_notify_network_ready();
+#endif
+    if (wifi_error != ESP_OK || codex_error != ESP_OK) {
+        ESP_LOGE(kTag, "Wake reconnect: Wi-Fi=%s CCP=%s",
+            esp_err_to_name(wifi_error), esp_err_to_name(codex_error));
+    }
+#endif
+}
+
 // reason: Observed activity that requires the display and input policy to be active.
 // display_snapshot_diverged: Whether the applied panel state disagrees with active policy.
 // exit_fullscreen: Whether the activity must also close the transient fullscreen state.
@@ -1946,6 +1965,7 @@ esp_err_t set_standby(
                 StandbyTracePhase::Awake,
                 recovery_optional_errors.first_error()
             );
+            prompt_wake_connectivity();
             if (recovery_optional_errors.first_error() != ESP_OK) {
                 recovery_publication_error = recovery_optional_errors.first_error();
                 ESP_LOGE(
@@ -1986,6 +2006,7 @@ esp_err_t set_standby(
     const esp_err_t optional_error = optional_errors.first_error();
     publish_power(optional_error);
     record_standby_trace(StandbyTracePhase::Awake, optional_error);
+    prompt_wake_connectivity();
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     // Recording is optional and owns its canonical error; an NVS failure must
     // not undo a completed wake or become a new power-policy dependency.

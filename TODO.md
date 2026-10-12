@@ -66,6 +66,14 @@ Physical interactions, complete stack headroom and battery duration remain open.
 
 ## Energy, memory and maintenance review - 2026-10-12
 
+- [ ] **WAKE-RECONNECT-01 - Measure wake-to-Codex latency.** The 2026-10-13 source
+  keeps authenticated traffic admitted during retained-radio power transitions,
+  expedites one pending Wi-Fi retry after completed wake and prompts CCP FIND on
+  wake/acquired IP. Measure requested wake, completed wake, association, acquired
+  IP and authenticated READY on the physical device before claiming the reported
+  10-30-second delay is resolved. Preserve the battery run before installing.
+  Verify the saved-profile startup wait on target: no premature setup choices,
+  immediate advance on valid IP and recovery choices after 15 seconds offline.
 - [ ] **VOICE-POLL-UI-01 - Target recording and lifecycle evidence.** Source
   replaces paused/startup AFE polling with notifications, reduces disconnected
   voice service cadence, and adds a procedural recording ribbon targeting 30 FPS.

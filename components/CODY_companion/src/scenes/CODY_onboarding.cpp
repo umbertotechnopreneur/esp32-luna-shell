@@ -88,6 +88,7 @@ constexpr size_t kDebugLineBytes = 64;
 constexpr CODY2D::Rect kForwardBounds{396, 203, 60, 60};
 constexpr CODY2D::Rect kBackBounds{10, 203, 60, 60};
 constexpr int64_t kHelloReadableHoldUs = 1000000;
+constexpr int64_t kStartupWifiGraceUs = 15LL * 1000000LL;
 constexpr bool kPairingDebugEnabled = LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled;
 constexpr bool kCodexIntegrationEnabled = CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX;
 using PairState = LUNASHELL::PairingSessionState;
@@ -273,6 +274,9 @@ char s_last_audio_chat[65]{};
 LUNASHELL::CodexActivityState s_last_audio_phase = LUNASHELL::CodexActivityState::None;
 bool s_startup_pending = false;
 esp_err_t s_startup_wifi_error = ESP_OK;
+int64_t s_startup_wifi_wait_started_us = -1;
+bool s_startup_network_passive = false;
+bool s_startup_network_presented = false;
 uint32_t s_generation = 1;
 std::atomic<uint32_t> s_presentation_generation{1};
 uint32_t s_look_request_id = 0; // Never reset with a route; late writes keep their identity.
@@ -1806,7 +1810,9 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         identity = SceneId::SetupMenu;
         break;
     case Route::NetworkWait:
-        identity = SceneId::NetworkWait;
+        // Reuse the existing curious character geometry for passive startup,
+        // while logical routing and backend admission remain NetworkWait.
+        identity = s_startup_network_passive ? SceneId::LookingForPc : SceneId::NetworkWait;
         break;
     default:
         ESP_LOGE(kTag, "Unknown content route %u (%s)", to_index(route), esp_err_to_name(ESP_ERR_INVALID_ARG));
@@ -1921,6 +1927,15 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         }
         if (error == ESP_OK) {
             error = prepare_alternative(OnboardingAction::KeepSaved, true);
+        }
+    } else if (route == Route::NetworkWait && s_startup_network_passive) {
+        // The cleared view already has no action identities or touch targets.
+        // Prepare only the passive content, never temporary recovery buttons.
+        static constexpr char title[] = "Please wait";
+        error = set_scene_title(prepared, {title, sizeof(title) - 1U});
+        if (error == ESP_OK) {
+            error = prepare_caption("Connecting to Wi-Fi", 300, s_view.lines[0]);
+            s_view.line_count = 1;
         }
     } else if (route == Route::CodexChoice || route == Route::SetupMenu || route == Route::NetworkWait) {
         const auto primary = route == Route::CodexChoice ? OnboardingAction::DeclineCodex :
@@ -2806,7 +2821,7 @@ esp_err_t enter_host_destination(SceneId destination, SceneFrame &scene)
         return begin_codex_connection(scene, CodexConnectionIntent::Setup);
     }
     if (route == Route::CodexChoice) {
-        s_startup_pending = true;
+        request_saved_setup_startup();
         bool changed = false;
         return evaluate_saved_setup(scene, changed);
     }
@@ -3019,6 +3034,9 @@ void reset_onboarding()
     s_route = Route::None;
     s_startup_pending = false;
     s_startup_wifi_error = ESP_OK;
+    s_startup_wifi_wait_started_us = -1;
+    s_startup_network_passive = false;
+    s_startup_network_presented = false;
     s_command_pending = false;
     s_pairing_owned = false;
     s_cancel_to_install = false;
@@ -3069,6 +3087,24 @@ void begin_onboarding()
 void request_saved_setup_startup()
 {
     s_startup_pending = true;
+    // Boot branding runs after this request. The visible evaluation, not boot
+    // allocation/animation time, starts the bounded network grace.
+    s_startup_wifi_wait_started_us = -1;
+    s_startup_network_passive = false;
+    s_startup_network_presented = false;
+}
+
+// wifi: Canonical retained credential knowledge; connection intent may arrive later.
+// now_us: Monotonic time of the first eligible startup view or a subsequent update.
+bool saved_wifi_startup_grace(const LUNASHELL::WifiSnapshot &wifi, int64_t now_us)
+{
+    if (!wifi.credentials_configured) {
+        return false;
+    }
+    if (s_startup_wifi_wait_started_us < 0) {
+        s_startup_wifi_wait_started_us = now_us;
+    }
+    return now_us - s_startup_wifi_wait_started_us < kStartupWifiGraceUs;
 }
 
 // No parameters: resting setup pages may reopen choices without retiring live work.
@@ -3102,23 +3138,34 @@ esp_err_t open_setup_menu(SceneFrame &scene)
 // scene: Visible reconnect page, without interpreting unavailable data as missing credentials.
 // error: Actual canonical Wi-Fi observation failure, or ESP_OK for a known disconnected state.
 // changed: Receives whether presentation changed since the previous observation.
+// passive: Hide all recovery actions while the saved-network grace is pending.
 // Exception: Returns presentation failures; the optional radio observation error stays canonical.
-esp_err_t present_network_wait(SceneFrame &scene, esp_err_t error, bool &changed)
+esp_err_t present_network_wait(SceneFrame &scene, esp_err_t error, bool &changed, bool passive)
 {
-    if (s_route == Route::NetworkWait && s_startup_wifi_error == error) {
-        return ESP_OK;
+    const bool same_view = s_startup_network_presented && s_route == Route::NetworkWait &&
+        s_startup_network_passive == passive &&
+        (passive || s_startup_wifi_error == error);
+    if (error != ESP_OK && s_startup_wifi_error != error) {
+        ESP_LOGE(kTag, "Wi-Fi startup failed (%s)", esp_err_to_name(error));
     }
     s_startup_wifi_error = error;
+    if (same_view) {
+        return ESP_OK;
+    }
+    s_startup_network_presented = false;
+    s_startup_network_passive = passive;
     changed = true;
     esp_err_t presentation_error = enter_route(Route::NetworkWait, scene);
-    if (presentation_error == ESP_OK && error != ESP_OK) {
+    if (presentation_error == ESP_OK && !passive && error != ESP_OK) {
         static constexpr char title[] = "UNAVAILABLE";
-        ESP_LOGE(kTag, "Startup Wi-Fi observation failed; visible setup remains available (%s)",
-            esp_err_to_name(error));
         presentation_error = set_scene_title(scene, {title, sizeof(title) - 1U});
         if (presentation_error == ESP_OK) {
             presentation_error = attach_content(scene);
         }
+    }
+    s_startup_network_presented = presentation_error == ESP_OK;
+    if (!s_startup_network_presented) {
+        s_view.actions_visible = false;
     }
     return presentation_error;
 }
@@ -3136,7 +3183,8 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
     const auto &wifi = observation.radios.wifi;
     if (!wifi.data_valid || wifi.data_stale) {
         error = wifi.last_error != ESP_OK ? wifi.last_error : ESP_ERR_INVALID_STATE;
-        return present_network_wait(scene, error, changed);
+        return present_network_wait(scene, error, changed,
+            saved_wifi_startup_grace(wifi, esp_timer_get_time()));
     }
     if (!wifi.credentials_configured) {
         if (wifi.last_error != ESP_OK && wifi.last_error != ESP_ERR_NOT_FOUND) {
@@ -3147,10 +3195,12 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
         changed = true;
         return enter_route(Route::Hello04, scene);
     }
-    // Saved credentials survive temporary loss of association or DHCP. The Wi-Fi
-    // owner continues reconnecting; the UI offers explicit setup or session-only Later.
-    if (!wifi.connected || !wifi.ip_acquired || wifi.ip_address[0] == '\0') {
-        return present_network_wait(scene, ESP_OK, changed);
+    // A saved profile does not prove connectivity; only the current successful
+    // owner observation may leave the passive wait early.
+    if (wifi.health != LUNASHELL::DeviceHealth::Ready || wifi.last_error != ESP_OK ||
+        !wifi.started || !wifi.connected || !wifi.ip_acquired || wifi.ip_address[0] == '\0') {
+        return present_network_wait(scene, wifi.last_error, changed,
+            saved_wifi_startup_grace(wifi, esp_timer_get_time()));
     }
     if (!kCodexIntegrationEnabled) {
         s_startup_pending = false;
