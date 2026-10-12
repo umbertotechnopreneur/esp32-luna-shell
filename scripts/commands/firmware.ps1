@@ -35,6 +35,8 @@ param(
 
     [ValidateSet("none", "distance", "wake-word", "tts-sd", "tts-flash")]
     [string]$Feature = "none",
+    [switch]$ActivityClassifier,
+    [switch]$ActivityCapture,
 
     # A reviewed board YAML selects its compiler profile before ESP-IDF runs.
     [string]$BoardConfig,
@@ -328,6 +330,26 @@ function Resolve-ProfileCatalogPath([string]$RelativePath) {
 }
 
 Assert-WakeWordVariant -Variant $SelectedProfileVariant -Feature $Feature
+if ($ActivityCapture -and -not $ActivityClassifier) {
+    throw '-ActivityCapture requires -ActivityClassifier.'
+}
+if ($ActivityClassifier) {
+    if ($Profile -ne 'cody-companion' -or $Feature -ne 'wake-word') {
+        throw 'The experimental activity observer currently requires -Profile cody-companion -Feature wake-word; Sophia remains enabled.'
+    }
+    $modelPath = Join-Path $ProjectRoot 'artifacts/models/activity/activity.espdl'
+    if (-not (Test-Path -LiteralPath $modelPath -PathType Leaf)) {
+        throw 'Generate the pretrained local model first: scripts/device.ps1 generate -Generator activity-model.'
+    }
+    $ProfileBuildKey += '-activity'
+    if ($ActivityCapture) { $ProfileBuildKey += '-capture' }
+    # Isolate sdkconfig, artifacts and dependency identity from the installed ordinary profile.
+    $SelectedProfileVariant = $SelectedProfileVariant | ConvertTo-Json -Depth 16 | ConvertFrom-Json
+    $SelectedProfileVariant.component_roots = @($SelectedProfileVariant.component_roots) + @('espressif__esp-dl')
+    $SelectedProfileVariant.generated_sdkconfig += $(if ($ActivityCapture) { '-activity-capture' } else { '-activity' })
+    $SelectedProfileVariant.default_build_dir += $(if ($ActivityCapture) { '-activity-capture' } else { '-activity' })
+    $SelectedProfileVariant.dependency_lock = $SelectedProfileVariant.dependency_lock -replace '\.lock$', '-activity.lock'
+}
 $FeaturePartitionPath = Get-FirmwareFeaturePartitionPath -ProjectRoot $ProjectRoot -Feature $Feature
 $SelectedSdkconfigDefaults = @(
     $SelectedProfileVariant.defaults |
@@ -379,6 +401,8 @@ $null = New-Item -ItemType Directory -Path $featureOverlayDirectory -Force
 $featureOverlayPath = Join-Path $featureOverlayDirectory "$ProfileBuildKey.defaults"
 $featurePartitionRelativePath = [IO.Path]::GetRelativePath($ProjectRoot, $FeaturePartitionPath).Replace('\', '/')
 $featureOverlay = @(
+    "CONFIG_LUNASHELL_ACTIVITY_MODEL=$(if ($ActivityClassifier) { 'y' } else { 'n' })"
+    "CONFIG_LUNASHELL_ACTIVITY_CAPTURE=$(if ($ActivityCapture) { 'y' } else { 'n' })"
     "CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD=$(if ($Feature -eq 'wake-word') { 'y' } else { 'n' })"
     'CONFIG_PARTITION_TABLE_CUSTOM=y'
     ('CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="{0}"' -f $featurePartitionRelativePath)
@@ -440,6 +464,11 @@ $ProfileSdkconfigPath = Resolve-ArtifactPath(
 # No parameters: selected generated configuration must match its explicit feature and board.
 # Throws before build/size/flash if the selected graph or generated settings disagree.
 function Assert-BoardSdkconfig {
+    $activityConfigText = Get-Content -Raw -LiteralPath $ProfileSdkconfigPath
+    if ([regex]::IsMatch($activityConfigText, '(?m)^CONFIG_LUNASHELL_ACTIVITY_MODEL=y\r?$') -ne [bool]$ActivityClassifier -or
+        [regex]::IsMatch($activityConfigText, '(?m)^CONFIG_LUNASHELL_ACTIVITY_CAPTURE=y\r?$') -ne [bool]$ActivityCapture) {
+        throw 'Generated activity configuration disagrees with the explicit classifier/capture selection.'
+    }
     Assert-FirmwareTtsConfiguration -SdkconfigText (Get-Content -Raw -LiteralPath $ProfileSdkconfigPath) `
         -Feature $Feature -ComponentRoots $ProfileComponentRoots
     if ($null -eq $BoardModules) { return }
@@ -1130,6 +1159,8 @@ function Get-DependencyLockUpdateCommand([string]$RequestedBuildDir) {
         "-Profile $Profile" +
         $(if ($Feature -eq "none") { "" } else { " -Feature $Feature" })
     }
+    if ($ActivityClassifier) { $selector += ' -ActivityClassifier' }
+    if ($ActivityCapture) { $selector += ' -ActivityCapture' }
     return (
         "pwsh -NoProfile -File .\scripts\device.ps1 update-lock " +
         $selector +

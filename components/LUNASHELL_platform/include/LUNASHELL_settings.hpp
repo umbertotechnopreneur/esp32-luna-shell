@@ -40,6 +40,10 @@ public:
     esp_err_t initialize();
     bool isInitialized() const;
 
+    // sealed: Block new operations after all earlier owner requests have completed.
+    // Exception: Returns the real executor failure; never cuts power during uncertain NVS work.
+    esp_err_t setPowerOffSealed(bool sealed);
+
     esp_err_t setBool(const char *key, bool value);
     esp_err_t getBool(const char *key, bool *value) const;
 

@@ -28,6 +28,7 @@
 #include "LUNASHELL_acquisition_pmu.hpp"
 #include "LUNASHELL_acquisition_rtc.hpp"
 #include "LUNASHELL_acquisition_imu.hpp"
+#include "LUNASHELL_activity_internal.hpp"
 #include "LUNASHELL_acquisition_gnss.hpp"
 #include "LUNASHELL_acquisition_audio.hpp"
 #include "LUNASHELL_acquisition_system.hpp"
@@ -497,6 +498,9 @@ void merge_snapshot_stage(
         current.sensor_fusion = staged.sensor_fusion;
     }
     merge_staged_microphone(current.audio, staged.audio);
+    if (staged.activity.inferred_at_us > current.activity.inferred_at_us) {
+        current.activity = staged.activity;
+    }
     current.last_update_attempt_at_us =
         staged.last_update_attempt_at_us;
     current.last_update_complete = staged.last_update_complete;
@@ -1215,6 +1219,7 @@ void diagnostic_monitor_task(void *arg)
     configASSERT(s_diagnostic_stage_snapshot != nullptr);
     TickType_t last_diagnostic_sample = 0;
     TickType_t last_ui_motion_sample = 0;
+    TickType_t last_activity_sample = 0;
 
     for (;;) {
         const bool ui_sampling_power_suspended =
@@ -1240,6 +1245,10 @@ void diagnostic_monitor_task(void *arg)
             s_ui_motion_monitor_active.load(std::memory_order_relaxed);
         const bool ui_motion_standby =
             s_ui_motion_monitor_standby.load(std::memory_order_relaxed);
+        const bool activity_active =
+            LUNASHELL::snapshot_detail::activity::requested() &&
+            !ui_sampling_power_suspended && !ui_motion_standby && imu::ready();
+        LUNASHELL::snapshot_detail::activity::set_active(activity_active);
         const bool auto_rotation_requested =
             s_auto_rotation_enabled.load(std::memory_order_relaxed);
         const bool auto_rotation_active =
@@ -1256,6 +1265,8 @@ void diagnostic_monitor_task(void *arg)
         }
 
         const TickType_t now = xTaskGetTickCount();
+        const bool activity_due = activity_active &&
+            (last_activity_sample == 0 || now - last_activity_sample >= pdMS_TO_TICKS(LUNASHELL::snapshot_detail::activity::kPeriodMs));
         const TickType_t diagnostic_period = pdMS_TO_TICKS(
             s_diagnostic_period_ms.load(std::memory_order_relaxed)
         );
@@ -1280,7 +1291,7 @@ void diagnostic_monitor_task(void *arg)
         const bool diagnostic_microphone_due =
             diagnostic_due && diagnostic_microphone_active;
         const bool imu_sample_due =
-            diagnostic_imu_due || ui_motion_due || orientation_due;
+            diagnostic_imu_due || ui_motion_due || orientation_due || activity_due;
         const bool sampling_due =
             imu_sample_due || diagnostic_microphone_due;
         bool effective_diagnostic_due = diagnostic_due;
@@ -1352,7 +1363,9 @@ void diagnostic_monitor_task(void *arg)
                 effective_imu_sample_due =
                     effective_diagnostic_imu_due ||
                     ui_motion_due ||
-                    effective_auto_rotation_active;
+                    effective_auto_rotation_active ||
+                    (activity_due && !effective_ui_sampling_power_suspended &&
+                     !s_ui_motion_monitor_standby.load(std::memory_order_acquire));
                 const bool effective_sampling_due =
                     effective_imu_sample_due ||
                     effective_diagnostic_microphone_due;
@@ -1514,6 +1527,9 @@ void diagnostic_monitor_task(void *arg)
             if (ui_motion_due) {
                 last_ui_motion_sample = now;
             }
+            if (activity_due) {
+                last_activity_sample = now;
+            }
         } else {
             if (!monitor_active) {
                 last_diagnostic_sample = 0;
@@ -1591,7 +1607,7 @@ void diagnostic_monitor_task(void *arg)
             !auto_rotation_active &&
             !rotation_apply_pending &&
             !ui_motion_active &&
-            !monitor_active;
+            !monitor_active && !activity_active;
         TickType_t wait_ticks = wait_indefinitely
             ? portMAX_DELAY
             : pdMS_TO_TICKS(
@@ -1605,6 +1621,9 @@ void diagnostic_monitor_task(void *arg)
             );
         if (!wait_indefinitely && wait_ticks == 0) {
             wait_ticks = 1;
+        }
+        if (activity_active && wait_ticks > pdMS_TO_TICKS(LUNASHELL::snapshot_detail::activity::kPeriodMs)) {
+            wait_ticks = pdMS_TO_TICKS(LUNASHELL::snapshot_detail::activity::kPeriodMs);
         }
         // Configuration setters notify this task, so an idle monitor has no
         // polling wakeup and any newly requested consumer starts immediately.
@@ -2480,6 +2499,31 @@ esp_err_t DeviceSnapshotService::readSnapshot(DeviceSnapshot &destination) const
         touchActivityObservation();
     destination.ui.touch_activity_sequence = touch_activity.sequence;
     destination.ui.touch_last_activity_at_us = touch_activity.last_activity_at_us;
+    return ESP_OK;
+}
+
+// destination: Bounded observer result copied under the canonical lock.
+// Exception: Returns the original canonical lock/release error.
+esp_err_t DeviceSnapshotService::readActivity(ActivitySnapshot &destination) const
+{
+    const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "activity read");
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    destination = s_snapshot.activity;
+    const esp_err_t release_error = give_snapshot_mutex("activity read");
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    const int64_t observed_at_us = esp_timer_get_time();
+    if (destination.scores_valid &&
+        (observed_at_us < destination.window_end_us || observed_at_us - destination.window_end_us > 6000000)) {
+        destination.scores_valid = false;
+        destination.activity = ActivityClass::Unknown;
+        destination.rejection = ActivityRejection::MissingSample;
+        destination.error = ESP_ERR_TIMEOUT;
+        destination.stable_windows = 0;
+    }
     return ESP_OK;
 }
 

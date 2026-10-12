@@ -434,22 +434,25 @@ sensor polling is introduced. The HUD preference is session-scoped under the
 display lock and gated by scene `readout_visible`. Authored scenes admit the HUD
 unless a visible bottom action occupies its area; Release excludes it.
 
-The Debug Screenshot touch control is hidden and non-interactive. One short PWR
-press while Cody is active waits 500 ms for a second click, then starts a
-session-enabled 3, 2, 1 countdown. Two separately acquired short clicks within
-that window request a software restart instead, preserving settings and using
-the existing bounded log drain. Failed acquisitions cancel the pending gesture;
-batched clicks without individual timing are rejected. Screenshot admission,
-shutter worker and button-triggered software restarts are Debug only. The
-session flag defaults on and can be changed through the Cody runtime API. Each
-number lasts one second after its frame retires. Cody clears the overlay in a
-completed frame before requesting the capture, so the numeral is absent from
-the saved image. The existing on-demand 466×466 RGB565 PSRAM buffer (434,312
-bytes) transfers to the SD owner, which writes an atomic top-down 24-bit BMP
-under `LUNASHELL/screenshots/`. The overlay reports SAVING, SAVED, or FAILED
-from the actual asynchronous result. An original 200-ms shutter cue is queued
-to a separate audio worker after the capture frame; quiet hours suppress it.
-Absent or unhealthy SD storage returns its real error and never causes formatting.
+Power is dedicated to standby/wake and deliberate shutdown in Debug and Release.
+A short click toggles software standby; a valid three-second continuous hold
+presents `Good night` with `Release Power` directly below it, retires the complete
+Sleep presentation, and requests the
+power owner's gradual fade and coordinated PMU shutdown. Screenshot and restart
+no longer consume PWR; BOOT diagnostics remain unchanged. The old Power-screenshot
+setter returns `ESP_ERR_NOT_SUPPORTED`, and its getter reports disabled.
+Other screenshot diagnostics retain the existing SD owner and real failures.
+
+The shutdown presentation blocks competing touch/scene/voice overlays, suspends
+character/typewriter audio, and waits for any existing screenshot operation with
+a bounded deadline. It acknowledges only complete retired frames, including a
+400-ms greeting dwell after retirement. The passive `Release Power` instruction
+shares that retired frame and asks the user to release the admitted hold before
+the configured 10-second emergency hardware cutoff can interrupt owner drains. A failed shutdown restores a visible
+`Shutdown failed` caption with the original hexadecimal error when display
+recovery succeeds; a subsequent touch dismisses it. This is source implementation,
+not evidence that power physically disappeared. See the
+[power transaction and hardware limitations](../bsp/services/power-management.md#power-key-farewell-and-pmu-shutdown).
 
 The CST9217 path retains 8-bit panel commands, 2-ms address-write settling/configuration
 before IRQ registration and real zero-contact release reports. ISR work is only

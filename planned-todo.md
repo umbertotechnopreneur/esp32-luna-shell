@@ -1,5 +1,18 @@
 # Deferred work
 
+## Observational activity before automatic power decisions - 2026-10-12
+
+- [ ] Validate the existing pretrained observer on Cody placements and real
+  timestamps before using classifications for any power decision. No training
+  work is requested. Preserve exact upstream labels rather than relabeling
+  sitting/standing as desk/bag or inventing hand/transport certainty.
+- [ ] A future automatic transport shutdown must require persistent observations,
+  absent user interaction, cancellable warning and measured false-shutdown rates.
+  It must remain separate from the classifier and explicit Power shutdown.
+- [ ] Resolve original model redistribution rights before publishing a firmware
+  binary that embeds the locally downloaded weights. ESP-DL's MIT license does
+  not establish the author's weight license.
+
 ## CCP protocol security follow-up - 2026-10-10
 
 - [ ] Evaluate standard PAKE or high-entropy out-of-band QR pairing. The current

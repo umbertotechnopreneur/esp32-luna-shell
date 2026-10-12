@@ -178,6 +178,41 @@ esp_err_t read_pmu_registers(
     return read_register(s_pmu_device, reg, data, length);
 }
 
+// reg: Documented configuration register, never an action or IRQ register.
+// mask: Bits owned by this operation.
+// value: Requested values for the owned bits.
+// Exception: Returns original I2C errors or a failed configuration readback.
+esp_err_t update_and_verify_power_configuration(uint8_t reg, uint8_t mask, uint8_t value)
+{
+    uint8_t previous = 0;
+    esp_err_t error = read_pmu_registers(reg, &previous, 1);
+    if (error == ESP_OK) {
+        const uint8_t requested = static_cast<uint8_t>((previous & ~mask) | (value & mask));
+        if (requested != previous) {
+            error = write_register(s_pmu_device, reg, requested);
+        }
+    }
+    uint8_t observed = 0;
+    if (error == ESP_OK) {
+        error = read_pmu_registers(reg, &observed, 1);
+    }
+    if (error == ESP_OK && (observed & mask) != (value & mask)) {
+        error = ESP_ERR_INVALID_RESPONSE;
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Power configuration failed: register=0x%02x mask=0x%02x expected=0x%02x observed=0x%02x (%s)",
+                 reg, mask, value, observed, esp_err_to_name(error));
+    }
+    return error;
+}
+
+// timing: Successful REG27 readback, not a physical button-duration measurement.
+uint16_t power_on_hold_ms(uint8_t timing)
+{
+    constexpr uint16_t durations[] = {128, 512, 1000, 2000};
+    return durations[timing & 3U];
+}
+
 #if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
 // Exception: Returns the original register error or detector readback mismatch.
 esp_err_t enable_and_verify_pmu_battery_detection()
@@ -565,6 +600,16 @@ esp_err_t sample_pmu_locked(const char *phase)
     error = read_pmu_registers(XPOWERS_AXP2101_STATUS1, &status1, 1);
     if (error == ESP_OK) {
         error = read_pmu_registers(XPOWERS_AXP2101_STATUS2, &status2, 1);
+    }
+
+    uint8_t key_timing = 0;
+    if (error == ESP_OK) {
+        error = read_pmu_registers(XPOWERS_AXP2101_IRQ_OFF_ON_LEVEL_CTRL, &key_timing, 1);
+    }
+    if (error == ESP_OK) {
+        sample.power_key_config_valid = true;
+        sample.power_on_hold_ms = power_on_hold_ms(key_timing);
+        sample.emergency_power_off_hold_ms = static_cast<uint16_t>(4000U + ((key_timing >> 2U) & 3U) * 2000U);
     }
 
     sample.vbus_good = (status1 & BIT(5)) != 0;
@@ -959,12 +1004,13 @@ esp_err_t initialize(i2c_master_bus_handle_t bus)
             s_pkey_sample = {};
         }
     }
-    // Leave ample time for the bounded log drain after the 3-second software
-    // reset. A 10-second hardware shutdown remains available if firmware hangs.
-    if (error == ESP_OK &&
-        !require_pmu_write(s_power.setPowerKeyPressOffTime(XPOWERS_POWEROFF_10S),
-                           "set emergency PWR shutdown to 10 seconds")) {
-        error = ESP_FAIL;
+    // Give the presentation and owner drains time before emergency hardware off.
+    // REG22[0] must select shutdown, not the board's possible restart default.
+    if (error == ESP_OK) {
+        error = update_and_verify_power_configuration(0x22, 0x03, 0x02);
+    }
+    if (error == ESP_OK) {
+        error = update_and_verify_power_configuration(0x27, 0x0C, 0x0C);
     }
     if (error == ESP_OK) {
         uint8_t key_timing = 0;
@@ -973,6 +1019,12 @@ esp_err_t initialize(i2c_master_bus_handle_t bus)
         if (error == ESP_OK && ((key_timing >> 2) & 3U) != XPOWERS_POWEROFF_10S) {
             ESP_LOGE(TAG, "Emergency PWR shutdown timing verification failed");
             error = ESP_ERR_INVALID_RESPONSE;
+        }
+        if (error == ESP_OK) {
+            ESP_LOGI(TAG, "PKEY configuration readback: power-on hold=%u ms, emergency shutdown=10000 ms; physical timing unmeasured",
+                     static_cast<unsigned>(power_on_hold_ms(key_timing)));
+        } else {
+            ESP_LOGE(TAG, "PKEY timing configuration read failed (%s)", esp_err_to_name(error));
         }
     }
     if (error == ESP_OK &&
@@ -1086,6 +1138,62 @@ esp_err_t sample(const char *phase)
 #endif
 }
 }  // namespace LUNASHELL::acquisition_pmu
+
+// Exception: Returns original ownership/register errors or ambiguous PMU configuration.
+// Success is command delivery only; the running CPU cannot certify its own loss of power.
+extern "C" esp_err_t LUNASHELL_hardware_request_power_off(void)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS && CONFIG_LUNASHELL_BUILD_PMU_DRIVER_AXP2101
+    if (!LUNASHELL::snapshot_detail::hardware_initialized() || !s_pmu_ready) {
+        ESP_LOGE(TAG, "Software power-off rejected: AXP2101 is not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+    SemaphoreHandle_t mutex = ensure_pmu_mutex();
+    if (mutex == nullptr) {
+        ESP_LOGE(TAG, "Software power-off rejected: PMU mutex unavailable");
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+        ESP_LOGE(TAG, "Software power-off rejected: PMU lock timeout");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    uint8_t off_configuration = 0;
+    uint8_t common_configuration = 0;
+    uint8_t status = 0;
+    esp_err_t error = read_pmu_registers(0x22, &off_configuration, 1);
+    if (error == ESP_OK && (off_configuration & 0x03U) != 0x02U) {
+        ESP_LOGE(TAG, "Software power-off rejected: emergency button configuration=0x%02x is not verified shutdown", off_configuration);
+        error = ESP_ERR_INVALID_RESPONSE;
+    }
+    if (error == ESP_OK) {
+        error = read_pmu_registers(0x00, &status, 1);
+    }
+    if (error == ESP_OK) {
+        error = read_pmu_registers(0x10, &common_configuration, 1);
+    }
+    if (error == ESP_OK && (common_configuration & 0x03U) != 0U) {
+        ESP_LOGE(TAG, "Software power-off rejected: reset/off action already pending in REG10=0x%02x", common_configuration);
+        error = ESP_ERR_INVALID_STATE;
+    }
+    if (error == ESP_OK) {
+        // VBUS rising, battery recovery and IRQ startup are customized PMU sources,
+        // not runtime enable bits in REG20. Never reinterpret source history as a
+        // disable mask. Rails/off persistence under USB still needs board evidence.
+        ESP_LOGW(TAG, "Software power-off command: VBUS-good=%d; customized automatic startup sources remain hardware-defined",
+                 (status & BIT(5)) != 0U);
+        error = write_register(s_pmu_device, 0x10, static_cast<uint8_t>(common_configuration | BIT(0)));
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Software power-off command failed (%s)", esp_err_to_name(error));
+    }
+    const esp_err_t release_error = give_pmu_mutex(mutex, "Software power-off");
+    return error != ESP_OK ? error : release_error;
+#else
+    ESP_LOGE(TAG, "Software power-off rejected: AXP2101 support is disabled");
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
 
 // short_presses: Receives queued short IRQs only after successful collection.
 // long_presses: Receives queued long IRQs only after successful collection.

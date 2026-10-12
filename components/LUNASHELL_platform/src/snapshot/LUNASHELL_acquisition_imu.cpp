@@ -4,6 +4,7 @@
 #include "LUNASHELL_acquisition_internal.hpp"
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_sensor_fusion.hpp"
+#include "LUNASHELL_activity_internal.hpp"
 
 #include <atomic>
 #include <cmath>
@@ -661,7 +662,9 @@ esp_err_t sample_imu(
 )
 {
     const int64_t attempted_at_us = esp_timer_get_time();
+    LUNASHELL::ImuSnapshot sample;
 #if !CONFIG_LUNASHELL_BUILD_ENABLE_IMU
+    LUNASHELL::snapshot_detail::activity::accept(sample, ESP_ERR_NOT_SUPPORTED, attempted_at_us);
     LUNASHELL::DeviceSnapshotService::instance().reportSensorFusion(
         {},
         ESP_ERR_NOT_SUPPORTED,
@@ -690,6 +693,7 @@ esp_err_t sample_imu(
     );
 #endif
     if (!s_imu_smoothing_valid.load(std::memory_order_relaxed)) {
+        LUNASHELL::snapshot_detail::activity::accept(sample, ESP_ERR_INVALID_STATE, attempted_at_us);
         LUNASHELL::DeviceSnapshotService::instance().reportSensorFusion(
             {},
             ESP_ERR_INVALID_STATE,
@@ -721,7 +725,6 @@ esp_err_t sample_imu(
         );
     }
 
-    LUNASHELL::ImuSnapshot sample;
     RawSample data = {};
     esp_err_t error = read_imu_sample(&data);
     if (error == ESP_OK && !finite_imu_sample(data)) {
@@ -772,6 +775,7 @@ esp_err_t sample_imu(
         }
     }
     if (error != ESP_OK) {
+        LUNASHELL::snapshot_detail::activity::accept(sample, error, attempted_at_us);
         LUNASHELL::DeviceSnapshotService::instance().reportSensorFusion(
             {},
             error,
@@ -819,6 +823,7 @@ esp_err_t sample_imu(
             }
         }
     );
+    LUNASHELL::snapshot_detail::activity::accept(sample, publication_error, attempted_at_us);
     if (verbose) {
         if (high_frequency_sample_phase(phase)) {
             ESP_LOGD(

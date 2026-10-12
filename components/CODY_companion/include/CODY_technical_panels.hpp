@@ -95,10 +95,11 @@ esp_err_t next_companion_panel(CompanionPanel current, CompanionPanel &next);
 // active_time_us: Nonnegative active presentation time for an indeterminate compaction accent.
 // presentation: Serialized caption owner, retained in place until every frame retires.
 // content: Receives a transparent detail callback below the reserved character artwork.
+// motion: Optional canonical experimental model result; null preserves the original details.
 // Exception: Returns the original metadata, metric or native font/layout error.
 esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &inputs,
     const CODY2D::MonoFont &font, int64_t active_time_us,
-    PanelPresentation &presentation, SceneContent &content);
+    PanelPresentation &presentation, SceneContent &content, const LUNASHELL::ActivitySnapshot *motion = nullptr);
 
 // panel: Explicit selected technical identity.
 // link: Coherent canonical link/activity projection borrowed only during preparation.
@@ -108,11 +109,12 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
 // presentation: Serialized stable caption owner outside the rendering task stack.
 // content: Receives the transparent native detail callback below the artwork on success.
 // firmware_version: Canonical running-image identity; absent host metadata remains unavailable.
+// motion: Optional canonical experimental activity result; null preserves the ordinary panel.
 // Exception: Returns the real projection or native preparation error.
 esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
     const LUNASHELL::CodexLinkSnapshot &link, const LUNASHELL::CodexTechnicalSnapshot &technical,
     const CODY2D::MonoFont &font, int64_t now_us, PanelPresentation &presentation, SceneContent &content,
-    const char *firmware_version = "");
+    const char *firmware_version = "", const LUNASHELL::ActivitySnapshot *motion = nullptr);
 
 // presentation: Successfully prepared serialized panel state.
 // active_time_us: Nonnegative active clock; this changes only the compaction accent.

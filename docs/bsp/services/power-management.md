@@ -9,7 +9,7 @@ latency require measurements on the identified board and image.
 
 The shared inactivity timer starts at the last real touch or qualified movement.
 Its first-boot default is **60 seconds**. The display fades out over a nominal
-**800 ms**, then Release chooses sleep after successful transactional standby.
+**800 ms**, then eligible non-Cody Release profiles choose sleep after successful transactional standby.
 The power owner keeps software standby when the confirmed radio transaction
 retains the Cody/Codex association or wake-word standby listening is enabled.
 It permits Deep-sleep only with neither live service and a touch-enabled profile.
@@ -201,47 +201,59 @@ source of truth; lower success verbosity does not change `esp_err_t`, health,
 validity, or timestamps.
 
 
-## PWR software restart and retained log files
+## Power key, farewell and PMU shutdown
 
-In Debug, two separately acquired short PWR clicks within 500 ms, or holding
-the physical PWR key continuously for 3 seconds, request `esp_restart()`
-without resetting the AXP2101 or erasing NVS, settings, or log files. The existing
-hardware owner enables/decodes PWRON negative (press) and positive (release)
-edges, queues them before verified IRQ clear, and publishes the acquired level
-and press timestamp through `InputSnapshot`, with explicit `power_pressed_valid`
-to distinguish an unknown level from a real release. Consumers never read PMIC registers
-or sensors directly. Both edges in one acquisition cancel the ambiguous hold.
+Cody reserves PWR in both Debug and Release: one completed short click enters
+standby or wakes software standby. A valid continuous three-second hold requests
+shutdown. Screenshot, double-click restart and PWR restart no longer consume this
+key. BOOT diagnostics retain their existing behavior. Failed/stale/unknown key
+samples invalidate the hold until a fresh release; long IRQs suppress short-click
+actions but do not independently prove a valid continuous hold.
 
-The power policy checks current canonical sample health and a 500-ms freshness
-bound. An unknown press start, failed/stale sample or early release cannot
-trigger reset; recovery requires a fresh release. A key held before initialization
-does not retrigger software resets. The PMIC's earlier long IRQ now waits for
-release to enter standby, leaving the owner running until the 3-second reset.
-In Debug Cody, an active short PWR tap waits 500 ms to resolve a possible double
-click before starting the 3, 2, 1 screenshot countdown while its session flag is
-enabled by default. A double click restarts without admitting that screenshot.
-Failed acquisition cancels a pending click; multiple clicks delivered in one
-acquisition are rejected because their timing cannot be established.
-The Cody worker refreshes PWR activity
-during the countdown and save so inactivity cannot enter standby mid-capture.
-Disabling that flag restores the active short-tap standby behavior. A short PWR
-tap in software standby still wakes in one press, after the same Debug window.
-Release excludes screenshot admission, its shutter worker and all button-triggered
-software resets; ordinary short PWR standby/wake and short BOOT fullscreen
-remain immediate. Debug 3-second PWR/BOOT restart paths retain their log drain.
-An acquired current PWR hold inhibits automatic inactivity sleep in either mode.
+Cody keeps software standby because this board cannot route PMU PKEY to an ESP
+Deep-sleep wake input. This preserves short-Power wake alongside enabled touch,
+shake and Sophia wake-word services. Other profiles retain their sleep selection.
+Away remains an animation policy, not a radio/CPU/voice energy-saving mode.
 
-The reset helper logs the reason, requests the existing bounded one-second SD
-writer drain/close when mirroring is enabled, flushes stdout, and gives USB 50 ms
-to transmit before restarting. The PMIC's emergency hardware power-off is set
-and read back at 10 seconds to leave room for this drain. Errors remain visible;
-a failed SD or disconnected host cannot guarantee delivery. Serial capture
-files on the host and successfully persisted SD lines survive. The ordinary
-RAM log ring does not survive an ESP software reset, and USB may re-enumerate.
+Automatic Cody standby requires a valid, current, unambiguous battery-only sample
+from the canonical acquisition owner. Valid VBUS prevents automatic inactivity
+standby while charging, fully charged or battery absent. Unknown, stale or failed
+power observations inhibit the automatic decision without asserting either power
+source. Battery-only use retains the saved timer (first-boot default 60 seconds)
+and scene overrides. Explicit PWR standby and shutdown bypass this source gate.
+The AXP2101 battery activation bit is not a battery-source indicator.
 
-This firmware gesture is available while the power worker runs, including
-Debug software standby. It is not an electrical wake source from Release
-Deep-sleep: the board still has no verified ESP-routed PWR wake pin.
+Shutdown first retires any screenshot operation, presents ASCII `Good night`
+with the existing Sleep character, waits for complete-frame retirement and a
+visible dwell, then uses the existing gradual display fade. The ordered owner
+transaction stops recording, AFE/audio, storage/log writers, acquisition and
+radios instead of retaining standby services. The settings owner serializes and
+seals new requests after earlier commits finish. Original errors abort the PMU
+request, are retained in canonical power health and are displayed after recovery
+when the display itself can be restored. No storage formatting or setting reset
+is part of shutdown.
+
+The PMU owner checks configured emergency shutdown behavior and writes
+AXP2101 REG10H[0]. A successful I2C write means command acceptance only. If the CPU
+still executes after the bounded 1.5-second wait, firmware reports a timeout and
+attempts restoration; it never declares physical power-off from an ACK.
+
+REG27 readback supplies the configured power-on hold duration to battery status
+and startup logs; no physical duration has yet been measured for this revision.
+The emergency hardware hold is configured/read back at 10 seconds and performs
+power-off rather than reset. It can cut power independently if the key remains
+held, including during a failed firmware drain. Release the key after the farewell
+starts; exact hardware behavior requires device evidence.
+
+After successful PMU shutdown, firmware, classifier, touch, motion and wake-word
+processing do not run. Power-on uses the PMU hardware key. The
+[AXP2101 datasheet](https://files.waveshare.com/wiki/common/X-power-AXP2101_SWcharge_V1.0.pdf)
+also describes customized VBUS/battery/IRQ startup conditions and does not expose
+a documented runtime mask to disable them. Therefore Power-only restart across
+USB reinsertion, battery recovery or those hardware conditions is **not yet
+guaranteed**. No undocumented register is changed to pretend otherwise. Test
+USB-connected and battery-only shutdown separately. The 40-uA typical shutdown
+figure describes one PMU condition, not whole-board current or zero consumption.
 
 ## Evidence and deferred policy
 

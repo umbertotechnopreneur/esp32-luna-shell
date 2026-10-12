@@ -13,6 +13,28 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Cody power and pretrained observer implementation - 2026-10-12
+
+- Added canonical-power inactivity gating, Power-only short standby/wake,
+  three-second valid-hold farewell, retired-frame acknowledgment, gradual fade,
+  settings/speech/storage/logger shutdown ownership and checked AXP2101 REG10H[0]
+  command with visible failures. BOOT remains separate. Cody retains software
+  standby for short-Power wake; ordinary radio/voice retention is unchanged.
+- Added opt-in ESP-DL 3.3.11 inference using the original Espressif-example ONNX
+  weights, bounded canonical 80-sample/20-Hz acquisition, original class scores,
+  rejection/stability metadata, experimental Activity-panel visibility and a
+  host sample-export path without SD. No automatic energy decision uses results.
+- Successfully downloaded and converted the fixed model with ESP-PPQ 1.3.11 in
+  an isolated artifact environment, without training. Recovered fixed standardization
+  and axis-major input order reproduce all 107 supplied calibration tensors exactly;
+  this corrects the old example deployment's raw-g input mismatch. Weights remain local ignored
+  artifacts because their redistribution license is unresolved. See
+  [model provenance and contract](docs/cody/activity-observer.md).
+- Static source/integration review completed; actual build, flash, runtime inference,
+  physical power behavior and separate test suites are not established by this
+  implementation record. `scripts/device.ps1 ports` identified COM10 with Espressif
+  VID 303A/PID 1001; enumeration did not open serial or validate firmware.
+
 ## PDF covers and contents - 2026-10-12
 
 - Updated the five canonical Cody documentation PDFs with coordinated VibeWare

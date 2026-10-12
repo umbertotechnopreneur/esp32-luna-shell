@@ -113,7 +113,7 @@ try {
     }
 
     Invoke-ConsoleCheck 'Cleanup retains build/config/Python caches, simulator identity and protected outputs' {
-        foreach ($directory in @('build-cody-companion', 'sdkconfig', 'board-config', 'python', 'managed_components', 'cody-simulator-state', 'custom-build')) {
+        foreach ($directory in @('build-cody-companion', 'sdkconfig', 'board-config', 'python', 'models', 'managed_components', 'cody-simulator-state', 'custom-build')) {
             New-ConsoleFixtureFile (Join-Path $fixtureArtifacts "$directory/keep.txt")
         }
         New-ConsoleFixtureFile (Join-Path $fixtureArtifacts '.device.lock')
@@ -121,7 +121,7 @@ try {
         New-ConsoleFixtureFile (Join-Path $fixtureArtifacts 'simulator/remove.png')
         New-ConsoleFixtureFile (Join-Path $fixtureArtifacts 'capture.log')
         Clear-DeviceArtifacts -ProtectedPaths @((Join-Path $fixtureArtifacts 'custom-build/subtree'))
-        foreach ($directory in @('build-cody-companion', 'sdkconfig', 'board-config', 'python', 'managed_components', 'cody-simulator-state', 'custom-build')) {
+        foreach ($directory in @('build-cody-companion', 'sdkconfig', 'board-config', 'python', 'models', 'managed_components', 'cody-simulator-state', 'custom-build')) {
             Assert-ConsoleCondition (Test-Path -LiteralPath (Join-Path $fixtureArtifacts "$directory/keep.txt")) "Cleanup removed protected $directory."
         }
         Assert-ConsoleCondition (Test-Path -LiteralPath (Join-Path $fixtureArtifacts '.device.lock')) 'Cleanup removed the operation lock.'
@@ -160,6 +160,8 @@ try {
         Assert-DeviceActionParameters 'simulator' @{ Action = 'simulator'; Screen = 'rig'; Rotation = 180 } $contract
         Assert-DeviceActionParameters 'simulator' @{ Action = 'simulator'; Ccp = $true } $contract
         Assert-DeviceActionParameters 'capture' @{ Action = 'capture'; Port = 'COM99'; DurationSeconds = 1 } $contract
+        Assert-DeviceActionParameters 'build' @{ ActivityClassifier = $true; ActivityCapture = $true } $contract
+        Assert-ConsoleRejection { Assert-DeviceActionParameters 'build' @{ ActivityCapture = $true } $contract } 'requires -ActivityClassifier'
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'simulator' @{ Port = 'COM99' } $contract } 'not valid'
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'help' @{ LogPath = 'artifacts/logs/help.log' } $contract } 'not valid'
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'build' @{ BoardConfig = 'board.yaml'; Profile = 'full' } $contract } 'BoardConfig selects'

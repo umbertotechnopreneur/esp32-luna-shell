@@ -106,6 +106,35 @@ const char *phase_text(LUNASHELL::CodexActivityState phase)
     }
 }
 
+// motion: Canonical experimental network result; labels retain their upstream meanings.
+// No score is displayed as calibrated confidence or inferred hand/bag placement.
+const char *motion_result_text(const LUNASHELL::ActivitySnapshot &motion)
+{
+    if (!motion.scores_valid || motion.error != ESP_OK) {
+        if (motion.error == ESP_ERR_TIMEOUT &&
+            motion.rejection == LUNASHELL::ActivityRejection::MissingSample) return "STALE";
+        using Rejection = LUNASHELL::ActivityRejection;
+        switch (motion.rejection) {
+        case Rejection::Collecting: return "COLLECTING";
+        case Rejection::Suspended: return "SUSPENDED";
+        case Rejection::CadenceGap: return "CADENCE GAP";
+        case Rejection::Busy: return "BUSY";
+        case Rejection::ModelError: return "ERROR";
+        default: return "UNAVAILABLE";
+        }
+    }
+    using Activity = LUNASHELL::ActivityClass;
+    switch (motion.activity) {
+    case Activity::Downstairs: return "downstairs";
+    case Activity::Jogging: return "jogging";
+    case Activity::Sitting: return "sitting";
+    case Activity::Standing: return "standing";
+    case Activity::Upstairs: return "upstairs";
+    case Activity::Walking: return "walking";
+    default: return "UNKNOWN";
+    }
+}
+
 // destination: Stable bounded caption storage retained through raster retirement.
 // font: Actual immutable glyph metrics used for clipping decisions.
 // source: Printable ASCII display text; canonical metadata stays unchanged.
@@ -327,9 +356,11 @@ esp_err_t next_companion_panel(CompanionPanel current, CompanionPanel &next)
 // active_time_us: Nonnegative active clock for the indeterminate accent.
 // presentation: Serialized in-place owner; partial preparation remains invalid.
 // content: Receives its native compositor callback only after complete preparation.
+// motion: Optional original model result, projected without changing the host PanelInputs ABI.
 // Exception: Returns real metadata or glyph preparation errors.
 esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &inputs,
-    const CODY2D::MonoFont &font, int64_t active_time_us, PanelPresentation &presentation, SceneContent &content)
+    const CODY2D::MonoFont &font, int64_t active_time_us, PanelPresentation &presentation, SceneContent &content,
+    const LUNASHELL::ActivitySnapshot *motion)
 {
     const bool previously_valid = presentation.valid;
     const CompanionPanel previous_panel = presentation.panel;
@@ -399,13 +430,21 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     if (panel == CompanionPanel::Activity) {
         std::strcpy(presentation.title, "Activity");
         append_detail(presentation, font, inputs.project, "", kWhite);
-        append_detail(presentation, font, inputs.branch, "branch: ");
+        if (motion == nullptr) { append_detail(presentation, font, inputs.branch, "branch: "); }
         if (inputs.activity == PanelValueState::Current && inputs.phase != LUNASHELL::CodexActivityState::None) {
             append_detail(presentation, font, phase_text(inputs.phase), "", kCyan);
         } else if (inputs.activity == PanelValueState::Stale || inputs.activity == PanelValueState::Invalid) {
             append_detail(presentation, font, value_state_text(inputs.activity), "Activity: ", kAmber);
         }
-        if (inputs.activity == PanelValueState::Current) { append_detail(presentation, font, inputs.description); }
+        if (motion != nullptr) {
+            // Unavailable is meaningful here; the ordinary optional-metadata helper omits it.
+            const uint8_t row = presentation.line_count++;
+            format_caption(presentation.captions[row], font, motion_result_text(*motion), "IMU: ");
+            presentation.lines[row].color = motion->scores_valid && motion->error == ESP_OK ? kCyan : kAmber;
+            append_detail(presentation, font, "EXPERIMENTAL UNVALIDATED", "", kAmber);
+        } else if (inputs.activity == PanelValueState::Current) {
+            append_detail(presentation, font, inputs.description);
+        }
         if (presentation.line_count == 0) { append_detail(presentation, font, "Start a chat in Codex"); }
     } else if (panel == CompanionPanel::ModelContext) {
         std::strcpy(presentation.title, "Model & Context");
@@ -568,11 +607,12 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
 // presentation: Persistent serialized owner outside the renderer task stack.
 // content: Receives a direct compositor callback on success.
 // firmware_version: Canonical immutable firmware identity, or absent synthetic host metadata.
+// motion: Optional original experimental result; no sensor reads or model execution occur here.
 // Exception: Returns the native preparation failure without guessing missing metrics.
 esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
     const LUNASHELL::CodexLinkSnapshot &link, const LUNASHELL::CodexTechnicalSnapshot &technical,
     const CODY2D::MonoFont &font, int64_t now_us, PanelPresentation &presentation, SceneContent &content,
-    const char *firmware_version)
+    const char *firmware_version, const LUNASHELL::ActivitySnapshot *motion)
 {
     if (now_us < 0) { return panel_result("observation_clock", ESP_ERR_INVALID_ARG); }
     PanelInputs inputs{};
@@ -641,7 +681,7 @@ esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
         inputs.compaction_elapsed_us = {age_with_receipt(technical.compaction_age_at_receive_us, receipt_age), observed_value_state(technical.compaction_age_valid && inputs.compaction == LUNASHELL::CodexCompactionState::Active, stale)};
         inputs.counters_pending = inputs.compaction == LUNASHELL::CodexCompactionState::Refreshed && context != PanelValueState::Current;
     }
-    return prepare_companion_panel(panel, inputs, font, now_us, presentation, content);
+    return prepare_companion_panel(panel, inputs, font, now_us, presentation, content, motion);
 }
 
 // presentation: Valid prepared owner whose animation is independent of observations.

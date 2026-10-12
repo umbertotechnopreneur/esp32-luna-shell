@@ -219,7 +219,15 @@ CODY::StatusOverlay s_cached_status_overlay;
 bool s_cached_status_visible = false;
 CODY::ScreenshotState s_cached_screenshot_state = CODY::ScreenshotState::Idle;
 CaptureVisual s_cached_capture_visual = CaptureVisual::None;
-std::atomic<bool> s_power_screenshot_enabled{LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled};
+// Display-lock-owned caption storage; acknowledgments follow complete frame retirement.
+enum class ShutdownPresentation : uint8_t { None, Greeting, Failure };
+std::atomic<ShutdownPresentation> s_shutdown_presentation{ShutdownPresentation::None};
+CODY2D::TextLine s_shutdown_caption{};
+CODY2D::TextLine s_shutdown_detail_line{};
+char s_shutdown_detail_text[24]{};
+char s_shutdown_caption_text[32]{};
+uint32_t s_shutdown_caption_generation = 0;
+std::atomic<uint32_t> s_shutdown_caption_retired{0};
 std::atomic<bool> s_capture_sequence_active{false};
 std::atomic<bool> s_capture_request_pending{false};
 CODY::SceneFrame s_cached_scene;
@@ -232,6 +240,7 @@ struct CompanionState {
     CODY::PanelPresentation technical_panel{};
     // Serialized renderer-owned projection stays off the nested raster stack.
     LUNASHELL::CodexTechnicalObservation technical_observation{};
+    LUNASHELL::ActivitySnapshot motion_observation{};
     uint64_t panel_activity_revision = 0;
     uint64_t panel_technical_revision = 0;
     int64_t panel_prepared_second = -1;
@@ -885,48 +894,6 @@ esp_err_t advance_capture_timeline()
     return ESP_OK;
 }
 
-// claimed: Set true when Cody's enabled runtime flag consumes this active PWR tap.
-// Exception: Returns the real renderer or capture-admission error without entering standby.
-esp_err_t handle_active_power_short_press(bool *claimed)
-{
-    if (claimed == nullptr) {
-        ESP_LOGE(kTag, "PWR consumer output rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
-        return ESP_ERR_INVALID_ARG;
-    }
-    if constexpr (!LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
-        *claimed = false;
-        return ESP_OK;
-    }
-    *claimed = s_power_screenshot_enabled.load(std::memory_order_acquire);
-    if (!*claimed) return ESP_OK;
-    const StartState state = s_start_state.load(std::memory_order_acquire);
-    if (state != StartState::Running || !LUNASHELL_display_runtime_writes_allowed()) {
-        const esp_err_t error = state == StartState::Failed
-            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
-        ESP_LOGE(kTag, "PWR capture unavailable during renderer transition (%s)",
-                 esp_err_to_name(error));
-        return error;
-    }
-    bool available = false;
-    if (!s_capture_sequence_active.compare_exchange_strong(
-            available, true, std::memory_order_acq_rel, std::memory_order_acquire)) {
-        ESP_LOGW(kTag, "PWR capture ignored while countdown/capture/save is active");
-        return ESP_OK;
-    }
-    const auto screenshot = CODY::screenshot_state();
-    if (screenshot == CODY::ScreenshotState::Capturing ||
-        screenshot == CODY::ScreenshotState::Saving) {
-        s_capture_sequence_active.store(false, std::memory_order_release);
-        ESP_LOGW(kTag, "PWR capture ignored while screenshot owner is busy");
-        return ESP_OK;
-    }
-    s_capture_request_pending.store(true, std::memory_order_release);
-    s_state.frame_dirty.store(true, std::memory_order_release);
-    LUNASHELL_power_manager_note_power_activity();
-    ESP_LOGI(kTag, "PWR capture countdown requested");
-    return ESP_OK;
-}
-
 struct PausedSceneModel {
     CODY::Channels face{};
     CODY::ResponseState response{};
@@ -1009,7 +976,8 @@ void notify_completed_personality(const CODY::PersonalityFrame &previous,
         current.opacity != 0;
     const bool idle_whistle_visible = !s_state.animation_paused &&
         s_state.response.idle_scene == CODY::IdleSceneId::Whistle && idle_view_visible;
-    suspend_optional_personality_audio(!visible && !idle_whistle_visible);
+    suspend_optional_personality_audio(s_shutdown_presentation.load(std::memory_order_acquire) !=
+        ShutdownPresentation::None || (!visible && !idle_whistle_visible));
     const bool appeared = visible && (previous.opacity == 0 || previous.cue != current.cue);
     if (s_state.connection_personality.search_active &&
         (current.cue == CODY::PersonalityCue::Curiosity || current.cue == CODY::PersonalityCue::Search ||
@@ -3102,7 +3070,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         voice_phase == VoicePhase::Unconfirmed || voice_phase == VoicePhase::Failed;
     const bool voice_visible = voice_active || (voice_terminal && s_voice_input_view.input.changed_at_us > 0 &&
         esp_timer_get_time() - s_voice_input_view.input.changed_at_us < 3000000);
-    if (voice_visible) {
+    if (voice_visible && s_shutdown_presentation.load(std::memory_order_acquire) == ShutdownPresentation::None) {
         s_voice_force_full = resume_animation;
         esp_err_t error = set_companion_typewriter_suspended(true);
         suspend_optional_personality_audio(true);
@@ -3141,7 +3109,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_resources.previous_frame_valid = false;
     }
 #endif
-    if (!s_state.branding_complete) {
+    if (!s_state.branding_complete && s_shutdown_presentation.load(std::memory_order_acquire) == ShutdownPresentation::None) {
         const int64_t now_us = esp_timer_get_time();
         uint16_t candidate = s_state.branding_frame;
         const bool due = !resume_animation && s_state.branding_frame_due_us != 0 &&
@@ -3233,9 +3201,11 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     timings.started_us = timings.buffer_ready_us;
     CODY::DebugReadout debug_readout{};
     CODY::DirtyPlan dirty_plan;
-    const bool frame_overlay = debug_view_active();
-    const bool frame_channel_list = debug_channel_view_active();
-    bool frame_technical = technical_panel_view_active();
+    const bool frame_overlay = debug_view_active() &&
+        s_shutdown_presentation.load(std::memory_order_acquire) == ShutdownPresentation::None;
+    const bool frame_channel_list = frame_overlay && debug_channel_view_active();
+    bool frame_technical = technical_panel_view_active() &&
+        s_shutdown_presentation.load(std::memory_order_acquire) == ShutdownPresentation::None;
     const bool frame_debug = s_state.rig_debug && !frame_overlay && !frame_technical;
     // Real content in the lower arc reserves it, including a personalized greeting.
     const bool footer_blocks_readout = frame_technical || (!frame_overlay && s_state.scene.valid &&
@@ -3249,7 +3219,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             if (navigation_error != ESP_OK) {
                 return frame.finish({navigation_error, false, 0});
             }
-            frame_technical = technical_panel_view_active();
+            frame_technical = technical_panel_view_active() &&
+                s_shutdown_presentation.load(std::memory_order_acquire) == ShutdownPresentation::None;
         }
         if (resume_animation) {
             s_state.frame_rate = {};
@@ -3362,10 +3333,12 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     }
     timings.geometry_completed_us = esp_timer_get_time();
     // A deliberate shake may select Home during the canonical motion observation.
-    frame_technical = technical_panel_view_active();
+    frame_technical = technical_panel_view_active() &&
+        s_shutdown_presentation.load(std::memory_order_acquire) == ShutdownPresentation::None;
     CODY::ScenePresentation presentation{};
     const bool frame_wake_battery_active = s_state.wake_battery.active;
-    const bool frame_scene_visible = !frame_overlay && !frame_technical && s_state.scene.valid &&
+    const bool frame_scene_visible = s_shutdown_presentation.load(std::memory_order_acquire) ==
+        ShutdownPresentation::None && !frame_overlay && !frame_technical && s_state.scene.valid &&
         CODY::lifecycle_is_resting(s_state.lifecycle) && !s_state.resume_scene_pending;
     if (frame_technical) {
         const esp_err_t observation_error = LUNASHELL::DeviceSnapshotService::instance()
@@ -3392,9 +3365,24 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             s_state.panel_technical_revision != technical.revision ||
             s_state.panel_source_status != status || s_state.panel_prepared_second != second) {
             CODY::SceneContent panel_content{};
+            const LUNASHELL::ActivitySnapshot *motion = nullptr;
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+            if (s_state.companion_panel == CODY::CompanionPanel::Activity) {
+                const esp_err_t motion_error = LUNASHELL::DeviceSnapshotService::instance()
+                    .readActivity(s_state.motion_observation);
+                if (motion_error != ESP_OK) {
+                    // Retain historical timestamps, but never show the previous class as current.
+                    s_state.motion_observation.scores_valid = false;
+                    s_state.motion_observation.error = motion_error;
+                    s_state.motion_observation.rejection = LUNASHELL::ActivityRejection::ModelError;
+                    ESP_LOGE(kTag, "Activity panel canonical observation failed (%s)", esp_err_to_name(motion_error));
+                }
+                motion = &s_state.motion_observation;
+            }
+#endif
             panel_error = CODY::prepare_companion_panel_from_observation(
                 s_state.companion_panel, link, technical, CODY::SceneData::body_font,
-                panel_now_us, s_state.technical_panel, panel_content, s_state.technical_observation.firmware_version);
+                panel_now_us, s_state.technical_panel, panel_content, s_state.technical_observation.firmware_version, motion);
             if (panel_error == ESP_OK) {
                 s_state.panel_activity_revision = link.activity.revision;
                 s_state.panel_technical_revision = technical.revision;
@@ -3423,7 +3411,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         presentation.content_visible = false;
     }
     const bool frame_was_rig = s_state.rig_visible && !presentation.boot_bitmap_visible;
-    const bool lifecycle_navigation_allowed = CODY::lifecycle_is_resting(s_state.lifecycle) &&
+    const bool lifecycle_navigation_allowed = s_shutdown_presentation.load(std::memory_order_acquire) ==
+        ShutdownPresentation::None && CODY::lifecycle_is_resting(s_state.lifecycle) &&
         !s_state.resume_scene_pending;
     const uint8_t navigation_opacity = s_state.navigation_visibility.opacity(timings.started_us);
     const uint16_t scene_background = frame_scene_visible ? s_state.scene.definition->background_rgb565 :
@@ -3629,7 +3618,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             return frame.finish({feedback_error, false, 0});
         }
     }
-    const bool frame_readout_visible = !s_state.raster_benchmark_active && kRenderDiagnosticsEnabled &&
+    const bool frame_readout_visible = s_shutdown_presentation.load(std::memory_order_acquire) ==
+        ShutdownPresentation::None && !s_state.raster_benchmark_active && kRenderDiagnosticsEnabled &&
         ((frame_overlay && !frame_channel_list) ||
          (measured_readout_route_active() && s_state.debug_readout_enabled && presentation.content_visible &&
           !footer_blocks_readout && (!s_state.scene.valid || s_state.scene.definition->readout_visible)));
@@ -3646,7 +3636,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const int64_t damage_started_us = timings.geometry_completed_us;
     // Geometry can enter/leave the reusable routine scene. Decide reuse after
     // that transition, or old title pixels would survive (or damage would fail).
-    const bool reuse_previous = !frame_overlay && previous_frame_available && !resume_animation &&
+    const bool reuse_previous = s_shutdown_presentation.load(std::memory_order_acquire) == ShutdownPresentation::None &&
+        !frame_overlay && previous_frame_available && !resume_animation &&
         s_cached_wake_battery_active == s_state.wake_battery.active &&
         s_rendered_revision.load(std::memory_order_acquire) == revision &&
         s_state.rig_visible && s_cache_was_rig &&
@@ -3832,7 +3823,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                     result = CODY::draw_companion_panel_rows(
                         s_state.technical_panel, strip, damage.top, damage.left);
                 }
-                if (result == ESP_OK && presentation.content_visible && !frame_technical) {
+                if (result == ESP_OK && presentation.content_visible && !frame_technical &&
+                    s_shutdown_presentation.load(std::memory_order_acquire) == ShutdownPresentation::None) {
                     result = CODY::draw_onboarding_navigation(strip, damage.top, damage.left);
                 }
                 if (result == ESP_OK && frame_status_visible) {
@@ -3871,6 +3863,15 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 result = draw_capture_overlay(frame_capture_visual,
                     capture_feedback_line.valid ? &capture_feedback_line : nullptr,
                     strip, damage.top, damage.left);
+            }
+            if (result == ESP_OK && s_shutdown_caption.valid &&
+                s_shutdown_presentation.load(std::memory_order_acquire) != ShutdownPresentation::None) {
+                result = CODY2D::draw_text_rows(s_shutdown_caption, s_shutdown_caption.text.length,
+                    strip, damage.top, damage.left);
+                if (result == ESP_OK && s_shutdown_detail_line.valid) {
+                    result = CODY2D::draw_text_rows(s_shutdown_detail_line, s_shutdown_detail_line.text.length,
+                        strip, damage.top, damage.left);
+                }
             }
             timings.raster_us += esp_timer_get_time() - raster_started_us;
             if (result == ESP_OK && screenshot_capture_active) {
@@ -3935,6 +3936,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     }
     s_resources.previous_frame_valid = completed.error == ESP_OK;
     if (completed.error == ESP_OK) {
+        if (s_shutdown_presentation.load(std::memory_order_acquire) != ShutdownPresentation::None) {
+            s_shutdown_caption_retired.store(s_shutdown_caption_generation, std::memory_order_release);
+        }
         // Commit geometry only after every panel write and frame retirement.
         // Panel-order raster bytes live only in the borrowed DMA tile, never in this reference.
         if (frame_was_rig) {
@@ -3973,7 +3977,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_cached_wake_battery_active = frame_wake_battery_active;
         s_cached_companion_panel = frame_technical ? s_state.companion_panel : CODY::CompanionPanel::Home;
         s_cached_panel_revision = s_state.technical_panel.revision;
-        const esp_err_t audio_error = (frame_overlay || frame_technical || frame_wake_battery_active) ? ESP_OK :
+        const esp_err_t audio_error = (s_shutdown_presentation.load(std::memory_order_acquire) !=
+            ShutdownPresentation::None || frame_overlay || frame_technical || frame_wake_battery_active) ? ESP_OK :
             notify_completed_typewriter(s_cached_scene, presentation);
         if (audio_error != ESP_OK) {
             // The audio owner already retains/publishes its real failure. This
@@ -4608,6 +4613,7 @@ esp_err_t apply_lifecycle_requests()
 }
 
 // sleeping: Power-owner intent; completion means an actual retired sleep/wake frame.
+// Exception: Returns the original renderer/lock error or bounded frame timeout.
 esp_err_t prepare_display_lifecycle(bool sleeping)
 {
     if (s_start_state.load(std::memory_order_acquire) != StartState::Running) {
@@ -4615,6 +4621,15 @@ esp_err_t prepare_display_lifecycle(bool sleeping)
             ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
         ESP_LOGE(kTag, "Lifecycle request before a running renderer (%s)", esp_err_to_name(error));
         return error;
+    }
+    if (!sleeping) {
+        const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+        if (lock_error != ESP_OK) return lock_error;
+        s_shutdown_presentation.store(ShutdownPresentation::None, std::memory_order_release);
+        s_shutdown_caption = {};
+        s_shutdown_detail_line = {};
+        s_resources.previous_frame_valid = false;
+        bsp_display_unlock();
     }
     const uint32_t generation = s_lifecycle_generation.fetch_add(1, std::memory_order_acq_rel) + 1U;
     if (generation > UINT32_MAX / 2U) {
@@ -4631,6 +4646,93 @@ esp_err_t prepare_display_lifecycle(bool sleeping)
         if (xTaskGetTickCount() - started_at >= pdMS_TO_TICKS(kLifecyclePreparationTimeoutMs)) {
             ESP_LOGE(kTag, "Atlas %s frame preparation timed out (%s)",
                 sleeping ? "35A / Sleep" : "35B / Wake", esp_err_to_name(ESP_ERR_TIMEOUT));
+            return ESP_ERR_TIMEOUT;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    return ESP_OK;
+}
+
+// presentation: Exclusive shutdown greeting or retained failure presentation.
+// cause: Original shutdown error, used only by the failure presentation.
+// generation: Receives the caption identity whose complete frame must retire.
+// Exception: Returns the real renderer, lock, font, layout or audio-suspension error.
+esp_err_t stage_shutdown_caption(ShutdownPresentation presentation, esp_err_t cause, uint32_t &generation)
+{
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) return lock_error;
+    const DisplayUnlockOnExit lock;
+    if (s_start_state.load(std::memory_order_acquire) != StartState::Running) {
+        const esp_err_t error = s_start_state.load(std::memory_order_acquire) == StartState::Failed
+            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Shutdown presentation rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    if (s_shutdown_caption_generation == UINT32_MAX) {
+        ESP_LOGE(kTag, "Shutdown caption identity exhausted (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    const esp_err_t audio_error = set_companion_typewriter_suspended(true);
+    if (audio_error != ESP_OK) return audio_error;
+    // Optional cue failure is retained by its audio owner; the power owner still closes audio.
+    suspend_optional_personality_audio(true);
+    const char *text = presentation == ShutdownPresentation::Greeting ? "Good night" : "Shutdown failed";
+    std::snprintf(s_shutdown_caption_text, sizeof(s_shutdown_caption_text), "%s", text);
+    const auto &font = CODY::SceneData::body_font;
+    const uint16_t length = static_cast<uint16_t>(std::strlen(s_shutdown_caption_text));
+    const uint16_t width = (length - 1U) * font.advance + font.width;
+    if (width > 320 || font.height > 28) {
+        ESP_LOGE(kTag, "Shutdown caption bounds rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    esp_err_t error = CODY2D::prepare_text_line(font, {s_shutdown_caption_text, length},
+        {static_cast<int16_t>((466 - width) / 2), 92}, 0xFFFF, s_shutdown_caption);
+    s_shutdown_detail_line = {};
+    if (error == ESP_OK) {
+        if (presentation == ShutdownPresentation::Failure) {
+            std::snprintf(s_shutdown_detail_text, sizeof(s_shutdown_detail_text), "Error 0x%08lX",
+                static_cast<unsigned long>(static_cast<uint32_t>(cause)));
+        } else {
+            // Release after the admitted gesture so emergency hardware off cannot preempt owner drains.
+            std::snprintf(s_shutdown_detail_text, sizeof(s_shutdown_detail_text), "Release Power");
+        }
+        const uint16_t error_length = static_cast<uint16_t>(std::strlen(s_shutdown_detail_text));
+        const uint16_t error_width = (error_length - 1U) * font.advance + font.width;
+        if (error_width > 320) {
+            ESP_LOGE(kTag, "Shutdown detail caption bounds rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+            return ESP_ERR_INVALID_SIZE;
+        }
+        error = CODY2D::prepare_text_line(font, {s_shutdown_detail_text, error_length},
+            {static_cast<int16_t>((466 - error_width) / 2), 124}, 0xFBA0, s_shutdown_detail_line);
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Shutdown caption preparation failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    // No new capture is admitted by Power. Already admitted storage remains owned until completion.
+    s_capture_request_pending.store(false, std::memory_order_release);
+    s_capture_sequence_active.store(false, std::memory_order_release);
+    s_state.capture_clear_pending = false;
+    s_state.capture_digit = 0;
+    s_state.capture_feedback_visible = false;
+    generation = ++s_shutdown_caption_generation;
+    s_shutdown_presentation.store(presentation, std::memory_order_release);
+    s_resources.previous_frame_valid = false;
+    s_state.frame_dirty.store(true, std::memory_order_release);
+    return ESP_OK;
+}
+
+// generation: Caption identity staged under the display lock.
+// Exception: Returns the renderer failure or timeout; never treats preparation as presentation.
+esp_err_t wait_shutdown_caption(uint32_t generation)
+{
+    const TickType_t started_at = xTaskGetTickCount();
+    while (s_shutdown_caption_retired.load(std::memory_order_acquire) != generation) {
+        if (s_start_state.load(std::memory_order_acquire) == StartState::Failed) {
+            return s_terminal_error.load(std::memory_order_acquire);
+        }
+        if (xTaskGetTickCount() - started_at >= pdMS_TO_TICKS(kLifecyclePreparationTimeoutMs)) {
+            ESP_LOGE(kTag, "Shutdown caption frame retirement timed out (%s)", esp_err_to_name(ESP_ERR_TIMEOUT));
             return ESP_ERR_TIMEOUT;
         }
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -4754,6 +4856,21 @@ void handle_debug_view_touch(const LUNASHELL_touch_point_t &point, bool pressed_
 // Exception: Returns the real route, gesture, snapshot or rendering-state error.
 esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
 {
+    const ShutdownPresentation shutdown = s_shutdown_presentation.load(std::memory_order_acquire);
+    if (shutdown != ShutdownPresentation::None) {
+        s_state.touch_pressed = point.pressed;
+        if (shutdown == ShutdownPresentation::Failure && point.pressed &&
+            s_shutdown_caption_retired.load(std::memory_order_acquire) == s_shutdown_caption_generation) {
+            const esp_err_t audio_error = set_companion_typewriter_suspended(false);
+            if (audio_error != ESP_OK) return audio_error;
+            s_shutdown_presentation.store(ShutdownPresentation::None, std::memory_order_release);
+            s_shutdown_caption = {};
+            s_shutdown_detail_line = {};
+            s_resources.previous_frame_valid = false;
+            s_state.frame_dirty.store(true, std::memory_order_release);
+        }
+        return ESP_OK;
+    }
     if (s_touch_contact_interrupted) {
         // A damaged report cannot imply release. Require an actual acquired
         // release before admitting a fresh press/hold/swipe on any route.
@@ -5177,13 +5294,15 @@ void companion_worker(void *context)
 #if CONFIG_LUNASHELL_BUILD_MODE_DEBUG && CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
         // Poll even when animation or display frames are parked; mailbox expiry is independent.
         bool optional_debug_rejection = false;
-        const esp_err_t debug_error = apply_debug_screen_requests(optional_debug_rejection);
+        const esp_err_t debug_error = s_shutdown_presentation.load(std::memory_order_acquire) ==
+            ShutdownPresentation::None ? apply_debug_screen_requests(optional_debug_rejection) : ESP_OK;
         if (debug_error != ESP_OK && !optional_debug_rejection) {
             fail_consumer("Debug screen request", debug_error, false);
             break;
         }
 #endif
-        const esp_err_t scene_error = apply_scene_requests();
+        const esp_err_t scene_error = s_shutdown_presentation.load(std::memory_order_acquire) ==
+            ShutdownPresentation::None ? apply_scene_requests() : ESP_OK;
         if (scene_error != ESP_OK) {
             fail_consumer("Scene request", scene_error, false);
             break;
@@ -5350,6 +5469,52 @@ void companion_worker(void *context)
 }
 
 }  // namespace
+
+// No parameters: the power owner calls this while the panel is awake and writes are admitted.
+// Exception: Returns the original caption/lifecycle/storage failure or timeout; no power cut is attempted.
+extern "C" esp_err_t CODY_companion_prepare_shutdown(void)
+{
+    uint32_t generation = 0;
+    esp_err_t error = stage_shutdown_caption(ShutdownPresentation::Greeting, ESP_OK, generation);
+    if (error != ESP_OK) return error;
+    error = prepare_display_lifecycle(true);
+    if (error != ESP_OK) return error;
+    error = wait_shutdown_caption(generation);
+    if (error != ESP_OK) return error;
+    // This dwell starts after a retired frame, even when a delayed first frame exhausted animation time.
+    vTaskDelay(pdMS_TO_TICKS(400));
+    const TickType_t started_at = xTaskGetTickCount();
+    while (CODY::screenshot_state() == CODY::ScreenshotState::Capturing ||
+           CODY::screenshot_state() == CODY::ScreenshotState::Saving) {
+        if (xTaskGetTickCount() - started_at >= pdMS_TO_TICKS(3000)) {
+            ESP_LOGE(kTag, "Shutdown screenshot drain timed out (%s)", esp_err_to_name(ESP_ERR_TIMEOUT));
+            return ESP_ERR_TIMEOUT;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (CODY::screenshot_state() == CODY::ScreenshotState::Failed) {
+        error = CODY::screenshot_error();
+        ESP_LOGE(kTag, "Shutdown screenshot owner failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    return ESP_OK;
+}
+
+// error: Original failed shutdown operation; the caller restores panel visibility before calling.
+// Exception: Returns a presentation failure; successful presentation never clears the supplied operation error.
+extern "C" esp_err_t CODY_companion_report_shutdown_error(esp_err_t error)
+{
+    if (error == ESP_OK) {
+        ESP_LOGE(kTag, "Shutdown failure presentation rejects ESP_OK (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_LOGE(kTag, "Shutdown failed (%s)", esp_err_to_name(error));
+    const esp_err_t wake_error = prepare_display_lifecycle(false);
+    if (wake_error != ESP_OK) return wake_error;
+    uint32_t generation = 0;
+    const esp_err_t presentation_error = stage_shutdown_caption(ShutdownPresentation::Failure, error, generation);
+    return presentation_error == ESP_OK ? wait_shutdown_caption(generation) : presentation_error;
+}
 
 // cue: Single narrative symbol; real device facts use the separate snapshot-gated selector.
 // Exception: Returns invalid cue/category or the real state/lock error.
@@ -5610,11 +5775,11 @@ extern "C" esp_err_t CODY_companion_start(void)
         release_companion_resources();
         return fail_consumer("Display lifecycle owner registration", lifecycle_error, false);
     }
-    const esp_err_t power_capture_error =
-        LUNASHELL_power_manager_register_short_press(handle_active_power_short_press);
-    if (power_capture_error != ESP_OK) {
+    const esp_err_t shutdown_error = LUNASHELL_power_manager_register_shutdown_callbacks(
+        CODY_companion_prepare_shutdown, CODY_companion_report_shutdown_error);
+    if (shutdown_error != ESP_OK) {
         release_companion_resources();
-        return fail_consumer("PWR capture owner registration", power_capture_error, false);
+        return fail_consumer("Shutdown presentation owner registration", shutdown_error, false);
     }
     s_start_state.store(StartState::Running, std::memory_order_release);
     TaskHandle_t worker = nullptr;
@@ -5767,43 +5932,24 @@ extern "C" esp_err_t CODY_companion_get_debug_readout_enabled(bool *enabled)
     return ESP_OK;
 }
 
-// enabled: Session flag for active PWR countdowns; an admitted capture completes.
-// Exception: Returns ESP_ERR_NOT_SUPPORTED in Release or the real renderer state error.
+// enabled: Obsolete PWR capture preference; Power is exclusively owned by power management.
+// Exception: Always returns ESP_ERR_NOT_SUPPORTED, including attempts to enable Debug capture.
 extern "C" esp_err_t CODY_companion_set_power_screenshot_enabled(bool enabled)
 {
-    if constexpr (!LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
-        ESP_LOGE(kTag, "PWR screenshot flag=%u rejected: Debug only (%s)",
-                 static_cast<unsigned>(enabled), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-    const StartState state = s_start_state.load(std::memory_order_acquire);
-    if (state != StartState::Running) {
-        const esp_err_t error = state == StartState::Failed
-            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
-        ESP_LOGE(kTag, "PWR screenshot flag change rejected (%s)", esp_err_to_name(error));
-        return error;
-    }
-    s_power_screenshot_enabled.store(enabled, std::memory_order_release);
-    ESP_LOGI(kTag, "PWR screenshot flag=%u (session preference)", static_cast<unsigned>(enabled));
-    return ESP_OK;
+    ESP_LOGE(kTag, "PWR screenshot preference=%u rejected: Power owns standby/shutdown (%s)",
+        static_cast<unsigned>(enabled), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
 }
 
-// enabled: Receives the current session flag on success only.
-// Exception: Returns invalid argument or the real renderer state error.
+// enabled: Receives false because Power never admits screenshot capture.
+// Exception: Returns ESP_ERR_INVALID_ARG for a null output.
 extern "C" esp_err_t CODY_companion_get_power_screenshot_enabled(bool *enabled)
 {
     if (enabled == nullptr) {
-        ESP_LOGE(kTag, "PWR screenshot flag output rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        ESP_LOGE(kTag, "PWR screenshot output rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    const StartState state = s_start_state.load(std::memory_order_acquire);
-    if (state != StartState::Running) {
-        const esp_err_t error = state == StartState::Failed
-            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
-        ESP_LOGE(kTag, "PWR screenshot flag read rejected (%s)", esp_err_to_name(error));
-        return error;
-    }
-    *enabled = s_power_screenshot_enabled.load(std::memory_order_acquire);
+    *enabled = false;
     return ESP_OK;
 }
 
@@ -5871,6 +6017,23 @@ extern "C" esp_err_t CODY_companion_get_face_deformation(bool *enabled)
 }
 
 #else
+
+// No parameters: this profile excludes the Cody presentation owner.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t CODY_companion_prepare_shutdown(void)
+{
+    ESP_LOGE("CODY_companion", "Shutdown presentation unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// error: Actual power-owner failure, retained in the log even without Cody.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t CODY_companion_report_shutdown_error(esp_err_t error)
+{
+    ESP_LOGE("CODY_companion", "Shutdown failed (%s); Cody presentation unavailable (%s)",
+        esp_err_to_name(error), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
 
 // frame: Output remains untouched because this profile has no Cody consumer.
 // Exception: Returns ESP_ERR_NOT_SUPPORTED and logs the rejected operation.

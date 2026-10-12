@@ -29,6 +29,7 @@
 #include "LUNASHELL_provisioning_state.hpp"
 #include "LUNASHELL_codex_events.hpp"
 #include "LUNASHELL_voice_input.hpp"
+#include "LUNASHELL_activity.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -62,6 +63,10 @@ struct ComponentSnapshot {
 };
 
 struct BatterySnapshot : ComponentSnapshot {
+    // Configuration readback only; physical key timing remains unmeasured.
+    bool power_key_config_valid = false;
+    uint16_t power_on_hold_ms = 0;
+    uint16_t emergency_power_off_hold_ms = 0;
     bool battery_present = false;
     bool usb_present = false;
     bool vbus_good = false;
@@ -851,6 +856,7 @@ struct CodyOptionsObservation {
 };
 
 struct DeviceSnapshot {
+    ActivitySnapshot activity;
     CodexEventSnapshot codex_event;
     CodexTechnicalSnapshot codex_technical;
     uint32_t sequence = 0;
@@ -1013,6 +1019,9 @@ public:
     // destination: Caller-owned full buffer; usable only when this read returns ESP_OK.
     // Exception: Returns the original canonical lock/release error without reading hardware.
     esp_err_t readSnapshot(DeviceSnapshot &destination) const;
+    // destination: Small caller-owned projection, no full snapshot on its stack.
+    // Exception: Returns the original canonical snapshot lock error.
+    esp_err_t readActivity(ActivitySnapshot &destination) const;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
     // observation: Coherent speech policy and card availability; never samples hardware.
     // Exception: Returns the original canonical lock or release error.

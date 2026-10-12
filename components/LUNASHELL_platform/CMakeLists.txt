@@ -20,6 +20,7 @@ set(LUNASHELL_platform_srcs
     "src/snapshot/LUNASHELL_acquisition_pmu.cpp"
     "src/snapshot/LUNASHELL_acquisition_rtc.cpp"
     "src/snapshot/LUNASHELL_acquisition_imu.cpp"
+    "src/snapshot/LUNASHELL_activity.cpp"
     "src/snapshot/LUNASHELL_acquisition_gnss.cpp"
     "src/snapshot/LUNASHELL_acquisition_audio.cpp"
     "src/snapshot/LUNASHELL_acquisition_system.cpp"
@@ -163,6 +164,28 @@ idf_component_register(
     PRIV_INCLUDE_DIRS "src/snapshot"
     REQUIRES ${LUNASHELL_platform_requires}
 )
+
+if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
+    idf_component_optional_requires(PRIVATE esp-dl)
+    set(activity_model "${PROJECT_DIR}/artifacts/models/activity/activity.espdl")
+    if(NOT EXISTS "${activity_model}")
+        message(FATAL_ERROR "Generate the local pretrained model with scripts/device.ps1 generate -Generator activity-model before enabling activity inference")
+    endif()
+    if(NOT EXISTS "${PROJECT_DIR}/artifacts/models/activity/activity_preprocessing.hpp")
+        message(FATAL_ERROR "Recover the pretrained activity preprocessing through the activity-model generator")
+    endif()
+    file(READ "${PROJECT_DIR}/artifacts/models/activity/provenance.json" activity_provenance)
+    string(JSON activity_expected_hash GET "${activity_provenance}" model_sha256)
+    string(JSON activity_expected_preprocessing GET "${activity_provenance}" preprocessing_sha256)
+    file(SHA256 "${activity_model}" activity_actual_hash)
+    file(SHA256 "${PROJECT_DIR}/artifacts/models/activity/activity_preprocessing.hpp" activity_actual_preprocessing)
+    if(NOT activity_expected_hash STREQUAL activity_actual_hash OR
+       NOT activity_expected_preprocessing STREQUAL activity_actual_preprocessing)
+        message(FATAL_ERROR "Local activity model/preprocessing changed since conversion; regenerate explicitly")
+    endif()
+    target_include_directories(${COMPONENT_LIB} PRIVATE "${PROJECT_DIR}/artifacts/models/activity")
+    target_add_binary_data(${COMPONENT_LIB} "${activity_model}" BINARY RENAME_TO activity_model)
+endif()
 
 # Profile-specific dependencies are resolved after Kconfig becomes available;
 # the early component-discovery pass cannot reliably consume conditional

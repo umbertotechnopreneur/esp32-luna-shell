@@ -37,6 +37,8 @@ param(
     [ValidateSet('Debug','Release')]
     [string]$BuildMode = 'Debug',
     [ValidateSet('none','distance','wake-word','tts-sd','tts-flash')][string]$Feature = 'none',
+    [switch]$ActivityClassifier,
+    [switch]$ActivityCapture,
     [string]$BoardConfig,
     [ValidateRange(1,86400)][int]$WaitSeconds = 30,
     [ValidateRange(1,86400)][int]$DurationSeconds = 30,

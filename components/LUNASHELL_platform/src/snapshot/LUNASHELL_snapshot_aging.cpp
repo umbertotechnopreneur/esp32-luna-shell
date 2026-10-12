@@ -67,6 +67,14 @@ void apply_measured_sample_aging(
     int64_t now_us
 )
 {
+    if (snapshot.activity.scores_valid &&
+        (now_us < snapshot.activity.window_end_us || now_us - snapshot.activity.window_end_us > 6000000)) {
+        snapshot.activity.scores_valid = false;
+        snapshot.activity.activity = ActivityClass::Unknown;
+        snapshot.activity.rejection = ActivityRejection::MissingSample;
+        snapshot.activity.error = ESP_ERR_TIMEOUT;
+        snapshot.activity.stable_windows = 0;
+    }
     age_codex_technical(snapshot.codex_technical, now_us);
     const int64_t ttl_us = measured_sample_ttl_us(snapshot);
     age_measured_sample(snapshot.battery, now_us, ttl_us);

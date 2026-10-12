@@ -15,6 +15,10 @@
 # VBWR E
 
 dependencies:
+  espressif/esp-dl:
+    version: "3.3.11"
+    rules:
+      - if: "$CONFIG{LUNASHELL_ACTIVITY_MODEL} == True"
   espressif/esp-sr:
     version: "2.4.6"
     rules:

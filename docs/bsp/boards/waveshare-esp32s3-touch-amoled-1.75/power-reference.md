@@ -74,7 +74,7 @@ conditions. See the [implemented sleep policy](../../services/power-management.m
 | User-added 8 GB microSD | **UNAVAILABLE**, manufacturer/model not recorded | **UNAVAILABLE** | Capacity does not identify power requirements. SDMMC deinitialization does not remove VCC3V3. | [Local integration inventory](hardware.md) |
 | Optional two TOF400F UART modules | **40 mA max each; 80 mA max pair** | Module standby **UNAVAILABLE** | Module supply 3.0-5.0 V; wired to 3.3 V. UART suspension does not cut VIN; exclude if absent. | [TOF400F module datasheet][tof], §2.2, p. 2 |
 | Antennas, quartz, connectors, passives, BSS138 and USB TVS | No standalone active-current sum available | Leakage / static pull-up paths **UNAVAILABLE as an aggregate** | Add converter/termination and leakage losses once. A low line through a 3.3 V / 2.2 kΩ pull-up draws **1.5 mA while low** (calculation from schematic), not continuously. | [Waveshare schematic][schematic] |
-| Battery | Supplies loads; cell self-discharge **UNAVAILABLE** | Capacity/chemistry-specific self-discharge **UNAVAILABLE** | No verified cell model/capacity for a runtime estimate. Firmware charge settings are not device consumption. | [Local integration inventory](hardware.md) |
+| Battery | Supplies loads; cell self-discharge **UNAVAILABLE** | Capacity/chemistry-specific self-discharge **UNAVAILABLE** | User reports 1000 mAh capacity (2026-10-12); cell identity and usable capacity are unmeasured. Firmware charge settings are not device consumption. | [Local integration inventory](hardware.md) |
 
 The touch and amplifier references are manufacturer-authored datasheets hosted
 by third parties. Their locations and revisions are explicit; they are not
@@ -98,7 +98,7 @@ ESP32's internal capacitive touch wake peripheral. ESP32-S3 RTC-capable GPIOs
 | IMU movement | QMI8658 INT2 → GPIO21; INT1 → TCA9554 P6 | Configure accelerometer-only WoM on INT2, polarity, threshold and latch handling, then RTC GPIO wake | Release implements INT2 initially high, 200-mg WoM, accelerometer-only nominal 21 Hz and checked CTRL9 protocol; revision and wake behavior remain unverified on hardware. |
 | PWR short press | AXP2101 PWRON; AXP_IRQ → TCA9554 P5 | No direct ESP RTC wake on the published PCB: TCA9554 INT is only pulled high, not wired to ESP | PMU polling wakes software Device Standby; polling stops in Deep-sleep. |
 | RTC alarm | PCF85063 INT → TCA9554 P3 | No direct RTC-alarm GPIO wake through the unwired expander INT | RTC values are acquired; use ESP sleep timer for a direct timed wake candidate. |
-| PWR after PMU shutdown | Hardware PMU key / PWROK → ESP CHIP_PU | AXP2101 power-on sequence can restore power and boot; touch/IMU cannot wake with their common rail off | Separate product behavior requiring an explicit PMU shutdown/startup implementation; not Device Standby. |
+| PWR after PMU shutdown | Hardware PMU key / PWROK → ESP CHIP_PU | AXP2101 power-on sequence can restore power and boot; touch/IMU cannot wake with their common rail off | Explicit PMU REG10H[0] shutdown is implemented; configured key timing is read back. Physical shutdown/startup and customized USB wake conditions remain unverified; not Device Standby. |
 
 Routes: [published board schematic][schematic], sheet 1, AXP2101, I/O Extensions,
 RTC, 6/9-Axis and connector sections. WoM interrupt selection/polarity:

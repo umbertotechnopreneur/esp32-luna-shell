@@ -116,6 +116,7 @@ std::atomic<esp_err_t> s_poison_error{ESP_OK};
 std::atomic<uint32_t> s_completed_generation{0};
 uint32_t s_next_generation = 0;
 std::atomic<bool> s_factory_reset_sealed{false};
+bool s_power_off_sealed = false; // Protected by the service mutex.
 
 // operation: Typed internal executor operation for secret-free diagnostic names.
 const char *operation_name(SettingsOperation operation)
@@ -250,6 +251,10 @@ esp_err_t prepare_request(
     const char *key = nullptr
 )
 {
+    if (s_power_off_sealed) {
+        log_operation_failure(operation, key, ESP_ERR_INVALID_STATE);
+        return ESP_ERR_INVALID_STATE;
+    }
     const bool writes_settings = operation == SettingsOperation::SetU8 ||
         operation == SettingsOperation::SetI32 || operation == SettingsOperation::SetU32 ||
         operation == SettingsOperation::SetI64 || operation == SettingsOperation::SetU64 ||
@@ -1151,6 +1156,24 @@ esp_err_t UserSettingsService::resetOwnedNamespaceForFactoryReset()
     // only a newly explicit factory-reset retry may erase again before reboot.
     s_factory_reset_sealed.store(true, std::memory_order_release);
     return submit_request();
+}
+
+// sealed: The power owner seals persistence only after producers have quiesced.
+// Exception: Preserves timed-out/in-flight executor failures instead of assuming writes ended.
+esp_err_t UserSettingsService::setPowerOffSealed(bool sealed)
+{
+    std::lock_guard<std::mutex> lock(_mutex);
+    const auto state = s_executor_state.load(std::memory_order_acquire);
+    if (state != SettingsExecutorState::Ready) {
+        const esp_err_t error = state == SettingsExecutorState::Poisoned
+            ? executor_poison_error() : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Power-off persistence seal rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    // Every setter synchronously commits on the internal-stack executor while
+    // holding this same mutex. Ready therefore proves prior owner work retired.
+    s_power_off_sealed = sealed;
+    return ESP_OK;
 }
 
 }  // namespace LUNASHELL

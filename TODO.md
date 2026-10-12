@@ -19,6 +19,31 @@ with five image hashes verified, the two-OTA-slot table installed and NVS exclud
 App 7,011,312 bytes; 263,184 bytes remain per wake-word slot. Post-reset behavior, stack
 headroom and the prepared host/simulator cases remain unverified.
 
+## Cody power and pretrained activity observer - 2026-10-12
+
+- [ ] **POWER-OFF-01 - Final firmware and physical evidence.** Source implements
+  external-power inactivity inhibition, exclusive short-PWR standby/wake,
+  validated three-second farewell/PMU shutdown, owner drains and visible rollback
+  errors. Confirm battery-only 60-second/scene timing, USB/full/absent-battery
+  behavior, first hold after boot, error recovery, actual configured power-on
+  duration, complete frames, Sophia/touch/shake wake and whole-board off behavior.
+  Hardware emergency hold can still cut power independently after 10 seconds.
+  Customized PMU USB/battery/IRQ startup sources prevent a Power-only restart
+  guarantee across all supply conditions. Do not claim physical behavior from a flash.
+- [ ] **ACTIVITY-01 - Pretrained observer evidence.** Original fixed HAR weights
+  were converted with ESP-PPQ 1.3.11 for ESP-DL 3.3.11; no training. Integration
+  uses actual timestamped 20-Hz windows, original labels and an experimental
+  Activity-panel readout. Final dependency lock, compilation/flash and device
+  inference remain pending. The 334512-byte model exceeds the preceding image's
+  263184-byte slot headroom before new kernels; do not flash an oversized image
+  or change the partition table implicitly. Original preprocessing was recovered exactly against all 107 supplied calibration
+  tensors; sensor/placement domain, accuracy, energy cost and stack headroom remain unverified.
+- [ ] **POWER-ACTIVITY-CHECKS - Separately authorized checks.** Updated existing
+  power/console source contracts are not executed. Host suites, simulator,
+  whitespace/secret/legacy scans and compiled-frame audits require the repository's
+  fresh command-specific authorization. Flash/monitor authorization is recorded
+  separately and does not turn these checks into completed evidence.
+
 ## Reproduced device faults
 
 - [ ] **UI-ACTIVITY-02 - Connection and activity presentation evidence.** Source

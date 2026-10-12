@@ -73,6 +73,11 @@ typedef struct {
     int64_t pressed_at_us;
 } LUNASHELL_power_key_sample_t;
 
+// Exception: Returns original PMU access errors or unavailable hardware.
+// ESP_OK means only that REG10[0] was written; it does not prove physical power-off.
+// Customized VBUS/battery/IRQ startup sources cannot be disabled by this API.
+esp_err_t LUNASHELL_hardware_request_power_off(void);
+
 /**
  * Atomically consume AXP2101 PKEY events captured from the PMIC IRQ status.
  *
@@ -221,16 +226,16 @@ esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     LUNASHELL_display_lifecycle_callback_t callback
 );
 
-// claimed: Set true when this active PWR press belongs to the registered consumer.
-// The callback only queues work; it must not wait for display, audio, or storage.
-typedef esp_err_t (*LUNASHELL_power_short_press_callback_t)(bool *claimed);
-// callback: Single active-state PWR consumer, registered before power startup.
-esp_err_t LUNASHELL_power_manager_register_short_press(
-    LUNASHELL_power_short_press_callback_t callback
-);
-
 /** Record activity without blocking the touch or UI callback. */
 void LUNASHELL_power_manager_note_activity(void);
+// prepare: Retires the complete farewell presentation and seals UI actions.
+// report_error: Presents the real failure after display restoration.
+// Exception: Rejects missing/duplicate callbacks or registration after startup.
+esp_err_t LUNASHELL_power_manager_register_shutdown_callbacks(
+    esp_err_t (*prepare)(void), esp_err_t (*report_error)(esp_err_t));
+// seal: Optional speech owner's bounded admission/cancellation/retirement operation.
+// Exception: Rejects null/duplicate owners; optional service may register after power startup.
+esp_err_t LUNASHELL_power_manager_register_speech_shutdown(esp_err_t (*seal)(bool));
 /** Refresh the active PWR countdown without blocking or changing persisted timeouts. */
 void LUNASHELL_power_manager_note_power_activity(void);
 // No parameters: queues one authenticated new Codex event through the power owner.

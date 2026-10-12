@@ -63,6 +63,23 @@ esp_err_t LUNASHELL_logger_enable_sd(const char *mount_point);
  */
 esp_err_t LUNASHELL_logger_disable_sd(void);
 
+typedef struct {
+    bool sealed;
+    bool ownership_quiesced;
+    bool host_connected;
+    bool drain_attempted;
+    esp_err_t drain_error;
+    uint32_t dropped_lines;
+} LUNASHELL_logger_power_off_status_t;
+
+// sealed: Stop new logger USB transmissions and bound retirement of earlier writes.
+// status: Receives actual ownership, host, drain and loss results even on failure.
+// Exception: Returns original drain/lock errors; absent host returns ESP_ERR_NOT_FOUND.
+// USB non-delivery is optional only by the power orchestrator's explicit policy.
+// SD must already be quiesced separately; RAM capture remains active after sealing.
+// Unseal on every aborted shutdown, including a failed seal. No hardware uninstall occurs.
+esp_err_t LUNASHELL_logger_set_power_off(bool sealed, LUNASHELL_logger_power_off_status_t *status);
+
 /**
  * Suspend or resume RAM-ring capture while keeping best-effort USB output.
  *
