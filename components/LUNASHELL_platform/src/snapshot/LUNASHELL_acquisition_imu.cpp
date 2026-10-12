@@ -654,11 +654,13 @@ esp_err_t calibrate_imu()
 // phase: Original acquisition context used for publication and logging.
 // verbose: Whether to log every sample or use bounded error reminders.
 // track_orientation: Whether the root owner classifies the same acquired raw sample.
+// activity_sample: Whether the owner scheduled this acquisition for the model window.
 // Exception: Returns the original acquisition, publication or sensor-fusion error.
 esp_err_t sample_imu(
     const char *phase,
     bool verbose = true,
-    bool track_orientation = false
+    bool track_orientation = false,
+    bool activity_sample = false
 )
 {
     const int64_t attempted_at_us = esp_timer_get_time();
@@ -823,7 +825,11 @@ esp_err_t sample_imu(
             }
         }
     );
-    LUNASHELL::snapshot_detail::activity::accept(sample, publication_error, attempted_at_us);
+    // Successful unrelated UI/full-refresh reads must not shift the model phase.
+    // Any acquisition/publication failure still invalidates the observed stream.
+    if (activity_sample || publication_error != ESP_OK) {
+        LUNASHELL::snapshot_detail::activity::accept(sample, publication_error, attempted_at_us);
+    }
     if (verbose) {
         if (high_frequency_sample_phase(phase)) {
             ESP_LOGD(
@@ -980,10 +986,11 @@ bool ready()
 // phase: Original acquisition context used for publication and logging.
 // verbose: Whether to log every acquisition instead of bounded error reminders.
 // track_orientation: Whether the same measured sample updates the root orientation owner.
+// activity_sample: Whether this acquisition fulfills the owner's model sampling lease.
 // Exception: Returns the original acquisition, publication or sensor-fusion error.
-esp_err_t sample(const char *phase, bool verbose, bool track_orientation)
+esp_err_t sample(const char *phase, bool verbose, bool track_orientation, bool activity_sample)
 {
-    return sample_imu(phase, verbose, track_orientation);
+    return sample_imu(phase, verbose, track_orientation, activity_sample);
 }
 
 // percent: Already validated smoothing value admitted by the persistence owner.

@@ -1306,6 +1306,7 @@ void diagnostic_monitor_task(void *arg)
         bool effective_imu_sample_due = imu_sample_due;
 
         if (sampling_due) {
+            TickType_t activity_attempt_tick = now;
             esp_err_t aggregate = ESP_OK;
             bool diagnostic_result_published = false;
             int64_t committed_imu_sample_at_us = 0;
@@ -1394,6 +1395,16 @@ void diagnostic_monitor_task(void *arg)
                             if (reset_orientation_filter) {
                                 reset_auto_rotation_filter_after_power_resume();
                             }
+                            const bool effective_activity_due = activity_due &&
+                                LUNASHELL::snapshot_detail::activity::requested() &&
+                                !effective_ui_sampling_power_suspended &&
+                                !s_ui_motion_monitor_standby.load(std::memory_order_acquire);
+                            // The lease starts at acquisition, after owner/stage locks.
+                            // Using loop entry here would shorten the next real interval
+                            // by lock wait time and make the model discard that sample.
+                            if (effective_activity_due) {
+                                activity_attempt_tick = xTaskGetTickCount();
+                            }
                             imu_sample_error = imu::sample(
                                 effective_diagnostic_imu_due
                                     ? "diagnostic-ui"
@@ -1401,7 +1412,8 @@ void diagnostic_monitor_task(void *arg)
                                         ? "adaptive-ui"
                                         : "auto-rotation",
                                 effective_diagnostic_imu_due,
-                                effective_auto_rotation_active
+                                effective_auto_rotation_active,
+                                effective_activity_due
                             );
                             if (reset_orientation_filter &&
                                 imu_sample_error == ESP_OK) {
@@ -1528,7 +1540,7 @@ void diagnostic_monitor_task(void *arg)
                 last_ui_motion_sample = now;
             }
             if (activity_due) {
-                last_activity_sample = now;
+                last_activity_sample = activity_attempt_tick;
             }
         } else {
             if (!monitor_active) {
