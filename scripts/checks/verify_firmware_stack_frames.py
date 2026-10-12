@@ -58,8 +58,10 @@ def main(argv=None) -> int:
               ("companion_worker", "CODY_companion.cpp", 12288))
     failures = []
     for name, source, budget in limits:
+        # GCC also embeds the enclosing worker name in lambda helper records.
+        # Match the task's complete signature, rather than those nested names.
         matches = [row for row in rows if source in row["sidecar"] and
-                   re.search(r"\b" + re.escape(name) + r"\(", row["function"])]
+                   re.search(r"\b" + re.escape(name) + r"\(void\*\)$", row["function"])]
         if len(matches) != 1:
             failures.append(f"Expected one compiled {name} frame, found {len(matches)}")
             continue

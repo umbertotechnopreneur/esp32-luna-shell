@@ -14,11 +14,11 @@ The battery/audio source checkpoints are on `main`; the USB flash evidence is
 prepared on `codex/voice-firmware-flash`. The daily Codex Standard cache, Home warning/carousel
 and Model & Context badge are implemented; final validation remains open in
 CCP-07. No rates, dollar amounts or session-cost estimation are sent to Cody.
-Latest firmware `cody-135-gfda9e7e3-dirty` was built and flashed on COM10 on
+Latest firmware `cody-142-g869e45e2-dirty` was built and flashed on COM10 on
 2026-10-12 with five image hashes verified, the unchanged two-OTA-slot table and
-NVS excluded. App 7,272,544 bytes; 1,952 bytes remain per wake-word slot. See
+NVS excluded. App 7,272,128 bytes; 2,368 bytes remain per wake-word slot. See
 done.md for passive serial observations and corrected startup/cadence failures.
-Physical interactions, stack headroom and host/simulator cases remain open.
+Physical interactions, complete stack headroom and battery duration remain open.
 
 ## Cody power and pretrained activity observer - 2026-10-12
 
@@ -41,12 +41,14 @@ Physical interactions, stack headroom and host/simulator cases remain open.
   improve continuity only from measured owner timing, never synthetic samples.
   Original preprocessing was recovered exactly against all 107 supplied calibration
   tensors; sensor/placement domain, accuracy, energy cost and stack headroom remain
-  unverified. The 1952-byte OTA margin also limits further firmware growth.
+  unverified. The 2368-byte OTA margin also limits further firmware growth.
 - [ ] **POWER-ACTIVITY-CHECKS - Remaining validation.** Power/source/production-owner,
   native runtime/raster, console, Studio, CCP/reference simulator, selected Cody
   profile and snapshot checks passed after the user's continuous authorization.
-  Physical input/rail evidence, compiled stack frames/headroom and final changed
-  source scans remain open. Unselected display-touch/full-wake-word locks are absent
+  Individual compiled task frames passed; Cody's USB-connected worker minimum free
+  was 2504/12288 bytes. Physical input/rail evidence and complete stack headroom
+  remain open. Correct the hardware-monitor watermark's word scaling before using
+  it as measured IDF byte headroom. Unselected display-touch/full-wake-word locks are absent
   in the whole-catalog check; do not report those variants as verified.
 - [ ] **BATTERY-ENDURANCE-01 - Persistent battery-only timing.** User requested
   start, last-alive and first-wake pings for actual battery operation without USB.
@@ -55,8 +57,11 @@ Physical interactions, stack headroom and host/simulator cases remain open.
   CRC-protected 112-byte NVS journal, canonical source validity, ordinary/failed
   shutdown markers and low-rate progress through the existing owner without an
   additional wake lease. Twelve real-service host scenarios and real settings-owner
-  bounds/error/seal tests passed. Target size, flash, stack frames/watermarks and
-  actual unplugged-battery duration remain pending.
+  bounds/error/seal tests passed. Target build/size/flash and individual compiled
+  frames passed. The 180-second USB capture kept the journal empty, refreshed the
+  canonical PMU and retained one optional publication timeout without disabling
+  recording. Actual unplugged-battery duration and physical first-wake retention
+  remain pending; no USB-only result is an endurance measurement.
 
 ## Reproduced device faults
 

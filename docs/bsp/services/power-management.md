@@ -297,7 +297,7 @@ every 60 seconds, so reading them does not depend on catching startup logs:
 
 Use the currently identified port. `liveness_lower_bound_ms` is the elapsed time
 at the last successful commit. For example, 3600000 means it was known alive at
-least one hour after the observed start. `first_wake_recorded` identifies the wake
+least one hour after the observed start. `wake_recorded` identifies the first wake
 ping, and `source_gaps` discloses incomplete power-source observation. Valid UTC
 fields contain original observed epoch seconds; unavailable time prints `UNAVAILABLE`.
 The final unsaved interval is unknown: scheduling, storage failures or power loss

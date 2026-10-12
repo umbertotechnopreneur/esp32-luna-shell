@@ -35,6 +35,47 @@ watermarks and actual battery-only duration are not established by these host te
 The [power guide](docs/bsp/services/power-management.md#battery-only-runtime-recording)
 documents the physical run and interpretation.
 
+Final target source `869e45e` built and flashed on COM10 as
+`cody-142-g869e45e2-dirty`, with five image hashes verified and NVS excluded.
+App binary: 7,272,128 bytes; each unchanged 7,274,496-byte OTA slot retains
+2,368 bytes. The size report also passed. The first implementation exceeded both
+slots by 3,856 bytes; GCC `-Oz` did not reduce this target. Scoped `-Os` on NVS,
+HTTP, pairing, OTA and provisioning source libraries resolved the overflow without
+changing render kernels, Sophia, HAR weights or the partition table. Failed-attempt
+logs and final ELF/binary/capture are retained under this build's `evidence/`.
+
+A 180-second passive USB capture retained forty real HAR inferences: 7.132-125.808
+ms, original sample spans 3.953299-4.004895 seconds, ten rejected partial windows.
+No fatal markers were captured; accuracy remains unvalidated. At three endurance
+checkpoints the PMU reported battery present, 100%, USB present/good, and the journal
+correctly stayed `EMPTY` with unavailable UTC instead of inventing a battery run.
+One optional snapshot-publication timeout was logged with recording not disabled;
+later checkpoints continued. A transient PKEY read timeout recovered. The existing
+SD mount timeout remains. This is USB-connected operation, not battery endurance.
+
+The compiler-frame check covered 4,735 records. Task frames: Power 1,136/8,192,
+hardware monitor 208/3,072, HAR worker 336/8,192, Cody worker 352/12,288 bytes.
+The endurance tick uses 192 bytes; its bounded clock/battery projections and
+48-byte settings entry frames avoid a full canonical snapshot on the Power stack.
+These are individual frames, not a complete nested-call bound. Cody's captured
+worker minimum free was 2,504/12,288 bytes. Power/HAR headroom during physical
+standby/wake/off, actual battery-only duration and whole-board shutdown remain open.
+The hardware monitor's existing watermark log scales IDF byte units as words;
+that value is not accepted as measured stack headroom.
+
+Final checks passed: twelve endurance service scenarios, real runtime/settings
+contracts, production Power owner with fake peripherals, native raster/lifecycle,
+seven simulator groups, snapshot integrity and the selected Cody dependency closure.
+The simulator first rejected a stale DLL after the canonical schema grew; the
+public simulator command regenerated it and the repeated check passed. Its native
+boot-ready preview was also inspected, visibly labeled synthetic. The frame checker
+was corrected to exclude GCC lambda-helper names from the enclosing worker match.
+Changed-file secret scanning covered seventy current files with eight signatures;
+`git diff --check 3240a4b2` passed. Whole-catalog dependency verification remains
+blocked by missing unrelated display-touch/full-wake-word locks, as recorded below.
+No physical key actuation, USB disconnection, battery depletion or rail-power
+measurement was performed. The first unplugged run is still required.
+
 ## Cody power and pretrained observer implementation - 2026-10-12
 
 Follow-up validation was explicitly authorized on 12 October, including repeated
