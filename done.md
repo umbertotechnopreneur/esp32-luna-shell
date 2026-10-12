@@ -34,6 +34,12 @@ private local diagnostics, not publication artifacts.
   physical power behavior and separate test suites are not established by this
   implementation record. `scripts/device.ps1 ports` identified COM10 with Espressif
   VID 303A/PID 1001; enumeration did not open serial or validate firmware.
+- Authorized flash preparation exposed an application-size blocker before any
+  device write: the ESP-DL 3.3.11 image linked at `0x81bdf0` bytes against
+  `0x6f0000` OTA slots. Official ESP-DL 3.3.13 operator/kernel selection reduced
+  the linked image to 7,580,944 bytes, still 306,448 bytes too large. The intervening
+  missing `RequantizeLinear` link dependency was corrected in the requirement set.
+  These failed flash attempts did not install firmware or establish runtime behavior.
 
 ## PDF covers and contents - 2026-10-12
 

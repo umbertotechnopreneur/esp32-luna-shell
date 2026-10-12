@@ -277,6 +277,14 @@ foreach(brookesia_component ${brookesia_build_components})
     endif()
 endforeach()
 
+# Apply after ESP-DL's own -O3; keep application, Sophia and assembly unchanged.
+# This experiment trades C/C++ inference speed for space in the existing OTA slots.
+if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
+    idf_component_get_property(activity_dl_library espressif__esp-dl COMPONENT_LIB)
+    target_compile_options(${activity_dl_library} PRIVATE
+        "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>")
+endif()
+
 if(CONFIG_LUNASHELL_BUILD_ENABLE_TTS AND CONFIG_LUNASHELL_BUILD_ENABLE_UI)
     # Supply the shared core constants without a circular LVGL/BSP dependency.
     idf_component_get_property(_tts_lvgl_library lvgl__lvgl COMPONENT_LIB)

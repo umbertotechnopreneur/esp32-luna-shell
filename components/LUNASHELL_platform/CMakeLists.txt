@@ -187,7 +187,7 @@ if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
     target_add_binary_data(${COMPONENT_LIB} "${activity_model}" BINARY RENAME_TO activity_model)
     # The reviewed requirement set describes this exact converted graph. A new
     # export needs a new operator/kernel review before its requirements are reused.
-    if(NOT activity_actual_hash STREQUAL "3880fc61b887283f785028f310930b629c6adeb9dba1519e98bb62d1a7f7af89")
+    if(NOT activity_actual_hash STREQUAL "b5333dafe62835cc9999fe27ea652802fcdcaa5250604c5136087d1c1044d4e0")
         message(FATAL_ERROR "Activity model differs from the reviewed ESP-DL compile requirements; review the graph and update the requirement binding")
     endif()
     idf_build_get_property(activity_build_components BUILD_COMPONENTS)

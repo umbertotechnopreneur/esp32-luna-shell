@@ -20,6 +20,6 @@ struct ActivitySnapshot {
     int64_t inferred_at_us = 0;
     uint32_t inference_duration_us = 0;
     float scores[6] = {};
-    char model_id[32] = "har-demo-bb27ee3-w16a16";
+    char model_id[32] = "har-demo-bb27ee3-w8a16";
 };
 } // namespace LUNASHELL

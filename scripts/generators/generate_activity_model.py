@@ -117,7 +117,8 @@ def main():
         "calibration_sha256": hashlib.sha256(calibration_path.read_bytes()).hexdigest(),
         "labels": ["downstairs", "jogging", "sitting", "standing", "upstairs", "walking"],
         "sample_period_us": 50000, "samples": 80,
-        "esp_dl": "3.3.11", "esp_ppq": "1.3.11", "trained_here": False,
+        "esp_dl": "3.3.13", "esp_ppq": "1.3.11", "trained_here": False,
+        "quantization": "w8a16",
         "status": "downloaded; conversion pending",
     }
     (DEST / "provenance.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -155,7 +156,7 @@ def main():
     espdl_quantize_onnx(
         onnx_import_file=str(model_path), espdl_export_file=str(output),
         calib_dataloader=loader, calib_steps=min(32, len(data)),
-        input_shape=shape, inputs=None, target="esp32s3", quant_type="w16a16",
+        input_shape=shape, inputs=None, target="esp32s3", quant_type="w8a16",
         collate_fn=lambda batch: batch[0], device="cpu", error_report=False,
         skip_export=False, export_test_values=False, verbose=1,
     )

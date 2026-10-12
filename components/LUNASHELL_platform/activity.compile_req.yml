@@ -1,6 +1,6 @@
 # Reviewed activity.espdl SHA256:
-# 3880fc61b887283f785028f310930b629c6adeb9dba1519e98bb62d1a7f7af89
-# ESP-DL v3.3.13 spec/select/Conv.yml, ESP32-S3 (pie_v1), w16a16.
+# b5333dafe62835cc9999fe27ea652802fcdcaa5250604c5136087d1c1044d4e0
+# ESP-DL v3.3.13 spec/select/Conv.yml, ESP32-S3 (pie_v1), w8a16.
 # Conv 2x2, bias+Relu: Cin/Cout 1/16 (unaligned), 16/32 (aligned).
 # Packed MatMul as 1x1 Conv, linear, no bias: 2496/64 and 64/6.
 # Non-convolution primitives are selected by their operator dependency groups.
@@ -13,8 +13,10 @@ ops:
   - Add
   - Relu
   - Softmax
+  # TensorBase::assign also references the quantized conversion paths.
+  - RequantizeLinear
 kernels:
-  - dl_tie728_s16_conv2d_hwcn_bias_relu
-  - dl_tie728_s16_unaligned_conv2d_hwcn_bias_relu
-  - dl_tie728_s16_conv2d_11cn
-  - dl_tie728_s16_unaligned_conv2d_11cn
+  - dl_tie728_w8a16_conv2d_hwcn_bias_relu
+  - dl_tie728_w8a16_unaligned_conv2d_hwcn_bias_relu
+  - dl_tie728_w8a16_conv2d_11cn
+  - dl_tie728_w8a16_unaligned_conv2d_11cn

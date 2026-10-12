@@ -11,7 +11,7 @@ vehicle travel, or the desired future Cody context classes. No training is perfo
   and [author repository](https://github.com/alibukharai/Blogs/tree/bb27ee3217c384697d1d25bc72c5862337bcafa9/Activity_detection).
 - Original `Activity_model_2.onnx`, SHA256
   `5ffdcf5823a6729bd45558e90e4776e3b188e1a609f0859fe3e38c13fd50583d`.
-- Conversion uses ESP-PPQ 1.3.11, original calibration arrays, `w16a16`, ESP32-S3,
+- Conversion uses ESP-PPQ 1.3.11, original calibration arrays, `w8a16`, ESP32-S3,
   and exports the modern `.espdl` format. This is quantization calibration of fixed
   weights, not training or personalization. No upstream Python script is executed;
   calibration pickle loading admits only the required NumPy array globals.
@@ -22,17 +22,23 @@ vehicle travel, or the desired future Cody context classes. No training is perfo
 - Runtime dependency is the official September 30, 2026 `v3.3.13` release,
   commit `6d3c4da1087d35916858dd0f9b3e9d6a85186e11`. Its supported
   [compile registration API](https://github.com/espressif/esp-dl/blob/v3.3.13/esp-dl/cmake/compile_register.cmake)
-  receives `components/LUNASHELL_platform/activity.compile_req.yml`: seven operators
-  and four ESP32-S3 signed-16 convolution kernels. Both aligned and unaligned
+  receives `components/LUNASHELL_platform/activity.compile_req.yml`: seven graph operators
+  plus `RequantizeLinear` required by the application's `TensorBase::assign` calls,
+  and four ESP32-S3 W8A16 convolution kernels. Both aligned and unaligned
   2x2 bias+ReLU convolutions and packed-MatMul 1x1 linear kernels are retained.
   Other primitive dependencies come from the official operator specification.
-  The model bytes are unchanged from ESP-PPQ 1.3.11 conversion targeting the
-  then-pinned ESP-DL 3.3.11: 334,528 bytes, SHA256
-  `3880fc61b887283f785028f310930b629c6adeb9dba1519e98bb62d1a7f7af89`.
-  The local provenance retains that conversion-time runtime version; it does not
-  claim a new conversion. CMake binds the reviewed requirements to this exact hash.
+  The same pretrained source was requantized with 8-bit weights and 16-bit
+  activations: 172,304 bytes, SHA256
+  `b5333dafe62835cc9999fe27ea652802fcdcaa5250604c5136087d1c1044d4e0`.
+  The former 334,528-byte W16A16 artifacts are preserved locally under
+  `artifacts/models/activity/w16a16-3880fc61/`. This saves 162,224 model bytes;
+  it does not establish classification accuracy or final application size.
+  CMake binds the reviewed requirements to the current exact hash.
   Re-exporting a model requires reviewing and rebinding these requirements.
   This selection changes neither partitions nor Sophia and edits no managed source.
+  For this activity-enabled build only, ESP-DL C/C++ uses `-Os` after upstream
+  `-O3`; application, renderer, Sophia and assembly compilation are unchanged.
+  Possible inference-latency changes still require physical observation.
   Final linked size and physical inference remain separately verifiable outcomes.
 - No license was found for the original author's model weights. They remain in
   ignored `artifacts/models/activity/` for the authorized local experiment and are
