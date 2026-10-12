@@ -2488,22 +2488,49 @@ def verify_source_contracts() -> None:
         "error = bsp_audio_set_transport_standby(\n        false,",
         "I2S resume",
     )
-    voice_feed = function_text(
-        voice_afe,
-        "void voice_feed_task(",
-        "voice AFE feed worker",
+    for worker, paused in (("feed", "s_feed_paused"), ("fetch", "s_fetch_paused")):
+        worker_body = function_text(
+            voice_afe, f"void voice_{worker}_task(", f"voice AFE {worker} worker",
+        )
+        require_regex(
+            worker_body,
+            r"if\s*\(s_standby_requested\.load\([^)]*\)\)\s*\{\s*"
+            rf"park_paused_worker\({paused}\);\s*continue;",
+            f"voice AFE {worker} delegates standby to the shared event-driven gate",
+        )
+        require_contains(
+            worker_body, f"wait_worker_start({'true' if worker == 'feed' else 'false'})",
+            f"voice AFE {worker} uses the shared startup gate",
+        )
+        require("vTaskDelay(" not in worker_body,
+                f"voice AFE {worker} must not retain startup or paused polling")
+    afe_park = function_text(
+        voice_afe, "void park_paused_worker(", "voice AFE shared paused gate",
     )
     require_regex(
-        voice_feed,
-        r"if\s*\(s_standby_requested\.load\(.*?"
-        r"ulTaskNotifyTake\s*\(\s*pdTRUE\s*,\s*portMAX_DELAY\s*\)",
-        "event-driven voice AFE standby",
+        afe_park,
+        r"paused\.store\(true,.*?signal_lifecycle_change\(\);.*?"
+        r"while\s*\(s_running\.load\([^)]*\)\s*&&\s*"
+        r"s_standby_requested\.load\([^)]*\)\)\s*\{\s*"
+        r"\(void\)ulTaskNotifyTake\(pdTRUE,\s*portMAX_DELAY\);\s*\}.*?"
+        r"paused\.store\(false,.*?signal_lifecycle_change\(\);",
+        "AFE shared gate acknowledges both edges and waits indefinitely while paused and running",
     )
+    require("vTaskDelay(" not in afe_park, "AFE shared paused gate must not poll")
+    afe_wait = function_text(
+        voice_afe, "void wait_lifecycle_change(", "AFE owner acknowledgment wait",
+    )
+    require_contains(afe_wait, "timeout - elapsed", "AFE owner retains its original deadline budget")
+    require_contains(afe_wait, "xSemaphoreTake(", "AFE owner blocks on actual acknowledgment events")
+    require("vTaskDelay(" not in afe_wait, "AFE owner acknowledgment must not poll")
     afe_standby = function_text(
         voice_afe,
         "esp_err_t apply_afe_standby_locked(",
         "voice AFE standby transaction",
     )
+    require_contains(afe_standby, "wait_lifecycle_change(started_at, kPauseTimeout)",
+                     "AFE owner delegates acknowledgment waiting to the bounded event gate")
+    require("vTaskDelay(" not in afe_standby, "AFE standby transaction must not poll for acknowledgment")
     audio_resume_index = afe_standby.find("LUNASHELL_audio_set_standby(false)")
     afe_resume_order = [
         audio_resume_index,
@@ -2512,14 +2539,14 @@ def verify_source_contracts() -> None:
             audio_resume_index,
         ),
         afe_standby.find(
-            'notify_feed_task_locked("resume")',
+            'notify_workers("resume", true)',
             audio_resume_index,
         ),
     ]
     require(
         all(index >= 0 for index in afe_resume_order)
         and afe_resume_order == sorted(afe_resume_order),
-        "voice AFE must restore audio before releasing and waking its feed worker",
+        "voice AFE must restore audio before releasing and waking both workers",
     )
     logger_writer = function_text(
         logger,

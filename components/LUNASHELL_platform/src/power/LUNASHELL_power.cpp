@@ -71,6 +71,7 @@ constexpr TickType_t kBootResetPressTicks = pdMS_TO_TICKS(3000);
 constexpr int64_t kPowerOffPressUs = 3000000;
 constexpr int64_t kPowerKeyFreshnessUs = 500000;
 constexpr uint32_t kTaskStackBytes = 8192;
+constexpr TickType_t kStackSampleTicks = pdMS_TO_TICKS(2000);
 // These copies stay live across nested wake calls on the internal task stack.
 static_assert(sizeof(LUNASHELL::PowerControlObservation) <= 768,
               "Review the complete power-task stack budget before growing its inputs");
@@ -2650,6 +2651,7 @@ void power_task(void *argument)
 #endif
     TickType_t last_policy_tick = xTaskGetTickCount();
     UBaseType_t reported_stack_minimum = kTaskStackBytes;
+    TickType_t stack_sampled_at = 0;
     publish_inputs();
     publish_power(ESP_OK);
     while (true) {
@@ -2999,9 +3001,12 @@ void power_task(void *argument)
             next_endurance_error_report_us = endurance_now_us + 60000000;
         }
 #endif
-        if (LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
+        if (LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled &&
+            (stack_sampled_at == 0 || now - stack_sampled_at >= kStackSampleTicks)) {
             // IDF reports bytes here. Log only substantial new minima, after
-            // the nested policy/wake paths have returned, to bound log traffic.
+            // the nested policy/wake paths have returned. Its cumulative minimum
+            // remains available without rescanning the stack at every 100-ms tick.
+            stack_sampled_at = now;
             const UBaseType_t minimum_free = uxTaskGetStackHighWaterMark(nullptr);
             if (reported_stack_minimum == kTaskStackBytes ||
                 minimum_free + 256U <= reported_stack_minimum) {
