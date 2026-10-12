@@ -94,7 +94,9 @@ the standby notification propagates, but its generation is rejected after the ow
 observes suspension. No independent sensor task or wake lease is introduced. No
 classifier runs after PMU shutdown. Radio and voice policy are unchanged.
 
-Three bounded windows consume 4800 bytes in component storage. Tensor memory belongs
+Three bounded windows consume 4800 bytes in explicitly placed PSRAM component storage;
+normal acquisition/inference tasks own access, never ISR, DMA or flash callbacks.
+The flash model base is aligned to 16 bytes. Tensor memory belongs
 to ESP-DL, with zero preferred internal tensor budget and model parameters kept in
 flash. The worker uses an 8192-byte PSRAM stack and single-core inference. No window
 or full canonical snapshot is copied onto that stack. The canonical result adds

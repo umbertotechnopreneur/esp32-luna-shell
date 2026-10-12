@@ -12,6 +12,7 @@
 #include "dl_model_base.hpp"
 #include "activity_preprocessing.hpp"
 #include "esp_heap_caps.h"
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <new>
@@ -24,10 +25,12 @@ struct Window {
     float standardized_axes[kSamples * 3] = {};
     int64_t timestamps[kSamples] = {};
 };
-// 4800 bytes of bounded owner storage, never added to DeviceSnapshot or task stacks.
-Window s_collecting;
-Window s_pending;
-Window s_inference;
+// 4800 bytes of owner storage in PSRAM. Only normal tasks access these windows;
+// no ISR, DMA or cache-disabled flash callback may borrow their memory. The mutex
+// stays internal, and inference exclusively owns its window after the locked copy.
+EXT_RAM_BSS_ATTR Window s_collecting;
+EXT_RAM_BSS_ATTR Window s_pending;
+EXT_RAM_BSS_ATTR Window s_inference;
 std::mutex s_mutex;
 TaskHandle_t s_task = nullptr;
 size_t s_count = 0;

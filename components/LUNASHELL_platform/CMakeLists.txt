@@ -184,7 +184,22 @@ if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
         message(FATAL_ERROR "Local activity model/preprocessing changed since conversion; regenerate explicitly")
     endif()
     target_include_directories(${COMPONENT_LIB} PRIVATE "${PROJECT_DIR}/artifacts/models/activity")
-    target_add_binary_data(${COMPONENT_LIB} "${activity_model}" BINARY RENAME_TO activity_model)
+    # IDF 6.0.2 target_add_binary_data has no alignment argument and emits no
+    # alignment directive. ESP-DL requires a 16-byte flash model base for zero-copy
+    # loading; native assembler embedding preserves every reviewed artifact byte.
+    set(activity_model_assembly "${CMAKE_CURRENT_BINARY_DIR}/activity_model.S")
+    file(GENERATE OUTPUT "${activity_model_assembly}" CONTENT
+".section .rodata.activity_model,\"a\",@progbits
+.balign 16
+.global _binary_activity_model_start
+_binary_activity_model_start:
+.incbin \"${activity_model}\"
+.global _binary_activity_model_end
+_binary_activity_model_end:
+")
+    set_source_files_properties("${activity_model_assembly}" PROPERTIES
+        OBJECT_DEPENDS "${activity_model}")
+    target_sources(${COMPONENT_LIB} PRIVATE "${activity_model_assembly}")
     # The reviewed requirement set describes this exact converted graph. A new
     # export needs a new operator/kernel review before its requirements are reused.
     if(NOT activity_actual_hash STREQUAL "b5333dafe62835cc9999fe27ea652802fcdcaa5250604c5136087d1c1044d4e0")
