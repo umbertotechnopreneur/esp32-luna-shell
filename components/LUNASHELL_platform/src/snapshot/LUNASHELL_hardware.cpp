@@ -1220,6 +1220,10 @@ void diagnostic_monitor_task(void *arg)
     TickType_t last_diagnostic_sample = 0;
     TickType_t last_ui_motion_sample = 0;
     TickType_t last_activity_sample = 0;
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+    int64_t previous_activity_attempt_us = 0;
+    int64_t last_activity_timing_log_us = 0;
+#endif
 
     for (;;) {
         const bool ui_sampling_power_suspended =
@@ -1249,6 +1253,11 @@ void diagnostic_monitor_task(void *arg)
             LUNASHELL::snapshot_detail::activity::requested() &&
             !ui_sampling_power_suspended && !ui_motion_standby && imu::ready();
         LUNASHELL::snapshot_detail::activity::set_active(activity_active);
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+        if (!activity_active) {
+            previous_activity_attempt_us = 0;
+        }
+#endif
         const bool auto_rotation_requested =
             s_auto_rotation_enabled.load(std::memory_order_relaxed);
         const bool auto_rotation_active =
@@ -1307,6 +1316,13 @@ void diagnostic_monitor_task(void *arg)
 
         if (sampling_due) {
             TickType_t activity_attempt_tick = now;
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+            const int64_t refresh_wait_started_us = esp_timer_get_time();
+            int64_t refresh_wait_us = 0;
+            int64_t stage_wait_us = 0;
+            int64_t activity_gap_us = 0;
+            int64_t imu_read_us = 0;
+#endif
             esp_err_t aggregate = ESP_OK;
             bool diagnostic_result_published = false;
             int64_t committed_imu_sample_at_us = 0;
@@ -1329,6 +1345,9 @@ void diagnostic_monitor_task(void *arg)
                     "Hardware monitor sample rejected: refresh mutex take timed out"
                 );
             } else {
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+                refresh_wait_us = esp_timer_get_time() - refresh_wait_started_us;
+#endif
                 // Stream selection and standby UI sampling can both change
                 // while this task waits for the refresh lock. Re-check all of
                 // them under the same lock so either transition is a real
@@ -1371,12 +1390,18 @@ void diagnostic_monitor_task(void *arg)
                     effective_imu_sample_due ||
                     effective_diagnostic_microphone_due;
                 if (effective_sampling_due) {
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+                    const int64_t stage_wait_started_us = esp_timer_get_time();
+#endif
                     const esp_err_t snapshot_lock_error =
                         begin_snapshot_stage(
                             staged_snapshot,
                             pdMS_TO_TICKS(250),
                             "hardware monitor stage"
                         );
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+                    stage_wait_us = esp_timer_get_time() - stage_wait_started_us;
+#endif
                     record_first_error(snapshot_lock_error, &aggregate);
                     if (snapshot_lock_error == ESP_OK) {
                         const int64_t previous_imu_success_at_us =
@@ -1405,6 +1430,14 @@ void diagnostic_monitor_task(void *arg)
                             if (effective_activity_due) {
                                 activity_attempt_tick = xTaskGetTickCount();
                             }
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+                            const int64_t imu_read_started_us = esp_timer_get_time();
+                            if (effective_activity_due) {
+                                activity_gap_us = previous_activity_attempt_us == 0 ? 0 :
+                                    imu_read_started_us - previous_activity_attempt_us;
+                                previous_activity_attempt_us = imu_read_started_us;
+                            }
+#endif
                             imu_sample_error = imu::sample(
                                 effective_diagnostic_imu_due
                                     ? "diagnostic-ui"
@@ -1415,6 +1448,9 @@ void diagnostic_monitor_task(void *arg)
                                 effective_auto_rotation_active,
                                 effective_activity_due
                             );
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+                            imu_read_us = esp_timer_get_time() - imu_read_started_us;
+#endif
                             if (reset_orientation_filter &&
                                 imu_sample_error == ESP_OK) {
                                 s_ui_sampling_orientation_reset_pending.store(
@@ -1504,6 +1540,17 @@ void diagnostic_monitor_task(void *arg)
                 );
             }
 
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+            // Report only delayed scheduled acquisitions, outside the refresh
+            // barrier and at most once a second; these are measured costs, not
+            // sensor replacements or synthetic timestamps.
+            const int64_t timing_log_at_us = esp_timer_get_time();
+            if (activity_gap_us > 75000 && timing_log_at_us - last_activity_timing_log_us >= 1000000) {
+                last_activity_timing_log_us = timing_log_at_us;
+                ESP_LOGW(TAG, "Activity timing gap=%lld refresh_wait=%lld stage_wait=%lld imu_call=%lld us",
+                         activity_gap_us, refresh_wait_us, stage_wait_us, imu_read_us);
+            }
+#endif
             if (effective_diagnostic_due) {
                 last_diagnostic_sample = now;
                 if (!diagnostic_result_published) {

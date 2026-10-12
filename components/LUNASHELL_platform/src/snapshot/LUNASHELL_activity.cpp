@@ -255,7 +255,9 @@ void accept(const ImuSnapshot &sample, esp_err_t error, int64_t sampled_at_us)
             return; // Faster shared consumers do not duplicate/interpolate model inputs.
         }
         if (delta < 45000 || delta > 75000 || sample.calibrated != s_calibrated) {
-            ESP_LOGW(TAG, "Window rejected: cadence=%lld us calibration_changed=%u", delta, sample.calibrated != s_calibrated);
+            ESP_LOGW(TAG, "Window rejected: cadence=%lld us count=%u span=%lld us calibration_changed=%u",
+                     delta, static_cast<unsigned>(s_count),
+                     sampled_at_us - s_collecting.timestamps[0], sample.calibrated != s_calibrated);
             s_count = 0;
             ++s_generation;
             publish_rejection(ActivityRejection::CadenceGap, ESP_ERR_INVALID_RESPONSE, sampled_at_us);
