@@ -42,11 +42,18 @@ Physical interactions, stack headroom and host/simulator cases remain open.
   Original preprocessing was recovered exactly against all 107 supplied calibration
   tensors; sensor/placement domain, accuracy, energy cost and stack headroom remain
   unverified. The 1952-byte OTA margin also limits further firmware growth.
-- [ ] **POWER-ACTIVITY-CHECKS - Separately authorized checks.** Updated existing
-  power/console source contracts are not executed. Host suites, simulator,
-  whitespace/secret/legacy scans and compiled-frame audits require the repository's
-  fresh command-specific authorization. Flash/monitor authorization is recorded
-  separately and does not turn these checks into completed evidence.
+- [ ] **POWER-ACTIVITY-CHECKS - Remaining validation.** Power/source/production-owner,
+  native runtime/raster, console, Studio, CCP/reference simulator, selected Cody
+  profile and snapshot checks passed after the user's continuous authorization.
+  Physical input/rail evidence, compiled stack frames/headroom and final changed
+  source scans remain open. Unselected display-touch/full-wake-word locks are absent
+  in the whole-catalog check; do not report those variants as verified.
+- [ ] **BATTERY-ENDURANCE-01 - Persistent battery-only timing.** User requested
+  start, last-alive and first-wake pings for actual battery operation without USB.
+  Preserve interrupted-run evidence across boot with unknown end cause; do not
+  invent the time at which battery power disappeared. Add bounded internal storage,
+  canonical source validity, ordinary/failed shutdown markers and low-rate progress
+  through the existing owner without an additional wake lease.
 
 ## Reproduced device faults
 

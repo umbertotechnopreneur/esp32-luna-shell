@@ -99,6 +99,8 @@ try {
         "throw 'A host route invoked the firmware engine.'"
     New-ConsoleFixtureFile (Join-Path $ProjectRoot 'scripts/checks/verify_example.py') '# host fixture'
     New-ConsoleFixtureFile (Join-Path $ProjectRoot 'scripts/generators/generate_example.py') '# host fixture'
+    New-ConsoleFixtureFile (Join-Path $ProjectRoot 'scripts/generators/generate_cody_simulator_graphics.py') '# host fixture'
+    New-ConsoleFixtureFile (Join-Path $ProjectRoot 'scripts/generators/generate_cody_simulator_audio.py') '# host fixture'
 
     Invoke-ConsoleCheck 'Artifact destinations preserve explicit children and reject escapes' {
         $expected = [IO.Path]::GetFullPath((Join-Path $fixtureArtifacts 'logs/capture.log'))
@@ -251,12 +253,28 @@ try {
             Screen = 'boot-waking'; Rotation = 180; AtMs = 700; SafeGuide = $true
             OutputPath = $destination; PythonExecutable = 'host-python'
         }
-        Assert-ConsoleCondition ($script:hostCalls.Count -eq 1) 'Preview did not dispatch exactly one host tool.'
-        $call = $script:hostCalls[0]
+        Assert-ConsoleCondition ($script:hostCalls.Count -eq 2) 'Preview must prepare native graphics, then capture without audio.'
+        $graphicsCall = $script:hostCalls[0]
+        Assert-ConsoleCondition ($graphicsCall.Path -eq (Join-Path $ProjectRoot 'scripts/generators/generate_cody_simulator_graphics.py')) 'Preview did not prepare the production native graphics owner first.'
+        Assert-ConsoleCondition ($graphicsCall.Arguments.Count -eq 0) 'Graphics preparation received capture arguments.'
+        Assert-ConsoleCondition ($graphicsCall.PythonExecutable -eq 'host-python') 'Graphics preparation lost the host interpreter selection.'
+        $call = $script:hostCalls[1]
         Assert-ConsoleCondition ($call.Path -eq (Join-Path $ProjectRoot 'simulator/windows/cody_simulator.py')) 'Preview dispatched an unexpected script.'
         $expected = @('--screen','boot-waking','--rotation','180','--at-ms','700','--safe-guide','--capture',$destination)
         Assert-ConsoleCondition (($call.Arguments -join "`n") -ceq ($expected -join "`n")) 'Preview altered literal argument boundaries.'
         Assert-ConsoleCondition ($call.PythonExecutable -eq 'host-python') 'Preview lost the host interpreter selection.'
+    }
+
+    Invoke-ConsoleCheck 'Interactive Cody prepares graphics and audio before the simulator' {
+        $script:hostCalls.Clear()
+        Invoke-DeviceCommand 'simulator' @{ Screen = 'rig'; PythonExecutable = 'host-python' }
+        Assert-ConsoleCondition ($script:hostCalls.Count -eq 3) 'Interactive preview must prepare both native owners before launch.'
+        $expectedPaths = @('scripts/generators/generate_cody_simulator_graphics.py',
+            'scripts/generators/generate_cody_simulator_audio.py', 'simulator/windows/cody_simulator.py')
+        for ($index = 0; $index -lt $expectedPaths.Count; $index += 1) {
+            Assert-ConsoleCondition ($script:hostCalls[$index].Path -eq (Join-Path $ProjectRoot $expectedPaths[$index])) 'Interactive native owner preparation order changed.'
+            Assert-ConsoleCondition ($script:hostCalls[$index].PythonExecutable -eq 'host-python') 'Interactive route lost interpreter selection.'
+        }
     }
 
     Invoke-ConsoleCheck 'Boot screenshots dispatch four host captures in fixed stage order' {

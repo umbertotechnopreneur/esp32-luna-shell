@@ -40,6 +40,7 @@ import re
 from typing import Callable
 
 from scripts.common.firmware_profile import read_profile_defaults
+from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -2228,8 +2229,10 @@ def verify_source_contracts() -> None:
     )
     radio_policy = function_text(power, "esp_err_t set_standalone_wireless_standby(",
                                  "standby radio policy")
-    require_contains(radio_policy, "standby && s_standby_resources.wireless.consistent",
-                     "retention requires observed radio consistency")
+    require_regex(radio_policy,
+                  r"if\s*\(standby\s*&&\s*!s_shutdown_in_progress\s*&&\s*"
+                  r"s_standby_resources\.wireless\.consistent\s*\)",
+                  "radio retention requires observed consistency and excludes explicit shutdown")
     suspension = function_text(power, "esp_err_t suspend_standby_resources(", "resource suspension")
     require("s_standby_resources.wireless.consistent = false" not in suspension,
             "policy reassertion must preserve the last confirmed radio state")
@@ -2618,7 +2621,7 @@ def verify_source_contracts() -> None:
         r"!auto_rotation_active\s*&&\s*"
         r"!rotation_apply_pending\s*&&\s*"
         r"!ui_motion_active\s*&&\s*"
-        r"!monitor_active\s*;",
+        r"!monitor_active\s*&&\s*!activity_active\s*;",
         "hardware monitor idle-only indefinite wait",
     )
     notifier = function_text(
@@ -2636,7 +2639,20 @@ def verify_source_contracts() -> None:
         "static esp_err_t ensure_hardware_monitor_task_locked(",
         "hardware monitor task start",
     )
-    create_at = monitor_start.find("xTaskCreateWithCaps(")
+    create_at = monitor_start.find("xTaskCreatePinnedToCoreWithCaps(")
+    require_regex(
+        monitor_start,
+        r"#if\s+CONFIG_LUNASHELL_ACTIVITY_MODEL\s+"
+        r"LUNASHELL::task_affinity::kActivityAcquisitionCoreId\s*,\s*"
+        r"#else\s+tskNO_AFFINITY\s*,\s*#endif\s+"
+        r"MALLOC_CAP_SPIRAM\s*\|\s*MALLOC_CAP_8BIT",
+        "only activity-enabled acquisition pins the PSRAM-stack monitor to its declared core",
+    )
+    affinity = read(ROOT / "components/LUNASHELL_platform/include/LUNASHELL_task_affinity.hpp")
+    require_contains(affinity, "kActivityAcquisitionCoreId != kVoiceCoreId",
+                     "activity acquisition must retain its compile-time voice-core isolation")
+    require_contains(affinity, '#error "Activity acquisition requires dual cores"',
+                     "activity affinity must reject unsupported single-core configurations")
     handle_at = monitor_start.find(
         "s_diagnostic_monitor_task_handle.store(task",
         create_at,
@@ -2720,10 +2736,42 @@ def verify_source_contracts() -> None:
     )
 
 
+# compiler: Existing host C++ compiler selected by the caller, or automatic discovery.
+# Raises the original source/compiler/executable failure; artifacts preserve each stage.
+def verify_native_owner(compiler: str | None) -> None:
+    output = ROOT / "artifacts" / "checks" / "power-owner"
+    output.mkdir(parents=True, exist_ok=True)
+    power = POWER_SOURCE.read_text(encoding="utf-8")
+    signatures = (
+        "esp_err_t dispatch_power_single_press()",
+        "esp_err_t handle_power_key_events(",
+        "esp_err_t request_power_off()",
+        "bool battery_allows_automatic_standby()",
+    )
+    extracted = "\n\n".join(function_text(power, signature, str(POWER_SOURCE)) for signature in signatures)
+    (output / "power_owner_under_test.inc").write_text(extracted + "\n", encoding="utf-8")
+    health = function_text(DEVICE_SNAPSHOT_HEADER.read_text(encoding="utf-8"),
+                           "enum class DeviceHealth", str(DEVICE_SNAPSHOT_HEADER))
+    (output / "power_health_under_test.inc").write_text(health + ";\n", encoding="utf-8")
+    executable = output / "power-owner-contract.exe"
+    command = compile_command(resolve_compiler(compiler),
+        ("scripts/tests/cody_native", "components/LUNASHELL_platform/include",
+         "components/LUNASHELL_logger/include", str(output)),
+        ("scripts/tests/cody_native/power_owner_contract.cpp",), executable,
+        definitions=("CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION=1",))
+    run_stage(command, output, "compile")
+    run_stage([str(executable)], output, "run")
+
+
+# No parameters: dispatch explicitly selected specification, source and native-owner checks.
+# Raises original verification errors; never operates on firmware or physical hardware.
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run deterministic power-policy and static source checks."
     )
+    parser.add_argument("--native-owner", action="store_true",
+                        help="Compile and execute verbatim firmware power owner functions with fake peripherals")
+    parser.add_argument("--compiler", help="Existing host C++ compiler; nothing is installed")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--model-only",
@@ -2746,6 +2794,8 @@ def main() -> int:
         verify_transaction_fault_injection()
     if not args.model_only:
         verify_source_contracts()
+    if args.native_owner:
+        verify_native_owner(args.compiler)
 
     checked = (
         "source contracts"
@@ -2754,6 +2804,8 @@ def main() -> int:
         if args.model_only
         else "behavioral model and source contracts"
     )
+    if args.native_owner:
+        checked += " and production C++ owner with fake peripherals"
     print(
         "power policy verification: PASS "
         f"({checked}: inactivity, 50% dim, qualified motion, "

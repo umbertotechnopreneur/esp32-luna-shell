@@ -52,6 +52,7 @@ SOURCES = (
     "components/CODY2D/src/CODY2D_controls.cpp",
     "components/CODY2D/src/CODY2D_text.cpp",
     "components/CODY_companion/src/model/CODY_rig.cpp",
+    "components/CODY_companion/src/model/CODY_expression_catalog.cpp",
     "components/CODY_companion/src/model/CODY_response.cpp",
     "components/CODY_companion/src/model/CODY_character_direction.cpp",
     "components/CODY_companion/src/model/CODY_happiness.cpp",

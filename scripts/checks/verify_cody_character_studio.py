@@ -207,11 +207,16 @@ class CharacterStudioTests(unittest.TestCase):
     # self: Shared native battery selector; synthetic flags never become firmware observations.
     # Raises AssertionError for fabricated charging/presence or rounded threshold admission.
     def test_automatic_power_cues_keep_source_truth(self):
-        facts = dict(current=True, present=True, percentage_valid=True, percentage=15.5, charging=False)
+        facts = dict(current=True, present=True, percentage_valid=True, percentage=20.5, charging=False)
         self.assertEqual(self.behavior.power_cue(**facts), PersonalityCue.NONE)
-        facts["percentage"] = 15.
+        facts["percentage"] = 20.
         self.assertEqual(self.behavior.power_cue(**facts), PersonalityCue.LOW_BATTERY)
-        facts["percentage"] = 17.
+        facts["percentage"] = 24.5
+        self.assertEqual(self.behavior.power_cue(**facts), PersonalityCue.LOW_BATTERY)
+        facts["percentage"] = 25.
+        self.assertEqual(self.behavior.power_cue(**facts), PersonalityCue.NONE)
+        self.assertFalse(self.behavior.power_low_active)
+        facts["percentage"] = 20.
         self.assertEqual(self.behavior.power_cue(**facts), PersonalityCue.LOW_BATTERY)
         facts["charging"] = True
         self.assertEqual(self.behavior.power_cue(**facts), PersonalityCue.CHARGING)

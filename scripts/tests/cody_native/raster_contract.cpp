@@ -1476,7 +1476,8 @@ void check_button_hold_contract()
     require(hold.update(true, 11000000, true, 14000000, 3000000), "new valid hold rearms after a release");
 }
 
-// No parameters: boot animation retains exact durations without inventing readiness.
+// No parameters: boot and farewell retain exact durations without inventing panel retirement.
+// Exception: Host framebuffer allocation may throw std::bad_alloc.
 void check_lifecycle_contract()
 {
     using CODY::BootCheckpoint;
@@ -1516,6 +1517,26 @@ void check_lifecycle_contract()
     require(CODY::lifecycle_targets({}, face, contour) == ESP_OK, "sleeping atlas expression resolves");
     require(face[CODY::FaceChannel::EyeLeft] == CODY::Data::sleep[CODY::FaceChannel::EyeLeft],
             "screen 01 begins with sleeping eyes, not Calm");
+    state = {LifecyclePhase::Sleep, 0};
+    require(!CODY::lifecycle_sleep_ready(state) && !CODY::lifecycle_is_resting(state),
+            "farewell begins with controls blocked and no completed sleep hold");
+    require(CODY::advance_lifecycle(state, 399999, BootCheckpoint::Ready, state) == ESP_OK &&
+            !CODY::lifecycle_sleep_ready(state), "farewell cannot complete before its sleep transition");
+    require(CODY::advance_lifecycle(state, 300000, BootCheckpoint::Ready, state) == ESP_OK &&
+            !CODY::lifecycle_sleep_ready(state), "farewell must retain the complete closed-eye hold");
+    require(CODY::advance_lifecycle(state, 1, BootCheckpoint::Ready, state) == ESP_OK &&
+            CODY::lifecycle_sleep_ready(state), "farewell animation becomes eligible after 700 ms");
+    require(CODY::advance_lifecycle(state, 10000000, BootCheckpoint::Ready, state) == ESP_OK &&
+            state.phase == LifecyclePhase::Sleep && CODY::lifecycle_sleep_ready(state),
+            "draining owners cannot automatically wake the sleeping farewell");
+    require(CODY::lifecycle_targets(state, face, contour) == ESP_OK,
+            "farewell uses the production Sleep35A character target");
+    CODY::RigScene sleeping_scene{};
+    require(CODY::evaluate_rig(face, CODY::Data::placement, sleeping_scene) == ESP_OK,
+            "farewell sleeping character evaluates through the native rig");
+    require(render(sleeping_scene, 2, false) == render(sleeping_scene, 16, false),
+            "farewell character pixels match with emergency two-row and ordinary strips");
+    // This host raster check cannot acknowledge real display DMA retirement or a PMU power cut.
     const CODY::AtlasScreenDefinition *hello = nullptr;
     require(CODY::find_atlas_screen(CODY::AtlasScreenId::Greeting04, hello) == ESP_OK &&
             hello->expression == CODY::ExpressionId::Happy, "OOBE Hello selects the happy face");
@@ -1678,9 +1699,9 @@ void check_technical_panel_owner_contract()
         link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
         presentation.banner[0] == '\0' && std::strcmp(presentation.captions[0], "No model details yet") == 0,
         "a different chat cannot donate model or historical compaction state");
-    require(content.bounds.top == 170 && content.bounds.bottom == 393 &&
-        presentation.title_line.origin.y == 170 && presentation.hint_line.origin.y == 367,
-        "transparent detail content reserves the character artwork and keeps footer within the safe square");
+    require(content.bounds.top == 170 && content.bounds.bottom == 402 &&
+        presentation.title_line.origin.y == 170 && !presentation.hint_line.valid,
+        "Model details reserve character artwork and the lower circular context-bar region without a footer");
     std::memcpy(technical.chat_id, link.activity.chat_id, 65);
     technical.context_valid = false;
     technical.compaction = LUNASHELL::CodexCompactionState::None;
@@ -1741,31 +1762,44 @@ void check_cost_badge_contract()
         CODY::set_activity_model_cost(identity, CODY::SceneData::body_font, technical.model,
             technical.cost_band, 0, changed) == ESP_OK && changed,
         "Home prepares exact model text and a persistent host-classified band");
-    require(std::strcmp(identity.cost_caption, "Expensive!") == 0 && identity.cost_line.color == 0xF986,
-        "Expensive has an explicit red exclamation chip");
+    require(std::strcmp(identity.cost_caption, "Expensive") == 0 && identity.cost_line.color == 0xF986,
+        "Expensive uses the complete caption and semantic red chip");
     for (const auto moment : {0LL, 5500000LL, 9000000LL, 13500000LL}) {
         const auto expected = moment == 5500000 ? CODY::ActivityIdentityKind::Branch :
             moment == 9000000 ? CODY::ActivityIdentityKind::Model : CODY::ActivityIdentityKind::Project;
         require(CODY::advance_activity_identity(identity, CODY::SceneData::body_font,
             moment, false, -1, changed) == ESP_OK && identity.selected == expected &&
             identity.opacity == 255 && identity.cost_line.valid,
-            "project/branch/model uses the shared fade cycle while the chip stays visible");
+            "project/branch/model uses the shared fade cycle and retains prepared price metadata");
     }
     require(CODY::advance_activity_identity(identity, CODY::SceneData::body_font,
         16000000, true, -1, changed) == ESP_OK && identity.selected == CODY::ActivityIdentityKind::Project &&
-        std::strcmp(identity.cost_caption, "Expensive!") == 0,
-        "attention retains the project and does not suppress the cost warning");
+        std::strcmp(identity.cost_caption, "Expensive") == 0,
+        "attention retains the project and preserves price metadata for the later Model phase");
     identity.compaction_timer = true;
     require(CODY::advance_activity_identity(identity, CODY::SceneData::body_font,
         17000000, true, 90000000, changed) == ESP_OK && identity.timer_visible &&
-        identity.timer_line.origin.x >= 258 && std::strcmp(identity.timer, "01:30") == 0,
-        "authoritative compaction time remains beside the cost chip without overlap");
+        identity.timer_line.origin.x < 233 && std::strcmp(identity.timer, "01:30") == 0,
+        "attention keeps authoritative compaction time centered below the project");
 
     // Host-only heap canvases compare complete native rendering with tile retirement; no firmware allocation.
     constexpr uint16_t size = 466;
     std::vector<uint16_t> full_pixels(size * size, 0);
     std::vector<uint16_t> tiled_pixels(size * size, 0);
     const CODY2D::Surface full{full_pixels.data(), size, size, size, static_cast<uint32_t>(full_pixels.size())};
+    require(CODY::draw_activity_identity(identity, full, 0, 0) == ESP_OK &&
+        full_pixels[343 * size + 87] == 0 && full_pixels[343 * size + 158] == 0,
+        "attention Project phase does not draw the Model-only price chip");
+    const int16_t centered_timer_x = identity.timer_line.origin.x;
+    require(CODY::advance_activity_identity(identity, CODY::SceneData::body_font,
+        18000000, false, 90000000, changed) == ESP_OK &&
+        CODY::advance_activity_identity(identity, CODY::SceneData::body_font,
+        27000000, false, 90000000, changed) == ESP_OK &&
+        identity.selected == CODY::ActivityIdentityKind::Model && identity.opacity == 255 &&
+        identity.timer_line.origin.x > centered_timer_x && identity.timer_line.origin.x >= 269 &&
+        std::strcmp(identity.timer, "01:30") == 0,
+        "Model entry moves the unchanged timer beside the chip within the same timer second");
+    std::fill(full_pixels.begin(), full_pixels.end(), 0);
     require(CODY::draw_activity_identity(identity, full, 0, 0) == ESP_OK, "Home cost/timer renders in native RGB565");
     for (uint16_t row = 0; row < size; row += 17) {
         const uint16_t rows = std::min<uint16_t>(17, size - row);
@@ -1779,7 +1813,7 @@ void check_cost_badge_contract()
 
     const int64_t baseline = identity.started_at_us;
     require(CODY::set_activity_model_cost(identity, CODY::SceneData::body_font, technical.model,
-        LUNASHELL::CodexCostBand::Economy, 18000000, changed) == ESP_OK && changed &&
+        LUNASHELL::CodexCostBand::Economy, 28000000, changed) == ESP_OK && changed &&
         identity.started_at_us == baseline && identity.cost_line.color == 0x87EF,
         "a price-only update changes the green chip without restarting the identity carousel");
     technical.context_valid = true;
@@ -1796,15 +1830,18 @@ void check_cost_badge_contract()
     CODY::SceneContent content{};
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
         link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
-        presentation.line_count == 3 && std::strcmp(presentation.captions[2], "Context used: 95%") == 0 &&
+        presentation.line_count == 4 && std::strcmp(presentation.captions[2], "Reasoning: high") == 0 &&
+        std::strcmp(presentation.captions[3], "Context used: 95%") == 0 &&
         presentation.context_bar_visible && presentation.compaction_active && presentation.cost_line.valid &&
-        presentation.lines[2].origin.y == 327 && std::strcmp(presentation.cost_caption, "Standard: Expensive!") == 0,
-        "long model and badge yield optional effort/counts to context and compaction");
+        presentation.lines[0].origin.y == 267 && presentation.lines[3].origin.y == 342 &&
+        presentation.lines[3].origin.y + CODY::SceneData::body_font.height <= 389 &&
+        std::strcmp(presentation.cost_caption, "Std price: Expensive") == 0,
+        "long model retains reasoning and context while optional counts yield to compaction and context bar");
     technical.cost_stale = true;
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
         link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
-        std::strcmp(presentation.cost_caption, "Standard: Unknown") == 0 && presentation.compaction_active,
-        "stale price becomes Unknown without hiding actual compacting state");
+        std::strcmp(presentation.cost_caption, "Price unavailable") == 0 && presentation.compaction_active,
+        "stale price is explicitly unavailable without hiding actual compacting state");
     technical.cost_stale = false;
     ++technical.revision;
     require(CODY::observed_model_cost(link, technical).model[0] == '\0',

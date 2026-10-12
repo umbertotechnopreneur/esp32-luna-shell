@@ -15,6 +15,25 @@ private local diagnostics, not publication artifacts.
 
 ## Cody power and pretrained observer implementation - 2026-10-12
 
+Follow-up validation was explicitly authorized on 12 October, including repeated
+tests and simulator runs without per-suite prompts. Power specifications/source
+contracts and the compiled production owner functions passed, including USB/full/
+absent-battery/stale/error gating, manual short-Power isolation, three-second hold,
+shutdown ordering, optional USB delivery loss, mandatory owner failures, rollback
+and PMU-accepted-but-still-running timeout. Peripheral results in this fixture are
+synthetic; no physical key press or rail shutdown is claimed.
+
+Also passed: 14 console contracts; native raster/lifecycle contracts including
+farewell hold and two-row versus sixteen-row parity; runtime/persistence/shared
+standby owner contracts; 10 Character Studio tests; 35 CCP simulator tests; seven
+reference simulator groups including 22 loopback HTTP tests; Cody wake-word profile
+closure; snapshot integrity. The native simulator generated and visually reviewed
+`artifacts/simulator/power-validation/boot-ready.png`. Corrected stale test fixtures,
+C++20 test compilation and the graphics driver's missing expression-catalog source.
+The whole-profile catalog check still reports missing `display-touch.lock` and the
+unselected `full-wake-word.lock`; the selected Cody profile passes. These unrelated
+profile gates are not silently treated as passed.
+
 Latest installed firmware: `cody-135-gfda9e7e3-dirty`, source checkpoint `fda9e7e`
 on `codex/activity-classifier-poweroff`. The public Debug flash command used
 `-Profile cody-companion -Feature wake-word -ActivityClassifier -Jobs 8 -Port COM10`.
@@ -35,9 +54,9 @@ Evidence under `artifacts/build-cody-companion-wake-word-activity-debug/evidence
 
 Physical Power presses, full-board shutdown/restart, touch/shake/Sophia wake,
 USB/full/absent-battery transitions, classifier accuracy, energy cost and stack
-headroom remain unverified. No separate tests, simulator, size command,
-whitespace/secret/legacy scans or compiled-frame audits were run; their fresh
-command-specific authorization remains separate from flash and passive monitor.
+headroom remain unverified. At this first inference checkpoint, separate tests,
+simulator, size and scans had not run; the later authorized host/simulator results
+are recorded above. Hardware rail loss and measured battery endurance remain open.
 
 - Added canonical-power inactivity gating, Power-only short standby/wake,
   three-second valid-hold farewell, retired-frame acknowledgment, gradual fade,

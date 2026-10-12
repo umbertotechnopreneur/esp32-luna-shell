@@ -110,7 +110,8 @@ def main(argv=None) -> None:
                         "components/CODY_companion/src/diagnostics/CODY_jelly_simd_validation.cpp")
             definitions += ("CODY_JELLY_SIMD_AVAILABLE=1",)
             report["scope"] = "portable renderer and SIMD packing/model; actual S3 instructions unverified"
-        command = compile_command(compiler, include_dirs, sources, executable, definitions=definitions)
+        command = compile_command(compiler, include_dirs, sources, executable,
+                                  definitions=definitions, cxx_standard=20)
         report["compiler"] = compiler
         run_stage(command, output, "compile")
         native = run_stage([str(executable)], output, "native")
@@ -132,7 +133,8 @@ def main(argv=None) -> None:
                                     "jelly compact-tile guards and invalid mapping rejection",
                                     "capsule gradient, bounded ASCII caption, touch gate and compact-tile parity",
                                     "continuous 3-second PWR hold, early release and failed-sample rearming",
-                                    "2/4/4-second boot timeline, startup checkpoint gates and 800-ms panel wake"])
+                                    "startup checkpoint gates and 800-ms panel wake",
+                                    "700-ms farewell Sleep hold and two-row/ordinary native strip parity (no DMA or PMU claim)"])
         report["contracts"].extend(["sequential title, body and footer teletype after entrance",
                                     "current installation heading, hidden-heading fixture and 60-second scene override",
                                     "scene standby entry, real activity, inheritance and uint32 boundary",
