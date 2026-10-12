@@ -16,3 +16,10 @@ never reported as a successful drain. SD retirement remains a separate mandatory
 storage-owner operation. RAM capture and counted USB drops continue while sealed.
 Every aborted shutdown must unseal USB. Direct stdio/VFS output is outside this
 logger seal; `fflush(stdout)` alone does not drain logger driver traffic.
+
+`LUNASHELL_logger_finish_boot_capture_wait` seals boot capture and waits for the
+writer's completion after releasing its internal backlog. Cody awaits this before
+its ready frame to make that memory available for DMA. Archival errors remain
+optional startup failures; the actual renderer still reports admission failures.
+The live logging buffers remain internal and cache-safe. Repeated finish requests
+retain the first operation's result, and a timeout leaves ownership with the writer.

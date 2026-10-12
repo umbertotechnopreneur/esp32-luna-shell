@@ -51,6 +51,11 @@ esp_err_t LUNASHELL_logger_init(void);
 // Exception: Returns the real initialization/notification error; never waits for file I/O.
 esp_err_t LUNASHELL_logger_finish_boot_capture(void);
 
+// timeout_ms: Positive bounded wait, at most 5000 ms, for the logger owner's completion.
+// Exception: Returns the actual archive/state/notification error or ESP_ERR_TIMEOUT.
+// Success proves the internal boot backlog has been released, not merely detached.
+esp_err_t LUNASHELL_logger_finish_boot_capture_wait(uint32_t timeout_ms);
+
 /**
  * Enable SD mirroring after the card has been mounted.
  *
