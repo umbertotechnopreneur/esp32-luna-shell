@@ -16,7 +16,7 @@
 
 dependencies:
   espressif/esp-dl:
-    version: "3.3.11"
+    version: "3.3.13"
     rules:
       - if: "$CONFIG{LUNASHELL_ACTIVITY_MODEL} == True"
   espressif/esp-sr:

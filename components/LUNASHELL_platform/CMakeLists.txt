@@ -185,6 +185,18 @@ if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
     endif()
     target_include_directories(${COMPONENT_LIB} PRIVATE "${PROJECT_DIR}/artifacts/models/activity")
     target_add_binary_data(${COMPONENT_LIB} "${activity_model}" BINARY RENAME_TO activity_model)
+    # The reviewed requirement set describes this exact converted graph. A new
+    # export needs a new operator/kernel review before its requirements are reused.
+    if(NOT activity_actual_hash STREQUAL "3880fc61b887283f785028f310930b629c6adeb9dba1519e98bb62d1a7f7af89")
+        message(FATAL_ERROR "Activity model differs from the reviewed ESP-DL compile requirements; review the graph and update the requirement binding")
+    endif()
+    idf_build_get_property(activity_build_components BUILD_COMPONENTS)
+    if(NOT "espressif__esp-dl" IN_LIST activity_build_components)
+        message(FATAL_ERROR "Activity inference requires the pinned managed ESP-DL component")
+    endif()
+    idf_component_get_property(activity_esp_dl_dir espressif__esp-dl COMPONENT_DIR)
+    include("${activity_esp_dl_dir}/cmake/compile_register.cmake")
+    esp_dl_compile_add_yml("${CMAKE_CURRENT_LIST_DIR}/activity.compile_req.yml")
 endif()
 
 # Profile-specific dependencies are resolved after Kconfig becomes available;

@@ -15,10 +15,25 @@ vehicle travel, or the desired future Cody context classes. No training is perfo
   and exports the modern `.espdl` format. This is quantization calibration of fixed
   weights, not training or personalization. No upstream Python script is executed;
   calibration pickle loading admits only the required NumPy array globals.
-- [ESP-DL 3.3.11 manifest](https://github.com/espressif/esp-dl/blob/v3.3.11/esp-dl/idf_component.yml)
+- [ESP-DL 3.3.13 manifest](https://github.com/espressif/esp-dl/blob/v3.3.13/esp-dl/idf_component.yml)
   admits ESP32-S3 with IDF >=5.3; IDF 6.0.2 satisfies that declared constraint.
   This is dependency compatibility evidence, not build or physical validation.
   ESP-DL itself is MIT licensed. No IDF 4.4 code or old ESP-DL API is imported.
+- Runtime dependency is the official September 30, 2026 `v3.3.13` release,
+  commit `6d3c4da1087d35916858dd0f9b3e9d6a85186e11`. Its supported
+  [compile registration API](https://github.com/espressif/esp-dl/blob/v3.3.13/esp-dl/cmake/compile_register.cmake)
+  receives `components/LUNASHELL_platform/activity.compile_req.yml`: seven operators
+  and four ESP32-S3 signed-16 convolution kernels. Both aligned and unaligned
+  2x2 bias+ReLU convolutions and packed-MatMul 1x1 linear kernels are retained.
+  Other primitive dependencies come from the official operator specification.
+  The model bytes are unchanged from ESP-PPQ 1.3.11 conversion targeting the
+  then-pinned ESP-DL 3.3.11: 334,528 bytes, SHA256
+  `3880fc61b887283f785028f310930b629c6adeb9dba1519e98bb62d1a7f7af89`.
+  The local provenance retains that conversion-time runtime version; it does not
+  claim a new conversion. CMake binds the reviewed requirements to this exact hash.
+  Re-exporting a model requires reviewing and rebinding these requirements.
+  This selection changes neither partitions nor Sophia and edits no managed source.
+  Final linked size and physical inference remain separately verifiable outcomes.
 - No license was found for the original author's model weights. They remain in
   ignored `artifacts/models/activity/` for the authorized local experiment and are
   not checked into this repository. Distribution of firmware containing these
