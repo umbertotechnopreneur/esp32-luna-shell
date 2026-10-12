@@ -277,12 +277,21 @@ foreach(brookesia_component ${brookesia_build_components})
     endif()
 endforeach()
 
-# Apply after ESP-DL's own -O3; keep application, Sophia and assembly unchanged.
-# This experiment trades C/C++ inference speed for space in the existing OTA slots.
+# Apply after ESP-DL's own -O3. Keep renderers, Sophia and assembly optimized
+# for speed; size-optimize the observer and control plane within existing OTA slots.
 if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
     idf_component_get_property(activity_dl_library espressif__esp-dl COMPONENT_LIB)
     target_compile_options(${activity_dl_library} PRIVATE
         "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>")
+    idf_component_get_property(activity_platform_library LUNASHELL_platform COMPONENT_LIB)
+    target_compile_options(${activity_platform_library} PRIVATE
+        "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>")
+    # The coordinator owns state transitions; drawing kernels live in separate
+    # translation units and retain their existing performance optimization.
+    set_property(SOURCE
+        "${CMAKE_CURRENT_SOURCE_DIR}/components/CODY_companion/src/runtime/CODY_companion.cpp"
+        DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/components/CODY_companion"
+        APPEND PROPERTY COMPILE_OPTIONS -Os)
 endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_TTS AND CONFIG_LUNASHELL_BUILD_ENABLE_UI)
