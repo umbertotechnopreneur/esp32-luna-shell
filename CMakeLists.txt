@@ -283,9 +283,11 @@ if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
     idf_component_get_property(activity_dl_library espressif__esp-dl COMPONENT_LIB)
     target_compile_options(${activity_dl_library} PRIVATE
         "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>")
-    idf_component_get_property(activity_platform_library LUNASHELL_platform COMPONENT_LIB)
-    target_compile_options(${activity_platform_library} PRIVATE
-        "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>")
+    foreach(activity_control_component LUNASHELL_platform LUNASHELL_logger main)
+        idf_component_get_property(activity_control_library ${activity_control_component} COMPONENT_LIB)
+        target_compile_options(${activity_control_library} PRIVATE
+            "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>")
+    endforeach()
     # Control, policy and diagnostic panels need a bounded flash footprint.
     # Keep drawing, the geometric rig and benchmark translation units at speed.
     idf_component_get_property(activity_cody_library CODY_companion COMPONENT_LIB)
