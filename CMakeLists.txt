@@ -286,12 +286,13 @@ if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
     idf_component_get_property(activity_platform_library LUNASHELL_platform COMPONENT_LIB)
     target_compile_options(${activity_platform_library} PRIVATE
         "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>")
-    # Scene/runtime sources coordinate events and screens. Separate rendering
-    # and character-model translation units retain performance optimization.
+    # Control, policy and diagnostic panels need a bounded flash footprint.
+    # Keep drawing, the geometric rig and benchmark translation units at speed.
     idf_component_get_property(activity_cody_library CODY_companion COMPONENT_LIB)
     get_target_property(activity_cody_sources ${activity_cody_library} SOURCES)
     foreach(activity_cody_source IN LISTS activity_cody_sources)
-        if(activity_cody_source MATCHES "(^|/)src/(runtime|scenes)/.*[.]cpp$")
+        if(activity_cody_source MATCHES "(^|/)src/(runtime|scenes|model|diagnostics)/.*[.]cpp$" AND
+           NOT activity_cody_source MATCHES "/CODY_(rig|benchmark|raster_benchmark|jelly_simd_validation)[.]cpp$")
             set_property(SOURCE "${activity_cody_source}"
                 DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/components/CODY_companion"
                 APPEND PROPERTY COMPILE_OPTIONS -Os)
