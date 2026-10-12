@@ -14,10 +14,11 @@ The battery/audio source checkpoints are on `main`; the USB flash evidence is
 prepared on `codex/voice-firmware-flash`. The daily Codex Standard cache, Home warning/carousel
 and Model & Context badge are implemented; final validation remains open in
 CCP-07. No rates, dollar amounts or session-cost estimation are sent to Cody.
-Latest firmware `cody-114-g33377507` was built and flashed on COM10 on 2026-10-12
-with five image hashes verified, the two-OTA-slot table installed and NVS excluded.
-App 7,011,312 bytes; 263,184 bytes remain per wake-word slot. Post-reset behavior, stack
-headroom and the prepared host/simulator cases remain unverified.
+Latest firmware `cody-135-gfda9e7e3-dirty` was built and flashed on COM10 on
+2026-10-12 with five image hashes verified, the unchanged two-OTA-slot table and
+NVS excluded. App 7,272,544 bytes; 1,952 bytes remain per wake-word slot. See
+done.md for passive serial observations and corrected startup/cadence failures.
+Physical interactions, stack headroom and host/simulator cases remain open.
 
 ## Cody power and pretrained activity observer - 2026-10-12
 
@@ -31,13 +32,16 @@ headroom and the prepared host/simulator cases remain unverified.
   Customized PMU USB/battery/IRQ startup sources prevent a Power-only restart
   guarantee across all supply conditions. Do not claim physical behavior from a flash.
 - [ ] **ACTIVITY-01 - Pretrained observer evidence.** Original fixed HAR weights
-  were converted with ESP-PPQ 1.3.11 for ESP-DL 3.3.11; no training. Integration
+  were converted with ESP-PPQ 1.3.11 for ESP-DL 3.3.13, W8A16; no training. Integration
   uses actual timestamped 20-Hz windows, original labels and an experimental
-  Activity-panel readout. Final dependency lock, compilation/flash and device
-  inference remain pending. The 334512-byte model exceeds the preceding image's
-  263184-byte slot headroom before new kernels; do not flash an oversized image
-  or change the partition table implicitly. Original preprocessing was recovered exactly against all 107 supplied calibration
-  tensors; sensor/placement domain, accuracy, energy cost and stack headroom remain unverified.
+  Activity-panel readout. The dependency lock and 172304-byte model are integrated;
+  the application now builds and flashes within the unchanged OTA slots. Physical
+  inference is observed after correcting startup DMA pressure and separating the
+  acquisition core from voice. Some real cadence gaps still reject windows;
+  improve continuity only from measured owner timing, never synthetic samples.
+  Original preprocessing was recovered exactly against all 107 supplied calibration
+  tensors; sensor/placement domain, accuracy, energy cost and stack headroom remain
+  unverified. The 1952-byte OTA margin also limits further firmware growth.
 - [ ] **POWER-ACTIVITY-CHECKS - Separately authorized checks.** Updated existing
   power/console source contracts are not executed. Host suites, simulator,
   whitespace/secret/legacy scans and compiled-frame audits require the repository's
@@ -50,9 +54,9 @@ headroom and the prepared host/simulator cases remain unverified.
   adds silent discovery faces/lens, ten-minute search and three-minute Working
   standby, a four-visible-second valid-battery wake prelude, Model-only
   Cheap/Reasonable/Expensive chip, current tool identity and expanded technical
-  panels with canonical IP/firmware identity. Compilation, geometry/rendering
-  and physical stack-headroom evidence remain pending explicit authorization.
-  The installed image remains `cody-114-g33377507`.
+  panels with canonical IP/firmware identity. The integrated Debug wake-word/activity
+  image is compiled and installed; visual geometry, interaction and physical
+  stack-headroom evidence remain pending.
 - [ ] **CCP-USAGE-01 - Authoritative Desktop usage source.** App Server documents
   `thread/tokenUsage/updated`, but current Desktop hooks provide no owned stream
   for this exact chat. Reasoning, context and token fields remain unavailable.
@@ -71,7 +75,8 @@ headroom and the prepared host/simulator cases remain unverified.
   with three counter-rotating gears and waiting/compaction accents with a fast
   two-hand clock. Validate the final build, visible animation, partial repaint
   retirement, rotations and device stack headroom when explicitly authorized.
-  The changed icon source has not been built, simulated or flashed.
+  The changed icon source is included in the current compiled/flashed image;
+  simulator and visible physical animation remain unverified.
 
 - [ ] **BATTERY-01 - Quiet battery notices.** Firmware source implements free-Home
   admission after ten seconds, four-second caption/manga dwell, 20/10-percent

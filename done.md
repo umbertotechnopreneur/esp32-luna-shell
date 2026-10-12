@@ -15,12 +15,36 @@ private local diagnostics, not publication artifacts.
 
 ## Cody power and pretrained observer implementation - 2026-10-12
 
+Latest installed firmware: `cody-135-gfda9e7e3-dirty`, source checkpoint `fda9e7e`
+on `codex/activity-classifier-poweroff`. The public Debug flash command used
+`-Profile cody-companion -Feature wake-word -ActivityClassifier -Jobs 8 -Port COM10`.
+ESP-IDF 6.0.2 compilation and all five flashed-image hashes succeeded. The app is
+7272544 bytes, leaving 1952 bytes in each unchanged 7274496-byte OTA slot. NVS was
+not included in the flash write set; no push was performed.
+
+The final 120-second passive serial capture observed **22 real HAR inferences**:
+window spans 3956664..4020948 us and inference times 7639..63240 us. All observed
+top labels were `sitting`; this is an unvalidated model output, not ground truth.
+There were 15 rejected partial windows and no captured panic/backtrace markers;
+uptime reached 142.475 seconds. Delayed-attempt logs confirmed acquisition on CPU1.
+Canonical snapshots reported display, touch, PMU, IMU, Wi-Fi and BLE ready, and zero
+allocation failures. Existing SD initialization timeouts and counted boot/USB log
+losses remained visible, so the capture is not an exhaustive error-free boot trace.
+Evidence under `artifacts/build-cody-companion-wake-word-activity-debug/evidence/`:
+`activity-inference-fda9e7e.log`, matching `.elf`/`.bin`, and `flash-fda9e7e.log`.
+
+Physical Power presses, full-board shutdown/restart, touch/shake/Sophia wake,
+USB/full/absent-battery transitions, classifier accuracy, energy cost and stack
+headroom remain unverified. No separate tests, simulator, size command,
+whitespace/secret/legacy scans or compiled-frame audits were run; their fresh
+command-specific authorization remains separate from flash and passive monitor.
+
 - Added canonical-power inactivity gating, Power-only short standby/wake,
   three-second valid-hold farewell, retired-frame acknowledgment, gradual fade,
   settings/speech/storage/logger shutdown ownership and checked AXP2101 REG10H[0]
   command with visible failures. BOOT remains separate. Cody retains software
   standby for short-Power wake; ordinary radio/voice retention is unchanged.
-- Added opt-in ESP-DL 3.3.11 inference using the original Espressif-example ONNX
+- Added opt-in ESP-DL 3.3.13 inference using the original Espressif-example ONNX
   weights, bounded canonical 80-sample/20-Hz acquisition, original class scores,
   rejection/stability metadata, experimental Activity-panel visibility and a
   host sample-export path without SD. No automatic energy decision uses results.
@@ -30,9 +54,10 @@ private local diagnostics, not publication artifacts.
   this corrects the old example deployment's raw-g input mismatch. Weights remain local ignored
   artifacts because their redistribution license is unresolved. See
   [model provenance and contract](docs/cody/activity-observer.md).
-- Static source/integration review completed; actual build, flash, runtime inference,
-  physical power behavior and separate test suites are not established by this
-  implementation record. `scripts/device.ps1 ports` identified COM10 with Espressif
+- The initial checkpoint completed static source/integration review only. Later
+  build, flash and passive-monitor evidence is recorded here; physical power
+  behavior and separate test suites remain open. `scripts/device.ps1 ports`
+  identified COM10 with Espressif
   VID 303A/PID 1001; enumeration did not open serial or validate firmware.
 - Authorized flash preparation exposed an application-size blocker before any
   device write: the ESP-DL 3.3.11 image linked at `0x81bdf0` bytes against
@@ -40,6 +65,56 @@ private local diagnostics, not publication artifacts.
   the linked image to 7,580,944 bytes, still 306,448 bytes too large. The intervening
   missing `RequantizeLinear` link dependency was corrected in the requirement set.
   These failed flash attempts did not install firmware or establish runtime behavior.
+- W8A16 conversion, the pinned official operator/kernel requirement set and scoped
+  size optimization reduced the model to 172304 bytes without training or changing
+  the OTA partition table. Model SHA-256:
+  `b5333dafe62835cc9999fe27ea652802fcdcaa5250604c5136087d1c1044d4e0`.
+- The first physical flash (`98b9485`) verified all five images, but passive serial
+  observation exposed a ready-frame abort: the one-row DMA emergency lease violated
+  Cody's paired-row contract. Checkpoint `3e1a1f4` moved the three 1600-byte activity
+  windows to PSRAM, aligned embedded model data to 16 bytes and supplied a two-row
+  Cody emergency lease. Its 7271024-byte image fitted with 3472 bytes remaining and
+  flashed successfully. The next capture passed the size contract but still aborted
+  on the 500-ms frame deadline with only 4943 DMA bytes free. The logger's 32768-byte
+  internal boot backlog was still awaiting archival after the failing ready frame.
+  Both failure captures and matching ELFs are retained under the activity build's
+  `evidence/` directory; neither flash establishes a healthy startup.
+- Checkpoint `8a3f060` added bounded logger-owner archival completion before the
+  ready frame; live cache-sensitive log buffers remain internal. The 7271616-byte
+  firmware flashed with all five hashes verified. Its 120-second passive COM10
+  capture reached 142.945 seconds uptime without the earlier display abort, but
+  activity windows repeatedly rejected real 75-84-ms sampling gaps. No HAR output
+  was observed. Existing SD card initialization timeouts remained visible. The
+  capture and ELF are retained as `evidence/activity-cadence-8a3f060.*`.
+- Checkpoint `c12adaa` makes the acquisition owner wait only the remaining time to
+  its 50-ms deadline, including acquisition/commit work. It preserves the actual
+  timestamp guards and UI cadence. A worker allocation failure now stops the extra
+  activity request instead of retrying it continuously.
+- The 7271680-byte `c12adaa` firmware flashed successfully, but its next 120-second
+  capture still contained repeated rejected windows and no HAR results. Static
+  review identified unrelated successful IMU acquisitions shifting greedy model
+  admission, and the deadline starting before owner-lock delay. Checkpoint `327b820`
+  admits only explicitly scheduled activity acquisitions and starts their deadline
+  after those locks. Real read errors still invalidate the observer; no synthetic
+  samples or relaxed cadence limits were introduced. The prior capture/ELF remain
+  in `evidence/activity-phase-c12adaa.*`.
+- The 7271744-byte `327b820` image also flashed successfully and remained active
+  through a 120-second passive capture (144.865 seconds uptime), but real 75-79-ms
+  gaps still repeatedly invalidated windows. No inference success is claimed from
+  these scheduling corrections alone. Evidence: `evidence/activity-gap-327b820.*`.
+- `521e43d` added bounded acquisition-owner timing. Its 7272432-byte image flashed
+  and the 60-second capture measured delayed attempts with refresh-lock waits of
+  6-24 us, stage waits around 300 us and IMU calls around 1.5 ms. Rejections often
+  contained 15 samples over 960 ms, showing roughly 64-ms dispatch instead of the
+  requested 50 ms. These observations do not support the full-refresh mutex as the
+  dominant cause. The unpinned floating-point acquisition task can acquire CPU0
+  affinity under IDF, where higher-priority voice tasks run. Timing evidence and ELF:
+  `evidence/activity-timing-521e43d.*`.
+- `fda9e7e` pins only the activity-enabled acquisition owner to CPU1 at unchanged
+  priority 3; voice stays on CPU0 and renderer priorities are unchanged. Other
+  profiles remain unpinned. This produced the real inference results recorded
+  above. Remaining occasional stage/refresh contention still rejects windows
+  rather than filling gaps or silently weakening the model's input contract.
 
 ## PDF covers and contents - 2026-10-12
 
