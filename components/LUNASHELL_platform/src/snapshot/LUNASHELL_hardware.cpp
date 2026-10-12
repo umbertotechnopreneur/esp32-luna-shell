@@ -35,6 +35,7 @@
 #include "LUNASHELL_distance_service.hpp"
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_snapshot_cadence.hpp"
+#include "LUNASHELL_task_affinity.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -1217,6 +1218,10 @@ void diagnostic_monitor_task(void *arg)
 {
     (void)arg;
     configASSERT(s_diagnostic_stage_snapshot != nullptr);
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+    ESP_LOGI(TAG, "Activity acquisition owner started: core=%d priority=%u",
+             xPortGetCoreID(), static_cast<unsigned>(uxTaskPriorityGet(nullptr)));
+#endif
     TickType_t last_diagnostic_sample = 0;
     TickType_t last_ui_motion_sample = 0;
     TickType_t last_activity_sample = 0;
@@ -1547,8 +1552,8 @@ void diagnostic_monitor_task(void *arg)
             const int64_t timing_log_at_us = esp_timer_get_time();
             if (activity_gap_us > 75000 && timing_log_at_us - last_activity_timing_log_us >= 1000000) {
                 last_activity_timing_log_us = timing_log_at_us;
-                ESP_LOGW(TAG, "Activity timing gap=%lld refresh_wait=%lld stage_wait=%lld imu_call=%lld us",
-                         activity_gap_us, refresh_wait_us, stage_wait_us, imu_read_us);
+                ESP_LOGW(TAG, "Activity timing core=%d gap=%lld refresh_wait=%lld stage_wait=%lld imu_call=%lld us",
+                         xPortGetCoreID(), activity_gap_us, refresh_wait_us, stage_wait_us, imu_read_us);
             }
 #endif
             if (effective_diagnostic_due) {
@@ -3223,6 +3228,8 @@ void DeviceSnapshotService::reportTouchActivity()
 
 
 // Allocate and start the shared diagnostics/orientation task once.
+// No parameters: uses the canonical shared acquisition state.
+// Exception: Returns snapshot allocation or task creation failure.
 static esp_err_t ensure_hardware_monitor_task_locked()
 {
     if (s_diagnostic_monitor_started) {
@@ -3244,13 +3251,18 @@ static esp_err_t ensure_hardware_monitor_task_locked()
     s_ui_motion_monitor_standby.store(false, std::memory_order_relaxed);
     TaskHandle_t task = nullptr;
     s_diagnostic_monitor_started =
-        xTaskCreateWithCaps(
+        xTaskCreatePinnedToCoreWithCaps(
             diagnostic_monitor_task,
             "LUNASHELL_diag_monitor",
             3072,
             nullptr,
             3,
             &task,
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+            LUNASHELL::task_affinity::kActivityAcquisitionCoreId,
+#else
+            tskNO_AFFINITY,
+#endif
             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
         ) == pdPASS;
     if (!s_diagnostic_monitor_started) {
