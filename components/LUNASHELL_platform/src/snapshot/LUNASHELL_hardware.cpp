@@ -2621,7 +2621,7 @@ esp_err_t DeviceSnapshotService::readBatteryEndurance(BatteryEnduranceSnapshot &
 // Exception: Returns the original canonical publication error.
 esp_err_t DeviceSnapshotService::reportBatteryEndurance(const BatteryEnduranceSnapshot &report)
 {
-    return update_snapshot([&report](DeviceSnapshot &snapshot) {
+    return ::update_snapshot([&report](DeviceSnapshot &snapshot) {
         snapshot.battery_endurance = report;
     }, SnapshotPublicationPolicy::Optional);
 }
