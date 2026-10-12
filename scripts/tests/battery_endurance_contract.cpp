@@ -19,7 +19,9 @@ std::vector<unsigned char> stored;
 esp_err_t read_error = ESP_OK;
 esp_err_t write_error = ESP_OK;
 esp_err_t observation_error = ESP_OK;
+esp_err_t publication_error = ESP_OK;
 unsigned writes = 0;
+unsigned publication_attempts = 0;
 
 // condition: Actual real-service outcome required by the scenario.
 // message: Failure evidence, emitted before returning a nonzero fixture status.
@@ -118,8 +120,11 @@ esp_err_t DeviceSnapshotService::readBatteryObservation(BatterySnapshot &destina
 // No parameters: the fixture supplies the next canonical owner acquisition result.
 esp_err_t DeviceSnapshotService::refreshBatteryForEndurance() { return observation_error; }
 // report: Real recorder result retained for assertions.
+// Exception: Injected publication failure leaves the prior canonical value untouched.
 esp_err_t DeviceSnapshotService::reportBatteryEndurance(const BatteryEnduranceSnapshot &report)
 {
+    ++publication_attempts;
+    if (publication_error != ESP_OK) return publication_error;
     published = report;
     return ESP_OK;
 }
@@ -203,6 +208,19 @@ int main(int argc, char **argv)
         require((published.current.flags & SourceUnverified) != 0 &&
                 (published.current.flags & FirstWakeRecorded) != 0,
                 "first wake discarded the uncertain-source history");
+    } else if (scenario == "disabled-publication") {
+        read_error = ESP_ERR_NVS_TYPE_MISMATCH;
+        publication_error = ESP_ERR_TIMEOUT;
+        require(battery_endurance_tick(false) == read_error, "publication hid original read failure");
+        require(writes == 0 && publication_attempts == 1, "rejected journal wrote or over-published");
+        advance(1000);
+        publication_error = ESP_OK;
+        require(battery_endurance_tick(false) == read_error, "disabled retry hid original failure");
+        require(publication_attempts == 2 && published.error == read_error && !published.initialized,
+                "disabled recorder did not retry failed canonical publication");
+        advance(1000);
+        require(battery_endurance_tick(false) == read_error && publication_attempts == 2 && writes == 0,
+                "stable disabled state repeated publication or retried persistence");
     } else if (scenario == "crc" || scenario == "type" || scenario == "oversize") {
         load(argv[2]);
         if (scenario == "crc") stored[20] ^= 0x80;
@@ -223,7 +241,79 @@ int main(int argc, char **argv)
         if (scenario == "clock-unavailable") clock_sample = {};
         start();
         const unsigned initial_writes = writes;
-        if (scenario == "heartbeat" || scenario == "seed") {
+        if (scenario == "publication-coalescing") {
+            const unsigned initial_publications = publication_attempts;
+            const int64_t initial_observation = published.observed_at_us;
+            advance(1000);
+            require(battery_endurance_tick(false) == ESP_OK, "stable observation failed");
+            require(publication_attempts == initial_publications &&
+                    published.observed_at_us == initial_observation,
+                    "unchanged state republished or fabricated a new observation timestamp");
+            advance(1000);
+            battery.data_stale = true;
+            require(battery_endurance_tick(true) == ESP_OK, "stale-source transition failed");
+            require(publication_attempts == initial_publications + 1 && !published.source_current &&
+                    published.observed_at_us == now_us, "source invalidation was coalesced away");
+            advance(1000);
+            battery.data_stale = false;
+            require(battery_endurance_tick(false) == ESP_OK && published.source_current,
+                    "source validity recovery was suppressed");
+            advance(1000);
+            observation_error = ESP_ERR_TIMEOUT;
+            require(battery_endurance_tick(false) == observation_error && published.error == observation_error,
+                    "new operation error was suppressed");
+            const unsigned failed_publications = publication_attempts;
+            advance(10);
+            require(battery_endurance_tick(false) == observation_error && publication_attempts == failed_publications,
+                    "throttled call erased the unrecovered operation error");
+            advance(990);
+            require(battery_endurance_tick(false) == observation_error && publication_attempts == failed_publications,
+                    "unchanged operation error was republished or hidden");
+            advance(1000);
+            observation_error = ESP_OK;
+            require(battery_endurance_tick(false) == ESP_OK && published.error == ESP_OK && published.source_current,
+                    "operation recovery was suppressed");
+            const unsigned before_events = publication_attempts;
+            // No clock advance: durable content, not timestamps, forces these publications.
+            require(battery_endurance_woke() == ESP_OK && (published.current.flags & FirstWakeRecorded),
+                    "same-timestamp first wake was suppressed");
+            require(battery_endurance_power_off(true) == ESP_OK &&
+                    published.current.phase == EndurancePhase::ShutdownRequested,
+                    "same-timestamp shutdown marker was suppressed");
+            require(battery_endurance_power_off(false) == ESP_OK && published.current.phase == EndurancePhase::Running,
+                    "same-timestamp shutdown cancellation was suppressed");
+            require(publication_attempts == before_events + 3 && writes == initial_writes + 3,
+                    "durable events did not publish once each");
+        } else if (scenario == "publication-retry") {
+            const unsigned initial_publications = publication_attempts;
+            advance(1000);
+            battery.data_stale = true;
+            publication_error = ESP_ERR_TIMEOUT;
+            require(battery_endurance_tick(false) == publication_error && published.source_current,
+                    "failed publication changed canonical source or hid failure");
+            require(battery_endurance_tick(false) == publication_error,
+                    "throttled call erased publication failure");
+            advance(1000);
+            require(battery_endurance_tick(false) == publication_error &&
+                    publication_attempts == initial_publications + 2, "unchanged failed publication was not retried");
+            advance(1000);
+            publication_error = ESP_OK;
+            require(battery_endurance_tick(false) == ESP_OK && !published.source_current,
+                    "publication recovery did not publish retained transition");
+            advance(1000);
+            const unsigned recovered_publications = publication_attempts;
+            require(battery_endurance_tick(false) == ESP_OK && publication_attempts == recovered_publications,
+                    "recovered unchanged state still published");
+            publication_error = ESP_ERR_TIMEOUT;
+            const int64_t committed_at = now_us;
+            require(battery_endurance_woke() == publication_error && writes == initial_writes + 1,
+                    "durable wake publication failure lost original result");
+            advance(1000);
+            publication_error = ESP_OK;
+            require(battery_endurance_tick(false) == ESP_OK && (published.current.flags & FirstWakeRecorded) &&
+                    published.persisted_at_us == committed_at && published.observed_at_us == now_us &&
+                    writes == initial_writes + 1, "publication retry rewrote persistence or lost original commit time");
+        } else if (scenario == "heartbeat" || scenario == "seed") {
             advance(59000);
             require(battery_endurance_tick(true) == ESP_OK, "standby tick failed");
             require(writes == initial_writes, "heartbeat wrote before 60 seconds");

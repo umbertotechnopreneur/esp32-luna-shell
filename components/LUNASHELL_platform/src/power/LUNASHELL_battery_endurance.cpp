@@ -28,6 +28,11 @@ int64_t s_next_save_us = 0;
 int64_t s_next_log_us = 0;
 int64_t s_next_error_log_us = 0;
 esp_err_t s_logged_error = ESP_OK;
+bool s_publication_valid = false;
+bool s_published_initialized = false;
+bool s_published_source_current = false;
+esp_err_t s_published_error = ESP_ERR_INVALID_STATE;
+esp_err_t s_last_result = ESP_OK;
 
 // bytes: Little-endian field destination.
 // value: Unsigned value to encode.
@@ -107,14 +112,29 @@ bool decode_record(const uint8_t *bytes, BatteryEnduranceRecord &record)
 
 // error: Actual operation error; persistence failures disable further writes this boot.
 // disable: Preserve the stored record until an explicit repair when true.
+// force: Publish changed durable records even when their metadata/time is identical.
 // Exception: Returns the original error, or a publication error if the operation succeeded.
-esp_err_t publish(esp_err_t error, bool disable = false)
+esp_err_t publish(esp_err_t error, bool disable = false, bool force = false)
 {
     s_disabled |= disable;
     s_saved.error = error;
     s_saved.initialized = !s_disabled;
+    if (!force && s_publication_valid && s_published_error == error &&
+        s_published_initialized == s_saved.initialized &&
+        s_published_source_current == s_saved.source_current) {
+        // No owner-visible transition occurred. Keep the original publication
+        // timestamp; do not make an old observation look newly published.
+        s_last_result = error;
+        return error;
+    }
     s_saved.observed_at_us = esp_timer_get_time();
     const esp_err_t report_error = DeviceSnapshotService::instance().reportBatteryEndurance(s_saved);
+    s_publication_valid = report_error == ESP_OK;
+    if (s_publication_valid) {
+        s_published_error = error;
+        s_published_initialized = s_saved.initialized;
+        s_published_source_current = s_saved.source_current;
+    }
     const esp_err_t result = error != ESP_OK ? error : report_error;
     if (result != ESP_OK && (result != s_logged_error || s_saved.observed_at_us >= s_next_error_log_us)) {
         ESP_LOGE(kTag, "Recorder operation=%s publication=%s disabled=%u",
@@ -122,6 +142,7 @@ esp_err_t publish(esp_err_t error, bool disable = false)
         s_logged_error = result;
         s_next_error_log_us = s_saved.observed_at_us + kHeartbeatUs;
     }
+    s_last_result = result;
     return result;
 }
 
@@ -142,7 +163,7 @@ esp_err_t save()
     }
     s_saved = s_pending;
     s_saved.persisted_at_us = esp_timer_get_time();
-    return publish(ESP_OK);
+    return publish(ESP_OK, false, true);
 }
 
 // phase: Persisted typed session outcome; shutdown request is never physical evidence.
@@ -192,7 +213,9 @@ void log_record(const BatteryEnduranceRecord &record, const char *label)
 esp_err_t initialize()
 {
     if (s_attempted) {
-        return s_disabled ? s_saved.error : ESP_OK;
+        // A disabled recorder still retries failed canonical publication,
+        // without retrying or overwriting the rejected persistence operation.
+        return s_disabled ? publish(s_saved.error) : ESP_OK;
     }
     s_attempted = true;
     esp_err_t error = UserSettingsService::instance().getBlobExact(kKey, s_wire, sizeof(s_wire));
@@ -232,7 +255,7 @@ esp_err_t initialize()
         s_pending.current.phase = EndurancePhase::InterruptedUnknown;
         return save();
     }
-    return publish(ESP_OK);
+    return publish(ESP_OK, false, true);
 }
 
 // now: Current same-boot monotonic timestamp, including elapsed software standby.
@@ -262,7 +285,7 @@ esp_err_t battery_endurance_tick(bool standby)
     (void)standby;
     const int64_t now = esp_timer_get_time();
     if (now < s_next_poll_us) {
-        return s_disabled ? s_saved.error : ESP_OK;
+        return s_last_result;
     }
     s_next_poll_us = now + 1000000;
     esp_err_t error = initialize();
