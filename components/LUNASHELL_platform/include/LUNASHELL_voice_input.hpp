@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include "esp_err.h"
+#include "LUNASHELL_voice_poll_policy.hpp"
 
 namespace LUNASHELL {
 
@@ -37,6 +38,16 @@ bool tickVoiceInputTransport(const uint8_t *link_key, const char *device_id,
                             const char *peer_ip, const char *presence_nonce, bool connected);
 // No parameters: retires the active utterance as an explicit local cancellation.
 esp_err_t cancelVoiceInput();
+// expected_started_at_us: Session identity from the displayed canonical observation.
+// accepted: True only after the current captured audio was admitted for sending.
+// Exception: Stale/already-ended/no-PCM intents are ESP_OK with accepted=false;
+// real publication failures retain their error and are returned unchanged.
+esp_err_t finishVoiceInput(int64_t expected_started_at_us, bool &accepted);
+// expected_started_at_us: Session identity from the displayed canonical observation.
+// accepted: True only after local cancellation or protocol CANCEL was admitted.
+// Exception: Stale/post-END intents are ESP_OK with accepted=false; real owner
+// errors are returned. Admission never claims remote audio was already discarded.
+esp_err_t cancelVoiceInput(int64_t expected_started_at_us, bool &accepted);
 
 // No parameters: the acquisition owner ends active input before pausing the microphone.
 // Exception: Returns the original canonical publication failure.

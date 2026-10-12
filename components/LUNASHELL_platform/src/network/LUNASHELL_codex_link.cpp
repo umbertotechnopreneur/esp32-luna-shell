@@ -67,7 +67,7 @@ constexpr int64_t kPairingWindowUs = 5LL * 60LL * 1000000LL;
 constexpr int64_t kFindIntervalUs = 2LL * 1000000LL;
 constexpr int64_t kReadyExpiryUs = 8LL * 1000000LL;
 constexpr int64_t kActivationReplayUs = 10LL * 1000000LL;
-constexpr uint32_t kWorkerPollMs = 100;
+constexpr uint32_t kWorkerPollMs = LUNASHELL::voice_poll::kIdleMs;
 constexpr uint32_t kMaximumPacketsPerPass = 8;
 constexpr int64_t kMaximumReceivePassUs = 5000;
 constexpr uint32_t kGlobalIngressRate = 32;
@@ -3575,7 +3575,7 @@ void codexLinkWorker(void *context)
         maintainDebugScreen();
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-        ulTaskNotifyTake(pdTRUE, voice_busy ? std::max<TickType_t>(1, pdMS_TO_TICKS(5)) : pdMS_TO_TICKS(kWorkerPollMs));
+        ulTaskNotifyTake(pdTRUE, voice_busy ? std::max<TickType_t>(1, pdMS_TO_TICKS(LUNASHELL::voice_poll::kActiveMs)) : pdMS_TO_TICKS(kWorkerPollMs));
 #else
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kWorkerPollMs));
 #endif

@@ -50,7 +50,8 @@ uint32_t s_sequence, s_ack_counter;
 size_t s_packet_size;
 int s_socket = -1;
 sockaddr_in s_peer{};
-int64_t s_sent_at, s_last_speech_at, s_last_ack_at;
+int64_t s_sent_at, s_last_ack_at;
+uint32_t s_silence_samples = 0;
 bool s_heard_speech, s_begun, s_final;
 bool s_publication_pending = false;
 
@@ -234,7 +235,8 @@ esp_err_t LUNASHELL::requestVoiceInput(VoiceInputTrigger trigger)
     s_packet_size = 0;
     s_window_read = s_window_count = s_reserved = 0;
     s_begun = s_final = s_heard_speech = false;
-    s_last_speech_at = s_last_ack_at = s_observation.started_at_us;
+    s_silence_samples = 0;
+    s_last_ack_at = s_observation.started_at_us;
     esp_fill_random(s_session, sizeof(s_session));
     const esp_err_t publication_error = publish(VoiceInputPhase::Listening);
     if (publication_error != ESP_OK) return publication_error;
@@ -257,7 +259,11 @@ void LUNASHELL::feedVoiceInput(const int16_t *samples, size_t count, bool speech
     const int64_t now = esp_timer_get_time();
     if (speech) {
         s_heard_speech = true;
-        s_last_speech_at = now;
+        s_silence_samples = 0;
+    } else {
+        // Count only successfully acquired 16 kHz non-speech PCM. A stalled
+        // producer or scheduling gap must never manufacture silent audio.
+        s_silence_samples += static_cast<uint32_t>(admitted);
     }
     // Preserve only the acquired prefix admitted by the one-minute utterance bound.
     for (size_t i = 0; i < admitted; ++i) {
@@ -267,21 +273,19 @@ void LUNASHELL::feedVoiceInput(const int16_t *samples, size_t count, bool speech
     s_count += admitted;
     s_observation.captured_samples += static_cast<uint32_t>(admitted);
     LUNASHELL_power_manager_note_activity();
-    if ((s_heard_speech && now - s_last_speech_at >= 1200000) ||
+    if ((s_heard_speech && s_silence_samples > 2U * 16000U) ||
         now - s_observation.started_at_us >= 60000000 || s_observation.captured_samples == kUtteranceSamples) {
         publish(VoiceInputPhase::Sending);
     } else if (!s_heard_speech && now - s_observation.started_at_us >= 8000000) {
         publish(VoiceInputPhase::Failed, ESP_ERR_TIMEOUT);
     }
 }
-// No parameters: explicit shake cancellation never submits a partial recording.
-esp_err_t LUNASHELL::cancelVoiceInput()
+// No parameters: caller holds s_mutex and has admitted a pre-END cancellation.
+// Exception: Returns the original canonical publication error.
+static esp_err_t cancel_voice_input_locked()
 {
-    std::lock_guard<std::mutex> guard(s_mutex);
-    if (!active()) {
-        ESP_LOGE(kTag, "Voice cancellation rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
-        return ESP_ERR_INVALID_STATE;
-    }
+    using LUNASHELL::VoiceInputPhase;
+    s_count = s_silence_samples = 0;
     if (!s_begun) {
         // No END can have left before START acknowledgement; the PC expires partial state.
         return publish(VoiceInputPhase::Cancelled);
@@ -292,6 +296,49 @@ esp_err_t LUNASHELL::cancelVoiceInput()
         s_window_count = s_reserved = 0;
         return publish(VoiceInputPhase::Cancelling);
     }
+}
+// No parameters: legacy owner cancellation cannot revoke an already transmitted END.
+// Exception: Returns invalid state for a terminal/post-END session or the real publication error.
+esp_err_t LUNASHELL::cancelVoiceInput()
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (s_end_sent || (s_observation.phase != VoiceInputPhase::Listening &&
+                       s_observation.phase != VoiceInputPhase::Sending)) {
+        ESP_LOGE(kTag, "Voice cancellation rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    return cancel_voice_input_locked();
+}
+// expected_started_at_us: Original identity from the displayed canonical recording.
+// accepted: Receives false for a late/inapplicable gesture, true after successful publication.
+// Exception: Returns actual publication failure; a late gesture is an explicit no-op.
+esp_err_t LUNASHELL::finishVoiceInput(int64_t expected_started_at_us, bool &accepted)
+{
+    accepted = false;
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (expected_started_at_us <= 0 || expected_started_at_us != s_observation.started_at_us ||
+        s_observation.phase != VoiceInputPhase::Listening || s_observation.captured_samples == 0) {
+        return ESP_OK;
+    }
+    const esp_err_t error = publish(VoiceInputPhase::Sending);
+    accepted = error == ESP_OK;
+    return error;
+}
+// expected_started_at_us: Original identity from the displayed canonical recording.
+// accepted: Receives protocol/local cancellation admission, never remote delivery proof.
+// Exception: Returns actual publication failure; stale or post-END gestures are no-ops.
+esp_err_t LUNASHELL::cancelVoiceInput(int64_t expected_started_at_us, bool &accepted)
+{
+    accepted = false;
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (expected_started_at_us <= 0 || expected_started_at_us != s_observation.started_at_us ||
+        s_end_sent || (s_observation.phase != VoiceInputPhase::Listening &&
+                       s_observation.phase != VoiceInputPhase::Sending)) {
+        return ESP_OK;
+    }
+    const esp_err_t error = cancel_voice_input_locked();
+    accepted = error == ESP_OK;
+    return error;
 }
 // No parameters: an explicit microphone pause must not be undone by transport activity.
 // Exception: Returns the original canonical publication failure.
@@ -326,17 +373,19 @@ bool LUNASHELL::tickVoiceInputTransport(const uint8_t *link_key, const char *dev
     if (!active()) return false;
     const int64_t now = esp_timer_get_time();
     LUNASHELL_power_manager_note_activity();
-    if (now - s_observation.started_at_us > 90000000) {
+    if (now - s_observation.started_at_us > voice_poll::kSessionTimeoutUs) {
         transportFailure(ESP_ERR_TIMEOUT);
         return false;
     }
-    if (now - s_last_ack_at > 10000000) {
+    if (now - s_last_ack_at > voice_poll::kAckTimeoutUs) {
         transportFailure(ESP_ERR_TIMEOUT);
         return false;
     }
     // A temporary liveness gap consumes the existing ten-second buffer/deadline.
     // Resume only the same credential and frozen IP; never redirect an utterance.
-    if (!connected) return true;
+    if (!connected) {
+        return voice_poll::disconnected_needs_fast_poll(now, s_observation.started_at_us, s_last_ack_at);
+    }
     if (s_begun || s_packet_size != 0) {
         in_addr current_address{};
         if (std::memcmp(s_retained_link_key, link_key, sizeof(s_retained_link_key)) != 0 ||

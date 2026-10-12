@@ -12,6 +12,11 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
+from scripts.checks.verify_power_policy import function_text
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugins/cody-codex-plugin/mcp"))
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.exceptions import InvalidTag
@@ -19,6 +24,28 @@ import ccp_voice_input as audio
 
 
 class VoiceInputBoundaries(unittest.TestCase):
+    # self: Executes extracted real firmware functions with fake acquisition/publication.
+    # Raises on compile, assertion or source-extraction failure; no hardware is used.
+    def test_firmware_owner_gestures_silence_and_polling(self):
+        output = ROOT / "artifacts/checks/voice-input-owner"
+        output.mkdir(parents=True, exist_ok=True)
+        source_path = ROOT / "components/LUNASHELL_platform/src/audio/LUNASHELL_voice_input.cpp"
+        source = source_path.read_text(encoding="utf-8")
+        signatures = [
+            "esp_err_t publish(", "bool active()", "esp_err_t LUNASHELL::requestVoiceInput(",
+            "void LUNASHELL::feedVoiceInput(", "static esp_err_t cancel_voice_input_locked()",
+            "esp_err_t LUNASHELL::cancelVoiceInput()", "esp_err_t LUNASHELL::finishVoiceInput(",
+            "esp_err_t LUNASHELL::cancelVoiceInput(int64_t",
+        ]
+        (output / "voice_input_owner_under_test.inc").write_text(
+            "\n\n".join(function_text(source, signature, str(source_path)) for signature in signatures),
+            encoding="utf-8")
+        executable = output / "voice-input-owner.exe"
+        run_stage(compile_command(resolve_compiler(None),
+            [str(output), "scripts/tests/cody_native", "components/LUNASHELL_platform/include"],
+            ["scripts/tests/cody_native/voice_input_owner_contract.cpp"], executable), output, "compile")
+        run_stage([str(executable)], output, "owner")
+
     # self: Isolated receiver fixture; no sockets, model calls or device access.
     def setUp(self):
         # Synthetic public test bytes, unrelated to any paired device credential.
@@ -102,6 +129,20 @@ class VoiceInputBoundaries(unittest.TestCase):
         self.assertEqual(recording.status, 5)
         self.assertFalse(recording.accepted)
         self.assertEqual(len(recording.pcm), 0)
+
+    # self: Real receiver holding streamed PCM before the sender admitted END.
+    # Raises AssertionError if explicit discard schedules delivery or retains audio.
+    def test_cancel_stream_before_end_discards_without_delivery(self):
+        self.receiver.accept(self.packet(0, 1), self.source)
+        self.receiver.accept(self.packet(1, 2, bytes(32)), self.source)
+        # Sender may retire an unacknowledged window, so CANCEL can skip its IDs.
+        self.receiver.accept(self.packet(6, 4), self.source)
+        self.receiver.accept(self.packet(6, 4), self.source)
+        recording = next(iter(self.receiver.records.values()))
+        self.assertEqual(recording.status, 5)
+        self.assertFalse(recording.pcm)
+        self.assertFalse(recording.accepted)
+        self.assertTrue(self.receiver.jobs.empty())
 
     # self: Receiver fixture with a full sixty-second utterance.
     # Raises AssertionError if new audio overwrites or exceeds retained PCM.
