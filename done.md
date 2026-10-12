@@ -13,6 +13,58 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Voice recording controls, rendering and polling - 2026-10-12
+
+Three agents reviewed acquisition lifecycle, voice ownership/transport and host
+verification. AFE startup and paused workers now block on explicit notifications;
+owner acknowledgments use a static semaphore with the original bounded deadlines.
+Both workers receive resume/rollback/terminal notifications. Independent handle
+lifetime locking prevents a standby waiter from blocking failure notification.
+Rollback retains an uncertain audio route and never resets an AFE that did not
+complete suspension. Existing task stacks and active PCM/inference timing remain.
+Disconnected voice transport drops from 5-ms to 100-ms service away from deadlines;
+Debug power-stack scans run every two seconds instead of every 100-ms policy tick.
+BOOT polling is retained because no interrupt currently protects short presses.
+
+The recording screen has persistent send/silence/discard instructions, one-tap
+send with 350-ms double-tap arbitration, shake/double-tap discard and automatic
+send after more than two seconds of acquired VAD silence following speech.
+Guarded owner APIs reject stale-session and post-END intents without claiming
+remote discard. Filled procedural RGB565 alpha layers target 30 FPS; canonical
+fresh microphone levels control only visual gain. The 784-byte knot buffer belongs
+to the display owner, and the renderer uses existing DMA slot capacity. Static
+instructions do not repaint each frame; metadata and timer refresh at 5 Hz.
+No video, SD audio storage, new microphone reader or per-frame allocation is added.
+
+Initial host execution passed the ten real extracted AFE lifecycle helpers,
+twelve voice-owner/receiver tests and native raster/gesture contracts. The UI
+fixture encodes actual native pixels and font glyphs into a visibly SIMULATED
+preview; its gain is synthetic. The first default-Python receiver invocation
+could not import cryptography; the existing activity environment passed it.
+The first power source scan exposed an obsolete inline-wait assertion, updated
+to verify both worker calls and the shared gate. The final AFE, twelve voice-input,
+native UI and power-policy suites all passed; new host fixtures compile without
+warnings. The native 90-frame GIF/PNG preview was generated and inspected.
+Final diff whitespace validation and the changed-files secret scan passed.
+
+The selected IDF 6.0.2 Debug wake-word/activity build and size passed at eight jobs:
+app 7,273,008 bytes, 1,488 bytes free in the unchanged OTA slot, static DIRAM
+245,012 bytes. Binary SHA256 is
+`3612828e65d32a00023d471513101ef4148e88b050ae5c7bdf1222d2d2d09720`.
+The app grew 880 bytes relative to the preserved installed-image baseline.
+Individual compiled frames passed: feed 64/4096, fetch 48/3072, companion worker
+352/12288 and power task 1152/8192 bytes. Recording-row and ribbon raster helpers
+use 208 and 128 bytes respectively. These are individual frames, not complete
+nested call-chain bounds or measured stack watermarks. SDK/managed-component
+Kconfig notices remain visible in the retained build log; no warnings were hidden.
+
+Build, size and the installed-image backup are retained under
+`artifacts/build-cody-companion-wake-word-evidence/voice-poll-ui-20261012/`.
+Host logs are under `artifacts/checks/voice-poll-review/`, with native previews in
+`artifacts/checks/cody-voice-ui/`. No flash, reset, physical gesture, FPS, current
+or battery-duration claim follows from these results. The installed battery-run
+image and collector deadline are preserved.
+
 ## Energy, memory and maintenance review - 2026-10-12
 
 Three independent review scopes covered power/endurance, memory/performance and
@@ -42,10 +94,10 @@ in `energy-memory-review/report-failure/`, not presented as a firmware failure.
 
 The review found sound canonical acquisition ownership, explicit PSRAM/internal
 memory placement and conservative DMA retirement. Remaining opportunities are
-the AFE fetch worker's 20-ms paused polling, other field-specific Luna consumers
+the then-existing AFE fetch worker's 20-ms paused polling, other field-specific Luna consumers
 that still copy full snapshots, and stronger real HAR window-boundary coverage.
-AFE notification/stop ownership must be designed before replacing polling with
-an infinite wait. No training or classifier-driven shutdown was added.
+The later voice/polling increment above implements AFE notification/stop ownership
+and its host coverage. No training or classifier-driven shutdown was added.
 
 Historical USB evidence for the installed image reports only 2368 bytes of OTA
 headroom, internal heap minimum 12063 bytes and largest free internal block

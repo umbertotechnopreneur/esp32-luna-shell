@@ -489,21 +489,28 @@ of an immediately following command still need physical observation.
 
 Voice input has presentation priority while retaining the interrupted route and
 its real question deadlines. The character, geometry evaluation and normal scene
-animation are suspended behind a synthetic ribbon at 8 FPS: sixteen immutable
-poses in a 440 x 40 logical-pixel band. Four phase-shifted curves use lightweight
-Q8 edge coverage and alpha composition for smooth overlaps; there is no runtime
-trigonometry, 3D rendering or microphone-amplitude following. After the first full retirement, only the
-ribbon, single identity row, alternating hint and timer bands transfer again. One measured,
+animation are suspended behind a procedural ribbon with a 30-FPS scheduling
+target in a 384 x 48 logical-pixel band. Four filled colored layers use fixed-point
+interpolation and native RGB565 alpha composition. A display-owned 784-byte knot
+buffer avoids per-frame allocation, video assets, SD access and runtime trigonometry.
+The visual gain follows valid, fresh microphone levels already published by the
+AFE owner; unavailable levels decay the artwork without inventing measurements.
+After the first full retirement, only the ribbon transfers at animation cadence;
+the identity and timer bands refresh at 5 Hz, and instructions remain static.
+Actual frame rate and energy cost require target measurements. One measured,
 fading/scrolling row cycles model, catalog cost band, thinking effort, branch,
 then project; unavailable fields disappear. No numeric price or bill is invented.
 The bottom timer shows elapsed and remaining seconds within the sixty-second
-budget, starting at `00s elapsed / 60s left`. Deliberate shake is the only cancellation
-gesture; the hint alternates `Shake to fade` and
-`We will send the audio to Codex for transcription` in the same lower row.
-The full second message scrolls inside a clipped 320 x 28 viewport before repeating.
-The requested fade wording still invokes cancellation; there is no voice button or touch action. It cannot revoke a turn
-already accepted by Codex. End of
-speech uses 1.2 seconds of actual VAD silence after speech, with an eight-second
+budget, starting at `00s elapsed / 60s left`. Recording keeps all instructions
+visible: `Tap once to send`, `Pause over 2s to send`, and
+`Shake or double tap` / `to discard`. A single completed tap waits 350 ms for
+double-tap arbitration; a second held contact postpones that decision. Double tap
+or deliberate shake requests discard. Session and orientation guards reject late
+gestures, and only a fully retired view admits input. Cancellation remains possible
+while sending before END, but cannot revoke END already transmitted or a turn
+accepted by Codex; no late gesture claims that remote audio was discarded.
+End of speech requires more than two seconds of successfully acquired 16-kHz
+VAD nonspeech PCM after speech; scheduling gaps do not count as silence. There is an eight-second
 no-speech deadline and a 60-second maximum utterance. The overall capture/delivery
 budget is 90 seconds. New triggers never start a second simultaneous capture.
 Explicit sleep and microphone pauses stop this input even when standby retains
@@ -516,7 +523,9 @@ limit. Full buffers fail explicitly without overwriting unheard words. Neither S
 nor internal flash stores audio on the device. Canonical `voice.input` contains
 typed phase/trigger, actual counters, original event times and errors; no consumer
 reads the microphone. The CCP worker borrows the transport with a 5-ms cadence
-only during an active input (at least one RTOS tick), restoring its normal 100-ms poll when idle.
+only while connected input needs service (at least one RTOS tick). Idle and
+disconnected input use the normal 100-ms cadence; the last 100 ms before an ACK
+or session deadline return to the fast cadence to preserve timeout granularity.
 
 The dedicated Wi-Fi channel is UDP 42119, separate from CCP metadata. It uses
 AES-256-GCM, fresh per-utterance keys derived from the paired link and current
@@ -544,7 +553,9 @@ Recording IDs, returned native turn IDs, artifact paths and uncertainty are
 available through audio status; ambiguous input is never automatically retried. Native approvals
 and questions are never answered by the device or plugin.
 
-This is source integration, not a claim of working device dictation. Firmware
-build/size, authenticated transport tests, native desktop integration and measured
-stack/CPU/PSRAM headroom remain in `VOICE-01` in the root TODO. The atlases retain
+This does not yet establish working device dictation. The 2026-10-12 recording
+increment passed the selected Debug wake-word/activity build/size, real owner and
+receiver host tests, native raster/gesture checks and individual compiled stack
+frames. It was not flashed over the ongoing battery experiment. Native desktop
+integration and measured stack/CPU/PSRAM headroom remain in `VOICE-01` in the root TODO. The atlases retain
 their planned audio flow until end-to-end verification establishes its behavior.

@@ -20,6 +20,7 @@
 #include "CODY_codex_audio.hpp"
 #include "CODY_activity_identity.hpp"
 #include "CODY_voice_waveform.hpp"
+#include "CODY_voice_recording.hpp"
 #include "CODY_happiness.hpp"
 #include "CODY_connection_personality.hpp"
 
@@ -2725,7 +2726,14 @@ esp_err_t draw_branding_rows(uint16_t frame_index)
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
 // Display-owned bounded projection and prepared glyphs never enter nested frame stacks.
 LUNASHELL::VoiceSnapshot s_voice_input_view{};
-CODY2D::TextLine s_voice_title{}, s_voice_shake{}, s_voice_timer{};
+CODY2D::TextLine s_voice_title{}, s_voice_timer{}, s_voice_send{}, s_voice_silence{};
+CODY2D::TextLine s_voice_discard{}, s_voice_discard_detail{};
+CODY::VoiceRibbonFrame s_voice_ribbon{};
+CODY::VoiceRecordingGesture s_voice_recording_gesture{};
+uint16_t s_voice_visual_energy = 0;
+int64_t s_voice_visual_sampled_us = 0;
+int64_t s_voice_details_retired_us = 0;
+int64_t s_voice_details_candidate_us = 0;
 char s_voice_countdown[32]{};
 enum class VoiceCaptionKind : uint8_t { Model, Cost, Effort, Branch, Project };
 struct VoiceCaption {
@@ -2758,6 +2766,24 @@ bool voice_input_view_active()
     return s_voice_view_visible;
 }
 
+// action: Gesture accepted only from the completely retired recording screen.
+// session_at_us: Original start timestamp that prevents acting on a later recording.
+// Exception: Returns original owner/publication failure; superseded gestures are explicit no-ops.
+esp_err_t apply_voice_recording_action(CODY::VoiceRecordingAction action, int64_t session_at_us)
+{
+    bool accepted = false;
+    switch (action) {
+    case CODY::VoiceRecordingAction::Send:
+        return LUNASHELL::finishVoiceInput(session_at_us, accepted);
+    case CODY::VoiceRecordingAction::Discard:
+        return LUNASHELL::cancelVoiceInput(session_at_us, accepted);
+    case CODY::VoiceRecordingAction::None:
+        return ESP_OK;
+    }
+    ESP_LOGE(kTag, "Unknown voice recording gesture (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+    return ESP_ERR_INVALID_ARG;
+}
+
 // text: Stable display-owned printable caption.
 // top: Logical top edge within the available circular chord.
 // color: Semantic native RGB565 foreground.
@@ -2780,49 +2806,31 @@ esp_err_t prepare_voice_caption(const char *text, int16_t top, uint16_t color, C
         {static_cast<int16_t>((466 - width) / 2), top}, color, line);
 }
 
-// strip: Borrowed DMA tile in logical coordinates.
-// row: First logical row of the tile.
-// pose: Authored synthetic waveform identity, never measured microphone amplitude.
-// Exception: Returns the original native raster failure.
-esp_err_t draw_voice_ribbon(CODY2D::Surface strip, uint16_t row, size_t pose)
+// now_us: Current presentation time, used only to age already acquired microphone data.
+// listening: True while this recording still accepts real PCM.
+void prepare_voice_visual(int64_t now_us, bool listening)
 {
-    const esp_err_t surface_error = CODY2D::validate_surface(strip);
-    if (surface_error != ESP_OK) return surface_error;
-    if (strip.width != kPanelWidth || row + strip.height > kPanelHeight || pose >= CODY::kVoiceWaveformFrameCount) {
-        ESP_LOGE(kTag, "Voice ribbon bounds rejected: width=%u row=%u height=%u pose=%u",
-            unsigned(strip.width), unsigned(row), unsigned(strip.height), unsigned(pose));
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (row >= 210 || row + strip.height <= 170) return ESP_OK;
-    for (uint16_t x = 13; x < 453; ++x) {
-        const uint32_t position = (x - 13U) * 63U;
-        const size_t first = std::min<size_t>(62, position / 439U);
-        const int fraction = static_cast<int>(position - first * 439U);
-        const uint16_t color = CODY2D::blend_rgb565(0x9B1F, 0x2E7F,
-            static_cast<uint8_t>((x - 13U) * 255U / 439U));
-        constexpr int scale[] = {256, 192, 128, 224};
-        constexpr int shift[] = {0, 3, -3, -1};
-        constexpr uint8_t strength[] = {230, 155, 120, 170};
-        for (size_t layer = 0; layer < 4; ++layer) {
-            const size_t wave_pose = (pose + layer * 4) % CODY::kVoiceWaveformFrameCount;
-            // Q8 interpolation gives subpixel edge coverage without floats, trigonometry or supersampled buffers.
-            const int value_q8 = int(CODY::kVoiceWaveform[wave_pose][first]) * 256 +
-                (CODY::kVoiceWaveform[wave_pose][first + 1] - CODY::kVoiceWaveform[wave_pose][first]) * fraction * 256 / 439;
-            const int center_q8 = (190 + shift[layer]) * 256 + value_q8 * scale[layer] / 256;
-            for (uint16_t offset = 0; offset < strip.height; ++offset) {
-                const int y = row + offset;
-                if (y < 170 || y >= 210) continue;
-                const int coverage = std::clamp(512 - std::abs(y * 256 + 128 - center_q8), 0, 256);
-                if (coverage == 0) continue;
-                const size_t pixel = offset * strip.stride + x;
-                const uint16_t background = CODY2D::rgb565_stored_to_native(strip.pixels[pixel], strip.byte_order);
-                const uint8_t opacity = static_cast<uint8_t>(coverage * strength[layer] / 256);
-                const uint16_t blended = CODY2D::blend_rgb565(color, background, opacity);
-                strip.pixels[pixel] = CODY2D::rgb565_native_to_stored(blended, strip.byte_order);
-            }
+    const auto &microphone = s_voice_motion.microphone;
+    const auto &stamp = microphone.stamp;
+    const bool current = listening && stamp.health == CODY::SampleHealth::Current &&
+        stamp.error == ESP_OK && stamp.sampled_at_us > 0 && now_us >= stamp.sampled_at_us &&
+        now_us - stamp.sampled_at_us <= 250000 && microphone.channel_count > 0 && microphone.channel_count <= 2;
+    uint32_t mean = 0;
+    if (current) {
+        for (uint8_t channel = 0; channel < microphone.channel_count; ++channel) {
+            mean = std::max(mean, microphone.mean_level[channel]);
         }
     }
-    return ESP_OK;
+    const uint16_t target = static_cast<uint16_t>(std::min<uint32_t>(255, mean * 255U / (mean + 800U)));
+    const int64_t elapsed = s_voice_visual_sampled_us == 0 ? 33333 :
+        std::max<int64_t>(0, now_us - s_voice_visual_sampled_us);
+    const int weight = static_cast<int>(std::min<int64_t>(256,
+        elapsed * 256 / (target > s_voice_visual_energy ? 60000 : 220000)));
+    // Smooth artwork gain only. No interpolated amplitude is published as a measurement.
+    s_voice_visual_energy = static_cast<uint16_t>(int(s_voice_visual_energy) +
+        (int(target) - s_voice_visual_energy) * weight / 256);
+    s_voice_visual_sampled_us = now_us;
+    CODY::prepare_voice_ribbon(now_us, static_cast<uint8_t>(s_voice_visual_energy), s_voice_ribbon);
 }
 
 // No parameters: fresh canonical metadata feeds the existing measured fade carousel.
@@ -2883,45 +2891,31 @@ esp_err_t prepare_voice_identity()
         if (count > 1 && elapsed < 200000) opacity = static_cast<uint8_t>(elapsed * 255 / 200000);
         if (count > 1 && elapsed > hold) opacity = static_cast<uint8_t>(std::max<int64_t>(0, 200000 - (elapsed - hold)) * 255 / 200000);
         const uint16_t offset = static_cast<uint16_t>(std::min<int64_t>(overflow, std::max<int64_t>(0, elapsed - 1500000) / 35000));
-        return CODY::prepare_activity_identity_window(CODY::SceneData::body_font, caption.text,
+        error = CODY::prepare_activity_identity_window(CODY::SceneData::body_font, caption.text,
             caption.length, caption.width, offset, CODY2D::fade_rgb565_to_black(caption.color, opacity), s_voice_carousel_line);
+        if (error == ESP_OK) {
+            s_voice_carousel_line.origin.y -= 166;
+            s_voice_carousel_line.bounds.y -= 166;
+        }
+        return error;
     }
     return ESP_OK;
 }
 
-// No parameters: immutable hints alternate on the current input's monotonic clock.
-// Exception: Returns original native font or glyph-window errors.
+// No parameters: recording actions remain visible together instead of scrolling away.
+// Exception: Returns the original measured font/layout error.
 esp_err_t prepare_voice_hint()
 {
-    const auto &font = CODY::SceneData::body_font;
-    esp_err_t error = CODY2D::validate_mono_font(font);
-    if (error != ESP_OK) return error;
-    if (font.height > 28) {
-        ESP_LOGE(kTag, "Voice hint height rejected: height=%u", unsigned(font.height));
-        return ESP_ERR_INVALID_SIZE;
-    }
-    static constexpr char transcription[] = "We will send the audio to Codex for transcription";
-    const uint16_t transcription_length = sizeof(transcription) - 1;
-    const uint16_t transcription_width = (transcription_length - 1U) * font.advance + font.width;
-    const uint16_t overflow = transcription_width > 320 ? transcription_width - 320 : 0;
-    constexpr int64_t shake_duration = 4000000;
-    const int64_t transcription_duration = 3500000 + int64_t(overflow) * 35000;
-    const int64_t elapsed = std::max<int64_t>(0,
-        esp_timer_get_time() - s_voice_input_view.input.started_at_us) %
-        (shake_duration + transcription_duration);
-    const bool show_transcription = elapsed >= shake_duration;
-    const char *text = show_transcription ? transcription : "Shake to fade";
-    const uint16_t length = static_cast<uint16_t>(std::strlen(text));
-    const uint16_t width = (length - 1U) * font.advance + font.width;
-    const int64_t caption_elapsed = show_transcription ? elapsed - shake_duration : elapsed;
-    const uint16_t offset = show_transcription ? static_cast<uint16_t>(std::min<int64_t>(overflow,
-        std::max<int64_t>(0, caption_elapsed - 1500000) / 35000)) : 0;
-    // Native measured windows retain the complete literal; the renderer clips the moving edge.
-    error = CODY::prepare_activity_identity_window(font, text, length, width, offset, 0xAD75, s_voice_shake);
-    if (error != ESP_OK) return error;
-    s_voice_shake.origin.y += 65;
-    s_voice_shake.bounds.y += 65;
-    return ESP_OK;
+    using Phase = LUNASHELL::VoiceInputPhase;
+    const auto phase = s_voice_input_view.input.phase;
+    s_voice_send = s_voice_silence = s_voice_discard = s_voice_discard_detail = {};
+    if (phase != Phase::Listening) return ESP_OK;
+    esp_err_t error = ESP_OK;
+    error = prepare_voice_caption(CODY::kVoiceSendHint, 260, 0xF7BE, s_voice_send);
+    if (error == ESP_OK) error = prepare_voice_caption(CODY::kVoiceSilenceHint, 292, 0xAD75, s_voice_silence);
+    if (error == ESP_OK) error = prepare_voice_caption(CODY::kVoiceDiscardHint, 334, 0xAD75, s_voice_discard);
+    if (error == ESP_OK) error = prepare_voice_caption(CODY::kVoiceDiscardDetail, 362, 0xAD75, s_voice_discard_detail);
+    return error;
 }
 
 // No parameters: priority input uses a small ribbon, genuine identity carousel and countdown.
@@ -2930,42 +2924,53 @@ esp_err_t draw_voice_input_rows()
 {
     using Phase = LUNASHELL::VoiceInputPhase;
     const auto phase = s_voice_input_view.input.phase;
-    const char *title = phase == Phase::Listening ? "Listening" : phase == Phase::Sending ? "Sending audio" :
-        phase == Phase::Cancelling ? "Cancelling" : phase == Phase::Received ? "On your PC" :
-        phase == Phase::Delivered ? "Sent to Codex" : phase == Phase::Cancelled ? "Cancelled" :
-        phase == Phase::Unconfirmed ? "Check on your PC" : "Audio failed";
-    esp_err_t error = prepare_voice_caption(title, 92, 0xF7BE, s_voice_title);
-    if (error != ESP_OK) return error;
-    error = prepare_voice_hint();
-    if (error != ESP_OK) return error;
-    const int64_t elapsed = std::max<int64_t>(0, esp_timer_get_time() - s_voice_input_view.input.started_at_us);
-    const uint32_t used = std::min<uint32_t>(60, phase == Phase::Listening ?
-        static_cast<uint32_t>(elapsed / 1000000) : s_voice_input_view.input.captured_samples / 16000U);
-    const int count = std::snprintf(s_voice_countdown, sizeof(s_voice_countdown), "%02us elapsed / %02us left",
-        static_cast<unsigned>(used), static_cast<unsigned>(60U - used));
-    if (count <= 0 || count >= int(sizeof(s_voice_countdown))) return ESP_ERR_INVALID_SIZE;
-    error = prepare_voice_caption(s_voice_countdown, 402, 0xF7BE, s_voice_timer);
-    if (error != ESP_OK) return error;
-    error = prepare_voice_identity();
-    if (error != ESP_OK) return error;
+    const int64_t now_us = esp_timer_get_time();
+    const bool full = s_voice_force_full || !s_voice_view_visible || s_voice_view_phase != phase ||
+        s_voice_view_started_at_us != s_voice_input_view.input.started_at_us ||
+        s_voice_view_rotation != s_state.rendered_rotation_degrees;
+    const bool details_due = full || now_us - s_voice_details_retired_us >= 200000;
+    esp_err_t error = ESP_OK;
+    if (full) {
+        const char *title = phase == Phase::Listening ? "Listening" : phase == Phase::Sending ? "Sending audio" :
+            phase == Phase::Cancelling ? "Cancelling" : phase == Phase::Received ? "On your PC" :
+            phase == Phase::Delivered ? "Sent to Codex" : phase == Phase::Cancelled ? "Discarded" :
+            phase == Phase::Unconfirmed ? "Check on your PC" : "Audio failed";
+        error = prepare_voice_caption(title, 92, 0xF7BE, s_voice_title);
+        if (error == ESP_OK) error = prepare_voice_hint();
+        if (error != ESP_OK) return error;
+    }
+    if (details_due) {
+        const int64_t elapsed = std::max<int64_t>(0, now_us - s_voice_input_view.input.started_at_us);
+        const uint32_t used = std::min<uint32_t>(60, phase == Phase::Listening ?
+            static_cast<uint32_t>(elapsed / 1000000) : s_voice_input_view.input.captured_samples / 16000U);
+        const int count = std::snprintf(s_voice_countdown, sizeof(s_voice_countdown), "%02us elapsed / %02us left",
+            static_cast<unsigned>(used), static_cast<unsigned>(60U - used));
+        if (count <= 0 || count >= int(sizeof(s_voice_countdown))) return ESP_ERR_INVALID_SIZE;
+        error = prepare_voice_caption(s_voice_countdown, 402, 0xF7BE, s_voice_timer);
+        if (error == ESP_OK) error = prepare_voice_identity();
+        if (error != ESP_OK) return error;
+    }
     const bool cancellable = phase == Phase::Listening || phase == Phase::Sending;
     error = CODY::observe_response_inputs(s_voice_motion);
     if (error != ESP_OK) return error;
     if (CODY::observe_companion_shake(s_state.companion_shake, s_voice_motion.navigation_motion,
             esp_timer_get_time(), cancellable && s_voice_view_visible)) {
-        error = LUNASHELL::cancelVoiceInput();
+        CODY::reset_voice_recording_gesture(s_voice_recording_gesture);
+        error = apply_voice_recording_action(CODY::VoiceRecordingAction::Discard, s_voice_view_started_at_us);
         if (error != ESP_OK) return error;
     }
-    const bool full = s_voice_force_full || !s_voice_view_visible || s_voice_view_phase != phase ||
-        s_voice_view_started_at_us != s_voice_input_view.input.started_at_us ||
-        s_voice_view_rotation != s_state.rendered_rotation_degrees;
-    const size_t pose = static_cast<size_t>((esp_timer_get_time() / 125000) % CODY::kVoiceWaveformFrameCount);
+    prepare_voice_visual(now_us, phase == Phase::Listening);
+    s_voice_details_candidate_us = details_due ? now_us : s_voice_details_retired_us;
     for (uint16_t row = 0; row < kPanelHeight;) {
-        // First retirement clears the old route. Later frames transfer only the changing bands.
-        if (!full && !((row >= 170 && row < 210) || (row >= 300 && row < 328) ||
-            (row >= 364 && row < 394) || (row >= 402 && row < 430))) {
-            row += 2;
-            continue;
+        // Static instructions retire with the first complete frame. Only the
+        // ribbon animates at 30 Hz; metadata and elapsed time refresh at 5 Hz.
+        uint16_t band_end = kPanelHeight;
+        if (!full) {
+            if (details_due && row >= 134 && row < 162) band_end = 162;
+            else if (row >= CODY::kVoiceRibbonTop && row < CODY::kVoiceRibbonTop + CODY::kVoiceRibbonHeight)
+                band_end = CODY::kVoiceRibbonTop + CODY::kVoiceRibbonHeight;
+            else if (details_due && row >= 402 && row < 430) band_end = 430;
+            else { row += 2; continue; }
         }
         error = LUNASHELL_display_frame_check_deadline();
         if (error != ESP_OK) return error;
@@ -2975,16 +2980,20 @@ esp_err_t draw_voice_input_rows()
         if (error != ESP_OK) return error;
         const size_t available_rows = (capacity / (466 * sizeof(uint16_t))) & ~size_t{1};
         if (storage == nullptr || available_rows < 2 || available_rows > 466) return ESP_ERR_INVALID_SIZE;
-        // Two rows keep all partial regions aligned with the native DMA contract.
-        constexpr uint16_t rows = 2;
+        // Use the owner's actual slot capacity; keep every partial boundary even.
+        const uint16_t rows = static_cast<uint16_t>(std::min<size_t>(available_rows, band_end - row));
         CODY2D::Surface strip{static_cast<uint16_t *>(storage), 466, rows, 466,
             static_cast<uint32_t>(capacity / sizeof(uint16_t)), CODY2D::Rgb565ByteOrder::ByteSwapped};
         error = CODY2D::clear(strip, 0);
-        if (error == ESP_OK) error = draw_voice_ribbon(strip, row, pose);
-        if (error == ESP_OK) error = CODY2D::draw_text_rows(s_voice_title, s_voice_title.text.length, strip, row, 0);
+        if (error == ESP_OK) error = CODY::draw_voice_ribbon_rows(strip, row, s_voice_ribbon);
+        const CODY2D::TextLine *lines[] = {&s_voice_title, &s_voice_send, &s_voice_silence,
+            &s_voice_discard, &s_voice_discard_detail, &s_voice_timer};
+        for (const auto *line : lines) {
+            if (error == ESP_OK && line->valid) error = CODY2D::draw_text_rows(*line, line->text.length, strip, row, 0);
+        }
         if (error == ESP_OK && s_voice_carousel_line.valid) {
-            const uint16_t top = std::max<uint16_t>(row, 300);
-            const uint16_t bottom = std::min<uint16_t>(row + rows, 328);
+            const uint16_t top = std::max<uint16_t>(row, 134);
+            const uint16_t bottom = std::min<uint16_t>(row + rows, 162);
             if (top < bottom) {
                 CODY2D::Surface clipped = strip;
                 clipped.pixels += (top - row) * strip.stride + 73;
@@ -2994,19 +3003,6 @@ esp_err_t draw_voice_input_rows()
                 error = CODY2D::draw_text_rows(s_voice_carousel_line, s_voice_carousel_line.text.length, clipped, top, 73);
             }
         }
-        if (error == ESP_OK && cancellable) {
-            const uint16_t top = std::max<uint16_t>(row, 365);
-            const uint16_t bottom = std::min<uint16_t>(row + rows, 393);
-            if (top < bottom) {
-                CODY2D::Surface clipped = strip;
-                clipped.pixels += (top - row) * strip.stride + 73;
-                clipped.pixel_capacity -= (top - row) * strip.stride + 73;
-                clipped.width = 320;
-                clipped.height = bottom - top;
-                error = CODY2D::draw_text_rows(s_voice_shake, s_voice_shake.text.length, clipped, top, 73);
-            }
-        }
-        if (error == ESP_OK) error = CODY2D::draw_text_rows(s_voice_timer, s_voice_timer.text.length, strip, row, 0);
         if (error == ESP_OK) error = LUNASHELL_display_frame_submit_rgb565(0, row, 466, row + rows, storage);
         if (error != ESP_OK) return error;
         row += rows;
@@ -3063,6 +3059,16 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const esp_err_t voice_read = LUNASHELL::DeviceSnapshotService::instance().readVoiceObservation(s_voice_input_view);
     if (voice_read != ESP_OK) return frame.finish({voice_read, false, 0});
     using VoicePhase = LUNASHELL::VoiceInputPhase;
+    const auto recording_action = CODY::take_voice_recording_action(s_voice_recording_gesture,
+        esp_timer_get_time(), s_voice_input_view.input.started_at_us, s_state.rendered_rotation_degrees,
+        s_voice_view_visible && (s_voice_input_view.input.phase == VoicePhase::Listening ||
+            s_voice_input_view.input.phase == VoicePhase::Sending));
+    if (recording_action != CODY::VoiceRecordingAction::None) {
+        esp_err_t action_error = apply_voice_recording_action(recording_action, s_voice_view_started_at_us);
+        if (action_error == ESP_OK) action_error =
+            LUNASHELL::DeviceSnapshotService::instance().readVoiceObservation(s_voice_input_view);
+        if (action_error != ESP_OK) return frame.finish({action_error, false, 0});
+    }
     const auto voice_phase = s_voice_input_view.input.phase;
     const bool voice_active = voice_phase == VoicePhase::Listening || voice_phase == VoicePhase::Sending ||
         voice_phase == VoicePhase::Cancelling || voice_phase == VoicePhase::Received;
@@ -3078,7 +3084,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         if (error == ESP_OK) error = draw_voice_input_rows();
         const DrawResult completed = frame.finish({error, false, LUNASHELL_display_runtime_content_revision()});
         if (completed.error == ESP_OK) {
-            // Only a fully retired frame admits the visible shake-only input gesture.
+            // Only a fully retired frame admits recording gestures for this session.
             if (!s_voice_view_visible) {
                 CODY::cancel_companion_tap(s_state.companion_tap);
                 CODY::cancel_petting(s_state.petting);
@@ -3086,7 +3092,14 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 s_state.setup_hold_eligible = false;
                 s_state.body_drag_active = false;
             }
+            if (!s_voice_view_visible || s_voice_view_started_at_us != s_voice_input_view.input.started_at_us ||
+                s_voice_view_rotation != s_state.rendered_rotation_degrees) {
+                CODY::reset_voice_recording_gesture(s_voice_recording_gesture);
+                s_voice_visual_energy = 0;
+                s_voice_visual_sampled_us = 0;
+            }
             s_voice_view_visible = true;
+            s_voice_details_retired_us = s_voice_details_candidate_us;
             s_state.wake_battery = {};
             s_voice_view_rotation = s_state.rendered_rotation_degrees;
             s_voice_view_phase = voice_phase;
@@ -3097,11 +3110,13 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_state.animation_sampled_us = 0;
         s_state.onboarding_sampled_us = 0;
         s_resources.previous_frame_valid = false;
-        s_state.next_frame_us = esp_timer_get_time() + 125000;
+        const bool animated = voice_phase == VoicePhase::Listening || voice_phase == VoicePhase::Sending;
+        s_state.next_frame_us = timings.frame_begin_started_us + (animated ? CODY::kVoiceRibbonFrameUs : 200000);
         return completed;
     }
     if (s_voice_view_visible) {
         s_voice_view_visible = false;
+        CODY::reset_voice_recording_gesture(s_voice_recording_gesture);
         const esp_err_t codex_audio_error = CODY::set_codex_audio_suspended(false);
         if (codex_audio_error != ESP_OK) return frame.finish({codex_audio_error, false, 0});
         s_state.animation_sampled_us = 0;
@@ -4884,9 +4899,16 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
     const bool pressed_edge = point.pressed && !s_state.touch_pressed;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     if (s_voice_view_visible) {
-        s_state.touch_pressed = point.pressed;
         CODY::cancel_companion_tap(s_state.companion_tap);
-        return ESP_OK;
+        const auto action = CODY::observe_voice_recording_touch(s_voice_recording_gesture,
+            static_cast<int16_t>(point.x), static_cast<int16_t>(point.y), point.pressed, pressed_edge,
+            point.sample_timestamp_us, s_voice_view_started_at_us, s_state.rendered_rotation_degrees,
+            (s_voice_view_phase == LUNASHELL::VoiceInputPhase::Listening ||
+             s_voice_view_phase == LUNASHELL::VoiceInputPhase::Sending) &&
+            s_voice_view_rotation == s_state.rendered_rotation_degrees &&
+            LUNASHELL_display_runtime_writes_allowed());
+        s_state.touch_pressed = point.pressed;
+        return apply_voice_recording_action(action, s_voice_view_started_at_us);
     }
 #endif
     const bool panel_open = technical_panel_view_active();
@@ -5177,6 +5199,7 @@ void interrupt_touch_gestures(esp_err_t error)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     s_voice_tap_due_us = 0;
+    CODY::reset_voice_recording_gesture(s_voice_recording_gesture);
 #endif
     CODY::cancel_companion_tap(s_state.companion_tap);
     s_touch_contact_interrupted = true;
@@ -5262,6 +5285,12 @@ void companion_worker(void *context)
         uint32_t wait_ms = kSamplePeriodMs;
         if (parked) {
             wait_ms = kStandbySamplePeriodMs;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        } else if (s_voice_view_visible) {
+            // Recording keeps its own frame deadline even when the previous
+            // route was static/paused. Touch IRQ still interrupts this wait.
+            wait_ms = remaining_us > 0 ? static_cast<uint32_t>((remaining_us + 999) / 1000) : 1;
+#endif
         } else if (s_state.animation_paused && !kRenderDiagnosticsEnabled && !companion_home_route_active()) {
             wait_ms = kSamplePeriodMs;
         } else if (s_state.rig_visible) {
@@ -5359,6 +5388,9 @@ void companion_worker(void *context)
             break;
         }
         if (display_parked) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+            CODY::reset_voice_recording_gesture(s_voice_recording_gesture);
+#endif
             suspend_optional_personality_audio(true);
             cancel_transient_affection();
         }

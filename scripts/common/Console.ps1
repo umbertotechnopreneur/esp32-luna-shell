@@ -55,6 +55,9 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
             'display-dma' = @{ Category = 'Snapshots, hardware and power'; Emoji = '🖥️'; Description = 'Execute native BSP slot, DMA completion, timeout and quarantine contracts on the host.' }
             'cody-response' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Deterministic touch, motion and expression response contracts.' }
             'cody-runtime' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Native response, demo, statistics and original boot-cue checks.' }
+            'cody-voice-ui' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Production recording gestures, native ribbon raster and synthetic preview.' }
+            'cody-voice-input' = @{ Category = 'Cody and simulators'; Emoji = '🎵'; Description = 'Production voice owner and authenticated receiver contracts on the host.' }
+            'voice-afe-lifecycle' = @{ Category = 'Snapshots, hardware and power'; Emoji = '🎵'; Description = 'Production AFE notification, startup and rollback helpers with host primitives.' }
             simulator = @{ Category = 'Cody and simulators'; Emoji = '🖥️'; Description = 'Windows Luna model and loopback fake-device contracts.' }
             'battery-ui' = @{ Category = 'UI and connectivity'; Emoji = '🔋'; Description = 'Battery-screen layout and navigation contracts.' }
             'fullscreen-layout' = @{ Category = 'UI and connectivity'; Emoji = '📐'; Description = 'Adaptive chrome and full-screen viewport geometry.' }

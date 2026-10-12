@@ -15,11 +15,11 @@
 
 ## Measured energy and maintenance follow-up - 2026-10-12
 
-- [ ] Replace the AFE fetch worker's 20-ms paused polling only after implementing
-  explicit wake/stop notifications for resume, suspend rollback and terminal
-  failure. The feed worker already blocks. Include lost-wakeup and teardown
-  coverage; a simple infinite wait would strand the fetch worker today. Measure
-  power on the device before claiming a battery-life improvement.
+- [ ] Measure the implemented AFE notification waits and voice transport cadence
+  on the device before claiming battery-life improvement. A future BOOT polling
+  change needs an owned GPIO interrupt plus debounce/rearm/hold deadlines; simply
+  slowing its 20-ms sampling can miss short presses. The idle CCP UDP worker still
+  needs its bounded receive/deadline cadence until event ownership is redesigned.
 - [ ] Add real HAR window-boundary coverage for timestamp gaps/span, calibration
   changes, standby generations and pressure rejection before increasing reliance
   on the experimental classifier. Keep original model labels and no training.

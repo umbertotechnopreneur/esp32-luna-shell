@@ -66,6 +66,15 @@ Physical interactions, complete stack headroom and battery duration remain open.
 
 ## Energy, memory and maintenance review - 2026-10-12
 
+- [ ] **VOICE-POLL-UI-01 - Target recording and lifecycle evidence.** Source
+  replaces paused/startup AFE polling with notifications, reduces disconnected
+  voice service cadence, and adds a procedural recording ribbon targeting 30 FPS.
+  One tap sends after 350-ms double-tap arbitration; shake/double tap discard;
+  more than two seconds of acquired VAD silence after speech sends automatically.
+  Validate visible frame pacing, actual voice gain, rotations, physical gestures,
+  standby/resume/rollback, target stack headroom and battery current. Host native
+  raster/owner evidence is separate. Preserve the running battery image and NVS
+  journal; a source build must not silently replace the installed experiment.
 - [ ] **AUDIT-TARGET-01 - Validate the integrated review on target.** The source
   coalesces unchanged endurance publications, releases a rejected HAR model,
   reads bounded power state in Luna shell callbacks and revalidates model inputs
@@ -322,15 +331,16 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   on 2026-10-07; full/Release and broader reliability remain open.
   The new Cody source consumer starts capture from awake/standby Sophia events or
   acquired double taps. Validate the derived Cody/Wi-Fi/Codex-only gate, 420-ms
-  single-tap delay, failed/stale touch and rotation, route restoration, explicit
-  sleep with retained wake-word microphone, microphone pause, waveform
-  layout/shake-only cancellation, the 60-second countdown/PCM bound, partial-band
-  redraws at every orientation, genuine-data fade carousel and actual 8-FPS CPU
-  savings. Exercise ten-second PSRAM
+  single-tap delay on Home, failed/stale touch and rotation, route restoration,
+  explicit sleep with retained wake-word microphone, microphone pause, the
+  recording ribbon and tap/shake controls, the 60-second countdown/PCM bound,
+  partial-band redraws at every orientation, genuine-data fade carousel and
+  actual 30-FPS target cost. Exercise ten-second PSRAM
   pressure, lost/duplicate/reordered/forged ACKs, fresh-discovery replay binding,
   wake-word tail and first-command preservation without a fabricated pre-roll,
-  expiry, native errors and changed followed chats. Prepared `cody-voice-input`
-  host cases have not run.
+  expiry, native errors and changed followed chats. Twelve `cody-voice-input`
+  host cases passed on 2026-10-12, including actual owner gesture/silence functions
+  and authenticated receiver boundaries; this does not prove native delivery.
   Audio reliability changes also need the four-packet cumulative ACK/gap/replay
   cases, stale/unavailable native readiness, same-chat turn changes, approval ID
   collision, short CCP outages and uncertain delivery after END. The additional
@@ -341,8 +351,10 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   Install plugin 0.6.5 with its optional audio dependencies and configure the real
   loopback desktop endpoint; verify native localAudio account/model access and
   native approval routing. This session did not install the modified PC plugin.
-  Integrated firmware build/flash completed on
-  12 October; no host suite, native delivery, simulator or post-reset capture was run.
+  An earlier integrated firmware build/flash completed on 12 October. The later
+  recording/polling increment passed Debug build/size, host lifecycle/voice/native
+  raster checks and individual compiled stack frames, and was not flashed.
+  Native delivery and physical recording behavior remain unverified.
 - [ ] **TTS-01 - Storage and audible speech.** Require observed SD availability
   after the accepted standby/wake workaround before claiming SD synthesis.
   The prepared four-language card and corrected `58757005` boot
