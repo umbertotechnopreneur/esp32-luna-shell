@@ -286,12 +286,17 @@ if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
     idf_component_get_property(activity_platform_library LUNASHELL_platform COMPONENT_LIB)
     target_compile_options(${activity_platform_library} PRIVATE
         "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>")
-    # The coordinator owns state transitions; drawing kernels live in separate
-    # translation units and retain their existing performance optimization.
-    set_property(SOURCE
-        "${CMAKE_CURRENT_SOURCE_DIR}/components/CODY_companion/src/runtime/CODY_companion.cpp"
-        DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/components/CODY_companion"
-        APPEND PROPERTY COMPILE_OPTIONS -Os)
+    # Scene/runtime sources coordinate events and screens. Separate rendering
+    # and character-model translation units retain performance optimization.
+    idf_component_get_property(activity_cody_library CODY_companion COMPONENT_LIB)
+    get_target_property(activity_cody_sources ${activity_cody_library} SOURCES)
+    foreach(activity_cody_source IN LISTS activity_cody_sources)
+        if(activity_cody_source MATCHES "(^|/)src/(runtime|scenes)/.*[.]cpp$")
+            set_property(SOURCE "${activity_cody_source}"
+                DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/components/CODY_companion"
+                APPEND PROPERTY COMPILE_OPTIONS -Os)
+        endif()
+    endforeach()
 endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_TTS AND CONFIG_LUNASHELL_BUILD_ENABLE_UI)

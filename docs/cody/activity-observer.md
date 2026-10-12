@@ -37,7 +37,7 @@ vehicle travel, or the desired future Cody context classes. No training is perfo
   Re-exporting a model requires reviewing and rebinding these requirements.
   This selection changes neither partitions nor Sophia and edits no managed source.
   For this activity-enabled build only, ESP-DL C/C++ uses `-Os` after upstream
-  `-O3`. The platform control plane and Cody's runtime coordinator also use `-Os`.
+  `-O3`. The platform control plane and Cody's scene/runtime coordinators also use `-Os`.
   Separate drawing kernels, Sophia and assembly retain their existing optimization.
   Inference and control-loop latency still require physical observation.
   Final linked size and physical inference remain separately verifiable outcomes.
