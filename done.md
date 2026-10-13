@@ -13,6 +13,61 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Native chat tokens and Home presentation - 2026-10-14
+
+Checkpoint `49e2fb6` integrates genuine followed-chat metadata with strict
+session/checkout/turn identity, original source timestamps and bounded tail
+bootstrap (128 KiB per poll). Native response bodies do not provide telemetry.
+SQLite is read-only and explicitly closed. Native last-call/input/output and
+cumulative counters remain distinct; capacity is supplied explicitly and the
+unobserved compaction threshold remains unavailable. Free subtracts Last call
+from the same observed Window, not a guaranteed future-request budget.
+PC-only checkpoint `a0a2a9c` lets fresh genuine hook model metadata replace expired
+native model metadata without refreshing the old reasoning effort. Read-only CCP status returns one
+coherent activity/technical bundle per paired device.
+
+Home cycles four exact token pages, preserves carousel timing under continuous
+updates and briefly displays four supported chat requests on connection/chat
+change. The Activity trial badge is removed without changing sensor validity.
+Orange compaction overrides ordinary working captions/cues; sound is admitted
+once per genuine chat/turn/sequence after a complete visible frame. Completion
+requires the same turn, and counters older than PostCompact remain unavailable
+until a new native sample. No new polling task, training or SD repair is added.
+
+Final checks passed: 103 CCP tests (including actual firmware count/age parsers,
+bounded native reader and original-age cases), native raster/geometry, runtime,
+snapshot integrity, 27,154 personality assertions / 128 parity frames, 12 Studio
+tests and 35 simulated CCP tests. First failures exposed an unclosed SQLite
+handle and obsolete stale-caption expectations; fixes and failed logs are retained.
+Selected profile/dependency, legacy-pattern, diff and changed-secret checks passed.
+Five visibly SYNTHETIC Home captures are retained; the Studio bridge covers token
+pages and compaction actor/overlay/timer, not the onboarding title/command banner.
+
+Both IDF 6.0.2 builds used eight jobs and identify `cody-160-g49e2fb63-dirty`:
+Debug 7,222,720 bytes / 51,776 free, static DIRAM 245,332, external RAM 85,172;
+Release 7,056,336 bytes / 218,160 free, static DIRAM 236,620, external RAM 84,484.
+SHA256 Debug `08e9b46220e337fd08f22475846a9396388c3a287c8bb20cc2691ce508dba0bc`;
+Release `2fc3bbf646c2c08d0a07968a8d164b224650eeac13e7d1cc85d244f32e4188ec`.
+Individual compiled task-frame checks passed. The known worker/draw/geometry/rig
+subtotals are 7,120 Debug and 7,072 Release against a 12,288-byte worker stack;
+they exclude deeper/library calls and do not establish runtime watermarks.
+
+Release was flashed to COM10 with image hash verification. A 60-second passive
+capture retained the accepted SD failure and explicit rejected HAR cadence windows,
+with no panic/backtrace/reset marker in that observation window. The later CRC
+endurance read succeeded: original session 1 remains interrupted_unknown at
+24,942,870 ms, owner error 0, source_current false and unknown final UTC retained.
+An earlier immediate read after the preliminary firmware install returned
+ESP_ERR_NOT_SUPPORTED; it was not interpreted as an empty or successful journal.
+
+The native manager installed plugin 0.6.7; reviewed cache files match source and
+the pairing/control-state hashes were preserved. A live pre-reload read observed
+one followed working chat/turn; the later plugin reload correctly returned no
+followed chat until a genuine user prompt. No artificial hook or MCP lease was
+created. Physical compaction audio/display behavior and classifier/voice trials
+remain separately unverified. Evidence is under
+`artifacts/build-cody-companion-wake-word-evidence/telemetry-home-20261014/`.
+
 ## Active backlog cleanup - 2026-10-14
 
 At the user's request, TODO.md now contains only four autonomous work items:

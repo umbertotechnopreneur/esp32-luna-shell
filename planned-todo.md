@@ -100,10 +100,13 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   panels with canonical IP/firmware identity. The integrated Debug wake-word/activity
   image is compiled and installed; visual geometry, interaction and physical
   stack-headroom evidence remain pending.
-- [ ] **CCP-USAGE-01 - Native Desktop telemetry evidence.** The active work in
-  [TODO.md](TODO.md) integrates exact hook-owned local native journal metadata,
-  without a second App Server. Verify real installed Desktop hook reachability,
-  Home counts and genuine compaction on the physical display. A future supported
+- [ ] **CCP-USAGE-01 - Native Desktop telemetry evidence.** Installed plugin 0.6.7
+  integrates exact hook-owned local native journal metadata without a second
+  App Server. Host checks and selected Release delivery passed on 14 October.
+  Verify Home counts and genuine compaction animation/sound on the physical
+  display when normal chat activity supplies those events. Plugin reload clears
+  followed-chat state until a genuine new user prompt; no event is synthesized
+  to restore it. A future supported
   notification observer may replace this owner; it must preserve identity and
   source-age contracts. Never infer bills, rerouted execution or a compaction
   threshold from a model name or another chat.

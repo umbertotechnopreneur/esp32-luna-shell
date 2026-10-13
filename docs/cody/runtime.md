@@ -246,7 +246,7 @@ without forwarding panel touches to its hidden controls.
 
 | Metric | Actual source and meaning | Availability in this integration |
 | --- | --- | --- |
-| Model | Exact native turn-context model, or genuine hook metadata when native context is absent | Original source age; no model-name alias or execution/rerouting claim |
+| Model | Current exact native turn-context model, or a fresh genuine hook when native context is absent/expired | Original source age; no model-name alias or execution/rerouting claim |
 | Reasoning effort | Native turn-context effort, not a global default | Available only when the exact followed turn supplies it |
 | Last call / Window | Native last-token total and explicitly supplied model context window from one token sample | Independently present; Last call is not cumulative chat spending |
 | Free / percent / colored bar | Window minus Last call, only from the same valid sample | Not a guarantee about the next request's usable budget; over-limit and stale states stay explicit |
@@ -268,6 +268,10 @@ bounded; partial, replaced, truncated or contradictory sources fail closed.
 Native token timestamps keep their original age; repeated FIND replies do not
 refresh them. Token samples expire after 120 seconds, independently of the
 eight-second transport lease. Missing fields and thresholds are not inferred.
+A fresh hook model keeps its own timestamp when an older native context expires;
+native effort is unavailable in that projection rather than inheriting the newer
+model age. Read-only CCP connection status exposes the same atomic activity and
+technical bundle without creating a new observer.
 Unsupported optional fields remain unavailable internally and are hidden in the
 passive UI, rather than filling the page with unavailable labels.
 

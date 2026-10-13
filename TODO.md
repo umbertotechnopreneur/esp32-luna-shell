@@ -1,13 +1,9 @@
 # Active work
 
-Updated 2026-10-14. Current autonomous work:
-
-- [ ] Connect genuine followed-chat native token/model metadata to the existing
-  authenticated CCP owner, with bounded reads and independent source freshness.
-- [ ] Show Home token pages and supported chat commands; prioritize orange
-  compaction with its existing animation/sound and remove the Activity trial badge.
-- [ ] Complete integrated checks, install the matching plugin and Release firmware,
-  and record verified results and remaining physical limits in [done.md](done.md).
+Updated 2026-10-14. No autonomous implementation or delivery item remains.
+Native chat metadata, Home token/command pages, compaction priority and the
+installed Release are recorded in [done.md](done.md), with actual checks and
+the physical/native-runtime evidence boundaries.
 
 The user's deferred voice and walking/classifier trials remain in
 [planned-todo.md](planned-todo.md), together with physical wake/shutdown, energy

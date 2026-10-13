@@ -115,6 +115,10 @@ it is not a guarantee about the next request's usable budget. Counts remain exac
 including zero. Missing values stay unavailable; over-limit values are explicit.
 The automatic compaction threshold remains unavailable without its own source.
 Original source timestamps are preserved, independently of fresh network packets.
+A current native model takes precedence; when it expires, a fresh genuine hook
+may supply reported model metadata with its own original timestamp. That does
+not refresh native reasoning effort. `ccp_connection_status` exposes activity
+and technical fields from one coherent owner projection for each paired device.
 
 Home cycles Project, Branch, Model and token pages. On a healthy PC connection or
 a newly followed chat, a brief **Available commands** banner rotates **Change my
