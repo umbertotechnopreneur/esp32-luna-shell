@@ -52,7 +52,35 @@ missing fixture contour phase were corrected; attempts are retained. Visual
 inspection exposed the separate Studio page-clock bug before delivery.
 Selected profile/dependency and changed-secret checks passed. Artifacts are
 retained under `artifacts/build-cody-companion-wake-word-evidence/events-reconnect-20261014/`.
-Release build, flash and target evidence are pending below this checkpoint.
+
+Release checkpoint `4d811054` built with IDF 6.0.2 / eight jobs and was flashed
+to COM10 with image hash verification: `cody-164-g4d811054-dirty`, 7,058,064 bytes,
+216,432 bytes free in the unchanged OTA slot, static DIRAM 236,812 and external
+RAM 84,484 bytes. SHA256:
+`9719e0a027f69b078c78c136987f1043b5f493bf1aa58b16b3548be3933b2732`.
+The dirty marker includes the preserved user-owned AGENTS.md change. Against the
+previous Release, image growth is 1,728 bytes and static DIRAM growth 192 bytes.
+Compiled task-frame checks passed; the known worker/draw/geometry/rig subtotal
+remains 7,072 / 12,288 bytes, excluding deeper/library calls. No stack was enlarged.
+
+Native Desktop stdio transports started with the corrected installed configuration.
+The verified pre-update broker was stopped once so its existing genuine MCP
+transports could recover using the updated package; no helper created a lease.
+The replacement broker retained authenticated device presence beyond its 60-second
+hook-only grace, with zero observed/followed chats at the 103-second check. A later
+genuine prompt selected a chat normally. The installed broker then reported current
+Last call 155,173 / Window 475,000, Input 154,427, Output 746 and Total 21,188,756,
+with source age 2,497 ms and authenticated Cody presence after the firmware flash.
+This was the automatically followed chat, not this repository chat; no background
+agent changed selection or reported progress for it.
+
+A 60-second passive COM10 capture completed without an additional reset. Captured
+output contains no panic/backtrace/reset marker; it retains the accepted SD timeout,
+HAR cadence-window rejections and an explicit USB loss counter of 15, so it is
+not a lossless whole-startup trace. Physical pixel/audio confirmation during genuine
+compaction and physical stack watermarks remain in CCP-USAGE-01 and the existing
+target-verification register. Synthetic captures, source telemetry, authenticated
+presence and physical rendering remain distinct evidence.
 
 ## Native chat tokens and Home presentation - 2026-10-14
 

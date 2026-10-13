@@ -103,6 +103,10 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
 - [ ] **CCP-USAGE-01 - Native Desktop telemetry evidence.** Installed plugin 0.6.7
   integrates exact hook-owned local native journal metadata without a second
   App Server. Host checks and selected Release delivery passed on 14 October.
+  The same-day native launch/path/envelope correction is installed as Release
+  `cody-164-g4d811054-dirty`; actual Desktop MCP recovery, authenticated presence
+  beyond the hook-only idle grace and current installed token metadata are
+  recorded in done.md. This advances the PC-source/link evidence only.
   Verify Home counts and genuine compaction animation/sound on the physical
   display when normal chat activity supplies those events. Plugin reload clears
   followed-chat state until a genuine new user prompt; no event is synthesized

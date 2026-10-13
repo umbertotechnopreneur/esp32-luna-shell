@@ -1,13 +1,13 @@
 # Active work
 
-Updated 2026-10-14. Active follow-up from the device observation:
+Updated 2026-10-14. No autonomous implementation or delivery item remains open
+from the event/token/reconnection follow-up. The corrected plugin and Release
+are installed; host, simulator, build, flash, passive capture and real installed
+token-source evidence are recorded in [done.md](done.md).
 
-- Fix native MCP startup and Windows usage-path identity; verify real followed
-  metadata and compaction event delivery without synthetic live hooks.
-- Show active reconnection immediately and keep token pages available in Ready;
-  present three supported Codex requests without covering the statistics.
-- Complete the focused event, UI, simulator and firmware checks, install the
-  corrected plugin/Release and record the actual evidence in [done.md](done.md).
+CCP-USAGE-01 in [planned-todo.md](planned-todo.md) retains physical display/audio
+confirmation during normal genuine chat and compaction events. It is not inferred
+from synthetic screenshots, current PC metadata or authenticated LAN presence.
 
 The user's deferred voice and walking/classifier trials remain in
 [planned-todo.md](planned-todo.md), together with physical wake/shutdown, energy
