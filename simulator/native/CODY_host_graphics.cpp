@@ -531,7 +531,7 @@ static esp_err_t project_host_panel_observation(const HostPanelObservation *sour
 // handle: Native frame owning the canonical-shaped PC-only scratch and prepared panel.
 // panel: Explicit selected technical page; Home removes the technical layer.
 // source: Original observed metadata and source-relative ages, without synthetic counters.
-// active_time_us: Local active presentation clock for a restrained indeterminate accent.
+// active_time_us: Local presentation clock for numeric pages and accent, independent of receipt age.
 // Exception: Returns actual metadata, clock or shared canonical preparation failure.
 CODY_HOST_EXPORT int cody_host_panel_observation(void *handle, uint8_t panel,
     const HostPanelObservation *source, int64_t active_time_us)
@@ -545,7 +545,7 @@ CODY_HOST_EXPORT int cody_host_panel_observation(void *handle, uint8_t panel,
     const int64_t observation_time = static_cast<int64_t>(source->receipt_age_us) + 1;
     CODY::SceneContent content{};
     error = CODY::prepare_companion_panel_from_observation(static_cast<CODY::CompanionPanel>(panel),
-        observation.link, observation.technical, CODY::SceneData::body_font, observation_time, owner.companion_panel, content);
+        observation.link, observation.technical, CODY::SceneData::body_font, observation_time, active_time_us, owner.companion_panel, content);
     if (error == ESP_OK) {
         bool changed = false;
         error = CODY::advance_companion_panel(owner.companion_panel, active_time_us, changed);

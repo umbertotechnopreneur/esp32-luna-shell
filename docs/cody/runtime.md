@@ -189,24 +189,52 @@ scene definition or expression-catalog mapping for 39.
 
 ## Reusable scenes and text
 
+### Event-to-screen contract
+
+| Admitted source event | Visible result | Boundary |
+| --- | --- | --- |
+| Retained link enters Discovering | Connecting / Retrying PC connection | Discovery already retries every two seconds; no idle timer can claim Connected |
+| Authenticated READY and COMMITTED | Connected, then current followed activity | Eight-second transport expiry remains independent of activity freshness |
+| UserPromptSubmit | Working and the exact newly followed chat | Background tools cannot select another chat |
+| PreToolUse / PostToolUse | Working, Editing code or Running command | Ordinary tool changes do not cancel active compaction |
+| Native token_count | Exact Last call, Window, Free, Total, Input and Output where available | Same verified chat/turn, original source time, no count inferred from prose |
+| PreCompact | Orange Compacting on Home and orange technical heading/banner; compaction character cue | One sound admission per visible chat/turn/sequence, subject to audio policy |
+| PostCompact | Context refreshed; wait for a subsequent token sample | Missing start, interruption or lost source never implies successful completion |
+| Stop | Reply ready, then idle commands and retained statistics | A completed response does not prove task success |
+| PermissionRequest | Waiting for you / Approve on your PC | Native approval remains on the PC |
+| Transport expires | Connecting while retained discovery is active | Preserve the canonical timeout error; do not request a new pairing |
+
+Lifecycle diagnostics retain event names, phase, compaction sequence and hashed
+chat/turn identities. They exclude prompt text and raw identities. Host fixtures
+exercise the real activity owner, authenticated packets, Studio projection and
+native panel pixels; these synthetic captures do not prove physical sound or
+that a particular live compaction hook was delivered.
+
 ### Companion information panels
 
 Home retains the character, actual activity phase, alternating project/branch/model/token
 pages and concrete activity description. Names and descriptions use native font metrics:
 short text stays still; overflow scrolls within its own viewport. Identity fades
 affect only its row. Attention and authentic compaction hold the project. A healthy
-PC connection or newly followed chat starts a 20-active-second Available commands
-banner, with four supported chat requests shown for five seconds each. Compaction
+PC connection or newly followed chat starts an Available commands introduction,
+with four supported chat requests shown for five seconds each. Ready for More
+keeps three personalization requests and the independent token carousel visible while idle; after
+25 active seconds its title becomes Ready to team up. This does not create a
+connection transition or renew source measurements. Compaction
 and attention suppress these hints without creating a task, poll or wake lease.
 
-A short released passive tap opens Activity, then Model & Context, then Session &
-Link, then Activity again. Each panel remains selected until another deliberate
+A short released passive tap opens Model & Context, then Session & Link, then
+Activity, then Model & Context again. Each panel remains selected until another deliberate
 gesture. A deliberate shake returns directly to Home and changes no remote
 request, chat, approval or read acknowledgement. Panels have no lateral Back.
 Setup and questions keep their explicit controls and existing navigation.
 An explicit setup, remote question, PC approval or Debug view can preempt the
 technical compositor. Its real controls then own touch; the retained panel choice
 resumes when that route ends. This is attention arbitration, not a reading timeout.
+Model & Context alternates its context summary with Token details every eight
+active seconds. The latter reserves its first three rows for Input, Output and
+Total, so a long model name cannot hide output usage. It retains the same context
+bar and current compaction banner, without adding a polling task.
 
 Touch recognition retains the contact's origin, displayed orientation and original
 timestamps. More than 12 pixels of displacement, a contact longer than 450 ms,

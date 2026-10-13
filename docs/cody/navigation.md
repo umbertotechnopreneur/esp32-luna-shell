@@ -35,9 +35,10 @@ packet fields and budgets belong to [CCP1](../../plugins/cody-codex-plugin/proto
 
 ## Observe walking, running and sitting
 
-From Home, make one short tap on the character and release to open Activity.
+From Home, make one short tap on the character and release to open Model & Context.
 A double tap starts voice input, so wait for the single-tap decision. Further
-single taps cycle Model & Context, Session & Link, then Activity. A deliberate
+single taps cycle Session & Link, Activity, then Model & Context. To observe
+movement, advance twice from Model & Context to Activity. A deliberate
 shake returns Home; running or jumping may also trigger that navigation gesture.
 
 Keep the device in the same position and orientation on your body for each trial.

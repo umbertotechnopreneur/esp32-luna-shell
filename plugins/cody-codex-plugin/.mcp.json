@@ -3,11 +3,11 @@
     "ccp": {
       "title": "CCP - Cody's Codex Plugin",
       "description": "Connect Cody, publish real notifications, and exchange semantic questions with recipient acknowledgement. SIMULATED targets require explicit opt-in. PR states are read-only; native approvals stay on your PC. Restart or factory reset requires its explicit intent and confirmation code in the current user message.",
-      "cwd": "${PLUGIN_ROOT}",
+      "cwd": ".",
       "command": "python",
       "args": [
         "-B",
-        "${PLUGIN_ROOT}/mcp/ccp_server.py",
+        "./mcp/ccp_server.py",
         "--stdio"
       ]
     }

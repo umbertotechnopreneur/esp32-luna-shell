@@ -3386,6 +3386,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
         const auto &link = s_state.technical_observation.link;
         const auto &technical = s_state.technical_observation.technical;
+        // Receipt ages use monotonic time; page/animation clocks pause with the existing awake UI owner.
+        // The existing one-second preparation cadence also refreshes the eight-second numeric page.
         const int64_t panel_now_us = esp_timer_get_time();
         const int64_t second = panel_now_us / 1000000;
         const uint32_t status = static_cast<uint32_t>(link.state) |
@@ -3420,7 +3422,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
 #endif
             panel_error = CODY::prepare_companion_panel_from_observation(
                 s_state.companion_panel, link, technical, CODY::SceneData::body_font,
-                panel_now_us, s_state.technical_panel, panel_content, s_state.technical_observation.firmware_version, motion);
+                panel_now_us, s_state.onboarding_elapsed_us, s_state.technical_panel, panel_content, s_state.technical_observation.firmware_version, motion);
             if (panel_error == ESP_OK) {
                 s_state.panel_activity_revision = link.activity.revision;
                 s_state.panel_technical_revision = technical.revision;
@@ -3431,7 +3433,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         if (panel_error == ESP_OK) {
             bool animation_changed = false;
             panel_error = CODY::advance_companion_panel(
-                s_state.technical_panel, panel_now_us, animation_changed);
+                s_state.technical_panel, s_state.onboarding_elapsed_us, animation_changed);
         }
         if (panel_error != ESP_OK) {
             return frame.finish({panel_error, false, 0});

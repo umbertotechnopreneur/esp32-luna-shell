@@ -472,8 +472,15 @@ class CcpContractTests(unittest.TestCase):
         self.assertEqual(manifest["version"], ccp.SERVER_VERSION)
         for wiring_path in ("mcp.json", ".mcp.json"):
             wiring = json.loads((plugin_root / wiring_path).read_text(encoding="utf-8"))["mcpServers"]["ccp"]
-            self.assertEqual(wiring["cwd"], "${PLUGIN_ROOT}")
-            self.assertEqual(wiring["args"], ["-B", "${PLUGIN_ROOT}/mcp/ccp_server.py", "--stdio"])
+            self.assertEqual(wiring["cwd"], ".")
+            self.assertEqual(wiring["args"], ["-B", "./mcp/ccp_server.py", "--stdio"])
+            # Native Codex resolves cwd relative to the installed plugin, but passes
+            # arguments literally. Shell-style placeholders are not valid paths.
+            launch_cwd = (plugin_root / wiring["cwd"]).resolve()
+            self.assertTrue(launch_cwd.is_dir())
+            entrypoint = (launch_cwd / wiring["args"][1]).resolve()
+            self.assertEqual(entrypoint, (plugin_root / "mcp/ccp_server.py").resolve())
+            self.assertTrue(entrypoint.is_file())
 
 
 class CcpAdmissionTests(unittest.TestCase):
@@ -1828,6 +1835,19 @@ class NativeUsageReaderTests(unittest.TestCase):
         self.assertEqual(first[1], 995.0)
         self.assertEqual(self.poll("another-turn"), (None, None))
 
+    # self: Current Desktop records include a numeric ordinal between timestamp and outer type.
+    def test_native_ordinal_envelope_is_admitted_without_parsing_response_bodies(self):
+        ignored = b"".join(self.record(kind.decode(), {"content": "fixture-only"})
+                           for kind in native_usage.IGNORED_RECORDS)
+        records = self.prefix() + ignored + self.usage()
+        lines = []
+        for ordinal, line in enumerate(records.splitlines()):
+            lines.append(line.replace(b'"type":', f'"ordinal": {ordinal}, "type":'.encode(), 1))
+        self.path.write_bytes(b"\n".join(lines) + b"\n")
+        sample, context = self.poll()
+        self.assertEqual(sample[0]["used"], 120)
+        self.assertEqual(context[:2], ("gpt-6-astra", "high"))
+
     # self: Exact-session reader; foreign parent metadata, cwd and native turn cannot populate it.
     def test_session_checkout_fork_and_turn_rejections(self):
         for changed in ({"id": "other"}, {"session_id": "parent"}, {"cwd": self.cwd + "-other"}):
@@ -1958,12 +1978,49 @@ class NativeUsageReaderTests(unittest.TestCase):
         with self.assertRaises(native_usage.UsageSourceError):
             self.poll()
 
+    # self: Windows fixture reproducing native SQLite extended-path spelling for the same real file.
+    @unittest.skipUnless(os.name == "nt", "Windows extended filesystem paths")
+    def test_extended_windows_path_locator_and_index_keep_owner_identity(self):
+        self.path.write_bytes(self.prefix() + self.usage())
+        extended = "\\\\?\\" + str(self.path.resolve())
+        self.assertEqual(self.reader.poll("chat-a", self.cwd, "turn-a", extended)[0][0]["used"], 120)
+        self.assertEqual(native_usage.resolved_native_path(extended), native_usage.resolved_native_path(self.path))
+        with contextlib.closing(sqlite3.connect(self.home / "state_5.sqlite")) as database:
+            database.execute("CREATE TABLE threads(id TEXT PRIMARY KEY, rollout_path TEXT, cwd TEXT)")
+            database.execute("INSERT INTO threads VALUES(?,?,?)", ("chat-a", extended, "\\\\?\\" + self.cwd))
+            database.commit()
+        reader = native_usage.NativeUsageReader()
+        self.assertEqual(reader.poll("chat-a", self.cwd, "turn-a")[0][0]["used"], 120)
+
     # self: Real envelope filter; ignored item bodies must never enter the JSON decoder.
     def test_irrelevant_response_is_not_json_decoded(self):
-        irrelevant = self.record("response_item", {"content": "fixture-only"})
-        with patch.object(native_usage.json, "loads", side_effect=AssertionError("Response content parsed")):
-            self.assertIsNone(native_usage.metadata_record(irrelevant))
-            self.assertIsNone(native_usage.metadata_record(irrelevant[:150], oversized=True))
+        for kind in native_usage.IGNORED_RECORDS:
+            irrelevant = self.record(kind.decode(), {"content": "fixture-only"})
+            with patch.object(native_usage.json, "loads", side_effect=AssertionError("Response content parsed")):
+                self.assertIsNone(native_usage.metadata_record(irrelevant))
+                self.assertIsNone(native_usage.metadata_record(irrelevant, oversized=True))
+
+    # self: Accepted real lifecycle handler with synthetic private IDs; logs contain only fixed metadata.
+    def test_lifecycle_trace_hashes_identity_and_reports_accepted_compaction(self):
+        owner = activity.ActivityStore()
+        base = {"session_id": "private-chat-id", "cwd": self.cwd, "turn_id": "private-turn-id",
+                "prompt": "private prompt must never appear", "trigger": "auto"}
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output), patch.object(activity.time, "monotonic_ns", return_value=1000000000000):
+            for index, name in enumerate(("UserPromptSubmit", "PreCompact", "PostCompact", "Stop")):
+                owner.observe({**base, "hook_event_name": name, "emitted_ns": 999000000000 + index})
+            for index, name in enumerate(("UserPromptSubmit", "Interrupt", "SessionEnd"), start=4):
+                owner.observe({**base, "turn_id": "another-private-turn", "hook_event_name": name,
+                               "emitted_ns": 999000000000 + index})
+        diagnostic = output.getvalue()
+        self.assertEqual(len(diagnostic.splitlines()), 7)
+        self.assertNotIn("private", diagnostic)
+        self.assertNotIn(self.cwd, diagnostic)
+        self.assertIn("event=PreCompact", diagnostic)
+        self.assertIn("compaction=active compactseq=0000000000000001", diagnostic)
+        self.assertIn("event=PostCompact", diagnostic)
+        self.assertIn("compaction=refreshed compactseq=0000000000000001", diagnostic)
+        self.assertIn("chat=" + hashlib.sha256(base["session_id"].encode()).hexdigest()[:12], diagnostic)
 
     # self: Real hook/technical owner; completion cannot relabel pre-compaction usage as refreshed.
     def test_post_compaction_waits_for_new_native_usage_without_renewing_model(self):

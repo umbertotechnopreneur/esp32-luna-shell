@@ -26,6 +26,15 @@
 #include "qrcode.h"
 #include "freertos/task.h"
 
+namespace HomeFixture {
+const LUNASHELL::CodexTechnicalObservation *observation = nullptr;
+int64_t now_us = 0;
+esp_err_t read_error = ESP_OK;
+unsigned inactive_look_resets = 0;
+// No parameters: the real presenter translation unit verifies its current route.
+bool look_is_inactive();
+}
+
 namespace {
 // owner: Exact service unexpectedly reached by the event layout fixture.
 // Exception: Aborts instead of fabricating success, observations or task execution.
@@ -45,10 +54,14 @@ esp_err_t open_look_screen(SceneFrame &, const LookNavigationContext &)
     unexpected_owner(__func__);
 }
 
-// No parameters: event-only tests do not own a look lifecycle.
-// Exception: Aborts on a cross-feature route.
+// No parameters: Home route changes retire an already-inactive Look view.
+// Exception: Aborts outside explicit Home fixtures or if Look is actually active.
 void reset_look_screen()
 {
+    if (HomeFixture::observation != nullptr && HomeFixture::look_is_inactive()) {
+        ++HomeFixture::inactive_look_resets;
+        return;
+    }
     unexpected_owner(__func__);
 }
 
@@ -121,18 +134,20 @@ esp_err_t persist_first_boot(bool)
     unexpected_owner(__func__);
 }
 
-// Unnamed cue: Audio playback is outside event layout coverage.
-// Unnamed status: No shared audio-owner result is synthesized.
-// Exception: Aborts instead of claiming cue admission or playback.
+// Unnamed cue: Playback remains outside layout coverage, including explicit Home scenarios.
+// Unnamed status: No successful audio-owner result is synthesized.
+// Exception: Home receives an explicit optional failure; other scenarios abort.
 esp_err_t notify_codex_audio(CodexAudioCue, CodexAudioStatus &)
 {
+    if (HomeFixture::observation != nullptr) { return ESP_FAIL; }
     unexpected_owner(__func__);
 }
 
 // Unnamed suspended: No shared audio lifecycle is changed.
-// Exception: Aborts instead of claiming audio-owner success.
+// Exception: Home receives an explicit optional failure; other scenarios abort.
 esp_err_t set_codex_audio_suspended(bool)
 {
+    if (HomeFixture::observation != nullptr) { return ESP_FAIL; }
     unexpected_owner(__func__);
 }
 
@@ -156,10 +171,14 @@ esp_err_t include_damage(DirtyPlan &, const DamageRect &)
 } // namespace CODY
 
 namespace LUNASHELL {
-// No parameters: this fixture uses explicitly supplied presenter payloads only.
-// Exception: Aborts instead of constructing a parallel canonical observation owner.
+// No parameters: only explicit Home fixtures admit a host-only service boundary.
+// Exception: Aborts unless a synthetic observation was deliberately installed.
 DeviceSnapshotService &DeviceSnapshotService::instance()
 {
+    if (HomeFixture::observation != nullptr) {
+        static DeviceSnapshotService fixture_service;
+        return fixture_service;
+    }
     unexpected_owner(__func__);
 }
 
@@ -184,10 +203,15 @@ esp_err_t DeviceSnapshotService::readCodexEventObservation(CodexEventSnapshot &)
     unexpected_owner(__func__);
 }
 
-// Unnamed observation: No technical telemetry is acquired by an event-only layout fixture.
-// Exception: Aborts instead of publishing a fabricated companion observation.
-esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObservation &) const
+// observation: Receives only the explicitly installed host fixture; never firmware data.
+// Exception: Returns injected read failure; aborts when no Home fixture is active.
+esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObservation &observation) const
 {
+    if (HomeFixture::observation != nullptr) {
+        if (HomeFixture::read_error != ESP_OK) { return HomeFixture::read_error; }
+        observation = *HomeFixture::observation;
+        return ESP_OK;
+    }
     unexpected_owner(__func__);
 }
 
@@ -255,10 +279,11 @@ extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *)
     unexpected_owner(__func__);
 }
 
-// No parameters: fixture clocks are passed directly to the real scene functions.
-// Exception: Aborts instead of observing or fabricating device time.
+// No parameters: explicit Home fixtures supply their deterministic receipt clock.
+// Exception: Aborts when no Home fixture is active; never accesses physical time.
 extern "C" int64_t esp_timer_get_time()
 {
+    if (HomeFixture::observation != nullptr) { return HomeFixture::now_us; }
     unexpected_owner(__func__);
 }
 

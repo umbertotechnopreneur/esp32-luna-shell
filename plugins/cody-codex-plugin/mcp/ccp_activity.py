@@ -346,6 +346,14 @@ class ActivityStore:
             session.branch = branch
             session.observed_at = emitted_ns / 1_000_000_000
             self._revision += 1
+            if name in {"UserPromptSubmit", "Stop", "PreCompact", "PostCompact", "Interrupt", "SessionEnd"}:
+                # Trace only genuine accepted lifecycle boundaries. Tool hooks
+                # remain quiet; opaque digests keep native IDs and chat text local.
+                chat_digest = hashlib.sha256(session_id.encode("ascii")).hexdigest()[:12]
+                turn_digest = hashlib.sha256(session.turn_id.encode("ascii")).hexdigest()[:12]
+                print(f"CCP lifecycle accepted: event={name} chat={chat_digest} turn={turn_digest} "
+                      f"phase={session.phase.value} compaction={session.compaction.value} "
+                      f"compactseq={session.compact_sequence:016x}", file=sys.stderr, flush=True)
 
     # No parameters: exposes identities and local context only, never chat contents.
     def list_sessions(self) -> list[dict[str, Any]]:

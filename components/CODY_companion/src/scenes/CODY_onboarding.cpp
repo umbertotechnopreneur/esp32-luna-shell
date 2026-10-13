@@ -252,6 +252,8 @@ bool s_companion_seen_selection = false;
 int64_t s_session_ended_at_us = -1;
 LUNASHELL::CodexActivitySnapshot s_presented_activity{};
 CommandHintsState s_command_hints{};
+HomeReadyDwell s_home_ready_dwell{};
+HomeReplyDwell s_home_reply_dwell{};
 uint32_t s_activity_description_revision = 0;
 uint32_t s_activity_identity_revision = 0;
 ActivityObservationState s_activity_observation{};
@@ -1999,7 +2001,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         error = prepare_caption("Finding your PC", 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption("Open Codex to rejoin", 327, s_view.lines[1]);
+            error = prepare_caption("Retrying connection", 327, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
@@ -2346,6 +2348,7 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
     using Compaction = LUNASHELL::CodexCompactionState;
     const auto &activity = link.activity;
     const bool current_link = link.data_valid && !link.data_stale && link.state == CodexState::Connected;
+    const bool reconnecting = home_is_reconnecting(link);
     const bool technical_owner = technical.data_valid && technical.compaction_valid && technical.chat_id[0] != '\0' &&
         std::strcmp(technical.chat_id, activity.chat_id) == 0;
     // ACTIVITY and TECH can arrive separately. A known lifecycle remains explicitly
@@ -2375,13 +2378,20 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
     else if (compaction == Compaction::Orphaned) { description = "Compaction not fully observed"; }
     else if (compaction == Compaction::Interrupted) { description = "Compaction interrupted"; }
     else if (compaction == Compaction::Stale) { description = "Compaction updates are STALE"; }
+    bool reply_introduction = false;
+    const esp_err_t reply_error = advance_home_reply_dwell(s_home_reply_dwell,
+        current_link && activity.data_valid && !activity.data_stale && activity.state == Activity::ResponseReady,
+        activity.chat_id, active_time_us, reply_introduction);
+    if (reply_error != ESP_OK) {
+        return reply_error;
+    }
     ActivityOverlayState overlay = ActivityOverlayState::Hidden;
     if (current_link && activity.data_valid && !activity.data_stale) {
         if (current_work) {
             overlay = ActivityOverlayState::Working;
         } else if (activity.state == Activity::Paused) {
             overlay = ActivityOverlayState::Waiting;
-        } else if (activity.state == Activity::ResponseReady) {
+        } else if (activity.state == Activity::ResponseReady && reply_introduction) {
             overlay = ActivityOverlayState::ResponseReady;
         }
     }
@@ -2408,11 +2418,11 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
     Route destination = Route::Connected15;
     const char *message = kCodexInvitationCaption;
     if (!link.data_valid || link.data_stale || link.state != CodexState::Connected) {
-        if (!s_companion_seen_selection) {
+        if (!s_companion_seen_selection && !reconnecting) {
             return ESP_OK;
         }
-        destination = Route::Lost32;
-        message = "Open Codex to rejoin";
+        destination = reconnecting ? Route::LookingForPc14 : Route::Lost32;
+        message = reconnecting ? "Retrying PC connection" : "PC connection unavailable";
     } else if (!activity.data_valid || activity.data_stale) {
         // The initial READY can precede ACTIVITY. Until the first activity reply,
         // screen 15 claims PC presence only and never invents a chat state.
@@ -2443,8 +2453,8 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
             message = work_phase == Activity::Running ? "Running a command" : "Processing your request";
             break;
         case Activity::ResponseReady:
-            destination = Route::Response19;
-            message = "Open Codex to review";
+            destination = reply_introduction ? Route::Response19 : Route::CompanionIdle16;
+            message = reply_introduction ? "Open Codex to review" : kCodexInvitationCaption;
             break;
         case Activity::Paused:
             destination = Route::Paused20;
@@ -2480,7 +2490,7 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
     }
     // Model/cost changes update Home without re-entering the route or replaying speech/title reveal.
     const auto model_cost = observed_model_cost(link, technical);
-    const bool home_identity = destination != Route::CompanionIdle16 && destination != Route::Connected15;
+    const bool home_identity = destination != Route::Connected15 && destination != Route::LookingForPc14;
     const char *home_model = home_identity ? model_cost.model : "";
     const auto home_cost = home_identity ? model_cost.band : LUNASHELL::CodexCostBand::Unknown;
     bool model_cost_changed = false;
@@ -2514,10 +2524,10 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
         !activity.data_stale && !s_presented_activity.data_stale && s_view.activity_identity.project_line.valid;
     const Route previous_route = s_route;
     const bool headline_changed = work_phase != s_presented_work_phase || compaction_changed;
-    const char *headline = native_attention ? "Waiting for you" : compacting ? "Compacting" : !current_link ? "Disconnected" : !activity.data_valid || activity.data_stale ? nullptr : current_work ?
+    const char *headline = native_attention ? "Waiting for you" : compacting ? "Compacting" : reconnecting ? "Connecting" : !current_link ? "Disconnected" : !activity.data_valid || activity.data_stale ? nullptr : current_work ?
         (work_phase == Activity::Editing ? "Editing code" : work_phase == Activity::Running ? "Running command" : "Working") :
         activity.state == Activity::Paused ? "Waiting for you" :
-        activity.state == Activity::ResponseReady ? "Reply ready" :
+        activity.state == Activity::ResponseReady && reply_introduction ? "Reply ready" :
         activity.state == Activity::Interrupted ? "Interrupted" : nullptr;
     s_presented_activity = activity;
     s_presented_work_phase = work_phase;
@@ -2566,7 +2576,7 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
     }
     // The shared native identity layer measures long labels and owns project/branch/model rotation.
     // Its fixed row replaces both legacy project-copy slots and their small debug buffers.
-    const char *project = destination == Route::CompanionIdle16 ? "" : activity.project;
+    const char *project = current_link && activity.data_valid && !activity.data_stale ? activity.project : "";
     const char *branch = current_link && activity.data_valid && !activity.data_stale ? activity.branch : "";
     error = prepare_activity_identity(s_view.activity_identity, SceneData::body_font,
         project, branch, active_time_us);
@@ -2611,6 +2621,22 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
     const bool connected = link.data_valid && !link.data_stale &&
         link.health == LUNASHELL::DeviceHealth::Ready && link.last_error == ESP_OK &&
         link.state == CodexState::Connected;
+    bool calm_ready = false;
+    error = advance_home_ready_dwell(s_home_ready_dwell,
+        connected && s_route == Route::CompanionIdle16, link.activity.chat_id,
+        link.activity.revision, active_time_us, calm_ready);
+    if (error != ESP_OK) { return error; }
+    if (connected && s_route == Route::CompanionIdle16) {
+        // Keep the idle route and canonical completion phase; only the introductory title settles.
+        const char *title = calm_ready ? "Ready to team up" : "Ready for more";
+        const size_t length = std::strlen(title);
+        if (scene.title.text.length != length || std::strncmp(scene.title.text.characters, title, length) != 0) {
+            error = set_scene_title(scene, {title, static_cast<uint16_t>(length)});
+            if (error != ESP_OK) { return error; }
+            ++s_text_generation;
+            changed = true;
+        }
+    }
     bool tokens_changed = false;
     error = update_home_tokens(s_view.activity_identity, SceneData::body_font,
         link, technical, tokens_changed);
@@ -2618,6 +2644,10 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
     if (tokens_changed) {
         ++s_activity_identity_revision;
         scene.activity_identity_revision = s_activity_identity_revision;
+        changed = true;
+    }
+    if (!connected && scene.activity_identity != nullptr) {
+        scene.activity_identity = nullptr;
         changed = true;
     }
     const uint16_t title_color = s_view.activity_identity.compaction_timer &&
@@ -2635,12 +2665,14 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
     }
     const bool eligible = is_companion_route(s_route) &&
         !s_view.activity_identity.attention_active && !s_view.activity_identity.compaction_timer &&
-        s_presented_compaction == LUNASHELL::CodexCompactionState::None &&
+        (s_presented_compaction == LUNASHELL::CodexCompactionState::None ||
+         (s_presented_compaction == LUNASHELL::CodexCompactionState::Refreshed && !s_presented_compaction_feedback)) &&
         link.activity.state != LUNASHELL::CodexActivityState::Paused;
     bool hints_changed = false;
     error = update_command_hints(s_command_hints, SceneData::body_font, connected, eligible,
         link.activity.data_valid && !link.activity.data_stale ? link.activity.chat_id : "",
-        active_time_us, hints_changed);
+        active_time_us, hints_changed, s_route == Route::CompanionIdle16
+            ? CommandHintsMode::ReadyForMore : CommandHintsMode::Introduction);
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Home command hints failed: %s", esp_err_to_name(error));
         return error;
@@ -3084,6 +3116,8 @@ void reset_onboarding()
     s_session_ended_at_us = -1;
     s_presented_activity = {};
     s_command_hints = {};
+    s_home_ready_dwell = {};
+    s_home_reply_dwell = {};
     s_activity_observation = {};
     s_presented_work_phase = LUNASHELL::CodexActivityState::Working;
     ++s_generation;

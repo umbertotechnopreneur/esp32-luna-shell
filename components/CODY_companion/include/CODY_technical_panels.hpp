@@ -53,6 +53,8 @@ struct PanelInputs {
     PanelMetric compaction_elapsed_us{};
 };
 
+enum class ModelDetailPage : uint8_t { Context = 0, TokenDetails = 1 };
+
 // One serialized owner retains all captions and prepared borrowed font lines through retirement.
 struct PanelPresentation {
     char captions[8][32]{};
@@ -74,6 +76,7 @@ struct PanelPresentation {
     char prior_hint[32]{};
     uint16_t prior_row_colors[8]{};
     CompanionPanel panel = CompanionPanel::Home;
+    ModelDetailPage model_page = ModelDetailPage::Context;
     LUNASHELL::CodexCostBand cost_band = LUNASHELL::CodexCostBand::Unknown;
     uint32_t revision = 0;
     uint32_t compaction_clock_us = 0;
@@ -86,7 +89,7 @@ struct PanelPresentation {
 };
 static_assert(sizeof(PanelPresentation) <= 1600, "Panel captions must remain one bounded owner buffer");
 
-// current: Stable companion view; Home enters Activity and technical views cycle independently.
+// current: Stable companion view; Home enters Model & Context and technical views cycle independently.
 // next: Receives the next typed technical identity after validation.
 // Exception: Returns invalid argument for an unknown panel identity.
 esp_err_t next_companion_panel(CompanionPanel current, CompanionPanel &next);
@@ -94,7 +97,7 @@ esp_err_t next_companion_panel(CompanionPanel current, CompanionPanel &next);
 // panel: Explicit technical page identity; Home is not a technical presentation.
 // inputs: Bounded current or explicitly stale metadata from its authenticated/synthetic owner.
 // font: Actual immutable native body font; technical text never uses typewriter timing.
-// active_time_us: Nonnegative active presentation time for an indeterminate compaction accent.
+// active_time_us: Nonnegative presentation time for numeric page rotation and the compaction accent.
 // presentation: Serialized caption owner, retained in place until every frame retires.
 // content: Receives a transparent detail callback below the reserved character artwork.
 // motion: Optional canonical experimental model result; null preserves the original details.
@@ -108,6 +111,7 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
 // technical: Independently aged technical projection from the same canonical observation.
 // font: Actual native body font retained by prepared glyph lines.
 // now_us: Local monotonic observation time; remote ages are durations, never remote clock values.
+// active_time_us: Independent local presentation clock; never contributes to source freshness or ages.
 // presentation: Serialized stable caption owner outside the rendering task stack.
 // content: Receives the transparent native detail callback below the artwork on success.
 // firmware_version: Canonical running-image identity; absent host metadata remains unavailable.
@@ -115,7 +119,8 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
 // Exception: Returns the real projection or native preparation error.
 esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
     const LUNASHELL::CodexLinkSnapshot &link, const LUNASHELL::CodexTechnicalSnapshot &technical,
-    const CODY2D::MonoFont &font, int64_t now_us, PanelPresentation &presentation, SceneContent &content,
+    const CODY2D::MonoFont &font, int64_t now_us, int64_t active_time_us,
+    PanelPresentation &presentation, SceneContent &content,
     const char *firmware_version = "", const LUNASHELL::ActivitySnapshot *motion = nullptr);
 
 // presentation: Successfully prepared serialized panel state.

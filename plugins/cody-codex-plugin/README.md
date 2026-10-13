@@ -13,6 +13,14 @@ and returns matching COMMITTED before the broker admits presence, events or
 current activity/technical data. Earlier handshake formats are rejected.
 Source changes do not install the plugin or flash the device.
 
+The packaged stdio entrypoint uses `cwd: "."` and `./mcp/ccp_server.py`.
+The native manager resolves that working directory to the installed plugin root;
+hook-only environment variables must not be left literally in the MCP launch
+directory or arguments. A real MCP transport renews its own ten-second lease.
+Without it, a broker started by a hook exits after 60 seconds without another
+hook; a running Codex window alone is not that transport. Inspect the native
+resolved MCP configuration and startup result when diagnosing idle disconnects.
+
 ## One-way voice input preparation
 
 The dedicated encrypted receiver uses UDP 42119, independently of CCP metadata
@@ -107,6 +115,10 @@ metadata from that chat's local native session journal; the exact transcript loc
 or a read-only state-index lookup must match the hook identity and checkout.
 Conversation messages, prompts and tool output are not interpreted as telemetry.
 No extra App Server, resumed chat or artificial activity hook is created.
+Windows extended drive/UNC paths are normalized before resolved-path confinement.
+The native envelope may include an ordinal. Known unrelated world-state,
+inter-agent and token-usage-record bodies are skipped; only the native
+`event_msg/token_count` observation supplies the displayed counters.
 
 Native `token_count` supplies **Last call**, **Input**, **Output**, **Total** and an
 explicit **Window** when present. Total is cumulative session usage, not current
@@ -121,8 +133,9 @@ not refresh native reasoning effort. `ccp_connection_status` exposes activity
 and technical fields from one coherent owner projection for each paired device.
 
 Home cycles Project, Branch, Model and token pages. On a healthy PC connection or
-a newly followed chat, a brief **Available commands** banner rotates **Change my
-name**, **Set my timezone**, **Set quiet hours** and **Ask Cody a question**. These
+a newly followed chat, an **Available commands** banner rotates **Change my
+name**, **Set my timezone**, **Set quiet hours** and **Ask Cody a question**.
+Ready for More keeps the first three rotating alongside the token carousel. These
 are requests to write in Codex chat, not device buttons or terminal commands.
 
 Genuine **PreCompact** takes priority with orange **Compacting**, the existing

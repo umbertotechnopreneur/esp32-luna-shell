@@ -33,6 +33,18 @@
 // No parameters: shared-model regression scenarios never enter device owners.
 void verify_shared_event_presentation();
 
+namespace HomeFixture {
+extern const LUNASHELL::CodexTechnicalObservation *observation;
+extern int64_t now_us;
+extern esp_err_t read_error;
+extern unsigned inactive_look_resets;
+// No parameters: inspect the real route; never emulate an active Look lifecycle.
+bool look_is_inactive()
+{
+    return CODY::s_route != CODY::Route::Look11;
+}
+}
+
 namespace CODY {
 // scene: Not used; entering the look selector is outside this event-only fixture.
 // control_revision: Not used; the test must stay inside event routes.
@@ -327,6 +339,99 @@ void check_reply_semantics()
     prepare(Route::ApprovalOnPc, SceneId::ApprovalOnPc);
     require(!s_view.action_visible && s_view.event_choice_count == 0, "native permissions stay on the PC");
 }
+// No parameters: explicitly synthetic canonical observations exercise the real Home presenter.
+// Exception: Stops on incorrect routes, titles, freshness or original service-error propagation.
+void check_home_lifecycle()
+{
+    static LUNASHELL::CodexTechnicalObservation observation{};
+    HomeFixture::observation = &observation;
+    auto &link = observation.link;
+    auto &activity = link.activity;
+    auto &technical = observation.technical;
+    link.state = LUNASHELL::CodexLinkState::Connected;
+    link.health = activity.health = technical.health = LUNASHELL::DeviceHealth::Ready;
+    link.last_error = activity.last_error = technical.last_error = ESP_OK;
+    link.data_valid = activity.data_valid = technical.data_valid = true;
+    link.retained_link_present = true;
+    activity.state = LUNASHELL::CodexActivityState::Working;
+    activity.revision = technical.revision = 1;
+    copy_field(activity.chat_id, std::string(64, 'a'));
+    copy_field(technical.chat_id, std::string(64, 'a'));
+    copy_field(technical.turn_id, std::string(64, 'b'));
+    copy_field(activity.project, "SIMULATED Home");
+    technical.context_valid = technical.used_valid = technical.capacity_valid = true;
+    technical.used = 25;
+    technical.capacity = 100;
+    technical.received_at_us = 1000000;
+    s_view = {};
+    s_presented_activity = {};
+    s_presented_compaction = LUNASHELL::CodexCompactionState::None;
+    s_home_reply_dwell = {};
+    s_home_ready_dwell = {};
+    s_command_hints = {};
+    s_activity_observation = {};
+    s_route = Route::Connected15;
+    const SceneDefinition *definition = nullptr;
+    require(find_scene(SceneId::Connected, definition) == ESP_OK, "Home initial scene exists");
+    SceneFrame scene;
+    require(begin_scene(*definition, scene) == ESP_OK, "Home initial scene prepares");
+    // now_us: Deterministic presentation/receipt clock; no physical clock is accessed.
+    // Exception: Stops on any unexpected presenter failure.
+    const auto present = [&](int64_t now_us) {
+        HomeFixture::now_us = now_us;
+        const auto prior_route = s_route;
+        const unsigned prior_resets = HomeFixture::inactive_look_resets;
+        bool changed = false;
+        require(present_companion_activity(now_us, scene, changed) == ESP_OK, "real Home presentation succeeds");
+        require(HomeFixture::inactive_look_resets == prior_resets + (s_route != prior_route ? 1U : 0U),
+            "only a real route transition retires the inactive Look view");
+    };
+    // expected: Exact English title from the actual prepared native scene.
+    const auto title_is = [&](const char *expected) {
+        return std::string(scene.title.text.characters, scene.title.text.length) == expected;
+    };
+    present(1000000);
+    require(s_route == Route::Working18, "working source reaches working Home");
+    require(scene.activity_identity != nullptr && std::strcmp(s_view.activity_identity.token_fields[0], "Last call: 25") == 0,
+        "real Home retains canonical tokens");
+    activity.state = LUNASHELL::CodexActivityState::ResponseReady;
+    present(2000000);
+    require(s_route == Route::Response19 && title_is("Reply ready"), "completion starts real reply introduction");
+    ++activity.revision;
+    technical.revision = activity.revision;
+    present(6999999);
+    require(s_route == Route::Response19, "metadata heartbeat cannot end reply introduction early");
+    present(7000000);
+    require(s_route == Route::CompanionIdle16 && title_is("Ready for more"), "five seconds retires reply into Ready for more");
+    require(scene.command_hints != nullptr, "Ready for more exposes actual command prompts");
+    ++activity.revision;
+    technical.revision = activity.revision;
+    present(31999999);
+    require(title_is("Ready for more"), "metadata heartbeat cannot reset idle dwell");
+    present(32000000);
+    require(title_is("Ready to team up") && activity.state == LUNASHELL::CodexActivityState::ResponseReady,
+        "idle title settles after 25 seconds without changing canonical completion");
+    activity.state = LUNASHELL::CodexActivityState::Working;
+    technical.compaction_valid = technical.compaction_age_valid = true;
+    technical.compaction = LUNASHELL::CodexCompactionState::Active;
+    technical.compaction_sequence = 1;
+    technical.received_at_us = 33000000;
+    present(33000000);
+    require(scene.title.color == 0xFD20 && s_view.activity_identity.compaction_timer && scene.command_hints == nullptr,
+        "actual compaction Home is orange and suppresses command prompts");
+    link.state = LUNASHELL::CodexLinkState::Discovering;
+    link.last_error = ESP_ERR_TIMEOUT;
+    link.health = LUNASHELL::DeviceHealth::Degraded;
+    present(34000000);
+    require(s_route == Route::LookingForPc14 && title_is("Connecting") && scene.activity_identity == nullptr,
+        "retained discovery immediately presents real Connecting without stale metrics");
+    HomeFixture::read_error = ESP_FAIL;
+    bool changed = false;
+    require(present_companion_activity(35000000, scene, changed) == ESP_FAIL,
+        "Home preserves the canonical read failure");
+    HomeFixture::read_error = ESP_OK;
+    HomeFixture::observation = nullptr;
+}
 } // namespace
 
 // No parameters: compile/run is available only through the explicitly requested native suite.
@@ -337,6 +442,7 @@ int main()
     check_choice_cards();
     check_pr_views();
     check_reply_semantics();
+    check_home_lifecycle();
     std::puts("Real Cody event presenter: bounded text, semantic cards, teletype gates, readonly PR and delivered-only success passed");
     return 0;
 }

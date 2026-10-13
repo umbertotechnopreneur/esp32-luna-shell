@@ -5,6 +5,83 @@
 #include "LUNASHELL_device_snapshot.hpp"
 
 namespace CODY {
+// link: Canonical owner state; an expired READY may retain the original timeout while discovery runs.
+// Returns true only for a retained pairing actively being rediscovered, never because a chat is idle.
+inline bool home_is_reconnecting(const LUNASHELL::CodexLinkSnapshot &link)
+{
+    return link.retained_link_present && link.state == LUNASHELL::CodexLinkState::Discovering;
+}
+
+struct HomeReadyDwell {
+    char chat[65]{};
+    uint64_t entry_revision = 0;
+    int64_t entered_us = -1;
+};
+static_assert(sizeof(HomeReadyDwell) <= 88, "Ready dwell retains identity/time only, never a snapshot");
+
+// state: Display-owner entry identity and time; ordinary metadata updates cannot extend the dwell.
+// ready: A healthy connected idle Home, not a reconnect or active question/operation.
+// chat: Current canonical chat identity, including empty before a session is selected.
+// revision: Canonical activity revision captured only on entry for provenance.
+// now_us: Existing nonnegative pausable scene clock.
+// calm: Receives whether the same idle owner has completed its 25-second introduction.
+// Exception: Returns and logs rejected identity/clock input without changing canonical data.
+inline esp_err_t advance_home_ready_dwell(HomeReadyDwell &state, bool ready, const char *chat,
+    uint64_t revision, int64_t now_us, bool &calm)
+{
+    calm = false;
+    if (chat == nullptr || std::strlen(chat) > 64 || now_us < 0) {
+        ESP_LOGE("CODY_commands", "Ready dwell input rejected: clock=%lld (%s)",
+            static_cast<long long>(now_us), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!ready) {
+        state.entered_us = -1;
+        return ESP_OK;
+    }
+    if (state.entered_us < 0 || std::strcmp(state.chat, chat) != 0) {
+        std::strcpy(state.chat, chat);
+        state.entry_revision = revision;
+        state.entered_us = now_us;
+    }
+    calm = now_us >= state.entered_us && now_us - state.entered_us >= 25000000;
+    return ESP_OK;
+}
+
+struct HomeReplyDwell {
+    char chat[65]{};
+    int64_t entered_us = -1;
+};
+static_assert(sizeof(HomeReplyDwell) <= 80, "Reply dwell retains bounded source identities only");
+
+// state: Display-owner completion edge; metadata heartbeats never restart the introduction.
+// ready: Whether the current valid canonical phase is ResponseReady.
+// chat: Canonical chat identity, bounded to 64 ASCII characters by its owner.
+// now_us: Existing nonnegative pausable scene clock.
+// introduction: Receives true for the first five seconds of this observed completion edge.
+// Exception: Returns and logs invalid identity/clock input; never modifies canonical phase.
+inline esp_err_t advance_home_reply_dwell(HomeReplyDwell &state, bool ready, const char *chat,
+    int64_t now_us, bool &introduction)
+{
+    introduction = false;
+    if (chat == nullptr || std::strlen(chat) > 64 || now_us < 0) {
+        ESP_LOGE("CODY_commands", "Reply dwell input rejected: clock=%lld (%s)",
+            static_cast<long long>(now_us), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!ready) {
+        state.entered_us = -1;
+        return ESP_OK;
+    }
+    if (state.entered_us < 0 || std::strcmp(state.chat, chat) != 0) {
+        std::strcpy(state.chat, chat);
+        state.entered_us = now_us;
+    }
+    // ACTIVITY has no turn identity; only an observed phase exit or chat change starts another edge.
+    introduction = now_us < state.entered_us || now_us - state.entered_us < 5000000;
+    return ESP_OK;
+}
+
 enum class CommandHintId : uint8_t { None = 0, Name = 1, Timezone = 2, QuietHours = 3, Question = 4 };
 struct CommandHint {
     CommandHintId id;
@@ -32,6 +109,7 @@ constexpr bool command_hint_ids_unique()
     return true;
 }
 static_assert(command_hint_ids_unique(), "Command hint domain identities must be unique");
+enum class CommandHintsMode : uint8_t { Introduction = 0, ReadyForMore = 1 };
 struct CommandHintsState {
     CODY2D::TextLine title{};
     CODY2D::TextLine request{};
@@ -39,6 +117,7 @@ struct CommandHintsState {
     int64_t started_us = 0;
     uint32_t revision = 0;
     CommandHintId page = CommandHintId::None;
+    CommandHintsMode mode = CommandHintsMode::Introduction;
     bool connected = false;
     bool visible = false;
 };
@@ -158,9 +237,11 @@ inline esp_err_t update_home_tokens(ActivityIdentityState &state, const CODY2D::
 // chat_id: Current authentic session identity, or empty when no current session is observed.
 // now_us: Existing active display clock; no task, poll timer or wake lease is created.
 // changed: Receives only visibility/page transitions, not every rendered frame.
+// mode: Ready for more keeps three Release-supported personalization prompts available.
 // Exception: Returns invalid input or actual glyph preparation errors.
 inline esp_err_t update_command_hints(CommandHintsState &state, const CODY2D::MonoFont &font,
-    bool connected, bool eligible, const char *chat_id, int64_t now_us, bool &changed)
+    bool connected, bool eligible, const char *chat_id, int64_t now_us, bool &changed,
+    CommandHintsMode mode = CommandHintsMode::Introduction)
 {
     changed = false;
     if (chat_id == nullptr || std::strlen(chat_id) > 64 || now_us < 0) {
@@ -169,17 +250,25 @@ inline esp_err_t update_command_hints(CommandHintsState &state, const CODY2D::Mo
             static_cast<long long>(now_us), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
+    if (mode != CommandHintsMode::Introduction && mode != CommandHintsMode::ReadyForMore) {
+        ESP_LOGE("CODY_commands", "Hint mode=%u rejected (%s)",
+            static_cast<unsigned>(mode), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
     const bool new_chat = chat_id[0] != '\0' && std::strcmp(state.chat_id, chat_id) != 0;
-    if (connected && (!state.connected || new_chat)) {
+    if (connected && (!state.connected || new_chat || state.mode != mode)) {
         state.started_us = now_us;
         if (chat_id[0] != '\0') {
             std::strcpy(state.chat_id, chat_id);
         }
     }
     state.connected = connected;
+    state.mode = mode;
     const int64_t elapsed = now_us >= state.started_us ? now_us - state.started_us : 20000000;
-    const CommandHint *hint = connected && eligible && elapsed < 20000000
-        ? &kHomeCommandHints[static_cast<size_t>(elapsed / 5000000)] : nullptr;
+    const bool ready = mode == CommandHintsMode::ReadyForMore;
+    const int64_t page_time = ready ? elapsed % 15000000 : elapsed;
+    const CommandHint *hint = connected && eligible && (ready || elapsed < 20000000)
+        ? &kHomeCommandHints[static_cast<size_t>(page_time / 5000000)] : nullptr;
     const auto page = hint ? hint->id : CommandHintId::None;
     if (page == state.page) {
         return ESP_OK;

@@ -1643,7 +1643,7 @@ void check_technical_panel_owner_contract()
     technical.capacity = 100;
 
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
-        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK,
+        link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK,
         "prepare same-chat technical packet gap without borrowing previous-turn data");
     require(std::strcmp(presentation.captions[0], "No model details yet") == 0 &&
             presentation.line_count == 1 && !presentation.context_bar_visible &&
@@ -1651,14 +1651,14 @@ void check_technical_panel_owner_contract()
             std::strcmp(presentation.banner, "Compaction: STALE") == 0,
             "revision mismatch hides model and counters while retaining uncertain compaction");
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::Activity,
-        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK &&
         presentation.line_count == 1 && std::strcmp(presentation.captions[0], "Working") == 0 &&
         presentation.lines[0].origin.y == 234 && presentation.lines[0].color == 0x07FF,
         "revision mismatch omits optional fields and cannot show a previous turn wall clock");
 
     technical.revision = link.activity.revision;
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
-        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK &&
         std::strstr(presentation.captions[0], "observed-model") != nullptr &&
         std::strcmp(presentation.captions[1], "Last call 50") == 0 &&
         presentation.line_count <= 4 && presentation.context_bar_visible &&
@@ -1667,7 +1667,7 @@ void check_technical_panel_owner_contract()
 
     link.activity.data_stale = true;
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
-        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK &&
         std::strcmp(presentation.captions[0], "No model details yet") == 0 &&
         std::strcmp(presentation.banner, "Compaction: STALE") == 0,
         "stale activity cannot confer current ownership on matching technical data");
@@ -1676,7 +1676,7 @@ void check_technical_panel_owner_contract()
         link.data_valid = health != 0;
         link.data_stale = health != 0;
         require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
-            link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+            link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK &&
             std::strstr(presentation.captions[0], "STALE") != nullptr &&
             std::strcmp(presentation.captions[1], "Last call STALE") == 0 &&
             std::strcmp(presentation.captions[2], "Free: STALE") == 0 &&
@@ -1686,7 +1686,7 @@ void check_technical_panel_owner_contract()
             std::strcmp(presentation.banner, "Compaction: STALE") == 0,
             "invalid or stale link cannot make retained connected technical data current");
         require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::SessionLink,
-            link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+            link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK &&
             std::strcmp(presentation.captions[0], health == 0 ? "Waiting for PC connection" : "PC link: STALE") == 0 &&
             std::strcmp(presentation.captions[1], "Chat ID aaaaaa...aaaaaa") == 0 && presentation.line_count <= 4,
             "canonical link health takes precedence over retained connected state");
@@ -1695,14 +1695,14 @@ void check_technical_panel_owner_contract()
     link.data_valid = false;
     link.data_stale = false;
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::SessionLink,
-        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK &&
         std::strcmp(presentation.captions[0], "Waiting for PC connection") == 0,
         "an invalid initial link cannot fabricate a disconnected observation");
     link.state = LUNASHELL::CodexLinkState::Connected;
     link.data_valid = true;
     std::memset(technical.chat_id, 'b', 64);
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
-        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK &&
         presentation.banner[0] == '\0' && std::strcmp(presentation.captions[0], "No model details yet") == 0,
         "a different chat cannot donate model or historical compaction state");
     require(content.bounds.top == 170 && content.bounds.bottom == 402 &&
@@ -1720,13 +1720,13 @@ void check_technical_panel_owner_contract()
     technical.effort_valid = true;
     std::strcpy(technical.effort, "N/A");
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
-        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK &&
         presentation.line_count == 1 && std::strcmp(presentation.captions[0], "No model details yet") == 0 &&
         !presentation.context_bar_visible,
         "whole-value producer placeholders are omitted without fabricating a context bar");
     std::strcpy(technical.model, "unknown-model");
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
-        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK &&
         std::strstr(presentation.captions[0], "unknown-model") != nullptr,
         "a genuine model slug containing a placeholder word is retained");
 }
@@ -1839,7 +1839,7 @@ void check_cost_badge_contract()
     technical.compaction_age_at_receive_us = 1000000;
     CODY::SceneContent content{};
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
-        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK &&
         presentation.line_count == 4 && std::strcmp(presentation.captions[2], "Last call 95") == 0 &&
         std::strcmp(presentation.captions[3], "Free 5") == 0 &&
         presentation.context_bar_visible && presentation.compaction_active && presentation.cost_line.valid &&
@@ -1849,7 +1849,7 @@ void check_cost_badge_contract()
         "long model retains last-call usage and remaining window before optional reasoning during compaction");
     technical.cost_stale = true;
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
-        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK &&
         std::strcmp(presentation.cost_caption, "Price unavailable") == 0 && presentation.compaction_active,
         "stale price is explicitly unavailable without hiding actual compacting state");
     technical.cost_stale = false;
@@ -1878,7 +1878,7 @@ void check_native_usage_projection()
     technical.cumulative_valid = technical.input_valid = technical.output_valid = true;
     technical.cumulative = 300;
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
-        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK &&
         presentation.line_count == 6 && std::strcmp(presentation.captions[0], "Last call 0") == 0 &&
         std::strcmp(presentation.captions[1], "Free 100") == 0 &&
         std::strcmp(presentation.captions[2], "Window 100") == 0 &&
@@ -1886,15 +1886,69 @@ void check_native_usage_projection()
         std::strcmp(presentation.captions[4], "Input 0") == 0 &&
         std::strcmp(presentation.captions[5], "Output 0") == 0,
         "measured zero survives independently from absent model metadata and cumulative spending");
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
+        link, technical, CODY::SceneData::body_font, 1000000, 8000000, presentation, content) == ESP_OK &&
+        presentation.model_page == CODY::ModelDetailPage::TokenDetails &&
+        std::strcmp(presentation.captions[0], "Input 0") == 0 &&
+        std::strcmp(presentation.captions[1], "Output 0") == 0 &&
+        std::strcmp(presentation.captions[2], "Total 300") == 0 && presentation.context_bar_visible,
+        "second numeric page exposes measured zero input/output and total without sacrificing the window bar");
+    technical.activity_age_valid = true;
+    technical.activity_age_at_receive_us = 2000000;
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::SessionLink,
+        link, technical, CODY::SceneData::body_font, 1000000, 99000000, presentation, content) == ESP_OK &&
+        std::strcmp(presentation.captions[2], "Updated 0:02") == 0 && technical.received_at_us == 1000000,
+        "presentation time never enters source receipt age or changes original observation timestamps");
+    technical.activity_age_valid = false;
+    technical.activity_age_at_receive_us = 0;
+    static CODY::PanelInputs detail_inputs{};
+    detail_inputs.model = "a-real-model-identifier-with-a-long-name";
+    detail_inputs.model_state = CODY::PanelValueState::Current;
+    detail_inputs.context_coherent = true;
+    detail_inputs.used = {50, CODY::PanelValueState::Current};
+    detail_inputs.capacity = {100, CODY::PanelValueState::Current};
+    detail_inputs.input = {UINT64_MAX, CODY::PanelValueState::Current};
+    detail_inputs.output = {42, CODY::PanelValueState::Current};
+    detail_inputs.cumulative = {UINT64_MAX, CODY::PanelValueState::Current};
+    detail_inputs.compaction = LUNASHELL::CodexCompactionState::Active;
+    require(CODY::prepare_companion_panel(CODY::CompanionPanel::ModelContext, detail_inputs,
+        CODY::SceneData::body_font, 7999999, presentation, content) == ESP_OK &&
+        presentation.model_page == CODY::ModelDetailPage::Context,
+        "model context remains the first eight-second page");
+    const auto context_revision = presentation.revision;
+    require(CODY::prepare_companion_panel(CODY::CompanionPanel::ModelContext, detail_inputs,
+        CODY::SceneData::body_font, 8000000, presentation, content) == ESP_OK &&
+        presentation.revision != context_revision && presentation.compaction_active &&
+        presentation.context_bar_visible && presentation.title_line.color == 0xFD20 &&
+        std::strcmp(presentation.captions[0], "Input 18446744073709551615") == 0 &&
+        std::strcmp(presentation.captions[1], "Output 42") == 0 &&
+        std::strcmp(presentation.captions[2], "Total 18446744073709551615") == 0,
+        "long model and active compaction cannot starve exact full-width token detail counters");
+    detail_inputs.output.state = CODY::PanelValueState::Unavailable;
+    require(CODY::prepare_companion_panel(CODY::CompanionPanel::ModelContext, detail_inputs,
+        CODY::SceneData::body_font, 9000000, presentation, content) == ESP_OK &&
+        std::strcmp(presentation.captions[1], "Output UNAVAILABLE") == 0,
+        "missing output is explicit rather than silently omitted or invented");
+    detail_inputs.input.state = detail_inputs.cumulative.state = CODY::PanelValueState::Unavailable;
+    require(CODY::prepare_companion_panel(CODY::CompanionPanel::ModelContext, detail_inputs,
+        CODY::SceneData::body_font, 10000000, presentation, content) == ESP_OK && presentation.line_count == 3 &&
+        std::strcmp(presentation.captions[0], "Input UNAVAILABLE") == 0 &&
+        std::strcmp(presentation.captions[1], "Output UNAVAILABLE") == 0 &&
+        std::strcmp(presentation.captions[2], "Total UNAVAILABLE") == 0,
+        "all missing numeric detail fields remain explicit and fit the active-compaction row budget");
+    require(CODY::prepare_companion_panel(CODY::CompanionPanel::ModelContext, detail_inputs,
+        CODY::SceneData::body_font, 16000000, presentation, content) == ESP_OK &&
+        presentation.model_page == CODY::ModelDetailPage::Context,
+        "unchanged observations return to the context page at the next eight-second boundary");
     technical.used = 101;
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
-        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK &&
         std::strcmp(presentation.captions[1], "Free: OVER LIMIT") == 0,
         "above-window native usage never underflows into invented free tokens");
     technical.context_valid = technical.capacity_valid = false;
     technical.used = UINT64_MAX;
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
-        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        link, technical, CODY::SceneData::body_font, 1000000, 1000000, presentation, content) == ESP_OK &&
         !presentation.context_bar_visible &&
         std::strcmp(presentation.captions[0], "Last call 18446744073709551615") == 0,
         "partial last-call count retains full uint64 precision without manufacturing capacity or a bar");
@@ -1906,7 +1960,7 @@ void check_native_usage_projection()
     require(technical.context_stale && !technical.data_stale && !technical.context_valid,
         "cumulative-only source expires even while transport is fresh and capacity is absent");
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
-        link, technical, CODY::SceneData::body_font, 1000001, presentation, content) == ESP_OK &&
+        link, technical, CODY::SceneData::body_font, 1000001, 1000001, presentation, content) == ESP_OK &&
         std::strcmp(presentation.captions[0], "Total STALE") == 0,
         "stale cumulative count is not presented as a current numeric value");
     technical.usage_age_at_receive_us = 0;
@@ -1984,6 +2038,55 @@ void check_home_command_and_token_contract()
     require(CODY::update_command_hints(hints, font, false, true, "chat-b", 28000000, changed) == ESP_OK &&
         !hints.visible, "stale or disconnected CCP removes hints");
 
+    require(CODY::update_command_hints(hints, font, true, true, "chat-b", 30000000, changed,
+        CODY::CommandHintsMode::ReadyForMore) == ESP_OK && hints.page == CODY::CommandHintId::Name,
+        "Ready for more starts with a supported personalization request");
+    for (int index = 0; index < 9; ++index) {
+        require(CODY::update_command_hints(hints, font, true, true, "chat-b",
+            30000000 + index * 5000000LL, changed, CODY::CommandHintsMode::ReadyForMore) == ESP_OK &&
+            hints.visible && hints.page == CODY::kHomeCommandHints[index % 3].id,
+            "Ready for more retains exactly three real Release requests beyond the intro deadline");
+    }
+    require(CODY::update_command_hints(hints, font, true, false, "chat-b", 75000000, changed,
+        CODY::CommandHintsMode::ReadyForMore) == ESP_OK && !hints.visible,
+        "compaction and question priority suppress persistent Ready for more hints");
+    CODY::HomeReplyDwell reply_dwell{};
+    bool reply_introduction = false;
+    require(CODY::advance_home_reply_dwell(reply_dwell, true, "chat-b", 1000000, reply_introduction) == ESP_OK && reply_introduction &&
+        CODY::advance_home_reply_dwell(reply_dwell, true, "chat-b", 5999999, reply_introduction) == ESP_OK && reply_introduction &&
+        CODY::advance_home_reply_dwell(reply_dwell, true, "chat-b", 6000000, reply_introduction) == ESP_OK && !reply_introduction &&
+        CODY::advance_home_reply_dwell(reply_dwell, true, "chat-b", 40000000, reply_introduction) == ESP_OK && !reply_introduction,
+        "completed reply holds five seconds then stays settled across late metadata updates");
+    require(CODY::advance_home_reply_dwell(reply_dwell, true, "chat-c", 41000000, reply_introduction) == ESP_OK && reply_introduction &&
+        CODY::advance_home_reply_dwell(reply_dwell, false, "chat-c", 42000000, reply_introduction) == ESP_OK && !reply_introduction &&
+        CODY::advance_home_reply_dwell(reply_dwell, true, "chat-c", 43000000, reply_introduction) == ESP_OK && reply_introduction,
+        "new chat or observed resumed work establishes a fresh completion edge");
+    CODY::HomeReadyDwell ready_dwell{};
+    bool calm = true;
+    require(CODY::advance_home_ready_dwell(ready_dwell, true, "chat-b", 7, 1000000, calm) == ESP_OK && !calm &&
+        CODY::advance_home_ready_dwell(ready_dwell, true, "chat-b", 8, 25999999, calm) == ESP_OK && !calm &&
+        CODY::advance_home_ready_dwell(ready_dwell, true, "chat-b", 9, 26000000, calm) == ESP_OK && calm &&
+        ready_dwell.entry_revision == 7,
+        "Ready for more becomes calm after 25s despite metadata revisions without changing canonical phase");
+    require(CODY::advance_home_ready_dwell(ready_dwell, false, "chat-b", 10, 27000000, calm) == ESP_OK && !calm &&
+        CODY::advance_home_ready_dwell(ready_dwell, true, "chat-c", 11, 28000000, calm) == ESP_OK && !calm,
+        "reconnect/active work and genuine chat changes reset only the display dwell");
+    LUNASHELL::CodexLinkSnapshot reconnect{};
+    reconnect.retained_link_present = true;
+    reconnect.last_error = ESP_ERR_TIMEOUT;
+    reconnect.state = LUNASHELL::CodexLinkState::Discovering;
+    require(CODY::home_is_reconnecting(reconnect) && reconnect.last_error == ESP_ERR_TIMEOUT,
+        "active retained discovery displays reconnecting while preserving its original timeout");
+    reconnect.state = LUNASHELL::CodexLinkState::Connected;
+    require(!CODY::home_is_reconnecting(reconnect), "idle chat cannot turn a healthy connection into Connecting");
+    reconnect.state = LUNASHELL::CodexLinkState::Discovering;
+    reconnect.retained_link_present = false;
+    require(!CODY::home_is_reconnecting(reconnect), "absent pairing cannot be described as retained reconnect");
+    CODY::CompanionPanel next_panel{};
+    require(CODY::next_companion_panel(CODY::CompanionPanel::Home, next_panel) == ESP_OK &&
+        next_panel == CODY::CompanionPanel::ModelContext,
+        "first passive Home tap exposes model and token counters immediately");
+
     static CODY::ActivityIdentityState identity{};
     static LUNASHELL::CodexLinkSnapshot link{};
     static LUNASHELL::CodexTechnicalSnapshot technical{};
@@ -2037,6 +2140,12 @@ void check_home_command_and_token_contract()
     require(CODY::advance_activity_identity(identity, font, 30000000, true, 5000000, changed) == ESP_OK &&
         identity.selected == CODY::ActivityIdentityKind::Project,
         "compaction or native attention keeps project priority over token pagination");
+    static CODY::ActivityIdentityState projectless{};
+    require(CODY::prepare_activity_identity(projectless, font, "", "", 0) == ESP_OK &&
+        CODY::update_home_tokens(projectless, font, link, technical, changed) == ESP_OK &&
+        CODY::advance_activity_identity(projectless, font, 0, false, -1, changed) == ESP_OK &&
+        projectless.selected == CODY::ActivityIdentityKind::Tokens,
+        "current counters remain visible even when the source has no project label");
     technical.used_valid = false;
     require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK &&
         std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::LastCall)], "Last call: UNAVAILABLE") == 0 &&

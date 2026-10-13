@@ -13,6 +13,47 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Native launch, event delivery and visible token pages - 2026-10-14
+
+The effective native MCP configuration contained a literal `${PLUGIN_ROOT}`
+directory and failed with Windows error 267. Both packaged manifests now use
+the installed plugin directory and a relative stdio entrypoint. Genuine MCP
+transport leases retain the existing lifecycle; no fake lease, idle hook, chat
+selection or secondary Codex host was introduced. The native plugin manager
+installed the corrected 0.6.7 package; source/cache hashes match and control,
+pending-pairing and active-pairing files remained byte-identical. Configuration
+resolution is verified separately from an actual Desktop MCP handshake.
+
+The bounded native reader now accepts resolved Windows extended-path spelling,
+the optional native ordinal and known irrelevant record types without decoding
+their bodies. Exact chat/checkout/turn admission, source timestamps, confinement
+and 128-KiB poll limits remain. A read-only observation of the genuine followed
+turn returned Last call 282,297 / Window 475,000, Input 281,496, Output 801 and
+Total 9,051,637 at source age 12.313 seconds. Four bounded polls read 417,792 bytes
+in 3.72 ms. This proves PC-source compatibility, not device pixels. Accepted
+prompt/completion/compaction lifecycle logs contain hashed identities only.
+
+Home now presents retained discovery as Connecting, retains token/model rotation
+in Ready, shows Reply ready for five seconds, then three rotating supported
+requests. After another 25 seconds its idle title becomes Ready to team up;
+healthy presence is never relabeled as Connecting. The first passive tap opens
+Model & Context. Its eight-second Token details page reserves Input, Output and
+Total rows even with long model names and compaction. Active compaction keeps
+orange priority and suppresses command suggestions. Observation and presentation
+clocks are explicit separate parameters in firmware and Studio.
+
+Final host evidence: 106 CCP tests, native raster/geometry, actual Home/event
+presenter, runtime and snapshot contracts, 12 Studio tests and 36 authenticated
+CCP simulator tests passed. Synthetic event-chain captures cover working tokens,
+Input/Output, active compaction, refreshed counters pending and reply ready;
+the numeric-page title is checked against actual native glyph pixels. Earlier
+failed compilation, excluded-fixture boundary, simulator caption width and
+missing fixture contour phase were corrected; attempts are retained. Visual
+inspection exposed the separate Studio page-clock bug before delivery.
+Selected profile/dependency and changed-secret checks passed. Artifacts are
+retained under `artifacts/build-cody-companion-wake-word-evidence/events-reconnect-20261014/`.
+Release build, flash and target evidence are pending below this checkpoint.
+
 ## Native chat tokens and Home presentation - 2026-10-14
 
 Checkpoint `49e2fb6` integrates genuine followed-chat metadata with strict

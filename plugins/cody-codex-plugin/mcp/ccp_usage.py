@@ -29,7 +29,9 @@ READ_BUDGET = 128 * 1024
 CHUNK_BYTES = 4096
 METADATA_LIMIT = 128 * 1024
 RECORD_LIMIT = 512
-_ENVELOPE = re.compile(rb'^\s*\{\s*"timestamp"\s*:\s*"[^"\r\n]{1,64}"\s*,\s*"type"\s*:\s*"([a-z_]+)"\s*,\s*"payload"\s*:')
+IGNORED_RECORDS = (b"response_item", b"compacted", b"world_state",
+                   b"inter_agent_communication_metadata", b"token_usage_record")
+_ENVELOPE = re.compile(rb'^\s*\{\s*"timestamp"\s*:\s*"[^"\r\n]{1,64}"\s*,\s*(?:"ordinal"\s*:\s*[0-9]{1,20}\s*,\s*)?"type"\s*:\s*"([a-z_]+)"\s*,\s*"payload"\s*:')
 _EVENT = re.compile(rb'^\s*\{\s*"type"\s*:\s*"([a-z_]+)"')
 
 
@@ -59,7 +61,7 @@ def metadata_record(line, oversized=False):
     if envelope is None:
         raise UsageSourceError("Native usage record envelope is unsupported")
     kind = envelope[1]
-    if kind in (b"response_item", b"compacted"):
+    if kind in IGNORED_RECORDS:
         return None
     if kind == b"event_msg":
         event = _EVENT.match(line[envelope.end():envelope.end() + 512])
@@ -97,6 +99,15 @@ def checkout_identity(value: str) -> str:
     return os.path.normcase(os.path.abspath(value))
 
 
+# value: Native filesystem path, including Windows extended drive or UNC spellings.
+# Raises OSError or UsageSourceError if the source does not exist or its identity is invalid.
+def resolved_native_path(value) -> Path:
+    # Path.resolve can preserve an incoming \\?\ prefix. Confinement must compare
+    # the same canonical spelling on both sides after resolving symlinks.
+    resolved = Path(value).resolve(strict=True)
+    return Path(checkout_identity(str(resolved)))
+
+
 # value: Native unsigned token counter, never a textual estimate.
 # Raises ValueError for unsupported or negative counters.
 def counter(value):
@@ -108,7 +119,8 @@ def counter(value):
 class NativeUsageReader:
     # No parameters: all files remain local; ownership is established by genuine hooks.
     def __init__(self):
-        self.home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).resolve()
+        self.home = Path(checkout_identity(str(Path(os.environ.get(
+            "CODEX_HOME", str(Path.home() / ".codex"))).resolve())))
         self.identity = None
         self.path = None
         self.file_identity = None
@@ -140,7 +152,7 @@ class NativeUsageReader:
         if locator:
             path = Path(locator)
         else:
-            database = (self.home / "state_5.sqlite").resolve(strict=True)
+            database = resolved_native_path(self.home / "state_5.sqlite")
             if not database.is_relative_to(self.home):
                 raise UsageSourceError("Native usage state index escapes its owner")
             with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.05)) as connection:
@@ -150,8 +162,8 @@ class NativeUsageReader:
             if checkout_identity(row[1]) != checkout_identity(cwd):
                 raise UsageSourceError("Native usage index checkout mismatch")
             path = Path(row[0])
-        resolved = path.resolve(strict=True)
-        approved = (self.home / "sessions").resolve(strict=True)
+        resolved = resolved_native_path(path)
+        approved = resolved_native_path(self.home / "sessions")
         if (not approved.is_relative_to(self.home) or not resolved.is_relative_to(approved)
                 or resolved.suffix != ".jsonl"):
             raise UsageSourceError("Native usage path is outside the session owner")
@@ -338,7 +350,7 @@ class NativeUsageReader:
                 remaining = METADATA_LIMIT - len(self.pending)
                 self.pending.extend(fragment[:remaining])
                 prefix = _ENVELOPE.match(self.pending[:1024])
-                irrelevant = prefix is not None and prefix[1] in (b"response_item", b"compacted")
+                irrelevant = prefix is not None and prefix[1] in IGNORED_RECORDS
                 if prefix is not None and prefix[1] == b"event_msg":
                     event = _EVENT.match(self.pending[prefix.end():prefix.end() + 512])
                     irrelevant = event is not None and event[1] not in (b"token_count", b"task_started")
@@ -382,7 +394,7 @@ class NativeUsageReader:
                 self.retry_at = time.monotonic() + 5.0
                 self.locate(session, cwd, locator)
             # Re-resolve on every read, so a replaced path cannot escape via a symlink.
-            if self.path.resolve(strict=True) != self.path:
+            if resolved_native_path(self.path) != self.path:
                 raise UsageSourceError("Native usage path changed identity")
             expected_file = self.path.stat()
             with self.path.open("rb") as stream:

@@ -61,7 +61,7 @@ def presentation(snapshot: SimulatorSnapshot, code: str) -> tuple[str, str, tupl
     if snapshot.state == LinkState.UNPAIRED:
         return "codex-choice", "Connect Codex?", ("Choose Connect Codex", "in the CCP panel")
     if snapshot.state == LinkState.DISCOVERING:
-        return "looking-for-pc", "Finding your PC", ("Your link is saved", "Open Codex to rejoin")
+        return "looking-for-pc", "Connecting", ("Your link is saved", "Retrying connection")
     if snapshot.state == LinkState.PAIRED:
         return "setup-complete", "You're all set.", ("Open Codex to rejoin",)
     if snapshot.state == LinkState.TIMED_OUT:

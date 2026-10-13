@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "simulator/windows"))
 sys.path.insert(0, str(ROOT))
 import cody_ccp_simulator as simulated
-from cody_ccp_panel import presentation
+from cody_ccp_panel import CcpPanel, presentation
 from cody_ccp_event_view import EventView, paint_action, wrapped
 from cody_scene import ScenePainter
 from cody_native import NativeRig
@@ -219,6 +219,93 @@ class SimulatorProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "one reply per nonce"):
             self.link.handle_datagram(packet, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
         self.assertEqual(self.link.snapshot().technical.cost_band.value, "expensive")
+
+    # self: Isolated synthetic hooks, authenticated packets and the actual native panel renderer.
+    # Raises AssertionError for event loss, hidden counters, wrong compaction color or invented refresh.
+    def test_hook_lifecycle_reaches_authenticated_native_panels(self):
+        from cody_simulator import CodyRenderer
+        from scripts.common.cody_rig_contract import contour_defaults
+        owner = protocol.ActivityStore()
+        source = Mock()
+        owner._usage = source
+        sample = {"used": 18432, "capacity": 196608, "input": 18000,
+                  "output": 432, "cumulative": 247381}
+        observed = time.monotonic()
+        source.poll.return_value = ((sample, observed), ("gpt-6-astra", "high", observed))
+
+        # name: Explicit synthetic lifecycle event; never delivered to the installed broker.
+        # fields: Allowlisted fixture tool or compaction metadata.
+        # Raises the real activity owner's validation error.
+        def observe(name, **fields):
+            owner.observe({"hook_event_name": name, "session_id": "SIMULATED-event-chat",
+                "cwd": "E:/SIMULATED-Cody", "turn_id": "SIMULATED-event-turn",
+                "emitted_ns": time.monotonic_ns(), **fields})
+
+        observe("UserPromptSubmit", model="gpt-6-astra")
+        self.exchange_presence(activity_owner=owner)
+        renderer = CodyRenderer()
+        native = renderer.require_native()
+        panel = CcpPanel.__new__(CcpPanel)
+        output = ROOT / "artifacts/checks/cody-ccp-simulator"
+        output.mkdir(parents=True, exist_ok=True)
+
+        # name: Fixed artifact caption identifying this synthetic event boundary.
+        # compacting: Expected actual native heading color, independent of the working phase.
+        # elapsed_us: Existing panel clock selecting its normal or token-detail page.
+        # Raises AssertionError for a missing native title or incorrect orange priority.
+        def capture(name, compacting=False, elapsed_us=1000000):
+            snapshot = self.link.snapshot()
+            observation = panel.panel_observation(snapshot)
+            scene = native.evaluate(renderer.rig["boot_channels"]["ready"],
+                native.companion_panel_transform(), {**contour_defaults(renderer.rig), "phase": 0.0})
+            native.prepare_companion_observation(scene, 2, observation, elapsed_us)
+            image = renderer.draw_scene(scene, debug=False, navigation_visible=False).convert("RGB")
+            if elapsed_us == 9000000:
+                expected = Image.new("RGB", (466, 466), (0, 0, 0))
+                renderer.scene_painter.paint_text(expected, "Token details", 170, body=True)
+                bounds = (73, 170, 393, 195)
+                self.assertEqual(image.crop(bounds).tobytes(), expected.crop(bounds).tobytes(),
+                    "The active panel clock must expose the native Input/Output page")
+            header = image.crop((73, 160, 393, 205))
+            self.assertIsNotNone(header.getbbox())
+            orange = sum(1 for red, green, blue in header.getdata()
+                         if red > 180 and 70 < green < 200 and blue < 65)
+            if compacting:
+                self.assertGreater(orange, 5)
+            else:
+                self.assertEqual(orange, 0)
+            renderer.capture_sheet(image, "SIMULATED / event chain / " + name).save(output / (name + ".png"))
+            return snapshot
+
+        working = capture("event-working-tokens")
+        self.assertEqual(working.technical.context_used, 18432)
+        self.assertEqual(working.technical.input_tokens, 18000)
+        self.assertEqual(working.technical.output_tokens, 432)
+        self.assertEqual(working.technical.context_capacity, 196608)
+        capture("event-input-output-details", elapsed_us=9000000)
+        observe("PreCompact", trigger="auto")
+        observe("PreToolUse", tool_use_id="SIMULATED-tool", tool_name="exec_command")
+        self.deliver_events()
+        compact = capture("event-compacting", compacting=True)
+        self.assertEqual(compact.phase, "running")
+        self.assertEqual(compact.technical.compaction.value, "active")
+        observe("PostToolUse", tool_use_id="SIMULATED-tool")
+        observe("PostCompact", trigger="auto")
+        self.deliver_events()
+        refreshed = capture("event-refreshed-waiting-usage")
+        self.assertEqual(refreshed.technical.compaction.value, "refreshed")
+        self.assertIsNone(refreshed.technical.context_used)
+        source.poll.return_value = ((sample, time.monotonic()), ("gpt-6-astra", "high", observed))
+        observe("Stop")
+        self.deliver_events()
+        ready = capture("event-reply-ready-tokens")
+        self.assertEqual(ready.phase, "ready")
+        self.assertEqual(ready.technical.cumulative_tokens, 247381)
+        self.now += simulated.PRESENCE_SECONDS + .1
+        self.link.tick(self.send)
+        disconnected = self.link.snapshot()
+        self.assertFalse(disconnected.activity_valid)
+        self.assertEqual(presentation(disconnected, "")[1], "Connecting")
 
     # self: Restart after PAIR/PC persistence but before CONFIRM.
     # Raises AssertionError if another visible code is required or unauthenticated state is promoted.

@@ -69,6 +69,8 @@ moves the badge to y=234 and leaves four detail rows starting at y=267. The
 context bar occupies y=389 through 400. Session & Link admits six rows starting
 at y=234. These two panels omit the passive gesture hint to preserve row space;
 tap still advances and deliberate shake returns Home.
+Model & Context alternates every eight active seconds with Token details in the
+same viewport; Input, Output and Total precede optional reasoning information.
 Home uses the project/branch/model/token identity viewport at (73,300), 320 x 28.
 Token pages keep Last call, Window, Free and Total separate and use exact counts;
 each page shares the existing measured/clipped carousel rather than adding a task.
@@ -80,8 +82,12 @@ their occupied circular chords and retain the description viewport below y=360.
 For the first 20 active seconds after a healthy PC connection or chat change,
 ordinary Home may replace that description with Available commands at y=360 and
 one supported chat request at y=392. Native glyph bounds stay inside the circle.
+Ready for More retains the same footer indefinitely, rotating three supported
+requests while the token/identity carousel remains visible. Its title changes to
+Ready to team up after 25 active seconds without clearing the counters.
 Attention and compaction suppress this banner. Current compaction uses orange
-headline and description, with its original character cue and sound admission.
+headline and description, with its original character cue and sound admission;
+technical-panel headings also turn orange during current compaction.
 
 The standalone status layer shows date at (122,32), local HH:MM at (122,47),
 and battery/Wi-Fi/Bluetooth at y=43-64. Seconds are omitted. Battery is gray

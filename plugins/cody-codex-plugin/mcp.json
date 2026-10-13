@@ -6,10 +6,10 @@
       "command": "python",
       "args": [
         "-B",
-        "${PLUGIN_ROOT}/mcp/ccp_server.py",
+        "./mcp/ccp_server.py",
         "--stdio"
       ],
-      "cwd": "${PLUGIN_ROOT}"
+      "cwd": "."
     }
   }
 }

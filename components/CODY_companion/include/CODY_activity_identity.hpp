@@ -303,7 +303,7 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
     int64_t cycle_us = 0;
     for (auto &caption : captions) {
         *caption.offset = 0;
-        if (caption.kind != ActivityIdentityKind::Project && (attention || !state.project_line.valid)) { continue; }
+        if (caption.kind != ActivityIdentityKind::Project && attention) { continue; }
         if (caption.length == 0) { continue; }
         const uint16_t overflow = caption.width > kActivityIdentityBounds.width ? caption.width - kActivityIdentityBounds.width : 0;
         caption.hold_us = caption.kind == ActivityIdentityKind::Tokens

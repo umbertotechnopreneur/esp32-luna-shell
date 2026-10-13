@@ -40,6 +40,7 @@ def check_event_ui(compiler: str, output: Path) -> None:
                "components/CODY2D/src/CODY2D_text.cpp", "components/CODY2D/src/CODY2D_controls.cpp",
                "components/CODY_companion/src/model/CODY_rig.cpp",
                "components/CODY_companion/src/scenes/CODY_scene.cpp",
+               "components/CODY_companion/src/scenes/CODY_technical_panels.cpp",
                "assets/cody/scenes/generated/scene_font.cpp",
                "assets/cody/scenes/generated/scene_body_font.cpp")
     command = compile_command(compiler, includes, sources, executable,
