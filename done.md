@@ -13,6 +13,16 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Active backlog cleanup - 2026-10-14
+
+At the user's request, TODO.md now contains only four autonomous work items:
+firmware footprint, PC plugin alignment, selected Debug/Release delivery and
+explicit Release endurance readback. Previous unresolved checks are preserved
+in planned-todo.md as a deferred verification register, without claiming they
+passed. The duplicate peripheral FAULT-04 is named FAULT-PERIPHERAL-01 with its
+historical alias retained. Physical voice and walking/classifier trials remain
+postponed at the user's request. The accepted SD/PCB constraint is unchanged.
+
 ## First 1,000 mAh battery run readback - 2026-10-13
 
 The user reported a 1,000 mAh battery and operation with USB disconnected. A
