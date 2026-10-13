@@ -13,6 +13,40 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## First 1,000 mAh battery run readback - 2026-10-13
+
+The user reported a 1,000 mAh battery and operation with USB disconnected. A
+passive 130-second COM10 capture on reconnection recovered session 1 from the
+installed `cody-142-g869e45e2-dirty` firmware. Its Debug configuration retained
+Sophia wake-word listening and the pretrained activity observer, with automatic
+Light-sleep disabled. Three periodic reports agree on the exact saved fields:
+
+| Field | Retained value |
+| --- | --- |
+| Phase | `INTERRUPTED_UNKNOWN` |
+| Last-alive elapsed | `24942870 ms`, 6 h 55 min 42.870 s (415.7145 minutes) |
+| Start UTC | `1791816011`, 12 October 2026 21:40:11 Asia/Saigon |
+| First wake | `874343 ms` after start; UTC `1791816885`, 21:54:45 Asia/Saigon |
+| Source observations | `source_gaps=1` |
+| Last-alive UTC | `UNAVAILABLE` |
+| Previous session | Empty, id 0 |
+
+README reports the practical result as **about seven hours on 1,000 mAh in this
+configuration**, including standby, with a link to the evidence limits. The
+counter establishes last saved liveness, not the exact end of battery power or
+continuous Wi-Fi/Codex presence. Incomplete source observations cannot certify
+uninterrupted battery-only operation from telemetry alone. Capacity is reported
+by the user; no capacity, current, display duty-cycle or Release measurement was
+performed. Later polling/UI/reconnect source improvements were not installed.
+
+The background collector had stopped after a failed port enumeration; the
+explicit passive readback succeeded and did not flash or request a reset.
+Raw/parsed evidence is retained locally as
+`artifacts/battery-endurance-watch/readback-20261013.log` and
+`artifacts/battery-endurance-watch/readback-20261013.json`. The user-requested
+README and power guide now record the result; continuous-source validation
+remains in `BATTERY-ENDURANCE-01`.
+
 ## Saved-network startup and wake reconnect - 2026-10-13
 
 Three agents covered Wi-Fi retry ownership, CCP/startup integration and host

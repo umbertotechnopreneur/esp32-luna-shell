@@ -26,6 +26,15 @@ Other Espressif boards require explicit integration; see [BSP](docs/bsp/README.m
 Repository documentation, device text and logs are English; Cody text is
 bounded printable ASCII.
 
+## Observed battery runtime
+
+**About 7 hours with a 1,000 mAh battery** in the tested Cody Debug configuration,
+with wake-word listening and the pretrained activity observer enabled. The
+12-13 October 2026 run retained a last-alive checkpoint at **6 h 55 min 42 s**,
+including standby. This is one observed run; incomplete power-source observations
+and the unknown final interval limit its precision. See the
+[test configuration and saved evidence](docs/bsp/services/power-management.md#observed-1000-mah-run---12-13-october-2026).
+
 ## Work and evidence
 
 [AGENTS.md](AGENTS.md) owns repository rules and authorization.

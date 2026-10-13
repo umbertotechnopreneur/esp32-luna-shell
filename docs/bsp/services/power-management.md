@@ -315,8 +315,39 @@ least one hour after the observed start. `wake_recorded` identifies the first wa
 ping, and `source_gaps` discloses incomplete power-source observation. Valid UTC
 fields contain original observed epoch seconds; unavailable time prints `UNAVAILABLE`.
 The final unsaved interval is unknown: scheduling, storage failures or power loss
-can make it longer than the nominal 60-second heartbeat. Battery-only duration,
-whole-board shutdown and restart still require a physical run.
+can make it longer than the nominal 60-second heartbeat. Whole-board shutdown
+and restart require separate physical evidence.
+
+### Observed 1,000 mAh run - 12-13 October 2026
+
+The user reported a **1,000 mAh battery**, disconnected USB for this run and
+reconnected the device on 13 October. The practical result is **about seven
+hours of operation in this configuration**, including standby. Capacity is the
+user-reported nominal rating; no capacity or current measurement was performed.
+
+| Item | Captured evidence |
+| --- | --- |
+| Installed firmware | `cody-142-g869e45e2-dirty`, Cody Debug, wake-word/activity profile |
+| Features | Sophia WakeNet listening and pretrained activity observer enabled; automatic Light-sleep disabled in Debug |
+| Battery-only start | 12 October 2026, 21:40:11, Asia/Saigon (UTC+07:00) |
+| Last durable elapsed time | `24942870 ms`: 6 h 55 min 42.870 s, or 415.7145 minutes |
+| First recorded wake | `874343 ms`: 14 min 34.343 s after start; recorded UTC corresponds to 21:54:45 Asia/Saigon |
+| Retained session | Session 1, `INTERRUPTED_UNKNOWN`; previous session empty |
+| Readback | Three matching reports during a passive 130-second capture on COM10; no flash or explicit reset |
+
+The journal reports `source_gaps=1`: power-source observations were incomplete,
+so the record alone cannot certify uninterrupted battery-only operation across
+the whole interval. The final `last_alive` UTC field is unavailable; the elapsed
+counter is retained. Neither the exact power-loss instant nor its cause can be
+established from `INTERRUPTED_UNKNOWN`. This measures device liveness, including
+standby, without establishing display-on time or continuous Wi-Fi/Codex presence.
+The later polling, recording UI and reconnect changes were not installed for
+this run; no Release runtime or gain from those changes is claimed.
+
+Raw readback and a bounded parsed result are under
+`artifacts/battery-endurance-watch/readback-20261013.log` and
+`artifacts/battery-endurance-watch/readback-20261013.json`. These are local
+disposable captures; [done.md](../../../done.md) retains the compact evidence.
 
 ## Evidence and deferred policy
 

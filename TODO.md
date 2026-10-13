@@ -14,11 +14,12 @@ The battery/audio source checkpoints are on `main`; the USB flash evidence is
 prepared on `codex/voice-firmware-flash`. The daily Codex Standard cache, Home warning/carousel
 and Model & Context badge are implemented; final validation remains open in
 CCP-07. No rates, dollar amounts or session-cost estimation are sent to Cody.
-Latest firmware `cody-142-g869e45e2-dirty` was built and flashed on COM10 on
+Installed battery-test firmware `cody-142-g869e45e2-dirty` was built and flashed on COM10 on
 2026-10-12 with five image hashes verified, the unchanged two-OTA-slot table and
 NVS excluded. App 7,272,128 bytes; 2,368 bytes remain per wake-word slot. See
 done.md for passive serial observations and corrected startup/cadence failures.
-Physical interactions, complete stack headroom and battery duration remain open.
+Physical interactions and complete stack headroom remain open. The first battery
+run and its observation limits are recorded in done.md (13 October readback).
 
 ## Cody power and pretrained activity observer - 2026-10-12
 
@@ -51,18 +52,13 @@ Physical interactions, complete stack headroom and battery duration remain open.
   uses a one-byte StackType_t, so the previous monitor multiplication did not
   alter the numeric result. Unselected display-touch/full-wake-word locks are absent
   in the whole-catalog check; do not report those variants as verified.
-- [ ] **BATTERY-ENDURANCE-01 - Persistent battery-only timing.** User requested
-  start, last-alive and first-wake pings for actual battery operation without USB.
-  Preserve interrupted-run evidence across boot with unknown end cause; do not
-  invent the time at which battery power disappeared. Implementation adds a bounded
-  CRC-protected 112-byte NVS journal, canonical source validity, ordinary/failed
-  shutdown markers and low-rate progress through the existing owner without an
-  additional wake lease. Twelve real-service host scenarios and real settings-owner
-  bounds/error/seal tests passed. Target build/size/flash and individual compiled
-  frames passed. The 180-second USB capture kept the journal empty, refreshed the
-  canonical PMU and retained one optional publication timeout without disabling
-  recording. Actual unplugged-battery duration and physical first-wake retention
-  remain pending; no USB-only result is an endurance measurement.
+- [ ] **BATTERY-ENDURANCE-01 - Continuous-source endurance evidence.** The first
+  user-reported 1,000 mAh battery run retained 6 h 55 min 42.870 s of liveness
+  and the first wake after 14 min 34.343 s, verified on 13 October after reconnect.
+  `source_gaps=1` and unavailable final UTC prevent a continuous-source or exact
+  death-time claim. The retained phase is `INTERRUPTED_UNKNOWN`. Preserve these
+  limits and obtain continuous-source evidence before publishing a repeatable
+  battery-only runtime figure. Completed recorder/readback evidence belongs in done.md.
 
 ## Energy, memory and maintenance review - 2026-10-12
 
@@ -71,7 +67,8 @@ Physical interactions, complete stack headroom and battery duration remain open.
   expedites one pending Wi-Fi retry after completed wake and prompts CCP FIND on
   wake/acquired IP. Measure requested wake, completed wake, association, acquired
   IP and authenticated READY on the physical device before claiming the reported
-  10-30-second delay is resolved. Preserve the battery run before installing.
+  10-30-second delay is resolved. Battery readback completed on 13 October;
+  retain its captured baseline when installing a later image.
   Verify the saved-profile startup wait on target: no premature setup choices,
   immediate advance on valid IP and recovery choices after 15 seconds offline.
 - [ ] **VOICE-POLL-UI-01 - Target recording and lifecycle evidence.** Source
@@ -81,15 +78,15 @@ Physical interactions, complete stack headroom and battery duration remain open.
   more than two seconds of acquired VAD silence after speech sends automatically.
   Validate visible frame pacing, actual voice gain, rotations, physical gestures,
   standby/resume/rollback, target stack headroom and battery current. Host native
-  raster/owner evidence is separate. Preserve the running battery image and NVS
-  journal; a source build must not silently replace the installed experiment.
+  raster/owner evidence is separate. The battery image and NVS journal were read
+  back on 13 October; retain that baseline separately from later firmware tests.
 - [ ] **AUDIT-TARGET-01 - Validate the integrated review on target.** The source
   coalesces unchanged endurance publications, releases a rejected HAR model,
   reads bounded power state in Luna shell callbacks and revalidates model inputs
   when their files change. Host evidence belongs in done.md. Compile/size, final
   nested stack headroom, failure-path memory recovery and incremental model-tamper
-  rejection still require target validation. Preserve the installed battery-run
-  image and its NVS journal until the ongoing battery experiment is read back.
+  rejection still require target validation. Battery readback completed on
+  13 October; its baseline does not validate these later source changes.
 - [ ] **RELEASE-ENDURANCE-01 - Explicit durable-record readback.** Release keeps
   the NVS recorder but compiles out its INFO serial summaries at WARN maximum.
   Provide a bounded, explicitly requested readback through the canonical owner
