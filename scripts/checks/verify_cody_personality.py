@@ -53,6 +53,7 @@ def check_asset_contracts(root):
     assert icons["master_extent"] == 256, "Native masters must cover the maximum 231-pixel display extent"
     identities = {}
     slugs = set()
+    flash_payload_bytes = 512
     for icon in icons["icons"]:
         assert icon["identity"] not in identities and icon["id"] not in slugs, "Duplicate icon identity"
         identities[icon["identity"]] = icon["enum"]
@@ -65,8 +66,32 @@ def check_asset_contracts(root):
         assert hashlib.sha256(coverage).hexdigest() == icon["coverage_sha256"], "Coverage digest differs"
         assert any(coverage), "Icon must contain visible artwork"
         assert all(not palette[slot]["reserved"] for slot, alpha in zip(indices, coverage) if alpha), "Reserved palette slot used"
+        assert icon["stored_inset"] == 2 and icon["stored_extent"] == 252, "Only the guaranteed transparent border may be omitted"
+        assert all(coverage[y * 256 + x] == 0 for y in range(256) for x in range(256)
+                   if x < 2 or y < 2 or x >= 254 or y >= 254), "Discarded border contains visible alpha"
+        for plane, name in ((indices, "indices"), (coverage, "coverage")):
+            stored = b"".join(plane[y * 256 + 2:y * 256 + 254] for y in range(2, 254))
+            assert hashlib.sha256(stored).hexdigest() == icon[f"stored_{name}_sha256"], "Stored plane digest differs"
+        assert icon["data_bytes"] == 256 * 256 * 2 and icon["flash_data_bytes"] == 252 * 252 * 2, "Logical/flash plane sizes differ"
+        flash_payload_bytes += icon["flash_data_bytes"]
     assert set(identities) == set(range(1, 15)), "The14 stable cue IDs are incomplete"
     assert len(set(identities.values())) == 14, "Typed icon names must be unique"
+    assert icons["flash_payload_bytes"] == flash_payload_bytes == 14 * 252 * 252 * 2 + 512, "Packed flash payload differs"
+    assert 14 * 256 * 256 * 2 + 512 - flash_payload_bytes == 56896, "Transparent-border payload saving differs"
+    from scripts.generators.generate_cody_personality_icons import crop_transparent_border
+    # A palette slot has no alpha meaning: nonzero indices in the discarded
+    # border are harmless, while even alpha=1 must be rejected, never clamped.
+    packed = crop_transparent_border(bytes([17] * 36), bytes(36), 6, 2)
+    assert packed == (bytes([17] * 4), bytes(4)), "Transparent indices must not become a palette transparency convention"
+    for offset in (0, 5, 6, 11, 30, 35):
+        invalid_coverage = bytearray(36)
+        invalid_coverage[offset] = 1
+        try:
+            crop_transparent_border(bytes(36), invalid_coverage, 6, 2)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Generator accepted visible discarded border pixels")
     sounds = json.loads((directory / "audio/manifest.json").read_text(encoding="utf-8"))
     assert (sounds["sample_rate_hz"], sounds["channels"], sounds["bits_per_sample"]) == (16000, 1, 16), "PCM format differs"
     assert len(sounds["clips"]) == 14, "Exactly14 sound identities are required"
@@ -153,7 +178,8 @@ def main(argv=None):
             "caress zones, gesture rejection, one trigger and cooldown",
             "independent host-preview caress scenarios (no native gesture trace parity claim)",
             "native happiness gain, elapsed-minute decay, bounded phase and domain rejection",
-            "portable heart/charging selection and urgent admitted low-battery smooth transitions",
+            "portable heart/charging selection and quiet low-battery stability, full hold and separate fades",
+            "lossless transparent sprite border, exact visible pixels and native/swapped RGB565 parity",
             "generated typed event identities, low-battery hysteresis and fixed per-cue repeat history",
             "dormant pure wellbeing session lifecycle, independent reminders, snooze and fatigue acknowledgment",
             "independent host happiness, monotonic clock, strict authoring and generated provenance scenarios",

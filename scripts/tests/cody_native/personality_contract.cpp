@@ -21,6 +21,7 @@
 #include "CODY_happiness.hpp"
 #include "CODY_wellbeing.hpp"
 #include "personality_rules.hpp"
+#include "personality_icons.hpp"
 #include "cloud_rig_data.hpp"
 
 #include <array>
@@ -325,6 +326,91 @@ void check_dirty_and_raster()
     require(draw_personality_rows(previous.personality, compact, 80, 205) == ESP_OK && tile == before,
         "zero-opacity sprite never alters pixels");
 }
+// name: Stable source identity, independent of the generated descriptor's position.
+// plane: Exact uncompressed index or coverage plane retained by the generator.
+// bytes: Host-owned destination; no firmware allocation is introduced.
+// Exception: Reports original file/read/close failures through the host contract.
+bool read_sprite_plane(const char *name, const char *plane, std::vector<uint8_t> &bytes)
+{
+    char path[160]{};
+    std::snprintf(path, sizeof(path), "assets/cody/personality-icons/generated/%s.%s.bin", name, plane);
+    FILE *file = std::fopen(path, "rb");
+    require(file != nullptr, "raw sprite plane opens");
+    if (file == nullptr) { return false; }
+    const size_t count = std::fread(bytes.data(), 1, bytes.size(), file);
+    const int trailing = std::fgetc(file);
+    const bool read_ok = count == bytes.size() && trailing == EOF && std::ferror(file) == 0;
+    const bool close_ok = std::fclose(file) == 0;
+    require(read_ok && close_ok, "raw sprite plane retains its exact length and readable bytes");
+    return read_ok && close_ok;
+}
+
+// No parameters: compare every logical pixel and actual raster output with preserved raw assets.
+// Exception: Host reference-plane allocations may throw std::bad_alloc; file failures remain test failures.
+void check_lossless_sprite_border()
+{
+    struct Identity { PersonalityCue cue; const char *name; };
+    constexpr Identity identities[] = {
+        {PersonalityCue::Sleep, "sleep"}, {PersonalityCue::Fear, "fear"},
+        {PersonalityCue::Joy, "joy"}, {PersonalityCue::Hunger, "hunger"},
+        {PersonalityCue::Thirst, "thirst"}, {PersonalityCue::Heat, "heat"},
+        {PersonalityCue::Cold, "cold"}, {PersonalityCue::LowBattery, "low-battery"},
+        {PersonalityCue::Charging, "charging"}, {PersonalityCue::NoWifi, "no-wifi"},
+        {PersonalityCue::Curiosity, "curiosity"}, {PersonalityCue::Confusion, "confusion"},
+        {PersonalityCue::Affection, "affection"}, {PersonalityCue::Frustration, "frustration"},
+    };
+    std::vector<uint8_t> indices(256 * 256), coverage(256 * 256);
+    for (const auto &sprite : PersonalityAssets::sprites) {
+        const char *name = nullptr;
+        for (const auto &identity : identities) {
+            if (identity.cue == sprite.cue) { name = identity.name; }
+        }
+        require(name != nullptr && sprite.width == 256 && sprite.height == 256 && sprite.stored_inset == 2,
+            "packed bitmap retains typed identity and full logical dimensions");
+        if (name == nullptr || sprite.width != 256 || sprite.height != 256 || sprite.stored_inset != 2) { return; }
+        if (!read_sprite_plane(name, "indices", indices) || !read_sprite_plane(name, "coverage", coverage)) { return; }
+        bool exact = true;
+        for (unsigned y = 0; y < 256; ++y) {
+            for (unsigned x = 0; x < 256; ++x) {
+                const unsigned logical = y * 256 + x;
+                if (x < 2 || y < 2 || x >= 254 || y >= 254) {
+                    exact = exact && coverage[logical] == 0;
+                } else {
+                    const unsigned stored = (y - 2) * 252 + x - 2;
+                    exact = exact && sprite.indices[stored] == indices[logical] &&
+                        sprite.coverage[stored] == coverage[logical];
+                }
+            }
+        }
+        require(exact, "all stored indices/alpha and the complete implicit transparent border match raw assets");
+        constexpr unsigned extent = 231;
+        constexpr uint16_t background = 0x3186;
+        std::array<uint16_t, extent> pixels{};
+        for (const auto order : {CODY2D::Rgb565ByteOrder::Native, CODY2D::Rgb565ByteOrder::ByteSwapped}) {
+            for (const uint8_t opacity : {uint8_t{127}, uint8_t{255}}) {
+                PersonalityFrame frame{};
+                frame.cue = sprite.cue;
+                frame.bounds = {100, 100, 331, 331};
+                frame.opacity = opacity;
+                CODY2D::Surface row{pixels.data(), extent, 1, extent, extent, order};
+                for (unsigned y = 0; y < extent; ++y) {
+                    pixels.fill(CODY2D::rgb565_native_to_stored(background, order));
+                    require(draw_personality_rows(frame, row, static_cast<uint16_t>(100 + y), 100) == ESP_OK,
+                        "cropped flash sprite renders through the real row compositor");
+                    bool row_equal = true;
+                    for (unsigned x = 0; x < extent; ++x) {
+                        const unsigned logical = (y * 256 / extent) * 256 + x * 256 / extent;
+                        const uint8_t alpha = static_cast<uint8_t>((coverage[logical] * opacity + 127) / 255);
+                        const auto expected = CODY2D::blend_rgb565(PersonalityAssets::palette[indices[logical]], background, alpha);
+                        row_equal = row_equal && pixels[x] == CODY2D::rgb565_native_to_stored(expected, order);
+                    }
+                    require(row_equal, "all raster pixels match the full uncompressed asset, opacity and byte order");
+                }
+            }
+        }
+    }
+}
+
 // No parameters: explicit synthetic rectangle isolates gesture semantics from artwork authoring.
 RigScene make_petting_fixture()
 {
@@ -628,7 +714,7 @@ void check_symbol_arbitration()
     require(select_personality_target(PersonalityCue::Charging, false, false, desired, release) == ESP_OK &&
             desired == PersonalityCue::Charging, "charging becomes latest target after the heart lifetime");
     require(select_personality_target(PersonalityCue::LowBattery, false, true, desired, release) == ESP_OK &&
-            desired == PersonalityCue::LowBattery && release, "admitted low battery cancels the automatic heart request");
+            desired == PersonalityCue::Affection && !release, "quiet low-battery notice waits behind the automatic heart request");
     require(select_personality_target(PersonalityCue::LowBattery, true, true, desired, release) == ESP_OK &&
             desired == PersonalityCue::Sleep && release, "semantic Sleep retains precedence over low battery");
     require(select_personality_target(PersonalityCue::Joy, false, true, desired, release) == ESP_OK &&
@@ -643,38 +729,52 @@ void check_symbol_arbitration()
                                      desired, release) == ESP_ERR_INVALID_ARG &&
             desired == PersonalityCue::Joy && !release, "invalid arbitration identity preserves caller outputs");
 
-    Scenario urgent{"low-battery-affection"};
-    step(urgent, "heart-request", PersonalityCue::Affection, 0);
-    step(urgent, "heart-stable", PersonalityCue::Affection, 0);
-    step(urgent, "heart-half-in", PersonalityCue::Affection, 200000);
-    const uint8_t before = urgent.frame.opacity;
-    step(urgent, "low-battery-preempts", PersonalityCue::LowBattery, 0);
-    require(urgent.lag.phase == PersonalityPhase::FadeOut && urgent.lag.cue == PersonalityCue::Affection &&
-            urgent.frame.opacity == before, "urgent battery releases an incomplete heart fade without an opacity jump");
-    // The authored fade-out is 400 ms; halfway retains half the departing opacity.
-    step(urgent, "heart-half-out", PersonalityCue::LowBattery, 200000);
-    require(urgent.frame.cue == PersonalityCue::Affection && urgent.frame.opacity == 64,
-            "urgent battery keeps one departing half-opacity heart sprite");
-    step(urgent, "battery-entry", PersonalityCue::LowBattery, 200000);
-    require(urgent.lag.cue == PersonalityCue::LowBattery && urgent.frame.cue == PersonalityCue::None &&
-            urgent.frame.opacity == 0 && urgent.frame.bounds.empty() &&
-            urgent.lag.phase == PersonalityPhase::FadeIn, "urgent battery enters only after heart reaches zero");
-    step(urgent, "battery-half-in", PersonalityCue::LowBattery, 200000);
-    require(urgent.frame.opacity == 128, "urgent battery retains its authored 400 ms fade-in");
-    step(urgent, "battery-visible", PersonalityCue::LowBattery, 200000);
+    Scenario quiet{"low-battery-affection"};
+    step(quiet, "heart-request", PersonalityCue::Affection, 0);
+    step(quiet, "heart-stable", PersonalityCue::Affection, 0);
+    step(quiet, "heart-half-in", PersonalityCue::Affection, 200000);
+    const uint8_t before = quiet.frame.opacity;
+    step(quiet, "low-battery-waits", PersonalityCue::LowBattery, 0);
+    require(quiet.lag.phase == PersonalityPhase::FadeIn && quiet.lag.cue == PersonalityCue::Affection &&
+            quiet.frame.opacity == before, "quiet battery cannot interrupt an incomplete heart fade or jump opacity");
+    step(quiet, "heart-completes-fade", PersonalityCue::LowBattery, 200000);
+    require(quiet.lag.phase == PersonalityPhase::Visible && quiet.frame.opacity == 255,
+            "heart completes its authored fade despite a pending battery notice");
+    step(quiet, "heart-completes-hold", PersonalityCue::LowBattery, PersonalityConfig::minimum_visible_us);
+    require(quiet.lag.phase == PersonalityPhase::FadeOut && quiet.frame.opacity == 255,
+            "battery notice waits for the full artistic hold before departure");
+    step(quiet, "heart-half-out", PersonalityCue::LowBattery, 200000);
+    require(quiet.frame.cue == PersonalityCue::Affection && quiet.frame.opacity == 128,
+            "quiet battery retains one departing half-opacity heart sprite");
+    step(quiet, "battery-entry", PersonalityCue::LowBattery, 200000);
+    require(quiet.lag.cue == PersonalityCue::LowBattery && quiet.frame.cue == PersonalityCue::None &&
+            quiet.frame.opacity == 0 && quiet.frame.bounds.empty() &&
+            quiet.lag.phase == PersonalityPhase::FadeIn, "battery enters only after heart reaches zero");
+    step(quiet, "battery-half-in", PersonalityCue::LowBattery, 200000);
+    require(quiet.frame.opacity == 128, "battery notice retains its authored 400 ms fade-in");
+    step(quiet, "battery-visible", PersonalityCue::LowBattery, 200000);
 
     Scenario hidden{"low-battery-empty"};
-    step(hidden, "immediate-entry", PersonalityCue::LowBattery, 0);
+    step(hidden, "notice-request", PersonalityCue::LowBattery, 0);
+    require(hidden.lag.phase == PersonalityPhase::Hidden, "quiet low battery does not bypass narrative request stability");
+    step(hidden, "before-stability", PersonalityCue::LowBattery, PersonalityConfig::stability_us - 1);
+    require(hidden.lag.phase == PersonalityPhase::Hidden, "battery notice remains hidden before its stability boundary");
+    step(hidden, "stable-entry", PersonalityCue::LowBattery, 1);
     require(hidden.lag.phase == PersonalityPhase::FadeIn && hidden.lag.cue == PersonalityCue::LowBattery,
-            "admitted low battery bypasses narrative request stability");
+            "stable low battery enters at the authored stability boundary");
 
     Scenario hold{"low-battery-hold"};
     step(hold, "heart-request", PersonalityCue::Affection, 0);
     step(hold, "heart-stable", PersonalityCue::Affection, 0);
     step(hold, "heart-visible", PersonalityCue::Affection, 400000);
-    step(hold, "battery-releases-hold", PersonalityCue::LowBattery, 0);
+    step(hold, "battery-waits-hold", PersonalityCue::LowBattery, 0);
+    require(hold.lag.phase == PersonalityPhase::Visible && hold.frame.opacity == 255,
+            "quiet battery preserves minimum artistic hold and full current alpha");
+    step(hold, "before-hold-end", PersonalityCue::LowBattery, PersonalityConfig::minimum_visible_us - 1);
+    require(hold.lag.phase == PersonalityPhase::Visible, "battery notice does not release hold one microsecond early");
+    step(hold, "hold-end", PersonalityCue::LowBattery, 1);
     require(hold.lag.phase == PersonalityPhase::FadeOut && hold.frame.opacity == 255,
-            "admitted low battery releases minimum artistic hold while preserving full current alpha");
+            "battery notice releases only the completed hold while preserving full current alpha");
 
     Scenario charging{"charging-after-affection"};
     step(charging, "heart-request", PersonalityCue::Affection, 0);
@@ -819,13 +919,14 @@ void check_automatic_power_cues()
 {
     PersonalityBatteryLatch latch{};
     PersonalityCue cue = PersonalityCue::None;
-    PersonalityPowerObservation observation{true, true, true, false, 15.5f};
+    PersonalityPowerObservation observation{true, true, true, false,
+        PersonalityConfig::low_battery_enter_percent + 0.5f};
     require(select_personality_power_cue(observation, latch, cue) == ESP_OK && cue == PersonalityCue::None,
             "fractional percentage above enter threshold is not rounded into a false warning");
-    observation.level_percent = 15;
+    observation.level_percent = PersonalityConfig::low_battery_enter_percent;
     require(select_personality_power_cue(observation, latch, cue) == ESP_OK && cue == PersonalityCue::LowBattery,
             "current low Cody battery automatically selects its symbol");
-    observation.level_percent = 17;
+    observation.level_percent = PersonalityConfig::low_battery_enter_percent + 1;
     require(select_personality_power_cue(observation, latch, cue) == ESP_OK && cue == PersonalityCue::LowBattery,
             "automatic warning retains the existing recovery hysteresis");
     observation.charging = true;
@@ -1133,6 +1234,7 @@ int main()
     check_follow_and_layout();
     check_rejection_and_sizes();
     check_dirty_and_raster();
+    check_lossless_sprite_border();
     check_petting();
     check_routine_greeting_caress();
     check_happiness();

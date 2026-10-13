@@ -8,6 +8,7 @@
   "coverage": "separate unpremultiplied alpha8; no reserved transparency color",
   "component_policy": "one native ImageGen master per identity; 4-connected alpha >= 8; minimum 100 pixels per 324x324 source area",
   "master_extent": 256,
+  "flash_encoding": "indexed-alpha8; transparent border omitted",
   "icons": [
     {
       "id": "sleep",
@@ -1723,7 +1724,12 @@
         251,
         252
       ],
-      "data_bytes": 131072
+      "data_bytes": 131072,
+      "stored_inset": 2,
+      "stored_extent": 252,
+      "stored_indices_sha256": "28b65862651ebfd493f1d1c0baf474a2a7d264773512080c62d40c194d7663fd",
+      "stored_coverage_sha256": "f6c8035f61bec444a02c30296874fd9e7ca26aa5180620d9ec024bbb71808e02",
+      "flash_data_bytes": 127008
     },
     {
       "id": "fear",
@@ -2998,7 +3004,12 @@
         250,
         252
       ],
-      "data_bytes": 131072
+      "data_bytes": 131072,
+      "stored_inset": 2,
+      "stored_extent": 252,
+      "stored_indices_sha256": "85f4553e45e5a6dfcfedf48ebb42a69950497200bc278f7e45b749af943d7a62",
+      "stored_coverage_sha256": "3fd048dd2e6655ad2ed11811946ecbc425053836d06aeeca2602de57a7c1984e",
+      "flash_data_bytes": 127008
     },
     {
       "id": "joy",
@@ -4120,7 +4131,12 @@
         251,
         252
       ],
-      "data_bytes": 131072
+      "data_bytes": 131072,
+      "stored_inset": 2,
+      "stored_extent": 252,
+      "stored_indices_sha256": "b5070acd6571688e1787d4fbf39ee596598c8da3fc5c5ad103bf5033c4c33f36",
+      "stored_coverage_sha256": "7859de5248aeabff28f3592eb26e4ee2c30dace3fc0bf8862fb7b817d0ff8a24",
+      "flash_data_bytes": 127008
     },
     {
       "id": "hunger",
@@ -4380,7 +4396,12 @@
         253,
         254
       ],
-      "data_bytes": 131072
+      "data_bytes": 131072,
+      "stored_inset": 2,
+      "stored_extent": 252,
+      "stored_indices_sha256": "f68ad9fe78275f8f63f9e842f0847bffe26e08ab4beed6a293d25894b1afa06a",
+      "stored_coverage_sha256": "2ad5099642baec929b5f322f30f1affaa5c37426376ef416517f79b1a555c811",
+      "flash_data_bytes": 127008
     },
     {
       "id": "thirst",
@@ -4902,7 +4923,12 @@
         251,
         252
       ],
-      "data_bytes": 131072
+      "data_bytes": 131072,
+      "stored_inset": 2,
+      "stored_extent": 252,
+      "stored_indices_sha256": "77232be3a26821e7b09eb1b6bd16a0e5b41cb4603747d852e0f739149be19c62",
+      "stored_coverage_sha256": "146d37f5b5afbe9b1e0abb400cd468ba5338355b5b197817eac74f63fee5fb26",
+      "flash_data_bytes": 127008
     },
     {
       "id": "heat",
@@ -5428,7 +5454,12 @@
         252,
         254
       ],
-      "data_bytes": 131072
+      "data_bytes": 131072,
+      "stored_inset": 2,
+      "stored_extent": 252,
+      "stored_indices_sha256": "a71115987ac55d5513e65450c670e3063d52d12e60f7a556ed3433f0ec25ce84",
+      "stored_coverage_sha256": "950d0af8ed5b5a5d392397296a2d4416d5ca47a4294d063440b81500a321610a",
+      "flash_data_bytes": 127008
     },
     {
       "id": "cold",
@@ -8305,7 +8336,12 @@
         229,
         232
       ],
-      "data_bytes": 131072
+      "data_bytes": 131072,
+      "stored_inset": 2,
+      "stored_extent": 252,
+      "stored_indices_sha256": "2357971502a2bbbe16979d79afb2706e5f565e13bc567afea19c4504e8044ef7",
+      "stored_coverage_sha256": "2d303b8f6e73b12faedefbd842ff707d1b238ff8e5fd34c9006746343769d489",
+      "flash_data_bytes": 127008
     },
     {
       "id": "low-battery",
@@ -8377,7 +8413,12 @@
         252,
         254
       ],
-      "data_bytes": 131072
+      "data_bytes": 131072,
+      "stored_inset": 2,
+      "stored_extent": 252,
+      "stored_indices_sha256": "9722ecf56761e1d124aaf398f8338119c22ca2c396a89a96989e8f374d604569",
+      "stored_coverage_sha256": "b476069193034640f78dc029fecfcd7341c4a10d2b870da76f4096b07285fba5",
+      "flash_data_bytes": 127008
     },
     {
       "id": "charging",
@@ -8925,7 +8966,12 @@
         251,
         252
       ],
-      "data_bytes": 131072
+      "data_bytes": 131072,
+      "stored_inset": 2,
+      "stored_extent": 252,
+      "stored_indices_sha256": "fa42f9ebf3aa5de032a9581b3de2267fff47a0f01baaeb769d90dc06a7807f02",
+      "stored_coverage_sha256": "e7fdf9a15dcc38236af97229ec1e45d597e7dcb88edaf37a5d05ba5b55fc503e",
+      "flash_data_bytes": 127008
     },
     {
       "id": "no-wifi",
@@ -10442,7 +10488,12 @@
         252,
         254
       ],
-      "data_bytes": 131072
+      "data_bytes": 131072,
+      "stored_inset": 2,
+      "stored_extent": 252,
+      "stored_indices_sha256": "b27e1ec52e0b14e6f887969eebf776ef5bd6c573d72487d8f076599872ce57d8",
+      "stored_coverage_sha256": "29f8b4a2c925328b18049267a20dcc55ff5fcbc763dc05b8ac392a0e2cd55edc",
+      "flash_data_bytes": 127008
     },
     {
       "id": "curiosity",
@@ -11070,7 +11121,12 @@
         251,
         252
       ],
-      "data_bytes": 131072
+      "data_bytes": 131072,
+      "stored_inset": 2,
+      "stored_extent": 252,
+      "stored_indices_sha256": "545903c9ac0b2b70460c44874d0bfaea884653ffb18e5e744428fe03efa5c3f5",
+      "stored_coverage_sha256": "5ca866744cb371f9a012304abd97357658a9bb9f3f72a7c91e59e22c43d27c62",
+      "flash_data_bytes": 127008
     },
     {
       "id": "confusion",
@@ -12448,7 +12504,12 @@
         251,
         252
       ],
-      "data_bytes": 131072
+      "data_bytes": 131072,
+      "stored_inset": 2,
+      "stored_extent": 252,
+      "stored_indices_sha256": "07b0b492784c7b578a87b5314fa63b5c020db21b3a4645053b5cae2e33a8196e",
+      "stored_coverage_sha256": "67f8c60405d0f66dfa1609c49e337cf28e5ec63bf5d9c0d6f32caa2d99082e68",
+      "flash_data_bytes": 127008
     },
     {
       "id": "affection",
@@ -12578,7 +12639,12 @@
         252,
         254
       ],
-      "data_bytes": 131072
+      "data_bytes": 131072,
+      "stored_inset": 2,
+      "stored_extent": 252,
+      "stored_indices_sha256": "944a3f17895ac28636d7602589f91b58bcf5a4d4595d860e6218c22d8bcf0ff1",
+      "stored_coverage_sha256": "5d37c6f69c3d792c3492fd14e0479ce5f7772b857271810f290dd899fda6718c",
+      "flash_data_bytes": 127008
     },
     {
       "id": "frustration",
@@ -14066,8 +14132,13 @@
         251,
         252
       ],
-      "data_bytes": 131072
+      "data_bytes": 131072,
+      "stored_inset": 2,
+      "stored_extent": 252,
+      "stored_indices_sha256": "3b62558720d3c4073cc8122a29110fe411e8c4e62be9fc8cc28a39793fee3bf9",
+      "stored_coverage_sha256": "a3c17def5886631e9ffc464fc3333fd8bc069d0594e2d8c92060bb0fc8a28ab5",
+      "flash_data_bytes": 127008
     }
   ],
-  "flash_payload_bytes": 1835520
+  "flash_payload_bytes": 1778624
 }

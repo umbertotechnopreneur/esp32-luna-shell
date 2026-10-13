@@ -1028,6 +1028,12 @@ esp_err_t draw_personality_rows(const PersonalityFrame &frame, CODY2D::Surface s
     const uint16_t bottom = std::min<uint16_t>(bounds.bottom, first_row + strip.height);
     const uint16_t left = std::max(bounds.left, first_column);
     const uint16_t right = std::min<uint16_t>(bounds.right, first_column + strip.width);
+    // Flash descriptors are immutable; load their geometry before destination
+    // stores, which could otherwise conservatively alias the uint16_t fields.
+    const int inset = sprite->stored_inset;
+    const int stored_width = sprite->width - 2 * inset;
+    const int stored_right = sprite->width - inset;
+    const int stored_bottom = sprite->height - inset;
     for (uint16_t y = top; y < bottom; ++y) {
         const uint16_t source_y = (y - bounds.top) * sprite->height / height;
         auto *destination = strip.pixels + (y - first_row) * strip.stride;
@@ -1041,7 +1047,13 @@ esp_err_t draw_personality_rows(const PersonalityFrame &frame, CODY2D::Surface s
                     continue;
                 }
             }
-            const uint32_t source = animated_y * sprite->width + source_x;
+            // Logical dimensions include the generator-verified transparent
+            // border. Native procedural symbols retain their uncropped planes.
+            if (source_x < inset || animated_y < inset ||
+                source_x >= stored_right || animated_y >= stored_bottom) {
+                continue;
+            }
+            const uint32_t source = (animated_y - inset) * stored_width + source_x - inset;
             const uint8_t coverage = (static_cast<uint16_t>(sprite->coverage[source]) * frame.opacity + 127) / 255;
             if (coverage == 0) {
                 continue;
