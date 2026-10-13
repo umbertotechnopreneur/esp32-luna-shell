@@ -110,6 +110,11 @@ capture do not prove physical voice, wake timing, whole-board shutdown, display
 quality, classifier accuracy or energy savings. TODO.md now has no remaining
 autonomous implementation/delivery item; those deferred gates stay in planned-todo.md.
 
+Final repository review passed `git diff --check 4e71fbb` and the public
+`changed-secrets --base-ref 4e71fbb` check: 38 changed/untracked files and eight
+signature families, with no finding. All session changes have local checkpoints;
+the only remaining versioned worktree change is the user's AGENTS.md edit.
+
 Current logs/reports and the protected original battery readback are retained
 under `artifacts/build-cody-companion-wake-word-evidence/`, including
 `autonomous-20261014/` and `battery-readback-20261013/`. Physical voice and walking
