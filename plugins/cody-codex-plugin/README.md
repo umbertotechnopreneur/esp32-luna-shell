@@ -4,7 +4,9 @@
 uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
 for pairing; public Internet availability is a separate condition.
 
-CCP 0.6.5 adds an optional one-way audio channel; source changes do not activate it.
+CCP 0.6.6 includes the optional one-way audio channel with native readiness,
+recording correlation and explicit uncertain-delivery handling. Source changes
+do not activate it.
 Its signed READY handshake retains the 0.6.4 endpoint-binding contract. Signed READY binds a fresh
 broker challenge to the observed device endpoint. Cody validates the endpoint
 and returns matching COMMITTED before the broker admits presence, events or
@@ -58,9 +60,11 @@ copy may temporarily double one recording's host memory. No device SD/flash writ
 are involved. PC receipt, native acceptance and task completion remain distinct.
 
 Generation, installation, firmware build/size, wire tests, account/model access,
-desktop approval routing and physical voice behavior are separate evidence. This
-0.6.5 source increment is unbuilt/uninstalled; the previous installed plugin and
-device remain on their earlier images until explicitly updated.
+desktop approval routing and physical voice behavior are separate evidence.
+The 0.6.6 package distinguishes these reviewed audio changes from the older
+0.6.5 installed cache. Deployment evidence belongs in [done.md](../../done.md).
+Physical voice tests remain deferred; native audio requires an explicitly
+configured endpoint and verified account/model access.
 
 Home shows a **Cheap / Reasonable price / Expensive / Unavailable** price chip only
 while the Model carousel item is visible. Cheap is green, Reasonable price orange,
