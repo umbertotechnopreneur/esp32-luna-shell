@@ -42,6 +42,9 @@ handle and obsolete stale-caption expectations; fixes and failed logs are retain
 Selected profile/dependency, legacy-pattern, diff and changed-secret checks passed.
 Five visibly SYNTHETIC Home captures are retained; the Studio bridge covers token
 pages and compaction actor/overlay/timer, not the onboarding title/command banner.
+The final 12-test Studio rerun also verifies persistent character/timer pixels
+and exact native regions after PNG serialization; no firmware rendering change
+was needed for an incomplete tool preview.
 
 Both IDF 6.0.2 builds used eight jobs and identify `cody-160-g49e2fb63-dirty`:
 Debug 7,222,720 bytes / 51,776 free, static DIRAM 245,332, external RAM 85,172;

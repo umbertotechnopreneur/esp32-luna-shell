@@ -90,9 +90,9 @@ class CharacterStudioTests(unittest.TestCase):
         self.assertLess(abs(pixels[1][0] - pixels[1][1]), 16)
 
     # self: Production Home identity bridge with explicitly synthetic, coherent token observations.
-    # Raises AssertionError for missing/distinct token pages, footer overflow or missing elapsed state.
+    # Raises AssertionError for missing token pages, footer overflow or lost character/timer pixels in memory or saved PNG.
     def test_home_token_pages_capture_real_native_footer(self):
-        from PIL import ImageChops
+        from PIL import Image, ImageChops
         source = NativePanelObservation()
         source.project, source.branch = b"Cody", b"main"
         source.chat_id = source.technical_chat_id = b"a" * 64
@@ -105,6 +105,13 @@ class CharacterStudioTests(unittest.TestCase):
         placement = (233., 130., 75.)
         base_scene = self.native.evaluate(self.base.face, placement, self.base.contour | {"phase": 0.})
         baseline = self.renderer.draw_scene(base_scene, debug=False, navigation_visible=False).convert("RGB")
+        actor_bounds, timer_bounds = (73, 40, 393, 250), (73, 330, 393, 358)
+        actor_reference = baseline.crop(actor_bounds)
+        self.assertIsNotNone(actor_reference.getbbox(), "native Home baseline lost the character")
+        self.assertGreater(len(actor_reference.getcolors(actor_reference.width * actor_reference.height)), 16,
+            "native Home baseline is a flat blank region")
+        actor_pixels = actor_reference.tobytes()
+        timer_pixels = None
         OUTPUT.mkdir(parents=True, exist_ok=True)
         pages = []
         # Production short Project/Branch/Model dwells precede the four five-second token subpages.
@@ -120,9 +127,24 @@ class CharacterStudioTests(unittest.TestCase):
             self.assertLessEqual(bounds[2], 393)
             self.assertLessEqual(bounds[3], 358)
             self.assertIsNotNone(ImageChops.difference(image, baseline).crop((73, 330, 393, 358)).getbbox())
-            pages.append(image.crop((73, 300, 393, 328)).tobytes())
-            self.renderer.capture_sheet(image, f"SIMULATED / Home tokens / {name}").save(
-                OUTPUT / f"home-tokens-{name}.png")
+            self.assertEqual(image.crop(actor_bounds).tobytes(), actor_pixels,
+                f"{name} lost or changed the complete native character")
+            timer = image.crop(timer_bounds)
+            self.assertIsNotNone(timer.getbbox(), f"{name} lost the native timer")
+            if timer_pixels is None:
+                timer_pixels = timer.tobytes()
+            self.assertEqual(timer.tobytes(), timer_pixels, f"{name} changed the unchanged native timer")
+            numeric_line = image.crop((73, 300, 393, 328))
+            self.assertIsNotNone(numeric_line.getbbox(), f"{name} lost its current native numeric caption")
+            pages.append(numeric_line.tobytes())
+            destination = OUTPUT / f"home-tokens-{name}.png"
+            self.renderer.capture_sheet(image, f"SIMULATED / Home tokens / {name}").save(destination)
+            # Inspect the stored bytes too: a preview viewer is not evidence that a PNG lost pixels.
+            with Image.open(destination) as stored:
+                saved = stored.convert("RGB")
+                self.assertEqual(saved.crop(actor_bounds).tobytes(), actor_pixels)
+                self.assertEqual(saved.crop(timer_bounds).tobytes(), timer_pixels)
+                self.assertEqual(saved.crop((73, 300, 393, 328)).tobytes(), numeric_line.tobytes())
         self.assertEqual(len(set(pages)), 4, "native carousel did not expose all four token captions")
         # Exact counter semantics and per-page identity are asserted by the real native raster contract.
         # This bridge does not expose onboarding title/command-hint composition; captures do not claim it.
