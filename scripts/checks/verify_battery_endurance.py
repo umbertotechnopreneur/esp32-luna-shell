@@ -3,10 +3,12 @@ from pathlib import Path
 import argparse
 import json
 import sys
+import shutil
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
+from scripts.checks.verify_power_policy import function_text
 
 
 # path: Artifact-owned report replaced only after its complete JSON is written.
@@ -31,7 +33,8 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     scenarios = ["usb", "unknown", "heartbeat", "wake", "shutdown", "write-error",
                  "clock-unavailable", "seed", "reboot", "crc", "type", "oversize",
-                 "publication-coalescing", "publication-retry", "disabled-publication"]
+                 "publication-coalescing", "publication-retry", "disabled-publication",
+                 "readback-registration-error", "readback"]
     report_path = output / "report.json"
     report = {
         "implementation": "LUNASHELL_battery_endurance.cpp",
@@ -48,7 +51,8 @@ def main():
         write_report(report_path, report)
         executable = output / "battery_endurance.exe"
         run_stage(compile_command(compiler,
-            ["scripts/tests/battery_endurance_stubs", "components/LUNASHELL_platform/include"],
+            ["scripts/tests/battery_endurance_stubs", "components/LUNASHELL_platform/include",
+             "components/LUNASHELL_logger/include"],
             ["scripts/tests/battery_endurance_contract.cpp",
              "components/LUNASHELL_platform/src/power/LUNASHELL_battery_endurance.cpp"], executable),
             output, "compile")
@@ -57,6 +61,28 @@ def main():
             write_report(report_path, report)
             run_stage([str(executable), scenario, str(output / "journal.bin")], output, scenario)
             report["completed_scenarios"].append(scenario)
+        report["stage"] = "readback-decoder"
+        write_report(report_path, report)
+        powershell = shutil.which("pwsh")
+        if powershell is None:
+            raise FileNotFoundError("The real endurance CLI decoder check requires existing PowerShell 7.")
+        run_stage([powershell, "-NoProfile", "-File", str(ROOT / "scripts/tests/endurance_readback_contract.ps1"),
+                   "-WirePath", str(output / "journal.bin.readback")], output, "readback-decoder")
+        report["completed_scenarios"].append("readback-decoder")
+        report["stage"] = "readback-usb-compile"
+        write_report(report_path, report)
+        usb_source = (ROOT / "components/LUNASHELL_logger/src/LUNASHELL_logger_usb.c").read_text(encoding="utf-8")
+        extracted = "\n\n".join(function_text(usb_source, signature, "logger_usb.c")
+                                  for signature in ("static bool parse_number(", "static void process_command("))
+        (output / "endurance_usb_under_test.inc").write_text(extracted + "\n", encoding="utf-8")
+        usb_executable = output / "endurance-usb.exe"
+        run_stage(compile_command(compiler,
+            [str(output), "scripts/tests/battery_endurance_stubs", "components/LUNASHELL_logger/include"],
+            ["scripts/tests/endurance_usb_contract.cpp"], usb_executable), output, "readback-usb-compile")
+        report["stage"] = "readback-usb"
+        write_report(report_path, report)
+        run_stage([str(usb_executable)], output, "readback-usb")
+        report["completed_scenarios"].append("readback-usb")
         report["stage"] = "complete"
         report["result"] = "passed"
         write_report(report_path, report)

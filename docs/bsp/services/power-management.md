@@ -302,12 +302,23 @@ depend on catching startup logs:
 ./scripts/device.ps1 capture -Profile cody-companion -Feature wake-word -ActivityClassifier -Port COM10 -DurationSeconds 120 -OutputPath artifacts/serial/battery-runtime.log
 ```
 
-Release still records the same NVS endurance journal, but its compiled maximum
-and default log level are WARN, so these INFO serial reports are suppressed.
-The capture command alone therefore cannot read the endurance records from a
-Release image. A bounded, explicitly requested readback path is pending; logging
-levels are not raised to work around that missing path. Persistence and later
-readback are separate evidence requirements for a Release endurance experiment.
+Release records the same NVS endurance journal at WARN logging, with INFO serial
+reports suppressed. Both build modes support an explicitly requested USB read:
+
+```powershell
+./scripts/device.ps1 endurance-read -Port COM10 -OutputPath artifacts/serial/endurance.json
+```
+
+The existing bounded USB transport returns one 128-byte `LBE1` projection with
+CRC verification. A separate registered reader copies the canonical endurance
+snapshot, without sensor acquisition, NVS reads/writes, SD fallback or reset.
+The host validates schema, flags, reserved fields and session ordering before
+atomically replacing JSON. It preserves both records and owner errors; an
+uninitialized/failed recorder returns an error after saving the verified state.
+`source_current=false` is normal on USB and is not a readback failure. The `.wire`
+file retains transport evidence. Firmware without this reader reports unsupported.
+Logging levels remain unchanged. This command reads retained evidence; it does
+not establish a new battery-only runtime measurement.
 
 Use the currently identified port. `liveness_lower_bound_ms` is the elapsed time
 at the last successful commit. For example, 3600000 means it was known alive at

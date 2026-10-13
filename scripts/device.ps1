@@ -26,7 +26,7 @@ param(
     [Parameter(Position = 0)]
     [ValidateSet('menu','help','list','simulator','simulator-luna','boot-screens',
         'check','generate','banner','package-simulator','clean-artifacts',
-        'build','clean','fullclean','flash','reset','monitor','capture','sd-log','erase',
+        'build','clean','fullclean','flash','reset','monitor','capture','sd-log','endurance-read','erase',
         'reconfigure','set-target','update-lock','size','combo','ports','discovery','port-status','recover')]
     [string]$Action = 'menu',
     [string]$Port,
@@ -111,16 +111,21 @@ try {
         if ($BuildDir) {
             $dispatch.BuildDir = Resolve-ArtifactPath $BuildDir ''
         }
-        if ($OutputPath -or $Action -in @('capture','sd-log')) {
+        if ($OutputPath -or $Action -in @('capture','sd-log','endurance-read')) {
             $defaultOutput = if ($Action -eq 'sd-log') {
                 $dispatch.StoredLog = $StoredLog.ToLowerInvariant()
                 "artifacts/serial/sd-log-$($dispatch.StoredLog).log"
+            } elseif ($Action -eq 'endurance-read') {
+                'artifacts/serial/endurance.json'
             } else {
                 'artifacts/serial/capture.log'
             }
             $dispatch.OutputPath = Resolve-ArtifactPath $OutputPath $defaultOutput
             if ($dispatch.OutputPath -eq $resolvedLog) {
                 throw 'OutputPath and LogPath must be different files.'
+            }
+            if ($Action -eq 'endurance-read' -and ($dispatch.OutputPath + '.wire') -eq $resolvedLog) {
+                throw 'Endurance wire output and LogPath must be different files.'
             }
         }
         if ($SizeOutputFile -or $Action -eq 'size') {
@@ -148,7 +153,7 @@ try {
         }
 
         $failureStage = 'selecting serial port'
-        if ($Action -in @('flash','reset','monitor','capture','sd-log','erase','combo','port-status','recover')) {
+        if ($Action -in @('flash','reset','monitor','capture','sd-log','endurance-read','erase','combo','port-status','recover')) {
             if ($PSBoundParameters.ContainsKey('Port')) {
                 $dispatch.Port = Normalize-PortName -RequestedPort $Port
             } else {

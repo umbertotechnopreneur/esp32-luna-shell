@@ -1,6 +1,7 @@
 #include "LUNASHELL_battery_endurance.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_settings.hpp"
+#include "LUNASHELL_logger.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -22,6 +23,8 @@ esp_err_t observation_error = ESP_OK;
 esp_err_t publication_error = ESP_OK;
 unsigned writes = 0;
 unsigned publication_attempts = 0;
+LUNASHELL_logger_endurance_reader_t endurance_reader = nullptr;
+esp_err_t registration_error = ESP_OK, canonical_read_error = ESP_OK;
 
 // condition: Actual real-service outcome required by the scenario.
 // message: Failure evidence, emitted before returning a nonzero fixture status.
@@ -79,6 +82,14 @@ void load(const char *path)
 // No parameters: deterministic monotonic time transport.
 int64_t esp_timer_get_time() { return now_us; }
 
+// reader: Real production encoder registered without any serial or logger task.
+extern "C" esp_err_t LUNASHELL_logger_set_endurance_reader(LUNASHELL_logger_endurance_reader_t reader)
+{
+    if (registration_error != ESP_OK) { return registration_error; }
+    endurance_reader = reader;
+    return ESP_OK;
+}
+
 namespace LUNASHELL {
 // No parameters: returns the fixture settings transport.
 UserSettingsService &UserSettingsService::instance() { static UserSettingsService service; return service; }
@@ -110,6 +121,13 @@ esp_err_t UserSettingsService::setBlob(const char *key, const void *data, size_t
 }
 // No parameters: canonical transport fake, with no sensor or recorder policy.
 DeviceSnapshotService &DeviceSnapshotService::instance() { static DeviceSnapshotService service; return service; }
+// destination: Canonical read boundary; never acquires or persists a sample.
+esp_err_t DeviceSnapshotService::readBatteryEndurance(BatteryEnduranceSnapshot &destination) const
+{
+    if (canonical_read_error != ESP_OK) { return canonical_read_error; }
+    destination = published;
+    return ESP_OK;
+}
 // destination: Borrowed fixture measurement copied only after successful transport.
 esp_err_t DeviceSnapshotService::readBatteryObservation(BatterySnapshot &destination) const
 {
@@ -148,7 +166,43 @@ int main(int argc, char **argv)
     clock_sample.last_error = ESP_OK;
     clock_sample.last_success_at_us = now_us;
     clock_sample.utc_epoch_seconds = 1800000000;
-    if (scenario == "usb") {
+    if (scenario == "readback-registration-error") {
+        registration_error = ESP_ERR_NO_MEM;
+        battery_only();
+        require(battery_endurance_tick(false) == ESP_ERR_NO_MEM && writes == 0 &&
+                published.error == ESP_ERR_NO_MEM && !published.initialized,
+                "readback registration failure must stop initialization and remain canonical");
+    } else if (scenario == "readback") {
+        start();
+        require(endurance_reader != nullptr, "canonical reader not registered");
+        const unsigned writes_before_read = writes, publications_before_read = publication_attempts;
+        // Use canonical values with unavailable source/error and both retained records.
+        published.previous = published.current;
+        published.previous.session_id = 17;
+        published.current.session_id = 18;
+        published.current.elapsed_ms = 61000;
+        published.error = ESP_ERR_TIMEOUT;
+        published.source_current = false;
+        uint8_t guarded[130]; std::memset(guarded, 0xa5, sizeof(guarded));
+        size_t written = 999;
+        require(endurance_reader(guarded + 1, 127, &written) == ESP_ERR_INVALID_SIZE && written == 0 &&
+                guarded[1] == 0xa5 && guarded[128] == 0xa5, "short buffer touched output");
+        require(endurance_reader(nullptr, 128, &written) == ESP_ERR_INVALID_ARG &&
+                endurance_reader(guarded + 1, 128, nullptr) == ESP_ERR_INVALID_ARG, "null arguments accepted");
+        canonical_read_error = ESP_FAIL;
+        require(endurance_reader(guarded + 1, 128, &written) == ESP_FAIL && written == 0 &&
+                guarded[1] == 0xa5, "canonical read failure altered output or lost cause");
+        canonical_read_error = ESP_OK;
+        require(endurance_reader(guarded + 1, 128, &written) == ESP_OK && written == 128 &&
+                guarded[0] == 0xa5 && guarded[129] == 0xa5 &&
+                std::memcmp(guarded + 1, "LBE1", 4) == 0 && guarded[5] == 1,
+                "exact 128-byte serialization overflowed or lost source validity");
+        require(writes == writes_before_read && publication_attempts == publications_before_read,
+                "explicit readback triggered persistence or publication");
+        std::ofstream stream(std::string(argv[2]) + ".readback", std::ios::binary);
+        stream.write(reinterpret_cast<const char *>(guarded + 1), 128);
+        require(stream.good(), "readback fixture output failed");
+    } else if (scenario == "usb") {
         battery_only();
         battery.usb_present = true;
         battery.vbus_good = true;

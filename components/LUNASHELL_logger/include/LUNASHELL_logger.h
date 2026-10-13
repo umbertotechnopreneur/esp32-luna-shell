@@ -175,6 +175,16 @@ typedef esp_err_t (*LUNASHELL_logger_sd_reader_t)(
 // Returns an argument/state error if ownership cannot be established.
 esp_err_t LUNASHELL_logger_set_sd_reader(LUNASHELL_logger_sd_reader_t reader);
 
+// buffer: Receives one canonical endurance projection, never an SD/NVS fallback.
+// capacity: Available transport bytes, at most one existing USB block.
+// written: Exact serialized length, set only after a complete successful read.
+// Exception: Returns the original snapshot/argument error; performs no acquisition or persistence.
+typedef esp_err_t (*LUNASHELL_logger_endurance_reader_t)(void *buffer, size_t capacity, size_t *written);
+
+// reader: Immutable canonical endurance reader, registered by its acquisition owner.
+// Exception: Returns argument/state errors instead of replacing an existing owner.
+esp_err_t LUNASHELL_logger_set_endurance_reader(LUNASHELL_logger_endurance_reader_t reader);
+
 #define LUNASHELL_LOGGER_SNAPSHOT_MAX_LINES 15U
 
 /**

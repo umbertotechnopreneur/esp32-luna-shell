@@ -1,6 +1,7 @@
 #include "LUNASHELL_battery_endurance.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_settings.hpp"
+#include "LUNASHELL_logger.h"
 #include "esp_log.h"
 #include "esp_rom_crc.h"
 #include "esp_timer.h"
@@ -73,6 +74,37 @@ void encode_record(uint8_t *bytes, const BatteryEnduranceRecord &record)
     put(bytes + 24, record.last_alive_utc_s, 8);
     put(bytes + 32, record.first_wake_elapsed_ms, 8);
     put(bytes + 40, record.first_wake_utc_s, 8);
+}
+
+// buffer: One 128-byte versioned USB projection; native structure padding is excluded.
+// capacity: Actual caller capacity; short buffers are rejected before any write.
+// written: Set to the exact payload size only after the canonical read succeeds.
+// Exception: Returns original read/argument errors; never calls recorder tick, NVS or sensors.
+esp_err_t read_endurance_usb(void *buffer, size_t capacity, size_t *written)
+{
+    if (buffer == nullptr || written == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *written = 0;
+    if (capacity < 128U) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    BatteryEnduranceSnapshot snapshot;
+    const esp_err_t error = DeviceSnapshotService::instance().readBatteryEndurance(snapshot);
+    if (error != ESP_OK) {
+        return error;
+    }
+    auto *bytes = static_cast<uint8_t *>(buffer);
+    std::memset(bytes, 0, 128U);
+    std::memcpy(bytes, "LBE1", 4);
+    bytes[4] = (snapshot.initialized ? 1U : 0U) | (snapshot.source_current ? 2U : 0U);
+    put(bytes + 8, static_cast<uint32_t>(snapshot.error), 4);
+    put(bytes + 16, static_cast<uint64_t>(snapshot.observed_at_us), 8);
+    put(bytes + 24, static_cast<uint64_t>(snapshot.persisted_at_us), 8);
+    encode_record(bytes + 32, snapshot.current);
+    encode_record(bytes + 80, snapshot.previous);
+    *written = 128U;
+    return ESP_OK;
 }
 
 // bytes: Exact 48-byte record source.
@@ -218,7 +250,11 @@ esp_err_t initialize()
         return s_disabled ? publish(s_saved.error) : ESP_OK;
     }
     s_attempted = true;
-    esp_err_t error = UserSettingsService::instance().getBlobExact(kKey, s_wire, sizeof(s_wire));
+    esp_err_t error = LUNASHELL_logger_set_endurance_reader(read_endurance_usb);
+    if (error != ESP_OK) {
+        return publish(error, true);
+    }
+    error = UserSettingsService::instance().getBlobExact(kKey, s_wire, sizeof(s_wire));
     if (error == ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGI(kTag, "Absent key=%s: persist empty first-boot endurance record", kKey);
         s_pending = {};

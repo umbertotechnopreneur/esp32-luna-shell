@@ -32,6 +32,8 @@ public:
     esp_err_t refreshBatteryForEndurance();
     // report: Real service projection captured without implementing recorder policy.
     esp_err_t reportBatteryEndurance(const BatteryEnduranceSnapshot &report);
+    // destination: Published canonical projection; no acquisition is requested.
+    esp_err_t readBatteryEndurance(BatteryEnduranceSnapshot &destination) const;
     // clock: Original canonical UTC observation supplied by the fixture.
     esp_err_t readClockObservation(ClockSnapshot &clock) const;
 };

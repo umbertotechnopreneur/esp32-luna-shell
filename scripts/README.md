@@ -19,6 +19,7 @@ is selected. Execution authorization is defined in [AGENTS.md](../AGENTS.md).
 .\scripts\device.ps1 check -Check cody-native
 .\scripts\device.ps1 generate -Generator cody-rig
 .\scripts\device.ps1 size -SizeOutputFormat json2
+.\scripts\device.ps1 endurance-read -Port COM10
 .\scripts\device.ps1 clean-artifacts
 ```
 
@@ -90,6 +91,16 @@ Close other monitors first. The default download path is
 `artifacts/serial/sd-log-<name>.log`; verified blocks precede replacement of the
 local file. `-WaitSeconds` bounds each USB response.
 [Storage and logging](../docs/bsp/services/storage-and-logging.md) owns the protocol.
+
+`endurance-read` reads one CRC-checked canonical battery journal projection in
+Debug or Release, independent of INFO log output and SD availability. It writes
+`artifacts/serial/endurance.json` and its 128-byte `.wire` evidence. It never
+resets, flashes, samples sensors or writes device storage. A recorder failure
+returns a command error after retaining the verified JSON for inspection;
+`source_current=false` is valid when USB powers the device. Use `-OutputPath`
+for another artifact destination and `-WaitSeconds` for the response deadline.
+The firmware must include the explicit reader; see
+[battery runtime recording](../docs/bsp/services/power-management.md#battery-only-runtime-recording).
 
 ## PDF authoring
 

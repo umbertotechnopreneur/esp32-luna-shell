@@ -72,6 +72,7 @@ def main(argv=None) -> int:
     tasks = []
     limits = [("power_task", "LUNASHELL_power.cpp", 8192),
               ("diagnostic_monitor_task", "LUNASHELL_hardware.cpp", 3072),
+              ("command_task", "LUNASHELL_logger_usb.c", 4096),
               ("worker", "LUNASHELL_activity.cpp", 8192),
               ("companion_worker", "CODY_companion.cpp", 12288)]
     if wake_word_enabled:
@@ -94,6 +95,9 @@ def main(argv=None) -> int:
                 ("LUNASHELL_power.cpp", "LUNASHELL_battery_endurance.cpp",
                  "LUNASHELL_settings.cpp", "LUNASHELL_activity.cpp", "LUNASHELL_logger.c"))]
     helpers = {}
+    endurance_usb_helpers = helper_frames(
+        rows, ("LUNASHELL_battery_endurance.cpp", "LUNASHELL_logger_usb.c"),
+        r"read_endurance_usb|process_command|command_task")
     if wake_word_enabled:
         helpers["afe"] = helper_frames(rows, ("LUNASHELL_voice_afe.cpp",))
     if voice_input_enabled:
@@ -103,6 +107,7 @@ def main(argv=None) -> int:
     report = {"status": "failed" if failures else "passed", "tasks": tasks,
               "largest_selected_frames": sorted(selected, key=lambda row: row["bytes"], reverse=True)[:40],
               "voice_helper_frames": helpers,
+              "endurance_usb_helper_frames": endurance_usb_helpers,
               "helper_scope": "Up to 12 largest individual records per enabled subsystem; inlined helpers may have no separate record",
               "compiled_record_count": len(rows), "failures": failures,
               "scope": "Individual compiled frames; nested call chains and device watermarks required separately"}
@@ -114,6 +119,8 @@ def main(argv=None) -> int:
         largest = group["largest_frames"]
         maximum = str(largest[0]["bytes"]) + " bytes" if largest else "no separate compiler record"
         print(f"Individual {name} frames: {group['compiled_record_count']}; largest {maximum}")
+    for frame in endurance_usb_helpers["largest_frames"]:
+        print(f"Individual endurance USB frame: {frame['function']} {frame['bytes']} bytes")
     for failure in failures:
         print(f"FAIL: {failure}")
     print(f"Individual stack frame report: {report['status']}; {output}")

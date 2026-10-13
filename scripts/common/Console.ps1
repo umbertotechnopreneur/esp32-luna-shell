@@ -32,6 +32,7 @@ function Get-DeviceFirmwarePresentation {
         monitor = @{ Emoji = '📟'; Description = 'Attach the live ESP-IDF monitor without a startup reset; exit with Ctrl+].' }
         capture = @{ Emoji = '📝'; Description = 'Save serial output for a bounded duration; reset first only with -ResetBeforeCapture.' }
         'sd-log' = @{ Emoji = '📥'; Description = 'Download a stored SD log over USB with checked blocks; close the monitor first.' }
+        'endurance-read' = @{ Emoji = '📥'; Description = 'Read canonical current/previous endurance records over USB, including Release builds; no reset.' }
         flash = @{ Emoji = '⚡'; Description = 'Build and write the selected firmware to the device, then reset it.' }
         reset = @{ Emoji = '🔄'; Description = 'Reset the device through serial control lines without writing firmware.' }
         combo = @{ Emoji = '🚀'; Description = 'Build, flash and attach the live monitor without an additional startup reset.' }

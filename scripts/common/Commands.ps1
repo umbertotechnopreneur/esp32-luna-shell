@@ -41,6 +41,7 @@ function Get-DeviceActionParameters {
         flash = $idf + $serial + @('Jobs'); reset = $idf + $serial
         monitor = $idf + $serial + @('ResetBeforeMonitor'); capture = $idf + $serial + @('DurationSeconds','OutputPath','ResetBeforeCapture')
         'sd-log' = $serial + @('StoredLog','OutputPath')
+        'endurance-read' = $serial + @('OutputPath')
         erase = $idf + $serial; reconfigure = $idf; 'set-target' = $idf; 'update-lock' = $idf
         size = $idf + @('SizeOutputFormat','SizeOutputFile')
         combo = $idf + $serial + @('Jobs','ResetBeforeMonitor'); recover = $idf + $serial + @('Jobs')
@@ -139,6 +140,14 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
         return
     }
     switch ($RequestedAction) {
+        'endurance-read' {
+            . (Join-Path $ProjectRoot 'scripts/common/StoredLogs.ps1')
+            . (Join-Path $ProjectRoot 'scripts/common/EnduranceReadback.ps1')
+            $serialBaud = if ($Options.ContainsKey('Baud')) { $Options.Baud } else { 115200 }
+            $responseTimeout = if ($Options.ContainsKey('WaitSeconds')) { $Options.WaitSeconds } else { 30 }
+            Invoke-DeviceEnduranceReadback -RequestedPort $Options.Port -RequestedBaud $serialBaud `
+                -Destination $Options.OutputPath -ResponseTimeoutSeconds $responseTimeout
+        }
         'sd-log' {
             . (Join-Path $ProjectRoot 'scripts/common/StoredLogs.ps1')
             $storedLog = if ($Options.ContainsKey('StoredLog')) { $Options.StoredLog } else { 'current' }

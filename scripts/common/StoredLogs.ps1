@@ -57,7 +57,7 @@ function ConvertFrom-DeviceStoredLogInteger([string]$Text, [string]$Field) {
     $parsedValue = [uint64]0
     if (-not [uint64]::TryParse($Text, [Globalization.NumberStyles]::None,
             [Globalization.CultureInfo]::InvariantCulture, [ref]$parsedValue)) {
-        throw [System.IO.InvalidDataException]::new("SD log response has an invalid $Field value '$Text'.")
+        throw [System.IO.InvalidDataException]::new("USB readback response has an invalid $Field value '$Text'.")
     }
     return $parsedValue
 }
@@ -103,12 +103,12 @@ function Read-DeviceStoredLogResponse {
                     [Globalization.CultureInfo]::InvariantCulture, [ref]$firmwareError) -or
                 -not [int]::TryParse($Matches[2], [Globalization.NumberStyles]::AllowLeadingSign,
                     [Globalization.CultureInfo]::InvariantCulture, [ref]$nativeError)) {
-                throw [System.IO.InvalidDataException]::new('SD log ERROR response contains out-of-range error codes.')
+                throw [System.IO.InvalidDataException]::new('USB readback ERROR response contains out-of-range error codes.')
             }
-            throw [System.IO.IOException]::new("Firmware rejected SD log '$StoredLog': esp_err=$firmwareError, errno=$nativeError.")
+            throw [System.IO.IOException]::new("Firmware rejected USB readback '$StoredLog': esp_err=$firmwareError, errno=$nativeError.")
         }
         if ($line -notmatch '^LUNA LOG DATA [0-9A-Fa-f]{8} ([0-9]+) ([0-9]+) ([0-9]+) ([0-9A-Fa-f]{8}) (-|(?:[0-9A-Fa-f]{2}){1,128})$') {
-            throw [System.IO.InvalidDataException]::new("Malformed SD log response for request $Token.")
+            throw [System.IO.InvalidDataException]::new("Malformed USB readback response for request $Token.")
         }
 
         # Copy named fields before calling helpers; PowerShell's automatic Matches is ambient state.
@@ -119,7 +119,7 @@ function Read-DeviceStoredLogResponse {
         $encodedData = $Matches[5]
         $revision = ConvertFrom-DeviceStoredLogInteger -Text $revisionText -Field 'revision'
         if ($revision -gt [uint32]::MaxValue) {
-            throw [System.IO.InvalidDataException]::new('SD log response revision exceeds the unsigned 32-bit protocol range.')
+            throw [System.IO.InvalidDataException]::new('USB readback response revision exceeds the unsigned 32-bit protocol range.')
         }
         $offset = ConvertFrom-DeviceStoredLogInteger -Text $offsetText -Field 'offset'
         $total = ConvertFrom-DeviceStoredLogInteger -Text $totalText -Field 'total length'
@@ -139,12 +139,12 @@ function Read-DeviceStoredLogResponse {
     }
 
     throw [TimeoutException]::new(
-        "Timed out after $TimeoutSeconds seconds waiting for SD log '$StoredLog' response $Token. Close any serial monitor and install firmware with the LUNA LOG protocol before retrying; this command does not reset or update the device.")
+        "Timed out after $TimeoutSeconds seconds waiting for USB readback '$StoredLog' response $Token. Close any serial monitor and install firmware with the LUNA LOG protocol before retrying; this command does not reset or update the device.")
 }
 
 # RequestedPort is the user-selected Windows COM identity; no probe or owner cleanup is performed.
 # RequestedBaud is the firmware serial console's baud rate.
-# StoredLog selects the firmware-owned current or previous SD log without exposing arbitrary paths.
+# StoredLog selects current/previous SD logs or the separate canonical endurance reader; never an arbitrary path.
 # Destination is the dispatcher-resolved artifact output; the existing file survives until transfer completion.
 # ResponseTimeoutSeconds bounds each complete response, including all unrelated runtime lines.
 # Throws the original serial, firmware, integrity, storage or cleanup error after releasing owned resources.
@@ -153,7 +153,7 @@ function Invoke-DeviceStoredLog {
     param(
         [Parameter(Mandatory)][string]$RequestedPort,
         [Parameter(Mandatory)][ValidateRange(1,4000000)][int]$RequestedBaud,
-        [Parameter(Mandatory)][ValidateSet('current','previous')][string]$StoredLog,
+        [Parameter(Mandatory)][ValidateSet('current','previous','endurance')][string]$StoredLog,
         [Parameter(Mandatory)][string]$Destination,
         [Parameter(Mandatory)][ValidateRange(1,86400)][int]$ResponseTimeoutSeconds
     )
@@ -185,7 +185,7 @@ function Invoke-DeviceStoredLog {
         $serial.WriteTimeout = $ResponseTimeoutSeconds * 1000
         $serial.Open()
 
-        Write-Host "SD log: downloading '$StoredLog' from $normalizedPort at $RequestedBaud baud."
+        Write-Host "USB readback: downloading '$StoredLog' from $normalizedPort at $RequestedBaud baud."
         $crcTable = New-DeviceStoredLogCrcTable
         $tokens = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
         $revision = [uint64]0
@@ -204,15 +204,20 @@ function Invoke-DeviceStoredLog {
             $response = Read-DeviceStoredLogResponse -Serial $serial -Token $token `
                 -TimeoutSeconds $ResponseTimeoutSeconds -StoredLog $StoredLog
 
+            if ($StoredLog -eq 'endurance' -and ($response.Revision -ne 1 -or $response.Offset -ne 0 -or
+                    $response.Total -ne 128 -or $response.Bytes.Length -ne 128)) {
+                throw [System.IO.InvalidDataException]::new('Endurance readback requires one exact 128-byte version-1 frame.')
+            }
+
             if ($response.Revision -eq 0) {
-                throw [System.IO.InvalidDataException]::new('SD log response has revision zero; the source file cannot be pinned.')
+                throw [System.IO.InvalidDataException]::new('USB readback response has revision zero; the source file cannot be pinned.')
             }
             if ($response.Total -gt $maximumLength -or $response.Offset -gt $response.Total -or
                 $response.Bytes.Length -gt ($response.Total - $response.Offset)) {
-                throw [System.IO.InvalidDataException]::new('SD log response exceeds its reported file bounds or the 2 MiB + 4096 byte limit.')
+                throw [System.IO.InvalidDataException]::new('USB readback response exceeds its reported file bounds or the 2 MiB + 4096 byte limit.')
             }
             if ($response.Offset -ne $offset) {
-                throw [System.IO.InvalidDataException]::new("SD log response offset $($response.Offset) does not match requested offset $offset.")
+                throw [System.IO.InvalidDataException]::new("USB readback response offset $($response.Offset) does not match requested offset $offset.")
             }
             if ($null -eq $pinnedTotal) {
                 $revision = $response.Revision
@@ -225,7 +230,7 @@ function Invoke-DeviceStoredLog {
             if ($actualChecksum -ne $response.Checksum) {
                 $actualText = '{0:X8}' -f $actualChecksum
                 $expectedText = '{0:X8}' -f $response.Checksum
-                throw [System.IO.InvalidDataException]::new("SD log CRC32 mismatch at offset ${offset}: expected $expectedText, received $actualText.")
+                throw [System.IO.InvalidDataException]::new("USB readback CRC32 mismatch at offset ${offset}: expected $expectedText, received $actualText.")
             }
 
             # The current log may keep growing. Verify all received bytes, but publish only the initial length.
@@ -236,7 +241,7 @@ function Invoke-DeviceStoredLog {
             $output.Write($response.Bytes, 0, $bytesToWrite)
             $offset += [uint64]$bytesToWrite
             if ($offset -ge $nextProgress) {
-                Write-Host "SD log: $offset / $pinnedTotal bytes downloaded."
+                Write-Host "USB readback: $offset / $pinnedTotal bytes downloaded."
                 $nextProgress += 65536
             }
         } while ($offset -lt $pinnedTotal)
@@ -289,5 +294,5 @@ function Invoke-DeviceStoredLog {
     if ($null -ne $transferFailure) {
         throw $transferFailure
     }
-    Write-Host "SD log saved: $outputPath ($offset bytes, revision $revision)."
+    Write-Host "USB readback saved: $outputPath ($offset bytes, revision $revision)."
 }

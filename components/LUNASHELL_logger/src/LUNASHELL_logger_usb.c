@@ -40,6 +40,8 @@ static StaticSemaphore_t s_tx_mutex_control;
 static TaskHandle_t s_command_task;
 static LUNASHELL_logger_sd_reader_t s_sd_reader;
 static atomic_bool s_reader_ready;
+static LUNASHELL_logger_endurance_reader_t s_endurance_reader;
+static atomic_bool s_endurance_reader_ready;
 static atomic_uint s_dropped_serial_lines;
 static atomic_bool s_power_off_sealed;
 
@@ -149,6 +151,25 @@ esp_err_t LUNASHELL_logger_set_sd_reader(LUNASHELL_logger_sd_reader_t reader)
     return ESP_OK;
 }
 
+// reader: One canonical acquisition owner; registration precedes its first publication.
+// Exception: Returns actual invalid argument/ownership errors without replacing the reader.
+esp_err_t LUNASHELL_logger_set_endurance_reader(LUNASHELL_logger_endurance_reader_t reader)
+{
+    if (reader != NULL && atomic_load_explicit(&s_endurance_reader_ready, memory_order_acquire) &&
+        s_endurance_reader == reader) {
+        return ESP_OK;
+    }
+    if (reader == NULL || (atomic_load_explicit(&s_endurance_reader_ready, memory_order_acquire) &&
+        s_endurance_reader != reader)) {
+        const esp_err_t error = reader == NULL ? ESP_ERR_INVALID_ARG : ESP_ERR_INVALID_STATE;
+        ESP_LOGE("LUNASHELL_log_usb", "Endurance reader rejected: %s", esp_err_to_name(error));
+        return error;
+    }
+    s_endurance_reader = reader;
+    atomic_store_explicit(&s_endurance_reader_ready, true, memory_order_release);
+    return ESP_OK;
+}
+
 // text contains only unsigned decimal digits, or hexadecimal digits for tokens.
 // base selects the protocol's explicit numeric representation.
 // value receives a checked 32-bit result.
@@ -206,6 +227,7 @@ static esp_err_t send_response(const char *response)
 // Each request reads one block; no mount lease is held while USB transmits.
 static void process_command(char *command)
 {
+    enum { SOURCE_SD, SOURCE_ENDURANCE } source = SOURCE_SD;
     char *tokens[8];
     size_t count = 0U;
     char *context = NULL;
@@ -236,6 +258,9 @@ static void process_command(char *command)
         } else if (strcmp(tokens[4], "previous") == 0) {
             file = LUNASHELL_LOG_FILE_PREVIOUS;
             result = ESP_OK;
+        } else if (strcmp(tokens[4], "endurance") == 0 && offset == 0U && expected_revision == 0U) {
+            source = SOURCE_ENDURANCE;
+            result = ESP_OK;
         }
     }
     uint8_t data[LOG_USB_BLOCK_BYTES];
@@ -244,7 +269,15 @@ static void process_command(char *command)
     uint32_t revision = 0U;
     int system_errno = 0;
     if (result == ESP_OK) {
-        if (!atomic_load_explicit(&s_reader_ready, memory_order_acquire)) {
+        if (source == SOURCE_ENDURANCE) {
+            result = atomic_load_explicit(&s_endurance_reader_ready, memory_order_acquire)
+                ? s_endurance_reader(data, sizeof(data), &bytes_read) : ESP_ERR_NOT_SUPPORTED;
+            if (result == ESP_OK && bytes_read != LOG_USB_BLOCK_BYTES) {
+                result = ESP_ERR_INVALID_SIZE;
+            }
+            total_size = (uint32_t)bytes_read;
+            revision = 1U; // Single-frame schema identity, never an SD file revision.
+        } else if (!atomic_load_explicit(&s_reader_ready, memory_order_acquire)) {
             result = ESP_ERR_NOT_SUPPORTED;
         } else {
             result = s_sd_reader(file, offset, expected_revision, data,
@@ -253,7 +286,7 @@ static void process_command(char *command)
     }
     char response[384];
     if (result != ESP_OK) {
-        ESP_LOGE("LUNASHELL_log_usb", "SD read rejected: %s errno=%d offset=%" PRIu32,
+        ESP_LOGE("LUNASHELL_log_usb", "USB read rejected: %s errno=%d offset=%" PRIu32,
             esp_err_to_name(result), system_errno, offset);
         snprintf(response, sizeof(response), "LUNA LOG ERROR %08" PRIx32 " %d %d\n",
             request_id, (int)result, system_errno);
