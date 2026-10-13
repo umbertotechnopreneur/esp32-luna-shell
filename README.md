@@ -86,10 +86,15 @@ replace its license or the CCP documentation about audio and external services.
 
 ### This is VibeWare · [Manifesto](https://umbertogiacobbi.biz/vibeware/manifesto?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=readme-manifesto)
 
-VibeWare is my open initiative for developers who build with AI and care about
-the craft. Human intent sets the purpose and direction; AI helps execute the
-work, while people remain responsible for decisions, testing and security.
-Each project records its own release status and validation evidence.
+ESP32 Luna Shell / Cody Companion participates in the **VibeWare initiative**,
+an open movement for developers who build useful software with AI under human
+direction. VibeWare describes participation; it is not the project's author
+or publisher.
+
+I am [Umberto Giacobbi](https://umbertogiacobbi.biz/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=readme-author).
+I guide this project's development and remain responsible for checking the
+result. The project keeps its own identity, license, release status and
+validation evidence.
 
 To learn what VibeWare means and why I started it, read the manifesto above.
 

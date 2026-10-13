@@ -798,7 +798,7 @@ class CodyWindow:
         self.ccp_panel = None
         self.jelly_study = renderer.jelly_study_enabled
         preview_name = 'PEARL JELLY / HOST ONLY' if self.jelly_study else 'Cody Alpha'
-        self.root.title(f"{renderer.rig['character']['name']} / VibeWare {preview_name} / SYNTHETIC")
+        self.root.title(f"{renderer.rig['character']['name']} / Cody Studio {preview_name} / SYNTHETIC")
         self.ui_colors = install_theme(root)
         self.screen = tk.StringVar(value=args.screen)
         self.rotation = tk.IntVar(value=args.rotation)
@@ -995,17 +995,23 @@ class CodyWindow:
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
         identity = ttk.Frame(header, style="Studio.TFrame")
-        identity.grid(row=0, column=0, columnspan=2, sticky="w")
+        identity.grid(row=0, column=0, sticky="w")
         with Image.open(ROOT / "simulator/windows/assets/branding/vibeware-logo.png") as logo:
             # Display scaling preserves the approved source canvas and pixel-art edges.
             side = self.ui_pixels(80)
             self.brand_logo = ImageTk.PhotoImage(logo.resize((side, side), Image.Resampling.NEAREST))
-        self.root.iconphoto(True, self.brand_logo)
-        ttk.Label(identity, image=self.brand_logo, style="Studio.TLabel").pack(side="left", padx=self.ui_pixels((0, 14)))
+        with Image.open(ROOT / "assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.png") as logo:
+            self.project_logo = ImageTk.PhotoImage(logo.resize((64, 64), Image.Resampling.LANCZOS))
+        self.root.iconphoto(True, self.project_logo)
+        ttk.Button(header, image=self.brand_logo, text="VibeWare manifesto", compound="top",
+                   style="Link.TButton", command=lambda: self.open_studio_link(StudioLink.MANIFESTO)).grid(
+                       row=0, column=1, sticky="ne")
         title = ttk.Frame(identity, style="Studio.TFrame")
         title.pack(side="left")
         ttk.Label(title, text="Cody Studio", style="Title.TLabel").pack(anchor="w")
         ttk.Label(title, text=preview_name + " / character playground", style="Subtitle.TLabel",
+                  background=self.ui_colors["background"]).pack(anchor="w", pady=(2, 0))
+        ttk.Label(title, text="Participates in the VibeWare initiative", style="Subtitle.TLabel",
                   background=self.ui_colors["background"]).pack(anchor="w", pady=(2, 0))
         links = ttk.Frame(header, style="Studio.TFrame")
         links.grid(row=1, column=0, sticky="w", pady=self.ui_pixels((6, 0)))

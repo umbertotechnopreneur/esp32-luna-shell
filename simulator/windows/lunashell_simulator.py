@@ -31,6 +31,7 @@ import queue
 import sys
 import time
 import tkinter as tk
+import webbrowser
 import winsound
 from collections import deque
 from dataclasses import dataclass
@@ -527,6 +528,13 @@ PAIRING_PREVIEWS = {
 
 
 class LUNASHELLSimulator:
+    # self: Host controller keeping desktop branding outside the device canvas.
+    # root: Tk window hosting the simulator.
+    # engine: Scenario engine providing explicitly synthetic state.
+    # play_sound: Whether to enable the existing host audio preview.
+    # idle_state: Initial simulated power/display state.
+    # Raises tk.TclError if host widgets cannot be constructed.
+    # Raises OSError if the bundled artwork cannot be read.
     def __init__(
         self,
         root: tk.Tk,
@@ -546,6 +554,7 @@ class LUNASHELLSimulator:
             self.engine.action("press:pwr")
         elif idle_state == "fullscreen" and not self.engine.snapshot()["power"]["fullscreen_active"]:
             self.engine.action("press:boot")
+        self._build_project_header()
         self.canvas = tk.Canvas(
             root,
             width=DISPLAY_SIZE,
@@ -614,6 +623,39 @@ class LUNASHELLSimulator:
         self.show_boot()
         self.root.after(150, self._advance_timeline)
         self.root.after(120, self._refresh_log)
+
+    # self: Host controller retaining the project icon and initiative link image.
+    # Raises tk.TclError if Tk cannot construct the desktop header.
+    # Raises OSError if either bundled source image cannot be read.
+    def _build_project_header(self) -> None:
+        header = tk.Frame(self.root, background="#101820")
+        header.pack(fill="x", padx=18, pady=(12, 0))
+        identity = tk.Frame(header, background="#101820")
+        identity.pack(side="left")
+        tk.Label(identity, text="ESP32 Luna Shell", background="#101820", foreground=TEXT,
+                 font=("Consolas", 14, "bold")).pack(anchor="w")
+        tk.Label(identity, text="Participates in the VibeWare initiative",
+                 background="#101820", foreground=MUTED_BRIGHT,
+                 font=("Consolas", 9)).pack(anchor="w")
+        with Image.open(resource_path("simulator/windows/assets/branding/vibeware-logo.png")) as logo:
+            self.initiative_logo = ImageTk.PhotoImage(logo.resize((56, 56), Image.Resampling.NEAREST))
+        with Image.open(resource_path("assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.png")) as logo:
+            self.project_logo = ImageTk.PhotoImage(logo.resize((64, 64), Image.Resampling.LANCZOS))
+        self.root.iconphoto(True, self.project_logo)
+        tk.Button(header, image=self.initiative_logo, text="Manifesto", compound="top",
+                  command=self._open_vibeware_manifesto, cursor="hand2", takefocus=True,
+                  background="#101820", foreground=TEXT, activebackground=SURFACE,
+                  activeforeground=TEXT, relief="flat", borderwidth=0,
+                  highlightthickness=1).pack(side="right")
+
+    # self: Host controller retaining and reporting desktop browser failures.
+    def _open_vibeware_manifesto(self) -> None:
+        try:
+            if not webbrowser.open_new_tab("https://umbertogiacobbi.biz/vibeware/manifesto"):
+                raise RuntimeError("The default browser rejected the VibeWare manifesto link")
+        except (OSError, webbrowser.Error, RuntimeError) as error:
+            self.last_link_error = error
+            print(f"[luna-ui] Open MANIFESTO failed: {error!r}", file=sys.stderr, flush=True)
 
     def _snapshot(self) -> dict:
         return self.engine.snapshot()

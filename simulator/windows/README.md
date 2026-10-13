@@ -341,10 +341,14 @@ are explicitly overridden. Character scene typography retains its authored
 device assets. Palette text provenance is normalized both by the generator
 and the Windows painter; indexed coverage and PCM binary hashes remain exact.
 
-The studio header bundles the approved VibeWare floppy PNG unchanged from
-`Obsidian/20_Execution/Projects/VibeWare/Branding/vibeware-logo.png`; the host
-copy, original MIT notice and provenance are under
-`simulator/windows/assets/branding/`. The buttons open the Cody GitHub project,
-`https://umbertogiacobbi.biz` and the published VibeWare `MANIFESTO.md` on GitHub
-only on a user click. The planned website manifesto is not used as a published
-destination. Browser launch failures remain in the simulator status/console.
+The Cody Studio and Luna simulator desktop headers show the approved VibeWare
+floppy at the top right, outside the simulated device canvas. The clickable,
+keyboard-accessible badge opens `https://umbertogiacobbi.biz/vibeware/manifesto`
+only on user activation. It indicates participation in the initiative, not
+application authorship. Both windows use the Luna Shell project artwork for
+their window icon, separately from the initiative badge.
+
+The unchanged floppy source, original MIT notice and provenance are under
+`simulator/windows/assets/branding/`. Cody Studio also retains its project and
+personal-site links. Browser launch failures are retained and reported to the
+host console. These source changes do not establish an interactive UI check.
