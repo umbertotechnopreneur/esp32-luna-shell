@@ -487,6 +487,13 @@ bool admit_bounds(float left, float top, uint16_t width, uint16_t height,
 }
 } // namespace
 
+// cue: Typed visible identity; unknown cues remain subject to audio-owner validation.
+bool personality_cue_is_silent(PersonalityCue cue)
+{
+    const auto *rule = cue_rule(cue);
+    return rule != nullptr && !rule->sfx_enabled;
+}
+
 // cue: Stable enum whose catalog membership is requested.
 bool personality_cue_valid(PersonalityCue cue)
 {

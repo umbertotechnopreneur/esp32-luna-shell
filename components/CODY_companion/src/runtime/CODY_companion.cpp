@@ -980,6 +980,12 @@ void notify_completed_personality(const CODY::PersonalityFrame &previous,
     suspend_optional_personality_audio(s_shutdown_presentation.load(std::memory_order_acquire) !=
         ShutdownPresentation::None || (!visible && !idle_whistle_visible));
     const bool appeared = visible && (previous.opacity == 0 || previous.cue != current.cue);
+    if (CODY::personality_cue_is_silent(current.cue)) {
+        // Authored visual-only cues have no PCM asset. Cancel any old retry;
+        // unknown identities still reach the audio owner's explicit rejection.
+        s_pending_personality_sound = CODY::PersonalityCue::None;
+        return;
+    }
     if (s_state.connection_personality.search_active &&
         (current.cue == CODY::PersonalityCue::Curiosity || current.cue == CODY::PersonalityCue::Search ||
          current.cue == CODY::PersonalityCue::Fear)) {

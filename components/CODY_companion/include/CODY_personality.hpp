@@ -178,6 +178,10 @@ esp_err_t select_personality_power_cue(const PersonalityPowerObservation &observ
 // cue: Typed identity whose catalog membership is requested.
 bool personality_cue_valid(PersonalityCue cue);
 
+// cue: Typed visible identity; only an explicit authored sound opt-out is silent.
+// Unknown identities return false so the audio owner still rejects invalid requests.
+bool personality_cue_is_silent(PersonalityCue cue);
+
 // cue: Typed identity to classify as a device observation rather than narrative.
 bool personality_cue_is_device(PersonalityCue cue);
 

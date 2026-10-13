@@ -1222,6 +1222,24 @@ void check_wellbeing()
                                  PersonalityReminder::ScreenBreak, state) == ESP_ERR_INVALID_STATE &&
             same_wellbeing(state, maximum), "acknowledgment deadline overflow cannot partially reset fatigue");
 }
+// No parameters: exercise the production authored-silence gate without playing audio.
+void check_authored_silent_cues()
+{
+    for (auto cue : {PersonalityCue::WifiConnected, PersonalityCue::Search,
+                     PersonalityCue::BatteryReady, PersonalityCue::BatteryLow}) {
+        require(personality_cue_is_silent(cue), "visual-only cue must not request a missing PCM asset");
+    }
+    for (const auto &rule : PersonalityConfig::cue_rules) {
+        require(personality_cue_is_silent(rule.cue) == !rule.sfx_enabled,
+                "completed-frame sound admission must follow the authored per-cue policy");
+    }
+    require(!personality_cue_is_silent(PersonalityCue::LowBattery) &&
+            !personality_cue_is_silent(PersonalityCue::Charging),
+            "existing audible battery cues must retain audio-owner admission");
+    require(!personality_cue_is_silent(static_cast<PersonalityCue>(255)) &&
+            !personality_cue_is_silent(PersonalityCue::None),
+            "missing identity must not become a successful intentional suppression");
+}
 } // namespace
 
 // No parameters: runs only when explicitly authorized through the public check CLI.
@@ -1243,6 +1261,7 @@ int main()
     check_automatic_power_cues();
     check_repeat_suppression();
     check_wellbeing();
+    check_authored_silent_cues();
     std::printf("],\"assertions\":%d,\"host_controller_bytes\":%llu,\"repeat_slots\":%llu,\"repeat_bytes\":%llu}\n",
                 assertions, static_cast<unsigned long long>(sizeof(PersonalityLag)),
                 static_cast<unsigned long long>(PersonalityConfig::cue_rule_count),

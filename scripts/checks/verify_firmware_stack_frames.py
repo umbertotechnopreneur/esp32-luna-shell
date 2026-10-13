@@ -82,8 +82,9 @@ def main(argv=None) -> int:
     for name, source, budget in limits:
         # GCC also embeds the enclosing worker name in lambda helper records.
         # Match the task's complete signature, rather than those nested names.
+        # C sidecars contain a bare function name; C++ includes the argument type.
         matches = [row for row in rows if source in row["sidecar"] and
-                   re.search(r"\b" + re.escape(name) + r"\(void\*\)$", row["function"])]
+                   re.search(r"\b" + re.escape(name) + r"(?:\(void\*\))?$", row["function"])]
         if len(matches) != 1:
             failures.append(f"Expected one compiled {name} frame, found {len(matches)}")
             continue
