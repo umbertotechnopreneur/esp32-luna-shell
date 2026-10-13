@@ -119,6 +119,7 @@ void age_codex_technical(CodexTechnicalSnapshot &technical, int64_t now_us)
     technical.model_stale = technical.model_valid && (technical.data_stale ||
         technical.model_age_at_receive_us >= source_ttl_us ||
         elapsed >= source_ttl_us - technical.model_age_at_receive_us);
+    technical.effort_stale = technical.effort_valid && technical.model_stale;
     // Heartbeats carry the remaining host calendar lease; they cannot renew a yesterday catalog.
     technical.cost_stale = technical.cost_band != CodexCostBand::Unknown &&
         (technical.data_stale || technical.model_stale ||
@@ -134,7 +135,9 @@ void age_codex_technical(CodexTechnicalSnapshot &technical, int64_t now_us)
         // Loss of observation never becomes successful completion.
         technical.compaction = CodexCompactionState::Stale;
     }
-    technical.context_stale = technical.context_valid && (technical.data_stale ||
+    const bool usage_present = technical.context_valid || technical.used_valid || technical.capacity_valid ||
+        technical.cumulative_valid || technical.input_valid || technical.output_valid || technical.threshold_valid;
+    technical.context_stale = usage_present && (technical.data_stale ||
         technical.usage_age_at_receive_us >= source_ttl_us ||
         elapsed >= source_ttl_us - technical.usage_age_at_receive_us);
 }

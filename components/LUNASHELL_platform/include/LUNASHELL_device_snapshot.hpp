@@ -318,13 +318,16 @@ struct CodexTechnicalSnapshot : ComponentSnapshot {
     uint64_t activity_age_at_receive_us = 0;
     bool turn_elapsed_valid = false;
     uint64_t turn_elapsed_at_receive_us = 0;
+    // Pair coherence is separate from independent native last-call/window presence.
     bool context_valid = false;
     bool context_stale = false;
+    bool used_valid = false;
+    bool capacity_valid = false;
     bool cumulative_valid = false;
     bool input_valid = false;
     bool output_valid = false;
     bool threshold_valid = false;
-    uint64_t used = 0;
+    uint64_t used = 0; // Native last model-call total; never the cumulative chat count.
     uint64_t capacity = 0;
     uint64_t cumulative = 0;
     uint64_t input = 0;

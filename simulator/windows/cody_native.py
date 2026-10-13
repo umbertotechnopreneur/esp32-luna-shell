@@ -94,7 +94,7 @@ class NativePanelInputs(C.Structure):
         ("cost_band", C.c_uint8), ("cost_state", C.c_uint8),
         ("connected", C.c_bool), ("simulated", C.c_bool), ("context_coherent", C.c_bool),
         ("context_estimated", C.c_bool), ("counters_pending", C.c_bool)] + [
-        (name, NativePanelMetric) for name in ("used", "capacity", "threshold", "cumulative",
+        (name, NativePanelMetric) for name in ("used", "capacity", "threshold", "cumulative", "input", "output",
             "activity_age_us", "usage_age_us", "turn_elapsed_us", "compaction_elapsed_us")]
 
     # self: Bounded PC projection retained through its synchronous native preparation call.
@@ -113,7 +113,9 @@ class NativePanelObservation(C.Structure):
             "activity_stale", "technical_valid", "model_valid", "effort_valid", "compaction_valid",
             "compaction_age_valid", "activity_age_valid", "turn_elapsed_valid")] + [
         (name, C.c_uint64) for name in ("model_age_us", "compaction_age_us", "activity_age_us",
-            "turn_elapsed_us", "receipt_age_us", "cost_age_us", "cost_valid_for_us")]
+            "turn_elapsed_us", "receipt_age_us", "cost_age_us", "cost_valid_for_us")] + [
+        (name + "_valid", C.c_bool) for name in ("used", "capacity", "cumulative", "input", "output", "threshold")] + [
+        (name, C.c_uint64) for name in ("used", "capacity", "cumulative", "input", "output", "threshold", "usage_age_us")]
 
     # self: Raw source projection consumed synchronously by the native scratch owner.
     # Raises no exceptions; absent fields retain unavailable flags rather than numeric claims.

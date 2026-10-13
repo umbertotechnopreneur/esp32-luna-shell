@@ -45,6 +45,8 @@ struct PanelInputs {
     PanelMetric capacity{};
     PanelMetric threshold{};
     PanelMetric cumulative{};
+    PanelMetric input{};
+    PanelMetric output{};
     PanelMetric activity_age_us{};
     PanelMetric usage_age_us{};
     PanelMetric turn_elapsed_us{};

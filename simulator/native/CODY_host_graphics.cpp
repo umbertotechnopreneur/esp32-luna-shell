@@ -21,6 +21,7 @@
 #include "CODY_scene.hpp"
 #include "CODY_activity_description.hpp"
 #include "CODY_activity_identity.hpp"
+#include "CODY_command_hints.hpp"
 #include "CODY_activity_observation.hpp"
 #include "CODY_technical_panels.hpp"
 #include "CODY_companion_gestures.hpp"
@@ -117,6 +118,19 @@ struct HostPanelObservation {
     uint64_t receipt_age_us;
     uint64_t cost_age_us;
     uint64_t cost_valid_for_us;
+    bool used_valid;
+    bool capacity_valid;
+    bool cumulative_valid;
+    bool input_valid;
+    bool output_valid;
+    bool threshold_valid;
+    uint64_t used;
+    uint64_t capacity;
+    uint64_t cumulative;
+    uint64_t input;
+    uint64_t output;
+    uint64_t threshold;
+    uint64_t usage_age_us;
 };
 
 // source: Borrowed NUL-terminated printable ASCII producer string.
@@ -441,7 +455,8 @@ static esp_err_t project_host_panel_observation(const HostPanelObservation *sour
     LUNASHELL::CodexTechnicalObservation &observation)
 {
     if (!source || source->phase > 9 || source->compaction > 5 || source->cost_band > 3 ||
-        source->receipt_age_us > static_cast<uint64_t>(INT64_MAX - 1)) {
+        source->receipt_age_us > static_cast<uint64_t>(INT64_MAX - 1) ||
+        (source->capacity_valid && source->capacity == 0)) {
         return host_result("panel_observation", ESP_ERR_INVALID_ARG);
     }
     // Every supported field below is overwritten in place. Unsupported metric flags stay absent;
@@ -463,6 +478,17 @@ static esp_err_t project_host_panel_observation(const HostPanelObservation *sour
     link.activity.data_valid = source->activity_valid;
     link.activity.data_stale = source->activity_stale;
     technical.data_valid = source->technical_valid;
+    // Explicit host-only health reflects the supplied observation, never a physical owner read.
+    const bool current_link = source->connected && source->link_valid && !source->link_stale;
+    const bool current_activity = current_link && source->activity_valid && !source->activity_stale;
+    const bool coherent_technical = current_activity && source->technical_valid &&
+        technical.chat_id[0] != '\0' && std::strcmp(technical.chat_id, link.activity.chat_id) == 0;
+    link.health = current_link ? LUNASHELL::DeviceHealth::Ready : LUNASHELL::DeviceHealth::Missing;
+    link.last_error = current_link ? ESP_OK : ESP_ERR_INVALID_STATE;
+    link.activity.health = current_activity ? LUNASHELL::DeviceHealth::Ready : LUNASHELL::DeviceHealth::Missing;
+    link.activity.last_error = current_activity ? ESP_OK : ESP_ERR_INVALID_STATE;
+    technical.health = coherent_technical ? LUNASHELL::DeviceHealth::Ready : LUNASHELL::DeviceHealth::Missing;
+    technical.last_error = coherent_technical ? ESP_OK : ESP_ERR_INVALID_STATE;
     // A positive arbitrary receipt origin plus a duration recreates the same aging semantics.
     // This scratch never enters DeviceSnapshotService or a physical firmware snapshot.
     technical.received_at_us = 1;
@@ -483,6 +509,20 @@ static esp_err_t project_host_panel_observation(const HostPanelObservation *sour
     technical.activity_age_at_receive_us = source->activity_age_us;
     technical.turn_elapsed_valid = source->turn_elapsed_valid;
     technical.turn_elapsed_at_receive_us = source->turn_elapsed_us;
+    technical.used_valid = source->used_valid;
+    technical.capacity_valid = source->capacity_valid;
+    technical.context_valid = source->used_valid && source->capacity_valid;
+    technical.cumulative_valid = source->cumulative_valid;
+    technical.input_valid = source->input_valid;
+    technical.output_valid = source->output_valid;
+    technical.threshold_valid = source->threshold_valid;
+    technical.used = source->used;
+    technical.capacity = source->capacity;
+    technical.cumulative = source->cumulative;
+    technical.input = source->input;
+    technical.output = source->output;
+    technical.threshold = source->threshold;
+    technical.usage_age_at_receive_us = source->usage_age_us;
     const int64_t observation_time = static_cast<int64_t>(source->receipt_age_us) + 1;
     LUNASHELL::age_codex_technical(technical, observation_time);
     return ESP_OK;
@@ -636,6 +676,10 @@ CODY_HOST_EXPORT int cody_host_activity_identity(void *handle, const char *proje
         error = CODY::set_activity_model_cost(state, CODY::SceneData::body_font,
             project[0] != '\0' ? model_cost.model : "",
             project[0] != '\0' ? model_cost.band : LUNASHELL::CodexCostBand::Unknown, 0, changed);
+    }
+    if (error == ESP_OK) {
+        error = CODY::update_home_tokens(state, CODY::SceneData::body_font,
+            owner.panel_observation.link, owner.panel_observation.technical, changed);
     }
     if (error == ESP_OK) {
         // Recreated host frames receive time since the caller's identity/attention transition.

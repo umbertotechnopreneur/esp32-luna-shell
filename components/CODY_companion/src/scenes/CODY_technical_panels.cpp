@@ -404,7 +404,7 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
         static_cast<uint8_t>(inputs.cost_band) > 3 || static_cast<uint8_t>(inputs.cost_state) > 3) {
         return panel_result("prepare_identity", ESP_ERR_INVALID_ARG);
     }
-    const PanelMetric *metrics[] = {&inputs.used, &inputs.capacity, &inputs.threshold, &inputs.cumulative,
+    const PanelMetric *metrics[] = {&inputs.used, &inputs.capacity, &inputs.threshold, &inputs.cumulative, &inputs.input, &inputs.output,
         &inputs.activity_age_us, &inputs.usage_age_us, &inputs.turn_elapsed_us, &inputs.compaction_elapsed_us};
     for (const auto *metric : metrics) {
         if (static_cast<uint8_t>(metric->state) > 3) { return panel_result("prepare_metric_state", ESP_ERR_INVALID_ARG); }
@@ -441,7 +441,6 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
             const uint8_t row = presentation.line_count++;
             format_caption(presentation.captions[row], font, motion_result_text(*motion), "IMU: ");
             presentation.lines[row].color = motion->scores_valid && motion->error == ESP_OK ? kCyan : kAmber;
-            append_detail(presentation, font, "EXPERIMENTAL UNVALIDATED", "", kAmber);
         } else if (inputs.activity == PanelValueState::Current) {
             append_detail(presentation, font, inputs.description);
         }
@@ -462,29 +461,20 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
         }
         if (inputs.model_state == PanelValueState::Current && has_detail_value(inputs.model)) {
             const size_t row_capacity = std::min<size_t>(31, (kPanelWidth - font.width) / font.advance + 1U);
-            if (std::strlen(inputs.model) + 12U > row_capacity) {
-                format_two_rows(presentation.captions[0], presentation.captions[1], font, inputs.model, "Hook model: ");
+            if (std::strlen(inputs.model) + 7U > row_capacity) {
+                format_two_rows(presentation.captions[0], presentation.captions[1], font, inputs.model, "Model: ");
                 presentation.line_count = 2;
                 presentation.lines[0].color = kWhite;
                 presentation.lines[1].color = kWhite;
-            } else { append_detail(presentation, font, inputs.model, "Hook model: ", kWhite); }
+            } else { append_detail(presentation, font, inputs.model, "Model: ", kWhite); }
         } else if (inputs.model_state == PanelValueState::Stale || inputs.model_state == PanelValueState::Invalid) {
             append_detail(presentation, font, value_state_text(inputs.model_state), "Model: ");
         } else {
             append_detail(presentation, font, "UNAVAILABLE", "Model: ");
         }
-        const bool context_status = measured || inputs.used.state == PanelValueState::Invalid ||
-            inputs.capacity.state == PanelValueState::Invalid || inputs.used.state == PanelValueState::Stale ||
-            inputs.capacity.state == PanelValueState::Stale;
-        // Two model rows still leave a guaranteed context row. Optional effort and counts yield to it.
-        if (presentation.line_count + (context_status ? 1U : 0U) < detail_capacity(presentation)) {
-            if (inputs.effort_state == PanelValueState::Current) { append_detail(presentation, font, inputs.effort, "Reasoning: "); }
-            else if (inputs.effort_state == PanelValueState::Stale || inputs.effort_state == PanelValueState::Invalid) {
-                append_detail(presentation, font, value_state_text(inputs.effort_state), "Reasoning: ");
-            } else {
-                append_detail(presentation, font, "UNAVAILABLE", "Reasoning: ");
-            }
-        }
+        // Last-call usage is not cumulative chat spending. Keep its count and
+        // window headroom before optional reasoning and lifetime totals.
+        append_metric(presentation, "Last call", inputs.used);
         if (measured) {
             const uint16_t percent = scaled_usage(inputs.used.value, inputs.capacity.value, 100);
             presentation.bar_pixels = scaled_usage(inputs.used.value, inputs.capacity.value, kBarWidth);
@@ -493,36 +483,38 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
             if (presentation.line_count >= detail_capacity(presentation)) {
                 return panel_result("context_row_capacity", ESP_ERR_INVALID_SIZE);
             }
-            const uint8_t context_row = presentation.line_count++;
-            presentation.lines[context_row].color = presentation.bar_color;
-            auto &caption = presentation.captions[context_row];
-            if (inputs.used.value > inputs.capacity.value) { std::strcpy(caption, "Context: OVER LIMIT"); }
-            else { std::snprintf(caption, sizeof(caption), "Context used: %u%%%s", percent, inputs.context_estimated ? " ESTIMATE" : ""); }
             if (inputs.used.value <= inputs.capacity.value) {
                 append_metric(presentation, "Free", {inputs.capacity.value - inputs.used.value, PanelValueState::Current});
             } else {
                 append_detail(presentation, font, "OVER LIMIT", "Free: ");
             }
-            append_metric(presentation, "Window", inputs.capacity);
         } else {
             const bool invalid = inputs.used.state == PanelValueState::Invalid || inputs.capacity.state == PanelValueState::Invalid;
             const bool stale = inputs.used.state == PanelValueState::Stale || inputs.capacity.state == PanelValueState::Stale;
             if (invalid || stale) {
                 presentation.context_bar_visible = true;
-                append_detail(presentation, font, invalid ? "INVALID" : "STALE", "Context: ");
+                append_detail(presentation, font, invalid ? "INVALID" : "STALE", "Free: ");
             } else {
-                append_detail(presentation, font, "UNAVAILABLE", "Context: ");
+                append_detail(presentation, font, "UNAVAILABLE", "Free: ");
             }
         }
+        append_metric(presentation, "Window", inputs.capacity);
         if (inputs.capacity.state == PanelValueState::Unavailable) {
             append_detail(presentation, font, "UNAVAILABLE", "Window: ");
         }
-        // No authoritative Desktop usage stream is wired yet; do not infer a turn total from context size.
-        append_detail(presentation, font, "UNAVAILABLE", "Last turn: ");
+        if (inputs.used.state == PanelValueState::Unavailable) {
+            append_detail(presentation, font, "UNAVAILABLE", "Last call: ");
+        }
         if (inputs.cumulative.state == PanelValueState::Unavailable) {
-            append_detail(presentation, font, "UNAVAILABLE", "Total tokens: ");
+            append_detail(presentation, font, "UNAVAILABLE", "Total: ");
         } else {
-            append_metric(presentation, "Total tokens", inputs.cumulative);
+            append_metric(presentation, "Total", inputs.cumulative);
+        }
+        append_metric(presentation, "Input", inputs.input);
+        append_metric(presentation, "Output", inputs.output);
+        if (inputs.effort_state == PanelValueState::Current) { append_detail(presentation, font, inputs.effort, "Reasoning: "); }
+        else if (inputs.effort_state == PanelValueState::Stale || inputs.effort_state == PanelValueState::Invalid) {
+            append_detail(presentation, font, value_state_text(inputs.effort_state), "Reasoning: ");
         }
         if (presentation.line_count == 0) { append_detail(presentation, font, "No model details yet"); }
     } else {
@@ -669,10 +661,12 @@ esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
         if (stale && inputs.compaction == LUNASHELL::CodexCompactionState::Active) { inputs.compaction = LUNASHELL::CodexCompactionState::Stale; }
         inputs.context_coherent = technical.context_valid;
         const PanelValueState context = observed_value_state(technical.context_valid, stale || technical.context_stale);
-        inputs.used = {technical.used, context};
-        inputs.capacity = {technical.capacity, context};
+        inputs.used = {technical.used, observed_value_state(technical.used_valid, stale || technical.context_stale)};
+        inputs.capacity = {technical.capacity, observed_value_state(technical.capacity_valid, stale || technical.context_stale)};
         inputs.threshold = {technical.threshold, observed_value_state(technical.threshold_valid, stale || technical.context_stale)};
         inputs.cumulative = {technical.cumulative, observed_value_state(technical.cumulative_valid, stale || technical.context_stale)};
+        inputs.input = {technical.input, observed_value_state(technical.input_valid, stale || technical.context_stale)};
+        inputs.output = {technical.output, observed_value_state(technical.output_valid, stale || technical.context_stale)};
         inputs.activity_age_us = {age_with_receipt(technical.activity_age_at_receive_us, receipt_age), observed_value_state(technical.activity_age_valid, stale)};
         inputs.usage_age_us = {age_with_receipt(technical.usage_age_at_receive_us, receipt_age), context};
         using Phase = LUNASHELL::CodexActivityState;

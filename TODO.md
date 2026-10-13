@@ -1,9 +1,13 @@
 # Active work
 
-Updated 2026-10-14. No autonomous implementation or device-delivery item remains
-in this queue. The selected Cody Debug/Release builds, footprint recovery,
-plugin installation and explicit battery-journal readback are recorded in
-[done.md](done.md), with their actual evidence and limits.
+Updated 2026-10-14. Current autonomous work:
+
+- [ ] Connect genuine followed-chat native token/model metadata to the existing
+  authenticated CCP owner, with bounded reads and independent source freshness.
+- [ ] Show Home token pages and supported chat commands; prioritize orange
+  compaction with its existing animation/sound and remove the Activity trial badge.
+- [ ] Complete integrated checks, install the matching plugin and Release firmware,
+  and record verified results and remaining physical limits in [done.md](done.md).
 
 The user's deferred voice and walking/classifier trials remain in
 [planned-todo.md](planned-todo.md), together with physical wake/shutdown, energy

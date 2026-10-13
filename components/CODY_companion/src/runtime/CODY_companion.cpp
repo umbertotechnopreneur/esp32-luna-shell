@@ -921,6 +921,8 @@ bool s_personality_audio_suspended = false;
 CODY::PersonalityCue s_pending_personality_sound = CODY::PersonalityCue::None;
 int64_t s_pending_personality_sound_until_us = 0;
 uint32_t s_pending_personality_sound_sequence = 0;
+CODY::CompactionSoundLatch s_compaction_sound_latch{};
+bool s_pending_compaction_sound = false;
 CODY::IdleSceneId s_retired_idle_scene = CODY::IdleSceneId::None;
 uint32_t s_retired_idle_generation = 0;
 bool s_idle_whistle_attempted = false;
@@ -979,7 +981,21 @@ void notify_completed_personality(const CODY::PersonalityFrame &previous,
         s_state.response.idle_scene == CODY::IdleSceneId::Whistle && idle_view_visible;
     suspend_optional_personality_audio(s_shutdown_presentation.load(std::memory_order_acquire) !=
         ShutdownPresentation::None || (!visible && !idle_whistle_visible));
-    const bool appeared = visible && (previous.opacity == 0 || previous.cue != current.cue);
+    const auto &actor = s_state.character_direction;
+    const bool compaction_owner = actor.enabled && actor.current && actor.compacting && !actor.attention;
+    const bool compaction_visible = compaction_owner && visible && idle_view_visible && !s_state.animation_paused &&
+        s_shutdown_presentation.load(std::memory_order_acquire) == ShutdownPresentation::None &&
+        current.cue == CODY::PersonalityCue::Confusion;
+    const bool compaction_appeared = CODY::claim_compaction_sound(actor, compaction_visible,
+        current.cue, s_compaction_sound_latch);
+    const bool appeared = compaction_appeared ||
+        (!(compaction_owner && current.cue == CODY::PersonalityCue::Confusion) &&
+         visible && (previous.opacity == 0 || previous.cue != current.cue));
+    if (s_pending_compaction_sound && !compaction_visible) {
+        // A lost/hidden lifecycle cannot continue its bounded busy retry later.
+        s_pending_personality_sound = CODY::PersonalityCue::None;
+        s_pending_compaction_sound = false;
+    }
     if (CODY::personality_cue_is_silent(current.cue)) {
         // Authored visual-only cues have no PCM asset. Cancel any old retry;
         // unknown identities still reach the audio owner's explicit rejection.
@@ -995,6 +1011,7 @@ void notify_completed_personality(const CODY::PersonalityFrame &previous,
     }
     const int64_t now_us = esp_timer_get_time();
     if (appeared) {
+        s_pending_compaction_sound = compaction_appeared;
         s_pending_personality_sound = current.cue;
         s_pending_personality_sound_until_us = now_us + 400000;
         s_pending_personality_sound_sequence = 0;
@@ -3487,6 +3504,11 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             cue = CODY::resolve_scene_personality_cue(frame_scene_visible
                 ? s_state.scene.definition->id : CODY::SceneId::CompanionIdle,
                 s_state.connection_cue);
+        }
+        // Genuine current compaction overrides an ordinary scene/arrival symbol;
+        // sleep, wake battery and the device-truth arbiter below retain priority.
+        if (!sleeping && !s_state.wake_battery.active) {
+            cue = CODY::prioritize_compaction_cue(s_state.character_direction, cue);
         }
         const bool quiet_search = s_state.connection_personality.search_active && frame_scene_visible &&
             s_state.scene.definition->id == CODY::SceneId::LookingForPc;

@@ -403,7 +403,7 @@ def run_broker() -> int:
     return 0
 
 
-# No parameters: discards prompts, responses, transcript paths and tool arguments at ingestion.
+# No parameters: discards prompts, responses and tool arguments; retains only a native file locator.
 # Raises ValueError, OSError or RuntimeError for malformed input or failed event delivery.
 def run_hook() -> int:
     emitted_ns = time.monotonic_ns()
@@ -413,7 +413,7 @@ def run_hook() -> int:
     original = json.loads(raw)
     if not isinstance(original, dict) or original.get("hook_event_name") not in EVENTS:
         raise ValueError("CCP hook event is not supported")
-    allowed = ("hook_event_name", "session_id", "cwd", "turn_id", "tool_name", "tool_use_id", "model", "trigger")
+    allowed = ("hook_event_name", "session_id", "cwd", "turn_id", "tool_name", "tool_use_id", "model", "trigger", "transcript_path")
     event = {key: original[key] for key in allowed if key in original}
     event["emitted_ns"] = emitted_ns
     # Only checkout metadata is read; tool arguments and all chat contents remain discarded.

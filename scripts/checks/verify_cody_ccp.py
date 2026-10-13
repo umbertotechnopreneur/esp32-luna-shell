@@ -23,7 +23,9 @@ import errno
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -32,7 +34,10 @@ import unittest
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "plugins/cody-codex-plugin/mcp"))
+from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
+from scripts.checks.verify_power_policy import function_text
 import ccp_server as ccp
 import ccp_activity as activity
 import ccp_runtime as runtime
@@ -41,7 +46,20 @@ import ccp_interactions as interactions
 import ccp_technical as technical_metadata
 import ccp_security as security
 import ccp_pricing as pricing
+import ccp_usage as native_usage
 from cody_ccp_event_vectors import event_vectors
+
+
+# No parameters: isolate every existing host fixture from the installed native state index.
+# Raises OSError when the artifact-owned temporary test home cannot be prepared.
+def setUpModule():
+    output = ROOT / "artifacts/checks/cody-ccp"
+    output.mkdir(parents=True, exist_ok=True)
+    temporary = tempfile.TemporaryDirectory(dir=output)
+    unittest.addModuleCleanup(temporary.cleanup)
+    environment = patch.dict(os.environ, {"CODEX_HOME": temporary.name})
+    environment.start()
+    unittest.addModuleCleanup(environment.stop)
 
 
 # link_key: Synthetic retained key belonging to the READY target.
@@ -178,6 +196,29 @@ class CcpContractTests(unittest.TestCase):
         self.assertTrue(result["result"]["isError"])
         self.assertIn("synthetic receive failed", result["result"]["structuredContent"]["error"])
         service.state.public_status.assert_not_called()
+
+    # self: Real status tool with one canonical owner boundary and two retained device records.
+    # Raises AssertionError if status resamples, changes identity/age or omits technical metadata.
+    def test_connection_status_returns_one_atomic_activity_technical_bundle(self):
+        service = Mock()
+        service.state.pc_id = "a" * 32
+        service.state.public_status.return_value = [{"device_id": "device-a"}, {"device_id": "device-b"}]
+        service.notifications_error = None
+        service.responder.clock.setup_status.return_value = {}
+        activity_fields = {"chat": "b" * 64, "revision": "0000000000000007", "phase": "working"}
+        technical_fields = {"chat": activity_fields["chat"], "revision": activity_fields["revision"],
+                            "used": "1234", "capacity": "475000", "cumulative": "678901",
+                            "input": "1200", "output": "34", "usageage": "9876"}
+        service.activity.snapshot_bundle.return_value = (activity_fields, technical_fields)
+        result = ccp.call_tool(service, "ccp_connection_status", {})["structuredContent"]
+        service.activity.snapshot_bundle.assert_called_once_with()
+        service.activity.snapshot.assert_not_called()
+        self.assertEqual(result["count"], 2)
+        for device in ("device-a", "device-b"):
+            self.assertEqual(result["activity"][device], activity_fields)
+            self.assertEqual(result["technical"][device], technical_fields)
+            self.assertEqual(result["technical"][device]["chat"], result["activity"][device]["chat"])
+            self.assertEqual(result["technical"][device]["revision"], result["activity"][device]["revision"])
 
     # self: Synthetic authenticated rediscovery fixture; the UDP socket is a mock.
     # Raises AssertionError if FIND alone marks presence or READY loses endpoint binding.
@@ -767,8 +808,24 @@ class ChatActivityTests(unittest.TestCase):
         self.assertIsNone(projected.context_capacity)
         invalid = dict(technical_fields)
         invalid["used"] = "12000"
-        with self.assertRaisesRegex(ValueError, "authoritative source"):
+        with self.assertRaisesRegex(ValueError, "original source age"):
             technical_metadata.decode_projection(invalid)
+        observed = dict(technical_fields, used="0", capacity="128000", cumulative="18446744073709551615",
+                        input="0", output="0", usageage="119999", effort="high".encode("ascii").hex())
+        decoded = technical_metadata.decode_projection(observed)
+        self.assertEqual((decoded.context_used, decoded.context_capacity, decoded.cumulative_tokens,
+                          decoded.input_tokens, decoded.output_tokens, decoded.usage_age_ms, decoded.effort),
+                         (0, 128000, 0xffffffffffffffff, 0, 0, 119999, "high"))
+        partial = dict(observed, used="-", capacity="-")
+        self.assertIsNone(technical_metadata.decode_projection(partial).context_used)
+        self.assertEqual(technical_metadata.decode_projection(partial).cumulative_tokens, 0xffffffffffffffff)
+        over_limit = dict(observed, used="128001")
+        self.assertEqual(technical_metadata.decode_projection(over_limit).context_used, 128001)
+        for name, value in (("used", "18446744073709551616"), ("used", "01"), ("used", "-1"),
+                            ("used", "+1"), ("input", " 0"), ("capacity", "0"), ("usageage", "-"),
+                            ("turn", "0" * 64), ("effort", "00"), ("effort", "gg")):
+            with self.subTest(field=name, value=value), self.assertRaises(ValueError):
+                technical_metadata.decode_projection(dict(observed, **{name: value}))
         invalid = dict(technical_fields)
         invalid["modelage"] = "-"
         with self.assertRaisesRegex(ValueError, "incoherent"):
@@ -877,11 +934,11 @@ class ChatActivityTests(unittest.TestCase):
             self.assertIs(raised.exception, failure)
 
     # self: Hook ingestion fixture containing private text that must never reach the broker.
-    # Raises AssertionError if ingestion forwards a prompt, transcript, response or tool input.
+    # Raises AssertionError if ingestion forwards contents rather than the native metadata locator.
     def test_hook_ingestion_discards_private_contents(self) -> None:
         original = {"hook_event_name": "UserPromptSubmit", "session_id": "chat-a",
                     "turn_id": "turn-a", "cwd": "E:/synthetic-project", "prompt": "private prompt",
-                    "transcript_path": "private transcript", "tool_input": {"secret": "private"},
+                    "transcript_path": "E:/synthetic-home/sessions/fixture.jsonl", "tool_input": {"secret": "private"},
                     "last_assistant_message": "private response", "model": "reported-model", "trigger": "auto"}
         input_stream = Mock(buffer=io.BytesIO(json.dumps(original).encode("utf-8")))
         with patch.object(runtime.sys, "stdin", input_stream), contextlib.redirect_stdout(io.StringIO()):
@@ -889,7 +946,8 @@ class ChatActivityTests(unittest.TestCase):
                     patch.object(runtime, "read_branch", return_value="synthetic-branch"):
                 runtime.run_hook()
         submitted = exchange.call_args.args[1]
-        self.assertEqual(set(submitted), {"hook_event_name", "session_id", "turn_id", "cwd", "emitted_ns", "branch", "model", "trigger"})
+        self.assertEqual(set(submitted), {"hook_event_name", "session_id", "turn_id", "cwd", "emitted_ns", "branch", "model", "trigger", "transcript_path"})
+        self.assertEqual(submitted["transcript_path"], original["transcript_path"])
         self.assertEqual(submitted["model"], "reported-model")
         self.assertEqual(submitted["trigger"], "auto")
 
@@ -1703,6 +1761,273 @@ class PricingContractTests(unittest.TestCase):
         _, switched = activity_store.snapshot_bundle()
         self.assertEqual(switched["cost"], "economy")
         self.assertTrue(all(switched[name] == "-" for name in technical_metadata.UNAVAILABLE_FIELDS))
+
+
+class NativeUsageReaderTests(unittest.TestCase):
+    # self: Isolated native metadata fixture; no installed Codex state or conversation is read.
+    def setUp(self):
+        output = ROOT / "artifacts/checks/cody-ccp"
+        output.mkdir(parents=True, exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(dir=output)
+        self.addCleanup(temporary.cleanup)
+        self.home = Path(temporary.name)
+        self.cwd = str(self.home / "checkout")
+        self.path = self.home / "sessions/fixture.jsonl"
+        self.path.parent.mkdir()
+        environment = patch.dict(os.environ, {"CODEX_HOME": str(self.home)})
+        environment.start()
+        self.addCleanup(environment.stop)
+        wall = patch.object(native_usage.time, "time", return_value=2000000000.0)
+        mono = patch.object(native_usage.time, "monotonic", return_value=1000.0)
+        wall.start()
+        mono.start()
+        self.addCleanup(wall.stop)
+        self.addCleanup(mono.stop)
+        self.reader = native_usage.NativeUsageReader()
+
+    # self: Native fixture owner.
+    # kind: Exact native record discriminator.
+    # payload: Synthetic metadata only; no real conversation text.
+    # seconds: Native event epoch timestamp before the fake current clock.
+    def record(self, kind, payload, seconds=1999999990):
+        timestamp = native_usage.datetime.fromtimestamp(seconds, native_usage.datetime.now().astimezone().tzinfo).isoformat()
+        return json.dumps({"timestamp": timestamp, "type": kind, "payload": payload}).encode() + b"\n"
+
+    # self: Native fixture owner.
+    # effort: Optional explicit native reasoning setting.
+    def prefix(self, effort="high"):
+        context = {"turn_id": "turn-a", "cwd": self.cwd, "model": "gpt-6-astra"}
+        if effort is not None:
+            context["effort"] = effort
+        return (self.record("session_meta", {"id": "chat-a", "session_id": "chat-a", "cwd": self.cwd})
+                + self.record("event_msg", {"type": "task_started", "turn_id": "turn-a"})
+                + self.record("turn_context", context))
+
+    # self: Native fixture owner.
+    # capacity: Optional authoritative window capacity.
+    # seconds: Original native timestamp.
+    def usage(self, capacity=475000, seconds=1999999995):
+        info = {"last_token_usage": {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
+                "total_token_usage": {"total_tokens": 900000}, "model_context_window": capacity}
+        return self.record("event_msg", {"type": "token_count", "info": info}, seconds)
+
+    # self: Native fixture owner.
+    # turn: Genuine synthetic hook turn selected by this caller.
+    def poll(self, turn="turn-a"):
+        return self.reader.poll("chat-a", self.cwd, turn, str(self.path))
+
+    # self: Real parser with a native last-call observation and an optional model-only context.
+    def test_original_age_model_only_and_partial_capacity(self):
+        self.path.write_bytes(self.prefix(None) + self.usage(None))
+        first, context = self.poll()
+        self.assertEqual(first[0], {"used": 120, "input": 100, "output": 20, "cumulative": 900000})
+        self.assertEqual(context[:2], ("gpt-6-astra", None))
+        with patch.object(native_usage.time, "monotonic", return_value=1050.0), patch.object(native_usage.time, "time", return_value=2000000050.0):
+            second, _ = self.poll()
+        self.assertEqual(second, first)
+        self.assertEqual(first[1], 995.0)
+        self.assertEqual(self.poll("another-turn"), (None, None))
+
+    # self: Exact-session reader; foreign parent metadata, cwd and native turn cannot populate it.
+    def test_session_checkout_fork_and_turn_rejections(self):
+        for changed in ({"id": "other"}, {"session_id": "parent"}, {"cwd": self.cwd + "-other"}):
+            self.reader = native_usage.NativeUsageReader()
+            self.path.write_bytes(self.record("session_meta", {"id": "chat-a", "session_id": "chat-a", "cwd": self.cwd, **changed}) + self.usage())
+            with self.assertRaises(native_usage.UsageSourceError):
+                self.poll()
+        self.reader = native_usage.NativeUsageReader()
+        self.path.write_bytes(self.prefix() + self.record("turn_context", {"turn_id": "turn-a", "cwd": self.cwd + "-other", "model": "gpt-6-astra"}) + self.usage())
+        with self.assertRaises(native_usage.UsageSourceError):
+            self.poll()
+
+    # self: Incremental parser must not publish incomplete metadata or lose correlation on big items.
+    def test_partial_record_and_large_irrelevant_item(self):
+        self.path.write_bytes(self.prefix() + self.usage()[:-8])
+        self.assertEqual(self.poll(), (None, None))
+        with self.path.open("ab") as stream:
+            stream.write(self.usage()[-8:])
+        self.assertEqual(self.poll()[0][0]["used"], 120)
+        huge = self.record("response_item", {"type": "message", "content": "fixture-only" * 40000})
+        with self.path.open("ab") as stream:
+            stream.write(huge + self.usage(seconds=1999999996))
+        for _ in range(6):
+            result, _ = self.poll()
+            self.assertLessEqual(self.reader.bytes_read_last_poll, native_usage.READ_BUDGET)
+        self.assertEqual(result[0]["used"], 120)
+        self.assertEqual(self.reader.native_turn, "turn-a")
+
+    # self: Large historical transcript fixture; discovery should read the header and recent tail only.
+    def test_long_history_bootstrap_has_bounded_tail_cost(self):
+        header, _, _ = self.prefix().partition(b"\n")
+        history = self.record("response_item", {"type": "message", "content": "old-fixture" * 300000})
+        context = self.prefix().split(b"\n")[-2] + b"\n"
+        self.path.write_bytes(header + b"\n" + history + context + self.usage())
+        result, _ = self.poll()
+        self.assertEqual(result[0]["cumulative"], 900000)
+        self.assertLessEqual(self.reader.bytes_read_last_poll, native_usage.READ_BUDGET)
+        self.assertLess(self.reader.bytes_read_last_poll, self.path.stat().st_size // 10)
+
+    # self: Record-boundary search must resume backward across multiple IO budgets.
+    def test_backward_bootstrap_across_large_response(self):
+        huge = self.record("response_item", {"content": "x" * 260000})
+        self.path.write_bytes(self.prefix() + huge + self.usage())
+        self.assertEqual(self.poll(), (None, None))
+        result = None
+        for _ in range(3):
+            result, _ = self.poll()
+            self.assertLessEqual(self.reader.bytes_read_last_poll, native_usage.READ_BUDGET)
+        self.assertEqual(result[0]["used"], 120)
+
+    # self: Reader may see native metadata before the matching genuine hook reaches its owner.
+    def test_late_hook_recovers_already_consumed_native_turn(self):
+        self.path.write_bytes(self.prefix() + self.usage())
+        self.assertEqual(self.poll()[0][0]["used"], 120)
+        with self.path.open("ab") as stream:
+            stream.write(self.record("event_msg", {"type": "task_started", "turn_id": "turn-b"}))
+            stream.write(self.record("turn_context", {"turn_id": "turn-b", "cwd": self.cwd,
+                                                     "model": "gpt-6-sol", "effort": "medium"}))
+            stream.write(self.usage(seconds=1999999996))
+        self.assertEqual(self.poll(), (None, None))
+        sample, context = self.poll("turn-b")
+        self.assertEqual(sample[0]["used"], 120)
+        self.assertEqual(sample[1], 996.0)
+        self.assertEqual(context[:2], ("gpt-6-sol", "medium"))
+
+    # self: Repeated same-turn start metadata cannot erase or renew a native model/usage observation.
+    def test_repeated_native_start_preserves_observation(self):
+        self.path.write_bytes(self.prefix() + self.usage())
+        original = self.poll()
+        with self.path.open("ab") as stream:
+            stream.write(self.record("event_msg", {"type": "task_started", "turn_id": "turn-a"}, seconds=1999999998))
+        self.assertEqual(self.poll(), original)
+
+    # self: Reader of a stable inode; replacing or truncating the source cannot reuse retained data.
+    def test_truncation_replacement_and_oversized_metadata_fail_closed(self):
+        for operation in ("truncate", "replace", "metadata"):
+            self.reader = native_usage.NativeUsageReader()
+            self.path.write_bytes(self.prefix() + self.usage())
+            self.poll()
+            if operation == "truncate":
+                self.path.write_bytes(b"")
+            elif operation == "replace":
+                replacement = self.path.with_suffix(".replacement")
+                replacement.write_bytes(self.prefix() + self.usage())
+                os.replace(replacement, self.path)
+            else:
+                with self.path.open("ab") as stream:
+                    stream.write(self.record("turn_context", {"turn_id": "turn-a", "cwd": self.cwd, "model": "x" * 150000}))
+                self.assertEqual(self.poll(), (None, None))
+            with self.assertRaises(native_usage.UsageSourceError):
+                self.poll()
+            self.assertEqual(self.poll(), (None, None))
+
+    # self: Native counter reader rejects future clocks and malformed values with safe reasons.
+    def test_errors_do_not_echo_private_metadata(self):
+        for record in (self.usage(seconds=2000000010), self.record("event_msg", {"type": "token_count", "info": {"last_token_usage": {}, "total_token_usage": {}}})):
+            self.reader = native_usage.NativeUsageReader()
+            self.path.write_bytes(self.prefix() + record)
+            with self.assertRaises(native_usage.UsageSourceError) as rejected:
+                self.poll()
+            self.assertNotIn(self.cwd, native_usage.safe_usage_error(rejected.exception))
+        self.assertNotIn("private", native_usage.safe_usage_error(ValueError("private")))
+
+    # self: Locator/index ownership fixture; queries read an existing exact identity, never repair state.
+    def test_readonly_index_and_path_ownership(self):
+        self.path.write_bytes(self.prefix() + self.usage())
+        with contextlib.closing(sqlite3.connect(self.home / "state_5.sqlite")) as database:
+            database.execute("CREATE TABLE threads(id TEXT PRIMARY KEY, rollout_path TEXT, cwd TEXT)")
+            database.execute("INSERT INTO threads VALUES(?,?,?)", ("chat-a", str(self.path), self.cwd))
+            database.commit()
+        self.assertEqual(self.reader.poll("chat-a", self.cwd, "turn-a")[0][0]["used"], 120)
+        outsider = self.home / "outside.jsonl"
+        outsider.write_bytes(self.prefix() + self.usage())
+        with self.assertRaises(native_usage.UsageSourceError):
+            self.reader.poll("chat-a", self.cwd, "turn-a", str(outsider))
+        missing = native_usage.NativeUsageReader()
+        with self.assertRaises(native_usage.UsageSourceError):
+            missing.poll("missing-chat", self.cwd, "turn-a")
+
+    # self: Actual filesystem confinement fixture; platforms without symlink rights report a skip.
+    def test_symlink_escape_is_rejected(self):
+        outsider = self.home / "outside.jsonl"
+        outsider.write_bytes(self.prefix() + self.usage())
+        try:
+            self.path.symlink_to(outsider)
+        except OSError as error:
+            self.skipTest(f"Symlink creation unavailable: errno={error.errno}")
+        with self.assertRaises(native_usage.UsageSourceError):
+            self.poll()
+
+    # self: Real envelope filter; ignored item bodies must never enter the JSON decoder.
+    def test_irrelevant_response_is_not_json_decoded(self):
+        irrelevant = self.record("response_item", {"content": "fixture-only"})
+        with patch.object(native_usage.json, "loads", side_effect=AssertionError("Response content parsed")):
+            self.assertIsNone(native_usage.metadata_record(irrelevant))
+            self.assertIsNone(native_usage.metadata_record(irrelevant[:150], oversized=True))
+
+    # self: Real hook/technical owner; completion cannot relabel pre-compaction usage as refreshed.
+    def test_post_compaction_waits_for_new_native_usage_without_renewing_model(self):
+        owner = activity.ActivityStore()
+        base = {"session_id": "chat-a", "cwd": self.cwd, "turn_id": "turn-a"}
+        values = {"used": 120, "capacity": 475000, "cumulative": 900000, "input": 100, "output": 20}
+        context = ("gpt-6-astra", "high", 990.0)
+        with patch.object(activity.time, "monotonic_ns", return_value=1000000000000):
+            owner.observe({**base, "hook_event_name": "UserPromptSubmit", "emitted_ns": 999000000000})
+            owner.observe({**base, "hook_event_name": "PreCompact", "trigger": "auto", "emitted_ns": 999100000000})
+            with patch.object(owner._usage, "poll", return_value=((values, 995.0), context)):
+                _, active = owner.snapshot_bundle()
+                self.assertEqual(active["used"], "120")
+                owner.observe({**base, "hook_event_name": "PostCompact", "trigger": "auto", "emitted_ns": 999200000000})
+                _, pending = owner.snapshot_bundle()
+            self.assertEqual(pending["compaction"], "refreshed")
+            self.assertTrue(all(pending[name] == "-" for name in
+                                ("used", "capacity", "cumulative", "input", "output", "usageage")))
+            with patch.object(owner._usage, "poll", return_value=((values, 999.5), context)):
+                _, refreshed = owner.snapshot_bundle()
+        self.assertEqual(refreshed["used"], "120")
+        self.assertEqual(refreshed["usageage"], "500")
+        self.assertEqual(active["modelage"], "10000")
+        self.assertEqual(pending["modelage"], active["modelage"])
+        self.assertEqual(refreshed["modelage"], active["modelage"])
+
+    # self: Real ActivityStore projection with deterministic native reader data and catalog boundary.
+    def test_native_model_prices_the_same_identity_and_source_age(self):
+        catalog = Mock()
+        catalog.projection.return_value = pricing.PriceProjection()
+        owner = activity.ActivityStore(catalog)
+        with patch.object(activity.time, "monotonic_ns", return_value=1000000000000):
+            owner.observe({"hook_event_name": "UserPromptSubmit", "session_id": "chat-a", "cwd": self.cwd,
+                           "turn_id": "turn-a", "model": "gpt-6-sol", "emitted_ns": 999000000000})
+        with patch.object(owner._usage, "poll", return_value=(None, ("gpt-6-astra", None, 995.0))):
+            _, fields = owner.snapshot_bundle()
+        self.assertEqual(bytes.fromhex(fields["model"]).decode(), "gpt-6-astra")
+        self.assertEqual(fields["effort"], "-")
+        self.assertEqual(fields["modelage"], "5000")
+        catalog.projection.assert_called_once_with("gpt-6-astra")
+        catalog.reset_mock()
+        with patch.object(owner._usage, "poll", return_value=(None, ("gpt-6-astra", "high", 800.0))):
+            _, fields = owner.snapshot_bundle()
+        self.assertEqual(fields["modelage"], "200000")
+        self.assertEqual(fields["effort"], "high".encode().hex())
+        catalog.projection.assert_not_called()
+
+
+class NativeTechnicalUsageTests(unittest.TestCase):
+    # self: Existing public CCP suite; the host compiler runs only under its explicit authorization.
+    # Raises original extraction, compiler, filesystem or host assertion failures.
+    def test_actual_firmware_usage_parsers(self):
+        output = ROOT / "artifacts/checks/cody-ccp-technical"
+        output.mkdir(parents=True, exist_ok=True)
+        path = ROOT / "components/LUNASHELL_platform/src/network/LUNASHELL_codex_link.cpp"
+        source = path.read_text(encoding="utf-8")
+        extracted = "\n\n".join(function_text(source, signature, str(path)) for signature in
+                                ("bool parseTechnicalCount(", "bool parseTechnicalDuration("))
+        (output / "technical_usage_under_test.inc").write_text(extracted, encoding="utf-8")
+        executable = output / "technical-usage.exe"
+        command = compile_command(resolve_compiler(None), [str(output)],
+                                  ["scripts/tests/cody_native/technical_usage_contract.cpp"], executable)
+        run_stage(command, output, "compile")
+        run_stage([str(executable)], output, "contract")
 
 
 if __name__ == "__main__":

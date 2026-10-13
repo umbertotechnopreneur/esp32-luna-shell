@@ -2250,6 +2250,28 @@ bool parseTechnicalDuration(const char *value, bool &present, uint64_t &microsec
     return true;
 }
 
+// value: Missing sentinel or canonical unsigned decimal native usage count.
+// present: Receives presence independently from the numeric value, including zero.
+// output: Receives the uint64 count only after every digit passes overflow checks.
+// Exception: Rejects signs, padding, leading zeroes and overflow without accepting a partial count.
+bool parseTechnicalCount(const char *value, bool &present, uint64_t &output)
+{
+    present = std::strcmp(value, "-") != 0;
+    output = 0;
+    if (!present) { return true; }
+    const size_t length = std::strlen(value);
+    if (length == 0 || length > 20 || (length > 1 && value[0] == '0')) { return false; }
+    uint64_t count = 0;
+    for (size_t index = 0; index < length; ++index) {
+        if (value[index] < '0' || value[index] > '9') { return false; }
+        const auto digit = static_cast<unsigned>(value[index] - '0');
+        if (count > (UINT64_MAX - digit) / 10U) { return false; }
+        count = count * 10U + digit;
+    }
+    output = count;
+    return true;
+}
+
 // value: Complete bounded hex-encoded printable ASCII, or unavailable sentinel.
 // output: Caller-owned destination; no silent truncation is permitted.
 // capacity: Exact destination capacity including the terminator.
@@ -2319,18 +2341,24 @@ esp_err_t acceptTechnical(const char *payload, const sockaddr_in &source)
         decodeHex(values[4], identity, sizeof(identity)) != ESP_OK) {
         return ESP_ERR_INVALID_ARG;
     }
-    // This transport currently has no observable desktop token-usage channel or effort source.
-    // Reject numeric claims rather than silently reinterpret cumulative counts as context use.
-    if (std::strcmp(values[7], "-") != 0) {
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-    for (size_t index = 14; index <= 20; ++index) {
-        if (std::strcmp(values[index], "-") != 0) {
-            return ESP_ERR_NOT_SUPPORTED;
-        }
-    }
     s_technical_snapshot = {};
     auto &technical = s_technical_snapshot;
+    bool usage_age_present = false;
+    if (!parseTechnicalCount(values[14], technical.used_valid, technical.used) ||
+        !parseTechnicalCount(values[15], technical.capacity_valid, technical.capacity) ||
+        !parseTechnicalCount(values[16], technical.cumulative_valid, technical.cumulative) ||
+        !parseTechnicalCount(values[17], technical.input_valid, technical.input) ||
+        !parseTechnicalCount(values[18], technical.output_valid, technical.output) ||
+        !parseTechnicalCount(values[19], technical.threshold_valid, technical.threshold) ||
+        !parseTechnicalDuration(values[20], usage_age_present, technical.usage_age_at_receive_us)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const bool has_usage = technical.used_valid || technical.capacity_valid || technical.cumulative_valid ||
+        technical.input_valid || technical.output_valid || technical.threshold_valid;
+    if (has_usage != usage_age_present || (technical.capacity_valid && technical.capacity == 0)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    technical.context_valid = technical.used_valid && technical.capacity_valid;
     if (!parseTechnicalSequence(values[5], technical.revision) ||
         technical.revision != s_link_snapshot.activity.revision ||
         !parseTechnicalSequence(values[10], technical.compaction_sequence)) {
@@ -2340,6 +2368,9 @@ esp_err_t acceptTechnical(const char *payload, const sockaddr_in &source)
     if (error != ESP_OK) {
         return error;
     }
+    error = decodeTechnicalText(values[7], technical.effort, sizeof(technical.effort));
+    if (error != ESP_OK) { return error; }
+    technical.effort_valid = technical.effort[0] != '\0';
     bool model_age_present = false;
     if (!parseTechnicalDuration(values[8], model_age_present, technical.model_age_at_receive_us) ||
         !parseTechnicalDuration(values[11], technical.compaction_age_valid,
@@ -2348,7 +2379,8 @@ esp_err_t acceptTechnical(const char *payload, const sockaddr_in &source)
             technical.activity_age_at_receive_us) ||
         !parseTechnicalDuration(values[13], technical.turn_elapsed_valid,
             technical.turn_elapsed_at_receive_us) ||
-        model_age_present != (technical.model[0] != '\0')) {
+        model_age_present != (technical.model[0] != '\0') ||
+        (technical.effort_valid && !model_age_present)) {
         return ESP_ERR_INVALID_ARG;
     }
     using Band = LUNASHELL::CodexCostBand;
@@ -2398,7 +2430,7 @@ esp_err_t acceptTechnical(const char *payload, const sockaddr_in &source)
     if (!found || (technical.compaction == Compact::None &&
         (technical.compaction_sequence != 0 || technical.compaction_age_valid)) ||
         (technical.compaction != Compact::None && (technical.compaction_sequence == 0 || no_turn)) ||
-        (no_turn && (technical.turn_elapsed_valid || model_age_present ||
+        (no_turn && (technical.turn_elapsed_valid || model_age_present || has_usage ||
             technical.compaction != Compact::None)) ||
         (no_chat && (!no_turn || model_age_present || technical.activity_age_valid ||
             technical.compaction != Compact::None))) {

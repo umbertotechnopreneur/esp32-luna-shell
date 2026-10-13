@@ -36,7 +36,7 @@ from cody_simulator import CodyRenderer, CodyWindow
 from scripts.common.cody_rig_contract import contour_defaults
 
 OUTPUT = ROOT / "artifacts/checks/cody-character-studio"
-ACTIVE = CharacterActivity("a" * 64, 7, current=True, working=True, compacting=True)
+ACTIVE = CharacterActivity("a" * 64, 7, current=True, working=True, compacting=True, turn="c" * 64)
 
 
 class CharacterStudioTests(unittest.TestCase):
@@ -88,6 +88,73 @@ class CharacterStudioTests(unittest.TestCase):
             pixels.append(image.getpixel((87, 343)))
         self.assertGreater(pixels[0][0], pixels[0][1] * 2)
         self.assertLess(abs(pixels[1][0] - pixels[1][1]), 16)
+
+    # self: Production Home identity bridge with explicitly synthetic, coherent token observations.
+    # Raises AssertionError for missing/distinct token pages, footer overflow or missing elapsed state.
+    def test_home_token_pages_capture_real_native_footer(self):
+        from PIL import ImageChops
+        source = NativePanelObservation()
+        source.project, source.branch = b"Cody", b"main"
+        source.chat_id = source.technical_chat_id = b"a" * 64
+        source.model = b"gpt-6-astra"
+        source.phase = 2
+        source.connected = source.link_valid = source.activity_valid = source.technical_valid = source.model_valid = True
+        source.used_valid = source.capacity_valid = source.cumulative_valid = True
+        source.used, source.capacity, source.cumulative = 18432, 196608, 247381
+        source.cost_band, source.cost_valid_for_us = 3, 3600000000
+        placement = (233., 130., 75.)
+        base_scene = self.native.evaluate(self.base.face, placement, self.base.contour | {"phase": 0.})
+        baseline = self.renderer.draw_scene(base_scene, debug=False, navigation_visible=False).convert("RGB")
+        OUTPUT.mkdir(parents=True, exist_ok=True)
+        pages = []
+        # Production short Project/Branch/Model dwells precede the four five-second token subpages.
+        for name, elapsed in (("last-call", 14500000), ("window", 19500000),
+                              ("free", 24500000), ("total", 29500000)):
+            scene = self.native.evaluate(self.base.face, placement, self.base.contour | {"phase": 0.})
+            self.native.prepare_activity_identity(scene, "Cody", "main", source, elapsed, False, 12000000, False)
+            image = self.renderer.draw_scene(scene, debug=False, navigation_visible=False).convert("RGB")
+            bounds = ImageChops.difference(image, baseline).getbbox()
+            self.assertIsNotNone(bounds)
+            self.assertGreaterEqual(bounds[0], 73)
+            self.assertGreaterEqual(bounds[1], 300)
+            self.assertLessEqual(bounds[2], 393)
+            self.assertLessEqual(bounds[3], 358)
+            self.assertIsNotNone(ImageChops.difference(image, baseline).crop((73, 330, 393, 358)).getbbox())
+            pages.append(image.crop((73, 300, 393, 328)).tobytes())
+            self.renderer.capture_sheet(image, f"SIMULATED / Home tokens / {name}").save(
+                OUTPUT / f"home-tokens-{name}.png")
+        self.assertEqual(len(set(pages)), 4, "native carousel did not expose all four token captions")
+        # Exact counter semantics and per-page identity are asserted by the real native raster contract.
+        # This bridge does not expose onboarding title/command-hint composition; captures do not claim it.
+
+    # self: Production actor, timer and activity overlay composed through Studio's existing Home bridge.
+    # Raises AssertionError when current compaction fails to direct the actor or native footer rendering.
+    def test_home_compaction_capture_real_native_layers(self):
+        source = NativePanelObservation()
+        source.project = b"Cody"
+        source.chat_id = source.technical_chat_id = b"a" * 64
+        source.phase, source.compaction = 2, 1
+        source.connected = source.link_valid = source.activity_valid = source.technical_valid = True
+        source.compaction_valid = source.compaction_age_valid = True
+        source.compaction_age_us = 12000000
+        placement = (233., 130., 75.)
+        from PIL import ImageChops
+        home_base = self.native.compose_response(self.renderer.rig["boot_channels"]["ready"],
+            contour_defaults(self.renderer.rig), placement, 0, False)
+        directed, cue = self.behavior.direct(home_base, placement, 1000000, enabled=True, activity=ACTIVE)
+        self.assertEqual(cue, PersonalityCue.CONFUSION)
+        self.assertNotEqual(directed.face, home_base.face)
+        scene = self.native.evaluate(directed.face, directed.transform, directed.contour | {"phase": 0.})
+        baseline = self.renderer.draw_scene(scene, debug=False, navigation_visible=False).convert("RGB")
+        self.native.prepare_activity_identity(scene, "Cody", "main", source, 12000000, True, 12000000, True)
+        self.native.prepare_activity(scene, 4, 12000000, "Compacting context; please wait", 0)
+        image = self.renderer.draw_scene(scene, debug=False, navigation_visible=False).convert("RGB")
+        self.assertIsNotNone(ImageChops.difference(image, baseline).crop((73, 300, 393, 388)).getbbox())
+        OUTPUT.mkdir(parents=True, exist_ok=True)
+        self.renderer.capture_sheet(image, "SIMULATED / Home compaction / native actor, overlay and timer").save(
+            OUTPUT / "home-compaction-native-layers.png")
+        # Orange onboarding headline and command hints require the firmware SceneFrame path;
+        # no Python caption/color mirror is added to make this limited bridge look like full Home.
 
     # self: Real ctypes transport with a deliberately closed eye and audio mouth pose.
     # Raises AssertionError for gaze failure or damage to channels owned by the response model.

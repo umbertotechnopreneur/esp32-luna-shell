@@ -54,7 +54,7 @@ MAX_ACTIVITY_DATAGRAM_BYTES = 1024
 MAX_TECHNICAL_DATAGRAM_BYTES = 1024
 TECHNICAL_FIELDS = technical_metadata.FIELDS
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.6"
+SERVER_VERSION = "0.6.7"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CHALLENGE_TIMEOUT_SECONDS = 2.0
 MAX_DISCOVERY_OFFERS = 16
@@ -1507,13 +1507,14 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
         if arguments:
             raise ValueError("Connection status does not accept arguments")
         devices = service.state.public_status()
-        activity = service.activity.snapshot()
+        activity, technical = service.activity.snapshot_bundle()
         return tool_result(
             {"pc_id": service.state.pc_id, "devices": devices, "count": len(devices),
              "follow_mode": "latest_user_prompt",
              "notifications_error": service.notifications_error,
              "clock_setup": service.responder.clock.setup_status(),
-             "activity": {item["device_id"]: activity for item in devices}},
+             "activity": {item["device_id"]: activity for item in devices},
+             "technical": {item["device_id"]: technical for item in devices}},
             f"CCP retains {len(devices)} Cody pairing record(s).",
         )
     if name == "ccp_list_sessions":

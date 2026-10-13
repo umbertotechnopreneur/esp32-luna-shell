@@ -4,7 +4,7 @@
 uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
 for pairing; public Internet availability is a separate condition.
 
-CCP 0.6.6 includes the optional one-way audio channel with native readiness,
+CCP 0.6.7 includes followed-chat token metadata and the optional one-way audio channel with native readiness,
 recording correlation and explicit uncertain-delivery handling. Source changes
 do not activate it.
 Its signed READY handshake retains the 0.6.4 endpoint-binding contract. Signed READY binds a fresh
@@ -61,8 +61,8 @@ are involved. PC receipt, native acceptance and task completion remain distinct.
 
 Generation, installation, firmware build/size, wire tests, account/model access,
 desktop approval routing and physical voice behavior are separate evidence.
-The 0.6.6 package distinguishes these reviewed audio changes from the older
-0.6.5 installed cache. Deployment evidence belongs in [done.md](../../done.md).
+The 0.6.7 package adds token metadata to the 0.6.6 audio preparation.
+Deployment evidence belongs in [done.md](../../done.md).
 Physical voice tests remain deferred; native audio requires an explicitly
 configured endpoint and verified account/model access.
 
@@ -89,7 +89,7 @@ balance, speed, included-plan allowance or the cost of a chat. Cached-input rate
 are retained for source completeness and never used to guess chat expenditure.
 No dollar amount, rate or token-cost calculation is sent to Cody.
 
-Only explicitly mapped exact hook model IDs qualify. Missing/unsupported models,
+Only explicitly mapped exact observed model IDs qualify. Missing/unsupported models,
 expired observations, an old-day catalog, failed refresh/persistence, or invalid
 cache produce Unknown. A failed download is attempted only once that day, even
 across broker restarts; it preserves the last valid catalog without presenting
@@ -99,6 +99,34 @@ Lease renewals and ordinary hooks never fetch. Corrupt cache is
 reported and left intact for explicit repair. The normal activity/link still
 works when this optional metadata fails. The existing credential/launch boundary
 remains Windows-specific; the new pricing module uses only portable Python.
+
+## Followed-chat tokens and compaction
+
+Genuine hooks select the chat and turn. The existing broker reads only allowlisted
+metadata from that chat's local native session journal; the exact transcript locator
+or a read-only state-index lookup must match the hook identity and checkout.
+Conversation messages, prompts and tool output are not interpreted as telemetry.
+No extra App Server, resumed chat or artificial activity hook is created.
+
+Native `token_count` supplies **Last call**, **Input**, **Output**, **Total** and an
+explicit **Window** when present. Total is cumulative session usage, not current
+window occupancy or a bill. **Free** is Window minus Last call from the same sample;
+it is not a guarantee about the next request's usable budget. Counts remain exact,
+including zero. Missing values stay unavailable; over-limit values are explicit.
+The automatic compaction threshold remains unavailable without its own source.
+Original source timestamps are preserved, independently of fresh network packets.
+
+Home cycles Project, Branch, Model and token pages. On a healthy PC connection or
+a newly followed chat, a brief **Available commands** banner rotates **Change my
+name**, **Set my timezone**, **Set quiet hours** and **Ask Cody a question**. These
+are requests to write in Codex chat, not device buttons or terminal commands.
+
+Genuine **PreCompact** takes priority with orange **Compacting**, the existing
+character animation and its sound. **PostCompact** releases it only for the
+matching observed lifecycle. Sound is admitted once per observed chat/turn/sequence,
+after a complete visible frame. Pre-completion token samples remain unavailable
+after PostCompact until a new native sample arrives. Lost, stale, interrupted and orphaned boundaries
+remain explicit; neither a timer nor a network heartbeat proves completion.
 
 Recipient delivery and device closure remain distinct confirmations through
 EVENTACK and FIND `events=2`. A question surviving broker restart is retired

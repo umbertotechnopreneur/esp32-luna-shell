@@ -69,12 +69,19 @@ moves the badge to y=234 and leaves four detail rows starting at y=267. The
 context bar occupies y=389 through 400. Session & Link admits six rows starting
 at y=234. These two panels omit the passive gesture hint to preserve row space;
 tap still advances and deliberate shake returns Home.
-Home uses the project/branch/model identity viewport at (73,300), 320 x 28.
+Home uses the project/branch/model/token identity viewport at (73,300), 320 x 28.
+Token pages keep Last call, Window, Free and Total separate and use exact counts;
+each page shares the existing measured/clipped carousel rather than adding a task.
 Its Model-only 196 x 28 price chip at y=330 is centered at x=233 without a timer,
 or moves to x=73 beside the timer centered at x=335. The timer has a 116-pixel
 slot; both controls remain inside the existing 320-pixel damage row. Colors are
 green Cheap, orange Reasonable price, red Expensive, and gray Unavailable. Both layouts stay within
 their occupied circular chords and retain the description viewport below y=360.
+For the first 20 active seconds after a healthy PC connection or chat change,
+ordinary Home may replace that description with Available commands at y=360 and
+one supported chat request at y=392. Native glyph bounds stay inside the circle.
+Attention and compaction suppress this banner. Current compaction uses orange
+headline and description, with its original character cue and sound admission.
 
 The standalone status layer shows date at (122,32), local HH:MM at (122,47),
 and battery/Wi-Fi/Bluetooth at y=43-64. Seconds are omitted. Battery is gray

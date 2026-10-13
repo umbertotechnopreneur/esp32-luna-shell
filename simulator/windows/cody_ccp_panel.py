@@ -547,7 +547,7 @@ class CcpPanel:
         for name, value in (("project", snapshot.project), ("branch", snapshot.branch),
                             ("description", snapshot.description), ("chat_id", snapshot.chat),
                             ("technical_chat_id", technical.chat if technical else ""),
-                            ("model", technical.model if technical else ""), ("effort", "")):
+                            ("model", technical.model if technical else ""), ("effort", technical.effort if technical else "")):
             setattr(observation, name, value.encode("ascii"))
         phases = ("none", "active", "working", "editing", "running", "ready", "paused", "interrupted", "ended", "unavailable")
         compactions = ("none", "active", "refreshed", "orphaned", "interrupted", "stale")
@@ -579,6 +579,13 @@ class CcpPanel:
                 setattr(observation, valid_name, coherent and source is not None)
                 setattr(observation, field + "_age_us" if field != "turn_elapsed" else "turn_elapsed_us", (source or 0) * 1000)
             observation.compaction_valid = known and observation.compaction != 0
+            observation.effort_valid = coherent and bool(technical.effort)
+            for field, value in (("used", technical.context_used), ("capacity", technical.context_capacity),
+                                 ("cumulative", technical.cumulative_tokens), ("input", technical.input_tokens),
+                                 ("output", technical.output_tokens), ("threshold", technical.compact_threshold)):
+                setattr(observation, field + "_valid", coherent and value is not None)
+                setattr(observation, field, value if value is not None else 0)
+            observation.usage_age_us = (technical.usage_age_ms or 0) * 1000
         return observation
 
     # self: Explicit CLI preview owner; the visible simulator remains open after its one native capture.

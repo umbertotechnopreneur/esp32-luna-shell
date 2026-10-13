@@ -2784,8 +2784,12 @@ esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObs
     if (observation.link.state != CodexLinkState::Connected) {
         observation.technical.data_stale = observation.technical.received_at_us > 0;
         observation.technical.model_stale = observation.technical.model_valid;
+        observation.technical.effort_stale = observation.technical.effort_valid;
         observation.technical.cost_stale = observation.technical.cost_band != CodexCostBand::Unknown;
-        observation.technical.context_stale = observation.technical.context_valid;
+        observation.technical.context_stale = observation.technical.context_valid ||
+            observation.technical.used_valid || observation.technical.capacity_valid ||
+            observation.technical.cumulative_valid || observation.technical.input_valid ||
+            observation.technical.output_valid || observation.technical.threshold_valid;
         if (observation.technical.compaction == CodexCompactionState::Active) {
             observation.technical.compaction = CodexCompactionState::Stale;
         }

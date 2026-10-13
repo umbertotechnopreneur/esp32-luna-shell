@@ -191,10 +191,13 @@ scene definition or expression-catalog mapping for 39.
 
 ### Companion information panels
 
-Home retains the character, actual activity phase, alternating project/branch
-and concrete activity description. Names and descriptions use native font metrics:
+Home retains the character, actual activity phase, alternating project/branch/model/token
+pages and concrete activity description. Names and descriptions use native font metrics:
 short text stays still; overflow scrolls within its own viewport. Identity fades
-affect only its row. Attention and authentic compaction hold the project.
+affect only its row. Attention and authentic compaction hold the project. A healthy
+PC connection or newly followed chat starts a 20-active-second Available commands
+banner, with four supported chat requests shown for five seconds each. Compaction
+and attention suppress these hints without creating a task, poll or wake lease.
 
 A short released passive tap opens Activity, then Model & Context, then Session &
 Link, then Activity again. Each panel remains selected until another deliberate
@@ -243,11 +246,11 @@ without forwarding panel touches to its hidden controls.
 
 | Metric | Actual source and meaning | Availability in this integration |
 | --- | --- | --- |
-| Hook model | Common hook metadata for the followed chat/turn; full bounded slug | Available when an admitted genuine hook includes it; labelled Hook model |
-| Reasoning effort | A per-turn authoritative field, not a global default | UNAVAILABLE: current documented hook schema does not provide it |
-| Current context used / capacity | Coherent current session occupancy and declared capacity | UNAVAILABLE: no supported observer of this desktop chat's App Server channel established |
-| Free context / percent / colored bar | Derived only from valid coherent used and positive capacity | Omitted until both source measurements exist; known stale/invalid remains explicit |
-| Session cumulative tokens | Distinct cumulative counters, excluding double-counted subcategories | UNAVAILABLE through the currently connected plugin transport |
+| Model | Exact native turn-context model, or genuine hook metadata when native context is absent | Original source age; no model-name alias or execution/rerouting claim |
+| Reasoning effort | Native turn-context effort, not a global default | Available only when the exact followed turn supplies it |
+| Last call / Window | Native last-token total and explicitly supplied model context window from one token sample | Independently present; Last call is not cumulative chat spending |
+| Free / percent / colored bar | Window minus Last call, only from the same valid sample | Not a guarantee about the next request's usable budget; over-limit and stale states stay explicit |
+| Session cumulative tokens | Native total-token total; subcategories are not added again | Exact observed cumulative value, separate from the current window |
 | Automatic compaction threshold | Explicit source threshold, distinct from capacity | UNAVAILABLE |
 | Turn elapsed | Host monotonic duration since genuine UserPromptSubmit, transported as a duration | Available only for the admitted observed turn; unobserved time is not operation work |
 | Observed work | Native accumulated active observation intervals | Explicitly labelled Observed, never operation elapsed |
@@ -255,17 +258,30 @@ without forwarding panel touches to its hidden controls.
 | Link and activity age | Authenticated link presence versus genuine activity update age | Independent; a heartbeat does not refresh model/context provenance |
 
 Official App Server exposes `thread/tokenUsage/updated`, but the installed desktop
-App Server uses its own stdio channel. The plugin MCP transport does not forward
-that channel. Starting another server, reading transcript text or guessing capacity
-from the model name would not establish this chat's telemetry and is not used.
-The missing supported observation channel is an explicit integration boundary.
+App Server uses its own stdio channel; the plugin does not subscribe through a
+second server. Instead, the existing broker verifies the genuine hook-selected
+session and checkout against local native journal metadata, using the original
+locator or a read-only state-index lookup. Only allowlisted session, turn-context
+and token-count metadata contributes. Prompt, message and tool-output bodies do
+not provide measurements. Reads, paths, line sizes and source identities are
+bounded; partial, replaced, truncated or contradictory sources fail closed.
+Native token timestamps keep their original age; repeated FIND replies do not
+refresh them. Token samples expire after 120 seconds, independently of the
+eight-second transport lease. Missing fields and thresholds are not inferred.
 Unsupported optional fields remain unavailable internally and are hidden in the
 passive UI, rather than filling the page with unavailable labels.
 
-Compaction remains visible on Home and all panels. Ordinary tool phases cannot
+Compaction remains visible in orange on Home and all panels. Its genuine current
+character cue takes precedence over ordinary authored working cues, with sound
+admitted once per genuine chat/turn/compaction sequence through complete-frame
+retirement. Attention or hiding the view does not replay the same sequence.
+Ordinary tool phases cannot
 cancel it. A genuine completion may show Context refreshed while context counters
 remain unavailable or awaiting a coherent new measurement. Loss of updates,
-interruption, an orphan completion and disconnected state remain distinct;
+interruption, an orphan completion and disconnected state remain distinct.
+After PostCompact, a token sample predating that genuine completion stays
+unavailable until a subsequent native observation; the boundary never renews
+the old sample or model timestamp. Source ages remain independent;
 elapsed time alone never proves compaction completed.
 
 Current technical values also require the exact ACTIVITY revision, not merely

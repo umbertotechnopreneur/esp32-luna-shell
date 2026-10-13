@@ -27,6 +27,7 @@
 #include "CODY_scene.hpp"
 #include "CODY_technical_panels.hpp"
 #include "CODY_activity_identity.hpp"
+#include "CODY_command_hints.hpp"
 #include "LUNASHELL_snapshot_aging.hpp"
 #include "scene_data.hpp"
 #include "CODY_navigation_visibility.hpp"
@@ -1636,6 +1637,8 @@ void check_technical_panel_owner_contract()
     technical.turn_elapsed_valid = true;
     technical.turn_elapsed_at_receive_us = 20000000;
     technical.context_valid = true;
+    technical.used_valid = true;
+    technical.capacity_valid = true;
     technical.used = 50;
     technical.capacity = 100;
 
@@ -1657,7 +1660,7 @@ void check_technical_panel_owner_contract()
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
         link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
         std::strstr(presentation.captions[0], "observed-model") != nullptr &&
-        std::strcmp(presentation.captions[1], "Context used: 50%") == 0 &&
+        std::strcmp(presentation.captions[1], "Last call 50") == 0 &&
         presentation.line_count <= 4 && presentation.context_bar_visible &&
         presentation.compaction_active,
         "matching revision restores genuinely available fields and compaction");
@@ -1675,7 +1678,10 @@ void check_technical_panel_owner_contract()
         require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
             link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
             std::strstr(presentation.captions[0], "STALE") != nullptr &&
-            std::strcmp(presentation.captions[1], "Context: STALE") == 0 &&
+            std::strcmp(presentation.captions[1], "Last call STALE") == 0 &&
+            std::strcmp(presentation.captions[2], "Free: STALE") == 0 &&
+            std::strcmp(presentation.captions[3], "Window STALE") == 0 &&
+            presentation.line_count == 4 &&
             presentation.bar_pixels == 0 && !presentation.compaction_active &&
             std::strcmp(presentation.banner, "Compaction: STALE") == 0,
             "invalid or stale link cannot make retained connected technical data current");
@@ -1704,6 +1710,8 @@ void check_technical_panel_owner_contract()
         "Model details reserve character artwork and the lower circular context-bar region without a footer");
     std::memcpy(technical.chat_id, link.activity.chat_id, 65);
     technical.context_valid = false;
+    technical.used_valid = false;
+    technical.capacity_valid = false;
     technical.compaction = LUNASHELL::CodexCompactionState::None;
     technical.compaction_valid = false;
     technical.model_valid = true;
@@ -1817,6 +1825,8 @@ void check_cost_badge_contract()
         identity.started_at_us == baseline && identity.cost_line.color == 0x87EF,
         "a price-only update changes the green chip without restarting the identity carousel");
     technical.context_valid = true;
+    technical.used_valid = true;
+    technical.capacity_valid = true;
     technical.used = 95;
     technical.capacity = 100;
     technical.effort_valid = true;
@@ -1830,13 +1840,13 @@ void check_cost_badge_contract()
     CODY::SceneContent content{};
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
         link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
-        presentation.line_count == 4 && std::strcmp(presentation.captions[2], "Reasoning: high") == 0 &&
-        std::strcmp(presentation.captions[3], "Context used: 95%") == 0 &&
+        presentation.line_count == 4 && std::strcmp(presentation.captions[2], "Last call 95") == 0 &&
+        std::strcmp(presentation.captions[3], "Free 5") == 0 &&
         presentation.context_bar_visible && presentation.compaction_active && presentation.cost_line.valid &&
         presentation.lines[0].origin.y == 267 && presentation.lines[3].origin.y == 342 &&
         presentation.lines[3].origin.y + CODY::SceneData::body_font.height <= 389 &&
         std::strcmp(presentation.cost_caption, "Std price: Expensive") == 0,
-        "long model retains reasoning and context while optional counts yield to compaction and context bar");
+        "long model retains last-call usage and remaining window before optional reasoning during compaction");
     technical.cost_stale = true;
     require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
         link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
@@ -1846,6 +1856,212 @@ void check_cost_badge_contract()
     ++technical.revision;
     require(CODY::observed_model_cost(link, technical).model[0] == '\0',
         "another revision cannot lend Home a current model or band");
+}
+// No parameters: genuine-shaped usage fields exercise the real aging and native presentation owners.
+// Exception: Failed owner results remain host contract failures; no device or synthetic firmware publication occurs.
+void check_native_usage_projection()
+{
+    static LUNASHELL::CodexLinkSnapshot link{};
+    static LUNASHELL::CodexTechnicalSnapshot technical{};
+    static CODY::PanelPresentation presentation{};
+    CODY::SceneContent content{};
+    link.state = LUNASHELL::CodexLinkState::Connected;
+    link.data_valid = true;
+    link.activity.data_valid = true;
+    link.activity.state = LUNASHELL::CodexActivityState::Working;
+    std::memset(link.activity.chat_id, 'b', 64);
+    std::memcpy(technical.chat_id, link.activity.chat_id, 65);
+    technical.data_valid = true;
+    technical.received_at_us = 1000000;
+    technical.used_valid = technical.capacity_valid = technical.context_valid = true;
+    technical.capacity = 100;
+    technical.cumulative_valid = technical.input_valid = technical.output_valid = true;
+    technical.cumulative = 300;
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
+        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        presentation.line_count == 6 && std::strcmp(presentation.captions[0], "Last call 0") == 0 &&
+        std::strcmp(presentation.captions[1], "Free 100") == 0 &&
+        std::strcmp(presentation.captions[2], "Window 100") == 0 &&
+        std::strcmp(presentation.captions[3], "Total 300") == 0 &&
+        std::strcmp(presentation.captions[4], "Input 0") == 0 &&
+        std::strcmp(presentation.captions[5], "Output 0") == 0,
+        "measured zero survives independently from absent model metadata and cumulative spending");
+    technical.used = 101;
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
+        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        std::strcmp(presentation.captions[1], "Free: OVER LIMIT") == 0,
+        "above-window native usage never underflows into invented free tokens");
+    technical.context_valid = technical.capacity_valid = false;
+    technical.used = UINT64_MAX;
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
+        link, technical, CODY::SceneData::body_font, 1000000, presentation, content) == ESP_OK &&
+        !presentation.context_bar_visible &&
+        std::strcmp(presentation.captions[0], "Last call 18446744073709551615") == 0,
+        "partial last-call count retains full uint64 precision without manufacturing capacity or a bar");
+    technical.used_valid = technical.input_valid = technical.output_valid = false;
+    technical.usage_age_at_receive_us = 119999999;
+    LUNASHELL::age_codex_technical(technical, 1000000);
+    require(!technical.context_stale, "cumulative-only source is current before its original deadline");
+    LUNASHELL::age_codex_technical(technical, 1000001);
+    require(technical.context_stale && !technical.data_stale && !technical.context_valid,
+        "cumulative-only source expires even while transport is fresh and capacity is absent");
+    require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::ModelContext,
+        link, technical, CODY::SceneData::body_font, 1000001, presentation, content) == ESP_OK &&
+        std::strcmp(presentation.captions[0], "Total STALE") == 0,
+        "stale cumulative count is not presented as a current numeric value");
+    technical.usage_age_at_receive_us = 0;
+    LUNASHELL::age_codex_technical(technical, 9000000);
+    require(technical.context_stale && technical.data_stale, "transport expiry independently retires young native counters");
+}
+// No parameters: Exercise real Home caption preparation, canonical token gates and native carousel timing.
+void check_home_command_and_token_contract()
+{
+    static CODY::CommandHintsState hints{};
+    const auto &font = CODY::SceneData::body_font;
+    bool changed = false;
+    require(CODY::update_command_hints(hints, font, false, true, "", 0, changed) == ESP_OK &&
+        !hints.visible && !changed, "retained pairing without current connection cannot show command hints");
+    for (int page = 0; page != 4; ++page) {
+        require(CODY::update_command_hints(hints, font, true, true, "chat-a",
+            page * 5000000LL, changed) == ESP_OK && hints.visible && changed && hints.page == CODY::kHomeCommandHints[page].id &&
+            std::strcmp(hints.request.text.characters, CODY::kHomeCommandHints[page].caption) == 0,
+            "each genuine connection hint gets a complete five-second page");
+        const CODY::SceneDefinition *definition = nullptr;
+        CODY::SceneFrame scene{};
+        require(CODY::find_scene(CODY::SceneId::Connected, definition) == ESP_OK &&
+            CODY::begin_scene(*definition, scene) == ESP_OK && CODY::advance_scene(scene, 30000000) == ESP_OK,
+            "command raster uses the actual completed Home scene");
+        scene.command_hints = &hints;
+        scene.command_hints_revision = hints.revision;
+        std::vector<uint16_t> reference(466U * 466U);
+        const CODY2D::Surface full{reference.data(), 466, 466, 466, static_cast<uint32_t>(reference.size())};
+        require(CODY::draw_scene_rows(scene, full, 0, 0) == ESP_OK,
+            "Home command banner renders through real scene composition");
+        for (const auto order : {CODY2D::Rgb565ByteOrder::Native, CODY2D::Rgb565ByteOrder::ByteSwapped}) {
+            for (uint16_t rows : {2, 16}) {
+                std::vector<uint16_t> tiled(reference.size());
+                for (uint16_t first = 0; first < 466; first += rows) {
+                    const CODY2D::Surface strip{tiled.data() + first * 466U, 466,
+                        static_cast<uint16_t>(std::min<unsigned>(rows, 466 - first)), 466,
+                        static_cast<uint32_t>(tiled.size() - first * 466U), order};
+                    require(CODY::draw_scene_rows(scene, strip, first, 0) == ESP_OK,
+                        "Home command banner supports actual DMA strip boundaries");
+                }
+                for (size_t pixel = 0; pixel < tiled.size(); ++pixel) {
+                    const uint16_t expected = order == CODY2D::Rgb565ByteOrder::Native ? reference[pixel] :
+                        CODY2D::swap_rgb565_bytes(reference[pixel]);
+                    if (tiled[pixel] != expected) {
+                        require(false, "Home banner strip/full and native/swapped parity");
+                        break;
+                    }
+                }
+            }
+        }
+        const auto revision = hints.revision;
+        require(CODY::update_command_hints(hints, font, true, true, "chat-a",
+            page * 5000000LL + 4999999, changed) == ESP_OK && !changed && hints.revision == revision,
+            "unchanged command page does not request new damage on every frame");
+        for (const auto *line : {&hints.title, &hints.request}) {
+            const auto &bounds = line->bounds;
+            require(bounds.y >= 360 && bounds.y + bounds.height <= 417,
+                "command lines remain below identity and price/timer rows");
+            for (int x : {static_cast<int>(bounds.x), static_cast<int>(bounds.x + bounds.width - 1)}) {
+                for (int y : {static_cast<int>(bounds.y), static_cast<int>(bounds.y + bounds.height - 1)}) {
+                    require((x - 233) * (x - 233) + (y - 233) * (y - 233) < 233 * 233,
+                        "measured command glyph bounds fit the actual circular chord");
+                }
+            }
+        }
+    }
+    require(CODY::update_command_hints(hints, font, true, true, "chat-a", 20000000, changed) == ESP_OK &&
+        !hints.visible && changed, "intro hints retire after all four pages");
+    require(CODY::update_command_hints(hints, font, true, true, "chat-b", 21000000, changed) == ESP_OK &&
+        hints.visible && hints.page == CODY::CommandHintId::Name, "a new authentic chat restarts the command introduction");
+    require(CODY::update_command_hints(hints, font, true, false, "chat-b", 22000000, changed) == ESP_OK &&
+        !hints.visible, "compaction or question admission suppresses hints immediately");
+    require(CODY::update_command_hints(hints, font, true, true, "chat-b", 27000000, changed) == ESP_OK &&
+        hints.page == CODY::CommandHintId::Timezone, "urgent presentation does not extend or restart the introduction");
+    require(CODY::update_command_hints(hints, font, false, true, "chat-b", 28000000, changed) == ESP_OK &&
+        !hints.visible, "stale or disconnected CCP removes hints");
+
+    static CODY::ActivityIdentityState identity{};
+    static LUNASHELL::CodexLinkSnapshot link{};
+    static LUNASHELL::CodexTechnicalSnapshot technical{};
+    require(CODY::prepare_activity_identity(identity, font, "Cody", "main", 0) == ESP_OK,
+        "token fixture uses the production measured identity layout");
+    link.data_valid = link.activity.data_valid = technical.data_valid = true;
+    link.state = LUNASHELL::CodexLinkState::Connected;
+    link.last_error = link.activity.last_error = technical.last_error = ESP_OK;
+    std::strcpy(link.activity.chat_id, "chat-a");
+    std::strcpy(technical.chat_id, "chat-a");
+    link.activity.revision = technical.revision = 7;
+    technical.used_valid = technical.cumulative_valid = true;
+    technical.used = 123;
+    technical.capacity = 200;
+    technical.capacity_valid = true;
+    technical.cumulative = 456;
+    require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK && changed &&
+        std::strcmp(identity.tokens, "Last call: 123") == 0 &&
+        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::Free)], "Free: 77") == 0,
+        "Home labels last-call usage separately from cumulative session tokens");
+    const CODY::SceneDefinition *token_definition = nullptr;
+    CODY::SceneFrame token_scene{};
+    require(CODY::find_scene(CODY::SceneId::Connected, token_definition) == ESP_OK &&
+        CODY::begin_scene(*token_definition, token_scene) == ESP_OK &&
+        CODY::advance_scene(token_scene, 30000000) == ESP_OK, "prepare token damage owner");
+    CODY::capture_scene_activity_identity(token_scene, &identity, 1);
+    bool saw_tokens = false;
+    unsigned observed_metrics = 0;
+    for (int64_t time = 0; time < 30000000; time += 100000) {
+        const CODY::SceneFrame previous_token_scene = token_scene;
+        ++technical.cumulative;
+        require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK,
+            "regular counter updates retain the existing carousel clock");
+        require(CODY::advance_activity_identity(identity, font, time, false, -1, changed) == ESP_OK,
+            "token page shares real carousel timing and measured overflow scrolling");
+        CODY::capture_scene_activity_identity(token_scene, &identity, 1);
+        if (previous_token_scene.activity_token_metric != token_scene.activity_token_metric) {
+            CODY::DirtyPlan damage{};
+            require(CODY::plan_scene_damage(previous_token_scene, token_scene, damage) == ESP_OK &&
+                damage.row_pairs[150].right > damage.row_pairs[150].left,
+                "token subpage changes dirty the row even when opacity and scroll offset are unchanged");
+        }
+        saw_tokens = saw_tokens || identity.selected == CODY::ActivityIdentityKind::Tokens;
+        if (identity.selected == CODY::ActivityIdentityKind::Tokens) {
+            observed_metrics |= 1U << static_cast<unsigned>(identity.token_metric);
+            require(identity.tokens_width <= 342, "exact token metric has at most a short bounded overflow");
+        }
+    }
+    require(saw_tokens && observed_metrics == 15,
+        "Home shows all four token fields despite regular metadata updates");
+    require(CODY::advance_activity_identity(identity, font, 30000000, true, 5000000, changed) == ESP_OK &&
+        identity.selected == CODY::ActivityIdentityKind::Project,
+        "compaction or native attention keeps project priority over token pagination");
+    technical.used_valid = false;
+    require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK &&
+        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::LastCall)], "Last call: UNAVAILABLE") == 0 &&
+        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::Free)], "Free: UNAVAILABLE") == 0,
+        "missing last-call usage is not fabricated from cumulative usage");
+    technical.used_valid = true;
+    technical.used = 201;
+    require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK &&
+        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::Free)], "Free: OVERLIMIT") == 0,
+        "over-limit usage cannot wrap unsigned available tokens");
+    technical.used = technical.capacity = technical.cumulative = std::numeric_limits<uint64_t>::max();
+    require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK &&
+        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::Free)], "Free: 0") == 0 &&
+        std::strlen(identity.tokens) < sizeof(identity.tokens),
+        "maximum canonical counters retain exact values within bounded owner storage");
+    require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK && !changed,
+        "unchanged token metadata cannot amplify display revisions");
+    technical.context_stale = true;
+    require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK &&
+        std::strcmp(identity.tokens, "Tokens: STALE") == 0, "expired tokens never remain numeric on Home");
+    technical.context_stale = false;
+    ++technical.revision;
+    require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK &&
+        std::strcmp(identity.tokens, "Tokens: UNAVAILABLE") == 0,
+        "another revision cannot lend Home numeric tokens");
 }
 }  // namespace
 
@@ -1879,6 +2095,8 @@ int main()
         check_scene_typewriter_contract();
         check_technical_panel_owner_contract();
         check_cost_badge_contract();
+        check_home_command_and_token_contract();
+        check_native_usage_projection();
     } catch (const std::exception &error) {
         std::fprintf(stderr, "Native contract failed: %s\n", error.what());
         return 1;

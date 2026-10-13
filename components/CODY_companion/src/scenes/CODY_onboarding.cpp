@@ -17,6 +17,7 @@
 #include "CODY_onboarding.hpp"
 #include "CODY_activity_description.hpp"
 #include "CODY_activity_identity.hpp"
+#include "CODY_command_hints.hpp"
 #include "CODY_activity_observation.hpp"
 #include "CODY_codex_event_presentation.hpp"
 
@@ -250,6 +251,7 @@ bool s_setup_returns_to_companion = false;
 bool s_companion_seen_selection = false;
 int64_t s_session_ended_at_us = -1;
 LUNASHELL::CodexActivitySnapshot s_presented_activity{};
+CommandHintsState s_command_hints{};
 uint32_t s_activity_description_revision = 0;
 uint32_t s_activity_identity_revision = 0;
 ActivityObservationState s_activity_observation{};
@@ -2326,7 +2328,7 @@ esp_err_t advance_activity_description(int64_t active_time_us, SceneFrame &scene
 // scene: Current frame replaced only when visible state or selected identity changes.
 // changed: Receives whether scene content needs a new native render.
 // Exception: Returns the original layout/text error without disguising it as connection success.
-esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, bool &changed)
+esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame &scene, bool &changed)
 {
     if (!is_companion_route(s_route)) {
         return ESP_OK;
@@ -2594,6 +2596,60 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
     }
     changed = true;
     return error;
+}
+
+// active_time_us: Existing pausable display clock, never a new periodic worker.
+// scene: Home frame borrowing stable owner captions until retirement.
+// changed: Accumulates native scene damage and coalesced command page changes.
+// Exception: Returns original content, token or native glyph preparation failures.
+esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, bool &changed)
+{
+    esp_err_t error = present_companion_activity_content(active_time_us, scene, changed);
+    if (error != ESP_OK) { return error; }
+    const auto &link = s_technical_observation.link;
+    const auto &technical = s_technical_observation.technical;
+    const bool connected = link.data_valid && !link.data_stale &&
+        link.health == LUNASHELL::DeviceHealth::Ready && link.last_error == ESP_OK &&
+        link.state == CodexState::Connected;
+    bool tokens_changed = false;
+    error = update_home_tokens(s_view.activity_identity, SceneData::body_font,
+        link, technical, tokens_changed);
+    if (error != ESP_OK) { return error; }
+    if (tokens_changed) {
+        ++s_activity_identity_revision;
+        scene.activity_identity_revision = s_activity_identity_revision;
+        changed = true;
+    }
+    const uint16_t title_color = s_view.activity_identity.compaction_timer &&
+        !s_technical_observation.link.activity.data_stale &&
+        link.activity.state != LUNASHELL::CodexActivityState::Paused
+        ? 0xFD20 : scene.definition->title_color;
+    changed = changed || scene.title.color != title_color;
+    scene.title.color = title_color;
+    const uint16_t detail_color = title_color == 0xFD20 && s_view.activity_identity.compaction_timer
+        ? 0xFD20 : 0xFFFF;
+    if (s_view.activity_description.window.valid && s_view.activity_description.window.color != detail_color) {
+        s_view.activity_description.window.color = detail_color;
+        scene.activity_description_revision = ++s_activity_description_revision;
+        changed = true;
+    }
+    const bool eligible = is_companion_route(s_route) &&
+        !s_view.activity_identity.attention_active && !s_view.activity_identity.compaction_timer &&
+        s_presented_compaction == LUNASHELL::CodexCompactionState::None &&
+        link.activity.state != LUNASHELL::CodexActivityState::Paused;
+    bool hints_changed = false;
+    error = update_command_hints(s_command_hints, SceneData::body_font, connected, eligible,
+        link.activity.data_valid && !link.activity.data_stale ? link.activity.chat_id : "",
+        active_time_us, hints_changed);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Home command hints failed: %s", esp_err_to_name(error));
+        return error;
+    }
+    const auto *hints = s_command_hints.visible ? &s_command_hints : nullptr;
+    changed = changed || hints_changed || scene.command_hints != hints;
+    scene.command_hints = hints;
+    scene.command_hints_revision = s_command_hints.revision;
+    return ESP_OK;
 }
 
 // scene: Current screen replaced by a truthful retry view on screen 12.
@@ -3027,6 +3083,7 @@ void reset_onboarding()
     s_companion_seen_selection = false;
     s_session_ended_at_us = -1;
     s_presented_activity = {};
+    s_command_hints = {};
     s_activity_observation = {};
     s_presented_work_phase = LUNASHELL::CodexActivityState::Working;
     ++s_generation;

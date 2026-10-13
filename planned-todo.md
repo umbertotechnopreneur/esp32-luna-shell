@@ -100,11 +100,13 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   panels with canonical IP/firmware identity. The integrated Debug wake-word/activity
   image is compiled and installed; visual geometry, interaction and physical
   stack-headroom evidence remain pending.
-- [ ] **CCP-USAGE-01 - Authoritative Desktop usage source.** App Server documents
-  `thread/tokenUsage/updated`, but current Desktop hooks provide no owned stream
-  for this exact chat. Reasoning, context and token fields remain unavailable.
-  Never infer last-turn usage, execution model or bills from price classes,
-  transcripts or another Codex session.
+- [ ] **CCP-USAGE-01 - Native Desktop telemetry evidence.** The active work in
+  [TODO.md](TODO.md) integrates exact hook-owned local native journal metadata,
+  without a second App Server. Verify real installed Desktop hook reachability,
+  Home counts and genuine compaction on the physical display. A future supported
+  notification observer may replace this owner; it must preserve identity and
+  source-age contracts. Never infer bills, rerouted execution or a compaction
+  threshold from a model name or another chat.
 
 - [ ] **FAULT-04 - Reported Codex-choice reboot loop.** The 12 October passive
   COM10 capture of `cody-114-g33377507` retained reset reason 4 (`ESP_RST_PANIC`)
@@ -524,10 +526,7 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
 
 ## Cody companion follow-up - 2026-10-10
 
-- [ ] Integrate a supported observer of this desktop chat's App Server token-usage
-  notifications when available. Current context occupancy/capacity, reasoning effort,
-  cumulative usage and compaction threshold remain explicitly unavailable; do not
-  read transcripts or infer model capacity to fill them.
+Native Desktop telemetry follow-up is tracked once as CCP-USAGE-01 above.
 
 These items are not active commitments. Move an item to [TODO.md](TODO.md) when
 activated; authorization still follows [AGENTS.md](AGENTS.md).

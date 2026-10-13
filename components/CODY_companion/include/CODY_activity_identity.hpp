@@ -10,7 +10,10 @@
 
 namespace CODY {
 
-enum class ActivityIdentityKind : uint8_t { Project, Branch, Model };
+enum class ActivityIdentityKind : uint8_t { Project, Branch, Model, Tokens };
+enum class HomeTokenMetric : uint8_t { LastCall = 0, Window = 1, Free = 2, Total = 3 };
+inline constexpr HomeTokenMetric kHomeTokenMetrics[]{HomeTokenMetric::LastCall, HomeTokenMetric::Window,
+    HomeTokenMetric::Free, HomeTokenMetric::Total};
 inline constexpr char kActivityModelPrefix[] = "Model: ";
 
 // Serialized route-owned text; prepared lines borrow these stable buffers through retirement.
@@ -18,6 +21,14 @@ struct ActivityIdentityState {
     char project[80]{};
     char branch[80]{};
     char model[144]{};
+    char tokens[40]{};
+    char token_fields[4][40]{};
+    HomeTokenMetric token_metric = HomeTokenMetric::LastCall;
+    uint8_t token_page_count = 1;
+    CODY2D::TextLine tokens_line{};
+    uint16_t tokens_width = 0;
+    uint16_t tokens_length = 0;
+    uint16_t tokens_offset = 0;
     char cost_caption[24]{};
     char timer[24]{};
     CODY2D::TextLine project_line{};
@@ -43,7 +54,7 @@ struct ActivityIdentityState {
     bool attention_active = false;
     bool compaction_timer = false;
 };
-static_assert(sizeof(ActivityIdentityState) <= 896,
+static_assert(sizeof(ActivityIdentityState) <= 1184,
     "Home identity/model/cost captions must stay in one bounded route-owned buffer");
 
 constexpr CODY2D::Rect kActivityIdentityBounds{73, 300, 320, 28};
@@ -160,6 +171,14 @@ inline esp_err_t prepare_activity_identity(ActivityIdentityState &state, const C
     state.selected = ActivityIdentityKind::Project;
     state.project_offset = 0;
     state.branch_offset = 0;
+    state.token_metric = HomeTokenMetric::LastCall;
+    state.token_page_count = 1;
+    std::memset(state.token_fields, 0, sizeof(state.token_fields));
+    state.tokens_offset = 0;
+    state.tokens_length = 0;
+    state.tokens_width = 0;
+    state.tokens[0] = '\0';
+    state.tokens_line = {};
     state.model_offset = 0;
     state.model_width = 0;
     state.model_length = 0;
@@ -223,6 +242,7 @@ inline uint16_t activity_identity_offset(const ActivityIdentityState &state)
     switch (state.selected) {
     case ActivityIdentityKind::Branch: return state.branch_offset;
     case ActivityIdentityKind::Model: return state.model_offset;
+    case ActivityIdentityKind::Tokens: return state.tokens_offset;
     default: return state.project_offset;
     }
 }
@@ -243,6 +263,7 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
         return ESP_ERR_INVALID_ARG;
     }
     const auto old_selected = state.selected;
+    const auto old_token_metric = state.token_metric;
     const uint8_t old_opacity = state.opacity;
     const bool old_timer = state.timer_visible;
     const uint64_t old_seconds = state.timer_seconds;
@@ -256,7 +277,7 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
     constexpr int64_t pixel_step_us = 50000;
     constexpr int64_t start_hold_us = 1200000;
     constexpr int64_t end_hold_us = 1800000;
-    // Three bounded borrowed descriptors stay on the stack; all text/glyph storage belongs to state.
+    // Four bounded borrowed descriptors stay on the stack; all text/glyph storage belongs to state.
     struct Caption {
         ActivityIdentityKind kind;
         const char *text;
@@ -267,15 +288,17 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
         uint16_t color;
         int64_t hold_us;
     };
-    static_assert(sizeof(Caption) * 3 <= 192, "Home carousel descriptors must remain bounded");
+    static_assert(sizeof(Caption) * 4 <= 256, "Home carousel descriptors must remain bounded");
     Caption captions[] = {
         {ActivityIdentityKind::Project, state.project, &state.project_line, &state.project_offset,
             state.project_length, state.project_width, 0xFFFF, 5000000},
         {ActivityIdentityKind::Branch, state.branch, &state.branch_line, &state.branch_offset,
             state.branch_length, state.branch_width, 0xF7BE, 3000000},
         {ActivityIdentityKind::Model, state.model, &state.model_line, &state.model_offset,
-            state.model_length, state.model_width, 0xFD20, 4000000}};
-    Caption *sequence[3]{};
+            state.model_length, state.model_width, 0xFD20, 4000000},
+        {ActivityIdentityKind::Tokens, state.tokens, &state.tokens_line, &state.tokens_offset,
+            state.tokens_length, state.tokens_width, 0xBDF7, 5000000}};
+    Caption *sequence[4]{};
     size_t count = 0;
     int64_t cycle_us = 0;
     for (auto &caption : captions) {
@@ -283,7 +306,9 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
         if (caption.kind != ActivityIdentityKind::Project && (attention || !state.project_line.valid)) { continue; }
         if (caption.length == 0) { continue; }
         const uint16_t overflow = caption.width > kActivityIdentityBounds.width ? caption.width - kActivityIdentityBounds.width : 0;
-        caption.hold_us = std::max(caption.hold_us, start_hold_us + overflow * pixel_step_us + end_hold_us);
+        caption.hold_us = caption.kind == ActivityIdentityKind::Tokens
+            ? static_cast<int64_t>(state.token_page_count) * 5000000
+            : std::max(caption.hold_us, start_hold_us + overflow * pixel_step_us + end_hold_us);
         sequence[count++] = &caption;
         cycle_us += caption.hold_us;
     }
@@ -310,10 +335,24 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
         break;
     }
     state.selected = shown->kind;
+    if (shown->kind == ActivityIdentityKind::Tokens) {
+        const size_t page_index = std::min<size_t>(state.token_page_count - 1U, scroll_us / 5000000);
+        state.token_metric = kHomeTokenMetrics[page_index];
+        const char *caption = state.token_fields[static_cast<size_t>(state.token_metric)];
+        if (old_token_metric != state.token_metric || std::strcmp(state.tokens, caption) != 0) {
+            const esp_err_t error = prepare_activity_identity_caption(font, caption, "", state.tokens,
+                state.tokens_line, 0xBDF7, state.tokens_length, state.tokens_width, sizeof(state.tokens) - 1);
+            if (error != ESP_OK) { return error; }
+        }
+        shown->text = state.tokens;
+        shown->length = state.tokens_length;
+        shown->width = state.tokens_width;
+        scroll_us = std::min<int64_t>(scroll_us - static_cast<int64_t>(page_index) * 5000000, 5000000);
+    }
     const uint16_t overflow = shown->width > kActivityIdentityBounds.width ? shown->width - kActivityIdentityBounds.width : 0;
     *shown->offset = scroll_us < start_hold_us ? 0 :
         static_cast<uint16_t>(std::min<int64_t>(overflow, (scroll_us - start_hold_us) / pixel_step_us));
-    if (old_selected != state.selected || old_offset != *shown->offset) {
+    if (old_selected != state.selected || old_token_metric != state.token_metric || old_offset != *shown->offset) {
         const esp_err_t error = prepare_activity_identity_window(font, shown->text, shown->length,
             shown->width, *shown->offset, shown->color, *shown->line);
         if (error != ESP_OK) { return error; }
@@ -349,7 +388,7 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
             }
         }
     }
-    changed = old_selected != state.selected || old_opacity != state.opacity ||
+    changed = old_selected != state.selected || old_token_metric != state.token_metric || old_opacity != state.opacity ||
         old_timer != state.timer_visible || (state.timer_visible && old_seconds != state.timer_seconds) ||
         old_offset != activity_identity_offset(state);
     return ESP_OK;
@@ -364,7 +403,8 @@ inline esp_err_t draw_activity_identity(const ActivityIdentityState &state, CODY
     uint16_t first_row, uint16_t first_column)
 {
     const auto &line = state.selected == ActivityIdentityKind::Branch ? state.branch_line :
-        state.selected == ActivityIdentityKind::Model ? state.model_line : state.project_line;
+        state.selected == ActivityIdentityKind::Model ? state.model_line :
+        state.selected == ActivityIdentityKind::Tokens ? state.tokens_line : state.project_line;
     esp_err_t error = ESP_OK;
     if (state.opacity != 0 && line.valid) {
         const auto &bounds = kActivityIdentityBounds;

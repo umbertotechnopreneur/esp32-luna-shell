@@ -103,4 +103,25 @@ esp_err_t compose_character_direction(const CharacterDirectionState &state, Resp
 // state: Current source admission and acting; unavailable facts never retain their manga request.
 PersonalityCue character_direction_cue(const CharacterDirectionState &state);
 
+// state: Canonical current actor state; question attention suppresses compaction priority.
+// fallback: Existing scene/request cue, before sleep/wake and device-safety arbitration.
+PersonalityCue prioritize_compaction_cue(const CharacterDirectionState &state, PersonalityCue fallback);
+
+// Display-owned identity only: the PC restarts sequence numbering for each turn.
+// No canonical snapshot, audio buffer, dynamic allocation or additional task is retained.
+struct CompactionSoundLatch {
+    char chat[65]{};
+    char turn[65]{};
+    uint64_t sequence = 0;
+};
+static_assert(sizeof(CompactionSoundLatch) <= 144, "Compaction sound chat/turn/sequence remains within 144 display-owned bytes");
+
+// state: Genuine actor facts admitted from the matching current canonical owner.
+// retired_visible: A complete ordinary Home frame displayed this cue, without pause or shutdown.
+// retired_cue: Cue actually visible after raster retirement, never merely requested.
+// latch: Last admitted chat/turn/sequence; temporary attention or source loss never resets it.
+// Returns whether this observed lifecycle may enter the existing bounded audio admission path.
+bool claim_compaction_sound(const CharacterDirectionState &state, bool retired_visible,
+    PersonalityCue retired_cue, CompactionSoundLatch &latch);
+
 } // namespace CODY

@@ -26,7 +26,9 @@ namespace CODY {
 
 struct ActivityDescriptionState;
 struct ActivityIdentityState;
+struct CommandHintsState;
 enum class ActivityIdentityKind : uint8_t;
+enum class HomeTokenMetric : uint8_t;
 
 // Explicit IDs do not change if authoring declarations are reordered.
 enum class SceneId : uint16_t {
@@ -101,6 +103,8 @@ struct SceneContent {
 };
 
 struct SceneFrame {
+    const CommandHintsState *command_hints = nullptr;
+    uint32_t command_hints_revision = 0;
     const SceneDefinition *definition = nullptr;
     CODY2D::TextLine title{};
     SceneContent content{};
@@ -117,6 +121,7 @@ struct SceneFrame {
     uint32_t activity_description_revision = 0;
     const ActivityIdentityState *activity_identity = nullptr;
     uint32_t activity_identity_revision = 0;
+    HomeTokenMetric activity_token_metric{};
     uint64_t activity_identity_timer_seconds = 0;
     uint16_t activity_identity_offset = 0;
     uint8_t activity_identity_opacity = 0;

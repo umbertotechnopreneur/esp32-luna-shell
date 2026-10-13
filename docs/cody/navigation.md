@@ -9,7 +9,7 @@ worry, brief fear and recovery. This silent narrative does not assert Internet
 reachability or failed pairing. Real canonical link transitions take priority;
 hidden or sleeping views do not advance the narrative.
 
-Working uses a three-minute screen standby interval. Project, Branch and Model
+Working uses a three-minute screen standby interval. Project, Branch, Model and token pages
 are explicit carousel labels; Model is orange and its price chip appears only
 during Model. Display bands are Cheap, Reasonable price and Expensive; missing price
 metadata remains unavailable. These Standard catalog classes do not measure chat
@@ -17,17 +17,44 @@ spending or model quality. The activity timer is retained. Current native tool
 names supplement absent progress descriptions; arguments and command bodies are
 not transmitted.
 
-Model & Context labels model, reasoning, context/window, free space and token
-availability explicitly. Current Desktop hooks provide no authoritative usage
-stream; unavailable counts remain unavailable. Session & Link includes canonical
+Model & Context labels model, reasoning, last-call tokens, window, free space and
+cumulative totals explicitly. Genuine hooks select the exact native metadata
+source; unavailable or expired counts remain explicit. Free is the observed
+window minus last-call tokens, not a promise about the next request's budget.
+Home rotates supported chat requests briefly on connection or chat change;
+orange compaction takes precedence over ordinary captions and command hints.
+Session & Link includes canonical
 PC IP and running firmware identity. The valid-battery wake prelude is described
-in [the personality contract](personality-icons.md). Source changes remain
-pending authorized compilation, simulator and physical validation.
+in [the personality contract](personality-icons.md). Implementation and validation
+evidence remain separate in [done.md](../../done.md).
 
 This is the current source contract for device routes. Screen IDs come from the
 atlases and remain independent of physical page numbers. Installation belongs
 to the [CCP guide](../../plugins/cody-codex-plugin/README.md); authentication,
 packet fields and budgets belong to [CCP1](../../plugins/cody-codex-plugin/protocol/CCP1.md).
+
+## Observe walking, running and sitting
+
+From Home, make one short tap on the character and release to open Activity.
+A double tap starts voice input, so wait for the single-tap decision. Further
+single taps cycle Model & Context, Session & Link, then Activity. A deliberate
+shake returns Home; running or jumping may also trigger that navigation gesture.
+
+Keep the device in the same position and orientation on your body for each trial.
+Observe sitting, standing, walking and jogging for 20-30 seconds each, allowing
+about four seconds after changing activity for a new full sensor window. Compare
+several consecutive labels. Hand waving or a device left on a table is a different
+input; placement and sitting/standing separation have not been physically validated.
+
+The pretrained labels are walking, jogging, sitting, standing, upstairs and
+downstairs. There is no jump class: jumps can be observed but cannot be reported
+as correctly classified jumps by this model. No training or SD access is needed.
+COLLECTING, SUSPENDED, CADENCE GAP, BUSY, ERROR, UNAVAILABLE and STALE describe
+sample availability, not activities. Standby suspends the observer.
+
+Release and Debug both show the canonical classifier result in Activity. This
+panel works without a PC connection. Displayed labels alone are not an accuracy
+measurement or authorization for automatic power decisions.
 
 ## Choose the startup route
 

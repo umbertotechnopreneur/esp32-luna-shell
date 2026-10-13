@@ -23,11 +23,13 @@ from enum import Enum
 import hashlib
 from pathlib import PureWindowsPath
 import re
+import sqlite3
 import sys
 import threading
 import time
 from typing import Any
 from ccp_pricing import PriceCache, PriceProjection
+from ccp_usage import NativeUsageReader, safe_usage_error
 
 
 class Phase(str, Enum):
@@ -145,6 +147,7 @@ class Session:
     compact_observed_at: float = 0.0
     compact_trigger: str = ""
     compact_last_event: str = ""
+    transcript_path: str = ""
 
 
 class ActivityStore:
@@ -157,6 +160,9 @@ class ActivityStore:
         self._followed_session_id = ""
         self._last_prompt_ns = 0
         self._revision = 0
+        self._usage = NativeUsageReader()
+        self._usage_lock = threading.Lock()
+        self._usage_error = ""
 
     # event: Allowlisted metadata from one genuine Codex hook invocation.
     # Raises ValueError for malformed, stale or contradictory event metadata.
@@ -179,6 +185,9 @@ class ActivityStore:
         if name not in {"SessionStart", "SessionEnd"}:
             turn_id = require_id(event.get("turn_id"), "turn_id")
         model = hook_model(event.get("model"))
+        locator = event.get("transcript_path", "")
+        if not isinstance(locator, str) or len(locator) > 4096 or "\x00" in locator:
+            raise ValueError("Native transcript locator is invalid")
         trigger = event.get("trigger")
         if name in {"PreCompact", "PostCompact"} and (not isinstance(trigger, str) or trigger not in {"auto", "manual"}):
             raise ValueError("Compaction trigger must be the genuine auto or manual hook value")
@@ -332,6 +341,8 @@ class ActivityStore:
                 session.project = project_label(cwd)
                 session.cwd = cwd
             session.last_event_ns = emitted_ns
+            if locator:
+                session.transcript_path = locator
             session.branch = branch
             session.observed_at = emitted_ns / 1_000_000_000
             self._revision += 1
@@ -379,8 +390,28 @@ class ActivityStore:
 
     # No parameters: obtains activity and technical projection atomically for one authenticated FIND reply.
     def snapshot_bundle(self) -> tuple[dict[str, str], dict[str, str]]:
+        # File IO has its own owner lock and never holds the activity/hook lock.
+        with self._lock:
+            followed = self._sessions.get(self._followed_session_id)
+            source = ((followed.session_id, followed.cwd, followed.turn_id, followed.transcript_path)
+                      if followed and followed.turn_id and followed.phase != Phase.ENDED else None)
+        usage, context = None, None
+        if source is not None:
+            with self._usage_lock:
+                try:
+                    usage, context = self._usage.poll(*source)
+                    self._usage_error = ""
+                except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as error:
+                    # Do not echo native file paths, JSON lines or chat content.
+                    cause = safe_usage_error(error)
+                    if cause != self._usage_error:
+                        print(f"CCP native usage unavailable: {cause}", file=sys.stderr, flush=True)
+                        self._usage_error = cause
         with self._lock:
             session = self._sessions.get(self._followed_session_id)
+            if (session is None or source != (session.session_id, session.cwd, session.turn_id, session.transcript_path)
+                    or session.phase == Phase.ENDED):
+                usage, context = None, None
             now = time.monotonic()
             phase = self._effective_phase(session) if session else Phase.NONE
             description = (session.description if session and
@@ -412,14 +443,33 @@ class ActivityStore:
                 "activityage": wire_milliseconds(now - session.observed_at) if session else "-",
                 "turnelapsed": wire_milliseconds((session.turn_ended_at or now) - session.turn_started_at)
                     if session and session.turn_started_at else "-",
-                # No desktop-owned App Server notification stream is available to this plugin.
-                # Hook model is reported metadata; effort and token/capacity fields remain unavailable.
+                # Missing native fields stay unavailable; no prompt-based estimates or defaults.
                 **{key: "-" for key in ("effort", "used", "capacity", "cumulative", "input", "output", "threshold", "usageage")}}
+            if (usage is not None and session is not None and session.compaction == Compaction.REFRESHED
+                    and usage[1] < session.compact_observed_at):
+                # PostCompact confirms completion, not renewed token counters.
+                # Wait for a native observation after that genuine boundary.
+                usage = None
+            if usage is not None:
+                values, observed = usage
+                age = wire_milliseconds(now - observed)
+                if age != "-":
+                    technical.update({key: str(value) for key, value in values.items()})
+                    technical["usageage"] = age
+            effective_model = session.model if session else ""
+            effective_model_observed = session.model_observed_at if session else 0.0
+            if context is not None:
+                native_model, effort, observed = context
+                age = wire_milliseconds(now - observed)
+                if age != "-":
+                    effective_model, effective_model_observed = native_model, observed
+                    technical.update(model=native_model.encode("ascii").hex(), modelage=age,
+                                     effort=effort.encode("ascii").hex() if effort else "-")
             if technical["modelage"] == "-":
                 technical["model"] = "-"
-            price = (self._pricing.projection(session.model)
+            price = (self._pricing.projection(effective_model)
                      if self._pricing is not None and session is not None and technical["model"] != "-"
-                     and now - session.model_observed_at < ACTIVITY_LEASE_SECONDS else PriceProjection())
+                     and now - effective_model_observed < ACTIVITY_LEASE_SECONDS else PriceProjection())
             technical.update(cost=price.band.value,
                              costage=str(price.age_ms) if price.age_ms is not None else "-",
                              costttl=str(price.valid_for_ms) if price.valid_for_ms is not None else "-")

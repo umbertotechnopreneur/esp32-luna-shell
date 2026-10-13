@@ -16,6 +16,7 @@
 
 #include "CODY_scene.hpp"
 #include "CODY_activity_description.hpp"
+#include "CODY_command_hints.hpp"
 #include "CODY_activity_identity.hpp"
 
 #include <algorithm>
@@ -103,6 +104,7 @@ void capture_scene_activity_identity(SceneFrame &frame, const ActivityIdentitySt
     // Retired frames keep their numeric visual keys when current route-owned text advances.
     frame.activity_identity = identity;
     frame.activity_identity_revision = identity ? revision : 0;
+    frame.activity_token_metric = identity ? identity->token_metric : HomeTokenMetric::LastCall;
     frame.activity_identity_timer_seconds = identity ? identity->timer_seconds : 0;
     frame.activity_identity_timer_visible = identity && identity->timer_visible;
     frame.activity_identity_offset = identity ? activity_identity_offset(*identity) : 0;
@@ -463,7 +465,7 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
         return ESP_ERR_INVALID_STATE;
     }
     const bool title_changed = previous.title.text.characters != current.title.text.characters ||
-        previous.title.text.length != current.title.text.length;
+        previous.title.text.length != current.title.text.length || previous.title.color != current.title.color;
     if (previous.activity_overlay.state != current.activity_overlay.state ||
         activity_paint_tick(previous.activity_overlay) != activity_paint_tick(current.activity_overlay)) {
         const esp_err_t overlay_error = include_damage(plan, activity_overlay_bounds());
@@ -507,6 +509,12 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
         return error;
     }
     const bool visibility_changed = old_presentation.content_visible != new_presentation.content_visible;
+    if (previous.command_hints != current.command_hints ||
+        previous.command_hints_revision != current.command_hints_revision ||
+        (visibility_changed && (previous.command_hints != nullptr || current.command_hints != nullptr))) {
+        error = include_damage(plan, {73, 360, 393, 417});
+        if (error != ESP_OK) { return error; }
+    }
     if (previous.activity_description != current.activity_description ||
         previous.activity_description_revision != current.activity_description_revision ||
         (visibility_changed && (previous.activity_description != nullptr || current.activity_description != nullptr))) {
@@ -517,6 +525,7 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
     }
     if (previous.activity_identity != current.activity_identity ||
         previous.activity_identity_revision != current.activity_identity_revision ||
+        previous.activity_token_metric != current.activity_token_metric ||
         previous.activity_identity_offset != current.activity_identity_offset ||
         previous.activity_identity_opacity != current.activity_identity_opacity ||
         previous.activity_identity_kind != current.activity_identity_kind ||
@@ -595,7 +604,14 @@ esp_err_t draw_scene_rows(const SceneFrame &frame, CODY2D::Surface strip,
     esp_err_t error = frame.definition->title_visible
         ? CODY2D::draw_text_rows(frame.title, frame.visible_characters, strip, first_row, first_column)
         : ESP_OK;
-    if (error == ESP_OK && frame.activity_description != nullptr) {
+    if (error == ESP_OK && frame.command_hints != nullptr) {
+        error = CODY2D::draw_text_rows(frame.command_hints->title, frame.command_hints->title.text.length,
+            strip, first_row, first_column);
+        if (error == ESP_OK) {
+            error = CODY2D::draw_text_rows(frame.command_hints->request, frame.command_hints->request.text.length,
+                strip, first_row, first_column);
+        }
+    } else if (error == ESP_OK && frame.activity_description != nullptr) {
         error = draw_activity_description(*frame.activity_description, strip, first_row, first_column);
     }
     if (error == ESP_OK && frame.activity_identity != nullptr) {

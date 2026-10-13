@@ -317,7 +317,7 @@ revision even when a hook arrives during UDP transmission. EVENT and other
 independent extensions retain their own authenticated contracts.
 
 ```text
-CCP1|TECH|device=<12hex>|pc=<32hex>|nonce=<32hex>|chat=<64hex>|turn=<64hex>|revision=<16hex>|model=<hex or ->|effort=-|modelage=<ms or ->|compaction=<token>|compactseq=<16hex>|compactage=<ms or ->|activityage=<ms or ->|turnelapsed=<ms or ->|used=-|capacity=-|cumulative=-|input=-|output=-|threshold=-|usageage=-|cost=<band>|costage=<ms or ->|costttl=<ms or ->|proof=<64hex>
+CCP1|TECH|device=<12hex>|pc=<32hex>|nonce=<32hex>|chat=<64hex>|turn=<64hex>|revision=<16hex>|model=<hex or ->|effort=<hex or ->|modelage=<ms or ->|compaction=<token>|compactseq=<16hex>|compactage=<ms or ->|activityage=<ms or ->|turnelapsed=<ms or ->|used=<uint64 or ->|capacity=<uint64 or ->|cumulative=<uint64 or ->|input=<uint64 or ->|output=<uint64 or ->|threshold=<uint64 or ->|usageage=<ms or ->|cost=<band>|costage=<ms or ->|costttl=<ms or ->|proof=<64hex>
 HMAC input: technical-v2|<device>|<pc>|<nonce>|<chat>|<turn>|<revision>|<model>|<effort>|<modelage>|<compaction>|<compactseq>|<compactage>|<activityage>|<turnelapsed>|<used>|<capacity>|<cumulative>|<input>|<output>|<threshold>|<usageage>|<cost>|<costage>|<costttl>
 ```
 
@@ -347,14 +347,14 @@ an ended chat preserves the known chat without inventing a new turn.
 
 | Field | Actual source and meaning |
 | --- | --- |
-| model, modelage | Common hook model metadata, its source emission age; reported model, not proof of separately executed/rerouted selection |
-| effort | UNAVAILABLE: no documented reasoning-effort field in the hook payload |
+| model, modelage | Exact native turn-context model or admitted hook model, with its original source age; not proof of rerouted execution |
+| effort | Bounded native turn-context reasoning effort, hex-encoded printable ASCII, or unavailable |
 | compaction, compactseq, compactage | Genuine PreCompact/PostCompact lifecycle within the exact current chat/turn; age of the latest observed lifecycle transition |
 | activityage | Age of the latest admitted hook emission; a broker heartbeat never refreshes it |
 | turnelapsed | Observed UserPromptSubmit-to-now duration, frozen at genuine Stop, Interrupt or SessionEnd |
-| used, capacity | UNAVAILABLE: no connected desktop-owned usage/capacity stream |
-| cumulative, input, output | UNAVAILABLE: no connected desktop-owned token counters |
-| threshold, usageage | UNAVAILABLE: no observed automatic threshold or token sample |
+| used, capacity | Native last_token_usage.total_tokens and explicit model_context_window from the same token-count metadata |
+| cumulative, input, output | Native total_token_usage.total_tokens, last_token_usage.input_tokens and last_token_usage.output_tokens |
+| threshold, usageage | Explicit automatic threshold when observed (currently unavailable); original age of the native token sample |
 | cost | Exact-model qualitative Codex Standard catalog band: `unknown`, `economy`, `balanced`, `expensive`; no rates/currency/bill |
 | costage | Original public-catalog retrieval age on the PC, independent of hook/packet liveness |
 | costttl | Remaining PC local-calendar lease until next midnight; no receiver wall-clock comparison |
@@ -367,15 +367,19 @@ packets do not change the original retrieval age or the catalog's local day.
 The source, numeric rates, attempt/error state and classification thresholds
 remain on the PC; see the [catalog policy](../README.md).
 
-The currently unsupported fields must be `-`; decoders reject numeric values
-until an actual source and its semantics are implemented. No model-global
-capacity, last-request input count, cumulative counter or guessed threshold is
-substituted for current context occupancy. No percentage or free-token bar is
-derived from missing data. Hook source ages use the PC monotonic clock and genuine
+Counts are canonical uint64 decimal with no signs, padding or leading zeroes.
+Presence is independent of value: measured zero is not absence. Any present
+counter requires usageage; a present capacity must be positive. Both used and
+capacity are required for Free and the bar. Free subtracts the last-call total
+from that sample's window; it does not promise exact future-request headroom.
+Cumulative usage is never substituted for window use. The currently unobserved
+threshold stays `-`. No percentage or free-token bar is derived from missing data.
+Native journal timestamps are mapped once to monotonic age, preserving original
+source time rather than the polling time. Hook source ages use the PC monotonic clock and genuine
 emission timestamp, distinct from receiver-local transport timestamps. Catalog
 retrieval age and its local-day lease use the PC wall clock; the receiver expires
 that lease using its own monotonic elapsed time, without comparing wall clocks.
-Reported model and active compaction observations expire independently after
+Native token, reported model and active compaction observations expire independently after
 120 seconds. Same-turn steering preserves the observed turn start and active
 tools; a new actual turn clears the previous model and compaction scope.
 
@@ -395,10 +399,10 @@ state supplies no new token sample and cannot revive old token numerators.
 Official Codex documents the common hook model field and genuine compact
 boundaries in [Hooks](https://learn.chatgpt.com/docs/hooks), and
 `thread/tokenUsage/updated` plus `model/rerouted` in
-[App Server](https://learn.chatgpt.com/docs/app-server). The plugin has no
-connected notification channel for the currently owned desktop chat. No second
-App Server, chat resume/start or transcript parsing is introduced to simulate
-that channel. Changed plugin hooks require native review before execution;
+[App Server](https://learn.chatgpt.com/docs/app-server). The plugin reads allowlisted
+local native journal metadata for the genuine hook-owned chat; it does not parse
+conversation text for estimates. No second App Server or chat resume/start is
+introduced. Changed plugin hooks require native review before execution;
 enabling the plugin alone does not establish trusted live hook delivery.
 
 ## Authentic notifications and decisions (CCP 0.6)
