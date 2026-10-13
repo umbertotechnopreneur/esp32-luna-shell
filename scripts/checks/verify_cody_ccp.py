@@ -2006,9 +2006,23 @@ class NativeUsageReaderTests(unittest.TestCase):
         catalog.projection.assert_called_once_with("gpt-6-astra")
         catalog.reset_mock()
         with patch.object(owner._usage, "poll", return_value=(None, ("gpt-6-astra", "high", 800.0))):
-            _, fields = owner.snapshot_bundle()
-        self.assertEqual(fields["modelage"], "200000")
-        self.assertEqual(fields["effort"], "high".encode().hex())
+            _, hook_fields = owner.snapshot_bundle()
+            with patch.object(activity.time, "monotonic", return_value=1010.0):
+                _, later_fields = owner.snapshot_bundle()
+        self.assertEqual(bytes.fromhex(hook_fields["model"]).decode(), "gpt-6-sol")
+        self.assertEqual(hook_fields["modelage"], "1000")
+        self.assertEqual(later_fields["modelage"], "11000")
+        self.assertEqual(hook_fields["effort"], "-")
+        self.assertEqual(later_fields["effort"], "-")
+        self.assertEqual(catalog.projection.call_count, 2)
+        catalog.projection.assert_called_with("gpt-6-sol")
+        catalog.reset_mock()
+        with patch.object(owner._usage, "poll", return_value=(None, ("gpt-6-astra", "high", 800.0))), \
+                patch.object(activity.time, "monotonic", return_value=1200.0):
+            _, stale_fields = owner.snapshot_bundle()
+        self.assertEqual(bytes.fromhex(stale_fields["model"]).decode(), "gpt-6-astra")
+        self.assertEqual(stale_fields["modelage"], "400000")
+        self.assertEqual(stale_fields["effort"], "high".encode().hex())
         catalog.projection.assert_not_called()
 
 

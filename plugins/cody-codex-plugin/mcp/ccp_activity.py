@@ -461,7 +461,14 @@ class ActivityStore:
             if context is not None:
                 native_model, effort, observed = context
                 age = wire_milliseconds(now - observed)
-                if age != "-":
+                hook_is_current = bool(effective_model and
+                                       0 <= now - effective_model_observed < ACTIVITY_LEASE_SECONDS)
+                # An expired turn-context observation cannot hide a newer genuine
+                # hook observation for this exact chat/turn. Keep each source's
+                # original age; effort has no independent wire age and therefore
+                # remains unavailable when the hook supplies the selected model.
+                use_native = now - observed < ACTIVITY_LEASE_SECONDS or not hook_is_current
+                if age != "-" and use_native:
                     effective_model, effective_model_observed = native_model, observed
                     technical.update(model=native_model.encode("ascii").hex(), modelage=age,
                                      effort=effort.encode("ascii").hex() if effort else "-")
