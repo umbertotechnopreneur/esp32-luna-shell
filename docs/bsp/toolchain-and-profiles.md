@@ -117,9 +117,11 @@ turn Release INFO logging back on.
 The battery-endurance NVS journal remains active in Release. Its periodic
 `Endurance` readback messages are INFO and are suppressed by the compiled WARN
 maximum; passive serial capture alone cannot retrieve those records from a
-Release image. A bounded explicit readback path is pending, without raising
-normal logging. See [battery-only runtime recording](services/power-management.md#battery-only-runtime-recording)
-for the persistence contract and current Debug readback procedure.
+Release image. Use `scripts/device.ps1 endurance-read -Port COM10` for an explicit
+CRC-checked canonical readback without raising normal logging. The command
+preserves recorder failures and unknown termination; it does not refresh sensors
+or write device storage. See [battery-only runtime recording](services/power-management.md#battery-only-runtime-recording)
+for the persistence contract and readback procedure.
 
 Cody keeps software standby in both modes so the PMU PWR key can wake it; that
 key has no ESP Deep-sleep wake route. Other touch-enabled Release profiles enter

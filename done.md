@@ -23,6 +23,98 @@ passed. The duplicate peripheral FAULT-04 is named FAULT-PERIPHERAL-01 with its
 historical alias retained. Physical voice and walking/classifier trials remain
 postponed at the user's request. The accepted SD/PCB constraint is unchanged.
 
+## Autonomous maintenance and Release preparation - 2026-10-14
+
+Three agents covered transparent asset packing, canonical endurance readback and
+independent backlog/CLI integration review. Only the exactly transparent two-pixel
+border of the fourteen personality sprites is omitted from embedded planes. The
+logical 256-pixel canvas, original PNG/raw assets, visible alpha and palette remain
+unchanged. Payload savings are 56,896 bytes. Native/Python checks passed 27,154
+native assertions and 128 controller parity frames, including exact packed pixel
+and native/swapped RGB565 comparisons. Obsolete fixtures now verify the authored
+quiet battery policy and its separate fades instead of expecting interruption.
+
+The explicit `scripts/device.ps1 endurance-read -Port COM10` command reads a
+versioned 128-byte canonical snapshot through the existing token/CRC USB transport.
+Its owner callback does not read sensors or NVS, tick the recorder, or write device
+storage. Existing journal persistence remains unchanged. The host preserves
+unknown termination, source gaps and recorder errors; a verified owner failure
+is saved before the command returns failure. Seventeen real-service scenarios,
+PowerShell decoder/wrapper cases and real USB command-parser cases passed.
+Device console, power policy, liveness and all 87 CCP regressions also passed.
+
+The native plugin manager installed and enabled Cody plugin 0.6.6. Cached manifest,
+server, receiver, runtime and hooks match the reviewed source; pairing/control
+state hashes were preserved. Installed discovery reports ten enabled, trusted
+authored hooks, with exact event/label identity checks. The configured Python 3.13
+interpreter now has cryptography 50.0.2 and websocket-client 1.9.2. Native audio
+endpoint/token-file configuration remains absent; no audio was submitted. Hook
+discovery does not prove execution or adoption by the current Desktop chat.
+
+The selected IDF 6.0.2 Cody Debug wake-word/activity image built at eight jobs:
+7,218,336 bytes, 56,160 bytes free in the unchanged 7,274,496-byte OTA slot,
+56,112 bytes smaller than the preceding image. Static DIRAM is 245,044 bytes
+(16 more); this is flash recovery, not measured RAM or energy savings. Individual
+compiled frames passed, including the USB command task at 1,024/4,096 bytes and
+canonical readback callback at 160 bytes. Nested call-chain headroom remains
+separate. Release configuration uses the existing canonical dependency lock.
+The first unconfigured Release build stopped at its lock guard, before compilation;
+the explicit `set-target` workflow prepared the separate Release directory.
+
+The selected Release image then built successfully: 7,052,768 bytes and 221,728
+bytes free in the same OTA slot. Static DIRAM is 236,316 bytes, 8,728 fewer than
+Debug; external static RAM is 84,228 bytes. Both images identify source revision
+`cody-156-g4c6c1707-dirty`; the user-owned AGENTS.md worktree edit was preserved.
+SHA256: Debug `b04bf8a0f190ece6b899263c8a6a6ebe094fcc1d41ea06147d432fe6149e7289`;
+Release `05f939074c174618e988694cea7afae183a9f6210361093979d95cbe8a9b2f4c`.
+Release individual task-frame checks passed, including USB 1,024/4,096 bytes and
+readback callback 160 bytes. Selected Cody profile/dependency contracts passed;
+this does not validate missing locks for other profiles or a complete matrix.
+
+The first simulator regeneration exposed real host discovery ambiguity: ESP
+Clang on the firmware PATH was selected as a Windows compiler. Host discovery
+now prefers available MSVC on Windows and verifies GCC/Clang host OS/architecture,
+rejecting cross compilers with their actual target. Regeneration passed with ESP
+Clang still on PATH and the manifest identifies x64 MSVC. All ten character Studio
+tests and a visibly SYNTHETIC ready capture passed using the regenerated production
+C++ binding. This proves host integration, not device pixels or physical FPS.
+
+An initial Release capture exposed an attempted PCM lookup for `WifiConnected`
+(cue 15). Four authored technical cues explicitly disable sound and have no PCM
+asset. Completed-frame admission now consults that policy and cancels old retries
+for those silent cues; unknown identities and missing audible clips retain the
+audio owner's real error. The native fixture verifies all authored rules, four
+silent identities, existing audible battery cues and unknown/None rejection paths.
+Both selected images and compiled-frame reports were regenerated after this fix.
+No physical voice recording or classifier accuracy trial was performed.
+
+A cached 0.6.6 process was observed owning the UDP listener, but the later read-only
+authenticated loopback health query timed out. Current Desktop chat adoption and
+presence remain unverified; no MCP lease or artificial hook/event was created.
+
+The final Release image was flashed to COM10 and esptool verified the transferred
+data hash. NVS was not erased. A subsequent passive 60-second capture completed,
+followed by a successful explicit USB endurance readback: initialized recorder,
+owner error zero and a CRC-checked 128-byte response. Session 1 still retains
+exactly 24,942,870 ms, its original start/first-wake UTC, 874,343-ms first wake,
+unknown interruption, unavailable last-alive UTC and source-unverified flag;
+the previous record remains empty. USB-time `source_current=false` is preserved,
+not relabeled as fresh battery telemetry. This is retained-journal verification,
+not a new battery-life measurement.
+
+The final passive log has no unknown-sound/optional-personality-audio error,
+panic, stack-canary, brownout, reboot or frame-failure signature in the captured
+interval. It still reports the accepted SD initialization timeout; no SD repair
+or formatting was attempted. Host tests, firmware transfer and this bounded
+capture do not prove physical voice, wake timing, whole-board shutdown, display
+quality, classifier accuracy or energy savings. TODO.md now has no remaining
+autonomous implementation/delivery item; those deferred gates stay in planned-todo.md.
+
+Current logs/reports and the protected original battery readback are retained
+under `artifacts/build-cody-companion-wake-word-evidence/`, including
+`autonomous-20261014/` and `battery-readback-20261013/`. Physical voice and walking
+trials remain explicitly postponed; no training or SD repair was introduced.
+
 ## First 1,000 mAh battery run readback - 2026-10-13
 
 The user reported a 1,000 mAh battery and operation with USB disconnected. A

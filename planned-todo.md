@@ -15,8 +15,9 @@ power decisions: no training, no promised classifier-driven shutdown.
 The SD/PCB limitation and standby/wake workaround are accepted; historical SD
 verification entries do not reopen SD hardware/software fault investigation.
 Tests, builds, installation and physical actions retain their separate
-[AGENTS.md](AGENTS.md) authorization boundaries. Release journal readback is
-active under RELEASE-ENDURANCE-01 in TODO.md; broader endurance remains below.
+[AGENTS.md](AGENTS.md) authorization boundaries. The explicit Release journal
+readback is implemented and its host checks passed on 14 October; selected
+installation/readback evidence belongs in done.md. Broader endurance remains below.
 
 ## Cody power and pretrained activity observer - 2026-10-12
 
@@ -39,7 +40,8 @@ active under RELEASE-ENDURANCE-01 in TODO.md; broader endurance remains below.
   improve continuity only from measured owner timing, never synthetic samples.
   Original preprocessing was recovered exactly against all 107 supplied calibration
   tensors; sensor/placement domain, accuracy, energy cost and stack headroom remain
-  unverified. The 2368-byte OTA margin also limits further firmware growth.
+  unverified. The earlier 2,368-byte OTA margin is historical; selected current
+  Debug/Release footprint evidence is recorded in done.md.
 - [ ] **POWER-ACTIVITY-CHECKS - Remaining validation.** Power/source/production-owner,
   native runtime/raster, console, Studio, CCP/reference simulator, selected Cody
   profile and snapshot checks passed after the user's continuous authorization.
@@ -80,9 +82,11 @@ active under RELEASE-ENDURANCE-01 in TODO.md; broader endurance remains below.
 - [ ] **AUDIT-TARGET-01 - Validate the integrated review on target.** The source
   coalesces unchanged endurance publications, releases a rejected HAR model,
   reads bounded power state in Luna shell callbacks and revalidates model inputs
-  when their files change. Host evidence belongs in done.md. Compile/size, final
-  nested stack headroom, failure-path memory recovery and incremental model-tamper
-  rejection still require target validation. Battery readback completed on
+  when their files change. Host evidence belongs in done.md. Final nested stack
+  headroom, failure-path memory recovery and incremental model-tamper
+  rejection still require target validation. Selected Debug/Release compilation,
+  size and individual task-frame checks passed on 14 October; these do not prove
+  the remaining runtime cases. Battery readback completed on
   13 October; its baseline does not validate these later source changes.
 The owner confirmed the SD/PCB limitation and standby/wake workaround on
 2026-10-12. This review does not add another SD software-defect investigation.
@@ -346,13 +350,18 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   recovery and the 5-ms/minimum-one-tick service cadence under actual load.
   Revisit all callers after the bounded voice snapshot
   growth; inspect compiled AFE/CCP/render frames and measure stack/PSRAM headroom.
-  Install plugin 0.6.5 with its optional audio dependencies and configure the real
-  loopback desktop endpoint; verify native localAudio account/model access and
-  native approval routing. A local 0.6.5 cache exists, but its audio receiver predates the newer repository reliability changes; active-process alignment remains separate from cached version naming.
+  Plugin 0.6.6 and its optional audio dependencies were installed on 14 October;
+  source/cache hashes and ten enabled, trusted hook identities were verified.
+  Observe adoption by the actual Desktop chat, configure the real loopback
+  desktop endpoint, then verify native localAudio account/model access and native
+  approval routing. Endpoint/token-file configuration is currently absent;
+  discovery and installation do not prove execution or voice delivery.
   An earlier integrated firmware build/flash completed on 12 October. The later
   recording/polling increment passed Debug build/size, host lifecycle/voice/native
-  raster checks and individual compiled stack frames, and was not flashed.
-  Native delivery and physical recording behavior remain unverified.
+  raster checks and individual compiled stack frames, and was not flashed at that
+  time. The selected 14 October Release delivery includes those source changes;
+  its exact image/readback evidence is in done.md. Native delivery and physical
+  recording behavior remain unverified.
 - [ ] **TTS-01 - Storage and audible speech.** Require observed SD availability
   after the accepted standby/wake workaround before claiming SD synthesis.
   The prepared four-language card and corrected `58757005` boot

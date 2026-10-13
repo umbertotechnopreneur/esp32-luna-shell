@@ -31,6 +31,21 @@ Read [toolchain and profiles](../docs/bsp/toolchain-and-profiles.md) for composi
 configuration guards and dependency-lock review. Confirm device identity and
 port before authorized serial operations.
 
+To preserve Cody's Sophia wake word and experimental activity observer in Release,
+use the same explicit feature selection for configuration, build, flash and size:
+
+```powershell
+.\scripts\device.ps1 set-target -Profile cody-companion -Feature wake-word -ActivityClassifier -BuildMode Release
+.\scripts\device.ps1 build -Profile cody-companion -Feature wake-word -ActivityClassifier -BuildMode Release -Jobs 8
+.\scripts\device.ps1 flash -Profile cody-companion -Feature wake-word -ActivityClassifier -BuildMode Release -Port COM10 -Jobs 8
+.\scripts\device.ps1 size -Profile cody-companion -Feature wake-word -ActivityClassifier -BuildMode Release -SizeOutputFormat json2
+```
+
+The first `set-target` prepares that mode's isolated build with the reviewed
+canonical dependency lock. Repeat it when the public CLI requests configuration;
+ordinary subsequent builds are incremental. `endurance-read` does not need these
+profile selectors because it reads the connected firmware's canonical record.
+
 Use `list` for current check and generator identifiers. Additional arguments
 are literal string values, never shell code:
 
