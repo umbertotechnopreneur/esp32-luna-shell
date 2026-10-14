@@ -1,30 +1,14 @@
 # Active work
 
-Updated 2026-10-14. Home dashboard, integer Studio pixels and the one-time
-Expensive-model notice are implemented, verified and installed in Release
-`cody-170-gfbb0bee7`. Delivery evidence belongs in [done.md](done.md).
+Updated 2026-10-14. The authorized autonomous implementation queue is complete.
+Release `cody-176-gb43fe3de` is installed on COM10; the matching CCP source is
+installed in the local plugin cache. Four Home panels, occupied context progress,
+independent Still, the taller recording ribbon, finite @CCP introduction and
+other-chat Reply ready are recorded with their evidence in [done.md](done.md).
 
-- Cody questions and chat titles: implementation and static integration completed in
-  [runtime.md](docs/cody/runtime.md#pending-native-questions-pc-audit-2026-10-14).
-  The [eight-screen proposal](docs/cody/ui-proposals/20261014-questions/eight-screen-flow.png)
-  and offline mouse/touch prototype show at most two original numbered choices,
-  scrolling, explicit Send and separate receipt.
-  Native/CCP/Studio and snapshot checks passed, including the context colors.
-  Release cody-174-g111525b1 build/size, compiled frames, COM10 flash and passive
-  capture passed; the device reconnected with a current actual native chat title.
-  Native Desktop prompts already opened cannot be imported. Paired physical
-  sessions receive routing instructions to ask semantic questions through CCP.
-
-- Final Release delivery: independent IMU Still, occupied context progress and
-  the taller purple recording ribbon are implemented; Studio/native/runtime,
-  voice UI, snapshot and selected-profile checks passed. Complete firmware
-  build/size/compiled-frame review, install on COM10 and record passive evidence.
-  The subsequent owner request separates Tokens, Model, Connection and Chat,
-  moves timer/activity into Chat and IMU into Connection, and adds actual local
-  compilation date/time, PC timezone and compiling hostname. Integrate these
-  four native panels before the final validation and installation.
-  Replace the continuous command ticker with the requested three-pass @CCP
-  introduction, then hide it without replay across panel/chat/reconnect changes.
+The latest Studio run passed 28 of 29 cases; Windows desktop screen capture
+failed in ImageGrab. Native pixel previews passed and remain available. This
+unavailable capture is retained as STUDIO-CAPTURE-01 in [planned-todo.md](planned-todo.md).
 
 GitHub visibility is public. Main ruleset 25049727 is active: contributors need
 a pull request; only the owner's user identity has direct-push bypass.
@@ -35,8 +19,10 @@ from synthetic screenshots, current PC metadata or authenticated LAN presence.
 
 The user's deferred voice and walking/classifier trials remain in
 [planned-todo.md](planned-todo.md), together with physical wake/shutdown, energy
-measurements and native Desktop audio/runtime verification. Moving a gate there
-does not mark it passed or request user action now.
+measurements, nested stack headroom and native Desktop audio/runtime verification.
+Native audio still requires a verified attach endpoint; existing Desktop questions
+cannot be imported retroactively. Moving a gate does not mark it passed or request
+user action now. A restarted CCP broker awaits a genuine user prompt to follow a chat.
 
 The accepted SD/PCB limitation is unchanged. No model training or classifier-led
 automatic shutdown is included. This queue grants no execution authorization;

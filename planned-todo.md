@@ -91,6 +91,16 @@ installation/readback evidence belongs in done.md. Broader endurance remains bel
 The owner confirmed the SD/PCB limitation and standby/wake workaround on
 2026-10-12. This review does not add another SD software-defect investigation.
 
+## Windows simulator evidence
+
+- [ ] **STUDIO-CAPTURE-01 - Windows desktop capture availability.** The final
+  2026-10-14 Studio suite passed 28 of 29 cases; Pillow ImageGrab failed twice
+  with `screen grab failed` in the actual integer-window screenshot case.
+  Native RGB565 previews, six context occupancies, Reply ready and GUI-owner
+  checks passed. An earlier 27-case run captured the real window successfully.
+  Verify the latest window capture when the desktop capture service is available;
+  retain the current failure and do not replace it with a passing synthetic image.
+
 ## Reproduced device faults
 
 - [ ] **UI-ACTIVITY-02 - Connection and activity presentation evidence.** Source

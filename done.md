@@ -54,8 +54,35 @@ the ReplyReady addition. Exact native four-panel, six-occupancy and ReplyReady
 captures are preserved below four-panel-final-evidence. One native assertion
 also caught an old activity purpose surviving an owner error; source admission
 now marks that retained observation invalid. All failed logs remain separate.
-Firmware build, compiled frames, install and PC cache update are pending at this
-source checkpoint. No physical voice/gait/display accuracy is claimed.
+
+Release `cody-176-gb43fe3de` completed the 1,500-step firmware build with eight
+jobs, size and individual compiled-frame checks. Its actual image is 7,145,936
+bytes, leaving 128,560 bytes in the unchanged 7,274,496-byte OTA slot. Static
+DIRAM is 243,484 bytes and external static RAM is 100,628 bytes. Individual
+frames include companion 352/12,288, diagnostic 208/3,072 and calibration
+320/3,072 bytes; these are not complete nested chains or measured watermarks.
+The final flash's immutable build stamp is 14/10/26 17:46 in the compiling PC's
+local timezone. No firmware image or local build output was secret-scanned.
+
+COM10 flash verified the written hash. The installed image SHA256 is
+`58cdc468987e3fd27c0e3095119c1e7cdc8221bd6f515808d0cdee699e8ce16e`.
+The following 60-second passive capture completed without a captured panic or
+backtrace. It retained accepted SD/PCB timeouts, real HAR cadence rejection and
+seven USB log losses; it does not establish gait accuracy or exhaustive logs.
+The final ELF, map, image and metadata are preserved in four-panel-installed-release176.
+
+All 25 registered PC plugin files were backed up, replaced from this tested
+source and verified by hash. Only the exact installed CCP broker was restarted.
+Authenticated physical LAN presence resumed with pairing retained; name Umberto,
+Asia/Ho_Chi_Minh timezone and disabled quiet hours were read back from the device.
+The preserved 22:00-07:00 schedule is inactive. Restart clears followed activity
+until a genuine user prompt; no hook was fabricated to restore it. The native
+audio endpoint remains unconfigured, independently of successful LAN pairing.
+
+Evidence is under artifacts/build-cody-companion-wake-word-evidence/home-tokens-20261014:
+four-panel-final build/size/frame/flash/capture logs, four-panel-final-evidence
+native previews and the dedicated plugin-cache backup. No physical voice,
+gait, optical display accuracy or complete stack-headroom validation is claimed.
 
 ## Occupied context progress, independent Still and taller ribbon - 2026-10-14
 
