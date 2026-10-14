@@ -1207,7 +1207,8 @@ public:
     // pairing: Coherent async controller observation, without any secret payload.
     void reportPairingSession(const PairingSessionSnapshot &pairing);
     // codex_link: Coherent commissioning/liveness state, without code or key material.
-    void reportCodexLink(const CodexLinkSnapshot &codex_link);
+    // Exception: Returns and logs the original canonical publication failure.
+    esp_err_t reportCodexLink(const CodexLinkSnapshot &codex_link);
     void reportBle(
         bool ready,
         esp_err_t error,

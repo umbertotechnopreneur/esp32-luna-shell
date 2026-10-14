@@ -112,6 +112,8 @@ bool s_network_ready_pending = false;
 uint32_t s_network_ready_attempt_id = 0;
 int s_socket = -1;
 LUNASHELL::CodexLinkSnapshot s_link_snapshot{};
+bool s_link_publication_pending = false;
+int64_t s_link_publication_retry_at_us = 0;
 PersistedLink s_persisted_link{};
 bool s_link_present = false;
 PersistedLink s_candidate_link{};
@@ -523,8 +525,23 @@ esp_err_t deriveVerifier(
     return error;
 }
 
+// No parameters: Synchronous owner publication under s_mutex; failed work remains queued.
+// Exception: Returns the real publication error and records degraded owner state for retry.
+esp_err_t publishLinkObservationLocked()
+{
+    const esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
+    s_link_publication_pending = error != ESP_OK;
+    if (error != ESP_OK) {
+        s_link_snapshot.last_error = error;
+        s_link_snapshot.health = LUNASHELL::DeviceHealth::Degraded;
+        s_link_publication_retry_at_us = esp_timer_get_time() + kFindIntervalUs;
+    }
+    return error;
+}
+
 // state: Confirmed service state or admitted pending command.
 // error: Original operation error.
+// Exception: An asynchronous projection failure remains logged, degraded and queued for the worker.
 void publishLocked(State state, esp_err_t error)
 {
     const int64_t now_us = esp_timer_get_time();
@@ -551,7 +568,9 @@ void publishLocked(State state, esp_err_t error)
     if (error == ESP_OK) {
         s_link_snapshot.last_success_at_us = now_us;
     }
-    LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
+    // Runtime projection is retryable; this owner retains the real error and
+    // pending publication rather than treating the failed update as completion.
+    publishLinkObservationLocked();
 }
 
 // No parameters: erases the current display code and ephemeral pairing secrets.
@@ -2148,7 +2167,7 @@ esp_err_t acceptActivity(const ActivityResponse &response)
             s_link_snapshot.activity.state != activity.state ||
             std::strcmp(s_link_snapshot.activity.chat_id, activity.chat_id) != 0;
         s_link_snapshot.activity = activity;
-        error = LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
+        error = publishLinkObservationLocked();
         s_activity_received_for_nonce = error == ESP_OK;
         if (transition && error == ESP_OK) {
             ESP_LOGI(kTag, "CCP ACTIVITY authenticated: state=%u selected=%s",
@@ -3491,6 +3510,10 @@ void maintainState()
     uint32_t attempt_id = 0;
     {
         std::lock_guard<std::mutex> guard(s_mutex);
+        if (s_link_publication_pending && esp_timer_get_time() >= s_link_publication_retry_at_us &&
+            publishLinkObservationLocked() != ESP_OK) {
+            return;
+        }
         consumeNetworkReadyLocked();
         if (s_pending != Command::None) {
             return;
@@ -3550,7 +3573,9 @@ void maintainState()
             activity.data_stale = true;
             activity.last_error = ESP_ERR_TIMEOUT;
             activity.health = LUNASHELL::DeviceHealth::Degraded;
-            LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
+            if (publishLinkObservationLocked() != ESP_OK) {
+                return;
+            }
             ESP_LOGW(kTag, "CCP activity expired: no authenticated snapshot for eight seconds");
         }
     }
