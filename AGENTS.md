@@ -59,10 +59,13 @@ instruction file; do not add parallel agent or Copilot contracts.
   rotate touch independently. Read
   [circular-display-layout](docs/bsp/boards/waveshare-esp32s3-touch-amoled-1.75/display-geometry.md) before
   changing layouts.
-- Cody Home keeps the character and status fixed above rotating Tokens, Model
-  and Connection panels. Tap advances; deliberate shake returns to Tokens.
-  Long chat titles hold Connection until their horizontal scroll completes.
+- Cody Home keeps the character and status fixed above rotating Tokens, Model,
+  Connection and Chat panels. Tap advances; deliberate shake returns to Tokens.
+  Long titles/activity hold Chat until their horizontal scroll completes;
+  Connection also allows complete reading of build date, PC timezone and hostname.
   Home panels have no Back control. Setup, remote questions and Luna retain routes.
+  The @CCP footer makes three complete passes per display-owner lifetime, then
+  disappears; source gaps, standby and chat/panel changes pause it without replay.
 
 ## Code clarity
 

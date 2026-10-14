@@ -59,6 +59,7 @@ struct HostScene {
     CODY::ActivityIdentityState activity_identity{};
     CODY::PanelPresentation companion_panel{};
     LUNASHELL::CodexTechnicalObservation panel_observation{};
+    LUNASHELL::FirmwareBuildMetadata simulated_build_metadata{};
     const CODY::HomeDashboardPresentation *home_dashboard = nullptr;
     const CODY::HomeIdentityPresentation *home_identity = nullptr;
     const CODY::CommandHintsState *home_commands = nullptr;
@@ -163,6 +164,12 @@ struct HostPanelObservation {
     uint64_t simulated_stillness_age_us;
     uint8_t simulated_motion_rejection;
     int32_t simulated_motion_error;
+    const char *device_id;
+    const char *simulated_build_local_date_time;
+    const char *simulated_build_time_zone;
+    const char *simulated_build_computer;
+    uint8_t simulated_build_clock_state;
+    uint8_t simulated_build_computer_state;
 };
 
 // source: Borrowed NUL-terminated printable ASCII producer string.
@@ -508,6 +515,7 @@ static esp_err_t project_host_panel_observation(const HostPanelObservation *sour
     auto &link = observation.link;
     auto &technical = observation.technical;
     esp_err_t error = copy_panel_source(source->project, link.activity.project);
+    if (error == ESP_OK) { error = copy_panel_source(source->device_id, link.device_id); }
     if (error == ESP_OK) { error = copy_panel_source(source->branch, link.activity.branch); }
     if (error == ESP_OK) { error = copy_panel_source(source->description, link.activity.description); }
     if (error == ESP_OK) { error = copy_panel_source(source->chat_id, link.activity.chat_id); }
@@ -606,7 +614,7 @@ CODY_HOST_EXPORT int cody_host_panel_observation(void *handle, uint8_t panel,
 
 // handle: Recreated native frame borrowing the persistent dashboard until raster retirement.
 // state: Host owner retained across frames; prepared glyphs never borrow stack storage.
-// panel: Explicit Home, Model or Session lower-panel identity.
+// panel: Explicit Home, ModelContext, SessionLink or ChatActivity lower-panel identity.
 // source: Original PC-only observation; existing canonical-shaped projection owns age admission.
 // active_time_us: Pausable presentation clock, never a token source timestamp.
 // Exception: Returns original projection, formatting and native layout errors.
@@ -617,6 +625,8 @@ CODY_HOST_EXPORT int cody_host_home_dashboard(void *handle, void *state, uint8_t
         source->simulated_motion > static_cast<uint8_t>(LUNASHELL::ActivityClass::Walking) ||
         source->simulated_motion_rejection > static_cast<uint8_t>(LUNASHELL::ActivityRejection::Suspended) ||
         source->simulated_stillness > static_cast<uint8_t>(LUNASHELL::ImuStillnessState::Still) ||
+        source->simulated_build_clock_state > static_cast<uint8_t>(LUNASHELL::FirmwareBuildFieldState::Error) ||
+        source->simulated_build_computer_state > static_cast<uint8_t>(LUNASHELL::FirmwareBuildFieldState::Error) ||
         source->simulated_motion_age_us >= static_cast<uint64_t>(INT64_MAX) ||
         source->simulated_stillness_age_us >= static_cast<uint64_t>(INT64_MAX)) {
         return host_result("home_dashboard", ESP_ERR_INVALID_ARG);
@@ -625,6 +635,15 @@ CODY_HOST_EXPORT int cody_host_home_dashboard(void *handle, void *state, uint8_t
     auto &owner = static_cast<HostState *>(state)->home_dashboard;
     esp_err_t error = project_host_panel_observation(source, frame.panel_observation);
     if (error != ESP_OK) { return error; }
+    // Preview metadata is supplied explicitly. The host never substitutes its
+    // own machine clock or compiler identity for physical firmware metadata.
+    auto &build = frame.simulated_build_metadata;
+    error = copy_panel_source(source->simulated_build_local_date_time, build.local_date_time);
+    if (error == ESP_OK) { error = copy_panel_source(source->simulated_build_time_zone, build.time_zone); }
+    if (error == ESP_OK) { error = copy_panel_source(source->simulated_build_computer, build.computer); }
+    if (error != ESP_OK) { return host_result("home_build_metadata", error); }
+    build.clock_state = static_cast<LUNASHELL::FirmwareBuildFieldState>(source->simulated_build_clock_state);
+    build.computer_state = static_cast<LUNASHELL::FirmwareBuildFieldState>(source->simulated_build_computer_state);
     // Only explicit SIMULATED inputs populate these independent owner projections.
     // No stationary threshold, hold rule or classifier runs in the host driver.
     LUNASHELL::ActivitySnapshot motion{};
@@ -651,13 +670,14 @@ CODY_HOST_EXPORT int cody_host_home_dashboard(void *handle, void *state, uint8_t
         motion.stillness.sampled_at_us = source_time - static_cast<int64_t>(source->simulated_stillness_age_us);
     }
     CODY::SceneContent content{};
+    const CODY::HomeDeviceDetails device_details{&build};
     error = CODY::prepare_home_dashboard(static_cast<CODY::CompanionPanel>(panel),
         frame.panel_observation.link, frame.panel_observation.technical,
         CODY::HomeFonts::value_font, CODY::SceneData::body_font,
         source_time, active_time_us, owner, content,
         &motion, &CODY::HomeFonts::small_font, source->device_ip,
         source->device_ip_valid ? CODY::PanelValueState::Current : CODY::PanelValueState::Unavailable,
-        static_cast<HostState *>(state)->home_rotation.elapsed_us);
+        static_cast<HostState *>(state)->home_rotation.elapsed_us, &device_details);
     if (error == ESP_OK) {
         frame.companion_panel.valid = false;
         frame.home_dashboard = &owner;
@@ -690,7 +710,7 @@ CODY_HOST_EXPORT int cody_host_home_presented(void *handle, void *state, bool co
 }
 
 // handle: Current native frame retaining its title bytes through raster retirement.
-// state: Persistent model-marquee owner shared by all three Home pages.
+// state: Persistent model-marquee owner shared by all four Home pages.
 // source: Canonical-shaped PC observation with original freshness and health.
 // title: Existing authored Home title, never inferred from model metadata.
 // visible_characters: Existing typewriter prefix, unchanged by the shared layout helper.
@@ -724,13 +744,15 @@ CODY_HOST_EXPORT int cody_host_home_identity(void *handle, void *state,
             static_cast<int64_t>(source->receipt_age_us) + 1, "", inputs);
         if (error != ESP_OK) { return host_result("home_command_source", error); }
         const bool connected = link.data_valid && !link.data_stale &&
+            link.health == LUNASHELL::DeviceHealth::Ready && link.last_error == ESP_OK &&
             link.state == LUNASHELL::CodexLinkState::Connected;
         const bool urgent = inputs.phase == LUNASHELL::CodexActivityState::Paused ||
             inputs.phase == LUNASHELL::CodexActivityState::Interrupted ||
             inputs.compaction == LUNASHELL::CodexCompactionState::Active;
+        const bool narrative_visible = visible_characters == frame.home_frame.title.text.length;
         bool changed = false;
         error = CODY::update_command_hints(commands, CODY::SceneData::body_font, connected,
-            !urgent, link.activity.chat_id, active_time_us, changed);
+            !urgent && narrative_visible, active_time_us, changed);
         if (error == ESP_OK) {
             frame.home_identity = &owner;
             frame.home_commands = &commands;

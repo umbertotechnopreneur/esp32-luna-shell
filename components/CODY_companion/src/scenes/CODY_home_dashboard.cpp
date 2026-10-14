@@ -248,13 +248,10 @@ ArcColor occupancy_arc_color(uint64_t used, uint64_t capacity)
 // body_font: Actual label glyphs and bounded large-count fallback.
 // small_font: Actual secondary-row glyphs, never a resampled bitmap.
 // active_time_us: Local animation clock, independent of observation age.
-// motion: Optional independently acquired canonical activity result.
-// now_us: Original monotonic observation time, used only for motion freshness.
 // Exception: Propagates original numeric, text and ribbon preparation failures.
 esp_err_t prepare_arc(HomeDashboardPresentation &owner, const PanelInputs &inputs,
     const CODY2D::MonoFont &title_font, const CODY2D::MonoFont &body_font,
-    const CODY2D::MonoFont &small_font, int64_t active_time_us,
-    const LUNASHELL::ActivitySnapshot *motion, int64_t now_us)
+    const CODY2D::MonoFont &small_font, int64_t active_time_us)
 {
     PanelMetric available{};
     if (inputs.context_coherent && inputs.used.state == PanelValueState::Current &&
@@ -344,35 +341,6 @@ esp_err_t prepare_arc(HomeDashboardPresentation &owner, const PanelInputs &input
         }
     }
     if (error != ESP_OK) { return error; }
-    const auto &duration = compacting ? inputs.compaction_elapsed_us : inputs.turn_elapsed_us;
-    if (duration.state == PanelValueState::Current) {
-        const uint64_t seconds = duration.value / 1000000;
-        std::snprintf(caption, sizeof(caption), "%02llu:%02llu",
-            static_cast<unsigned long long>(seconds / 60), static_cast<unsigned long long>(seconds % 60));
-    } else {
-        std::snprintf(caption, sizeof(caption), "%s", metric_status(duration.state));
-    }
-    const char *motion_text = motion_caption(motion, now_us);
-    char motion_error[24]{};
-    // A classifier error cannot replace a healthy independent IMU Still observation.
-    if (motion != nullptr && !is_current_imu_stillness(motion->stillness, now_us) &&
-        motion->error != ESP_OK && motion->rejection != LUNASHELL::ActivityRejection::CadenceGap) {
-        std::snprintf(motion_error, sizeof(motion_error), "IMU error 0x%X", static_cast<unsigned>(motion->error));
-        motion_text = motion_error;
-    }
-    char status_line[48]{};
-    const int status_length = std::snprintf(status_line, sizeof(status_line), "%s | %s", caption, motion_text);
-    const uint16_t status_top = stacked ? 350 : 343;
-    const uint16_t status_width = stacked ? 240 : 288;
-    if (status_length > 0 && status_length < static_cast<int>(sizeof(status_line)) && text_width(body_font, status_line) <= status_width) {
-        // The narrower native body face keeps timer and motion together inside the arc's inner boundary.
-        error = add_line(owner, body_font, status_line, status_top, compacting ? kAmber : kWhite);
-    } else {
-        // Exceptional duration widths alternate honestly; ordinary standing/walking remains alongside the timer.
-        const char *selected = (active_time_us / 5000000) % 2 == 0 ? caption : motion_text;
-        error = add_line(owner, body_font, selected, status_top, compacting ? kAmber : kWhite);
-    }
-    if (error != ESP_OK) { return error; }
     owner.arc_units = available.state == PanelValueState::Current
         ? occupancy_arc_units(inputs.used.value, inputs.capacity.value) : 0;
     owner.animation_step = compacting ? static_cast<uint16_t>(active_time_us / 100000 % kHomeDashboardSegments) : 0;
@@ -441,74 +409,100 @@ const char *chat_title_text(const LUNASHELL::CodexActivitySnapshot &activity, in
     return activity.title;
 }
 
-// owner: Serialized component storage; its window borrows only its own complete text.
-// activity: Canonical chat title and identity, independent of PC-link liveness.
-// font: Immutable body glyph metrics used for both native width and reading duration.
-// now_us: Real clock used exclusively for the title lease.
+// owner: Serialized dashboard retaining the longest reading duration of its visible rows.
+// row: Persistent text/window storage; no source pointer survives preparation.
+// text: Genuine bounded source text or an explicit authored unavailable state.
+// source_limit: Maximum source bytes before its required terminator.
+// prefix: Short authored label, never a synthesized source value.
+// identity: Canonical chat identity or empty for immutable device metadata.
+// font: Immutable glyph metrics used by both native raster and reading duration.
+// bounds: Logical clipped row, wholly inside the lower panel's circular chord.
+// color: Native RGB565 semantic foreground.
 // elapsed_us: Visible shared-carousel dwell, frozen with hidden routes and held gestures.
-// restart: True when entering the Session panel or recovering an invalid presentation.
-// Exception: Returns malformed text/font/clock errors without truncating the original title.
-esp_err_t prepare_chat_title(HomeDashboardPresentation &owner, const LUNASHELL::CodexActivitySnapshot &activity,
-    const CODY2D::MonoFont &font, int64_t now_us, int64_t elapsed_us, bool restart)
+// restart: True when entering this panel or recovering an invalid presentation.
+// read_short: A replaced chat title receives a complete dwell even when it fits without scrolling.
+// entry_deadline: Changing live activity keeps its reading deadline relative to panel entry, never each tool update.
+// Exception: Returns malformed source/font/clock errors without truncating genuine text.
+esp_err_t prepare_text_marquee(HomeDashboardPresentation &owner, HomeTextMarquee &row,
+    const char *text, size_t source_limit, const char *prefix, const char *identity,
+    const CODY2D::MonoFont &font, CODY2D::Rect bounds, uint16_t color,
+    int64_t elapsed_us, bool restart, bool read_short = false, bool entry_deadline = false)
 {
-    auto &title = owner.chat_title;
-    const char *text = chat_title_text(activity, now_us);
-    const size_t length = std::strlen(text);
-    if (length == 0 || length >= sizeof(title.text) || font.height > kHomeChatTitleBounds.height || elapsed_us < 0) {
-        return dashboard_result("chat_title_value", ESP_ERR_INVALID_SIZE);
+    if (text == nullptr || prefix == nullptr || identity == nullptr || font.advance == 0 ||
+        font.height > bounds.height || bounds.width == 0 || elapsed_us < 0 || source_limit >= sizeof(row.text)) {
+        return dashboard_result("marquee_value", ESP_ERR_INVALID_ARG);
     }
+    size_t source_length = 0;
+    while (source_length <= source_limit && text[source_length] != '\0') { ++source_length; }
+    const size_t prefix_length = std::strlen(prefix);
+    const size_t length = prefix_length + source_length;
+    size_t identity_length = 0;
+    while (identity_length < sizeof(row.chat_id) && identity[identity_length] != '\0') { ++identity_length; }
+    if (source_length > source_limit || length == 0 || length >= sizeof(row.text) || identity_length >= sizeof(row.chat_id)) {
+        return dashboard_result("marquee_length", ESP_ERR_INVALID_SIZE);
+    }
+    bool replaced = restart || row.font != &font || elapsed_us < row.started_elapsed_us ||
+        row.length != length || std::strcmp(row.chat_id, identity) != 0 ||
+        row.bounds.x != bounds.x || row.bounds.y != bounds.y ||
+        row.bounds.width != bounds.width || row.bounds.height != bounds.height || row.window.color != color;
     for (size_t index = 0; index < length; ++index) {
-        if (text[index] < 32 || text[index] > 126) { return dashboard_result("chat_title_ascii", ESP_ERR_INVALID_ARG); }
+        const char character = index < prefix_length ? prefix[index] : text[index - prefix_length];
+        if (character < 32 || character > 126) { return dashboard_result("marquee_ascii", ESP_ERR_INVALID_ARG); }
+        replaced = replaced || row.text[index] != character;
     }
-    const uint32_t width = text_width(font, text);
-    if (width > UINT16_MAX) { return dashboard_result("chat_title_width", ESP_ERR_INVALID_SIZE); }
-    const bool replaced = restart || title.font != &font || elapsed_us < title.started_elapsed_us ||
-        std::strcmp(title.text, text) != 0 || std::strcmp(title.chat_id, activity.chat_id) != 0;
+    const uint32_t width = static_cast<uint32_t>((length - 1U) * font.advance + font.width);
+    if (width > UINT16_MAX) { return dashboard_result("marquee_width", ESP_ERR_INVALID_SIZE); }
+    if (restart || row.font == nullptr || elapsed_us < row.entered_elapsed_us) { row.entered_elapsed_us = elapsed_us; }
     if (replaced) {
-        std::memcpy(title.text, text, length + 1U);
-        std::memcpy(title.chat_id, activity.chat_id, sizeof(title.chat_id));
-        title.font = &font;
-        title.length = static_cast<uint16_t>(length);
-        title.width = static_cast<uint16_t>(width);
-        title.started_elapsed_us = elapsed_us;
-        title.offset = 0;
-        ++title.revision;
+        std::memcpy(row.text, prefix, prefix_length);
+        std::memcpy(row.text + prefix_length, text, source_length + 1U);
+        std::memcpy(row.chat_id, identity, identity_length + 1U);
+        row.font = &font;
+        row.length = static_cast<uint16_t>(length);
+        row.width = static_cast<uint16_t>(width);
+        row.bounds = bounds;
+        row.started_elapsed_us = elapsed_us;
+        row.offset = 0;
+        ++row.revision;
     }
     constexpr int64_t start_hold_us = 1200000;
     constexpr int64_t end_hold_us = 1800000;
     constexpr int64_t step_us = 50000;
     constexpr uint16_t pixels_per_step = 2;
-    const uint16_t overflow = width > kHomeChatTitleBounds.width ? width - kHomeChatTitleBounds.width : 0;
-    title.reading_us = std::max<int64_t>(kHomeDashboardRotationUs,
+    const uint16_t overflow = width > bounds.width ? width - bounds.width : 0;
+    row.reading_us = std::max<int64_t>(kHomeDashboardRotationUs,
         start_hold_us + ((overflow + pixels_per_step - 1U) / pixels_per_step) * step_us + end_hold_us);
-    if (title.started_elapsed_us > INT64_MAX - title.reading_us) {
-        return dashboard_result("chat_title_dwell", ESP_ERR_INVALID_SIZE);
+    const int64_t reading_origin = entry_deadline ? row.entered_elapsed_us : row.started_elapsed_us;
+    if (reading_origin > INT64_MAX - row.reading_us) {
+        return dashboard_result("marquee_dwell", ESP_ERR_INVALID_SIZE);
     }
-    owner.minimum_dwell_us = title.started_elapsed_us + title.reading_us;
-    const int64_t elapsed = elapsed_us - title.started_elapsed_us;
+    if (overflow != 0 || read_short) {
+        owner.minimum_dwell_us = std::max(owner.minimum_dwell_us, reading_origin + row.reading_us);
+    }
+    const int64_t elapsed = elapsed_us - row.started_elapsed_us;
     const uint16_t offset = elapsed < start_hold_us ? 0 : static_cast<uint16_t>(std::min<int64_t>(overflow,
         ((elapsed - start_hold_us) / step_us) * pixels_per_step));
-    if (offset != title.offset) { title.offset = offset; ++title.revision; }
-    const uint16_t first = title.offset / font.advance;
-    const uint16_t fraction = title.offset % font.advance;
-    const uint16_t capacity = (kHomeChatTitleBounds.width + font.advance - 1U) / font.advance + 1U;
-    const uint16_t count = std::min<uint16_t>(title.length - first, capacity);
-    const int16_t left = overflow != 0 ? static_cast<int16_t>(kHomeChatTitleBounds.x - fraction) :
-        static_cast<int16_t>((466U - title.width) / 2U);
-    return CODY2D::prepare_text_line(font, {title.text + first, count},
-        {left, static_cast<int16_t>(kHomeChatTitleBounds.y)}, kWhite, title.window);
+    if (offset != row.offset) { row.offset = offset; ++row.revision; }
+    const uint16_t first = row.offset / font.advance;
+    const uint16_t fraction = row.offset % font.advance;
+    const uint16_t capacity = (bounds.width + font.advance - 1U) / font.advance + 1U;
+    const uint16_t count = std::min<uint16_t>(row.length - first, capacity);
+    const int16_t left = overflow != 0 ? static_cast<int16_t>(bounds.x - fraction) :
+        static_cast<int16_t>(bounds.x + (bounds.width - row.width) / 2U);
+    return CODY2D::prepare_text_line(font, {row.text + first, count},
+        {left, static_cast<int16_t>(bounds.y)}, color, row.window);
 }
 
-// title: Immutable prepared native window borrowing component-owned title storage.
+// row: Immutable prepared native window borrowing component-owned text storage.
 // strip: Caller-owned tile with its original RGB565 order and stride.
 // first_row: Logical tile y origin.
 // first_column: Logical tile x origin.
-// Exception: Returns original native text errors; writes remain inside the title viewport.
-esp_err_t draw_chat_title(const HomeChatTitlePresentation &title, CODY2D::Surface strip,
+// Exception: Returns original native text errors; writes remain inside the admitted viewport.
+esp_err_t draw_text_marquee(const HomeTextMarquee &row, CODY2D::Surface strip,
                          uint16_t first_row, uint16_t first_column)
 {
-    if (!title.window.valid) { return ESP_OK; }
-    const auto &bounds = kHomeChatTitleBounds;
+    if (!row.window.valid) { return ESP_OK; }
+    const auto &bounds = row.bounds;
     const uint16_t left = std::max(first_column, bounds.x);
     const uint16_t right = std::min<uint16_t>(first_column + strip.width, bounds.x + bounds.width);
     const uint16_t top = std::max(first_row, bounds.y);
@@ -519,7 +513,44 @@ esp_err_t draw_chat_title(const HomeChatTitlePresentation &title, CODY2D::Surfac
     strip.pixel_capacity -= skipped;
     strip.width = right - left;
     strip.height = bottom - top;
-    return CODY2D::draw_text_rows(title.window, title.window.text.length, strip, top, left);
+    return CODY2D::draw_text_rows(row.window, row.window.text.length, strip, top, left);
+}
+
+// inputs: Validated canonical activity fields; descriptions remain genuine source text.
+const char *chat_activity_text(const PanelInputs &inputs)
+{
+    if (inputs.activity == PanelValueState::Stale) { return "Activity STALE"; }
+    if (inputs.activity == PanelValueState::Invalid) { return "Activity INVALID"; }
+    if (inputs.activity != PanelValueState::Current) { return "Activity UNAVAILABLE"; }
+    using Phase = LUNASHELL::CodexActivityState;
+    if (inputs.phase != Phase::None && inputs.phase != Phase::Unavailable && inputs.description[0] != '\0') {
+        return inputs.description;
+    }
+    switch (inputs.phase) {
+    case Phase::Active: return "Active";
+    case Phase::Working: return "Working";
+    case Phase::Editing: return "Editing code";
+    case Phase::Running: return "Running command";
+    case Phase::ResponseReady: return "Reply ready";
+    case Phase::Paused: return "Waiting for you";
+    case Phase::Interrupted: return "Interrupted";
+    case Phase::Ended: return "Ended";
+    default: return "Activity UNAVAILABLE";
+    }
+}
+
+// state: Immutable build owner's explicit availability, never inferred from the current device clock.
+// value: Exact captured compiler-machine text, used only while its owner marks it available.
+const char *build_field_text(LUNASHELL::FirmwareBuildFieldState state, const char *value)
+{
+    using State = LUNASHELL::FirmwareBuildFieldState;
+    switch (state) {
+    case State::Available: return value;
+    case State::Unavailable: return "UNAVAILABLE";
+    case State::Unsupported: return "UNSUPPORTED";
+    case State::Error: return "ERROR";
+    }
+    return nullptr;
 }
 } // namespace
 
@@ -531,7 +562,7 @@ void reset_home_dashboard_rotation(HomeDashboardRotationState &state)
 }
 
 // state: Serialized active-time sample and accumulated visible dwell.
-// current: Canonical selected Home, ModelContext or SessionLink panel.
+// current: Canonical selected Tokens, ModelContext, SessionLink or ChatActivity panel.
 // active_us: Monotonic presentation clock, never an observation receipt timestamp.
 // visible: Hidden routes suspend sampling and preserve their already displayed dwell.
 // compacting: Authenticated current compaction reserves Home until the source reports completion.
@@ -543,7 +574,7 @@ esp_err_t advance_home_dashboard_rotation(HomeDashboardRotationState &state,
     int64_t minimum_dwell_us)
 {
     const bool known_panel = current == CompanionPanel::Home || current == CompanionPanel::ModelContext ||
-        current == CompanionPanel::SessionLink;
+        current == CompanionPanel::SessionLink || current == CompanionPanel::ChatActivity;
     if (!known_panel || active_us < 0 || state.sampled_us < -1 || state.elapsed_us < 0 ||
         minimum_dwell_us < kHomeDashboardRotationUs ||
         (state.sampled_us >= 0 && active_us < state.sampled_us)) {
@@ -588,11 +619,31 @@ esp_err_t next_home_dashboard_panel(CompanionPanel current, CompanionPanel &next
     switch (current) {
     case CompanionPanel::Home: next = CompanionPanel::ModelContext; break;
     case CompanionPanel::ModelContext: next = CompanionPanel::SessionLink; break;
-    case CompanionPanel::SessionLink: next = CompanionPanel::Home; break;
+    case CompanionPanel::SessionLink: next = CompanionPanel::ChatActivity; break;
+    case CompanionPanel::ChatActivity: next = CompanionPanel::Home; break;
     case CompanionPanel::Activity: next = CompanionPanel::Home; break;
     default: return dashboard_result("next_panel", ESP_ERR_INVALID_ARG);
     }
     return ESP_OK;
+}
+
+// presentation: Current prepared panel with persistent native marquee windows.
+// panel_elapsed_us: Shared visible carousel time; hidden time must not advance it.
+// Returns whether any visible text currently needs the existing 50-ms animation cadence.
+bool home_dashboard_marquee_moving(const HomeDashboardPresentation &presentation, int64_t panel_elapsed_us)
+{
+    if (!presentation.valid || panel_elapsed_us < 0) { return false; }
+    // row: Component-owned original start time and current admitted viewport.
+    const auto moving = [&](const HomeTextMarquee &row) {
+        return row.window.valid && row.width > row.bounds.width &&
+            panel_elapsed_us >= row.started_elapsed_us && panel_elapsed_us - row.started_elapsed_us >= 1200000 &&
+            row.offset < row.width - row.bounds.width;
+    };
+    if (presentation.panel == CompanionPanel::ChatActivity && moving(presentation.chat_title)) { return true; }
+    for (uint8_t index = 0; index < presentation.marquee_count; ++index) {
+        if (moving(presentation.detail_marquees[index])) { return true; }
+    }
+    return false;
 }
 
 // panel: Selected lower dashboard identity, never an entire-screen replacement.
@@ -609,13 +660,15 @@ esp_err_t next_home_dashboard_panel(CompanionPanel current, CompanionPanel &next
 // device_ip: Canonical local-device Wi-Fi address, distinct from the paired PC.
 // device_ip_state: Independent current/stale/invalid/unavailable address state.
 // panel_elapsed_us: Shared visible dwell; negative selects the standalone caller's active clock.
+// device_details: Borrowed immutable compilation metadata; null leaves those fields unavailable.
 // Exception: Logs and returns original projection, glyph, size or geometry errors.
 esp_err_t prepare_home_dashboard(CompanionPanel panel,
     const LUNASHELL::CodexLinkSnapshot &link, const LUNASHELL::CodexTechnicalSnapshot &technical,
     const CODY2D::MonoFont &title_font, const CODY2D::MonoFont &body_font,
     int64_t now_us, int64_t active_time_us, HomeDashboardPresentation &presentation,
     SceneContent &content, const LUNASHELL::ActivitySnapshot *motion, const CODY2D::MonoFont *small_font,
-    const char *device_ip, PanelValueState device_ip_state, int64_t panel_elapsed_us)
+    const char *device_ip, PanelValueState device_ip_state, int64_t panel_elapsed_us,
+    const HomeDeviceDetails *device_details)
 {
     const bool previously_valid = presentation.valid;
     const auto previous_panel = presentation.panel;
@@ -623,6 +676,11 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
     const auto previous_units = presentation.arc_units;
     const auto previous_step = presentation.animation_step;
     const auto previous_title_revision = presentation.chat_title.revision;
+    uint32_t previous_marquee_revisions[3]{};
+    for (unsigned index = 0; index < std::size(presentation.detail_marquees); ++index) {
+        previous_marquee_revisions[index] = presentation.detail_marquees[index].revision;
+        presentation.detail_marquees[index].window.valid = false;
+    }
     std::memcpy(presentation.prior_captions, presentation.captions, sizeof(presentation.captions));
     for (unsigned index = 0; index < std::size(presentation.lines); ++index) {
         presentation.prior_colors[index] = presentation.lines[index].color;
@@ -630,17 +688,17 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
         presentation.prior_fonts[index] = presentation.lines[index].font;
     }
     presentation.valid = false;
-    presentation.line_count = presentation.arc_path_count = 0;
+    presentation.line_count = presentation.arc_path_count = presentation.marquee_count = 0;
     presentation.price_visible = false;
     presentation.minimum_dwell_us = kHomeDashboardRotationUs;
-    presentation.chat_title.window = {};
+    presentation.chat_title.window.valid = false;
     presentation.price_capsule = {};
     presentation.arc_units = presentation.animation_step = 0;
     presentation.arc_state = HomeDashboardArcState::Unavailable;
     presentation.panel = panel;
     for (auto &caption : presentation.captions) { caption[0] = '\0'; }
     for (auto &line : presentation.lines) { line = {}; }
-    if (panel > CompanionPanel::SessionLink || panel == CompanionPanel::Activity || active_time_us < 0 ||
+    if (panel > CompanionPanel::ChatActivity || panel == CompanionPanel::Activity || active_time_us < 0 ||
         device_ip == nullptr || static_cast<unsigned>(device_ip_state) > static_cast<unsigned>(PanelValueState::Invalid)) { return dashboard_result("prepare_input", ESP_ERR_INVALID_ARG); }
     const auto &secondary_font = small_font == nullptr ? body_font : *small_font;
     esp_err_t error = CODY2D::validate_mono_font(title_font);
@@ -650,8 +708,10 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
     PanelInputs inputs{};
     error = project_companion_panel_inputs(link, technical, now_us, "", inputs);
     if (error != ESP_OK) { return error; }
+    const int64_t elapsed_us = panel_elapsed_us < 0 ? active_time_us : panel_elapsed_us;
+    const bool restart = !previously_valid || previous_panel != panel;
     if (panel == CompanionPanel::Home) {
-        error = prepare_arc(presentation, inputs, title_font, body_font, secondary_font, active_time_us, motion, now_us);
+        error = prepare_arc(presentation, inputs, title_font, body_font, secondary_font, active_time_us);
     } else if (panel == CompanionPanel::ModelContext) {
         char caption[48]{};
         // The shared header owns model identity; this panel complements it with price and effort.
@@ -679,46 +739,107 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
             const auto &effort_font = text_width(secondary_font, caption) <= 320 ? secondary_font : body_font;
             error = add_line(presentation, effort_font, caption, 350, kMuted);
         }
-    } else {
+    } else if (panel == CompanionPanel::SessionLink) {
         char caption[48]{};
         const char *status = inputs.link != PanelValueState::Current ? metric_status(inputs.link) :
             inputs.connected ? "PC connected" : link.retained_link_present && link.state == LUNASHELL::CodexLinkState::Discovering
                 ? "Reconnecting" : "PC disconnected";
         if (link.last_error != ESP_OK && link.state != LUNASHELL::CodexLinkState::Discovering) {
-            std::snprintf(caption, sizeof(caption), "Link error 0x%X", static_cast<unsigned>(link.last_error));
+            std::snprintf(caption, sizeof(caption), "Link 0x%X", static_cast<unsigned>(link.last_error));
             status = caption;
         }
-        error = add_line(presentation, body_font, status, 276,
+        if (secondary_font.height > 18) { return dashboard_result("device_font_height", ESP_ERR_INVALID_SIZE); }
+        error = add_line(presentation, secondary_font, status, 268,
             inputs.link == PanelValueState::Current && inputs.connected && link.last_error == ESP_OK ? kMint : kWhite);
-        if (error == ESP_OK) {
-            error = prepare_chat_title(presentation, link.activity, body_font, now_us,
-                panel_elapsed_us < 0 ? active_time_us : panel_elapsed_us,
-                !previously_valid || previous_panel != panel);
-        }
         if (error == ESP_OK) {
             if (device_ip_state == PanelValueState::Current && (device_ip[0] == '\0' || std::strlen(device_ip) > 15)) {
                 return dashboard_result("device_ip_value", ESP_ERR_INVALID_ARG);
             }
-            const int count = std::snprintf(caption, sizeof(caption), "Device IP %s",
+            const int count = std::snprintf(caption, sizeof(caption), "IP %s",
                 device_ip_state == PanelValueState::Current ? device_ip : metric_status(device_ip_state));
             if (count < 0 || count >= static_cast<int>(sizeof(caption))) { return dashboard_result("device_ip_format", ESP_ERR_INVALID_SIZE); }
-            if (text_width(secondary_font, caption) <= 320) {
-                error = add_line(presentation, secondary_font, caption, 362, kMuted);
-            } else {
-                // Full IPv4 values keep every octet in the same panel instead of scrolling or clipping.
-                error = add_line(presentation, secondary_font, "Device IP", 346, kMuted);
-                if (error == ESP_OK) {
-                    error = add_line(presentation, secondary_font,
-                        device_ip_state == PanelValueState::Current ? device_ip : metric_status(device_ip_state), 370, kWhite);
+            error = add_line(presentation, secondary_font, caption, 288, kMuted);
+        }
+        if (error == ESP_OK) {
+            size_t identity_length = 0;
+            while (identity_length < sizeof(link.device_id) && link.device_id[identity_length] != '\0') { ++identity_length; }
+            if (identity_length != 0 && identity_length != 12) { return dashboard_result("device_identity_length", ESP_ERR_INVALID_SIZE); }
+            for (size_t index = 0; index < identity_length; ++index) {
+                const char character = link.device_id[index];
+                if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'))) {
+                    return dashboard_result("device_identity_ascii", ESP_ERR_INVALID_ARG);
                 }
             }
+            // The shared row labels the immutable device ID; the concise motion caption keeps ordinary states stationary.
+            const char *motion_text = motion_caption(motion, now_us) + 4;
+            char motion_error[24]{};
+            if (motion != nullptr && !is_current_imu_stillness(motion->stillness, now_us) &&
+                motion->error != ESP_OK && motion->rejection != LUNASHELL::ActivityRejection::CadenceGap) {
+                std::snprintf(motion_error, sizeof(motion_error), "error 0x%X", static_cast<unsigned>(motion->error));
+                motion_text = motion_error;
+            }
+            const int count = std::snprintf(caption, sizeof(caption), "ID %s | %s",
+                identity_length == 0 ? "UNAVAILABLE" : link.device_id, motion_text);
+            if (count <= 0 || count >= static_cast<int>(sizeof(caption))) { return dashboard_result("device_motion_format", ESP_ERR_INVALID_SIZE); }
+            error = prepare_text_marquee(presentation, presentation.detail_marquees[0], caption, sizeof(caption) - 1,
+                "", "", body_font, {73, 308, 320, 25}, kWhite, elapsed_us, restart, false, true);
         }
+        const auto *build = device_details == nullptr ? nullptr : device_details->build_metadata;
+        using BuildState = LUNASHELL::FirmwareBuildFieldState;
+        const auto clock_state = build == nullptr ? BuildState::Unavailable : build->clock_state;
+        const auto computer_state = build == nullptr ? BuildState::Unavailable : build->computer_state;
+        const char *date_time = build_field_text(clock_state, build == nullptr ? "" : build->local_date_time);
+        const char *time_zone = build_field_text(clock_state, build == nullptr ? "" : build->time_zone);
+        const char *computer = build_field_text(computer_state, build == nullptr ? "" : build->computer);
+        if (date_time == nullptr || time_zone == nullptr || computer == nullptr) {
+            return dashboard_result("build_metadata_state", ESP_ERR_INVALID_ARG);
+        }
+        if (error == ESP_OK) {
+            size_t date_length = 0;
+            while (date_length <= 16 && date_time[date_length] != '\0') { ++date_length; }
+            if (date_length == 0 || date_length > 16) { return dashboard_result("build_clock_length", ESP_ERR_INVALID_SIZE); }
+            std::snprintf(caption, sizeof(caption), "Built %s", date_time);
+            // A full captured date keeps every digit if its authored label would exceed the fixed row.
+            error = add_line(presentation, secondary_font, text_width(secondary_font, caption) <= 320 ? caption : date_time, 335, kMuted);
+        }
+        if (error == ESP_OK) {
+            error = prepare_text_marquee(presentation, presentation.detail_marquees[1], time_zone, 63,
+                "Zone ", "", secondary_font, {73, 355, 320, 18}, kMuted, elapsed_us, restart);
+        }
+        if (error == ESP_OK) {
+            error = prepare_text_marquee(presentation, presentation.detail_marquees[2], computer, 63,
+                "PC ", "", secondary_font, {73, 375, 320, 18}, kMuted, elapsed_us, restart);
+        }
+        presentation.marquee_count = 3;
+    } else if (panel == CompanionPanel::ChatActivity) {
+        error = prepare_text_marquee(presentation, presentation.chat_title, chat_title_text(link.activity, now_us), 255,
+            "", link.activity.chat_id, body_font, kHomeChatTitleBounds, kWhite, elapsed_us, restart, true);
+        if (error == ESP_OK) {
+            char caption[48]{};
+            const auto &duration = inputs.turn_elapsed_us;
+            if (duration.state == PanelValueState::Current) {
+                const uint64_t seconds = duration.value / 1000000;
+                std::snprintf(caption, sizeof(caption), "Turn %02llu:%02llu",
+                    static_cast<unsigned long long>(seconds / 60), static_cast<unsigned long long>(seconds % 60));
+            } else {
+                std::snprintf(caption, sizeof(caption), "Turn %s", metric_status(duration.state));
+            }
+            error = add_line(presentation, body_font, caption, 316, kMuted);
+        }
+        if (error == ESP_OK) {
+            error = prepare_text_marquee(presentation, presentation.detail_marquees[0], chat_activity_text(inputs), 192,
+                "", link.activity.chat_id, body_font, kHomeChatActivityBounds, kWhite, elapsed_us, restart, false, true);
+        }
+        presentation.marquee_count = 1;
     }
     if (error != ESP_OK) { return dashboard_result("prepare_content", error); }
     bool changed = !previously_valid || previous_panel != presentation.panel || previous_arc != presentation.arc_state ||
         previous_units != presentation.arc_units || previous_step != presentation.animation_step ||
         previous_title_revision != presentation.chat_title.revision ||
         std::memcmp(presentation.prior_captions, presentation.captions, sizeof(presentation.captions)) != 0;
+    for (unsigned index = 0; index < std::size(presentation.detail_marquees); ++index) {
+        changed = changed || previous_marquee_revisions[index] != presentation.detail_marquees[index].revision;
+    }
     for (unsigned index = 0; index < std::size(presentation.lines); ++index) {
         const auto &line = presentation.lines[index];
         changed = changed || presentation.prior_colors[index] != line.color ||
@@ -756,8 +877,11 @@ esp_err_t draw_home_dashboard_rows(const HomeDashboardPresentation &presentation
     for (unsigned row = 0; error == ESP_OK && row < presentation.line_count; ++row) {
         error = CODY2D::draw_text_rows(presentation.lines[row], presentation.lines[row].text.length, strip, first_row, first_column);
     }
-    if (error == ESP_OK && presentation.panel == CompanionPanel::SessionLink) {
-        error = draw_chat_title(presentation.chat_title, strip, first_row, first_column);
+    if (error == ESP_OK && presentation.panel == CompanionPanel::ChatActivity) {
+        error = draw_text_marquee(presentation.chat_title, strip, first_row, first_column);
+    }
+    for (uint8_t index = 0; error == ESP_OK && index < presentation.marquee_count; ++index) {
+        error = draw_text_marquee(presentation.detail_marquees[index], strip, first_row, first_column);
     }
     return dashboard_result("draw_rows", error);
 }

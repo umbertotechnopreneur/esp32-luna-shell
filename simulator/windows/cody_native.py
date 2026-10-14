@@ -58,6 +58,21 @@ class NativeImuStillnessState(IntEnum):
     STILL = 3
 
 
+class NativeCompanionPanel(IntEnum):
+    HOME = 0
+    RETIRED_ACTIVITY = 1
+    MODEL_CONTEXT = 2
+    SESSION_LINK = 3
+    CHAT_ACTIVITY = 4
+
+
+class NativeFirmwareBuildFieldState(IntEnum):
+    AVAILABLE = 0
+    UNAVAILABLE = 1
+    UNSUPPORTED = 2
+    ERROR = 3
+
+
 class NativeActivityRejection(IntEnum):
     DISABLED = 0
     COLLECTING = 1
@@ -78,6 +93,14 @@ def bounded_integer(value, lower, upper, name):
     if type(value) is not int or not lower <= value <= upper:
         raise ValueError(f'Cody native transport {name} rejected: {value!r}; requires integer [{lower},{upper}]')
     return value
+
+
+# value: Original Home panel identity, either the shared enum or a transport integer.
+# name: Exact operation field retained in rejection diagnostics.
+# Raises ValueError for unknown identities, booleans or non-integer input.
+def companion_panel_value(value, name):
+    identity = value.value if isinstance(value, NativeCompanionPanel) else value
+    return bounded_integer(identity, 0, NativeCompanionPanel.CHAT_ACTIVITY.value, name)
 
 class HostResponseInputs(C.Structure):
     """Versioned transport of synthetic driver facts; never a firmware snapshot."""
@@ -140,17 +163,23 @@ class NativePanelObservation(C.Structure):
         ("chat_title_age_us", C.c_uint64), ("chat_title_error", C.c_int32),
         ("simulated_stillness", C.c_uint8), ("simulated_stillness_valid", C.c_bool),
         ("simulated_stillness_error", C.c_int32), ("simulated_stillness_age_us", C.c_uint64),
-        ("simulated_motion_rejection", C.c_uint8), ("simulated_motion_error", C.c_int32)]
+        ("simulated_motion_rejection", C.c_uint8), ("simulated_motion_error", C.c_int32),
+        ("device_id", C.c_char_p), ("simulated_build_local_date_time", C.c_char_p),
+        ("simulated_build_time_zone", C.c_char_p), ("simulated_build_computer", C.c_char_p),
+        ("simulated_build_clock_state", C.c_uint8), ("simulated_build_computer_state", C.c_uint8)]
 
     # self: Raw source projection consumed synchronously by the native scratch owner.
     # Raises no exceptions; absent fields retain unavailable flags rather than numeric claims.
     def __init__(self):
         super().__init__()
-        for name in ("project", "branch", "description", "chat_id", "technical_chat_id", "model", "effort", "device_ip", "chat_title"):
+        for name in ("project", "branch", "description", "chat_id", "technical_chat_id", "model", "effort", "device_ip", "chat_title",
+                     "device_id", "simulated_build_local_date_time", "simulated_build_time_zone", "simulated_build_computer"):
             setattr(self, name, b"")
         self.chat_title_error = 0x105
         self.simulated_stillness_error = 0x103
         self.simulated_motion_rejection = NativeActivityRejection.NONE
+        self.simulated_build_clock_state = NativeFirmwareBuildFieldState.UNAVAILABLE
+        self.simulated_build_computer_state = NativeFirmwareBuildFieldState.UNAVAILABLE
 
 
 # operation: Native call being checked.
@@ -404,10 +433,10 @@ class NativeRig:
             project.encode("ascii"), branch.encode("ascii"), C.byref(observation), elapsed_us, attention, operation_elapsed_us, compacting))
 
     # self: Shared native renderer transport owner.
-    # current: Stable Home=0, ModelContext=2 or SessionLink=3; retired Activity=1 returns Home.
+    # current: Stable Home=0, ModelContext=2, SessionLink=3 or ChatActivity=4; retired Activity=1 returns Home.
     # Raises ValueError for unknown identities; RuntimeError for the original native failure.
     def next_companion_panel(self, current):
-        bounded_integer(current, 0, 3, "panel.current")
+        current = companion_panel_value(current, "panel.current")
         selected = C.c_uint8()
         checked("panel_next", self.api.cody_host_panel_next(current, C.byref(selected)))
         return selected.value
@@ -454,7 +483,7 @@ class NativeRig:
     # elapsed_us: Pausable active display clock, not a renewed source observation.
     # Raises ValueError for invalid inputs or RuntimeError for original native preparation errors.
     def prepare_home_dashboard(self, scene, panel, observation, elapsed_us):
-        bounded_integer(panel, 0, 3, "dashboard.identity")
+        panel = companion_panel_value(panel, "dashboard.identity")
         bounded_integer(elapsed_us, 0, 0x7fffffffffffffff, "dashboard.elapsed_us")
         if not isinstance(observation, NativePanelObservation):
             raise ValueError("Home dashboard requires original typed hook observations")
@@ -490,7 +519,7 @@ class NativeRig:
     # compacting: Current admitted compaction requiring the token arc to stay visible.
     # Returns the native policy's selected panel; raises original boundary or clock errors.
     def advance_home_rotation(self, current, active_us, visible, compacting):
-        bounded_integer(current, 0, 3, "home_rotation.current")
+        current = companion_panel_value(current, "home_rotation.current")
         bounded_integer(active_us, 0, 0x7fffffffffffffff, "home_rotation.active_us")
         if type(visible) is not bool or type(compacting) is not bool:
             raise ValueError("Home rotation requires actual typed visibility and compaction flags")

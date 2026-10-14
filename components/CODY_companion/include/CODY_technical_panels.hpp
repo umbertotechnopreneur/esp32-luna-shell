@@ -6,7 +6,7 @@
 
 namespace CODY {
 
-enum class CompanionPanel : uint8_t { Home = 0, Activity = 1, ModelContext = 2, SessionLink = 3 };
+enum class CompanionPanel : uint8_t { Home = 0, Activity = 1, ModelContext = 2, SessionLink = 3, ChatActivity = 4 };
 enum class PanelValueState : uint8_t { Unavailable = 0, Current = 1, Stale = 2, Invalid = 3 };
 
 // stillness: Original canonical IMU observation, independent of the HAR model result.

@@ -159,8 +159,10 @@ class EventView:
         painter = window.renderer.scene_painter
         definition = painter.definition(identity)
         title = definition["title"]["text"]
+        title_color = definition["title"]["color_rgb565"]
         if self.native.output.title:
             title = self.native.output.title.decode("ascii")
+            title_color = self.native.output.title_color
         route = (snapshot.request_id, identity, self.stage, self.selected_id, self.page,
                  self.native.navigation.choice_page, self.native.navigation.detail_page)
         if route != self._route:
@@ -194,7 +196,7 @@ class EventView:
             personality(snapshot, identity, scene, cloud["scale"], rotation, elapsed, exclusions)
         image = window.renderer.draw_scene(scene, debug=False, navigation_visible=False,
                                            background_rgb565=definition["background_rgb565"]).convert("RGB")
-        painter.paint_text(image, title, definition["title"]["top"],
+        painter.paint_text(image, title, definition["title"]["top"], title_color,
                            visible=painter.content_characters(identity, elapsed, len(title), 0))
         preceding = len(title)
         for line in self.native.output.lines[:self.native.output.line_count]:

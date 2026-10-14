@@ -56,6 +56,7 @@ class EventKind(IntEnum):
     CHECKS_RUNNING = 5
     CHECKS_FAILED = 6
     CHECKS_PASSED = 7
+    REPLY_READY = 8
 
 
 class Tone(IntEnum):
@@ -69,7 +70,7 @@ KIND_NAMES = {
     "notice": EventKind.NOTICE, "question": EventKind.QUESTION,
     "approval_on_pc": EventKind.APPROVAL_ON_PC, "pr_pending": EventKind.PR_PENDING,
     "checks_running": EventKind.CHECKS_RUNNING, "checks_failed": EventKind.CHECKS_FAILED,
-    "checks_passed": EventKind.CHECKS_PASSED,
+    "checks_passed": EventKind.CHECKS_PASSED, "reply_ready": EventKind.REPLY_READY,
 }
 TONE_NAMES = {"neutral": Tone.NEUTRAL, "positive": Tone.POSITIVE,
               "negative": Tone.NEGATIVE, "info": Tone.INFO}
@@ -395,7 +396,7 @@ def payload_from_arguments(arguments: dict[str, Any], question: bool) -> EventPa
         payload = EventPayload(EventKind.QUESTION, context, title, body, tuple(choices))
     else:
         name = arguments.get("kind", "notice")
-        if not isinstance(name, str) or name not in KIND_NAMES or name in {"question", "approval_on_pc"}:
+        if not isinstance(name, str) or name not in KIND_NAMES or name in {"question", "approval_on_pc", "reply_ready"}:
             raise ValueError("Notification kind must be notice or a read-only PR state")
         kind = KIND_NAMES[name]
         if kind == EventKind.NOTICE:

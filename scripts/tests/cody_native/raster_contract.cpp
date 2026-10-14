@@ -1978,31 +1978,36 @@ void check_native_usage_projection()
     LUNASHELL::age_codex_technical(technical, 9000000);
     require(technical.context_stale && technical.data_stale, "transport expiry independently retires young native counters");
 }
-// No parameters: Exercise real Home marquee raster, canonical token gates and carousel timing.
+// No parameters: Exercise finite Home footer retirement, canonical token gates and carousel timing.
 // Exception: Records failed geometry, freshness, clock or native-rendering contracts.
 void check_home_command_and_token_contract()
 {
     static CODY::CommandHintsState hints{};
     const auto &font = CODY::SceneData::body_font;
     bool changed = false;
-    require(CODY::update_command_hints(hints, font, false, true, "", 0, changed) == ESP_OK &&
-        !hints.visible && !changed, "retained pairing without current connection cannot show command hints");
-    require(CODY::update_command_hints(hints, font, true, true, "chat-a", 0, changed) == ESP_OK &&
-        hints.visible && changed && hints.pixel_offset == 0 &&
-        std::strncmp(hints.window, "Change my name", 14) == 0,
-        "healthy Home starts the real continuous authored commands");
+    static constexpr char expected_message[] = "Use @CCP in Codex and ask for the available commands";
+    require(std::strcmp(CODY::kHomeCommandMarquee, expected_message) == 0,
+        "the finite footer preserves the exact requested English ASCII message");
+    require(CODY::update_command_hints(hints, font, false, true, 0, changed) == ESP_OK &&
+        !hints.visible && !changed && hints.elapsed_us == 0,
+        "retained pairing without current connection cannot start the footer lifetime");
+    require(CODY::update_command_hints(hints, font, true, false, 1000000, changed) == ESP_OK &&
+        !hints.visible && !changed && hints.elapsed_us == 0,
+        "hidden connected Home cannot consume its first pass");
+    require(CODY::update_command_hints(hints, font, true, true, 1000000, changed) == ESP_OK &&
+        hints.visible && changed && hints.pixel_offset == 0 && !hints.request.valid,
+        "healthy visible Home starts with the whole message offscreen to the right");
     const auto initial_revision = hints.revision;
-    require(CODY::update_command_hints(hints, font, true, true, "chat-a", 49999, changed) == ESP_OK &&
+    require(CODY::update_command_hints(hints, font, true, true, 1049999, changed) == ESP_OK &&
         !changed && hints.revision == initial_revision && hints.pixel_offset == 0,
-        "subpixel elapsed time causes no new revision or damage");
-    require(CODY::update_command_hints(hints, font, true, true, "chat-a", 50000, changed) == ESP_OK &&
-        changed && hints.pixel_offset == 1 && hints.request.origin.x == 112,
-        "50ms advances one physical pixel from right to left");
+        "time inside the 50-ms step causes no new revision or damage");
+    require(CODY::update_command_hints(hints, font, true, true, 1050000, changed) == ESP_OK &&
+        changed && hints.pixel_offset == 2 && hints.request.origin.x == 351,
+        "50ms advances two physical pixels from right to left");
     const auto first_pixel_revision = hints.revision;
-    require(CODY::update_command_hints(hints, font, true, true, "chat-a", 50000, changed,
-        CODY::CommandHintsMode::ReadyForMore) == ESP_OK && !changed &&
-        hints.revision == first_pixel_revision && hints.pixel_offset == 1,
-        "idle Home mode changes neither restart nor duplicate the marquee");
+    require(CODY::update_command_hints(hints, font, true, true, 1050000, changed) == ESP_OK && !changed &&
+        hints.revision == first_pixel_revision && hints.pixel_offset == 2,
+        "repeated presentation at the same active time never duplicates motion");
     const auto &viewport = CODY::kHomeCommandHintsBounds;
     for (int x : {static_cast<int>(viewport.x), static_cast<int>(viewport.x + viewport.width - 1)}) {
         for (int y : {static_cast<int>(viewport.y), static_cast<int>(viewport.y + viewport.height - 1)}) {
@@ -2010,21 +2015,53 @@ void check_home_command_and_token_contract()
                 "all occupied marquee viewport corners fit the circular chord");
         }
     }
-    // Include a partial glyph and the repeated caption seam in actual full/strip raster parity.
-    const int64_t cycle_us = static_cast<int64_t>(sizeof(CODY::kHomeCommandMarquee) - 1U) *
-        font.advance * CODY::kHomeCommandPixelUs;
-    const int64_t raster_times[]{50000, cycle_us - 50000, cycle_us, cycle_us + 50000};
-    for (const int64_t timestamp : raster_times) {
-        require(CODY::update_command_hints(hints, font, true, true, "chat-a", timestamp, changed) == ESP_OK && hints.visible,
-            "marquee remains visible beyond the old twenty-second deadline and through its seam");
-        if (timestamp == cycle_us) {
-            require(hints.pixel_offset == 0 && std::strncmp(hints.window, "Change my name", 14) == 0,
-                "caption repeats seamlessly without reading beyond owner storage");
+    const int64_t pass_pixels = viewport.width + (sizeof(expected_message) - 2U) * font.advance + font.width;
+    const int64_t pass_us = ((pass_pixels + 1) / 2) * 50000;
+    // Observe every complete glyph in each pass, including the first and final words.
+    for (uint8_t pass = 0; pass < 3; ++pass) {
+        bool fully_seen[sizeof(expected_message) - 1U]{};
+        const int64_t first_step = pass == 0 ? 100000 : 0;
+        for (int64_t step = first_step; step < pass_us; step += 50000) {
+            require(CODY::update_command_hints(hints, font, true, true,
+                1000000 + pass * pass_us + step, changed) == ESP_OK &&
+                hints.visible && hints.completed_passes == pass,
+                "the message retains exactly three complete, independently bounded passes");
+            if (!hints.request.valid) {
+                require(step == 0, "only an offscreen pass boundary may have an empty glyph window");
+                continue;
+            }
+            const int32_t message_left = static_cast<int32_t>(viewport.x + viewport.width) -
+                static_cast<int32_t>(hints.pixel_offset);
+            const size_t first_glyph = static_cast<size_t>((hints.request.origin.x - message_left) / font.advance);
+            const bool bounded = first_glyph + hints.request.text.length <= sizeof(expected_message) - 1U;
+            require(bounded &&
+                std::strncmp(hints.window, expected_message + first_glyph, hints.request.text.length) == 0,
+                "the bounded glyph window slices the requested message without wrapping or substitutions");
+            if (!bounded) { continue; }
+            for (size_t index = 0; index < hints.request.text.length; ++index) {
+                const int left = hints.request.origin.x + index * font.advance;
+                if (left >= viewport.x && left + font.width <= viewport.x + viewport.width) {
+                    fully_seen[first_glyph + index] = true;
+                }
+            }
         }
+        // seen: Whether one original message glyph crossed the viewport completely.
+        require(std::all_of(std::begin(fully_seen), std::end(fully_seen), [](bool seen) { return seen; }),
+            "every message character becomes completely visible during each of the three passes");
+    }
+    // A separate owner samples entering, central and leaving glyphs through actual full/strip raster.
+    static CODY::CommandHintsState raster_hints{};
+    require(CODY::update_command_hints(raster_hints, font, true, true, 0, changed) == ESP_OK,
+        "raster owner starts the same finite production policy");
+    const int64_t raster_times[]{500000, 6000000, pass_us - 500000, pass_us + 6000000,
+        2 * pass_us + 6000000, 3 * pass_us - 500000};
+    for (const int64_t timestamp : raster_times) {
+        require(CODY::update_command_hints(raster_hints, font, true, true, timestamp, changed) == ESP_OK &&
+            raster_hints.visible, "all three passes retain the real raster until their complete exit");
         std::vector<uint16_t> command_pixels(466U * 466U);
         CODY2D::Surface command_surface{command_pixels.data(), 466, 466, 466,
             static_cast<uint32_t>(command_pixels.size())};
-        require(CODY::draw_command_hints(hints, command_surface, 0, 0) == ESP_OK,
+        require(CODY::draw_command_hints(raster_hints, command_surface, 0, 0) == ESP_OK,
             "real marquee glyphs render with partial-glyph clipping");
         size_t painted = 0;
         for (size_t pixel = 0; pixel < command_pixels.size(); ++pixel) {
@@ -2042,8 +2079,8 @@ void check_home_command_and_token_contract()
         require(CODY::find_scene(CODY::SceneId::Connected, definition) == ESP_OK &&
             CODY::begin_scene(*definition, scene) == ESP_OK && CODY::advance_scene(scene, 30000000) == ESP_OK,
             "command raster uses the actual completed Home scene");
-        scene.command_hints = &hints;
-        scene.command_hints_revision = hints.revision;
+        scene.command_hints = &raster_hints;
+        scene.command_hints_revision = raster_hints.revision;
         std::vector<uint16_t> reference(466U * 466U);
         const CODY2D::Surface full{reference.data(), 466, 466, 466, static_cast<uint32_t>(reference.size())};
         require(CODY::draw_scene_rows(scene, full, 0, 0) == ESP_OK,
@@ -2069,20 +2106,76 @@ void check_home_command_and_token_contract()
             }
         }
     }
-    const int64_t hidden_at = cycle_us + 100000;
-    const auto frozen_offset = hints.pixel_offset;
-    require(CODY::update_command_hints(hints, font, true, false, "chat-a", hidden_at, changed) == ESP_OK &&
-        !hints.visible && changed, "compaction or question admission hides the marquee immediately");
-    const auto hidden_revision = hints.revision;
-    require(CODY::update_command_hints(hints, font, true, false, "chat-a", hidden_at + 5000000, changed) == ESP_OK &&
-        !changed && hints.revision == hidden_revision, "hidden elapsed time cannot cause render revisions");
-    require(CODY::update_command_hints(hints, font, true, true, "chat-a", hidden_at + 10000000, changed) == ESP_OK &&
-        changed && hints.visible && hints.pixel_offset == frozen_offset,
-        "resuming preserves the last visible scroll position without a hidden-time jump");
-    require(CODY::update_command_hints(hints, font, true, true, "chat-b", hidden_at + 11000000, changed) == ESP_OK &&
-        changed && hints.pixel_offset == 0, "a genuine new chat restarts the authored command sequence");
-    require(CODY::update_command_hints(hints, font, false, true, "chat-b", hidden_at + 12000000, changed) == ESP_OK &&
-        !hints.visible, "stale or disconnected CCP removes commands");
+    const CODY::SceneDefinition *footer_definition = nullptr;
+    CODY::SceneFrame before_footer_hide{};
+    require(CODY::find_scene(CODY::SceneId::Connected, footer_definition) == ESP_OK &&
+        CODY::begin_scene(*footer_definition, before_footer_hide) == ESP_OK &&
+        CODY::advance_scene(before_footer_hide, 30000000) == ESP_OK, "final footer owns a completed scene");
+    before_footer_hide.home_dashboard = true;
+    before_footer_hide.command_hints = &raster_hints;
+    before_footer_hide.command_hints_revision = raster_hints.revision;
+    std::vector<uint16_t> retained(466U * 466U);
+    require(CODY::draw_scene_rows(before_footer_hide,
+        {retained.data(), 466, 466, 466, static_cast<uint32_t>(retained.size())}, 0, 0) == ESP_OK,
+        "last visible footer pixels are retained before final retirement");
+    require(CODY::update_command_hints(raster_hints, font, true, true, 3 * pass_us, changed) == ESP_OK &&
+        changed && !raster_hints.visible && raster_hints.completed_passes == 3,
+        "exactly the third complete exit retires the footer permanently");
+    auto after_footer_hide = before_footer_hide;
+    after_footer_hide.command_hints = nullptr;
+    after_footer_hide.command_hints_revision = raster_hints.revision;
+    CODY::DirtyPlan footer_damage{};
+    require(CODY::plan_scene_damage(before_footer_hide, after_footer_hide, footer_damage) == ESP_OK,
+        "finite footer retirement uses the production scene damage planner");
+    std::vector<uint16_t> clean(retained.size());
+    require(CODY::draw_scene_rows(after_footer_hide,
+        {clean.data(), 466, 466, 466, static_cast<uint32_t>(clean.size())}, 0, 0) == ESP_OK,
+        "footer-free Home still draws its existing header");
+    for (const uint16_t rows : {2, 16}) {
+        auto reconstructed = retained;
+        for (uint16_t first = 0; first < 466; first += rows) {
+            CODY::DamageRect dirty{};
+            require(CODY::dirty_tile_bounds(footer_damage, first, std::min<uint16_t>(rows, 466 - first), dirty) == ESP_OK,
+                "footer removal admits the real paired DMA rectangles");
+            if (dirty.empty()) { continue; }
+            require(dirty.left <= viewport.x && dirty.right >= viewport.x + viewport.width &&
+                dirty.top >= viewport.y && dirty.bottom <= viewport.y + viewport.height + 1,
+                "retirement covers the entire footer and its required even-row alignment");
+            std::vector<uint16_t> tile((dirty.right - dirty.left) * (dirty.bottom - dirty.top));
+            const CODY2D::Surface surface{tile.data(), static_cast<uint16_t>(dirty.right - dirty.left),
+                static_cast<uint16_t>(dirty.bottom - dirty.top), static_cast<uint16_t>(dirty.right - dirty.left),
+                static_cast<uint32_t>(tile.size())};
+            require(CODY::draw_scene_rows(after_footer_hide, surface, dirty.top, dirty.left) == ESP_OK,
+                "the unchanged compositor redraws each damaged footer tile without stale glyphs");
+            for (uint16_t y = dirty.top; y < dirty.bottom; ++y) {
+                std::copy_n(tile.data() + (y - dirty.top) * surface.stride, surface.width,
+                    reconstructed.data() + y * 466U + dirty.left);
+            }
+        }
+        require(reconstructed == clean, "partial final removal matches a complete footer-free Home redraw");
+    }
+    static CODY::CommandHintsState paused{};
+    require(CODY::update_command_hints(paused, font, true, true, 0, changed) == ESP_OK &&
+        CODY::update_command_hints(paused, font, true, true, 6000000, changed) == ESP_OK,
+        "pause fixture first accumulates a visible partial pass");
+    const auto frozen_offset = paused.pixel_offset;
+    require(CODY::update_command_hints(paused, font, true, false, 6050000, changed) == ESP_OK &&
+        !paused.visible && changed, "compaction or question admission hides the footer immediately");
+    const auto hidden_revision = paused.revision;
+    require(CODY::update_command_hints(paused, font, false, false, 16000000, changed) == ESP_OK &&
+        !changed && paused.revision == hidden_revision && paused.elapsed_us == 6000000,
+        "hidden source gaps cannot consume a pass or cause render revisions");
+    require(CODY::update_command_hints(paused, font, true, true, 26000000, changed) == ESP_OK &&
+        changed && paused.visible && paused.pixel_offset == frozen_offset && paused.completed_passes == 0,
+        "reconnection resumes the existing pass without charging hidden time");
+    require(CODY::update_command_hints(paused, font, true, true, INT64_MAX, changed) == ESP_OK &&
+        !paused.visible && paused.completed_passes == 3 && paused.elapsed_us == 3 * pass_us,
+        "a large valid active delta saturates the finite lifetime without overflow or replay");
+    const auto final_revision = paused.revision;
+    require(CODY::update_command_hints(paused, font, false, false, 0, changed) == ESP_OK && !changed &&
+        CODY::update_command_hints(paused, font, true, true, INT64_MAX, changed) == ESP_OK && !changed &&
+        !paused.visible && paused.revision == final_revision,
+        "later route, panel, clock and reconnect changes never rearm a finished display owner");
     CODY::HomeReplyDwell reply_dwell{};
     bool reply_introduction = false;
     require(CODY::advance_home_reply_dwell(reply_dwell, true, "chat-b", 1000000, reply_introduction) == ESP_OK && reply_introduction &&

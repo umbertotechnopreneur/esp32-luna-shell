@@ -634,6 +634,11 @@ esp_err_t project_companion_panel_inputs(const LUNASHELL::CodexLinkSnapshot &lin
     inputs.connected = link.state == LUNASHELL::CodexLinkState::Connected;
     inputs.link = observed_value_state(link.data_valid, link.data_stale);
     inputs.activity = observed_value_state(link.activity.data_valid, link.activity.data_stale || !inputs.connected);
+    // Retained validity flags do not authorize an old purpose after its owner
+    // reports a failure. A genuinely absent source still remains unavailable.
+    if (link.activity.last_error != ESP_OK && inputs.activity != PanelValueState::Unavailable) {
+        inputs.activity = PanelValueState::Invalid;
+    }
     inputs.project = link.activity.project;
     inputs.branch = link.activity.branch;
     inputs.description = link.activity.description;

@@ -142,7 +142,8 @@ esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayl
     if (!reader.byte(version) || !reader.byte(kind)) {
         return reader.error;
     }
-    if (version != 2 || kind < 1 || kind > 7) {
+    if (version != 2 || kind < static_cast<uint8_t>(CodexEventKind::Notice) ||
+        kind > static_cast<uint8_t>(CodexEventKind::ReplyReady)) {
         return ESP_ERR_INVALID_ARG;
     }
     candidate.kind = static_cast<CodexEventKind>(kind);

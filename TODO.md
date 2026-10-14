@@ -19,6 +19,12 @@ Expensive-model notice are implemented, verified and installed in Release
   the taller purple recording ribbon are implemented; Studio/native/runtime,
   voice UI, snapshot and selected-profile checks passed. Complete firmware
   build/size/compiled-frame review, install on COM10 and record passive evidence.
+  The subsequent owner request separates Tokens, Model, Connection and Chat,
+  moves timer/activity into Chat and IMU into Connection, and adds actual local
+  compilation date/time, PC timezone and compiling hostname. Integrate these
+  four native panels before the final validation and installation.
+  Replace the continuous command ticker with the requested three-pass @CCP
+  introduction, then hide it without replay across panel/chat/reconnect changes.
 
 GitHub visibility is public. Main ruleset 25049727 is active: contributors need
 a pull request; only the owner's user identity has direct-push bypass.

@@ -75,7 +75,8 @@ class Plan(C.Structure):
     _fields_ = [("route", C.c_uint8), ("scene", C.c_char * 24), ("title", C.c_char * 32),
                 ("lines", Line * 8), ("line_count", C.c_uint8), ("actions", Action * 3),
                 ("action_count", C.c_uint8), ("back", C.c_bool),
-                ("page_index", C.c_uint8), ("page_count", C.c_uint8), ("scrollable", C.c_bool)]
+                ("page_index", C.c_uint8), ("page_count", C.c_uint8), ("scrollable", C.c_bool),
+                ("title_color", C.c_uint16)]
 
 
 @dataclass(frozen=True)

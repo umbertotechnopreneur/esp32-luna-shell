@@ -1699,7 +1699,7 @@ OnboardingAction event_action_identity(event_presentation::ActionId id)
     }
 }
 
-// scene: Event-owned frame drawing the same bounded semantic plan as the native host.
+// scene: Event-owned frame drawing the same bounded semantic plan, title and accent as the native host.
 // Exception: Returns original shared data/layout or native preparation failure.
 esp_err_t prepare_event_content(SceneFrame &scene)
 {
@@ -1738,6 +1738,7 @@ esp_err_t prepare_event_content(SceneFrame &scene)
     if (error == ESP_OK && s_event_plan.title[0] != '\0') {
         error = set_scene_title(scene, {s_event_plan.title,
             static_cast<uint16_t>(std::strlen(s_event_plan.title))});
+        if (error == ESP_OK) { scene.title.color = s_event_plan.title_color; }
     }
     return error;
 }
@@ -2241,6 +2242,7 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
         case Kind::ChecksPassed: notify_event_audio(CodexAudioCue::ChecksPassed); break;
         case Kind::ChecksRunning: notify_event_audio(CodexAudioCue::Running); break;
         case Kind::PrPending:
+        case Kind::ReplyReady:
         case Kind::Notice: notify_event_audio(CodexAudioCue::ResponseReady); break;
         case Kind::None: break;
         }
@@ -2628,12 +2630,15 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
 
 // active_time_us: Existing pausable display clock, never a new periodic worker.
 // scene: Home frame borrowing stable owner captions until retirement.
-// changed: Accumulates native scene damage and coalesced command page changes.
+// changed: Accumulates native scene damage and finite-footer motion or retirement.
 // Exception: Returns original content, token or native glyph preparation failures.
 esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, bool &changed)
 {
     esp_err_t error = present_companion_activity_content(active_time_us, scene, changed);
-    if (error != ESP_OK) { return error; }
+    if (error != ESP_OK) {
+        s_command_hints.sampled_us = -1;
+        return error;
+    }
     const auto &link = s_technical_observation.link;
     const auto &technical = s_technical_observation.technical;
     const bool connected = link.data_valid && !link.data_stale &&
@@ -2684,16 +2689,21 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
         scene.activity_description_revision = ++s_activity_description_revision;
         changed = true;
     }
-    const bool eligible = is_companion_route(s_route) &&
+    ScenePresentation presentation{};
+    error = prepare_scene_presentation(scene, presentation);
+    if (error != ESP_OK) {
+        s_command_hints.sampled_us = -1;
+        return error;
+    }
+    const bool eligible = presentation.content_visible && scene.visible_characters == scene.title.text.length &&
+        is_companion_route(s_route) &&
         !s_view.activity_identity.attention_active && !s_view.activity_identity.compaction_timer &&
         (s_presented_compaction == LUNASHELL::CodexCompactionState::None ||
          (s_presented_compaction == LUNASHELL::CodexCompactionState::Refreshed && !s_presented_compaction_feedback)) &&
         link.activity.state != LUNASHELL::CodexActivityState::Paused;
     bool hints_changed = false;
     error = update_command_hints(s_command_hints, SceneData::body_font, connected, eligible,
-        link.activity.data_valid && !link.activity.data_stale ? link.activity.chat_id : "",
-        active_time_us, hints_changed, s_route == Route::CompanionIdle16
-            ? CommandHintsMode::ReadyForMore : CommandHintsMode::Introduction);
+        active_time_us, hints_changed);
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Home command hints failed: %s", esp_err_to_name(error));
         return error;
@@ -3131,7 +3141,7 @@ void suspend_onboarding_command_hints()
     s_command_hints.sampled_us = -1;
 }
 
-// No parameters: retire routes and their QR state without erasing saved settings.
+// No parameters: retire routes and QR state without erasing saved settings or replaying the boot footer.
 void reset_onboarding()
 {
     set_companion_audio_visible(false);
@@ -3142,7 +3152,8 @@ void reset_onboarding()
     s_companion_seen_selection = false;
     s_session_ended_at_us = -1;
     s_presented_activity = {};
-    s_command_hints = {};
+    // This owner survives setup, route and connection restarts until the display-owner boot ends.
+    s_command_hints.sampled_us = -1;
     s_home_ready_dwell = {};
     s_home_reply_dwell = {};
     s_activity_observation = {};

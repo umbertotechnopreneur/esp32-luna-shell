@@ -73,7 +73,8 @@ template<size_t Size> bool valid_text(const char (&text)[Size])
 // Exception: Returns INVALID_ARG for malformed identities, ASCII, states or counters.
 esp_err_t project(const Input &input, LUNASHELL::CodexEventSnapshot &event)
 {
-    if (input.kind < 1 || input.kind > 7 || input.choice_count > 3 || input.failure_count > 6 ||
+    if (input.kind < 1 || input.kind > static_cast<uint8_t>(LUNASHELL::CodexEventKind::ReplyReady) ||
+        input.choice_count > 3 || input.failure_count > 6 ||
         !valid_text(input.state) || !valid_text(input.context) || !valid_text(input.title) ||
         !valid_text(input.body) || !valid_text(input.selected_id) || !valid_text(input.request_id) ||
         input.pending_question_count > 128 || input.pending_entry_count > 2 ||

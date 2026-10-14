@@ -115,7 +115,8 @@ inline Route destination(const LUNASHELL::CodexEventSnapshot &event,
     case Kind::ChecksFailed:
         return stage == EventStage::Failures ? Route::CheckFailures24 : Route::ChecksFailed23;
     case Kind::ApprovalOnPc: return Route::ApprovalOnPc;
-    case Kind::Notice: return Route::CodexNotice;
+    case Kind::Notice:
+    case Kind::ReplyReady: return Route::CodexNotice;
     case Kind::None: return Route::Connected15;
     }
     return Route::EventUnavailable;
@@ -166,6 +167,7 @@ struct Plan {
     uint8_t page_index = 0;
     uint8_t page_count = 1;
     bool scrollable = false;
+    uint16_t title_color = 0xFFFF;
 };
 
 // action: Complete semantic identity/tone receiving text-only production colors.
@@ -588,11 +590,32 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         }
         add_action(plan, context.ui_error == ESP_OK ? ActionId::Dismiss : ActionId::Retry,
             context.ui_error == ESP_OK ? "Done" : "Try again", !context.dismiss_admitted, Tone::Positive);
+    } else if (event.kind == Kind::ReplyReady && !LUNASHELL::codexEventIsTerminal(event.state)) {
+        // A typed response-ready observation identifies an available reply, never a successful task.
+        // Its body belongs to the originating chat; selected Home metadata cannot replace it.
+        std::strcpy(plan.title, "Reply ready");
+        plan.title_color = 0x5FF9;
+        top = 214;
+        text(event.body, false, 28);
+        top = 312;
+        const esp_err_t status_error = context.ui_error != ESP_OK ? context.ui_error : event.last_error;
+        if (status_error != ESP_OK) {
+            std::snprintf(status, sizeof(status), "Error: 0x%08lX", static_cast<unsigned long>(status_error));
+            text(status, true);
+        } else if (!context.online) {
+            text("Offline - saved notice", true);
+        } else {
+            text(event.context[0] != '\0' ? event.context : "Project unavailable", true);
+        }
+        add_action(plan, context.ui_error == ESP_OK ? ActionId::Dismiss : ActionId::Retry,
+            context.ui_error == ESP_OK ? "Got it" : "Try again", !context.dismiss_admitted);
     } else {
         const bool unconfirmed = plan.route == Route::CodexNotice && event.state == State::Expired &&
             event.selected_id[0] != '\0';
         text(event.title);
-        text(unconfirmed ? "Delivery unconfirmed" : event.body);
+        if (unconfirmed || event.kind != Kind::Notice || std::strcmp(event.title, event.body) != 0) {
+            text(unconfirmed ? "Delivery unconfirmed" : event.body);
+        }
         if (unconfirmed) { text("Check on your PC"); }
         if (plan.route == Route::ChecksRunning22) {
             if (event.progress_valid && context.online) {

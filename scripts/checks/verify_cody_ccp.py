@@ -982,6 +982,10 @@ class HookRoutingTests(unittest.TestCase):
                                   side_effect=AssertionError("Hook routing must not read a native journal"))
         self.usage.start()
         self.addCleanup(self.usage.stop)
+        title_read = patch.object(self.service.activity._titles, "read_once",
+                                  return_value=native_title.ChatTitleObservation())
+        self.title_read = title_read.start()
+        self.addCleanup(title_read.stop)
         enqueue = patch.object(self.service.interactions, "enqueue", wraps=self.service.interactions.enqueue)
         self.enqueue = enqueue.start()
         self.addCleanup(enqueue.stop)
@@ -1062,7 +1066,10 @@ class HookRoutingTests(unittest.TestCase):
         self.enqueue.assert_called_once()
         call = self.enqueue.call_args
         notice_payload = call.args[1]
-        self.assertEqual((notice_payload.kind, notice_payload.title), (interactions.EventKind.NOTICE, "Reply ready"))
+        self.assertEqual((notice_payload.kind, notice_payload.title, notice_payload.body),
+                         (interactions.EventKind.REPLY_READY, "Reply ready", "Open the other chat in Codex"))
+        self.assertNotEqual(notice_payload.title, notice_payload.body)
+        self.title_read.assert_called_once_with("chat-a", "E:/same-long-project-name")
         self.assertEqual(call.kwargs["native_session"], "chat-a")
         self.assertNotIn(hashlib.sha256(b"chat-a").hexdigest()[:8], notice_payload.context)
         self.assertEqual(notice_payload.context, "same-long-project-name")
@@ -1073,12 +1080,13 @@ class HookRoutingTests(unittest.TestCase):
         self.assertEqual([item["session_id"] for item in self.service.activity.list_sessions() if item["followed"]],
                          ["chat-b"])
         notices = [ticket for ticket in self.service.interactions._tickets.values()
-                   if ticket.payload.kind == interactions.EventKind.NOTICE]
+                   if ticket.payload.kind == interactions.EventKind.REPLY_READY]
         self.assertEqual(len(notices), 1)
         notice = notices[0]
         self.observe("UserPromptSubmit", "chat-c", "turn-c")
         self.observe("Stop")
         self.enqueue.assert_called_once()
+        self.title_read.assert_called_once()
         self.assertEqual(self.service.interactions.poll(notice.request_id, notice.capability)["state"], "pending")
         self.observe("UserPromptSubmit", "chat-a", "turn-a-next")
         self.assertEqual(self.service.interactions.poll(notice.request_id, notice.capability)["state"], "cancelled")
@@ -1090,6 +1098,7 @@ class HookRoutingTests(unittest.TestCase):
         self.observe("UserPromptSubmit")
         self.observe("Stop")
         self.enqueue.assert_not_called()
+        self.title_read.assert_not_called()
         self.observe("UserPromptSubmit", turn="turn-next")
         self.observe("UserPromptSubmit", "chat-b", "turn-b")
         with self.assertRaisesRegex(ValueError, "current chat turn"):
@@ -1097,6 +1106,77 @@ class HookRoutingTests(unittest.TestCase):
         self.enqueue.assert_not_called()
         self.observe("Stop", turn="turn-next")
         self.enqueue.assert_called_once()
+        self.title_read.assert_called_once()
+
+    # self: Genuine background lifecycle with explicitly injected canonical title observations.
+    # Raises AssertionError if absent, expired or oversized titles are guessed, clipped or duplicated.
+    def test_reply_ready_uses_complete_current_title_or_distinct_fallback(self) -> None:
+        fallback = "Open the other chat in Codex"
+        current = native_title.TitleState.CURRENT
+        cases = (
+            (native_title.ChatTitleObservation("SIMULATED real chat", current, 100.0), "SIMULATED real chat"),
+            (native_title.ChatTitleObservation("T" * 63, current, 100.0), "T" * 63),
+            (native_title.ChatTitleObservation("T" * 64, current, 100.0), fallback),
+            (native_title.ChatTitleObservation("Expired title", current, 55.0), fallback),
+            (native_title.ChatTitleObservation("Future title", current, 101.0), fallback),
+            (native_title.ChatTitleObservation(), fallback),
+            (native_title.ChatTitleObservation(state=native_title.TitleState.UNSUPPORTED), fallback),
+            (native_title.ChatTitleObservation(state=native_title.TitleState.ERROR), fallback),
+        )
+        with patch.object(activity.time, "monotonic", return_value=100.0):
+            for index, (title, expected) in enumerate(cases):
+                with self.subTest(state=title.state, title_length=len(title.title)):
+                    self.observe("UserPromptSubmit", turn=f"turn-{index}")
+                    self.observe("UserPromptSubmit", "chat-b", f"other-{index}")
+                    self.enqueue.reset_mock()
+                    self.title_read.reset_mock()
+                    self.title_read.return_value = title
+                    self.observe("Stop", turn=f"turn-{index}")
+                    self.title_read.assert_called_once_with("chat-a", "E:/same-long-project-name")
+                    self.enqueue.assert_called_once()
+                    payload = self.enqueue.call_args.args[1]
+                    self.assertEqual((payload.kind, payload.title, payload.body),
+                                     (interactions.EventKind.REPLY_READY, "Reply ready", expected))
+                    self.assertEqual(payload.choices, ())
+                    self.assertFalse(payload.progress_valid)
+                    self.assertEqual([item["session_id"] for item in self.service.activity.list_sessions()
+                                      if item["followed"]], ["chat-b"])
+
+    # self: Accepted completion whose native title read races a later genuine user prompt.
+    # Raises AssertionError if an obsolete completion changes focus or publishes the previous turn's title.
+    def test_background_title_refresh_rechecks_lifecycle_after_source_io(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("UserPromptSubmit", "chat-b", "turn-b")
+
+        # session: Exact completion identity requested by the production title owner.
+        # cwd: Original source checkout, retained unchanged during the race.
+        # Returns stale completion metadata after accepting a newer native turn.
+        def new_turn_during_read(session, cwd):
+            self.event_ns += 1
+            with patch.object(activity.time, "monotonic_ns", return_value=self.event_ns + 1):
+                self.service.activity.observe({"hook_event_name": "UserPromptSubmit", "session_id": session,
+                    "turn_id": "turn-next", "cwd": cwd, "emitted_ns": self.event_ns})
+            return native_title.ChatTitleObservation("Obsolete completion title", native_title.TitleState.CURRENT,
+                                                    activity.time.monotonic())
+
+        self.title_read.side_effect = new_turn_during_read
+        with patch.object(activity.time, "monotonic", return_value=100.0):
+            self.observe("Stop")
+            self.title_read.assert_called_once()
+            self.enqueue.assert_not_called()
+            followed = next(item for item in self.service.activity.list_sessions() if item["followed"])
+        self.assertEqual((followed["session_id"], followed["turn_id"], followed["phase"]),
+                         ("chat-a", "turn-next", "working"))
+
+    # self: A genuine background completion with no eligible physical Cody recipient.
+    # Raises AssertionError if a completion probes native metadata without a delivery target.
+    def test_background_title_refresh_requires_an_eligible_physical_target(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("UserPromptSubmit", "chat-b", "turn-b")
+        self.service.responder.supports_events.return_value = False
+        self.observe("Stop")
+        self.title_read.assert_not_called()
+        self.enqueue.assert_not_called()
 
     # self: Native approval and optional notice failure remain separate from native authorization.
     # Raises AssertionError if a failure invents a decision, loses its cause or reads the journal.
@@ -1373,7 +1453,7 @@ class InteractionTests(unittest.TestCase):
     # Raises AssertionError if explicit notice dismissal cannot release the FIFO or retires a question.
     def test_informational_dismissal_advances_notices_and_cannot_answer_questions(self) -> None:
         association = "a" * 64
-        notice = interactions.EventPayload(interactions.EventKind.NOTICE, "", "Reply ready", "Review the reply.")
+        notice = interactions.EventPayload(interactions.EventKind.REPLY_READY, "", "Reply ready", "Review the reply.")
         first = self.store.enqueue(self.device, notice, "LAN", association_id=association, native_session="chat-one")
         second = self.store.enqueue(self.device, notice, "LAN", association_id=association, native_session="chat-two")
         self.assertEqual(self.store.snapshot(self.device, association)[0], first["request_id"])
@@ -1527,6 +1607,9 @@ class InteractionTests(unittest.TestCase):
     # self: Shared production-encoded vectors also consumed by the portable firmware decoder.
     # Raises AssertionError if host admission differs from the shared wire contract.
     def test_shared_payload_vectors_and_original_pairing_bound(self) -> None:
+        self.assertEqual({kind.name: kind.value for kind in interactions.EventKind}, {
+            "NOTICE": 1, "QUESTION": 2, "APPROVAL_ON_PC": 3, "PR_PENDING": 4,
+            "CHECKS_RUNNING": 5, "CHECKS_FAILED": 6, "CHECKS_PASSED": 7, "REPLY_READY": 8})
         for name, encoded, valid in event_vectors():
             with self.subTest(vector=name):
                 if valid:
@@ -1544,6 +1627,13 @@ class InteractionTests(unittest.TestCase):
             ccp.encode_datagram("PAIR", [("data", "0" * 510)])
         with self.assertRaises(ValueError):
             ccp.parse_datagram(b"CCP1|PAIR|data=" + b"0" * 510)
+
+    # self: Public notification arguments, which cannot claim an unobserved native lifecycle edge.
+    # Raises AssertionError if an ordinary tool caller can manufacture the typed background completion event.
+    def test_reply_ready_kind_is_reserved_for_genuine_native_lifecycle(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Notification kind must be"):
+            interactions.payload_from_arguments({"kind": "reply_ready", "title": "Reply ready",
+                "body": "An unobserved completion claim."}, question=False)
 
     # self: One real semantic choice represented with synthetic identities and a fixed deadline.
     # Raises AssertionError if a UDP receipt is mistaken for recipient-confirmed delivery.
@@ -2358,6 +2448,66 @@ class NativeChatTitleTests(unittest.TestCase):
         self.put(title="Never use a derived title for an unnamed paginated chat", mode="paginated")
         self.now += 5.0
         self.assertEqual(self.reader.poll("chat-a", self.cwd), native_title.ChatTitleObservation())
+
+    # self: Two real metadata rows in an isolated SQLite fixture and one followed-title cache.
+    # Raises AssertionError if a completion read changes source bytes, evicts the cache or retains failed text.
+    def test_one_shot_completion_title_preserves_followed_cache_and_read_only_source(self) -> None:
+        self.put(title="SIMULATED background chat")
+        self.put("chat-b", title="SIMULATED followed chat")
+        followed = self.reader.poll("chat-b", self.cwd)
+        self.now += 1.0
+        before = self.database.read_bytes()
+        completed = self.reader.read_once("chat-a", self.cwd)
+        self.assertEqual((completed.title, completed.state, completed.observed_at),
+                         ("SIMULATED background chat", native_title.TitleState.CURRENT, self.now))
+        self.assertEqual(self.database.read_bytes(), before)
+        with patch.object(self.reader, "_read", side_effect=AssertionError("Followed cache must remain warm")):
+            self.assertIs(self.reader.poll("chat-b", self.cwd), followed)
+        diagnostics = io.StringIO()
+        failure = sqlite3.OperationalError("PRIVATE completion index context")
+        with contextlib.redirect_stderr(diagnostics), patch.object(native_title.sqlite3, "connect", side_effect=failure):
+            failed = self.reader.read_once("chat-a", self.cwd)
+        self.assertEqual(failed, native_title.ChatTitleObservation(state=native_title.TitleState.ERROR))
+        self.assertIn("OperationalError", diagnostics.getvalue())
+        self.assertNotIn("PRIVATE", diagnostics.getvalue())
+        self.assertIs(self.reader.poll("chat-b", self.cwd), followed)
+
+    # self: Production activity/title owners with a long-running background chat and an exact later rename.
+    # Raises AssertionError if stale title age prevents refresh, Stop reads usage or a duplicate repeats source IO.
+    def test_background_stop_refreshes_exact_native_title_without_follow_switch_or_usage_read(self) -> None:
+        self.put(title="SIMULATED original chat")
+        self.put("chat-b", title="SIMULATED followed chat")
+        owner = activity.ActivityStore()
+        owner._titles = self.reader
+        with patch.object(activity.time, "monotonic", side_effect=lambda: self.now), \
+                patch.object(activity.time, "monotonic_ns", side_effect=lambda: int(self.now * 1_000_000_000) + 1), \
+                patch.object(owner._usage, "poll", return_value=(None, None)) as usage:
+            owner.observe({"hook_event_name": "UserPromptSubmit", "session_id": "chat-a", "turn_id": "turn-a",
+                           "cwd": self.cwd, "emitted_ns": int(self.now * 1_000_000_000)})
+            owner.snapshot_bundle()
+            self.now += 1.0
+            owner.observe({"hook_event_name": "UserPromptSubmit", "session_id": "chat-b", "turn_id": "turn-b",
+                           "cwd": self.cwd, "emitted_ns": int(self.now * 1_000_000_000)})
+            owner.snapshot_bundle()
+            usage.reset_mock()
+            self.now += 46.0
+            self.put(title="SIMULATED renamed completed chat")
+            before = self.database.read_bytes()
+            with patch.object(owner._titles, "read_once", wraps=owner._titles.read_once) as read_once:
+                observation = owner.observe({"hook_event_name": "Stop", "session_id": "chat-a", "turn_id": "turn-a",
+                    "cwd": self.cwd, "emitted_ns": int(self.now * 1_000_000_000)})
+                self.assertEqual(observation.title, "")
+                refreshed = owner.refresh_reply_title(observation)
+                self.assertEqual((refreshed.followed, refreshed.reply_ready, refreshed.title),
+                                 (False, True, "SIMULATED renamed completed chat"))
+                self.now += 1.0
+                repeated = owner.observe({"hook_event_name": "Stop", "session_id": "chat-a", "turn_id": "turn-a",
+                    "cwd": self.cwd, "emitted_ns": int(self.now * 1_000_000_000)})
+                self.assertFalse(owner.refresh_reply_title(repeated).reply_ready)
+                read_once.assert_called_once_with("chat-a", self.cwd)
+            usage.assert_not_called()
+            self.assertEqual(self.database.read_bytes(), before)
+            self.assertEqual([item["session_id"] for item in owner.list_sessions() if item["followed"]], ["chat-b"])
 
     # self: Several chats in one checkout, absent identities and a contradictory native checkout.
     # Raises AssertionError if any other chat supplies a title or stale cache survives a follow switch.

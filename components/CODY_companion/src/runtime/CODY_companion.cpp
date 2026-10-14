@@ -81,6 +81,7 @@
 #include "LUNASHELL_voice_input.hpp"
 #include "LUNASHELL_codex_debug.hpp"
 #include "LUNASHELL_build_mode.hpp"
+#include "LUNASHELL_build_metadata.hpp"
 #include "LUNASHELL_task_affinity.hpp"
 #include "LUNASHELL_platform.h"
 #include "bsp/display.h"
@@ -717,17 +718,14 @@ esp_err_t prepare_home_dashboard_frame(int64_t now_us)
     }
     const int64_t second = now_us / 1000000;
     const bool compacting = technical.compaction == LUNASHELL::CodexCompactionState::Active;
-    // The existing frame clock moves the clipped title at 20 Hz only while its
-    // panel is selected. No polling worker or source-refresh timer is added.
-    const auto &chat_title = s_state.home_dashboard.chat_title;
-    const bool title_scrolling = s_state.companion_panel == CODY::CompanionPanel::SessionLink &&
-        chat_title.width > CODY::kHomeChatTitleBounds.width &&
-        s_state.home_rotation.elapsed_us - chat_title.started_elapsed_us >= 1200000 &&
-        chat_title.offset < chat_title.width - CODY::kHomeChatTitleBounds.width;
-    const int64_t animation_tick = title_scrolling ? s_state.home_rotation.elapsed_us / 50000 :
+    // Only moving, visible native marquees use the existing 20-Hz frame gate.
+    // Immutable build facts and glyph movement never initiate hardware polling.
+    const bool marquee_moving = CODY::home_dashboard_marquee_moving(
+        s_state.home_dashboard, s_state.home_rotation.elapsed_us);
+    const int64_t animation_tick = marquee_moving ? s_state.home_rotation.elapsed_us / 50000 :
         compacting ? s_state.home_active_us / 100000 : -1;
     const LUNASHELL::ActivitySnapshot *motion = nullptr;
-    if (s_state.companion_panel == CODY::CompanionPanel::Home) {
+    if (s_state.companion_panel == CODY::CompanionPanel::SessionLink) {
         const auto &stillness = s_state.motion_observation.stillness;
         const bool cached_still_expired = stillness.data_valid &&
             (now_us < stillness.sampled_at_us ||
@@ -794,10 +792,11 @@ esp_err_t prepare_home_dashboard_frame(int64_t now_us)
             device_ip = wifi.ip_address;
         }
     }
+    const CODY::HomeDeviceDetails device_details{&LUNASHELL::firmware_build_metadata()};
     error = CODY::prepare_home_dashboard(s_state.companion_panel, link, technical,
         CODY::HomeFonts::value_font, CODY::SceneData::body_font, now_us, s_state.home_active_us,
         s_state.home_dashboard, content, motion, &CODY::HomeFonts::small_font, device_ip, ip_state,
-        s_state.home_rotation.elapsed_us);
+        s_state.home_rotation.elapsed_us, &device_details);
     if (error != ESP_OK) {
         return error;
     }
@@ -4571,6 +4570,8 @@ esp_err_t apply_scene_requests()
             s_state.scene, s_cached_scene, s_state.animation_elapsed_us,
             s_state.onboarding_elapsed_us, route_changed);
         if (route_error != ESP_OK) {
+            // A failed route cannot consume the finite footer's hidden recovery interval.
+            CODY::suspend_onboarding_command_hints();
             return route_error;
         }
         if (!home_dashboard_view_active()) {

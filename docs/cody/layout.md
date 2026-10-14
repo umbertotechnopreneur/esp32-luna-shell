@@ -51,6 +51,18 @@ until its actual event arrives. The retained question can reopen immediately;
 neither selection nor Back answers or dismisses a request. Opaque request IDs
 remain internal. Queue counts and entries come from the authenticated owner.
 
+A typed `ReplyReady` notification uses the compact character at (233,92), scale
+42, and one mint `Reply ready` headline at y=150. The originating chat's complete
+bounded title occupies up to three body rows at y=214/242/270. When its owner has
+no admitted title, the body says `Open the other chat in Codex`; it never repeats
+the headline or borrows the currently followed chat's identity. Project context
+is subordinate at y=312, with explicit unavailable/offline/error text when needed.
+The single iconless `Got it` action retains (113,352,240,72) and requests the
+existing authenticated dismissal. Controls appear only after the full narrative;
+reply readiness implies neither task success nor passed checks. Generic notices
+also omit body text when it is identical to their title. Terminal request outcomes
+retain their own expired, cancelled or rejected captions.
+
 ## Setup, QR and Skin
 
 | Screen | Artwork/content |
@@ -74,10 +86,12 @@ needs reconciliation with the repository's lateral-Back contract in [TODO.md](..
 
 ## Companion panels, status and Debug
 
-Home uses three lower panels: Tokens, Model & Context, and Session & Link.
-Panels rotate after at least eight visible seconds. Session & Link extends its
-dwell when needed to show the complete chat title, including readable start/end
-holds. A short released tap advances
+Home uses four lower panels: Tokens, Model & Context, Device, and Chat & Activity.
+Their typed identities are Home (0), ModelContext (2), SessionLink (3), and
+ChatActivity (4); the retired Activity identity (1) remains unavailable.
+Panels rotate after at least eight visible seconds. Device and Chat extend their
+dwell when needed to show complete metadata or the chat title, including readable
+start/end holds. A short released tap advances
 immediately and restarts that interval; a deliberate canonical-IMU shake returns
 to the default token panel. The character remains at (233,122), scale 73, with
 the state title at y=190 and the model row in (73,236), 320 x 28. Only the lower
@@ -89,7 +103,7 @@ The selected [context-arc proposal](ui-proposals/20261014/02-context-arc.png)
 is implemented with native text and antialiased strokes. The dashboard damage
 envelope is (40,268)-(426,393); actual ink follows the local circular chords,
 not the entire enclosing rectangle. Tokens show a large Free value, secondary
-Last and Window values, elapsed time and the canonical IMU label. The arc length
+Last and Window values; timer and IMU do not appear on this panel. The arc length
 represents consumed context, growing from an empty track at zero usage to a full
 arc at 100%; the Free value still reports remaining tokens. Both colors reflect actual
 occupancy: white below 25%, cyan from 25% to below 65%, orange from 65% to below
@@ -98,7 +112,7 @@ Free value. Active compaction retains its orange indeterminate
 accent regardless of occupancy. Missing, stale, invalid and over-limit data
 retain explicit states and never produce an invented percentage.
 
-The IMU label prefers `Still` only when the acquisition owner's independent
+The Device panel's IMU label prefers `Still` only when the acquisition owner's independent
 stillness result is valid, successful and no older than 200 ms at its original
 measurement timestamp. It remains available when the separate HAR classifier
 rejects a cadence gap or reports a model error; those errors remain in the
@@ -107,8 +121,25 @@ and retain the explicit HAR result or failure. `Still` means measured absence of
 motion; it does not identify Sitting, Standing or another posture.
 
 Model & Context contains the qualitative Standard catalog price capsule and
-thinking effort; the model name appears once in the shared header. Session & Link contains connection state, the actual
-chat title and the device's own canonical Wi-Fi IP; it omits firmware and PC IP.
+thinking effort; the model name appears once in the shared header. Device contains
+the PC connection state at y=268, the device's own canonical Wi-Fi IP at y=288,
+and device ID with IMU status at y=308. Compilation date/time occupies y=335;
+the compiling computer's actual timezone and hostname scroll in separate
+320 x 18 viewports at (73,355) and (73,375). These values come from immutable
+captured build metadata, with explicit unavailable, unsupported or error states.
+They are not the device clock, the connected PC's live settings, or invented UTC.
+Long ID/status combinations use a clipped 320 x 25 row; ordinary states fit
+without movement. No firmware version or PC IP is displayed.
+
+Chat & Activity contains the actual title without a Chat prefix or GUID in
+(73,276), 320 x 28, followed by the reported current-turn elapsed time at y=316.
+The genuine current activity description scrolls in (73,354), 320 x 28; absent
+descriptions use the real phase or an explicit unavailable state. No command or
+chat age is inferred. Repeated tool descriptions may restart their own text
+window, but their reading deadline remains relative to panel entry, so working
+activity cannot indefinitely prevent rotation. Unchanged source refreshes do
+not restart title or immutable metadata scrolling.
+
 Independent source validity remains visible. Model prices are green Cheap,
 orange Reasonable price and red Expensive; they are not monetary chat spending.
 The first complete presentation of an Expensive price after a model change
@@ -120,10 +151,17 @@ below 1000 remain exact, including zero. Canonical and protocol counters retain
 their full precision. Excessively wide secondary captions alternate within their
 bounded row; the source values and timestamps do not change.
 
-Commands use one clipped right-to-left marquee at (113,408), 240 x 25, without
-an Available commands heading. The same scene clock drives its quantized motion;
-hidden presentation does not accumulate scroll time. Attention and compaction
-suppress the hints. Current compaction turns the title orange and the token arc
+The footer says `Use @CCP in Codex and ask for the available commands` in one
+clipped right-to-left marquee at (113,408), 240 x 25, without a heading. It begins
+on the first healthy connected, visible Home presentation and makes exactly three
+complete passes, each entering from the right and leaving fully on the left.
+The existing active scene clock moves it two pixels every 50 ms. It then stays
+hidden for the remainder of the display-owner boot/session; no personalization
+hint replaces it. Chat changes, panel rotation, tool updates and reconnection do
+not restart the message. Standby, source gaps, setup, questions, attention and
+compaction pause the retained position and pass count. Final removal damages the
+entire footer viewport so old glyphs are erased. Current compaction turns the
+title orange and the token arc
 into an indeterminate accent, preserving the character cue and sound admission.
 The independent fonts derive from the vendored OFL Telex face; other scenes keep
 their existing typography. No bitmap/video playback or polling task is added.

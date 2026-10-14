@@ -141,4 +141,42 @@ void verify_shared_event_presentation()
     assert(Presentation::checks_passed_dismiss_due(event, context, true, 3000100, readable_at));
     context.ui_error = ESP_FAIL;
     assert(!Presentation::checks_passed_dismiss_due(event, context, true, 4000100, readable_at));
+
+    // A typed ready response is neither a question answer nor evidence of passed checks.
+    event = {};
+    event.kind = LUNASHELL::CodexEventKind::ReplyReady;
+    event.state = LUNASHELL::CodexEventState::Pending;
+    event.last_error = ESP_OK;
+    std::strcpy(event.title, "Reply ready");
+    std::strcpy(event.body, "A different SIMULATED chat");
+    std::strcpy(event.context, "Cody project");
+    context = {};
+    context.online = true;
+    navigation = {};
+    assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK);
+    assert(plan.route == Presentation::Route::CodexNotice && !plan.back);
+    assert(std::strcmp(plan.title, "Reply ready") == 0 && plan.title_color == 0x5FF9);
+    assert(plan.line_count == 2 && std::strcmp(plan.lines[0].text, event.body) == 0);
+    assert(plan.lines[0].top == 214 && plan.lines[1].top == 312 && plan.lines[1].instant);
+    assert(plan.action_count == 1 && std::strcmp(plan.actions[0].label, "Got it") == 0);
+    assert(plan.actions[0].id == Presentation::ActionId::Dismiss &&
+        plan.actions[0].icon == CODY2D::ActionIcon::None);
+    assert(Presentation::activate(event, context, plan.actions[0], navigation, effect) == ESP_OK &&
+        effect == Presentation::Effect::Dismiss);
+    readable_at = -1;
+    assert(!Presentation::checks_passed_dismiss_due(event, context, true, 9000000, readable_at));
+    assert(readable_at == -1);
+    context.dismiss_admitted = true;
+    assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK && !plan.actions[0].enabled);
+    assert(Presentation::activate(event, context, plan.actions[0], navigation, effect) == ESP_ERR_INVALID_STATE);
+    context.dismiss_admitted = false;
+    event.state = LUNASHELL::CodexEventState::Expired;
+    assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK &&
+        std::strcmp(plan.title, "Request expired") == 0 && plan.title_color == 0xFFFF);
+    event.kind = LUNASHELL::CodexEventKind::Notice;
+    event.state = LUNASHELL::CodexEventState::Pending;
+    event.context[0] = '\0';
+    std::strcpy(event.body, event.title);
+    assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK && plan.title[0] == '\0');
+    assert(plan.line_count == 1 && std::strcmp(plan.lines[0].text, "Reply ready") == 0);
 }

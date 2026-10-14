@@ -5,6 +5,65 @@ runtime. It provides bounded UDP commissioning, liveness, selected chat
 activity and semantic question/answer exchange. It does not transport full chat
 transcripts or audio.
 
+## Current activity=5 / events=3 contract (14 October 2026)
+
+This section supersedes the historical activity=4, events=2 and EVENT v1 wire
+examples below. Current source uses the [host encoder/decoder](../mcp/ccp_interactions.py),
+[firmware decoder](../../../components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp)
+and [authenticated envelope owner](../mcp/ccp_server.py). Pairing and the fresh
+READY/COMMITTED handshake retain their existing contract.
+
+```text
+CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=5|events=3|current=<32hex>|state=<device-state>|event_select=<32hex>|proof=<64hex>
+HMAC input: find-events-activity-v6|<device>|<pc>|<nonce>|<current>|<state>|<event_select>
+```
+
+`event_select` is all zeroes unless explicitly selecting another pending question.
+Selection is allowed only from `state=pending`; it neither changes the followed
+chat nor answers a question. A sending/received reply and an unacknowledged
+terminal result retain ownership. Multiple independently owned questions may
+queue, with at most two pending summaries displayed at once. Questions take
+priority over informational notices; different native chats keep separate notices.
+An authenticated `EVENTACK state=dismissed` retires only the published
+informational notice, never a question or an answer.
+
+ACTIVITY appends `title`, `titlestate`, `titleage` after `branch`, before `proof`.
+Its HMAC domain is `activity-v3`, covering device, pc, nonce, chat, revision,
+phase, project, description, branch and those three title fields in that order.
+The exact native title is at most 255 printable ASCII bytes, hex encoded; its
+state is `current`, `unavailable`, `unsupported` or `error`. Invalid title/age
+fields are `-`; a current title retains its source age and 45-second lease.
+TECH remains `technical-v2`. EVENT, REPLY, REPLYACK and EVENTACK retain the
+`event`, `reply`, `reply-ack` and `event-ack` domains and envelope field order
+documented below; only the negotiated FIND domain changes.
+
+EVENT binary **schema 2** starts with `u8 version=2`. It keeps the historical
+field order through `total`, with the following current limits and appended fields:
+
+| Field | Current schema 2 contract |
+| --- | --- |
+| kind | Existing IDs unchanged: 1 Notice, 2 Question, 3 ApprovalOnPc, 4 PrPending, 5 ChecksRunning, 6 ChecksFailed, 7 ChecksPassed; appended 8 ReplyReady |
+| context / title / body | Length-prefixed printable ASCII: 0..24 / 1..24 / 1..63 bytes |
+| choices | Question only, exactly 2 or 3; each ID 1..12, label 1..63, detail 1..255 ASCII bytes, followed by the unchanged u8 tone |
+| selected_id / failures / progress | Existing identity, at-most-six 48-byte failure names and big-endian u16 count rules remain unchanged |
+| pending_question_count | Appended after `total`: u8, 0..128 outstanding questions; zero for nonquestions |
+| pending_entry_count | Next u8, 0..2 and no greater than the question count; zero for nonquestions |
+| pending entries | Each has length-prefixed nonzero 32-lowercase-hex request ID, context 0..24 and title 1..24 ASCII bytes; IDs are unique |
+
+Schema 2 admits at most **1,536 binary bytes / 3,072 lowercase hexadecimal
+characters**. Datagram caps are **EVENT 4,096**, **ACTIVITY 2,048**, **TECH 1,024**
+and **512 bytes for other packets**. There is no fragmentation or silent text
+truncation; schema 1, unknown kinds and contradictory/trailing fields are rejected.
+
+`ReplyReady=8` is native-lifecycle-only: the first genuine background-chat `Stop`
+may enqueue it once per turn; public notification tools cannot manufacture it.
+Its title is `Reply ready`, and its body is the complete current native chat title
+when it fits 63 ASCII bytes, otherwise `Open the other chat in Codex`. The existing
+title owner performs one exact read-only index lookup for an eligible physical
+recipient, with session/turn/checkout revalidation and no transcript read or focus
+change. This event carries no choices or check progress and never implies task
+success. Native approvals continue on the PC.
+
 ## Identity and ports
 
 - Cody listens on UDP port `42117` while pairing.
@@ -18,7 +77,7 @@ Discovery requires explicit inclusion; this identity is never represented as a
 measured physical-device MAC.
 
 Every datagram is printable ASCII and uses `|` separators. Ordinary packets
-admit 512 bytes; ACTIVITY and TECH admit 1024; EVENT admits 1280.
+admit 512 bytes; ACTIVITY admits 2048, TECH 1024 and EVENT 4096.
 Unknown, duplicated or missing fields are rejected. Senders use the canonical
 field order shown below for reproducible proofs and diagnostics.
 
@@ -199,9 +258,11 @@ CCP 0.6.4, firmware and the explicit simulator must be updated together.
 Earlier READY/COMMITTED layouts and HMAC domains are rejected; there is no
 compatibility fallback. The saved pairing record format remains unchanged.
 
-## Authenticated chat activity and purpose
+## Historical activity=4 contract and presentation
 
-Current firmware negotiates `activity=4`, with or without the separate events
+The examples and presentation description in this section preserve the earlier
+activity contract; the current activity=5/events=3 contract is specified above.
+That firmware negotiated `activity=4`, with or without the separate events
 capability. Each capability is bound to its own HMAC domain; stripping or
 changing a capability never reuses a presence proof. Version three adds the
 separate TECH projection below; its ACTIVITY payload keeps version-two fields.
@@ -405,7 +466,12 @@ conversation text for estimates. No second App Server or chat resume/start is
 introduced. Changed plugin hooks require native review before execution;
 enabling the plugin alone does not establish trusted live hook delivery.
 
-## Authentic notifications and decisions (CCP 0.6)
+## Historical EVENT v1 / events=2 contract (CCP 0.6)
+
+The v1 payload table, earlier size limits and single-question queue description
+below are retained as historical protocol evidence. The current schema 2 and
+multi-question contract above supersede them. EVENT/REPLY/REPLYACK/EVENTACK proof
+domains and recipient-confirmed answer semantics remain as documented here.
 
 Automatic chat metadata and explicit MCP requests have separate ownership.
 An MCP request creates a random 128-bit ticket and 256-bit capability, disclosed
@@ -549,7 +615,7 @@ HMAC input: factory-reset-ack|<device>|<pc>|<nonce>|<id>|accepted
 ```
 
 All four packets fit 512 bytes. A random 128-bit ID owns one operation per device.
-Wait for fresh authenticated FIND events=2 under the active key, then send once
+Wait for fresh authenticated FIND events=3 under the active key, then send once
 after the current READY/COMMITTED and EVENT sequence, using its observed endpoint
 and nonce. Cody replies from 42117 to 42118, admits an ID once and does not move
 the deadline for identical copies. Command type, ID, nonce, key and endpoint must

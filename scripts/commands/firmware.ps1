@@ -255,6 +255,7 @@ if ($profileCatalog.schema_version -ne 1) {
     throw "Unsupported firmware profile catalog schema: $($profileCatalog.schema_version)"
 }
 . (Join-Path $PSScriptRoot '../common/BuildMode.ps1')
+. (Join-Path $PSScriptRoot '../common/FirmwareBuildMetadata.ps1')
 . (Join-Path $PSScriptRoot '../common/TtsSelection.ps1')
 . (Join-Path $PSScriptRoot '../common/WakeWord.ps1')
 $modeSelection = Resolve-FirmwareBuildMode -Catalog $profileCatalog `
@@ -1489,9 +1490,11 @@ function Assert-SdkconfigDefaultsApplied([string]$RequestedBuildDir) {
 }
 
 # RequestedBuildDir names the selected, verified firmware build under artifacts/.
-# Throws on configuration, compilation, lock or signature failure.
+# Throws on configuration, build-identity acquisition/write, compilation, lock or signature failure.
 function Invoke-ProjectBuild([string]$RequestedBuildDir) {
     Assert-SdkconfigDefaultsApplied $RequestedBuildDir
+    $buildMetadata = Get-FirmwareBuildMetadata
+    Write-FirmwareBuildMetadata -BuildDirectory $RequestedBuildDir -Metadata $buildMetadata
     $buildNinja = Join-Path $RequestedBuildDir "build.ninja"
     $reconfigure = -not (Test-Path $buildNinja)
 

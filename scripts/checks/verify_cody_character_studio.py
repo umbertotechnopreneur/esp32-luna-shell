@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "simulator/windows"))
 
 from cody_native_behavior import CharacterActivity, CharacterWorkKind, NativeBehavior
-from cody_native import NativePanelObservation, NativePersonalityPainter, NativeImuStillnessState, NativeActivityRejection
+from cody_native import NativePanelObservation, NativePersonalityPainter, NativeImuStillnessState, NativeActivityRejection, NativeCompanionPanel, NativeFirmwareBuildFieldState
 from cody_happiness import PersonalityEvent
 from cody_personality import PersonalityCue, PersonalityPresentationStatus
 from cody_petting import PettingZone
@@ -79,6 +79,15 @@ class CharacterStudioTests(unittest.TestCase):
         source.used, source.capacity, source.turn_elapsed_us = 155000, 474000, 12000000
         source.cost_band, source.cost_valid_for_us = 3, 3600000000
         source.device_ip, source.device_ip_valid = b"192.0.2.25", True
+        source.device_id = b"010203040506"
+        source.description = b"Reviewing SIMULATED Home"
+        source.activity_age_valid = True
+        source.chat_title, source.chat_title_state, source.chat_title_error = b"SIMULATED chat", 1, 0
+        source.simulated_build_local_date_time = b"14/10/26 16:00"
+        source.simulated_build_time_zone = b"SE Asia Standard Time"
+        source.simulated_build_computer = b"SIM-PC"
+        source.simulated_build_clock_state = NativeFirmwareBuildFieldState.AVAILABLE
+        source.simulated_build_computer_state = NativeFirmwareBuildFieldState.AVAILABLE
         source.simulated_motion_valid, source.simulated_motion = True, 4
         return source
 
@@ -87,12 +96,121 @@ class CharacterStudioTests(unittest.TestCase):
     # panel: Native typed lower-panel identity.
     # elapsed: Pausable active display clock independent of observation receipt age.
     # title: Complete authored native Home title.
+    # visible: Actual admitted title prefix; None models a completely visible heading.
     # Returns native pixels; raises original transport/layout/raster errors without substitutes.
-    def render_home(self, source, panel=0, elapsed=1000000, title="Working"):
+    def render_home(self, source, panel=0, elapsed=1000000, title="Working", visible=None):
         scene = self.native.evaluate(self.base.face, self.native.home_transform(), self.base.contour | {"phase": 0.})
-        self.native.prepare_home_identity(scene, source, title, len(title), elapsed)
+        self.native.prepare_home_identity(scene, source, title, len(title) if visible is None else visible, elapsed)
         self.native.prepare_home_dashboard(scene, panel, source, elapsed)
         return self.renderer.draw_scene(scene, debug=False, navigation_visible=False).convert("RGB")
+
+    # self: Actual Studio response and raster owners with no endpoint or physical-device connection.
+    # face: Complete authored face supplied by the production event scene.
+    # placement: Native scene cloud transform after its actual entrance timeline.
+    # rotation: Shared logical orientation for the character and event layout.
+    # options: EventView admission arguments; this static notice fixture deliberately has no activity observations.
+    # Returns a native evaluated scene and its original composed face values.
+    # Raises original native response or raster preparation errors.
+    def compose_event_frame(self, face, placement, rotation, **options):
+        frame = self.native.compose_response(face, contour_defaults(self.renderer.rig), placement, rotation, False)
+        scene = self.native.evaluate(frame.face, frame.transform, frame.contour | {"phase": 0.})
+        return scene, frame.face
+
+    # self: Production event view and glyph renderer, using only isolated SIMULATED source observations.
+    # snapshot: Immutable event payload and original freshness/error metadata.
+    # Returns the fully revealed native framebuffer and its real presentation owner.
+    # Raises original projection, scene, glyph or control rendering errors.
+    def render_event_notice(self, snapshot):
+        from cody_ccp_event_view import EventView
+        view = EventView()
+        window = SimpleNamespace(renderer=self.renderer)
+        with patch("cody_ccp_event_view.time.monotonic", return_value=1.):
+            self.assertTrue(view.visible(snapshot))
+            view.render(snapshot, window, 0, compose=self.compose_event_frame)
+        with patch("cody_ccp_event_view.time.monotonic", return_value=10.):
+            image, _, _ = view.render(snapshot, window, 0, compose=self.compose_event_frame)
+        self.assertTrue(view._controls_visible, "native notice did not finish its real narrative reveal")
+        return image, view
+
+    # self: Actual native notice rendering with one typed response-ready observation from another synthetic chat.
+    # Raises AssertionError for a duplicated heading, altered originating title, wrong color or changed dismissal semantics.
+    def test_reply_ready_notice_uses_one_native_mint_heading_and_original_chat(self):
+        from PIL import Image
+        from cody_ccp_simulator import SimulatorSnapshot, interactions
+        payload = interactions.EventPayload(interactions.EventKind.REPLY_READY, "SIMULATED Cody",
+            "Reply ready", "Review Cody battery savings and the next release")
+        snapshot = SimulatorSnapshot(request_id="a" * 32, event_state="pending", event_payload=payload,
+            event_fresh=True, project="Different Home project", title="Different selected Home chat")
+        image, view = self.render_event_notice(snapshot)
+        plan = view.native.output
+        self.assertEqual((plan.scene.decode("ascii"), plan.title.decode("ascii"), plan.title_color),
+                         ("codex-notice", "Reply ready", 0x5FF9))
+        narrative = [line.text.decode("ascii") for line in plan.lines[:plan.line_count] if not line.instant]
+        self.assertEqual(" ".join(narrative), payload.body)
+        self.assertNotIn("Reply ready", narrative)
+        self.assertNotIn("From Codex", narrative)
+        self.assertEqual([line.text.decode("ascii") for line in plan.lines[:plan.line_count] if line.instant],
+                         [payload.context])
+        self.assertEqual(len(view._actions), 1)
+        self.assertEqual((view._actions[0].identity, view._actions[0].label, view._actions[0].bounds),
+                         ("dismiss", "Got it", (113, 352, 240, 72)))
+        self.assertEqual(plan.actions[0].icon, 0)
+        self.assertFalse(plan.back)
+        expected = Image.new("RGB", (466, 466))
+        self.renderer.scene_painter.paint_text(expected, "Reply ready", 150, 0x5FF9)
+        self.assertEqual(image.crop((73, 150, 393, 190)).tobytes(), expected.crop((73, 150, 393, 190)).tobytes())
+        self.assertIsNotNone(image.crop((73, 214, 393, 295)).getbbox())
+        self.assertIsNotNone(image.crop((113, 352, 353, 424)).getbbox())
+        endpoint = Mock()
+        view.press((233, 388), snapshot, endpoint)
+        view.release((233, 388), snapshot, endpoint)
+        endpoint.dismiss_event.assert_called_once_with(snapshot.request_id)
+        endpoint.reply.assert_not_called()
+        self.assertFalse(view.visible(snapshot))
+        OUTPUT.mkdir(parents=True, exist_ok=True)
+        capture = self.renderer.capture_sheet(image, "SIMULATED / Reply ready / original chat and project")
+        destination = OUTPUT / "reply-ready-native.png"
+        capture.save(destination)
+        capture.resize((capture.width * 2, capture.height * 2), Image.Resampling.NEAREST).save(
+            OUTPUT / "reply-ready-native-2x.png")
+        with Image.open(destination) as stored:
+            self.assertEqual(stored.convert("RGB").crop((0, 0, 466, 466)).tobytes(), image.tobytes())
+
+    # self: Shared native notice policy with explicit unavailable title, original errors and generic notice content.
+    # Raises AssertionError if metadata is invented, stale status is concealed or duplicated generic text is rendered twice.
+    def test_reply_ready_preserves_title_fallback_source_errors_and_generic_notice_deduplication(self):
+        from cody_ccp_simulator import SimulatorSnapshot, interactions
+        from cody_native_event_presentation import NativeEventPresentation
+        payload = interactions.EventPayload(interactions.EventKind.REPLY_READY, "", "Reply ready",
+                                            "Open the other chat in Codex")
+        snapshot = SimulatorSnapshot(request_id="b" * 32, event_state="pending", event_payload=payload,
+            event_fresh=True, title="Unrelated Home title", project="Unrelated Home project")
+        image, view = self.render_event_notice(snapshot)
+        plan = view.native.output
+        lines = [line.text.decode("ascii") for line in plan.lines[:plan.line_count]]
+        self.assertEqual(" ".join(lines[:-1]), payload.body)
+        self.assertEqual(lines[-1], "Project unavailable")
+        offline, offline_view = self.render_event_notice(replace(snapshot, event_fresh=False))
+        offline_lines = [line.text.decode("ascii") for line in
+                         offline_view.native.output.lines[:offline_view.native.output.line_count]]
+        self.assertEqual(offline_lines[-1], "Offline - saved notice")
+        self.assertEqual(image.crop((73, 150, 393, 295)).tobytes(), offline.crop((73, 150, 393, 295)).tobytes())
+        failed, failed_view = self.render_event_notice(replace(snapshot, event_error=0x106))
+        failed_lines = [line.text.decode("ascii") for line in
+                        failed_view.native.output.lines[:failed_view.native.output.line_count]]
+        self.assertEqual(failed_lines[-1], "Error: 0x00000106")
+        self.assertEqual(image.crop((73, 150, 393, 295)).tobytes(), failed.crop((73, 150, 393, 295)).tobytes())
+        with self.assertRaisesRegex(ValueError, "SIMULATED"):
+            NativeEventPresentation().prepare(replace(snapshot, source="DEVICE"))
+        with self.assertRaises(ValueError):
+            NativeEventPresentation().prepare(replace(snapshot, event_payload=replace(payload, body="X" * 64)))
+        generic = replace(payload, kind=interactions.EventKind.NOTICE, title="Build finished", body="Build finished")
+        generic_image, generic_view = self.render_event_notice(replace(snapshot, event_payload=generic))
+        generic_lines = [line.text.decode("ascii") for line in
+                         generic_view.native.output.lines[:generic_view.native.output.line_count] if not line.instant]
+        self.assertEqual(generic_lines, ["Build finished"])
+        self.assertEqual(generic_view.native.output.title_color, 0xFFFF)
+        self.assertIsNotNone(generic_image.crop((73, 196, 393, 250)).getbbox())
 
     # self: Actual Studio C++ boundary with a visibly synthetic model and independent catalog lease.
     # Raises AssertionError if a catalog expiry changes the stable title/model or keeps a stale cost badge.
@@ -186,21 +304,28 @@ class CharacterStudioTests(unittest.TestCase):
                 self.assertTrue(driver._queue.empty(), "invalid PCM entered the playback worker")
 
     # self: Production Home bridge with explicitly synthetic token, model, link and IMU observations.
-    # Raises AssertionError for an incorrect three-panel cycle, replaced header or lost saved pixels.
-    def test_home_three_panels_keep_native_header_and_command_ticker(self):
+    # Raises AssertionError for an incorrect four-panel cycle, replaced header or lost saved pixels.
+    def test_home_four_panels_keep_native_header_and_command_ticker(self):
         from PIL import Image, ImageChops
         source = self.home_source()
-        baseline = self.render_home(source)
+        # The introduction enters from outside the right edge. Capture the
+        # readable portion of its first pass, with the same owner clock on all pages.
+        self.render_home(source, elapsed=0, visible=0)
+        self.render_home(source, elapsed=1000000)
+        baseline = self.render_home(source, elapsed=7000000)
         self.assertIsNotNone(baseline.crop((73, 40, 393, 185)).getbbox(), "native Home lost its character")
         self.assertIsNotNone(baseline.crop((73, 190, 393, 264)).getbbox(), "native Home lost its state/model")
-        self.assertIsNotNone(baseline.crop((73, 343, 393, 368)).getbbox(), "native Home lost its timer/IMU")
+        self.assertIsNone(baseline.crop((120, 343, 346, 368)).getbbox(), "token panel retained the moved timer/IMU")
         self.assertIsNotNone(baseline.crop((113, 408, 353, 433)).getbbox(), "native Home lost its commands")
         OUTPUT.mkdir(parents=True, exist_ok=True)
         pages = []
+        sheet = Image.new("RGB", (466 * 2, 508 * 2), "#101820")
         panel = 0
-        for name, expected in (("tokens", 0), ("model", 2), ("session", 3)):
+        for index, (name, expected) in enumerate((("tokens", NativeCompanionPanel.HOME),
+                ("model", NativeCompanionPanel.MODEL_CONTEXT), ("device", NativeCompanionPanel.SESSION_LINK),
+                ("chat", NativeCompanionPanel.CHAT_ACTIVITY))):
             self.assertEqual(panel, expected)
-            image = self.render_home(source, panel)
+            image = self.render_home(source, panel, elapsed=7000000)
             self.assertEqual(image.crop((0, 0, 466, 268)).tobytes(), baseline.crop((0, 0, 466, 268)).tobytes())
             self.assertEqual(image.crop((0, 393, 466, 466)).tobytes(), baseline.crop((0, 393, 466, 466)).tobytes())
             if panel:
@@ -209,14 +334,19 @@ class CharacterStudioTests(unittest.TestCase):
                 self.assertLessEqual(bounds[3], 393)
             pages.append(image.crop((40, 268, 426, 393)).tobytes())
             destination = OUTPUT / f"home-dashboard-{name}.png"
-            self.renderer.capture_sheet(image, f"SIMULATED / Home dashboard / {name}").save(destination)
+            capture = self.renderer.capture_sheet(image, f"SIMULATED / Home dashboard / {name}")
+            capture.save(destination)
+            sheet.paste(capture, ((index % 2) * 466, (index // 2) * 508))
             with Image.open(destination) as stored:
                 self.assertEqual(stored.convert("RGB").crop((0, 0, 466, 466)).tobytes(), image.tobytes())
             panel = self.native.next_companion_panel(panel)
         self.assertEqual(panel, 0)
-        self.assertEqual(len(set(pages)), 3)
+        self.assertEqual(len(set(pages)), 4)
+        sheet.save(OUTPUT / "home-four-panels-native-sheet.png")
+        sheet.resize((sheet.width * 2, sheet.height * 2), Image.Resampling.NEAREST).save(
+            OUTPUT / "home-four-panels-native-sheet-2x.png")
         with self.assertRaises(RuntimeError):
-            self.render_home(source, 1)
+            self.render_home(source, 1, elapsed=7000000)
 
     # self: Production native framebuffer renderer with isolated SIMULATED context observations.
     # Raises AssertionError if occupancy reverses the arc, loses its color band or alters captured native pixels.
@@ -293,7 +423,7 @@ class CharacterStudioTests(unittest.TestCase):
         (OUTPUT / "home-context-usage-native-samples.json").write_text(
             json.dumps(samples, indent=2) + "\n", encoding="utf-8")
 
-    # self: Actual Home transport/rendering with an explicitly SIMULATED independent IMU owner result.
+    # self: Actual device-panel rendering with an explicitly SIMULATED independent IMU owner result.
     # Raises AssertionError if HAR suppresses current Still or invalid/old/error samples retain the Still caption.
     def test_home_stillness_is_independent_of_har_and_preserves_source_validity(self):
         from PIL import Image, ImageChops
@@ -302,21 +432,22 @@ class CharacterStudioTests(unittest.TestCase):
         source.simulated_stillness_valid = True
         source.simulated_stillness_error = 0
         source.simulated_stillness_age_us = 100000
-        still = self.render_home(source)
-        row = (120, 343, 346, 368)
+        still = self.render_home(source, NativeCompanionPanel.SESSION_LINK)
+        row = (73, 308, 393, 333)
         baseline = still.crop(row).tobytes()
+        self.assertIsNotNone(still.crop(row).getbbox())
         expected = Image.new("RGB", (466, 466))
-        self.renderer.scene_painter.paint_text(expected, "00:12 | IMU Still", 343, body=True, max_width=288)
+        self.renderer.scene_painter.paint_text(expected, "ID 010203040506 | Still", 308, body=True, max_width=320)
         self.assertEqual(baseline, expected.crop(row).tobytes())
         # A source older than the unrelated TECH receipt remains current when
         # it is inside the native IMU lease; neither owner refreshes the other.
         source.simulated_stillness_age_us = 0
-        self.assertEqual(self.render_home(source).crop(row).tobytes(), baseline)
+        self.assertEqual(self.render_home(source, NativeCompanionPanel.SESSION_LINK).crop(row).tobytes(), baseline)
         source.simulated_stillness_age_us = 100000
         for rejection, error in ((NativeActivityRejection.CADENCE_GAP, 0x103), (NativeActivityRejection.MODEL_ERROR, -1)):
             source.simulated_motion_rejection, source.simulated_motion_error = rejection, error
             source.simulated_motion_valid = False
-            self.assertEqual(self.render_home(source).crop(row).tobytes(), baseline)
+            self.assertEqual(self.render_home(source, NativeCompanionPanel.SESSION_LINK).crop(row).tobytes(), baseline)
         source.simulated_motion_rejection, source.simulated_motion_error = NativeActivityRejection.NONE, 0
         source.simulated_motion_valid = True
         for state, valid, error, age in ((NativeImuStillnessState.STILL, True, 0, 200001),
@@ -327,13 +458,13 @@ class CharacterStudioTests(unittest.TestCase):
             source.simulated_stillness_valid = valid
             source.simulated_stillness_error = error
             source.simulated_stillness_age_us = age
-            retired = self.render_home(source)
+            retired = self.render_home(source, NativeCompanionPanel.SESSION_LINK)
             self.assertNotEqual(retired.crop(row).tobytes(), baseline)
             # Validity changes belong only to the motion row, never to model,
             # tokens, cloud, title or the command ticker.
             bounds = ImageChops.difference(still, retired).getbbox()
-            self.assertGreaterEqual(bounds[1], 343)
-            self.assertLessEqual(bounds[3], 368)
+            self.assertGreaterEqual(bounds[1], 308)
+            self.assertLessEqual(bounds[3], 333)
         OUTPUT.mkdir(parents=True, exist_ok=True)
         self.renderer.capture_sheet(still, "SIMULATED / native Still / independent current IMU owner").save(
             OUTPUT / "home-still-independent.png")
@@ -342,61 +473,197 @@ class CharacterStudioTests(unittest.TestCase):
     # Raises AssertionError if the real pixels fail to move right-to-left or jump across hidden time.
     def test_home_commands_scroll_and_pause_in_native_pixels(self):
         source = self.home_source()
-        first = self.render_home(source, elapsed=1000000)
-        shifted = self.render_home(source, elapsed=1050000)
-        self.assertEqual(first.crop((114, 408, 353, 433)).tobytes(), shifted.crop((113, 408, 352, 433)).tobytes())
+        self.render_home(source, elapsed=1000000)
+        first = self.render_home(source, elapsed=7000000)
+        shifted = self.render_home(source, elapsed=7050000)
+        self.assertEqual(first.crop((115, 408, 353, 433)).tobytes(), shifted.crop((113, 408, 351, 433)).tobytes())
         self.assertNotEqual(first.crop((113, 408, 353, 433)).tobytes(), shifted.crop((113, 408, 353, 433)).tobytes())
         self.native.pause_activity()
-        resumed = self.render_home(source, elapsed=20000000)
+        resumed = self.render_home(source, elapsed=100000000)
         self.assertEqual(shifted.crop((113, 408, 353, 433)).tobytes(), resumed.crop((113, 408, 353, 433)).tobytes())
+        # A fresh genuine chat changes provenance but cannot restart the owner's introduction.
+        source.chat_id = source.technical_chat_id = b"b" * 64
+        switched = self.render_home(source, elapsed=100000000)
+        self.assertEqual(resumed.crop((113, 408, 353, 433)).tobytes(), switched.crop((113, 408, 353, 433)).tobytes())
+        source.connected = False
+        disconnected = self.render_home(source, elapsed=101000000)
+        self.assertIsNone(disconnected.crop((113, 408, 353, 433)).getbbox())
+        source.connected = True
+        reconnected = self.render_home(source, elapsed=200000000)
+        self.assertEqual(switched.crop((113, 408, 353, 433)).tobytes(), reconnected.crop((113, 408, 353, 433)).tobytes())
 
-    # self: Production Session title clip and shared rotation owner with synthetic source facts.
+    # self: Actual native footer owner with monotonic synthetic presentation time and no connection to a physical device.
+    # Raises AssertionError for an altered sentence, missing pass, incomplete retirement or a rearmed introduction.
+    def test_home_commands_complete_three_passes_and_retire_for_owner_lifetime(self):
+        from PIL import Image, ImageChops
+        phrase = "Use @CCP in Codex and ask for the available commands"
+        body = json.loads((ROOT / "assets/cody/scenes/generated/manifest.json").read_text(encoding="utf-8"))["body_font"]
+        width = (len(phrase) - 1) * body["advance"] + body["width"]
+        step_us, step_pixels = 50000, 2
+        pass_us = ((240 + width + step_pixels - 1) // step_pixels) * step_us
+        start_us = 1000000
+        source = self.home_source()
+        hidden = self.render_home(source, elapsed=0, visible=0)
+        self.assertIsNone(hidden.crop((113, 408, 353, 433)).getbbox())
+        first = self.render_home(source, elapsed=start_us)
+        footer = (113, 408, 353, 433)
+        self.assertIsNone(first.crop(footer).getbbox(), "introduction must enter from outside the right edge")
+        last_visible = None
+        for pass_index in range(3):
+            origin = start_us + pass_index * pass_us
+            at_start = self.render_home(source, elapsed=origin)
+            self.assertIsNone(at_start.crop(footer).getbbox())
+            # Compare each part of the exact authored sentence to the native
+            # font, including the final words; Python never rasterizes device text.
+            for first_character in (0, 18, 36):
+                text = phrase[first_character:first_character + 20]
+                offset_pixels = 240 + first_character * body["advance"]
+                self.assertEqual(offset_pixels % step_pixels, 0)
+                elapsed = origin + offset_pixels // step_pixels * step_us
+                image = self.render_home(source, elapsed=elapsed)
+                expected = Image.new("RGB", (466, 466))
+                text_width = (len(text) - 1) * body["advance"] + body["width"]
+                self.renderer.scene_painter.paint_text(expected, text, 408, 0xBDF7, body=True,
+                    center_x=113 + (text_width + 1) // 2, max_width=240)
+                # Native fixed cells may overlap by one edge column. The
+                # overlapping windows cover those glyphs fully on the prior
+                # sample, without treating a preceding glyph as part of this one.
+                left = 113 + (max(0, body["width"] - body["advance"]) if first_character else 0)
+                comparison = (left, 408, 113 + len(text) * body["advance"], 433)
+                self.assertEqual(image.crop(comparison).tobytes(), expected.crop(comparison).tobytes())
+                self.assertEqual(first.crop((0, 0, 466, 408)).tobytes(), image.crop((0, 0, 466, 408)).tobytes())
+                last_visible = image
+        finished_at = start_us + 3 * pass_us
+        finished = self.render_home(source, elapsed=finished_at)
+        self.assertIsNone(finished.crop(footer).getbbox(), "the third complete pass did not retire the footer")
+        damage = ImageChops.difference(last_visible, finished).getbbox()
+        self.assertIsNotNone(damage)
+        self.assertGreaterEqual(damage[0], footer[0])
+        self.assertGreaterEqual(damage[1], footer[1])
+        self.assertLessEqual(damage[2], footer[2])
+        self.assertLessEqual(damage[3], footer[3])
+        source.chat_id = source.technical_chat_id = b"d" * 64
+        for index, panel in enumerate((2, 3, 4, 0)):
+            source.used += 1
+            image = self.render_home(source, panel, elapsed=finished_at + (index + 1) * 1000000)
+            self.assertIsNone(image.crop(footer).getbbox(), "chat, panel or metadata refresh rearmed the footer")
+        source.connected = False
+        self.render_home(source, elapsed=finished_at + 10000000)
+        self.native.pause_activity()
+        source.connected = True
+        reconnected = self.render_home(source, elapsed=finished_at + 100000000)
+        self.assertIsNone(reconnected.crop(footer).getbbox(), "reconnection rearmed the completed introduction")
+        OUTPUT.mkdir(parents=True, exist_ok=True)
+        self.renderer.capture_sheet(finished, "SIMULATED / command introduction / three complete passes finished").save(
+            OUTPUT / "home-commands-three-passes-finished.png")
+
+    # self: Production ChatActivity title clip and shared rotation owner with synthetic source facts.
     # Raises AssertionError if the full title cannot scroll, refresh resets it or hidden time consumes its reading dwell.
-    def test_session_chat_title_scroll_freeze_and_reading_dwell_use_native_pixels(self):
+    def test_chat_activity_title_scroll_freeze_and_reading_dwell_use_native_pixels(self):
         source = self.home_source()
         source.chat_title = b"SIMULATED full chat title: review audio power savings, pending questions and the next Cody release"
         source.chat_title_state, source.chat_title_error = 1, 0
         self.native.reset_home_rotation()
-        panel = self.native.advance_home_rotation(3, 1000000, True, False)
+        panel = self.native.advance_home_rotation(NativeCompanionPanel.CHAT_ACTIVITY, 1000000, True, False)
         first = self.render_home(source, panel, elapsed=1000000)
         panel = self.native.advance_home_rotation(panel, 2250000, True, False)
         shifted = self.render_home(source, panel, elapsed=2250000)
-        self.assertEqual(first.crop((75, 315, 393, 343)).tobytes(), shifted.crop((73, 315, 391, 343)).tobytes())
-        self.assertNotEqual(first.crop((73, 315, 393, 343)).tobytes(), shifted.crop((73, 315, 393, 343)).tobytes())
+        self.assertEqual(first.crop((75, 276, 393, 304)).tobytes(), shifted.crop((73, 276, 391, 304)).tobytes())
+        self.assertNotEqual(first.crop((73, 276, 393, 304)).tobytes(), shifted.crop((73, 276, 393, 304)).tobytes())
         # A refreshed authenticated source with the same title retains its native offset.
         source.chat_title_age_us = 1000
         refreshed = self.render_home(source, panel, elapsed=2250000)
-        self.assertEqual(shifted.crop((73, 315, 393, 343)).tobytes(), refreshed.crop((73, 315, 393, 343)).tobytes())
-        self.assertEqual(self.native.advance_home_rotation(panel, 2250000, False, False), 3)
-        self.assertEqual(self.native.advance_home_rotation(panel, 102250000, True, False), 3)
+        self.assertEqual(shifted.crop((73, 276, 393, 304)).tobytes(), refreshed.crop((73, 276, 393, 304)).tobytes())
+        self.assertEqual(self.native.advance_home_rotation(panel, 2250000, False, False), 4)
+        self.assertEqual(self.native.advance_home_rotation(panel, 102250000, True, False), 4)
         resumed = self.render_home(source, panel, elapsed=102250000)
-        self.assertEqual(shifted.crop((73, 315, 393, 343)).tobytes(), resumed.crop((73, 315, 393, 343)).tobytes())
-        self.assertEqual(self.native.advance_home_rotation(panel, 109000000, True, False), 3)
+        self.assertEqual(shifted.crop((73, 276, 393, 304)).tobytes(), resumed.crop((73, 276, 393, 304)).tobytes())
+        self.assertEqual(self.native.advance_home_rotation(panel, 109000000, True, False), 4)
         readable = self.render_home(source, panel, elapsed=109000000)
         OUTPUT.mkdir(parents=True, exist_ok=True)
         self.renderer.capture_sheet(readable, "SIMULATED / native chat title / complete reading dwell").save(
-            OUTPUT / "home-session-chat-title.png")
+            OUTPUT / "home-chat-activity-title.png")
         self.assertEqual(self.native.advance_home_rotation(panel, 170000000, True, False), 0)
 
     # self: Native source admission, separate from title-animation and fresh link clocks.
     # Raises AssertionError if old source age is refreshed by TECH or unsupported/error states display original text.
-    def test_session_chat_title_source_age_and_unavailable_states(self):
+    def test_chat_activity_title_source_age_and_unavailable_states(self):
         source = self.home_source()
         source.chat_title, source.chat_title_state, source.chat_title_error = b"SIMULATED current chat", 1, 0
-        current = self.render_home(source, 3).crop((73, 315, 393, 343)).tobytes()
+        current = self.render_home(source, NativeCompanionPanel.CHAT_ACTIVITY).crop((73, 276, 393, 304)).tobytes()
         source.chat_title_age_us = 45000000
-        stale = self.render_home(source, 3).crop((73, 315, 393, 343)).tobytes()
+        stale = self.render_home(source, NativeCompanionPanel.CHAT_ACTIVITY).crop((73, 276, 393, 304)).tobytes()
         self.assertNotEqual(current, stale)
         source.receipt_age_us = 60000000
-        self.assertEqual(stale, self.render_home(source, 3).crop((73, 315, 393, 343)).tobytes())
+        self.assertEqual(stale, self.render_home(source, NativeCompanionPanel.CHAT_ACTIVITY).crop((73, 276, 393, 304)).tobytes())
         variants = {current, stale}
         for state, error in ((0, 0x105), (2, 0x106), (3, -1)):
             source.chat_title, source.chat_title_state, source.chat_title_error = b"", state, error
             source.chat_title_age_us = 0
-            image = self.render_home(source, 3).crop((73, 315, 393, 343))
+            image = self.render_home(source, NativeCompanionPanel.CHAT_ACTIVITY).crop((73, 276, 393, 304))
             self.assertIsNotNone(image.getbbox())
             variants.add(image.tobytes())
         self.assertEqual(len(variants), 5)
+
+    # self: Native device panel with explicitly synthetic compiler metadata and the shared visible-dwell clock.
+    # Raises AssertionError if long identity fields truncate, stale presentation clocks advance or unavailable metadata persists.
+    def test_device_build_metadata_scrolls_completely_and_preserves_availability(self):
+        source = self.home_source()
+        source.simulated_build_time_zone = b"SIMULATED/Asia/Long/Build/Time/Zone/Identity"
+        source.simulated_build_computer = b"SIMULATED-BUILD-WORKSTATION-FOR-HOME-PANEL-READING"
+        self.native.reset_home_rotation()
+        panel = self.native.advance_home_rotation(NativeCompanionPanel.SESSION_LINK, 1000000, True, False)
+        first = self.render_home(source, panel, elapsed=1000000)
+        self.assertEqual(self.native.advance_home_rotation(panel, 2250000, True, False), panel)
+        shifted = self.render_home(source, panel, elapsed=2250000)
+        for top in (355, 375):
+            self.assertEqual(first.crop((75, top, 393, top + 18)).tobytes(),
+                             shifted.crop((73, top, 391, top + 18)).tobytes())
+            self.assertNotEqual(first.crop((73, top, 393, top + 18)).tobytes(),
+                                shifted.crop((73, top, 393, top + 18)).tobytes())
+        self.assertEqual(self.native.advance_home_rotation(panel, 2250000, False, False), panel)
+        self.assertEqual(self.native.advance_home_rotation(panel, 102250000, True, False), panel)
+        resumed = self.render_home(source, panel, elapsed=102250000)
+        self.assertEqual(shifted.crop((73, 335, 393, 393)).tobytes(), resumed.crop((73, 335, 393, 393)).tobytes())
+        self.assertEqual(self.native.advance_home_rotation(panel, 109000000, True, False), panel)
+        readable = self.render_home(source, panel, elapsed=109000000)
+        OUTPUT.mkdir(parents=True, exist_ok=True)
+        self.renderer.capture_sheet(readable, "SIMULATED / long build metadata / native reading dwell").save(
+            OUTPUT / "home-device-long-build-metadata.png")
+        self.assertEqual(self.native.advance_home_rotation(panel, 170000000, True, False), NativeCompanionPanel.CHAT_ACTIVITY)
+        source.simulated_build_clock_state = NativeFirmwareBuildFieldState.UNAVAILABLE
+        source.simulated_build_computer_state = NativeFirmwareBuildFieldState.UNSUPPORTED
+        unavailable = self.render_home(source, panel, elapsed=170000000)
+        self.assertNotEqual(unavailable.crop((73, 335, 393, 393)).tobytes(), readable.crop((73, 335, 393, 393)).tobytes())
+        # Retained source strings cannot leak into an unavailable compilation field.
+        source.simulated_build_time_zone = b"CHANGED-WHILE-UNAVAILABLE"
+        source.simulated_build_computer = b"CHANGED-WHILE-UNSUPPORTED"
+        self.assertEqual(unavailable.crop((73, 335, 393, 393)).tobytes(),
+            self.render_home(source, panel, elapsed=170000000).crop((73, 335, 393, 393)).tobytes())
+        source.simulated_build_clock_state = 7
+        with self.assertRaises(RuntimeError):
+            self.render_home(source, panel)
+
+    # self: Actual chat activity panel supplied only with original description, phase and validity observations.
+    # Raises AssertionError if changing genuine purpose is ignored or expired activity remains visually current.
+    def test_chat_activity_uses_current_purpose_and_explicit_source_status(self):
+        source = self.home_source()
+        panel = NativeCompanionPanel.CHAT_ACTIVITY
+        first = self.render_home(source, panel)
+        row = (73, 354, 393, 382)
+        source.description = b"Inspecting SIMULATED audio"
+        changed = self.render_home(source, panel)
+        self.assertNotEqual(first.crop(row).tobytes(), changed.crop(row).tobytes())
+        self.assertEqual(first.crop((0, 0, 466, 268)).tobytes(), changed.crop((0, 0, 466, 268)).tobytes())
+        source.activity_stale = True
+        stale = self.render_home(source, panel)
+        self.assertNotEqual(changed.crop(row).tobytes(), stale.crop(row).tobytes())
+        source.description = b"Another expired purpose"
+        self.assertEqual(stale.crop(row).tobytes(), self.render_home(source, panel).crop(row).tobytes())
+        source.activity_stale = False
+        source.activity_valid = False
+        unavailable = self.render_home(source, panel)
+        self.assertNotEqual(stale.crop(row).tobytes(), unavailable.crop(row).tobytes())
 
     # self: Persistent production Studio bridge with exact active-time samples, without a wall-clock wait.
     # Raises AssertionError for an early/skipped panel, hidden-time jump, missing manual reset or compaction escape.
@@ -408,35 +675,35 @@ class CharacterStudioTests(unittest.TestCase):
         first = self.render_home(source, panel, elapsed=1000000)
         self.assertEqual(self.native.advance_home_rotation(panel, 8999999, True, False), 0)
         panels = [first.crop((40, 268, 426, 393)).tobytes()]
-        for active_us, expected in ((9000000, 2), (17000000, 3), (25000000, 0)):
+        for active_us, expected in ((9000000, 2), (17000000, 3), (25000000, 4), (33000000, 0)):
             panel = self.native.advance_home_rotation(panel, active_us, True, False)
             self.assertEqual(panel, expected)
             image = self.render_home(source, panel, elapsed=active_us)
             self.assertEqual(image.crop((0, 0, 466, 268)).tobytes(), first.crop((0, 0, 466, 268)).tobytes())
             if panel:
                 panels.append(image.crop((40, 268, 426, 393)).tobytes())
-        self.assertEqual(len(set(panels)), 3)
-        self.assertEqual(self.native.advance_home_rotation(panel, 25000000, True, False), 0)
-        self.assertEqual(self.native.advance_home_rotation(panel, 29000000, True, False), 0)
+        self.assertEqual(len(set(panels)), 4)
+        self.assertEqual(self.native.advance_home_rotation(panel, 33000000, True, False), 0)
+        self.assertEqual(self.native.advance_home_rotation(panel, 37000000, True, False), 0)
         # The actual Studio hidden-view hook pauses the shared owner with four seconds remaining.
         hidden = CcpPanel.__new__(CcpPanel)
         hidden.window = SimpleNamespace(renderer=self.renderer)
         hidden._companion_panel = panel
-        hidden._activity_observation_clock_us = 29000000
+        hidden._activity_observation_clock_us = 37000000
         hidden.pause_home_presentation()
-        self.assertEqual(self.native.advance_home_rotation(panel, 229000000, True, False), 0)
-        self.assertEqual(self.native.advance_home_rotation(panel, 232999999, True, False), 0)
-        panel = self.native.advance_home_rotation(panel, 233000000, True, False)
+        self.assertEqual(self.native.advance_home_rotation(panel, 237000000, True, False), 0)
+        self.assertEqual(self.native.advance_home_rotation(panel, 240999999, True, False), 0)
+        panel = self.native.advance_home_rotation(panel, 241000000, True, False)
         self.assertEqual(panel, 2)
         # An accepted manual tap selects immediately and gives the selected panel a complete dwell.
         panel = self.native.next_companion_panel(panel)
         self.native.reset_home_rotation()
-        self.assertEqual(self.native.advance_home_rotation(panel, 233000000, True, False), 3)
-        self.assertEqual(self.native.advance_home_rotation(panel, 240999999, True, False), 3)
-        panel = self.native.advance_home_rotation(panel, 241000000, True, False)
-        self.assertEqual(panel, 0)
+        self.assertEqual(self.native.advance_home_rotation(panel, 241000000, True, False), 3)
+        self.assertEqual(self.native.advance_home_rotation(panel, 248999999, True, False), 3)
+        panel = self.native.advance_home_rotation(panel, 249000000, True, False)
+        self.assertEqual(panel, 4)
         panel = self.native.next_companion_panel(panel)
-        panel = self.native.advance_home_rotation(panel, 242000000, True, True)
+        panel = self.native.advance_home_rotation(panel, 250000000, True, True)
         self.assertEqual(panel, 0)
         self.assertEqual(self.native.advance_home_rotation(panel, 400000000, True, True), 0)
         self.assertEqual(self.native.advance_home_rotation(panel, 401000000, True, False), 0)
@@ -608,7 +875,7 @@ class CharacterStudioTests(unittest.TestCase):
                     original = painter.prepare(standard, cue, placement[2], "working", 0, elapsed_ms, ())
                 self.assertEqual(original.status, PersonalityPresentationStatus.VISIBLE)
                 self.assertGreater(original.opacity, 0)
-                for panel in (0, 2, 3):
+                for panel in (0, 2, 3, 4):
                     scene = self.native.evaluate(self.base.face, placement, self.base.contour | {"phase": 0.})
                     self.native.prepare_home_identity(scene, source, title, len(title), 1100000)
                     self.native.prepare_home_dashboard(scene, panel, source, 1100000)

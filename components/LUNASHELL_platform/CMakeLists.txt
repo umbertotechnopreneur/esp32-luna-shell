@@ -30,6 +30,7 @@ set(LUNASHELL_platform_srcs
     "src/snapshot/LUNASHELL_snapshot_names.cpp"
     "src/snapshot/LUNASHELL_snapshot_reports.cpp"
     "src/runtime/LUNASHELL_liveness.cpp"
+    "src/runtime/LUNASHELL_build_metadata.cpp"
     "src/snapshot/LUNASHELL_snapshot_scheduler.cpp"
     "src/snapshot/LUNASHELL_sensor_fusion.cpp"
     "src/runtime/LUNASHELL_time.cpp"
@@ -165,6 +166,12 @@ idf_component_register(
     PRIV_INCLUDE_DIRS "src/snapshot"
     REQUIRES ${LUNASHELL_platform_requires}
 )
+
+if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+    # The public build entrypoint refreshes this header for every compilation.
+    # Configure/size/capture must never manufacture a new build timestamp.
+    target_include_directories(${COMPONENT_LIB} PRIVATE "${CMAKE_BINARY_DIR}/generated")
+endif()
 
 if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
     idf_component_optional_requires(PRIVATE esp-dl)

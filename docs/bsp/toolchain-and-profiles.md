@@ -142,6 +142,21 @@ authorized serial/flash operation.
 
 ## Artifacts and evidence
 
+Each actual public build captures the compiling computer's local date and time
+(`dd/MM/yy HH:mm`), its exact operating-system timezone ID and its local hostname.
+`FirmwareBuildMetadata` stores this bounded identity as immutable firmware data;
+it does not read device clock settings or sensors. The build writes its generated
+header and `firmware-build-metadata.json` audit record under the selected build's
+`generated/` directory. Configuration, size reports and serial capture do not
+replace the stamp. Flash first builds, so its embedded stamp belongs to that build.
+
+Timezone and hostname fields accept at most 63 printable ASCII characters.
+Unavailable or unsupported values retain their explicit state for the display;
+they are never truncated, transliterated or replaced with a guessed timezone.
+Acquisition and write errors stop compilation. The public `build-modes` check uses
+synthetic inputs to cover local-date rollover, bounded identity, literal escaping
+and capture renewal without probing the current computer.
+
 Before authorized build/flash/combo/recover, the shared helper cleans transient
 artifacts while preserving firmware, reviewed locks, generated configuration,
 Python caches and simulator pairing state. Fullclean affects only the selected

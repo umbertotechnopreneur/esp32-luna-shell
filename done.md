@@ -13,6 +13,50 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Four Home panels, finite CCP introduction and other-chat reply - 2026-10-14
+
+Home rotates Tokens, Model, Device and Chat, or advances by tap. Tokens retains
+the occupied-context arc and Free/Last/Window; Device owns canonical IP/identity
+and independent IMU activity, plus actual immutable compiler-local date/time,
+OS timezone identity and hostname. Chat owns the original scrolling title,
+current-turn duration and authenticated work description. Changing tools cannot
+extend its carousel dwell indefinitely. No whole-chat lifetime, raw command or
+transcript is inferred. Long immutable rows and titles get complete reading time.
+
+Actual build entry captures bounded printable ASCII fields into the selected
+artifact tree; configure, size and capture do not replace the stamp. Unsupported
+values remain explicit, and acquisition/write errors stop compilation. A fixture
+initially converted its ISO string into DateTime through JSON; a fresh constructor
+preserves the original type without weakening the serializer.
+
+The footer is exactly "Use @CCP in Codex and ask for the available commands".
+It enters fully from the right and exits fully to the left three times at
+40 pixels/second, then disappears until the display owner restarts. Hidden
+routes, standby, failed observations and reconnects pause without replay; no
+personalization ticker replaces it. Dead catalogs/modes/chat storage were removed.
+
+ReplyReady appends stable event kind 8 without changing schema 2 or body limits.
+One mint headline replaces From Codex and duplicated Ready text, followed by
+the admitted original chat title, project and iconless Got it. Generic notices
+also omit identical body/title repetition. A genuine background Stop reads exact
+indexed title metadata once, preserves the followed cache, and revalidates
+session/turn/checkout/phase after IO. Unsupported, absent or overlong titles use
+Open the other chat in Codex. Signed dismissal, question priority, once-per-turn
+guards and terminal uncertainty remain intact; Stop is not task success.
+
+Executed final Windows host evidence: native rendering, runtime/shared wire,
+125 CCP tests, 47 CCP simulator tests, build-mode/metadata, script contracts,
+selected wake-word profile and git diff --check passed. Studio ran 29 cases:
+28 native/GUI-owner cases passed; desktop ImageGrab failed twice with screen grab
+failed. This remains unavailable evidence, not a passing desktop capture.
+Earlier 27-case Studio including actual integer-window capture passed before
+the ReplyReady addition. Exact native four-panel, six-occupancy and ReplyReady
+captures are preserved below four-panel-final-evidence. One native assertion
+also caught an old activity purpose surviving an owner error; source admission
+now marks that retained observation invalid. All failed logs remain separate.
+Firmware build, compiled frames, install and PC cache update are pending at this
+source checkpoint. No physical voice/gait/display accuracy is claimed.
+
 ## Occupied context progress, independent Still and taller ribbon - 2026-10-14
 
 The Home arc now fills from left to right with occupied context, from zero to

@@ -420,6 +420,127 @@ void check_reply_semantics()
     prepare(Route::ApprovalOnPc, SceneId::ApprovalOnPc);
     require(!s_view.action_visible && s_view.event_choice_count == 0, "native permissions stay on the PC");
 }
+
+// No parameters: typed background replies use the real shared layout, native fonts and dismissal intent.
+// Exception: Stops on repeated copy, lost chat text, invalid circular bounds or an implied task outcome.
+void check_reply_ready_notice()
+{
+    namespace P = event_presentation;
+    const std::vector<std::string> titles{
+        "A SIMULATED separate chat about the circular display",
+        std::string(63, 'W'),
+        "Open the other chat in Codex"
+    };
+    for (const auto &chat_title : titles) {
+        reset_event_presentation();
+        s_presented_event.kind = Kind::ReplyReady;
+        s_presented_event.state = State::Pending;
+        s_presented_event.last_error = ESP_OK;
+        s_presented_event.data_valid = true;
+        copy_field(s_presented_event.request_id, std::string(32, 'd'));
+        copy_field(s_presented_event.title, "Reply ready");
+        copy_field(s_presented_event.body, chat_title);
+        copy_field(s_presented_event.context, "SIMULATED Cody project");
+        s_event_online = true;
+        require(codex_event_destination() == Route::CodexNotice,
+            "typed reply readiness uses a readonly notification route");
+        auto scene = prepare(Route::CodexNotice, SceneId::CodexNotice);
+        require(std::string(scene.title.text.characters, scene.title.text.length) == "Reply ready" &&
+            scene.title.color == 0x5FF9 && scene.title.origin.y == 150,
+            "one mint Reply ready headline replaces From Codex");
+        require(s_view.line_count >= 2 && s_view.line_count <= 4,
+            "complete bounded chat title and one subordinate context line fit the notice");
+        std::string displayed_title;
+        for (uint8_t index = 0; index + 1U < s_view.line_count; ++index) {
+            const auto &line = s_view.lines[index];
+            require(line.origin.y == 214 + index * 28 && !s_view.instant_lines[index],
+                "chat text owns the separated primary rows below the single headline");
+            displayed_title.append(line.text.characters, line.text.length);
+        }
+        require(nonspace(displayed_title) == nonspace(chat_title),
+            "the originating chat title or honest fallback remains complete without a GUID");
+        const auto &context_line = s_view.lines[s_view.line_count - 1U];
+        require(context_line.origin.y == 312 && context_line.color == 0xBDF7 &&
+            std::strcmp(context_line.text.characters, "SIMULATED Cody project") == 0 &&
+            s_view.instant_lines[s_view.line_count - 1U],
+            "project context is visually subordinate and excluded from narration timing");
+        require_text_layout();
+        require_circle(s_view.action.bounds);
+        require(s_view.action_id == OnboardingAction::DismissEvent &&
+            std::strcmp(s_event_plan.actions[0].label, "Got it") == 0 &&
+            s_event_plan.actions[0].tone == LUNASHELL::CodexChoiceTone::Info &&
+            s_view.action.icon == CODY2D::ActionIcon::None &&
+            s_view.action.bounds.x == 113 && s_view.action.bounds.y == 352 &&
+            s_view.action.bounds.width == 240 && s_view.action.bounds.height == 72,
+            "Got it retains one proven iconless informational capsule without a success symbol");
+        require(!P::hit_action(s_event_plan, s_view.actions_visible, 233, 388),
+            "the acknowledgement cannot be tapped before its complete narrative is visible");
+        complete_narrative(scene);
+        P::Navigation navigation{};
+        P::Effect effect{};
+        require(P::activate(s_presented_event, event_context(), s_event_plan.actions[0], navigation, effect) == ESP_OK &&
+            effect == P::Effect::Dismiss && s_presented_event.state == State::Pending,
+            "Got it requests the existing signed dismissal and never answers or invents task success");
+        int64_t readable_at = -1;
+        require(!P::checks_passed_dismiss_due(s_presented_event, event_context(), true, 9000000, readable_at) &&
+            readable_at == -1, "reply readiness cannot trigger checks-passed auto-dismissal");
+
+        std::vector<uint16_t> full(466U * 466U);
+        require(draw_scene_rows(scene, {full.data(), 466, 466, 466, static_cast<uint32_t>(full.size())}, 0, 0) == ESP_OK,
+            "the complete reply-ready view draws through the native production compositor");
+        require(std::find(full.begin(), full.end(), 0x5FF9) != full.end(),
+            "the mint headline is present in actual native pixels");
+        for (const auto order : {CODY2D::Rgb565ByteOrder::Native, CODY2D::Rgb565ByteOrder::ByteSwapped}) {
+            for (const uint16_t rows : {2, 16}) {
+                std::vector<uint16_t> tiled(full.size());
+                for (uint16_t first = 0; first < 466; first += rows) {
+                    const CODY2D::Surface strip{tiled.data() + first * 466U, 466,
+                        static_cast<uint16_t>(std::min<unsigned>(rows, 466 - first)), 466,
+                        static_cast<uint32_t>(tiled.size() - first * 466U), order};
+                    require(draw_scene_rows(scene, strip, first, 0) == ESP_OK,
+                        "reply-ready layout respects real DMA row partitions");
+                }
+                for (size_t pixel = 0; pixel < full.size(); ++pixel) {
+                    const uint16_t expected = order == CODY2D::Rgb565ByteOrder::Native ? full[pixel] :
+                        CODY2D::swap_rgb565_bytes(full[pixel]);
+                    require(tiled[pixel] == expected, "reply-ready native/swapped and full/tiled pixels match");
+                }
+            }
+        }
+    }
+
+    s_event_online = false;
+    prepare(Route::CodexNotice, SceneId::CodexNotice);
+    require(std::strcmp(s_view.lines[s_view.line_count - 1U].text.characters, "Offline - saved notice") == 0,
+        "an offline reply notice retains its original content with explicit link state");
+    s_event_online = true;
+    s_event_ui_error = ESP_ERR_TIMEOUT;
+    s_event_retry = EventRetry::Dismiss;
+    prepare(Route::CodexNotice, SceneId::CodexNotice);
+    require(s_view.action_id == OnboardingAction::RetryEvent &&
+        std::strcmp(s_view.lines[s_view.line_count - 1U].text.characters, "Error: 0x00000107") == 0,
+        "failed dismissal retains its real cause and explicit retry");
+    s_event_ui_error = ESP_OK;
+    s_event_retry = EventRetry::None;
+    s_event_dismiss_admitted = true;
+    prepare(Route::CodexNotice, SceneId::CodexNotice);
+    require(!s_view.action.enabled, "an admitted acknowledgement cannot be repeated");
+    s_event_dismiss_admitted = false;
+    s_presented_event.state = State::Expired;
+    auto expired = prepare(Route::CodexNotice, SceneId::CodexNotice);
+    require(std::string(expired.title.text.characters, expired.title.text.length) == "Request expired" &&
+        expired.title.color == 0xFFFF, "expiration keeps its truthful terminal outcome instead of reply-ready emphasis");
+
+    s_presented_event.kind = Kind::Notice;
+    s_presented_event.state = State::Pending;
+    s_presented_event.context[0] = '\0';
+    copy_field(s_presented_event.title, "Reply ready");
+    copy_field(s_presented_event.body, "Reply ready");
+    auto generic = prepare(Route::CodexNotice, SceneId::CodexNotice);
+    require(s_view.line_count == 1 && std::strcmp(s_view.lines[0].text.characters, "Reply ready") == 0 &&
+        std::string(generic.title.text.characters, generic.title.text.length) == "From Codex",
+        "generic notices suppress identical body copy without inferring the new typed readiness event");
+}
 // No parameters: explicitly synthetic canonical observations exercise the real Home presenter.
 // Exception: Stops on incorrect routes, titles, freshness or original service-error propagation.
 void check_home_lifecycle()
@@ -466,6 +587,10 @@ void check_home_lifecycle()
         require(present_companion_activity(now_us, scene, changed) == ESP_OK, "real Home presentation succeeds");
         require(HomeFixture::inactive_look_resets == prior_resets + (s_route != prior_route ? 1U : 0U),
             "only a real route transition retires the inactive Look view");
+        // A newly entered route first completes its real entrance before any footer time is eligible.
+        require(advance_scene(scene, 30000000) == ESP_OK &&
+            present_companion_activity(now_us, scene, changed) == ESP_OK,
+            "only actually visible Home content admits the finite footer");
     };
     // expected: Exact English title from the actual prepared native scene.
     const auto title_is = [&](const char *expected) {
@@ -484,7 +609,7 @@ void check_home_lifecycle()
     require(s_route == Route::Response19, "metadata heartbeat cannot end reply introduction early");
     present(7000000);
     require(s_route == Route::CompanionIdle16 && title_is("Ready for more"), "five seconds retires reply into Ready for more");
-    require(scene.command_hints != nullptr, "Ready for more exposes actual command prompts");
+    require(scene.command_hints != nullptr, "Ready for more shares the original finite footer lifetime");
     ++activity.revision;
     technical.revision = activity.revision;
     present(31999999);
@@ -510,7 +635,32 @@ void check_home_lifecycle()
     bool changed = false;
     require(present_companion_activity(35000000, scene, changed) == ESP_FAIL,
         "Home preserves the canonical read failure");
+    require(s_command_hints.sampled_us == -1, "canonical source failure pauses the retained footer clock");
     HomeFixture::read_error = ESP_OK;
+    link.state = LUNASHELL::CodexLinkState::Connected;
+    link.last_error = ESP_OK;
+    link.health = LUNASHELL::DeviceHealth::Ready;
+    technical.compaction = LUNASHELL::CodexCompactionState::None;
+    technical.compaction_valid = technical.compaction_age_valid = false;
+    present(36000000);
+    present(300000000);
+    require(s_command_hints.completed_passes == 3 && scene.command_hints == nullptr,
+        "real presenter removes the footer after three complete active passes");
+    const auto finished_revision = s_command_hints.revision;
+    copy_field(activity.chat_id, std::string(64, 'c'));
+    copy_field(technical.chat_id, std::string(64, 'c'));
+    ++activity.revision;
+    technical.revision = activity.revision;
+    activity.state = LUNASHELL::CodexActivityState::ResponseReady;
+    present(301000000);
+    present(306000000);
+    require(s_route == Route::CompanionIdle16 && scene.command_hints == nullptr &&
+        s_command_hints.completed_passes == 3 && s_command_hints.revision == finished_revision,
+        "new chat and Ready for more never replace the completed footer with another hint");
+    reset_onboarding();
+    require(s_command_hints.completed_passes == 3 && s_command_hints.revision == finished_revision &&
+        s_command_hints.sampled_us == -1,
+        "onboarding reset preserves display-owner completion instead of replaying the introduction");
     HomeFixture::observation = nullptr;
 }
 } // namespace
@@ -525,6 +675,7 @@ int main()
     check_pending_question_rows();
     check_pr_views();
     check_reply_semantics();
+    check_reply_ready_notice();
     check_home_lifecycle();
     std::puts("Real Cody event presenter: numbered rows, complete review, queue selection, reveal gates and delivered-only success passed");
     return 0;

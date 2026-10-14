@@ -29,7 +29,7 @@ from tkinter import messagebox, ttk
 
 from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
 from cody_ccp_event_view import EventView
-from cody_native import NativePersonalityPainter, NativePanelInputs, NativePanelMetric, NativePanelObservation, NativeImuStillnessState
+from cody_native import NativePersonalityPainter, NativePanelInputs, NativePanelMetric, NativePanelObservation, NativeImuStillnessState, NativeFirmwareBuildFieldState
 from cody_native_behavior import CharacterActivity, CharacterWorkKind
 from cody_native_debug import render_debug_channels
 from cody_personality import PersonalityCue, PersonalityPresentation
@@ -533,6 +533,11 @@ class CcpPanel:
         observation.effort_valid = True
         observation.device_ip = b"192.0.2.25"
         observation.device_ip_valid = bool(snapshot.network_ready)
+        observation.simulated_build_local_date_time = b"14/10/26 16:00"
+        observation.simulated_build_time_zone = b"SIMULATED Asia Zone"
+        observation.simulated_build_computer = b"SIMULATED-PC"
+        observation.simulated_build_clock_state = NativeFirmwareBuildFieldState.AVAILABLE
+        observation.simulated_build_computer_state = NativeFirmwareBuildFieldState.AVAILABLE
         observation.simulated_motion_valid = True
         observation.simulated_motion = 4  # Explicit SIMULATED standing classifier observation.
         observation.simulated_stillness = NativeImuStillnessState.STILL
@@ -562,6 +567,7 @@ class CcpPanel:
     # Returns raw facts only; source aging and presentation validity belong to shared C++.
     def panel_observation(self, snapshot):
         observation = NativePanelObservation()
+        observation.device_id = snapshot.device_id.encode("ascii")
         # This is the simulator device's bound address, never the broker/peer IP.
         # Isolated source fixtures without an endpoint truthfully leave it unavailable.
         endpoint = getattr(self, "endpoint", None)

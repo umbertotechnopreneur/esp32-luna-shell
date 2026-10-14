@@ -82,53 +82,24 @@ inline esp_err_t advance_home_reply_dwell(HomeReplyDwell &state, bool ready, con
     return ESP_OK;
 }
 
-enum class CommandHintId : uint8_t { None = 0, Name = 1, Timezone = 2, QuietHours = 3, Question = 4 };
-struct CommandHint {
-    CommandHintId id;
-    const char *caption;
-};
-inline constexpr CommandHint kHomeCommandHints[] = {
-    {CommandHintId::Name, "Change my name"},
-    {CommandHintId::Timezone, "Set my timezone"},
-    {CommandHintId::QuietHours, "Set quiet hours"},
-    {CommandHintId::Question, "Ask Cody a question"}
-};
-// No parameters: Domain identities must remain unique independently of catalog order.
-constexpr bool command_hint_ids_unique()
-{
-    for (unsigned first = 0; first != 4; ++first) {
-        if (kHomeCommandHints[first].id == CommandHintId::None) {
-            return false;
-        }
-        for (unsigned second = first + 1; second != 4; ++second) {
-            if (kHomeCommandHints[first].id == kHomeCommandHints[second].id) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-static_assert(command_hint_ids_unique(), "Command hint domain identities must be unique");
-enum class CommandHintsMode : uint8_t { Introduction = 0, ReadyForMore = 1 };
 inline constexpr CODY2D::Rect kHomeCommandHintsBounds{113, 408, 240, 25};
 inline constexpr char kHomeCommandMarquee[] =
-    "Change my name | Set my timezone | Set quiet hours | Ask Cody a question | ";
-inline constexpr int64_t kHomeCommandPixelUs = 50000;
+    "Use @CCP in Codex and ask for the available commands";
+inline constexpr int64_t kHomeCommandStepUs = 50000;
+inline constexpr uint32_t kHomeCommandStepPixels = 2;
+inline constexpr uint8_t kHomeCommandPassCount = 3;
 struct CommandHintsState {
     CODY2D::TextLine request{};
     char window[32]{};
-    char chat_id[65]{};
     int64_t elapsed_us = 0;
     int64_t sampled_us = -1;
     uint32_t revision = 0;
     uint32_t pixel_offset = 0;
-    CommandHintId page = CommandHintId::None;
-    CommandHintsMode mode = CommandHintsMode::Introduction;
-    bool connected = false;
+    uint8_t completed_passes = 0;
     bool visible = false;
 };
 
-static_assert(sizeof(CommandHintsState) <= 256, "Home hints remain bounded display-owner storage");
+static_assert(sizeof(CommandHintsState) <= 128, "Finite Home footer retains only a bounded glyph window and clock");
 
 // value: Canonical exact token count; compact output floors completed thousands.
 // destination: Caller-owned ASCII buffer receiving grouping and an optional K suffix.
@@ -283,37 +254,27 @@ inline esp_err_t update_home_tokens(ActivityIdentityState &state, const CODY2D::
     return ESP_OK;
 }
 
-// state: Display-owner glyph window retained through complete frame retirement.
+// state: Display-owner lifetime and glyph window; route, chat and source changes never rearm it.
 // font: Existing measured native body font; no new font or audio is allocated.
 // connected: Fresh healthy canonical CCP presence, never retained pairing alone.
-// eligible: Ordinary Home without an urgent, hidden or interactive presentation.
-// chat_id: Current authentic chat identity; a new chat restarts the authored sequence.
+// eligible: Actually visible ordinary Home without an urgent or interactive presentation.
 // now_us: Existing pausable active clock; hidden updates suspend accumulated scrolling.
 // changed: Receives visibility or quantized pixel changes, never subpixel elapsed time.
-// mode: Retained caller provenance; both Home modes show the same continuous commands.
-// Exception: Returns original glyph errors or rejects invalid identities, clocks and font geometry.
+// Exception: Returns original glyph errors or rejects invalid clocks and font geometry.
 inline esp_err_t update_command_hints(CommandHintsState &state, const CODY2D::MonoFont &font,
-    bool connected, bool eligible, const char *chat_id, int64_t now_us, bool &changed,
-    CommandHintsMode mode = CommandHintsMode::Introduction)
+    bool connected, bool eligible, int64_t now_us, bool &changed)
 {
     changed = false;
-    if (chat_id == nullptr || std::strlen(chat_id) > 64 || now_us < 0 ||
-        (state.sampled_us >= 0 && now_us < state.sampled_us) ||
-        (mode != CommandHintsMode::Introduction && mode != CommandHintsMode::ReadyForMore)) {
-        ESP_LOGE("CODY_commands", "Marquee input rejected: chat_bytes=%u clock=%lld previous=%lld mode=%u (%s)",
-            chat_id ? static_cast<unsigned>(std::strlen(chat_id)) : 0U,
+    if (now_us < 0 || (state.sampled_us >= 0 && now_us < state.sampled_us)) {
+        ESP_LOGE("CODY_commands", "Marquee clock rejected: current=%lld previous=%lld (%s)",
             static_cast<long long>(now_us), static_cast<long long>(state.sampled_us),
-            static_cast<unsigned>(mode), esp_err_to_name(ESP_ERR_INVALID_ARG));
+            esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
     const bool was_visible = state.visible;
-    const bool new_chat = std::strcmp(state.chat_id, chat_id) != 0;
-    state.connected = connected;
-    state.mode = mode;
-    if (!connected || !eligible) {
+    if (!connected || !eligible || state.completed_passes == kHomeCommandPassCount) {
         state.sampled_us = -1;
         state.visible = false;
-        state.page = CommandHintId::None;
         if (was_visible) {
             ++state.revision;
             changed = true;
@@ -321,52 +282,72 @@ inline esp_err_t update_command_hints(CommandHintsState &state, const CODY2D::Mo
         return ESP_OK;
     }
     const auto &bounds = kHomeCommandHintsBounds;
-    if (font.advance == 0 || font.width > bounds.width || font.height > bounds.height) {
+    // A clipped edge glyph may begin left of the viewport, but its native origin stays nonnegative.
+    if (font.advance == 0 || font.width == 0 || font.width > bounds.x ||
+        font.height == 0 || font.height > bounds.height) {
         ESP_LOGE("CODY_commands", "Marquee font rejected: advance=%u width=%u height=%u (%s)",
             font.advance, font.width, font.height, esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
     constexpr size_t caption_length = sizeof(kHomeCommandMarquee) - 1U;
-    const uint32_t cycle_pixels = static_cast<uint32_t>(caption_length) * font.advance;
-    const int64_t cycle_us = static_cast<int64_t>(cycle_pixels) * kHomeCommandPixelUs;
-    if (new_chat) {
-        std::strcpy(state.chat_id, chat_id);
-        state.elapsed_us = 0;
-        state.sampled_us = -1;
-    }
+    const uint32_t text_width = static_cast<uint32_t>(caption_length - 1U) * font.advance + font.width;
+    const uint32_t pass_pixels = bounds.width + text_width;
+    const int64_t pass_us = static_cast<int64_t>((pass_pixels + kHomeCommandStepPixels - 1U) /
+        kHomeCommandStepPixels) * kHomeCommandStepUs;
+    const int64_t lifetime_us = pass_us * kHomeCommandPassCount;
     if (state.sampled_us >= 0) {
-        // Reduce before addition so even a long valid idle interval cannot overflow.
-        state.elapsed_us = (state.elapsed_us + (now_us - state.sampled_us) % cycle_us) % cycle_us;
+        // Saturate before addition so a long valid active interval cannot overflow or restart playback.
+        state.elapsed_us += std::min(now_us - state.sampled_us, lifetime_us - state.elapsed_us);
     }
     state.sampled_us = now_us;
-    const uint32_t offset = static_cast<uint32_t>(state.elapsed_us / kHomeCommandPixelUs);
-    if (was_visible && !new_chat && state.request.valid && offset == state.pixel_offset) {
+    const uint8_t completed_passes = static_cast<uint8_t>(state.elapsed_us / pass_us);
+    const bool pass_changed = completed_passes != state.completed_passes;
+    state.completed_passes = completed_passes;
+    if (completed_passes == kHomeCommandPassCount) {
+        state.sampled_us = -1;
+        state.visible = false;
+        state.request = {};
+        state.window[0] = '\0';
+        ++state.revision;
+        changed = true;
         return ESP_OK;
     }
-    const uint16_t fraction = offset % font.advance;
-    const size_t count = (bounds.width + fraction) / font.advance + 2U;
+    const uint32_t offset = static_cast<uint32_t>((state.elapsed_us % pass_us) /
+        kHomeCommandStepUs) * kHomeCommandStepPixels;
+    if (was_visible && !pass_changed && offset == state.pixel_offset) {
+        return ESP_OK;
+    }
+    const int32_t text_left = static_cast<int32_t>(bounds.x + bounds.width) - static_cast<int32_t>(offset);
+    const size_t first = text_left + font.width <= bounds.x
+        ? static_cast<size_t>((bounds.x - text_left - font.width) / font.advance + 1) : 0;
+    const int32_t window_left = text_left + static_cast<int32_t>(first * font.advance);
+    const size_t count = first < caption_length && window_left < bounds.x + bounds.width
+        ? std::min(caption_length - first, static_cast<size_t>(
+            (bounds.x + bounds.width - window_left + font.advance - 1) / font.advance)) : 0;
     if (count >= sizeof(state.window)) {
         ESP_LOGE("CODY_commands", "Marquee window rejected: glyphs=%u capacity=%u (%s)",
             static_cast<unsigned>(count), static_cast<unsigned>(sizeof(state.window)),
             esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
-    const size_t first = offset / font.advance;
-    for (size_t index = 0; index < count; ++index) {
-        state.window[index] = kHomeCommandMarquee[(first + index) % caption_length];
+    // Slice the original message without wrapping characters: every pass enters and leaves completely.
+    if (count > 0) {
+        std::memcpy(state.window, kHomeCommandMarquee + first, count);
     }
     state.window[count] = '\0';
-    const esp_err_t error = CODY2D::prepare_text_line(font,
-        {state.window, static_cast<uint16_t>(count)},
-        {static_cast<int16_t>(bounds.x - fraction),
-         static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2)}, 0xBDF7, state.request);
-    if (error != ESP_OK) {
-        ESP_LOGE("CODY_commands", "Marquee glyph preparation failed (%s)", esp_err_to_name(error));
-        return error;
+    state.request = {};
+    if (count > 0) {
+        const esp_err_t error = CODY2D::prepare_text_line(font,
+            {state.window, static_cast<uint16_t>(count)},
+            {static_cast<int16_t>(window_left),
+             static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2)}, 0xBDF7, state.request);
+        if (error != ESP_OK) {
+            ESP_LOGE("CODY_commands", "Marquee glyph preparation failed (%s)", esp_err_to_name(error));
+            return error;
+        }
     }
     state.pixel_offset = offset;
     state.visible = true;
-    state.page = CommandHintId::Name;
     ++state.revision;
     changed = true;
     return ESP_OK;
@@ -380,7 +361,7 @@ inline esp_err_t update_command_hints(CommandHintsState &state, const CODY2D::Mo
 inline esp_err_t draw_command_hints(const CommandHintsState &state, CODY2D::Surface strip,
     uint16_t first_row, uint16_t first_column)
 {
-    if (!state.visible) {
+    if (!state.visible || !state.request.valid) {
         return ESP_OK;
     }
     const auto &bounds = kHomeCommandHintsBounds;

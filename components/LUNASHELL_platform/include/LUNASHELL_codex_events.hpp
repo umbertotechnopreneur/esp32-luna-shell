@@ -24,7 +24,7 @@ namespace LUNASHELL {
 
 enum class CodexEventKind : uint8_t {
     None = 0, Notice = 1, Question = 2, ApprovalOnPc = 3, PrPending = 4,
-    ChecksRunning = 5, ChecksFailed = 6, ChecksPassed = 7,
+    ChecksRunning = 5, ChecksFailed = 6, ChecksPassed = 7, ReplyReady = 8,
 };
 enum class CodexEventState : uint8_t {
     None, Pending, Sending, Received, Delivered, Cancelled, Expired, Rejected,

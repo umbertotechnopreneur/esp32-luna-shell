@@ -119,11 +119,14 @@ void verify_audio_notice_sequence()
 // text: Exact authored expected caption or numeric value.
 bool dashboard_has_caption(const CODY::HomeDashboardPresentation &owner, const char *text)
 {
-    if (owner.panel == CODY::CompanionPanel::SessionLink && std::strcmp(owner.chat_title.text, text) == 0) {
+    if (owner.panel == CODY::CompanionPanel::ChatActivity && std::strcmp(owner.chat_title.text, text) == 0) {
         return true;
     }
     for (unsigned row = 0; row < owner.line_count; ++row) {
         if (std::strcmp(owner.captions[row], text) == 0) { return true; }
+    }
+    for (uint8_t index = 0; index < owner.marquee_count; ++index) {
+        if (std::strcmp(owner.detail_marquees[index].text, text) == 0) { return true; }
     }
     return false;
 }
@@ -152,17 +155,17 @@ void verify_dashboard_stillness(const LUNASHELL::CodexLinkSnapshot &link,
     motion.stillness.attempted_at_us = now_us;
     motion.stillness.still_since_us = 1500000;
     motion.stillness.sample_count = 16;
-    // home_text: Semantic motion caption expected in the real dashboard's timer row.
+    // home_text: Semantic motion caption expected in the general device panel's ID/status row.
     // technical_text: Exact motion caption expected from the canonical technical wrapper.
     // current: Whether a healthy measurement should receive the technical panel's current color.
     // Exception: Throws on real native preparation, caption or health-color disagreement.
     const auto expect = [&](const char *home_text, const char *technical_text, bool current) {
-        dashboard_require(CODY::prepare_home_dashboard(CODY::CompanionPanel::Home, link, technical,
+        dashboard_require(CODY::prepare_home_dashboard(CODY::CompanionPanel::SessionLink, link, technical,
             value_font, body_font, now_us, 5000000, owner, content, &motion, &small_font) == ESP_OK,
-            "Still fixture must use the real Home preparation with an original observation clock");
+            "Still fixture must use the actual general-device panel with an original observation clock");
         bool found_home = false;
-        for (uint8_t row = 0; row < owner.line_count; ++row) {
-            found_home |= std::strstr(owner.captions[row], home_text) != nullptr;
+        for (uint8_t row = 0; row < owner.marquee_count; ++row) {
+            found_home |= std::strstr(owner.detail_marquees[row].text, home_text + 4) != nullptr;
         }
         dashboard_require(found_home, "Home must show the admitted measured state or preserve the distinct HAR fallback");
         dashboard_require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::Activity,
@@ -245,7 +248,8 @@ void verify_dashboard_scene_visibility(const CODY2D::MonoFont &body_font, const 
     bool changed = false;
     dashboard_require(CODY::prepare_activity_identity(identity, body_font, "Cody", "main", 0) == ESP_OK &&
         CODY::prepare_activity_description(description, body_font, "Actual retained purpose", 0) == ESP_OK &&
-        CODY::update_command_hints(hints, body_font, true, true, "dashboard-test-chat", 0, changed) == ESP_OK,
+        CODY::update_command_hints(hints, body_font, true, true, 0, changed) == ESP_OK &&
+        CODY::update_command_hints(hints, body_font, true, true, 6000000, changed) == ESP_OK,
         "semantic owners and marquee must be valid real native presentations");
     CODY::capture_scene_activity_identity(scene, &identity, 1);
     scene.activity_description = &description;
@@ -327,9 +331,11 @@ void verify_dashboard_rotation()
     advance(16000000);
     dashboard_require(panel == CODY::CompanionPanel::SessionLink, "automatic cycle next exposes the real connection panel");
     advance(24000000);
+    dashboard_require(panel == CODY::CompanionPanel::ChatActivity, "automatic cycle gives the real chat its own fourth panel");
+    advance(32000000);
     dashboard_require(panel == CODY::CompanionPanel::Home, "automatic cycle returns to the token arc");
     advance(40000000);
-    dashboard_require(panel == CODY::CompanionPanel::ModelContext, "a delayed frame advances once instead of skipping an unseen page");
+    dashboard_require(panel == CODY::CompanionPanel::ModelContext, "the next complete four-panel cycle starts with model details");
     CODY::reset_home_dashboard_rotation(rotation);
     advance(40000000);
     advance(47999999);
@@ -342,7 +348,7 @@ void verify_dashboard_rotation()
     advance(205999999);
     dashboard_require(panel == CODY::CompanionPanel::SessionLink, "hidden routes preserve the six visible seconds still owed to this page");
     advance(206000000);
-    dashboard_require(panel == CODY::CompanionPanel::Home, "rotation resumes using only the remaining visible dwell");
+    dashboard_require(panel == CODY::CompanionPanel::ChatActivity, "rotation resumes using only the remaining visible dwell");
     panel = CODY::CompanionPanel::SessionLink;
     advance(207000000, true, true);
     dashboard_require(panel == CODY::CompanionPanel::Home, "current compaction immediately brings its orange token arc into view");
@@ -356,6 +362,8 @@ void verify_dashboard_rotation()
     dashboard_require(CODY::advance_home_dashboard_rotation(rotation, panel, 308000000, true, false, panel) == ESP_ERR_INVALID_ARG &&
         rotation.sampled_us == previous.sampled_us && rotation.elapsed_us == previous.elapsed_us,
         "a backward clock is rejected without corrupting the retained rotation policy");
+    advance(324000001);
+    dashboard_require(panel == CODY::CompanionPanel::SessionLink, "a delayed frame advances once instead of skipping an unseen panel");
 }
 
 // owner: Actual prepared native presentation.
@@ -388,6 +396,8 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
     static LUNASHELL::CodexTechnicalSnapshot technical{};
     static LUNASHELL::ActivitySnapshot motion{};
     static CODY::HomeDashboardPresentation owner{};
+    static LUNASHELL::FirmwareBuildMetadata build{};
+    CODY::HomeDeviceDetails device_details{&build};
     CODY::SceneContent content{};
     link.data_valid = link.activity.data_valid = technical.data_valid = true;
     link.last_error = link.activity.last_error = technical.last_error = ESP_OK;
@@ -395,6 +405,11 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
     link.health = link.activity.health = technical.health = LUNASHELL::DeviceHealth::Ready;
     link.activity.state = LUNASHELL::CodexActivityState::Working;
     link.activity.revision = technical.revision = 7;
+    std::strcpy(link.device_id, "010203040506");
+    std::strcpy(build.local_date_time, "14/10/26 12:34");
+    std::strcpy(build.time_zone, "SIMULATED/Asia/Long/Build/Time/Zone/Identity");
+    std::strcpy(build.computer, "SIMULATED-build-machine-with-a-complete-original-hostname");
+    build.clock_state = build.computer_state = LUNASHELL::FirmwareBuildFieldState::Available;
     std::memset(link.activity.chat_id, 'a', 64);
     std::strcpy(link.activity.title, "SIMULATED title");
     link.activity.title_state = LUNASHELL::CodexChatTitleState::Current;
@@ -419,19 +434,20 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
     // Exception: Fails on the real native preparation error.
     const auto prepare = [&](CODY::CompanionPanel panel, int64_t active_us) {
         dashboard_require(CODY::prepare_home_dashboard(panel, link, technical, value_font, body_font,
-            1000000, active_us, owner, content, &motion, &small_font, "192.0.2.17", CODY::PanelValueState::Current) == ESP_OK,
+            1000000, active_us, owner, content, &motion, &small_font, "192.0.2.17", CODY::PanelValueState::Current,
+            -1, &device_details) == ESP_OK,
             "real dashboard preparation failed");
     };
     prepare(CODY::CompanionPanel::Home, 0);
     dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Measured &&
-        dashboard_has_caption(owner, "319K") && dashboard_has_caption(owner, "00:12 | IMU Standing") &&
+        dashboard_has_caption(owner, "319K") && owner.line_count == 4 && owner.marquee_count == 0 &&
         (dashboard_has_caption(owner, "Last 155K | Window 474K") || dashboard_has_caption(owner, "Last 155K | Win 474K")),
-        "default token panel must show genuine free count and canonical standing beside the timer");
+        "token panel contains only genuine token values and consumed-context progress, with no timer or IMU row");
     const uint32_t revision = owner.revision;
     prepare(CODY::CompanionPanel::Home, 9000000);
     dashboard_require(owner.revision == revision && technical.received_at_us == 1000000 &&
-        dashboard_has_caption(owner, "00:12 | IMU Standing"),
-        "independent animation clock must not age a source timer or amplify unchanged presentation revisions");
+        owner.line_count == 4,
+        "independent animation clock must not alter unchanged token-panel revisions");
     verify_dashboard_stillness(link, technical, value_font, body_font, small_font);
     std::vector<uint16_t> reference;
     std::vector<uint16_t> actual;
@@ -597,29 +613,103 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
         dashboard_has_caption(owner, "Price Expensive") && dashboard_has_caption(owner, "Thinking high") && owner.line_count == 2,
         "lower model panel complements the shared identity header with only price and thinking effort");
     prepare(CODY::CompanionPanel::SessionLink, 0);
-    dashboard_require(dashboard_has_caption(owner, "PC connected") && dashboard_has_caption(owner, "SIMULATED title") &&
-        dashboard_has_caption(owner, "Device IP 192.0.2.17") && !dashboard_has_caption(owner, "Device IP 192.0.2.99"),
-        "session panel must show OUR independently sourced IP, never the paired PC address");
+    dashboard_require(dashboard_has_caption(owner, "PC connected") && !dashboard_has_caption(owner, "SIMULATED title") &&
+        dashboard_has_caption(owner, "IP 192.0.2.17") && !dashboard_has_caption(owner, "IP 192.0.2.99") &&
+        dashboard_has_caption(owner, "ID 010203040506 | Standing") && dashboard_has_caption(owner, "Built 14/10/26 12:34") &&
+        dashboard_has_caption(owner, "Zone SIMULATED/Asia/Long/Build/Time/Zone/Identity") &&
+        dashboard_has_caption(owner, "PC SIMULATED-build-machine-with-a-complete-original-hostname"),
+        "general panel must retain canonical device IP/ID and motion with explicit immutable build-machine metadata");
+    const int64_t metadata_dwell = owner.minimum_dwell_us;
+    dashboard_require(metadata_dwell > CODY::kHomeDashboardRotationUs &&
+        !CODY::home_dashboard_marquee_moving(owner, 1199999),
+        "long build metadata must reserve complete reading time including its stationary start hold");
+    prepare(CODY::CompanionPanel::SessionLink, 1250000);
+    dashboard_require(owner.detail_marquees[1].offset == 2 && owner.detail_marquees[2].offset == 2 &&
+        CODY::home_dashboard_marquee_moving(owner, 1250000),
+        "timezone and computer name use the shared 50-ms native movement gate");
+    prepare(CODY::CompanionPanel::SessionLink, metadata_dwell - 1800000);
+    dashboard_require(owner.minimum_dwell_us == metadata_dwell &&
+        owner.detail_marquees[2].offset == owner.detail_marquees[2].width - owner.detail_marquees[2].bounds.width &&
+        !CODY::home_dashboard_marquee_moving(owner, metadata_dwell - 1800000),
+        "unchanged metadata refreshes preserve their reading deadline and stop animation after complete suffixes");
+    dashboard_raster(owner, reference, 466, CODY2D::Rgb565ByteOrder::Native);
+    dashboard_raster(owner, actual, 16, CODY2D::Rgb565ByteOrder::ByteSwapped);
+    for (unsigned y = 0; y < 466; ++y) {
+        for (unsigned x = 0; x < 466; ++x) {
+            const auto pixel = reference[y * 466U + x];
+            dashboard_require(CODY2D::rgb565_stored_to_native(actual[y * 466U + x], CODY2D::Rgb565ByteOrder::ByteSwapped) == pixel,
+                "all six general rows retain full-frame/strip and byte-order native parity");
+            if (pixel != 0) {
+                dashboard_require(x >= 73 && x < 393 && y >= 268 && y < 393 &&
+                    (int(x) - 233) * (int(x) - 233) + (int(y) - 233) * (int(y) - 233) <= 233 * 233,
+                    "general text and both metadata marquees stay inside their lower circular viewport");
+            }
+        }
+    }
+    build.clock_state = LUNASHELL::FirmwareBuildFieldState::Error;
+    build.computer_state = LUNASHELL::FirmwareBuildFieldState::Unsupported;
+    prepare(CODY::CompanionPanel::SessionLink, 0);
+    dashboard_require(dashboard_has_caption(owner, "Built ERROR") && dashboard_has_caption(owner, "Zone ERROR") &&
+        dashboard_has_caption(owner, "PC UNSUPPORTED") && !dashboard_has_caption(owner, "Built 14/10/26 12:34"),
+        "failed or unsupported immutable metadata never exposes its historical strings as current");
+    build.clock_state = build.computer_state = LUNASHELL::FirmwareBuildFieldState::Available;
     dashboard_require(CODY::prepare_home_dashboard(CODY::CompanionPanel::SessionLink, link, technical, value_font, body_font,
         1000000, 0, owner, content, &motion, &small_font, "255.255.255.255", CODY::PanelValueState::Current) == ESP_OK &&
-        dashboard_has_caption(owner, "Device IP") && dashboard_has_caption(owner, "255.255.255.255"),
-        "the widest valid IPv4 address retains all four octets within the lower panel");
+        dashboard_has_caption(owner, "IP 255.255.255.255") && dashboard_has_caption(owner, "Built UNAVAILABLE"),
+        "the widest valid IPv4 address retains every octet and absent build metadata stays explicit");
+    prepare(CODY::CompanionPanel::ChatActivity, 0);
+    dashboard_require(dashboard_has_caption(owner, "SIMULATED title") && dashboard_has_caption(owner, "Turn 00:12") &&
+        dashboard_has_caption(owner, "Working") && !dashboard_has_caption(owner, "PC connected") && owner.arc_path_count == 0,
+        "chat owns actual title, reported current-turn timer and phase fallback without device or token fields");
+    std::memset(link.activity.description, 'A', 96);
+    link.activity.description[96] = '\0';
+    prepare(CODY::CompanionPanel::ChatActivity, 0);
+    const int64_t activity_dwell = owner.minimum_dwell_us;
+    dashboard_require(activity_dwell > CODY::kHomeDashboardRotationUs &&
+        dashboard_has_caption(owner, link.activity.description), "genuine long activity retains its full original text");
+    for (unsigned update = 1; update <= 5; ++update) {
+        link.activity.description[0] = static_cast<char>('A' + update);
+        prepare(CODY::CompanionPanel::ChatActivity, update * 3000000);
+        dashboard_require(owner.minimum_dwell_us == activity_dwell && owner.detail_marquees[0].entered_elapsed_us == 0 &&
+            owner.detail_marquees[0].started_elapsed_us == update * 3000000,
+            "tool updates restart their visible text but cannot perpetually extend the chat panel's entry-based deadline");
+    }
+    CODY::HomeDashboardRotationState activity_rotation{};
+    auto activity_panel = CODY::CompanionPanel::ChatActivity;
+    dashboard_require(CODY::advance_home_dashboard_rotation(activity_rotation, activity_panel, 0, true, false,
+        activity_panel, activity_dwell) == ESP_OK &&
+        CODY::advance_home_dashboard_rotation(activity_rotation, activity_panel, activity_dwell, true, false,
+            activity_panel, activity_dwell) == ESP_OK && activity_panel == CODY::CompanionPanel::Home,
+        "ongoing genuine tool activity still releases the four-panel carousel at its bounded deadline");
+    std::strcpy(link.activity.description, "Working A");
+    for (unsigned update = 0; update < 8; ++update) {
+        link.activity.description[8] = static_cast<char>('A' + update);
+        prepare(CODY::CompanionPanel::ChatActivity, update * 1000000);
+        dashboard_require(owner.minimum_dwell_us == CODY::kHomeDashboardRotationUs,
+            "short genuine activity changes never reset or extend the default eight-second dwell");
+    }
+    link.activity.last_error = ESP_FAIL;
+    prepare(CODY::CompanionPanel::ChatActivity, 7000000);
+    dashboard_require(dashboard_has_caption(owner, "Activity INVALID") &&
+        !dashboard_has_caption(owner, link.activity.description), "a failed activity owner never presents its old command as current");
+    link.activity.last_error = ESP_OK;
+    link.activity.description[0] = '\0';
     std::memset(link.activity.title, 'W', 254);
     link.activity.title[254] = 'Z';
     link.activity.title[255] = '\0';
-    prepare(CODY::CompanionPanel::SessionLink, 0);
+    prepare(CODY::CompanionPanel::ChatActivity, 0);
     const int64_t reading_dwell = owner.minimum_dwell_us;
     dashboard_require(reading_dwell > CODY::kHomeDashboardRotationUs && owner.chat_title.offset == 0 &&
         std::strcmp(owner.chat_title.text, link.activity.title) == 0,
         "a long canonical title retains all 255 characters and extends its panel for a complete reading pass");
-    prepare(CODY::CompanionPanel::SessionLink, 2000000);
+    prepare(CODY::CompanionPanel::ChatActivity, 2000000);
     const auto title_offset = owner.chat_title.offset;
     dashboard_require(title_offset > 0, "the existing active clock scrolls the native title after its start hold");
     ++link.activity.revision;
-    prepare(CODY::CompanionPanel::SessionLink, 2000000);
+    prepare(CODY::CompanionPanel::ChatActivity, 2000000);
     dashboard_require(owner.chat_title.offset == title_offset && owner.minimum_dwell_us == reading_dwell,
         "same-title source refreshes do not restart scrolling or continually postpone the carousel");
-    prepare(CODY::CompanionPanel::SessionLink, reading_dwell - 1800000);
+    prepare(CODY::CompanionPanel::ChatActivity, reading_dwell - 1800000);
     dashboard_require(owner.chat_title.offset == owner.chat_title.width - CODY::kHomeChatTitleBounds.width &&
         owner.chat_title.window.text.characters[owner.chat_title.window.text.length - 1U] == 'Z',
         "the final title suffix becomes visible before the retained end hold");
@@ -629,7 +719,7 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
         dashboard_require(CODY2D::rgb565_stored_to_native(actual[index], CODY2D::Rgb565ByteOrder::ByteSwapped) == reference[index],
             "the clipped title retains full-frame/tiled and byte-order raster parity");
     }
-    for (unsigned y = 315; y < 343; ++y) {
+    for (unsigned y = CODY::kHomeChatTitleBounds.y; y < CODY::kHomeChatTitleBounds.y + CODY::kHomeChatTitleBounds.height; ++y) {
         for (unsigned x = 0; x < 466; ++x) {
             if (x < 73 || x >= 393) {
                 dashboard_require(reference[y * 466 + x] == 0, "marquee pixels never escape the measured title viewport");
@@ -637,33 +727,34 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
         }
     }
     CODY::HomeDashboardRotationState reading_rotation{};
-    auto reading_panel = CODY::CompanionPanel::SessionLink;
+    auto reading_panel = CODY::CompanionPanel::ChatActivity;
     dashboard_require(CODY::advance_home_dashboard_rotation(reading_rotation, reading_panel, 0, true, false,
         reading_panel, reading_dwell) == ESP_OK && CODY::advance_home_dashboard_rotation(reading_rotation, reading_panel,
         reading_dwell - 1, true, false, reading_panel, reading_dwell) == ESP_OK &&
-        reading_panel == CODY::CompanionPanel::SessionLink,
+        reading_panel == CODY::CompanionPanel::ChatActivity,
         "the carousel cannot hide a long title before its entire measured reading duration");
     dashboard_require(CODY::advance_home_dashboard_rotation(reading_rotation, reading_panel, reading_dwell, true, false,
         reading_panel, reading_dwell) == ESP_OK && reading_panel == CODY::CompanionPanel::Home,
         "the complete title and end hold release the carousel without catch-up transitions");
     link.activity.title_age_at_receive_us = 45000000;
-    prepare(CODY::CompanionPanel::SessionLink, reading_dwell);
+    prepare(CODY::CompanionPanel::ChatActivity, reading_dwell);
     dashboard_require(dashboard_has_caption(owner, "Title stale"), "a current marker cannot extend an expired original title lease");
     link.activity.title_age_at_receive_us = 0;
     link.activity.title_state = LUNASHELL::CodexChatTitleState::Unsupported;
-    prepare(CODY::CompanionPanel::SessionLink, reading_dwell);
+    prepare(CODY::CompanionPanel::ChatActivity, reading_dwell);
     dashboard_require(dashboard_has_caption(owner, "Title unsupported"), "unsupported metadata never falls back to a GUID or prompt");
     CODY::CompanionPanel next = CODY::CompanionPanel::Home;
-    for (auto expected : {CODY::CompanionPanel::ModelContext, CODY::CompanionPanel::SessionLink, CODY::CompanionPanel::Home}) {
+    for (auto expected : {CODY::CompanionPanel::ModelContext, CODY::CompanionPanel::SessionLink,
+        CODY::CompanionPanel::ChatActivity, CODY::CompanionPanel::Home}) {
         dashboard_require(CODY::next_home_dashboard_panel(next, next) == ESP_OK && next == expected,
-            "exactly three accessible dashboard identities must cycle back to token Home");
+            "exactly four accessible dashboard identities must cycle back to token Home");
     }
     dashboard_require(CODY::prepare_home_dashboard(CODY::CompanionPanel::Activity, link, technical, value_font, body_font,
         1000000, 0, owner, content, &motion, &small_font) == ESP_ERR_INVALID_ARG,
-        "legacy Activity identity must not create a fourth dashboard page");
+        "legacy Activity identity must not create a fifth dashboard page");
     verify_dashboard_scene_visibility(body_font, small_font);
     verify_dashboard_rotation();
     verify_model_cost_notice();
     verify_audio_notice_sequence();
-    std::fputs("Native Home dashboard: canonical metrics, three panels, chord bounds and full/strip/swapped raster parity passed\n", stderr);
+    std::fputs("Native Home dashboard: canonical metrics, four panels, chord bounds and full/strip/swapped raster parity passed\n", stderr);
 }

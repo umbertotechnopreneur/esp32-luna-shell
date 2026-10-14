@@ -280,11 +280,13 @@ Several callers may queue questions, each retaining its private capability.
 Cody browses the actual pending tickets without changing the followed PC chat;
 a reply in flight or awaiting recipient acknowledgement cannot be displaced.
 Informational notices never displace a question. A genuine `Stop` from another
-chat queues **Reply ready** once per native turn, with a bounded project label
-and its complete canonical title when current and at most 63 characters. Missing
-or longer titles leave a plain **Reply ready** body; no GUID is displayed and
-hooks perform no extra source query. This reports a ready response, never task
-success. A new prompt
+chat queues the typed **Reply ready** event once per native turn, with a bounded
+project label. Before delivery to an eligible physical Cody, the existing title
+owner performs one read-only lookup of that exact chat and checkout in the native
+index, without reading a transcript or changing the followed chat or its cache.
+The complete current title is used when it fits 63 printable ASCII characters;
+otherwise the body says **Open the other chat in Codex**. No GUID or guessed title
+is displayed. This reports a ready response, never task success. A new prompt
 in that chat retires its old native notices; activity in another chat does not.
 Check reports need complete current data for the exact PR
 head, whole failure names, at most six failures and 48 characters per name; excess

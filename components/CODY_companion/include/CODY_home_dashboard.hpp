@@ -3,6 +3,7 @@
 #include "CODY_technical_panels.hpp"
 #include "CODY2D_paths.hpp"
 #include "CODY2D_controls.hpp"
+#include "LUNASHELL_build_metadata.hpp"
 
 namespace CODY {
 enum class HomeDashboardArcState : uint8_t { Unavailable, Measured, Stale, Invalid, OverLimit, Compacting };
@@ -10,7 +11,13 @@ inline constexpr DamageRect kHomeDashboardBounds{40, 268, 426, 393};
 inline constexpr unsigned kHomeDashboardSegments = 20;
 inline constexpr unsigned kHomeDashboardArcVertices = 64;
 inline constexpr int64_t kHomeDashboardRotationUs = 8000000;
-inline constexpr CODY2D::Rect kHomeChatTitleBounds{73, 315, 320, 28};
+inline constexpr CODY2D::Rect kHomeChatTitleBounds{73, 276, 320, 28};
+inline constexpr CODY2D::Rect kHomeChatActivityBounds{73, 354, 320, 28};
+
+// Borrowed immutable compilation metadata; device identity remains in the canonical link snapshot.
+struct HomeDeviceDetails {
+    const LUNASHELL::FirmwareBuildMetadata *build_metadata = nullptr;
+};
 
 // Passive presentation time only; the caller retains the single selected-panel identity.
 struct HomeDashboardRotationState {
@@ -22,7 +29,7 @@ struct HomeDashboardRotationState {
 void reset_home_dashboard_rotation(HomeDashboardRotationState &state);
 
 // state: Serialized active-time sample and accumulated visible dwell, never a task or timer handle.
-// current: Canonical selected Home, ModelContext or SessionLink panel.
+// current: Canonical selected Tokens, ModelContext, SessionLink or ChatActivity panel.
 // active_us: Monotonic presentation clock, independent of canonical source freshness.
 // visible: False for preempting routes and pause; hidden time preserves the remaining dwell.
 // compacting: Current validated compaction forces Home and reserves a fresh dwell after completion.
@@ -33,13 +40,15 @@ esp_err_t advance_home_dashboard_rotation(HomeDashboardRotationState &state,
     CompanionPanel current, int64_t active_us, bool visible, bool compacting, CompanionPanel &next,
     int64_t minimum_dwell_us = kHomeDashboardRotationUs);
 
-// Display-owned title and clipped window; canonical receipt/validity remain in the source snapshot.
-struct HomeChatTitlePresentation {
+// Display-owned text and clipped window; canonical receipt/validity remain in the source snapshot.
+struct HomeTextMarquee {
     char text[256]{};
     char chat_id[65]{};
     CODY2D::TextLine window{};
+    CODY2D::Rect bounds{};
     const CODY2D::MonoFont *font = nullptr;
     int64_t started_elapsed_us = 0;
+    int64_t entered_elapsed_us = 0;
     int64_t reading_us = kHomeDashboardRotationUs;
     uint16_t width = 0;
     uint16_t offset = 0;
@@ -64,7 +73,9 @@ struct HomeDashboardPresentation {
     CODY2D::Point prior_origins[6]{};
     const CODY2D::MonoFont *prior_fonts[6]{};
     CODY2D::CapsuleControl price_capsule{};
-    HomeChatTitlePresentation chat_title{};
+    HomeTextMarquee chat_title{};
+    // General: identity/motion, build timezone, build computer. Chat: genuine activity in slot zero.
+    HomeTextMarquee detail_marquees[3]{};
     int64_t minimum_dwell_us = kHomeDashboardRotationUs;
     bool price_visible = false;
     CompanionPanel panel = CompanionPanel::Home;
@@ -74,12 +85,13 @@ struct HomeDashboardPresentation {
     uint16_t animation_step = 0;
     uint8_t line_count = 0;
     uint8_t arc_path_count = 0;
+    uint8_t marquee_count = 0;
     bool valid = false;
 };
 static_assert(sizeof(HomeDashboardPresentation) <= 6144, "Dashboard remains a bounded persistent owner, never a stack copy");
 
 // current: Stable lower-panel identity; cloud, state and model retain their independent owners.
-// next: Receives Home -> ModelContext -> SessionLink -> Home; legacy Activity retires to Home.
+// next: Receives Home -> ModelContext -> SessionLink -> ChatActivity -> Home; legacy Activity retires to Home.
 // Exception: Logs and returns invalid argument for an unknown identity.
 esp_err_t next_home_dashboard_panel(CompanionPanel current, CompanionPanel &next);
 
@@ -97,6 +109,7 @@ esp_err_t next_home_dashboard_panel(CompanionPanel current, CompanionPanel &next
 // device_ip: Original canonical local-device address, never the paired PC address.
 // device_ip_state: Independent canonical validity/freshness of the local Wi-Fi address.
 // panel_elapsed_us: Visible dwell from the shared rotation policy; negative uses the supplied active clock.
+// device_details: Optional immutable compilation owner; absent metadata remains explicitly unavailable.
 // Exception: Returns and logs projection, formatting, geometry or native raster preparation errors.
 esp_err_t prepare_home_dashboard(CompanionPanel panel,
     const LUNASHELL::CodexLinkSnapshot &link, const LUNASHELL::CodexTechnicalSnapshot &technical,
@@ -104,7 +117,13 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
     int64_t now_us, int64_t active_time_us, HomeDashboardPresentation &presentation,
     SceneContent &content, const LUNASHELL::ActivitySnapshot *motion = nullptr,
     const CODY2D::MonoFont *small_font = nullptr, const char *device_ip = "",
-    PanelValueState device_ip_state = PanelValueState::Unavailable, int64_t panel_elapsed_us = -1);
+    PanelValueState device_ip_state = PanelValueState::Unavailable, int64_t panel_elapsed_us = -1,
+    const HomeDeviceDetails *device_details = nullptr);
+
+// presentation: Current prepared panel with persistent native marquee windows.
+// panel_elapsed_us: Shared visible carousel time; hidden time must not advance it.
+// Returns whether any visible text currently needs the existing 50-ms animation cadence.
+bool home_dashboard_marquee_moving(const HomeDashboardPresentation &presentation, int64_t panel_elapsed_us);
 
 // presentation: Immutable prepared component owner, never a temporary copy.
 // strip: Native RGB565 tile, including original byte order and stride.

@@ -234,10 +234,16 @@ publishes actual request identities and two pending summaries at a time. Explici
 navigation is signed and does not change the followed PC chat; a reply being sent
 or awaiting recipient acknowledgement cannot be displaced. Every caller retains
 ownership of its own answer and cancellation capability. A genuine `Stop` from
-another chat queues **Reply ready** once per native turn, using its project and
-complete canonical title when current and at most 63 characters. Otherwise the
-body stays **Reply ready**. There is no displayed GUID, inferred success or extra
-metadata query in the hook; a prompt retires native notices only for that chat.
+another chat queues the typed **ReplyReady** event once per native turn. For an
+eligible physical target, its existing title owner reads the exact indexed chat
+metadata once and revalidates the original session, turn, checkout and ready
+phase after IO. It preserves the followed title cache and chat selection.
+The event uses its project and complete current title when at most 63 characters;
+otherwise it says **Open the other chat in Codex**. The native screen has one
+mint **Reply ready** headline, the chat title, subordinate project and **Got it**.
+Generic notices also omit identical title/body repetition. No GUID, transcript,
+task-success inference or polling is introduced. A prompt retires native notices
+only for that chat; dismissal still requires the authenticated owner acknowledgement.
 
 Native `request_user_input` prompts already open in Desktop are not imported.
 The current Desktop app-server uses stdio without a verified public attach
@@ -257,13 +263,18 @@ chat text or raw session identifiers and do not constitute a live question test.
 ### Companion information panels
 
 Home retains the character, actual activity title and independently aged model
-row above three lower panels. The first shows a Free token hero and availability
-arc, Last/Window, elapsed time and canonical IMU activity. Model & Context shows
+row above four lower panels. Tokens shows a Free token hero, occupied-context
+progress arc and Last/Window. Model & Context shows
 qualitative catalog price and reasoning effort; the shared header carries the
-model name once. Session & Link
-shows connection state, the real chat title and the device's own canonical Wi-Fi
-IP. The former full-screen Activity page, firmware row and numeric page footer
-are no longer part of passive Home navigation.
+model name once. Session & Link shows connection state, the device's own canonical
+Wi-Fi IP and device identity, independently valid IMU activity, compilation date
+and time in the compiling PC's local timezone, that actual timezone identity and
+the compiling computer's name. Chat shows the actual native title, the measured
+elapsed time of the current turn and its authenticated activity description.
+It does not infer a whole-chat lifetime or inspect raw commands/transcripts.
+Long titles, activity and build labels scroll within clipped native rows, and
+rotation allows enough visible time to read them. The former full-screen Activity
+page and numeric page footer are no longer part of passive Home navigation.
 
 A display-owned, bounded model identity latches one Expensive-price notice per
 model change. It waits for current model/cost facts and a completely presented
@@ -278,9 +289,13 @@ current duplex clock, cancellation generation and error reporting. Source,
 license and reproducible generation belong to
 [the model-cost asset](../../assets/cody/audio/model-cost/README.md).
 
-Supported chat requests run in a continuous right-to-left footer marquee without
-an Available commands heading. Its 50-ms quantization uses the existing active
-scene clock and pauses while hidden. Ready for More retains personalization hints;
+The footer shows "Use @CCP in Codex and ask for the available commands" in three
+complete right-to-left passes, then disappears for that display-owner lifetime.
+It enters fully off the right edge and exits fully off the left, moving two
+pixels every 50 ms with the existing active scene clock. Hidden presentation
+pauses it; panel/chat changes, standby and short reconnections never replay it.
+Ready for More shares that same finite introduction and has no replacement
+footer after its third pass;
 after 25 active seconds its title becomes Ready to team up. This changes no link
 state or measurement timestamp. Compaction and attention suppress the hints
 without creating a task, poll or wake lease.
