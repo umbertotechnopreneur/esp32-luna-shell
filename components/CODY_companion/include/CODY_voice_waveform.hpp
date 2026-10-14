@@ -9,8 +9,11 @@ namespace CODY {
 
 inline constexpr int kVoiceRibbonLeft = 41;
 inline constexpr int kVoiceRibbonWidth = 384;
-inline constexpr int kVoiceRibbonTop = 184;
-inline constexpr int kVoiceRibbonHeight = 48;
+inline constexpr int kVoiceRibbonTop = 179;
+inline constexpr int kVoiceRibbonHeight = 58;
+// The artwork keeps its center at y208; DMA retirement separately uses even row boundaries.
+inline constexpr int kVoiceRibbonDamageTop = kVoiceRibbonTop & ~1;
+inline constexpr int kVoiceRibbonDamageBottom = (kVoiceRibbonTop + kVoiceRibbonHeight + 1) & ~1;
 inline constexpr int64_t kVoiceRibbonFrameUs = 33333;
 inline constexpr unsigned kVoiceRibbonNodes = 49;
 inline constexpr unsigned kVoiceRibbonLayers = 4;
@@ -55,8 +58,11 @@ inline void prepare_voice_ribbon(int64_t now_us, uint8_t energy, VoiceRibbonFram
             // Closed, translucent lobes taper to the centerline at both ends.
             // Their bounded envelope needs no frame-sized scratch, blur or runtime trig.
             auto &knot = frame.nodes[layer][node];
-            knot.center_q8 = static_cast<int16_t>(carrier * envelope / 32768 * (3 + energy / 48));
-            knot.radius_q8 = static_cast<uint16_t>(envelope * (180 + lobe * (2 + energy / 64)) / 128);
+            const int center_q8 = carrier * envelope / 32768 * (3 + energy / 48);
+            const int radius_q8 = envelope * (180 + lobe * (2 + energy / 64)) / 128;
+            // Scale the original 48-pixel artwork with its canvas, keeping the same bounded knots.
+            knot.center_q8 = static_cast<int16_t>(center_q8 * kVoiceRibbonHeight / 48);
+            knot.radius_q8 = static_cast<uint16_t>(radius_q8 * kVoiceRibbonHeight / 48);
         }
     }
 }

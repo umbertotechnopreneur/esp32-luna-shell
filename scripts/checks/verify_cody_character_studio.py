@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "simulator/windows"))
 
 from cody_native_behavior import CharacterActivity, CharacterWorkKind, NativeBehavior
-from cody_native import NativePanelObservation, NativePersonalityPainter
+from cody_native import NativePanelObservation, NativePersonalityPainter, NativeImuStillnessState, NativeActivityRejection
 from cody_happiness import PersonalityEvent
 from cody_personality import PersonalityCue, PersonalityPresentationStatus
 from cody_petting import PettingZone
@@ -217,6 +217,126 @@ class CharacterStudioTests(unittest.TestCase):
         self.assertEqual(len(set(pages)), 3)
         with self.assertRaises(RuntimeError):
             self.render_home(source, 1)
+
+    # self: Production native framebuffer renderer with isolated SIMULATED context observations.
+    # Raises AssertionError if occupancy reverses the arc, loses its color band or alters captured native pixels.
+    def test_home_context_usage_arc_samples_use_native_pixels(self):
+        from PIL import Image
+        from cody_simulator import rgb565
+        source = self.home_source()
+        source.capacity, source.used = 100000, 0
+        empty = self.render_home(source)
+        track_color = rgb565(0x2125)
+        # Track-colored pixels provide the measurement mask without redrawing the arc.
+        # RGB565 rounding also admits a few nearly opaque boundary pixels; the
+        # four-neighbor interior distinguishes those from the fully covered core.
+        track = {(x, y) for y in range(290, 393) for x in range(40, 426)
+                 if empty.getpixel((x, y)) == track_color}
+        self.assertGreater(len(track), 2000, "native context track is missing or unexpectedly narrow")
+        track_core = {(x, y) for x, y in track
+                      if all((x + dx, y + dy) in track for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)))}
+        self.assertGreater(len(track_core), len(track) // 2, "native track lost its continuous opaque interior")
+        checkpoints = ((5, (48, 317)), (25, (116, 376)), (50, (233, 385)),
+                       (75, (350, 376)), (95, (418, 317)))
+        cases = ((0, 0xFFFF), (20, 0xFFFF), (40, 0x5FF9),
+                 (70, 0xFD20), (90, 0xF986), (100, 0xF986))
+        OUTPUT.mkdir(parents=True, exist_ok=True)
+        sheet = Image.new("RGB", (466 * 3, 508 * 2), "#101820")
+        previous_active = set()
+        samples = []
+        for index, (used_percent, color_word) in enumerate(cases):
+            with self.subTest(used_percent=used_percent):
+                source.used = source.capacity * used_percent // 100
+                image = self.render_home(source)
+                accent = rgb565(color_word)
+                active = {point for point in track if image.getpixel(point) == accent}
+                self.assertAlmostEqual(len(active) / len(track), used_percent / 100, delta=.025,
+                    msg="colored native arc length must represent used context, not free tokens")
+                self.assertTrue(previous_active.issubset(active), "used context shortened or moved the filled arc")
+                if index:
+                    self.assertGreater(len(active), len(previous_active))
+                for checkpoint_percent, point in checkpoints:
+                    self.assertEqual(image.getpixel(point), accent if checkpoint_percent < used_percent else track_color,
+                        f"native arc has a gap, wrong direction or wrong band at {checkpoint_percent}%")
+                self.assertEqual(image.crop((0, 0, 466, 268)).tobytes(), empty.crop((0, 0, 466, 268)).tobytes())
+                self.assertEqual(image.crop((0, 393, 466, 466)).tobytes(), empty.crop((0, 393, 466, 466)).tobytes())
+                remaining = source.capacity - source.used
+                capture = self.renderer.capture_sheet(image,
+                    f"SIMULATED / {used_percent}% used / {remaining // 1000}K free")
+                destination = OUTPUT / f"home-context-usage-{used_percent:03d}.png"
+                capture.save(destination)
+                with Image.open(destination) as stored:
+                    self.assertEqual(stored.convert("RGB").crop((0, 0, 466, 466)).tobytes(), image.tobytes(),
+                        "capture changed the original native RGB565 framebuffer")
+                sheet.paste(capture, ((index % 3) * 466, (index // 3) * 508))
+                samples.append({"simulated": True, "used_percent": used_percent,
+                    "used_tokens": int(source.used), "free_tokens": remaining,
+                    "capacity_tokens": int(source.capacity), "accent_rgb565": f"{color_word:04X}",
+                    "opaque_track_pixels": len(track), "opaque_active_pixels": len(active),
+                    "capture": destination.name})
+                previous_active = active
+        self.assertFalse(samples[0]["opaque_active_pixels"], "zero use must leave the track empty")
+        self.assertTrue(track_core.issubset(previous_active), "100% use left a gap inside the opaque native track")
+        # A nearly opaque dark track rounds to its full RGB565 word before the
+        # red overlay; the same coverage may keep red one five-bit step below
+        # full red. Admit that exact edge blend only outside the opaque core.
+        full_red = rgb565(0xF986)
+        edge_red = rgb565(0xF186)
+        for point in track - track_core:
+            self.assertIn(image.getpixel(point), (full_red, edge_red),
+                f"100% use left an unfilled or incorrectly colored native track edge at {point}")
+        sheet.save(OUTPUT / "home-context-usage-native-sheet.png")
+        # The review sheet keeps device pixels exact, including native antialiasing,
+        # and labels outside the framebuffer; this is not a physical-device capture.
+        sheet.resize((sheet.width * 2, sheet.height * 2), Image.Resampling.NEAREST).save(
+            OUTPUT / "home-context-usage-native-sheet-2x.png")
+        (OUTPUT / "home-context-usage-native-samples.json").write_text(
+            json.dumps(samples, indent=2) + "\n", encoding="utf-8")
+
+    # self: Actual Home transport/rendering with an explicitly SIMULATED independent IMU owner result.
+    # Raises AssertionError if HAR suppresses current Still or invalid/old/error samples retain the Still caption.
+    def test_home_stillness_is_independent_of_har_and_preserves_source_validity(self):
+        from PIL import Image, ImageChops
+        source = self.home_source()
+        source.simulated_stillness = NativeImuStillnessState.STILL
+        source.simulated_stillness_valid = True
+        source.simulated_stillness_error = 0
+        source.simulated_stillness_age_us = 100000
+        still = self.render_home(source)
+        row = (120, 343, 346, 368)
+        baseline = still.crop(row).tobytes()
+        expected = Image.new("RGB", (466, 466))
+        self.renderer.scene_painter.paint_text(expected, "00:12 | IMU Still", 343, body=True, max_width=288)
+        self.assertEqual(baseline, expected.crop(row).tobytes())
+        # A source older than the unrelated TECH receipt remains current when
+        # it is inside the native IMU lease; neither owner refreshes the other.
+        source.simulated_stillness_age_us = 0
+        self.assertEqual(self.render_home(source).crop(row).tobytes(), baseline)
+        source.simulated_stillness_age_us = 100000
+        for rejection, error in ((NativeActivityRejection.CADENCE_GAP, 0x103), (NativeActivityRejection.MODEL_ERROR, -1)):
+            source.simulated_motion_rejection, source.simulated_motion_error = rejection, error
+            source.simulated_motion_valid = False
+            self.assertEqual(self.render_home(source).crop(row).tobytes(), baseline)
+        source.simulated_motion_rejection, source.simulated_motion_error = NativeActivityRejection.NONE, 0
+        source.simulated_motion_valid = True
+        for state, valid, error, age in ((NativeImuStillnessState.STILL, True, 0, 200001),
+                                       (NativeImuStillnessState.STILL, False, 0, 0),
+                                       (NativeImuStillnessState.STILL, True, -1, 0),
+                                       (NativeImuStillnessState.MOVING, True, 0, 0)):
+            source.simulated_stillness = state
+            source.simulated_stillness_valid = valid
+            source.simulated_stillness_error = error
+            source.simulated_stillness_age_us = age
+            retired = self.render_home(source)
+            self.assertNotEqual(retired.crop(row).tobytes(), baseline)
+            # Validity changes belong only to the motion row, never to model,
+            # tokens, cloud, title or the command ticker.
+            bounds = ImageChops.difference(still, retired).getbbox()
+            self.assertGreaterEqual(bounds[1], 343)
+            self.assertLessEqual(bounds[3], 368)
+        OUTPUT.mkdir(parents=True, exist_ok=True)
+        self.renderer.capture_sheet(still, "SIMULATED / native Still / independent current IMU owner").save(
+            OUTPUT / "home-still-independent.png")
 
     # self: Production command marquee and pause owner, without a Python text renderer.
     # Raises AssertionError if the real pixels fail to move right-to-left or jump across hidden time.

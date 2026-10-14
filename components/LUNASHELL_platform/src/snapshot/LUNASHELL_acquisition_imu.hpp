@@ -19,6 +19,8 @@ struct RawSample {
 esp_err_t initialize(i2c_master_bus_handle_t bus);
 // No parameters: observe acquisition availability without reading hardware.
 bool ready();
+// enabled: Existing active acquisition admission; does not change sampling cadence.
+void set_stillness_active(bool enabled);
 // phase: Original acquisition context used for publication and logging.
 // verbose: Whether every measured sample is logged.
 // track_orientation: Whether the same measured raw sample updates root orientation state.

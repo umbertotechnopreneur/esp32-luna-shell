@@ -29,6 +29,7 @@
 #include "LUNASHELL_acquisition_rtc.hpp"
 #include "LUNASHELL_acquisition_imu.hpp"
 #include "LUNASHELL_activity_internal.hpp"
+#include "LUNASHELL_imu_stillness.hpp"
 #include "LUNASHELL_acquisition_gnss.hpp"
 #include "LUNASHELL_acquisition_audio.hpp"
 #include "LUNASHELL_acquisition_system.hpp"
@@ -499,9 +500,7 @@ void merge_snapshot_stage(
         current.sensor_fusion = staged.sensor_fusion;
     }
     merge_staged_microphone(current.audio, staged.audio);
-    if (staged.activity.inferred_at_us > current.activity.inferred_at_us) {
-        current.activity = staged.activity;
-    }
+    LUNASHELL::imu_stillness::merge_activity(current.activity, staged.activity);
     current.last_update_attempt_at_us =
         staged.last_update_attempt_at_us;
     current.last_update_complete = staged.last_update_complete;
@@ -1257,6 +1256,7 @@ void diagnostic_monitor_task(void *arg)
         const bool activity_active =
             LUNASHELL::snapshot_detail::activity::requested() &&
             !ui_sampling_power_suspended && !ui_motion_standby && imu::ready();
+        imu::set_stillness_active(!ui_sampling_power_suspended && !ui_motion_standby && imu::ready());
         LUNASHELL::snapshot_detail::activity::set_active(activity_active);
 #if CONFIG_LUNASHELL_ACTIVITY_MODEL
         if (!activity_active) {
@@ -2590,6 +2590,7 @@ esp_err_t DeviceSnapshotService::readActivity(ActivitySnapshot &destination) con
         return release_error;
     }
     const int64_t observed_at_us = esp_timer_get_time();
+    imu_stillness::age(destination.stillness, observed_at_us);
     if (destination.scores_valid &&
         (observed_at_us < destination.window_end_us || observed_at_us - destination.window_end_us > 6000000)) {
         destination.scores_valid = false;
@@ -3552,6 +3553,9 @@ extern "C" esp_err_t LUNASHELL_hardware_set_ui_motion_monitor_standby(bool stand
     }
 
     s_ui_motion_monitor_standby.store(standby, std::memory_order_release);
+    if (standby) {
+        imu::set_stillness_active(false);
+    }
     notify_hardware_monitor();
     ESP_LOGI(
         TAG,
@@ -3568,6 +3572,8 @@ extern "C" esp_err_t LUNASHELL_hardware_set_ui_motion_monitor_standby(bool stand
 
 // Preserve requested diagnostic streams and auto-rotation across Device
 // Standby while making their sampler quiescent at the shared refresh barrier.
+// suspended: Existing power barrier admission; no sensor or sampling cadence is added.
+// Exception: Returns the original ownership/quiescence error.
 extern "C" esp_err_t LUNASHELL_hardware_set_ui_sampling_power_suspended(
     bool suspended
 )
@@ -3602,6 +3608,7 @@ extern "C" esp_err_t LUNASHELL_hardware_set_ui_sampling_power_suspended(
         std::memory_order_acq_rel
     );
     if (suspended) {
+        imu::set_stillness_active(false);
         s_ui_sampling_orientation_reset_pending.store(
             false,
             std::memory_order_release

@@ -459,6 +459,12 @@ bool LUNASHELL::tickVoiceInputTransport(const uint8_t *link_key, const char *dev
                 return false;
             }
             if (status == 5) {
+                if (s_observation.phase != VoiceInputPhase::Cancelling) {
+                    // The authenticated PC rejected the transfer. Its more
+                    // specific native-admission cause remains in the PC log.
+                    ESP_LOGE(kTag, "Audio transfer rejected by PC: phase=%u (%s)",
+                        unsigned(s_observation.phase), esp_err_to_name(ESP_FAIL));
+                }
                 publish(s_observation.phase == VoiceInputPhase::Cancelling ? VoiceInputPhase::Cancelled : VoiceInputPhase::Failed,
                     s_observation.phase == VoiceInputPhase::Cancelling ? ESP_OK : ESP_FAIL);
                 return false;

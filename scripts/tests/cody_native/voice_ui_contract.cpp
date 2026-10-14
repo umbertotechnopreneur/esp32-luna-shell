@@ -56,6 +56,12 @@ Pixels render(int64_t time, uint8_t energy, unsigned rows, CODY2D::Rgb565ByteOrd
 // No parameters: compare real native raster output across tiling, byte order and artwork phase.
 void raster_contract()
 {
+    require(CODY::kVoiceRibbonTop == 179 && CODY::kVoiceRibbonHeight == 58 &&
+        CODY::kVoiceRibbonTop + CODY::kVoiceRibbonHeight / 2 == 208,
+        "recording artwork must grow five pixels above and below its retained center");
+    require(CODY::kVoiceRibbonDamageTop == 178 && CODY::kVoiceRibbonDamageBottom == 238 &&
+        CODY::kVoiceRibbonDamageTop % 2 == 0 && CODY::kVoiceRibbonDamageBottom % 2 == 0,
+        "partial recording refresh must retain even DMA boundaries around the odd artwork edges");
     for (const int64_t time : {0LL, 33333LL, 1512345LL, 11999999LL, 12000000LL}) {
         for (const uint8_t energy : {uint8_t(0), uint8_t(100), uint8_t(255)}) {
             const auto full = render(time, energy, kSize, CODY2D::Rgb565ByteOrder::Native);
@@ -92,11 +98,35 @@ void raster_contract()
             require(std::abs(int(before.nodes[layer][node].center_q8) - after.nodes[layer][node].center_q8) <= 16 &&
                 std::abs(int(before.nodes[layer][node].radius_q8) - after.nodes[layer][node].radius_q8) <= 16,
                 "artwork jumped at periodic clock wrap");
+            require(std::abs(int(high.nodes[layer][node].center_q8)) + high.nodes[layer][node].radius_q8 + 256 <=
+                CODY::kVoiceRibbonHeight / 2 * 256,
+                "enlarged artwork and antialiased edge must fit without clipping its prepared lobes");
         }
     }
     require(high_area > low_area, "synthetic energy did not modulate actual ribbon gain");
     require(render(0, 100, 16, CODY2D::Rgb565ByteOrder::Native) !=
         render(500000, 100, 16, CODY2D::Rgb565ByteOrder::Native), "artwork phase is static");
+    const auto transitioned = render(500000, 255, kSize, CODY2D::Rgb565ByteOrder::Native);
+    CODY::VoiceRibbonFrame next_frame{};
+    CODY::prepare_voice_ribbon(500000, 255, next_frame);
+    for (const unsigned rows : {2U, 16U}) {
+        for (const auto order : {CODY2D::Rgb565ByteOrder::Native, CODY2D::Rgb565ByteOrder::ByteSwapped}) {
+            auto partial = render(0, 255, kSize, CODY2D::Rgb565ByteOrder::Native);
+            for (unsigned row = CODY::kVoiceRibbonDamageTop; row < CODY::kVoiceRibbonDamageBottom; row += rows) {
+                const auto height = std::min(rows, unsigned(CODY::kVoiceRibbonDamageBottom) - row);
+                require(row % 2 == 0 && height % 2 == 0, "recording refresh submitted an odd DMA boundary");
+                Pixels tile(kSize * height, CODY2D::rgb565_native_to_stored(0x0821, order));
+                const CODY2D::Surface surface{tile.data(), kSize, static_cast<uint16_t>(height), kSize,
+                    static_cast<uint32_t>(tile.size()), order};
+                require(CODY::draw_voice_ribbon_rows(surface, static_cast<uint16_t>(row), next_frame) == ESP_OK,
+                    "enlarged recording band could not retire its actual native strips");
+                for (unsigned index = 0; index < tile.size(); ++index) {
+                    partial[row * kSize + index] = CODY2D::rgb565_stored_to_native(tile[index], order);
+                }
+            }
+            require(partial == transitioned, "partial ribbon retirement left old lobes or skipped an enlarged edge");
+        }
+    }
     uint16_t pixel = 0;
     require(CODY::draw_voice_ribbon_rows({&pixel, 1, 1, 1, 1}, 0, low) == ESP_ERR_INVALID_ARG,
         "invalid ribbon canvas accepted");

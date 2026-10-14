@@ -621,7 +621,9 @@ of an immediately following command still need physical observation.
 Voice input has presentation priority while retaining the interrupted route and
 its real question deadlines. The character, geometry evaluation and normal scene
 animation are suspended behind a procedural ribbon with a 30-FPS scheduling
-target in a 384 x 48 logical-pixel band. Four filled colored layers use fixed-point
+target in a 384 x 58 logical-pixel band at (41,179), retaining its y208 center.
+Partial DMA refresh covers even rows [178,238), while artwork clips to [179,237).
+Four filled colored layers use fixed-point
 interpolation and native RGB565 alpha composition. A display-owned 784-byte knot
 buffer avoids per-frame allocation, video assets, SD access and runtime trigonometry.
 The visual gain follows valid, fresh microphone levels already published by the
@@ -690,3 +692,14 @@ receiver host tests, native raster/gesture checks and individual compiled stack
 frames. It was not flashed over the ongoing battery experiment. Native desktop
 integration and measured stack/CPU/PSRAM headroom remain in `VOICE-01` in the root TODO. The atlases retain
 their planned audio flow until end-to-end verification establishes its behavior.
+
+The 2026-10-14 recording audit found a healthy authenticated CCP link and an
+available UDP receiver, but no configured native loopback audio endpoint. Two
+real START requests were rejected with "Configure an explicit loopback Codex
+audio WebSocket endpoint" before PCM/WAV receipt or native submission. Installed
+plugin 0.6.8 matched the receiver source. Separate AES-GCM authentication failures
+also occurred; the available logs cannot tie them to those two recordings.
+A later passive device capture contained no recording attempt and therefore does
+not capture the original failure. Firmware now logs authenticated PC rejection
+explicitly. Neither that log nor the taller recording ribbon completes native
+audio delivery; a verified endpoint remains required in VOICE-01.

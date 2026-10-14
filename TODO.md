@@ -10,9 +10,15 @@ Expensive-model notice are implemented, verified and installed in Release
   and offline mouse/touch prototype show at most two original numbered choices,
   scrolling, explicit Send and separate receipt.
   Native/CCP/Studio and snapshot checks passed, including the context colors.
-  Release build/size, compiled frames and deployment remain pending.
+  Release cody-174-g111525b1 build/size, compiled frames, COM10 flash and passive
+  capture passed; the device reconnected with a current actual native chat title.
   Native Desktop prompts already opened cannot be imported. Paired physical
   sessions receive routing instructions to ask semantic questions through CCP.
+
+- Final Release delivery: independent IMU Still, occupied context progress and
+  the taller purple recording ribbon are implemented; Studio/native/runtime,
+  voice UI, snapshot and selected-profile checks passed. Complete firmware
+  build/size/compiled-frame review, install on COM10 and record passive evidence.
 
 GitHub visibility is public. Main ruleset 25049727 is active: contributors need
 a pull request; only the owner's user identity has direct-push bypass.

@@ -90,12 +90,21 @@ is implemented with native text and antialiased strokes. The dashboard damage
 envelope is (40,268)-(426,393); actual ink follows the local circular chords,
 not the entire enclosing rectangle. Tokens show a large Free value, secondary
 Last and Window values, elapsed time and the canonical IMU label. The arc length
-represents coherent free context; its color and the Free value reflect actual
+represents consumed context, growing from an empty track at zero usage to a full
+arc at 100%; the Free value still reports remaining tokens. Both colors reflect actual
 occupancy: white below 25%, cyan from 25% to below 65%, orange from 65% to below
-85%, and red from 85% onward. Full context leaves no invented free arc and keeps
-the zero Free value red. Active compaction retains its orange indeterminate
+85%, and red from 85% onward. Full context shows a complete red arc and a red zero
+Free value. Active compaction retains its orange indeterminate
 accent regardless of occupancy. Missing, stale, invalid and over-limit data
 retain explicit states and never produce an invented percentage.
+
+The IMU label prefers `Still` only when the acquisition owner's independent
+stillness result is valid, successful and no older than 200 ms at its original
+measurement timestamp. It remains available when the separate HAR classifier
+rejects a cadence gap or reports a model error; those errors remain in the
+canonical snapshot. Stale, future, invalid or moving observations remove `Still`
+and retain the explicit HAR result or failure. `Still` means measured absence of
+motion; it does not identify Sitting, Standing or another posture.
 
 Model & Context contains the qualitative Standard catalog price capsule and
 thinking effort; the model name appears once in the shared header. Session & Link contains connection state, the actual

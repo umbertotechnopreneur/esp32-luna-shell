@@ -106,10 +106,12 @@ const char *phase_text(LUNASHELL::CodexActivityState phase)
     }
 }
 
-// motion: Canonical experimental network result; labels retain their upstream meanings.
+// motion: Canonical HAR and independent IMU stillness result; labels retain their upstream meanings.
+// now_us: Local observation time for the original IMU sample's freshness.
 // No score is displayed as calibrated confidence or inferred hand/bag placement.
-const char *motion_result_text(const LUNASHELL::ActivitySnapshot &motion)
+const char *motion_result_text(const LUNASHELL::ActivitySnapshot &motion, int64_t now_us)
 {
+    if (is_current_imu_stillness(motion.stillness, now_us)) { return "Still"; }
     if (!motion.scores_valid || motion.error != ESP_OK) {
         if (motion.error == ESP_ERR_TIMEOUT &&
             motion.rejection == LUNASHELL::ActivityRejection::MissingSample) return "STALE";
@@ -356,11 +358,12 @@ esp_err_t next_companion_panel(CompanionPanel current, CompanionPanel &next)
 // active_time_us: Nonnegative active clock for the indeterminate accent.
 // presentation: Serialized in-place owner; partial preparation remains invalid.
 // content: Receives its native compositor callback only after complete preparation.
-// motion: Optional original model result, projected without changing the host PanelInputs ABI.
+// motion: Optional canonical HAR and independent IMU stillness result.
+// now_us: Local observation time; zero cannot admit a current Still result.
 // Exception: Returns real metadata or glyph preparation errors.
 esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &inputs,
     const CODY2D::MonoFont &font, int64_t active_time_us, PanelPresentation &presentation, SceneContent &content,
-    const LUNASHELL::ActivitySnapshot *motion)
+    const LUNASHELL::ActivitySnapshot *motion, int64_t now_us)
 {
     const bool previously_valid = presentation.valid;
     const CompanionPanel previous_panel = presentation.panel;
@@ -379,7 +382,7 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     std::memcpy(presentation.prior_hint, presentation.hint, sizeof(presentation.hint));
     presentation.valid = false;
     if (panel < CompanionPanel::Activity || panel > CompanionPanel::SessionLink ||
-        active_time_us < 0 || font.advance == 0 || font.width > kPanelWidth || font.height > 25) {
+        active_time_us < 0 || now_us < 0 || font.advance == 0 || font.width > kPanelWidth || font.height > 25) {
         return panel_result("prepare_shape", ESP_ERR_INVALID_ARG);
     }
     const char *fields[] = {inputs.project, inputs.branch, inputs.description, inputs.chat_id, inputs.model, inputs.effort,
@@ -439,8 +442,10 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
         if (motion != nullptr) {
             // Unavailable is meaningful here; the ordinary optional-metadata helper omits it.
             const uint8_t row = presentation.line_count++;
-            format_caption(presentation.captions[row], font, motion_result_text(*motion), "IMU: ");
-            presentation.lines[row].color = motion->scores_valid && motion->error == ESP_OK ? kCyan : kAmber;
+            format_caption(presentation.captions[row], font, motion_result_text(*motion, now_us), "IMU: ");
+            const bool current_motion = is_current_imu_stillness(motion->stillness, now_us) ||
+                (motion->scores_valid && motion->error == ESP_OK);
+            presentation.lines[row].color = current_motion ? kCyan : kAmber;
         } else if (inputs.activity == PanelValueState::Current) {
             append_detail(presentation, font, inputs.description);
         }
@@ -721,7 +726,7 @@ esp_err_t project_companion_panel_inputs(const LUNASHELL::CodexLinkSnapshot &lin
 // presentation: Persistent serialized owner outside the renderer task stack.
 // content: Receives a direct compositor callback on success.
 // firmware_version: Canonical immutable firmware identity, or absent synthetic host metadata.
-// motion: Optional original experimental result; no sensor reads or model execution occur here.
+// motion: Optional canonical HAR and independent IMU stillness result; no sensor reads occur here.
 // Exception: Returns the native preparation failure without guessing missing metrics.
 esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
     const LUNASHELL::CodexLinkSnapshot &link, const LUNASHELL::CodexTechnicalSnapshot &technical,
@@ -732,7 +737,7 @@ esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
     PanelInputs inputs{};
     const esp_err_t error = project_companion_panel_inputs(link, technical, now_us, firmware_version, inputs);
     if (error != ESP_OK) { return error; }
-    return prepare_companion_panel(panel, inputs, font, active_time_us, presentation, content, motion);
+    return prepare_companion_panel(panel, inputs, font, active_time_us, presentation, content, motion, now_us);
 }
 
 // presentation: Valid prepared owner whose animation is independent of observations.

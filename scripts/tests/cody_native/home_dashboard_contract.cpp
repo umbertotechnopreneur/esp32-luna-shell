@@ -128,6 +128,97 @@ bool dashboard_has_caption(const CODY::HomeDashboardPresentation &owner, const c
     return false;
 }
 
+// link: Current canonical source fixture, borrowed without changing its source timestamps.
+// technical: Current canonical counters, borrowed without substituting motion metadata.
+// value_font: Actual generated numeric glyph catalog.
+// body_font: Actual body font used by both motion presentations.
+// small_font: Actual generated secondary dashboard glyph catalog.
+// Exception: Throws when Still is fabricated, stale, or overwritten by an independent HAR failure.
+void verify_dashboard_stillness(const LUNASHELL::CodexLinkSnapshot &link,
+    const LUNASHELL::CodexTechnicalSnapshot &technical, const CODY2D::MonoFont &value_font,
+    const CODY2D::MonoFont &body_font, const CODY2D::MonoFont &small_font)
+{
+    constexpr int64_t now_us = 3000000;
+    static CODY::HomeDashboardPresentation owner{};
+    static CODY::PanelPresentation technical_owner{};
+    LUNASHELL::ActivitySnapshot motion{};
+    CODY::SceneContent content{};
+    motion.rejection = LUNASHELL::ActivityRejection::CadenceGap;
+    motion.error = ESP_ERR_INVALID_STATE;
+    motion.stillness.state = LUNASHELL::ImuStillnessState::Still;
+    motion.stillness.data_valid = true;
+    motion.stillness.error = ESP_OK;
+    motion.stillness.sampled_at_us = now_us;
+    motion.stillness.attempted_at_us = now_us;
+    motion.stillness.still_since_us = 1500000;
+    motion.stillness.sample_count = 16;
+    // home_text: Semantic motion caption expected in the real dashboard's timer row.
+    // technical_text: Exact motion caption expected from the canonical technical wrapper.
+    // current: Whether a healthy measurement should receive the technical panel's current color.
+    // Exception: Throws on real native preparation, caption or health-color disagreement.
+    const auto expect = [&](const char *home_text, const char *technical_text, bool current) {
+        dashboard_require(CODY::prepare_home_dashboard(CODY::CompanionPanel::Home, link, technical,
+            value_font, body_font, now_us, 5000000, owner, content, &motion, &small_font) == ESP_OK,
+            "Still fixture must use the real Home preparation with an original observation clock");
+        bool found_home = false;
+        for (uint8_t row = 0; row < owner.line_count; ++row) {
+            found_home |= std::strstr(owner.captions[row], home_text) != nullptr;
+        }
+        dashboard_require(found_home, "Home must show the admitted measured state or preserve the distinct HAR fallback");
+        dashboard_require(CODY::prepare_companion_panel_from_observation(CODY::CompanionPanel::Activity,
+            link, technical, body_font, now_us, 5000000, technical_owner, content, "", &motion) == ESP_OK,
+            "technical motion must receive the same original clock through its canonical projection");
+        bool found_technical = false;
+        for (uint8_t row = 0; row < technical_owner.line_count; ++row) {
+            if (std::strcmp(technical_owner.captions[row], technical_text) == 0) {
+                found_technical = true;
+                dashboard_require(technical_owner.lines[row].color == (current ? 0x07FF : 0xFD20),
+                    "an independent healthy Still observation must retain current health despite HAR errors");
+            }
+        }
+        dashboard_require(found_technical, "technical text must share Still admission without guessing posture");
+    };
+    expect("IMU Still", "IMU: Still", true);
+    dashboard_require(motion.rejection == LUNASHELL::ActivityRejection::CadenceGap &&
+        motion.error == ESP_ERR_INVALID_STATE && !motion.scores_valid,
+        "presenting healthy Still must not clear or fabricate the original HAR result");
+    motion.rejection = LUNASHELL::ActivityRejection::ModelError;
+    motion.error = ESP_FAIL;
+    expect("IMU Still", "IMU: Still", true);
+    motion.rejection = LUNASHELL::ActivityRejection::CadenceGap;
+    motion.stillness.sampled_at_us = now_us - 200000;
+    expect("IMU Still", "IMU: Still", true);
+    for (const int64_t sampled_at_us : {now_us - 200001, now_us + 1, int64_t{0}}) {
+        motion.stillness.sampled_at_us = sampled_at_us;
+        expect("IMU CADENCE INVALID", "IMU: CADENCE GAP", false);
+    }
+    motion.stillness.sampled_at_us = now_us;
+    motion.stillness.data_valid = false;
+    expect("IMU CADENCE INVALID", "IMU: CADENCE GAP", false);
+    motion.stillness.data_valid = true;
+    motion.stillness.error = ESP_FAIL;
+    expect("IMU CADENCE INVALID", "IMU: CADENCE GAP", false);
+    motion.stillness.error = ESP_OK;
+    for (const auto state : {LUNASHELL::ImuStillnessState::Unavailable,
+        LUNASHELL::ImuStillnessState::Collecting, LUNASHELL::ImuStillnessState::Moving}) {
+        motion.stillness.state = state;
+        expect("IMU CADENCE INVALID", "IMU: CADENCE GAP", false);
+    }
+    motion.rejection = LUNASHELL::ActivityRejection::None;
+    motion.scores_valid = true;
+    motion.error = ESP_OK;
+    motion.window_end_us = now_us;
+    motion.activity = LUNASHELL::ActivityClass::Walking;
+    expect("IMU Walking", "IMU: walking", true);
+    motion.stillness.state = LUNASHELL::ImuStillnessState::Still;
+    motion.stillness.sampled_at_us = now_us - 200001;
+    expect("IMU Walking", "IMU: walking", true);
+    motion.activity = LUNASHELL::ActivityClass::Standing;
+    expect("IMU Standing", "IMU: standing", true);
+    motion.activity = LUNASHELL::ActivityClass::Sitting;
+    expect("IMU Sitting", "IMU: sitting", true);
+}
+
 // state: Counter owned by the host fixture throughout the actual native draw.
 // strip: Production compositor tile, unused by this callback invocation probe.
 // first_row: Logical tile y origin, unused by this callback invocation probe.
@@ -341,6 +432,7 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
     dashboard_require(owner.revision == revision && technical.received_at_us == 1000000 &&
         dashboard_has_caption(owner, "00:12 | IMU Standing"),
         "independent animation clock must not age a source timer or amplify unchanged presentation revisions");
+    verify_dashboard_stillness(link, technical, value_font, body_font, small_font);
     std::vector<uint16_t> reference;
     std::vector<uint16_t> actual;
     dashboard_raster(owner, reference, 466, CODY2D::Rgb565ByteOrder::Native);
@@ -374,41 +466,71 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
         uint64_t capacity;
         uint16_t color;
         uint8_t slot;
+        uint16_t units;
     };
     constexpr uint64_t maximum_count = std::numeric_limits<uint64_t>::max();
     constexpr OccupancyCase occupancy_cases[] = {
-        {0, 100, 0xFFFF, 3}, {24, 100, 0xFFFF, 3},
-        {25, 100, 0x5FF9, 1}, {64, 100, 0x5FF9, 1},
-        {65, 100, 0xFD20, 2}, {84, 100, 0xFD20, 2},
-        {85, 100, 0xF986, 4}, {99, 100, 0xF986, 4},
-        {0, 3, 0xFFFF, 3}, {1, 3, 0x5FF9, 1}, {2, 3, 0xFD20, 2},
-        {4611686018427387903ULL, maximum_count, 0xFFFF, 3},
-        {4611686018427387904ULL, maximum_count, 0x5FF9, 1},
-        {11990383647911208549ULL, maximum_count, 0x5FF9, 1},
-        {11990383647911208550ULL, maximum_count, 0xFD20, 2},
-        {15679732462653118872ULL, maximum_count, 0xFD20, 2},
-        {15679732462653118873ULL, maximum_count, 0xF986, 4},
+        {0, 100, 0xFFFF, 3, 0}, {24, 100, 0xFFFF, 3, 480},
+        {25, 100, 0x5FF9, 1, 500}, {64, 100, 0x5FF9, 1, 1280},
+        {65, 100, 0xFD20, 2, 1300}, {84, 100, 0xFD20, 2, 1680},
+        {85, 100, 0xF986, 4, 1700}, {99, 100, 0xF986, 4, 1980},
+        {100, 100, 0xF986, 4, 2000},
+        {0, 3, 0xFFFF, 3, 0}, {1, 3, 0x5FF9, 1, 666}, {2, 3, 0xFD20, 2, 1333},
+        {1, maximum_count, 0xFFFF, 3, 0},
+        {4611686018427387903ULL, maximum_count, 0xFFFF, 3, 499},
+        {4611686018427387904ULL, maximum_count, 0x5FF9, 1, 500},
+        {11990383647911208549ULL, maximum_count, 0x5FF9, 1, 1299},
+        {11990383647911208550ULL, maximum_count, 0xFD20, 2, 1300},
+        {15679732462653118872ULL, maximum_count, 0xFD20, 2, 1699},
+        {15679732462653118873ULL, maximum_count, 0xF986, 4, 1700},
+        {maximum_count - 1, maximum_count, 0xF986, 4, 1999},
     };
     for (const auto &sample : occupancy_cases) {
         technical.used = sample.used;
         technical.capacity = sample.capacity;
         prepare(CODY::CompanionPanel::Home, 0);
-        dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Measured && owner.arc_path_count == 2 &&
-            owner.arc_paths[1].color_slot == sample.slot && owner.lines[1].color == sample.color,
-            "arc and Free value share exact occupancy colors at 25/65/85 percent, including full-width count boundaries");
+        dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Measured && owner.arc_units == sample.units &&
+            owner.arc_path_count == (sample.units == 0 ? 1 : 2) && owner.lines[1].color == sample.color &&
+            (sample.units == 0 || owner.arc_paths[1].color_slot == sample.slot),
+            "arc length follows consumed context and shares exact occupancy colors with Free at full-width count boundaries");
         dashboard_raster(owner, actual, 16, CODY2D::Rgb565ByteOrder::Native);
         unsigned accent_pixels = 0;
+        unsigned track_pixels = 0;
         for (unsigned y = 290; y < 331; ++y) {
             for (unsigned x = 40; x < 73; ++x) {
                 accent_pixels += actual[y * 466U + x] == sample.color;
+                track_pixels += actual[y * 466U + x] == 0x2125;
             }
         }
-        dashboard_require(accent_pixels > 5, "the requested occupancy color reaches the native arc raster, not only its metadata");
+        dashboard_require(sample.units == 0 ? accent_pixels == 0 && track_pixels > 5 : accent_pixels > 5,
+            "zero consumption paints only the track; nonzero occupancy paints its actual opaque palette color");
+    }
+    unsigned previous_accent_pixels = 0;
+    for (const uint64_t percent : {0U, 20U, 40U, 70U, 90U, 100U}) {
+        technical.used = percent;
+        technical.capacity = 100;
+        prepare(CODY::CompanionPanel::Home, 0);
+        dashboard_raster(owner, actual, 16, CODY2D::Rgb565ByteOrder::Native);
+        const uint16_t color = owner.lines[1].color;
+        unsigned accent_pixels = 0;
+        for (unsigned y = 290; y < 393; ++y) {
+            for (unsigned x = 40; x < 426; ++x) {
+                // This mask contains only the arc, outside all actual numeric and timer glyphs.
+                if (y >= 376 || x < 73 || x >= 393) {
+                    accent_pixels += actual[y * 466U + x] == color;
+                }
+            }
+        }
+        dashboard_require(owner.arc_units == percent * 20 &&
+            (percent == 0 ? accent_pixels == 0 : accent_pixels > previous_accent_pixels),
+            "SIMULATED 0/20/40/70/90/100 percent must produce visibly growing native occupancy fill");
+        previous_accent_pixels = accent_pixels;
     }
     technical.capacity = 474000;
     technical.used = 0;
     prepare(CODY::CompanionPanel::Home, 0);
-    dashboard_require(owner.arc_units == 2000, "measured zero consumption leaves the full truthful free arc");
+    dashboard_require(owner.arc_units == 0 && owner.arc_path_count == 1,
+        "measured zero consumption leaves an empty progress track while Free retains the full capacity");
     technical.used = technical.capacity + 1;
     prepare(CODY::CompanionPanel::Home, 0);
     dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::OverLimit &&
@@ -416,18 +538,24 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
         "overlimit cannot underflow free space or draw invented progress");
     technical.used = technical.capacity = std::numeric_limits<uint64_t>::max();
     prepare(CODY::CompanionPanel::Home, 0);
-    dashboard_require(dashboard_has_caption(owner, "0") && owner.arc_units == 0 &&
-        owner.arc_path_count == 1 && owner.lines[1].color == 0xF986,
+    dashboard_require(dashboard_has_caption(owner, "0") && owner.arc_units == 2000 &&
+        owner.arc_path_count == 2 && owner.arc_paths[1].color_slot == 4 && owner.lines[1].color == 0xF986,
         "full-width canonical values must subtract before compact formatting without overflow");
     technical.used = 0;
     prepare(CODY::CompanionPanel::Home, 0);
-    dashboard_require(dashboard_has_caption(owner, "18.446.744.073.709.551K TT") && owner.arc_units == 2000,
+    dashboard_require(dashboard_has_caption(owner, "18.446.744.073.709.551K TT") && owner.arc_units == 0,
         "largest genuine free count retains every compact digit using the bounded stacked native layout");
     technical.context_stale = true;
     prepare(CODY::CompanionPanel::Home, 0);
-    dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Stale &&
+    dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Stale && owner.arc_path_count == 1 && owner.arc_units == 0 &&
         dashboard_has_caption(owner, "Free STALE"), "expired counters never retain a measured arc");
     technical.context_stale = false;
+    technical.data_valid = false;
+    prepare(CODY::CompanionPanel::Home, 0);
+    dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Unavailable &&
+        owner.arc_path_count == 1 && owner.arc_units == 0 && dashboard_has_caption(owner, "Free UNAVAILABLE"),
+        "an unavailable owner cannot reuse its historical valid flags as fabricated current progress");
+    technical.data_valid = true;
     technical.used = 155000;
     technical.capacity = 474000;
     technical.compaction_valid = technical.compaction_age_valid = true;
@@ -453,7 +581,7 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
         "existing active scene clock advances the real compaction accent");
     technical.last_error = ESP_FAIL;
     prepare(CODY::CompanionPanel::Home, 0);
-    dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Invalid &&
+    dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Invalid && owner.arc_path_count == 1 && owner.arc_units == 0 &&
         dashboard_has_caption(owner, "Free INVALID"), "canonical owner error retires historical numeric validity");
     technical.last_error = ESP_OK;
     technical.compaction = LUNASHELL::CodexCompactionState::None;

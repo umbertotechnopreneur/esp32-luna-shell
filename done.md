@@ -13,6 +13,43 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Occupied context progress, independent Still and taller ribbon - 2026-10-14
+
+The Home arc now fills from left to right with occupied context, from zero to
+100 percent; Free still reports the remaining tokens. White/cyan/orange/red
+thresholds and the orange compaction override are retained. A bounded integer
+comparison avoids uint64 overflow and a falsely full arc near UINT64_MAX.
+Six explicitly SIMULATED native captures cover 0/20/40/70/90/100 percent. Studio
+checks color, growing length, direction, unchanged surrounding layers and exact
+RGB565 pixel preservation. One initial assertion confused dark RGB565 edge
+rounding with opaque coverage; the corrected assertion still rejects every
+unfilled pixel at 100 percent. The failed run is retained separately.
+
+Still is an independent acquisition-owned IMU observation after at least 1.5
+seconds of genuine quiet gravity/gyro measurements, outside calibration and
+standby. No trained model or prior bias calibration is required. Missing,
+failed, nonfinite, repeated or over-200-ms samples cannot prove Still. HAR
+publication preserves the separate observation; proven Still parks new HAR
+windows and retires in-flight results, while movement restarts collection.
+Home reads only the bounded canonical projection; no additional sensor polling,
+task, sample window or framebuffer was added. Static lock review found no new
+inverse acquisition. The detector is at most 80 bytes; nested stack chains and
+physical classifier/posture accuracy remain separate evidence.
+
+The purple recording artwork is 58 pixels high, five extra pixels above and
+below the original center. Its even DMA damage band spans 60 rows; strip
+reconstruction checks both byte orders and two-/sixteen-row transfers. The
+historical artwork generator can no longer overwrite the procedural ribbon.
+An authenticated PC audio rejection now has an explicit firmware error log.
+
+Executed Windows evidence: 24 Studio tests, native rendering contracts,
+Cody runtime/Still/shared snapshot contracts, voice UI/gesture/DMA contracts,
+snapshot integrity, the selected wake-word dependency/profile check and
+git diff --check passed. Evidence is preserved under still-final-evidence and
+context-final-/still-final- logs alongside the prior Release records. Firmware
+compilation, size, compiled frames and installation of this increment are pending
+at this implementation checkpoint. No physical gait or recording trial is claimed.
+
 ## Question flow, native chat title and context colors - 2026-10-14
 
 The shared firmware/Studio policy implements numbered full-width answers, two
@@ -47,9 +84,28 @@ visually reviewed. Existing PDFs were not revised.
 
 Evidence logs use questions-final-* below
 artifacts/build-cody-companion-wake-word-evidence/home-tokens-20261014/.
-Firmware build/size, compiled frames and deployment remain pending at this
-checkpoint. Host pixels and authenticated metadata do not prove physical display,
-audio, classifier accuracy or task stack watermarks.
+Release cody-174-g111525b1 was built and flashed on COM10 with eight build jobs.
+The image is 7,141,264 bytes, with 133,232 bytes remaining in the OTA partition;
+SHA256 is 39ca4427fa4cf02a62c13f13aad96087ab60fc8b7cfcbd6c24bd6680570e88f4.
+Static DIRAM uses 243,468 bytes; external static data uses 99,220 bytes. Compiled
+frames passed, including the CCP worker (8,192-byte budget), question projection
+(32 bytes), and presentation helpers (largest individual frame 1,968 bytes).
+This is not a runtime task watermark or complete nested-chain measurement.
+
+The first firmware attempt exposed a void publication API used as a result.
+It now returns the original failure, borrows the synchronous source instead of
+copying the growing link schema, and queues failed asynchronous projection for
+the existing worker. The corrected full build passed without compiler warnings
+from changed sources. Passive 60-second capture found no panic, stack overflow
+or CCP title/technical rejection. Known SD timeouts and cadence rejections remain;
+USB log loss was six records, with zero formatting/queue/truncation loss. No SD
+change was attempted. The exact installed CCP 0.6.8 source was backed up and
+updated in place after Windows refused the installer cache rename; all 25 source
+files matched, and only the PC broker restarted. Authenticated physical LAN
+presence, retained pairing and a current real native title were observed afterward.
+Host pixels and authenticated metadata do not prove physical display, audio,
+classifier accuracy or task stack watermarks. Secret checking is now confined
+to GitHub publication of changed sources, per the user's explicit instruction.
 
 ## Question-flow design proposal - 2026-10-14
 

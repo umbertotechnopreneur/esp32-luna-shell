@@ -86,6 +86,8 @@ def main(argv=None) -> int:
                        ("voice_fetch_task", "LUNASHELL_voice_afe.cpp", 3072)))
     if codex_enabled:
         limits.append(("codexLinkWorker", "LUNASHELL_codex_link.cpp", 8192))
+    if re.search(r"^#define CONFIG_LUNASHELL_BUILD_IMU_DRIVER_QMI8658 1\s*$", configuration, re.MULTILINE):
+        limits.append(("imu_calibration_task", "LUNASHELL_acquisition_imu.cpp", 3072))
     failures = []
     for name, source, budget in limits:
         # GCC also embeds the enclosing worker name in lambda helper records.
@@ -114,6 +116,23 @@ def main(argv=None) -> int:
         r"personality_audio_worker|play_personality_locked|notify_application_audio|repeated_notice")
     native_raster_helpers = helper_frames(
         rows, ("CODY2D_paths.cpp", "CODY2D_controls.cpp", "CODY2D_text.cpp"))
+    imu_acquisition_helpers = helper_frames(
+        rows, ("LUNASHELL_acquisition_imu.cpp", "LUNASHELL_hardware.cpp",
+               "LUNASHELL_activity.cpp"),
+        r"sample_imu|calibrate_imu|imu_calibration_task|stillness|refresh_imu|diagnostic_monitor_task|merge_activity|publish_classifier_result")
+    if re.search(r"^#define CONFIG_LUNASHELL_BUILD_ENABLE_IMU 1\s*$", configuration, re.MULTILINE):
+        if not imu_acquisition_helpers["compiled_record_count"]:
+            failures.append("IMU acquisition stack records are missing; rebuild with current flags")
+        # Acquisition also runs on the diagnostic task. This is only an
+        # individual-frame bound; the nested sensor and publication chain still
+        # needs its own review and physical watermark measurement.
+        for frame in rows:
+            if "LUNASHELL_acquisition_imu.cpp" not in frame["sidecar"]:
+                continue
+            if not re.search(r"sample_imu|stillness", frame["function"], re.IGNORECASE):
+                continue
+            if frame["bytes"] >= 3072 or frame["classification"] == "dynamic":
+                failures.append("IMU acquisition: unbounded or exhausting individual frame: " + frame["function"])
     if not native_raster_helpers["compiled_record_count"]:
         failures.append("Native raster stack records are missing; rebuild the activity profile with current flags")
     ccp_helpers = {}
@@ -159,6 +178,7 @@ def main(argv=None) -> int:
               "home_dashboard_helper_frames": home_dashboard_helpers,
               "audio_notice_helper_frames": audio_notice_helpers,
               "native_raster_helper_frames": native_raster_helpers,
+              "imu_acquisition_helper_frames": imu_acquisition_helpers,
               "ccp_helper_frames": ccp_helpers,
               "helper_scope": "Up to 12 largest individual records per enabled subsystem; inlined helpers may have no separate record",
               "compiled_record_count": len(rows), "failures": failures,
@@ -179,6 +199,8 @@ def main(argv=None) -> int:
         print(f"Individual audio notice frame: {frame['function']} {frame['bytes']} bytes")
     for frame in native_raster_helpers["largest_frames"]:
         print(f"Individual native raster frame: {frame['function']} {frame['bytes']} bytes")
+    for frame in imu_acquisition_helpers["largest_frames"]:
+        print(f"Individual IMU acquisition frame: {frame['function']} {frame['bytes']} bytes")
     for name, group in ccp_helpers.items():
         print(f"CCP {name} records: {group['compiled_record_count']}; "
               f"owning task {group['owning_task']} ({group['task_stack_bytes']} bytes)")

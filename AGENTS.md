@@ -35,8 +35,11 @@ instruction file; do not add parallel agent or Copilot contracts.
   warnings to conceal them.
 - An explicitly requested complete final package comprises clean/incremental
   builds, size, simulator checks, `git diff --check`, dependency/legacy scans and
-  a changed-files secret scan. A narrower request authorizes only its named checks.
+  a changed-files secret scan at GitHub publication. A narrower request authorizes only its named checks.
   Host assertions, successful builds and flashes do not prove physical behavior.
+- Secret scanning belongs to GitHub publication, not local configure/build/size,
+  flash or capture. Inspect changed source files before an authorized push;
+  never scan firmware images or run secret checks as part of local compilation.
 
 ## Circular display
 

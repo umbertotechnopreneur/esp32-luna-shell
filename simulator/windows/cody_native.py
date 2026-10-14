@@ -51,6 +51,24 @@ class NativeActionIcon(IntEnum):
     ORIENTATION = 12
 
 
+class NativeImuStillnessState(IntEnum):
+    UNAVAILABLE = 0
+    COLLECTING = 1
+    MOVING = 2
+    STILL = 3
+
+
+class NativeActivityRejection(IntEnum):
+    DISABLED = 0
+    COLLECTING = 1
+    MISSING_SAMPLE = 2
+    CADENCE_GAP = 3
+    BUSY = 4
+    MODEL_ERROR = 5
+    NONE = 6
+    SUSPENDED = 7
+
+
 # value: Original transport integer, checked before ctypes could truncate or wrap it.
 # lower: Minimum representable/domain value.
 # upper: Maximum representable/domain value.
@@ -119,7 +137,10 @@ class NativePanelObservation(C.Structure):
         ("device_ip", C.c_char_p), ("device_ip_valid", C.c_bool), ("reconnecting", C.c_bool),
         ("simulated_motion_valid", C.c_bool), ("simulated_motion", C.c_uint8),
         ("simulated_motion_age_us", C.c_uint64), ("chat_title", C.c_char_p), ("chat_title_state", C.c_uint8),
-        ("chat_title_age_us", C.c_uint64), ("chat_title_error", C.c_int32)]
+        ("chat_title_age_us", C.c_uint64), ("chat_title_error", C.c_int32),
+        ("simulated_stillness", C.c_uint8), ("simulated_stillness_valid", C.c_bool),
+        ("simulated_stillness_error", C.c_int32), ("simulated_stillness_age_us", C.c_uint64),
+        ("simulated_motion_rejection", C.c_uint8), ("simulated_motion_error", C.c_int32)]
 
     # self: Raw source projection consumed synchronously by the native scratch owner.
     # Raises no exceptions; absent fields retain unavailable flags rather than numeric claims.
@@ -128,6 +149,8 @@ class NativePanelObservation(C.Structure):
         for name in ("project", "branch", "description", "chat_id", "technical_chat_id", "model", "effort", "device_ip", "chat_title"):
             setattr(self, name, b"")
         self.chat_title_error = 0x105
+        self.simulated_stillness_error = 0x103
+        self.simulated_motion_rejection = NativeActivityRejection.NONE
 
 
 # operation: Native call being checked.

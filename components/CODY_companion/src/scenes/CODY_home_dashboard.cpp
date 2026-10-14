@@ -98,7 +98,7 @@ esp_err_t prepare_arc_ribbon(HomeDashboardPresentation &owner, uint16_t first, u
     path.color_slot = static_cast<uint8_t>(color_slot);
     CODY2D::Vec2 point{};
     CODY2D::Vec2 normal{};
-    // units: Bounded authored centerline sample, including an interpolated free-space endpoint.
+    // units: Bounded authored centerline sample, including an interpolated occupancy endpoint.
     // direction: Minus one selects the outside edge; plus one selects the inside edge.
     const auto append_edge = [&](uint16_t units, float direction) {
         sample_arc(units, point, normal);
@@ -200,9 +200,29 @@ esp_err_t metric_caption(char *destination, size_t capacity, const char *label,
         ? dashboard_result("metric_format", ESP_ERR_INVALID_SIZE) : ESP_OK;
 }
 
-// motion: Optional canonical classifier result, never guessed from posture.
-// now_us: Original observation time used only for inference freshness.
+// motion: Optional canonical HAR and independent IMU stillness result, never guessed from posture.
+// now_us: Original observation time used only for measured-result freshness.
 const char *motion_caption(const LUNASHELL::ActivitySnapshot *motion, int64_t now_us);
+
+// used: Current coherent token occupancy, already checked not to exceed capacity.
+// capacity: Current nonzero context capacity; multiplication must remain safe at UINT64_MAX.
+// Returns the consumed fraction rounded down to the arc's 2000 bounded distance units.
+uint16_t occupancy_arc_units(uint64_t used, uint64_t capacity)
+{
+    const uint64_t whole = capacity / 2000U;
+    const uint32_t remainder = static_cast<uint32_t>(capacity % 2000U);
+    uint16_t lower = 0;
+    uint16_t upper = 2000;
+    while (lower < upper) {
+        const uint16_t middle = static_cast<uint16_t>((lower + upper + 1U) / 2U);
+        // Compare against ceil(capacity * middle / 2000) without overflowing or
+        // rounding a nearly full uint64 source to a falsely complete arc.
+        const uint64_t threshold = whole * middle + (remainder * middle + 1999U) / 2000U;
+        if (used >= threshold) { lower = middle; }
+        else { upper = static_cast<uint16_t>(middle - 1U); }
+    }
+    return lower;
+}
 
 // used: Current coherent token occupancy, already checked not to exceed capacity.
 // capacity: Current nonzero context capacity; source counters retain their full precision.
@@ -334,7 +354,9 @@ esp_err_t prepare_arc(HomeDashboardPresentation &owner, const PanelInputs &input
     }
     const char *motion_text = motion_caption(motion, now_us);
     char motion_error[24]{};
-    if (motion != nullptr && motion->error != ESP_OK && motion->rejection != LUNASHELL::ActivityRejection::CadenceGap) {
+    // A classifier error cannot replace a healthy independent IMU Still observation.
+    if (motion != nullptr && !is_current_imu_stillness(motion->stillness, now_us) &&
+        motion->error != ESP_OK && motion->rejection != LUNASHELL::ActivityRejection::CadenceGap) {
         std::snprintf(motion_error, sizeof(motion_error), "IMU error 0x%X", static_cast<unsigned>(motion->error));
         motion_text = motion_error;
     }
@@ -352,7 +374,7 @@ esp_err_t prepare_arc(HomeDashboardPresentation &owner, const PanelInputs &input
     }
     if (error != ESP_OK) { return error; }
     owner.arc_units = available.state == PanelValueState::Current
-        ? static_cast<uint16_t>(static_cast<double>(available.value) / static_cast<double>(inputs.capacity.value) * 2000.0) : 0;
+        ? occupancy_arc_units(inputs.used.value, inputs.capacity.value) : 0;
     owner.animation_step = compacting ? static_cast<uint16_t>(active_time_us / 100000 % kHomeDashboardSegments) : 0;
     error = prepare_arc_ribbon(owner, 0, 2000, ArcColor::Track);
     if (error != ESP_OK) { return error; }
@@ -379,11 +401,12 @@ esp_err_t dashboard_callback(const void *state, CODY2D::Surface strip, uint16_t 
     return draw_home_dashboard_rows(*static_cast<const HomeDashboardPresentation *>(state), strip, first_row, first_column);
 }
 
-// motion: Optional canonical classifier result; never inferred from posture or source text.
-// now_us: Local clock used only to reject an expired original inference window.
+// motion: Optional canonical HAR and independent IMU stillness result; never inferred from posture or source text.
+// now_us: Local clock used only to reject an expired original measurement.
 const char *motion_caption(const LUNASHELL::ActivitySnapshot *motion, int64_t now_us)
 {
     if (motion == nullptr) { return "IMU UNAVAILABLE"; }
+    if (is_current_imu_stillness(motion->stillness, now_us)) { return "IMU Still"; }
     if (motion->rejection == LUNASHELL::ActivityRejection::CadenceGap) { return "IMU CADENCE INVALID"; }
     if (motion->error != ESP_OK || !motion->scores_valid) { return "IMU UNAVAILABLE"; }
     if (motion->window_end_us <= 0 || now_us < motion->window_end_us || now_us - motion->window_end_us > 6000000) { return "IMU STALE"; }

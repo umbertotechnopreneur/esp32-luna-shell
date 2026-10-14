@@ -157,6 +157,12 @@ struct HostPanelObservation {
     uint8_t chat_title_state;
     uint64_t chat_title_age_us;
     int32_t chat_title_error;
+    uint8_t simulated_stillness;
+    bool simulated_stillness_valid;
+    int32_t simulated_stillness_error;
+    uint64_t simulated_stillness_age_us;
+    uint8_t simulated_motion_rejection;
+    int32_t simulated_motion_error;
 };
 
 // source: Borrowed NUL-terminated printable ASCII producer string.
@@ -609,30 +615,47 @@ CODY_HOST_EXPORT int cody_host_home_dashboard(void *handle, void *state, uint8_t
 {
     if (!handle || !state || !source || !source->device_ip || active_time_us < 0 ||
         source->simulated_motion > static_cast<uint8_t>(LUNASHELL::ActivityClass::Walking) ||
-        source->simulated_motion_age_us > static_cast<uint64_t>(INT64_MAX)) {
+        source->simulated_motion_rejection > static_cast<uint8_t>(LUNASHELL::ActivityRejection::Suspended) ||
+        source->simulated_stillness > static_cast<uint8_t>(LUNASHELL::ImuStillnessState::Still) ||
+        source->simulated_motion_age_us >= static_cast<uint64_t>(INT64_MAX) ||
+        source->simulated_stillness_age_us >= static_cast<uint64_t>(INT64_MAX)) {
         return host_result("home_dashboard", ESP_ERR_INVALID_ARG);
     }
     auto &frame = *static_cast<HostScene *>(handle);
     auto &owner = static_cast<HostState *>(state)->home_dashboard;
     esp_err_t error = project_host_panel_observation(source, frame.panel_observation);
     if (error != ESP_OK) { return error; }
-    // Only explicit SIMULATED preview inputs can populate this host-local classifier projection.
-    // The source clock retains the original age; no value enters firmware acquisition state.
+    // Only explicit SIMULATED inputs populate these independent owner projections.
+    // No stationary threshold, hold rule or classifier runs in the host driver.
     LUNASHELL::ActivitySnapshot motion{};
-    const int64_t source_time = static_cast<int64_t>(source->receipt_age_us) + 1;
+    const uint64_t origin = std::max(source->simulated_motion_age_us, source->simulated_stillness_age_us);
+    if (source->receipt_age_us > static_cast<uint64_t>(INT64_MAX) - origin - 1U) {
+        return host_result("home_dashboard_source_clock", ESP_ERR_INVALID_ARG);
+    }
+    const int64_t source_time = static_cast<int64_t>(source->receipt_age_us + origin) + 1;
+    // Translate every timestamp used by this frame by the same origin. This keeps
+    // original source ages positive and independent of an unrelated TECH receipt.
+    frame.panel_observation.technical.received_at_us += static_cast<int64_t>(origin);
+    frame.panel_observation.link.activity.last_attempt_at_us += static_cast<int64_t>(origin);
+    motion.rejection = static_cast<LUNASHELL::ActivityRejection>(source->simulated_motion_rejection);
+    motion.error = source->simulated_motion_error;
     if (source->simulated_motion_valid) {
         motion.activity = static_cast<LUNASHELL::ActivityClass>(source->simulated_motion);
-        motion.rejection = LUNASHELL::ActivityRejection::None;
         motion.scores_valid = true;
-        motion.error = ESP_OK;
         motion.window_end_us = source_time - static_cast<int64_t>(source->simulated_motion_age_us);
+    }
+    motion.stillness.state = static_cast<LUNASHELL::ImuStillnessState>(source->simulated_stillness);
+    motion.stillness.data_valid = source->simulated_stillness_valid;
+    motion.stillness.error = source->simulated_stillness_error;
+    if (motion.stillness.state != LUNASHELL::ImuStillnessState::Unavailable) {
+        motion.stillness.sampled_at_us = source_time - static_cast<int64_t>(source->simulated_stillness_age_us);
     }
     CODY::SceneContent content{};
     error = CODY::prepare_home_dashboard(static_cast<CODY::CompanionPanel>(panel),
         frame.panel_observation.link, frame.panel_observation.technical,
         CODY::HomeFonts::value_font, CODY::SceneData::body_font,
         source_time, active_time_us, owner, content,
-        source->simulated_motion_valid ? &motion : nullptr, &CODY::HomeFonts::small_font, source->device_ip,
+        &motion, &CODY::HomeFonts::small_font, source->device_ip,
         source->device_ip_valid ? CODY::PanelValueState::Current : CODY::PanelValueState::Unavailable,
         static_cast<HostState *>(state)->home_rotation.elapsed_us);
     if (error == ESP_OK) {

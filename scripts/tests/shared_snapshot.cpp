@@ -15,6 +15,7 @@
  * VBWR E */
 
 #include "LUNASHELL_snapshot_aging.hpp"
+#include "LUNASHELL_imu_stillness.hpp"
 #include "LUNASHELL_http_json.hpp"
 #include "LUNASHELL_rtc_calendar.hpp"
 #include "CODY_host_snapshot.hpp"
@@ -98,12 +99,70 @@ void verify_batch_snapshot_transport()
 }
 }
 
+// No parameters: exercises the same merge and classifier-publication policy as firmware.
+// Exception: Assertions reject a lost measured Still result or resurrection after a newer failure.
+void verify_stillness_ownership()
+{
+    using namespace LUNASHELL;
+    ActivitySnapshot current;
+    current.inferred_at_us = 1000000;
+    current.rejection = ActivityRejection::CadenceGap;
+    current.error = ESP_ERR_INVALID_RESPONSE;
+    ActivitySnapshot acquired = current;
+    acquired.stillness.state = ImuStillnessState::Still;
+    acquired.stillness.data_valid = true;
+    acquired.stillness.error = ESP_OK;
+    acquired.stillness.sampled_at_us = 3000000;
+    acquired.stillness.attempted_at_us = 3000000;
+    acquired.stillness.still_since_us = 1500000;
+    acquired.stillness.sample_count = 31;
+    acquired.stillness.sequence = 7;
+    imu_stillness::merge_activity(current, acquired);
+    assert(current.stillness.state == ImuStillnessState::Still);
+    assert(current.rejection == ActivityRejection::CadenceGap && current.inferred_at_us == 1000000);
+    ActivitySnapshot inference;
+    inference.inferred_at_us = 3100000;
+    inference.activity = ActivityClass::Walking;
+    inference.scores_valid = true;
+    inference.error = ESP_OK;
+    imu_stillness::publish_classifier_result(current, inference);
+    assert(current.activity == ActivityClass::Walking && current.stillness.sequence == 7);
+    assert(current.stillness.sampled_at_us == 3000000 && current.stillness.still_since_us == 1500000);
+    ActivitySnapshot failure = acquired;
+    failure.stillness.sequence = 8;
+    failure.stillness.state = ImuStillnessState::Unavailable;
+    failure.stillness.data_valid = false;
+    failure.stillness.error = ESP_FAIL;
+    // The transition started before that sample, but its actual failure was observed later.
+    failure.stillness.attempted_at_us = 2900000;
+    imu_stillness::merge_activity(current, failure);
+    assert(current.activity == ActivityClass::Walking && current.inferred_at_us == 3100000);
+    assert(!current.stillness.data_valid && current.stillness.error == ESP_FAIL);
+    imu_stillness::merge_activity(current, acquired);
+    assert(current.stillness.sequence == 8 && current.stillness.error == ESP_FAIL);
+    acquired.inferred_at_us = 3200000;
+    acquired.activity = ActivityClass::Sitting;
+    imu_stillness::merge_activity(current, acquired);
+    assert(current.activity == ActivityClass::Sitting && current.stillness.error == ESP_FAIL);
+    auto aged = std::make_unique<DeviceSnapshot>();
+    aged->activity = acquired;
+    apply_measured_sample_aging(*aged, 3200001);
+    assert(!aged->activity.stillness.data_valid && aged->activity.stillness.error == ESP_ERR_TIMEOUT);
+    assert(aged->activity.stillness.sampled_at_us == 3000000);
+    assert(aged->activity.stillness.attempted_at_us == 3000000);
+    current.stillness.sequence = UINT32_MAX;
+    acquired.stillness.sequence = 1;
+    imu_stillness::merge_activity(current, acquired);
+    assert(current.stillness.sequence == 1);
+}
+
 // No parameters: deterministic host inputs exercising production aging, RTC and serializer.
 // Exception: Assertion failure identifies a lost timestamp, fabricated current value or swallowed sink error.
 int main()
 {
     using namespace LUNASHELL;
     verify_batch_snapshot_transport();
+    verify_stillness_ownership();
     // The host owns this full schema on its heap, not an embedded task stack.
     auto snapshot = std::make_unique<DeviceSnapshot>();
     snapshot->battery.health = DeviceHealth::Ready;

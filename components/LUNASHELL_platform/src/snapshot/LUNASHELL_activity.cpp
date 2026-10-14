@@ -1,5 +1,6 @@
 #include "LUNASHELL_activity_internal.hpp"
 #include "LUNASHELL_snapshot_internal.hpp"
+#include "LUNASHELL_imu_stillness.hpp"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include <cmath>
@@ -37,6 +38,7 @@ size_t s_count = 0;
 bool s_active = false;
 bool s_pending_ready = false;
 bool s_calibrated = false;
+bool s_still = false;
 uint32_t s_generation = 0;
 uint32_t s_pending_generation = 0;
 uint32_t s_sequence = 0;
@@ -187,7 +189,9 @@ void worker(void *unused)
             result.stable_windows = s_stability;
             result.sequence = ++s_sequence;
             const esp_err_t publication = LUNASHELL::snapshot_detail::update_snapshot(
-                [&result](LUNASHELL::DeviceSnapshot &snapshot) { snapshot.activity = result; });
+                [&result](LUNASHELL::DeviceSnapshot &snapshot) {
+                    LUNASHELL::imu_stillness::publish_classifier_result(snapshot.activity, result);
+                });
             LUNASHELL::snapshot_detail::log_snapshot_publication_failure("Activity inference", publication);
         }
         if (result.error != ESP_OK) {
@@ -227,6 +231,7 @@ void set_active(bool enabled)
     s_count = 0;
     s_pending_ready = false;
     s_stability = 0;
+    s_still = false;
     ++s_generation;
     if (!s_model_failed.load(std::memory_order_acquire)) {
         publish_rejection(enabled ? ActivityRejection::Collecting : ActivityRejection::Suspended,
@@ -240,7 +245,9 @@ void set_active(bool enabled)
 // sample: One canonical acquisition, never a consumer-side read or repeated snapshot.
 // error: Original read/publication error, retained without replacement samples.
 // sampled_at_us: Original successful measurement or failed-attempt timestamp.
-void accept(const ImuSnapshot &sample, esp_err_t error, int64_t sampled_at_us)
+// stillness: Same successful acquisition's canonical projection; never a second snapshot read.
+void accept(const ImuSnapshot &sample, esp_err_t error, int64_t sampled_at_us,
+            const ImuStillnessSnapshot *stillness)
 {
 #if CONFIG_LUNASHELL_ACTIVITY_MODEL
     std::lock_guard<std::mutex> lock(s_mutex);
@@ -248,11 +255,29 @@ void accept(const ImuSnapshot &sample, esp_err_t error, int64_t sampled_at_us)
         return;
     }
     if (error != ESP_OK || !sample.gesture_acceleration_valid) {
+        s_still = false;
         s_count = 0;
         ++s_generation;
         publish_rejection(ActivityRejection::MissingSample,
                           error != ESP_OK ? error : ESP_ERR_INVALID_STATE, sampled_at_us);
         return;
+    }
+    const bool confirmed_still = stillness != nullptr && stillness->data_valid &&
+        stillness->error == ESP_OK && stillness->state == ImuStillnessState::Still &&
+        stillness->sampled_at_us == sampled_at_us;
+    if (confirmed_still) {
+        if (!s_still) {
+            s_still = true;
+            s_count = 0;
+            s_pending_ready = false;
+            ++s_generation; // An inference already running cannot republish a pre-Still window.
+            publish_rejection(ActivityRejection::Suspended, ESP_ERR_INVALID_STATE, sampled_at_us);
+        }
+        return;
+    }
+    if (s_still) {
+        s_still = false;
+        publish_rejection(ActivityRejection::Collecting, ESP_ERR_INVALID_STATE, sampled_at_us);
     }
     if (s_task == nullptr && xTaskCreateWithCaps(worker, "activity_inference", 8192, nullptr, 1,
                                                &s_task, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
@@ -311,6 +336,7 @@ void accept(const ImuSnapshot &sample, esp_err_t error, int64_t sampled_at_us)
     (void)sample;
     (void)error;
     (void)sampled_at_us;
+    (void)stillness;
 #endif
 }
 } // namespace LUNASHELL::snapshot_detail::activity

@@ -29,7 +29,7 @@ from tkinter import messagebox, ttk
 
 from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
 from cody_ccp_event_view import EventView
-from cody_native import NativePersonalityPainter, NativePanelInputs, NativePanelMetric, NativePanelObservation
+from cody_native import NativePersonalityPainter, NativePanelInputs, NativePanelMetric, NativePanelObservation, NativeImuStillnessState
 from cody_native_behavior import CharacterActivity, CharacterWorkKind
 from cody_native_debug import render_debug_channels
 from cody_personality import PersonalityCue, PersonalityPresentation
@@ -535,6 +535,9 @@ class CcpPanel:
         observation.device_ip_valid = bool(snapshot.network_ready)
         observation.simulated_motion_valid = True
         observation.simulated_motion = 4  # Explicit SIMULATED standing classifier observation.
+        observation.simulated_stillness = NativeImuStillnessState.STILL
+        observation.simulated_stillness_valid = True
+        observation.simulated_stillness_error = 0
         observation.model_valid = True
         observation.model_age_us = 130000000 if inputs.model_state == 2 else 0
         observation.cost_band = inputs.cost_band

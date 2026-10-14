@@ -371,6 +371,12 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   time. The selected 14 October Release delivery includes those source changes;
   its exact image/readback evidence is in done.md. Native delivery and physical
   recording behavior remain unverified.
+  On 14 October, installed plugin 0.6.8 reported two actual START rejections:
+  the native loopback audio endpoint was not configured. CCP presence and UDP
+  availability were healthy; no PCM/WAV or native acceptance followed. Separate
+  authentication failures remain uncorrelated. The subsequent passive device
+  capture did not contain the original recording attempts. Keep native endpoint
+  attachment and genuine end-to-end dictation as explicit unresolved gates.
 - [ ] **TTS-01 - Storage and audible speech.** Require observed SD availability
   after the accepted standby/wake workaround before claiming SD synthesis.
   The prepared four-language card and corrected `58757005` boot

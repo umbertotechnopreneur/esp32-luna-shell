@@ -9,6 +9,16 @@ namespace CODY {
 enum class CompanionPanel : uint8_t { Home = 0, Activity = 1, ModelContext = 2, SessionLink = 3 };
 enum class PanelValueState : uint8_t { Unavailable = 0, Current = 1, Stale = 2, Invalid = 3 };
 
+// stillness: Original canonical IMU observation, independent of the HAR model result.
+// now_us: Local observation time; zero or a future source timestamp cannot admit Still.
+// Returns true only while the owner's explicit Still result remains healthy and fresh.
+inline bool is_current_imu_stillness(const LUNASHELL::ImuStillnessSnapshot &stillness, int64_t now_us)
+{
+    return stillness.state == LUNASHELL::ImuStillnessState::Still && stillness.data_valid &&
+        stillness.error == ESP_OK && stillness.sampled_at_us > 0 && now_us >= stillness.sampled_at_us &&
+        now_us - stillness.sampled_at_us <= LUNASHELL::kImuStillnessMaximumGapUs;
+}
+
 // Shared passive-detail artwork and transparent content layout; these are logical coordinates.
 inline constexpr Transform kCompanionPanelCharacterTransform{233.f, 115.f, 50.f};
 inline constexpr DamageRect kCompanionPanelContentBounds{73, 170, 393, 402};
@@ -100,11 +110,13 @@ esp_err_t next_companion_panel(CompanionPanel current, CompanionPanel &next);
 // active_time_us: Nonnegative presentation time for numeric page rotation and the compaction accent.
 // presentation: Serialized caption owner, retained in place until every frame retires.
 // content: Receives a transparent detail callback below the reserved character artwork.
-// motion: Optional canonical experimental model result; null preserves the original details.
+// motion: Optional canonical HAR and independent IMU stillness result; null preserves the original details.
+// now_us: Local observation time for stillness freshness; zero leaves Still unavailable.
 // Exception: Returns the original metadata, metric or native font/layout error.
 esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &inputs,
     const CODY2D::MonoFont &font, int64_t active_time_us,
-    PanelPresentation &presentation, SceneContent &content, const LUNASHELL::ActivitySnapshot *motion = nullptr);
+    PanelPresentation &presentation, SceneContent &content,
+    const LUNASHELL::ActivitySnapshot *motion = nullptr, int64_t now_us = 0);
 
 // link: Canonical link/activity observation borrowed for one projection.
 // technical: Canonical independently aged metadata, never copied or mutated.
@@ -125,7 +137,7 @@ esp_err_t project_companion_panel_inputs(const LUNASHELL::CodexLinkSnapshot &lin
 // presentation: Serialized stable caption owner outside the rendering task stack.
 // content: Receives the transparent native detail callback below the artwork on success.
 // firmware_version: Canonical running-image identity; absent host metadata remains unavailable.
-// motion: Optional canonical experimental activity result; null preserves the ordinary panel.
+// motion: Optional canonical HAR and independent IMU stillness result; null preserves the ordinary panel.
 // Exception: Returns the real projection or native preparation error.
 esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
     const LUNASHELL::CodexLinkSnapshot &link, const LUNASHELL::CodexTechnicalSnapshot &technical,

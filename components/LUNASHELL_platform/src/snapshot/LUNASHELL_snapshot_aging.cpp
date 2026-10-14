@@ -15,6 +15,7 @@
  * VBWR E */
 
 #include "LUNASHELL_snapshot_aging.hpp"
+#include "LUNASHELL_imu_stillness.hpp"
 #include <algorithm>
 
 namespace LUNASHELL {
@@ -67,6 +68,7 @@ void apply_measured_sample_aging(
     int64_t now_us
 )
 {
+    imu_stillness::age(snapshot.activity.stillness, now_us);
     if (snapshot.activity.scores_valid &&
         (now_us < snapshot.activity.window_end_us || now_us - snapshot.activity.window_end_us > 6000000)) {
         snapshot.activity.scores_valid = false;

@@ -250,6 +250,7 @@ struct CompanionState {
     // Serialized renderer-owned projection stays off the nested raster stack.
     LUNASHELL::CodexTechnicalObservation technical_observation{};
     LUNASHELL::ActivitySnapshot motion_observation{};
+    int64_t home_motion_observed_us = -1;
     uint64_t panel_activity_revision = 0;
     uint64_t panel_technical_revision = 0;
     int64_t panel_prepared_second = -1;
@@ -725,6 +726,27 @@ esp_err_t prepare_home_dashboard_frame(int64_t now_us)
         chat_title.offset < chat_title.width - CODY::kHomeChatTitleBounds.width;
     const int64_t animation_tick = title_scrolling ? s_state.home_rotation.elapsed_us / 50000 :
         compacting ? s_state.home_active_us / 100000 : -1;
+    const LUNASHELL::ActivitySnapshot *motion = nullptr;
+    if (s_state.companion_panel == CODY::CompanionPanel::Home) {
+        const auto &stillness = s_state.motion_observation.stillness;
+        const bool cached_still_expired = stillness.data_valid &&
+            (now_us < stillness.sampled_at_us ||
+             now_us - stillness.sampled_at_us > LUNASHELL::kImuStillnessMaximumGapUs);
+        // This bounded memory projection shares the existing frame loop. Read
+        // at five Hz or at the measured sample's expiry, with no hardware polling.
+        if (s_state.home_motion_observed_us < 0 || now_us < s_state.home_motion_observed_us ||
+            now_us - s_state.home_motion_observed_us >= LUNASHELL::kImuStillnessMaximumGapUs ||
+            cached_still_expired || s_state.home_dashboard.panel != s_state.companion_panel) {
+            error = LUNASHELL::DeviceSnapshotService::instance().readActivity(s_state.motion_observation);
+            if (error != ESP_OK) {
+                ESP_LOGE(kTag, "Home canonical motion observation failed (%s)", esp_err_to_name(error));
+                return error;
+            }
+            s_state.home_motion_observed_us = now_us;
+        }
+        motion = &s_state.motion_observation;
+    }
+    const auto &stillness = s_state.motion_observation.stillness;
     const uint32_t status = static_cast<uint32_t>(link.state) |
         (static_cast<uint32_t>(link.data_valid) << 8) |
         (static_cast<uint32_t>(link.data_stale) << 9) |
@@ -736,24 +758,17 @@ esp_err_t prepare_home_dashboard_frame(int64_t now_us)
         (static_cast<uint32_t>(technical.context_stale) << 15) |
         (static_cast<uint32_t>(link.last_error != ESP_OK) << 16) |
         (static_cast<uint32_t>(link.activity.last_error != ESP_OK) << 17) |
-        (static_cast<uint32_t>(technical.last_error != ESP_OK) << 18);
+        (static_cast<uint32_t>(technical.last_error != ESP_OK) << 18) |
+        (static_cast<uint32_t>(stillness.state) << 19) |
+        (static_cast<uint32_t>(stillness.data_valid) << 21) |
+        (static_cast<uint32_t>(stillness.error != ESP_OK) << 22) |
+        (static_cast<uint32_t>(CODY::is_current_imu_stillness(stillness, now_us)) << 23);
     if (s_state.home_dashboard.valid && s_state.home_dashboard.panel == s_state.companion_panel &&
         s_state.panel_activity_revision == link.activity.revision &&
         s_state.panel_technical_revision == technical.revision && s_state.panel_source_status == status &&
         s_state.panel_prepared_second == second && s_state.panel_animation_tick == animation_tick) {
         return ESP_OK;
     }
-    const LUNASHELL::ActivitySnapshot *motion = nullptr;
-#if CONFIG_LUNASHELL_ACTIVITY_MODEL
-    if (s_state.companion_panel == CODY::CompanionPanel::Home) {
-        error = LUNASHELL::DeviceSnapshotService::instance().readActivity(s_state.motion_observation);
-        if (error != ESP_OK) {
-            ESP_LOGE(kTag, "Home canonical motion observation failed (%s)", esp_err_to_name(error));
-            return error;
-        }
-        motion = &s_state.motion_observation;
-    }
-#endif
     const char *device_ip = "";
     CODY::PanelValueState ip_state = CODY::PanelValueState::Unavailable;
     if (s_state.companion_panel == CODY::CompanionPanel::SessionLink) {
@@ -3186,8 +3201,9 @@ esp_err_t draw_voice_input_rows()
         uint16_t band_end = kPanelHeight;
         if (!full) {
             if (details_due && row >= 134 && row < 162) band_end = 162;
-            else if (row >= CODY::kVoiceRibbonTop && row < CODY::kVoiceRibbonTop + CODY::kVoiceRibbonHeight)
-                band_end = CODY::kVoiceRibbonTop + CODY::kVoiceRibbonHeight;
+            // The enlarged artwork starts on an odd row; DMA bands include its even-row padding.
+            else if (row >= CODY::kVoiceRibbonDamageTop && row < CODY::kVoiceRibbonDamageBottom)
+                band_end = CODY::kVoiceRibbonDamageBottom;
             else if (details_due && row >= 402 && row < 430) band_end = 430;
             else { row += 2; continue; }
         }
