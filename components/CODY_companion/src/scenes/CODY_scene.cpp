@@ -457,17 +457,26 @@ esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content)
 esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &current, DirtyPlan &plan)
 {
     if (!previous.valid || !current.valid || current.definition == nullptr ||
-        !previous.title.valid || !current.title.valid || current.title.font == nullptr ||
+        !previous.title.valid || !current.title.valid || previous.title.font == nullptr || current.title.font == nullptr ||
         previous.definition != current.definition ||
         previous.visible_characters > previous.title.text.length ||
         current.visible_characters > current.title.text.length) {
         ESP_LOGE(kTag, "Scene damage state rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
+    const bool dashboard_changed = previous.home_dashboard != current.home_dashboard;
+    const bool legacy_hidden = previous.home_dashboard && current.home_dashboard;
+    const auto old_title_bounds = text_bounds(previous.title);
+    const auto new_title_bounds = text_bounds(current.title);
     const bool title_changed = previous.title.text.characters != current.title.text.characters ||
-        previous.title.text.length != current.title.text.length || previous.title.color != current.title.color;
-    if (previous.activity_overlay.state != current.activity_overlay.state ||
-        activity_paint_tick(previous.activity_overlay) != activity_paint_tick(current.activity_overlay)) {
+        previous.title.text.length != current.title.text.length || previous.title.color != current.title.color ||
+        previous.title.font != current.title.font || previous.title.origin.x != current.title.origin.x ||
+        previous.title.origin.y != current.title.origin.y || old_title_bounds.left != new_title_bounds.left ||
+        old_title_bounds.top != new_title_bounds.top || old_title_bounds.right != new_title_bounds.right ||
+        old_title_bounds.bottom != new_title_bounds.bottom;
+    if (!legacy_hidden && (dashboard_changed ||
+        previous.activity_overlay.state != current.activity_overlay.state ||
+        activity_paint_tick(previous.activity_overlay) != activity_paint_tick(current.activity_overlay))) {
         const esp_err_t overlay_error = include_damage(plan, activity_overlay_bounds());
         if (overlay_error != ESP_OK) {
             return overlay_error;
@@ -512,12 +521,21 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
     if (previous.command_hints != current.command_hints ||
         previous.command_hints_revision != current.command_hints_revision ||
         (visibility_changed && (previous.command_hints != nullptr || current.command_hints != nullptr))) {
-        error = include_damage(plan, {73, 360, 393, 417});
+        const auto &bounds = kHomeCommandHintsBounds;
+        error = include_damage(plan, {bounds.x, bounds.y,
+            static_cast<uint16_t>(bounds.x + bounds.width),
+            static_cast<uint16_t>(bounds.y + bounds.height)});
         if (error != ESP_OK) { return error; }
     }
+    // Dashboard layers keep these semantic owners alive for audio and priority decisions.
+    // Their hidden timers and text cannot dirty the screen until the legacy view returns.
+    if (legacy_hidden) {
+        return ESP_OK;
+    }
+    const bool legacy_visibility_changed = visibility_changed || dashboard_changed;
     if (previous.activity_description != current.activity_description ||
         previous.activity_description_revision != current.activity_description_revision ||
-        (visibility_changed && (previous.activity_description != nullptr || current.activity_description != nullptr))) {
+        (legacy_visibility_changed && (previous.activity_description != nullptr || current.activity_description != nullptr))) {
         error = include_damage(plan, {73, 360, 393, 388});
         if (error != ESP_OK) {
             return error;
@@ -529,7 +547,7 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
         previous.activity_identity_offset != current.activity_identity_offset ||
         previous.activity_identity_opacity != current.activity_identity_opacity ||
         previous.activity_identity_kind != current.activity_identity_kind ||
-        (visibility_changed && (previous.activity_identity != nullptr || current.activity_identity != nullptr))) {
+        (legacy_visibility_changed && (previous.activity_identity != nullptr || current.activity_identity != nullptr))) {
         error = include_damage(plan, {73, 300, 393, 328});
         if (error != ESP_OK) {
             return error;
@@ -541,13 +559,13 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
         previous.activity_identity_timer_visible != current.activity_identity_timer_visible ||
         (current.activity_identity_timer_visible &&
          previous.activity_identity_timer_seconds != current.activity_identity_timer_seconds) ||
-        (visibility_changed && (previous.activity_identity != nullptr || current.activity_identity != nullptr))) {
+        (legacy_visibility_changed && (previous.activity_identity != nullptr || current.activity_identity != nullptr))) {
         error = include_damage(plan, {73, 330, 393, 358});
         if (error != ESP_OK) {
             return error;
         }
     }
-    if (visibility_changed ||
+    if (legacy_visibility_changed ||
         old_content.revision != new_content.revision || old_content.state != new_content.state ||
         old_content.draw_rows != new_content.draw_rows || old_content.bounds.left != new_content.bounds.left ||
         old_content.bounds.top != new_content.bounds.top || old_content.bounds.right != new_content.bounds.right ||
@@ -570,7 +588,7 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
             return error;
         }
     }
-    if (visibility_changed || old_content.control_revision != new_content.control_revision) {
+    if (legacy_visibility_changed || old_content.control_revision != new_content.control_revision) {
         for (uint16_t index = 0; index < 2; ++index) {
             error = include_damage(plan, old_content.control_bounds[index]);
             if (error == ESP_OK) {
@@ -605,13 +623,12 @@ esp_err_t draw_scene_rows(const SceneFrame &frame, CODY2D::Surface strip,
         ? CODY2D::draw_text_rows(frame.title, frame.visible_characters, strip, first_row, first_column)
         : ESP_OK;
     if (error == ESP_OK && frame.command_hints != nullptr) {
-        error = CODY2D::draw_text_rows(frame.command_hints->title, frame.command_hints->title.text.length,
-            strip, first_row, first_column);
-        if (error == ESP_OK) {
-            error = CODY2D::draw_text_rows(frame.command_hints->request, frame.command_hints->request.text.length,
-                strip, first_row, first_column);
-        }
-    } else if (error == ESP_OK && frame.activity_description != nullptr) {
+        error = draw_command_hints(*frame.command_hints, strip, first_row, first_column);
+    }
+    if (frame.home_dashboard) {
+        return error;
+    }
+    if (error == ESP_OK && frame.activity_description != nullptr) {
         error = draw_activity_description(*frame.activity_description, strip, first_row, first_column);
     }
     if (error == ESP_OK && frame.activity_identity != nullptr) {

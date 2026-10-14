@@ -212,35 +212,37 @@ that a particular live compaction hook was delivered.
 
 ### Companion information panels
 
-Home retains the character, actual activity phase, alternating project/branch/model/token
-pages and concrete activity description. Names and descriptions use native font metrics:
-short text stays still; overflow scrolls within its own viewport. Identity fades
-affect only its row. Attention and authentic compaction hold the project. A healthy
-PC connection or newly followed chat starts an Available commands introduction,
-with four supported chat requests shown for five seconds each. Ready for More
-keeps three personalization requests and the independent token carousel visible while idle; after
-25 active seconds its title becomes Ready to team up. This does not create a
-connection transition or renew source measurements. Compaction
-and attention suppress these hints without creating a task, poll or wake lease.
+Home retains the character, actual activity title and independently aged model
+row above three lower panels. The first shows a Free token hero and availability
+arc, Last/Window, elapsed time and canonical IMU activity. Model & Context shows
+the model name, qualitative catalog price and reasoning effort. Session & Link
+shows connection state, abbreviated chat ID and the device's own canonical Wi-Fi
+IP. The former full-screen Activity page, firmware row and numeric page footer
+are no longer part of passive Home navigation.
 
-Home token labels are Last, Window, Free and Total, followed by `TT`. Values
-below 1000 stay exact. Larger values display completed decimal thousands with
-`K` and period grouping, for example `Free 319K TT` and `Total 21.188K TT`.
+Supported chat requests run in a continuous right-to-left footer marquee without
+an Available commands heading. Its 50-ms quantization uses the existing active
+scene clock and pauses while hidden. Ready for More retains personalization hints;
+after 25 active seconds its title becomes Ready to team up. This changes no link
+state or measurement timestamp. Compaction and attention suppress the hints
+without creating a task, poll or wake lease.
+
+The hero uses the `TT` unit. Values below 1000 stay exact; larger values display
+completed decimal thousands with `K` and period grouping, such as `Free 319K TT`.
 Free is subtracted from the original coherent counters before abbreviation.
-Model & Context and Token details keep the exact source values.
+Canonical and protocol counters retain full precision. The arc requires a
+coherent current pair; compaction uses an orange indeterminate accent rather
+than an invented progress percentage. Missing, stale, invalid and over-limit
+observations keep explicit nonnumeric states.
 
-A short released passive tap opens Model & Context, then Session & Link, then
-Activity, then Model & Context again. Each panel remains selected until another deliberate
-gesture. A deliberate shake returns directly to Home and changes no remote
-request, chat, approval or read acknowledgement. Panels have no lateral Back.
-Setup and questions keep their explicit controls and existing navigation.
-An explicit setup, remote question, PC approval or Debug view can preempt the
-technical compositor. Its real controls then own touch; the retained panel choice
-resumes when that route ends. This is attention arbitration, not a reading timeout.
-Model & Context alternates its context summary with Token details every eight
-active seconds. The latter reserves its first three rows for Input, Output and
-Total, so a long model name cannot hide output usage. It retains the same context
-bar and current compaction banner, without adding a polling task.
+A short released passive tap cycles Tokens, Model & Context, Session & Link,
+then Tokens. Each lower panel remains selected until a deliberate gesture. A
+deliberate shake selects Tokens without changing a remote request, chat,
+approval or read acknowledgement. These passive panels have no lateral Back.
+Setup, voice input, remote questions, PC approvals and Debug retain their real
+controls and presentation priority. The retained panel resumes when the
+interrupting route ends. A panel selection never resets the shared character,
+activity title or compaction sound latch.
 
 Touch recognition retains the contact's origin, displayed orientation and original
 timestamps. More than 12 pixels of displacement, a contact longer than 450 ms,
@@ -263,20 +265,15 @@ IMU data cancels recognition. These initial thresholds require physical calibrat
 source review and serial startup do not establish gesture quality while walking.
 Pausing artistic animation does not pause passive navigation sampling.
 
-Technical panels share native formatting, numeric validity, page identities and
-raster with Studio. Panel content and its coherent canonical observation belong
-to the serialized PSRAM renderer state, not nested frame-stack copies. Technical
-labels and numbers bypass typewriter timing and its audio. Every passive detail
-page retains Cody at logical (233, 115), scale 50, above a transparent content
-viewport beginning at y=170. At most four curated facts replace the old dense
-field list; unavailable or exact unknown placeholder values contribute no rows.
-Known STALE/INVALID states, genuine compaction and confirmed connection loss remain
-visible. A page with no model information offers one concise neutral explanation.
-An unmeasured context bar is omitted instead of suggesting a value.
-A page transition clears the retired full composition; subsequent changes damage
-the character's old/new artwork, detail viewport and independent status footprint.
-The base home route continues receiving events
-without forwarding panel touches to its hidden controls.
+The dashboard shares native formatting, validity, typed panel identities, fonts
+and raster code with Studio. Panel content and coherent observations belong to
+persistent renderer storage, never nested snapshot copies. Dashboard labels and
+numbers bypass typewriter timing and its audio. The common character transform
+is (233,122), scale 73; the title begins at y=190, model at y=236 and lower panel
+at y=268. Fonts are isolated from setup and event typography. Native damage
+tracks upper identity, lower panel and ticker revisions independently; hiding
+the dashboard invalidates its previous bounds. The semantic scene data remains
+available to the event and sound owners while its superseded footer is hidden.
 
 | Metric | Actual source and meaning | Availability in this integration |
 | --- | --- | --- |
@@ -543,7 +540,7 @@ has not been resolved by short successful captures.
 
 The 2026-10-11 firmware source adds an explicit voice-input event for **Sophia**
 and an acquired double tap on the visible character. A single character tap waits
-420 ms before opening Activity; technical-panel taps still advance immediately.
+420 ms before changing the selected Home lower panel.
 Movement, stale/broken touch, rotation and explicit controls disqualify a double
 tap. The existing power owner handles standby wake; speech inference and enhanced
 mono PCM remain owned by the sole existing ESP-SR AFE.

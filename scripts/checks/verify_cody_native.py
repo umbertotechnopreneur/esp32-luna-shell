@@ -86,6 +86,7 @@ def main(argv=None) -> None:
                         "assets/cody/appearance/jelly-scanline/generated",
                         "assets/cody/personality-icons/generated")
         include_dirs += ("assets/cody/personality/generated",)
+        include_dirs += ("assets/cody/home-dashboard-fonts/generated",)
         sources = ("scripts/tests/cody_native/raster_contract.cpp", "scripts/tests/scene_standby_policy.cpp",
                    "components/CODY2D/src/CODY2D.cpp",
                    "scripts/tests/cody_native/host_settings.cpp",
@@ -98,6 +99,10 @@ def main(argv=None) -> None:
                    "components/CODY_companion/src/runtime/CODY_lifecycle.cpp",
                    "components/CODY_companion/src/scenes/CODY_scene.cpp",
                    "components/CODY_companion/src/scenes/CODY_technical_panels.cpp",
+                   "components/CODY_companion/src/scenes/CODY_home_dashboard.cpp",
+                   "components/CODY_companion/src/scenes/CODY_home_identity.cpp",
+                   "assets/cody/home-dashboard-fonts/generated/home_dashboard_fonts.cpp",
+                   "scripts/tests/cody_native/home_dashboard_contract.cpp",
                    "components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_aging.cpp",
                    "components/CODY_companion/src/model/CODY_expression_catalog.cpp",
                    "components/CODY_companion/src/model/CODY_connection_personality.cpp",

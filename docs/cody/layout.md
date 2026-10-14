@@ -58,40 +58,40 @@ needs reconciliation with the repository's lateral-Back contract in [TODO.md](..
 
 ## Companion panels, status and Debug
 
-Activity, Model & Context, and Session & Link are the scoped Back exception.
+Home uses three lower panels: Tokens, Model & Context, and Session & Link.
 Short released taps cycle the panels; a deliberate canonical-IMU shake returns
-Home. They retain the character at (233,115), scale 50 and at most four curated
-facts. Missing optional fields are omitted. Setup and questions retain their routes.
+to the default token panel. The character remains at (233,122), scale 73, with
+the state title at y=190 and the model row in (73,236), 320 x 28. Only the lower
+panel changes; there is no full-screen Activity page, page counter or Back control.
+Setup and questions retain their existing routes and action controls.
 
-Model & Context reserves a Standard price badge at (101,206), 264 x 28, with
-six detail rows starting at y=238, 25 pixels apart. A compaction banner at y=208
-moves the badge to y=234 and leaves four detail rows starting at y=267. The
-context bar occupies y=389 through 400. Session & Link admits six rows starting
-at y=234. These two panels omit the passive gesture hint to preserve row space;
-tap still advances and deliberate shake returns Home.
-Model & Context alternates every eight active seconds with Token details in the
-same viewport; Input, Output and Total precede optional reasoning information.
-Home uses the project/branch/model/token identity viewport at (73,300), 320 x 28.
-Token pages keep Last, Window, Free and Total separate. Numeric Home captions
-use `TT` for tokens and decimal whole thousands with `K`, truncating the final
-three digits: `Free 319K TT`, or `Total 21.188K TT`. Periods group every three
-displayed digits; counts below 1000 remain exact, including zero. The technical
-panels retain the original exact counters. Each page shares the existing
-measured/clipped carousel rather than adding a task.
-Its Model-only 196 x 28 price chip at y=330 is centered at x=233 without a timer,
-or moves to x=73 beside the timer centered at x=335. The timer has a 116-pixel
-slot; both controls remain inside the existing 320-pixel damage row. Colors are
-green Cheap, orange Reasonable price, red Expensive, and gray Unavailable. Both layouts stay within
-their occupied circular chords and retain the description viewport below y=360.
-For the first 20 active seconds after a healthy PC connection or chat change,
-ordinary Home may replace that description with Available commands at y=360 and
-one supported chat request at y=392. Native glyph bounds stay inside the circle.
-Ready for More retains the same footer indefinitely, rotating three supported
-requests while the token/identity carousel remains visible. Its title changes to
-Ready to team up after 25 active seconds without clearing the counters.
-Attention and compaction suppress this banner. Current compaction uses orange
-headline and description, with its original character cue and sound admission;
-technical-panel headings also turn orange during current compaction.
+The selected [context-arc proposal](ui-proposals/20261014/02-context-arc.png)
+is implemented with native text and antialiased strokes. The dashboard damage
+envelope is (40,268)-(426,393); actual ink follows the local circular chords,
+not the entire enclosing rectangle. Tokens show a large Free value, secondary
+Last and Window values, elapsed time and the canonical IMU label. The mint arc
+represents coherent free context. Missing, stale, invalid and over-limit data
+retain explicit states and never produce an invented percentage.
+
+Model & Context contains the model name, qualitative Standard catalog price
+capsule and thinking effort. Session & Link contains connection state, abbreviated
+chat ID and the device's own canonical Wi-Fi IP; it omits firmware and PC IP.
+Independent source validity remains visible. Model prices are green Cheap,
+orange Reasonable price and red Expensive; they are not monetary chat spending.
+
+Home uses the `TT` unit and decimal whole thousands with `K`, truncating the last
+three digits: `Free 319K TT`. Periods group every three displayed digits; counts
+below 1000 remain exact, including zero. Canonical and protocol counters retain
+their full precision. Excessively wide secondary captions alternate within their
+bounded row; the source values and timestamps do not change.
+
+Commands use one clipped right-to-left marquee at (113,408), 240 x 25, without
+an Available commands heading. The same scene clock drives its quantized motion;
+hidden presentation does not accumulate scroll time. Attention and compaction
+suppress the hints. Current compaction turns the title orange and the token arc
+into an indeterminate accent, preserving the character cue and sound admission.
+The independent fonts derive from the vendored OFL Telex face; other scenes keep
+their existing typography. No bitmap/video playback or polling task is added.
 
 The standalone status layer shows date at (122,32), local HH:MM at (122,47),
 and battery/Wi-Fi/Bluetooth at y=43-64. Seconds are omitted. Battery is gray

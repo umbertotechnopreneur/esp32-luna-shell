@@ -614,25 +614,18 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     return ESP_OK;
 }
 
-// panel: Selected technical page identity.
-// link: Canonical link and activity from one synchronized observation.
-// technical: Independently aged source metrics from the same observation.
-// font: Actual immutable native glyph catalog.
-// now_us: Device monotonic time, used only to age receipt-relative durations.
-// active_time_us: Independent local presentation clock; never contributes to source freshness or ages.
-// presentation: Persistent serialized owner outside the renderer task stack.
-// content: Receives a direct compositor callback on success.
-// firmware_version: Canonical immutable firmware identity, or absent synthetic host metadata.
-// motion: Optional original experimental result; no sensor reads or model execution occur here.
-// Exception: Returns the native preparation failure without guessing missing metrics.
-esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
-    const LUNASHELL::CodexLinkSnapshot &link, const LUNASHELL::CodexTechnicalSnapshot &technical,
-    const CODY2D::MonoFont &font, int64_t now_us, int64_t active_time_us,
-    PanelPresentation &presentation, SceneContent &content,
-    const char *firmware_version, const LUNASHELL::ActivitySnapshot *motion)
+// link: Canonical link/activity observation borrowed for one projection.
+// technical: Canonical independently aged metadata, never copied or mutated.
+// now_us: Local monotonic receipt clock, independent of presentation animation.
+// firmware_version: Immutable running image identity, or empty when unavailable.
+// inputs: Receives bounded borrowed fields and independently valid metrics.
+// Exception: Returns the original duration or clock error without fabricating source data.
+esp_err_t project_companion_panel_inputs(const LUNASHELL::CodexLinkSnapshot &link,
+    const LUNASHELL::CodexTechnicalSnapshot &technical, int64_t now_us,
+    const char *firmware_version, PanelInputs &inputs)
 {
     if (now_us < 0) { return panel_result("observation_clock", ESP_ERR_INVALID_ARG); }
-    PanelInputs inputs{};
+    inputs = {};
     inputs.connected = link.state == LUNASHELL::CodexLinkState::Connected;
     inputs.link = observed_value_state(link.data_valid, link.data_stale);
     inputs.activity = observed_value_state(link.activity.data_valid, link.activity.data_stale || !inputs.connected);
@@ -700,6 +693,45 @@ esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
         inputs.compaction_elapsed_us = {age_with_receipt(technical.compaction_age_at_receive_us, receipt_age), observed_value_state(technical.compaction_age_valid && inputs.compaction == LUNASHELL::CodexCompactionState::Active, stale)};
         inputs.counters_pending = inputs.compaction == LUNASHELL::CodexCompactionState::Refreshed && context != PanelValueState::Current;
     }
+    // Historical payload flags cannot make a failed canonical owner current on any consuming Home layer.
+    if (link.last_error != ESP_OK || link.activity.last_error != ESP_OK || technical.last_error != ESP_OK) {
+        PanelMetric *metrics[] = {&inputs.used, &inputs.capacity, &inputs.threshold, &inputs.cumulative,
+            &inputs.input, &inputs.output, &inputs.activity_age_us, &inputs.usage_age_us,
+            &inputs.turn_elapsed_us, &inputs.compaction_elapsed_us};
+        for (auto *metric : metrics) {
+            if (metric->state == PanelValueState::Current) { metric->state = PanelValueState::Invalid; }
+        }
+        inputs.context_coherent = false;
+        if (inputs.model_state == PanelValueState::Current) { inputs.model_state = PanelValueState::Invalid; }
+        if (inputs.effort_state == PanelValueState::Current) { inputs.effort_state = PanelValueState::Invalid; }
+        if (inputs.cost_state == PanelValueState::Current) { inputs.cost_state = PanelValueState::Invalid; }
+        if (inputs.compaction == LUNASHELL::CodexCompactionState::Active) {
+            inputs.compaction = LUNASHELL::CodexCompactionState::Stale;
+        }
+    }
+    return ESP_OK;
+}
+
+// panel: Selected technical page identity.
+// link: Canonical link and activity from one synchronized observation.
+// technical: Independently aged source metrics from the same observation.
+// font: Actual immutable native glyph catalog.
+// now_us: Device monotonic time, used only to age receipt-relative durations.
+// active_time_us: Independent local presentation clock; never contributes to source freshness or ages.
+// presentation: Persistent serialized owner outside the renderer task stack.
+// content: Receives a direct compositor callback on success.
+// firmware_version: Canonical immutable firmware identity, or absent synthetic host metadata.
+// motion: Optional original experimental result; no sensor reads or model execution occur here.
+// Exception: Returns the native preparation failure without guessing missing metrics.
+esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
+    const LUNASHELL::CodexLinkSnapshot &link, const LUNASHELL::CodexTechnicalSnapshot &technical,
+    const CODY2D::MonoFont &font, int64_t now_us, int64_t active_time_us,
+    PanelPresentation &presentation, SceneContent &content,
+    const char *firmware_version, const LUNASHELL::ActivitySnapshot *motion)
+{
+    PanelInputs inputs{};
+    const esp_err_t error = project_companion_panel_inputs(link, technical, now_us, firmware_version, inputs);
+    if (error != ESP_OK) { return error; }
     return prepare_companion_panel(panel, inputs, font, active_time_us, presentation, content, motion);
 }
 

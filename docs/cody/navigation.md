@@ -9,22 +9,19 @@ worry, brief fear and recovery. This silent narrative does not assert Internet
 reachability or failed pairing. Real canonical link transitions take priority;
 hidden or sleeping views do not advance the narrative.
 
-Working uses a three-minute screen standby interval. Project, Branch, Model and token pages
-are explicit carousel labels; Model is orange and its price chip appears only
-during Model. Display bands are Cheap, Reasonable price and Expensive; missing price
-metadata remains unavailable. These Standard catalog classes do not measure chat
-spending or model quality. The activity timer is retained. Current native tool
-names supplement absent progress descriptions; arguments and command bodies are
-not transmitted.
+Working uses a three-minute screen standby interval. Home retains the character,
+state title and model above three interchangeable lower panels. Tokens shows
+Free, Last, Window, elapsed time and IMU activity. Model & Context shows the model,
+thinking effort and qualitative price: Cheap, Reasonable price or Expensive.
+These Standard catalog classes do not measure monetary chat spending or model
+quality. Session & Link shows connection state, abbreviated chat ID and the
+device's own canonical Wi-Fi IP, without firmware identity or the PC address.
 
-Model & Context labels model, reasoning, last-call tokens, window, free space and
-cumulative totals explicitly. Genuine hooks select the exact native metadata
-source; unavailable or expired counts remain explicit. Free is the observed
-window minus last-call tokens, not a promise about the next request's budget.
-Home rotates supported chat requests briefly on connection or chat change;
-orange compaction takes precedence over ordinary captions and command hints.
-Session & Link includes canonical
-PC IP and running firmware identity. The valid-battery wake prelude is described
+Genuine hooks select the exact native metadata source; unavailable or expired
+counts remain explicit. Free is the observed window minus last-call tokens,
+not a promise about the next request's budget. Supported chat requests scroll
+right to left along the bottom. Orange compaction takes precedence over ordinary
+captions and command hints. The valid-battery wake prelude is described
 in [the personality contract](personality-icons.md). Implementation and validation
 evidence remain separate in [done.md](../../done.md).
 
@@ -35,11 +32,11 @@ packet fields and budgets belong to [CCP1](../../plugins/cody-codex-plugin/proto
 
 ## Observe walking, running and sitting
 
-From Home, make one short tap on the character and release to open Model & Context.
-A double tap starts voice input, so wait for the single-tap decision. Further
-single taps cycle Session & Link, Activity, then Model & Context. To observe
-movement, advance twice from Model & Context to Activity. A deliberate
-shake returns Home; running or jumping may also trigger that navigation gesture.
+The default Home token panel includes the IMU label beside the timer. A short
+released tap changes the lower panel to Model & Context, then Session & Link,
+then Tokens again. A double tap starts voice input, so wait for the single-tap
+decision. A deliberate shake selects Tokens; running or jumping may also
+trigger that navigation gesture.
 
 Keep the device in the same position and orientation on your body for each trial.
 Observe sitting, standing, walking and jogging for 20-30 seconds each, allowing
@@ -53,8 +50,8 @@ as correctly classified jumps by this model. No training or SD access is needed.
 COLLECTING, SUSPENDED, CADENCE GAP, BUSY, ERROR, UNAVAILABLE and STALE describe
 sample availability, not activities. Standby suspends the observer.
 
-Release and Debug both show the canonical classifier result in Activity. This
-panel works without a PC connection. Displayed labels alone are not an accuracy
+Release and Debug both show the canonical classifier result on the first Home
+panel, including without a PC connection. Displayed labels alone are not an accuracy
 measurement or authorization for automatic power decisions.
 
 ## Choose the startup route

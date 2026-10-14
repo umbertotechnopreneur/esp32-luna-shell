@@ -13,6 +13,45 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Persistent Home dashboard and integer Studio pixels - 2026-10-14
+
+The selected context-arc proposal is implemented by the shared native renderer.
+The character, status title and model row remain in place while a passive tap
+cycles three lower panels: tokens and IMU activity; model, price class and
+thinking effort; connection, abbreviated chat ID and the device's own IP.
+The old full-screen technical pages, firmware row and page counter are removed
+from normal navigation. Supported chat requests scroll continuously below the
+panel. Compaction retains orange priority, its animation and admitted sound.
+Canonical timestamps, validity and operation errors govern every displayed value.
+
+The antialiased arc uses bounded persistent paths and the existing native
+coverage rasterizer. Generated Telex-derived fonts retain their OFL provenance.
+No sensor reader, polling task or enlarged task stack was introduced. Hidden
+Home layers retire completely before setup, questions, recording or Debug take
+ownership; source freshness remains independent of the paused presentation clock.
+
+Studio enlarges the actual 466 x 466 native framebuffer by integer replication:
+2x means 932 x 932 with uniform 2 x 2 pixel blocks. Resize selects 1x, 2x, 3x, 4x
+or larger integral scales; smaller viewports clip at 1x instead of interpolating.
+Mouse admission maps every enlarged block to its original pixel in all rotations.
+The actual Windows capture on the 3840 x 2160 desktop verified 2x at startup,
+a 956 x 956 canvas and a 1631 x 1421 client area, with exact framebuffer colors.
+These are explicitly synthetic Studio observations, not physical display evidence.
+
+Native raster and runtime contracts, 16 Studio tests, 40 Alpha tests, 36
+authenticated simulator tests, selected wake-word profile/dependency checks,
+diff whitespace and the changed-file secret scan passed. Stale Alpha fixtures
+were aligned with authored QR/navigation state, native Q8 opacity, production
+DPI initialization, integer layout and boot bitmap publication; initial failed
+attempts remain in the evidence logs. Final Release build/size/stack inspection
+and installation remain pending at this checkpoint.
+Evidence and native/actual-window captures are retained in
+`artifacts/build-cody-companion-wake-word-evidence/home-tokens-20261014/`.
+
+GitHub repository visibility was verified public. Active main ruleset 25049727
+requires pull requests with sole direct-push bypass for owner user 12001165.
+Its reproducible definition is `.github/rulesets/main-owner-direct-push.json`.
+
 ## Compact Home tokens and three visual proposals - 2026-10-14
 
 Home keeps four separate Last, Window, Free and Total pages with short labels,

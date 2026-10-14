@@ -105,6 +105,8 @@ struct SceneContent {
 struct SceneFrame {
     const CommandHintsState *command_hints = nullptr;
     uint32_t command_hints_revision = 0;
+    // Home retains semantic activity owners while dedicated native layers replace their legacy drawing.
+    bool home_dashboard = false;
     const SceneDefinition *definition = nullptr;
     CODY2D::TextLine title{};
     SceneContent content{};

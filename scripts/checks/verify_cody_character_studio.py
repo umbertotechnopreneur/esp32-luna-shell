@@ -20,6 +20,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import sys
 import time
+import json
 import unittest
 from unittest.mock import patch
 
@@ -33,6 +34,7 @@ from cody_happiness import PersonalityEvent
 from cody_personality import PersonalityCue
 from cody_petting import PettingZone
 from cody_simulator import CodyRenderer, CodyWindow
+from cody_preview_layout import PreviewLayout, enlarge_framebuffer, physical_point
 from scripts.common.cody_rig_contract import contour_defaults
 
 OUTPUT = ROOT / "artifacts/checks/cody-character-studio"
@@ -64,119 +66,234 @@ class CharacterStudioTests(unittest.TestCase):
         self.renderer.capture_sheet(image, f"SIMULATED / {name}").save(OUTPUT / f"{name}.png")
         return scene
 
-    # self: Actual Studio C++ boundary with a visibly synthetic current model and independent catalog lease.
-    # Raises AssertionError if Home cannot show Expensive, retain the timer or expire the chip without losing the model.
-    def test_home_expensive_chip_and_catalog_expiry_use_native_rendering(self):
+    # self: Isolated native transport; no fixture is published to a physical or live endpoint owner.
+    # Returns an explicitly synthetic current Home observation with independent measured fields.
+    def home_source(self):
         source = NativePanelObservation()
-        source.project = b"SIMULATED price badge"
+        source.project, source.branch = b"SIMULATED Home", b"codex/cody"
         source.chat_id = source.technical_chat_id = b"a" * 64
-        source.model = b"gpt-6-astra"
+        source.model, source.effort = b"gpt-6-astra", b"high"
         source.phase = 2
         source.connected = source.link_valid = source.activity_valid = source.technical_valid = source.model_valid = True
-        source.cost_band = 3
-        source.cost_age_us = 3600000000
+        source.effort_valid = source.used_valid = source.capacity_valid = source.turn_elapsed_valid = True
+        source.used, source.capacity, source.turn_elapsed_us = 155000, 474000, 12000000
+        source.cost_band, source.cost_valid_for_us = 3, 3600000000
+        source.device_ip, source.device_ip_valid = b"192.0.2.25", True
+        source.simulated_motion_valid, source.simulated_motion = True, 4
+        return source
+
+    # self: Production Studio rendering owner with persistent native Home presentation state.
+    # source: Original isolated observation, never formatted or clipped by Python.
+    # panel: Native typed lower-panel identity.
+    # elapsed: Pausable active display clock independent of observation receipt age.
+    # title: Complete authored native Home title.
+    # Returns native pixels; raises original transport/layout/raster errors without substitutes.
+    def render_home(self, source, panel=0, elapsed=1000000, title="Working"):
+        scene = self.native.evaluate(self.base.face, self.native.home_transform(), self.base.contour | {"phase": 0.})
+        self.native.prepare_home_identity(scene, source, title, len(title), elapsed)
+        self.native.prepare_home_dashboard(scene, panel, source, elapsed)
+        return self.renderer.draw_scene(scene, debug=False, navigation_visible=False).convert("RGB")
+
+    # self: Actual Studio C++ boundary with a visibly synthetic model and independent catalog lease.
+    # Raises AssertionError if a catalog expiry changes the stable title/model or keeps a stale cost badge.
+    def test_home_expensive_chip_and_catalog_expiry_use_native_rendering(self):
+        source = self.home_source()
         source.cost_valid_for_us = 1000000
         OUTPUT.mkdir(parents=True, exist_ok=True)
-        pixels = []
+        captures = []
         for name, receipt_age in (("home-expensive", 0), ("home-price-expired", 1000000)):
             source.receipt_age_us = receipt_age
-            scene = self.native.evaluate(self.base.face, (233., 145., 95.), self.base.contour | {"phase": 0.})
-            self.native.prepare_activity_identity(scene, "SIMULATED price badge", "codex/cody", source,
-                9000000, False, 12000000, False)
-            image = self.renderer.draw_scene(scene, debug=False, navigation_visible=False).convert("RGB")
+            image = self.render_home(source, panel=2)
             self.renderer.capture_sheet(image, f"SIMULATED / {name}").save(OUTPUT / f"{name}.png")
-            pixels.append(image.getpixel((87, 343)))
-        self.assertGreater(pixels[0][0], pixels[0][1] * 2)
-        self.assertLess(abs(pixels[1][0] - pixels[1][1]), 16)
+            captures.append(image)
+        self.assertEqual(captures[0].crop((0, 0, 466, 268)).tobytes(), captures[1].crop((0, 0, 466, 268)).tobytes())
+        self.assertNotEqual(captures[0].crop((89, 318, 377, 352)).tobytes(), captures[1].crop((89, 318, 377, 352)).tobytes())
+        self.assertTrue(any(red > 160 and red > green * 2 for red, green, blue in
+                            captures[0].crop((89, 318, 377, 352)).getdata()))
+        self.assertFalse(any(red > 160 and red > green * 2 for red, green, blue in
+                             captures[1].crop((89, 318, 377, 352)).getdata()))
 
-    # self: Production Home identity bridge with explicitly synthetic, coherent token observations.
-    # Raises AssertionError for missing token pages, footer overflow or lost character/timer pixels in memory or saved PNG.
-    def test_home_token_pages_capture_real_native_footer(self):
+    # self: Production Home bridge with explicitly synthetic token, model, link and IMU observations.
+    # Raises AssertionError for an incorrect three-panel cycle, replaced header or lost saved pixels.
+    def test_home_three_panels_keep_native_header_and_command_ticker(self):
         from PIL import Image, ImageChops
-        source = NativePanelObservation()
-        source.project, source.branch = b"Cody", b"main"
-        source.chat_id = source.technical_chat_id = b"a" * 64
-        source.model = b"gpt-6-astra"
-        source.phase = 2
-        source.connected = source.link_valid = source.activity_valid = source.technical_valid = source.model_valid = True
-        source.used_valid = source.capacity_valid = source.cumulative_valid = True
-        source.used, source.capacity, source.cumulative = 18432, 196608, 247381
-        source.cost_band, source.cost_valid_for_us = 3, 3600000000
-        placement = (233., 130., 75.)
-        base_scene = self.native.evaluate(self.base.face, placement, self.base.contour | {"phase": 0.})
-        baseline = self.renderer.draw_scene(base_scene, debug=False, navigation_visible=False).convert("RGB")
-        actor_bounds, timer_bounds = (73, 40, 393, 250), (73, 330, 393, 358)
-        actor_reference = baseline.crop(actor_bounds)
-        self.assertIsNotNone(actor_reference.getbbox(), "native Home baseline lost the character")
-        self.assertGreater(len(actor_reference.getcolors(actor_reference.width * actor_reference.height)), 16,
-            "native Home baseline is a flat blank region")
-        actor_pixels = actor_reference.tobytes()
-        timer_pixels = None
+        source = self.home_source()
+        baseline = self.render_home(source)
+        self.assertIsNotNone(baseline.crop((73, 40, 393, 185)).getbbox(), "native Home lost its character")
+        self.assertIsNotNone(baseline.crop((73, 190, 393, 264)).getbbox(), "native Home lost its state/model")
+        self.assertIsNotNone(baseline.crop((73, 343, 393, 368)).getbbox(), "native Home lost its timer/IMU")
+        self.assertIsNotNone(baseline.crop((113, 408, 353, 433)).getbbox(), "native Home lost its commands")
         OUTPUT.mkdir(parents=True, exist_ok=True)
         pages = []
-        # Production short Project/Branch/Model dwells precede the four five-second token subpages.
-        for name, elapsed in (("last-call", 14500000), ("window", 19500000),
-                              ("free", 24500000), ("total", 29500000)):
-            scene = self.native.evaluate(self.base.face, placement, self.base.contour | {"phase": 0.})
-            self.native.prepare_activity_identity(scene, "Cody", "main", source, elapsed, False, 12000000, False)
-            image = self.renderer.draw_scene(scene, debug=False, navigation_visible=False).convert("RGB")
-            bounds = ImageChops.difference(image, baseline).getbbox()
-            self.assertIsNotNone(bounds)
-            self.assertGreaterEqual(bounds[0], 73)
-            self.assertGreaterEqual(bounds[1], 300)
-            self.assertLessEqual(bounds[2], 393)
-            self.assertLessEqual(bounds[3], 358)
-            self.assertIsNotNone(ImageChops.difference(image, baseline).crop((73, 330, 393, 358)).getbbox())
-            self.assertEqual(image.crop(actor_bounds).tobytes(), actor_pixels,
-                f"{name} lost or changed the complete native character")
-            timer = image.crop(timer_bounds)
-            self.assertIsNotNone(timer.getbbox(), f"{name} lost the native timer")
-            if timer_pixels is None:
-                timer_pixels = timer.tobytes()
-            self.assertEqual(timer.tobytes(), timer_pixels, f"{name} changed the unchanged native timer")
-            numeric_line = image.crop((73, 300, 393, 328))
-            self.assertIsNotNone(numeric_line.getbbox(), f"{name} lost its current native numeric caption")
-            pages.append(numeric_line.tobytes())
-            destination = OUTPUT / f"home-tokens-{name}.png"
-            self.renderer.capture_sheet(image, f"SIMULATED / Home tokens / {name}").save(destination)
-            # Inspect the stored bytes too: a preview viewer is not evidence that a PNG lost pixels.
+        panel = 0
+        for name, expected in (("tokens", 0), ("model", 2), ("session", 3)):
+            self.assertEqual(panel, expected)
+            image = self.render_home(source, panel)
+            self.assertEqual(image.crop((0, 0, 466, 268)).tobytes(), baseline.crop((0, 0, 466, 268)).tobytes())
+            self.assertEqual(image.crop((0, 393, 466, 466)).tobytes(), baseline.crop((0, 393, 466, 466)).tobytes())
+            if panel:
+                bounds = ImageChops.difference(image, baseline).getbbox()
+                self.assertGreaterEqual(bounds[1], 268)
+                self.assertLessEqual(bounds[3], 393)
+            pages.append(image.crop((40, 268, 426, 393)).tobytes())
+            destination = OUTPUT / f"home-dashboard-{name}.png"
+            self.renderer.capture_sheet(image, f"SIMULATED / Home dashboard / {name}").save(destination)
             with Image.open(destination) as stored:
-                saved = stored.convert("RGB")
-                self.assertEqual(saved.crop(actor_bounds).tobytes(), actor_pixels)
-                self.assertEqual(saved.crop(timer_bounds).tobytes(), timer_pixels)
-                self.assertEqual(saved.crop((73, 300, 393, 328)).tobytes(), numeric_line.tobytes())
-        self.assertEqual(len(set(pages)), 4, "native carousel did not expose all four token captions")
-        # Exact counter semantics and per-page identity are asserted by the real native raster contract.
-        # This bridge does not expose onboarding title/command-hint composition; captures do not claim it.
+                self.assertEqual(stored.convert("RGB").crop((0, 0, 466, 466)).tobytes(), image.tobytes())
+            panel = self.native.next_companion_panel(panel)
+        self.assertEqual(panel, 0)
+        self.assertEqual(len(set(pages)), 3)
+        with self.assertRaises(RuntimeError):
+            self.render_home(source, 1)
 
-    # self: Production actor, timer and activity overlay composed through Studio's existing Home bridge.
-    # Raises AssertionError when current compaction fails to direct the actor or native footer rendering.
+    # self: Production command marquee and pause owner, without a Python text renderer.
+    # Raises AssertionError if the real pixels fail to move right-to-left or jump across hidden time.
+    def test_home_commands_scroll_and_pause_in_native_pixels(self):
+        source = self.home_source()
+        first = self.render_home(source, elapsed=1000000)
+        shifted = self.render_home(source, elapsed=1050000)
+        self.assertEqual(first.crop((114, 408, 353, 433)).tobytes(), shifted.crop((113, 408, 352, 433)).tobytes())
+        self.assertNotEqual(first.crop((113, 408, 353, 433)).tobytes(), shifted.crop((113, 408, 353, 433)).tobytes())
+        self.native.pause_activity()
+        resumed = self.render_home(source, elapsed=20000000)
+        self.assertEqual(shifted.crop((113, 408, 353, 433)).tobytes(), resumed.crop((113, 408, 353, 433)).tobytes())
+
+    # self: Production native heading layout measured with the generated Home font.
+    # Raises the real native layout error if any admitted Home route title cannot fit its circular chord.
+    def test_home_all_authored_headings_fit_complete_native_layout(self):
+        source = self.home_source()
+        routes = ("looking-for-pc", "connected", "project-active", "working", "response-ready",
+                  "session-paused", "session-ended", "connection-lost", "companion-idle", "activity-unavailable")
+        captions = [self.renderer.scene_painter.definition(route)["title"]["text"] for route in routes]
+        captions += ["Waiting for you", "Compacting", "Connecting", "Disconnected", "Editing code",
+                     "Running command", "Interrupted", "Ready to team up", "Ready for more", "No connection"]
+        for caption in captions:
+            with self.subTest(caption=caption):
+                image = self.render_home(source, title=caption)
+                self.assertIsNotNone(image.crop((33, 190, 433, 236)).getbbox())
+
+    # self: Actual native Home pixels with host-only integer presentation and acquisition transforms.
+    # Raises AssertionError if resizing adds colors, changes native pixels or maps one NxN block to different touch pixels.
+    def test_home_integer_pixels_preserve_native_frame_and_touch(self):
+        image = self.render_home(self.home_source())
+        colors = set(image.getdata())
+        OUTPUT.mkdir(parents=True, exist_ok=True)
+        image.save(OUTPUT / "home-native-466.png")
+        for zoom in (1, 2, 3, 4):
+            side = 466 * zoom
+            layout = PreviewLayout.fit(side + 57, side + 39, False)
+            self.assertEqual(layout.scale, zoom)
+            enlarged = enlarge_framebuffer(image, zoom)
+            self.assertEqual(enlarged.size, (side, side))
+            self.assertEqual(set(enlarged.getdata()), colors, "host zoom invented interpolated RGB values")
+            for x, y in ((0, 0), (465, 465), (40, 233), (233, 233), (73, 73), (392, 392), (203, 276)):
+                block = enlarged.crop((x * zoom, y * zoom, (x + 1) * zoom, (y + 1) * zoom))
+                self.assertEqual(set(block.getdata()), {image.getpixel((x, y))})
+                for rotation in (0, 90, 180, 270):
+                    px, py = physical_point(x, y, rotation)
+                    for dx in range(zoom):
+                        for dy in range(zoom):
+                            self.assertEqual(layout.to_device_pixel(layout.left + px * zoom + dx,
+                                layout.top + py * zoom + dy, rotation), (x, y))
+            self.assertIsNone(layout.to_device_pixel(layout.left - 1, layout.top, 0))
+            self.assertIsNone(layout.to_device_pixel(layout.left + side, layout.top, 0))
+            if zoom in (2, 3):
+                enlarged.save(OUTPUT / f"home-native-{zoom}x.png")
+        self.assertEqual(PreviewLayout.fit(200, 200, False).scale, 1)
+        with self.assertRaises(ValueError):
+            enlarge_framebuffer(image, 1.5)
+
+    # self: Native Home frame presented by the actual CodyWindow Tk Canvas on the current desktop.
+    # Raises original GUI/capture errors or AssertionError if the captured desktop pixels differ from integer source replication.
+    def test_home_actual_simulator_window_integer_screenshot(self):
+        import tkinter as tk
+        from PIL import ImageGrab
+        from cody_ui_dpi import configure_tk_scaling, prepare_display
+        from scripts.common.cody_rig_types import Screen
+        prepare_display()
+        root = tk.Tk()
+        root.withdraw()
+        configure_tk_scaling(root)
+        window = None
+        try:
+            window = CodyWindow(root, self.renderer, SimpleNamespace(
+                screen="rig", rotation=0, safe_guide=False, ccp=False))
+            window.audio_enabled.set(False)
+            if window.after_id is not None:
+                root.after_cancel(window.after_id)
+                window.after_id = None
+            window.playing.set(False)
+            root.deiconify()
+            root.lift()
+            root.attributes("-topmost", True)
+            root.update()
+            image = self.render_home(self.home_source())
+            layout = PreviewLayout.fit(window.canvas.winfo_width(), window.canvas.winfo_height(), False)
+            target = 466 * 2 + 24
+            two_times_fits = (window.available_ui_width >= root.winfo_width() + max(0, target - layout.width) and
+                             window.available_ui_height >= root.winfo_height() + max(0, target - layout.height))
+            if two_times_fits:
+                self.assertGreaterEqual(layout.scale, 2, "the monitor can fit 2x but the default window did not admit it")
+            window.present_frame(image, layout, Screen.GREETING, 0)
+            root.update()
+            # Let the real window compositor retire its paint before reading desktop pixels.
+            deadline = time.monotonic() + .1
+            while time.monotonic() < deadline:
+                root.update()
+                time.sleep(.01)
+            # Capture only this foreground simulator's real client area and real Canvas.
+            # No desktop-wide capture or synthetic window chrome enters these artifacts.
+            x, y = window.canvas.winfo_rootx(), window.canvas.winfo_rooty()
+            canvas_capture = ImageGrab.grab(bbox=(x, y, x + layout.width, y + layout.height), all_screens=True).convert("RGB")
+            wx, wy = root.winfo_rootx(), root.winfo_rooty()
+            window_capture = ImageGrab.grab(bbox=(wx, wy, wx + root.winfo_width(), wy + root.winfo_height()),
+                                            all_screens=True).convert("RGB")
+            OUTPUT.mkdir(parents=True, exist_ok=True)
+            canvas_capture.save(OUTPUT / "home-simulator-canvas-screenshot.png")
+            window_capture.save(OUTPUT / "home-simulator-window-screenshot.png")
+            metadata = {"source": "SIMULATED", "capture": "actual Windows Tk client and Canvas",
+                "framebuffer": [466, 466], "integer_zoom": layout.scale,
+                "canvas": [layout.width, layout.height], "offset": [layout.left, layout.top],
+                "window": [root.winfo_width(), root.winfo_height()]}
+            (OUTPUT / "home-simulator-screenshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+            self.assertGreaterEqual(layout.scale, 1)
+            self.assertGreaterEqual(layout.left, 0)
+            self.assertGreaterEqual(layout.top, 0)
+            displayed = canvas_capture.crop((layout.left, layout.top,
+                layout.left + layout.image_size, layout.top + layout.image_size))
+            self.assertEqual(displayed.tobytes(), enlarge_framebuffer(image, layout.scale).tobytes(),
+                "actual simulator window changed or smoothed the native framebuffer pixels")
+        finally:
+            if window is not None:
+                window.close()
+            else:
+                root.destroy()
+
+    # self: Production actor, native orange heading and animated context arc through Studio's real bridge.
+    # Raises AssertionError when current compaction fails to direct the actor or animate visible Home pixels.
     def test_home_compaction_capture_real_native_layers(self):
-        source = NativePanelObservation()
-        source.project = b"Cody"
-        source.chat_id = source.technical_chat_id = b"a" * 64
-        source.phase, source.compaction = 2, 1
-        source.connected = source.link_valid = source.activity_valid = source.technical_valid = True
+        source = self.home_source()
+        source.compaction = 1
         source.compaction_valid = source.compaction_age_valid = True
         source.compaction_age_us = 12000000
-        placement = (233., 130., 75.)
-        from PIL import ImageChops
+        placement = self.native.home_transform()
         home_base = self.native.compose_response(self.renderer.rig["boot_channels"]["ready"],
             contour_defaults(self.renderer.rig), placement, 0, False)
         directed, cue = self.behavior.direct(home_base, placement, 1000000, enabled=True, activity=ACTIVE)
         self.assertEqual(cue, PersonalityCue.CONFUSION)
         self.assertNotEqual(directed.face, home_base.face)
         scene = self.native.evaluate(directed.face, directed.transform, directed.contour | {"phase": 0.})
-        baseline = self.renderer.draw_scene(scene, debug=False, navigation_visible=False).convert("RGB")
-        self.native.prepare_activity_identity(scene, "Cody", "main", source, 12000000, True, 12000000, True)
-        self.native.prepare_activity(scene, 4, 12000000, "Compacting context; please wait", 0)
+        self.native.prepare_home_identity(scene, source, "Compacting", 10, 12000000)
+        self.native.prepare_home_dashboard(scene, 0, source, 12000000)
         image = self.renderer.draw_scene(scene, debug=False, navigation_visible=False).convert("RGB")
-        self.assertIsNotNone(ImageChops.difference(image, baseline).crop((73, 300, 393, 388)).getbbox())
+        self.assertTrue(any(red > 160 and green > 60 and blue < 50 for red, green, blue in
+                            image.crop((73, 190, 393, 236)).getdata()))
+        self.assertIsNone(image.crop((113, 408, 353, 433)).getbbox(), "urgent compaction did not pause commands")
+        later = self.render_home(source, elapsed=12100000, title="Compacting")
+        self.assertNotEqual(image.crop((40, 292, 426, 393)).tobytes(), later.crop((40, 292, 426, 393)).tobytes())
         OUTPUT.mkdir(parents=True, exist_ok=True)
-        self.renderer.capture_sheet(image, "SIMULATED / Home compaction / native actor, overlay and timer").save(
+        self.renderer.capture_sheet(image, "SIMULATED / Home compaction / native actor, heading and arc").save(
             OUTPUT / "home-compaction-native-layers.png")
-        # Orange onboarding headline and command hints require the firmware SceneFrame path;
-        # no Python caption/color mirror is added to make this limited bridge look like full Home.
 
     # self: Real ctypes transport with a deliberately closed eye and audio mouth pose.
     # Raises AssertionError for gaze failure or damage to channels owned by the response model.

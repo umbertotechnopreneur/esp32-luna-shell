@@ -1439,6 +1439,8 @@ esp_err_t enter_pairing_debug(const LUNASHELL::ConnectivityObservation &observat
     if (error != ESP_OK) {
         return error;
     }
+    // A hidden route must not charge its elapsed time to the Home marquee on return.
+    s_command_hints.sampled_us = -1;
     scene = prepared;
     ESP_LOGI(kTag, "Reusable debug-text route entered after pairing handoff");
     return ESP_OK;
@@ -2024,6 +2026,8 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     if (error != ESP_OK) {
         return error;
     }
+    // Preserve the scroll position while discarding time spent on a preempting route.
+    s_command_hints.sampled_us = -1;
     scene = prepared;
     ESP_LOGI(kTag, "Atlas route entered: %s", definition->name);
     return ESP_OK;
@@ -2653,7 +2657,10 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
     const uint16_t title_color = s_view.activity_identity.compaction_timer &&
         !s_technical_observation.link.activity.data_stale &&
         link.activity.state != LUNASHELL::CodexActivityState::Paused
-        ? 0xFD20 : scene.definition->title_color;
+        ? 0xFD20 : scene.home_dashboard &&
+            link.activity.state != LUNASHELL::CodexActivityState::Paused &&
+            link.activity.state != LUNASHELL::CodexActivityState::Interrupted
+        ? 0x5FF9 : scene.definition->title_color;
     changed = changed || scene.title.color != title_color;
     scene.title.color = title_color;
     const uint16_t detail_color = title_color == 0xFD20 && s_view.activity_identity.compaction_timer
@@ -3102,6 +3109,12 @@ void cancel_onboarding_touch()
     s_swipe_active = false;
     s_activity_touch_pressed = false;
     cancel_look_touch();
+}
+
+// No parameters: retain scroll position without charging hidden time to its next sample.
+void suspend_onboarding_command_hints()
+{
+    s_command_hints.sampled_us = -1;
 }
 
 // No parameters: retire routes and their QR state without erasing saved settings.

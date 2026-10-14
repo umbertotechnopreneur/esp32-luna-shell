@@ -106,6 +106,16 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     const CODY2D::MonoFont &font, int64_t active_time_us,
     PanelPresentation &presentation, SceneContent &content, const LUNASHELL::ActivitySnapshot *motion = nullptr);
 
+// link: Canonical link/activity observation borrowed for one projection.
+// technical: Canonical independently aged metadata, never copied or mutated.
+// now_us: Local monotonic receipt clock, independent of presentation animation.
+// firmware_version: Immutable running image identity, or empty when unavailable.
+// inputs: Receives bounded borrowed fields and independently valid metrics.
+// Exception: Returns the original duration or clock error without fabricating source data.
+esp_err_t project_companion_panel_inputs(const LUNASHELL::CodexLinkSnapshot &link,
+    const LUNASHELL::CodexTechnicalSnapshot &technical, int64_t now_us,
+    const char *firmware_version, PanelInputs &inputs);
+
 // panel: Explicit selected technical identity.
 // link: Coherent canonical link/activity projection borrowed only during preparation.
 // technical: Independently aged technical projection from the same canonical observation.

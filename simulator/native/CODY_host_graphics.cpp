@@ -24,6 +24,9 @@
 #include "CODY_command_hints.hpp"
 #include "CODY_activity_observation.hpp"
 #include "CODY_technical_panels.hpp"
+#include "CODY_home_dashboard.hpp"
+#include "CODY_home_identity.hpp"
+#include "home_dashboard_fonts.hpp"
 #include "CODY_companion_gestures.hpp"
 #include "CODY_companion_mode.hpp"
 #include "LUNASHELL_snapshot_aging.hpp"
@@ -54,8 +57,16 @@ struct HostScene {
     CODY::ActivityIdentityState activity_identity{};
     CODY::PanelPresentation companion_panel{};
     LUNASHELL::CodexTechnicalObservation panel_observation{};
+    const CODY::HomeDashboardPresentation *home_dashboard = nullptr;
+    const CODY::HomeIdentityPresentation *home_identity = nullptr;
+    const CODY::CommandHintsState *home_commands = nullptr;
+    CODY::SceneFrame home_frame{};
+    char home_title[65]{};
 };
 struct HostState {
+    CODY::HomeDashboardPresentation home_dashboard{};
+    CODY::HomeIdentityPresentation home_identity{};
+    CODY::CommandHintsState home_commands{};
     CODY::PersonalityLag personality{};
     CODY::ConnectionPersonalityState connection{};
     CODY::ResponseState response = CODY::make_response_state(CODY::Data::response);
@@ -131,6 +142,12 @@ struct HostPanelObservation {
     uint64_t output;
     uint64_t threshold;
     uint64_t usage_age_us;
+    const char *device_ip;
+    bool device_ip_valid;
+    bool reconnecting;
+    bool simulated_motion_valid;
+    uint8_t simulated_motion;
+    uint64_t simulated_motion_age_us;
 };
 
 // source: Borrowed NUL-terminated printable ASCII producer string.
@@ -363,14 +380,26 @@ CODY_HOST_EXPORT int cody_host_draw(void *handle, uint16_t *pixels, uint32_t cap
         esp_err_t error = CODY::draw_rig_rows(frame.rig, strip, first, debug, selected,
             nullptr, paused, 0, debug ? &frame.debug : nullptr,
             navigation_visible, navigation_opacity, background,
-            CODY::RigControlState::Idle, &frame.activity_overlay);
+            CODY::RigControlState::Idle, frame.home_dashboard == nullptr ? &frame.activity_overlay : nullptr);
         if (error != ESP_OK) { return host_result("draw_rig_rows", error); }
-        if (frame.activity_description.length != 0) {
+        if (frame.home_identity != nullptr) {
+            error = CODY2D::draw_text_rows(frame.home_frame.title, frame.home_frame.visible_characters, strip, first, 0);
+            if (error == ESP_OK) { error = CODY::draw_home_identity_rows(*frame.home_identity, strip, first, 0); }
+            if (error != ESP_OK) { return host_result("draw_home_identity", error); }
+        } else if (frame.activity_description.length != 0) {
             error = CODY::draw_activity_description(frame.activity_description, strip, first, 0);
             if (error != ESP_OK) { return host_result("draw_activity_description", error); }
         }
-        error = CODY::draw_activity_identity(frame.activity_identity, strip, first, 0);
+        error = frame.home_identity == nullptr ? CODY::draw_activity_identity(frame.activity_identity, strip, first, 0) : ESP_OK;
         if (error != ESP_OK) { return host_result("draw_activity_identity", error); }
+        if (frame.home_dashboard != nullptr) {
+            error = CODY::draw_home_dashboard_rows(*frame.home_dashboard, strip, first, 0);
+            if (error != ESP_OK) { return host_result("draw_home_dashboard", error); }
+        }
+        if (frame.home_commands != nullptr) {
+            error = CODY::draw_command_hints(*frame.home_commands, strip, first, 0);
+            if (error != ESP_OK) { return host_result("draw_home_commands", error); }
+        }
     }
     return ESP_OK;
 }
@@ -411,7 +440,7 @@ CODY_HOST_EXPORT int cody_host_panel_next(uint8_t current, uint8_t *next)
 {
     if (!next) { return host_result("panel_next", ESP_ERR_INVALID_ARG); }
     CODY::CompanionPanel selected = CODY::CompanionPanel::Home;
-    const esp_err_t error = CODY::next_companion_panel(static_cast<CODY::CompanionPanel>(current), selected);
+    const esp_err_t error = CODY::next_home_dashboard_panel(static_cast<CODY::CompanionPanel>(current), selected);
     if (error == ESP_OK) { *next = static_cast<uint8_t>(selected); }
     return host_result("panel_next", error);
 }
@@ -471,24 +500,23 @@ static esp_err_t project_host_panel_observation(const HostPanelObservation *sour
     if (error == ESP_OK) { error = copy_panel_source(source->model, technical.model); }
     if (error == ESP_OK) { error = copy_panel_source(source->effort, technical.effort); }
     if (error != ESP_OK) { return host_result("panel_observation_source", error); }
-    link.state = source->connected ? LUNASHELL::CodexLinkState::Connected : LUNASHELL::CodexLinkState::Idle;
+    link.state = source->connected ? LUNASHELL::CodexLinkState::Connected :
+        source->reconnecting ? LUNASHELL::CodexLinkState::Discovering : LUNASHELL::CodexLinkState::Idle;
+    link.retained_link_present = source->reconnecting;
     link.data_valid = source->link_valid;
     link.data_stale = source->link_stale;
     link.activity.state = static_cast<LUNASHELL::CodexActivityState>(source->phase);
     link.activity.data_valid = source->activity_valid;
     link.activity.data_stale = source->activity_stale;
     technical.data_valid = source->technical_valid;
-    // Explicit host-only health reflects the supplied observation, never a physical owner read.
-    const bool current_link = source->connected && source->link_valid && !source->link_stale;
-    const bool current_activity = current_link && source->activity_valid && !source->activity_stale;
-    const bool coherent_technical = current_activity && source->technical_valid &&
-        technical.chat_id[0] != '\0' && std::strcmp(technical.chat_id, link.activity.chat_id) == 0;
-    link.health = current_link ? LUNASHELL::DeviceHealth::Ready : LUNASHELL::DeviceHealth::Missing;
-    link.last_error = current_link ? ESP_OK : ESP_ERR_INVALID_STATE;
-    link.activity.health = current_activity ? LUNASHELL::DeviceHealth::Ready : LUNASHELL::DeviceHealth::Missing;
-    link.activity.last_error = current_activity ? ESP_OK : ESP_ERR_INVALID_STATE;
-    technical.health = coherent_technical ? LUNASHELL::DeviceHealth::Ready : LUNASHELL::DeviceHealth::Missing;
-    technical.last_error = coherent_technical ? ESP_OK : ESP_ERR_INVALID_STATE;
+    // Validity, age and same-chat admission are independent from owner-operation failures.
+    // This DTO carries no failed-operation error: disconnect or stale input cannot invent one.
+    link.health = source->link_valid ? LUNASHELL::DeviceHealth::Ready : LUNASHELL::DeviceHealth::Missing;
+    link.last_error = ESP_OK;
+    link.activity.health = source->activity_valid ? LUNASHELL::DeviceHealth::Ready : LUNASHELL::DeviceHealth::Missing;
+    link.activity.last_error = ESP_OK;
+    technical.health = source->technical_valid ? LUNASHELL::DeviceHealth::Ready : LUNASHELL::DeviceHealth::Missing;
+    technical.last_error = ESP_OK;
     // A positive arbitrary receipt origin plus a duration recreates the same aging semantics.
     // This scratch never enters DeviceSnapshotService or a physical firmware snapshot.
     technical.received_at_us = 1;
@@ -551,6 +579,110 @@ CODY_HOST_EXPORT int cody_host_panel_observation(void *handle, uint8_t panel,
         error = CODY::advance_companion_panel(owner.companion_panel, active_time_us, changed);
     }
     return host_result("panel_observation", error);
+}
+
+// handle: Recreated native frame borrowing the persistent dashboard until raster retirement.
+// state: Host owner retained across frames; prepared glyphs never borrow stack storage.
+// panel: Explicit Home, Model or Session lower-panel identity.
+// source: Original PC-only observation; existing canonical-shaped projection owns age admission.
+// active_time_us: Pausable presentation clock, never a token source timestamp.
+// Exception: Returns original projection, formatting and native layout errors.
+CODY_HOST_EXPORT int cody_host_home_dashboard(void *handle, void *state, uint8_t panel,
+    const HostPanelObservation *source, int64_t active_time_us)
+{
+    if (!handle || !state || !source || !source->device_ip || active_time_us < 0 ||
+        source->simulated_motion > static_cast<uint8_t>(LUNASHELL::ActivityClass::Walking) ||
+        source->simulated_motion_age_us > static_cast<uint64_t>(INT64_MAX)) {
+        return host_result("home_dashboard", ESP_ERR_INVALID_ARG);
+    }
+    auto &frame = *static_cast<HostScene *>(handle);
+    auto &owner = static_cast<HostState *>(state)->home_dashboard;
+    esp_err_t error = project_host_panel_observation(source, frame.panel_observation);
+    if (error != ESP_OK) { return error; }
+    // Only explicit SIMULATED preview inputs can populate this host-local classifier projection.
+    // The source clock retains the original age; no value enters firmware acquisition state.
+    LUNASHELL::ActivitySnapshot motion{};
+    const int64_t source_time = static_cast<int64_t>(source->receipt_age_us) + 1;
+    if (source->simulated_motion_valid) {
+        motion.activity = static_cast<LUNASHELL::ActivityClass>(source->simulated_motion);
+        motion.rejection = LUNASHELL::ActivityRejection::None;
+        motion.scores_valid = true;
+        motion.error = ESP_OK;
+        motion.window_end_us = source_time - static_cast<int64_t>(source->simulated_motion_age_us);
+    }
+    CODY::SceneContent content{};
+    error = CODY::prepare_home_dashboard(static_cast<CODY::CompanionPanel>(panel),
+        frame.panel_observation.link, frame.panel_observation.technical,
+        CODY::HomeFonts::value_font, CODY::SceneData::body_font,
+        source_time, active_time_us, owner, content,
+        source->simulated_motion_valid ? &motion : nullptr, &CODY::HomeFonts::small_font, source->device_ip,
+        source->device_ip_valid ? CODY::PanelValueState::Current : CODY::PanelValueState::Unavailable);
+    if (error == ESP_OK) {
+        frame.companion_panel.valid = false;
+        frame.home_dashboard = &owner;
+    }
+    return host_result("home_dashboard", error);
+}
+
+// handle: Current native frame retaining its title bytes through raster retirement.
+// state: Persistent model-marquee owner shared by all three Home pages.
+// source: Canonical-shaped PC observation with original freshness and health.
+// title: Existing authored Home title, never inferred from model metadata.
+// visible_characters: Existing typewriter prefix, unchanged by the shared layout helper.
+// active_time_us: Pausable presentation clock independent of source observation ages.
+// Exception: Returns real input, source, font and layout failures without fallback text.
+CODY_HOST_EXPORT int cody_host_home_identity(void *handle, void *state,
+    const HostPanelObservation *source, const char *title, uint16_t visible_characters, int64_t active_time_us)
+{
+    if (!handle || !state || !source || !title || std::strlen(title) >= 65 ||
+        visible_characters > std::strlen(title)) {
+        return host_result("home_identity", ESP_ERR_INVALID_ARG);
+    }
+    auto &frame = *static_cast<HostScene *>(handle);
+    auto &owner = static_cast<HostState *>(state)->home_identity;
+    esp_err_t error = project_host_panel_observation(source, frame.panel_observation);
+    if (error != ESP_OK) { return error; }
+    std::strcpy(frame.home_title, title);
+    frame.home_frame.title.text = {frame.home_title, static_cast<uint16_t>(std::strlen(title))};
+    frame.home_frame.title.color = 0xFD20;
+    frame.home_frame.visible_characters = visible_characters;
+    CODY::SceneContent content{};
+    error = CODY::prepare_home_identity(frame.home_frame, frame.panel_observation.link,
+        frame.panel_observation.technical, static_cast<int64_t>(source->receipt_age_us) + 1,
+        active_time_us, owner, content);
+    if (error == ESP_OK) {
+        auto &commands = static_cast<HostState *>(state)->home_commands;
+        const auto &link = frame.panel_observation.link;
+        const auto &technical = frame.panel_observation.technical;
+        CODY::PanelInputs inputs{};
+        error = CODY::project_companion_panel_inputs(link, technical,
+            static_cast<int64_t>(source->receipt_age_us) + 1, "", inputs);
+        if (error != ESP_OK) { return host_result("home_command_source", error); }
+        const bool connected = link.data_valid && !link.data_stale &&
+            link.state == LUNASHELL::CodexLinkState::Connected;
+        const bool urgent = inputs.phase == LUNASHELL::CodexActivityState::Paused ||
+            inputs.phase == LUNASHELL::CodexActivityState::Interrupted ||
+            inputs.compaction == LUNASHELL::CodexCompactionState::Active;
+        bool changed = false;
+        error = CODY::update_command_hints(commands, CODY::SceneData::body_font, connected,
+            !urgent, link.activity.chat_id, active_time_us, changed);
+        if (error == ESP_OK) {
+            frame.home_identity = &owner;
+            frame.home_commands = &commands;
+        }
+    }
+    return host_result("home_identity", error);
+}
+
+// transform: Receives the exact production Home character x/y/scale.
+// Exception: Returns invalid argument for absent writable storage.
+CODY_HOST_EXPORT int cody_host_home_transform(float *transform)
+{
+    if (!transform) { return host_result("home_transform", ESP_ERR_INVALID_ARG); }
+    transform[0] = CODY::kHomeDashboardCharacterTransform.x;
+    transform[1] = CODY::kHomeDashboardCharacterTransform.y;
+    transform[2] = CODY::kHomeDashboardCharacterTransform.scale;
+    return ESP_OK;
 }
 
 // handle: Persistent host recognizer owner, independent of recreated drawing frames.
@@ -723,7 +855,9 @@ CODY_HOST_EXPORT int cody_host_activity_pause(void *handle)
     if (!handle) {
         return host_result("activity_pause", ESP_ERR_INVALID_ARG);
     }
-    CODY::pause_activity_observation(static_cast<HostState *>(handle)->activity_observation);
+    auto &owner = *static_cast<HostState *>(handle);
+    CODY::pause_activity_observation(owner.activity_observation);
+    owner.home_commands.sampled_us = -1;
     return ESP_OK;
 }
 

@@ -110,12 +110,18 @@ constexpr bool command_hint_ids_unique()
 }
 static_assert(command_hint_ids_unique(), "Command hint domain identities must be unique");
 enum class CommandHintsMode : uint8_t { Introduction = 0, ReadyForMore = 1 };
+inline constexpr CODY2D::Rect kHomeCommandHintsBounds{113, 408, 240, 25};
+inline constexpr char kHomeCommandMarquee[] =
+    "Change my name | Set my timezone | Set quiet hours | Ask Cody a question | ";
+inline constexpr int64_t kHomeCommandPixelUs = 50000;
 struct CommandHintsState {
-    CODY2D::TextLine title{};
     CODY2D::TextLine request{};
+    char window[32]{};
     char chat_id[65]{};
-    int64_t started_us = 0;
+    int64_t elapsed_us = 0;
+    int64_t sampled_us = -1;
     uint32_t revision = 0;
+    uint32_t pixel_offset = 0;
     CommandHintId page = CommandHintId::None;
     CommandHintsMode mode = CommandHintsMode::Introduction;
     bool connected = false;
@@ -123,6 +129,45 @@ struct CommandHintsState {
 };
 
 static_assert(sizeof(CommandHintsState) <= 256, "Home hints remain bounded display-owner storage");
+
+// value: Canonical exact token count; compact output floors completed thousands.
+// destination: Caller-owned ASCII buffer receiving grouping and an optional K suffix.
+// capacity: Destination byte capacity including the terminating NUL.
+// Exception: Returns logged argument or size errors; never truncates a numeric caption.
+inline esp_err_t format_home_token_value(uint64_t value, char *destination, size_t capacity)
+{
+    if (destination == nullptr || capacity == 0) {
+        ESP_LOGE("CODY_identity", "Token destination rejected: capacity=%u (%s)",
+            static_cast<unsigned>(capacity), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const bool thousands = value >= 1000;
+    char digits[21]{};
+    const int count = std::snprintf(digits, sizeof(digits), "%llu",
+        static_cast<unsigned long long>(thousands ? value / 1000 : value));
+    if (count <= 0 || count >= static_cast<int>(sizeof(digits))) {
+        ESP_LOGE("CODY_identity", "Token digits=%d rejected (%s)", count, esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const size_t required = static_cast<size_t>(count + (count - 1) / 3 + (thousands ? 1 : 0) + 1);
+    if (required > capacity) {
+        ESP_LOGE("CODY_identity", "Token destination too small: required=%u capacity=%u (%s)",
+            static_cast<unsigned>(required), static_cast<unsigned>(capacity), esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    size_t output = 0;
+    for (int index = 0; index < count; ++index) {
+        if (index > 0 && (count - index) % 3 == 0) {
+            destination[output++] = '.';
+        }
+        destination[output++] = digits[index];
+    }
+    if (thousands) {
+        destination[output++] = 'K';
+    }
+    destination[output] = '\0';
+    return ESP_OK;
+}
 
 // state: Route-owned token fields; glyph descriptors borrow only the current measured caption.
 // metric: Stable domain identity, independent of carousel storage traversal.
@@ -149,29 +194,12 @@ inline esp_err_t update_home_token_field(ActivityIdentityState &state, HomeToken
     char caption[40]{};
     int count = 0;
     if (valid) {
-        // Integer division intentionally reports completed thousands, never a rounded-up count.
-        const bool thousands = value >= 1000;
-        const uint64_t compact_value = thousands ? value / 1000 : value;
-        char digits[21]{};
-        const int digit_count = std::snprintf(digits, sizeof(digits), "%llu",
-            static_cast<unsigned long long>(compact_value));
-        if (digit_count <= 0 || digit_count >= static_cast<int>(sizeof(digits))) {
-            ESP_LOGE("CODY_identity", "Token digits=%d rejected (%s)",
-                digit_count, esp_err_to_name(ESP_ERR_INVALID_SIZE));
-            return ESP_ERR_INVALID_SIZE;
+        char compact[24]{};
+        const esp_err_t error = format_home_token_value(value, compact, sizeof(compact));
+        if (error != ESP_OK) {
+            return error;
         }
-        // UINT64_MAX / 1000 needs 17 digits, five separators and NUL.
-        // Together these bounded formatting buffers occupy 84 bytes, with no snapshot copies.
-        char grouped[23]{};
-        size_t output = 0;
-        for (int index = 0; index < digit_count; ++index) {
-            if (index > 0 && (digit_count - index) % 3 == 0) {
-                grouped[output++] = '.';
-            }
-            grouped[output++] = digits[index];
-        }
-        count = std::snprintf(caption, sizeof(caption), "%s%s%s TT", label, grouped,
-            thousands ? "K" : "");
+        count = std::snprintf(caption, sizeof(caption), "%s%s TT", label, compact);
     } else {
         count = std::snprintf(caption, sizeof(caption), "%s%s", label, unavailable);
     }
@@ -255,76 +283,119 @@ inline esp_err_t update_home_tokens(ActivityIdentityState &state, const CODY2D::
     return ESP_OK;
 }
 
-// state: Display-owner storage retained through complete frame retirement.
-// font: Existing native body font; no extra generated font or audio is needed.
-// connected: Fresh healthy canonical CCP presence, never a retained pairing alone.
-// eligible: Ordinary Home without an urgent/interactive presentation.
-// chat_id: Current authentic session identity, or empty when no current session is observed.
-// now_us: Existing active display clock; no task, poll timer or wake lease is created.
-// changed: Receives only visibility/page transitions, not every rendered frame.
-// mode: Ready for more keeps three Release-supported personalization prompts available.
-// Exception: Returns invalid input or actual glyph preparation errors.
+// state: Display-owner glyph window retained through complete frame retirement.
+// font: Existing measured native body font; no new font or audio is allocated.
+// connected: Fresh healthy canonical CCP presence, never retained pairing alone.
+// eligible: Ordinary Home without an urgent, hidden or interactive presentation.
+// chat_id: Current authentic chat identity; a new chat restarts the authored sequence.
+// now_us: Existing pausable active clock; hidden updates suspend accumulated scrolling.
+// changed: Receives visibility or quantized pixel changes, never subpixel elapsed time.
+// mode: Retained caller provenance; both Home modes show the same continuous commands.
+// Exception: Returns original glyph errors or rejects invalid identities, clocks and font geometry.
 inline esp_err_t update_command_hints(CommandHintsState &state, const CODY2D::MonoFont &font,
     bool connected, bool eligible, const char *chat_id, int64_t now_us, bool &changed,
     CommandHintsMode mode = CommandHintsMode::Introduction)
 {
     changed = false;
-    if (chat_id == nullptr || std::strlen(chat_id) > 64 || now_us < 0) {
-        ESP_LOGE("CODY_commands", "Hint input rejected: chat_bytes=%u clock=%lld (%s)",
+    if (chat_id == nullptr || std::strlen(chat_id) > 64 || now_us < 0 ||
+        (state.sampled_us >= 0 && now_us < state.sampled_us) ||
+        (mode != CommandHintsMode::Introduction && mode != CommandHintsMode::ReadyForMore)) {
+        ESP_LOGE("CODY_commands", "Marquee input rejected: chat_bytes=%u clock=%lld previous=%lld mode=%u (%s)",
             chat_id ? static_cast<unsigned>(std::strlen(chat_id)) : 0U,
-            static_cast<long long>(now_us), esp_err_to_name(ESP_ERR_INVALID_ARG));
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (mode != CommandHintsMode::Introduction && mode != CommandHintsMode::ReadyForMore) {
-        ESP_LOGE("CODY_commands", "Hint mode=%u rejected (%s)",
+            static_cast<long long>(now_us), static_cast<long long>(state.sampled_us),
             static_cast<unsigned>(mode), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    const bool new_chat = chat_id[0] != '\0' && std::strcmp(state.chat_id, chat_id) != 0;
-    if (connected && (!state.connected || new_chat || state.mode != mode)) {
-        state.started_us = now_us;
-        if (chat_id[0] != '\0') {
-            std::strcpy(state.chat_id, chat_id);
-        }
-    }
+    const bool was_visible = state.visible;
+    const bool new_chat = std::strcmp(state.chat_id, chat_id) != 0;
     state.connected = connected;
     state.mode = mode;
-    const int64_t elapsed = now_us >= state.started_us ? now_us - state.started_us : 20000000;
-    const bool ready = mode == CommandHintsMode::ReadyForMore;
-    const int64_t page_time = ready ? elapsed % 15000000 : elapsed;
-    const CommandHint *hint = connected && eligible && (ready || elapsed < 20000000)
-        ? &kHomeCommandHints[static_cast<size_t>(page_time / 5000000)] : nullptr;
-    const auto page = hint ? hint->id : CommandHintId::None;
-    if (page == state.page) {
+    if (!connected || !eligible) {
+        state.sampled_us = -1;
+        state.visible = false;
+        state.page = CommandHintId::None;
+        if (was_visible) {
+            ++state.revision;
+            changed = true;
+        }
         return ESP_OK;
     }
-    state.visible = false;
-    if (hint != nullptr) {
-        const char *captions[]{"Available commands", hint->caption};
-        CODY2D::TextLine *lines[]{&state.title, &state.request};
-        for (unsigned row = 0; row != 2; ++row) {
-            const auto length = static_cast<uint16_t>(std::strlen(captions[row]));
-            const unsigned width = (length - 1U) * font.advance + font.width;
-            // At y=417 the circle still admits this centered 264-pixel chord.
-            if (width > 264 || font.height > 25) {
-                ESP_LOGE("CODY_commands", "Hint layout rejected: id=%u row=%u width=%u height=%u (%s)",
-                    static_cast<unsigned>(page), row, width, font.height, esp_err_to_name(ESP_ERR_INVALID_SIZE));
-                return ESP_ERR_INVALID_SIZE;
-            }
-            const esp_err_t error = CODY2D::prepare_text_line(font, {captions[row], length},
-                {static_cast<int16_t>((466 - width) / 2), static_cast<int16_t>(360 + row * 32)},
-                row == 0 ? 0xBDF7 : 0xFFFF, *lines[row]);
-            if (error != ESP_OK) {
-                ESP_LOGE("CODY_commands", "Hint preparation failed: id=%u row=%u (%s)",
-                    static_cast<unsigned>(page), row, esp_err_to_name(error));
-                return error;
-            }
-        }
-        state.visible = true;
+    const auto &bounds = kHomeCommandHintsBounds;
+    if (font.advance == 0 || font.width > bounds.width || font.height > bounds.height) {
+        ESP_LOGE("CODY_commands", "Marquee font rejected: advance=%u width=%u height=%u (%s)",
+            font.advance, font.width, font.height, esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
     }
-    state.page = page;
+    constexpr size_t caption_length = sizeof(kHomeCommandMarquee) - 1U;
+    const uint32_t cycle_pixels = static_cast<uint32_t>(caption_length) * font.advance;
+    const int64_t cycle_us = static_cast<int64_t>(cycle_pixels) * kHomeCommandPixelUs;
+    if (new_chat) {
+        std::strcpy(state.chat_id, chat_id);
+        state.elapsed_us = 0;
+        state.sampled_us = -1;
+    }
+    if (state.sampled_us >= 0) {
+        // Reduce before addition so even a long valid idle interval cannot overflow.
+        state.elapsed_us = (state.elapsed_us + (now_us - state.sampled_us) % cycle_us) % cycle_us;
+    }
+    state.sampled_us = now_us;
+    const uint32_t offset = static_cast<uint32_t>(state.elapsed_us / kHomeCommandPixelUs);
+    if (was_visible && !new_chat && state.request.valid && offset == state.pixel_offset) {
+        return ESP_OK;
+    }
+    const uint16_t fraction = offset % font.advance;
+    const size_t count = (bounds.width + fraction) / font.advance + 2U;
+    if (count >= sizeof(state.window)) {
+        ESP_LOGE("CODY_commands", "Marquee window rejected: glyphs=%u capacity=%u (%s)",
+            static_cast<unsigned>(count), static_cast<unsigned>(sizeof(state.window)),
+            esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const size_t first = offset / font.advance;
+    for (size_t index = 0; index < count; ++index) {
+        state.window[index] = kHomeCommandMarquee[(first + index) % caption_length];
+    }
+    state.window[count] = '\0';
+    const esp_err_t error = CODY2D::prepare_text_line(font,
+        {state.window, static_cast<uint16_t>(count)},
+        {static_cast<int16_t>(bounds.x - fraction),
+         static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2)}, 0xBDF7, state.request);
+    if (error != ESP_OK) {
+        ESP_LOGE("CODY_commands", "Marquee glyph preparation failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    state.pixel_offset = offset;
+    state.visible = true;
+    state.page = CommandHintId::Name;
     ++state.revision;
     changed = true;
     return ESP_OK;
+}
+
+// state: Stable display-owned glyph window; hidden commands produce no pixels.
+// strip: Actual native destination tile, clipped without allocating another pixel buffer.
+// first_row: Logical top row shared with the display orientation transform.
+// first_column: Logical left column shared with the display orientation transform.
+// Exception: Returns the original native text rendering error.
+inline esp_err_t draw_command_hints(const CommandHintsState &state, CODY2D::Surface strip,
+    uint16_t first_row, uint16_t first_column)
+{
+    if (!state.visible) {
+        return ESP_OK;
+    }
+    const auto &bounds = kHomeCommandHintsBounds;
+    const uint16_t left = std::max(first_column, bounds.x);
+    const uint16_t right = std::min<uint16_t>(first_column + strip.width, bounds.x + bounds.width);
+    const uint16_t top = std::max(first_row, bounds.y);
+    const uint16_t bottom = std::min<uint16_t>(first_row + strip.height, bounds.y + bounds.height);
+    if (left >= right || top >= bottom) {
+        return ESP_OK;
+    }
+    const uint32_t offset = (top - first_row) * strip.stride + left - first_column;
+    strip.pixels += offset;
+    strip.pixel_capacity -= offset;
+    strip.width = right - left;
+    strip.height = bottom - top;
+    return CODY2D::draw_text_rows(state.request, state.request.text.length, strip, top, left);
 }
 } // namespace CODY

@@ -115,13 +115,16 @@ class NativePanelObservation(C.Structure):
         (name, C.c_uint64) for name in ("model_age_us", "compaction_age_us", "activity_age_us",
             "turn_elapsed_us", "receipt_age_us", "cost_age_us", "cost_valid_for_us")] + [
         (name + "_valid", C.c_bool) for name in ("used", "capacity", "cumulative", "input", "output", "threshold")] + [
-        (name, C.c_uint64) for name in ("used", "capacity", "cumulative", "input", "output", "threshold", "usage_age_us")]
+        (name, C.c_uint64) for name in ("used", "capacity", "cumulative", "input", "output", "threshold", "usage_age_us")] + [
+        ("device_ip", C.c_char_p), ("device_ip_valid", C.c_bool), ("reconnecting", C.c_bool),
+        ("simulated_motion_valid", C.c_bool), ("simulated_motion", C.c_uint8),
+        ("simulated_motion_age_us", C.c_uint64)]
 
     # self: Raw source projection consumed synchronously by the native scratch owner.
     # Raises no exceptions; absent fields retain unavailable flags rather than numeric claims.
     def __init__(self):
         super().__init__()
-        for name in ("project", "branch", "description", "chat_id", "technical_chat_id", "model", "effort"):
+        for name in ("project", "branch", "description", "chat_id", "technical_chat_id", "model", "effort", "device_ip"):
             setattr(self, name, b"")
 
 
@@ -187,6 +190,9 @@ class NativeRig:
             "panel_transform": (C.c_int, (F,)),
             "panel_prepare": (C.c_int, (P, C.c_uint8, C.POINTER(NativePanelInputs), C.c_int64)),
             "panel_observation": (C.c_int, (P, C.c_uint8, C.POINTER(NativePanelObservation), C.c_int64)),
+            "home_dashboard": (C.c_int, (P, P, C.c_uint8, C.POINTER(NativePanelObservation), C.c_int64)),
+            "home_identity": (C.c_int, (P, P, C.POINTER(NativePanelObservation), C.c_char_p, C.c_uint16, C.c_int64)),
+            "home_transform": (C.c_int, (F,)),
             "panel_tap": (C.c_int, (P, C.c_int16, C.c_int16, C.c_bool, C.c_bool, C.c_int64,
                 C.c_uint16, C.c_bool, C.c_bool, C.POINTER(C.c_bool))),
             "panel_cancel_tap": (C.c_int, (P,)),
@@ -370,7 +376,7 @@ class NativeRig:
             project.encode("ascii"), branch.encode("ascii"), C.byref(observation), elapsed_us, attention, operation_elapsed_us, compacting))
 
     # self: Shared native renderer transport owner.
-    # current: Explicit Home=0/Activity=1/ModelContext=2/SessionLink=3 identity.
+    # current: Stable Home=0, ModelContext=2 or SessionLink=3; retired Activity=1 returns Home.
     # Raises ValueError for unknown identities; RuntimeError for the original native failure.
     def next_companion_panel(self, current):
         bounded_integer(current, 0, 3, "panel.current")
@@ -412,6 +418,42 @@ class NativeRig:
             raise ValueError("Technical panels require original typed hook observations")
         checked("panel_observation", self.api.cody_host_panel_observation(scene["_native_scene"].handle,
             panel, C.byref(observation), elapsed_us))
+
+    # self: Native persistent owner; no Python implementation of dashboard layout or source validity.
+    # scene: Current native rig frame borrowing the persistent dashboard through raster retirement.
+    # panel: Typed lower-panel identity; top character and status retain the same frame.
+    # observation: Original isolated PC observation with independent validity and source ages.
+    # elapsed_us: Pausable active display clock, not a renewed source observation.
+    # Raises ValueError for invalid inputs or RuntimeError for original native preparation errors.
+    def prepare_home_dashboard(self, scene, panel, observation, elapsed_us):
+        bounded_integer(panel, 0, 3, "dashboard.identity")
+        bounded_integer(elapsed_us, 0, 0x7fffffffffffffff, "dashboard.elapsed_us")
+        if not isinstance(observation, NativePanelObservation):
+            raise ValueError("Home dashboard requires original typed hook observations")
+        checked("home_dashboard", self.api.cody_host_home_dashboard(scene["_native_scene"].handle,
+            self.state, panel, C.byref(observation), elapsed_us))
+
+    # self: Native transport retaining the production model-marquee owner across frames.
+    # scene: Current native frame owning a copied authored title through raster retirement.
+    # observation: Original metadata and ages, or explicitly labeled isolated preview metadata.
+    # title: Existing Home title; Python neither measures nor redraws its glyphs.
+    # visible: Existing typewriter prefix preserved by the shared native preparation.
+    # elapsed_us: Pausable presentation clock, independent of packet arrival/revision.
+    # Raises ValueError or RuntimeError for the original boundary and native errors.
+    def prepare_home_identity(self, scene, observation, title, visible, elapsed_us):
+        if not isinstance(observation, NativePanelObservation):
+            raise ValueError("Home identity requires original typed hook observations")
+        bounded_integer(visible, 0, len(title), "home.visible")
+        bounded_integer(elapsed_us, 0, 0x7fffffffffffffff, "home.elapsed_us")
+        checked("home_identity", self.api.cody_host_home_identity(scene["_native_scene"].handle,
+            self.state, C.byref(observation), title.encode("ascii"), visible, elapsed_us))
+
+    # self: Shared renderer transport; geometry comes exclusively from firmware source.
+    # Raises RuntimeError for the original native boundary failure.
+    def home_transform(self):
+        transform = (C.c_float * 3)()
+        checked("home_transform", self.api.cody_host_home_transform(transform))
+        return tuple(transform)
 
     # self: Persistent recognizer owner, isolated from physical snapshots.
     # x: Original logical acquired touch coordinate.

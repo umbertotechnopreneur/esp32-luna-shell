@@ -24,6 +24,11 @@ The preview starts without a rig overlay. The **Face**, **Shape**, **Inputs** an
 Each tab retains its own scroll position; in narrow windows, the inspector moves
 below the preview when vertical space permits.
 
+The preview displays the native 466 x 466 framebuffer at integer pixel scales.
+Each device pixel becomes a sharp 2 x 2, 3 x 3 or larger square as the window
+allows. Nearest-neighbor enlargement preserves the original pixel colors; it
+does not add smoothing. The default preview requests a 2x canvas when the
+monitor has room. Smaller windows retain at least 1x and center the image.
 Resizing affects presentation only: geometry, rotation and pointer input stay in
 the display's logical coordinates. Per Monitor v2 is enabled before Tk, using the
 monitor's initial DPI scale. Moving between monitors with different DPI still
@@ -88,12 +93,12 @@ To resume, enable **SIMULATED LAN available** and start new pairing.
 The old PC record remains separate; nothing is deleted on the physical device,
 in firmware or on the SD card.
 
-The preview shows existing scenes/fonts and the state received from the broker.
-Project, branch and a current reported model share the native fading identity
-row; the narrative body does not duplicate the project. Home keeps a separate
-green/orange/red/gray Cheap/Reasonable price/Expensive/Unavailable chip during the
-Model carousel item. The real authenticated cost band and source lease are aged and drawn
-by the same C++ used in firmware. Explicit **Cheap model**, **Reasonable model**
+The preview uses the same native Home fonts, character transform and three lower
+panels as firmware. Tokens includes Free, Last, Window, elapsed time and IMU;
+Model contains the price capsule and thinking effort; Session contains link,
+chat and the simulator endpoint's own address. State/model stay above the panels
+and commands scroll below. The real authenticated cost band and source lease
+are aged and drawn by the same C++ used in firmware. Explicit **Cheap model**, **Reasonable model**
 and **Expensive model** preview scenarios supply labeled SIMULATED fixtures only;
 they never download prices or change the live endpoint or firmware snapshot.
 Activity appears only after fresh packets arrive.

@@ -289,7 +289,7 @@ class CcpPanel:
         if self._route_face_state is None:
             self._route_face_state = list(base)
         self._route_face_state = self.window.renderer.advance_face(self._route_face_state, base, active_ms)
-        preview_idle = (self.activity_preview.get() and self._preview_snapshot is not None and self._companion_panel == 0
+        preview_idle = (self.activity_preview.get() and self._preview_snapshot is not None
             and self._preview_snapshot.state == LinkState.CONNECTED and self._preview_snapshot.activity_valid
             and self._preview_snapshot.phase in {"none", "active"}
             and self.preview_scenario.get() != "Long compaction")
@@ -523,17 +523,36 @@ class CcpPanel:
     # self: Explicit rendering-only preview owner; no live endpoint/cache/snapshot is changed.
     # snapshot: Isolated SIMULATED preview identity selected in Studio.
     # elapsed_us: Active preview clock; synthetic durations stay confined to native host scratch.
-    # Returns raw synthetic metadata so Home uses the same native model/badge placement and aging.
+    # Returns raw synthetic metadata so Home and lower panels share native formatting and aging.
     def preview_home_observation(self, snapshot, elapsed_us):
         observation = self.panel_observation(snapshot)
         inputs = self.preview_panel_inputs(snapshot, elapsed_us)
         observation.technical_chat_id = snapshot.chat.encode("ascii")
         observation.technical_valid = True
         observation.model = inputs.model
+        observation.effort = b"high"
+        observation.effort_valid = True
+        observation.device_ip = b"192.0.2.25"
+        observation.device_ip_valid = bool(snapshot.network_ready)
+        observation.simulated_motion_valid = True
+        observation.simulated_motion = 4  # Explicit SIMULATED standing classifier observation.
         observation.model_valid = True
         observation.model_age_us = 130000000 if inputs.model_state == 2 else 0
         observation.cost_band = inputs.cost_band
         observation.cost_valid_for_us = 3600000000 if inputs.cost_band else 0
+        observation.compaction = inputs.compaction
+        observation.compaction_valid = True
+        observation.compaction_age_valid = inputs.compaction_elapsed_us.state == 1
+        observation.compaction_age_us = inputs.compaction_elapsed_us.value
+        observation.activity_age_valid = inputs.activity_age_us.state in (1, 2)
+        observation.activity_age_us = inputs.activity_age_us.value
+        observation.turn_elapsed_valid = inputs.turn_elapsed_us.state == 1
+        observation.turn_elapsed_us = inputs.turn_elapsed_us.value
+        observation.usage_age_us = inputs.usage_age_us.value
+        for name in ("used", "capacity", "threshold", "cumulative", "input", "output"):
+            metric = getattr(inputs, name)
+            setattr(observation, name + "_valid", metric.state == 1 and not inputs.counters_pending)
+            setattr(observation, name, metric.value)
         return observation
 
     # self: Live Studio projection owner using the firmware's canonical age and panel mapper.
@@ -541,6 +560,12 @@ class CcpPanel:
     # Returns raw facts only; source aging and presentation validity belong to shared C++.
     def panel_observation(self, snapshot):
         observation = NativePanelObservation()
+        # This is the simulator device's bound address, never the broker/peer IP.
+        # Isolated source fixtures without an endpoint truthfully leave it unavailable.
+        endpoint = getattr(self, "endpoint", None)
+        device_ip = endpoint.bound_address() if endpoint is not None else None
+        observation.device_ip = device_ip.encode("ascii") if device_ip else b""
+        observation.device_ip_valid = bool(device_ip and snapshot.network_ready)
         technical = snapshot.technical
         coherent = self.has_coherent_technical(snapshot)
         known = self.has_known_technical(snapshot)
@@ -561,6 +586,7 @@ class CcpPanel:
             elif technical.compaction.value == "refreshed":
                 observation.compaction = 0
         observation.connected = snapshot.state == LinkState.CONNECTED and snapshot.network_ready
+        observation.reconnecting = snapshot.state == LinkState.DISCOVERING and snapshot.retained_pairing
         observation.link_valid = bool(snapshot.retained_pairing)
         observation.link_stale = not observation.connected
         observation.activity_valid = snapshot.activity_valid
@@ -636,6 +662,8 @@ class CcpPanel:
         self.change_companion_mode()
         snapshot, code = (self._preview_snapshot, "") if preview else (self._snapshot, self._display_code)
         if not preview and self._debug_mode != "normal":
+            self.window.renderer.require_native().pause_activity()
+            self._activity_clock = time.monotonic()
             return self.render_debug(rotation)
         if not preview and self.events.visible(snapshot, self.endpoint):
             self.window.renderer.require_native().pause_activity()
@@ -649,58 +677,60 @@ class CcpPanel:
         compacting = self.is_compacting(snapshot, preview)
         if compacting and not (snapshot.activity_valid and snapshot.state == LinkState.CONNECTED
                 and snapshot.network_ready and snapshot.phase == "paused"):
-            identity, title, lines = "working", "Compacting context", ()
+            identity, title, lines = "working", "Compacting", ()
         painter = self.window.renderer.scene_painter
         definition = painter.definition(identity)
         title = title or definition["title"]["text"]
-        route_key = (identity, title, lines, code, self._companion_panel)
+        dashboard = identity in {"connected", "project-active", "working", "response-ready",
+            "session-paused", "session-ended", "companion-idle", "activity-unavailable", "connection-lost", "looking-for-pc"}
+        # Switching a lower page never restarts the unchanged upper title or marquee.
+        route_key = (identity, title, lines, code, 0 if dashboard else self._companion_panel)
         if route_key != self._route_key:
             self._route_key, self._route_started = route_key, time.monotonic()
         elapsed = (time.monotonic() - self._route_started) * 1000
         count = max(0, int(elapsed / 45))
-        total = len(title) + sum(len(line) for line in lines)
-        self._passive_visible = bool(self._companion_panel or count >= total)
-        key = ("ccp-preview" if preview else "ccp", route_key, min(count, total), rotation, round(elapsed / 33))
+        total = len(title) + (0 if dashboard else sum(len(line) for line in lines))
+        self._passive_visible = count >= total
+        key = ("ccp-preview" if preview else "ccp", route_key, self._companion_panel, min(count, total), rotation, round(elapsed / 33))
         cloud = definition["cloud"]
-        placement = (self.window.renderer.require_native().companion_panel_transform()
-            if self._companion_panel else painter.cloud_transform(identity, elapsed))
+        placement = (self.window.renderer.require_native().home_transform()
+            if dashboard else painter.cloud_transform(identity, elapsed))
         activity = self.character_activity(snapshot, preview)
-        character_enabled = bool(self._companion_panel or
+        character_enabled = bool(dashboard or
             (snapshot.state == LinkState.CONNECTED and snapshot.network_ready))
         scene, values = self.compose_scene(painter.face(identity), placement, rotation,
-            passive_panel=bool(self._companion_panel), character_enabled=character_enabled,
+            passive_panel=dashboard, character_enabled=character_enabled,
             activity=activity, gaze=self.character_gaze(activity, rotation),
             source="ccp-preview" if preview else "ccp")
-        if self._companion_panel:
-            panel_elapsed = max(0, round((time.monotonic() - self._panel_started) * 1000000))
+        if dashboard:
             native = self.window.renderer.require_native()
-            if preview:
-                native.prepare_companion_panel(scene, self._companion_panel,
-                    self.preview_panel_inputs(snapshot, panel_elapsed), panel_elapsed)
-            else:
-                native.prepare_companion_observation(scene, self._companion_panel,
-                    self.panel_observation(snapshot), panel_elapsed)
+            self.prepare_activity(snapshot, scene, compacting, dashboard=True)
+            observation = (self.preview_home_observation(snapshot, self._activity_observation_clock_us)
+                if preview else self.panel_observation(snapshot))
+            native.prepare_home_identity(scene, observation, title, min(len(title), count), self._activity_observation_clock_us)
+            native.prepare_home_dashboard(scene, self._companion_panel, observation, self._activity_observation_clock_us)
         else:
             self.prepare_activity(snapshot, scene, compacting)
+            self.window.renderer.require_native().pause_activity()
         exclusions = [(73, 210, 393, 250), (73, 300, 393, 328), (153, 330, 313, 358),
                       (73, 360, 393, 388), (73, 420, 393, 445), (324, 118, 374, 179)]
-        if not self._companion_panel:
-            self.prepare_personality(snapshot, identity, scene, cloud["scale"], rotation, elapsed, exclusions)
-        elif self._native_personality is not None:
-            self._native_personality.disable(elapsed)
-            self.window.renderer.personality_painter = None
+        if dashboard:
+            exclusions = [(33, 185, 433, 264), (40, 268, 426, 393), (113, 408, 353, 433)]
+        # Lower-panel selection never changes the actor's admission on an unrelated route.
+        self.prepare_personality(snapshot, identity, scene, cloud["scale"], rotation, elapsed, exclusions)
         image = self.window.renderer.draw_scene(scene, debug=False, navigation_visible=False,
                                                 background_rgb565=definition["background_rgb565"]).convert("RGB")
         # A changing packet counter never restarts the text clock. Code is a complete static control value.
-        if not self._companion_panel:
+        if not dashboard:
             painter.paint_text(image, title, 210, definition["title"]["color_rgb565"], visible=min(len(title), count))
         preceding = len(title)
-        for row, line in enumerate(lines if not self._companion_panel else ()):
+        for row, line in enumerate(lines if not dashboard else ()):
             painter.paint_text(image, line, 266 + row * 28, body=True, visible=min(len(line), max(0, count - preceding)))
             preceding += len(line)
-        if code and count >= preceding and not self._companion_panel:
+        if code and count >= preceding and not dashboard:
             painter.paint_text(image, code, 334, color=2047)
-        painter.paint_text(image, "SIMULATED PREVIEW" if preview else "SIMULATED", 420, color=64704, body=True)
+        # Keep synthetic provenance visible without painting over the native command marquee.
+        painter.paint_text(image, "SIMULATED", 22 if dashboard else 420, color=64704, body=True)
         self._frame_key, self._frame = key, (image.copy(), scene)
         if preview and self._preview_capture_delay_ms is not None:
             self._preview_capture_due = time.monotonic() + self._preview_capture_delay_ms / 1000
@@ -750,7 +780,7 @@ class CcpPanel:
                 self._gesture_rotation == rotation and 0 <= point[0] < 466 and 0 <= point[1] < 466):
             return point
         if self._passive_visible and not activity.attention and (activity.working or activity.compacting):
-            return (233, 225)
+            return (233, 288)
         return None
 
     # self: Persistent native observation policy; pausing animations freezes only its presentation clock.
@@ -769,8 +799,9 @@ class CcpPanel:
     # snapshot: Authenticated SIMULATED phase and explicit purpose, never a physical-device observation.
     # scene: Actual native frame receiving the shared C++ activity and description rastering.
     # compacting: Authoritative current lifecycle or explicitly labelled synthetic preview.
+    # dashboard: Shared native Home helper owns upper/lower text; retain only the activity overlay here.
     # Raises ValueError or RuntimeError for invalid metadata and original native preparation errors.
-    def prepare_activity(self, snapshot, scene, compacting=False):
+    def prepare_activity(self, snapshot, scene, compacting=False, dashboard=False):
         elapsed = self._activity_delta_us
         current = snapshot.activity_valid and snapshot.state == LinkState.CONNECTED and snapshot.network_ready
         working = current and snapshot.phase in {"working", "editing", "running"}
@@ -828,11 +859,12 @@ class CcpPanel:
                 operation_elapsed = 90000000 + self._activity_identity_elapsed_us
             else:
                 operation_elapsed = (snapshot.technical.compaction_age_ms + (snapshot.technical_age_ms or 0)) * 1000
-        native.prepare_activity_identity(scene, snapshot.project if current else "", snapshot.branch if current else "",
-            self.preview_home_observation(snapshot, self._activity_identity_elapsed_us) if self.activity_preview.get()
-            else self.panel_observation(snapshot), self._activity_identity_elapsed_us, attention, operation_elapsed, compacting)
+        if not dashboard:
+            native.prepare_activity_identity(scene, snapshot.project if current else "", snapshot.branch if current else "",
+                self.preview_home_observation(snapshot, self._activity_identity_elapsed_us) if self.activity_preview.get()
+                else self.panel_observation(snapshot), self._activity_identity_elapsed_us, attention, operation_elapsed, compacting)
         native.prepare_activity(scene, overlay,
-            self._activity_overlay_elapsed_us, description, self._activity_description_elapsed_us)
+            self._activity_overlay_elapsed_us, "" if dashboard else description, self._activity_description_elapsed_us)
 
     # self: Companion presentation owner; no threshold or tool-duration inference is admitted.
     # snapshot: Genuine transport metadata or an isolated explicit preview snapshot.
@@ -970,7 +1002,6 @@ class CcpPanel:
         if accepted:
             self._companion_panel = native.next_companion_panel(self._companion_panel)
             self._panel_started = time.monotonic()
-            self._route_key = None
 
     # self: Explicit SIMULATED motion source; a real shared recognizer alone chooses Home.
     # Exceptions: Tk or native gesture errors remain visible and never become successful navigation.

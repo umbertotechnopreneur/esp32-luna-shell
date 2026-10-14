@@ -30,6 +30,7 @@
 #include "CODY_command_hints.hpp"
 #include "LUNASHELL_snapshot_aging.hpp"
 #include "scene_data.hpp"
+#include "home_dashboard_fonts.hpp"
 #include "CODY_navigation_visibility.hpp"
 #include "LUNASHELL_button_hold.hpp"
 #include <algorithm>
@@ -47,6 +48,13 @@ namespace CODY {
 extern bool corrupt_next_simd_model_output;
 }
 #endif
+
+// value_font: Firmware numeric font, including the bounded K suffix.
+// body_font: Shared native text glyphs for secondary rows.
+// small_font: Firmware compact dashboard font.
+// Exception: Throws if canonical-data, layout or tile parity fails.
+void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
+    const CODY2D::MonoFont &body_font, const CODY2D::MonoFont &small_font);
 
 namespace {
 int failures = 0;
@@ -1617,6 +1625,7 @@ void check_technical_panel_owner_contract()
     static LUNASHELL::CodexTechnicalSnapshot technical{};
     static CODY::PanelPresentation presentation{};
     CODY::SceneContent content{};
+    link.last_error = link.activity.last_error = technical.last_error = ESP_OK;
     link.state = LUNASHELL::CodexLinkState::Connected;
     link.data_valid = true;
     link.activity.data_valid = true;
@@ -1738,6 +1747,7 @@ void check_cost_badge_contract()
     static LUNASHELL::CodexTechnicalSnapshot technical{};
     static CODY::ActivityIdentityState identity{};
     static CODY::PanelPresentation presentation{};
+    link.last_error = link.activity.last_error = technical.last_error = ESP_OK;
     link.state = LUNASHELL::CodexLinkState::Connected;
     link.data_valid = true;
     link.activity.data_valid = true;
@@ -1865,6 +1875,7 @@ void check_native_usage_projection()
     static LUNASHELL::CodexTechnicalSnapshot technical{};
     static CODY::PanelPresentation presentation{};
     CODY::SceneContent content{};
+    link.last_error = link.activity.last_error = technical.last_error = ESP_OK;
     link.state = LUNASHELL::CodexLinkState::Connected;
     link.data_valid = true;
     link.activity.data_valid = true;
@@ -1967,7 +1978,8 @@ void check_native_usage_projection()
     LUNASHELL::age_codex_technical(technical, 9000000);
     require(technical.context_stale && technical.data_stale, "transport expiry independently retires young native counters");
 }
-// No parameters: Exercise real Home caption preparation, canonical token gates and native carousel timing.
+// No parameters: Exercise real Home marquee raster, canonical token gates and carousel timing.
+// Exception: Records failed geometry, freshness, clock or native-rendering contracts.
 void check_home_command_and_token_contract()
 {
     static CODY::CommandHintsState hints{};
@@ -1975,11 +1987,56 @@ void check_home_command_and_token_contract()
     bool changed = false;
     require(CODY::update_command_hints(hints, font, false, true, "", 0, changed) == ESP_OK &&
         !hints.visible && !changed, "retained pairing without current connection cannot show command hints");
-    for (int page = 0; page != 4; ++page) {
-        require(CODY::update_command_hints(hints, font, true, true, "chat-a",
-            page * 5000000LL, changed) == ESP_OK && hints.visible && changed && hints.page == CODY::kHomeCommandHints[page].id &&
-            std::strcmp(hints.request.text.characters, CODY::kHomeCommandHints[page].caption) == 0,
-            "each genuine connection hint gets a complete five-second page");
+    require(CODY::update_command_hints(hints, font, true, true, "chat-a", 0, changed) == ESP_OK &&
+        hints.visible && changed && hints.pixel_offset == 0 &&
+        std::strncmp(hints.window, "Change my name", 14) == 0,
+        "healthy Home starts the real continuous authored commands");
+    const auto initial_revision = hints.revision;
+    require(CODY::update_command_hints(hints, font, true, true, "chat-a", 49999, changed) == ESP_OK &&
+        !changed && hints.revision == initial_revision && hints.pixel_offset == 0,
+        "subpixel elapsed time causes no new revision or damage");
+    require(CODY::update_command_hints(hints, font, true, true, "chat-a", 50000, changed) == ESP_OK &&
+        changed && hints.pixel_offset == 1 && hints.request.origin.x == 112,
+        "50ms advances one physical pixel from right to left");
+    const auto first_pixel_revision = hints.revision;
+    require(CODY::update_command_hints(hints, font, true, true, "chat-a", 50000, changed,
+        CODY::CommandHintsMode::ReadyForMore) == ESP_OK && !changed &&
+        hints.revision == first_pixel_revision && hints.pixel_offset == 1,
+        "idle Home mode changes neither restart nor duplicate the marquee");
+    const auto &viewport = CODY::kHomeCommandHintsBounds;
+    for (int x : {static_cast<int>(viewport.x), static_cast<int>(viewport.x + viewport.width - 1)}) {
+        for (int y : {static_cast<int>(viewport.y), static_cast<int>(viewport.y + viewport.height - 1)}) {
+            require((x - 233) * (x - 233) + (y - 233) * (y - 233) < 233 * 233,
+                "all occupied marquee viewport corners fit the circular chord");
+        }
+    }
+    // Include a partial glyph and the repeated caption seam in actual full/strip raster parity.
+    const int64_t cycle_us = static_cast<int64_t>(sizeof(CODY::kHomeCommandMarquee) - 1U) *
+        font.advance * CODY::kHomeCommandPixelUs;
+    const int64_t raster_times[]{50000, cycle_us - 50000, cycle_us, cycle_us + 50000};
+    for (const int64_t timestamp : raster_times) {
+        require(CODY::update_command_hints(hints, font, true, true, "chat-a", timestamp, changed) == ESP_OK && hints.visible,
+            "marquee remains visible beyond the old twenty-second deadline and through its seam");
+        if (timestamp == cycle_us) {
+            require(hints.pixel_offset == 0 && std::strncmp(hints.window, "Change my name", 14) == 0,
+                "caption repeats seamlessly without reading beyond owner storage");
+        }
+        std::vector<uint16_t> command_pixels(466U * 466U);
+        CODY2D::Surface command_surface{command_pixels.data(), 466, 466, 466,
+            static_cast<uint32_t>(command_pixels.size())};
+        require(CODY::draw_command_hints(hints, command_surface, 0, 0) == ESP_OK,
+            "real marquee glyphs render with partial-glyph clipping");
+        size_t painted = 0;
+        for (size_t pixel = 0; pixel < command_pixels.size(); ++pixel) {
+            if (command_pixels[pixel] == 0) { continue; }
+            ++painted;
+            const size_t x = pixel % 466;
+            const size_t y = pixel / 466;
+            require(x >= viewport.x && x < static_cast<size_t>(viewport.x + viewport.width) &&
+                y >= viewport.y && y < static_cast<size_t>(viewport.y + viewport.height),
+                "no marquee glyph escapes the actual clipped viewport");
+        }
+        require(painted > 0, "clipping must not conceal all command glyphs");
         const CODY::SceneDefinition *definition = nullptr;
         CODY::SceneFrame scene{};
         require(CODY::find_scene(CODY::SceneId::Connected, definition) == ESP_OK &&
@@ -1990,7 +2047,7 @@ void check_home_command_and_token_contract()
         std::vector<uint16_t> reference(466U * 466U);
         const CODY2D::Surface full{reference.data(), 466, 466, 466, static_cast<uint32_t>(reference.size())};
         require(CODY::draw_scene_rows(scene, full, 0, 0) == ESP_OK,
-            "Home command banner renders through real scene composition");
+            "Home marquee renders through real scene composition");
         for (const auto order : {CODY2D::Rgb565ByteOrder::Native, CODY2D::Rgb565ByteOrder::ByteSwapped}) {
             for (uint16_t rows : {2, 16}) {
                 std::vector<uint16_t> tiled(reference.size());
@@ -1999,57 +2056,33 @@ void check_home_command_and_token_contract()
                         static_cast<uint16_t>(std::min<unsigned>(rows, 466 - first)), 466,
                         static_cast<uint32_t>(tiled.size() - first * 466U), order};
                     require(CODY::draw_scene_rows(scene, strip, first, 0) == ESP_OK,
-                        "Home command banner supports actual DMA strip boundaries");
+                        "Home marquee supports actual DMA strip boundaries");
                 }
                 for (size_t pixel = 0; pixel < tiled.size(); ++pixel) {
                     const uint16_t expected = order == CODY2D::Rgb565ByteOrder::Native ? reference[pixel] :
                         CODY2D::swap_rgb565_bytes(reference[pixel]);
                     if (tiled[pixel] != expected) {
-                        require(false, "Home banner strip/full and native/swapped parity");
+                        require(false, "Home marquee strip/full and native/swapped parity");
                         break;
                     }
                 }
             }
         }
-        const auto revision = hints.revision;
-        require(CODY::update_command_hints(hints, font, true, true, "chat-a",
-            page * 5000000LL + 4999999, changed) == ESP_OK && !changed && hints.revision == revision,
-            "unchanged command page does not request new damage on every frame");
-        for (const auto *line : {&hints.title, &hints.request}) {
-            const auto &bounds = line->bounds;
-            require(bounds.y >= 360 && bounds.y + bounds.height <= 417,
-                "command lines remain below identity and price/timer rows");
-            for (int x : {static_cast<int>(bounds.x), static_cast<int>(bounds.x + bounds.width - 1)}) {
-                for (int y : {static_cast<int>(bounds.y), static_cast<int>(bounds.y + bounds.height - 1)}) {
-                    require((x - 233) * (x - 233) + (y - 233) * (y - 233) < 233 * 233,
-                        "measured command glyph bounds fit the actual circular chord");
-                }
-            }
-        }
     }
-    require(CODY::update_command_hints(hints, font, true, true, "chat-a", 20000000, changed) == ESP_OK &&
-        !hints.visible && changed, "intro hints retire after all four pages");
-    require(CODY::update_command_hints(hints, font, true, true, "chat-b", 21000000, changed) == ESP_OK &&
-        hints.visible && hints.page == CODY::CommandHintId::Name, "a new authentic chat restarts the command introduction");
-    require(CODY::update_command_hints(hints, font, true, false, "chat-b", 22000000, changed) == ESP_OK &&
-        !hints.visible, "compaction or question admission suppresses hints immediately");
-    require(CODY::update_command_hints(hints, font, true, true, "chat-b", 27000000, changed) == ESP_OK &&
-        hints.page == CODY::CommandHintId::Timezone, "urgent presentation does not extend or restart the introduction");
-    require(CODY::update_command_hints(hints, font, false, true, "chat-b", 28000000, changed) == ESP_OK &&
-        !hints.visible, "stale or disconnected CCP removes hints");
-
-    require(CODY::update_command_hints(hints, font, true, true, "chat-b", 30000000, changed,
-        CODY::CommandHintsMode::ReadyForMore) == ESP_OK && hints.page == CODY::CommandHintId::Name,
-        "Ready for more starts with a supported personalization request");
-    for (int index = 0; index < 9; ++index) {
-        require(CODY::update_command_hints(hints, font, true, true, "chat-b",
-            30000000 + index * 5000000LL, changed, CODY::CommandHintsMode::ReadyForMore) == ESP_OK &&
-            hints.visible && hints.page == CODY::kHomeCommandHints[index % 3].id,
-            "Ready for more retains exactly three real Release requests beyond the intro deadline");
-    }
-    require(CODY::update_command_hints(hints, font, true, false, "chat-b", 75000000, changed,
-        CODY::CommandHintsMode::ReadyForMore) == ESP_OK && !hints.visible,
-        "compaction and question priority suppress persistent Ready for more hints");
+    const int64_t hidden_at = cycle_us + 100000;
+    const auto frozen_offset = hints.pixel_offset;
+    require(CODY::update_command_hints(hints, font, true, false, "chat-a", hidden_at, changed) == ESP_OK &&
+        !hints.visible && changed, "compaction or question admission hides the marquee immediately");
+    const auto hidden_revision = hints.revision;
+    require(CODY::update_command_hints(hints, font, true, false, "chat-a", hidden_at + 5000000, changed) == ESP_OK &&
+        !changed && hints.revision == hidden_revision, "hidden elapsed time cannot cause render revisions");
+    require(CODY::update_command_hints(hints, font, true, true, "chat-a", hidden_at + 10000000, changed) == ESP_OK &&
+        changed && hints.visible && hints.pixel_offset == frozen_offset,
+        "resuming preserves the last visible scroll position without a hidden-time jump");
+    require(CODY::update_command_hints(hints, font, true, true, "chat-b", hidden_at + 11000000, changed) == ESP_OK &&
+        changed && hints.pixel_offset == 0, "a genuine new chat restarts the authored command sequence");
+    require(CODY::update_command_hints(hints, font, false, true, "chat-b", hidden_at + 12000000, changed) == ESP_OK &&
+        !hints.visible, "stale or disconnected CCP removes commands");
     CODY::HomeReplyDwell reply_dwell{};
     bool reply_introduction = false;
     require(CODY::advance_home_reply_dwell(reply_dwell, true, "chat-b", 1000000, reply_introduction) == ESP_OK && reply_introduction &&
@@ -2232,6 +2265,8 @@ int main()
         check_technical_panel_owner_contract();
         check_cost_badge_contract();
         check_home_command_and_token_contract();
+        verify_home_dashboard_contract(CODY::HomeFonts::value_font,
+            CODY::SceneData::body_font, CODY::HomeFonts::small_font);
         check_native_usage_projection();
     } catch (const std::exception &error) {
         std::fprintf(stderr, "Native contract failed: %s\n", error.what());

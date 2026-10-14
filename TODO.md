@@ -1,11 +1,16 @@
 # Active work
 
-Updated 2026-10-14. Current Home readability follow-up:
+Updated 2026-10-14. Home dashboard implementation is complete:
 
-- Finish compact `K TT` captions, dot grouping, focused native/Studio checks
-  and the authorized Release installation.
-- Deliver three ImageGen Home proposals with the existing character and circle;
-  record their illustrative scope separately from installed firmware.
+- Complete the authorized Release build, size, compiled stack inspection and
+  installation of the integrated Home dashboard.
+
+Native/runtime contracts, 16 Studio tests, 40 Alpha tests and 36 CCP simulator tests passed.
+Integer pixel enlargement and pointer mapping are verified; the real Windows
+capture shows 2x native pixels. Final delivery evidence belongs in [done.md](done.md).
+
+GitHub visibility is public. Main ruleset 25049727 is active: contributors need
+a pull request; only the owner's user identity has direct-push bypass.
 
 Earlier event/token/reconnection work is installed and recorded in
 [done.md](done.md).
