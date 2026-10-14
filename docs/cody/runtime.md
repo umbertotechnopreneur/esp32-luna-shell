@@ -210,15 +210,60 @@ exercise the real activity owner, authenticated packets, Studio projection and
 native panel pixels; these synthetic captures do not prove physical sound or
 that a particular live compaction hook was delivered.
 
+### Pending native questions: PC audit, 2026-10-14
+
+The current hook bridge does not maintain pending questions across chats.
+`ccp_activity.tool_phase` classifies `request_user_input` and
+`request_user_input_async` as ordinary Working activity, while the journal
+reader consumes usage metadata rather than question calls. Permission notices
+are limited to the followed chat and can be replaced by later tool activity;
+a new prompt retires previous native notices. Explicit `ccp_ask_question`
+request/reply/ACK handling is a separate path, not automatic native-question
+coverage.
+
+A read-only journal audit confirmed that an asynchronous tool can return
+`accepted` before the user replies. `PostToolUse` therefore cannot close a
+pending asynchronous question. Broker diagnostics also confirmed two rejected
+turn identities belonged to subagents; parent/child correlation must preserve
+identity checks rather than accept every mismatched turn. No chat text or raw
+session identities are recorded in this document.
+
+The proposed increment is a bounded registry keyed by chat, turn and request
+identity, with a count and chat indicator independent of the followed activity.
+The official [App Server protocol](https://learn.chatgpt.com/docs/app-server)
+documents `item/tool/requestUserInput` and `serverRequest/resolved`; the latter
+also clears interrupted or otherwise retired requests and does not by itself
+prove that the user answered. First verify a supported read-only attachment to
+the existing Desktop server. Starting a second Codex server would not observe
+the existing Desktop chats. The documented
+[hook coverage](https://learn.chatgpt.com/docs/hooks) alone does not establish a
+universal native-question lifecycle. Do not infer requests from prose or question
+marks, switch the followed chat, or execute approvals on behalf of the user.
+This audit implements no PC bridge or protocol changes.
+
 ### Companion information panels
 
 Home retains the character, actual activity title and independently aged model
 row above three lower panels. The first shows a Free token hero and availability
 arc, Last/Window, elapsed time and canonical IMU activity. Model & Context shows
-the model name, qualitative catalog price and reasoning effort. Session & Link
+qualitative catalog price and reasoning effort; the shared header carries the
+model name once. Session & Link
 shows connection state, abbreviated chat ID and the device's own canonical Wi-Fi
 IP. The former full-screen Activity page, firmware row and numeric page footer
 are no longer part of passive Home navigation.
+
+A display-owned, bounded model identity latches one Expensive-price notice per
+model change. It waits for current model/cost facts and a completely presented
+Model panel; late price metadata can complete the same pending decision.
+Stale data, reconnects, standby and carousel rotation do not rearm an attempted
+notice. A newer model supersedes an unseen notice. Busy, mute, quiet hours and
+recording retain the existing audio-owner admission policy without delayed replay.
+The notice repeats one 1,593-sample CC0 Kenney plink five times with four 100-ms
+gaps: 897.8 ms authored playback and 3,186 flash bytes. The existing audio worker
+resamples each bounded chunk into its existing scratch buffer and keeps its
+current duplex clock, cancellation generation and error reporting. Source,
+license and reproducible generation belong to
+[the model-cost asset](../../assets/cody/audio/model-cost/README.md).
 
 Supported chat requests run in a continuous right-to-left footer marquee without
 an Available commands heading. Its 50-ms quantization uses the existing active

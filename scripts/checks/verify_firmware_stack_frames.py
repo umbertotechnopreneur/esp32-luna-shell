@@ -74,6 +74,7 @@ def main(argv=None) -> int:
               ("diagnostic_monitor_task", "LUNASHELL_hardware.cpp", 3072),
               ("command_task", "LUNASHELL_logger_usb.c", 4096),
               ("worker", "LUNASHELL_activity.cpp", 8192),
+              ("personality_audio_worker", "LUNASHELL_audio.cpp", 4096),
               ("companion_worker", "CODY_companion.cpp", 12288)]
     if wake_word_enabled:
         limits.extend((("voice_feed_task", "LUNASHELL_voice_afe.cpp", 4096),
@@ -101,7 +102,9 @@ def main(argv=None) -> int:
         r"read_endurance_usb|process_command|command_task")
     home_dashboard_helpers = helper_frames(
         rows, ("CODY_home_dashboard.cpp", "CODY_home_identity.cpp", "CODY_scene.cpp",
-               "CODY_companion.cpp"), r"home|dashboard|draw_(?:companion_)?frame|plan_scene_damage|draw_scene_rows")
+               "CODY_companion.cpp"), r"home|dashboard|model_cost|draw_(?:companion_)?frame|plan_scene_damage|draw_scene_rows")
+    audio_notice_helpers = helper_frames(rows, ("LUNASHELL_audio.cpp",),
+        r"personality_audio_worker|play_personality_locked|notify_application_audio|repeated_notice")
     native_raster_helpers = helper_frames(
         rows, ("CODY2D_paths.cpp", "CODY2D_controls.cpp", "CODY2D_text.cpp"))
     if not native_raster_helpers["compiled_record_count"]:
@@ -117,6 +120,7 @@ def main(argv=None) -> int:
               "voice_helper_frames": helpers,
               "endurance_usb_helper_frames": endurance_usb_helpers,
               "home_dashboard_helper_frames": home_dashboard_helpers,
+              "audio_notice_helper_frames": audio_notice_helpers,
               "native_raster_helper_frames": native_raster_helpers,
               "helper_scope": "Up to 12 largest individual records per enabled subsystem; inlined helpers may have no separate record",
               "compiled_record_count": len(rows), "failures": failures,
@@ -133,6 +137,8 @@ def main(argv=None) -> int:
         print(f"Individual endurance USB frame: {frame['function']} {frame['bytes']} bytes")
     for frame in home_dashboard_helpers["largest_frames"]:
         print(f"Individual Home frame: {frame['function']} {frame['bytes']} bytes")
+    for frame in audio_notice_helpers["largest_frames"]:
+        print(f"Individual audio notice frame: {frame['function']} {frame['bytes']} bytes")
     for frame in native_raster_helpers["largest_frames"]:
         print(f"Individual native raster frame: {frame['function']} {frame['bytes']} bytes")
     for failure in failures:

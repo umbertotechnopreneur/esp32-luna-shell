@@ -170,6 +170,34 @@ class FakeAudioDriver:
             self.last_error = error
             LOG.error("Synthetic PC audio preview failed: %r", error)
 
+    # self: Existing bounded PC playback owner; one native model-change claim owns the whole sequence.
+    # path: Immutable generated single plin shared with firmware, never synthesized by the simulator.
+    # Missing/invalid assets or full admission remain logged optional errors; the claim is never retried.
+    def model_cost_notice(self, path):
+        if not self.enabled:
+            return
+        try:
+            with wave.open(str(path), "rb") as source:
+                rate, count = source.getframerate(), source.getnframes()
+                if (source.getnchannels() != 1 or source.getsampwidth() != 2 or
+                        source.getcomptype() != "NONE" or rate != 16000 or not 0 < count <= 5600):
+                    raise ValueError("Model-cost audio must be mono PCM16 at 16000 Hz with 1..5600 samples")
+                pcm = source.readframes(count)
+                if len(pcm) != count * 2:
+                    raise ValueError("Model-cost audio sample is incomplete")
+            silence = bytes(round(rate * .1) * 2)
+            sequence = silence.join([pcm] * 5)
+            output = io.BytesIO()
+            with wave.open(output, "wb") as target:
+                target.setnchannels(1)
+                target.setsampwidth(2)
+                target.setframerate(rate)
+                target.writeframes(sequence)
+            self._queue.put_nowait((output.getvalue(), True, time.monotonic(), self._generation))
+        except (OSError, ValueError, wave.Error, queue.Full) as error:
+            self.last_error = error
+            LOG.error("Synthetic PC model-cost audio failed: %r", error)
+
     # self: Host output owner; queued cues cannot survive window destruction.
     def close(self):
         import winsound

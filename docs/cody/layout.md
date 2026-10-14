@@ -75,11 +75,13 @@ Last and Window values, elapsed time and the canonical IMU label. The mint arc
 represents coherent free context. Missing, stale, invalid and over-limit data
 retain explicit states and never produce an invented percentage.
 
-Model & Context contains the model name, qualitative Standard catalog price
-capsule and thinking effort. Session & Link contains connection state, abbreviated
+Model & Context contains the qualitative Standard catalog price capsule and
+thinking effort; the model name appears once in the shared header. Session & Link contains connection state, abbreviated
 chat ID and the device's own canonical Wi-Fi IP; it omits firmware and PC IP.
 Independent source validity remains visible. Model prices are green Cheap,
 orange Reasonable price and red Expensive; they are not monetary chat spending.
+The first complete presentation of an Expensive price after a model change
+requests one five-plink notice. Rotation and repeated taps never replay it.
 
 Home uses the `TT` unit and decimal whole thousands with `K`, truncating the last
 three digits: `Free 319K TT`. Periods group every three displayed digits; counts

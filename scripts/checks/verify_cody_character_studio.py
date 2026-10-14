@@ -22,7 +22,7 @@ import sys
 import time
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -107,11 +107,83 @@ class CharacterStudioTests(unittest.TestCase):
             self.renderer.capture_sheet(image, f"SIMULATED / {name}").save(OUTPUT / f"{name}.png")
             captures.append(image)
         self.assertEqual(captures[0].crop((0, 0, 466, 268)).tobytes(), captures[1].crop((0, 0, 466, 268)).tobytes())
-        self.assertNotEqual(captures[0].crop((89, 318, 377, 352)).tobytes(), captures[1].crop((89, 318, 377, 352)).tobytes())
+        self.assertNotEqual(captures[0].crop((89, 288, 377, 326)).tobytes(), captures[1].crop((89, 288, 377, 326)).tobytes())
         self.assertTrue(any(red > 160 and red > green * 2 for red, green, blue in
-                            captures[0].crop((89, 318, 377, 352)).getdata()))
+                            captures[0].crop((89, 288, 377, 326)).getdata()))
         self.assertFalse(any(red > 160 and red > green * 2 for red, green, blue in
-                             captures[1].crop((89, 318, 377, 352)).getdata()))
+                             captures[1].crop((89, 288, 377, 326)).getdata()))
+
+    # self: Real Studio post-presentation callback with a silent recording sink for optional PC audio.
+    # Raises AssertionError if carousel, pause or source loss replays a claim, or a new expensive model loses its cue.
+    def test_home_expensive_audio_once_per_model_after_visible_price(self):
+        from cody_ccp_panel import CcpPanel
+        panel = CcpPanel.__new__(CcpPanel)
+        panel._passive_visible = True
+        playing = Mock()
+        audio = Mock()
+        panel.window = SimpleNamespace(renderer=self.renderer, playing=playing,
+            audio=audio, audio_enabled=SimpleNamespace(get=lambda: True))
+        cases = (("model-a", 3, 0, True, True, 0), ("model-a", 3, 2, False, True, 0),
+                 ("model-a", 3, 2, True, True, 1), ("model-a", 3, 3, True, True, 1),
+                 ("model-a", 3, 0, True, True, 1), ("model-a", 3, 2, True, True, 1),
+                 ("model-a", 3, 2, True, False, 1), ("model-a", 3, 2, True, True, 1),
+                 ("model-b", 1, 2, True, True, 1), ("model-a", 3, 2, True, True, 2),
+                 ("model-c", 3, 0, True, True, 2), ("model-d", 3, 2, True, True, 3))
+        for model, cost, lower_panel, running, valid, expected in cases:
+            with self.subTest(model=model, lower_panel=lower_panel, running=running, valid=valid):
+                source = self.home_source()
+                source.model, source.cost_band, source.model_valid = model.encode("ascii"), cost, valid
+                scene = self.native.evaluate(self.base.face, self.native.home_transform(), self.base.contour | {"phase": 0.})
+                self.native.prepare_home_identity(scene, source, "Working", 7, 1000000)
+                self.native.prepare_home_dashboard(scene, lower_panel, source, 1000000)
+                self.renderer.draw_scene(scene, debug=False, navigation_visible=False)
+                playing.get.return_value = running
+                panel.present_home_audio(scene)
+                self.assertEqual(audio.model_cost_notice.call_count, expected)
+        self.assertEqual(audio.model_cost_notice.call_args.args[0],
+                         ROOT / "assets/cody/audio/model-cost/generated/model-cost.wav")
+
+    # self: Existing fake audio queue without a worker, operating only on the immutable authored PCM.
+    # Raises AssertionError for altered plins/gaps, deferred muted playback or admission outside the firmware PCM contract.
+    def test_home_model_cost_audio_uses_five_original_samples_in_one_queue_item(self):
+        import io
+        import queue
+        import wave
+        from cody_fake_audio import FakeAudioDriver
+        driver = FakeAudioDriver.__new__(FakeAudioDriver)
+        driver.enabled, driver.last_error, driver._generation = True, None, 7
+        driver._queue = queue.Queue(maxsize=1)
+        asset = ROOT / "assets/cody/audio/model-cost/generated/model-cost.wav"
+        driver.model_cost_notice(asset)
+        self.assertIsNone(driver.last_error)
+        self.assertEqual(driver._queue.qsize(), 1)
+        payload, memory, requested_at, generation = driver._queue.get_nowait()
+        self.assertTrue(memory)
+        self.assertEqual(generation, 7)
+        with wave.open(str(asset), "rb") as original:
+            rate = original.getframerate()
+            pcm = original.readframes(original.getnframes())
+        with wave.open(io.BytesIO(payload), "rb") as actual:
+            self.assertEqual((actual.getnchannels(), actual.getsampwidth(), actual.getframerate()), (1, 2, rate))
+            self.assertEqual(actual.readframes(actual.getnframes()), bytes(round(rate * .1) * 2).join([pcm] * 5))
+        driver.enabled = False
+        driver.model_cost_notice(asset)
+        self.assertTrue(driver._queue.empty(), "muted presentation left a deferred sound to replay")
+        driver.enabled = True
+        for invalid_rate, invalid_count in ((48000, 1593), (16000, 5601)):
+            with self.subTest(invalid_rate=invalid_rate, invalid_count=invalid_count):
+                invalid_wav = io.BytesIO()
+                with wave.open(invalid_wav, "wb") as invalid:
+                    invalid.setnchannels(1)
+                    invalid.setsampwidth(2)
+                    invalid.setframerate(invalid_rate)
+                    invalid.writeframes(bytes(invalid_count * 2))
+                original_reader = wave.open(io.BytesIO(invalid_wav.getvalue()), "rb")
+                with patch("cody_fake_audio.wave.open", return_value=original_reader):
+                    with self.assertLogs("CodyFakeAudio", level="ERROR"):
+                        driver.model_cost_notice(asset)
+                self.assertIsInstance(driver.last_error, ValueError)
+                self.assertTrue(driver._queue.empty(), "invalid PCM entered the playback worker")
 
     # self: Production Home bridge with explicitly synthetic token, model, link and IMU observations.
     # Raises AssertionError for an incorrect three-panel cycle, replaced header or lost saved pixels.

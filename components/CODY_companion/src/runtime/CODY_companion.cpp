@@ -23,11 +23,13 @@
 #include "CODY_voice_recording.hpp"
 #include "CODY_happiness.hpp"
 #include "CODY_connection_personality.hpp"
+#include "CODY_model_cost_notice.hpp"
 
 #include "sdkconfig.h"
 #include "esp_log.h"
 
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+#include "model_cost_audio.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
@@ -284,6 +286,7 @@ struct CompanionState {
     CODY::CharacterDirectionState next_character_direction{};
     CODY::PersonalityLag personality_lag{};
     CODY::PersonalityBatteryLatch personality_battery{};
+    CODY::ModelCostNoticeState model_cost_notice{};
     CODY::BatteryNoticeState battery_notice{};
     CODY2D::TextLine battery_notice_line{};
     CODY::BatteryNotice retired_battery_notice = CODY::BatteryNotice::None;
@@ -1212,6 +1215,31 @@ void notify_completed_personality(const CODY::PersonalityFrame &previous,
     }
     // Keep only the current visible symbol for a bounded admission retry. A dispatched
     // clip is never repeated, and changing/hiding the icon cancels its pending sound.
+}
+
+// price_visible: A completely retired Home Model panel displayed its current price without preemption.
+// Exception: Returns original canonical projection, notice-policy or optional audio-owner failures.
+esp_err_t notify_completed_model_cost_notice(bool price_visible)
+{
+    const auto &observation = s_state.technical_observation;
+    CODY::PanelInputs inputs{};
+    esp_err_t error = CODY::project_companion_panel_inputs(observation.link, observation.technical,
+        esp_timer_get_time(), "", inputs);
+    bool notify = false;
+    if (error == ESP_OK) {
+        error = CODY::advance_model_cost_notice(inputs, price_visible, s_state.model_cost_notice, notify);
+    }
+    if (error != ESP_OK || !notify) { return error; }
+    // One event owns all five plins. Carousel entry, a suppressed admission or a later
+    // source refresh cannot enqueue this same model change again.
+    lunashell_audio_cue_status_t status{};
+    error = LUNASHELL_audio_notify_codex_repeated_notice(CODY::ModelCostAudioAssets::samples,
+        CODY::ModelCostAudioAssets::sample_count, CODY::ModelCostAudioAssets::sample_rate_hz,
+        static_cast<uint32_t>(CODY::ModelCostAudioCue::Expensive), 5, 100, &status);
+    ESP_LOGI(kTag, "Model cost notice: disposition=%u sequence=%lu error=%s",
+        static_cast<unsigned>(status.state), static_cast<unsigned long>(status.request_sequence),
+        esp_err_to_name(error));
+    return error;
 }
 
 // visible: This completed frame actually presented the rig in the ordinary Idle view.
@@ -4136,6 +4164,18 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         notify_completed_personality(previous_personality, s_state.retired_personality,
                                      main_companion_view_active(frame_was_rig));
         notify_completed_idle_scene(main_companion_view_active(frame_was_rig));
+        if (frame_dashboard) {
+            const bool price_visible = s_state.companion_panel == CODY::CompanionPanel::ModelContext &&
+                presentation.content_visible && s_state.home_dashboard.price_visible && !s_state.animation_paused &&
+                !frame_wake_battery_active &&
+                s_shutdown_presentation.load(std::memory_order_acquire) == ShutdownPresentation::None;
+            const esp_err_t notice_error = notify_completed_model_cost_notice(price_visible);
+            if (notice_error != ESP_OK) {
+                // This optional notice cannot invalidate the completed frame. Audio retains
+                // its real admission/playback fault in the canonical owner status.
+                ESP_LOGE(kTag, "Optional model cost notice failed (%s)", esp_err_to_name(notice_error));
+            }
+        }
         s_cache_was_rig = frame_was_rig;
         s_cached_rig_debug = frame_debug;
         s_cached_selected_point = s_state.selected_point;

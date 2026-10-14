@@ -602,6 +602,17 @@ typedef enum {
 esp_err_t LUNASHELL_audio_notify_codex(const int16_t *samples, size_t sample_count,
     uint32_t sample_rate_hz, uint32_t cue_id, lunashell_codex_audio_kind_t kind,
     lunashell_audio_cue_status_t *status);
+// samples: One immutable flash-owned PCM chime reused throughout a single admitted notice.
+// sample_count: Exact mono clip length, at most 5600 samples.
+// sample_rate_hz: Authored 16000 Hz clock.
+// cue_id: Stable notice identity in the reserved Codex namespace.
+// repetitions: One through five plays owned by the same mailbox event.
+// gap_ms: Zero through 200 ms between plays; total sequence is at most 2500 ms.
+// status: Receives one dispatch/drop/suppression outcome for the entire sequence.
+// Exception: Returns and publishes the original argument or shared-owner failure.
+esp_err_t LUNASHELL_audio_notify_codex_repeated_notice(const int16_t *samples, size_t sample_count,
+    uint32_t sample_rate_hz, uint32_t cue_id, uint8_t repetitions, uint16_t gap_ms,
+    lunashell_audio_cue_status_t *status);
 // suspended: Cancels Codex cues when their presentation hides, independently of personality symbols.
 // Exception: Returns the original retained owner failure.
 esp_err_t LUNASHELL_audio_set_codex_suspended(bool suspended);

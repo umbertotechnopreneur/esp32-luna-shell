@@ -17,7 +17,7 @@ private local diagnostics, not publication artifacts.
 
 The selected context-arc proposal is implemented by the shared native renderer.
 The character, status title and model row remain in place while three lower
-panels rotate every eight visible seconds: tokens and IMU activity; model, price class and
+panels rotate every eight visible seconds: tokens and IMU activity; price class and
 thinking effort; connection, abbreviated chat ID and the device's own IP.
 A passive tap advances immediately and restarts the interval; shake selects
 Tokens. One shared native policy preserves remaining dwell across hidden views,
@@ -63,10 +63,44 @@ poses, paused layout handoff and genuine exclusion failures. Studio additionally
 checks actual Wi-Fi/Confusion pixels and the shared status footprint. The host
 personality build now uses C++20 for canonical snapshot types; an initial C++17
 compile failure and a deliberately rejected stale Studio DLL remain recorded.
-Final Release build/size/stack inspection
-and installation remain pending at this checkpoint.
+Release cody-169-g6dba911a-dirty was built and installed with the Home symbol
+collision correction: 7,122,736 image bytes, 151,760 bytes of OTA headroom,
+compiled frame inspection passed, and a sixty-second passive USB capture
+showed no Home personality collision, panic or CCP technical rejection.
+Authenticated LAN presence was observed afterwards. The known SD/PCB limitation,
+IMU timing invalidations and a reduced display-DMA row warning remain explicit;
+this is not physical audio, motion-accuracy or task-watermark validation.
 Evidence and native/actual-window captures are retained in
 `artifacts/build-cody-companion-wake-word-evidence/home-tokens-20261014/`.
+
+## One-time expensive-model notice and PC question audit - 2026-10-14
+
+The lower Model panel now shows the price capsule and thinking effort without
+repeating the shared header's model name. A complete visible Expensive price
+claims one five-plink audio event per model change. The bounded shared native
+latch survives carousel changes, stale observations, reconnects and standby;
+unseen notices are superseded by a newer model. Audio admission, cancellation,
+quiet hours, volume and voice-recording gates remain with the existing owner.
+A CC0 Kenney plink contributes 3,186 flash bytes, reused five times with four
+100-ms gaps, without a new firmware task or PCM sequence allocation.
+Studio uses the same native latch after canvas presentation and its existing
+host audio queue. This parity does not establish physical speaker playback.
+
+Final portable native and runtime contracts, all 20 Studio cases, the selected
+wake-word profile/dependency contract, diff whitespace and changed-file secret
+scan passed. Regressions cover delayed prices, stale/error sources, model
+replacement and return, carousel non-replay, multi-rate five-clip timeline,
+source/hash/WAV/PCM/C++ equivalence, and one Studio queue event containing exactly
+five notes. Studio also saved current native 2x/3x and actual Windows captures.
+Target build/size, compiled audio-frame inspection and installation of this
+increment remain pending at this checkpoint.
+
+A separate read-only PC audit found no cross-chat pending-question registry;
+native question tools remain Working and permission notices follow one chat.
+An actual asynchronous return preceded its user answer, and two rejected broker
+turns were correlated with child agents. The analysis and proposed event-driven
+registry are in [runtime.md](docs/cody/runtime.md#pending-native-questions-pc-audit-2026-10-14).
+No PC bridge correction or native-question delivery is claimed by this increment.
 
 GitHub repository visibility was verified public. Active main ruleset 25049727
 requires pull requests with sole direct-push bypass for owner user 12001165.

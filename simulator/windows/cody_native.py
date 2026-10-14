@@ -191,6 +191,7 @@ class NativeRig:
             "panel_prepare": (C.c_int, (P, C.c_uint8, C.POINTER(NativePanelInputs), C.c_int64)),
             "panel_observation": (C.c_int, (P, C.c_uint8, C.POINTER(NativePanelObservation), C.c_int64)),
             "home_dashboard": (C.c_int, (P, P, C.c_uint8, C.POINTER(NativePanelObservation), C.c_int64)),
+            "home_presented": (C.c_int, (P, P, C.c_bool, C.POINTER(C.c_bool))),
             "home_identity": (C.c_int, (P, P, C.POINTER(NativePanelObservation), C.c_char_p, C.c_uint16, C.c_int64)),
             "home_transform": (C.c_int, (F,)),
             "home_rotation": (C.c_int, (P, C.c_uint8, C.c_int64, C.c_bool, C.c_bool, C.POINTER(C.c_uint8))),
@@ -477,6 +478,18 @@ class NativeRig:
     # Raises RuntimeError for the original native owner error.
     def reset_home_rotation(self):
         checked("home_rotation_reset", self.api.cody_host_home_rotation_reset(self.state))
+
+    # self: Persistent native Home policy owner, retained across panel and route changes.
+    # scene: Native frame whose complete image was successfully presented on the Studio canvas.
+    # content_visible: Whether complete Home content was visible with its clock running.
+    # Returns one shared expensive-model claim; raises the original native projection or state error.
+    def home_presented(self, scene, content_visible):
+        if type(content_visible) is not bool:
+            raise ValueError("Home presentation requires a typed visibility flag")
+        notify = C.c_bool()
+        checked("home_presented", self.api.cody_host_home_presented(scene["_native_scene"].handle,
+            self.state, content_visible, C.byref(notify)))
+        return notify.value
 
     # self: Persistent recognizer owner, isolated from physical snapshots.
     # x: Original logical acquired touch coordinate.

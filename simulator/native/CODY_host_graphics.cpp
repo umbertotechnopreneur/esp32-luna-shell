@@ -26,6 +26,7 @@
 #include "CODY_technical_panels.hpp"
 #include "CODY_home_dashboard.hpp"
 #include "CODY_home_identity.hpp"
+#include "CODY_model_cost_notice.hpp"
 #include "CODY_status_overlay.hpp"
 #include "home_dashboard_fonts.hpp"
 #include "CODY_companion_gestures.hpp"
@@ -62,6 +63,7 @@ struct HostScene {
     const CODY::HomeIdentityPresentation *home_identity = nullptr;
     const CODY::CommandHintsState *home_commands = nullptr;
     CODY::SceneFrame home_frame{};
+    int64_t home_observation_time_us = 0;
     char home_title[65]{};
 };
 struct HostState {
@@ -69,6 +71,7 @@ struct HostState {
     CODY::HomeIdentityPresentation home_identity{};
     CODY::CommandHintsState home_commands{};
     CODY::HomeDashboardRotationState home_rotation{};
+    CODY::ModelCostNoticeState model_cost_notice{};
     CODY::PersonalityLag personality{};
     CODY::ConnectionPersonalityState connection{};
     CODY::ResponseState response = CODY::make_response_state(CODY::Data::response);
@@ -622,8 +625,32 @@ CODY_HOST_EXPORT int cody_host_home_dashboard(void *handle, void *state, uint8_t
     if (error == ESP_OK) {
         frame.companion_panel.valid = false;
         frame.home_dashboard = &owner;
+        frame.home_observation_time_us = source_time;
     }
     return host_result("home_dashboard", error);
+}
+
+// handle: Actual native scene whose complete framebuffer has reached the Studio canvas.
+// state: Persistent shared policy owner; carousel and audio rejection never reset its latch.
+// content_visible: Complete ordinary Home presentation, excluding paused or preempted frames.
+// notify: Receives the single expensive-model audio claim, never a playback-success assertion.
+// Exception: Returns original source projection or notice-policy errors.
+CODY_HOST_EXPORT int cody_host_home_presented(void *handle, void *state, bool content_visible, bool *notify)
+{
+    if (!handle || !state || !notify) { return host_result("home_presented", ESP_ERR_INVALID_ARG); }
+    *notify = false;
+    const auto &frame = *static_cast<HostScene *>(handle);
+    if (frame.home_dashboard == nullptr) { return ESP_OK; }
+    CODY::PanelInputs inputs{};
+    esp_err_t error = CODY::project_companion_panel_inputs(frame.panel_observation.link,
+        frame.panel_observation.technical, frame.home_observation_time_us, "", inputs);
+    if (error == ESP_OK) {
+        const bool price_visible = content_visible && frame.home_dashboard->price_visible &&
+            frame.home_dashboard->panel == CODY::CompanionPanel::ModelContext;
+        error = CODY::advance_model_cost_notice(inputs, price_visible,
+            static_cast<HostState *>(state)->model_cost_notice, *notify);
+    }
+    return host_result("home_presented", error);
 }
 
 // handle: Current native frame retaining its title bytes through raster retirement.

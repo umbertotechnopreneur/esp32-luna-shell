@@ -3,9 +3,13 @@
 Updated 2026-10-14. Home dashboard and integer Studio pixels are implemented:
 
 - Complete the authorized Release build, size, compiled stack inspection and
-  installation of the integrated Home dashboard.
+  installation of the integrated Home dashboard and one-time Expensive-model notice.
+- Native questions across Codex chats: analysis completed in
+  [runtime.md](docs/cody/runtime.md#pending-native-questions-pc-audit-2026-10-14).
+  Verify supported access to the existing Desktop event stream before designing
+  the pending-request registry. No integration fix has been implemented.
 
-Native/runtime/personality contracts, 18 Studio tests, 40 Alpha tests and 36 CCP simulator tests passed.
+Native/runtime/personality contracts, 20 Studio tests, 40 Alpha tests and 36 CCP simulator tests passed.
 Integer pixel enlargement and pointer mapping are verified; the real Windows
 capture shows 2x native pixels. Final delivery evidence belongs in [done.md](done.md).
 

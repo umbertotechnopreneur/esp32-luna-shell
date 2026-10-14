@@ -753,6 +753,16 @@ class CcpPanel:
         native.pause_activity()
         self._activity_clock = time.monotonic()
 
+    # self: Home presentation owner; only its completed canvas frame may consume a model-cost notice.
+    # scene: Actual native scene just presented by the containing Studio window.
+    # Exceptions: Native policy failures remain visible; optional PC playback failures stay with the audio owner.
+    def present_home_audio(self, scene):
+        visible = bool(self._passive_visible and self.window.playing.get())
+        if self.window.renderer.require_native().home_presented(scene, visible):
+            self.window.audio.set_enabled(self.window.audio_enabled.get())
+            asset = Path(__file__).resolve().parents[2] / "assets/cody/audio/model-cost/generated/model-cost.wav"
+            self.window.audio.model_cost_notice(asset)
+
     # self: Studio presentation adapter; protocol and freshness admission remain with the endpoint.
     # snapshot: One complete isolated CCP observation or explicitly selected preview snapshot.
     # preview: Whether the visible SIMULATED PREVIEW owns rendering-only facts.

@@ -291,6 +291,24 @@ extern "C" esp_err_t LUNASHELL_audio_notify_codex(const int16_t *samples, size_t
     return error;
 }
 
+// samples: Immutable requested chime on a build without audio output.
+// sample_count: Exact mono source length.
+// sample_rate_hz: Authored source clock retained in the rejected snapshot.
+// cue_id: Stable rejected notice identity.
+// repetitions: Requested bounded sequence length; no playback is simulated.
+// gap_ms: Requested inter-clip silence; no timer is created.
+// status: Receives actual route unavailability.
+// Exception: Returns the selected-route error or an invalid output pointer.
+extern "C" esp_err_t LUNASHELL_audio_notify_codex_repeated_notice(const int16_t *samples, size_t sample_count,
+    uint32_t sample_rate_hz, uint32_t cue_id, uint8_t repetitions, uint16_t gap_ms,
+    lunashell_audio_cue_status_t *status)
+{
+    (void)repetitions;
+    (void)gap_ms;
+    return LUNASHELL_audio_notify_codex(samples, sample_count, sample_rate_hz, cue_id,
+        LUNASHELL_CODEX_CUE_NOTICE, status);
+}
+
 // suspended: Requested presentation gate on a build without an audio owner.
 // Exception: Returns the selected-route error.
 extern "C" esp_err_t LUNASHELL_audio_set_codex_suspended(bool suspended)

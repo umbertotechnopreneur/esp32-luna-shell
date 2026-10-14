@@ -2265,6 +2265,7 @@ class CodyWindow:
             image.putalpha(mask)
             self.present_frame(orient(image, rotation), layout, Screen.GREETING, rotation)
             self.last_presentation_key = key
+            self.ccp_panel.present_home_audio(self.scene)
             # Optional SFX follow the exact native cue only after its frame was presented.
             self.present_audio(Screen.GREETING, personality_only=True)
         self.timing.configure(text="SIMULATED ACTIVITY PREVIEW / no packets or pairing / shared C++ renderer / ESP32 UNMEASURED"

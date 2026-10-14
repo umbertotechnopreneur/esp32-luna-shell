@@ -1,6 +1,8 @@
 #include "CODY_home_dashboard.hpp"
 #include "CODY_command_hints.hpp"
 #include "CODY_activity_description.hpp"
+#include "CODY_model_cost_notice.hpp"
+#include "LUNASHELL_audio_sequence.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -15,6 +17,102 @@ namespace {
 void dashboard_require(bool condition, const char *message)
 {
     if (!condition) { throw std::runtime_error(message); }
+}
+
+// No parameters: real bounded policy must distinguish a model change from repaint or source recovery.
+// Exception: Throws when one model selection can notify twice or unavailable metadata creates a cue.
+void verify_model_cost_notice()
+{
+    CODY::ModelCostNoticeState state{};
+    CODY::PanelInputs inputs{};
+    inputs.model = "expensive-a";
+    inputs.model_state = CODY::PanelValueState::Current;
+    bool notify = true;
+    dashboard_require(CODY::advance_model_cost_notice(inputs, true, state, notify) == ESP_OK && !notify &&
+        !state.classified, "unknown catalog price must wait rather than consume or invent a notice");
+    inputs.cost_state = CODY::PanelValueState::Current;
+    inputs.cost_band = LUNASHELL::CodexCostBand::Expensive;
+    dashboard_require(CODY::advance_model_cost_notice(inputs, false, state, notify) == ESP_OK && !notify &&
+        state.pending, "expensive model change waits for a completely visible price panel");
+    inputs.model_state = CODY::PanelValueState::Stale;
+    dashboard_require(CODY::advance_model_cost_notice(inputs, true, state, notify) == ESP_OK && !notify &&
+        state.pending, "temporary stale or disconnected source cannot admit the pending sound");
+    inputs.model_state = CODY::PanelValueState::Current;
+    dashboard_require(CODY::advance_model_cost_notice(inputs, true, state, notify) == ESP_OK && notify &&
+        !state.pending, "first current visible price claims exactly one complete five-plin event");
+    for (bool visible : {false, true, true, false, true}) {
+        dashboard_require(CODY::advance_model_cost_notice(inputs, visible, state, notify) == ESP_OK && !notify,
+            "carousel, taps, pause and repeated frames never rearm the same selected model");
+    }
+    inputs.cost_state = CODY::PanelValueState::Stale;
+    dashboard_require(CODY::advance_model_cost_notice(inputs, true, state, notify) == ESP_OK && !notify,
+        "cost lease loss does not rearm a consumed model notice");
+    inputs.cost_state = CODY::PanelValueState::Current;
+    inputs.model_state = CODY::PanelValueState::Invalid;
+    dashboard_require(CODY::advance_model_cost_notice(inputs, true, state, notify) == ESP_OK && !notify,
+        "canonical owner errors suppress model sound admission");
+    inputs.model_state = CODY::PanelValueState::Current;
+    dashboard_require(CODY::advance_model_cost_notice(inputs, true, state, notify) == ESP_OK && !notify,
+        "reconnect and refreshed same-model metadata do not replay the attempted notice");
+    inputs.model = "expensive-b";
+    dashboard_require(CODY::advance_model_cost_notice(inputs, false, state, notify) == ESP_OK && !notify &&
+        state.pending, "another expensive model creates its own pending notice");
+    inputs.model = "cheap-c";
+    inputs.cost_state = CODY::PanelValueState::Unavailable;
+    dashboard_require(CODY::advance_model_cost_notice(inputs, true, state, notify) == ESP_OK && !notify &&
+        !state.pending && !state.classified, "new model identity cancels obsolete pending price before classification");
+    inputs.cost_state = CODY::PanelValueState::Current;
+    inputs.cost_band = LUNASHELL::CodexCostBand::Economy;
+    dashboard_require(CODY::advance_model_cost_notice(inputs, true, state, notify) == ESP_OK && !notify &&
+        state.classified, "a cheap model selection has no costly-model notice");
+    inputs.cost_band = LUNASHELL::CodexCostBand::Expensive;
+    dashboard_require(CODY::advance_model_cost_notice(inputs, true, state, notify) == ESP_OK && !notify,
+        "a same-model price refresh is not a model-selection change");
+    inputs.model = "expensive-a";
+    dashboard_require(CODY::advance_model_cost_notice(inputs, true, state, notify) == ESP_OK && notify,
+        "returning A after a genuine A-to-B-to-C change is one new expensive-model selection");
+    inputs.model = "bad\nmodel";
+    dashboard_require(CODY::advance_model_cost_notice(inputs, true, state, notify) == ESP_ERR_INVALID_ARG && !notify &&
+        std::strcmp(state.model, "expensive-a") == 0, "invalid current model is rejected without destroying deduplication");
+}
+
+// No parameters: exercise the exact transport timeline used by the existing audio owner.
+// Exception: Throws on missing/extra plins, trailing silence, unbounded duration or changed ordinary cues.
+void verify_audio_notice_sequence()
+{
+    for (const uint32_t rate : {8000U, 16000U, 22050U, 48000U}) {
+        LUNASHELL::AudioCueSequenceLayout sequence{};
+        dashboard_require(LUNASHELL::prepare_audio_cue_sequence(3200, 16000, rate, 5, 100, sequence) &&
+            sequence.total_samples * 1000 == rate * 1400,
+            "five 200-ms plins and four 100-ms gaps retain the current duplex transport clock");
+        unsigned starts = 0;
+        unsigned gaps = 0;
+        bool was_gap = false;
+        for (size_t offset = 0; offset < sequence.total_samples; ++offset) {
+            const size_t local = LUNASHELL::audio_cue_sequence_clip_offset(sequence, offset);
+            const bool gap = local == SIZE_MAX;
+            starts += local == 0;
+            gaps += gap && !was_gap;
+            dashboard_require(gap || local < sequence.clip_samples,
+                "every audible sample belongs to the one immutable chime instead of another request");
+            was_gap = gap;
+        }
+        dashboard_require(starts == 5 && gaps == 4 && !was_gap,
+            "one admitted sequence contains exactly five complete plins with no trailing gap");
+        dashboard_require(LUNASHELL::prepare_audio_cue_sequence(3200, 16000, rate, 1, 0, sequence) &&
+            sequence.total_samples == sequence.clip_samples && sequence.gap_samples == 0,
+            "ordinary personality and Codex cues preserve their original single-clip duration");
+    }
+    LUNASHELL::AudioCueSequenceLayout sequence{};
+    dashboard_require(!LUNASHELL::prepare_audio_cue_sequence(5601, 16000, 16000, 5, 100, sequence) &&
+        !LUNASHELL::prepare_audio_cue_sequence(3200, 16000, 16000, 0, 100, sequence) &&
+        !LUNASHELL::prepare_audio_cue_sequence(3200, 16000, 16000, 6, 100, sequence) &&
+        !LUNASHELL::prepare_audio_cue_sequence(3200, 16000, 16000, 5, 201, sequence) &&
+        !LUNASHELL::prepare_audio_cue_sequence(3200, 16000, 16000, 1, 100, sequence) &&
+        !LUNASHELL::prepare_audio_cue_sequence(5600, 16000, 16000, 5, 200, sequence) &&
+        !LUNASHELL::prepare_audio_cue_sequence(3200, 22050, 16000, 5, 100, sequence) &&
+        sequence.total_samples == 0,
+        "malformed or overlong sequences fail atomically within the fixed audio-owner bounds");
 }
 
 // owner: Actual native presentation, whose borrowed text remains alive.
@@ -312,9 +410,9 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
     technical.cost_source = LUNASHELL::CodexCostSource::CodexStandardCatalog;
     technical.cost_valid_for_us = 10000000;
     prepare(CODY::CompanionPanel::ModelContext, 0);
-    dashboard_require(owner.price_visible && dashboard_has_caption(owner, "gpt-6-astra") &&
-        dashboard_has_caption(owner, "Price Expensive") && dashboard_has_caption(owner, "Thinking high") && owner.line_count == 3,
-        "model panel contains only model identity, qualitative price capsule and thinking effort");
+    dashboard_require(owner.price_visible && !dashboard_has_caption(owner, "gpt-6-astra") &&
+        dashboard_has_caption(owner, "Price Expensive") && dashboard_has_caption(owner, "Thinking high") && owner.line_count == 2,
+        "lower model panel complements the shared identity header with only price and thinking effort");
     prepare(CODY::CompanionPanel::SessionLink, 0);
     dashboard_require(dashboard_has_caption(owner, "PC connected") && dashboard_has_caption(owner, "Chat aaaaaa...aaaaaa") &&
         dashboard_has_caption(owner, "Device IP 192.0.2.17") && !dashboard_has_caption(owner, "Device IP 192.0.2.99"),
@@ -333,5 +431,7 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
         "legacy Activity identity must not create a fourth dashboard page");
     verify_dashboard_scene_visibility(body_font, small_font);
     verify_dashboard_rotation();
+    verify_model_cost_notice();
+    verify_audio_notice_sequence();
     std::fputs("Native Home dashboard: canonical metrics, three panels, chord bounds and full/strip/swapped raster parity passed\n", stderr);
 }

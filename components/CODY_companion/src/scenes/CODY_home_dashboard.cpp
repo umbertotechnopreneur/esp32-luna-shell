@@ -501,16 +501,7 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
         error = prepare_arc(presentation, inputs, title_font, body_font, secondary_font, active_time_us, motion, now_us);
     } else if (panel == CompanionPanel::ModelContext) {
         char caption[48]{};
-        const char *model = inputs.model_state == PanelValueState::Current ? inputs.model : metric_status(inputs.model_state);
-        const size_t capacity = std::min<size_t>(sizeof(caption) - 1, (320 - secondary_font.width) / secondary_font.advance + 1);
-        if (capacity <= 3) { return dashboard_result("model_font_width", ESP_ERR_INVALID_SIZE); }
-        if (std::strlen(model) > capacity) {
-            // Visible ellipsis abbreviates a label only; canonical model identity is never changed.
-            std::snprintf(caption, sizeof(caption), "%.*s...", static_cast<int>(capacity - 3), model);
-        } else {
-            std::strcpy(caption, model);
-        }
-        error = add_line(presentation, secondary_font, caption, 277, kWhite);
+        // The shared header owns model identity; this panel complements it with price and effort.
         const bool known_price = inputs.model_state == PanelValueState::Current && inputs.cost_state == PanelValueState::Current &&
             inputs.cost_band != LUNASHELL::CodexCostBand::Unknown;
         const uint16_t price_color = known_price ? cost_band_color(inputs.cost_band) : kMuted;
@@ -521,10 +512,10 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
             std::snprintf(caption, sizeof(caption), "Price %s", metric_status(inputs.cost_state == PanelValueState::Current
                 ? PanelValueState::Unavailable : inputs.cost_state));
         }
-        if (error == ESP_OK) { error = add_line(presentation, body_font, caption, 322, price_color); }
+        error = add_line(presentation, body_font, caption, 294, price_color);
         if (error == ESP_OK) {
             presentation.price_visible = true;
-            presentation.price_capsule.bounds = {89, 318, 288, 34};
+            presentation.price_capsule.bounds = {89, 288, 288, 38};
             presentation.price_capsule.top_color = CODY2D::blend_rgb565(price_color, 0, 35);
             presentation.price_capsule.bottom_color = CODY2D::blend_rgb565(price_color, 0, 12);
             presentation.price_capsule.border_color = CODY2D::blend_rgb565(price_color, 0, 110);
@@ -533,7 +524,7 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
             const int count = std::snprintf(caption, sizeof(caption), "Thinking %s", effort);
             if (count < 0 || count >= static_cast<int>(sizeof(caption))) { return dashboard_result("effort_format", ESP_ERR_INVALID_SIZE); }
             const auto &effort_font = text_width(secondary_font, caption) <= 320 ? secondary_font : body_font;
-            error = add_line(presentation, effort_font, caption, 362, kMuted);
+            error = add_line(presentation, effort_font, caption, 350, kMuted);
         }
     } else {
         char caption[48]{};

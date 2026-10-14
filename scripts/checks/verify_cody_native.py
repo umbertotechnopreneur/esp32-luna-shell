@@ -18,15 +18,86 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 from pathlib import Path
+import re
+import struct
 import sys
+import wave
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.common.cody_rig_contract import evaluate, load_contract
 from scripts.common.cody_rig_types import FaceChannel, channel_name, face_channel
 from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
+
+
+# No parameters: inspect only versioned model-notice inputs and outputs, without audio playback or regeneration.
+# Raises original read/format errors or AssertionError for stale provenance, payload divergence or unsafe audio.
+def check_model_cost_audio() -> dict:
+    assets = ROOT / "assets/cody/audio/model-cost"
+    generated = assets / "generated"
+    selection = json.loads((assets / "source-selection.json").read_text(encoding="utf-8"))
+    manifest = json.loads((generated / "manifest.json").read_text(encoding="utf-8"))
+    if manifest["source"] != selection:
+        raise AssertionError("Model cost audio: generated source selection is stale.")
+    if (selection["schema_version"] != 1 or selection["license"] != "CC0-1.0" or
+            selection["sample_rate_hz"] != 16000 or selection["repeat_count"] != 5 or
+            selection["repeat_gap_ms"] != 100 or selection["maximum_duration_ms"] != 220 or
+            selection["target_peak_dbfs"] != -18.0):
+        raise AssertionError("Model cost audio: source selection differs from the bounded authored notice.")
+    source = (assets / selection["source_file"]).resolve(strict=True)
+    if not source.is_relative_to((assets / "source").resolve(strict=True)):
+        raise AssertionError("Model cost audio: selected source escapes its versioned owner.")
+    if hashlib.sha256(source.read_bytes()).hexdigest() != selection["source_sha256"]:
+        raise AssertionError("Model cost audio: selected source SHA-256 differs from provenance.")
+    pcm = (generated / "model-cost.pcm16le").read_bytes()
+    if not 2 <= len(pcm) <= 5600 * 2 or len(pcm) % 2:
+        raise AssertionError("Model cost audio: PCM16 must be nonempty and no longer than 350 ms.")
+    sample_count = len(pcm) // 2
+    rate = 16000
+    if (manifest["sample_count"] != sample_count or manifest["pcm_bytes"] != len(pcm) or
+            manifest["sample_rate_hz"] != rate or
+            manifest["pcm_sha256"] != hashlib.sha256(pcm).hexdigest() or
+            sample_count * 1000 > selection["maximum_duration_ms"] * rate or
+            not math.isclose(manifest["duration_ms"], sample_count * 1000 / rate, abs_tol=1e-9)):
+        raise AssertionError("Model cost audio: PCM identity, clock or duration differs from its manifest.")
+    samples = struct.unpack(f"<{sample_count}h", pcm)
+    peak = max(abs(sample) for sample in samples)
+    # Half of one PCM16 quantization step is the only allowed upward peak-rounding error.
+    maximum_peak = 32768 * 10 ** (-18 / 20) + .5
+    if samples[0] != 0 or samples[-1] != 0 or not 0 < peak <= maximum_peak:
+        raise AssertionError("Model cost audio: nonzero boundary, silence or peak above -18 dBFS.")
+    peak_dbfs = 20 * math.log10(peak / 32768)
+    if not math.isclose(manifest["peak_dbfs"], peak_dbfs, abs_tol=1e-9):
+        raise AssertionError("Model cost audio: measured PCM peak differs from its manifest.")
+    with wave.open(str(generated / "model-cost.wav"), "rb") as preview:
+        if (preview.getnchannels() != 1 or preview.getsampwidth() != 2 or
+                preview.getframerate() != rate or preview.getcomptype() != "NONE" or
+                preview.getnframes() != sample_count or preview.readframes(sample_count + 1) != pcm):
+            raise AssertionError("Model cost audio: mono 16-kHz WAV does not contain the exact firmware PCM.")
+    header = (generated / "model_cost_audio.hpp").read_text(encoding="utf-8")
+    cpp = (generated / "model_cost_audio.cpp").read_text(encoding="utf-8")
+    if (re.findall(r"\bsize_t\s+sample_count\s*=\s*(\d+)\s*;", header) != [str(sample_count)] or
+            re.findall(r"\buint32_t\s+sample_rate_hz\s*=\s*(\d+)\s*;", header) != [str(rate)]):
+        raise AssertionError("Model cost audio: generated C++ length or clock differs from the PCM.")
+    arrays = re.findall(r"const\s+int16_t\s+samples\s*\[\s*sample_count\s*\]\s*=\s*\{([^}]*)\}\s*;",
+                        cpp, re.DOTALL)
+    if len(arrays) != 1 or re.fullmatch(r"\s*(?:-?\d+\s*,\s*)+", arrays[0]) is None:
+        raise AssertionError("Model cost audio: missing, ambiguous or nonliteral C++ sample array.")
+    cpp_samples = tuple(int(value) for value in re.findall(r"-?\d+", arrays[0]))
+    if cpp_samples != samples:
+        raise AssertionError("Model cost audio: linked C++ samples differ from the WAV/PCM payload.")
+    sequence_samples = sample_count * 5 + 4 * (rate * 100 // 1000)
+    if not math.isclose(manifest["preview_duration_ms"], sequence_samples * 1000 / rate, abs_tol=1e-9):
+        raise AssertionError("Model cost audio: sequence metadata must represent five clips and four gaps.")
+    # The portable native fixture exercises actual repeat/gap mapping. Its volatile
+    # listening preview is deliberately not needed to validate a clean checkout.
+    return {"sample_count": sample_count, "pcm_bytes": len(pcm), "sample_rate_hz": rate,
+            "pcm_sha256": manifest["pcm_sha256"], "peak_dbfs": peak_dbfs,
+            "repetitions": 5, "gap_ms": 100, "physical_playback_verified": False}
 
 
 # expected: World coordinates produced from the same authored inputs by the host evaluator.
@@ -78,6 +149,7 @@ def main(argv=None) -> None:
     output.mkdir(parents=True, exist_ok=True)
     report = {"status": "failed", "scope": "portable C++ and Python geometry; hardware unverified"}
     try:
+        report["model_cost_audio"] = check_model_cost_audio()
         compiler = resolve_compiler(args.compiler)
         executable = output / "raster-contract.exe"
         include_dirs = ("scripts/tests/cody_native", "components/CODY2D/include",
@@ -145,6 +217,9 @@ def main(argv=None) -> None:
                                     "scene standby entry, real activity, inheritance and uint32 boundary",
                                     "long-lived and replaced text clocks without replayed entrance",
                                     "immutable retired character and text-generation baselines"])
+        report["contracts"].extend(["model-price notice source/PCM SHA-256 and WAV/C++ sample equivalence",
+                                    "mono 16-kHz bounded plink, zero endpoints and -18 dBFS digital peak",
+                                    "one notice per costly model selection and five-clip/four-gap native sequence"])
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"
         raise

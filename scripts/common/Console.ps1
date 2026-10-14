@@ -96,6 +96,7 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
             'cody-personality-audio' = @{ Category = 'Cody assets'; Emoji = '🎵'; Description = 'Synthesize 14 original short symbol cues, WAV previews and immutable PCM flash assets.' }
             'cody-scenes' = @{ Category = 'Cody assets'; Emoji = '🎬'; Description = 'Bake cloud/title scenes and glyphs; requires --font-path.' }
             'cody-home-dashboard-fonts' = @{ Category = 'Cody assets'; Emoji = '🔤'; Description = 'Bake independent Home sans fonts from the vendored OFL source.' }
+            'cody-model-cost-audio' = @{ Category = 'Cody assets'; Emoji = '🔊'; Description = 'Prepare the pinned CC0 model-price plink and five-note preview.' }
             'package-cody-boot' = @{ Category = 'Cody assets'; Emoji = '🌅'; Description = 'Convert existing boot images into indexed RGB565 firmware resources.' }
             'vibeware-boot' = @{ Category = 'Cody assets'; Emoji = '💾'; Description = 'Package the approved transparent floppy GIF for native and LVGL boot.' }
             'vibeware-boot-revision' = @{ Category = 'Cody documents'; Emoji = '📄'; Description = 'Append and visually review the VibeWare boot identity revision in both existing PDF atlases.' }

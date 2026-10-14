@@ -140,6 +140,11 @@ instruction file; do not add parallel agent or Copilot contracts.
 
 ## Artifacts and checkpoints
 
+- Whenever a documentation PDF is created or updated in this repository, copy
+  the final file byte for byte to
+  `C:\Users\umber\OneDrive\Obsidian\30_Engineering\Products\Cody Companion\atlas`,
+  retaining the same filename. This copy is a required part of the documentation
+  task; do not regenerate or convert the PDF for the Obsidian copy.
 - For every user-requested PDF revision, maintain a dedicated final revision
   register. Use a structured grid with date and intervention type (Security,
   Errata, Addendum or Change) in the left column, and the description, affected
