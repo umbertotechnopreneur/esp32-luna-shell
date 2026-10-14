@@ -186,6 +186,36 @@ Debug diagnostic rows occupy y=390-445: measured FPS/CPU, IPv4, free internal RA
 PSRAM, SD presence/access and measured free space. Invalid samples show their
 actual unavailable state; without card detect, SD probe failure is UNCONFIRMED.
 
+## Voice recording
+
+The dedicated recording route begins with `Preparing audio` and `Please wait`.
+Only its first completely retired frame admits the owner's three-second start
+countdown; a failed or partially transferred frame cannot start capture. The
+title then reads `Start listening in`, followed by the canonical `3 seconds`,
+`2 seconds` and `1 second`. The display does not reconstruct time or invent
+missed seconds. PCM capture begins only when the owner enters Listening.
+
+Five seconds of acquired silence, including silence before the first speech,
+or an admitted manual finish enters the three-second send countdown. Its title
+is `Sending the audio in`; transport does not send END until that countdown
+finishes. Preparing and both countdowns show `Tap to cancel` and `Or shake to
+discard`. One acquired tap cancels immediately anywhere on the visible route.
+Listening retains single-tap send with a 350-ms double-tap arbitration window,
+double-tap discard and shake discard. Every phase change retires pending contacts
+and sends. Actual Sending shows `Finishing delivery`: cancellation remains
+subject to the transport owner's pre-END admission, without promising that an
+already delivered recording can be recalled.
+
+The title remains at y=92, genuine identity metadata at y=134, and the purple
+procedural ribbon at (73,179), 320 x 58. Countdown text occupies y=260 and its
+entire [260,288) damage band is erased when the number changes, including the
+plural suffix. Cancellation hints sit at y=334 and y=362. Listening elapsed time
+uses the canonical capture-start timestamp, excluding preparation and countdown;
+an invalid timestamp shows `Timing unavailable`. The existing animation cadence,
+row buffers and canonical microphone projection are reused. Before Listening,
+the ribbon is ambient artwork and does not claim captured PCM. Native preview
+fixtures label synthetic input explicitly; they do not validate physical audio.
+
 ## Boot and capture
 
 Cold-boot title Cody AI Companion is at y=60 and subtitle A distraction-free

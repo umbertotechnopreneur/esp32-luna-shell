@@ -15,6 +15,7 @@
  * VBWR E */
 
 #include "LUNASHELL_codex_transaction.hpp"
+#include "LUNASHELL_codex_presence.hpp"
 #include <cassert>
 #include <cstring>
 
@@ -48,10 +49,63 @@ LUNASHELL::CodexEventPayload question()
 }
 } // namespace
 
+// No parameters: deterministic authenticated-state policy with the production replay and aging helpers.
+// Exception: Assertion failure means a replay, timeout or malformed source changed canonical app presence.
+void verify_app_presence_policy()
+{
+    using namespace LUNASHELL;
+    CodexAppPresenceSnapshot presence;
+    uint64_t nonce_sequence = 0;
+    assert(presence.state == CodexAppPresenceState::Unavailable && !presence.data_valid);
+    assert(codex_presence::accept(presence, CodexAppPresenceState::Open, ESP_OK,
+        1, 1000000, 1000000, nonce_sequence) == ESP_OK);
+    assert(presence.data_valid && presence.sequence == 1 && nonce_sequence == 1);
+    assert(codex_presence::accept(presence, CodexAppPresenceState::Closed, ESP_OK,
+        1, 0, 2000000, nonce_sequence) == ESP_ERR_INVALID_STATE);
+    assert(presence.state == CodexAppPresenceState::Open && presence.received_at_us == 1000000);
+    assert(codex_presence::accept(presence, CodexAppPresenceState::Closed, ESP_OK,
+        2, 0, 2000000, nonce_sequence) == ESP_OK);
+    assert(presence.state == CodexAppPresenceState::Closed && presence.data_valid);
+    assert(codex_presence::accept(presence, CodexAppPresenceState::Open, ESP_OK,
+        1, 0, 3000000, nonce_sequence) == ESP_ERR_INVALID_STATE);
+    assert(presence.state == CodexAppPresenceState::Closed && presence.received_at_us == 2000000);
+    assert(!codex_presence::age(presence, 9999999));
+    assert(codex_presence::age(presence, 10000000));
+    assert(presence.state == CodexAppPresenceState::Unavailable && !presence.data_valid);
+    assert(presence.last_error == ESP_ERR_TIMEOUT && presence.received_at_us == 2000000);
+    assert(presence.sequence == 2 && nonce_sequence == 2);
+    assert(codex_presence::accept(presence, CodexAppPresenceState::Open, ESP_OK,
+        3, 59999000, 11000000, nonce_sequence) == ESP_OK);
+    assert(!codex_presence::age(presence, 11000999));
+    assert(codex_presence::age(presence, 11001000));
+    assert(presence.source_age_at_receive_us == 59999000);
+    assert(codex_presence::accept(presence, CodexAppPresenceState::Open, ESP_OK,
+        4, 60000000, 12000000, nonce_sequence) == ESP_ERR_INVALID_ARG);
+    assert(nonce_sequence == 3 && presence.sequence == 3);
+    assert(codex_presence::accept(presence, CodexAppPresenceState::Unavailable, ESP_OK,
+        4, 0, 12000000, nonce_sequence) == ESP_ERR_INVALID_ARG);
+    assert(codex_presence::accept(presence, CodexAppPresenceState::Unavailable, ESP_FAIL,
+        4, 1, 12000000, nonce_sequence) == ESP_ERR_INVALID_ARG);
+    assert(codex_presence::accept(presence, CodexAppPresenceState::Unavailable, ESP_FAIL,
+        4, 0, 12000000, nonce_sequence) == ESP_OK);
+    assert(!presence.data_valid && presence.last_error == ESP_FAIL);
+    assert(codex_presence::accept(presence, static_cast<CodexAppPresenceState>(255), ESP_OK,
+        5, 0, 13000000, nonce_sequence) == ESP_ERR_INVALID_ARG);
+    assert(codex_presence::accept(presence, CodexAppPresenceState::Closed, ESP_OK,
+        5, UINT64_MAX, 13000000, nonce_sequence) == ESP_ERR_INVALID_ARG);
+    // Only a newly authenticated READY nonce resets this separate replay barrier.
+    nonce_sequence = 0;
+    assert(codex_presence::accept(presence, CodexAppPresenceState::Open, ESP_OK,
+        1, 0, 14000000, nonce_sequence) == ESP_OK);
+    assert(codex_presence::age(presence, 13999999));
+    assert(presence.last_error == ESP_ERR_INVALID_STATE && presence.received_at_us == 14000000);
+}
+
 // No parameters: Regression sequences run the same production mutation engine as both owners.
 int main()
 {
     using namespace LUNASHELL;
+    verify_app_presence_policy();
     constexpr char first[] = "11111111111111111111111111111111";
     constexpr char second[] = "22222222222222222222222222222222";
     constexpr char empty[] = "00000000000000000000000000000000";

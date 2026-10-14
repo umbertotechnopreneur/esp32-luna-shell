@@ -49,6 +49,7 @@ import ccp_security as security
 import ccp_pricing as pricing
 import ccp_usage as native_usage
 import ccp_chat_title as native_title
+import ccp_presence as app_presence
 from cody_ccp_event_vectors import event_vectors
 
 
@@ -905,12 +906,14 @@ class ChatActivityTests(unittest.TestCase):
     def test_shared_runtime_releases_only_its_own_lease(self) -> None:
         server = Mock()
         server.lease_lock = threading.Lock()
-        server.leases = {}
+        server.service.responder.app_presence = app_presence.AppPresence()
         runtime.dispatch(server, "lease", {"id": "a" * 32})
         runtime.dispatch(server, "lease", {"id": "a" * 32})
         runtime.dispatch(server, "lease", {"id": "b" * 32})
-        runtime.dispatch(server, "release", {"id": "a" * 32})
-        self.assertEqual(set(server.leases), {"b" * 32})
+        runtime.dispatch(server, "release", {"id": "a" * 32, "normal": True})
+        self.assertEqual(server.service.responder.app_presence.snapshot().state, app_presence.AppState.OPEN)
+        runtime.dispatch(server, "release", {"id": "b" * 32, "normal": True})
+        self.assertEqual(server.service.responder.app_presence.snapshot().state, app_presence.AppState.CLOSED)
         self.assertEqual(server.pricing.start_daily_refresh.call_count, 2)
 
     # self: Mocked Winsock reservation with no real socket or state access.
@@ -1197,6 +1200,185 @@ class HookRoutingTests(unittest.TestCase):
         self.assertNotIn("decision", result)
         self.observe("Stop")
         self.assertEqual(self.service.notifications_error, "synthetic queue full")
+
+
+class AppPresenceTests(unittest.TestCase):
+    # self: Pure lease owner with explicit clocks; no thread, network, OS process or native state.
+    # Raises AssertionError if independent clients or final normal closure lose their evidence.
+    def test_last_normal_transport_close_is_distinct_from_a_chat_end(self):
+        owner = app_presence.AppPresence()
+        self.assertEqual(owner.snapshot(1).reason, "unobserved")
+        self.assertTrue(owner.lease("a", 1))
+        self.assertFalse(owner.lease("a", 2))
+        self.assertTrue(owner.lease("b", 3))
+        owner.release("b", True, 4)
+        self.assertEqual(owner.snapshot(5), app_presence.PresenceObservation(app_presence.AppState.OPEN, "none", 3000))
+        with self.assertRaisesRegex(ValueError, "no live owned lease"):
+            owner.release("unknown", True, 5)
+        self.assertEqual(owner.snapshot(5).state, app_presence.AppState.OPEN)
+        server = Mock()
+        server.lease_lock = threading.Lock()
+        server.service.responder.app_presence = owner
+        runtime.dispatch(server, "hook", {"hook_event_name": "SessionEnd", "session_id": "synthetic-chat"})
+        self.assertEqual(owner.snapshot(5).state, app_presence.AppState.OPEN)
+        owner.release("a", True, 6)
+        self.assertEqual(owner.snapshot(7), app_presence.PresenceObservation(app_presence.AppState.CLOSED, "none", 1000))
+        owner.lease("c", 8)
+        self.assertEqual(owner.snapshot(8).state, app_presence.AppState.OPEN)
+
+    # self: Expired and failed transport evidence, including another still-live client.
+    # Raises AssertionError if loss, late cleanup or a subsequent release manufactures Closed.
+    def test_expiry_and_abnormal_release_remain_unavailable(self):
+        owner = app_presence.AppPresence()
+        owner.lease("a", 1)
+        self.assertEqual(owner.snapshot(60.999).state, app_presence.AppState.OPEN)
+        self.assertEqual(owner.snapshot(61), app_presence.PresenceObservation(app_presence.AppState.UNAVAILABLE, "expired"))
+        with self.assertRaisesRegex(ValueError, "no live owned lease"):
+            owner.release("a", True, 62)
+        owner.lease("b", 63)
+        owner.release("b", True, 64)
+        self.assertEqual(owner.snapshot(64).state, app_presence.AppState.UNAVAILABLE)
+        owner = app_presence.AppPresence()
+        owner.lease("a", 1)
+        owner.lease("b", 2)
+        owner.release("a", False, 3)
+        self.assertEqual(owner.snapshot(4).state, app_presence.AppState.OPEN)
+        owner.release("b", True, 5)
+        self.assertEqual(owner.snapshot(5), app_presence.PresenceObservation(app_presence.AppState.UNAVAILABLE, "transport"))
+
+    # self: The exact lease budget and renewal boundary, without waiting on a wall clock.
+    # Raises AssertionError if renewal becomes a second client or the owner grows without a bound.
+    def test_lease_budget_and_renewal_are_bounded(self):
+        owner = app_presence.AppPresence()
+        for index in range(app_presence.MAX_TRANSPORTS):
+            owner.lease(str(index), 1)
+        with self.assertRaisesRegex(ValueError, "limit"):
+            owner.lease("overflow", 2)
+        owner.lease("0", 60)
+        self.assertEqual(owner.snapshot(61), app_presence.PresenceObservation(app_presence.AppState.OPEN, "none", 1000))
+        owner.release("0", True, 62)
+        self.assertEqual(owner.snapshot(62).state, app_presence.AppState.UNAVAILABLE)
+        with self.assertRaisesRegex(ValueError, "clock"):
+            owner.snapshot(float("nan"))
+
+    # self: Real stdio lifecycle with synthetic streams and a mocked local broker transport.
+    # Raises AssertionError if an exceptional exit is released as normal EOF or hides its original cause.
+    def test_stdio_distinguishes_eof_from_processing_failure(self):
+        client = Mock()
+        with patch.object(runtime, "BrokerClient", return_value=client), patch.object(ccp.sys, "stdin", io.StringIO("")):
+            self.assertEqual(ccp.run_stdio(), 0)
+        client.close.assert_called_once_with(normal=True)
+        client.reset_mock()
+        original = RuntimeError("synthetic broker transport failure")
+        client.request.side_effect = original
+        client.close.side_effect = OSError("synthetic release failure")
+        with patch.object(runtime, "BrokerClient", return_value=client), \
+                patch.object(ccp.sys, "stdin", io.StringIO('{"method":"initialize"}\n')), \
+                contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(RuntimeError) as raised:
+                ccp.run_stdio()
+        self.assertIs(raised.exception, original)
+        client.close.assert_called_once_with(normal=False)
+
+    # self: Current and already-loaded development client releases, without HTTP or UDP.
+    # Raises AssertionError if an old release gains normal-close evidence or malformed fields retire a client.
+    def test_old_release_is_abnormal_and_new_normal_requires_boolean(self):
+        server = Mock()
+        server.lease_lock = threading.Lock()
+        server.service.responder.app_presence = app_presence.AppPresence()
+        for fields in ({"id": "a" * 32, "normal": "true"},
+                       {"id": "a" * 32, "normal": 1}, {"id": "a" * 32, "normal": True, "extra": 1}):
+            with self.assertRaises(ValueError):
+                runtime.dispatch(server, "release", fields)
+        self.assertEqual(server.service.responder.app_presence.snapshot().state, app_presence.AppState.UNAVAILABLE)
+        runtime.dispatch(server, "lease", {"id": "a" * 32})
+        diagnostics = io.StringIO()
+        with contextlib.redirect_stderr(diagnostics):
+            runtime.dispatch(server, "release", {"id": "a" * 32})
+        self.assertIn("lacks normal EOF evidence", diagnostics.getvalue())
+        self.assertEqual(server.service.responder.app_presence.snapshot().state, app_presence.AppState.UNAVAILABLE)
+        with self.assertRaisesRegex(ValueError, "no live owned lease"):
+            server.service.responder.app_presence.release("a" * 32, True)
+
+
+class AppPresenceWireTests(unittest.TestCase):
+    # self: Actual encoder/responder with mocked socket and synthetic retained pairing.
+    def setUp(self):
+        self.device = "abcdef012345"
+        self.key = bytes(range(32))
+        self.state = Mock(pc_id="a" * 32)
+        self.state.retained_keys.return_value = ccp.RetainedKeys(self.key, None)
+        self.listener = Mock()
+        self.responder = ccp.CompanionResponder(self.state, self.listener, activity.ActivityStore())
+        self.source = ("127.0.0.1", ccp.DEVICE_PORT)
+        self.clock = patch.object(ccp.time, "monotonic", return_value=100.0)
+        self.clock.start()
+        self.addCleanup(self.clock.stop)
+        self.peer = ccp.EventPeer("b" * 32, self.key, self.source, 100.0)
+        self.responder._event_peers[self.device] = self.peer
+
+    # self: Synthetic capability owner retaining the existing nonce and endpoint.
+    # proof: Optional forged signature used only by negative fixtures.
+    # Returns one production-encoded APPCAP packet.
+    def capability(self, proof=None):
+        values = [self.device, self.state.pc_id, self.peer.nonce, "1"]
+        return ccp.encode_datagram("APPCAP", list(zip(("device", "pc", "nonce", "app"), values))
+            + [("proof", proof or ccp.make_proof(self.key, "app-cap-v1", *values))])
+
+    # self: Current paired peer with no app capability until the explicit signed advertisement.
+    # Raises AssertionError if presence broadcasts to incapable, stale, forged or wrong-source clients.
+    def test_capability_binds_active_key_nonce_and_endpoint(self):
+        self.responder.app_presence.lease("a", 100)
+        self.responder.publish_app_presence()
+        self.listener.sendto.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "authentication failed"):
+            self.responder._handle_datagram(self.capability("0" * 64), self.source)
+        with self.assertRaisesRegex(ValueError, "authentication failed"):
+            self.responder._handle_datagram(self.capability(), (self.source[0], self.source[1] + 1))
+        self.responder._event_peers[self.device] = replace(self.peer, nonce="c" * 32)
+        with self.assertRaisesRegex(ValueError, "authentication failed"):
+            self.responder._handle_datagram(self.capability(), self.source)
+        self.responder._event_peers[self.device] = replace(self.peer, observed_at=89.0)
+        with self.assertRaisesRegex(ValueError, "authentication failed"):
+            self.responder._handle_datagram(self.capability(), self.source)
+        self.responder._event_peers[self.device] = self.peer
+        self.state.retained_keys.return_value = ccp.RetainedKeys(bytes(reversed(self.key)), None)
+        with self.assertRaisesRegex(ValueError, "authentication failed"):
+            self.responder._handle_datagram(self.capability(), self.source)
+        self.listener.sendto.assert_not_called()
+
+    # self: Actual bounded wire packets covering Open, Closed and Unavailable without a real network.
+    # Raises AssertionError if sequence/proof/source-age admission or optional failure evidence is lost.
+    def test_signed_transitions_preserve_age_and_retry_real_send_failure(self):
+        self.responder.app_presence.lease("a", 99)
+        self.responder._handle_datagram(self.capability(), self.source)
+        payload, destination = self.listener.sendto.call_args.args
+        kind, fields = ccp.parse_datagram(payload)
+        self.assertEqual(kind, "APPSTATE")
+        self.assertEqual(destination, self.source)
+        self.assertLessEqual(len(payload), 512)
+        self.assertEqual((fields["state"], fields["reason"], fields["age"]), ("open", "none", "1000"))
+        names = ("device", "pc", "nonce", "sequence", "state", "reason", "age")
+        self.assertEqual(fields["proof"], ccp.make_proof(self.key, "app-state-v1", *(fields[name] for name in names)))
+        first_sequence = int(fields["sequence"], 16)
+        self.responder.app_presence.release("a", True, 100)
+        original = OSError("synthetic UDP send failure")
+        self.listener.sendto.side_effect = original
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.responder.publish_app_presence()
+        self.assertIs(self.responder.app_presence_error, original)
+        self.listener.sendto.side_effect = None
+        self.responder.publish_app_presence()
+        _, closed = ccp.parse_datagram(self.listener.sendto.call_args.args[0])
+        self.assertEqual((closed["state"], closed["reason"], closed["age"]), ("closed", "none", "0"))
+        self.assertGreater(int(closed["sequence"], 16), first_sequence)
+        self.assertIsNone(self.responder.app_presence_error)
+        self.responder.app_presence.lease("b", 100)
+        self.responder.app_presence.release("b", False, 100)
+        self.responder.publish_app_presence()
+        _, missing = ccp.parse_datagram(self.listener.sendto.call_args.args[0])
+        self.assertEqual((missing["state"], missing["reason"], missing["age"]), ("unavailable", "transport", "-"))
+        self.assertEqual(self.responder.app_presence_status()["source"], "mcp_transport")
 
 
 class BrokerRecoveryTests(unittest.TestCase):

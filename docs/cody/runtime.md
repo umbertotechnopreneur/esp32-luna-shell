@@ -629,9 +629,14 @@ and an acquired double tap on the visible character. A single character tap wait
 Movement, stale/broken touch, rotation and explicit controls disqualify a double
 tap. The existing power owner handles standby wake; speech inference and enhanced
 mono PCM remain owned by the sole existing ESP-SR AFE.
-Wake-word admission skips its detection block and begins with the next real AFE
-block. No wake-word cache is prepended; wake-word tail exclusion and preservation
-of an immediately following command still need physical observation.
+The 2026-10-15 increment admits Preparing for wake-word, character double tap,
+and a completed physical standby wake from a short power press, touch or motion.
+Internal recovery, power-off farewell and Codex-notification wake do not start
+recording. A wake-word event already admitted before wake is not duplicated.
+No wake-word block or audio from preparation is recorded. Only a completely
+retired Preparing screen admits the three-second Start listening in countdown.
+Its real owner deadline and a fresh successful AFE Listening observation then
+admit PCM. No wake-word cache is prepended; physical timing still needs observation.
 
 Voice input has presentation priority while retaining the interrupted route and
 its real question deadlines. The character, geometry evaluation and normal scene
@@ -650,17 +655,24 @@ fading/scrolling row cycles model, catalog cost band, thinking effort, branch,
 then project; unavailable fields disappear. No numeric price or bill is invented.
 The bottom timer shows elapsed and remaining seconds within the sixty-second
 budget, starting at `00s elapsed / 60s left`. Recording keeps all instructions
-visible: `Tap once to send`, `Pause over 2s to send`, and
+visible: `Tap once to send`, `5s of silence to finish`, and
 `Shake or double tap` / `to discard`. A single completed tap waits 350 ms for
 double-tap arbitration; a second held contact postpones that decision. Double tap
 or deliberate shake requests discard. Session and orientation guards reject late
 gestures, and only a fully retired view admits input. Cancellation remains possible
 while sending before END, but cannot revoke END already transmitted or a turn
 accepted by Codex; no late gesture claims that remote audio was discarded.
-End of speech requires more than two seconds of successfully acquired 16-kHz
-VAD nonspeech PCM after speech; scheduling gaps do not count as silence. There is an eight-second
-no-speech deadline and a 60-second maximum utterance. The overall capture/delivery
-budget is 90 seconds. New triggers never start a second simultaneous capture.
+Five seconds of successfully acquired 16-kHz VAD nonspeech PCM finish capture,
+including initial silence. A straddling block admits only the exact five-second
+quiet prefix; scheduling gaps and failed reads do not count. Capture then enters
+Sending the audio in for three actual seconds before END may leave. Buffered PCM
+can continue its authenticated transfer, but no native submission is committed
+during that countdown. Both countdowns and Preparing allow one tap anywhere or
+shake to cancel. Recording retains single-send/double-discard arbitration.
+The former eight-second no-speech failure is removed. The maximum utterance is
+60 seconds from actual capture admission, with a 90-second overall session budget.
+Preparation that cannot retire a complete frame fails after 15 seconds. New
+triggers never start a second simultaneous capture.
 Explicit sleep and microphone pauses stop this input even when standby retains
 the recognition microphone. If END may already have left the device, the result
 is `Unconfirmed`, requiring review on the PC rather than claiming cancellation.
@@ -669,7 +681,8 @@ The component-owned PSRAM ring is 160,000 PCM16 samples: 320,000 bytes, or ten
 seconds of **unacknowledged** 16 kHz mono audio. It is not an utterance-duration
 limit. Full buffers fail explicitly without overwriting unheard words. Neither SD
 nor internal flash stores audio on the device. Canonical `voice.input` contains
-typed phase/trigger, actual counters, original event times and errors; no consumer
+typed phase/trigger, actual counters, original request/capture times, canonical
+countdown seconds and errors; its bounded projection remains at most 48 bytes. No consumer
 reads the microphone. The CCP worker borrows the transport with a 5-ms cadence
 only while connected input needs service (at least one RTOS tick). Idle and
 disconnected input use the normal 100-ms cadence; the last 100 ms before an ACK

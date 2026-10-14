@@ -2988,6 +2988,7 @@ bool s_voice_view_visible = false;
 uint16_t s_voice_view_rotation = 0;
 bool s_voice_force_full = false;
 LUNASHELL::VoiceInputPhase s_voice_view_phase = LUNASHELL::VoiceInputPhase::Idle;
+uint8_t s_voice_view_countdown_seconds = 0;
 int64_t s_voice_view_started_at_us = 0;
 int64_t s_voice_tap_due_us = 0;
 uint16_t s_voice_tap_rotation = 0;
@@ -2997,6 +2998,26 @@ int16_t s_voice_tap_x = 0, s_voice_tap_y = 0;
 bool voice_input_view_active()
 {
     return s_voice_view_visible;
+}
+
+// phase: Canonical owner phase; preparing/countdowns remain active without admitting microphone PCM.
+bool voice_input_phase_active(LUNASHELL::VoiceInputPhase phase)
+{
+    using Phase = LUNASHELL::VoiceInputPhase;
+    return phase == Phase::Preparing || phase == Phase::StartCountdown || phase == Phase::SendCountdown ||
+        phase == Phase::Listening || phase == Phase::Sending || phase == Phase::Cancelling || phase == Phase::Received;
+}
+
+// phase: Canonical or completely retired phase whose gesture meaning must never cross a transition.
+CODY::VoiceRecordingMode voice_recording_mode(LUNASHELL::VoiceInputPhase phase)
+{
+    using Phase = LUNASHELL::VoiceInputPhase;
+    if (phase == Phase::Listening) { return CODY::VoiceRecordingMode::Recording; }
+    if (phase == Phase::Preparing || phase == Phase::StartCountdown ||
+        phase == Phase::SendCountdown || phase == Phase::Sending) {
+        return CODY::VoiceRecordingMode::CancelOnly;
+    }
+    return CODY::VoiceRecordingMode::Disabled;
 }
 
 // action: Gesture accepted only from the completely retired recording screen.
@@ -3135,13 +3156,27 @@ esp_err_t prepare_voice_identity()
     return ESP_OK;
 }
 
-// No parameters: recording actions remain visible together instead of scrolling away.
+// No parameters: recording and countdown actions remain visible together instead of scrolling away.
 // Exception: Returns the original measured font/layout error.
 esp_err_t prepare_voice_hint()
 {
     using Phase = LUNASHELL::VoiceInputPhase;
     const auto phase = s_voice_input_view.input.phase;
     s_voice_send = s_voice_silence = s_voice_discard = s_voice_discard_detail = {};
+    if (phase == Phase::Preparing || phase == Phase::StartCountdown || phase == Phase::SendCountdown) {
+        esp_err_t error = prepare_voice_caption(CODY::kVoiceCancelHint, 334, 0xF7BE, s_voice_discard);
+        if (error == ESP_OK) {
+            error = prepare_voice_caption(CODY::kVoiceShakeCancelHint, 362, 0xAD75, s_voice_discard_detail);
+        }
+        if (error == ESP_OK && phase == Phase::Preparing) {
+            error = prepare_voice_caption("Please wait", CODY::kVoiceCountdownTop, 0xAD75, s_voice_send);
+        }
+        return error;
+    }
+    if (phase == Phase::Sending) {
+        // END may already have been sent; without a canonical cancellation capability do not promise it.
+        return prepare_voice_caption("Finishing delivery", 334, 0xAD75, s_voice_discard);
+    }
     if (phase != Phase::Listening) return ESP_OK;
     esp_err_t error = ESP_OK;
     error = prepare_voice_caption(CODY::kVoiceSendHint, 260, 0xF7BE, s_voice_send);
@@ -3161,10 +3196,16 @@ esp_err_t draw_voice_input_rows()
     const bool full = s_voice_force_full || !s_voice_view_visible || s_voice_view_phase != phase ||
         s_voice_view_started_at_us != s_voice_input_view.input.started_at_us ||
         s_voice_view_rotation != s_state.rendered_rotation_degrees;
-    const bool details_due = full || now_us - s_voice_details_retired_us >= 200000;
+    const bool countdown = phase == Phase::StartCountdown || phase == Phase::SendCountdown;
+    const bool countdown_changed = countdown &&
+        s_voice_view_countdown_seconds != s_voice_input_view.input.countdown_seconds;
+    const bool details_due = full || countdown_changed || now_us - s_voice_details_retired_us >= 200000;
     esp_err_t error = ESP_OK;
     if (full) {
-        const char *title = phase == Phase::Listening ? "Listening" : phase == Phase::Sending ? "Sending audio" :
+        const char *title = phase == Phase::Preparing ? CODY::kVoicePreparingTitle :
+            phase == Phase::StartCountdown ? CODY::kVoiceStartCountdownTitle :
+            phase == Phase::SendCountdown ? CODY::kVoiceSendCountdownTitle :
+            phase == Phase::Listening ? "Listening" : phase == Phase::Sending ? "Sending audio" :
             phase == Phase::Cancelling ? "Cancelling" : phase == Phase::Received ? "On your PC" :
             phase == Phase::Delivered ? "Sent to Codex" : phase == Phase::Cancelled ? "Discarded" :
             phase == Phase::Unconfirmed ? "Check on your PC" : "Audio failed";
@@ -3173,17 +3214,36 @@ esp_err_t draw_voice_input_rows()
         if (error != ESP_OK) return error;
     }
     if (details_due) {
-        const int64_t elapsed = std::max<int64_t>(0, now_us - s_voice_input_view.input.started_at_us);
-        const uint32_t used = std::min<uint32_t>(60, phase == Phase::Listening ?
-            static_cast<uint32_t>(elapsed / 1000000) : s_voice_input_view.input.captured_samples / 16000U);
-        const int count = std::snprintf(s_voice_countdown, sizeof(s_voice_countdown), "%02us elapsed / %02us left",
-            static_cast<unsigned>(used), static_cast<unsigned>(60U - used));
-        if (count <= 0 || count >= int(sizeof(s_voice_countdown))) return ESP_ERR_INVALID_SIZE;
-        error = prepare_voice_caption(s_voice_countdown, 402, 0xF7BE, s_voice_timer);
+        s_voice_timer = {};
+        if (countdown) {
+            const char *caption = CODY::voice_recording_countdown_caption(s_voice_input_view.input.countdown_seconds);
+            if (caption == nullptr) {
+                ESP_LOGE(kTag, "Voice countdown rejected: phase=%u seconds=%u (%s)", unsigned(phase),
+                    unsigned(s_voice_input_view.input.countdown_seconds), esp_err_to_name(ESP_ERR_INVALID_STATE));
+                return ESP_ERR_INVALID_STATE;
+            }
+            error = prepare_voice_caption(caption, CODY::kVoiceCountdownTop, 0xF7BE, s_voice_send);
+        } else if (phase != Phase::Preparing) {
+            const int64_t captured_at_us = s_voice_input_view.input.capturing_started_at_us;
+            if (phase == Phase::Listening && (captured_at_us <= 0 || captured_at_us > now_us)) {
+                error = prepare_voice_caption("Timing unavailable", 402, 0xAD75, s_voice_timer);
+            } else {
+                const int64_t elapsed_seconds = phase == Phase::Listening ?
+                    (now_us - captured_at_us) / 1000000 :
+                    s_voice_input_view.input.captured_samples / 16000U;
+                const uint32_t used = static_cast<uint32_t>(std::min<int64_t>(60, elapsed_seconds));
+                const int count = std::snprintf(s_voice_countdown, sizeof(s_voice_countdown), "%02us elapsed / %02us left",
+                    static_cast<unsigned>(used), static_cast<unsigned>(60U - used));
+                if (count <= 0 || count >= int(sizeof(s_voice_countdown))) return ESP_ERR_INVALID_SIZE;
+                error = prepare_voice_caption(s_voice_countdown, 402, 0xF7BE, s_voice_timer);
+            }
+        }
         if (error == ESP_OK) error = prepare_voice_identity();
         if (error != ESP_OK) return error;
     }
-    const bool cancellable = phase == Phase::Listening || phase == Phase::Sending;
+    const bool cancellable = voice_recording_mode(phase) != CODY::VoiceRecordingMode::Disabled &&
+        s_voice_view_started_at_us == s_voice_input_view.input.started_at_us &&
+        s_voice_view_phase == phase && s_voice_view_rotation == s_state.rendered_rotation_degrees;
     error = CODY::observe_response_inputs(s_voice_motion);
     if (error != ESP_OK) return error;
     if (CODY::observe_companion_shake(s_state.companion_shake, s_voice_motion.navigation_motion,
@@ -3197,12 +3257,15 @@ esp_err_t draw_voice_input_rows()
     for (uint16_t row = 0; row < kPanelHeight;) {
         // Static instructions retire with the first complete frame. Only the
         // ribbon animates at 30 Hz; metadata and elapsed time refresh at 5 Hz.
+        // Canonical countdown changes also retire their complete text band immediately.
         uint16_t band_end = kPanelHeight;
         if (!full) {
             if (details_due && row >= 134 && row < 162) band_end = 162;
             // The enlarged artwork starts on an odd row; DMA bands include its even-row padding.
             else if (row >= CODY::kVoiceRibbonDamageTop && row < CODY::kVoiceRibbonDamageBottom)
                 band_end = CODY::kVoiceRibbonDamageBottom;
+            else if (details_due && countdown && row >= CODY::kVoiceCountdownTop &&
+                row < CODY::kVoiceCountdownDamageBottom) band_end = CODY::kVoiceCountdownDamageBottom;
             else if (details_due && row >= 402 && row < 430) band_end = 430;
             else { row += 2; continue; }
         }
@@ -3305,10 +3368,11 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const esp_err_t voice_read = LUNASHELL::DeviceSnapshotService::instance().readVoiceObservation(s_voice_input_view);
     if (voice_read != ESP_OK) return frame.finish({voice_read, false, 0});
     using VoicePhase = LUNASHELL::VoiceInputPhase;
+    const auto recording_mode = s_voice_view_visible && s_voice_view_phase == s_voice_input_view.input.phase
+        ? voice_recording_mode(s_voice_input_view.input.phase) : CODY::VoiceRecordingMode::Disabled;
     const auto recording_action = CODY::take_voice_recording_action(s_voice_recording_gesture,
         esp_timer_get_time(), s_voice_input_view.input.started_at_us, s_state.rendered_rotation_degrees,
-        s_voice_view_visible && (s_voice_input_view.input.phase == VoicePhase::Listening ||
-            s_voice_input_view.input.phase == VoicePhase::Sending));
+        recording_mode);
     if (recording_action != CODY::VoiceRecordingAction::None) {
         esp_err_t action_error = apply_voice_recording_action(recording_action, s_voice_view_started_at_us);
         if (action_error == ESP_OK) action_error =
@@ -3316,8 +3380,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         if (action_error != ESP_OK) return frame.finish({action_error, false, 0});
     }
     const auto voice_phase = s_voice_input_view.input.phase;
-    const bool voice_active = voice_phase == VoicePhase::Listening || voice_phase == VoicePhase::Sending ||
-        voice_phase == VoicePhase::Cancelling || voice_phase == VoicePhase::Received;
+    const bool voice_active = voice_input_phase_active(voice_phase);
     const bool voice_terminal = voice_phase == VoicePhase::Delivered || voice_phase == VoicePhase::Cancelled ||
         voice_phase == VoicePhase::Unconfirmed || voice_phase == VoicePhase::Failed;
     const bool voice_visible = voice_active || (voice_terminal && s_voice_input_view.input.changed_at_us > 0 &&
@@ -3330,7 +3393,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         suspend_optional_personality_audio(true);
         if (error == ESP_OK) error = CODY::set_codex_audio_suspended(true);
         if (error == ESP_OK) error = draw_voice_input_rows();
-        const DrawResult completed = frame.finish({error, false, LUNASHELL_display_runtime_content_revision()});
+        DrawResult completed = frame.finish({error, false, LUNASHELL_display_runtime_content_revision()});
         if (completed.error == ESP_OK) {
             // Only a fully retired frame admits recording gestures for this session.
             if (!s_voice_view_visible) {
@@ -3341,7 +3404,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 s_state.body_drag_active = false;
             }
             if (!s_voice_view_visible || s_voice_view_started_at_us != s_voice_input_view.input.started_at_us ||
-                s_voice_view_rotation != s_state.rendered_rotation_degrees) {
+                s_voice_view_rotation != s_state.rendered_rotation_degrees || s_voice_view_phase != voice_phase) {
                 CODY::reset_voice_recording_gesture(s_voice_recording_gesture);
                 s_voice_visual_energy = 0;
                 s_voice_visual_sampled_us = 0;
@@ -3351,14 +3414,30 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             s_state.wake_battery = {};
             s_voice_view_rotation = s_state.rendered_rotation_degrees;
             s_voice_view_phase = voice_phase;
+            s_voice_view_countdown_seconds = s_voice_input_view.input.countdown_seconds;
             s_voice_view_started_at_us = s_voice_input_view.input.started_at_us;
             s_state.frame_dirty.store(false, std::memory_order_release);
+            if (voice_phase == VoicePhase::Preparing) {
+                // A failed/partial frame never starts the owner countdown. The original session
+                // timestamp also rejects cancellation/replacement that raced this complete frame.
+                bool accepted = false;
+                const esp_err_t countdown_error = LUNASHELL::beginVoiceInputCountdown(
+                    s_voice_view_started_at_us, accepted);
+                if (countdown_error != ESP_OK) {
+                    ESP_LOGE(kTag, "Voice countdown admission failed (%s)", esp_err_to_name(countdown_error));
+                    completed.error = countdown_error;
+                    completed.completed_revision = 0;
+                }
+                if (accepted) { s_state.frame_dirty.store(true, std::memory_order_release); }
+            }
         }
         s_voice_tap_due_us = 0;
         s_state.animation_sampled_us = 0;
         s_state.onboarding_sampled_us = 0;
         s_resources.previous_frame_valid = false;
-        const bool animated = voice_phase == VoicePhase::Listening || voice_phase == VoicePhase::Sending;
+        const bool animated = voice_phase == VoicePhase::Listening || voice_phase == VoicePhase::Sending ||
+            voice_phase == VoicePhase::Preparing || voice_phase == VoicePhase::StartCountdown ||
+            voice_phase == VoicePhase::SendCountdown;
         s_state.next_frame_us = timings.frame_begin_started_us + (animated ? CODY::kVoiceRibbonFrameUs : 200000);
         return completed;
     }
@@ -5152,10 +5231,8 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         const auto action = CODY::observe_voice_recording_touch(s_voice_recording_gesture,
             static_cast<int16_t>(point.x), static_cast<int16_t>(point.y), point.pressed, pressed_edge,
             point.sample_timestamp_us, s_voice_view_started_at_us, s_state.rendered_rotation_degrees,
-            (s_voice_view_phase == LUNASHELL::VoiceInputPhase::Listening ||
-             s_voice_view_phase == LUNASHELL::VoiceInputPhase::Sending) &&
-            s_voice_view_rotation == s_state.rendered_rotation_degrees &&
-            LUNASHELL_display_runtime_writes_allowed());
+            s_voice_view_rotation == s_state.rendered_rotation_degrees && LUNASHELL_display_runtime_writes_allowed()
+                ? voice_recording_mode(s_voice_view_phase) : CODY::VoiceRecordingMode::Disabled);
         s_state.touch_pressed = point.pressed;
         return apply_voice_recording_action(action, s_voice_view_started_at_us);
     }
@@ -5608,11 +5685,10 @@ void companion_worker(void *context)
             input_phase == LUNASHELL::VoiceInputPhase::Cancelled || input_phase == LUNASHELL::VoiceInputPhase::Unconfirmed ||
             input_phase == LUNASHELL::VoiceInputPhase::Failed) && s_voice_input_view.input.changed_at_us > 0 &&
             esp_timer_get_time() - s_voice_input_view.input.changed_at_us < 3000000;
-        const bool voice_attention = input_phase == LUNASHELL::VoiceInputPhase::Listening ||
-            input_phase == LUNASHELL::VoiceInputPhase::Sending || input_phase == LUNASHELL::VoiceInputPhase::Cancelling ||
-            input_phase == LUNASHELL::VoiceInputPhase::Received || s_voice_view_visible || recent_terminal;
+        const bool voice_attention = voice_input_phase_active(input_phase) || s_voice_view_visible || recent_terminal;
         if ((voice_attention && (input_phase != s_voice_view_phase ||
             s_voice_view_started_at_us != s_voice_input_view.input.started_at_us ||
+            s_voice_view_countdown_seconds != s_voice_input_view.input.countdown_seconds ||
             esp_timer_get_time() >= s_state.next_frame_us)) ||
             (s_voice_tap_due_us != 0 && esp_timer_get_time() >= s_voice_tap_due_us)) {
             s_state.frame_dirty.store(true, std::memory_order_release);

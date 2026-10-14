@@ -744,13 +744,19 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
         const char *status = inputs.link != PanelValueState::Current ? metric_status(inputs.link) :
             inputs.connected ? "PC connected" : link.retained_link_present && link.state == LUNASHELL::CodexLinkState::Discovering
                 ? "Reconnecting" : "PC disconnected";
+        const auto &app = link.app_presence;
+        const bool app_current = inputs.link == PanelValueState::Current && inputs.connected &&
+            app.data_valid && app.last_error == ESP_OK;
+        if (app_current && app.state == LUNASHELL::CodexAppPresenceState::Open) status = "Codex open";
+        if (app_current && app.state == LUNASHELL::CodexAppPresenceState::Closed) status = "Codex closed";
         if (link.last_error != ESP_OK && link.state != LUNASHELL::CodexLinkState::Discovering) {
             std::snprintf(caption, sizeof(caption), "Link 0x%X", static_cast<unsigned>(link.last_error));
             status = caption;
         }
         if (secondary_font.height > 18) { return dashboard_result("device_font_height", ESP_ERR_INVALID_SIZE); }
-        error = add_line(presentation, secondary_font, status, 268,
-            inputs.link == PanelValueState::Current && inputs.connected && link.last_error == ESP_OK ? kMint : kWhite);
+        const uint16_t status_color = app_current && app.state == LUNASHELL::CodexAppPresenceState::Closed ? kAmber :
+            inputs.link == PanelValueState::Current && inputs.connected && link.last_error == ESP_OK ? kMint : kWhite;
+        error = add_line(presentation, secondary_font, status, 268, status_color);
         if (error == ESP_OK) {
             if (device_ip_state == PanelValueState::Current && (device_ip[0] == '\0' || std::strlen(device_ip) > 15)) {
                 return dashboard_result("device_ip_value", ESP_ERR_INVALID_ARG);

@@ -64,6 +64,71 @@ recipient, with session/turn/checkout revalidation and no transcript read or foc
 change. This event carries no choices or check progress and never implies task
 success. Native approvals continue on the PC.
 
+## Authenticated Codex client presence (15 October 2026)
+
+App presence is separate from retained pairing, READY/LAN liveness and the followed
+chat's ACTIVITY phase. Its source is the existing MCP transport lease owner,
+`mcp/ccp_presence.py`: a real transport start/renewal establishes `open`; normal
+EOF releasing the last known live transport establishes `closed`. Hook-only
+broker startup establishes neither. `SessionEnd` cannot establish app closure:
+the [official hooks documentation](https://learn.chatgpt.com/docs/hooks#sessionend)
+also defines it for archive/delete and abandoned conversations.
+
+After READY and COMMITTED, capable firmware sends:
+
+```text
+CCP1|APPCAP|device=<12hex>|pc=<32hex>|nonce=<32hex>|app=1|proof=<64hex>
+HMAC input: app-cap-v1|<device>|<pc>|<nonce>|1
+
+CCP1|APPSTATE|device=<12hex>|pc=<32hex>|nonce=<32hex>|sequence=<16hex>|state=<state>|reason=<reason>|age=<milliseconds-or-dash>|proof=<64hex>
+HMAC input: app-state-v1|<device>|<pc>|<nonce>|<sequence>|<state>|<reason>|<age>
+```
+
+Both envelopes retain the **512-byte** cap. APPCAP must match the current committed
+active key, nonce and observed UDP endpoint; an incapable peer receives no
+APPSTATE. APPSTATE validates the active key, current READY nonce, exact endpoint
+and strictly increasing nonzero unsigned 64-bit sequence. Duplicate/out-of-order
+packets cannot refresh evidence. A repeated READY with the same nonce does not
+reset the receiver's sequence; only a newly authenticated nonce does.
+
+`state` is `open`, `closed` or `unavailable`. Open/Closed require `reason=none`
+and canonical unsigned decimal `age` in milliseconds, bounded to uint32.
+Unavailable requires `age=-` and reason `unobserved`, `expired` or `transport`.
+The firmware maps these to NOT_FOUND, TIMEOUT and FAIL respectively. Source age
+is a host duration, never a comparison of clocks on two machines. Open requires
+a genuine lease less than 60 seconds old; every accepted state also depends on
+an authenticated packet less than eight seconds old. Expiry becomes Unavailable,
+never Closed, and retains the original receipt/source timestamps as evidence.
+
+Lease transitions push through the existing UDP owner; each fresh APPCAP also
+returns current state. The existing one-second broker loop detects expiry and
+retries optional publication failures; no new task, timer or process scan is
+introduced. Up to 64 active transports and 128 capable peers are retained. An
+ambiguous expired/failed transport prevents a later normal release of another
+client from claiming all clients closed for that broker lifetime. Shutdown grace
+remains 60 seconds after the last genuine lease/release, allowing authenticated
+polls to recover a lost final packet. Session hooks can keep the broker alive but
+cannot create an Open lease or a Closed transition.
+
+Normal EOF proves the plugin's MCP client connection ended; plugin reload or
+disable can also do that. It is not an independent OS/window observation. A
+killed bridge, failed release or lost connection remains Unavailable when its
+lease expires. `ccp_connection_status.app_presence` identifies
+`source=mcp_transport`, source age and any original optional publication error.
+Presence never switches the followed chat, answers a question, confirms native
+audio availability or erases a pairing. The bounded canonical firmware owner is
+[`CodexAppPresenceSnapshot`](../../../components/LUNASHELL_platform/include/LUNASHELL_codex_presence.hpp),
+appended as `CodexLinkSnapshot.app_presence`.
+
+The development plugin remains version 0.6.8 for this incremental source update.
+New clients send local `release` with `id` and explicit boolean `normal`.
+An already-loaded client's earlier `release` containing only `id` retires that
+lease as abnormal and logs the missing EOF evidence; it can never establish
+Closed. Other missing/unknown fields and nonboolean `normal` values are rejected.
+An already-running broker does not hot-reload installed Python source. A real
+Codex reopen that starts the updated broker/client is required for the new
+presence and EOF reporting; cache installation alone does not prove activation.
+
 ## Identity and ports
 
 - Cody listens on UDP port `42117` while pairing.

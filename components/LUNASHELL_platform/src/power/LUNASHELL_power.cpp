@@ -2360,14 +2360,56 @@ void queue_leg_sound(const LegMotionReading &motion, int64_t now_us)
 }
 #endif
 
-// No parameters: a completed short click exclusively toggles standby.
-// Exception: Returns the real resource transition failure.
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+// input: Bounded canonical voice projection; never a second microphone read.
+bool voice_input_is_active(const LUNASHELL::VoiceInputObservation &input)
+{
+    using Phase = LUNASHELL::VoiceInputPhase;
+    return input.phase == Phase::Preparing || input.phase == Phase::StartCountdown ||
+        input.phase == Phase::Listening || input.phase == Phase::SendCountdown ||
+        input.phase == Phase::Sending || input.phase == Phase::Cancelling || input.phase == Phase::Received;
+}
+#endif
+
+// standby: True for the same short-button sleep action, false for an explicit input wake.
+// reason: Actual physical power/touch/motion input, not a shutdown recovery or Codex notice.
+// Exception: Returns the first real wake/admission error; voice failure never rolls back an awake device.
+esp_err_t wake_from_user_input(bool standby, LUNASHELL::DeviceStateReason reason)
+{
+    const bool was_standby = s_state == LUNASHELL::DeviceOperatingState::Standby;
+    const esp_err_t wake_error = set_standby(standby, reason);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    if (!standby && was_standby && s_state == LUNASHELL::DeviceOperatingState::Active &&
+        !s_shutdown_in_progress && (reason == LUNASHELL::DeviceStateReason::PowerButton ||
+        reason == LUNASHELL::DeviceStateReason::BootButton || reason == LUNASHELL::DeviceStateReason::Touch ||
+        reason == LUNASHELL::DeviceStateReason::ImuMotion)) {
+        // This optional action follows a completed physical wake only. Internal
+        // recovery and farewell calls continue to use set_standby directly.
+        LUNASHELL::VoiceSnapshot voice{};
+        static_assert(sizeof(voice) <= 256, "Wake voice admission must remain a bounded power-task projection");
+        esp_err_t voice_error = LUNASHELL::DeviceSnapshotService::instance().readVoiceObservation(voice);
+        if (voice_error == ESP_OK && !voice_input_is_active(voice.input)) {
+            voice_error = LUNASHELL::requestVoiceInput(LUNASHELL::VoiceInputTrigger::StandbyWake);
+        }
+        if (voice_error != ESP_OK) {
+            ESP_LOGE(kTag, "Optional standby-wake recording admission failed (%s)", esp_err_to_name(voice_error));
+            return wake_error != ESP_OK ? wake_error : voice_error;
+        }
+    }
+#else
+    (void)was_standby;
+#endif
+    return wake_error;
+}
+
+// No parameters: a completed physical short click toggles standby through the power owner.
+// Exception: Returns the original transition error or optional voice admission error.
 esp_err_t dispatch_power_single_press()
 {
     ESP_LOGI(kTag, "PWR short press: toggling standby (count=%lu)",
              static_cast<unsigned long>(s_inputs.power_short_press_count));
-    return set_standby(s_state != LUNASHELL::DeviceOperatingState::Standby,
-                       LUNASHELL::DeviceStateReason::PowerButton);
+    const bool waking = s_state == LUNASHELL::DeviceOperatingState::Standby;
+    return wake_from_user_input(!waking, LUNASHELL::DeviceStateReason::PowerButton);
 }
 
 // short_presses: Completed short-click IRQs from the canonical PMU owner.
@@ -2906,7 +2948,7 @@ void power_task(void *argument)
         if (physical_touch_interrupt && s_state == LUNASHELL::DeviceOperatingState::Standby) {
             // LVGL is parked, but its IRQ observer remains alive. This is wake intent,
             // not a measured touch contact; acquisition publishes the actual sample.
-            const esp_err_t wake_error = set_standby(false, LUNASHELL::DeviceStateReason::Touch);
+            const esp_err_t wake_error = wake_from_user_input(false, LUNASHELL::DeviceStateReason::Touch);
             if (wake_error != ESP_OK) {
                 ESP_LOGE(kTag, "Touch IRQ wake reported an error (%s)", esp_err_to_name(wake_error));
             }
@@ -2946,7 +2988,7 @@ void power_task(void *argument)
             const LUNASHELL::DeviceStateReason activity_reason =
                 s_activity_reason.load(std::memory_order_relaxed);
             if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
-                const esp_err_t wake_error = set_standby(false, activity_reason);
+                const esp_err_t wake_error = wake_from_user_input(false, activity_reason);
                 if (wake_error != ESP_OK) {
                     ESP_LOGE(kTag, "Input activity wake reported an error (%s)", esp_err_to_name(wake_error));
                 }

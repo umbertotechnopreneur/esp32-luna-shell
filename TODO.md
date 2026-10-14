@@ -1,6 +1,11 @@
 # Active work
 
-Updated 2026-10-14. The authorized autonomous implementation queue is complete.
+Updated 2026-10-15. Codex MCP presence and the cancellable voice countdowns are
+implemented and statically integrated. Complete the announced final host checks,
+Release build/size/stack review, installation and passive capture before recording
+them as validated. The physical GUI exit and voice/gait trials remain separate.
+
+The preceding 2026-10-14 delivery is complete.
 Release `cody-176-gb43fe3de` is installed on COM10; the matching CCP source is
 installed in the local plugin cache. Four Home panels, occupied context progress,
 independent Still, the taller recording ribbon, finite @CCP introduction and

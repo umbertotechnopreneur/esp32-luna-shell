@@ -165,6 +165,15 @@ int main()
     verify_stillness_ownership();
     // The host owns this full schema on its heap, not an embedded task stack.
     auto snapshot = std::make_unique<DeviceSnapshot>();
+    uint64_t app_sequence = 0;
+    assert(codex_presence::accept(snapshot->radios.codex_link.app_presence,
+        CodexAppPresenceState::Open, ESP_OK, 1, 59000000, 1000000, app_sequence) == ESP_OK);
+    apply_measured_sample_aging(*snapshot, 1999999);
+    assert(snapshot->radios.codex_link.app_presence.data_valid);
+    apply_measured_sample_aging(*snapshot, 2000000);
+    assert(snapshot->radios.codex_link.app_presence.state == CodexAppPresenceState::Unavailable);
+    assert(snapshot->radios.codex_link.app_presence.last_error == ESP_ERR_TIMEOUT);
+    assert(snapshot->radios.codex_link.app_presence.received_at_us == 1000000);
     snapshot->battery.health = DeviceHealth::Ready;
     snapshot->battery.last_error = ESP_OK;
     snapshot->battery.data_valid = true;

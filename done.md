@@ -13,6 +13,36 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Codex transport presence and cancellable voice countdowns - 2026-10-15
+
+Source implementation appends Preparing, StartCountdown and SendCountdown without
+renumbering earlier voice phases. Capture starts only after complete screen
+retirement, three real seconds and a fresh healthy Listening observation. Five
+acquired seconds of silence, including initial silence, admit a separate
+three-second sending countdown. A straddling AFE block is bounded to its exact
+quiet prefix. Preparing/countdowns support immediate tap or shake cancellation;
+no END leaves during the sending countdown. Recording retains gesture arbitration.
+Actual capture time is separate from request time; the projection stays <=48 bytes.
+
+Completed physical power/touch/motion standby wakes use the same flow, without
+duplicating wake-word capture. Shutdown, recovery and Codex-notification wakes
+do not start recording. The new optional admission preserves wake errors and
+does not undo an already completed power transition.
+
+APPSTATE is a separate signed capability/nonce/endpoint-bound projection with a
+strict per-nonce replay barrier. Open reflects a current MCP client; only normal
+EOF of the final known transport can report Closed. Crashes, expiry, missing EOF
+evidence and source/transport errors remain Unavailable. SessionEnd never means
+app closure: it can also mean archive/delete. Home Device shows Codex open/closed
+only from admitted current canonical evidence. No new polling worker is added.
+
+Implementation and independent source review are complete at this checkpoint.
+Host fixtures, compilation, installation and physical validation are not yet
+claimed. The currently installed image remains cody-176-gb43fe3de until final
+delivery. Authenticated LAN is online; the actual PC audio status still reports
+an unconfigured native loopback endpoint. No second app-server or UI workaround
+was introduced to conceal that delivery limitation.
+
 ## Four Home panels, finite CCP introduction and other-chat reply - 2026-10-14
 
 Home rotates Tokens, Model, Device and Chat, or advances by tap. Tokens retains

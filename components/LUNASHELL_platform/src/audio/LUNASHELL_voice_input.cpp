@@ -20,6 +20,9 @@ namespace {
 constexpr char kTag[] = "LUNASHELL_voice_input";
 constexpr size_t kSamples = 160000; // Ten seconds of unacknowledged mono PCM16.
 constexpr uint32_t kUtteranceSamples = 60U * 16000U;
+constexpr uint32_t kSilenceSamples = 5U * 16000U;
+constexpr int64_t kCountdownUs = 3000000;
+constexpr int64_t kPrepareTimeoutUs = 15000000;
 constexpr size_t kChunk = 480;
 constexpr size_t kHeader = 49;
 constexpr size_t kPacket = kHeader + kChunk * 2 + 16;
@@ -51,8 +54,9 @@ size_t s_packet_size;
 int s_socket = -1;
 sockaddr_in s_peer{};
 int64_t s_sent_at, s_last_ack_at;
+int64_t s_countdown_deadline_us = 0;
 uint32_t s_silence_samples = 0;
-bool s_heard_speech, s_begun, s_final;
+bool s_begun, s_final;
 bool s_publication_pending = false;
 
 // value: Host-order counter encoded in the protocol header.
@@ -73,6 +77,10 @@ uint32_t get32(const uint8_t *input)
 esp_err_t publish(LUNASHELL::VoiceInputPhase phase, esp_err_t error = ESP_OK)
 {
     s_observation.phase = phase;
+    if (phase != LUNASHELL::VoiceInputPhase::StartCountdown &&
+        phase != LUNASHELL::VoiceInputPhase::SendCountdown) {
+        s_observation.countdown_seconds = 0;
+    }
     s_observation.error = error;
     s_observation.changed_at_us = esp_timer_get_time();
     const esp_err_t result = LUNASHELL::DeviceSnapshotService::instance().reportVoiceInput(s_observation);
@@ -81,6 +89,7 @@ esp_err_t publish(LUNASHELL::VoiceInputPhase phase, esp_err_t error = ESP_OK)
     if (error != ESP_OK) ESP_LOGE(kTag, "Voice input operation failed (%s)", esp_err_to_name(error));
     if (result != ESP_OK) {
         s_observation.phase = s_end_sent ? LUNASHELL::VoiceInputPhase::Unconfirmed : LUNASHELL::VoiceInputPhase::Failed;
+        s_observation.countdown_seconds = 0;
         s_observation.error = result;
     }
     return error != ESP_OK ? error : result;
@@ -89,9 +98,54 @@ esp_err_t publish(LUNASHELL::VoiceInputPhase phase, esp_err_t error = ESP_OK)
 bool active()
 {
     using Phase = LUNASHELL::VoiceInputPhase;
-    return s_observation.phase == Phase::Listening || s_observation.phase == Phase::Sending ||
+    return s_observation.phase == Phase::Preparing || s_observation.phase == Phase::StartCountdown ||
+           s_observation.phase == Phase::SendCountdown ||
+           s_observation.phase == Phase::Listening || s_observation.phase == Phase::Sending ||
            s_observation.phase == Phase::Cancelling ||
            s_observation.phase == Phase::Received;
+}
+// phase: StartCountdown or SendCountdown, both still locally cancellable before END.
+// now_us: Actual owner transition time; subsequent updates never extend this deadline.
+// Exception: Returns the original canonical publication error.
+esp_err_t start_countdown_locked(LUNASHELL::VoiceInputPhase phase, int64_t now_us)
+{
+    s_countdown_deadline_us = now_us + kCountdownUs;
+    s_observation.countdown_seconds = 3;
+    return publish(phase);
+}
+// now_us: Actual monotonic service time; only the acquisition owner can later supply PCM.
+// Exception: Returns the original canonical publication error or invalid countdown state.
+esp_err_t advance_countdown_locked(int64_t now_us)
+{
+    using Phase = LUNASHELL::VoiceInputPhase;
+    const auto phase = s_observation.phase;
+    if (phase != Phase::StartCountdown && phase != Phase::SendCountdown) return ESP_OK;
+    if (s_countdown_deadline_us <= 0) return publish(Phase::Failed, ESP_ERR_INVALID_STATE);
+    if (now_us >= s_countdown_deadline_us) {
+        s_countdown_deadline_us = 0;
+        if (phase == Phase::StartCountdown) {
+            LUNASHELL::VoiceSnapshot voice{};
+            const esp_err_t read_error = LUNASHELL::DeviceSnapshotService::instance().readVoiceObservation(voice);
+            if (read_error != ESP_OK || !voice.data_valid || voice.data_stale || voice.last_error != ESP_OK ||
+                voice.state != LUNASHELL::VoiceState::Listening) {
+                const esp_err_t error = read_error != ESP_OK ? read_error :
+                    voice.last_error != ESP_OK ? voice.last_error : ESP_ERR_INVALID_STATE;
+                ESP_LOGE(kTag, "Recording start rejected: AFE state=%u (%s)", unsigned(voice.state), esp_err_to_name(error));
+                return publish(Phase::Failed, error);
+            }
+            // The first three seconds belong to visible preparation, not the recording duration.
+            s_observation.capturing_started_at_us = now_us;
+            s_last_ack_at = now_us;
+            return publish(Phase::Listening);
+        }
+        return publish(Phase::Sending);
+    }
+    const auto seconds = static_cast<uint8_t>((s_countdown_deadline_us - now_us + 999999) / 1000000);
+    if (seconds != s_observation.countdown_seconds) {
+        s_observation.countdown_seconds = seconds;
+        return publish(phase);
+    }
+    return ESP_OK;
 }
 // error: Actual transport failure; END transmission makes delivery potentially irreversible.
 // Exception: Returns the original transport or canonical publication error.
@@ -210,15 +264,24 @@ esp_err_t prepare(const char *device_id, uint8_t flags)
 esp_err_t LUNASHELL::requestVoiceInput(VoiceInputTrigger trigger)
 {
     std::lock_guard<std::mutex> guard(s_mutex);
-    if (trigger != VoiceInputTrigger::WakeWord && trigger != VoiceInputTrigger::DoubleTap) {
-        ESP_LOGE(kTag, "Voice input rejected unknown trigger (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+    if (trigger != VoiceInputTrigger::WakeWord && trigger != VoiceInputTrigger::DoubleTap &&
+        trigger != VoiceInputTrigger::StandbyWake) {
+        ESP_LOGE(kTag, "Voice input rejected unknown trigger=%u (%s)", unsigned(trigger), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
     VoiceSnapshot voice{};
     const esp_err_t read_error = DeviceSnapshotService::instance().readVoiceObservation(voice);
-    if (read_error != ESP_OK || !voice.data_valid || voice.data_stale || voice.state != VoiceState::Listening || active()) {
-        const esp_err_t error = read_error != ESP_OK ? read_error : ESP_ERR_INVALID_STATE;
-        ESP_LOGE(kTag, "Voice input request rejected (%s)", esp_err_to_name(error));
+    // A completed standby wake can precede the AFE's first resumed publication.
+    // Preparing admits no PCM; the countdown boundary requires a fresh Listening sample.
+    const bool resumed_pause = trigger == VoiceInputTrigger::StandbyWake && voice.state == VoiceState::Paused &&
+        voice.last_error == ESP_OK;
+    const bool microphone_ready = voice.data_valid && !voice.data_stale && voice.last_error == ESP_OK &&
+        voice.state == VoiceState::Listening;
+    if (read_error != ESP_OK || (!microphone_ready && !resumed_pause) || active()) {
+        const esp_err_t error = read_error != ESP_OK ? read_error :
+            voice.last_error != ESP_OK ? voice.last_error : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Voice input request rejected: trigger=%u AFE=%u active=%u (%s)",
+            unsigned(trigger), unsigned(voice.state), unsigned(active()), esp_err_to_name(error));
         return error;
     }
     s_observation = {};
@@ -234,14 +297,28 @@ esp_err_t LUNASHELL::requestVoiceInput(VoiceInputTrigger trigger)
     s_sequence = s_ack_counter = 0;
     s_packet_size = 0;
     s_window_read = s_window_count = s_reserved = 0;
-    s_begun = s_final = s_heard_speech = false;
+    s_begun = s_final = false;
     s_silence_samples = 0;
+    s_countdown_deadline_us = 0;
     s_last_ack_at = s_observation.started_at_us;
     esp_fill_random(s_session, sizeof(s_session));
-    const esp_err_t publication_error = publish(VoiceInputPhase::Listening);
+    const esp_err_t publication_error = publish(VoiceInputPhase::Preparing);
     if (publication_error != ESP_OK) return publication_error;
     LUNASHELL_power_manager_note_activity();
     return ESP_OK;
+}
+// expected_started_at_us: Visible session identity, retained only after a complete frame.
+// accepted: Receives true after that same Preparing session is published as a countdown.
+// Exception: Stale/terminal intents are no-ops; original publication errors are returned.
+esp_err_t LUNASHELL::beginVoiceInputCountdown(int64_t expected_started_at_us, bool &accepted)
+{
+    accepted = false;
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (expected_started_at_us <= 0 || expected_started_at_us != s_observation.started_at_us ||
+        s_observation.phase != VoiceInputPhase::Preparing) return ESP_OK;
+    const esp_err_t error = start_countdown_locked(VoiceInputPhase::StartCountdown, esp_timer_get_time());
+    accepted = error == ESP_OK;
+    return error;
 }
 // samples: Real enhanced mono PCM; never a diagnostic or synthetic stream.
 // count: Successfully acquired samples, bounded by the AFE result.
@@ -251,14 +328,18 @@ void LUNASHELL::feedVoiceInput(const int16_t *samples, size_t count, bool speech
 {
     std::lock_guard<std::mutex> guard(s_mutex);
     if (s_observation.phase != VoiceInputPhase::Listening) return;
-    const size_t admitted = std::min<size_t>(count, kUtteranceSamples - s_observation.captured_samples);
+    size_t admitted = std::min<size_t>(count, kUtteranceSamples - s_observation.captured_samples);
+    if (!speech) {
+        // The admitted quiet prefix stops exactly at five acquired seconds,
+        // even when the AFE block straddles that boundary. No samples are invented.
+        admitted = std::min<size_t>(admitted, kSilenceSamples - s_silence_samples);
+    }
     if (error != ESP_OK || samples == nullptr || count == 0 || admitted > kSamples - s_count) {
         publish(VoiceInputPhase::Failed, error != ESP_OK ? error : ESP_ERR_INVALID_SIZE);
         return;
     }
     const int64_t now = esp_timer_get_time();
     if (speech) {
-        s_heard_speech = true;
         s_silence_samples = 0;
     } else {
         // Count only successfully acquired 16 kHz non-speech PCM. A stalled
@@ -273,11 +354,11 @@ void LUNASHELL::feedVoiceInput(const int16_t *samples, size_t count, bool speech
     s_count += admitted;
     s_observation.captured_samples += static_cast<uint32_t>(admitted);
     LUNASHELL_power_manager_note_activity();
-    if ((s_heard_speech && s_silence_samples > 2U * 16000U) ||
-        now - s_observation.started_at_us >= 60000000 || s_observation.captured_samples == kUtteranceSamples) {
-        publish(VoiceInputPhase::Sending);
-    } else if (!s_heard_speech && now - s_observation.started_at_us >= 8000000) {
-        publish(VoiceInputPhase::Failed, ESP_ERR_TIMEOUT);
+    if (s_silence_samples >= kSilenceSamples ||
+        now - s_observation.capturing_started_at_us >= 60000000 ||
+        s_observation.captured_samples == kUtteranceSamples) {
+        // Initial silence is valid acquired audio too. Missing blocks cannot manufacture it.
+        start_countdown_locked(VoiceInputPhase::SendCountdown, now);
     }
 }
 // No parameters: caller holds s_mutex and has admitted a pre-END cancellation.
@@ -286,6 +367,7 @@ static esp_err_t cancel_voice_input_locked()
 {
     using LUNASHELL::VoiceInputPhase;
     s_count = s_silence_samples = 0;
+    s_countdown_deadline_us = 0;
     if (!s_begun) {
         // No END can have left before START acknowledgement; the PC expires partial state.
         return publish(VoiceInputPhase::Cancelled);
@@ -302,7 +384,10 @@ static esp_err_t cancel_voice_input_locked()
 esp_err_t LUNASHELL::cancelVoiceInput()
 {
     std::lock_guard<std::mutex> guard(s_mutex);
-    if (s_end_sent || (s_observation.phase != VoiceInputPhase::Listening &&
+    if (s_end_sent || (s_observation.phase != VoiceInputPhase::Preparing &&
+                       s_observation.phase != VoiceInputPhase::StartCountdown &&
+                       s_observation.phase != VoiceInputPhase::SendCountdown &&
+                       s_observation.phase != VoiceInputPhase::Listening &&
                        s_observation.phase != VoiceInputPhase::Sending)) {
         ESP_LOGE(kTag, "Voice cancellation rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
@@ -320,7 +405,7 @@ esp_err_t LUNASHELL::finishVoiceInput(int64_t expected_started_at_us, bool &acce
         s_observation.phase != VoiceInputPhase::Listening || s_observation.captured_samples == 0) {
         return ESP_OK;
     }
-    const esp_err_t error = publish(VoiceInputPhase::Sending);
+    const esp_err_t error = start_countdown_locked(VoiceInputPhase::SendCountdown, esp_timer_get_time());
     accepted = error == ESP_OK;
     return error;
 }
@@ -332,7 +417,10 @@ esp_err_t LUNASHELL::cancelVoiceInput(int64_t expected_started_at_us, bool &acce
     accepted = false;
     std::lock_guard<std::mutex> guard(s_mutex);
     if (expected_started_at_us <= 0 || expected_started_at_us != s_observation.started_at_us ||
-        s_end_sent || (s_observation.phase != VoiceInputPhase::Listening &&
+        s_end_sent || (s_observation.phase != VoiceInputPhase::Preparing &&
+                       s_observation.phase != VoiceInputPhase::StartCountdown &&
+                       s_observation.phase != VoiceInputPhase::SendCountdown &&
+                       s_observation.phase != VoiceInputPhase::Listening &&
                        s_observation.phase != VoiceInputPhase::Sending)) {
         return ESP_OK;
     }
@@ -349,6 +437,7 @@ esp_err_t LUNASHELL::pauseVoiceInput()
         return ESP_OK;
     }
     s_count = 0;
+    s_countdown_deadline_us = 0;
     s_packet_size = 0;
     s_window_count = s_reserved = 0;
     // A transmitted END can already have reached native input; a local pause cannot revoke it.
@@ -373,6 +462,13 @@ bool LUNASHELL::tickVoiceInputTransport(const uint8_t *link_key, const char *dev
     if (!active()) return false;
     const int64_t now = esp_timer_get_time();
     LUNASHELL_power_manager_note_activity();
+    if (s_observation.phase == VoiceInputPhase::Preparing) {
+        // Rendering owns admission, never a guessed window-loading delay or timer alone.
+        if (now - s_observation.started_at_us >= kPrepareTimeoutUs) publish(VoiceInputPhase::Failed, ESP_ERR_TIMEOUT);
+        return false;
+    }
+    if (advance_countdown_locked(now) != ESP_OK) return false;
+    if (s_observation.phase == VoiceInputPhase::StartCountdown) return false;
     if (now - s_observation.started_at_us > voice_poll::kSessionTimeoutUs) {
         transportFailure(ESP_ERR_TIMEOUT);
         return false;
@@ -496,7 +592,8 @@ bool LUNASHELL::tickVoiceInputTransport(const uint8_t *link_key, const char *dev
         return false;
     }
     while (s_begun && !s_final && s_window_count < kWindow && s_count > s_reserved &&
-        (s_observation.phase == VoiceInputPhase::Listening || s_observation.phase == VoiceInputPhase::Sending)) {
+        (s_observation.phase == VoiceInputPhase::Listening || s_observation.phase == VoiceInputPhase::SendCountdown ||
+         s_observation.phase == VoiceInputPhase::Sending)) {
         const esp_err_t error = prepare(device_id, 2);
         if (error != ESP_OK) { transportFailure(error); return false; }
         auto &pending = s_window[(s_window_read + s_window_count) % kWindow];

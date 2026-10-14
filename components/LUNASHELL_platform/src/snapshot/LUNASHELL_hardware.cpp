@@ -2782,7 +2782,9 @@ esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObs
     if (release_error != ESP_OK) {
         return release_error;
     }
-    age_codex_technical(observation.technical, esp_timer_get_time());
+    const int64_t now_us = esp_timer_get_time();
+    age_codex_technical(observation.technical, now_us);
+    codex_presence::age(observation.link.app_presence, now_us);
     if (observation.link.state != CodexLinkState::Connected) {
         observation.technical.data_stale = observation.technical.received_at_us > 0;
         observation.technical.model_stale = observation.technical.model_valid;
@@ -2800,21 +2802,22 @@ esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObs
 }
 
 // observation: Coherent projection for the connectivity worker; no driver reads.
+// Exception: Returns the original mutex error; output is unusable on failure.
 esp_err_t DeviceSnapshotService::readConnectivityObservation(ConnectivityObservation &observation) const
 {
     const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "connectivity read");
     if (lock_error != ESP_OK) {
         return lock_error;
     }
-    const ConnectivityObservation copy{
-        .radios = s_snapshot.radios,
-        .operating_state = s_snapshot.power.state,
-    };
+    // Write into the caller-owned projection; schema growth must not create a
+    // second nested radio/link snapshot on the network worker's 8 KiB stack.
+    observation.radios = s_snapshot.radios;
+    observation.operating_state = s_snapshot.power.state;
     const esp_err_t release_error = give_snapshot_mutex("connectivity read");
     if (release_error != ESP_OK) {
         return release_error;
     }
-    observation = copy;
+    codex_presence::age(observation.radios.codex_link.app_presence, esp_timer_get_time());
     return ESP_OK;
 }
 

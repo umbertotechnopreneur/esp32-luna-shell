@@ -21,6 +21,27 @@ Without it, a broker started by a hook exits after 60 seconds without another
 hook; a running Codex window alone is not that transport. Inspect the native
 resolved MCP configuration and startup result when diagnosing idle disconnects.
 
+App presence now has an independent authenticated APPCAP/APPSTATE extension.
+An actual MCP transport starts **Open**; normal EOF of the last live transport
+produces **Closed**. A crashed bridge, expired lease or failed close remains
+**Unavailable**. The broker retains at most 64 active transport leases, renews
+through the existing ten-second worker and expires source evidence after
+60 seconds. The device expires received presence after eight seconds without
+an authenticated update. A prior ambiguous transport loss prevents a later
+normal release from falsely proving every client closed during that broker's
+lifetime. Chat switching and `SessionEnd` do not change this state.
+
+This observes the MCP client connection, not the OS process or window: disabling
+or reloading the plugin can also close that connection. Hook-only broker startup
+does not imply Codex is Open. The read-only connection-status result exposes
+`app_presence.source=mcp_transport`, source age and any original publication
+failure. Source changes require a coordinated future plugin/firmware update;
+they do not install or activate it. See the [presence wire contract](protocol/CCP1.md#authenticated-codex-client-presence-15-october-2026).
+This incremental development update keeps version 0.6.8. An already-loaded
+client's id-only release is explicitly treated as abnormal, with no Closed
+claim. A real Codex reopen that starts the updated broker/client loads the new
+EOF reporting; changing files on disk does not hot-reload a running broker.
+
 ## One-way voice input preparation
 
 The dedicated encrypted receiver uses UDP 42119, independently of CCP metadata

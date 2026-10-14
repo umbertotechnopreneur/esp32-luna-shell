@@ -7,14 +7,19 @@
 
 namespace LUNASHELL {
 
-enum class VoiceInputPhase : uint8_t { Idle, Listening, Sending, Cancelling, Received, Delivered, Cancelled, Unconfirmed, Failed };
-enum class VoiceInputTrigger : uint8_t { WakeWord, DoubleTap };
+enum class VoiceInputPhase : uint8_t {
+    Idle, Listening, Sending, Cancelling, Received, Delivered, Cancelled, Unconfirmed, Failed,
+    Preparing, StartCountdown, SendCountdown
+};
+enum class VoiceInputTrigger : uint8_t { WakeWord, DoubleTap, StandbyWake };
 struct VoiceInputObservation {
     VoiceInputPhase phase = VoiceInputPhase::Idle;
     VoiceInputTrigger trigger = VoiceInputTrigger::WakeWord;
+    uint8_t countdown_seconds = 0;
     uint32_t captured_samples = 0;
     uint32_t acknowledged_samples = 0;
     int64_t started_at_us = 0;
+    int64_t capturing_started_at_us = 0;
     int64_t changed_at_us = 0;
     esp_err_t error = ESP_OK;
 };
@@ -23,6 +28,10 @@ static_assert(sizeof(VoiceInputObservation) <= 48, "Voice projection must stay w
 // trigger: Explicit recognition or acquired double-tap event.
 // Returns the original admission/allocation/publication error; duplicate capture is rejected.
 esp_err_t requestVoiceInput(VoiceInputTrigger trigger);
+// expected_started_at_us: Original session identity from the completely retired Preparing screen.
+// accepted: True only when that still-current session enters the three-second start countdown.
+// Exception: Stale/terminal requests return ESP_OK with accepted=false; publication errors stay real.
+esp_err_t beginVoiceInputCountdown(int64_t expected_started_at_us, bool &accepted);
 // samples: Mono enhanced PCM owned by the existing AFE fetch worker.
 // count: Actual int16 samples in this successful result.
 // speech: Actual AFE VAD result, without a second microphone owner.

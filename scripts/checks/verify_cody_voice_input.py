@@ -32,10 +32,13 @@ class VoiceInputBoundaries(unittest.TestCase):
         source_path = ROOT / "components/LUNASHELL_platform/src/audio/LUNASHELL_voice_input.cpp"
         source = source_path.read_text(encoding="utf-8")
         signatures = [
-            "esp_err_t publish(", "bool active()", "esp_err_t LUNASHELL::requestVoiceInput(",
+            "esp_err_t publish(", "bool active()", "esp_err_t start_countdown_locked(",
+            "esp_err_t advance_countdown_locked(", "esp_err_t LUNASHELL::requestVoiceInput(",
+            "esp_err_t LUNASHELL::beginVoiceInputCountdown(",
             "void LUNASHELL::feedVoiceInput(", "static esp_err_t cancel_voice_input_locked()",
             "esp_err_t LUNASHELL::cancelVoiceInput()", "esp_err_t LUNASHELL::finishVoiceInput(",
             "esp_err_t LUNASHELL::cancelVoiceInput(int64_t",
+            "esp_err_t LUNASHELL::pauseVoiceInput()",
         ]
         (output / "voice_input_owner_under_test.inc").write_text(
             "\n\n".join(function_text(source, signature, str(source_path)) for signature in signatures),
@@ -44,6 +47,24 @@ class VoiceInputBoundaries(unittest.TestCase):
         run_stage(compile_command(resolve_compiler(None),
             [str(output), "scripts/tests/cody_native", "components/LUNASHELL_platform/include"],
             ["scripts/tests/cody_native/voice_input_owner_contract.cpp"], executable), output, "compile")
+        run_stage([str(executable)], output, "owner")
+
+    # self: Executes the actual physical-wake admission wrapper with fake owner boundaries.
+    # Raises on compilation, source extraction or an incorrect wake/shutdown distinction.
+    def test_completed_physical_wake_admits_one_voice_request(self):
+        output = ROOT / "artifacts/checks/voice-wake-owner"
+        output.mkdir(parents=True, exist_ok=True)
+        source_path = ROOT / "components/LUNASHELL_platform/src/power/LUNASHELL_power.cpp"
+        source = source_path.read_text(encoding="utf-8")
+        signatures = ("bool voice_input_is_active(", "esp_err_t wake_from_user_input(")
+        (output / "voice_wake_under_test.inc").write_text(
+            "\n\n".join(function_text(source, signature, str(source_path)) for signature in signatures),
+            encoding="utf-8")
+        executable = output / "voice-wake-owner.exe"
+        run_stage(compile_command(resolve_compiler(None),
+            [str(output), "scripts/tests/cody_native", "components/LUNASHELL_platform/include"],
+            ["scripts/tests/cody_native/voice_wake_owner_contract.cpp"], executable,
+            definitions=("CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT=1",)), output, "compile")
         run_stage([str(executable)], output, "owner")
 
     # self: Isolated receiver fixture; no sockets, model calls or device access.

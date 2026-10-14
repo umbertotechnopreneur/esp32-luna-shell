@@ -204,11 +204,31 @@ esp_err_t DeviceSnapshotService::reportVoiceInput(const VoiceInputObservation &i
     const bool known_phase = input.phase == VoiceInputPhase::Idle || input.phase == VoiceInputPhase::Listening ||
         input.phase == VoiceInputPhase::Sending || input.phase == VoiceInputPhase::Cancelling || input.phase == VoiceInputPhase::Received ||
         input.phase == VoiceInputPhase::Delivered || input.phase == VoiceInputPhase::Cancelled ||
-        input.phase == VoiceInputPhase::Unconfirmed || input.phase == VoiceInputPhase::Failed;
-    if (!known_phase || (input.trigger != VoiceInputTrigger::WakeWord && input.trigger != VoiceInputTrigger::DoubleTap) ||
-        input.acknowledged_samples > input.captured_samples || input.started_at_us < 0 || input.changed_at_us <= 0 ||
-        input.changed_at_us > esp_timer_get_time() || (input.phase == VoiceInputPhase::Failed && input.error == ESP_OK)) {
-        ESP_LOGE(TAG, "Voice input publication rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        input.phase == VoiceInputPhase::Unconfirmed || input.phase == VoiceInputPhase::Failed ||
+        input.phase == VoiceInputPhase::Preparing || input.phase == VoiceInputPhase::StartCountdown ||
+        input.phase == VoiceInputPhase::SendCountdown;
+    const bool countdown = input.phase == VoiceInputPhase::StartCountdown || input.phase == VoiceInputPhase::SendCountdown;
+    const bool capture_pending = input.phase == VoiceInputPhase::Preparing || input.phase == VoiceInputPhase::StartCountdown;
+    const bool recording_phase = input.phase == VoiceInputPhase::Listening || input.phase == VoiceInputPhase::SendCountdown ||
+        input.phase == VoiceInputPhase::Sending || input.phase == VoiceInputPhase::Received || input.phase == VoiceInputPhase::Delivered;
+    const int64_t now_us = esp_timer_get_time();
+    if (!known_phase || (input.trigger != VoiceInputTrigger::WakeWord && input.trigger != VoiceInputTrigger::DoubleTap &&
+        input.trigger != VoiceInputTrigger::StandbyWake) ||
+        (countdown ? input.countdown_seconds == 0 || input.countdown_seconds > 3 : input.countdown_seconds != 0) ||
+        input.capturing_started_at_us < 0 || input.capturing_started_at_us > now_us ||
+        (input.capturing_started_at_us != 0 && input.capturing_started_at_us < input.started_at_us) ||
+        (input.captured_samples != 0 && input.capturing_started_at_us == 0) ||
+        (recording_phase && input.capturing_started_at_us == 0) ||
+        (capture_pending && (input.capturing_started_at_us != 0 || input.captured_samples != 0)) ||
+        input.acknowledged_samples > input.captured_samples || input.started_at_us < 0 || input.started_at_us > now_us ||
+        (input.phase != VoiceInputPhase::Idle && input.started_at_us == 0) || input.changed_at_us <= 0 ||
+        input.changed_at_us < input.started_at_us || input.changed_at_us > now_us ||
+        (input.phase == VoiceInputPhase::Failed && input.error == ESP_OK)) {
+        ESP_LOGE(TAG, "Voice input publication rejected: phase=%u trigger=%u countdown=%u samples=%lu start=%lld capture=%lld changed=%lld (%s)",
+            unsigned(input.phase), unsigned(input.trigger), unsigned(input.countdown_seconds),
+            static_cast<unsigned long>(input.captured_samples), static_cast<long long>(input.started_at_us),
+            static_cast<long long>(input.capturing_started_at_us), static_cast<long long>(input.changed_at_us),
+            esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
     return update_snapshot([&](DeviceSnapshot &snapshot) {

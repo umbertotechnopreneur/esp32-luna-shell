@@ -139,6 +139,7 @@ LUNASHELL::CodexTechnicalSnapshot s_technical_snapshot{};
 // READY endpoint checks borrow only the canonical projection owned by acquisition.
 LUNASHELL::ConnectivityObservation s_ready_connectivity{};
 bool s_event_received_for_nonce = false;
+uint64_t s_app_sequence = 0;
 char s_ready_nonce[33]{};
 LUNASHELL::CodexEventSnapshot s_event_snapshot{};
 LUNASHELL::CodexEventPayload s_event_candidate{};
@@ -559,6 +560,10 @@ void publishLocked(State state, esp_err_t error)
     s_link_snapshot.health = error == ESP_OK
         ? LUNASHELL::DeviceHealth::Ready
         : LUNASHELL::DeviceHealth::Degraded;
+    if (state != State::Connected || s_pending != Command::None) {
+        LUNASHELL::codex_presence::invalidate(s_link_snapshot.app_presence,
+            error != ESP_OK ? error : ESP_ERR_INVALID_STATE);
+    }
     if (state != State::Connected && state != State::Discovering) {
         s_link_snapshot.activity.data_valid = false;
         s_link_snapshot.activity.data_stale = s_link_snapshot.activity.last_success_at_us > 0;
@@ -1850,11 +1855,46 @@ esp_err_t sendNameCapability(const ReadyResponse &response, const sockaddr_in &s
     return error;
 }
 
+// response: Authenticated current READY after the device sends COMMITTED.
+// source: Observed PC endpoint; the fixed plugin port is checked during READY admission.
+// Exception: Returns the original state, HMAC, encoding or send error; caller holds s_mutex.
+esp_err_t sendAppCapabilityLocked(const ReadyResponse &response, const sockaddr_in &source)
+{
+    if (!s_link_present || s_candidate_present || s_pending != Command::None ||
+        s_link_snapshot.state != State::Connected || std::strcmp(response.nonce, s_ready_nonce) != 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    char input[128]{};
+    uint8_t proof[32]{};
+    char proof_hex[65]{};
+    const int length = std::snprintf(input, sizeof(input), "app-cap-v1|%s|%s|%s|1",
+        response.device_id, response.pc_id, response.nonce);
+    esp_err_t error = length > 0 && static_cast<size_t>(length) < sizeof(input)
+        ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), input, proof)
+        : ESP_ERR_INVALID_SIZE;
+    if (error == ESP_OK) {
+        error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
+    }
+    auto &packet = s_event_ack_packet;
+    const int packet_length = std::snprintf(packet, sizeof(packet),
+        "CCP1|APPCAP|device=%s|pc=%s|nonce=%s|app=1|proof=%s",
+        response.device_id, response.pc_id, response.nonce, proof_hex);
+    if (error == ESP_OK) {
+        error = packet_length > 0 && static_cast<size_t>(packet_length) < sizeof(packet)
+            ? sendDatagram(packet, source.sin_addr, ntohs(source.sin_port), "CCP APPCAP") : ESP_ERR_INVALID_SIZE;
+    }
+    wipe(input, sizeof(input));
+    wipe(proof, sizeof(proof));
+    wipe(packet, sizeof(packet));
+    return error;
+}
+
 // response: Canonical READY message candidate.
 // source: Observed responder address.
 // Exception: Returns identity, proof, crypto, superseded-command, persistence or acknowledgement errors.
 esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
 {
+    esp_err_t optional_app_error = ESP_OK;
     if (ntohs(source.sin_port) != kPluginPort) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -1947,6 +1987,9 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                 if (error == ESP_OK) {
                     const bool newly_connected = s_link_snapshot.state != State::Connected;
                     s_last_ready_at_us = esp_timer_get_time();
+                    if (std::strcmp(s_ready_nonce, response.nonce) != 0) {
+                        s_app_sequence = 0;
+                    }
                     std::memcpy(s_ready_nonce, response.nonce, sizeof(s_ready_nonce));
                     s_link_snapshot.ready_at_us = s_last_ready_at_us;
                     std::memcpy(s_link_snapshot.peer_ip_address, peer_address,
@@ -1955,6 +1998,16 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                     // READY still proves liveness if the outbound ACK fails;
                     // retain the real error and retry COMMITTED on the next READY.
                     publishLocked(State::Connected, error);
+                    if (error == ESP_OK) {
+                        const esp_err_t app_error = sendAppCapabilityLocked(response, source);
+                        if (app_error != ESP_OK) {
+                            // Optional app metadata cannot change LAN or chat truth.
+                            LUNASHELL::codex_presence::invalidate(s_link_snapshot.app_presence, app_error);
+                            const esp_err_t publication_error = publishLinkObservationLocked();
+                            ESP_LOGE(kTag, "Optional CCP app capability failed (%s)", esp_err_to_name(app_error));
+                            optional_app_error = publication_error != ESP_OK ? publication_error : app_error;
+                        }
+                    }
                     if (newly_connected) {
                         ESP_LOGI(kTag, "CCP peer authenticated");
                     }
@@ -1987,7 +2040,8 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
         if (name_error != ESP_OK) {
             ESP_LOGE(kTag, "Optional CCP name capability failed (%s)", esp_err_to_name(name_error));
         }
-        error = clock_error != ESP_OK ? clock_error : name_error;
+        error = optional_app_error != ESP_OK ? optional_app_error :
+            clock_error != ESP_OK ? clock_error : name_error;
     }
     return error;
 }
@@ -2340,6 +2394,74 @@ bool parseTechnicalDuration(const char *value, bool &present, uint64_t &microsec
     }
     microseconds = milliseconds * 1000U;
     return true;
+}
+
+// payload: Exact bounded APPSTATE envelope; all fields are authenticated before publication.
+// source: Current READY endpoint, never an address taken from the packet body.
+// Exception: Returns original parse, source, replay, HMAC or canonical publication errors.
+esp_err_t acceptAppPresence(const char *payload, const sockaddr_in &source)
+{
+    const char *names[] = {"device", "pc", "nonce", "sequence", "state", "reason", "age", "proof"};
+    char *values[8]{};
+    if (std::strlen(payload) > kMaximumDatagramBytes ||
+        !parseEventFields(payload, "CCP1|APPSTATE|", names, 8, values)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint64_t sequence = 0;
+    uint64_t age_us = 0;
+    bool age_present = false;
+    if (!parseTechnicalSequence(values[3], sequence) ||
+        !parseTechnicalDuration(values[6], age_present, age_us)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    using AppState = LUNASHELL::CodexAppPresenceState;
+    AppState state = AppState::Unavailable;
+    esp_err_t source_error = ESP_OK;
+    if (std::strcmp(values[4], "open") == 0 || std::strcmp(values[4], "closed") == 0) {
+        if (!age_present || std::strcmp(values[5], "none") != 0) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        state = std::strcmp(values[4], "open") == 0 ? AppState::Open : AppState::Closed;
+    } else if (std::strcmp(values[4], "unavailable") == 0 && !age_present) {
+        if (std::strcmp(values[5], "expired") == 0) {
+            source_error = ESP_ERR_TIMEOUT;
+        } else if (std::strcmp(values[5], "transport") == 0) {
+            source_error = ESP_FAIL;
+        } else if (std::strcmp(values[5], "unobserved") == 0) {
+            source_error = ESP_ERR_NOT_FOUND;
+        } else {
+            return ESP_ERR_INVALID_ARG;
+        }
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+    std::lock_guard<std::mutex> guard(s_mutex);
+    esp_err_t error = admitEventEnvelopeLocked(source, values[0], values[1], values[2],
+        InboundCommand::Maintenance);
+    if (error != ESP_OK) {
+        return error;
+    }
+    const int64_t received_at_us = esp_timer_get_time();
+    if (s_last_ready_at_us <= 0 || received_at_us < s_last_ready_at_us ||
+        received_at_us - s_last_ready_at_us >= kReadyExpiryUs) {
+        return ESP_ERR_TIMEOUT;
+    }
+    const int length = std::snprintf(s_event_proof_input, sizeof(s_event_proof_input),
+        "app-state-v1|%s|%s|%s|%s|%s|%s|%s", values[0], values[1], values[2],
+        values[3], values[4], values[5], values[6]);
+    if (length <= 0 || static_cast<size_t>(length) >= sizeof(s_event_proof_input)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    error = verifyEventProofLocked(values[7]);
+    if (error == ESP_OK) {
+        error = LUNASHELL::codex_presence::accept(s_link_snapshot.app_presence, state, source_error,
+            sequence, age_us, received_at_us, s_app_sequence);
+    }
+    if (error != ESP_OK) {
+        return error;
+    }
+    // App-state packets never refresh READY, activity timestamps or the followed chat.
+    return publishLinkObservationLocked();
 }
 
 // value: Missing sentinel or canonical unsigned decimal native usage count.
@@ -3352,6 +3474,13 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
         }
     }
     if (state == State::Discovering || state == State::Connected) {
+        if (std::strncmp(payload, "CCP1|APPSTATE|", 13) == 0) {
+            const esp_err_t error = acceptAppPresence(payload, source);
+            if (error != ESP_OK) {
+                reportDatagramRejection("APPSTATE", error);
+            }
+            return;
+        }
         if (std::strncmp(payload, "CCP1|CLOCK|", 11) == 0) {
             const esp_err_t error = acceptClock(payload, source);
             if (error != ESP_OK) {
@@ -3567,6 +3696,10 @@ void maintainState()
             return;
         }
         auto &activity = s_link_snapshot.activity;
+        if (LUNASHELL::codex_presence::age(s_link_snapshot.app_presence, now_us) &&
+            publishLinkObservationLocked() != ESP_OK) {
+            return;
+        }
         if (activity.data_valid && activity.last_attempt_at_us > 0 &&
             now_us - activity.last_attempt_at_us >= kReadyExpiryUs) {
             activity.data_valid = false;

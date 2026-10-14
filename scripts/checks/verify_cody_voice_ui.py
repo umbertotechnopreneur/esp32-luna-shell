@@ -1,4 +1,4 @@
-"""Exercise the production Cody recording gestures and ribbon with the production native raster."""
+"""Exercise Cody recording gestures, countdowns and ribbon with the production native raster."""
 from pathlib import Path
 import argparse
 import json
@@ -31,7 +31,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     report_path = output / "report.json"
     report = {"result": "running", "stage": "compiler-discovery", "failed_stage": None,
-              "scope": "production ribbon/gesture headers and native glyphs; synthetic gain, no PCM or physical UI proof"}
+              "scope": "production ribbon/countdown/gesture headers and native glyphs; SIMULATED gain and state captions, no PCM or physical UI proof"}
     write_report(report_path, report)
     try:
         compiler = resolve_compiler(args.compiler)
@@ -62,6 +62,15 @@ def main():
         frames[0].save(output / "voice-recording-simulated.gif", save_all=True,
                        append_images=frames[1:], duration=33, loop=0)
         report["previews"] = ["voice-recording-simulated.png", "voice-recording-simulated.gif"]
+        phases = ("preparing", "start-3", "start-2", "start-1", "send-3", "send-2", "send-1")
+        for phase in phases:
+            # The native fixture draws both the countdown and its SIMULATED
+            # label. Encoding preserves those pixels without a host UI substitute.
+            preview_name = f"voice-{phase}-simulated.png"
+            with Image.open(output / f"voice-{phase}.ppm") as native:
+                native.convert("RGB").save(output / preview_name)
+            report["previews"].append(preview_name)
+        report["countdown_and_preparing_preview_count"] = len(phases)
         report["stage"] = "complete"
         report["result"] = "passed"
         write_report(report_path, report)

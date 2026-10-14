@@ -78,6 +78,7 @@ void apply_measured_sample_aging(
         snapshot.activity.stable_windows = 0;
     }
     age_codex_technical(snapshot.codex_technical, now_us);
+    codex_presence::age(snapshot.radios.codex_link.app_presence, now_us);
     const int64_t ttl_us = measured_sample_ttl_us(snapshot);
     age_measured_sample(snapshot.battery, now_us, ttl_us);
     age_measured_sample(snapshot.rtc, now_us, ttl_us);

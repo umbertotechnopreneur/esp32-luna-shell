@@ -41,6 +41,7 @@ import ccp_clock as clock
 import ccp_name as preferred_name
 import ccp_technical as technical_metadata
 import ccp_voice_input as voice_input
+from ccp_presence import AppPresence
 from ccp_pricing import PriceCache
 from ccp_security import DatagramAdmission, RejectionReporter
 from ccp_windows import configure_exclusive_socket, protect_secret, unprotect_secret, runtime_directory
@@ -570,6 +571,11 @@ class CompanionResponder:
         self._commit_challenges: dict[tuple[str, str, int], CommitChallenge] = {}
         self._event_peers: dict[str, EventPeer] = {}
         self._event_lock = threading.Lock()
+        self.app_presence = AppPresence()
+        self._app_peers: dict[str, EventPeer] = {}
+        self._app_sequence = 0
+        self._last_app_presence: tuple[str, str] | None = None
+        self.app_presence_error: Exception | None = None
         self._resets = reset.ResetRequests()
         self._debug_peers: dict[str, EventPeer] = {}
         self._debug_requests: dict[str, dict[str, Any]] = {}
@@ -673,6 +679,9 @@ class CompanionResponder:
             return
         if kind == "NAMEACK":
             self.names.accept_ack(fields, source)
+            return
+        if kind == "APPCAP":
+            self._accept_app_capability(fields, source)
             return
         if kind != "FIND":
             return
@@ -822,6 +831,88 @@ class CompanionResponder:
                 except (OSError, ValueError, RuntimeError) as error:
                     self._resets.fail_send(request.request_id, error)
                     raise
+
+    # self: Responder admitting an explicit capability without changing FIND or chat ownership.
+    # fields: Exact signed APPCAP envelope emitted after the current COMMITTED exchange.
+    # source: Socket-observed endpoint, required to match the current active authenticated peer.
+    # Raises ValueError, OSError or RuntimeError for malformed, stale, forged or failed capability delivery.
+    def _accept_app_capability(self, fields: dict[str, str], source: tuple[str, int]) -> None:
+        if set(fields) != {"device", "pc", "nonce", "app", "proof"} or fields["app"] != "1":
+            raise ValueError("App presence capability fields malformed")
+        for name in ("device", "pc", "nonce", "proof"):
+            if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
+                raise ValueError("App presence capability identity/proof malformed")
+        with self._event_lock:
+            peer = self._event_peers.get(fields["device"])
+            active = self._state.retained_keys(fields["device"]).active
+            now = time.monotonic()
+            if (peer is None or active is None or source != peer.source or fields["nonce"] != peer.nonce
+                    or fields["pc"] != self._state.pc_id or not hmac.compare_digest(active, peer.key)
+                    or not 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS
+                    or not hmac.compare_digest(make_proof(peer.key, "app-cap-v1", fields["device"],
+                        fields["pc"], fields["nonce"], "1"), fields["proof"])):
+                raise ValueError("App presence capability authentication failed")
+            self._app_peers = {identity: candidate for identity, candidate in self._app_peers.items()
+                               if identity in self._event_peers and
+                               0 <= now - candidate.observed_at <= LIVENESS_TIMEOUT_SECONDS}
+            if len(self._app_peers) >= 128 and fields["device"] not in self._app_peers:
+                raise ValueError("App presence capability registry is full")
+            self._app_peers[fields["device"]] = peer
+            try:
+                self._send_app_presence_locked(fields["device"], peer)
+            except (OSError, RuntimeError, ValueError) as error:
+                self.app_presence_error = error
+                raise
+
+    # self: Responder holding _event_lock; callers already admitted this active capable peer.
+    # device_id: Retained device identity from the authenticated challenge.
+    # peer: Current nonce, key and socket endpoint; never supplied by a hook.
+    # Raises OSError, RuntimeError or ValueError for failed bounded encoding or delivery.
+    def _send_app_presence_locked(self, device_id: str, peer: EventPeer) -> None:
+        observation = self.app_presence.snapshot()
+        if self._app_sequence >= 0xffffffffffffffff:
+            raise RuntimeError("CCP app presence sequence exhausted")
+        self._app_sequence += 1
+        values = [device_id, self._state.pc_id, peer.nonce, f"{self._app_sequence:016x}",
+                  observation.state.value, observation.reason,
+                  "-" if observation.age_ms is None else str(observation.age_ms)]
+        payload = encode_datagram("APPSTATE", list(zip(
+            ("device", "pc", "nonce", "sequence", "state", "reason", "age"), values))
+            + [("proof", make_proof(peer.key, "app-state-v1", *values))])
+        self._socket.sendto(payload, peer.source)
+
+    # self: Existing control-loop/lease callback; no timer, process scan or chat inference.
+    # Optional delivery failure remains structured and logged; the next owner pass retries.
+    def publish_app_presence(self) -> None:
+        try:
+            with self._event_lock:
+                observation = self.app_presence.snapshot()
+                identity = (observation.state.value, observation.reason)
+                if identity == self._last_app_presence and self.app_presence_error is None:
+                    return
+                now = time.monotonic()
+                for device_id, peer in self._app_peers.items():
+                    active = self._state.retained_keys(device_id).active
+                    current = self._event_peers.get(device_id)
+                    if (active is not None and hmac.compare_digest(active, peer.key)
+                            and current is not None and current.nonce == peer.nonce
+                            and current.source == peer.source
+                            and 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS):
+                        self._send_app_presence_locked(device_id, peer)
+                self._last_app_presence = identity
+                self.app_presence_error = None
+        except (OSError, RuntimeError, ValueError) as error:
+            # Presence is optional metadata: an unavailable send must not kill
+            # existing questions, pairing or other MCP clients. Retain its cause.
+            self.app_presence_error = error
+            self._report_rejection("app presence publication", str(error))
+
+    # self: Current owner providing structured source evidence and optional send failure.
+    def app_presence_status(self) -> dict[str, Any]:
+        observation = self.app_presence.snapshot()
+        return {"state": observation.state.value, "reason": observation.reason,
+                "source": "mcp_transport", "source_age_ms": observation.age_ms,
+                "publication_error": str(self.app_presence_error) if self.app_presence_error else None}
 
     # self: Responder keeping an optional capability separate from the unchanged FIND protocol.
     # fields: Exact signed DEBUGCAP envelope emitted only by Debug firmware after READY.
@@ -1568,6 +1659,7 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
             {"pc_id": service.state.pc_id, "devices": devices, "count": len(devices),
              "follow_mode": "latest_user_prompt",
              "notifications_error": service.notifications_error,
+             "app_presence": service.responder.app_presence_status(),
              "clock_setup": service.responder.clock.setup_status(),
              "activity": {item["device_id"]: activity for item in devices},
              "technical": {item["device_id"]: technical for item in devices}},
@@ -1811,6 +1903,7 @@ def write_response(response: dict[str, Any]) -> None:
 def run_stdio() -> int:
     from ccp_runtime import BrokerClient
     client = BrokerClient()
+    normal_eof = False
     try:
         for line in sys.stdin:
             try:
@@ -1826,8 +1919,16 @@ def run_stdio() -> int:
                 }
             if response is not None:
                 write_response(response)
+        normal_eof = True
     finally:
-        client.close()
+        if normal_eof:
+            client.close(normal=True)
+        else:
+            # Preserve the primary transport/processing exception if cleanup also fails.
+            try:
+                client.close(normal=False)
+            except (OSError, RuntimeError, ValueError) as error:
+                print(f"CCP abnormal transport release failed: {error}", file=sys.stderr, flush=True)
     return 0
 
 

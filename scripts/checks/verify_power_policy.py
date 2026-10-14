@@ -2770,6 +2770,7 @@ def verify_native_owner(compiler: str | None) -> None:
     output.mkdir(parents=True, exist_ok=True)
     power = POWER_SOURCE.read_text(encoding="utf-8")
     signatures = (
+        "esp_err_t wake_from_user_input(",
         "esp_err_t dispatch_power_single_press()",
         "esp_err_t handle_power_key_events(",
         "esp_err_t request_power_off()",

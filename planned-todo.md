@@ -61,6 +61,14 @@ installation/readback evidence belongs in done.md. Broader endurance remains bel
 
 ## Energy, memory and maintenance review - 2026-10-12
 
+- [ ] **VOICE-PRESENCE-01 - Physical countdown and Codex lifecycle evidence.** The
+  2026-10-15 source adds complete-frame/three-second capture admission, five
+  acquired seconds of silence and a three-second cancellable sending countdown.
+  Validate physical touch/power/motion wake, late cancellation, rendering timing
+  and real audio delivery when the user resumes voice trials. APPSTATE describes
+  actual MCP transports; normal EOF can also follow plugin reload/disable, so
+  do not claim independent GUI-process observation. Crashes remain unavailable.
+  The unconfigured native Desktop audio endpoint is still a separate blocker.
 - [ ] **WAKE-RECONNECT-01 - Measure wake-to-Codex latency.** The 2026-10-13 source
   keeps authenticated traffic admitted during retained-radio power transitions,
   expedites one pending Wi-Fi retry after completed wake and prompts CCP FIND on

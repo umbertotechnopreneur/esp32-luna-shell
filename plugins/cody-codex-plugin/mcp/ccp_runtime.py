@@ -197,15 +197,16 @@ class BrokerClient:
             raise error
         return exchange(operation, payload, self._secret, timeout=20.0)
 
-    # self: Existing transport releasing only its own lease, preserving other open chats.
+    # self: Existing transport releasing only its own lease, preserving other open clients.
+    # normal: True only when the MCP input stream reaches EOF without a transport/processing failure.
     # Raises OSError or RuntimeError if the owned lease cannot be released.
-    def close(self) -> None:
+    def close(self, *, normal: bool = False) -> None:
         self._stop.set()
         # An in-flight recovery has a five-second startup and two-second lease bound.
         self._thread.join(timeout=8.0)
         if self._thread.is_alive():
             raise RuntimeError("CCP lease worker did not stop")
-        exchange("release", {"id": self._lease}, self._secret)
+        exchange("release", {"id": self._lease, "normal": normal}, self._secret)
 
 
 class ControlServer(ThreadingHTTPServer):
@@ -308,20 +309,27 @@ def dispatch(server: ControlServer, operation: str, payload: dict[str, Any]) -> 
         return {"version": ccp.SERVER_VERSION}
     if operation in {"lease", "release"}:
         identity = payload.get("id")
-        if set(payload) != {"id"} or not isinstance(identity, str) or ccp.HEX_PATTERNS["pc"].fullmatch(identity) is None:
+        allowed_fields = ({"id"},) if operation == "lease" else ({"id"}, {"id", "normal"})
+        if (set(payload) not in allowed_fields or not isinstance(identity, str)
+                or ccp.HEX_PATTERNS["pc"].fullmatch(identity) is None
+                or ("normal" in payload and type(payload["normal"]) is not bool)):
             raise ValueError("Invalid CCP transport lease identity")
+        if operation == "release" and "normal" not in payload:
+            # An already-loaded development client can release its old envelope
+            # after a source update, but it supplied no evidence of normal EOF.
+            print("CCP transport release lacks normal EOF evidence; treating it as abnormal",
+                  file=sys.stderr, flush=True)
         new_transport = False
         with server.lease_lock:
+            now = time.monotonic()
             if operation == "lease":
-                now = time.monotonic()
-                server.leases = {key: observed for key, observed in server.leases.items()
-                                 if now - observed <= IDLE_GRACE_SECONDS}
-                if identity not in server.leases and len(server.leases) >= 64:
-                    raise ValueError("CCP active transport limit reached")
-                new_transport = identity not in server.leases
-                server.leases[identity] = time.monotonic()
+                new_transport = server.service.responder.app_presence.lease(identity, now)
             else:
-                server.leases.pop(identity, None)
+                server.service.responder.app_presence.release(identity, payload.get("normal", False), now)
+            # Shutdown grace is separate from source evidence. It allows the next
+            # authenticated FIND to retry a lost final Closed packet.
+            server.last_transport_activity = now
+        server.service.responder.publish_app_presence()
         if new_transport:
             # A new MCP transport is a plugin start, including when yesterday's broker stayed alive.
             # Lease renewals and hooks never fetch; the cache durably enforces one daily attempt.
@@ -364,10 +372,10 @@ def run_broker() -> int:
         pricing = PriceCache(runtime_directory() / "artifacts" / "pricing" / "codex-standard.json")
         server.pricing = pricing
         server.service = ccp.CcpService(pricing)
-        server.leases = {}
         server.lease_lock = threading.Lock()
         server.tool_lock = threading.Lock()
         server.last_hook = time.monotonic()
+        server.last_transport_activity = server.last_hook
         server.timeout = 1.0
         try:
             # Pricing is optional metadata. Its real error remains in PriceCache and the log;
@@ -379,8 +387,11 @@ def run_broker() -> int:
             while True:
                 server.service.responder.require_running()
                 server.handle_request()
+                # Reuse the existing one-second control loop; hook events never
+                # become app-presence evidence, and no new worker is introduced.
+                server.service.responder.publish_app_presence()
                 with server.lease_lock:
-                    latest = max([server.last_hook, *server.leases.values()])
+                    latest = max(server.last_hook, server.last_transport_activity)
                     if time.monotonic() - latest > IDLE_GRACE_SECONDS:
                         break
         finally:

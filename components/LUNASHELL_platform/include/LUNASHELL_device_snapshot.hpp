@@ -28,6 +28,7 @@
 
 #include "LUNASHELL_provisioning_state.hpp"
 #include "LUNASHELL_codex_events.hpp"
+#include "LUNASHELL_codex_presence.hpp"
 #include "LUNASHELL_voice_input.hpp"
 #include "LUNASHELL_activity.hpp"
 #include "LUNASHELL_battery_endurance.hpp"
@@ -374,6 +375,7 @@ struct CodexLinkSnapshot : ComponentSnapshot {
     char paired_pc_id[33] = {};
     char peer_ip_address[16] = {};
     CodexActivitySnapshot activity;
+    CodexAppPresenceSnapshot app_presence;
     // The displayed code, verifier, salt and link key never enter the snapshot.
 };
 
