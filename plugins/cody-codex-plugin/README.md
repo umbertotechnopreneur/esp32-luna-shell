@@ -4,7 +4,7 @@
 uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
 for pairing; public Internet availability is a separate condition.
 
-CCP 0.6.7 includes followed-chat token metadata and the optional one-way audio channel with native readiness,
+CCP 0.6.8 adds semantic question routing and other-chat reply notices to followed-chat token metadata and the optional one-way audio channel with native readiness,
 recording correlation and explicit uncertain-delivery handling. Source changes
 do not activate it.
 Its signed READY handshake retains the 0.6.4 endpoint-binding contract. Signed READY binds a fresh
@@ -110,6 +110,19 @@ remains Windows-specific; the new pricing module uses only portable Python.
 
 ## Followed-chat tokens and compaction
 
+Home's connection panel uses the actual native chat title, without a `Chat`
+prefix or an opaque ID. A metadata-only reader queries the exact followed hook
+session and verifies its checkout in `state_5.sqlite`, opened read-only. The
+current native contract selects `name` for paginated threads and `title` for
+legacy threads; see the official [thread metadata owner](https://github.com/openai/codex/blob/main/codex-rs/state/src/runtime/threads.rs).
+No transcript, preview or first-user-message field supplies a title. Successful
+reads are cached for five seconds; only another successful read refreshes age.
+The complete title must fit 1-255 printable ASCII characters. Unsupported text,
+missing metadata and source errors clear the visible title instead of truncating,
+transliterating or inferring it. FIND `activity=5` negotiates `title`, `titlestate`
+and `titleage` under the `activity-v3` authenticated projection; a title remains
+current for at most 45 seconds after source observation.
+
 Genuine hooks select the chat and turn. The existing broker reads only allowlisted
 metadata from that chat's local native session journal; the exact transcript locator
 or a read-only state-index lookup must match the hook identity and checkout.
@@ -146,7 +159,7 @@ after PostCompact until a new native sample arrives. Lost, stale, interrupted an
 remain explicit; neither a timer nor a network heartbeat proves completion.
 
 Recipient delivery and device closure remain distinct confirmations through
-EVENTACK and FIND `events=2`. A question surviving broker restart is retired
+EVENTACK and FIND `events=3`. A question surviving broker restart is retired
 before a new one is offered. See the [wire contract](protocol/CCP1.md) and
 [Communication Atlas](../../docs/cody/cody-ccp-connection-atlas-v1.pdf).
 
@@ -240,10 +253,22 @@ which pixels appeared on physical Cody.
 
 ## Complete a question
 
+With reviewed synchronous hooks, `UserPromptSubmit` returns the documented
+`hookSpecificOutput.additionalContext` only when a retained physical peer has
+recently advertised the authenticated events extension. This static instruction
+asks the current agent to create semantic questions with `ccp_ask_question`,
+preserve the complete original English choices, then poll and acknowledge its
+own answer. The hook forwards no prompt, response or tool-argument contents.
+An explicit user preference for PC-only questions takes precedence. See the
+official [Codex hook contract](https://learn.chatgpt.com/docs/hooks).
+
 An explicit MCP question needs no hook. The recipient owns the private ticket;
 `context` is a caller-declared label, not inferred chat identity. Screen 26 opens
 the question; screen 27 selects a card, shows its detail and offers **Send**.
-Selection remains reversible before Send, and LAN loss retains the route/question.
+Two choices are visible at a time; a third is reached by scrolling. Choice labels
+allow 63 printable ASCII characters and details allow 255. Selection remains
+reversible before Send, and LAN loss retains the route/question. Questions that
+need free text or cannot fit without losing meaning remain on the PC.
 
 The first UDP ACK means CCP recorded the choice. The recipient polls the private
 ticket/capability, then confirms `answer_id` in a second poll. Only that confirmation
@@ -251,13 +276,31 @@ permits screen 31 **Reply sent**. The default 180 s TTL includes this final step
 expiry, cancellation and disconnection never invent a choice. A poll waits at most
 15 s and cannot wake a suspended chat. Broker restart requires a new explicit request.
 
-Only one question is open per device. Informational notices replace older notices
-without displacing it. Check reports need complete current data for the exact PR
+Several callers may queue questions, each retaining its private capability.
+Cody browses the actual pending tickets without changing the followed PC chat;
+a reply in flight or awaiting recipient acknowledgement cannot be displaced.
+Informational notices never displace a question. A genuine `Stop` from another
+chat queues **Reply ready** once per native turn, with a bounded project label
+and its complete canonical title when current and at most 63 characters. Missing
+or longer titles leave a plain **Reply ready** body; no GUID is displayed and
+hooks perform no extra source query. This reports a ready response, never task
+success. A new prompt
+in that chat retires its old native notices; activity in another chat does not.
+Check reports need complete current data for the exact PR
 head, whole failure names, at most six failures and 48 characters per name; excess
 content is rejected with a return to the PC. Screens 21-24 are read-only; 25 is retired.
 A genuine `PermissionRequest` may show **Approval needed / On your PC**. Native
 approval remains on the computer; private command arguments, logs and stack traces
-are not sent to Cody. EVENT admits 1280 bytes; pairing retains 512.
+are not sent to Cody. EVENT admits 4096 bytes; pairing retains 512.
+
+This integration creates future semantic questions through the supported MCP
+tool; it does not import an already open native `request_user_input` request.
+The current Desktop app-server uses stdio without a public listener, so there
+is no verified public attach route to that process. A separate app-server would
+not own its outstanding request. No second Codex, private UI automation, transcript
+question scraping or fabricated native response is used. Native permissions and
+existing native questions remain on the PC; see the official
+[app-server transports](https://learn.chatgpt.com/docs/app-server).
 
 ## Explicit restart or settings reset
 

@@ -26,14 +26,20 @@ from cody_native_runtime import load_runtime_library
 
 
 class NativeChoice(C.Structure):
-    _fields_ = [("id", C.c_char * 13), ("label", C.c_char * 13), ("detail", C.c_char * 64), ("tone", C.c_uint8)]
+    _fields_ = [("id", C.c_char * 13), ("label", C.c_char * 64), ("detail", C.c_char * 256), ("tone", C.c_uint8)]
+
+
+class NativePendingQuestion(C.Structure):
+    _fields_ = [("request_id", C.c_char * 33), ("context", C.c_char * 25), ("title", C.c_char * 25)]
 
 
 class NativePayload(C.Structure):
     _fields_ = [("kind", C.c_uint8), ("context", C.c_char * 25), ("title", C.c_char * 25),
         ("body", C.c_char * 64), ("choice_count", C.c_uint8), ("choices", NativeChoice * 3),
         ("selected_id", C.c_char * 13), ("failure_count", C.c_uint8), ("failed_checks", (C.c_char * 49) * 6),
-        ("progress_valid", C.c_bool), ("passed", C.c_uint16), ("total", C.c_uint16)]
+        ("progress_valid", C.c_bool), ("passed", C.c_uint16), ("total", C.c_uint16),
+        ("pending_question_count", C.c_uint8), ("pending_entry_count", C.c_uint8),
+        ("pending_questions", NativePendingQuestion * 2)]
 
 
 class NativeCcpError(ValueError):
@@ -72,11 +78,12 @@ class NativeTransaction:
             "ack": ([C.c_void_p, C.c_char_p, C.c_char_p, C.c_char_p, C.c_int64], C.c_int32),
             "tick": ([C.c_void_p, C.c_int64], C.c_int32),
             "submit": ([C.c_void_p, C.c_char_p, C.c_char_p, C.c_uint8, C.c_int64], C.c_int32),
+            "select": ([C.c_void_p, C.c_char_p, C.c_uint8, C.c_int64], C.c_int32),
             "reset": ([C.c_void_p], C.c_int32),
             "dismiss": ([C.c_void_p, C.c_char_p], C.c_int32),
             "terminal": ([C.c_void_p, C.c_void_p, C.POINTER(C.c_uint32)], C.c_int32),
             "read": ([C.c_void_p, C.POINTER(NativePayload), C.c_uint32, C.c_void_p,
-                      C.POINTER(C.c_uint32), C.POINTER(C.c_int64), C.POINTER(C.c_int32)], C.c_int32),
+                      C.POINTER(C.c_uint32), C.POINTER(C.c_int64), C.POINTER(C.c_int32), C.c_void_p], C.c_int32),
         }
         for name, (arguments, result) in signatures.items():
             function = getattr(self.api, "cody_host_ccp_" + name)
@@ -121,6 +128,15 @@ class NativeTransaction:
         checked("Send", self.api.cody_host_ccp_submit(self.handle, request_id.encode("ascii"),
             choice.encode("ascii"), bool(fresh), microseconds(now)))
 
+    # self: Per-link portable transaction owner, isolated from physical snapshots.
+    # request_id: Complete advertised pending-question identity.
+    # fresh: Current authenticated endpoint admission.
+    # now: Original monotonic admission time in seconds.
+    # Raises the original native navigation admission error; no question is answered here.
+    def select_question(self, request_id, fresh, now):
+        checked("select question", self.api.cody_host_ccp_select(self.handle,
+            request_id.encode("ascii"), bool(fresh), microseconds(now)))
+
     # self: Per-link owner explicitly reset by commissioning/reset.
     # Raises ValueError for a missing native owner.
     def reset(self):
@@ -140,18 +156,23 @@ class NativeTransaction:
         states = ("none", "pending", "sending", "received", "delivered", "cancelled", "expired", "rejected")
         if state.value >= len(states):
             raise ValueError("Cody C++ CCP terminal state violates its ABI")
-        return None if state.value == 0 else (identity.value.decode("ascii"), states[state.value])
+        request_id = identity.value.decode("ascii")
+        if state.value == 0:
+            return (request_id, "dismissed") if request_id else None
+        return request_id, states[state.value]
 
     # self: Per-link native owner; Python receives a projection, never decides transitions.
     # interactions: Broker DTO module used only to represent the C++ decoded fields.
     # Raises ValueError for ABI mismatch, invalid native output or read failure.
     def snapshot(self, interactions):
         payload, identity = NativePayload(), C.create_string_buffer(33)
+        selection = C.create_string_buffer(33)
         state, deadline, error = C.c_uint32(), C.c_int64(), C.c_int32()
         checked("read", self.api.cody_host_ccp_read(self.handle, C.byref(payload), C.sizeof(payload),
-            identity, C.byref(state), C.byref(deadline), C.byref(error)))
+            identity, C.byref(state), C.byref(deadline), C.byref(error), selection))
         states = ("none", "pending", "sending", "received", "delivered", "cancelled", "expired", "rejected")
-        if state.value >= len(states) or payload.choice_count > 3 or payload.failure_count > 6:
+        if (state.value >= len(states) or payload.choice_count > 3 or payload.failure_count > 6 or
+                payload.pending_entry_count > 2 or payload.pending_question_count > 128):
             raise ValueError("Cody C++ CCP output violates its transport bounds")
         decoded = None
         if payload.kind:
@@ -161,6 +182,10 @@ class NativeTransaction:
                     choice.detail.decode("ascii"), interactions.Tone(choice.tone)) for choice in payload.choices[:payload.choice_count]),
                 selected_id=payload.selected_id.decode("ascii"),
                 failures=tuple(bytes(value).split(b"\0", 1)[0].decode("ascii") for value in payload.failed_checks[:payload.failure_count]),
-                progress_valid=payload.progress_valid, passed=payload.passed, total=payload.total)
+                progress_valid=payload.progress_valid, passed=payload.passed, total=payload.total,
+                pending_question_count=payload.pending_question_count,
+                pending_questions=tuple(interactions.PendingQuestion(entry.request_id.decode("ascii"),
+                    entry.context.decode("ascii"), entry.title.decode("ascii"))
+                    for entry in payload.pending_questions[:payload.pending_entry_count]))
         return SimpleNamespace(request_id=identity.value.decode("ascii"), state=states[state.value], payload=decoded,
-            expires=deadline.value / 1000000, error=error.value)
+            expires=deadline.value / 1000000, error=error.value, selection_request_id=selection.value.decode("ascii"))

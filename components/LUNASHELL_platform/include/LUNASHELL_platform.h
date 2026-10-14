@@ -877,6 +877,9 @@ esp_err_t LUNASHELL_codex_link_copy_pairing_code(
 // choice_id: Stable semantic option selected and explicitly confirmed on Cody.
 // Exception: Returns state, expiry, identity or mailbox admission errors; admission is not delivery.
 esp_err_t LUNASHELL_codex_event_reply(const char *expected_request_id, const char *choice_id);
+// request_id: Exact canonical pending-question identity explicitly selected on Cody.
+// Exception: Returns actual state, freshness, deadline or canonical publication errors.
+esp_err_t LUNASHELL_codex_event_select(const char *request_id);
 // expected_request_id: Exact non-question or terminal interaction explicitly dismissed.
 // Exception: Rejects dismissal of an unanswered question or a newer request.
 esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_id);

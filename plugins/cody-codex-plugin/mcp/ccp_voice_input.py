@@ -115,7 +115,7 @@ def connect_native(endpoint: str, deadline: float):
         raise TimeoutError("Codex connection deadline expired")
     connection = websocket.create_connection(local_endpoint(endpoint), timeout=remaining, suppress_origin=True, header=headers)
     try:
-        rpc(connection, 1, "initialize", {"clientInfo": {"name": "cody_voice_input", "version": "0.6.7"},
+        rpc(connection, 1, "initialize", {"clientInfo": {"name": "cody_voice_input", "version": "0.6.8"},
             "capabilities": {"experimentalApi": True}}, deadline)
         connection.send(json.dumps({"method": "initialized", "params": {}}))
         return connection

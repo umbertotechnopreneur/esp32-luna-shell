@@ -24,12 +24,13 @@ import hmac
 import math
 import re
 import secrets
+import sys
 import threading
 import time
 from typing import Any
 
 
-MAX_EVENT_DATAGRAM_BYTES = 1280
+MAX_EVENT_DATAGRAM_BYTES = 4096
 MAX_TICKETS = 128
 MAX_TTL_SECONDS = 180
 TERMINAL_RETENTION_SECONDS = 600.0
@@ -83,6 +84,13 @@ class Choice:
 
 
 @dataclass(frozen=True)
+class PendingQuestion:
+    request_id: str
+    context: str
+    title: str
+
+
+@dataclass(frozen=True)
 class EventPayload:
     kind: EventKind
     context: str
@@ -94,6 +102,8 @@ class EventPayload:
     progress_valid: bool = False
     passed: int = 0
     total: int = 0
+    pending_question_count: int = 0
+    pending_questions: tuple[PendingQuestion, ...] = ()
 
 
 @dataclass
@@ -113,6 +123,7 @@ class Ticket:
     native_session: str = ""
     published: bool = False
     device_terminal_state: str = ""
+    active_on_device: bool = False
 
 
 # value: Caller-supplied text, retained exactly rather than projected or truncated.
@@ -151,11 +162,11 @@ def validate_payload(payload: EventPayload) -> None:
         if choice.choice_id in identities:
             raise ValueError("Choice IDs must be unique")
         identities.add(choice.choice_id)
-        bounded_text(choice.label, "choice label", 12)
+        bounded_text(choice.label, "choice label", 63)
         if choice.label in labels:
             raise ValueError("Choice labels must be unambiguous and unique")
         labels.add(choice.label)
-        bounded_text(choice.detail, "choice detail", 63)
+        bounded_text(choice.detail, "choice detail", 255)
         if not isinstance(choice.tone, Tone):
             raise ValueError("Choice tone is invalid")
     if payload.selected_id and payload.selected_id not in identities:
@@ -182,6 +193,18 @@ def validate_payload(payload: EventPayload) -> None:
         raise ValueError("Unavailable progress must not contain numeric measurements")
     if payload.kind == EventKind.CHECKS_PASSED and (not payload.progress_valid or payload.passed != payload.total):
         raise ValueError("checks_passed requires a complete current all-passed check list")
+    if (type(payload.pending_question_count) is not int or not 0 <= payload.pending_question_count <= MAX_TICKETS or
+            len(payload.pending_questions) > 2 or len(payload.pending_questions) > payload.pending_question_count or
+            (payload.kind != EventKind.QUESTION and (payload.pending_question_count or payload.pending_questions))):
+        raise ValueError("EVENT pending-question projection is invalid")
+    pending_ids = set()
+    for entry in payload.pending_questions:
+        if (not isinstance(entry, PendingQuestion) or IDENTITY.fullmatch(entry.request_id) is None or
+                entry.request_id == "0" * 32 or entry.request_id in pending_ids):
+            raise ValueError("EVENT pending-question identity is invalid or ambiguous")
+        pending_ids.add(entry.request_id)
+        bounded_text(entry.context, "pending context", 24, True)
+        bounded_text(entry.title, "pending title", 24)
 
 
 # payload: Validated immutable interaction data and optional recipient-confirmed choice.
@@ -189,7 +212,7 @@ def validate_payload(payload: EventPayload) -> None:
 # Raises ValueError for incoherent content or an oversized encoded payload.
 def encode_payload(payload: EventPayload) -> str:
     validate_payload(payload)
-    result = bytearray((1, int(payload.kind)))
+    result = bytearray((2, int(payload.kind)))
     for text in (payload.context, payload.title, payload.body):
         encoded = text.encode("ascii")
         result.append(len(encoded))
@@ -212,7 +235,13 @@ def encode_payload(payload: EventPayload) -> str:
     result.append(int(payload.progress_valid))
     result.extend(payload.passed.to_bytes(2, "big"))
     result.extend(payload.total.to_bytes(2, "big"))
-    if len(result) > 512:
+    result.extend((payload.pending_question_count, len(payload.pending_questions)))
+    for entry in payload.pending_questions:
+        for value in (entry.request_id, entry.context, entry.title):
+            encoded = value.encode("ascii")
+            result.append(len(encoded))
+            result.extend(encoded)
+    if len(result) > 1536:
         raise ValueError("EVENT content exceeds its bounded binary envelope; use Codex")
     return result.hex()
 
@@ -222,7 +251,7 @@ class PayloadReader:
     # value: Candidate lowercase hexadecimal EVENT data.
     # Raises ValueError for malformed encoding or an oversized binary envelope.
     def __init__(self, value: str) -> None:
-        if not isinstance(value, str) or not value or len(value) > 1024 or len(value) % 2:
+        if not isinstance(value, str) or not value or len(value) > 3072 or len(value) % 2:
             raise ValueError("EVENT payload length is invalid")
         if any(character not in "0123456789abcdef" for character in value):
             raise ValueError("EVENT payload encoding is invalid")
@@ -263,14 +292,14 @@ class PayloadReader:
 # Raises ValueError for unknown versions, kinds, tones, trailing bytes or semantic contradictions.
 def decode_payload(value: str) -> EventPayload:
     reader = PayloadReader(value)
-    if reader.byte() != 1:
+    if reader.byte() != 2:
         raise ValueError("EVENT payload version is unsupported")
     kind = EventKind(reader.byte())
     context, title, body = reader.text(24, True), reader.text(24), reader.text(63)
     count = reader.byte()
     if count > 3:
         raise ValueError("EVENT contains too many choices")
-    choices = tuple(Choice(reader.text(12), reader.text(12), reader.text(63), Tone(reader.byte()))
+    choices = tuple(Choice(reader.text(12), reader.text(63), reader.text(255), Tone(reader.byte()))
                     for _ in range(count))
     selected = reader.text(12, True)
     failure_count = reader.byte()
@@ -281,9 +310,15 @@ def decode_payload(value: str) -> EventPayload:
     if progress not in (0, 1):
         raise ValueError("EVENT progress validity is invalid")
     passed, total = int.from_bytes(reader.take(2), "big"), int.from_bytes(reader.take(2), "big")
+    pending_count, pending_entries = reader.byte(), reader.byte()
+    if pending_entries > 2:
+        raise ValueError("EVENT pending viewport contains more than two requests")
+    pending = tuple(PendingQuestion(reader.text(32), reader.text(24, True), reader.text(24))
+                    for _ in range(pending_entries))
     if reader.offset != len(reader.data):
         raise ValueError("EVENT payload contains trailing bytes")
-    payload = EventPayload(kind, context, title, body, choices, selected, failures, bool(progress), passed, total)
+    payload = EventPayload(kind, context, title, body, choices, selected, failures, bool(progress), passed, total,
+                           pending_count, pending)
     validate_payload(payload)
     return payload
 
@@ -412,23 +447,23 @@ class InteractionStore:
             raise ValueError("Interaction association identity is invalid")
         encoded = encode_payload(payload)
         # Reserve the worst-case selected answer and envelope before mutating the queue.
-        if len(encoded) + 400 > MAX_EVENT_DATAGRAM_BYTES:
-            raise ValueError("EVENT exceeds the 1280-byte envelope; use Codex for this content")
+        if len(encoded) + 740 > MAX_EVENT_DATAGRAM_BYTES:
+            raise ValueError("EVENT exceeds the 4096-byte envelope including queue summaries; use Codex")
         with self._condition:
             self._expire()
             if len(self._tickets) >= MAX_TICKETS:
                 raise ValueError("CCP request registry is full; wait for terminal records to expire")
             active = [item for item in self._tickets.values() if item.device_id == device_id
                       and item.state not in TERMINAL_STATES]
-            if payload.kind == EventKind.QUESTION and any(item.payload.kind == EventKind.QUESTION for item in active):
-                raise ValueError("Cody already has a pending question; its caller must answer or cancel it")
             now = self._clock()
             if payload.kind != EventKind.QUESTION:
                 # Informational snapshots supersede one another. Keeping an
                 # older PR snapshot queued would let old failures reappear after
                 # a newer passed snapshot expires. Questions retain ownership.
                 for item in active:
-                    if item.payload.kind != EventKind.QUESTION:
+                    if (item.payload.kind != EventKind.QUESTION and
+                            ((native_session and item.native_session == native_session and item.payload.kind == payload.kind) or
+                             (not native_session and not item.native_session))):
                         item.state, item.terminal_at = "cancelled", now
             ticket = Ticket(secrets.token_hex(16), secrets.token_hex(32), device_id, payload, source,
                             now, now + ttl_seconds, association_id=association_id, native_session=native_session)
@@ -536,6 +571,13 @@ class InteractionStore:
                 return "conflict"
             if ticket.selected_id and ticket.selected_id != choice_id:
                 return "conflict"
+            if ticket.published:
+                # An authenticated reply confirms which previously offered
+                # question actually reached Cody, even before its next FIND.
+                for item in self._tickets.values():
+                    if (item.device_id == device_id and item.association_id == ticket.association_id
+                            and item.payload.kind == EventKind.QUESTION):
+                        item.active_on_device = item is ticket
             if not ticket.selected_id:
                 ticket.selected_id = choice_id
                 ticket.answer_id = secrets.token_hex(16)
@@ -577,18 +619,40 @@ class InteractionStore:
             ticket.device_terminal_state = state
             self._condition.notify_all()
 
+    # self: Informational queue owner retiring only a notice actually dismissed on Cody.
+    # device_id: Authenticated peer identity.
+    # request_id: Exact published informational ticket, never a question.
+    # association_id: Active authenticated association; receipt alone cannot retire another peer's notice.
+    # Raises ValueError for unknown, unpublished, unrelated or question tickets.
+    def acknowledge_notice(self, device_id: str, request_id: str, association_id: str) -> None:
+        with self._condition:
+            self._expire()
+            ticket = self._tickets.get(request_id)
+            if (ticket is None or ticket.device_id != device_id or not ticket.published
+                    or ticket.payload.kind == EventKind.QUESTION or not association_id
+                    or not hmac.compare_digest(association_id, ticket.association_id)):
+                raise ValueError("Informational dismissal has no published notice in this association")
+            if ticket.state == "pending":
+                ticket.state, ticket.terminal_at = "cancelled", self._clock()
+                self._condition.notify_all()
+
     # self: Publisher choosing a complete request snapshot without changing caller ownership.
     # device_id: Authenticated active Cody peer.
     # association_id: Current active-key digest; replacement retires old requests without exposing their payload.
     # current_id: Question identity reported by the authenticated device, or all zeros for absence.
     # current_state: Actual device state; an unknown open question is retired before publishing a successor.
+    # selection_request_id: Explicit signed queue navigation; zero means retain current ownership.
     # Returns request identity, lifecycle state, remaining TTL and immutable encoded payload.
     # Raises ValueError for an incoherent device observation.
     def snapshot(self, device_id: str, association_id: str = "",
-                 current_id: str = "0" * 32, current_state: str = "none") -> tuple[str, str, str, str]:
+                 current_id: str = "0" * 32, current_state: str = "none",
+                 selection_request_id: str = "0" * 32) -> tuple[str, str, str, str]:
         if (IDENTITY.fullmatch(current_id) is None or current_state not in DEVICE_STATES
                 or (current_id == "0" * 32) != (current_state == "none")):
             raise ValueError("Device question observation is incoherent")
+        if (IDENTITY.fullmatch(selection_request_id) is None or
+                (selection_request_id != "0" * 32 and current_state != "pending")):
+            raise ValueError("Device pending-question selection is incoherent")
         with self._condition:
             self._expire()
             now = self._clock()
@@ -602,28 +666,58 @@ class InteractionStore:
                         self._condition.notify_all()
                     continue
                 relevant.append(item)
+            current = next((item for item in relevant if item.request_id == current_id), None)
             if current_state in OPEN_DEVICE_STATES:
-                current = next((item for item in relevant if item.request_id == current_id), None)
                 if current is None or not current.published or current.payload.kind != EventKind.QUESTION:
                     # Volatile broker state can disappear while Cody still owns
                     # a question. Its signed next FIND confirms retirement; no
                     # successor is published until that observation is terminal.
                     return current_id, "unavailable", "0", "-"
+            if current is not None and current.published and current.payload.kind == EventKind.QUESTION:
+                # Sending an EVENT is only an offer. The signed next FIND
+                # confirms the handoff; a lost offer must leave its predecessor
+                # able to close, and an expired offer must never await an ACK.
+                for item in relevant:
+                    if item.payload.kind == EventKind.QUESTION:
+                        item.active_on_device = item is current
             questions = [item for item in relevant if item.payload.kind == EventKind.QUESTION
                           and item.state not in TERMINAL_STATES]
             closing = [item for item in relevant if item.payload.kind == EventKind.QUESTION
-                       and item.published and item.state in TERMINAL_STATES and not item.device_terminal_state]
+                       and item.active_on_device and item.published and item.state in TERMINAL_STATES and not item.device_terminal_state]
             recent = [item for item in relevant if item.payload.kind == EventKind.QUESTION
-                      and item.terminal_at is not None and now - item.terminal_at < TERMINAL_DISPLAY_SECONDS]
+                      and item.active_on_device and item.terminal_at is not None and now - item.terminal_at < TERMINAL_DISPLAY_SECONDS]
             notices = [item for item in relevant if item.payload.kind != EventKind.QUESTION and item.state == "pending"]
+            target = None
+            if selection_request_id != "0" * 32:
+                if current is not None and current.state == "pending" and not current.selected_id:
+                    target = next((item for item in questions if item.request_id == selection_request_id
+                                   and item.state == "pending" and not item.selected_id), None)
+                if target is None:
+                    print("CCP interactions: requested pending question is no longer selectable", file=sys.stderr)
             # Queuing the next question must not hide the previous closure before
             # Cody has applied it. Repeat the terminal snapshot until its signed ACK.
-            ticket = (closing[0] if closing else questions[-1] if questions else
-                      recent[-1] if recent else notices[-1] if notices else None)
+            active_current = current if current in questions else None
+            ticket = (closing[0] if closing else target if target is not None else
+                      active_current if active_current is not None else questions[0] if questions else
+                      recent[-1] if recent else notices[0] if notices else None)
             if ticket is None:
                 return "0" * 32, "none", "0", "-"
             ticket.published = True
             payload = replace(ticket.payload, selected_id=ticket.selected_id)
+            if ticket.payload.kind == EventKind.QUESTION:
+                if current_id == "0" * 32:
+                    # Initial ownership has no predecessor to strand. Repeat a
+                    # published closure until Cody confirms or acknowledges it.
+                    for item in relevant:
+                        if item.payload.kind == EventKind.QUESTION:
+                            item.active_on_device = item is ticket
+                pending = [item for item in questions if item.state == "pending" and not item.selected_id]
+                if ticket in pending:
+                    first = pending.index(ticket)
+                    pending = pending[first:] + pending[:first]
+                entries = tuple(PendingQuestion(item.request_id, item.payload.context, item.payload.title)
+                                for item in pending[:2])
+                payload = replace(payload, pending_question_count=len(questions), pending_questions=entries)
             # Ceil prevents a live last-fraction-of-a-second request from being
             # published as Pending with ttl=0; the host deadline remains exact.
             ttl = max(0, min(MAX_TTL_SECONDS, math.ceil(ticket.expires_at - now)))
@@ -657,8 +751,8 @@ def tool_catalog() -> list[dict[str, Any]]:
                 "choices": {"type": "array", "minItems": 2, "maxItems": 3, "items": {
                     "type": "object", "properties": {
                         "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,11}$"},
-                        "label": {"type": "string", "minLength": 1, "maxLength": 12, "pattern": "^[ -~]+$"},
-                        "detail": text63,
+                        "label": {"type": "string", "minLength": 1, "maxLength": 63, "pattern": "^[ -~]+$"},
+                        "detail": {"type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[ -~]+$"},
                         "tone": {"type": "string", "enum": list(TONE_NAMES)},
                     }, "required": ["id", "label", "detail", "tone"], "additionalProperties": False}}},
                 "required": ["device_id", "title", "body", "choices"], "additionalProperties": False},

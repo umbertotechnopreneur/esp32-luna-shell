@@ -10,6 +10,7 @@ inline constexpr DamageRect kHomeDashboardBounds{40, 268, 426, 393};
 inline constexpr unsigned kHomeDashboardSegments = 20;
 inline constexpr unsigned kHomeDashboardArcVertices = 64;
 inline constexpr int64_t kHomeDashboardRotationUs = 8000000;
+inline constexpr CODY2D::Rect kHomeChatTitleBounds{73, 315, 320, 28};
 
 // Passive presentation time only; the caller retains the single selected-panel identity.
 struct HomeDashboardRotationState {
@@ -26,9 +27,25 @@ void reset_home_dashboard_rotation(HomeDashboardRotationState &state);
 // visible: False for preempting routes and pause; hidden time preserves the remaining dwell.
 // compacting: Current validated compaction forces Home and reserves a fresh dwell after completion.
 // next: Receives the selected panel; a delayed frame advances at most once without skipping unseen panels.
+// minimum_dwell_us: Measured native reading duration for this panel, at least the default eight seconds.
 // Exception: Logs and returns invalid clocks or unsupported identities without mutating the policy.
 esp_err_t advance_home_dashboard_rotation(HomeDashboardRotationState &state,
-    CompanionPanel current, int64_t active_us, bool visible, bool compacting, CompanionPanel &next);
+    CompanionPanel current, int64_t active_us, bool visible, bool compacting, CompanionPanel &next,
+    int64_t minimum_dwell_us = kHomeDashboardRotationUs);
+
+// Display-owned title and clipped window; canonical receipt/validity remain in the source snapshot.
+struct HomeChatTitlePresentation {
+    char text[256]{};
+    char chat_id[65]{};
+    CODY2D::TextLine window{};
+    const CODY2D::MonoFont *font = nullptr;
+    int64_t started_elapsed_us = 0;
+    int64_t reading_us = kHomeDashboardRotationUs;
+    uint16_t width = 0;
+    uint16_t offset = 0;
+    uint16_t length = 0;
+    uint32_t revision = 0;
+};
 
 struct HomeDashboardArcPath {
     CODY2D::Vec2 vertices[kHomeDashboardArcVertices]{};
@@ -47,6 +64,8 @@ struct HomeDashboardPresentation {
     CODY2D::Point prior_origins[6]{};
     const CODY2D::MonoFont *prior_fonts[6]{};
     CODY2D::CapsuleControl price_capsule{};
+    HomeChatTitlePresentation chat_title{};
+    int64_t minimum_dwell_us = kHomeDashboardRotationUs;
     bool price_visible = false;
     CompanionPanel panel = CompanionPanel::Home;
     HomeDashboardArcState arc_state = HomeDashboardArcState::Unavailable;
@@ -77,6 +96,7 @@ esp_err_t next_home_dashboard_panel(CompanionPanel current, CompanionPanel &next
 // small_font: Optional immutable native small font for secondary metrics and motion.
 // device_ip: Original canonical local-device address, never the paired PC address.
 // device_ip_state: Independent canonical validity/freshness of the local Wi-Fi address.
+// panel_elapsed_us: Visible dwell from the shared rotation policy; negative uses the supplied active clock.
 // Exception: Returns and logs projection, formatting, geometry or native raster preparation errors.
 esp_err_t prepare_home_dashboard(CompanionPanel panel,
     const LUNASHELL::CodexLinkSnapshot &link, const LUNASHELL::CodexTechnicalSnapshot &technical,
@@ -84,7 +104,7 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
     int64_t now_us, int64_t active_time_us, HomeDashboardPresentation &presentation,
     SceneContent &content, const LUNASHELL::ActivitySnapshot *motion = nullptr,
     const CODY2D::MonoFont *small_font = nullptr, const char *device_ip = "",
-    PanelValueState device_ip_state = PanelValueState::Unavailable);
+    PanelValueState device_ip_state = PanelValueState::Unavailable, int64_t panel_elapsed_us = -1);
 
 // presentation: Immutable prepared component owner, never a temporary copy.
 // strip: Native RGB565 tile, including original byte order and stride.

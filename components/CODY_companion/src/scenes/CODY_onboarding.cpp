@@ -259,6 +259,9 @@ uint32_t s_activity_identity_revision = 0;
 ActivityObservationState s_activity_observation{};
 LUNASHELL::CodexActivityState s_presented_work_phase = LUNASHELL::CodexActivityState::Working;
 LUNASHELL::CodexEventSnapshot s_presented_event{};
+// The display owner alone reads this scratch snapshot. Schema growth must not
+// add a second large by-value event to the nested renderer stack.
+LUNASHELL::CodexEventSnapshot s_observed_event{};
 EventStage s_event_stage = EventStage::Notice;
 EventRetry s_event_retry = EventRetry::None;
 esp_err_t s_event_ui_error = ESP_OK;
@@ -267,7 +270,10 @@ bool s_event_online = false;
 bool s_event_reply_admitted = false;
 bool s_event_dismiss_admitted = false;
 char s_event_selected_id[13]{};
+char s_event_selection_target[33]{};
 uint8_t s_event_failure_page = 0;
+uint8_t s_event_choice_page = 0;
+uint8_t s_event_detail_page = 0;
 // Display-owner buffer avoids putting the complete presentation plan on its task stack.
 event_presentation::Plan s_event_plan{};
 int64_t s_checks_passed_readable_at_us = -1;
@@ -321,6 +327,7 @@ esp_err_t s_visible_error = ESP_OK;
 Work s_failed_work = Work::Start;
 bool s_local_failure = false;
 bool s_swipe_active = false;
+bool s_event_touch_moved = false;
 CODY2D::Point s_swipe_start{};
 CODY2D::Point s_swipe_last{};
 Route s_swipe_route = Route::None;
@@ -940,7 +947,7 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         break;
     case OnboardingAction::OpenEvent: label = "Open"; break;
     case OnboardingAction::ViewFailures: label = "View failures"; break;
-    case OnboardingAction::SendReply: label = "Send"; break;
+    case OnboardingAction::SendReply: label = "Send reply"; break;
     case OnboardingAction::DismissEvent: label = "Done"; break;
     case OnboardingAction::RetryEvent: label = "Try again"; break;
     default:
@@ -951,26 +958,24 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
 }
 
 // action: Typed semantic purpose, independent of caption and storage order.
-// control: Receives native dark gradients, border and the matching action icon.
+// control: Receives native dark gradients, border and text-only captions.
 void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
 {
     control.top_color = 0x1147;
     control.bottom_color = 0x08C4;
     control.border_color = 0x2B4F;
     control.icon_color = 0x8F1D;
-    control.icon = CODY2D::ActionIcon::Arrow;
+    control.icon = CODY2D::ActionIcon::None;
     switch (action) {
     case OnboardingAction::AcceptCodex:
     case OnboardingAction::KeepPairing:
     case OnboardingAction::KeepSaved:
     case OnboardingAction::Done:
     case OnboardingAction::DismissEvent:
-        control.icon = CODY2D::ActionIcon::Check;
         break;
     case OnboardingAction::ConnectCodex:
     case OnboardingAction::PairCody:
     case OnboardingAction::SendReply:
-        control.icon = CODY2D::ActionIcon::Link;
         break;
     case OnboardingAction::NetworkSetup:
     case OnboardingAction::ShowQr:
@@ -978,7 +983,6 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
         control.bottom_color = 0x08A4;
         control.border_color = 0x3291;
         control.icon_color = 0xA71F;
-        control.icon = action == OnboardingAction::ShowQr ? CODY2D::ActionIcon::Qr : CODY2D::ActionIcon::Wifi;
         break;
     case OnboardingAction::DeclineCodex:
     case OnboardingAction::Later:
@@ -987,7 +991,6 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
         control.bottom_color = 0x10A3;
         control.border_color = 0x4A8C;
         control.icon_color = 0xBDF7;
-        control.icon = action == OnboardingAction::Options ? CODY2D::ActionIcon::Gear : CODY2D::ActionIcon::Close;
         break;
     case OnboardingAction::Cancel:
     case OnboardingAction::Retry:
@@ -998,8 +1001,6 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
         control.bottom_color = 0x18C3;
         control.border_color = 0x7BEF;
         control.icon_color = 0xE5F1;
-        control.icon = action == OnboardingAction::Cancel ? CODY2D::ActionIcon::Close :
-            action == OnboardingAction::ViewFailures ? CODY2D::ActionIcon::Arrow : CODY2D::ActionIcon::Retry;
         break;
     case OnboardingAction::ForgetPairing:
     case OnboardingAction::ConfirmForget:
@@ -1007,7 +1008,6 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
         control.bottom_color = 0x1883;
         control.border_color = 0x796B;
         control.icon_color = 0xED53;
-        control.icon = CODY2D::ActionIcon::Close;
         break;
     default:
         break;
@@ -1018,7 +1018,7 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
 // label: Printable primary caption with an optional split at its first space.
 // bounds: Shared logical raster and hit rectangle.
 // enabled: Backend admission state.
-// card: True for the two-column icon-above-caption layout.
+// card: True for the two-column rounded card layout.
 // control: Receives the rounded gradient button and first caption line.
 // second: Receives a second line only for a two-word card caption.
 // Exception: Returns the real caption layout failure.
@@ -1030,9 +1030,6 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
     second = {};
     style_action(action, control);
     control.corner_radius = card ? 28 : 0;
-    // Cards keep the approved icon-above-caption arrangement.
-    control.icon_center = {static_cast<int16_t>(card ? bounds.x + bounds.width / 2U : bounds.x + 27U),
-        static_cast<int16_t>(card ? bounds.y + 33U : bounds.y + bounds.height / 2U)};
     if (label == nullptr) {
         control.icon = CODY2D::ActionIcon::None;
         return ESP_OK;
@@ -1043,23 +1040,16 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
         space = nullptr;
     }
     const uint16_t length = static_cast<uint16_t>(space != nullptr ? space - label : std::strlen(label));
-    const uint16_t text_left = card ? bounds.x : bounds.x + 47U;
-    const uint16_t text_width = card ? bounds.width : bounds.width - 56U;
+    const uint16_t text_width = bounds.width - 20U;
     const uint16_t width = (length - 1U) * font.advance + font.width;
     if (length == 0 || width > text_width || font.height > bounds.height) {
         ESP_LOGE(kTag, "Action caption does not fit: %s (%s)", label, esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
-    // The lower icon must remain separate from both caption lines on a card.
-    const uint16_t top = card ? bounds.y + (space != nullptr ? 48U : 57U) :
-        bounds.y + (bounds.height - font.height) / 2U;
-    const uint16_t caption_left = card ? text_left + (text_width - width) / 2U :
-        bounds.x + (bounds.width - width - 36U) / 2U + 36U;
-    if (!card) {
-        // Center the icon and label as one group, aligned to the font container.
-        control.icon_center.x = static_cast<int16_t>(caption_left - 24U);
-        control.icon_center.y = static_cast<int16_t>(top + font.height / 2U);
-    }
+    const uint16_t caption_height = space != nullptr ? font.height * 2U + 2U : font.height;
+    if (caption_height > bounds.height) { return ESP_ERR_INVALID_SIZE; }
+    const uint16_t top = bounds.y + (bounds.height - caption_height) / 2U;
+    const uint16_t caption_left = bounds.x + (bounds.width - width) / 2U;
     esp_err_t error = CODY2D::prepare_text_line(font, {label, length},
         {static_cast<int16_t>(caption_left), static_cast<int16_t>(top)},
         0xFFFF, control.caption);
@@ -1073,7 +1063,7 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
         }
         error = CODY2D::prepare_text_line(font, {text, count},
             {static_cast<int16_t>(bounds.x + (bounds.width - line_width) / 2U),
-             static_cast<int16_t>(bounds.y + 75U)}, 0xFFFF, second);
+             static_cast<int16_t>(top + font.height + 2U)}, 0xFFFF, second);
     }
     return error;
 }
@@ -1359,17 +1349,17 @@ esp_err_t attach_content(SceneFrame &scene)
         content.bottom_action_bounds = {};
         content.bottom_action_visible = false;
         if (s_view.event_choice_count != 0) {
-            content.bounds.bottom = 364;
-            if (s_view.event_choice_count == 3) {
-                content.bottom_action_visible = true;
-                content.bottom_action_bounds = {113, 376, 353, 428};
-            }
+            // Full-width rows end inside the safe square; the narrow footer hint
+            // is independently measured against the lower circular chord.
+            content.bounds.bottom = 388;
+            content.bottom_action_visible = true;
+            content.bottom_action_bounds = {99, 394, 367, 419};
         } else if (s_view.action_visible) {
             content.bounds.bottom = kSingleActionBounds.y;
             content.bottom_action_visible = true;
             content.bottom_action_bounds = {113, 352, 353, 424};
         }
-        if (s_route == Route::DecisionChoices27 || s_route == Route::DecisionConfirm27 ||
+        if (s_route == Route::DecisionQueue || s_route == Route::DecisionChoices27 || s_route == Route::DecisionConfirm27 ||
             s_route == Route::CheckFailures24) {
             content.control_bounds[0] = {10, 203, 70, 263};
         }
@@ -1538,14 +1528,13 @@ esp_err_t prepare_options_content(SceneFrame &scene)
     struct Row {
         PreferenceId identity;
         const char *label;
-        CODY2D::ActionIcon icon;
     };
     constexpr Row rows[] = {
-        {PreferenceId::ShakeWake, "Shake to wake", CODY2D::ActionIcon::Motion},
-        {PreferenceId::AutoRotate, "Auto-rotate", CODY2D::ActionIcon::Rotate},
-        {PreferenceId::Sounds, "Sounds", CODY2D::ActionIcon::Sound},
-        {PreferenceId::Orientation, "Orientation", CODY2D::ActionIcon::Orientation},
-        {PreferenceId::UsageMode, "Usage", CODY2D::ActionIcon::Motion},
+        {PreferenceId::ShakeWake, "Shake to wake"},
+        {PreferenceId::AutoRotate, "Auto-rotate"},
+        {PreferenceId::Sounds, "Sounds"},
+        {PreferenceId::Orientation, "Orientation"},
+        {PreferenceId::UsageMode, "Usage"},
     };
     static_assert(std::size(rows) <= std::size(s_view.preferences), "Options rows exceed their persistent control owner");
     const auto &font = SceneData::body_font;
@@ -1607,12 +1596,11 @@ esp_err_t prepare_options_content(SceneFrame &scene)
             available && !manual_locked && !s_command_pending};
         target.control.corner_radius = 12;
         target.control.border_color = active && available ? 0x2B4F : 0x4A8C;
-        target.control.icon = row.icon;
-        target.control.icon_center = {130, static_cast<int16_t>(top + 17U)};
+        target.control.icon = CODY2D::ActionIcon::None;
         target.control.icon_color = active && available ? 0x8F1D : 0xBDF7;
         const int16_t text_top = static_cast<int16_t>(top + (kPreferenceHeight - font.height) / 2U);
         error = CODY2D::prepare_text_line(font, {row.label, static_cast<uint16_t>(std::strlen(row.label))},
-            {148, text_top}, 0xFFFF, target.control.caption);
+            {125, text_top}, 0xFFFF, target.control.caption);
         const uint16_t count = static_cast<uint16_t>(std::strlen(value));
         const uint16_t value_width = (count - 1U) * font.advance + font.width;
         if (error == ESP_OK) {
@@ -1635,7 +1623,7 @@ esp_err_t append_event_line(const event_presentation::Line &line)
     const auto &font = SceneData::body_font;
     const size_t count = std::strlen(line.text);
     if (count == 0 || count >= kDebugLineBytes || s_view.line_count >= kContentLineCapacity ||
-        line.top + font.height > 380) {
+        line.top + font.height > 419) {
         ESP_LOGE(kTag, "Shared event line bounds rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
@@ -1643,6 +1631,12 @@ esp_err_t append_event_line(const event_presentation::Line &line)
     auto &buffer = s_view.debug_text[index];
     std::memcpy(buffer, line.text, count + 1U);
     const uint16_t width = static_cast<uint16_t>((count - 1U) * font.advance + font.width);
+    const int horizontal = (width + 1U) / 2U;
+    const int vertical = static_cast<int>(line.top + font.height - 1U) - 233;
+    if (horizontal * horizontal + vertical * vertical > 233 * 233) {
+        ESP_LOGE(kTag, "Shared event line exceeds circular chord (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
     const esp_err_t error = CODY2D::prepare_text_line(font, {buffer, static_cast<uint16_t>(count)},
         {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(line.top)},
         line.instant ? 0xBDF7 : 0xFFFF, s_view.lines[index]);
@@ -1662,6 +1656,8 @@ event_presentation::Navigation event_navigation()
     navigation.stage = s_event_stage;
     std::memcpy(navigation.selected_id, s_event_selected_id, sizeof(navigation.selected_id));
     navigation.failure_page = s_event_failure_page;
+    navigation.choice_page = s_event_choice_page;
+    navigation.detail_page = s_event_detail_page;
     return navigation;
 }
 
@@ -1669,7 +1665,8 @@ event_presentation::Navigation event_navigation()
 event_presentation::Context event_context()
 {
     return {s_event_online, s_event_reply_admitted, s_event_dismiss_admitted,
-        s_event_observation_error, s_event_ui_error, s_event_retry};
+        s_event_observation_error, s_event_ui_error, s_event_retry,
+        s_event_selection_target[0] != '\0' || s_presented_event.selection_request_id[0] != '\0'};
 }
 
 // navigation: Local reversible presentation state accepted by the shared model.
@@ -1680,6 +1677,8 @@ void retain_event_navigation(const event_presentation::Navigation &navigation,
     s_event_stage = navigation.stage;
     std::memcpy(s_event_selected_id, navigation.selected_id, sizeof(s_event_selected_id));
     s_event_failure_page = navigation.failure_page;
+    s_event_choice_page = navigation.choice_page;
+    s_event_detail_page = navigation.detail_page;
     auto context = event_context();
     event_presentation::accept_navigation(context, effect);
     s_event_ui_error = context.ui_error;
@@ -1718,7 +1717,8 @@ esp_err_t prepare_event_content(SceneFrame &scene)
     s_view.action_visible = false;
     for (uint8_t index = 0; error == ESP_OK && index < s_event_plan.action_count; ++index) {
         const auto &action = s_event_plan.actions[index];
-        if (action.id == event_presentation::ActionId::Choose) {
+        if (action.id == event_presentation::ActionId::Choose ||
+            action.id == event_presentation::ActionId::SelectQuestion) {
             auto &choice = s_view.event_choices[s_view.event_choice_count];
             std::memcpy(choice.id, action.choice_id, sizeof(choice.id));
             error = event_presentation::prepare_control(action, font, choice.control, choice.second);
@@ -1800,6 +1800,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     case Route::ChecksFailed23: identity = SceneId::ChecksFailed; break;
     case Route::CheckFailures24: identity = SceneId::CheckFailures; break;
     case Route::DecisionNotice26: identity = SceneId::DecisionNotice; break;
+    case Route::DecisionQueue:
     case Route::DecisionChoices27: identity = SceneId::DecisionChoices; break;
     case Route::DecisionConfirm27: identity = SceneId::DecisionConfirm; break;
     case Route::DecisionWaiting: identity = SceneId::DecisionWaiting; break;
@@ -2054,7 +2055,8 @@ void reset_event_presentation()
     s_event_reply_admitted = false;
     s_event_dismiss_admitted = false;
     s_event_selected_id[0] = '\0';
-    s_event_failure_page = 0;
+    s_event_selection_target[0] = '\0';
+    s_event_failure_page = s_event_choice_page = s_event_detail_page = 0;
     s_checks_passed_readable_at_us = -1;
 }
 
@@ -2072,6 +2074,7 @@ esp_err_t render_codex_event(SceneFrame &scene, bool preserve_typing = false)
 {
     // A real question/notification owns this view; its dwell cannot be charged as observed work.
     pause_activity_observation(s_activity_observation);
+    s_swipe_active = false;
     const Route destination = codex_event_destination();
     const bool keep_time = preserve_typing && destination == s_route;
     const SceneFrame previous = scene;
@@ -2142,7 +2145,7 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
         handled = true; // Only the visible Retry requests another failed observation.
         return ESP_OK;
     }
-    LUNASHELL::CodexEventSnapshot observed;
+    auto &observed = s_observed_event;
     const esp_err_t read_error =
         LUNASHELL::DeviceSnapshotService::instance().readCodexEventObservation(observed);
     if (read_error != ESP_OK) {
@@ -2185,12 +2188,22 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
         online == s_event_online && s_route == codex_event_destination()) {
         return advance_checks_passed_dwell(scene, active_time_us, changed);
     }
+    const bool selected_question = !same_request &&
+        ((s_event_selection_target[0] != '\0' && std::strcmp(observed.request_id, s_event_selection_target) == 0) ||
+         (s_presented_event.selection_request_id[0] != '\0' &&
+          std::strcmp(observed.request_id, s_presented_event.selection_request_id) == 0));
     const State previous_state = s_presented_event.state;
     if (!same_request) {
         reset_event_presentation();
     }
     s_presented_event = observed;
     s_event_online = online;
+    if (selected_question && observed.kind == Kind::Question && observed.state == State::Pending) {
+        s_event_stage = EventStage::Choices;
+    }
+    if (!online || observed.last_error != ESP_OK || observed.selection_request_id[0] == '\0') {
+        s_event_selection_target[0] = '\0';
+    }
     s_companion_seen_selection = true;
     if (!same_request || (observed.state != previous_state && LUNASHELL::codexEventIsTerminal(observed.state))) {
         // A terminal owner result retires any failed local admission; Retry must
@@ -2235,26 +2248,15 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
     return advance_checks_passed_dwell(scene, active_time_us, changed);
 }
 
-// scene: Current event view; only a visible Send/Retry can call the reply owner.
-// action: Explicit button identity, never inferred from a caption or choice order.
-// Exception: Returns layout errors; admission failures retain their original error and visible Retry.
-esp_err_t activate_codex_event(SceneFrame &scene, OnboardingAction action)
+// scene: Current event view; source selection and replies retain their distinct owners.
+// selected: Explicit control from the retained plan whose gesture has completed.
+// Exception: Returns layout errors; owner admission failures remain visible and logged.
+esp_err_t activate_event_action(SceneFrame &scene, const event_presentation::Action &selected)
 {
-    const event_presentation::Action *selected = nullptr;
-    for (uint8_t index = 0; index < s_event_plan.action_count; ++index) {
-        if (event_action_identity(s_event_plan.actions[index].id) == action) {
-            selected = &s_event_plan.actions[index];
-            break;
-        }
-    }
-    if (selected == nullptr) {
-        ESP_LOGE(kTag, "Unknown event action rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
-        return ESP_ERR_INVALID_ARG;
-    }
     auto navigation = event_navigation();
     event_presentation::Effect effect;
     const esp_err_t decision_error = event_presentation::activate(s_presented_event,
-        event_context(), *selected, navigation, effect);
+        event_context(), selected, navigation, effect);
     if (decision_error != ESP_OK) {
         ESP_LOGE(kTag, "Event admission rejected (%s)", esp_err_to_name(decision_error));
         return decision_error;
@@ -2266,6 +2268,18 @@ esp_err_t activate_codex_event(SceneFrame &scene, OnboardingAction action)
         s_view.action.enabled = false;
         ++s_navigation_revision;
         return attach_content(scene);
+    }
+    if (effect == event_presentation::Effect::SelectQuestion) {
+        const esp_err_t error = LUNASHELL_codex_event_select(selected.request_id);
+        s_event_ui_error = error;
+        if (error == ESP_OK) {
+            // This is local admission, not an assumed source change. Full choices
+            // remain those of the current event until the canonical EVENT arrives.
+            std::memcpy(s_event_selection_target, selected.request_id, sizeof(s_event_selection_target));
+        } else {
+            ESP_LOGE(kTag, "Question selection admission failed (%s)", esp_err_to_name(error));
+        }
+        return render_codex_event(scene, true);
     }
     const bool reply = effect == event_presentation::Effect::Reply;
     if (!reply && effect != event_presentation::Effect::Dismiss) { return ESP_ERR_INVALID_STATE; }
@@ -4362,27 +4376,25 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
     const CODY2D::CapsuleControl back{kBackBounds, {}, NavigationData::top, NavigationData::bottom, true};
     const CODY2D::CapsuleControl next{kForwardBounds, {}, NavigationData::top, NavigationData::bottom, true};
     if (pressed_edge) {
-        if (is_codex_event_route(s_route) && s_view.actions_visible) {
+        if (is_codex_event_route(s_route)) {
             ScenePresentation presentation;
             const esp_err_t presentation_error = prepare_scene_presentation(scene, presentation);
-            if (presentation_error != ESP_OK || !presentation.content_visible) {
-                return presentation_error;
-            }
-            const auto *action = event_presentation::hit_action(s_event_plan,
-                s_view.actions_visible, point.x, point.y);
-            if (action != nullptr) {
+            if (presentation_error != ESP_OK) { return presentation_error; }
+            if (!s_view.actions_visible || !presentation.content_visible) { return ESP_OK; }
+            if (event_presentation::hit_back(s_event_plan, true, point.x, point.y)) {
                 consumed = true;
-                if (action->id == event_presentation::ActionId::Choose) {
-                    auto navigation = event_navigation();
-                    event_presentation::Effect effect;
-                    const esp_err_t error = event_presentation::activate(s_presented_event,
-                        event_context(), *action, navigation, effect);
-                    if (error != ESP_OK) { return error; }
-                    retain_event_navigation(navigation, effect);
-                    return render_codex_event(scene);
-                }
-                return activate_codex_event(scene, event_action_identity(action->id));
+                return activate_onboarding_navigation(scene, NavigationDirection::Previous);
             }
+            // Rows and the review footer act only on release. A vertical drag
+            // starting on a row must scroll instead of prematurely choosing it.
+            s_swipe_active = point_in_rect({73, 196, 320, 228}, point);
+            s_swipe_start = s_swipe_last = point;
+            s_swipe_route = s_route;
+            s_swipe_rotation = rotation_degrees;
+            s_swipe_axis = GestureAxis::Undecided;
+            s_event_touch_moved = false;
+            consumed = s_swipe_active;
+            return ESP_OK;
         }
         if (s_route == Route::MakeItYours10 && s_view.actions_visible && !s_command_pending) {
             for (uint8_t index = 0; index < s_view.preference_count; ++index) {
@@ -4452,6 +4464,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         s_swipe_last = point;
         const int dx = std::abs(point.x - s_swipe_start.x);
         const int dy = std::abs(point.y - s_swipe_start.y);
+        if (is_codex_event_route(s_route) && std::max(dx, dy) >= 12) { s_event_touch_moved = true; }
         if (s_swipe_axis == GestureAxis::Undecided && std::max(dx, dy) >= 12) {
             if (dx * 2 > dy * 3) {
                 s_swipe_axis = GestureAxis::Horizontal;
@@ -4464,14 +4477,21 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         s_swipe_active = false;
         const int dx = s_swipe_last.x - s_swipe_start.x;
         const int dy = s_swipe_last.y - s_swipe_start.y;
-        if (s_route == Route::CheckFailures24 && s_view.actions_visible &&
-            s_swipe_axis == GestureAxis::Vertical && std::abs(dy) >= 36) {
+        if (is_codex_event_route(s_route)) {
             consumed = true;
             auto navigation = event_navigation();
-            const bool changed = event_presentation::scroll(s_presented_event, navigation,
-                s_view.actions_visible, dx, dy);
-            retain_event_navigation(navigation);
-            return changed ? render_codex_event(scene, true) : ESP_OK;
+            const event_presentation::Action *action = nullptr;
+            const auto effect = event_presentation::release(s_event_plan, navigation, s_view.actions_visible,
+                s_swipe_start.x, s_swipe_start.y, s_swipe_last.x, s_swipe_last.y, action);
+            // An excursion followed by a return to the origin is still a drag.
+            if (s_event_touch_moved && std::abs(dx) < 12 && std::abs(dy) < 12) {
+                return ESP_OK;
+            }
+            if (effect == event_presentation::Effect::Render) {
+                retain_event_navigation(navigation, effect);
+                return render_codex_event(scene, true);
+            }
+            return action != nullptr ? activate_event_action(scene, *action) : ESP_OK;
         }
         if (s_swipe_axis == GestureAxis::Horizontal && std::abs(dx) >= 48 &&
             std::abs(dx) * 2 > std::abs(dy) * 3) {

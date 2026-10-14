@@ -114,7 +114,8 @@ SceneFrame prepare(Route route, SceneId identity)
 {
     s_view = {};
     s_route = route;
-    s_event_stage = route == Route::DecisionChoices27 ? EventStage::Choices :
+    s_event_stage = route == Route::DecisionQueue ? EventStage::Questions :
+        route == Route::DecisionChoices27 ? EventStage::Choices :
         route == Route::DecisionConfirm27 ? EventStage::Confirm :
         route == Route::CheckFailures24 ? EventStage::Failures : EventStage::Notice;
     const SceneDefinition *definition = nullptr;
@@ -217,14 +218,14 @@ void complete_narrative(SceneFrame &scene)
         "button captions and instant statuses do not enter typewriter/audio counts");
 }
 
-// No parameters: actual card rendering and typed labels share the full-control visibility gate.
+// No parameters: numbered rows share raster/hit geometry and the complete narrative gate.
 void check_choice_cards()
 {
     for (uint8_t count : {uint8_t{2}, uint8_t{3}}) {
         start_question();
         s_presented_event.choice_count = count;
         SceneFrame scene = prepare(Route::DecisionChoices27, SceneId::DecisionChoices);
-        require(s_view.event_choice_count == count, "all offered choices retain their stable identities");
+        require(s_view.event_choice_count == 2, "only two offered replies are visible at once");
         std::vector<uint16_t> pixels(466U * 466U, 0);
         const CODY2D::Surface surface{pixels.data(), 466, 466, 466,
             static_cast<uint32_t>(pixels.size()), CODY2D::Rgb565ByteOrder::Native};
@@ -234,11 +235,13 @@ void check_choice_cards()
         complete_narrative(scene);
         require(previous_control_visible() && !next_navigation_available(),
             "only explicit visible choice controls and canonical Back navigate");
-        for (uint8_t index = 0; index < count; ++index) {
+        for (uint8_t index = 0; index < s_view.event_choice_count; ++index) {
             const auto &control = s_view.event_choices[index].control;
             require_circle(control.bounds);
-            require(control.icon != CODY2D::ActionIcon::None && control.top_color != control.bottom_color,
-                "every dynamic choice uses its semantic gradient and icon");
+            require(control.icon == CODY2D::ActionIcon::None && control.top_color != control.bottom_color,
+                "every reply is text-only and retains its semantic gradient");
+            require(control.bounds.x == 73 && control.bounds.width == 320 && !s_view.event_choices[index].second.valid,
+                "numbered replies occupy a single line across the full safe width");
             require(std::strcmp(s_view.event_choices[index].id, s_presented_event.choices[index].id) == 0,
                 "identity is copied without depending on caption or array position");
             require(CODY2D::capsule_contains(control, {static_cast<int16_t>(control.bounds.x + control.bounds.width / 2U),
@@ -251,6 +254,84 @@ void check_choice_cards()
         require(std::any_of(pixels.begin() + 260U * 466U, pixels.end(), [](uint16_t value) { return value != 0; }),
             "visible card pixels appear only after the gate");
     }
+}
+
+// No parameters: long original replies remain readable and only Send requests transport.
+// Exception: Stops on lost text, an implicit reply, hidden selection or invalid circular bounds.
+void check_paged_reply_review()
+{
+    namespace P = event_presentation;
+    start_question();
+    copy_field(s_presented_event.choices[2].label, std::string(63, 'L'));
+    copy_field(s_presented_event.choices[2].detail, std::string(255, 'D'));
+    s_event_choice_page = 1;
+    SceneFrame scene = prepare(Route::DecisionChoices27, SceneId::DecisionChoices);
+    require(s_view.event_choice_count == 1 && std::strcmp(s_view.event_choices[0].id, "third") == 0,
+        "the third reply is accessible without changing its semantic identity");
+    require(std::strstr(s_event_plan.actions[0].label, "...") != nullptr,
+        "an oversized one-line label visibly announces its continuation");
+    complete_narrative(scene);
+    auto navigation = event_navigation();
+    P::Effect effect;
+    require(P::activate(s_presented_event, event_context(), s_event_plan.actions[0], navigation, effect) == ESP_OK &&
+        effect == P::Effect::Render, "choosing a row only opens its full review");
+    retain_event_navigation(navigation, effect);
+    std::string reviewed;
+    uint8_t pages = 0;
+    for (uint8_t page = 0; page == 0 || page < pages; ++page) {
+        s_event_detail_page = page;
+        scene = prepare(Route::DecisionConfirm27, SceneId::DecisionConfirm);
+        require_text_layout();
+        pages = s_event_plan.page_count;
+        for (uint8_t index = 0; index < s_event_plan.line_count; ++index) {
+            if (s_event_plan.lines[index].top < 326) { reviewed += s_event_plan.lines[index].text; }
+        }
+        require(std::strcmp(s_event_plan.actions[0].label, "Send reply") == 0,
+            "the full review always has an explicit Send reply action");
+    }
+    require(pages == 3 && reviewed == "3. " + std::string(63, 'L') + std::string(255, 'D'),
+        "all canonical label and detail characters survive every review page");
+    navigation = event_navigation();
+    const P::Action *action = nullptr;
+    require(P::release(s_event_plan, navigation, true, 233, 240, 233, 240, action) == P::Effect::Render &&
+        navigation.detail_page == 0 && action == nullptr, "tapping the last detail page returns to its beginning");
+    require(P::release(s_event_plan, navigation, true, 233, 385, 233, 385, action) == P::Effect::None &&
+        action != nullptr && action->id == P::ActionId::Send, "tapping Send does not scroll the review");
+    require(P::activate(s_presented_event, event_context(), *action, navigation, effect) == ESP_OK &&
+        effect == P::Effect::Reply, "only the explicit Send tap yields a reply effect");
+}
+
+// No parameters: the bounded canonical queue exposes questions without answering any.
+// Exception: Stops on an opaque caption, offline handoff or premature selection success.
+void check_pending_question_rows()
+{
+    namespace P = event_presentation;
+    start_question();
+    s_presented_event.pending_question_count = 3;
+    s_presented_event.pending_entry_count = 2;
+    for (uint8_t index = 0; index < 2; ++index) {
+        auto &pending = s_presented_event.pending_questions[index];
+        copy_field(pending.request_id, std::string(32, static_cast<char>('a' + index)));
+        copy_field(pending.title, index == 0 ? "Review build mode" : "Choose next task");
+        copy_field(pending.context, "SIMULATED project");
+    }
+    SceneFrame scene = prepare(Route::DecisionQueue, SceneId::DecisionChoices);
+    require(s_view.event_choice_count == 2 && std::strcmp(s_event_plan.title, "Pending questions") == 0,
+        "pending questions share two full-width rows with a clear title");
+    require_text_layout();
+    complete_narrative(scene);
+    auto navigation = event_navigation();
+    P::Effect effect;
+    require(P::activate(s_presented_event, event_context(), s_event_plan.actions[1], navigation, effect) == ESP_OK &&
+        effect == P::Effect::SelectQuestion && navigation.stage == EventStage::Questions,
+        "opening another question requests an owner handoff and waits for its real event");
+    require(P::activate(s_presented_event, event_context(), s_event_plan.actions[0], navigation, effect) == ESP_OK &&
+        effect == P::Effect::Render && navigation.stage == EventStage::Choices,
+        "the already retained question can open directly without transport");
+    s_event_online = false;
+    prepare(Route::DecisionQueue, SceneId::DecisionChoices);
+    require(!s_event_plan.actions[0].enabled && !s_event_plan.actions[1].enabled,
+        "offline queue entries cannot request a source handoff");
 }
 
 // No parameters: readonly PR details use every authenticated check name without an action per row.
@@ -440,9 +521,11 @@ int main()
     verify_shared_event_presentation();
     check_bounded_text();
     check_choice_cards();
+    check_paged_reply_review();
+    check_pending_question_rows();
     check_pr_views();
     check_reply_semantics();
     check_home_lifecycle();
-    std::puts("Real Cody event presenter: bounded text, semantic cards, teletype gates, readonly PR and delivered-only success passed");
+    std::puts("Real Cody event presenter: numbered rows, complete review, queue selection, reveal gates and delivered-only success passed");
     return 0;
 }

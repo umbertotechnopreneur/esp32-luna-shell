@@ -16,10 +16,10 @@ Show it with a valid previous route. Retain the complete circular touch target
 and keep it separate from central content and primary/footer actions.
 The native style is subdued graphite with a light chevron.
 
-The approved 2026-10-09 action language uses semantic colors, restrained
-gradients and icons. Two actions are rounded cards side by side; three add one
-centered action below; one is a centered wide capsule with its icon left of the
-caption. Complete controls appear after the title and main body line, with
+The 2026-10-14 action revision retains semantic colors and restrained gradients
+with text-only captions on every Cody button. Setup actions keep their rounded
+side-by-side cards or centered single capsule; captions are centered in the
+complete control. Back retains its separate chevron. Complete controls appear after the title and main body line, with
 touch admitted at the same time. Captions have no typewriter timing or character audio.
 
 | Control | Logical rectangle |
@@ -28,12 +28,28 @@ touch admitted at the same time. Captions have no typewriter timing or character
 | Third action / Options | (153,376,160,52) |
 | Ordinary single action | (113,352,240,72) |
 | Compact QR/skin footer | (123,390,220,44) |
+| Numbered reply / pending-question rows | (73,256,320,60) and (73,328,320,60) |
+| Question-list hint | (99,394,268,25), separate from the wide content slot |
 
 The corresponding extreme squared distances are 42,500, 44,036 and 52,100,
 within radius squared 54,289. These are static calculations, not touch evidence.
-Card icons center at y=293; two-line captions start at y=308/335. Icon centers
-in ordinary, Options and compact capsules are y=387/401/411 respectively.
 Coverage is clipped to the rounded control; complete hit bounds remain admitted.
+
+Reply rows contain one numbered line, with at most two visible rows. A vertical
+swipe opens the page containing the third reply. Long row captions show an
+explicit ellipsis; the tap opens their complete canonical label and description,
+without sending anything. Review uses five 26-pixel-spaced lines at y=196..300.
+Swipe moves backward/forward; a tap in that text viewport advances a page and
+returns to the first page after the last. The separate `Send reply` capsule at
+(113,352,240,72) is the only initial reply submission action. Scrolling never
+replays text audio. Orientation, source changes and hidden controls cancel
+uncompleted gestures.
+
+The pending-question view shows up to two canonical question titles. Selecting
+another request asks the event owner for that source and shows `Opening question...`
+until its actual event arrives. The retained question can reopen immediately;
+neither selection nor Back answers or dismisses a request. Opaque request IDs
+remain internal. Queue counts and entries come from the authenticated owner.
 
 ## Setup, QR and Skin
 
@@ -59,7 +75,9 @@ needs reconciliation with the repository's lateral-Back contract in [TODO.md](..
 ## Companion panels, status and Debug
 
 Home uses three lower panels: Tokens, Model & Context, and Session & Link.
-Panels rotate every eight visible seconds. A short released tap advances
+Panels rotate after at least eight visible seconds. Session & Link extends its
+dwell when needed to show the complete chat title, including readable start/end
+holds. A short released tap advances
 immediately and restarts that interval; a deliberate canonical-IMU shake returns
 to the default token panel. The character remains at (233,122), scale 73, with
 the state title at y=190 and the model row in (73,236), 320 x 28. Only the lower
@@ -71,13 +89,17 @@ The selected [context-arc proposal](ui-proposals/20261014/02-context-arc.png)
 is implemented with native text and antialiased strokes. The dashboard damage
 envelope is (40,268)-(426,393); actual ink follows the local circular chords,
 not the entire enclosing rectangle. Tokens show a large Free value, secondary
-Last and Window values, elapsed time and the canonical IMU label. The mint arc
-represents coherent free context. Missing, stale, invalid and over-limit data
+Last and Window values, elapsed time and the canonical IMU label. The arc length
+represents coherent free context; its color and the Free value reflect actual
+occupancy: white below 25%, cyan from 25% to below 65%, orange from 65% to below
+85%, and red from 85% onward. Full context leaves no invented free arc and keeps
+the zero Free value red. Active compaction retains its orange indeterminate
+accent regardless of occupancy. Missing, stale, invalid and over-limit data
 retain explicit states and never produce an invented percentage.
 
 Model & Context contains the qualitative Standard catalog price capsule and
-thinking effort; the model name appears once in the shared header. Session & Link contains connection state, abbreviated
-chat ID and the device's own canonical Wi-Fi IP; it omits firmware and PC IP.
+thinking effort; the model name appears once in the shared header. Session & Link contains connection state, the actual
+chat title and the device's own canonical Wi-Fi IP; it omits firmware and PC IP.
 Independent source validity remains visible. Model prices are green Cheap,
 orange Reasonable price and red Expensive; they are not monetary chat spending.
 The first complete presentation of an Expensive price after a model change

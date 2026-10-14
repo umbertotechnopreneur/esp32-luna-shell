@@ -146,9 +146,7 @@ class Canvas:
     # Exception: Preserves chord/text-bound failures.
     def action(self, label, color=MINT):
         self.card((113, 352, 353, 416), color, 30)
-        self.draw.line((137, 384, 149, 384), fill=color, width=2)
-        self.draw.line((144, 379, 149, 384, 144, 389), fill=color, width=2)
-        self.text(label, 374, 20, WHITE, 246)
+        self.text(label, 374, 20, WHITE)
 
     # self: Logical design surface with a valid previous route.
     # Exception: Preserves rendering errors; circle target remains the repository's full 60 pixels.
@@ -167,22 +165,18 @@ class Canvas:
 
     # self: Logical design surface.
     # choice: Original, stable provider option label and number.
-    # left: Logical left edge of the approved side-by-side card.
+    # top: Logical top edge of a full-width answer row.
     # color: Semantic choice accent.
-    # Exception: Preserves chord and word-wrap failures.
-    def choice(self, choice, left, color):
-        self.card((left, 260, left+154, 364), color)
-        self.text(f"{choice['number']}.", 275, 24, color, left+77)
-        for index, line in enumerate(wrap(choice["label"], 130, font(19))):
-            self.text(line, 313+index*23, 19, WHITE, left+77)
+    # Exception: Preserves chord/text failures; labels remain on one complete line.
+    def choice(self, choice, top, color):
+        self.card((73, top, 393, top+60), color)
+        self.text(f"{choice['number']}. {choice['label']}", top+21, 19, WHITE)
 
     # self: Logical design surface.
     # caption: Visible answer range; identity comes from the provider, not the viewport index.
     # Exception: Preserves chord/text-bound failures.
     def pager(self, caption):
-        self.card((153, 382, 313, 424), BLUE, 21)
-        self.text(caption, 394, 15, GRAY)
-        self.draw.line((282, 395, 290, 403, 282, 411), fill=BLUE, width=2)
+        self.text(f"Swipe / {caption}", 397, 15, GRAY)
 
     # self: Logical design surface.
     # Exception: Preserves conversion errors; outside-circle pixels are transparent.
@@ -214,25 +208,19 @@ def render(proposal):
         canvas.action("Open questions", AMBER)
     elif screen == Screen.PENDING:
         canvas.header("Pending questions", "2 chats need you")
-        for left, name, topic in ((73, "Firmware", "Storage"), (239, "Website", "Theme")):
-            canvas.card((left, 260, left+154, 364), AMBER)
-            canvas.draw.ellipse((left+68, 278, left+86, 296), outline=AMBER, width=2)
-            canvas.text("?", 278, 14, AMBER, left+77)
-            canvas.text(name, 313, 18, WHITE, left+77)
-            canvas.text(topic, 340, 15, GRAY, left+77)
+        for top, name, topic in ((256, "Firmware", "Storage"), (328, "Website", "Theme")):
+            canvas.card((73, top, 393, top+60), AMBER)
+            canvas.text(f"{name} / {topic}", top+21, 18, WHITE)
         canvas.text("Tap a chat to reply", 397, 15, GRAY)
     elif screen in (Screen.CHOICES, Screen.MORE):
         canvas.header("Choose a reply", "Firmware")
-        canvas.text("Where should preferences live?", 239, 18)
+        canvas.text("Where should preferences live?", 236, 16)
         if screen == Screen.CHOICES:
-            canvas.choice(CHOICES[0], 73, MINT)
-            canvas.choice(CHOICES[1], 239, BLUE)
+            canvas.choice(CHOICES[0], 256, MINT)
+            canvas.choice(CHOICES[1], 328, BLUE)
             canvas.pager("1-2 / 3")
         else:
-            canvas.card((113, 260, 353, 364), BLUE)
-            canvas.text("3.", 275, 24, BLUE)
-            canvas.text("Keep this", 313, 19)
-            canvas.text("session only", 336, 19)
+            canvas.choice(CHOICES[2], 256, BLUE)
             canvas.pager("3 / 3")
     elif screen == Screen.REVIEW:
         canvas.header("Review your reply", "Firmware")
@@ -315,9 +303,9 @@ document.getElementById('help').textContent=current==='06-read-full-answer'?'Tap
 if(s.previous)hit([10,203,60,60],'Back without answering',()=>go(s.previous));
 if(current==='01-reply-ready')hit([113,352,240,64],'Dismiss the reply notice / preview the next event',()=>go('02-answer-needed'));
 if(current==='02-answer-needed')hit([113,352,240,64],'Open pending questions',()=>go('03-pending-chats'));
-if(current==='03-pending-chats'){hit([73,260,154,104],'Open Firmware question',()=>go('04-answers-one-two'));hit([239,260,154,104],'Website sample question / no live chat',()=>{document.getElementById('help').textContent='Website is the second pending chat. This storyboard follows the Firmware question.'})}
-if(current==='04-answers-one-two'){hit([73,260,154,104],'1. Store on device / read full answer',()=>review(data.choices[0]));hit([239,260,154,104],'2. Sync to PC / read full answer',()=>review(data.choices[1]));hit([153,382,160,42],'Scroll to answer 3',()=>go('05-answer-three'))}
-if(current==='05-answer-three'){hit([113,260,240,104],'3. Keep this session only / read full answer',()=>review(data.choices[2]));hit([153,382,160,42],'Return to answers 1 and 2',()=>go('04-answers-one-two'))}
+if(current==='03-pending-chats'){hit([73,256,320,60],'Open Firmware question',()=>go('04-answers-one-two'));hit([73,328,320,60],'Website sample question / no live chat',()=>{document.getElementById('help').textContent='Website is the second pending chat. This storyboard follows the Firmware question.'})}
+if(current==='04-answers-one-two'){hit([73,256,320,60],'1. Store on device / read full answer',()=>review(data.choices[0]));hit([73,328,320,60],'2. Sync to PC / read full answer',()=>review(data.choices[1]))}
+if(current==='05-answer-three'){hit([73,256,320,60],'3. Keep this session only / read full answer',()=>review(data.choices[2]))}
 if(current==='06-read-full-answer'){read.replaceChildren();const strong=document.createElement('strong');strong.textContent=chosen.number+'. '+chosen.label;read.append(strong,document.createTextNode(chosen.description));read.classList.remove('hidden');read.scrollTop=0;hit([113,352,240,64],'Send the selected answer',()=>go('07-sending-reply'))}
 if(current==='07-sending-reply'||current==='08-reply-received'){const selected=document.getElementById('selected');selected.textContent=chosen.number+'. '+chosen.label;selected.classList.remove('hidden')}
 if(current==='08-reply-received')hit([113,352,240,64],'Return to the illustrated Home context',()=>go('01-reply-ready'));
@@ -347,7 +335,7 @@ def main():
             {"pdf": "docs/cody/cody-navigation-atlas-v1.pdf", "pdf_page": 11, "screen_ids": ["26", "27"]},
             {"pdf": "docs/cody/cody-ccp-connection-atlas-v1.pdf", "pdf_page": 13, "screen_ids": ["26", "27", "31"]},
             {"pdf": "docs/cody/cody-planning-atlas-v1.pdf", "pdf_page": 14, "screen_ids": ["26", "27"]}],
-        "proposal_change": "At most two original choices per viewport; further choices replace the visible pair through scrolling. Selection opens numbered full text, and only Send commits. Native approvals stay on the PC.",
+        "proposal_change": "At most two full-width numbered single-line choices per viewport; further choices replace the visible pair through swiping. Buttons have no icons; the lateral Back chevron remains. Selection opens numbered full text, and only Send commits. Native approvals stay on the PC.",
         "terminal_states": "Offline preserves identity and original deadline. Expired, cancelled or cleared requests never select an answer. Sent-but-unacknowledged remains unconfirmed. Completion notices never replace an open question.",
         "screens": [{"id": p.screen.value, "title": p.title, "note": p.note,
             "previous": p.previous.value if p.previous else None, "next": p.next.value if p.next else None} for p in PROPOSALS]}

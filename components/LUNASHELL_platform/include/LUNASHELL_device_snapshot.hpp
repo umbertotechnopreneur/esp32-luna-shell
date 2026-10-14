@@ -280,6 +280,8 @@ struct PairingSessionSnapshot : ComponentSnapshot {
     bool command_pending = false;
 };
 
+enum class CodexChatTitleState : uint8_t { Unavailable, Current, Unsupported, Error };
+
 struct CodexActivitySnapshot : ComponentSnapshot {
     CodexActivityState state = CodexActivityState::None;
     uint64_t revision = 0;
@@ -287,6 +289,10 @@ struct CodexActivitySnapshot : ComponentSnapshot {
     char project[65] = {}; // Actual bounded ASCII display label, never a chat identity.
     char description[193] = {}; // Actual bounded purpose; no raw prompt, command or transcript.
     char branch[65] = {}; // Genuine checkout branch or explicit DETACHED; empty is unavailable.
+    char title[256]{}; // Actual Codex display name from its indexed metadata, never the GUID or prompt.
+    CodexChatTitleState title_state = CodexChatTitleState::Unavailable;
+    uint64_t title_age_at_receive_us = 0;
+    esp_err_t title_error = ESP_ERR_NOT_FOUND;
 };
 
 enum class CodexModelSource : uint8_t { Unavailable, HookMetadata };
@@ -349,7 +355,9 @@ struct CodexEventSnapshot : ComponentSnapshot, CodexEventPayload {
     uint64_t revision = 0;
     char request_id[33]{};
     int64_t expires_at_us = 0;
+    char selection_request_id[33]{}; // Explicit navigation admission; never an answer.
 };
+static_assert(sizeof(CodexEventSnapshot) <= 2048, "Question projection requires owner storage, bounded to 2 KiB");
 
 struct CodexLinkSnapshot : ComponentSnapshot {
     CodexLinkState state = CodexLinkState::Idle;

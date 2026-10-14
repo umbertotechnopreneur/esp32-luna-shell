@@ -53,7 +53,7 @@
       ]
     }
   ],
-  "proposal_change": "At most two original choices per viewport; further choices replace the visible pair through scrolling. Selection opens numbered full text, and only Send commits. Native approvals stay on the PC.",
+  "proposal_change": "At most two full-width numbered single-line choices per viewport; further choices replace the visible pair through swiping. Buttons have no icons; the lateral Back chevron remains. Selection opens numbered full text, and only Send commits. Native approvals stay on the PC.",
   "terminal_states": "Offline preserves identity and original deadline. Expired, cancelled or cleared requests never select an answer. Sent-but-unacknowledged remains unconfirmed. Completion notices never replace an open question.",
   "screens": [
     {

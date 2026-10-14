@@ -676,7 +676,9 @@ esp_err_t advance_home_panel_rotation(const LUNASHELL::CodexLinkSnapshot &link,
     const bool visible = !home_panel_rotation_interaction_active() &&
         (compacting || (s_cached_home_content_visible && s_cached_scene.definition == s_state.scene.definition));
     error = CODY::advance_home_dashboard_rotation(s_state.home_rotation, s_state.companion_panel,
-        s_state.home_active_us, visible, compacting, next);
+        s_state.home_active_us, visible, compacting, next,
+        s_state.home_dashboard.valid && s_state.home_dashboard.panel == s_state.companion_panel ?
+            s_state.home_dashboard.minimum_dwell_us : CODY::kHomeDashboardRotationUs);
     if (error == ESP_OK && next != s_state.companion_panel) {
         select_companion_panel(next);
     }
@@ -714,7 +716,15 @@ esp_err_t prepare_home_dashboard_frame(int64_t now_us)
     }
     const int64_t second = now_us / 1000000;
     const bool compacting = technical.compaction == LUNASHELL::CodexCompactionState::Active;
-    const int64_t animation_tick = compacting ? s_state.home_active_us / 100000 : -1;
+    // The existing frame clock moves the clipped title at 20 Hz only while its
+    // panel is selected. No polling worker or source-refresh timer is added.
+    const auto &chat_title = s_state.home_dashboard.chat_title;
+    const bool title_scrolling = s_state.companion_panel == CODY::CompanionPanel::SessionLink &&
+        chat_title.width > CODY::kHomeChatTitleBounds.width &&
+        s_state.home_rotation.elapsed_us - chat_title.started_elapsed_us >= 1200000 &&
+        chat_title.offset < chat_title.width - CODY::kHomeChatTitleBounds.width;
+    const int64_t animation_tick = title_scrolling ? s_state.home_rotation.elapsed_us / 50000 :
+        compacting ? s_state.home_active_us / 100000 : -1;
     const uint32_t status = static_cast<uint32_t>(link.state) |
         (static_cast<uint32_t>(link.data_valid) << 8) |
         (static_cast<uint32_t>(link.data_stale) << 9) |
@@ -748,10 +758,15 @@ esp_err_t prepare_home_dashboard_frame(int64_t now_us)
     CODY::PanelValueState ip_state = CODY::PanelValueState::Unavailable;
     if (s_state.companion_panel == CODY::CompanionPanel::SessionLink) {
         // Reuse serialized canonical storage; no transport, sensor or Wi-Fi driver reads occur here.
-        error = LUNASHELL::DeviceSnapshotService::instance().readDeviceStatusObservation(s_state.personality_observation);
-        if (error != ESP_OK) {
-            ESP_LOGE(kTag, "Home canonical device address observation failed (%s)", esp_err_to_name(error));
-            return error;
+        if (s_state.panel_prepared_second != second || s_state.home_dashboard.panel != s_state.companion_panel ||
+            !s_state.home_dashboard.valid) {
+            // Marquee frames reuse the last successful canonical projection;
+            // glyph movement does not increase the address acquisition cadence.
+            error = LUNASHELL::DeviceSnapshotService::instance().readDeviceStatusObservation(s_state.personality_observation);
+            if (error != ESP_OK) {
+                ESP_LOGE(kTag, "Home canonical device address observation failed (%s)", esp_err_to_name(error));
+                return error;
+            }
         }
         const auto &wifi = s_state.personality_observation.wifi;
         if (wifi.health == LUNASHELL::DeviceHealth::Degraded ||
@@ -766,7 +781,8 @@ esp_err_t prepare_home_dashboard_frame(int64_t now_us)
     }
     error = CODY::prepare_home_dashboard(s_state.companion_panel, link, technical,
         CODY::HomeFonts::value_font, CODY::SceneData::body_font, now_us, s_state.home_active_us,
-        s_state.home_dashboard, content, motion, &CODY::HomeFonts::small_font, device_ip, ip_state);
+        s_state.home_dashboard, content, motion, &CODY::HomeFonts::small_font, device_ip, ip_state,
+        s_state.home_rotation.elapsed_us);
     if (error != ESP_OK) {
         return error;
     }

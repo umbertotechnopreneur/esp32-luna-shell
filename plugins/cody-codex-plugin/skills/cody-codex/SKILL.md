@@ -42,6 +42,10 @@ After pairing, follow authentic metadata:
   is not a documented focus hook.
 - `Stop` means a response is ready; it does not prove task success. Missing or
   expired activity remains **UNAVAILABLE**.
+- A real `Stop` from another chat queues **Reply ready** with its project and a
+  complete real chat title when a current canonical title fits the notice. It
+  never displays a GUID, switches the followed chat or replaces an open
+  question. Do not duplicate this hook notice with an MCP notification.
 - At the start of substantive work and when its actual purpose changes, read
   `ccp_list_sessions` and call `ccp_report_progress` with the exact currently
   followed `session_id` and `turn_id`. Describe what you are doing in a short
@@ -59,12 +63,21 @@ After pairing, follow authentic metadata:
 Use the [plugin README](../../README.md) for installation, recovery and limits.
 Use [cody-settings](../cody-settings/SKILL.md) for timezone and quiet hours.
 
-For an explicit interaction, use CCP 0.6 without inventing chat activity:
+Route semantic user questions through the paired physical Cody when the trusted
+`UserPromptSubmit` context says it is available, unless the user requests PC-only
+questions. Explicit MCP questions also work without a hook. Use CCP 0.6 without
+inventing chat activity:
 
-- Call `ccp_ask_question` with the confirmed target, self-contained English text
-  and two or three choices. Each choice needs a stable ID, short label, complete
-  consequence and semantic tone. Do not bypass native approvals, send PR actions
-  or request credentials through this tool.
+- Check `ccp_connection_status` for the intended retained physical target. Do not
+  select the first device when several are available. Call `ccp_ask_question`
+  with the actual self-contained English ASCII question and two or three choices.
+  Each choice needs a stable ID, its original complete label (up to 63 characters),
+  complete consequence/detail (up to 255 characters), and semantic tone. Preserve
+  wording and meaning; do not replace the original options with generic Yes/No.
+  The title allows 24 characters and the question body 63. If the question cannot
+  fit without losing meaning, needs free text, or has more than three choices,
+  ask it on the PC and explain that limit. Do not truncate, invent an Other choice,
+  bypass native approvals, send PR actions or request credentials through Cody.
 - `context` is a declared label; it does not prove chat identity or focus. Use
   `include_simulator: true` for a SIMULATED target only when explicitly requested.
 - Retain the returned `request_id` and `capability` for the call, keeping the
@@ -78,6 +91,16 @@ For an explicit interaction, use CCP 0.6 without inventing chat activity:
   or claim delivery. Continue in the PC chat or explicitly create a new question.
 - `ccp_cancel_request` withdraws only a ticket whose capability you possess. Back
   on Cody retains the question. Never repeat an enqueue with an ambiguous result.
+- Multiple callers may have pending questions. Cody's question list browses those
+  actual tickets without changing the followed PC chat. Keep polling only your
+  own ticket/capability; never answer, cancel or acknowledge another caller's
+  question. Cody shows two choices at a time and scrolls to a third choice.
+- Create the question through `ccp_ask_question` before waiting; do not create a
+  duplicate native `request_user_input` prompt. Existing native prompts are not
+  retroactively imported. The Desktop stdio app-server has no verified public
+  attach route here: never launch a second Codex, inspect private UI state, infer
+  questions from a transcript, or fabricate a native answer. If an existing
+  native question needs a response, leave it on the PC and state this limit.
 - `ccp_publish_notification` sends known facts only. For PRs, provide the exact
   head and actual checks with explicit completeness and currentness. Never infer
   success from `Stop`, perform merge/approve/close/rerun/comment actions, or send

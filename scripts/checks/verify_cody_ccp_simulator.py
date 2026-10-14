@@ -201,6 +201,27 @@ class SimulatorProtocolTests(unittest.TestCase):
         self.now += simulated.PRESENCE_SECONDS + .1
         self.assertFalse(self.link.snapshot().activity_valid)
 
+    # self: Real authenticated title transport and independent original-source age.
+    # Raises AssertionError if title tampering is accepted or receipt refresh invents a younger source.
+    def test_authenticated_chat_title_preserves_source_age_and_rejects_tampering(self):
+        owner = synthetic_activity("working", "SIMULATED title")
+        activity, _ = owner.snapshot_bundle.return_value
+        title = "SIMULATED chat title preserved across authenticated activity updates"
+        activity.update(title=title.encode("ascii").hex(), titlestate="current", titleage="42000")
+        replies = self.exchange_presence(activity_owner=owner)
+        before = self.link.snapshot()
+        self.assertEqual((before.title, before.title_state, before.title_age_ms, before.title_error),
+                         (title, "current", 42000, 0))
+        self.now += 4
+        self.assertEqual(self.link.snapshot().title_age_ms, 46000)
+        packet = next(reply for reply in replies if protocol.parse_datagram(reply)[0] == "ACTIVITY")
+        _, fields = protocol.parse_datagram(packet)
+        fields["title"] = "Tampered title".encode("ascii").hex()
+        with self.assertRaisesRegex(ValueError, "authentication failed"):
+            self.link.handle_datagram(protocol.encode_datagram("ACTIVITY", list(fields.items())),
+                                      (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
+        self.assertEqual(self.link.snapshot().title, title)
+
     # self: Real paired responder/simulator with one explicitly synthetic current Astra price band.
     # Raises AssertionError if the authenticated TECH extension loses the band, source lease or model identity.
     def test_authenticated_cost_band_reaches_the_simulator(self):
@@ -706,6 +727,91 @@ class SimulatorProtocolTests(unittest.TestCase):
         self.deliver_events()
         return created
 
+    # self: Two real broker questions, native selection admission and authenticated FIND/EVENT handoff.
+    # Raises AssertionError if navigating changes followed activity or answers either question.
+    def test_pending_question_selection_handoff_keeps_followed_chat_and_answers_untouched(self):
+        first = self.question()
+        before = self.link.snapshot()
+        payload = replace(before.event_payload, context="Other simulated chat", title="Choose storage",
+                          pending_question_count=0, pending_questions=())
+        key = protocol.unprotect_secret(self.link.active["protected_link_key"])
+        second = self.requests.enqueue(self.link.device_id, payload, "SIMULATED",
+                                       association_id=hashlib.sha256(key).hexdigest())
+        self.deliver_events()
+        queued = self.link.snapshot()
+        self.assertEqual(queued.request_id, first["request_id"])
+        self.assertEqual(queued.event_payload.pending_question_count, 2)
+        self.assertEqual({entry.request_id for entry in queued.event_payload.pending_questions},
+                         {first["request_id"], second["request_id"]})
+        self.send.reset_mock()
+        self.link.select_question(second["request_id"], self.send)
+        self.assertEqual(self.link.snapshot().selection_request_id, second["request_id"])
+        self.assertEqual(self.link.snapshot().event_state, "pending")
+        find = next(call.args[0] for call in self.send.call_args_list if protocol.parse_datagram(call.args[0])[0] == "FIND")
+        _, fields = protocol.parse_datagram(find)
+        self.assertEqual((fields["activity"], fields["events"], fields["event_select"]),
+                         ("5", "3", second["request_id"]))
+        self.host_listener.reset_mock()
+        self.host._handle_datagram(find, (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        self.accept_presence_packets()
+        after = self.link.snapshot()
+        self.assertEqual((after.request_id, after.event_state, after.selection_request_id),
+                         (second["request_id"], "pending", ""))
+        self.assertEqual(after.chat, before.chat)
+        for ticket in (first, second):
+            observed = self.requests.poll(ticket["request_id"], ticket["capability"])
+            self.assertEqual(observed["state"], "pending")
+            self.assertNotIn("answer", observed)
+
+    # self: Explicit queue intent whose first FIND is lost and whose destination is then cancelled.
+    # Raises AssertionError if a cancelled target opens, selection sticks or any answer is invented.
+    def test_lost_question_handoff_then_cancelled_target_restores_current_request(self):
+        first = self.question()
+        payload = replace(self.link.snapshot().event_payload, title="Other question",
+                          pending_question_count=0, pending_questions=())
+        key = protocol.unprotect_secret(self.link.active["protected_link_key"])
+        second = self.requests.enqueue(self.link.device_id, payload, "SIMULATED",
+                                       association_id=hashlib.sha256(key).hexdigest())
+        self.deliver_events()
+        self.send.reset_mock()
+        self.link.select_question(second["request_id"], self.send)
+        # The newly sent FIND is deliberately not delivered to the isolated broker.
+        self.requests.cancel(second["request_id"], second["capability"])
+        self.deliver_events()
+        current = self.link.snapshot()
+        self.assertEqual((current.request_id, current.event_state, current.selection_request_id),
+                         (first["request_id"], "pending", ""))
+        self.assertEqual(current.event_payload.pending_question_count, 1)
+        self.assertEqual(current.event_payload.selected_id, "")
+
+    # self: Two retained informational notices with a deliberately lost first dismissal acknowledgement.
+    # Raises AssertionError if native dismissal is swallowed, repeated forever or bypasses broker ownership.
+    def test_notice_dismissal_ack_retries_before_next_notice(self):
+        self.exchange_presence()
+        key = protocol.unprotect_secret(self.link.active["protected_link_key"])
+        association = hashlib.sha256(key).hexdigest()
+        first = self.requests.enqueue(self.link.device_id,
+            interactions.EventPayload(interactions.EventKind.NOTICE, "First chat", "Reply ready", "Review your first chat."),
+            "SIMULATED", association_id=association, native_session="simulated-first-chat")
+        self.deliver_events()
+        second = self.requests.enqueue(self.link.device_id,
+            interactions.EventPayload(interactions.EventKind.NOTICE, "Second chat", "Reply ready", "Review your second chat."),
+            "SIMULATED", association_id=association, native_session="simulated-second-chat")
+        self.send.reset_mock()
+        self.link.dismiss_event(first["request_id"], self.send)
+        first_ack = next(call.args[0] for call in self.send.call_args_list
+                         if protocol.parse_datagram(call.args[0])[0] == "EVENTACK")
+        self.assertEqual(protocol.parse_datagram(first_ack)[1]["state"], "dismissed")
+        # The first ACK is lost. The repeated authenticated EVENT must retry it.
+        self.deliver_events()
+        repeated = next(call.args[0] for call in self.send.call_args_list
+                        if protocol.parse_datagram(call.args[0])[0] == "EVENTACK")
+        self.assertEqual(protocol.parse_datagram(repeated)[1]["id"], first["request_id"])
+        self.host._handle_datagram(repeated, (simulated.LOOPBACK, protocol.DEVICE_PORT))
+        self.deliver_events()
+        self.assertEqual(self.link.snapshot().request_id, second["request_id"])
+        self.assertEqual(self.link.snapshot().event_payload.context, "Second chat")
+
     # self: Fixture completing FIND -> READY -> COMMITTED before admitting current projections.
     # Raises AssertionError or the real protocol error if the contract is incoherent.
     def deliver_events(self):
@@ -1059,8 +1165,8 @@ class SimulatorProtocolTests(unittest.TestCase):
         self.assertTrue(view.visible(delivered), "A terminal question must wait for explicit Done")
         self.assertEqual([action.label for action in view.plan(delivered)[2]], ["Done"])
 
-    # self: Preview input using approved 2+1 cards, separate confirmation and canonical Back.
-    # Raises AssertionError if choosing a card sends a response or Back discards the pending request.
+    # self: Preview input using two full-width answer rows, review and canonical Back.
+    # Raises AssertionError if touch down answers, controls reveal early or Back loses the request.
     def test_preview_selection_is_reversible_until_explicit_send(self):
         self.question()
         snapshot = self.link.snapshot()
@@ -1071,23 +1177,127 @@ class SimulatorProtocolTests(unittest.TestCase):
         actions = self.present_event_plan(view, snapshot, controls_visible=False)
         choice_point = self.action_center(actions, "choose:memory")
         view.press(choice_point, snapshot, endpoint)
+        view.release(choice_point, snapshot, endpoint)
         self.assertEqual((view.stage, view.selected_id), ("choices", ""))
         endpoint.reply.assert_not_called()
         self.present_event_plan(view, snapshot)
         view.press(choice_point, snapshot, endpoint)
+        self.assertEqual((view.stage, view.selected_id), ("choices", ""))
+        view.release(choice_point, snapshot, endpoint)
         self.assertEqual((view.stage, view.selected_id), ("confirm", "memory"))
         endpoint.reply.assert_not_called()
         self.present_event_plan(view, snapshot)
         self.assertTrue(view._back)
         view.press((40, 233), snapshot, endpoint)
+        view.release((40, 233), snapshot, endpoint)
         self.assertEqual(view.stage, "choices")
         self.assertEqual(view.selected_id, "memory")
         actions = self.present_event_plan(view, snapshot)
-        view.press(self.action_center(actions, "choose:memory"), snapshot, endpoint)
+        choice_point = self.action_center(actions, "choose:memory")
+        view.press(choice_point, snapshot, endpoint)
+        view.release(choice_point, snapshot, endpoint)
         self.assertEqual(view.stage, "confirm")
         actions = self.present_event_plan(view, snapshot)
-        view.press(self.action_center(actions, "send"), snapshot, endpoint)
+        send_point = self.action_center(actions, "send")
+        view.press(send_point, snapshot, endpoint)
+        endpoint.reply.assert_not_called()
+        view.release(send_point, snapshot, endpoint)
         endpoint.reply.assert_called_once_with("memory")
+
+    # self: Actual native paging, detail rendering and release admission through Studio's production bridge.
+    # Raises AssertionError if swipes answer, labels are lost, gestures survive source changes or Send moves.
+    def test_question_rows_page_and_full_details_remain_reviewable_before_send(self):
+        from cody_native_event_presentation import Action
+        self.question()
+        original = self.link.snapshot()
+        label = "Keep preferences in this session until the next device restart"
+        detail = "Review every setting before sending. " * 6 + "END OF FULL DETAIL"
+        choices = original.event_payload.choices[:2] + (
+            interactions.Choice("none", label, detail, interactions.Tone.NEUTRAL),)
+        snapshot = replace(original, event_payload=replace(original.event_payload, choices=choices))
+        view, endpoint = EventView(), Mock()
+        view.visible(snapshot)
+        view.stage = "choices"
+        actions = self.present_event_plan(view, snapshot)
+        self.assertEqual([action.bounds for action in actions], [(73, 256, 320, 60), (73, 328, 320, 60)])
+        self.assertEqual([action.label for action in actions], ["1. Memory", "2. Redis"])
+        self.assertTrue(all(Action.from_buffer_copy(action.native_action).icon == 0 for action in actions))
+        origin = self.action_center(actions, "choose:memory")
+        view.press(origin, snapshot, endpoint)
+        view.drag((origin[0] + 10, origin[1] + 10))
+        view.release(origin, snapshot, endpoint)
+        self.assertEqual(view.stage, "choices", "a returning drag became a choice tap")
+        view.press((233, 358), snapshot, endpoint)
+        view.release((233, 268), snapshot, endpoint)
+        self.assertEqual((view.stage, view.native.navigation.choice_page), ("choices", 1))
+        actions = self.present_event_plan(view, snapshot)
+        self.assertEqual([action.identity for action in actions], ["choose:none"])
+        self.assertTrue(actions[0].label.startswith("3. "))
+        self.assertTrue(actions[0].label.endswith("..."))
+        point = self.action_center(actions, "choose:none")
+        view.press(point, snapshot, endpoint)
+        changed = replace(snapshot, event_state="cancelled")
+        view.release(point, changed, endpoint)
+        self.assertEqual(view.stage, "choices", "a stale displayed request accepted a choice")
+        self.present_event_plan(view, snapshot)
+        view.press(point, snapshot, endpoint)
+        view.release(point, snapshot, endpoint)
+        self.assertEqual((view.stage, view.selected_id), ("confirm", "none"))
+        text = []
+        view.plan(snapshot)
+        page_count = view.native.output.page_count
+        self.assertGreater(page_count, 1)
+        for index in range(page_count):
+            actions = self.present_event_plan(view, snapshot)
+            self.assertEqual(self.action_center(actions, "send"), (233, 388))
+            self.assertEqual(view.native.output.page_index, index)
+            # Review text is deliberately instant so paging does not replay
+            # narration. Collect the real reading viewport, excluding its status.
+            details = [line for line in view.native.output.lines[:view.native.output.line_count]
+                       if 196 <= line.top <= 300]
+            self.assertTrue(details)
+            self.assertTrue(all(line.instant for line in details))
+            text.extend(line.text.decode("ascii") for line in details)
+            view.press((233, 270), snapshot, endpoint)
+            view.release((233, 270), snapshot, endpoint)
+        self.assertEqual(" ".join(" ".join(text).split()), " ".join(f"3. {label} {detail}".split()))
+        self.assertEqual(view.native.navigation.detail_page, 0)
+        endpoint.reply.assert_not_called()
+        endpoint.select_question.assert_not_called()
+        self.assertEqual(snapshot.event_payload.choices[2].detail, detail)
+
+    # self: Native queue layout and real transport intent, with the endpoint mocked only at its public boundary.
+    # Raises AssertionError if pending selection is treated as a reply or opens fabricated answer content.
+    def test_pending_question_view_waits_for_selected_owner_observation(self):
+        self.question()
+        initial = self.link.snapshot()
+        other = "e" * 32
+        entries = (interactions.PendingQuestion(initial.request_id, "Firmware", "Choose cache"),
+                   interactions.PendingQuestion(other, "Website", "Choose theme"))
+        snapshot = replace(initial, event_payload=replace(initial.event_payload,
+                           pending_question_count=2, pending_questions=entries))
+        view, endpoint = EventView(), Mock()
+        view.visible(snapshot)
+        actions = self.present_event_plan(view, snapshot)
+        point = self.action_center(actions, "open")
+        view.press(point, snapshot, endpoint)
+        view.release(point, snapshot, endpoint)
+        self.assertEqual(view.stage, "questions")
+        actions = self.present_event_plan(view, snapshot)
+        self.assertEqual(len(actions), 2)
+        point = self.action_center(actions, "question:" + other)
+        view.press(point, snapshot, endpoint)
+        view.release(point, snapshot, endpoint)
+        endpoint.select_question.assert_called_once_with(other)
+        endpoint.reply.assert_not_called()
+        self.assertEqual(view.stage, "questions")
+        selecting = replace(snapshot, selection_request_id=other)
+        self.assertTrue(view.visible(selecting))
+        self.assertTrue(all(not action.enabled for action in self.present_event_plan(view, selecting)))
+        matched = replace(snapshot, request_id=other, event_payload=replace(snapshot.event_payload, title="Choose theme"))
+        self.assertTrue(view.visible(matched))
+        self.assertEqual(view.stage, "choices")
+        self.assertEqual(view.selected_id, "")
 
     # self: Native glyph/card preview and read-only six-name pagination, without starting Tk.
     # Raises AssertionError or ValueError for text loss, illegal action targets or geometry outside the circle.
@@ -1120,12 +1330,13 @@ class SimulatorProtocolTests(unittest.TestCase):
         view.stage = "failures"
         self.assertEqual(view.plan(failed)[2], ())
         self.present_event_plan(view, failed, controls_visible=False)
-        view.press((250, 320), failed, Mock())
-        view.release((250, 220), failed)
+        endpoint = Mock()
+        view.press((250, 320), failed, endpoint)
+        view.release((250, 220), failed, endpoint)
         self.assertEqual(view.page, 0)
         self.present_event_plan(view, failed)
-        view.press((250, 320), failed, Mock())
-        view.release((250, 220), failed)
+        view.press((250, 320), failed, endpoint)
+        view.release((250, 220), failed, endpoint)
         self.assertEqual(view.page, 1)
         for name in names:
             self.assertEqual("".join(wrapped(name)), name)
@@ -1159,6 +1370,16 @@ class SimulatorProtocolTests(unittest.TestCase):
                 painter.paint_text(framebuffer, line, 266 + row * 28, body=True)
             painter.paint_text(framebuffer, "SIMULATED", 420, body=True)
             self.assertIsNotNone(framebuffer.getbbox(), f"No visible glyphs for {identity}")
+
+
+# loader: Existing unittest loader invoked by the public cody-ccp-simulator check.
+# standard_tests: Protocol and presentation cases already discovered in this module.
+# pattern: unittest discovery input; this suite intentionally loads only the named batch fixture.
+# Raises original import/native errors rather than silently skipping action-raster coverage.
+def load_tests(loader, standard_tests, pattern):
+    standard_tests.addTests(loader.discover(str(ROOT / "simulator/windows/tests"),
+                                           pattern="test_event_action_batch.py"))
+    return standard_tests
 
 
 if __name__ == "__main__":

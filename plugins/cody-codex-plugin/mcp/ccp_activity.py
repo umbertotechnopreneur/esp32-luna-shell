@@ -30,6 +30,7 @@ import time
 from typing import Any
 from ccp_pricing import PriceCache, PriceProjection
 from ccp_usage import NativeUsageReader, safe_usage_error
+from ccp_chat_title import ChatTitleObservation, NativeChatTitleReader, TITLE_LEASE_SECONDS, TitleState
 
 
 class Phase(str, Enum):
@@ -148,6 +149,20 @@ class Session:
     compact_trigger: str = ""
     compact_last_event: str = ""
     transcript_path: str = ""
+    reply_notice_turn: str = ""
+    chat_title: ChatTitleObservation = field(default_factory=ChatTitleObservation)
+
+
+@dataclass(frozen=True)
+class HookObservation:
+    event: str
+    session_id: str
+    turn_id: str
+    project: str
+    followed: bool
+    phase: Phase
+    reply_ready: bool
+    title: str = ""
 
 
 class ActivityStore:
@@ -161,12 +176,15 @@ class ActivityStore:
         self._last_prompt_ns = 0
         self._revision = 0
         self._usage = NativeUsageReader()
+        self._titles = NativeChatTitleReader()
+        self._title_signature = ("", "", TitleState.UNAVAILABLE)
         self._usage_lock = threading.Lock()
         self._usage_error = ""
 
+    # self: Canonical owner of bounded native hook identities and accepted lifecycle state.
     # event: Allowlisted metadata from one genuine Codex hook invocation.
     # Raises ValueError for malformed, stale or contradictory event metadata.
-    def observe(self, event: dict[str, Any]) -> None:
+    def observe(self, event: dict[str, Any]) -> HookObservation:
         name = event.get("hook_event_name")
         if name not in EVENTS:
             raise ValueError("Unsupported CCP hook event")
@@ -224,6 +242,7 @@ class ActivityStore:
                     session.compact_observed_at = 0.0
                     session.compact_trigger = ""
                     session.compact_last_event = ""
+                    session.reply_notice_turn = ""
                 session.turn_id = turn_id
                 session.interrupted = False
                 session.description = ""
@@ -340,12 +359,18 @@ class ActivityStore:
             if session.cwd != cwd:
                 session.project = project_label(cwd)
                 session.cwd = cwd
+                session.chat_title = ChatTitleObservation()
             session.last_event_ns = emitted_ns
             if locator:
                 session.transcript_path = locator
             session.branch = branch
             session.observed_at = emitted_ns / 1_000_000_000
             self._revision += 1
+            # The notice decision is tied to the accepted native turn, not a
+            # later followed-chat snapshot or inferred response text.
+            reply_ready = name == "Stop" and session.reply_notice_turn != session.turn_id
+            if reply_ready:
+                session.reply_notice_turn = session.turn_id
             if name in {"UserPromptSubmit", "Stop", "PreCompact", "PostCompact", "Interrupt", "SessionEnd"}:
                 # Trace only genuine accepted lifecycle boundaries. Tool hooks
                 # remain quiet; opaque digests keep native IDs and chat text local.
@@ -354,6 +379,15 @@ class ActivityStore:
                 print(f"CCP lifecycle accepted: event={name} chat={chat_digest} turn={turn_digest} "
                       f"phase={session.phase.value} compaction={session.compaction.value} "
                       f"compactseq={session.compact_sequence:016x}", file=sys.stderr, flush=True)
+            # A background completion may use only this session's already
+            # acquired title. Hooks never add source IO or guess a missing name.
+            title_age = (time.monotonic() - session.chat_title.observed_at
+                         if session.chat_title.observed_at is not None else None)
+            notice_title = (session.chat_title.title if session.chat_title.state == TitleState.CURRENT
+                            and title_age is not None and 0 <= title_age < TITLE_LEASE_SECONDS
+                            and len(session.chat_title.title) <= 63 else "")
+            return HookObservation(name, session_id, session.turn_id, session.project,
+                                   session_id == self._followed_session_id, session.phase, reply_ready, notice_title)
 
     # No parameters: exposes identities and local context only, never chat contents.
     def list_sessions(self) -> list[dict[str, Any]]:
@@ -396,7 +430,8 @@ class ActivityStore:
     def snapshot(self) -> dict[str, str]:
         return self.snapshot_bundle()[0]
 
-    # No parameters: obtains activity and technical projection atomically for one authenticated FIND reply.
+    # self: Canonical hook owner; title and usage acquisition share its existing bounded source IO lock.
+    # No other parameters: obtains coherent activity and technical projections for one authenticated FIND reply.
     def snapshot_bundle(self) -> tuple[dict[str, str], dict[str, str]]:
         # File IO has its own owner lock and never holds the activity/hook lock.
         with self._lock:
@@ -404,8 +439,10 @@ class ActivityStore:
             source = ((followed.session_id, followed.cwd, followed.turn_id, followed.transcript_path)
                       if followed and followed.turn_id and followed.phase != Phase.ENDED else None)
         usage, context = None, None
+        title = ChatTitleObservation()
         if source is not None:
             with self._usage_lock:
+                title = self._titles.poll(source[0], source[1])
                 try:
                     usage, context = self._usage.poll(*source)
                     self._usage_error = ""
@@ -420,6 +457,7 @@ class ActivityStore:
             if (session is None or source != (session.session_id, session.cwd, session.turn_id, session.transcript_path)
                     or session.phase == Phase.ENDED):
                 usage, context = None, None
+                title = ChatTitleObservation()
             now = time.monotonic()
             phase = self._effective_phase(session) if session else Phase.NONE
             description = (session.description if session and
@@ -428,13 +466,27 @@ class ActivityStore:
             if not description and session and session.tools and phase in {Phase.WORKING, Phase.EDITING, Phase.RUNNING}:
                 # Only the current native tool identity is exposed; arguments and shell commands stay on the PC.
                 description = session.tool_labels[next(reversed(session.tools))]
+            title_age = wire_milliseconds(now - title.observed_at) if title.observed_at is not None else "-"
+            if title.state == TitleState.CURRENT and title_age == "-":
+                title = ChatTitleObservation(state=TitleState.ERROR)
+            if session is not None:
+                session.chat_title = title
+            title_signature = (session.session_id if session else "", title.title, title.state)
+            if title_signature != self._title_signature:
+                # Renaming a thread is a metadata change even without a new
+                # prompt. Cached rereads and age alone do not restart the UI.
+                self._title_signature = title_signature
+                self._revision += 1
             # Full digests preserve opaque identity without exposing native Codex identifiers.
             identity = {"chat": hashlib.sha256(session.session_id.encode("ascii")).hexdigest() if session else "0" * 64,
                         "revision": f"{self._revision:016x}"}
             activity = {**identity, "phase": phase.value,
                         "project": session.project.encode("ascii").hex() if session else "",
                         "description": description.encode("ascii").hex(),
-                        "branch": session.branch.encode("ascii").hex() if session else ""}
+                        "branch": session.branch.encode("ascii").hex() if session else "",
+                        "title": title.title.encode("ascii").hex() if title.state == TitleState.CURRENT else "-",
+                        "titlestate": title.state.value,
+                        "titleage": title_age}
             compact = session.compaction if session else Compaction.NONE
             # Replies preserve the genuine lifecycle timestamp. A broker heartbeat is not
             # a fresh Codex observation that compaction is still running beyond its source lease.

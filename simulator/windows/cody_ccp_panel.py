@@ -590,6 +590,10 @@ class CcpPanel:
         observation.link_stale = not observation.connected
         observation.activity_valid = snapshot.activity_valid
         observation.activity_stale = not snapshot.activity_valid
+        observation.chat_title = snapshot.title.encode("ascii")
+        observation.chat_title_state = ("unavailable", "current", "unsupported", "error").index(snapshot.title_state)
+        observation.chat_title_age_us = (snapshot.title_age_ms or 0) * 1000
+        observation.chat_title_error = snapshot.title_error
         # This bridge flag admits authenticated historical identity, not current
         # freshness. Separate metric flags require the endpoint's coherent pair;
         # retained compaction becomes explicit STALE instead of a fresh operation.
@@ -975,6 +979,7 @@ class CcpPanel:
     # Raises RuntimeError for the original shared gesture error.
     def drag(self, point):
         point = acquired_touch_pixel(point)
+        self.events.drag(point)
         if self._gesture_point is None:
             return
         native = self.window.renderer.require_native()
@@ -1007,7 +1012,10 @@ class CcpPanel:
             self._debug_press = None
             return
         if not preview and self.events.visible(self._snapshot, self.endpoint):
-            self.events.release(point, self._snapshot)
+            try:
+                self.events.release(point, self._snapshot, self.endpoint)
+            except (OSError, RuntimeError, ValueError) as error:
+                messagebox.showerror("SIMULATED CCP", str(error), parent=self.window.root)
             self.window.renderer.require_native().cancel_companion_tap()
             self._gesture_point = None
             return

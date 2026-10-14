@@ -339,3 +339,10 @@ TaskHandle_t xTaskCreateStatic(void (*)(void *), const char *, uint32_t, void *,
 {
     unexpected_owner(__func__);
 }
+
+// Unnamed request_id: Question selection is outside the layout-only fixture.
+// Exception: Aborts if a read-only gesture reaches a transport owner.
+extern "C" esp_err_t LUNASHELL_codex_event_select(const char *)
+{
+    unexpected_owner(__func__);
+}

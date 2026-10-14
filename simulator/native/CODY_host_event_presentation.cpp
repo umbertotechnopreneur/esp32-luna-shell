@@ -43,6 +43,10 @@ struct Input {
     uint16_t passed;
     uint16_t total;
     int32_t last_error;
+    char request_id[33];
+    uint8_t pending_question_count;
+    uint8_t pending_entry_count;
+    LUNASHELL::CodexPendingQuestion pending_questions[2];
 };
 
 // operation: Host operation whose actual firmware error must remain visible.
@@ -71,7 +75,11 @@ esp_err_t project(const Input &input, LUNASHELL::CodexEventSnapshot &event)
 {
     if (input.kind < 1 || input.kind > 7 || input.choice_count > 3 || input.failure_count > 6 ||
         !valid_text(input.state) || !valid_text(input.context) || !valid_text(input.title) ||
-        !valid_text(input.body) || !valid_text(input.selected_id)) { return ESP_ERR_INVALID_ARG; }
+        !valid_text(input.body) || !valid_text(input.selected_id) || !valid_text(input.request_id) ||
+        input.pending_question_count > 128 || input.pending_entry_count > 2 ||
+        input.pending_entry_count > input.pending_question_count) {
+        return ESP_ERR_INVALID_ARG;
+    }
     event = {};
     bool state_valid = false;
     for (uint8_t value = 0; value <= static_cast<uint8_t>(LUNASHELL::CodexEventState::Rejected); ++value) {
@@ -95,6 +103,12 @@ esp_err_t project(const Input &input, LUNASHELL::CodexEventSnapshot &event)
     for (uint8_t index = 0; index < input.failure_count; ++index) {
         if (!valid_text(input.failures[index])) { return ESP_ERR_INVALID_ARG; }
     }
+    for (uint8_t index = 0; index < input.pending_entry_count; ++index) {
+        const auto &entry = input.pending_questions[index];
+        if (!valid_text(entry.request_id) || !valid_text(entry.context) || !valid_text(entry.title)) {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
     event.kind = static_cast<LUNASHELL::CodexEventKind>(input.kind);
     std::memcpy(event.context, input.context, sizeof(event.context));
     std::memcpy(event.title, input.title, sizeof(event.title));
@@ -108,6 +122,10 @@ esp_err_t project(const Input &input, LUNASHELL::CodexEventSnapshot &event)
     event.passed = input.passed;
     event.total = input.total;
     event.last_error = input.last_error;
+    std::memcpy(event.request_id, input.request_id, sizeof(event.request_id));
+    event.pending_question_count = input.pending_question_count;
+    event.pending_entry_count = input.pending_entry_count;
+    std::memcpy(event.pending_questions, input.pending_questions, sizeof(event.pending_questions));
     return ESP_OK;
 }
 struct Owner {
@@ -127,7 +145,9 @@ CODY_HOST_EXPORT int cody_host_event_prepare(const Input *input, const Presentat
     const Presentation::Context *context, Presentation::Plan *plan)
 {
     if (!input || !navigation || !context || !plan || !valid_text(navigation->selected_id) ||
-        static_cast<uint8_t>(navigation->stage) > 4) { return result("prepare", ESP_ERR_INVALID_ARG); }
+        static_cast<uint8_t>(navigation->stage) > static_cast<uint8_t>(Presentation::EventStage::Questions)) {
+        return result("prepare", ESP_ERR_INVALID_ARG);
+    }
     esp_err_t error = project(*input, s_owner.event);
     const auto &font = CODY::SceneData::body_font;
     const size_t capacity = (300U - font.width) / font.advance + 1U;
@@ -167,6 +187,52 @@ CODY_HOST_EXPORT int cody_host_event_press(const Input *input, Presentation::Nav
     return result("press", error);
 }
 
+// input: Latest isolated owner event, revalidated against the displayed route.
+// navigation: Reversible page/choice state mutated only by the shared policy.
+// context: Actual host freshness, errors and transport admission results.
+// controls_visible: Drawing owner's complete reveal gate retained through the gesture.
+// start_x: Logical contact origin x.
+// start_y: Logical contact origin y.
+// end_x: Logical release x in the same orientation.
+// end_y: Logical release y in the same orientation.
+// effect: Receives explicit transport or render intent, never inferred delivery.
+// selected_request_id: Fixed 33-byte output, populated only by a queue-selection intent.
+// Exception: Returns exact ABI, projection or shared action admission errors.
+CODY_HOST_EXPORT int cody_host_event_release(const Input *input, Presentation::Navigation *navigation,
+    Presentation::Context *context, bool controls_visible, int start_x, int start_y, int end_x, int end_y,
+    uint8_t *effect, char *selected_request_id)
+{
+    if (!effect || !selected_request_id) { return result("release", ESP_ERR_INVALID_ARG); }
+    *effect = static_cast<uint8_t>(Presentation::Effect::None);
+    selected_request_id[0] = '\0';
+    esp_err_t error = cody_host_event_prepare(input, navigation, context, &s_owner.plan);
+    if (error != ESP_OK) { return error; }
+    const Presentation::Action *action = nullptr;
+    Presentation::Effect decision = Presentation::release(s_owner.plan, *navigation, controls_visible,
+        start_x, start_y, end_x, end_y, action);
+    Presentation::Action back;
+    const int64_t delta_x = static_cast<int64_t>(end_x) - start_x;
+    const int64_t delta_y = static_cast<int64_t>(end_y) - start_y;
+    if (decision == Presentation::Effect::None && delta_x * delta_x + delta_y * delta_y < 144 &&
+        Presentation::hit_back(s_owner.plan, controls_visible, start_x, start_y) &&
+        Presentation::hit_back(s_owner.plan, controls_visible, end_x, end_y)) {
+        back.id = Presentation::ActionId::Back;
+        back.enabled = true;
+        action = &back;
+    }
+    if (action != nullptr) {
+        error = Presentation::activate(s_owner.event, *context, *action, *navigation, decision);
+        if (error == ESP_OK && decision == Presentation::Effect::SelectQuestion) {
+            std::memcpy(selected_request_id, action->request_id, sizeof(action->request_id));
+        }
+    }
+    if (error == ESP_OK) {
+        Presentation::accept_navigation(*context, decision);
+        *effect = static_cast<uint8_t>(decision);
+    }
+    return result("release", error);
+}
+
 // input: Current SIMULATED readonly failure collection.
 // navigation: Local page identity, with shared bounds and swipe admission.
 // controls_visible: Complete narrative reveal gate.
@@ -178,8 +244,9 @@ CODY_HOST_EXPORT int cody_host_event_scroll(const Input *input, Presentation::Na
     bool controls_visible, int dx, int dy, bool *changed)
 {
     if (!input || !navigation || !changed) { return result("scroll", ESP_ERR_INVALID_ARG); }
-    const esp_err_t error = project(*input, s_owner.event);
-    if (error == ESP_OK) { *changed = Presentation::scroll(s_owner.event, *navigation, controls_visible, dx, dy); }
+    Presentation::Context context{};
+    const esp_err_t error = cody_host_event_prepare(input, navigation, &context, &s_owner.plan);
+    if (error == ESP_OK) { *changed = Presentation::scroll(s_owner.plan, *navigation, controls_visible, dx, dy); }
     return result("scroll", error);
 }
 
@@ -267,12 +334,15 @@ CODY_HOST_EXPORT int cody_host_event_paint_actions(uint16_t *pixels, uint32_t ca
 CODY_HOST_EXPORT int cody_host_event_result(Presentation::Navigation *navigation, Presentation::Context *context,
     uint8_t effect, int error)
 {
-    if (!navigation || !context || (effect != 2 && effect != 3)) { return result("result", ESP_ERR_INVALID_ARG); }
+    if (!navigation || !context || (effect != 2 && effect != 3 && effect != 5)) {
+        return result("result", ESP_ERR_INVALID_ARG);
+    }
     context->ui_error = error;
-    context->retry = effect == 2 ? Presentation::EventRetry::Reply : Presentation::EventRetry::Dismiss;
+    context->retry = effect == 2 ? Presentation::EventRetry::Reply :
+        effect == 3 ? Presentation::EventRetry::Dismiss : Presentation::EventRetry::None;
     if (error == ESP_OK) {
         if (effect == 2) { context->reply_admitted = true; navigation->stage = Presentation::EventStage::Waiting; }
-        else { context->dismiss_admitted = true; }
+        else if (effect == 3) { context->dismiss_admitted = true; }
     }
     return result("transport", error);
 }

@@ -34,7 +34,7 @@ import threading
 import time
 from typing import Any
 
-from ccp_activity import ActivityStore
+from ccp_activity import ActivityStore, HookObservation, Phase
 import ccp_interactions as interactions
 import ccp_reset as reset
 import ccp_clock as clock
@@ -50,11 +50,11 @@ PROTOCOL = "CCP1"
 DEVICE_PORT = 42117
 PLUGIN_PORT = 42118
 MAX_DATAGRAM_BYTES = 512
-MAX_ACTIVITY_DATAGRAM_BYTES = 1024
+MAX_ACTIVITY_DATAGRAM_BYTES = 2048
 MAX_TECHNICAL_DATAGRAM_BYTES = 1024
 TECHNICAL_FIELDS = technical_metadata.FIELDS
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.7"
+SERVER_VERSION = "0.6.8"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CHALLENGE_TIMEOUT_SECONDS = 2.0
 MAX_DISCOVERY_OFFERS = 16
@@ -676,21 +676,25 @@ class CompanionResponder:
             return
         if kind != "FIND":
             return
-        with_events = set(fields) == {"device", "pc", "nonce", "activity", "events", "current", "state", "proof"}
+        with_events = set(fields) == {"device", "pc", "nonce", "activity", "events", "current", "state", "event_select", "proof"}
         with_activity = with_events or set(fields) == {"device", "pc", "nonce", "activity", "proof"}
         if not with_activity and set(fields) != {"device", "pc", "nonce", "proof"}:
             raise ValueError("CCP FIND has unexpected or missing fields")
-        if with_activity and fields["activity"] not in {"1", "2", "4"}:
+        if with_activity and fields["activity"] not in {"1", "2", "4", "5"}:
             raise ValueError("Unsupported CCP activity capability")
-        with_description = with_activity and fields["activity"] in {"2", "4"}
-        with_technical = with_activity and fields["activity"] == "4"
+        with_description = with_activity and fields["activity"] in {"2", "4", "5"}
+        with_technical = with_activity and fields["activity"] in {"4", "5"}
+        with_title = with_activity and fields["activity"] == "5"
         if with_events:
-            if fields["events"] != "2":
+            if fields["events"] != "3":
                 raise ValueError("Unsupported CCP events capability")
             if (interactions.IDENTITY.fullmatch(fields["current"]) is None
                     or fields["state"] not in interactions.DEVICE_STATES
                     or (fields["current"] == "0" * 32) != (fields["state"] == "none")):
                 raise ValueError("CCP FIND question observation is incoherent")
+            if (interactions.IDENTITY.fullmatch(fields["event_select"]) is None or
+                    (fields["event_select"] != "0" * 32 and fields["state"] != "pending")):
+                raise ValueError("CCP FIND pending-question selection is incoherent")
         for name in ("device", "pc", "nonce", "proof"):
             if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
                 raise ValueError(f"CCP FIND field {name!r} is malformed")
@@ -703,14 +707,16 @@ class CompanionResponder:
         for candidate in (retained.pending, retained.active):
             if candidate is None:
                 continue
-            domain = "find-events-v2" if with_events else "find-activity" if with_activity else "find"
+            domain = "find-events-v3" if with_events else "find-activity" if with_activity else "find"
             if with_description:
-                domain = "find-events-activity-v2" if with_events else "find-activity-v2"
+                domain = "find-events-activity-v3" if with_events else "find-activity-v2"
             if with_technical:
-                domain = "find-events-activity-v4" if with_events else "find-activity-v4"
+                domain = "find-events-activity-v5" if with_events else "find-activity-v4"
+            if with_title:
+                domain = "find-events-activity-v6" if with_events else "find-activity-v5"
             values = [fields["device"], fields["pc"], fields["nonce"]]
             if with_events:
-                values.extend((fields["current"], fields["state"]))
+                values.extend((fields["current"], fields["state"], fields["event_select"]))
             expected = make_proof(candidate, domain, *values)
             if hmac.compare_digest(expected, fields["proof"]):
                 link_key = candidate
@@ -746,8 +752,9 @@ class CompanionResponder:
         retained = self._state.retained_keys(fields["device"])
         with_events = "events" in fields
         with_activity = "activity" in fields
-        with_description = with_activity and fields["activity"] in {"2", "4"}
-        with_technical = with_activity and fields["activity"] == "4"
+        with_description = with_activity and fields["activity"] in {"2", "4", "5"}
+        with_technical = with_activity and fields["activity"] in {"4", "5"}
+        with_title = with_activity and fields["activity"] == "5"
         now = time.monotonic()
         self._state.mark_seen(fields["device"], source[0])
         if with_activity:
@@ -767,7 +774,11 @@ class CompanionResponder:
                 names += ("description",)
                 values.append(activity["branch"] or "-")
                 names += ("branch",)
-            activity_proof = make_proof(link_key, "activity-v2" if with_description else "activity", *values)
+            if with_title:
+                values.extend((activity["title"], activity["titlestate"], activity["titleage"]))
+                names += ("title", "titlestate", "titleage")
+            activity_proof = make_proof(link_key, "activity-v3" if with_title else
+                "activity-v2" if with_description else "activity", *values)
             payload = encode_datagram("ACTIVITY", list(zip(
                 names, values
             )) + [("proof", activity_proof)])
@@ -791,7 +802,7 @@ class CompanionResponder:
                 self._debug_peers = {identity: peer for identity, peer in self._debug_peers.items()
                                      if 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS}
             request_id, state, ttl, data = self._requests.snapshot(
-                fields["device"], hashlib.sha256(link_key).hexdigest(), fields["current"], fields["state"])
+                fields["device"], hashlib.sha256(link_key).hexdigest(), fields["current"], fields["state"], fields["event_select"])
             values = [fields["device"], fields["pc"], fields["nonce"], request_id, state, ttl, data]
             event_proof = make_proof(link_key, "event", *values)
             payload = encode_datagram("EVENT", list(zip(
@@ -947,8 +958,11 @@ class CompanionResponder:
             raise ValueError("CCP EVENTACK belongs to a retired association")
         if not hmac.compare_digest(make_proof(active, "event-ack", *(fields[name] for name in names)), fields["proof"]):
             raise ValueError("CCP EVENTACK authentication failed")
-        self._requests.acknowledge_terminal(fields["device"], fields["id"], fields["state"],
-                                            hashlib.sha256(active).hexdigest())
+        association = hashlib.sha256(active).hexdigest()
+        if fields["state"] == "dismissed":
+            self._requests.acknowledge_notice(fields["device"], fields["id"], association)
+        else:
+            self._requests.acknowledge_terminal(fields["device"], fields["id"], fields["state"], association)
 
     # self: Responder sharing only non-secret current extension capability with MCP.
     # device_id: Retained target whose last FIND must advertise events with an active key.
@@ -1058,6 +1072,7 @@ class CcpService:
             self.activity = ActivityStore(pricing)
             self.interactions = interactions.InteractionStore()
             self.notifications_error: str | None = None
+            self._hook_lock = threading.Lock()
             self.responder = CompanionResponder(self.state, listener, self.activity, self.interactions)
             self.responder.start()
         except BaseException:
@@ -1123,34 +1138,68 @@ class CcpService:
                                                  arguments["confirmation_code"], operation)
         return self.responder._resets.wait(identity)
 
-    # self: Service accepting only genuine hook metadata after ActivityStore validates it.
-    # event: Metadata from the authenticated hook endpoint, never model-created lifecycle data.
-    # Raises ValueError for a full bounded notification queue; the native prompt still owns authorization.
-    def notify_native_permission(self, event: dict[str, Any]) -> None:
-        if event.get("hook_event_name") == "UserPromptSubmit":
-            self.interactions.retire_native(None)
-        elif event.get("hook_event_name") in {"Stop", "Interrupt", "SessionEnd"}:
-            self.interactions.retire_native(event["session_id"])
-        if event.get("hook_event_name") != "PermissionRequest":
-            return
-        activity = self.activity.snapshot()
-        digest = hashlib.sha256(event["session_id"].encode("ascii")).hexdigest()
-        if activity["chat"] != digest or activity["phase"] != "paused":
-            return
-        context = bytes.fromhex(activity["project"]).decode("ascii") if activity["project"] else ""
-        payload = interactions.EventPayload(interactions.EventKind.APPROVAL_ON_PC, context,
-                                            "Approval needed", "Continue on your PC")
-        for target in self.state.public_status():
-            # Automatic native notices are physical-only; a simulator requires an
-            # explicit interaction request and never receives native approval data.
-            if (target["retained_pairing"] and target["source"] == "LAN"
-                    and self.responder.supports_events(target["device_id"])):
-                active = self.state.retained_keys(target["device_id"]).active
-                if active is None:
-                    raise ValueError("Native notice target lost its active association")
-                self.interactions.enqueue(target["device_id"], payload, "LAN",
-                                           association_id=hashlib.sha256(active).hexdigest(),
-                                           native_session=event["session_id"])
+    # self: Service with a single ordered hook-to-notice ownership boundary.
+    # event: Allowlisted metadata from the authenticated hook endpoint.
+    # Raises ValueError for a malformed, stale or uncorrelated native hook.
+    def observe_hook(self, event: dict[str, Any]) -> dict[str, Any]:
+        with self._hook_lock:
+            observation = self.activity.observe(event)
+            result: dict[str, Any] = {}
+            try:
+                notice_sent = self.notify_hook_notice(observation)
+                if observation.event == "UserPromptSubmit":
+                    result["physical_question_routing"] = bool(self.physical_event_targets())
+                if notice_sent:
+                    self.notifications_error = None
+            except (OSError, RuntimeError, ValueError) as error:
+                # The real optional delivery error remains observable. Hook
+                # acceptance never grants permission or invents a user answer.
+                self.notifications_error = str(error)
+                result["notification_error"] = self.notifications_error
+                print(f"CCP hook notice failed: {error}", file=sys.stderr, flush=True)
+            return result
+
+    # self: Service projecting only recently authenticated retained physical peers.
+    # Raises OSError or RuntimeError if protected pairing state cannot be read.
+    def physical_event_targets(self) -> list[str]:
+        return [target["device_id"] for target in self.state.public_status()
+                if target["retained_pairing"] and target["source"] == "LAN"
+                and not target.get("pairing_pending", False)
+                and self.responder.supports_events(target["device_id"])]
+
+    # self: Service accepting notices only from the canonical hook observation.
+    # observation: Immutable accepted event; contains no prompt, response or tool arguments.
+    # Raises ValueError for a lost association or full bounded notification queue.
+    def notify_hook_notice(self, observation: HookObservation) -> bool:
+        if (observation.event in {"UserPromptSubmit", "Interrupt", "SessionEnd"}
+                or observation.event == "Stop" and observation.reply_ready):
+            # A prompt in another chat must not erase this chat's pending notice.
+            self.interactions.retire_native(observation.session_id)
+        approval = (observation.event == "PermissionRequest" and observation.followed
+                    and observation.phase == Phase.PAUSED)
+        reply_ready = observation.reply_ready and not observation.followed
+        if not approval and not reply_ready:
+            return False
+        # Context is a compact project label. A real chat title is kept complete
+        # in the body when available; opaque native IDs never become UI text.
+        project = observation.project
+        if len(project) > 24:
+            project = project[:21] + "..."
+        context = project
+        kind = interactions.EventKind.APPROVAL_ON_PC if approval else interactions.EventKind.NOTICE
+        title = "Approval needed" if approval else "Reply ready"
+        body = ("Continue on your PC" if approval else
+                observation.title or "Reply ready")
+        payload = interactions.EventPayload(kind, context, title, body)
+        targets = self.physical_event_targets()
+        for device_id in targets:
+            active = self.state.retained_keys(device_id).active
+            if active is None:
+                raise ValueError("Hook notice target lost its active association")
+            self.interactions.enqueue(device_id, payload, "LAN",
+                                      association_id=hashlib.sha256(active).hexdigest(),
+                                      native_session=observation.session_id)
+        return bool(targets)
 
     # No parameters: stops the background UDP listener.
     # Raises RuntimeError or OSError when responder shutdown or socket closure fails.
@@ -1602,7 +1651,11 @@ def handle_request(request: dict[str, Any], service: CcpService) -> dict[str, An
                     "to discard an unresolved PC candidate and a new visible code. Never reveal cryptographic protocol fields. "
                     "Trusted hooks automatically follow the latest user-prompt chat. "
                     "Do not ask the user to select a chat on Cody or fabricate activity events. "
-                    "Explicit Cody questions are separate from native permissions and chat focus. "
+                    "When trusted prompt context enables physical Cody question routing, use ccp_ask_question "
+                    "for semantic choices unless the user prefers the PC. Preserve the original complete English "
+                    "choices; use the PC when the content exceeds the tool bounds or needs free text. "
+                    "Cody questions are separate from native permissions and chat focus; existing native "
+                    "request_user_input prompts cannot be imported by this hook. "
                     "Keep the returned request capability private. Poll for a reply, then poll again "
                     "with its answer_id as acknowledge_answer_id before using that decision. "
                     "Only that acknowledgement confirms Reply sent. Cancelled, expired, offline or "

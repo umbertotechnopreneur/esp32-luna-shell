@@ -118,14 +118,16 @@ class NativePanelObservation(C.Structure):
         (name, C.c_uint64) for name in ("used", "capacity", "cumulative", "input", "output", "threshold", "usage_age_us")] + [
         ("device_ip", C.c_char_p), ("device_ip_valid", C.c_bool), ("reconnecting", C.c_bool),
         ("simulated_motion_valid", C.c_bool), ("simulated_motion", C.c_uint8),
-        ("simulated_motion_age_us", C.c_uint64)]
+        ("simulated_motion_age_us", C.c_uint64), ("chat_title", C.c_char_p), ("chat_title_state", C.c_uint8),
+        ("chat_title_age_us", C.c_uint64), ("chat_title_error", C.c_int32)]
 
     # self: Raw source projection consumed synchronously by the native scratch owner.
     # Raises no exceptions; absent fields retain unavailable flags rather than numeric claims.
     def __init__(self):
         super().__init__()
-        for name in ("project", "branch", "description", "chat_id", "technical_chat_id", "model", "effort", "device_ip"):
+        for name in ("project", "branch", "description", "chat_id", "technical_chat_id", "model", "effort", "device_ip", "chat_title"):
             setattr(self, name, b"")
+        self.chat_title_error = 0x105
 
 
 # operation: Native call being checked.
@@ -862,19 +864,16 @@ class NativeRig:
         if int(tone) not in (0, 1, 2, 3):
             raise ValueError('Native action tone must be Neutral/Positive/Negative/Info')
         # Driver composition supplies theme/layout data; all coverage, gradient, border,
-        # icon and glyph pixel operations execute unchanged CODY2D production functions.
+        # and glyph pixel operations execute unchanged CODY2D production functions.
         palettes = ((0x18E5, 0x10A3, 0x4A8C, 0xBDF7), (0x1147, 0x08C4, 0x2B4F, 0x8F1D),
             (0x28A4, 0x1883, 0x796B, 0xED53), (0x1106, 0x08A4, 0x3291, 0xA71F))
         x, y, width, height = bounds
         card = height > 80
-        icon_x = x + width // 2 if card else x + 31
-        icon_y = y + 33 if card else y + (height - 25) // 2 + 25 // 2
-        icons = (NativeActionIcon.ARROW, NativeActionIcon.CHECK, NativeActionIcon.CLOSE, NativeActionIcon.ARROW)
         pixels = (C.c_uint16 * (466 * 466))()
         for index, (red, green, blue) in enumerate(image.getdata()):
             pixels[index] = (red >> 3) << 11 | (green >> 2) << 5 | blue >> 3
         checked('draw_capsule_rows', self.api.cody_host_capsule(pixels, len(pixels), (C.c_uint16 * 4)(*bounds),
-            (C.c_uint16 * 4)(*palettes[int(tone) if enabled else 0]), icons[int(tone)], icon_x, icon_y,
+            (C.c_uint16 * 4)(*palettes[int(tone) if enabled else 0]), NativeActionIcon.NONE, 0, 0,
             28 if card else 0, enabled))
         output = bytearray(len(pixels) * 3)
         for index, value in enumerate(pixels):
@@ -882,9 +881,9 @@ class NativeRig:
             output[index * 3 + 1] = ((value >> 5) & 63) * 255 // 63
             output[index * 3 + 2] = (value & 31) * 255 // 31
         prepared = Image.frombytes('RGB', (466, 466), bytes(output))
-        center = x + width // 2 if card else x + (width + 40) // 2
-        top = y + 64 if card else y + (height - 25) // 2
-        caption_width = width - (20 if card else 64)
+        center = x + width // 2
+        top = y + (height - 25) // 2
+        caption_width = width - 20
         if card and len(label) > caption_width // 11:
             # Driver composition preserves complete choice labels on two lines.
             # Each line still uses the actual native font and its chord checks.
@@ -895,8 +894,8 @@ class NativeRig:
             second = label[split + 1:] if label[split:split + 1] == ' ' else label[split:]
             if len(first) > limit or len(second) > limit:
                 raise ValueError(f'Native action caption does not fit two complete lines: {label!r}')
-            self.paint_text(prepared, first, y + 48, body=True, center_x=center, max_width=caption_width)
-            self.paint_text(prepared, second, y + 75, body=True, center_x=center, max_width=caption_width)
+            self.paint_text(prepared, first, y + (height - 52) // 2, body=True, center_x=center, max_width=caption_width)
+            self.paint_text(prepared, second, y + (height - 52) // 2 + 27, body=True, center_x=center, max_width=caption_width)
         else:
             self.paint_text(prepared, label, top, body=True, center_x=center, max_width=caption_width)
         image.paste(prepared)

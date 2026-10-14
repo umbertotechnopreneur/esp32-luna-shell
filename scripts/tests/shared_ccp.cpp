@@ -25,10 +25,11 @@ struct Transaction {
     LUNASHELL::CodexEventState state = LUNASHELL::CodexEventState::None;
     int64_t deadline = 0;
     esp_err_t error = ESP_OK;
+    char selection_request_id[33]{};
     // No parameters: Test owner mirrors production owner references without copying snapshots.
     LUNASHELL::CodexTransactionView view()
     {
-        return {payload, id, state, deadline, error};
+        return {payload, id, state, deadline, error, selection_request_id};
     }
 };
 // No parameters: Fixed authored choices represent a decoded question independent of order.
@@ -93,5 +94,42 @@ int main()
     assert(applyCodexReplyAck(current.view(), first, "compile", "received", 15000000, effect) == ESP_ERR_INVALID_STATE);
     assert(applyCodexEvent(current.view(), empty, CodexEventState::None, 0, nullptr, 15000000, effect) == ESP_OK);
     assert(current.state == CodexEventState::Delivered); // Absence cannot erase delivery evidence.
+
+    // Queued navigation changes the visible request only after an authenticated
+    // handoff, and never chooses an answer or renews the original deadline.
+    Transaction queued;
+    auto pending = question();
+    pending.pending_question_count = 2;
+    pending.pending_entry_count = 2;
+    std::strcpy(pending.pending_questions[0].request_id, first);
+    std::strcpy(pending.pending_questions[0].title, "Compile?");
+    std::strcpy(pending.pending_questions[1].request_id, second);
+    std::strcpy(pending.pending_questions[1].title, "Choose cache");
+    assert(applyCodexEvent(queued.view(), first, CodexEventState::Pending, 15, &pending, 0, effect) == ESP_OK);
+    assert(selectCodexQuestion(queued.view(), second, false, 1000000) == ESP_ERR_INVALID_STATE);
+    assert(selectCodexQuestion(queued.view(), empty, true, 1000000) == ESP_ERR_INVALID_ARG);
+    assert(selectCodexQuestion(queued.view(), "33333333333333333333333333333333", true, 1000000) == ESP_ERR_NOT_FOUND);
+    assert(selectCodexQuestion(queued.view(), second, true, 1000000) == ESP_OK);
+    assert(std::strcmp(queued.id, first) == 0 && queued.payload.selected_id[0] == '\0');
+    assert(submitCodexChoice(queued.view(), first, "compile", true, 2000000) == ESP_ERR_INVALID_STATE);
+    assert(applyCodexEvent(queued.view(), first, CodexEventState::Pending, 15, &pending, 2000000, effect) == ESP_OK);
+    assert(queued.deadline == 15000000 && !effect.changed);
+    assert(applyCodexEvent(queued.view(), second, CodexEventState::Pending, 12, &pending, 3000000, effect) == ESP_OK);
+    assert(effect.wake && std::strcmp(queued.id, second) == 0 && queued.selection_request_id[0] == '\0');
+    assert(queued.deadline == 15000000 && queued.payload.selected_id[0] == '\0');
+    assert(selectCodexQuestion(queued.view(), first, true, 4000000) == ESP_OK);
+    pending.pending_question_count = 1;
+    pending.pending_entry_count = 1;
+    pending.pending_questions[0] = pending.pending_questions[1];
+    assert(applyCodexEvent(queued.view(), second, CodexEventState::Pending, 10, &pending, 5000000, effect) == ESP_OK);
+    assert(effect.changed && queued.selection_request_id[0] == '\0' && queued.error == ESP_ERR_NOT_FOUND);
+    assert(selectCodexQuestion(queued.view(), first, true, 5000000) == ESP_ERR_NOT_FOUND);
+    pending.pending_entry_count = 2;
+    pending.pending_question_count = 2;
+    std::strcpy(pending.pending_questions[1].request_id, first);
+    assert(applyCodexEvent(queued.view(), second, CodexEventState::Pending, 9, &pending, 6000000, effect) == ESP_OK);
+    assert(selectCodexQuestion(queued.view(), first, true, 6000000) == ESP_OK);
+    assert(applyCodexEvent(queued.view(), second, CodexEventState::Rejected, 0, nullptr, 7000000, effect) == ESP_OK);
+    assert(queued.state == CodexEventState::Rejected && queued.selection_request_id[0] == '\0');
     return 0;
 }

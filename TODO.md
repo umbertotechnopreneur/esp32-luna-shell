@@ -4,13 +4,15 @@ Updated 2026-10-14. Home dashboard, integer Studio pixels and the one-time
 Expensive-model notice are implemented, verified and installed in Release
 `cody-170-gfbb0bee7`. Delivery evidence belongs in [done.md](done.md).
 
-- Native questions across Codex chats: analysis completed in
+- Cody questions and chat titles: implementation and static integration completed in
   [runtime.md](docs/cody/runtime.md#pending-native-questions-pc-audit-2026-10-14).
   The [eight-screen proposal](docs/cody/ui-proposals/20261014-questions/eight-screen-flow.png)
   and offline mouse/touch prototype show at most two original numbered choices,
   scrolling, explicit Send and separate receipt.
-  Verify supported access to the existing Desktop event stream before designing
-  the pending-request registry. No integration fix has been implemented.
+  Native/CCP/Studio and snapshot checks passed, including the context colors.
+  Release build/size, compiled frames and deployment remain pending.
+  Native Desktop prompts already opened cannot be imported. Paired physical
+  sessions receive routing instructions to ask semantic questions through CCP.
 
 GitHub visibility is public. Main ruleset 25049727 is active: contributors need
 a pull request; only the owner's user identity has direct-push bypass.

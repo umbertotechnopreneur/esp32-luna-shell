@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import contextlib
+from dataclasses import replace
 import errno
 import hashlib
 import io
@@ -47,6 +48,7 @@ import ccp_technical as technical_metadata
 import ccp_security as security
 import ccp_pricing as pricing
 import ccp_usage as native_usage
+import ccp_chat_title as native_title
 from cody_ccp_event_vectors import event_vectors
 
 
@@ -387,8 +389,8 @@ class CcpContractTests(unittest.TestCase):
         source = ("192.0.2.10", ccp.DEVICE_PORT)
         values = ["abcdef012345", state.pc_id, "b" * 32]
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values))
-            + [("activity", "4"), ("events", "2"), ("current", "0" * 32), ("state", "none"),
-               ("proof", ccp.make_proof(key, "find-events-activity-v4", *values, "0" * 32, "none"))])
+            + [("activity", "5"), ("events", "3"), ("current", "0" * 32), ("state", "none"), ("event_select", "0" * 32),
+               ("proof", ccp.make_proof(key, "find-events-activity-v6", *values, "0" * 32, "none", "0" * 32))])
         return state, responder, key, source, find
 
     # self: Replayed broadcast FIND arriving from a different untrusted endpoint.
@@ -959,6 +961,164 @@ class ChatActivityTests(unittest.TestCase):
         self.assertEqual(submitted["trigger"], "auto")
 
 
+class HookRoutingTests(unittest.TestCase):
+    # self: Real activity/ticket owners with synthetic peers, clocks and no live service constructor.
+    def setUp(self) -> None:
+        self.device = "abcdef012345"
+        self.key = bytes(range(32))
+        self.service = ccp.CcpService.__new__(ccp.CcpService)
+        self.service.activity = activity.ActivityStore()
+        self.service.interactions = interactions.InteractionStore(lambda: 100.0)
+        self.service.notifications_error = None
+        self.service._hook_lock = threading.Lock()
+        self.service.state = Mock()
+        self.service.state.public_status.return_value = [{
+            "device_id": self.device, "retained_pairing": True, "source": "LAN", "pairing_pending": False}]
+        self.service.state.retained_keys.return_value = ccp.RetainedKeys(self.key, None)
+        self.service.responder = Mock()
+        self.service.responder.supports_events.return_value = True
+        self.event_ns = 100_000_000_000
+        self.usage = patch.object(self.service.activity._usage, "poll",
+                                  side_effect=AssertionError("Hook routing must not read a native journal"))
+        self.usage.start()
+        self.addCleanup(self.usage.stop)
+        enqueue = patch.object(self.service.interactions, "enqueue", wraps=self.service.interactions.enqueue)
+        self.enqueue = enqueue.start()
+        self.addCleanup(enqueue.stop)
+
+    # self: Isolated service fixture with monotonically ordered native hook metadata.
+    # name: Documented lifecycle hook identity.
+    # session: Opaque native session identity, never a workspace-derived identity.
+    # turn: Exact native turn identity.
+    # Raises ValueError if production correlation rejects the fixture event.
+    def observe(self, name: str, session: str = "chat-a", turn: str = "turn-a") -> dict:
+        self.event_ns += 1
+        event = {"hook_event_name": name, "session_id": session, "turn_id": turn,
+                 "cwd": "E:/same-long-project-name", "emitted_ns": self.event_ns}
+        with patch.object(activity.time, "monotonic_ns", return_value=self.event_ns + 1):
+            return self.service.observe_hook(event)
+
+    # self: Strict documented hook output, including unavailable and maliciously truthy broker values.
+    # Raises AssertionError if any hook except an eligible prompt adds context or leaks private contents.
+    def test_prompt_additional_context_requires_explicit_physical_availability(self) -> None:
+        for hook, available in (("UserPromptSubmit", True), ("UserPromptSubmit", False),
+                                ("UserPromptSubmit", "true"), ("UserPromptSubmit", 1),
+                                ("PermissionRequest", True), ("Stop", True)):
+            with self.subTest(hook=hook, available=available):
+                original = {"hook_event_name": hook, "session_id": "private-chat-id", "turn_id": "turn-a",
+                            "cwd": "E:/fixture", "prompt": "PRIVATE PROMPT",
+                            "last_assistant_message": "PRIVATE RESPONSE", "tool_input": {"key": "PRIVATE KEY"}}
+                output = io.StringIO()
+                stream = Mock(buffer=io.BytesIO(json.dumps(original).encode("utf-8")))
+                with patch.object(runtime.sys, "stdin", stream), contextlib.redirect_stdout(output), \
+                        patch.object(runtime, "ensure_runtime", return_value="fixture"), \
+                        patch.object(runtime, "control_secret", return_value="fixture"), \
+                        patch.object(runtime, "read_branch", return_value=""), \
+                        patch.object(runtime, "exchange", return_value={"physical_question_routing": available}) as exchange:
+                    runtime.run_hook()
+                actual = json.loads(output.getvalue())
+                if hook == "UserPromptSubmit" and available is True:
+                    self.assertEqual(actual, {"hookSpecificOutput": {
+                        "hookEventName": "UserPromptSubmit", "additionalContext": runtime.QUESTION_ROUTING_CONTEXT}})
+                    context = actual["hookSpecificOutput"]["additionalContext"]
+                    for term in ("ccp_ask_question", "ccp_poll_request", "answer_id", "delivered", "PC-only"):
+                        self.assertIn(term, context)
+                else:
+                    self.assertEqual(actual, {})
+                for private in ("PRIVATE PROMPT", "PRIVATE RESPONSE", "PRIVATE KEY", "private-chat-id"):
+                    self.assertNotIn(private, output.getvalue())
+                self.assertNotIn("prompt", exchange.call_args.args[1])
+                self.assertNotIn("tool_input", exchange.call_args.args[1])
+                self.assertNotIn("last_assistant_message", exchange.call_args.args[1])
+
+    # self: Retained state alone, simulated observations and stale extension support cannot enable routing.
+    # Raises AssertionError if a physical-only hook opts a simulator or unavailable peer in implicitly.
+    def test_question_routing_requires_recent_retained_physical_peer(self) -> None:
+        cases = (("LAN", True, False, True, True), ("LAN", False, False, True, False),
+                 ("LAN", True, True, True, False), ("LAN", True, False, False, False),
+                 ("SIMULATED", True, False, True, False), ("UNOBSERVED", True, False, True, False))
+        for index, (source, retained, pending, supported, expected) in enumerate(cases):
+            with self.subTest(source=source, retained=retained, pending=pending, supported=supported):
+                self.service.state.public_status.return_value[0].update(
+                    source=source, retained_pairing=retained, pairing_pending=pending)
+                self.service.responder.supports_events.return_value = supported
+                self.assertEqual(self.observe("UserPromptSubmit", turn=f"turn-{index}"),
+                                 {"physical_question_routing": expected})
+        self.enqueue.assert_not_called()
+
+    # self: Background completion alongside a real recipient-owned question and unrelated chat prompts.
+    # Raises AssertionError if a notice steals focus, erases a question or repeats on a duplicate Stop.
+    def test_background_reply_notice_preserves_question_focus_and_other_chat_lifetime(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("UserPromptSubmit", "chat-b", "turn-b")
+        question = interactions.EventPayload(interactions.EventKind.QUESTION, "Actual caller", "Choose cache",
+            "Which cache should I use?", (
+                interactions.Choice("memory", "Memory", "Keep it in memory.", interactions.Tone.POSITIVE),
+                interactions.Choice("disk", "Disk", "Keep it on disk.", interactions.Tone.INFO)))
+        association = hashlib.sha256(self.key).hexdigest()
+        created = self.service.interactions.enqueue(self.device, question, "LAN", association_id=association)
+        self.enqueue.reset_mock()
+        self.observe("Stop")
+        self.enqueue.assert_called_once()
+        call = self.enqueue.call_args
+        notice_payload = call.args[1]
+        self.assertEqual((notice_payload.kind, notice_payload.title), (interactions.EventKind.NOTICE, "Reply ready"))
+        self.assertEqual(call.kwargs["native_session"], "chat-a")
+        self.assertNotIn(hashlib.sha256(b"chat-a").hexdigest()[:8], notice_payload.context)
+        self.assertEqual(notice_payload.context, "same-long-project-name")
+        self.assertLessEqual(len(notice_payload.context), 24)
+        self.assertNotIn("success", notice_payload.body.lower())
+        active = self.service.interactions.snapshot(self.device, association)
+        self.assertEqual(active[0], created["request_id"])
+        self.assertEqual([item["session_id"] for item in self.service.activity.list_sessions() if item["followed"]],
+                         ["chat-b"])
+        notices = [ticket for ticket in self.service.interactions._tickets.values()
+                   if ticket.payload.kind == interactions.EventKind.NOTICE]
+        self.assertEqual(len(notices), 1)
+        notice = notices[0]
+        self.observe("UserPromptSubmit", "chat-c", "turn-c")
+        self.observe("Stop")
+        self.enqueue.assert_called_once()
+        self.assertEqual(self.service.interactions.poll(notice.request_id, notice.capability)["state"], "pending")
+        self.observe("UserPromptSubmit", "chat-a", "turn-a-next")
+        self.assertEqual(self.service.interactions.poll(notice.request_id, notice.capability)["state"], "cancelled")
+        self.assertEqual(self.service.interactions.poll(created["request_id"], created["capability"])["state"], "pending")
+
+    # self: Current-chat completions and stale native turns retain the existing identity checks.
+    # Raises AssertionError if completion notices are inferred or accepted for the wrong native turn.
+    def test_only_real_background_stop_can_publish_reply_ready(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("Stop")
+        self.enqueue.assert_not_called()
+        self.observe("UserPromptSubmit", turn="turn-next")
+        self.observe("UserPromptSubmit", "chat-b", "turn-b")
+        with self.assertRaisesRegex(ValueError, "current chat turn"):
+            self.observe("Stop")
+        self.enqueue.assert_not_called()
+        self.observe("Stop", turn="turn-next")
+        self.enqueue.assert_called_once()
+
+    # self: Native approval and optional notice failure remain separate from native authorization.
+    # Raises AssertionError if a failure invents a decision, loses its cause or reads the journal.
+    def test_native_approval_stays_on_pc_and_delivery_error_is_observable(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("PermissionRequest")
+        payload = self.enqueue.call_args.args[1]
+        self.assertEqual((payload.kind, payload.title, payload.body),
+                         (interactions.EventKind.APPROVAL_ON_PC, "Approval needed", "Continue on your PC"))
+        self.assertEqual(payload.choices, ())
+        self.observe("UserPromptSubmit", "chat-b", "turn-b")
+        self.enqueue.side_effect = ValueError("synthetic queue full")
+        result = self.observe("Stop")
+        self.assertEqual(result, {"notification_error": "synthetic queue full"})
+        self.assertEqual(self.service.notifications_error, "synthetic queue full")
+        self.assertEqual(next(item for item in self.service.activity.list_sessions()
+                              if item["session_id"] == "chat-a")["phase"], "ready")
+        self.assertNotIn("decision", result)
+        self.observe("Stop")
+        self.assertEqual(self.service.notifications_error, "synthetic queue full")
+
+
 class BrokerRecoveryTests(unittest.TestCase):
     # self: Detached lease fixture; no constructor, thread, socket or protected state is used.
     def setUp(self) -> None:
@@ -1110,8 +1270,8 @@ class ResetTests(unittest.TestCase):
                                            ccp.reset.CONFIRMATION_CODE, operation)
             values = [self.device, pc, self.nonce]
             find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values))
-                                      + [("activity", "1"), ("events", "2"), ("current", "0" * 32), ("state", "none"),
-                                         ("proof", ccp.make_proof(key, "find-events-v2", *values, "0" * 32, "none"))])
+                                      + [("activity", "1"), ("events", "3"), ("current", "0" * 32), ("state", "none"), ("event_select", "0" * 32),
+                                         ("proof", ccp.make_proof(key, "find-events-v3", *values, "0" * 32, "none", "0" * 32))])
             listener.sendto.reset_mock()
             responder._handle_datagram(find, self.endpoint)
             acknowledge_ready(responder, key, self.endpoint)
@@ -1167,6 +1327,67 @@ class ResetTests(unittest.TestCase):
 
 
 class InteractionTests(unittest.TestCase):
+    # self: Three independently owned questions with one explicit authenticated navigation request.
+    # Raises AssertionError if navigation changes capabilities, selects answers or extends parked deadlines.
+    def test_question_queue_keeps_private_ownership_and_explicit_navigation(self) -> None:
+        association = "a" * 64
+        tickets = [self.store.enqueue(self.device, replace(self.payload, title=f"Question {index}"),
+                   "LAN", association_id=association) for index in range(3)]
+        first = self.store.snapshot(self.device, association)
+        projection = interactions.decode_payload(first[3])
+        self.assertEqual(projection.pending_question_count, 3)
+        self.assertEqual([entry.request_id for entry in projection.pending_questions],
+                         [ticket["request_id"] for ticket in tickets[:2]])
+        self.now += 5
+        second = self.store.snapshot(self.device, association, first[0], "pending", tickets[1]["request_id"])
+        self.assertEqual(second[:3], (tickets[1]["request_id"], "pending", "175"))
+        self.assertEqual([entry.request_id for entry in interactions.decode_payload(second[3]).pending_questions],
+                         [ticket["request_id"] for ticket in tickets[1:]])
+        confirmed = self.store.snapshot(self.device, association, second[0], "pending")
+        self.assertEqual(confirmed[0], second[0])
+        for ticket in tickets:
+            self.assertEqual(self.store.poll(ticket["request_id"], ticket["capability"])["state"], "pending")
+        with self.assertRaises(ValueError):
+            self.store.poll(tickets[0]["request_id"], tickets[1]["capability"])
+        with self.assertRaises(ValueError):
+            self.store.snapshot(self.device, association, second[0], "sending", tickets[2]["request_id"])
+
+    # self: Lost EVENT handoff followed by cancellation of the offered successor.
+    # Raises AssertionError if the unpublished ownership transfer strands the original question behind an impossible ACK.
+    def test_lost_handoff_can_withdraw_target_without_stranding_current_question(self) -> None:
+        association = "a" * 64
+        first = self.store.enqueue(self.device, self.payload, "LAN", association_id=association)
+        second = self.store.enqueue(self.device, self.payload, "LAN", association_id=association)
+        self.store.snapshot(self.device, association)
+        offered = self.store.snapshot(self.device, association, first["request_id"], "pending", second["request_id"])
+        self.assertEqual(offered[0], second["request_id"])
+        self.store.cancel(second["request_id"], second["capability"])
+        retry = self.store.snapshot(self.device, association, first["request_id"], "pending", second["request_id"])
+        self.assertEqual(retry[0], first["request_id"])
+        self.assertEqual(interactions.decode_payload(retry[3]).pending_question_count, 1)
+        self.store.cancel(first["request_id"], first["capability"])
+        self.assertEqual(self.store.snapshot(self.device, association, first["request_id"], "pending")[:2],
+                         (first["request_id"], "cancelled"))
+
+    # self: Two native completion notices and an independent caller-owned question.
+    # Raises AssertionError if explicit notice dismissal cannot release the FIFO or retires a question.
+    def test_informational_dismissal_advances_notices_and_cannot_answer_questions(self) -> None:
+        association = "a" * 64
+        notice = interactions.EventPayload(interactions.EventKind.NOTICE, "", "Reply ready", "Review the reply.")
+        first = self.store.enqueue(self.device, notice, "LAN", association_id=association, native_session="chat-one")
+        second = self.store.enqueue(self.device, notice, "LAN", association_id=association, native_session="chat-two")
+        self.assertEqual(self.store.snapshot(self.device, association)[0], first["request_id"])
+        with self.assertRaises(ValueError):
+            self.store.acknowledge_notice(self.device, first["request_id"], "b" * 64)
+        self.store.acknowledge_notice(self.device, first["request_id"], association)
+        self.store.acknowledge_notice(self.device, first["request_id"], association)
+        self.assertEqual(self.store.snapshot(self.device, association)[0], second["request_id"])
+        question = self.store.enqueue(self.device, self.payload, "LAN", association_id=association)
+        self.store.snapshot(self.device, association)
+        with self.assertRaises(ValueError):
+            self.store.acknowledge_notice(self.device, question["request_id"], association)
+        self.assertEqual(self.store.poll(question["request_id"], question["capability"])["state"], "pending")
+
     # self: Restarted volatile broker with a successor already queued before the device reconnects.
     # Raises AssertionError if a lost question blocks until timeout, exposes the successor early or invents an answer.
     def test_restart_retires_unknown_open_question_before_publishing_successor(self) -> None:
@@ -1196,8 +1417,8 @@ class InteractionTests(unittest.TestCase):
         source = ("192.0.2.10", ccp.DEVICE_PORT)
         values = [self.device, state.pc_id, "b" * 32, "c" * 32, "sending"]
         fields = list(zip(("device", "pc", "nonce", "current", "state"), values))
-        fields += [("activity", "1"), ("events", "2")]
-        proof = ccp.make_proof(key, "find-events-v2", *values)
+        fields += [("activity", "1"), ("events", "3"), ("event_select", "0" * 32)]
+        proof = ccp.make_proof(key, "find-events-v3", *values, "0" * 32)
         for name, changed in (("current", "d" * 32), ("state", "rejected")):
             altered = [(field, changed if field == name else value) for field, value in fields]
             with self.assertRaises(ValueError):
@@ -1210,8 +1431,8 @@ class InteractionTests(unittest.TestCase):
                          ("EVENT", values[3], "unavailable", "-"))
         values[-1] = "rejected"
         fields = list(zip(("device", "pc", "nonce", "current", "state"), values))
-        responder._handle_datagram(ccp.encode_datagram("FIND", fields + [("activity", "1"), ("events", "2"),
-            ("proof", ccp.make_proof(key, "find-events-v2", *values))]), source)
+        responder._handle_datagram(ccp.encode_datagram("FIND", fields + [("activity", "1"), ("events", "3"), ("event_select", "0" * 32),
+            ("proof", ccp.make_proof(key, "find-events-v3", *values, "0" * 32))]), source)
         acknowledge_ready(responder, key, source)
         self.assertEqual(ccp.parse_datagram(listener.sendto.call_args.args[0])[1]["id"], queued["request_id"])
 
@@ -1268,7 +1489,7 @@ class InteractionTests(unittest.TestCase):
         source = ("192.0.2.10", ccp.DEVICE_PORT)
         values = [self.device, state.pc_id, "b" * 32]
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
-            [("activity", "1"), ("events", "2"), ("current", "0" * 32), ("state", "none"), ("proof", ccp.make_proof(key, "find-events-v2", *values, "0" * 32, "none"))])
+            [("activity", "1"), ("events", "3"), ("current", "0" * 32), ("state", "none"), ("event_select", "0" * 32), ("proof", ccp.make_proof(key, "find-events-v3", *values, "0" * 32, "none", "0" * 32))])
         responder._handle_datagram(find, source)
         acknowledge_ready(responder, key, source)
         self.store.cancel(first["request_id"], first["capability"])
@@ -1314,7 +1535,7 @@ class InteractionTests(unittest.TestCase):
                     event = ccp.encode_datagram("EVENT", [("device", self.device), ("pc", "a" * 32),
                         ("nonce", "b" * 32), ("id", "c" * 32), ("state", "pending"), ("ttl", "180"),
                         ("data", encoded), ("proof", "d" * 64)])
-                    self.assertLessEqual(len(event), 1280)
+                    self.assertLessEqual(len(event), 4096)
                     self.assertEqual(ccp.parse_datagram(event)[0], "EVENT")
                 else:
                     with self.assertRaises(ValueError):
@@ -1374,8 +1595,9 @@ class InteractionTests(unittest.TestCase):
         notice = interactions.EventPayload(interactions.EventKind.NOTICE, "", "Notice", "A real notification.")
         self.store.enqueue(self.device, notice, "LAN")
         self.assertEqual(self.store.snapshot(self.device)[0], created["request_id"])
-        with self.assertRaisesRegex(ValueError, "pending question"):
-            self.store.enqueue(self.device, self.payload, "LAN")
+        queued = self.store.enqueue(self.device, self.payload, "LAN")
+        self.assertEqual(self.store.snapshot(self.device)[0], created["request_id"])
+        self.assertEqual(self.store.poll(queued["request_id"], queued["capability"])["state"], "pending")
         self.now += 60
         self.assertEqual(self.store.snapshot(self.device)[1:3], ("pending", "120"))
         restarted = interactions.InteractionStore(lambda: self.now)
@@ -1448,14 +1670,16 @@ class InteractionTests(unittest.TestCase):
         responder = ccp.CompanionResponder(state, listener, activity.ActivityStore(), self.store)
         values = [self.device, state.pc_id, "b" * 32]
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
-            [("activity", "1"), ("events", "2"), ("current", "0" * 32), ("state", "none"), ("proof", ccp.make_proof(key, "find-events-v2", *values, "0" * 32, "none"))])
+            [("activity", "1"), ("events", "3"), ("current", "0" * 32), ("state", "none"), ("event_select", "0" * 32), ("proof", ccp.make_proof(key, "find-events-v3", *values, "0" * 32, "none", "0" * 32))])
         source = ("192.0.2.10", ccp.DEVICE_PORT)
         responder._handle_datagram(find, source)
         acknowledge_ready(responder, key, source)
         kind, event = ccp.parse_datagram(listener.sendto.call_args.args[0])
         self.assertEqual(kind, "EVENT")
         self.assertEqual(event["id"], created["request_id"])
-        self.assertEqual(interactions.decode_payload(event["data"]), self.payload)
+        projected = interactions.decode_payload(event["data"])
+        self.assertEqual(replace(projected, pending_question_count=0, pending_questions=()), self.payload)
+        self.assertEqual(projected.pending_question_count, 1)
         reply_values = values + [created["request_id"], "memory"]
         reply = ccp.encode_datagram("REPLY", list(zip(("device", "pc", "nonce", "id", "choice"), reply_values)) +
                                    [("proof", ccp.make_proof(key, "reply", *reply_values))])
@@ -1468,7 +1692,7 @@ class InteractionTests(unittest.TestCase):
         responder._handle_datagram(reply, source)
         self.assertEqual(ccp.parse_datagram(listener.sendto.call_args.args[0])[1]["status"], "delivered")
         stripped = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
-            [("activity", "1"), ("proof", ccp.make_proof(key, "find-events-v2", *values, "0" * 32, "none"))])
+            [("activity", "1"), ("proof", ccp.make_proof(key, "find-events-v3", *values, "0" * 32, "none", "0" * 32))])
         with self.assertRaises(ValueError):
             responder._handle_datagram(stripped, source)
 
@@ -2081,6 +2305,168 @@ class NativeUsageReaderTests(unittest.TestCase):
         self.assertEqual(stale_fields["modelage"], "400000")
         self.assertEqual(stale_fields["effort"], "high".encode().hex())
         catalog.projection.assert_not_called()
+
+
+class NativeChatTitleTests(unittest.TestCase):
+    # self: Synthetic SQLite metadata owner under artifacts; no real title or transcript is read.
+    def setUp(self) -> None:
+        output = ROOT / "artifacts/checks/cody-ccp"
+        output.mkdir(parents=True, exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(dir=output)
+        self.addCleanup(temporary.cleanup)
+        self.home = Path(temporary.name)
+        self.database = self.home / "state_5.sqlite"
+        self.cwd = str(self.home / "checkout")
+        environment = patch.dict(os.environ, {"CODEX_HOME": str(self.home)})
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.now = 100.0
+        self.reader = native_title.NativeChatTitleReader(lambda: self.now)
+        with contextlib.closing(sqlite3.connect(self.database)) as connection:
+            connection.execute("CREATE TABLE threads(id TEXT PRIMARY KEY, cwd TEXT, history_mode TEXT, title TEXT, name TEXT)")
+            connection.commit()
+
+    # self: Ephemeral native index fixture.
+    # session: Synthetic native identity.
+    # title: Stored legacy title, deliberately distinct from an explicit name.
+    # name: Optional native user-facing name for paginated threads.
+    # mode: Real native history discriminator or an intentionally unsupported fixture.
+    # cwd: Optional contradictory checkout identity.
+    # Raises sqlite3.Error if fixture construction fails.
+    def put(self, session="chat-a", title="Original title", name=None, mode="legacy", cwd=None) -> None:
+        with contextlib.closing(sqlite3.connect(self.database)) as connection:
+            connection.execute("INSERT OR REPLACE INTO threads VALUES(?,?,?,?,?)",
+                               (session, self.cwd if cwd is None else cwd, mode, title, name))
+            connection.commit()
+
+    # self: Real native history/name semantics and a rename observed through the bounded cache.
+    # Raises AssertionError if names are guessed, cadence renews age, or the source database changes.
+    def test_exact_native_title_semantics_cadence_and_read_only_source(self) -> None:
+        self.put(title="Actual legacy title", name="Do not substitute this name")
+        before = self.database.read_bytes()
+        first = self.reader.poll("chat-a", self.cwd)
+        self.assertEqual((first.title, first.state, first.observed_at),
+                         ("Actual legacy title", native_title.TitleState.CURRENT, 100.0))
+        self.assertEqual(self.database.read_bytes(), before)
+        self.put(title="PRIVATE oversized derived title " * 10000, name="The actual renamed chat", mode="paginated")
+        self.now += 4.99
+        with patch.object(native_title.sqlite3, "connect", side_effect=AssertionError("Cache must not reread SQLite")):
+            self.assertIs(self.reader.poll("chat-a", self.cwd), first)
+        self.now = 105.0
+        renamed = self.reader.poll("chat-a", self.cwd)
+        self.assertEqual((renamed.title, renamed.observed_at), ("The actual renamed chat", 105.0))
+        self.put(title="Never use a derived title for an unnamed paginated chat", mode="paginated")
+        self.now += 5.0
+        self.assertEqual(self.reader.poll("chat-a", self.cwd), native_title.ChatTitleObservation())
+
+    # self: Several chats in one checkout, absent identities and a contradictory native checkout.
+    # Raises AssertionError if any other chat supplies a title or stale cache survives a follow switch.
+    def test_title_requires_exact_followed_identity_and_checkout(self) -> None:
+        self.put(title="First real title")
+        self.put("chat-b", title="Second real title")
+        self.assertEqual(self.reader.poll("chat-a", self.cwd).title, "First real title")
+        self.assertEqual(self.reader.poll("chat-b", self.cwd).title, "Second real title")
+        self.assertEqual(self.reader.poll("unknown", self.cwd), native_title.ChatTitleObservation())
+        self.put("chat-wrong", title="PRIVATE mismatched title", cwd=str(self.home / "other-checkout"))
+        diagnostics = io.StringIO()
+        with contextlib.redirect_stderr(diagnostics):
+            rejected = self.reader.poll("chat-wrong", self.cwd)
+        self.assertEqual(rejected.state, native_title.TitleState.UNSUPPORTED)
+        self.assertEqual(rejected.title, "")
+        self.assertIn("checkout mismatch", self.reader.error)
+        self.assertNotIn("PRIVATE", diagnostics.getvalue())
+        self.assertNotIn(self.cwd, diagnostics.getvalue())
+
+    # self: Invalid text, oversized native metadata and unsupported history modes.
+    # Raises AssertionError if invalid data is truncated, transliterated, logged or replaced by another field.
+    def test_title_content_is_bounded_and_never_repaired(self) -> None:
+        self.put(title="T" * 255)
+        self.assertEqual(self.reader.poll("chat-a", self.cwd).title, "T" * 255)
+        cases = (("T" * 256, None, "legacy"), ("PRIVATE\nmultiline", None, "legacy"),
+                 ("PRIVATE caf\u00e9", None, "legacy"), ("   ", None, "legacy"),
+                 ("Fallback", "N" * 256, "paginated"),
+                 ("Fallback", "PRIVATE\x00name", "paginated"), ("Fallback", "Name", "unknown"))
+        for title, name, mode in cases:
+            with self.subTest(mode=mode, title_length=len(title), name_length=len(name) if name else 0):
+                self.put(title=title, name=name, mode=mode)
+                self.now += 5.0
+                diagnostics = io.StringIO()
+                with contextlib.redirect_stderr(diagnostics):
+                    rejected = self.reader.poll("chat-a", self.cwd)
+                self.assertEqual((rejected.title, rejected.state, rejected.observed_at),
+                                 ("", native_title.TitleState.UNSUPPORTED, None))
+                self.assertNotIn("PRIVATE", diagnostics.getvalue())
+        self.put(title="Recovered title")
+        self.now += 5.0
+        self.assertEqual(self.reader.poll("chat-a", self.cwd).title, "Recovered title")
+        self.assertEqual(self.reader.error, "")
+
+    # self: A successful observation followed by a real source read error and bounded retry.
+    # Raises AssertionError if failure leaves current text or retries on every device heartbeat.
+    def test_source_failure_retires_title_and_preserves_error_without_hot_retry(self) -> None:
+        self.put(title="Valid before failure")
+        self.reader.poll("chat-a", self.cwd)
+        self.now += 5.0
+        failure = sqlite3.OperationalError("PRIVATE database context")
+        diagnostics = io.StringIO()
+        with contextlib.redirect_stderr(diagnostics), patch.object(native_title.sqlite3, "connect", side_effect=failure) as connect:
+            failed = self.reader.poll("chat-a", self.cwd)
+            self.now += 1.0
+            self.assertIs(self.reader.poll("chat-a", self.cwd), failed)
+        connect.assert_called_once()
+        self.assertEqual(failed, native_title.ChatTitleObservation(state=native_title.TitleState.ERROR))
+        self.assertIn("OperationalError", self.reader.error)
+        self.assertNotIn("PRIVATE", diagnostics.getvalue())
+
+    # self: Production ActivityStore with real SQLite titles and an isolated unavailable usage source.
+    # Raises AssertionError if renames lose revision, cached age renews, or a concurrent follow leaks a title.
+    def test_activity_projection_binds_title_revision_age_and_follow_identity(self) -> None:
+        self.put(title="First title")
+        self.put("chat-b", title="Second title")
+        owner = activity.ActivityStore()
+        owner._titles = self.reader
+        with patch.object(activity.time, "monotonic", side_effect=lambda: self.now), \
+                patch.object(activity.time, "monotonic_ns", side_effect=lambda: int(self.now * 1_000_000_000) + 1), \
+                patch.object(owner._usage, "poll", return_value=(None, None)):
+            owner.observe({"hook_event_name": "UserPromptSubmit", "session_id": "chat-a", "turn_id": "turn-a",
+                           "cwd": self.cwd, "emitted_ns": int(self.now * 1_000_000_000)})
+            first, technical = owner.snapshot_bundle()
+            self.assertEqual((bytes.fromhex(first["title"]).decode("ascii"), first["titlestate"], first["titleage"]),
+                             ("First title", "current", "0"))
+            self.assertEqual(first["revision"], technical["revision"])
+            self.now += 1.0
+            cached, _ = owner.snapshot_bundle()
+            self.assertEqual((cached["revision"], cached["titleage"]), (first["revision"], "1000"))
+            self.put(title="Renamed title")
+            self.now += 4.0
+            renamed, technical = owner.snapshot_bundle()
+            self.assertEqual(bytes.fromhex(renamed["title"]).decode("ascii"), "Renamed title")
+            self.assertNotEqual(renamed["revision"], first["revision"])
+            self.assertEqual(renamed["revision"], technical["revision"])
+
+            # A hook can legitimately change ownership while source IO is in
+            # progress. The second lock must discard the previous chat's title.
+            # args: Original title reader arguments; the fixture simulates an intervening genuine hook.
+            # Raises ValueError if native hook correlation rejects the synthetic switch.
+            def switch_followed_chat(*args):
+                owner.observe({"hook_event_name": "UserPromptSubmit", "session_id": "chat-b", "turn_id": "turn-b",
+                               "cwd": self.cwd, "emitted_ns": int(self.now * 1_000_000_000)})
+                return native_title.ChatTitleObservation("Wrong chat title", native_title.TitleState.CURRENT, self.now)
+
+            self.now += 1.0
+            with patch.object(owner._titles, "poll", side_effect=switch_followed_chat):
+                raced, _ = owner.snapshot_bundle()
+            self.assertEqual((raced["title"], raced["titlestate"], raced["titleage"]), ("-", "unavailable", "-"))
+            current, _ = owner.snapshot_bundle()
+            self.assertEqual(bytes.fromhex(current["title"]).decode("ascii"), "Second title")
+            self.now += 1.0
+            notice = owner.observe({"hook_event_name": "Stop", "session_id": "chat-a", "turn_id": "turn-a",
+                                    "cwd": self.cwd, "emitted_ns": int(self.now * 1_000_000_000)})
+            self.assertEqual((notice.followed, notice.title), (False, "Renamed title"))
+            self.now += 45.0
+            expired = owner.observe({"hook_event_name": "Stop", "session_id": "chat-a", "turn_id": "turn-a",
+                                     "cwd": self.cwd, "emitted_ns": int(self.now * 1_000_000_000)})
+            self.assertEqual(expired.title, "")
 
 
 class NativeTechnicalUsageTests(unittest.TestCase):

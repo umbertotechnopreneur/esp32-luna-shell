@@ -331,22 +331,10 @@ def dispatch(server: ControlServer, operation: str, payload: dict[str, Any]) -> 
                 print(f"CCP pricing plugin-start refresh failed: {error}", file=sys.stderr, flush=True)
         return {}
     if operation == "hook":
-        server.service.activity.observe(payload)
-        notification_error = None
-        try:
-            server.service.notify_native_permission(payload)
-            if payload.get("hook_event_name") == "PermissionRequest":
-                server.service.notifications_error = None
-        except (OSError, RuntimeError, ValueError) as error:
-            # Delivery of the On your PC notice is optional. Preserve and
-            # publish its real failure while leaving native permission ownership
-            # with Codex; this hook must never grant or deny an operation.
-            notification_error = str(error)
-            server.service.notifications_error = notification_error
-            print(f"CCP native notice failed: {error}", file=sys.stderr, flush=True)
+        result = server.service.observe_hook(payload)
         with server.lease_lock:
             server.last_hook = time.monotonic()
-        return {"notification_error": notification_error} if notification_error else {}
+        return result
     if operation == "mcp":
         # A bounded interaction poll waits on its own condition. Holding the
         # pairing/cache lock here would block its recipient acknowledgement.
@@ -403,7 +391,25 @@ def run_broker() -> int:
     return 0
 
 
-# No parameters: discards prompts, responses and tool arguments; retains only a native file locator.
+QUESTION_ROUTING_CONTEXT = (
+    "A paired physical Cody currently supports questions. When you need a semantic user choice, "
+    "use the cody-codex skill and ccp_ask_question for the intended paired LAN device instead of "
+    "opening the same clarification only on the PC. Verify the target with ccp_connection_status; "
+    "do not guess among multiple devices or include a simulator without explicit user intent. "
+    "Send the actual self-contained question and two or three complete English ASCII choices: "
+    "preserve the original choice wording, stable IDs and meaning; labels allow 63 characters "
+    "and details 255. If it does not fit or needs free text, keep it on the PC and explain why. "
+    "Keep the returned capability private. Poll ccp_poll_request (at most 15 seconds per call); "
+    "after received, read answer and answer_id, acknowledge that exact answer_id, and use the "
+    "choice only after delivered. Pending, expiry, cancellation and errors are not answers. "
+    "Never replay an ambiguously admitted question or duplicate it on both surfaces. Native "
+    "permissions and approvals remain on the PC. Existing native request_user_input prompts "
+    "cannot be imported or answered through this hook; do not inspect transcripts or fabricate "
+    "native responses. Follow an explicit user preference for PC-only questions."
+)
+
+
+# No parameters: discards private contents and emits only supported static question-routing context.
 # Raises ValueError, OSError or RuntimeError for malformed input or failed event delivery.
 def run_hook() -> int:
     emitted_ns = time.monotonic_ns()
@@ -423,6 +429,11 @@ def run_hook() -> int:
     # within Codex's three-second limit, even when the runtime is unavailable.
     secret = (ensure_runtime() if event["hook_event_name"] in {"SessionStart", "UserPromptSubmit"}
               else control_secret())
-    exchange("hook", event, secret, timeout=1.0)
-    sys.stdout.write("{}\n")
+    result = exchange("hook", event, secret, timeout=1.0)
+    output: dict[str, Any] = {}
+    if (event["hook_event_name"] == "UserPromptSubmit" and isinstance(result, dict)
+            and result.get("physical_question_routing") is True):
+        output["hookSpecificOutput"] = {"hookEventName": "UserPromptSubmit",
+                                       "additionalContext": QUESTION_ROUTING_CONTEXT}
+    sys.stdout.write(json.dumps(output, separators=(",", ":")) + "\n")
     return 0

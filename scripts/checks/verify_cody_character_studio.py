@@ -230,6 +230,54 @@ class CharacterStudioTests(unittest.TestCase):
         resumed = self.render_home(source, elapsed=20000000)
         self.assertEqual(shifted.crop((113, 408, 353, 433)).tobytes(), resumed.crop((113, 408, 353, 433)).tobytes())
 
+    # self: Production Session title clip and shared rotation owner with synthetic source facts.
+    # Raises AssertionError if the full title cannot scroll, refresh resets it or hidden time consumes its reading dwell.
+    def test_session_chat_title_scroll_freeze_and_reading_dwell_use_native_pixels(self):
+        source = self.home_source()
+        source.chat_title = b"SIMULATED full chat title: review audio power savings, pending questions and the next Cody release"
+        source.chat_title_state, source.chat_title_error = 1, 0
+        self.native.reset_home_rotation()
+        panel = self.native.advance_home_rotation(3, 1000000, True, False)
+        first = self.render_home(source, panel, elapsed=1000000)
+        panel = self.native.advance_home_rotation(panel, 2250000, True, False)
+        shifted = self.render_home(source, panel, elapsed=2250000)
+        self.assertEqual(first.crop((75, 315, 393, 343)).tobytes(), shifted.crop((73, 315, 391, 343)).tobytes())
+        self.assertNotEqual(first.crop((73, 315, 393, 343)).tobytes(), shifted.crop((73, 315, 393, 343)).tobytes())
+        # A refreshed authenticated source with the same title retains its native offset.
+        source.chat_title_age_us = 1000
+        refreshed = self.render_home(source, panel, elapsed=2250000)
+        self.assertEqual(shifted.crop((73, 315, 393, 343)).tobytes(), refreshed.crop((73, 315, 393, 343)).tobytes())
+        self.assertEqual(self.native.advance_home_rotation(panel, 2250000, False, False), 3)
+        self.assertEqual(self.native.advance_home_rotation(panel, 102250000, True, False), 3)
+        resumed = self.render_home(source, panel, elapsed=102250000)
+        self.assertEqual(shifted.crop((73, 315, 393, 343)).tobytes(), resumed.crop((73, 315, 393, 343)).tobytes())
+        self.assertEqual(self.native.advance_home_rotation(panel, 109000000, True, False), 3)
+        readable = self.render_home(source, panel, elapsed=109000000)
+        OUTPUT.mkdir(parents=True, exist_ok=True)
+        self.renderer.capture_sheet(readable, "SIMULATED / native chat title / complete reading dwell").save(
+            OUTPUT / "home-session-chat-title.png")
+        self.assertEqual(self.native.advance_home_rotation(panel, 170000000, True, False), 0)
+
+    # self: Native source admission, separate from title-animation and fresh link clocks.
+    # Raises AssertionError if old source age is refreshed by TECH or unsupported/error states display original text.
+    def test_session_chat_title_source_age_and_unavailable_states(self):
+        source = self.home_source()
+        source.chat_title, source.chat_title_state, source.chat_title_error = b"SIMULATED current chat", 1, 0
+        current = self.render_home(source, 3).crop((73, 315, 393, 343)).tobytes()
+        source.chat_title_age_us = 45000000
+        stale = self.render_home(source, 3).crop((73, 315, 393, 343)).tobytes()
+        self.assertNotEqual(current, stale)
+        source.receipt_age_us = 60000000
+        self.assertEqual(stale, self.render_home(source, 3).crop((73, 315, 393, 343)).tobytes())
+        variants = {current, stale}
+        for state, error in ((0, 0x105), (2, 0x106), (3, -1)):
+            source.chat_title, source.chat_title_state, source.chat_title_error = b"", state, error
+            source.chat_title_age_us = 0
+            image = self.render_home(source, 3).crop((73, 315, 393, 343))
+            self.assertIsNotNone(image.getbbox())
+            variants.add(image.tobytes())
+        self.assertEqual(len(variants), 5)
+
     # self: Persistent production Studio bridge with exact active-time samples, without a wall-clock wait.
     # Raises AssertionError for an early/skipped panel, hidden-time jump, missing manual reset or compaction escape.
     def test_home_rotation_uses_shared_dwell_pause_and_manual_reset(self):

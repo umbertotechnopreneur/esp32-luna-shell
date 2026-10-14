@@ -59,8 +59,8 @@ constexpr char kCodeAlphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 constexpr uint16_t kDevicePort = 42117;
 constexpr uint16_t kPluginPort = 42118;
 constexpr size_t kMaximumDatagramBytes = 512;
-constexpr size_t kMaximumActivityDatagramBytes = 1024;
-constexpr size_t kMaximumEventDatagramBytes = 1280;
+constexpr size_t kMaximumActivityDatagramBytes = 2048;
+constexpr size_t kMaximumEventDatagramBytes = 4096;
 constexpr uint32_t kPbkdf2Iterations = 50000;
 constexpr int64_t kDerivationSliceUs = 10000;
 constexpr int64_t kPairingWindowUs = 5LL * 60LL * 1000000LL;
@@ -147,7 +147,7 @@ LUNASHELL::CodexEventSnapshot s_event_rollback{};
 LUNASHELL::CodexTransactionView eventTransactionLocked()
 {
     return {s_event_snapshot, s_event_snapshot.request_id, s_event_snapshot.state,
-        s_event_snapshot.expires_at_us, s_event_snapshot.last_error};
+        s_event_snapshot.expires_at_us, s_event_snapshot.last_error, s_event_snapshot.selection_request_id};
 }
 char s_dismissed_event_id[33]{};
 LUNASHELL::CodexEventState s_dismissed_event_state = LUNASHELL::CodexEventState::None;
@@ -927,6 +927,9 @@ struct ActivityResponse {
     char project[129]{};
     char description[385]{};
     char branch[129]{};
+    char title[511]{};
+    char title_state[12]{};
+    char title_age[11]{};
     char proof[65]{};
 };
 
@@ -944,15 +947,17 @@ bool parseActivity(const char *payload, ActivityResponse &response)
     const int fields = std::sscanf(payload,
         "CCP1|ACTIVITY|device=%12[0-9a-f]|pc=%32[0-9a-f]|nonce=%32[0-9a-f]"
         "|chat=%64[0-9a-f]|revision=%16[0-9a-f]|phase=%11[a-z]"
-        "|project=%128[-0-9a-f]|description=%384[-0-9a-f]|branch=%128[-0-9a-f]|proof=%64[0-9a-f]%n",
+        "|project=%128[-0-9a-f]|description=%384[-0-9a-f]|branch=%128[-0-9a-f]"
+        "|title=%510[-0-9a-f]|titlestate=%11[a-z]|titleage=%10[-0-9]|proof=%64[0-9a-f]%n",
         response.device_id, response.pc_id, response.nonce, response.chat_id,
-        response.revision, response.phase, response.project, response.description, response.branch, response.proof, &consumed);
-    const bool valid = fields == 10 && std::strlen(response.device_id) == 12 &&
+        response.revision, response.phase, response.project, response.description, response.branch,
+        response.title, response.title_state, response.title_age, response.proof, &consumed);
+    const bool valid = fields == 13 && std::strlen(response.device_id) == 12 &&
         std::strlen(response.pc_id) == 32 && std::strlen(response.nonce) == 32 &&
         std::strlen(response.chat_id) == 64 && std::strlen(response.revision) == 16 &&
         std::strlen(response.proof) == 64 && consumed == static_cast<int>(std::strlen(payload));
     if (!valid) {
-        ESP_LOGE(kTag, "CCP ACTIVITY field parsing failed: fields=%d/10 consumed=%d bytes=%u (%s)",
+        ESP_LOGE(kTag, "CCP ACTIVITY field parsing failed: fields=%d/13 consumed=%d bytes=%u (%s)",
             fields, consumed, static_cast<unsigned>(std::strlen(payload)),
             esp_err_to_name(ESP_ERR_INVALID_ARG));
     }
@@ -1532,6 +1537,7 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
     }
     char pc_id[33]{};
     char current_id[33] = "00000000000000000000000000000000";
+    char selected_id[33] = "00000000000000000000000000000000";
     const char *current_state = "none";
     uint8_t link_key[32]{};
     uint8_t nonce[16]{};
@@ -1570,6 +1576,9 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
                 return ESP_ERR_INVALID_STATE;
             }
         }
+        if (s_event_snapshot.selection_request_id[0] != '\0') {
+            std::memcpy(selected_id, s_event_snapshot.selection_request_id, sizeof(selected_id));
+        }
     }
     esp_fill_random(nonce, sizeof(nonce));
     char nonce_hex[33]{};
@@ -1579,12 +1588,13 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
         ? std::snprintf(
             proof_input,
             sizeof(proof_input),
-            "find-events-activity-v4|%s|%s|%s|%s|%s",
+            "find-events-activity-v6|%s|%s|%s|%s|%s|%s",
             device_id,
             pc_id,
             nonce_hex,
             current_id,
-            current_state
+            current_state,
+            selected_id
         )
         : -1;
     uint8_t proof[32]{};
@@ -1602,13 +1612,14 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
         ? std::snprintf(
             request,
             sizeof(request),
-            "%s|FIND|device=%s|pc=%s|nonce=%s|activity=4|events=2|current=%s|state=%s|proof=%s",
+            "%s|FIND|device=%s|pc=%s|nonce=%s|activity=5|events=3|current=%s|state=%s|event_select=%s|proof=%s",
             kProtocol,
             device_id,
             pc_id,
             nonce_hex,
             current_id,
             current_state,
+            selected_id,
             proof_hex
         )
         : -1;
@@ -1962,6 +1973,64 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
     return error;
 }
 
+// response: Authenticated bounded title, source state and original source age.
+// activity: Owner-held candidate; no consumer or stack copy is introduced.
+// Exception: Returns malformed content, contradictory state or unsigned age overflow.
+esp_err_t decodeActivityTitle(const ActivityResponse &response, LUNASHELL::CodexActivitySnapshot &activity)
+{
+    if (std::strcmp(response.title_state, "current") == 0) {
+        const size_t count = std::strlen(response.title);
+        const size_t age_size = std::strlen(response.title_age);
+        if (activity.state == LUNASHELL::CodexActivityState::None || count == 0 ||
+            count % 2 != 0 || count / 2 >= sizeof(activity.title) || age_size == 0 ||
+            (age_size > 1 && response.title_age[0] == '0') ||
+            std::strspn(response.title_age, "0123456789") != age_size) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        uint64_t age_ms = 0;
+        for (const char *digit = response.title_age; *digit != '\0'; ++digit) {
+            age_ms = age_ms * 10 + static_cast<uint64_t>(*digit - '0');
+        }
+        if (age_ms > UINT32_MAX) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        const esp_err_t error = decodeHex(response.title, reinterpret_cast<uint8_t *>(activity.title), count / 2);
+        if (error != ESP_OK) {
+            return error;
+        }
+        bool has_content = false;
+        for (size_t index = 0; index < count / 2; ++index) {
+            if (activity.title[index] < 32 || activity.title[index] > 126) {
+                return ESP_ERR_INVALID_ARG;
+            }
+            has_content = has_content || activity.title[index] != ' ';
+        }
+        if (!has_content) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        activity.title_state = LUNASHELL::CodexChatTitleState::Current;
+        activity.title_age_at_receive_us = age_ms * 1000;
+        activity.title_error = ESP_OK;
+        return ESP_OK;
+    }
+    if (std::strcmp(response.title, "-") != 0 || std::strcmp(response.title_age, "-") != 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (std::strcmp(response.title_state, "unavailable") == 0) {
+        activity.title_state = LUNASHELL::CodexChatTitleState::Unavailable;
+        activity.title_error = ESP_ERR_NOT_FOUND;
+    } else if (std::strcmp(response.title_state, "unsupported") == 0) {
+        activity.title_state = LUNASHELL::CodexChatTitleState::Unsupported;
+        activity.title_error = ESP_ERR_NOT_SUPPORTED;
+    } else if (std::strcmp(response.title_state, "error") == 0) {
+        activity.title_state = LUNASHELL::CodexChatTitleState::Error;
+        activity.title_error = ESP_FAIL;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_OK;
+}
+
 // response: Bounded, parsed candidate activity from the paired PC.
 // Exception: Returns the original identity, replay, HMAC, encoding or state error.
 esp_err_t acceptActivity(const ActivityResponse &response)
@@ -1979,10 +2048,11 @@ esp_err_t acceptActivity(const ActivityResponse &response)
         error = ESP_ERR_INVALID_STATE;
     }
     // s_mutex protects these reusable buffers; neither large schema nor HMAC text is copied onto the worker stack.
-    static char proof_input[1024]{};
+    auto &proof_input = s_event_proof_input;
     const int length = std::snprintf(proof_input, sizeof(proof_input),
-        "activity-v2|%s|%s|%s|%s|%s|%s|%s|%s|%s", response.device_id, response.pc_id,
-        response.nonce, response.chat_id, response.revision, response.phase, response.project, response.description, response.branch);
+        "activity-v3|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s", response.device_id, response.pc_id,
+        response.nonce, response.chat_id, response.revision, response.phase, response.project, response.description,
+        response.branch, response.title, response.title_state, response.title_age);
     uint8_t expected[32]{};
     uint8_t received[32]{};
     if (error == ESP_OK) {
@@ -2062,6 +2132,9 @@ esp_err_t acceptActivity(const ActivityResponse &response)
         for (const uint8_t value : revision) {
             activity.revision = (activity.revision << 8U) | value;
         }
+        error = decodeActivityTitle(response, activity);
+    }
+    if (error == ESP_OK) {
         std::memcpy(activity.chat_id, response.chat_id, sizeof(activity.chat_id));
         activity.data_valid = activity.state != LUNASHELL::CodexActivityState::Unavailable;
         activity.data_stale = !activity.data_valid;
@@ -2075,9 +2148,9 @@ esp_err_t acceptActivity(const ActivityResponse &response)
             s_link_snapshot.activity.state != activity.state ||
             std::strcmp(s_link_snapshot.activity.chat_id, activity.chat_id) != 0;
         s_link_snapshot.activity = activity;
-        LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
-        s_activity_received_for_nonce = true;
-        if (transition) {
+        error = LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
+        s_activity_received_for_nonce = error == ESP_OK;
+        if (transition && error == ESP_OK) {
             ESP_LOGI(kTag, "CCP ACTIVITY authenticated: state=%u selected=%s",
                 static_cast<unsigned>(activity.state),
                 activity.state == LUNASHELL::CodexActivityState::None ? "no" : "yes");
@@ -2858,12 +2931,16 @@ void maintainDebugScreen()
 }
 #endif
 
-// request_id: Exact retired question; may be retained after explicit dismissal.
-// state: Actual published terminal device state, never the MCP recipient's inferred state.
+// request_id: Exact retired question or explicitly dismissed informational ticket.
+// state: Actual terminal question state; None is informational only for the retained dismissed identity.
 // Exception: Returns original crypto/transport errors; caller holds s_mutex on the CCP worker.
 esp_err_t sendTerminalEventAckLocked(const char *request_id, LUNASHELL::CodexEventState state)
 {
     const char *token = LUNASHELL::codexEventTerminalToken(state);
+    if (token == nullptr && state == LUNASHELL::CodexEventState::None &&
+        s_dismissed_event_id[0] != '\0' && std::strcmp(request_id, s_dismissed_event_id) == 0) {
+        token = "dismissed";
+    }
     if (token == nullptr) {
         return ESP_OK; // No closed question is available to acknowledge.
     }
@@ -3955,6 +4032,31 @@ extern "C" esp_err_t LUNASHELL_codex_event_reply(const char *expected_request_id
     return ESP_OK;
 }
 
+// request_id: Canonical advertised question selected without submitting an answer.
+// Exception: Returns admission/publication failure and retains the prior question on rejection.
+extern "C" esp_err_t LUNASHELL_codex_event_select(const char *request_id)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    const bool fresh = s_worker != nullptr && s_pending == Command::None && s_link_present &&
+        s_link_snapshot.state == State::Connected && s_event_snapshot.data_valid && !s_event_snapshot.data_stale;
+    const esp_err_t admission = LUNASHELL::selectCodexQuestion(eventTransactionLocked(), request_id,
+        fresh, esp_timer_get_time());
+    if (admission != ESP_OK) {
+        ESP_LOGE(kTag, "CCP pending-question selection rejected (%s)", esp_err_to_name(admission));
+        return admission;
+    }
+    ++s_event_snapshot.revision;
+    const esp_err_t error = publishEventLocked();
+    if (error != ESP_OK) {
+        s_event_snapshot.selection_request_id[0] = '\0';
+        s_event_snapshot.last_error = error;
+        return error;
+    }
+    s_next_find_at_us = 0;
+    xTaskNotifyGive(s_worker);
+    return ESP_OK;
+}
+
 // expected_request_id: Exact informational or terminal event explicitly dismissed on Cody.
 // Exception: Unanswered questions, changed identity and canonical publication errors remain errors.
 extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_id)
@@ -3982,10 +4084,22 @@ extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_
     s_dismissed_event_state = s_event_rollback.kind == LUNASHELL::CodexEventKind::Question
         ? s_event_rollback.state : LUNASHELL::CodexEventState::None;
     s_reply_pending = false;
+    s_next_find_at_us = 0;
+    if (s_worker != nullptr) {
+        xTaskNotifyGive(s_worker);
+    }
     return ESP_OK;
 }
 
 #else
+
+// request_id: Unused queue identity in a build without the authenticated transport.
+// Exception: Returns the actual selected-route unavailability.
+extern "C" esp_err_t LUNASHELL_codex_event_select(const char *request_id)
+{
+    (void)request_id;
+    return ESP_ERR_NOT_SUPPORTED;
+}
 
 // executor: Unused owner in a profile where the authenticated Cody transport is not compiled.
 // Exception: Returns ESP_ERR_NOT_SUPPORTED without registering or invoking an owner.

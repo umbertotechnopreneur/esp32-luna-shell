@@ -1,7 +1,8 @@
 """Inspect GCC stack-usage sidecars from an authorized Cody activity build.
 
-This rejects a task whose own compiled frame exhausts its stack. It reports
-individual helper frames; nested call chains and device watermarks remain separate.
+This rejects a task whose own compiled frame exhausts its stack, and CCP helpers
+that individually exhaust their owning task. Nested call chains and device
+watermarks remain separate evidence.
 """
 from pathlib import Path
 import argparse
@@ -53,7 +54,7 @@ def helper_frames(rows: list[dict], sources: tuple[str, ...], signature: str = "
 
 
 # argv: Explicit public CLI arguments; no compilation or device access occurs here.
-# Exception: Preserves file/format failures and reports incomplete task coverage.
+# Exception: Preserves file/format failures and reports incomplete task/helper coverage.
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", type=Path, default=DEFAULT_BUILD)
@@ -69,6 +70,10 @@ def main(argv=None) -> int:
         r"^#define CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD 1\s*$", configuration, re.MULTILINE))
     voice_input_enabled = bool(re.search(
         r"^#define CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT 1\s*$", configuration, re.MULTILINE))
+    codex_enabled = all(re.search(r"^#define " + re.escape(flag) + r" 1\s*$",
+                                 configuration, re.MULTILINE) for flag in (
+        "CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION",
+        "CONFIG_LUNASHELL_BUILD_ENABLE_WIFI", "CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX"))
     tasks = []
     limits = [("power_task", "LUNASHELL_power.cpp", 8192),
               ("diagnostic_monitor_task", "LUNASHELL_hardware.cpp", 3072),
@@ -79,6 +84,8 @@ def main(argv=None) -> int:
     if wake_word_enabled:
         limits.extend((("voice_feed_task", "LUNASHELL_voice_afe.cpp", 4096),
                        ("voice_fetch_task", "LUNASHELL_voice_afe.cpp", 3072)))
+    if codex_enabled:
+        limits.append(("codexLinkWorker", "LUNASHELL_codex_link.cpp", 8192))
     failures = []
     for name, source, budget in limits:
         # GCC also embeds the enclosing worker name in lambda helper records.
@@ -109,6 +116,36 @@ def main(argv=None) -> int:
         rows, ("CODY2D_paths.cpp", "CODY2D_controls.cpp", "CODY2D_text.cpp"))
     if not native_raster_helpers["compiled_record_count"]:
         failures.append("Native raster stack records are missing; rebuild the activity profile with current flags")
+    ccp_helpers = {}
+    if codex_enabled:
+        ccp_groups = (
+            ("network", ("LUNASHELL_codex_link.cpp",), "", "codexLinkWorker", 8192),
+            ("transaction", ("LUNASHELL_codex_transaction.cpp",), "", "codexLinkWorker", 8192),
+            ("event_decoder", ("LUNASHELL_codex_events.cpp",), "", "codexLinkWorker", 8192),
+            ("question_snapshot_owner", ("LUNASHELL_hardware.cpp",),
+             r"readCodexEventObservation", "codexLinkWorker / companion_worker", 8192),
+            ("question_presentation", ("CODY_onboarding.cpp",),
+             r"event|question|choice|update_onboarding|handle_onboarding_touch|draw_onboarding_navigation",
+             "companion_worker", 12288),
+        )
+        for name, sources, signature, owner, budget in ccp_groups:
+            group = helper_frames(rows, sources, signature)
+            group.update(owning_task=owner, task_stack_bytes=budget)
+            ccp_helpers[name] = group
+            if not group["compiled_record_count"]:
+                failures.append(f"CCP {name} stack records are missing; rebuild with current flags")
+            # Presentation header helpers are emitted in the onboarding sidecar
+            # or inlined into its callers. Check every matching record, including
+            # records omitted from the bounded report, without summing unrelated
+            # functions or treating the largest frame as the whole call chain.
+            for frame in rows:
+                if not any(source in frame["sidecar"] for source in sources):
+                    continue
+                if signature and not re.search(signature, frame["function"], re.IGNORECASE):
+                    continue
+                if frame["bytes"] >= budget or frame["classification"] == "dynamic":
+                    failures.append(
+                        f"CCP {name}: unbounded or exhausting individual frame for {owner}: {frame['function']}")
     if wake_word_enabled:
         helpers["afe"] = helper_frames(rows, ("LUNASHELL_voice_afe.cpp",))
     if voice_input_enabled:
@@ -122,6 +159,7 @@ def main(argv=None) -> int:
               "home_dashboard_helper_frames": home_dashboard_helpers,
               "audio_notice_helper_frames": audio_notice_helpers,
               "native_raster_helper_frames": native_raster_helpers,
+              "ccp_helper_frames": ccp_helpers,
               "helper_scope": "Up to 12 largest individual records per enabled subsystem; inlined helpers may have no separate record",
               "compiled_record_count": len(rows), "failures": failures,
               "scope": "Individual compiled frames; nested call chains and device watermarks required separately"}
@@ -141,6 +179,11 @@ def main(argv=None) -> int:
         print(f"Individual audio notice frame: {frame['function']} {frame['bytes']} bytes")
     for frame in native_raster_helpers["largest_frames"]:
         print(f"Individual native raster frame: {frame['function']} {frame['bytes']} bytes")
+    for name, group in ccp_helpers.items():
+        print(f"CCP {name} records: {group['compiled_record_count']}; "
+              f"owning task {group['owning_task']} ({group['task_stack_bytes']} bytes)")
+        for frame in group["largest_frames"]:
+            print(f"Individual CCP {name} frame: {frame['function']} {frame['bytes']} bytes")
     for failure in failures:
         print(f"FAIL: {failure}")
     print(f"Individual stack frame report: {report['status']}; {output}")

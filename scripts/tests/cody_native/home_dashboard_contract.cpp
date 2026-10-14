@@ -119,6 +119,9 @@ void verify_audio_notice_sequence()
 // text: Exact authored expected caption or numeric value.
 bool dashboard_has_caption(const CODY::HomeDashboardPresentation &owner, const char *text)
 {
+    if (owner.panel == CODY::CompanionPanel::SessionLink && std::strcmp(owner.chat_title.text, text) == 0) {
+        return true;
+    }
     for (unsigned row = 0; row < owner.line_count; ++row) {
         if (std::strcmp(owner.captions[row], text) == 0) { return true; }
     }
@@ -302,6 +305,10 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
     link.activity.state = LUNASHELL::CodexActivityState::Working;
     link.activity.revision = technical.revision = 7;
     std::memset(link.activity.chat_id, 'a', 64);
+    std::strcpy(link.activity.title, "SIMULATED title");
+    link.activity.title_state = LUNASHELL::CodexChatTitleState::Current;
+    link.activity.title_error = ESP_OK;
+    link.activity.last_attempt_at_us = 1000000;
     std::memcpy(technical.chat_id, link.activity.chat_id, 65);
     std::strcpy(link.peer_ip_address, "192.0.2.99");
     technical.context_valid = technical.used_valid = technical.capacity_valid = technical.cumulative_valid = true;
@@ -362,6 +369,43 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
             }
         }
     }
+    struct OccupancyCase {
+        uint64_t used;
+        uint64_t capacity;
+        uint16_t color;
+        uint8_t slot;
+    };
+    constexpr uint64_t maximum_count = std::numeric_limits<uint64_t>::max();
+    constexpr OccupancyCase occupancy_cases[] = {
+        {0, 100, 0xFFFF, 3}, {24, 100, 0xFFFF, 3},
+        {25, 100, 0x5FF9, 1}, {64, 100, 0x5FF9, 1},
+        {65, 100, 0xFD20, 2}, {84, 100, 0xFD20, 2},
+        {85, 100, 0xF986, 4}, {99, 100, 0xF986, 4},
+        {0, 3, 0xFFFF, 3}, {1, 3, 0x5FF9, 1}, {2, 3, 0xFD20, 2},
+        {4611686018427387903ULL, maximum_count, 0xFFFF, 3},
+        {4611686018427387904ULL, maximum_count, 0x5FF9, 1},
+        {11990383647911208549ULL, maximum_count, 0x5FF9, 1},
+        {11990383647911208550ULL, maximum_count, 0xFD20, 2},
+        {15679732462653118872ULL, maximum_count, 0xFD20, 2},
+        {15679732462653118873ULL, maximum_count, 0xF986, 4},
+    };
+    for (const auto &sample : occupancy_cases) {
+        technical.used = sample.used;
+        technical.capacity = sample.capacity;
+        prepare(CODY::CompanionPanel::Home, 0);
+        dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Measured && owner.arc_path_count == 2 &&
+            owner.arc_paths[1].color_slot == sample.slot && owner.lines[1].color == sample.color,
+            "arc and Free value share exact occupancy colors at 25/65/85 percent, including full-width count boundaries");
+        dashboard_raster(owner, actual, 16, CODY2D::Rgb565ByteOrder::Native);
+        unsigned accent_pixels = 0;
+        for (unsigned y = 290; y < 331; ++y) {
+            for (unsigned x = 40; x < 73; ++x) {
+                accent_pixels += actual[y * 466U + x] == sample.color;
+            }
+        }
+        dashboard_require(accent_pixels > 5, "the requested occupancy color reaches the native arc raster, not only its metadata");
+    }
+    technical.capacity = 474000;
     technical.used = 0;
     prepare(CODY::CompanionPanel::Home, 0);
     dashboard_require(owner.arc_units == 2000, "measured zero consumption leaves the full truthful free arc");
@@ -372,7 +416,8 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
         "overlimit cannot underflow free space or draw invented progress");
     technical.used = technical.capacity = std::numeric_limits<uint64_t>::max();
     prepare(CODY::CompanionPanel::Home, 0);
-    dashboard_require(dashboard_has_caption(owner, "0") && owner.arc_units == 0,
+    dashboard_require(dashboard_has_caption(owner, "0") && owner.arc_units == 0 &&
+        owner.arc_path_count == 1 && owner.lines[1].color == 0xF986,
         "full-width canonical values must subtract before compact formatting without overflow");
     technical.used = 0;
     prepare(CODY::CompanionPanel::Home, 0);
@@ -391,8 +436,18 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
     prepare(CODY::CompanionPanel::Home, 0);
     const uint32_t compact_revision = owner.revision;
     dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Compacting &&
-        owner.arc_path_count == 2,
+        owner.arc_path_count == 2 && owner.arc_paths[1].color_slot == 2 && owner.lines[1].color == 0xFD20,
         "compaction paints a fixed indeterminate accent, never a made-up completion percentage");
+    for (uint64_t used : {uint64_t{0}, uint64_t{25}, uint64_t{85}, uint64_t{100}}) {
+        technical.used = used;
+        technical.capacity = 100;
+        prepare(CODY::CompanionPanel::Home, 0);
+        dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Compacting &&
+            owner.arc_paths[1].color_slot == 2 && owner.lines[1].color == 0xFD20,
+            "active compaction keeps orange priority over white, cyan and red occupancy bands");
+    }
+    technical.used = 155000;
+    technical.capacity = 474000;
     prepare(CODY::CompanionPanel::Home, 100000);
     dashboard_require(owner.revision != compact_revision && owner.animation_step == 1,
         "existing active scene clock advances the real compaction accent");
@@ -414,13 +469,62 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
         dashboard_has_caption(owner, "Price Expensive") && dashboard_has_caption(owner, "Thinking high") && owner.line_count == 2,
         "lower model panel complements the shared identity header with only price and thinking effort");
     prepare(CODY::CompanionPanel::SessionLink, 0);
-    dashboard_require(dashboard_has_caption(owner, "PC connected") && dashboard_has_caption(owner, "Chat aaaaaa...aaaaaa") &&
+    dashboard_require(dashboard_has_caption(owner, "PC connected") && dashboard_has_caption(owner, "SIMULATED title") &&
         dashboard_has_caption(owner, "Device IP 192.0.2.17") && !dashboard_has_caption(owner, "Device IP 192.0.2.99"),
         "session panel must show OUR independently sourced IP, never the paired PC address");
     dashboard_require(CODY::prepare_home_dashboard(CODY::CompanionPanel::SessionLink, link, technical, value_font, body_font,
         1000000, 0, owner, content, &motion, &small_font, "255.255.255.255", CODY::PanelValueState::Current) == ESP_OK &&
         dashboard_has_caption(owner, "Device IP") && dashboard_has_caption(owner, "255.255.255.255"),
         "the widest valid IPv4 address retains all four octets within the lower panel");
+    std::memset(link.activity.title, 'W', 254);
+    link.activity.title[254] = 'Z';
+    link.activity.title[255] = '\0';
+    prepare(CODY::CompanionPanel::SessionLink, 0);
+    const int64_t reading_dwell = owner.minimum_dwell_us;
+    dashboard_require(reading_dwell > CODY::kHomeDashboardRotationUs && owner.chat_title.offset == 0 &&
+        std::strcmp(owner.chat_title.text, link.activity.title) == 0,
+        "a long canonical title retains all 255 characters and extends its panel for a complete reading pass");
+    prepare(CODY::CompanionPanel::SessionLink, 2000000);
+    const auto title_offset = owner.chat_title.offset;
+    dashboard_require(title_offset > 0, "the existing active clock scrolls the native title after its start hold");
+    ++link.activity.revision;
+    prepare(CODY::CompanionPanel::SessionLink, 2000000);
+    dashboard_require(owner.chat_title.offset == title_offset && owner.minimum_dwell_us == reading_dwell,
+        "same-title source refreshes do not restart scrolling or continually postpone the carousel");
+    prepare(CODY::CompanionPanel::SessionLink, reading_dwell - 1800000);
+    dashboard_require(owner.chat_title.offset == owner.chat_title.width - CODY::kHomeChatTitleBounds.width &&
+        owner.chat_title.window.text.characters[owner.chat_title.window.text.length - 1U] == 'Z',
+        "the final title suffix becomes visible before the retained end hold");
+    dashboard_raster(owner, reference, 466, CODY2D::Rgb565ByteOrder::Native);
+    dashboard_raster(owner, actual, 16, CODY2D::Rgb565ByteOrder::ByteSwapped);
+    for (size_t index = 0; index < reference.size(); ++index) {
+        dashboard_require(CODY2D::rgb565_stored_to_native(actual[index], CODY2D::Rgb565ByteOrder::ByteSwapped) == reference[index],
+            "the clipped title retains full-frame/tiled and byte-order raster parity");
+    }
+    for (unsigned y = 315; y < 343; ++y) {
+        for (unsigned x = 0; x < 466; ++x) {
+            if (x < 73 || x >= 393) {
+                dashboard_require(reference[y * 466 + x] == 0, "marquee pixels never escape the measured title viewport");
+            }
+        }
+    }
+    CODY::HomeDashboardRotationState reading_rotation{};
+    auto reading_panel = CODY::CompanionPanel::SessionLink;
+    dashboard_require(CODY::advance_home_dashboard_rotation(reading_rotation, reading_panel, 0, true, false,
+        reading_panel, reading_dwell) == ESP_OK && CODY::advance_home_dashboard_rotation(reading_rotation, reading_panel,
+        reading_dwell - 1, true, false, reading_panel, reading_dwell) == ESP_OK &&
+        reading_panel == CODY::CompanionPanel::SessionLink,
+        "the carousel cannot hide a long title before its entire measured reading duration");
+    dashboard_require(CODY::advance_home_dashboard_rotation(reading_rotation, reading_panel, reading_dwell, true, false,
+        reading_panel, reading_dwell) == ESP_OK && reading_panel == CODY::CompanionPanel::Home,
+        "the complete title and end hold release the carousel without catch-up transitions");
+    link.activity.title_age_at_receive_us = 45000000;
+    prepare(CODY::CompanionPanel::SessionLink, reading_dwell);
+    dashboard_require(dashboard_has_caption(owner, "Title stale"), "a current marker cannot extend an expired original title lease");
+    link.activity.title_age_at_receive_us = 0;
+    link.activity.title_state = LUNASHELL::CodexChatTitleState::Unsupported;
+    prepare(CODY::CompanionPanel::SessionLink, reading_dwell);
+    dashboard_require(dashboard_has_caption(owner, "Title unsupported"), "unsupported metadata never falls back to a GUID or prompt");
     CODY::CompanionPanel next = CODY::CompanionPanel::Home;
     for (auto expected : {CODY::CompanionPanel::ModelContext, CODY::CompanionPanel::SessionLink, CODY::CompanionPanel::Home}) {
         dashboard_require(CODY::next_home_dashboard_panel(next, next) == ESP_OK && next == expected,

@@ -1,6 +1,6 @@
 {
   "name": "cody-codex-plugin",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "description": "Your Codex sidekick on your desk. Connect Cody, follow your work and reply from the device. Cody Studio is always SIMULATED.",
   "author": {
     "name": "Umberto Giacobbi"

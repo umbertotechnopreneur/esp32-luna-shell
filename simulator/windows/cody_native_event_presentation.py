@@ -25,8 +25,12 @@ from cody_native_runtime import load_runtime_library
 
 
 class Choice(C.Structure):
-    _fields_ = [("identity", C.c_char * 13), ("label", C.c_char * 13),
-                ("detail", C.c_char * 64), ("tone", C.c_uint8)]
+    _fields_ = [("identity", C.c_char * 13), ("label", C.c_char * 64),
+                ("detail", C.c_char * 256), ("tone", C.c_uint8)]
+
+
+class PendingQuestion(C.Structure):
+    _fields_ = [("request_id", C.c_char * 33), ("context", C.c_char * 25), ("title", C.c_char * 25)]
 
 
 class Input(C.Structure):
@@ -35,16 +39,20 @@ class Input(C.Structure):
                 ("choices", Choice * 3), ("selected_id", C.c_char * 13),
                 ("failure_count", C.c_uint8), ("failures", (C.c_char * 49) * 6),
                 ("progress_valid", C.c_bool), ("passed", C.c_uint16), ("total", C.c_uint16),
-                ("last_error", C.c_int32)]
+                ("last_error", C.c_int32), ("request_id", C.c_char * 33),
+                ("pending_question_count", C.c_uint8), ("pending_entry_count", C.c_uint8),
+                ("pending_questions", PendingQuestion * 2)]
 
 
 class Navigation(C.Structure):
-    _fields_ = [("stage", C.c_uint8), ("selected_id", C.c_char * 13), ("failure_page", C.c_uint8)]
+    _fields_ = [("stage", C.c_uint8), ("selected_id", C.c_char * 13), ("failure_page", C.c_uint8),
+                ("choice_page", C.c_uint8), ("detail_page", C.c_uint8)]
 
 
 class Context(C.Structure):
     _fields_ = [("online", C.c_bool), ("reply_admitted", C.c_bool), ("dismiss_admitted", C.c_bool),
-                ("observation_error", C.c_int32), ("ui_error", C.c_int32), ("retry", C.c_uint8)]
+                ("observation_error", C.c_int32), ("ui_error", C.c_int32), ("retry", C.c_uint8),
+                ("selection_pending", C.c_bool)]
 
 
 class Bounds(C.Structure):
@@ -56,15 +64,18 @@ class Line(C.Structure):
 
 
 class Action(C.Structure):
-    _fields_ = [("identity", C.c_uint8), ("choice_id", C.c_char * 13), ("label", C.c_char * 16),
+    _fields_ = [("identity", C.c_uint8), ("choice_id", C.c_char * 13), ("label", C.c_char * 68),
+                ("request_id", C.c_char * 33),
                 ("tone", C.c_uint8), ("bounds", Bounds), ("enabled", C.c_bool), ("card", C.c_bool),
+                ("row", C.c_bool),
                 ("colors", C.c_uint16 * 4), ("icon", C.c_uint8)]
 
 
 class Plan(C.Structure):
     _fields_ = [("route", C.c_uint8), ("scene", C.c_char * 24), ("title", C.c_char * 32),
                 ("lines", Line * 8), ("line_count", C.c_uint8), ("actions", Action * 3),
-                ("action_count", C.c_uint8), ("back", C.c_bool)]
+                ("action_count", C.c_uint8), ("back", C.c_bool),
+                ("page_index", C.c_uint8), ("page_count", C.c_uint8), ("scrollable", C.c_bool)]
 
 
 @dataclass(frozen=True)
@@ -111,6 +122,10 @@ class NativeEventPresentation:
                                                   C.POINTER(Context), C.c_bool, C.c_float, C.c_float,
                                                   C.POINTER(C.c_uint8)]
         self.api.cody_host_event_press.restype = C.c_int
+        self.api.cody_host_event_release.argtypes = [C.POINTER(Input), C.POINTER(Navigation),
+            C.POINTER(Context), C.c_bool, C.c_int, C.c_int, C.c_int, C.c_int,
+            C.POINTER(C.c_uint8), C.c_void_p]
+        self.api.cody_host_event_release.restype = C.c_int
         self.api.cody_host_event_scroll.argtypes = [C.POINTER(Input), C.POINTER(Navigation), C.c_bool,
                                                    C.c_int, C.c_int, C.POINTER(C.c_bool)]
         self.api.cody_host_event_scroll.restype = C.c_int
@@ -140,6 +155,7 @@ class NativeEventPresentation:
         if len(event.choices) > 3 or len(event.failures) > 6:
             raise ValueError("Native event collection exceeds its bounded firmware ABI")
         self.context.online = snapshot.event_fresh
+        self.context.selection_pending = bool(snapshot.selection_request_id)
         value = Input()
         value.kind = int(event.kind)
         value.state = ascii_field(snapshot.event_state, 12)
@@ -148,8 +164,8 @@ class NativeEventPresentation:
         value.body = ascii_field(event.body, 64)
         value.choice_count = len(event.choices)
         for index, choice in enumerate(event.choices):
-            value.choices[index] = Choice(ascii_field(choice.choice_id, 13), ascii_field(choice.label, 13),
-                                         ascii_field(choice.detail, 64), int(choice.tone))
+            value.choices[index] = Choice(ascii_field(choice.choice_id, 13), ascii_field(choice.label, 64),
+                                         ascii_field(choice.detail, 256), int(choice.tone))
         value.selected_id = ascii_field(event.selected_id, 13)
         value.failure_count = len(event.failures)
         for index, failure in enumerate(event.failures):
@@ -159,6 +175,15 @@ class NativeEventPresentation:
             raise ValueError("Native event progress exceeds the firmware ABI")
         value.passed, value.total = event.passed, event.total
         value.last_error = snapshot.event_error
+        value.request_id = ascii_field(snapshot.request_id, 33)
+        if (type(event.pending_question_count) is not int or not 0 <= event.pending_question_count <= 128 or
+                len(event.pending_questions) > 2 or len(event.pending_questions) > event.pending_question_count):
+            raise ValueError("Native pending questions exceed their bounded firmware ABI")
+        value.pending_question_count = event.pending_question_count
+        value.pending_entry_count = len(event.pending_questions)
+        for index, entry in enumerate(event.pending_questions):
+            value.pending_questions[index] = PendingQuestion(ascii_field(entry.request_id, 33),
+                ascii_field(entry.context, 25), ascii_field(entry.title, 25))
         return value
 
     # self: Native presentation transport, retaining the last complete plan.
@@ -169,12 +194,14 @@ class NativeEventPresentation:
         checked("prepare", self.api.cody_host_event_prepare(C.byref(value), C.byref(self.navigation),
                                                             C.byref(self.context), C.byref(self.output)))
         plan = self.output
-        identities = {1: "open", 2: "choose", 3: "send", 4: "dismiss", 5: "retry", 6: "failures"}
+        identities = {1: "open", 2: "choose", 3: "send", 4: "dismiss", 5: "retry", 6: "failures", 8: "question"}
         actions = []
         for action in plan.actions[:plan.action_count]:
             identity = identities[action.identity]
             if action.choice_id:
                 identity += ":" + action.choice_id.decode("ascii")
+            if action.request_id:
+                identity += ":" + action.request_id.decode("ascii")
             bounds = action.bounds
             actions.append(EventAction(identity, action.label.decode("ascii"), Tone(action.tone),
                                        (bounds.x, bounds.y, bounds.width, bounds.height), action.enabled,
@@ -210,6 +237,19 @@ class NativeEventPresentation:
                                                         C.byref(self.context), controls_visible,
                                                         point[0], point[1], C.byref(effect)))
         return effect.value
+
+    # self: Transport to the same release admission and navigation policy as firmware.
+    # snapshot: Current immutable event, revalidated before committing any intent.
+    # origin: Logical contact start matching the last presented frame.
+    # point: Logical released point with the same orientation as origin.
+    # controls_visible: Complete narrative gate retained from touch down.
+    # Raises RuntimeError for original shared model errors.
+    def release(self, snapshot, origin, point, controls_visible: bool) -> tuple[int, str]:
+        value, effect, selected = self.project(snapshot), C.c_uint8(), C.create_string_buffer(33)
+        checked("release", self.api.cody_host_event_release(C.byref(value), C.byref(self.navigation),
+            C.byref(self.context), controls_visible, int(origin[0]), int(origin[1]), int(point[0]), int(point[1]),
+            C.byref(effect), selected))
+        return effect.value, selected.value.decode("ascii")
 
     # self: Native owner of actual admission outcomes.
     # effect: Previously reviewed Reply or Dismiss intent.

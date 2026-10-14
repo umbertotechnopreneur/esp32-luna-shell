@@ -153,6 +153,10 @@ struct HostPanelObservation {
     bool simulated_motion_valid;
     uint8_t simulated_motion;
     uint64_t simulated_motion_age_us;
+    const char *chat_title;
+    uint8_t chat_title_state;
+    uint64_t chat_title_age_us;
+    int32_t chat_title_error;
 };
 
 // source: Borrowed NUL-terminated printable ASCII producer string.
@@ -488,7 +492,7 @@ CODY_HOST_EXPORT int cody_host_panel_prepare(void *handle, uint8_t panel,
 static esp_err_t project_host_panel_observation(const HostPanelObservation *source,
     LUNASHELL::CodexTechnicalObservation &observation)
 {
-    if (!source || source->phase > 9 || source->compaction > 5 || source->cost_band > 3 ||
+    if (!source || source->phase > 9 || source->compaction > 5 || source->cost_band > 3 || source->chat_title_state > 3 ||
         source->receipt_age_us > static_cast<uint64_t>(INT64_MAX - 1) ||
         (source->capacity_valid && source->capacity == 0)) {
         return host_result("panel_observation", ESP_ERR_INVALID_ARG);
@@ -501,6 +505,7 @@ static esp_err_t project_host_panel_observation(const HostPanelObservation *sour
     if (error == ESP_OK) { error = copy_panel_source(source->branch, link.activity.branch); }
     if (error == ESP_OK) { error = copy_panel_source(source->description, link.activity.description); }
     if (error == ESP_OK) { error = copy_panel_source(source->chat_id, link.activity.chat_id); }
+    if (error == ESP_OK) { error = copy_panel_source(source->chat_title, link.activity.title); }
     if (error == ESP_OK) { error = copy_panel_source(source->technical_chat_id, technical.chat_id); }
     if (error == ESP_OK) { error = copy_panel_source(source->model, technical.model); }
     if (error == ESP_OK) { error = copy_panel_source(source->effort, technical.effort); }
@@ -557,6 +562,13 @@ static esp_err_t project_host_panel_observation(const HostPanelObservation *sour
     technical.threshold = source->threshold;
     technical.usage_age_at_receive_us = source->usage_age_us;
     const int64_t observation_time = static_cast<int64_t>(source->receipt_age_us) + 1;
+    // The host supplies the title's original source age plus its ACTIVITY receipt
+    // age. Anchor that already-aged duration at this projection's current origin;
+    // TECH receipt age must not be counted a second time for an independent field.
+    link.activity.title_state = static_cast<LUNASHELL::CodexChatTitleState>(source->chat_title_state);
+    link.activity.title_age_at_receive_us = source->chat_title_age_us;
+    link.activity.title_error = source->chat_title_error;
+    link.activity.last_attempt_at_us = observation_time;
     LUNASHELL::age_codex_technical(technical, observation_time);
     return ESP_OK;
 }
@@ -621,7 +633,8 @@ CODY_HOST_EXPORT int cody_host_home_dashboard(void *handle, void *state, uint8_t
         CODY::HomeFonts::value_font, CODY::SceneData::body_font,
         source_time, active_time_us, owner, content,
         source->simulated_motion_valid ? &motion : nullptr, &CODY::HomeFonts::small_font, source->device_ip,
-        source->device_ip_valid ? CODY::PanelValueState::Current : CODY::PanelValueState::Unavailable);
+        source->device_ip_valid ? CODY::PanelValueState::Current : CODY::PanelValueState::Unavailable,
+        static_cast<HostState *>(state)->home_rotation.elapsed_us);
     if (error == ESP_OK) {
         frame.companion_panel.valid = false;
         frame.home_dashboard = &owner;
@@ -726,8 +739,11 @@ CODY_HOST_EXPORT int cody_host_home_rotation(void *state, uint8_t current, int64
 {
     if (!state || !next) { return host_result("home_rotation", ESP_ERR_INVALID_ARG); }
     CODY::CompanionPanel selected = static_cast<CODY::CompanionPanel>(current);
-    const esp_err_t error = CODY::advance_home_dashboard_rotation(static_cast<HostState *>(state)->home_rotation,
-        selected, active_us, visible, compacting, selected);
+    auto &owner = *static_cast<HostState *>(state);
+    const int64_t dwell = owner.home_dashboard.valid && owner.home_dashboard.panel == selected ?
+        owner.home_dashboard.minimum_dwell_us : CODY::kHomeDashboardRotationUs;
+    const esp_err_t error = CODY::advance_home_dashboard_rotation(owner.home_rotation,
+        selected, active_us, visible, compacting, selected, dwell);
     if (error == ESP_OK) { *next = static_cast<uint8_t>(selected); }
     return host_result("home_rotation", error);
 }

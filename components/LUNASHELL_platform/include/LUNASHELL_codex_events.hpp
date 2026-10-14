@@ -70,9 +70,15 @@ enum class CodexChoiceTone : uint8_t { Neutral, Positive, Negative, Info };
 
 struct CodexEventChoice {
     char id[13]{};
-    char label[13]{};
-    char detail[64]{};
+    char label[64]{};
+    char detail[256]{};
     CodexChoiceTone tone = CodexChoiceTone::Neutral;
+};
+
+struct CodexPendingQuestion {
+    char request_id[33]{};
+    char context[25]{};
+    char title[25]{};
 };
 
 // Payloads are bounded UI data. Context is a declared label, never a chat identity.
@@ -89,6 +95,9 @@ struct CodexEventPayload {
     bool progress_valid = false;
     uint16_t passed = 0;
     uint16_t total = 0;
+    uint8_t pending_question_count = 0;
+    uint8_t pending_entry_count = 0;
+    CodexPendingQuestion pending_questions[2]{};
 };
 
 // hex: Complete lowercase hexadecimal payload, without the EVENT envelope.

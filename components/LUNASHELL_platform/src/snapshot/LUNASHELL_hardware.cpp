@@ -2730,7 +2730,7 @@ esp_err_t DeviceSnapshotService::readCodyOptionsObservation(CodyOptionsObservati
     return ESP_OK;
 }
 
-// observation: Bounded canonical event, copied only after acquiring the snapshot mutex.
+// observation: Caller-owned event storage copied under the snapshot mutex; unusable on error.
 // Exception: Returns the original lock/release failure, never an invented empty event.
 esp_err_t DeviceSnapshotService::readCodexEventObservation(CodexEventSnapshot &observation) const
 {
@@ -2738,12 +2738,13 @@ esp_err_t DeviceSnapshotService::readCodexEventObservation(CodexEventSnapshot &o
     if (error != ESP_OK) {
         return error;
     }
-    const CodexEventSnapshot copy = s_snapshot.codex_event;
+    // Choice details now occupy most of this bounded schema. Write directly to
+    // the caller's persistent observation instead of doubling its stack cost.
+    observation = s_snapshot.codex_event;
     const esp_err_t release_error = give_snapshot_mutex("Codex event read");
     if (release_error != ESP_OK) {
         return release_error;
     }
-    observation = copy;
     return ESP_OK;
 }
 

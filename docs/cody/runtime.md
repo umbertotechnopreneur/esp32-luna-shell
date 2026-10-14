@@ -210,36 +210,49 @@ exercise the real activity owner, authenticated packets, Studio projection and
 native panel pixels; these synthetic captures do not prove physical sound or
 that a particular live compaction hook was delivered.
 
-### Pending native questions: PC audit, 2026-10-14
+### Semantic questions and other-chat replies, 2026-10-14
 
-The current hook bridge does not maintain pending questions across chats.
-`ccp_activity.tool_phase` classifies `request_user_input` and
-`request_user_input_async` as ordinary Working activity, while the journal
-reader consumes usage metadata rather than question calls. Permission notices
-are limited to the followed chat and can be replaced by later tool activity;
-a new prompt retires previous native notices. Explicit `ccp_ask_question`
-request/reply/ACK handling is a separate path, not automatic native-question
-coverage.
+The synchronous `UserPromptSubmit` hook uses the documented
+[`additionalContext` output](https://learn.chatgpt.com/docs/hooks) to tell the
+agent to route semantic choices through `ccp_ask_question` when a retained
+physical Cody has recently advertised the authenticated events extension.
+The context is fixed instruction text; prompt, response and tool-argument
+contents are discarded before hook ingestion. An explicit PC-only preference
+takes precedence, and simulator routing still requires explicit user intent.
 
-A read-only journal audit confirmed that an asynchronous tool can return
-`accepted` before the user replies. `PostToolUse` therefore cannot close a
-pending asynchronous question. Broker diagnostics also confirmed two rejected
-turn identities belonged to subagents; parent/child correlation must preserve
-identity checks rather than accept every mismatched turn. No chat text or raw
-session identities are recorded in this document.
+The agent creates the actual question with two or three complete English ASCII
+choices, retaining stable IDs and original meaning. Labels admit 63 characters
+and details 255; Cody shows two choices at a time and scrolls to the third.
+Questions needing free text or content outside the bounds remain on the PC.
+The originating caller keeps its private ticket/capability, polls for the real
+answer, and acknowledges the returned `answer_id` before acting. Receipt alone
+does not mean **Reply sent**. Expiry, cancellation and disconnection never select
+an answer, and an ambiguous enqueue is not automatically repeated.
 
-The proposed increment is a bounded registry keyed by chat, turn and request
-identity, with a count and chat indicator independent of the followed activity.
-The official [App Server protocol](https://learn.chatgpt.com/docs/app-server)
-documents `item/tool/requestUserInput` and `serverRequest/resolved`; the latter
-also clears interrupted or otherwise retired requests and does not by itself
-prove that the user answered. First verify a supported read-only attachment to
-the existing Desktop server. Starting a second Codex server would not observe
-the existing Desktop chats. The documented
-[hook coverage](https://learn.chatgpt.com/docs/hooks) alone does not establish a
-universal native-question lifecycle. Do not infer requests from prose or question
-marks, switch the followed chat, or execute approvals on behalf of the user.
-This audit implements no PC bridge or protocol changes.
+The bounded interaction owner retains multiple genuine MCP questions. Its queue
+publishes actual request identities and two pending summaries at a time. Explicit
+navigation is signed and does not change the followed PC chat; a reply being sent
+or awaiting recipient acknowledgement cannot be displaced. Every caller retains
+ownership of its own answer and cancellation capability. A genuine `Stop` from
+another chat queues **Reply ready** once per native turn, using its project and
+complete canonical title when current and at most 63 characters. Otherwise the
+body stays **Reply ready**. There is no displayed GUID, inferred success or extra
+metadata query in the hook; a prompt retires native notices only for that chat.
+
+Native `request_user_input` prompts already open in Desktop are not imported.
+The current Desktop app-server uses stdio without a verified public attach
+endpoint; starting another server would not own its requests. The official
+[App Server protocol](https://learn.chatgpt.com/docs/app-server) describes
+`item/tool/requestUserInput` and `serverRequest/resolved`, but those messages do
+not establish access to this running Desktop connection. Native permissions and
+existing native questions stay on the PC. No private UI automation, transcript
+question scraping, invented request registry or fabricated native reply is used.
+
+The earlier 2026-10-14 audit established that asynchronous tool `accepted` can
+precede a user response, so `PostToolUse` cannot prove question completion.
+It also identified two rejected turn identities as subagents: parent/child
+correlation must keep exact identity checks. These retained findings contain no
+chat text or raw session identifiers and do not constitute a live question test.
 
 ### Companion information panels
 
@@ -248,7 +261,7 @@ row above three lower panels. The first shows a Free token hero and availability
 arc, Last/Window, elapsed time and canonical IMU activity. Model & Context shows
 qualitative catalog price and reasoning effort; the shared header carries the
 model name once. Session & Link
-shows connection state, abbreviated chat ID and the device's own canonical Wi-Fi
+shows connection state, the real chat title and the device's own canonical Wi-Fi
 IP. The former full-screen Activity page, firmware row and numeric page footer
 are no longer part of passive Home navigation.
 
@@ -281,7 +294,15 @@ than an invented progress percentage. Missing, stale, invalid and over-limit
 observations keep explicit nonnumeric states.
 
 A shared native carousel cycles Tokens, Model & Context, Session & Link, then
-Tokens after eight visible seconds per panel. A short released passive tap
+Tokens after at least eight visible seconds per panel. Session & Link shows the
+actual canonical chat title without a `Chat` prefix or opaque ID. Long titles
+scroll within (73,315,320,28), with a 1.2-second start hold, 40 pixels per second
+in 50-ms steps and a 1.8-second end hold. The native glyph width extends the
+carousel dwell until the entire title has been visible. Same-title metadata
+refreshes preserve position; a new title receives a complete reading interval.
+The original title age plus local time since receipt expires after 45 seconds;
+missing, unsupported, failed and stale metadata remain explicit. No task or
+source polling is added for glyph movement. A short released passive tap
 advances immediately and restarts the interval. Hidden views, standby and
 current compaction pause automatic rotation, without accumulating catch-up
 transitions. Compaction selects Tokens and starts a fresh interval when it ends;

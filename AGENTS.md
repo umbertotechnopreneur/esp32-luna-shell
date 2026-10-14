@@ -56,10 +56,10 @@ instruction file; do not add parallel agent or Copilot contracts.
   rotate touch independently. Read
   [circular-display-layout](docs/bsp/boards/waveshare-esp32s3-touch-amoled-1.75/display-geometry.md) before
   changing layouts.
-- Cody companion technical panels are a scoped exception to lateral Back:
-  a short passive tap advances Activity, Model & Context, Session & Link, then
-  Activity again; a deliberate shake returns directly to Home. These panels
-  have no Back control. Setup, remote questions and Luna retain their routes.
+- Cody Home keeps the character and status fixed above rotating Tokens, Model
+  and Connection panels. Tap advances; deliberate shake returns to Tokens.
+  Long chat titles hold Connection until their horizontal scroll completes.
+  Home panels have no Back control. Setup, remote questions and Luna retain routes.
 
 ## Code clarity
 
@@ -76,10 +76,12 @@ instruction file; do not add parallel agent or Copilot contracts.
   `utm_campaign=esp32-luna-shell` and placement-specific `utm_content`.
   Preserve the root license and third-party license boundaries.
 
-- Cody action layout decision (2026-10-09): two actions use rounded gradient
+- Cody action layout decision (2026-10-14): captions use text without action icons.
+  Two ordinary actions use rounded gradient
   cards side by side; three use the same pair plus one centered action below.
-  One action uses a centered wide capsule with its icon to the left of its label.
-  Apply semantic colors, restrained gradients and action icons to all Cody
+  One action uses a centered wide capsule. Question choices use numbered,
+  single-line full-width rows, at most two visible, with scrolling and explicit
+  detail review before Send. Apply semantic colors and restrained gradients to Cody
   screens. Preserve the separate lateral Back, QR quiet zones and local chords.
   Approved references: `docs/cody/ui-proposals/20261009/selected-multi-action.png`
   and `selected-single-action.png` in the same directory.
