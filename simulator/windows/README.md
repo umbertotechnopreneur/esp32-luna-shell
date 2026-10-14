@@ -94,7 +94,9 @@ The old PC record remains separate; nothing is deleted on the physical device,
 in firmware or on the SD card.
 
 The preview uses the same native Home fonts, character transform and three lower
-panels as firmware. Tokens includes Free, Last, Window, elapsed time and IMU;
+panels as firmware. They rotate every eight visible seconds; a short tap advances
+immediately and restarts the interval. Hidden views and current compaction pause
+the automatic rotation. Tokens includes Free, Last, Window, elapsed time and IMU;
 Model contains the price capsule and thinking effort; Session contains link,
 chat and the simulator endpoint's own address. State/model stay above the panels
 and commands scroll below. The real authenticated cost band and source lease

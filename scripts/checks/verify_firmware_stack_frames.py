@@ -101,7 +101,11 @@ def main(argv=None) -> int:
         r"read_endurance_usb|process_command|command_task")
     home_dashboard_helpers = helper_frames(
         rows, ("CODY_home_dashboard.cpp", "CODY_home_identity.cpp", "CODY_scene.cpp",
-               "CODY_companion.cpp"), r"home|dashboard|draw_frame|plan_scene_damage|draw_scene_rows")
+               "CODY_companion.cpp"), r"home|dashboard|draw_(?:companion_)?frame|plan_scene_damage|draw_scene_rows")
+    native_raster_helpers = helper_frames(
+        rows, ("CODY2D_paths.cpp", "CODY2D_controls.cpp", "CODY2D_text.cpp"))
+    if not native_raster_helpers["compiled_record_count"]:
+        failures.append("Native raster stack records are missing; rebuild the activity profile with current flags")
     if wake_word_enabled:
         helpers["afe"] = helper_frames(rows, ("LUNASHELL_voice_afe.cpp",))
     if voice_input_enabled:
@@ -113,6 +117,7 @@ def main(argv=None) -> int:
               "voice_helper_frames": helpers,
               "endurance_usb_helper_frames": endurance_usb_helpers,
               "home_dashboard_helper_frames": home_dashboard_helpers,
+              "native_raster_helper_frames": native_raster_helpers,
               "helper_scope": "Up to 12 largest individual records per enabled subsystem; inlined helpers may have no separate record",
               "compiled_record_count": len(rows), "failures": failures,
               "scope": "Individual compiled frames; nested call chains and device watermarks required separately"}
@@ -128,6 +133,8 @@ def main(argv=None) -> int:
         print(f"Individual endurance USB frame: {frame['function']} {frame['bytes']} bytes")
     for frame in home_dashboard_helpers["largest_frames"]:
         print(f"Individual Home frame: {frame['function']} {frame['bytes']} bytes")
+    for frame in native_raster_helpers["largest_frames"]:
+        print(f"Individual native raster frame: {frame['function']} {frame['bytes']} bytes")
     for failure in failures:
         print(f"FAIL: {failure}")
     print(f"Individual stack frame report: {report['status']}; {output}")

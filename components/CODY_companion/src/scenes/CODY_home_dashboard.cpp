@@ -276,11 +276,16 @@ esp_err_t prepare_arc(HomeDashboardPresentation &owner, const PanelInputs &input
     error = metric_caption(last, sizeof(last), "Last", inputs.used);
     if (error == ESP_OK) { error = metric_caption(window, sizeof(window), "Window", inputs.capacity); }
     if (error != ESP_OK) { return error; }
-    const size_t labels_length = std::strlen(last) + std::strlen(window);
+    const size_t last_length = std::strlen(last);
+    const size_t window_length = std::strlen(window);
+    const size_t labels_length = last_length + window_length;
     const uint32_t paired_width = static_cast<uint32_t>((labels_length + 2) * small_font.advance + small_font.width);
     const uint16_t secondary_top = stacked ? 322 : 315;
-    if (paired_width <= 320 && std::strlen(last) + std::strlen(window) + 3 < sizeof(caption)) {
-        std::snprintf(caption, sizeof(caption), "%s | %s", last, window);
+    if (paired_width <= 320 && labels_length + 3 < sizeof(caption)) {
+        // The complete pair and terminator fit; copy exact labels without formatter truncation.
+        std::memcpy(caption, last, last_length);
+        std::memcpy(caption + last_length, " | ", 3);
+        std::memcpy(caption + last_length + 3, window, window_length + 1);
         error = add_line(owner, small_font, caption, secondary_top, kMuted);
     } else {
         error = metric_caption(window, sizeof(window), "Win", inputs.capacity);
@@ -371,6 +376,60 @@ const char *motion_caption(const LUNASHELL::ActivitySnapshot *motion, int64_t no
     }
 }
 } // namespace
+
+// state: Serialized display-only clock; manual input restarts a complete visible dwell.
+void reset_home_dashboard_rotation(HomeDashboardRotationState &state)
+{
+    state.sampled_us = -1;
+    state.elapsed_us = 0;
+}
+
+// state: Serialized active-time sample and accumulated visible dwell.
+// current: Canonical selected Home, ModelContext or SessionLink panel.
+// active_us: Monotonic presentation clock, never an observation receipt timestamp.
+// visible: Hidden routes suspend sampling and preserve their already displayed dwell.
+// compacting: Authenticated current compaction reserves Home until the source reports completion.
+// next: Receives one next identity at most; every newly displayed page receives a complete dwell.
+// Exception: Logs rejected clocks or identities and leaves the rotation state unchanged.
+esp_err_t advance_home_dashboard_rotation(HomeDashboardRotationState &state,
+    CompanionPanel current, int64_t active_us, bool visible, bool compacting, CompanionPanel &next)
+{
+    const bool known_panel = current == CompanionPanel::Home || current == CompanionPanel::ModelContext ||
+        current == CompanionPanel::SessionLink;
+    if (!known_panel || active_us < 0 || state.sampled_us < -1 || state.elapsed_us < 0 ||
+        state.elapsed_us >= kHomeDashboardRotationUs ||
+        (state.sampled_us >= 0 && active_us < state.sampled_us)) {
+        ESP_LOGE("CODY_dashboard", "Rotation rejected: panel=%u active=%lld sample=%lld elapsed=%lld (%s)",
+            static_cast<unsigned>(current), static_cast<long long>(active_us),
+            static_cast<long long>(state.sampled_us), static_cast<long long>(state.elapsed_us),
+            esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    next = current;
+    if (!visible) {
+        state.sampled_us = -1;
+        return ESP_OK;
+    }
+    if (compacting) {
+        reset_home_dashboard_rotation(state);
+        next = CompanionPanel::Home;
+        return ESP_OK;
+    }
+    if (state.sampled_us >= 0) {
+        const int64_t delta = active_us - state.sampled_us;
+        const int64_t remaining = kHomeDashboardRotationUs - state.elapsed_us;
+        if (delta >= remaining) {
+            const esp_err_t error = next_home_dashboard_panel(current, next);
+            if (error != ESP_OK) { return error; }
+            state.elapsed_us = 0;
+        } else {
+            // Comparing the remaining dwell before addition bounds even a very long valid frame interval.
+            state.elapsed_us += delta;
+        }
+    }
+    state.sampled_us = active_us;
+    return ESP_OK;
+}
 
 // current: Stable lower-panel identity.
 // next: Receives the next explicit typed identity.

@@ -32,9 +32,11 @@ packet fields and budgets belong to [CCP1](../../plugins/cody-codex-plugin/proto
 
 ## Observe walking, running and sitting
 
-The default Home token panel includes the IMU label beside the timer. A short
-released tap changes the lower panel to Model & Context, then Session & Link,
-then Tokens again. A double tap starts voice input, so wait for the single-tap
+The default Home token panel includes the IMU label beside the timer. Panels
+rotate every eight visible seconds: Tokens, Model & Context, Session & Link,
+then Tokens again. A short released tap advances immediately and restarts the
+eight-second interval. Hidden views, standby and current compaction pause the
+automatic rotation. A double tap starts voice input, so wait for the single-tap
 decision. A deliberate shake selects Tokens; running or jumping may also
 trigger that navigation gesture.
 

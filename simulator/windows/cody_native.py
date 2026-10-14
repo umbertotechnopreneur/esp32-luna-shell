@@ -193,6 +193,8 @@ class NativeRig:
             "home_dashboard": (C.c_int, (P, P, C.c_uint8, C.POINTER(NativePanelObservation), C.c_int64)),
             "home_identity": (C.c_int, (P, P, C.POINTER(NativePanelObservation), C.c_char_p, C.c_uint16, C.c_int64)),
             "home_transform": (C.c_int, (F,)),
+            "home_rotation": (C.c_int, (P, C.c_uint8, C.c_int64, C.c_bool, C.c_bool, C.POINTER(C.c_uint8))),
+            "home_rotation_reset": (C.c_int, (P,)),
             "panel_tap": (C.c_int, (P, C.c_int16, C.c_int16, C.c_bool, C.c_bool, C.c_int64,
                 C.c_uint16, C.c_bool, C.c_bool, C.POINTER(C.c_bool))),
             "panel_cancel_tap": (C.c_int, (P,)),
@@ -454,6 +456,27 @@ class NativeRig:
         transform = (C.c_float * 3)()
         checked("home_transform", self.api.cody_host_home_transform(transform))
         return tuple(transform)
+
+    # self: Persistent native display owner; the eight-second rotation policy remains in shared C++.
+    # current: Stable selected Home lower-panel identity.
+    # active_us: Pausable display clock independent of network/sensor source timestamps.
+    # visible: Whether ordinary Home is actually visible in this frame.
+    # compacting: Current admitted compaction requiring the token arc to stay visible.
+    # Returns the native policy's selected panel; raises original boundary or clock errors.
+    def advance_home_rotation(self, current, active_us, visible, compacting):
+        bounded_integer(current, 0, 3, "home_rotation.current")
+        bounded_integer(active_us, 0, 0x7fffffffffffffff, "home_rotation.active_us")
+        if type(visible) is not bool or type(compacting) is not bool:
+            raise ValueError("Home rotation requires actual typed visibility and compaction flags")
+        selected = C.c_uint8()
+        checked("home_rotation", self.api.cody_host_home_rotation(self.state, current, active_us,
+            visible, compacting, C.byref(selected)))
+        return selected.value
+
+    # self: Persistent native presentation owner, reset only by accepted tap/shake or explicit preview replay.
+    # Raises RuntimeError for the original native owner error.
+    def reset_home_rotation(self):
+        checked("home_rotation_reset", self.api.cody_host_home_rotation_reset(self.state))
 
     # self: Persistent recognizer owner, isolated from physical snapshots.
     # x: Original logical acquired touch coordinate.

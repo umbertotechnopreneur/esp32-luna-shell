@@ -235,9 +235,13 @@ coherent current pair; compaction uses an orange indeterminate accent rather
 than an invented progress percentage. Missing, stale, invalid and over-limit
 observations keep explicit nonnumeric states.
 
-A short released passive tap cycles Tokens, Model & Context, Session & Link,
-then Tokens. Each lower panel remains selected until a deliberate gesture. A
-deliberate shake selects Tokens without changing a remote request, chat,
+A shared native carousel cycles Tokens, Model & Context, Session & Link, then
+Tokens after eight visible seconds per panel. A short released passive tap
+advances immediately and restarts the interval. Hidden views, standby and
+current compaction pause automatic rotation, without accumulating catch-up
+transitions. Compaction selects Tokens and starts a fresh interval when it ends;
+active touch gestures also suspend the automatic advance. A deliberate shake
+selects Tokens without changing a remote request, chat,
 approval or read acknowledgement. These passive panels have no lateral Back.
 Setup, voice input, remote questions, PC approvals and Debug retain their real
 controls and presentation priority. The retained panel resumes when the

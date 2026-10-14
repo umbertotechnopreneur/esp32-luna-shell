@@ -300,6 +300,11 @@ if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
     # firmware behavior and make schema/callback stack growth reviewable.
     target_compile_options(${activity_cody_library} PRIVATE
         "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-usage>")
+    # Include the nested native raster helpers in the same compiler-only evidence.
+    # Preserve their optimization level and the device's existing task budgets.
+    idf_component_get_property(activity_cody2d_library CODY2D COMPONENT_LIB)
+    target_compile_options(${activity_cody2d_library} PRIVATE
+        "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-usage>")
     get_target_property(activity_cody_sources ${activity_cody_library} SOURCES)
     foreach(activity_cody_source IN LISTS activity_cody_sources)
         if(activity_cody_source MATCHES "(^|/)src/(runtime|scenes|model|diagnostics)/.*[.]cpp$" AND

@@ -113,7 +113,6 @@ class CcpPanel:
         self._operation_elapsed_us = -1
         self._admitted_phase = "none"
         self._companion_panel = 0
-        self._panel_started = time.monotonic()
         self._gesture_point = None
         self._gesture_rotation = 0
         self._gesture_sampled_us = 0
@@ -457,7 +456,7 @@ class CcpPanel:
         self.window.renderer.require_native().observe_activity("none", "", False,
             self._activity_observation_clock_us)
         self._activity_clock = time.monotonic()
-        self._panel_started = self._activity_clock
+        self.window.renderer.require_native().reset_home_rotation()
         self.follow.set(True)
         self.window.playing.set(True)
         self.preview_capture_button.configure(state="normal")
@@ -662,13 +661,11 @@ class CcpPanel:
         self.change_companion_mode()
         snapshot, code = (self._preview_snapshot, "") if preview else (self._snapshot, self._display_code)
         if not preview and self._debug_mode != "normal":
-            self.window.renderer.require_native().pause_activity()
-            self._activity_clock = time.monotonic()
+            self.pause_home_presentation()
             return self.render_debug(rotation)
         if not preview and self.events.visible(snapshot, self.endpoint):
-            self.window.renderer.require_native().pause_activity()
             # Interaction dwell pauses both observed work and local identity/purpose animation clocks.
-            self._activity_clock = time.monotonic()
+            self.pause_home_presentation()
             result = self.events.render(snapshot, self.window, rotation, self.prepare_personality, self.compose_scene,
                 activity=self.character_activity(snapshot, False))
             return result
@@ -691,6 +688,10 @@ class CcpPanel:
         count = max(0, int(elapsed / 45))
         total = len(title) + (0 if dashboard else sum(len(line) for line in lines))
         self._passive_visible = count >= total
+        rotation_visible = bool(dashboard and self.window.playing.get() and self._gesture_point is None and
+                                (compacting or self._passive_visible))
+        self._companion_panel = self.window.renderer.require_native().advance_home_rotation(
+            self._companion_panel, self._activity_observation_clock_us, rotation_visible, compacting)
         key = ("ccp-preview" if preview else "ccp", route_key, self._companion_panel, min(count, total), rotation, round(elapsed / 33))
         cloud = definition["cloud"]
         placement = (self.window.renderer.require_native().home_transform()
@@ -741,6 +742,15 @@ class CcpPanel:
             self._preview_capture_due = None
             self.save_preview()
         return image, scene, key
+
+    # self: Home presenter hidden by Debug, an interaction or another Studio view.
+    # Raises original native pause/clock errors; hidden dwell never advances the page.
+    def pause_home_presentation(self):
+        native = self.window.renderer.require_native()
+        self._companion_panel = native.advance_home_rotation(self._companion_panel,
+            self._activity_observation_clock_us, False, False)
+        native.pause_activity()
+        self._activity_clock = time.monotonic()
 
     # self: Studio presentation adapter; protocol and freshness admission remain with the endpoint.
     # snapshot: One complete isolated CCP observation or explicitly selected preview snapshot.
@@ -1001,7 +1011,7 @@ class CcpPanel:
         self._gesture_point = None
         if accepted:
             self._companion_panel = native.next_companion_panel(self._companion_panel)
-            self._panel_started = time.monotonic()
+            native.reset_home_rotation()
 
     # self: Explicit SIMULATED motion source; a real shared recognizer alone chooses Home.
     # Exceptions: Tk or native gesture errors remain visible and never become successful navigation.
@@ -1027,7 +1037,7 @@ class CcpPanel:
         if self.window.renderer.require_native().observe_companion_shake(acceleration, 0.0, 9.81,
                 now_us, now_us, self.follow.get() and not blocked):
             self._companion_panel = 0
-            self._panel_started = time.monotonic()
+            self.window.renderer.require_native().reset_home_rotation()
             self._route_key = None
 
     # self: Optional endpoint owner stopped before the containing Tk window is destroyed.

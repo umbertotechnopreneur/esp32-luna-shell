@@ -244,6 +244,7 @@ struct CompanionState {
     CODY::CompanionShakeState companion_shake{};
     CODY::HomeDashboardPresentation home_dashboard{};
     CODY::HomeIdentityPresentation home_identity{};
+    CODY::HomeDashboardRotationState home_rotation{};
     // Serialized renderer-owned projection stays off the nested raster stack.
     LUNASHELL::CodexTechnicalObservation technical_observation{};
     LUNASHELL::ActivitySnapshot motion_observation{};
@@ -639,6 +640,46 @@ bool home_dashboard_view_active()
         !s_state.routine_scene && !s_state.wake_battery.active;
 }
 
+// No parameters: pending physical gestures and deferred voice taps retain priority over automatic navigation.
+bool home_panel_rotation_interaction_active();
+
+// panel: Local lower-panel identity; selection resets the passive dwell clock.
+void select_companion_panel(CODY::CompanionPanel panel);
+
+// No parameters: preserve the remaining dwell while no Home panel can be observed.
+// Exception: Returns the original shared clock-policy error for an invalid retained state.
+esp_err_t suspend_home_panel_rotation()
+{
+    CODY::CompanionPanel retained = s_state.companion_panel;
+    return CODY::advance_home_dashboard_rotation(s_state.home_rotation, s_state.companion_panel,
+        s_state.home_active_us, false, false, retained);
+}
+
+// link: Canonical activity/link observation retained by the serialized display owner.
+// technical: Canonical metadata whose admitted compaction state has independent validity and age.
+// now_us: Real receipt clock used only to admit the observed compaction state.
+// Exception: Returns the original projection or shared rotation-policy failure.
+esp_err_t advance_home_panel_rotation(const LUNASHELL::CodexLinkSnapshot &link,
+    const LUNASHELL::CodexTechnicalSnapshot &technical, int64_t now_us)
+{
+    CODY::PanelInputs projected{};
+    esp_err_t error = CODY::project_companion_panel_inputs(link, technical, now_us, "", projected);
+    if (error != ESP_OK) {
+        return error;
+    }
+    const bool compacting = projected.compaction == LUNASHELL::CodexCompactionState::Active;
+    CODY::CompanionPanel next = s_state.companion_panel;
+    // A held gesture or the double-tap decision window cannot lose ownership to an automatic page.
+    const bool visible = !home_panel_rotation_interaction_active() &&
+        (compacting || (s_cached_home_content_visible && s_cached_scene.definition == s_state.scene.definition));
+    error = CODY::advance_home_dashboard_rotation(s_state.home_rotation, s_state.companion_panel,
+        s_state.home_active_us, visible, compacting, next);
+    if (error == ESP_OK && next != s_state.companion_panel) {
+        select_companion_panel(next);
+    }
+    return error;
+}
+
 // now_us: Monotonic receipt clock for canonical ages; never an animation timestamp.
 // Exception: Returns the original canonical read, projection or native layout failure.
 esp_err_t prepare_home_dashboard_frame(int64_t now_us)
@@ -651,12 +692,17 @@ esp_err_t prepare_home_dashboard_frame(int64_t now_us)
     }
     const auto &link = observation.link;
     const auto &technical = observation.technical;
-    // This owner freezes across route preemption, standby and the existing animation pause.
+    // This monotonic owner freezes across preemption/standby/pause. A source-clock reset
+    // rebases its sampling baseline without rewinding accumulated Home presentation time.
     const int64_t active_now = s_state.animation_elapsed_us;
     if (s_state.home_sampled_us >= 0 && active_now >= s_state.home_sampled_us) {
         s_state.home_active_us += active_now - s_state.home_sampled_us;
     }
     s_state.home_sampled_us = active_now;
+    error = advance_home_panel_rotation(link, technical, now_us);
+    if (error != ESP_OK) {
+        return error;
+    }
     CODY::SceneContent content{};
     error = CODY::prepare_home_identity(s_state.scene, link, technical, now_us,
         s_state.home_active_us, s_state.home_identity, content);
@@ -732,6 +778,8 @@ esp_err_t prepare_home_dashboard_frame(int64_t now_us)
 // panel: Local information view; never acknowledges or changes a remote request.
 void select_companion_panel(CODY::CompanionPanel panel)
 {
+    // Deliberately shaking while already on Home also starts a fresh eight-second dwell.
+    CODY::reset_home_dashboard_rotation(s_state.home_rotation);
     if (s_state.companion_panel == panel) {
         return;
     }
@@ -3138,6 +3186,18 @@ esp_err_t draw_voice_input_rows()
 }
 #endif
 
+// No parameters: this display-owned projection performs no driver or sensor reads.
+bool home_panel_rotation_interaction_active()
+{
+    bool pending = s_state.touch_pressed || s_state.companion_tap.contact_active ||
+        s_state.companion_tap.candidate || s_state.petting.contact_active ||
+        s_state.setup_hold_candidate || s_state.setup_hold_opened || s_state.body_drag_active;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    pending = pending || s_voice_tap_due_us != 0;
+#endif
+    return pending;
+}
+
 // Hold the shared recursive panel lock across every strip so rotation and standby
 // cannot alter the panel/touch mapping in the middle of one complete redraw.
 // resume_animation: Skip parked time when restarting the animation clocks after standby.
@@ -3205,7 +3265,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         esp_timer_get_time() - s_voice_input_view.input.changed_at_us < 3000000);
     if (voice_visible && s_shutdown_presentation.load(std::memory_order_acquire) == ShutdownPresentation::None) {
         s_voice_force_full = resume_animation;
-        esp_err_t error = set_companion_typewriter_suspended(true);
+        s_state.home_sampled_us = -1;
+        esp_err_t error = suspend_home_panel_rotation();
+        if (error == ESP_OK) error = set_companion_typewriter_suspended(true);
         suspend_optional_personality_audio(true);
         if (error == ESP_OK) error = CODY::set_codex_audio_suspended(true);
         if (error == ESP_OK) error = draw_voice_input_rows();
@@ -3496,6 +3558,10 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     } else {
         s_state.home_sampled_us = -1;
         s_state.panel_prepared_second = -1;
+        const esp_err_t rotation_error = suspend_home_panel_rotation();
+        if (rotation_error != ESP_OK) {
+            return frame.finish({rotation_error, false, 0});
+        }
     }
     if (frame_scene_visible) {
         const esp_err_t presentation_error = CODY::prepare_scene_presentation(s_state.scene, presentation);

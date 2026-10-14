@@ -1,11 +1,11 @@
 # Active work
 
-Updated 2026-10-14. Home dashboard implementation is complete:
+Updated 2026-10-14. Home dashboard and integer Studio pixels are implemented:
 
 - Complete the authorized Release build, size, compiled stack inspection and
   installation of the integrated Home dashboard.
 
-Native/runtime contracts, 16 Studio tests, 40 Alpha tests and 36 CCP simulator tests passed.
+Native/runtime contracts, 17 Studio tests, 40 Alpha tests and 36 CCP simulator tests passed.
 Integer pixel enlargement and pointer mapping are verified; the real Windows
 capture shows 2x native pixels. Final delivery evidence belongs in [done.md](done.md).
 

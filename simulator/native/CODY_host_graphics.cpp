@@ -67,6 +67,7 @@ struct HostState {
     CODY::HomeDashboardPresentation home_dashboard{};
     CODY::HomeIdentityPresentation home_identity{};
     CODY::CommandHintsState home_commands{};
+    CODY::HomeDashboardRotationState home_rotation{};
     CODY::PersonalityLag personality{};
     CODY::ConnectionPersonalityState connection{};
     CODY::ResponseState response = CODY::make_response_state(CODY::Data::response);
@@ -682,6 +683,33 @@ CODY_HOST_EXPORT int cody_host_home_transform(float *transform)
     transform[0] = CODY::kHomeDashboardCharacterTransform.x;
     transform[1] = CODY::kHomeDashboardCharacterTransform.y;
     transform[2] = CODY::kHomeDashboardCharacterTransform.scale;
+    return ESP_OK;
+}
+
+// state: Persistent host-only owner; no Python timer or firmware snapshot is involved.
+// current: Stable selected Home panel identity.
+// active_us: Pausable local display clock, independent of canonical source ages.
+// visible: Actual ordinary Home visibility; hidden routes retain their remaining dwell.
+// compacting: Current admitted compaction, whose Home arc has priority over rotation.
+// next: Receives the shared policy's selected panel.
+// Exception: Returns original identity, clock or owner errors without inventing a route.
+CODY_HOST_EXPORT int cody_host_home_rotation(void *state, uint8_t current, int64_t active_us,
+    bool visible, bool compacting, uint8_t *next)
+{
+    if (!state || !next) { return host_result("home_rotation", ESP_ERR_INVALID_ARG); }
+    CODY::CompanionPanel selected = static_cast<CODY::CompanionPanel>(current);
+    const esp_err_t error = CODY::advance_home_dashboard_rotation(static_cast<HostState *>(state)->home_rotation,
+        selected, active_us, visible, compacting, selected);
+    if (error == ESP_OK) { *next = static_cast<uint8_t>(selected); }
+    return host_result("home_rotation", error);
+}
+
+// state: Persistent host display owner reset after an accepted manual page gesture.
+// Exception: Returns invalid argument for a missing owner.
+CODY_HOST_EXPORT int cody_host_home_rotation_reset(void *state)
+{
+    if (!state) { return host_result("home_rotation_reset", ESP_ERR_INVALID_ARG); }
+    CODY::reset_home_dashboard_rotation(static_cast<HostState *>(state)->home_rotation);
     return ESP_OK;
 }
 

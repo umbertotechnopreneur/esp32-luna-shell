@@ -158,6 +158,56 @@ class CharacterStudioTests(unittest.TestCase):
         resumed = self.render_home(source, elapsed=20000000)
         self.assertEqual(shifted.crop((113, 408, 353, 433)).tobytes(), resumed.crop((113, 408, 353, 433)).tobytes())
 
+    # self: Persistent production Studio bridge with exact active-time samples, without a wall-clock wait.
+    # Raises AssertionError for an early/skipped panel, hidden-time jump, missing manual reset or compaction escape.
+    def test_home_rotation_uses_shared_dwell_pause_and_manual_reset(self):
+        from cody_ccp_panel import CcpPanel
+        source = self.home_source()
+        self.native.reset_home_rotation()
+        panel = self.native.advance_home_rotation(0, 1000000, True, False)
+        first = self.render_home(source, panel, elapsed=1000000)
+        self.assertEqual(self.native.advance_home_rotation(panel, 8999999, True, False), 0)
+        panels = [first.crop((40, 268, 426, 393)).tobytes()]
+        for active_us, expected in ((9000000, 2), (17000000, 3), (25000000, 0)):
+            panel = self.native.advance_home_rotation(panel, active_us, True, False)
+            self.assertEqual(panel, expected)
+            image = self.render_home(source, panel, elapsed=active_us)
+            self.assertEqual(image.crop((0, 0, 466, 268)).tobytes(), first.crop((0, 0, 466, 268)).tobytes())
+            if panel:
+                panels.append(image.crop((40, 268, 426, 393)).tobytes())
+        self.assertEqual(len(set(panels)), 3)
+        self.assertEqual(self.native.advance_home_rotation(panel, 25000000, True, False), 0)
+        self.assertEqual(self.native.advance_home_rotation(panel, 29000000, True, False), 0)
+        # The actual Studio hidden-view hook pauses the shared owner with four seconds remaining.
+        hidden = CcpPanel.__new__(CcpPanel)
+        hidden.window = SimpleNamespace(renderer=self.renderer)
+        hidden._companion_panel = panel
+        hidden._activity_observation_clock_us = 29000000
+        hidden.pause_home_presentation()
+        self.assertEqual(self.native.advance_home_rotation(panel, 229000000, True, False), 0)
+        self.assertEqual(self.native.advance_home_rotation(panel, 232999999, True, False), 0)
+        panel = self.native.advance_home_rotation(panel, 233000000, True, False)
+        self.assertEqual(panel, 2)
+        # An accepted manual tap selects immediately and gives the selected panel a complete dwell.
+        panel = self.native.next_companion_panel(panel)
+        self.native.reset_home_rotation()
+        self.assertEqual(self.native.advance_home_rotation(panel, 233000000, True, False), 3)
+        self.assertEqual(self.native.advance_home_rotation(panel, 240999999, True, False), 3)
+        panel = self.native.advance_home_rotation(panel, 241000000, True, False)
+        self.assertEqual(panel, 0)
+        panel = self.native.next_companion_panel(panel)
+        panel = self.native.advance_home_rotation(panel, 242000000, True, True)
+        self.assertEqual(panel, 0)
+        self.assertEqual(self.native.advance_home_rotation(panel, 400000000, True, True), 0)
+        self.assertEqual(self.native.advance_home_rotation(panel, 401000000, True, False), 0)
+        self.assertEqual(self.native.advance_home_rotation(panel, 408999999, True, False), 0)
+        self.assertEqual(self.native.advance_home_rotation(panel, 409000000, True, False), 2)
+        # Shake returns Home and resets even when Home was already selected.
+        self.native.reset_home_rotation()
+        self.assertEqual(self.native.advance_home_rotation(0, 410000000, True, False), 0)
+        self.assertEqual(self.native.advance_home_rotation(0, 417999999, True, False), 0)
+        self.assertEqual(self.native.advance_home_rotation(0, 418000000, True, False), 2)
+
     # self: Production native heading layout measured with the generated Home font.
     # Raises the real native layout error if any admitted Home route title cannot fit its circular chord.
     def test_home_all_authored_headings_fit_complete_native_layout(self):

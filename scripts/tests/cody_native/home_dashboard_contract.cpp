@@ -113,6 +113,59 @@ void verify_dashboard_scene_visibility(const CODY2D::MonoFont &body_font, const 
         "leaving dashboard restores the existing native content callback");
 }
 
+// No parameters: deterministic presentation clocks verify the shared firmware/Studio rotation policy.
+// Exception: Throws when exact dwell boundaries, manual input, visibility or compaction priority regress.
+void verify_dashboard_rotation()
+{
+    CODY::HomeDashboardRotationState rotation{};
+    auto panel = CODY::CompanionPanel::Home;
+    // now_us: Explicit monotonic presentation time, independent of any source observation timestamp.
+    // visible: Whether the lower Home panel can be seen during this policy sample.
+    // compacting: Valid current compaction supplied by the existing canonical projection.
+    // Exception: Propagates an unexpected production policy rejection as a host contract failure.
+    const auto advance = [&](int64_t now_us, bool visible = true, bool compacting = false) {
+        dashboard_require(CODY::advance_home_dashboard_rotation(rotation, panel, now_us,
+            visible, compacting, panel) == ESP_OK, "shared Home rotation policy rejected a valid active clock");
+    };
+    advance(0);
+    advance(7999999);
+    dashboard_require(panel == CODY::CompanionPanel::Home, "first automatic page holds eight complete visible seconds");
+    advance(8000000);
+    dashboard_require(panel == CODY::CompanionPanel::ModelContext, "eight-second boundary exposes model details without input");
+    advance(16000000);
+    dashboard_require(panel == CODY::CompanionPanel::SessionLink, "automatic cycle next exposes the real connection panel");
+    advance(24000000);
+    dashboard_require(panel == CODY::CompanionPanel::Home, "automatic cycle returns to the token arc");
+    advance(40000000);
+    dashboard_require(panel == CODY::CompanionPanel::ModelContext, "a delayed frame advances once instead of skipping an unseen page");
+    CODY::reset_home_dashboard_rotation(rotation);
+    advance(40000000);
+    advance(47999999);
+    dashboard_require(panel == CODY::CompanionPanel::ModelContext, "manual tap or shake grants a fresh full dwell");
+    advance(48000000);
+    dashboard_require(panel == CODY::CompanionPanel::SessionLink, "automatic rotation resumes after the manual selection dwell");
+    advance(50000000);
+    advance(60000000, false);
+    advance(200000000);
+    advance(205999999);
+    dashboard_require(panel == CODY::CompanionPanel::SessionLink, "hidden routes preserve the six visible seconds still owed to this page");
+    advance(206000000);
+    dashboard_require(panel == CODY::CompanionPanel::Home, "rotation resumes using only the remaining visible dwell");
+    panel = CODY::CompanionPanel::SessionLink;
+    advance(207000000, true, true);
+    dashboard_require(panel == CODY::CompanionPanel::Home, "current compaction immediately brings its orange token arc into view");
+    advance(300000000, true, true);
+    advance(300000001);
+    advance(308000000);
+    dashboard_require(panel == CODY::CompanionPanel::Home, "compaction suspends rotation and then grants eight new visible seconds");
+    advance(308000001);
+    dashboard_require(panel == CODY::CompanionPanel::ModelContext, "rotation resumes after the post-compaction Home dwell");
+    const auto previous = rotation;
+    dashboard_require(CODY::advance_home_dashboard_rotation(rotation, panel, 308000000, true, false, panel) == ESP_ERR_INVALID_ARG &&
+        rotation.sampled_us == previous.sampled_us && rotation.elapsed_us == previous.elapsed_us,
+        "a backward clock is rejected without corrupting the retained rotation policy");
+}
+
 // owner: Actual prepared native presentation.
 // pixels: Host-owned output image, never used as a synthetic firmware observation.
 // rows: Tile height, including a final partial strip.
@@ -279,5 +332,6 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
         1000000, 0, owner, content, &motion, &small_font) == ESP_ERR_INVALID_ARG,
         "legacy Activity identity must not create a fourth dashboard page");
     verify_dashboard_scene_visibility(body_font, small_font);
+    verify_dashboard_rotation();
     std::fputs("Native Home dashboard: canonical metrics, three panels, chord bounds and full/strip/swapped raster parity passed\n", stderr);
 }

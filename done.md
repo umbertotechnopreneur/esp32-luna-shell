@@ -16,9 +16,13 @@ private local diagnostics, not publication artifacts.
 ## Persistent Home dashboard and integer Studio pixels - 2026-10-14
 
 The selected context-arc proposal is implemented by the shared native renderer.
-The character, status title and model row remain in place while a passive tap
-cycles three lower panels: tokens and IMU activity; model, price class and
+The character, status title and model row remain in place while three lower
+panels rotate every eight visible seconds: tokens and IMU activity; model, price class and
 thinking effort; connection, abbreviated chat ID and the device's own IP.
+A passive tap advances immediately and restarts the interval; shake selects
+Tokens. One shared native policy preserves remaining dwell across hidden views,
+pauses for active gestures and gives compaction priority on Tokens, followed by
+a fresh eight-second interval. No Python timer duplicates the firmware policy.
 The old full-screen technical pages, firmware row and page counter are removed
 from normal navigation. Supported chat requests scroll continuously below the
 panel. Compaction retains orange priority, its animation and admitted sound.
@@ -38,12 +42,16 @@ The actual Windows capture on the 3840 x 2160 desktop verified 2x at startup,
 a 956 x 956 canvas and a 1631 x 1421 client area, with exact framebuffer colors.
 These are explicitly synthetic Studio observations, not physical display evidence.
 
-Native raster and runtime contracts, 16 Studio tests, 40 Alpha tests, 36
+Native raster and runtime contracts, 17 Studio tests, 40 Alpha tests, 36
 authenticated simulator tests, selected wake-word profile/dependency checks,
 diff whitespace and the changed-file secret scan passed. Stale Alpha fixtures
 were aligned with authored QR/navigation state, native Q8 opacity, production
 DPI initialization, integer layout and boot bitmap publication; initial failed
-attempts remain in the evidence logs. Final Release build/size/stack inspection
+attempts remain in the evidence logs. The final carousel rerun passed native,
+runtime, Studio, profile and secret checks. The first target compilation caught
+a potentially truncated secondary-label join; exact bounded copies fix it
+without suppressing warnings, changing values or expanding a buffer.
+Final Release build/size/stack inspection
 and installation remain pending at this checkpoint.
 Evidence and native/actual-window captures are retained in
 `artifacts/build-cody-companion-wake-word-evidence/home-tokens-20261014/`.

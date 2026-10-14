@@ -9,6 +9,26 @@ enum class HomeDashboardArcState : uint8_t { Unavailable, Measured, Stale, Inval
 inline constexpr DamageRect kHomeDashboardBounds{40, 268, 426, 393};
 inline constexpr unsigned kHomeDashboardSegments = 20;
 inline constexpr unsigned kHomeDashboardArcVertices = 64;
+inline constexpr int64_t kHomeDashboardRotationUs = 8000000;
+
+// Passive presentation time only; the caller retains the single selected-panel identity.
+struct HomeDashboardRotationState {
+    int64_t sampled_us = -1;
+    int64_t elapsed_us = 0;
+};
+
+// state: Serialized rotation clock; manual tap/shake grants the selected page eight new visible seconds.
+void reset_home_dashboard_rotation(HomeDashboardRotationState &state);
+
+// state: Serialized active-time sample and accumulated visible dwell, never a task or timer handle.
+// current: Canonical selected Home, ModelContext or SessionLink panel.
+// active_us: Monotonic presentation clock, independent of canonical source freshness.
+// visible: False for preempting routes and pause; hidden time preserves the remaining dwell.
+// compacting: Current validated compaction forces Home and reserves a fresh dwell after completion.
+// next: Receives the selected panel; a delayed frame advances at most once without skipping unseen panels.
+// Exception: Logs and returns invalid clocks or unsupported identities without mutating the policy.
+esp_err_t advance_home_dashboard_rotation(HomeDashboardRotationState &state,
+    CompanionPanel current, int64_t active_us, bool visible, bool compacting, CompanionPanel &next);
 
 struct HomeDashboardArcPath {
     CODY2D::Vec2 vertices[kHomeDashboardArcVertices]{};

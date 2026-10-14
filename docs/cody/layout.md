@@ -59,11 +59,13 @@ needs reconciliation with the repository's lateral-Back contract in [TODO.md](..
 ## Companion panels, status and Debug
 
 Home uses three lower panels: Tokens, Model & Context, and Session & Link.
-Short released taps cycle the panels; a deliberate canonical-IMU shake returns
+Panels rotate every eight visible seconds. A short released tap advances
+immediately and restarts that interval; a deliberate canonical-IMU shake returns
 to the default token panel. The character remains at (233,122), scale 73, with
 the state title at y=190 and the model row in (73,236), 320 x 28. Only the lower
 panel changes; there is no full-screen Activity page, page counter or Back control.
-Setup and questions retain their existing routes and action controls.
+Setup and questions retain their existing routes and action controls. Hidden
+views, standby and current compaction pause automatic panel rotation.
 
 The selected [context-arc proposal](ui-proposals/20261014/02-context-arc.png)
 is implemented with native text and antialiased strokes. The dashboard damage
