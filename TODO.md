@@ -6,6 +6,9 @@ Expensive-model notice are implemented, verified and installed in Release
 
 - Native questions across Codex chats: analysis completed in
   [runtime.md](docs/cody/runtime.md#pending-native-questions-pc-audit-2026-10-14).
+  The [eight-screen proposal](docs/cody/ui-proposals/20261014-questions/eight-screen-flow.png)
+  and offline mouse/touch prototype show at most two original numbered choices,
+  scrolling, explicit Send and separate receipt.
   Verify supported access to the existing Desktop event stream before designing
   the pending-request registry. No integration fix has been implemented.
 
