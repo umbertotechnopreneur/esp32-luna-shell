@@ -1,23 +1,16 @@
 # Active work
 
-Updated 2026-10-14. Home dashboard and integer Studio pixels are implemented:
+Updated 2026-10-14. Home dashboard, integer Studio pixels and the one-time
+Expensive-model notice are implemented, verified and installed in Release
+`cody-170-gfbb0bee7`. Delivery evidence belongs in [done.md](done.md).
 
-- Complete the authorized Release build, size, compiled stack inspection and
-  installation of the integrated Home dashboard and one-time Expensive-model notice.
 - Native questions across Codex chats: analysis completed in
   [runtime.md](docs/cody/runtime.md#pending-native-questions-pc-audit-2026-10-14).
   Verify supported access to the existing Desktop event stream before designing
   the pending-request registry. No integration fix has been implemented.
 
-Native/runtime/personality contracts, 20 Studio tests, 40 Alpha tests and 36 CCP simulator tests passed.
-Integer pixel enlargement and pointer mapping are verified; the real Windows
-capture shows 2x native pixels. Final delivery evidence belongs in [done.md](done.md).
-
 GitHub visibility is public. Main ruleset 25049727 is active: contributors need
 a pull request; only the owner's user identity has direct-push bypass.
-
-Earlier event/token/reconnection work is installed and recorded in
-[done.md](done.md).
 
 CCP-USAGE-01 in [planned-todo.md](planned-todo.md) retains physical display/audio
 confirmation during normal genuine chat and compaction events. It is not inferred

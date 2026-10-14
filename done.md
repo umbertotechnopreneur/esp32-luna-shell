@@ -92,8 +92,25 @@ scan passed. Regressions cover delayed prices, stale/error sources, model
 replacement and return, carousel non-replay, multi-rate five-clip timeline,
 source/hash/WAV/PCM/C++ equivalence, and one Studio queue event containing exactly
 five notes. Studio also saved current native 2x/3x and actual Windows captures.
-Target build/size, compiled audio-frame inspection and installation of this
-increment remain pending at this checkpoint.
+Release `cody-170-gfbb0bee7` was built, sized and flashed on COM10 with esptool
+write-hash verification. The image is 7,127,008 bytes with 147,488 OTA bytes free;
+SHA-256 is `accc8736df7e326e4ba3274252b849e24bfddcf70a6bb5a0bcea959077e724c2`.
+Relative to cody-169, this increment adds 4,272 image bytes and 128 external-BSS
+bytes; static DIRAM remains 236,796 bytes, external RAM is 86,180 bytes.
+Compiler sidecars passed the task-frame check, including the existing audio
+worker at 256/4,096 bytes and companion worker at 352/12,288 bytes. These are
+individual compiled frames, not physical high-watermarks; the Home raster
+frames and previously reviewed bounded nested raster path remain unchanged.
+
+The subsequent sixty-second passive Release capture recorded no panic,
+Home personality collision or CCP technical rejection. It retained known SD
+timeouts, IMU cadence invalidations and the reduced fourteen-row display-DMA
+warning. USB loss was six messages, with zero format/queue/truncation losses;
+the capture is not lossless. Authenticated physical LAN presence was observed
+after flashing. Release suppresses informational playback logs, so neither
+audible delivery of the new cue nor physical speaker level is claimed.
+The `plin-final-*` logs/reports, native/Windows screenshots and five-note preview
+are preserved under the same protected evidence directory above.
 
 A separate read-only PC audit found no cross-chat pending-question registry;
 native question tools remain Working and permission notices follow one chat.
