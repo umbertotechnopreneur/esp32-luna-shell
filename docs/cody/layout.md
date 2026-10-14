@@ -72,8 +72,12 @@ tap still advances and deliberate shake returns Home.
 Model & Context alternates every eight active seconds with Token details in the
 same viewport; Input, Output and Total precede optional reasoning information.
 Home uses the project/branch/model/token identity viewport at (73,300), 320 x 28.
-Token pages keep Last call, Window, Free and Total separate and use exact counts;
-each page shares the existing measured/clipped carousel rather than adding a task.
+Token pages keep Last, Window, Free and Total separate. Numeric Home captions
+use `TT` for tokens and decimal whole thousands with `K`, truncating the final
+three digits: `Free 319K TT`, or `Total 21.188K TT`. Periods group every three
+displayed digits; counts below 1000 remain exact, including zero. The technical
+panels retain the original exact counters. Each page shares the existing
+measured/clipped carousel rather than adding a task.
 Its Model-only 196 x 28 price chip at y=330 is centered at x=233 without a timer,
 or moves to x=73 beside the timer centered at x=335. The timer has a 116-pixel
 slot; both controls remain inside the existing 320-pixel damage row. Colors are

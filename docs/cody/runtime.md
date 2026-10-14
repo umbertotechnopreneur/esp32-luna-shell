@@ -223,6 +223,12 @@ keeps three personalization requests and the independent token carousel visible 
 connection transition or renew source measurements. Compaction
 and attention suppress these hints without creating a task, poll or wake lease.
 
+Home token labels are Last, Window, Free and Total, followed by `TT`. Values
+below 1000 stay exact. Larger values display completed decimal thousands with
+`K` and period grouping, for example `Free 319K TT` and `Total 21.188K TT`.
+Free is subtracted from the original coherent counters before abbreviation.
+Model & Context and Token details keep the exact source values.
+
 A short released passive tap opens Model & Context, then Session & Link, then
 Activity, then Model & Context again. Each panel remains selected until another deliberate
 gesture. A deliberate shake returns directly to Home and changes no remote

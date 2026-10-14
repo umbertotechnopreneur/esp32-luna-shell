@@ -13,6 +13,35 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Compact Home tokens and three visual proposals - 2026-10-14
+
+Home keeps four separate Last, Window, Free and Total pages with short labels,
+the uppercase `TT` unit, decimal `K` for whole thousands and periods every three
+displayed digits: `Free 319K TT`, `Total 21.188K TT`. Counts below 1000 stay exact.
+The three discarded digits are intentional presentation truncation; technical
+panels and canonical/wire counters retain their exact values. Free subtracts
+the coherent original counters before abbreviation. Missing, stale, over-limit
+and revision-mismatched observations keep their explicit nonnumeric state.
+An unchanged compact caption avoids an unnecessary visible revision. No polling
+task, font, source cadence or stack size was added.
+
+Focused native/raster and actual Home/runtime contracts passed, including unit
+boundaries, zero, `UINT64_MAX`, subtraction-before-abbreviation and old/stale
+data. The rebuilt production Studio binding passed 12 tests; retained native
+captures show all four compact pages and unchanged character/timer pixels.
+The native capture bridge covers the footer, not the complete onboarding title
+or command-banner composition. Diff and changed-secret checks passed before
+the implementation checkpoint. Evidence is retained under
+`artifacts/build-cody-companion-wake-word-evidence/home-tokens-20261014/`.
+
+Three built-in ImageGen proposals and their exact prompts are saved in
+[the proposal register](docs/cody/ui-proposals/20261014/home-token-proposals.md):
+compact token card, context arc and two metric tiles. The existing character
+was the reference; generated PNG copies match the original files byte for byte.
+These are illustrative concepts with synthetic values, not installed graphical
+changes, native captures or physical-display evidence.
+Release build/size/flash are pending at this implementation checkpoint.
+
 ## Native launch, event delivery and visible token pages - 2026-10-14
 
 The effective native MCP configuration contained a literal `${PLUGIN_ROOT}`

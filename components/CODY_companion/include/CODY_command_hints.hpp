@@ -128,10 +128,10 @@ static_assert(sizeof(CommandHintsState) <= 256, "Home hints remain bounded displ
 // metric: Stable domain identity, independent of carousel storage traversal.
 // label: Authored semantic counter name.
 // valid: Canonical individual validity, never inferred from another counter.
-// value: Exact count, formatted only when valid.
+// value: Canonical exact count; Home shows whole thousands while technical panels retain exact values.
 // unavailable: Truthful missing, stale or over-limit caption.
 // changed: Accumulates field changes without resetting presentation time.
-// Exception: Returns a logged formatting error rather than truncating a counter.
+// Exception: Returns a logged formatting error without clipping the formatted caption.
 inline esp_err_t update_home_token_field(ActivityIdentityState &state, HomeTokenMetric metric,
     const char *label, bool valid, uint64_t value, const char *unavailable, bool &changed)
 {
@@ -147,9 +147,34 @@ inline esp_err_t update_home_token_field(ActivityIdentityState &state, HomeToken
         return ESP_ERR_INVALID_ARG;
     }
     char caption[40]{};
-    const int count = valid
-        ? std::snprintf(caption, sizeof(caption), "%s%llu", label, static_cast<unsigned long long>(value))
-        : std::snprintf(caption, sizeof(caption), "%s%s", label, unavailable);
+    int count = 0;
+    if (valid) {
+        // Integer division intentionally reports completed thousands, never a rounded-up count.
+        const bool thousands = value >= 1000;
+        const uint64_t compact_value = thousands ? value / 1000 : value;
+        char digits[21]{};
+        const int digit_count = std::snprintf(digits, sizeof(digits), "%llu",
+            static_cast<unsigned long long>(compact_value));
+        if (digit_count <= 0 || digit_count >= static_cast<int>(sizeof(digits))) {
+            ESP_LOGE("CODY_identity", "Token digits=%d rejected (%s)",
+                digit_count, esp_err_to_name(ESP_ERR_INVALID_SIZE));
+            return ESP_ERR_INVALID_SIZE;
+        }
+        // UINT64_MAX / 1000 needs 17 digits, five separators and NUL.
+        // Together these bounded formatting buffers occupy 84 bytes, with no snapshot copies.
+        char grouped[23]{};
+        size_t output = 0;
+        for (int index = 0; index < digit_count; ++index) {
+            if (index > 0 && (digit_count - index) % 3 == 0) {
+                grouped[output++] = '.';
+            }
+            grouped[output++] = digits[index];
+        }
+        count = std::snprintf(caption, sizeof(caption), "%s%s%s TT", label, grouped,
+            thousands ? "K" : "");
+    } else {
+        count = std::snprintf(caption, sizeof(caption), "%s%s", label, unavailable);
+    }
     if (count <= 0 || count >= static_cast<int>(sizeof(caption))) {
         ESP_LOGE("CODY_identity", "Token field=%u bytes=%d rejected (%s)",
             static_cast<unsigned>(metric), count, esp_err_to_name(ESP_ERR_INVALID_SIZE));
@@ -195,21 +220,21 @@ inline esp_err_t update_home_tokens(ActivityIdentityState &state, const CODY2D::
         state.token_metric = HomeTokenMetric::LastCall;
     } else {
         state.token_page_count = 4;
-        error = update_home_token_field(state, HomeTokenMetric::LastCall, "Last call: ",
+        error = update_home_token_field(state, HomeTokenMetric::LastCall, "Last ",
             technical.used_valid, technical.used, "UNAVAILABLE", fields_changed);
         if (error == ESP_OK) {
-            error = update_home_token_field(state, HomeTokenMetric::Window, "Window: ",
+            error = update_home_token_field(state, HomeTokenMetric::Window, "Window ",
                 technical.capacity_valid, technical.capacity, "UNAVAILABLE", fields_changed);
         }
         if (error == ESP_OK) {
             const bool pair_valid = technical.used_valid && technical.capacity_valid;
             const bool within_limit = pair_valid && technical.used <= technical.capacity;
-            error = update_home_token_field(state, HomeTokenMetric::Free, "Free: ", within_limit,
+            error = update_home_token_field(state, HomeTokenMetric::Free, "Free ", within_limit,
                 within_limit ? technical.capacity - technical.used : 0,
                 pair_valid && !within_limit ? "OVERLIMIT" : "UNAVAILABLE", fields_changed);
         }
         if (error == ESP_OK) {
-            error = update_home_token_field(state, HomeTokenMetric::Total, "Total: ",
+            error = update_home_token_field(state, HomeTokenMetric::Total, "Total ",
                 technical.cumulative_valid, technical.cumulative, "UNAVAILABLE", fields_changed);
         }
         if (error != ESP_OK) {

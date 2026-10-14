@@ -392,7 +392,7 @@ void check_home_lifecycle()
     };
     present(1000000);
     require(s_route == Route::Working18, "working source reaches working Home");
-    require(scene.activity_identity != nullptr && std::strcmp(s_view.activity_identity.token_fields[0], "Last call: 25") == 0,
+    require(scene.activity_identity != nullptr && std::strcmp(s_view.activity_identity.token_fields[0], "Last 25 TT") == 0,
         "real Home retains canonical tokens");
     activity.state = LUNASHELL::CodexActivityState::ResponseReady;
     present(2000000);

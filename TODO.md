@@ -1,9 +1,14 @@
 # Active work
 
-Updated 2026-10-14. No autonomous implementation or delivery item remains open
-from the event/token/reconnection follow-up. The corrected plugin and Release
-are installed; host, simulator, build, flash, passive capture and real installed
-token-source evidence are recorded in [done.md](done.md).
+Updated 2026-10-14. Current Home readability follow-up:
+
+- Finish compact `K TT` captions, dot grouping, focused native/Studio checks
+  and the authorized Release installation.
+- Deliver three ImageGen Home proposals with the existing character and circle;
+  record their illustrative scope separately from installed firmware.
+
+Earlier event/token/reconnection work is installed and recorded in
+[done.md](done.md).
 
 CCP-USAGE-01 in [planned-todo.md](planned-todo.md) retains physical display/audio
 confirmation during normal genuine chat and compaction events. It is not inferred

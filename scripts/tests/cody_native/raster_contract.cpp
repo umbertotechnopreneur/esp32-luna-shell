@@ -2104,9 +2104,35 @@ void check_home_command_and_token_contract()
     technical.capacity_valid = true;
     technical.cumulative = 456;
     require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK && changed &&
-        std::strcmp(identity.tokens, "Last call: 123") == 0 &&
-        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::Free)], "Free: 77") == 0,
+        std::strcmp(identity.tokens, "Last 123 TT") == 0 &&
+        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::Free)], "Free 77 TT") == 0,
         "Home labels last-call usage separately from cumulative session tokens");
+    // Authored boundary expectations verify units, grouping and conservative integer truncation.
+    struct CompactTokenCase { uint64_t count; const char *caption; };
+    constexpr CompactTokenCase compact_cases[] = {
+        {0, "Last 0 TT"}, {999, "Last 999 TT"}, {1000, "Last 1K TT"},
+        {1999, "Last 1K TT"}, {999999, "Last 999K TT"},
+        {1000000, "Last 1.000K TT"}, {1234567, "Last 1.234K TT"},
+    };
+    for (const auto &sample : compact_cases) {
+        technical.used = sample.count;
+        require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK &&
+            std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::LastCall)], sample.caption) == 0,
+            "Home compact counters preserve zero, thousands boundaries and three-digit grouping");
+    }
+    technical.used = 1234568;
+    require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK && !changed &&
+        technical.used == 1234568,
+        "sub-thousand source updates preserve exact canonical values without needless visible revisions");
+    technical.capacity = 3000;
+    technical.used = 1999;
+    require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK &&
+        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::Free)], "Free 1K TT") == 0,
+        "free tokens subtract exact canonical counts before compact formatting, never independently rounded operands");
+    technical.capacity = 200;
+    technical.used = 123;
+    require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK,
+        "canonical counts continue to drive the existing four-metric carousel");
     const CODY::SceneDefinition *token_definition = nullptr;
     CODY::SceneFrame token_scene{};
     require(CODY::find_scene(CODY::SceneId::Connected, token_definition) == ESP_OK &&
@@ -2132,7 +2158,7 @@ void check_home_command_and_token_contract()
         saw_tokens = saw_tokens || identity.selected == CODY::ActivityIdentityKind::Tokens;
         if (identity.selected == CODY::ActivityIdentityKind::Tokens) {
             observed_metrics |= 1U << static_cast<unsigned>(identity.token_metric);
-            require(identity.tokens_width <= 342, "exact token metric has at most a short bounded overflow");
+            require(identity.tokens_width <= 320, "compact token metric remains inside the measured bounded viewport");
         }
     }
     require(saw_tokens && observed_metrics == 15,
@@ -2148,19 +2174,20 @@ void check_home_command_and_token_contract()
         "current counters remain visible even when the source has no project label");
     technical.used_valid = false;
     require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK &&
-        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::LastCall)], "Last call: UNAVAILABLE") == 0 &&
-        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::Free)], "Free: UNAVAILABLE") == 0,
+        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::LastCall)], "Last UNAVAILABLE") == 0 &&
+        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::Free)], "Free UNAVAILABLE") == 0,
         "missing last-call usage is not fabricated from cumulative usage");
     technical.used_valid = true;
     technical.used = 201;
     require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK &&
-        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::Free)], "Free: OVERLIMIT") == 0,
+        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::Free)], "Free OVERLIMIT") == 0,
         "over-limit usage cannot wrap unsigned available tokens");
     technical.used = technical.capacity = technical.cumulative = std::numeric_limits<uint64_t>::max();
     require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK &&
-        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::Free)], "Free: 0") == 0 &&
+        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::Free)], "Free 0 TT") == 0 &&
+        std::strcmp(identity.token_fields[static_cast<size_t>(CODY::HomeTokenMetric::LastCall)], "Last 18.446.744.073.709.551K TT") == 0 &&
         std::strlen(identity.tokens) < sizeof(identity.tokens),
-        "maximum canonical counters retain exact values within bounded owner storage");
+        "maximum canonical counters retain bounded compact values without wrapping available tokens");
     require(CODY::update_home_tokens(identity, font, link, technical, changed) == ESP_OK && !changed,
         "unchanged token metadata cannot amplify display revisions");
     technical.context_stale = true;
