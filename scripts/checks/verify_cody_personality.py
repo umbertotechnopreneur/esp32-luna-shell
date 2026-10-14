@@ -156,8 +156,9 @@ def main(argv=None):
                    "components/CODY_companion/src/rendering/CODY_personality.cpp",
                    "assets/cody/personality-icons/generated/personality_icons.cpp")
         report["compiler"] = compiler
+        # The shared status contract includes canonical snapshot types using C++20 spans.
         run_stage(compile_command(compiler, includes, sources, executable,
-                                 definitions=("CODY_ENABLE_PEARL_JELLY=0",)), output, "compile")
+                                 definitions=("CODY_ENABLE_PEARL_JELLY=0",), cxx_standard=20), output, "compile")
         native = run_stage([str(executable)], output, "native")
         fixture = json.loads(native.stdout)
         compare_personality_fixture(ROOT, fixture)

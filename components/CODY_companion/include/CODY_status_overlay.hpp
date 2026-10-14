@@ -24,6 +24,9 @@
 
 namespace CODY {
 
+// Native status chrome reserves these logical half-open bounds on firmware and Studio.
+inline constexpr DamageRect kStatusOverlayBounds{122, 32, 365, 64};
+
 enum class StatusTone : uint8_t {
     Ready,
     Warning,

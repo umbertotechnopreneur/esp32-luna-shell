@@ -27,6 +27,12 @@ The old full-screen technical pages, firmware row and page counter are removed
 from normal navigation. Supported chat requests scroll continuously below the
 panel. Compaction retains orange priority, its animation and admitted sound.
 Canonical timestamps, validity and operation errors govern every displayed value.
+The first installed dashboard exposed a personality/status collision at the
+compact Home anchor. A Home-only twelve-pixel symbol translation preserves
+size and collision admission, re-primes position on layout changes even while
+paused, and shares the real status footprint with Studio. Studio also uses
+Home's nominal scale 73 when preparing the cue. These changes leave the cloud,
+cue hold/fade clocks and non-Home layouts unchanged.
 
 The antialiased arc uses bounded persistent paths and the existing native
 coverage rasterizer. Generated Telex-derived fonts retain their OFL provenance.
@@ -42,7 +48,7 @@ The actual Windows capture on the 3840 x 2160 desktop verified 2x at startup,
 a 956 x 956 canvas and a 1631 x 1421 client area, with exact framebuffer colors.
 These are explicitly synthetic Studio observations, not physical display evidence.
 
-Native raster and runtime contracts, 17 Studio tests, 40 Alpha tests, 36
+Native raster and runtime contracts, 18 Studio tests, 40 Alpha tests, 36
 authenticated simulator tests, selected wake-word profile/dependency checks,
 diff whitespace and the changed-file secret scan passed. Stale Alpha fixtures
 were aligned with authored QR/navigation state, native Q8 opacity, production
@@ -51,6 +57,12 @@ attempts remain in the evidence logs. The final carousel rerun passed native,
 runtime, Studio, profile and secret checks. The first target compilation caught
 a potentially truncated secondary-label join; exact bounded copies fix it
 without suppressing warnings, changing values or expanding a buffer.
+The final personality regression passed 27,831 native assertions and 128
+native/Python trace frames. It covers every cue at the Home anchor, animated
+poses, paused layout handoff and genuine exclusion failures. Studio additionally
+checks actual Wi-Fi/Confusion pixels and the shared status footprint. The host
+personality build now uses C++20 for canonical snapshot types; an initial C++17
+compile failure and a deliberately rejected stale Studio DLL remain recorded.
 Final Release build/size/stack inspection
 and installation remain pending at this checkpoint.
 Evidence and native/actual-window captures are retained in

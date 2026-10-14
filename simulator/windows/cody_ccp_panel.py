@@ -718,7 +718,8 @@ class CcpPanel:
         if dashboard:
             exclusions = [(33, 185, 433, 264), (40, 268, 426, 393), (113, 408, 353, 433)]
         # Lower-panel selection never changes the actor's admission on an unrelated route.
-        self.prepare_personality(snapshot, identity, scene, cloud["scale"], rotation, elapsed, exclusions)
+        self.prepare_personality(snapshot, identity, scene, placement[2] if dashboard else cloud["scale"],
+                                 rotation, elapsed, exclusions)
         image = self.window.renderer.draw_scene(scene, debug=False, navigation_visible=False,
                                                 background_rgb565=definition["background_rgb565"]).convert("RGB")
         # A changing packet counter never restarts the text clock. Code is a complete static control value.

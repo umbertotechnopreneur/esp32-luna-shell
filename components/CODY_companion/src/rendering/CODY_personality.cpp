@@ -813,7 +813,7 @@ esp_err_t cody_size_for_scale(float nominal_scale, CodySize &size)
 // scene: Evaluated pose with finite face and silhouette geometry.
 // cue: Latest narrative or canonically admitted device target.
 // size: Nominal presentation identity, independent of scene permission.
-// context: Scene permission, authored scale, orientation and release policy.
+// context: Scene permission, authored layout/scale, orientation and release policy.
 // active_delta_us: Nonnegative elapsed active animation time only.
 // paused: Freeze channel and following; updates to the desired identity remain accepted.
 // reset: Re-prime geometric following without restarting the current channel phase.
@@ -834,11 +834,12 @@ esp_err_t prepare_personality_frame(
         !personality_cue_valid(cue) || active_delta_us < 0 || context.rotation % 90 != 0 ||
         context.rotation > 270 || exclusion_count > 6 ||
         (exclusion_count != 0 && exclusions == nullptr) || size < CodySize::Micro || size > CodySize::Full ||
-        context.presentation > PersonalityPresentation::Sleep) {
-        ESP_LOGE(kTag, "Prepare rejected: valid=%u scale=%f nominal=%f cue=%u size=%u delta=%lld rotation=%u exclusions=%u presentation=%u (%s)",
+        context.presentation > PersonalityPresentation::Sleep || context.layout > PersonalityLayout::HomeDashboard) {
+        ESP_LOGE(kTag, "Prepare rejected: valid=%u scale=%f nominal=%f cue=%u size=%u delta=%lld rotation=%u exclusions=%u presentation=%u layout=%u (%s)",
             scene.valid, scene.scale, context.nominal_scale, static_cast<unsigned>(cue), static_cast<unsigned>(size),
             static_cast<long long>(active_delta_us), context.rotation, exclusion_count,
-            static_cast<unsigned>(context.presentation), esp_err_to_name(ESP_ERR_INVALID_ARG));
+            static_cast<unsigned>(context.presentation), static_cast<unsigned>(context.layout),
+            esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
     if (context.presentation == PersonalityPresentation::Disabled || size == CodySize::Micro) {
@@ -906,7 +907,10 @@ esp_err_t prepare_personality_frame(
     // Pixel translation is independent of character scale. Enlarging around the
     // center preserves the exact requested movement of that center on every pose.
     const float target_x = nose.x + profile.offset_x * scene.scale + profile.pixel_offset_x;
-    const float target_y = nose.y + profile.offset_y * scene.scale + profile.pixel_offset_y;
+    // The compact Home slot needs twelve authored pixels below the status strip.
+    // This translates every cue equally; scale, collision admission and other layouts stay exact.
+    const float home_offset_y = context.layout == PersonalityLayout::HomeDashboard ? 12.f : 0.f;
+    const float target_y = nose.y + profile.offset_y * scene.scale + profile.pixel_offset_y + home_offset_y;
     if (!std::isfinite(target_x) || !std::isfinite(target_y) || !std::isfinite(body_top) ||
         !std::isfinite(target_x * PersonalityConfig::scale_window_us) ||
         !std::isfinite(target_y * PersonalityConfig::scale_window_us) ||
@@ -917,7 +921,8 @@ esp_err_t prepare_personality_frame(
         !std::isfinite(lag.fade_out_opacity) || lag.fade_out_opacity < 0 || lag.fade_out_opacity > 1 ||
         !personality_cue_valid(lag.cue) || !personality_cue_valid(lag.desired) ||
         lag.desired_age_us < 0 || lag.desired_age_us > PersonalityConfig::stability_us ||
-        lag.phase_elapsed_us < 0 || lag.phase > PersonalityPhase::FadeOut) {
+        lag.phase_elapsed_us < 0 || lag.phase > PersonalityPhase::FadeOut ||
+        lag.layout > PersonalityLayout::HomeDashboard) {
         ESP_LOGE(kTag, "Anchor/controller state rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
@@ -945,7 +950,9 @@ esp_err_t prepare_personality_frame(
         // An invalid canonical fact cannot remain visible for an artistic minimum hold.
         hide_current(next);
     }
-    const bool prime = !next.primed || (!paused &&
+    // A changed reserved layout cannot inherit a center that collides with its chrome,
+    // even when the new frame is presented while animation time is paused.
+    const bool prime = !next.primed || next.layout != context.layout || (!paused &&
         (reset || next.size != size || next.route != context.route || next.rotation != context.rotation));
     const PersonalityFollowTarget target{target_x, target_y, target_width, target_height};
     if (prime) {
@@ -954,6 +961,7 @@ esp_err_t prepare_personality_frame(
         advance_follow(next, target, elapsed_us);
     }
     next.size = size;
+    next.layout = context.layout;
     next.route = context.route;
     next.rotation = context.rotation;
     next.primed = true;

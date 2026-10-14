@@ -26,6 +26,7 @@
 #include "CODY_technical_panels.hpp"
 #include "CODY_home_dashboard.hpp"
 #include "CODY_home_identity.hpp"
+#include "CODY_status_overlay.hpp"
 #include "home_dashboard_fonts.hpp"
 #include "CODY_companion_gestures.hpp"
 #include "CODY_companion_mode.hpp"
@@ -1044,7 +1045,7 @@ CODY_HOST_EXPORT int cody_host_scene_id(const char *name, uint16_t *identity)
 // delta_us: Active elapsed time; zero freezes the channel.
 // paused: Explicit pause state.
 // exclusions: Optional flattened half-open rectangles, four uint16 values each.
-// exclusion_count: Number of exclusions, at most six.
+// exclusion_count: Number of exclusions, at most six including Home's automatically reserved status chrome.
 // output: Receives cue, left/top/right/bottom, opacity and presentation status.
 // Exception: Returns the actual native geometry/identity error.
 CODY_HOST_EXPORT int cody_host_personality(void *state, void *handle, uint8_t cue,
@@ -1059,11 +1060,29 @@ CODY_HOST_EXPORT int cody_host_personality(void *state, void *handle, uint8_t cu
         bounds[index] = {exclusions[index * 4], exclusions[index * 4 + 1],
             exclusions[index * 4 + 2], exclusions[index * 4 + 3]};
     }
+    const auto &host_scene = *static_cast<HostScene *>(handle);
+    const bool dashboard = host_scene.home_dashboard != nullptr;
+    if (dashboard) {
+        const auto &status = CODY::kStatusOverlayBounds;
+        bool status_reserved = false;
+        for (uint8_t index = 0; index < exclusion_count; ++index) {
+            const auto &bound = bounds[index];
+            status_reserved = status_reserved || (bound.left <= status.left && bound.top <= status.top &&
+                bound.right >= status.right && bound.bottom >= status.bottom);
+        }
+        if (!status_reserved) {
+            if (exclusion_count == std::size(bounds)) {
+                return host_result("personality_status_exclusion", ESP_ERR_INVALID_SIZE);
+            }
+            bounds[exclusion_count++] = status;
+        }
+    }
     CODY::CodySize size{};
     esp_err_t error = CODY::cody_size_for_scale(nominal_scale, size);
     if (error != ESP_OK) { return host_result("personality_size", error); }
     CODY::PersonalityContext context{};
     context.presentation = static_cast<CODY::PersonalityPresentation>(presentation);
+    context.layout = dashboard ? CODY::PersonalityLayout::HomeDashboard : CODY::PersonalityLayout::Standard;
     context.nominal_scale = nominal_scale;
     context.route = route;
     context.rotation = rotation;

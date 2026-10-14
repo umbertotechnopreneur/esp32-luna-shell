@@ -3593,6 +3593,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         esp_err_t cue_error = CODY::cody_size_for_scale(nominal_scale, personality_size);
         CODY::PersonalityContext context{};
         context.presentation = personality_presentation(frame_was_rig);
+        context.layout = frame_dashboard ? CODY::PersonalityLayout::HomeDashboard : CODY::PersonalityLayout::Standard;
         context.nominal_scale = nominal_scale;
         context.route = frame_scene_visible ? static_cast<uint32_t>(s_state.scene.definition->id) : 0;
         context.rotation = s_state.rendered_rotation_degrees;

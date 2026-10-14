@@ -29,9 +29,9 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "simulator/windows"))
 
 from cody_native_behavior import CharacterActivity, CharacterWorkKind, NativeBehavior
-from cody_native import NativePanelObservation
+from cody_native import NativePanelObservation, NativePersonalityPainter
 from cody_happiness import PersonalityEvent
-from cody_personality import PersonalityCue
+from cody_personality import PersonalityCue, PersonalityPresentationStatus
 from cody_petting import PettingZone
 from cody_simulator import CodyRenderer, CodyWindow
 from cody_preview_layout import PreviewLayout, enlarge_framebuffer, physical_point
@@ -344,6 +344,56 @@ class CharacterStudioTests(unittest.TestCase):
         OUTPUT.mkdir(parents=True, exist_ok=True)
         self.renderer.capture_sheet(image, "SIMULATED / Home compaction / native actor, heading and arc").save(
             OUTPUT / "home-compaction-native-layers.png")
+
+    # self: Actual native personality controller, compact Home geometry and automatically reserved firmware status bounds.
+    # Raises AssertionError for hidden Wi-Fi/Confusion artwork, an inherited unsafe anchor or changed character placement.
+    def test_home_personality_symbols_clear_real_status_and_survive_panel_changes(self):
+        from PIL import ImageChops
+        placement = self.native.home_transform()
+        self.assertEqual(placement, (233., 122., 73.))
+        exclusions = [(33, 185, 433, 264), (40, 268, 426, 393), (113, 408, 353, 433)]
+        painter = NativePersonalityPainter(self.native)
+        OUTPUT.mkdir(parents=True, exist_ok=True)
+        for cue in (PersonalityCue.WIFI_CONNECTED, PersonalityCue.CONFUSION):
+            with self.subTest(cue=cue.name):
+                painter.disable(0)
+                source = self.home_source()
+                title = "Connected"
+                if cue == PersonalityCue.CONFUSION:
+                    source.compaction = 1
+                    source.compaction_valid = source.compaction_age_valid = True
+                    title = "Compacting"
+                standard = self.native.evaluate(self.base.face, placement, self.base.contour | {"phase": 0.})
+                for elapsed_ms in (0, 300, 700, 1100):
+                    original = painter.prepare(standard, cue, placement[2], "working", 0, elapsed_ms, ())
+                self.assertEqual(original.status, PersonalityPresentationStatus.VISIBLE)
+                self.assertGreater(original.opacity, 0)
+                for panel in (0, 2, 3):
+                    scene = self.native.evaluate(self.base.face, placement, self.base.contour | {"phase": 0.})
+                    self.native.prepare_home_identity(scene, source, title, len(title), 1100000)
+                    self.native.prepare_home_dashboard(scene, panel, source, 1100000)
+                    baseline = self.renderer.draw_scene(scene, debug=False, navigation_visible=False).convert("RGB")
+                    # Home context and its status exclusion are supplied by the production bridge,
+                    # including when switching layouts with the animation clock already paused.
+                    frame = painter.prepare(scene, cue, placement[2], "working", 0, 1100, exclusions, paused=True)
+                    self.assertEqual(frame.status, PersonalityPresentationStatus.VISIBLE)
+                    self.assertEqual(frame.cue, cue)
+                    self.assertEqual((frame.left, frame.width, frame.height),
+                                     (original.left, original.width, original.height))
+                    self.assertEqual(frame.top, original.top + 12)
+                    self.assertGreaterEqual(frame.top, 64, "Home symbol still intersects the actual status strip")
+                    image = self.renderer.draw_scene(scene, debug=False, navigation_visible=False).convert("RGB")
+                    self.assertEqual(image.crop((122, 32, 365, 64)).tobytes(),
+                                     baseline.crop((122, 32, 365, 64)).tobytes())
+                    difference = ImageChops.difference(image, baseline).getbbox()
+                    self.assertIsNotNone(difference, "native personality was admitted but no artwork reached the framebuffer")
+                    self.assertGreaterEqual(difference[0], frame.left)
+                    self.assertGreaterEqual(difference[1], frame.top)
+                    self.assertLessEqual(difference[2], frame.left + frame.width)
+                    self.assertLessEqual(difference[3], frame.top + frame.height)
+                    if panel == 0:
+                        self.renderer.capture_sheet(image, f"SIMULATED / Home native {cue.name}").save(
+                            OUTPUT / f"home-personality-{cue.name.lower()}.png")
 
     # self: Real ctypes transport with a deliberately closed eye and audio mouth pose.
     # Raises AssertionError for gaze failure or damage to channels owned by the response model.

@@ -100,6 +100,11 @@ and battery/Wi-Fi/Bluetooth at y=43-64. Seconds are omitted. Battery is gray
 when absent, red when low, orange midrange, green healthy, and cyan/white charging.
 Flash row masks and canonical projections require no LVGL or hardware reads.
 Touch reveals the layer; five seconds without activity begins the 330-ms fade.
+Home translates its personality symbols twelve pixels downward from the standard
+anchor, retaining their scale and the complete status exclusion. A change between
+standard and Home layouts re-primes position even while animation is paused;
+it does not restart the cue's fade, hold or sound. Wi-Fi and compaction symbols
+therefore use the same reserved geometry in firmware and the native Studio bridge.
 
 Debug Pause/Play at (158,47), Skeleton at (308,47), Screenshot and debug-view Back
 retain authored IDs but are hidden and noninteractive by default. Raster and hit

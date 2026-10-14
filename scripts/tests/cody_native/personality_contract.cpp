@@ -15,6 +15,7 @@
  * VBWR E */
 
 #include "CODY_personality.hpp"
+#include "CODY_status_overlay.hpp"
 #include "CODY_dirty_plan.hpp"
 #include "CODY_rig.hpp"
 #include "CODY_petting.hpp"
@@ -268,6 +269,103 @@ void check_rejection_and_sizes()
         0, false, false, exclusions, 2, lag, frame) == ESP_ERR_INVALID_ARG &&
         lag.center_x == before_invalid.center_x && lag.phase == before_invalid.phase,
         "invalid rig is rejected without a fabricated frame");
+}
+
+// No parameters: every semantic cue must preserve status space at the approved Home placement.
+void check_home_personality_layout()
+{
+    // The large host-only rig is reused by this serial fixture, never copied per cue or pose.
+    static RigScene scene;
+    constexpr Transform home{233.f, 122.f, 73.f};
+    constexpr DamageRect home_exclusions[] = {
+        {10, 203, 70, 263}, kStatusOverlayBounds, {33, 190, 433, 235},
+        {73, 236, 393, 264}, {40, 268, 426, 393},
+    };
+    constexpr uint8_t exclusion_count = static_cast<uint8_t>(std::size(home_exclusions));
+    CodySize size{};
+    require(cody_size_for_scale(home.scale, size) == ESP_OK, "Home has its stable nominal cue size");
+    PersonalityContext context{};
+    context.presentation = PersonalityPresentation::Main;
+    context.nominal_scale = home.scale;
+    require(evaluate_rig(Data::defaults, home, scene) == ESP_OK, "approved Home rig evaluates");
+    PersonalityLag lag{};
+    PersonalityFrame frame{};
+    require(prepare_personality_frame(scene, PersonalityCue::WifiConnected, size, context,
+        0, false, false, home_exclusions, exclusion_count, lag, frame) == ESP_OK &&
+        frame.status == PersonalityPresentationStatus::BlockedByLayout,
+        "unadjusted compact Home reproduces the status-strip collision");
+
+    // Establish a visible Standard cue without chrome, then change only the layout while paused.
+    lag = {};
+    for (const int64_t elapsed : {int64_t{0}, int64_t{300000}, int64_t{400000}}) {
+        require(prepare_personality_frame(scene, PersonalityCue::WifiConnected, size, context,
+            elapsed, false, false, nullptr, 0, lag, frame) == ESP_OK,
+            "unreserved Standard cue can reach visible admission");
+    }
+    require(frame.opacity == 255, "layout transition begins with a completely visible symbol");
+    const float standard_y = lag.center_y;
+    const DamageRect standard_bounds = frame.bounds;
+    const int64_t standard_clock = lag.active_elapsed_us;
+    context.layout = PersonalityLayout::HomeDashboard;
+    require(prepare_personality_frame(scene, PersonalityCue::WifiConnected, size, context,
+        0, true, false, home_exclusions, exclusion_count, lag, frame) == ESP_OK &&
+        frame.status == PersonalityPresentationStatus::Visible && frame.opacity == 255 &&
+        std::abs(lag.center_y - standard_y - 12.f) < .001f &&
+        lag.active_elapsed_us == standard_clock &&
+        frame.bounds.right - frame.bounds.left == standard_bounds.right - standard_bounds.left &&
+        frame.bounds.bottom - frame.bounds.top == standard_bounds.bottom - standard_bounds.top,
+        "Home re-primes paused Standard history without shrinking, refading or advancing time");
+    context.layout = PersonalityLayout::Standard;
+    require(prepare_personality_frame(scene, PersonalityCue::WifiConnected, size, context,
+        0, true, false, nullptr, 0, lag, frame) == ESP_OK &&
+        std::abs(lag.center_y - standard_y) < .001f,
+        "leaving Home restores the original authored Standard center immediately");
+    context.layout = PersonalityLayout::HomeDashboard;
+
+    // Use actual bounded face/contour channels, including rapid pose changes that exercise follow lag.
+    for (const auto &rule : PersonalityConfig::cue_rules) {
+        lag = {};
+        require(evaluate_rig(Data::defaults, home, scene) == ESP_OK, "neutral Home rig evaluates per cue");
+        for (const int64_t elapsed : {int64_t{0}, int64_t{300000}, int64_t{400000}}) {
+            require(prepare_personality_frame(scene, rule.cue, size, context,
+                elapsed, false, false, home_exclusions, exclusion_count, lag, frame) == ESP_OK,
+                "every Home cue prepares against the reserved status and dashboard");
+        }
+        require(frame.status == PersonalityPresentationStatus::Visible && frame.cue == rule.cue &&
+            frame.opacity == 255, "every Home cue, including Wi-Fi and compaction, is visible at nominal pose");
+        for (const float breath : {-1.f, 1.f}) {
+            for (const float nose : {-1.f, 1.f}) {
+                for (const float phase : {0.f, 1.5707963f, 3.1415927f, 4.712389f}) {
+                    Channels face = Data::defaults;
+                    face[FaceChannel::Breath] = breath;
+                    face[FaceChannel::NoseY] = nose;
+                    ContourState contour = make_contour_state();
+                    contour.controls[ContourControl::Fullness] = nose;
+                    contour.controls[ContourControl::Amplitude] = 1.f;
+                    contour.phase = phase;
+                    require(evaluate_rig(face, home, scene, &contour) == ESP_OK,
+                        "bounded Home breath, nose and contour extremes evaluate through the real rig");
+                    require(prepare_personality_frame(scene, rule.cue, size, context,
+                        16000, false, false, home_exclusions, exclusion_count, lag, frame) == ESP_OK &&
+                        frame.status == PersonalityPresentationStatus::Visible && frame.cue == rule.cue &&
+                        frame.bounds.top >= home_exclusions[1].bottom &&
+                        frame.bounds.bottom <= home_exclusions[2].top,
+                        "all Home cue rectangles remain admitted between status and title during pose following");
+                }
+            }
+        }
+    }
+    constexpr DamageRect occupied_symbol_slot{200, 64, 335, 170};
+    require(prepare_personality_frame(scene, PersonalityCue::Confusion, size, context,
+        0, false, false, &occupied_symbol_slot, 1, lag, frame) == ESP_OK &&
+        frame.status == PersonalityPresentationStatus::BlockedByLayout && frame.opacity == 0,
+        "Home offset never bypasses a real reserved-region collision");
+    const float valid_center = lag.center_y;
+    context.layout = static_cast<PersonalityLayout>(255);
+    require(prepare_personality_frame(scene, PersonalityCue::Confusion, size, context,
+        0, false, false, home_exclusions, exclusion_count, lag, frame) == ESP_ERR_INVALID_ARG &&
+        lag.center_y == valid_center && lag.layout == PersonalityLayout::HomeDashboard,
+        "unknown layout identity is rejected without mutating the controller");
 }
 
 // No parameters: actual dirty planner must repaint fades and erase a departing sprite.
@@ -1251,6 +1349,7 @@ int main()
     check_sleep_and_pause();
     check_follow_and_layout();
     check_rejection_and_sizes();
+    check_home_personality_layout();
     check_dirty_and_raster();
     check_lossless_sprite_border();
     check_petting();
