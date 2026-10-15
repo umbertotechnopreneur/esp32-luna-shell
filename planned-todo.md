@@ -1,5 +1,20 @@
 # Deferred work
 
+## Purchased enclosed Waveshare boards - 2026-10-15
+
+- [ ] **HARDWARE-PORT-01 - Separate 1.75C and 1.43C board support.** Reference
+  folders are imported; the [static assessment](docs/bsp/boards/purchased-amoled-comparison.md)
+  establishes that the current target is the 1.75 GPS board without C. Add typed
+  physical-board selection independently of UI selection; port 1.75C pins,
+  power/IMU wiring and actual capabilities first. For 1.43C, resolve the advertised
+  CO5300 versus SH8601 demo discrepancy, decide the 8 MB flash/OTA/speech budget,
+  and implement CST820, different audio pins and ADC/charger acquisition. Preserve
+  explicit unavailable states and adapt motion-dependent behavior to the absent
+  IMU. Neither purchased schematic includes GNSS, SD or the old I/O expander;
+  external RTC presence on 1.75C remains disputed by the wiki and supplied drawing.
+  No port, new build, tests or physical evidence was produced by the import.
+  Execution needs the separate authorizations in AGENTS.md.
+
 ## Deferred verification register - consolidated 2026-10-13
 
 The active autonomous queue is [TODO.md](TODO.md). This register preserves the

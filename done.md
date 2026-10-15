@@ -13,6 +13,24 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Purchased enclosed Waveshare reference import - 2026-10-15
+
+Copied both owner-supplied product folders into `hardware/references/waveshare/`:
+615 original 1.75C files and 182 original 1.43C files, including schematics,
+images, source examples and supplied firmware. The 134324048-byte complete
+1.43C source ZIP remains local and is excluded from Git; extracted ESP-IDF
+sources and a revision-specific upstream link are retained. Preserved original
+notices and additionally extracted the 1.75C upstream Apache-2.0 license.
+Mirrored all sixteen documentation PDFs without conversion into per-product
+Obsidian atlas subdirectories.
+
+The [static comparison](docs/bsp/boards/purchased-amoled-comparison.md) distinguishes
+the current 1.75 GPS prototype from both C boards, records changed pins and
+missing peripherals, and identifies the 1.43C flash/OTA and display-driver
+questions. HARDWARE-PORT-01 retains unimplemented board support in
+planned-todo.md. Source/document reading only; no checks, build, simulator,
+serial or hardware validation, firmware changes or remote publication.
+
 ## Delivery-wait Release build and flash - 2026-10-15
 
 Release `cody-187-g58b67f3b` built from the clean source checkpoint with ESP-IDF

@@ -1,5 +1,10 @@
 # Active work
 
+The owner's 15 October enclosed-board reference import and static assessment are
+recorded in [done.md](done.md). New 1.75C/1.43C hardware support remains deferred
+as HARDWARE-PORT-01 in [planned-todo.md](planned-todo.md); those boards are not
+covered by the existing firmware profile.
+
 Updated 2026-10-15. The retained firmware implementation queue is complete. Release
 `cody-187-g58b67f3b` is installed on COM10; tested CCP source, including the new
 presence owner, is installed in the local plugin cache. Host checks, Release

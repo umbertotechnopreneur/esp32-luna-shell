@@ -31,6 +31,22 @@ component relationships remain intact.
 
 Managed ESP-IDF component versions are recorded in `dependencies.lock`.
 
+## Purchased Waveshare hardware reference snapshots
+
+- Location and provenance: [hardware reference index](hardware/references/waveshare/README.md).
+- Products: ESP32-S3-Touch-AMOLED-1.75C and ESP32-S3-Touch-AMOLED-1.43C.
+- Supplied folders imported on 2026-10-15; source examples, firmware, images,
+  schematics, manuals and collection notes remain reference material outside
+  the project's firmware component roots.
+- The 1.75C archive carries Apache-2.0; its top-level license is also preserved
+  as `software/UPSTREAM-LICENSE.txt`. Bundled subcomponents retain their own terms.
+- The 1.43C archive has no top-level license. Its `codec_board` components retain
+  the Espressif Modified MIT License, restricted to Espressif products. No
+  project-wide license is inferred from their availability on GitHub.
+- Vendor images, documentation and binaries are not relicensed under the root
+  MIT License. Preserve their notices and determine applicable redistribution
+  terms before any future publication; no publication is part of this import.
+
 ## Native eSpeak NG
 
 - Imported source: `third_party/espeak-ng`, from eSpeak NG 1.52-dev through

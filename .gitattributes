@@ -19,3 +19,7 @@
 
 # Preserve the upstream model protocol and weights byte for byte on Windows.
 assets/wake-word/models/** -text
+
+# Keep imported vendor reference files and their original line endings intact.
+hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/** -text
+hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/** -text
