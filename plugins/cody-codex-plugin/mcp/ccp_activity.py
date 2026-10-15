@@ -31,6 +31,7 @@ from typing import Any
 from ccp_pricing import PriceCache, PriceProjection
 from ccp_usage import NativeUsageReader, safe_usage_error
 from ccp_chat_title import ChatTitleObservation, NativeChatTitleReader, TITLE_LEASE_SECONDS, TitleState
+from ccp_tool_labels import MAX_TOOL_LABEL_LENGTH, tool_display_label
 
 
 class Phase(str, Enum):
@@ -61,7 +62,7 @@ EVENTS = frozenset({
 })
 MAX_SESSIONS = 64
 ACTIVITY_LEASE_SECONDS = 120.0
-MAX_DESCRIPTION_LENGTH = 192
+MAX_DESCRIPTION_LENGTH = MAX_TOOL_LABEL_LENGTH
 OPAQUE_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 
 
@@ -305,12 +306,7 @@ class ActivityStore:
                         raise ValueError("Duplicate tool identity or too many concurrent tools")
                     phase = tool_phase(event.get("tool_name"))
                     session.tools[tool_id] = phase
-                    tool_name = event["tool_name"]
-                    if len(tool_name) <= MAX_DESCRIPTION_LENGTH - 6:
-                        session.tool_labels[tool_id] = "Tool: " + tool_name
-                    else:
-                        print("CCP tool label unavailable: native name exceeds the display field", file=sys.stderr)
-                        session.tool_labels[tool_id] = "Tool name exceeds display limit"
+                    session.tool_labels[tool_id] = tool_display_label(event["tool_name"])
                     session.phase = phase
                 elif name == "PostToolUse":
                     tool_id = require_id(event.get("tool_use_id"), "tool_use_id")

@@ -13,6 +13,51 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Readable tool names and public audio queue pilot - 2026-10-15
+
+The PC activity owner now projects genuine tool IDs through one English label
+table. Known native/GitHub/Cody tools use short actions; unknown names preserve
+all readable server/method words with underscores replaced by spaces. Tool IDs,
+phases, concurrent correlation, followed-chat selection and argument exclusion
+are unchanged. Final host checks passed: 139 CCP cases, including seven new
+label/lifecycle cases, and 14 console checks. Three installed plugin files match
+tested source by SHA-256. Only the verified CCP broker was restarted; pairing
+was retained. The next genuine user prompt restored the followed chat, current
+authenticated LAN presence and the canonical caption `Tool: Cody: read connection
+status`. This confirms active source adoption and metadata, not display pixels.
+
+The owner selected the public experimental audio queue prototype on physical
+Cody. Its exact answer was received and acknowledged as delivered, and the owner
+confirmed the physical reply flow. OpenAI's installed native CLI
+0.162.0-alpha.17.2 exported the experimental queue/localAudio schema. A short-lived
+standard stdio app-server passed initialize/queue-list for the genuine existing
+chat and accepted one explicitly synthetic spoken PCM16/16 kHz WAV through
+queue-add. It never loaded/resumed a chat or requested a model turn. A subsequent
+public API observation found the pilot still queued while this chat was active.
+Queue admission/removal does not prove Desktop adoption, understood audio or a
+model response. The route remains disabled for physical recordings until those
+same-chat checks pass; ambiguous input is not replayed. The pilot receipt is
+local under artifacts/checks/cody-public-audio-queue; no capability is published.
+
+The undocumented custom-launcher/proxy prototype was removed from source and
+the installed cache before activation. Its earlier fake-backend checks are
+discarded-prototype evidence, not retained audio validation. No Desktop/broker
+audio capability or global startup override was installed. AGENTS.md and the
+existing communication atlas now require prior explanation and specific owner
+approval for hacks, undocumented interfaces or fragile overrides. CCP performs
+no speech-to-text; public Codex source converts localAudio to native input_audio.
+
+The existing communication PDF now explains the installed countdown/silence
+flow, audio ownership, public experimental queue evidence and integration
+policy. Its earlier cover revision entry was consolidated into the canonical
+final register without changing the date or substance; Security remains
+separately labeled. All 49 final pages were rendered and visually reviewed,
+with a navigable audio-boundaries entry. The Obsidian copy is byte-identical:
+SHA-256 a84e77ef26cc97d7b26930045b9978e071d68702dcc12bd9e0283fd283d10286.
+Only this requested PDF was republished. No firmware build/flash was performed;
+the installed image remains cody-178-g0d82a93f. Evidence is under
+artifacts/checks/cody-public-audio-queue.
+
 ## Optional native audio installation - 2026-10-15
 
 The public `scripts/device.ps1 codex-audio` CLI and Maintenance menu now provide

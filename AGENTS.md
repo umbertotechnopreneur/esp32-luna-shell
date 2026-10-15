@@ -5,6 +5,12 @@ instruction file; do not add parallel agent or Copilot contracts.
 
 ## Platform and tooling
 
+- Use documented public integration points. Do not implement or install hacks,
+  undocumented entry points, private-protocol bridges or fragile startup/runtime
+  overrides. Explain the limitation, supported alternatives and maintenance risk
+  to the owner before proposing an exception; obtain explicit approval before
+  implementing it. General autonomy, build or installation authorization is not
+  approval for such an exception.
 - Target ESP-IDF 6.0.2 and official ESP-Brookesia 0.8 only. No compatibility
   branches, shims, wrappers, migrations or fallbacks for IDF 5.x, Brookesia
   0.6/0.7 or the removed Phone framework.

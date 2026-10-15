@@ -50,6 +50,7 @@ import ccp_pricing as pricing
 import ccp_usage as native_usage
 import ccp_chat_title as native_title
 import ccp_presence as app_presence
+import ccp_tool_labels as tool_labels
 from cody_ccp_event_vectors import event_vectors
 
 
@@ -556,6 +557,69 @@ class CcpAdmissionTests(unittest.TestCase):
         derive.assert_called_once_with("ABCDEF", offer.salt)
 
 
+class ToolLabelTests(unittest.TestCase):
+    # self: Exact currently exposed native tool identities, without tool arguments or private source text.
+    # Raises AssertionError if a supported GitHub/native action retains its machine spelling or wrong provider.
+    def test_known_native_and_github_tools_have_authored_display_labels(self) -> None:
+        cases = {
+            "mcp__codex_apps__github_get_pr_info": "Tool: GitHub: read pull request",
+            "mcp__codex_apps__github_fetch_pr": "Tool: GitHub: read pull request",
+            "mcp__codex_apps__github_get_pr_diff": "Tool: GitHub: read pull request changes",
+            "mcp__codex_apps__github_fetch_file": "Tool: GitHub: read file",
+            "mcp__codex_apps__github_create_pull_request": "Tool: GitHub: create pull request",
+            "mcp__codex_apps__github_list_pr_changed_filenames": "Tool: GitHub: list changed files",
+            "functions.exec_command": "Tool: Run command",
+            "functions.apply_patch": "Tool: Edit files",
+            "functions.exec": "Tool: Run tool script",
+        }
+        for identity, expected in cases.items():
+            with self.subTest(identity=identity):
+                self.assertEqual(tool_labels.tool_display_label(identity), expected)
+                self.assertTrue(all(32 <= ord(character) <= 126 for character in expected))
+
+    # self: Unknown complete identities and deliberate suffix collisions across unrelated providers.
+    # Raises AssertionError if fallback loses words, invents a known action or attributes another provider's tool to GitHub.
+    def test_unknown_names_preserve_the_complete_readable_identity_and_provider(self) -> None:
+        cases = {
+            "unknown__tool_name_with_all_parts": "Tool: unknown tool name with all parts",
+            "mcp__custom_server__read_widget_details": "Tool: custom server: read widget details",
+            "mcp__custom_server__github_fetch_pr": "Tool: custom server: github fetch pr",
+            "mcp__github__fetch_pr": "Tool: github: fetch pr",
+            "mcp__codex_apps__other_provider_fetch_pr": "Tool: codex apps: other provider fetch pr",
+            "mcp__codex_apps__github_fetch_future_widget": "Tool: GitHub: fetch future widget",
+            "vendor.apply_patch": "Tool: vendor.apply patch",
+            "functions.mcp__codex_apps__github_fetch_pr": "Tool: functions.mcp codex apps github fetch pr",
+        }
+        for identity, expected in cases.items():
+            with self.subTest(identity=identity):
+                self.assertEqual(tool_labels.tool_display_label(identity), expected)
+        self.assertNotEqual(tool_labels.tool_display_label("mcp__codex_apps__github_fetch_pr"),
+                            tool_labels.tool_display_label("mcp__custom_server__github_fetch_pr"))
+
+    # self: Exact wire boundary and unrepresentable complete names; no shortened identity may look complete.
+    # Raises AssertionError for truncation, a changed 192-byte limit or an unlabeled empty projection.
+    def test_display_boundary_preserves_full_text_or_reports_unavailability(self) -> None:
+        self.assertEqual(tool_labels.MAX_TOOL_LABEL_LENGTH, 192)
+        exact = "X" * 186
+        self.assertEqual(tool_labels.tool_display_label(exact), "Tool: " + exact)
+        diagnostics = io.StringIO()
+        with contextlib.redirect_stderr(diagnostics):
+            self.assertEqual(tool_labels.tool_display_label("X" * 187), "Tool: name exceeds display limit")
+            self.assertEqual(tool_labels.tool_display_label("X" * 256), "Tool: name exceeds display limit")
+            self.assertEqual(tool_labels.tool_display_label("___"), "Tool: name unavailable")
+        self.assertIn("exceeds 192", diagnostics.getvalue())
+        self.assertNotIn("X" * 187, diagnostics.getvalue())
+
+    # self: Invalid source values are rejected before they can become numeric, localized or truncated UI labels.
+    # Raises AssertionError if the source ASCII/type/length contract is weakened or private input is echoed.
+    def test_invalid_tool_sources_are_rejected_without_echoing_their_contents(self) -> None:
+        values = (None, True, 12, [], "", "X" * 257, "private\nname", "private\x00name", "private\u00e9name")
+        for value in values:
+            with self.subTest(kind=type(value).__name__), self.assertRaises(ValueError) as rejected:
+                tool_labels.tool_display_label(value)
+            self.assertNotIn("private", str(rejected.exception))
+
+
 class ChatActivityTests(unittest.TestCase):
     # self: Pure host fixture with no Codex, sockets, protected state or physical device.
     def setUp(self) -> None:
@@ -762,6 +826,71 @@ class ChatActivityTests(unittest.TestCase):
         self.assertEqual(self.store.snapshot()["phase"], "interrupted")
         with self.assertRaisesRegex(ValueError, "Interrupted turn"):
             self.observe("Stop")
+
+    # self: Nested and concurrently active native tools, including two distinct IDs with the same friendly label.
+    # Raises AssertionError if display aliases change phase, merge identities or fail to restore the remaining tool.
+    def test_friendly_tool_descriptions_follow_nested_and_concurrent_original_ids(self) -> None:
+        self.observe("UserPromptSubmit")
+        first_activity, first_technical = self.store.snapshot_bundle()
+        steps = (
+            ("PreToolUse", "shell-id", "functions.exec_command", "running", "Tool: Run command", {"shell-id"}),
+            ("PreToolUse", "pr-id-a", "mcp__codex_apps__github_fetch_pr", "working", "Tool: GitHub: read pull request",
+             {"shell-id", "pr-id-a"}),
+            ("PreToolUse", "pr-id-b", "mcp__codex_apps__github_get_pr_info", "working", "Tool: GitHub: read pull request",
+             {"shell-id", "pr-id-a", "pr-id-b"}),
+            ("PostToolUse", "pr-id-a", None, "working", "Tool: GitHub: read pull request", {"shell-id", "pr-id-b"}),
+            ("PreToolUse", "edit-id", "functions.apply_patch", "editing", "Tool: Edit files",
+             {"shell-id", "pr-id-b", "edit-id"}),
+            ("PostToolUse", "edit-id", None, "working", "Tool: GitHub: read pull request", {"shell-id", "pr-id-b"}),
+            ("PostToolUse", "pr-id-b", None, "running", "Tool: Run command", {"shell-id"}),
+            ("PostToolUse", "shell-id", None, "working", "", set()),
+        )
+        for event, identity, name, phase, description, active_ids in steps:
+            with self.subTest(event=event, identity=identity):
+                fields = {"tool_use_id": identity}
+                if name is not None:
+                    fields["tool_name"] = name
+                self.observe(event, **fields)
+                current, technical = self.store.snapshot_bundle()
+                self.assertEqual(current["phase"], phase)
+                self.assertEqual(bytes.fromhex(current["description"]).decode("ascii"), description)
+                self.assertEqual(current["chat"], first_activity["chat"])
+                self.assertEqual(technical["turn"], first_technical["turn"])
+                session = self.store._sessions["chat-a"]
+                self.assertEqual(set(session.tools), active_ids)
+                self.assertEqual(set(session.tool_labels), active_ids)
+                self.assertNotIn("mcp__", description)
+                self.assertNotIn("functions.", description)
+
+    # self: Two real-schema synthetic chat lifecycles with independently mapped tool descriptions.
+    # Raises AssertionError if a background tool changes the followed chat or current friendly label.
+    def test_background_tool_label_cannot_replace_the_followed_chat_activity(self) -> None:
+        self.observe("UserPromptSubmit", session="chat-background")
+        self.observe("UserPromptSubmit")
+        self.observe("PreToolUse", tool_use_id="visible-id", tool_name="mcp__codex_apps__github_get_pr_diff")
+        current = self.store.snapshot()
+        self.observe("PreToolUse", session="chat-background", tool_use_id="background-id",
+                     tool_name="mcp__custom_server__github_fetch_pr")
+        background = self.store._sessions["chat-background"]
+        self.assertEqual(background.tool_labels["background-id"], "Tool: custom server: github fetch pr")
+        observed = self.store.snapshot()
+        self.assertEqual((observed["chat"], observed["phase"], observed["description"]),
+                         (current["chat"], current["phase"], current["description"]))
+        self.assertEqual(bytes.fromhex(observed["description"]), b"Tool: GitHub: read pull request changes")
+
+    # self: Invalid native source data while one genuine tool remains active.
+    # Raises AssertionError if rejected labels create a tool entry, consume its identity or mutate the existing activity.
+    def test_invalid_tool_label_source_preserves_current_owner_state(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("PreToolUse", tool_use_id="current-id", tool_name="functions.exec_command")
+        session = self.store._sessions["chat-a"]
+        before = (dict(session.tools), dict(session.tool_labels), session.phase, session.last_event_ns)
+        for name in (None, "", "X" * 257, "private\nname", "private\u00e9name"):
+            with self.subTest(kind=type(name).__name__), self.assertRaises(ValueError):
+                self.observe("PreToolUse", tool_use_id="rejected-id", tool_name=name)
+            self.assertEqual((session.tools, session.tool_labels, session.phase, session.last_event_ns), before)
+        self.observe("PreToolUse", tool_use_id="rejected-id", tool_name="mcp__custom_server__read_widget")
+        self.assertEqual(session.tool_labels["rejected-id"], "Tool: custom server: read widget")
 
     # self: Followed chat with a rejected new prompt from a different chat.
     # Raises AssertionError if rejected metadata changes the followed context.

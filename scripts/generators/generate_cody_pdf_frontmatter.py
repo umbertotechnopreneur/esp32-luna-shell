@@ -22,7 +22,7 @@ MIRROR = Path("C:/Users/umber/OneDrive/Obsidian/30_Engineering/Products/Cody Com
 LOGO = ROOT / "simulator/windows/assets/branding/vibeware-logo.png"
 PREFIX = "CodyFrontmatter/"
 CATALOG = {
-    "cody-ccp-connection-atlas-v1.pdf": ("CCP Communication Atlas", "Pairing, your PC helper and voice input", [(1,"The simple picture"),(2,"Pairing"),(3,"Voice input"),(4,"Changing chat while recording"),(5,"Connection and everyday use"),(16,"Protocol reference"),(26,"Audio transport and delivery"),(29,"Plugin tools and setup"),(37,"Source references")]),
+    "cody-ccp-connection-atlas-v1.pdf": ("CCP Communication Atlas", "Pairing, your PC helper and voice input", [(1,"The simple picture"),(2,"Pairing"),(3,"Voice input"),(4,"Changing chat while recording"),(5,"Connection and everyday use"),(16,"Protocol reference"),(26,"Audio transport and delivery"),(29,"Plugin tools and setup"),(36,"Audio API and support boundaries"),(37,"Source references")]),
     "cody-navigation-atlas-v1.pdf": ("Navigation Atlas", "Find your way through Cody", [(1,"Overview and first setup"),(5,"Connect Codex"),(7,"Home, information and Setup"),(9,"Questions and reply delivery"),(11,"Work status"),(12,"Voice journey"),(13,"Battery, standby and recovery"),(15,"Debug views")]),
     "cody-planning-atlas-v1.pdf": ("Planning Atlas", "Screen journeys, character and visual language", [(1,"Overview and screen inventory"),(3,"Circular layout"),(4,"Boot and setup"),(8,"Codex pairing and work"),(12,"Questions and replies"),(15,"Battery and sleep"),(17,"Character studies"),(20,"Color system"),(21,"Setup and information panels"),(23,"Voice design")]),
     "cody-manga-status-atlas-v1.pdf": ("Manga Status Atlas", "Expressions, materials and small moments", [(1,"Overview and current screens"),(3,"The fourteen expressive cues"),(5,"Pearl Mist"),(7,"Aurora Veil"),(9,"Cosmic Stardust"),(11,"Enchanted Mosaic"),(13,"Comparison, layout and decisions"),(16,"Idle moments"),(19,"Current behavior"),(25,"VibeWare boot identity"),(28,"Current screen revisions")]),
@@ -32,7 +32,7 @@ CATALOG = {
 # Section identities are text anchors, not fixed page offsets. A revised source may
 # insert or reorder pages without leaving the edition's contents pointing elsewhere.
 ANCHORS = {
-    "cody-ccp-connection-atlas-v1.pdf": [None, "Pairing is recognition, not a promise", "Speaking to Cody: one careful handoff", "If you change chat while recording", "One connection, three different facts", "Ports and packet envelopes", "Audio is a separate one-way binary channel", "CCP and the plugin: who does what?", "Source crosswalk"],
+    "cody-ccp-connection-atlas-v1.pdf": [None, "Pairing is recognition, not a promise", "Speaking to Cody: one careful handoff", "If you change chat while recording", "One connection, three different facts", "Ports and packet envelopes", "Audio is a separate one-way binary channel", "CCP and the plugin: who does what?", "Audio input: public API and support boundaries", "Source crosswalk"],
     "cody-navigation-atlas-v1.pdf": [None, "Connect Codex / a separate decision", "Home and companion information", "Read a question, then choose", "PR status belongs to ordinary activity", "Voice input / retained planned journey", "Battery notices at a quiet moment", "Character debug and preview boundaries"],
     "cody-planning-atlas-v1.pdf": [None, "The circle is usable space", "Cody's current cold boot", "Pair Codex, then find the retained PC", "A question deserves its own attention", "Battery notices feel like Cody", "Inspect the composed expression", "The shared palette / all 256 slots", "Setup keeps intent and routes explicit", "Planned voice: wake, capture, send"],
     "cody-manga-status-atlas-v1.pdf": [None, "The fourteen cues / sensations", "Pearl Mist / 01", "Aurora Veil / 01", "Cosmic Stardust / 01", "Enchanted Mosaic / 01", "Compare the four materials", "Small moments while Cody waits", "A mouth that visibly breathes", "VibeWare first. Cody next.", "Addendum / boot and Wi-Fi"],
@@ -154,7 +154,9 @@ def publish(path):
                 sections = sections + [(index + 1, label)]
                 break
     quick = "quickstart" in path.name
-    if not quick:
+    # The communication atlas owns this dated entry in its canonical final
+    # register. Other existing documents retain their publisher-owned record.
+    if not quick and path.name != "cody-ccp-connection-atlas-v1.pdf":
         record = RevisionRecord("2026-10-12", "Change", "Coordinated cover and navigable contents", ("Add VibeWare cover artwork, author copyright and Draft / Confidential / Internal use only classification. Contents and bookmarks point to the final document pages; historical page and screen references retain their original identities.",), "All original pages; existing correction and Security sections preserved", "PDF authoring and visual review; no firmware execution.")
         register = pymupdf.open(stream=render_revision_register((record,), size, title, start_page=count + 3), filetype="pdf")
         content.insert_pdf(register)

@@ -59,6 +59,7 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
             'cody-voice-ui' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Production recording gestures, native ribbon raster and synthetic preview.' }
             'cody-voice-input' = @{ Category = 'Cody and simulators'; Emoji = '🎵'; Description = 'Production voice owner and authenticated receiver contracts on the host.' }
             'cody-audio-setup' = @{ Category = 'Cody and simulators'; Emoji = '🎵'; Description = 'Isolated native audio installation, persistence and failed-probe boundaries.' }
+            'cody-public-audio-queue' = @{ Category = 'Cody and simulators'; Emoji = '🎵'; Description = 'Explicit live experimental queue probe or single-use WAV pilot; requires native CLI and genuine chat ID.' }
             'voice-afe-lifecycle' = @{ Category = 'Snapshots, hardware and power'; Emoji = '🎵'; Description = 'Production AFE notification, startup and rollback helpers with host primitives.' }
             simulator = @{ Category = 'Cody and simulators'; Emoji = '🖥️'; Description = 'Windows Luna model and loopback fake-device contracts.' }
             'battery-ui' = @{ Category = 'UI and connectivity'; Emoji = '🔋'; Description = 'Battery-screen layout and navigation contracts.' }
@@ -89,6 +90,7 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
             'public-branding' = @{ Category = 'Build, console and repository'; Emoji = '🏷️'; Description = 'Public-release text and branding contracts.' }
         }
         generators = @{
+            'cody-audio-queue-fixture' = @{ Category = 'Cody and simulators'; Emoji = '🎵'; Description = 'Windows SAPI synthetic speech WAV for the explicit public audio queue pilot; no speaker playback.' }
             'cody-rig' = @{ Category = 'Cody assets'; Emoji = '🤖'; Description = 'Compile a selected skin into immutable named firmware rig tables.' }
             'cody-runtime-assets' = @{ Category = 'Cody assets'; Emoji = '🔊'; Description = 'Generate runtime settings and the two original synthesized boot cues.' }
             'cody-jelly' = @{ Category = 'Cody assets'; Emoji = '☁️'; Description = 'Package the pearl sprite and simulator bindings as flash-owned data.' }

@@ -1,6 +1,6 @@
 # Active work
 
-Updated 2026-10-15. The authorized implementation queue is complete. Release
+Updated 2026-10-15. The retained firmware implementation queue is complete. Release
 `cody-178-g0d82a93f` is installed on COM10; tested CCP source, including the new
 presence owner, is installed in the local plugin cache. Host checks, Release
 build/size/individual compiled frames, flash and passive capture are recorded in
@@ -16,6 +16,19 @@ explicit dependency installation, live Desktop ownership/chat checks and atomic
 per-user configuration. Final host checks passed; local package adoption is
 recorded in [done.md](done.md). The inspected Desktop host uses stdio and owns no TCP listener, so
 actual native endpoint activation remains unavailable in VOICE-01.
+
+The owner approved a public experimental audio queue pilot on physical Cody;
+the exact reply was acknowledged as delivered. Native initialization, queue
+listing and one synthetic `localAudio` WAV admission passed. A temporary standard
+stdio queue writer never loaded/resumed a chat or requested inference. Desktop
+must still process that item in the same existing chat and respond to its spoken
+contents before physical recordings use this route. Queue admission or removal
+alone is not that proof. Do not replay the pilot automatically. The rejected
+custom launcher/proxy was removed from source and cache before activation.
+
+Readable tool captions are active on the PC, including a known-ID table and
+complete underscore-cleaned unknown names. Final host, installed-cache and
+authenticated post-reload adoption evidence is recorded in done.md.
 
 The latest Studio run passed 28 of 29 cases; Windows desktop screen capture
 failed in ImageGrab. Native pixel previews passed and remain available. This

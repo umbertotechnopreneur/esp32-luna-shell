@@ -402,6 +402,13 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   It cannot activate a listener the Desktop host does not expose. Keep endpoint
   activation and real model/audio acceptance pending, separate from installer
   source/fixture validation.
+  The owner subsequently approved the public experimental queue pilot. The
+  installed native alpha accepted initialize/queue-list and one synthetic WAV
+  through queue-add, with no resume/start in the temporary stdio writer. Await
+  same-chat Desktop consumption and a response to the spoken contents before
+  enabling this route for device capture. Admission/removal alone is insufficient.
+  The custom Desktop launcher/proxy was discarded before activation; do not
+  restore undocumented or fragile integration without specific owner approval.
 - [ ] **TTS-01 - Storage and audible speech.** Require observed SD availability
   after the accepted standby/wake workaround before claiming SD synthesis.
   The prepared four-language card and corrected `58757005` boot

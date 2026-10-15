@@ -63,6 +63,25 @@ or chat is launched. The installed CLI protocol export confirms `localAudio` on
 an endpoint, that the account/model accepts audio or that approvals route to its UI.
 Those are required integration checks before treating dictation as operational.
 
+The owner-approved **public experimental queue pilot** is separate from that
+installed receiver. `scripts/device.ps1 check -Check cody-public-audio-queue`
+requires explicit live-probe, native executable and hook-observed thread arguments.
+Its standard short-lived stdio app-server only initializes and accesses queue
+RPCs; it never resumes/starts a chat or requests inference. The installed alpha
+accepted a synthetic `localAudio` WAV through `thread/queue/add` on 15 October.
+Desktop consumption and a response to the spoken contents in the same chat are
+still unverified, so this route is **not enabled for physical recordings**.
+One pilot ID is reserved before transmission; ambiguous input is not replayed.
+Observation/withdrawal target only an item identified by that pilot's receipt.
+CCP performs no speech-to-text. See the existing communication atlas for the
+audio path, evidence and public-source references.
+
+Use documented public integration points. Explain unsupported or fragile options
+and obtain specific approval before implementing an exception. No custom Desktop
+launcher, private-protocol proxy or startup override is installed; the earlier
+prototype was removed before activation. The public experimental queue approval
+does not authorize undocumented alternatives.
+
 The native worker performs a read-only initialization/thread-read probe with a
 five-second deadline, refreshed every five seconds. START requires a successful
 probe for the followed chat no more than ten seconds old. `native_ready` reports
@@ -292,6 +311,15 @@ Activity contains the work phase, chat identity and short project name. Chats
 in one project retain different IDs. `Stop` means response ready, without proving
 task success. Active work without updates becomes **UNAVAILABLE** after 120 s.
 Broker restart waits for a new prompt; LAN reconnect returns the current snapshot.
+
+`mcp/ccp_tool_labels.py` owns the display-only English tool table. For example,
+`mcp__codex_apps__github_fetch_file` becomes `Tool: GitHub: read file`, and
+`functions.exec_command` becomes `Tool: Run command`. Unknown identities retain
+their complete readable server/method spelling with underscores replaced by
+spaces. An overlong label explicitly reports the display limit. Correlation IDs
+and work phases do not change. The hook supplies the tool ID, not its catalog
+title; a wrapper such as `functions.exec` is labeled as a tool script without
+examining its arguments or inferring nested operations.
 
 One hidden broker serves the PC's chats. MCP clients renew independent leases;
 closing one chat does not stop the others. Transport retries wait 1, 3, 10 and

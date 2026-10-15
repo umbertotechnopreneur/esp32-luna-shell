@@ -212,7 +212,10 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
             if ($name -in @('cody-connection-atlas','cody-navigation-atlas','cody-planning-atlas',
                     'cody-idle-atlas','cody-security-atlases','cody-pdf-english','cody-pairing-flyer')) {
                 $publisher = Find-DeviceTool 'generators' 'cody-pdf-frontmatter'
-                Invoke-HostTool $publisher.Path @() $Options.PythonExecutable
+                $publicationArguments = if ($name -eq 'cody-connection-atlas') {
+                    @('--file', 'cody-ccp-connection-atlas-v1.pdf')
+                } else { @() }
+                Invoke-HostTool $publisher.Path $publicationArguments $Options.PythonExecutable
             }
         }
         'banner' { Invoke-HostTool (Join-Path $ProjectRoot 'scripts/commands/add-source-banner.ps1') $Options.ToolArguments '' }

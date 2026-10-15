@@ -561,6 +561,13 @@ The [simulator guide](../../simulator/windows/README.md#host-audio-and-inspectio
 owns the host audio DLL, PC playback, inspection typography and browser links.
 These are synthetic host capabilities with separate execution evidence.
 
+The Home tool caption is a presentation of the genuine `PreToolUse` identity.
+The PC-owned table in `ccp_tool_labels.py` maps known native/MCP names to short
+English actions, such as `Tool: GitHub: read file`. Unknown names retain every
+server/method word with underscores rendered as spaces. Two tools may share a
+caption while retaining distinct correlation IDs. Wrapper arguments are never
+parsed to invent an inner tool or activity. No firmware protocol change is needed.
+
 ## Device diagnostics
 
 Debug FPS uses completed frames over real elapsed time. CPU1/core0 and CPU2/core1
