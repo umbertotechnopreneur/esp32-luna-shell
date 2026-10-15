@@ -1,16 +1,17 @@
 # Active work
 
 Updated 2026-10-15. The retained firmware implementation queue is complete. Release
-`cody-178-g0d82a93f` is installed on COM10; tested CCP source, including the new
+`cody-187-g58b67f3b` is installed on COM10; tested CCP source, including the new
 presence owner, is installed in the local plugin cache. Host checks, Release
 build/size/individual compiled frames, flash and passive capture are recorded in
 [done.md](done.md), with the four Home panels and earlier delivery evidence.
 
 The 15 October delivery-wait visual refinement is implemented in source: a lower
-electric-blue breathing indicator shared by firmware and Studio. Its final
-checks, build, flash and physical visual confirmation remain pending explicit
-authorization. One separately authorized question on the installed firmware
-completed with recipient acknowledgement and owner-confirmed physical display
+electric-blue breathing indicator shared by firmware and Studio. Its Release
+build and COM10 flash passed on 15 October with the written image hash verified.
+Fresh host/simulator checks and physical visual confirmation of this indicator
+remain pending explicit authorization. One separately authorized question on the
+preceding firmware completed with recipient acknowledgement and owner-confirmed physical display
 success, as recorded in done.md. The earlier `Reply unconfirmed` was not
 reproduced; available broker logs cannot establish its missing delivery step.
 No other caller's answer was recovered, replayed or acknowledged.

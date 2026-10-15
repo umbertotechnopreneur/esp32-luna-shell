@@ -13,6 +13,25 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Delivery-wait Release build and flash - 2026-10-15
+
+Release `cody-187-g58b67f3b` built from the clean source checkpoint with ESP-IDF
+6.0.2 and eight jobs, completing 1,499 Ninja steps. The 7,151,328-byte application
+leaves 123,168 bytes in the unchanged 7,274,496-byte OTA slot. The public flash
+command preserved wake-word and experimental activity-classifier selection.
+COM10 writing completed, including application hash verification and the normal
+post-flash reset. Installed image SHA256:
+`b61de4a9788a267c49a26714ab1551b2f5a4f9dd351c2a41bcc9ee9b7504abc8`.
+The GitHub-publication secret scan passed for eight changed files and eight
+signatures, comparing against the prior remote branch checkpoint. No firmware
+image was secret-scanned.
+
+Evidence: `artifacts/build-cody-companion-wake-word-evidence/reply-delivery-20261015/`.
+The earlier authorized physical delivery-probe evidence was preserved there as
+`physical-delivery-result.json` before transient cleanup. No new test suite,
+simulator run, serial capture, standalone size report or physical observation of
+the blue pulse was performed during this delivery.
+
 ## Physical reply-delivery probe - 2026-10-15
 
 One explicitly authorized LAN question on the already installed firmware
@@ -23,7 +42,7 @@ The interval from reading the answer to receiving acknowledgement was 9.813 s;
 the acknowledgement tool call itself took 1.166 s. These are caller wall-clock
 measurements, not packet timings or a general latency guarantee.
 
-Evidence: `artifacts/checks/cody-reply-delivery-20261015/result.json`, without
+Evidence: `artifacts/build-cody-companion-wake-word-evidence/reply-delivery-20261015/physical-delivery-result.json`, without
 ticket capabilities, request/answer IDs or unrelated chat contents. The earlier
 unconfirmed question was not reproduced and its cause remains unestablished.
 No automatic replay, other caller's acknowledgement, firmware build/flash or

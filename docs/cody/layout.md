@@ -58,8 +58,9 @@ firmware animation uses pausable scene time and 50 ms color steps; it changes
 neither the recipient acknowledgement requirement nor the request deadline.
 Offline/error states retain a steady muted indicator, with any actual error at
 y=354. The indicator has no touch target, typewriter cadence or character audio.
-Firmware and Studio use the same native color policy. This source revision has
-not yet been built, simulated or checked on the physical display.
+Firmware and Studio use the same native color policy. Release build and flash
+evidence is recorded in [done.md](../../done.md); simulator and physical visual
+confirmation of this indicator remain pending.
 
 A typed `ReplyReady` notification uses the compact character at (233,92), scale
 42, and one mint `Reply ready` headline at y=150. The originating chat's complete
