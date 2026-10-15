@@ -31,8 +31,13 @@ instruction file; do not add parallel agent or Copilot contracts.
   Run only the operations explicitly requested. Static source review is allowed;
   disclose deferred validation.
 - Before each individual test or suite, announce exact commands and wait for fresh
-  explicit authorization. Earlier test approval or approval to implement, build,
-  flash or capture does not authorize another test run.
+  explicit authorization. Never start tests on your own initiative. Earlier test
+  approval, general autonomy or approval to implement, build, flash or capture
+  does not authorize another test run. This owner requirement was reaffirmed on
+  2026-10-15; preparing tests does not authorize executing them.
+- Create a branch, pull request or worktree only when the owner explicitly asks
+  for that operation. General implementation, autonomy, commit or push requests
+  do not authorize creating any of them. Use the existing checkout and branch.
 - Finish implementation, static review and cross-component integration before
   requested final validation; no intermediate configure/build/size passes.
   Limit compilation to eight jobs and allow at least 240 seconds per build.
