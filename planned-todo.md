@@ -405,10 +405,13 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   The owner subsequently approved the public experimental queue pilot. The
   installed native alpha accepted initialize/queue-list and one synthetic WAV
   through queue-add, with no resume/start in the temporary stdio writer. The
-  item later left the queue, but this exact Desktop chat reported that its audio
-  content was omitted because audio input is unsupported. No speech transcript or
-  answer was produced; keep device capture disabled on this route. Revisit only
-  with a documented supported same-chat audio ingress and positive live evidence.
+  item later left the queue. A second explicitly authorized marked pilot proved
+  that the entire 359406-byte WAV persisted in this exact chat, with matching
+  SHA-256. Delivery to chat is verified. The live model catalog advertises only
+  text/image; public Codex prompt normalization strips unsupported audio and emits
+  the exact observed omission placeholder. No transcript or speech response was
+  produced. Revisit with supported audio/transcription ingress; never override
+  modality metadata to bypass this gate.
   The custom Desktop launcher/proxy was discarded before activation; do not
   restore undocumented or fragile integration without specific owner approval.
 - [ ] **TTS-01 - Storage and audible speech.** Require observed SD availability

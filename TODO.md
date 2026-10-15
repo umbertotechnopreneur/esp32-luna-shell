@@ -21,10 +21,13 @@ The owner approved a public experimental audio queue pilot on physical Cody;
 the exact reply was acknowledged as delivered. Native initialization, queue
 listing and one synthetic `localAudio` WAV admission passed. A temporary standard
 stdio queue writer never loaded/resumed a chat or requested inference. The pilot
-left the queue, but the resulting Desktop turn reported that audio content was
-omitted because audio input is unsupported. Speech was not transcribed or
-understood. Keep physical submission through this route disabled. Do not replay
-the pilot automatically or restore the rejected custom launcher/proxy.
+left the queue and persisted the complete WAV in this chat. A second explicitly
+authorized, marked pilot confirmed all 359406 bytes and the original SHA-256 in
+the public chat history. This session's model catalog advertises text/image;
+Codex's public prompt-normalization source strips unsupported audio and emits
+the exact omission message received here. Queue/chat delivery works; speech
+does not reach this model through this route. Keep physical submission disabled;
+do not override model modalities or restore the rejected launcher/proxy.
 
 Readable tool captions are active on the PC, including a known-ID table and
 complete underscore-cleaned unknown names. Final host, installed-cache and

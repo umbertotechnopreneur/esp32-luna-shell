@@ -13,6 +13,27 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Public audio trace isolates prompt normalization - 2026-10-15
+
+The owner's second explicitly authorized pilot used a distinct ID and a text
+marker alongside the same synthetic WAV. Public queue/history APIs confirmed
+that its full 359406 bytes persisted in the intended Desktop chat, SHA-256
+c8f0078a7fa9580ddc17f07965cd0f27ee3b108050c042d10c767790f2df38b3.
+The original pilot's persisted WAV has the same hash. Thus delivery to chat is
+verified, while the model-visible input contains the omission placeholder.
+
+The live catalog returned gpt-6.1-sol with text/image inputs and no audio-capable
+entry. Public OpenAI Codex source at 4ca84a10696623fcd7c200db3df9c41671d3bad0
+prepares history through for_prompt/normalize_history, then
+strip_audio_when_unsupported replaces InputAudio with the exact observed text.
+This source mechanism matches the live catalog and observed placeholder; the
+installed binary's internal call path was not instrumented. No transcription,
+model-capability override, native approval, new model session or physical-device
+audio submission was used. The bounded trace reader logs metadata/hashes only;
+its notLoaded status belongs to the temporary trace process, not Desktop.
+
+Evidence: artifacts/checks/cody-public-audio-queue/trace-5814395c-8468-4389-96d0-1fb33e310d1f.jsonl.
+
 ## Visual communication atlas and audio pilot result - 2026-10-15
 
 The synthetic localAudio item left the public experimental queue for this exact
