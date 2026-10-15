@@ -42,115 +42,40 @@ client's id-only release is explicitly treated as abnormal, with no Closed
 claim. A real Codex reopen that starts the updated broker/client loads the new
 EOF reporting; changing files on disk does not hot-reload a running broker.
 
-## One-way voice input preparation
+## One-way WAV attachments
 
-The dedicated encrypted receiver uses UDP 42119, independently of CCP metadata
-ports 42117/42118. It requires `mcp/requirements-audio.txt` in the plugin's Python
-environment. A missing dependency, bind failure, missing followed chat or native
-Codex rejection remains an explicit optional error, available through the
-read-only `ccp_audio_status` tool. Audio failure does not fabricate a CCP disconnect.
+The encrypted receiver uses UDP 42119 independently of CCP metadata. Install
+`mcp/requirements-audio.txt` in the plugin's Python environment. Missing
+configuration/dependencies, stale followed chat, native rejection and uncertain
+admission remain explicit in `ccp_audio_status`; audio errors do not fabricate a
+CCP disconnect.
 
-The optional installation step is `scripts/device.ps1 codex-audio`, documented
-under [Install and review hooks](#install-and-review-hooks). It persists a verified
-endpoint in `%LOCALAPPDATA%\CodyCodexPlugin\audio-config.json`; no raw capability is
-stored there. Invalid/read-failed configuration remains an explicit audio error.
-For an intentional environment override, set `CODY_CODEX_AUDIO_ENDPOINT` to an explicit already-running **loopback** native
-desktop/app-server WebSocket endpoint. When that host requires a capability token,
-`CODY_CODEX_AUDIO_TOKEN_FILE` names its existing local token file; keys and tokens
-never appear in prompts or logs. No endpoint is guessed and no second Codex host
-or chat is launched. The installed CLI protocol export confirms `localAudio` on
-`turn/start` and `turn/steer`; it does not prove that this desktop version exposes
-an endpoint, that the account/model accepts audio or that approvals route to its UI.
-Those are required integration checks before treating dictation as operational.
+Opt in with `scripts/device.ps1 codex-audio -EnableAudioQueue`. Setup selects the
+installed native Codex executable and verifies public queue access to the genuine
+followed chat before saving `%LOCALAPPDATA%\CodyCodexPlugin\audio-config.json`.
+There is no separate OpenAI API key, transcription service or model session.
 
-The owner-approved **public experimental queue pilot** is separate from that
-installed receiver. `scripts/device.ps1 check -Check cody-public-audio-queue`
-requires explicit live-probe, native executable and hook-observed thread arguments.
-Its standard short-lived stdio app-server only initializes and accesses queue
-RPCs; it never resumes/starts a chat or requests inference. The installed alpha
-accepted a synthetic `localAudio` WAV through `thread/queue/add` on 15 October.
-Desktop consumption and a response to the spoken contents in the same chat are
-still unverified, so this route is **not enabled for physical recordings**.
-One pilot ID is reserved before transmission; ambiguous input is not replayed.
-Observation/withdrawal target only an item identified by that pilot's receipt.
-CCP performs no speech-to-text. See the existing communication atlas for the
-audio path, evidence and public-source references.
+The receiver owns one standard stdio app-server client, restricted to initialize,
+thread metadata and public experimental queue operations. It never resumes or
+starts a chat, steers a turn, overrides model modalities or answers approvals.
+At END it retains the completed WAV and calls `thread/queue/add` once with the
+capture's frozen chat and recording ID. A changed followed chat cancels admission;
+ambiguous acknowledgement remains unconfirmed and is never automatically retried.
+The process is reused for read-only readiness and retired with the audio owner.
 
-Use documented public integration points. Explain unsupported or fragile options
-and obtain specific approval before implementing an exception. No custom Desktop
-launcher, private-protocol proxy or startup override is installed; the earlier
-prototype was removed before activation. The public experimental queue approval
-does not authorize undocumented alternatives.
+**Queue acceptance is not transcription.** The 15 October synthetic trace proved
+that all WAV bytes persisted in the same Desktop chat. The installed model catalog
+advertised text/image; Codex replaced unsupported audio with an omission message
+when building the model prompt. The attachment can therefore arrive while its
+spoken contents remain unavailable to the model. This limitation is accepted for
+file delivery; no transcript is invented. `ccp_audio_status` reports
+`delivery_scope=queue_admission_only`, the real queue ID, and
+`transcription_available=false`.
 
-The native worker performs a read-only initialization/thread-read probe with a
-five-second deadline, refreshed every five seconds. START requires a successful
-probe for the followed chat no more than ten seconds old. `native_ready` reports
-this reachability check, not proof of model audio support or transcription.
-At authenticated START, bind the capture to the genuine followed chat.
-After END, retain a private mono PCM16 16 kHz WAV under the runtime's
-`artifacts/voice`. A changed followed chat rejects submission, rather than retargeting
-it. `turn/steer` resolves the current hook-observed turn in that same chat at the
-submission boundary and passes it as `expectedTurnId`. A concurrent turn change
-can still cause an explicit native rejection; its WAV is retained. An idle chat
-receives a new turn. Native requests for approval or user
-input are never answered automatically. Ambiguous native submission is never retried.
-Each submission carries the recording identity as `clientUserMessageId` for
-correlation, without assuming server-side deduplication. Audio status includes
-the recording ID, frozen chat, returned native turn, retained WAV path and uncertainty.
-
-Four DATA packets may be in flight. The PC acknowledges the highest contiguous
-sequence; gaps are discarded and recovered by byte-identical retries. The device
-retains its ten-second unacknowledged ring through temporary CCP disconnections,
-resuming only with the same authenticated credential and IP. After END has been
-transmitted, transport failure is Unconfirmed rather than a claim of non-delivery.
-
-The receiver bounds utterances to 60 seconds (1,920,000 PCM bytes), four active buffers/delivery jobs,
-64 transient replay identities and 64 MiB/1,024 owned WAV artifacts. Full storage
-rejects new delivery explicitly; recordings are not silently erased. PCM is cleared
-from the transient record after file/native processing. An immutable file-write
-copy may temporarily double one recording's host memory. No device SD/flash writes
-are involved. PC receipt, native acceptance and task completion remain distinct.
-
-Generation, installation, firmware build/size, wire tests, account/model access,
-desktop approval routing and physical voice behavior are separate evidence.
-The 0.6.7 package adds token metadata to the 0.6.6 audio preparation.
-Deployment evidence belongs in [done.md](../../done.md).
-Physical voice tests remain deferred; native audio requires an explicitly
-configured endpoint and verified account/model access.
-
-Home shows a **Cheap / Reasonable price / Expensive / Unavailable** price chip only
-while the Model carousel item is visible. Cheap is green, Reasonable price orange,
-Expensive red, and Unavailable gray. The elapsed timer remains independent.
-A band-only update does not restart the carousel, title reveal or sound.
-**Model & Context** shows **Reasonable price** or the other known bands as
-**Std price: ...** and otherwise
-shows **Price unavailable**, keeping compaction and context status separate.
-
-The portable Python catalog owner downloads the
-official [Codex Standard credit table](https://learn.chatgpt.com/docs/pricing)
-in the existing broker's background thread on its first start each local day.
-It makes no API call and requires no API key. Hooks never download prices.
-Rates, source, retrieval time and the daily attempt record stay in
-`%LOCALAPPDATA%/CodyCodexPlugin/artifacts/pricing/codex-standard.json`.
-
-The product's qualitative policy uses uncached input and output credits per
-million tokens: Cheap requires input <= 10 and output <= 50; Reasonable requires
-input <= 100 and output <= 500; other recognized rates are Expensive. These
-thresholds describe a Standard reference, not OpenAI's model categories, account
-balance, speed, included-plan allowance or the cost of a chat. Cached-input rates
-are retained for source completeness and never used to guess chat expenditure.
-No dollar amount, rate or token-cost calculation is sent to Cody.
-
-Only explicitly mapped exact observed model IDs qualify. Missing/unsupported models,
-expired observations, an old-day catalog, failed refresh/persistence, or invalid
-cache produce Unknown. A failed download is attempted only once that day, even
-across broker restarts; it preserves the last valid catalog without presenting
-it as current. Midnight alone does not fetch: the badge expires and the next
-broker start or newly attached MCP transport triggers the daily refresh.
-Lease renewals and ordinary hooks never fetch. Corrupt cache is
-reported and left intact for explicit repair. The normal activity/link still
-works when this optional metadata fails. The existing credential/launch boundary
-remains Windows-specific; the new pricing module uses only portable Python.
+The owner declined separately billed APIs on 15 October. Future built-in voice
+integration remains deferred until the existing Desktop host exposes a usable
+public ingress. The public experimental queue may change with Codex versions;
+setup/native errors remain visible instead of switching to a private integration.
 
 ## Followed-chat tokens and compaction
 
@@ -217,47 +142,37 @@ before a new one is offered. See the [wire contract](protocol/CCP1.md) and
 4. In a local Codex session, open `/hooks`, review and authorize CCP definitions.
    Installation and native hook trust are separate operations.
 5. Send a real prompt in the chat to establish observed activity.
-6. For optional device dictation, run the installation step below using the same
-   Python interpreter as MCP. Pairing, native endpoint availability and model audio
-   acceptance are separate gates. Ordinary CCP works without dictation.
+6. For optional WAV attachments, enable the queue route with the same Python
+   interpreter as MCP. Pairing and queue admission are independent of model audio
+   understanding. Ordinary CCP works without audio.
 
 ```powershell
-# Diagnose the running Desktop host without changing its configuration.
+# Inspect the installed native executable without changing settings.
 .\scripts\device.ps1 codex-audio
 
-# Only if that same Desktop host exposes a documented loopback WebSocket listener:
-# replace the example port with the endpoint actually provided by that host.
-.\scripts\device.ps1 codex-audio -InstallAudioDependencies `
-    -CodexAudioEndpoint 'ws://127.0.0.1:4500'
+# Enable WAV attachments to the existing chat; no transcription service.
+.\scripts\device.ps1 codex-audio -EnableAudioQueue -InstallAudioDependencies
 ```
 
-Add `-CodexAudioTokenFile 'C:\absolute\existing-host-capability.txt'` if the host
-requires a capability. Never paste the capability itself. `-PythonExecutable`
-must select the interpreter used by the plugin; by default this is `python`, not
-the simulator environment. Dependency installation is explicit and runs only with
-`-InstallAudioDependencies`.
+Setup normally selects the native executable owned by the running Windows Desktop
+app. `-CodexExecutable 'C:\absolute\codex.exe'` explicitly selects an installed
+native CLI when automatic selection is ambiguous or on another platform. The
+optional `-PythonExecutable` must match MCP; it is not the simulator environment.
+Dependency installation runs only with `-InstallAudioDependencies`.
 
-Setup verifies that the exact loopback listener belongs to the app-server child
-of the Windows Store Codex Desktop app. It then initializes a native client and
-reads the genuine followed chat, requiring that chat to be loaded in this host.
-A changed chat, missing listener, capability failure, invalid existing settings
-or native rejection fails setup without replacing configuration. It never launches
-another app-server, resumes a chat or submits input to test readiness.
-Remove an intentional audio environment override before saving installation settings.
+The read-only setup probe checks the exact hook-observed chat and public queue,
+then checks that the followed chat did not change. It saves no API keys or tokens
+and submits no audio. Invalid previous settings require explicit review; the old
+endpoint configuration is not migrated or silently replaced. An intentional
+`CODY_CODEX_AUDIO_EXECUTABLE` environment override is supported; remove it before
+saving installation settings. Obsolete endpoint/token environment settings fail
+explicitly instead of activating a fallback.
 
-After successful setup, restart Codex to load the updated installed plugin and
-configuration, send a genuine prompt, and inspect `ccp_audio_status`.
-`native_configuration_source` distinguishes `installation`, `environment`,
-`unconfigured` and `invalid`. `native_ready=true` confirms only the read probe;
-real dictation and account/model audio acceptance still need an end-to-end check.
-
-On the inspected Windows Desktop build `26.1007.9446.0` on 15 October 2026, the
-actual app-server uses the default stdio transport and owns no TCP listener.
-The official [transport documentation](https://learn.chatgpt.com/docs/app-server)
-describes listener selection at app-server startup, but no verified attach setting
-for this already-running Desktop host was found. Installation cannot activate
-native dictation on this host until it exposes a supported shared endpoint;
-an example URL or a second independent server would not supply that capability.
+Reload the installed CCP broker after updating source/configuration and send a
+genuine prompt so that it follows this chat. `ccp_audio_status.native_ready`
+confirms recent read-only access, not transcription, a spoken reply or physical
+recording behavior. The existing device's **Sent to Codex** state acknowledges
+native queue admission only. The WAV stays in private PC artifacts for inspection.
 
 The canonical manifest is `.codex-plugin/plugin.json`. Native inspections of
 Codex 0.161.0 and 0.162.0-alpha.17.2 found zero hooks when a portable root

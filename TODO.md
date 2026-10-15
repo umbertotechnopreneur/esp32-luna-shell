@@ -11,23 +11,20 @@ reopens. Already-loaded clients supply no normal-close proof and remain
 Unavailable on release. After broker restart, a genuine new prompt restores
 followed chat metadata; no activity is synthesized to fill that gap.
 
-The optional native audio installer now has a `codex-audio` CLI/menu route with
-explicit dependency installation, live Desktop ownership/chat checks and atomic
-per-user configuration. Final host checks passed; local package adoption is
-recorded in [done.md](done.md). The inspected Desktop host uses stdio and owns no TCP listener, so
-actual native endpoint activation remains unavailable in VOICE-01.
+The owner accepts WAV attachment delivery to this existing Codex chat and declines
+separate transcription APIs/services/costs (15 October). The public experimental
+queue pilot preserved all 359406 WAV bytes with matching SHA-256 in this chat.
+Codex prompt preparation replaces unsupported audio with the observed omission
+message before the model sees it; no transcription or understanding is claimed.
 
-The owner approved a public experimental audio queue pilot on physical Cody;
-the exact reply was acknowledged as delivered. Native initialization, queue
-listing and one synthetic `localAudio` WAV admission passed. A temporary standard
-stdio queue writer never loaded/resumed a chat or requested inference. The pilot
-left the queue and persisted the complete WAV in this chat. A second explicitly
-authorized, marked pilot confirmed all 359406 bytes and the original SHA-256 in
-the public chat history. This session's model catalog advertises text/image;
-Codex's public prompt-normalization source strips unsupported audio and emits
-the exact omission message received here. Queue/chat delivery works; speech
-does not reach this model through this route. Keep physical submission disabled;
-do not override model modalities or restore the rejected launcher/proxy.
+The audio receiver now uses an explicit installed native executable and the
+public queue, with a reused queue-only stdio client. Setup is
+`device.ps1 codex-audio -EnableAudioQueue`; it probes read-only access and stores
+no API credentials. Completed WAVs are admitted once to the frozen followed chat;
+uncertain admission is not retried. Source implementation, local validation and
+installed adoption are distinguished in [done.md](done.md). Physical recording
+and model-side speech understanding remain in VOICE-01. No private endpoint,
+model-modality override or discarded launcher/proxy is restored.
 
 Readable tool captions are active on the PC, including a known-ID table and
 complete underscore-cleaned unknown names. Final host, installed-cache and
@@ -47,8 +44,8 @@ from synthetic screenshots, current PC metadata or authenticated LAN presence.
 The user's deferred voice and walking/classifier trials remain in
 [planned-todo.md](planned-todo.md), together with physical wake/shutdown, energy
 measurements, nested stack headroom and native Desktop audio/runtime verification.
-Native audio still requires a verified attach endpoint; existing Desktop questions
-cannot be imported retroactively. Moving a gate does not mark it passed or request
+Future built-in speech understanding still needs a usable public ingress;
+existing Desktop questions cannot be imported retroactively. Moving a gate does not mark it passed or request
 user action now. A restarted CCP broker awaits a genuine user prompt to follow a chat.
 
 The accepted SD/PCB limitation is unchanged. No model training or classifier-led

@@ -34,7 +34,7 @@ function Get-DeviceActionParameters {
         'boot-screens' = @('Rotation','AtMs','SafeGuide','PythonExecutable')
         'simulator-luna' = @('PythonExecutable','ToolArguments')
         'package-simulator' = @()
-        'codex-audio' = @('CodexAudioEndpoint','CodexAudioTokenFile','InstallAudioDependencies','PythonExecutable')
+        'codex-audio' = @('CodexExecutable','EnableAudioQueue','InstallAudioDependencies','PythonExecutable')
         check = @('Check','PythonExecutable','ToolArguments')
         generate = @('Generator','PythonExecutable','ToolArguments')
         banner = @('ToolArguments')

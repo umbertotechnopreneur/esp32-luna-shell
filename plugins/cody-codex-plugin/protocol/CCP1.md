@@ -809,7 +809,8 @@ be retained when that coordinated future protocol is designed.
 UDP port 42119 carries a separate one-way enhanced PCM16 mono 16 kHz stream.
 An utterance is at most 60 seconds, or 1,920,000 real PCM bytes. The device has a
 separate ten-second acknowledgement ring, not a sixty-second recording buffer.
-Deliberate shake requests cancellation; no voice touch control is presented.
+Deliberate shake or a double tap discards a recording; a single tap sends it.
+Start/send countdowns admit immediate tap cancellation before native submission.
 The header is network-order `!4s6s16s16sIBH`: magic, binary device identity,
 16-byte utterance identity, 16-byte authenticated discovery nonce, uint32 sequence,
 uint8 kind and uint16 plaintext byte count. Device magic is `CYA1`; PC magic is
@@ -828,15 +829,16 @@ and the 12-byte nonce `DAT1 || uint64(sequence)` for device packets. Retries rep
 identical ciphertext, never different plaintext under the same nonce. PC ACKs
 use `ACK1 || uint64(ack counter)` with a strictly increasing counter. ACK plaintext
 is `!IB`: acknowledged device sequence plus status START accepted=1, PCM received=2,
-whole utterance received=3, native Codex accepted=4, failed/cancelled=5 or native
+whole utterance received=3, native Codex queue accepted=4, failed/cancelled=5 or native
 submission unconfirmed=6. An unconfirmed input is never automatically repeated.
 
 START requires both a fresh authenticated CCP peer and that peer's current
 discovery nonce. This prevents an old recorded START from reopening an utterance
 after the bounded transient record expires. Retained pairing alone never admits
 audio. A recent successful native initialization/thread-read probe for the followed
-chat is also required: five-second probe budget, five-second refresh, ten-second
-maximum age. This is reachability evidence, not model/audio capability evidence.
+chat is also required: five-second refresh, ten-second maximum age. Each bounded
+public RPC allows up to fifteen seconds; a stalled probe does not renew freshness.
+This is reachability evidence, not model/audio capability evidence.
 Later blocks remain bound to the original endpoint, credential, utterance
 and discovery nonce; ordinary CCP challenge rotation does not rekey an active stream.
 
@@ -846,15 +848,27 @@ and fails explicitly on overflow. Reconnection requires the same authenticated
 credential and IP. A transmitted END makes later transport failure Unconfirmed.
 The four ciphertext slots use at most 4,352 component-owned bytes, not task stack.
 The transport service cadence is five milliseconds, with a minimum of one RTOS tick.
-The PC freezes the genuine followed chat
-at START and submits only a completed recording to that same native chat. Steering
-uses the current same-chat hook turn at submission, protected by expectedTurnId;
-a concurrent conflict fails explicitly and retains the WAV. clientUserMessageId
-carries the utterance identity for correlation, not assumed deduplication. Status
-exposes that identity, native turn, WAV path and uncertainty without audio content.
-END receipt
-is not native acceptance, and native acceptance is not task completion. CANCEL
-cannot revoke a native submission already in flight; its actual eventual outcome
-is returned rather than claiming rollback. Metadata CCP packets remain authenticated
+The PC freezes the genuine followed chat at START. After END it writes the complete
+WAV exclusively and calls the public experimental `thread/queue/add` once, using
+that same chat and `clientUserMessageId` equal to the recording ID. A last-moment
+chat switch or cancellation prevents admission. The stable ID is correlation,
+not an assumption of server deduplication. A matching native receipt publishes
+status 4; a lost or mismatched receipt publishes uncertainty without replay.
+
+The queue-only standard stdio app-server permits initialization, `thread/read`,
+`thread/queue/list` and `thread/queue/add` only. It never starts/resumes a model
+session or answers a native approval. Readiness reuses one owned process rather
+than spawning repeatedly. Its `notLoaded` metadata describes this client, not
+Desktop's actual active state. The installed native executable is explicit;
+there is no loopback endpoint, separate API credential or transcription service.
+
+Status exposes the recording ID, real native queue ID, WAV path and uncertainty
+without audio contents. END receipt is not queue acceptance; queue acceptance is
+not Desktop consumption, transcription or task completion. The verified synthetic
+trace on 15 October preserved the full WAV in chat, while Codex prompt preparation
+replaced unsupported audio with the omission placeholder for the model. Physical
+recording remains a separate gate. CANCEL cannot revoke queue admission already
+in flight; its actual eventual result is returned rather than claiming rollback.
+Metadata CCP packets remain authenticated
 plaintext; this audio extension does not replace or strengthen the existing pairing
 scheme. Cryptographic/wire/physical checks of this source increment remain pending.

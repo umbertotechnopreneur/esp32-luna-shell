@@ -13,6 +13,33 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## WAV attachment delivery enabled without transcription services - 2026-10-15
+
+The owner accepts same-chat WAV attachments and declines additional speech APIs,
+services or billing. The optional receiver now reuses a standard native stdio
+queue client, restricted to initialization, chat metadata and public experimental
+queue operations. Completed recordings retain their frozen genuine chat identity;
+changed chat/cancellation prevents admission. A matching queue receipt alone sets
+Sent to Codex. Rejection and uncertain delivery stay distinct, with no automatic
+replay. No model session, modality override, private endpoint or transcript is
+created. Speech understanding remains unavailable in the installed model catalog.
+
+The public codex-audio installer now selects the installed native executable,
+probes the followed chat/queue without submitting input, then saves explicit
+opt-in configuration. Invalid prior settings remain errors. The unused WebSocket
+dependency and endpoint/token setup were removed.
+
+Final local checks passed: 10 queue, 10 setup, 11 voice-input, 139 CCP and 14 console
+cases (184 total; native host assertions used MSVC). The real read-only setup probe
+also passed and saved configuration. Six installed plugin files match source by
+SHA-256; backups and manifest are under artifacts/checks/cody-audio-delivery.
+Only the verified CCP broker was restarted. A subsequent genuine user prompt
+restored followed-chat metadata. Live status confirms authenticated LAN presence,
+the installed public_audio_queue route, native_ready=true, no native error and
+transcription_available=false. No fresh WAV or physical recording was sent during
+this installation, and no firmware build or flash was performed. The earlier
+synthetic WAV history/hash evidence below remains separate from physical behavior.
+
 ## Public audio trace isolates prompt normalization - 2026-10-15
 
 The owner's second explicitly authorized pilot used a distinct ID and a text

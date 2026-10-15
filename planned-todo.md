@@ -412,6 +412,17 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   the exact observed omission placeholder. No transcript or speech response was
   produced. Revisit with supported audio/transcription ingress; never override
   modality metadata to bypass this gate.
+  The owner then declined separately billed transcription APIs through an
+  acknowledged physical Cody answer and explicit chat confirmation. WAV attachment
+  delivery is accepted without transcription. The receiver now uses the public
+  experimental queue, not turn/start, turn/steer or a Desktop listener. Validate
+  physical capture -> final WAV -> queue receipt -> actual Desktop consumption
+  separately; do not equate queue acceptance with speech understanding.
+  The installed exported schema has 170 methods and no standalone dictation or
+  transcription RPC. Public realtime/start requires a loaded conversation in
+  its owning process; the inspected Desktop still has no TCP listener. The public
+  daemon-version read failed to connect to its control socket (Windows 10050),
+  so it supplies no verified attach route. Future native dictation remains deferred.
   The custom Desktop launcher/proxy was discarded before activation; do not
   restore undocumented or fragile integration without specific owner approval.
 - [ ] **TTS-01 - Storage and audible speech.** Require observed SD availability
@@ -599,7 +610,8 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
   The exported Codex 0.147.0 schema inspected on 2026-10-10 contained experimental
   `thread/realtime/start`, `thread/realtime/appendAudio` and
   `thread/realtime/outputAudio/delta`, with transcription and audio/text output.
-  External transcription/synthesis is therefore not a decided requirement.
+  The owner explicitly declined separate transcription APIs/costs on 2026-10-15;
+  retain this as future built-in integration research, not an external-service task.
   Hooks remain activity metadata; audio needs separate transport. Account
   availability, audio format and access to an already open desktop chat remain
   unverified. No voice session or device transport was started by that research.

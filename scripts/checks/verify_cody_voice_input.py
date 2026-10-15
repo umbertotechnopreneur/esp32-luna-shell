@@ -1,9 +1,7 @@
 """Prepared host boundary cases; execute only with fresh explicit authorization."""
 
-from collections import deque
 import hashlib
 import hmac
-import json
 from pathlib import Path
 import sys
 import threading
@@ -175,15 +173,6 @@ class VoiceInputBoundaries(unittest.TestCase):
         self.assertEqual(recording.status, 5)
         self.assertEqual(len(recording.pcm), audio.MAX_PCM)
 
-    # self: Native protocol fixture with a genuine pending approval request.
-    # Raises AssertionError if the plugin returns any approval or invents audio acceptance.
-    def test_native_approval_is_never_answered(self):
-        connection = Mock()
-        connection.recv.side_effect = deque([json.dumps({"id": 3, "method": "item/commandExecution/requestApproval", "params": {}})])
-        with self.assertRaisesRegex(RuntimeError, "desktop client"):
-            audio.rpc(connection, 3, "turn/start", {"threadId": "test-chat", "input": []})
-        self.assertEqual(connection.send.call_count, 1)
-
     # self: Receiver whose native readiness is unavailable or stale.
     # Raises AssertionError if recording is admitted without a recent matching native probe.
     def test_start_rejects_unavailable_native_before_pcm(self):
@@ -215,24 +204,6 @@ class VoiceInputBoundaries(unittest.TestCase):
                                              ack[audio.HEADER.size:], ack[:audio.HEADER.size])
         self.assertEqual(audio.struct.unpack("!IB", plain), (4, 2))
 
-    # self: Native bridge fixture; the current same-chat hook turn differs from capture start.
-    # Raises AssertionError if steering uses the old turn or loses the recording correlation ID.
-    def test_submission_uses_current_turn_in_frozen_chat(self):
-        self.receiver.accept(self.packet(0, 1), self.source)
-        recording = next(iter(self.receiver.records.values()))
-        admission = Mock(return_value="new-turn")
-        connection = Mock()
-        with patch.object(audio, "connect_native", return_value=connection), patch.object(audio, "rpc") as native:
-            native.side_effect = [{"thread": {"id": "test-chat", "status": {"type": "active"}}},
-                                  {"turnId": "new-turn"}]
-            audio.submit_native(recording, Path("synthetic.wav"), "ws://127.0.0.1:1", admission)
-        admission.assert_called_once_with(True)
-        params = native.call_args.args[3]
-        self.assertEqual(params["expectedTurnId"], "new-turn")
-        self.assertEqual(params["threadId"], "test-chat")
-        self.assertEqual(params["clientUserMessageId"], self.session.hex())
-        self.assertEqual(recording.native_turn_id, "new-turn")
-        connection.close.assert_called_once()
 
 
 if __name__ == "__main__":
