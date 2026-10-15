@@ -36,12 +36,45 @@ evidence and source/transport errors remain Unavailable. SessionEnd never means
 app closure: it can also mean archive/delete. Home Device shows Codex open/closed
 only from admitted current canonical evidence. No new polling worker is added.
 
-Implementation and independent source review are complete at this checkpoint.
-Host fixtures, compilation, installation and physical validation are not yet
-claimed. The currently installed image remains cody-176-gb43fe3de until final
-delivery. Authenticated LAN is online; the actual PC audio status still reports
-an unconfigured native loopback endpoint. No second app-server or UI workaround
-was introduced to conceal that delivery limitation.
+Final Windows host evidence passed: 13 voice-owner/receiver cases, native voice
+UI/gesture/raster checks with seven SIMULATED countdown previews, 132 CCP cases,
+47 CCP simulator cases, snapshot integrity, shared runtime, native renderer,
+power source/model and compiled real power-owner fixtures, and git diff --check.
+The CLI's global operation lock rejected two initially parallel groups before
+they ran. Serial execution passed. The first simulator run rejected an outdated
+native DLL; regeneration restored all 47 cases without weakening provenance.
+Failed and successful logs remain separate.
+
+Release cody-178-g0d82a93f completed 1,499 Ninja steps with eight jobs. The actual
+7,150,896-byte image leaves 123,600 bytes in the unchanged OTA slot; static DIRAM
+is 243,644 bytes and external static RAM is 100,804 bytes. Individual frames
+passed: power 1,152/8,192, companion 352/12,288 and link 80/8,192 bytes. New voice
+frames are request 192, countdown admission 32, feed 48 and transport 256 bytes.
+These are not full nested chains or measured runtime headroom. The final flash
+stamp is 15/10/26 06:56 in the actual compiling PC's local timezone.
+
+COM10 flash verified the written hash. Installed image SHA256 is
+`d10667354fad1cca5daeff5d94028b9e47754a8ae85cf128d780958d0c5062ce`.
+A 30-second pre-flash capture included the preceding image's boot records, not
+the original reported voice failure. The following 60-second capture contained
+no panic/backtrace; it retained known SD/PCB timeouts, HAR cadence rejection,
+two USB log losses and one NAMECAP send errno 12. Subsequent authenticated name
+and clock reads succeeded. This does not prove voice, gait or optical accuracy.
+
+The 25 installed plugin files were backed up, the new presence module added,
+and all 26 registered files verified against tested source by hash. Only the
+exact broker was restarted. Authenticated LAN and MCP-source Open resumed with
+pairing, Umberto, Asia/Ho_Chi_Minh and quiet-hours-off retained. Existing loaded
+development clients still lack the new normal-EOF flag until Codex reopens;
+their release remains Unavailable. A real next prompt restores followed chat
+metadata after broker restart. No focus or hook event was synthesized.
+
+Evidence is under artifacts/build-cody-companion-wake-word-evidence/voice-presence-20261015,
+including final-host-evidence and installed-release178 ELF/map/image/metadata.
+Physical GUI closure, voice trials and complete stack headroom remain deferred.
+The actual native audio endpoint remains unconfigured; after broker restart,
+readiness additionally awaits a genuine followed chat. No second app-server or
+UI workaround was introduced to conceal the delivery limitation.
 
 ## Four Home panels, finite CCP introduction and other-chat reply - 2026-10-14
 

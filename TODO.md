@@ -1,15 +1,15 @@
 # Active work
 
-Updated 2026-10-15. Codex MCP presence and the cancellable voice countdowns are
-implemented and statically integrated. Complete the announced final host checks,
-Release build/size/stack review, installation and passive capture before recording
-them as validated. The physical GUI exit and voice/gait trials remain separate.
+Updated 2026-10-15. The authorized implementation queue is complete. Release
+`cody-178-g0d82a93f` is installed on COM10; tested CCP source, including the new
+presence owner, is installed in the local plugin cache. Host checks, Release
+build/size/individual compiled frames, flash and passive capture are recorded in
+[done.md](done.md), with the four Home panels and earlier delivery evidence.
 
-The preceding 2026-10-14 delivery is complete.
-Release `cody-176-gb43fe3de` is installed on COM10; the matching CCP source is
-installed in the local plugin cache. Four Home panels, occupied context progress,
-independent Still, the taller recording ribbon, finite @CCP introduction and
-other-chat Reply ready are recorded with their evidence in [done.md](done.md).
+Normal-EOF reporting loads in existing development clients when Codex next
+reopens. Already-loaded clients supply no normal-close proof and remain
+Unavailable on release. After broker restart, a genuine new prompt restores
+followed chat metadata; no activity is synthesized to fill that gap.
 
 The latest Studio run passed 28 of 29 cases; Windows desktop screen capture
 failed in ImageGrab. Native pixel previews passed and remain available. This
