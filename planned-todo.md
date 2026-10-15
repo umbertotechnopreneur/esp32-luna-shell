@@ -404,9 +404,11 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   source/fixture validation.
   The owner subsequently approved the public experimental queue pilot. The
   installed native alpha accepted initialize/queue-list and one synthetic WAV
-  through queue-add, with no resume/start in the temporary stdio writer. Await
-  same-chat Desktop consumption and a response to the spoken contents before
-  enabling this route for device capture. Admission/removal alone is insufficient.
+  through queue-add, with no resume/start in the temporary stdio writer. The
+  item later left the queue, but this exact Desktop chat reported that its audio
+  content was omitted because audio input is unsupported. No speech transcript or
+  answer was produced; keep device capture disabled on this route. Revisit only
+  with a documented supported same-chat audio ingress and positive live evidence.
   The custom Desktop launcher/proxy was discarded before activation; do not
   restore undocumented or fragile integration without specific owner approval.
 - [ ] **TTS-01 - Storage and audible speech.** Require observed SD availability

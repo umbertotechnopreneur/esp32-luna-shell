@@ -20,11 +20,11 @@ actual native endpoint activation remains unavailable in VOICE-01.
 The owner approved a public experimental audio queue pilot on physical Cody;
 the exact reply was acknowledged as delivered. Native initialization, queue
 listing and one synthetic `localAudio` WAV admission passed. A temporary standard
-stdio queue writer never loaded/resumed a chat or requested inference. Desktop
-must still process that item in the same existing chat and respond to its spoken
-contents before physical recordings use this route. Queue admission or removal
-alone is not that proof. Do not replay the pilot automatically. The rejected
-custom launcher/proxy was removed from source and cache before activation.
+stdio queue writer never loaded/resumed a chat or requested inference. The pilot
+left the queue, but the resulting Desktop turn reported that audio content was
+omitted because audio input is unsupported. Speech was not transcribed or
+understood. Keep physical submission through this route disabled. Do not replay
+the pilot automatically or restore the rejected custom launcher/proxy.
 
 Readable tool captions are active on the PC, including a known-ID table and
 complete underscore-cleaned unknown names. Final host, installed-cache and

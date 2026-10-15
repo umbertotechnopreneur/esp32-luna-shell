@@ -22,7 +22,7 @@ MIRROR = Path("C:/Users/umber/OneDrive/Obsidian/30_Engineering/Products/Cody Com
 LOGO = ROOT / "simulator/windows/assets/branding/vibeware-logo.png"
 PREFIX = "CodyFrontmatter/"
 CATALOG = {
-    "cody-ccp-connection-atlas-v1.pdf": ("CCP Communication Atlas", "Pairing, your PC helper and voice input", [(1,"The simple picture"),(2,"Pairing"),(3,"Voice input"),(4,"Changing chat while recording"),(5,"Connection and everyday use"),(16,"Protocol reference"),(26,"Audio transport and delivery"),(29,"Plugin tools and setup"),(36,"Audio API and support boundaries"),(37,"Source references")]),
+    "cody-ccp-connection-atlas-v1.pdf": ("CCP Communication Atlas", "A visual guide to pairing, replies and voice", [(1,"System map"),(2,"Setup"),(3,"Pairing"),(4,"Everyday work"),(5,"Questions"),(6,"Recording"),(7,"Audio delivery"),(8,"Available operations"),(9,"Diagnosis"),(10,"Sources and evidence")]),
     "cody-navigation-atlas-v1.pdf": ("Navigation Atlas", "Find your way through Cody", [(1,"Overview and first setup"),(5,"Connect Codex"),(7,"Home, information and Setup"),(9,"Questions and reply delivery"),(11,"Work status"),(12,"Voice journey"),(13,"Battery, standby and recovery"),(15,"Debug views")]),
     "cody-planning-atlas-v1.pdf": ("Planning Atlas", "Screen journeys, character and visual language", [(1,"Overview and screen inventory"),(3,"Circular layout"),(4,"Boot and setup"),(8,"Codex pairing and work"),(12,"Questions and replies"),(15,"Battery and sleep"),(17,"Character studies"),(20,"Color system"),(21,"Setup and information panels"),(23,"Voice design")]),
     "cody-manga-status-atlas-v1.pdf": ("Manga Status Atlas", "Expressions, materials and small moments", [(1,"Overview and current screens"),(3,"The fourteen expressive cues"),(5,"Pearl Mist"),(7,"Aurora Veil"),(9,"Cosmic Stardust"),(11,"Enchanted Mosaic"),(13,"Comparison, layout and decisions"),(16,"Idle moments"),(19,"Current behavior"),(25,"VibeWare boot identity"),(28,"Current screen revisions")]),
@@ -32,7 +32,7 @@ CATALOG = {
 # Section identities are text anchors, not fixed page offsets. A revised source may
 # insert or reorder pages without leaving the edition's contents pointing elsewhere.
 ANCHORS = {
-    "cody-ccp-connection-atlas-v1.pdf": [None, "Pairing is recognition, not a promise", "Speaking to Cody: one careful handoff", "If you change chat while recording", "One connection, three different facts", "Ports and packet envelopes", "Audio is a separate one-way binary channel", "CCP and the plugin: who does what?", "Audio input: public API and support boundaries", "Source crosswalk"],
+    "cody-ccp-connection-atlas-v1.pdf": ["One device, one PC, one chat", "From power-on to Setup", "Pair once, prove presence each time", "Work and link are separate", "A question waits for its real recipient", "Record, then decide to send", "Audio handoff: where proof stops", "What you can ask CCP to do", "Diagnose the right layer", "Source map and evidence"],
     "cody-navigation-atlas-v1.pdf": [None, "Connect Codex / a separate decision", "Home and companion information", "Read a question, then choose", "PR status belongs to ordinary activity", "Voice input / retained planned journey", "Battery notices at a quiet moment", "Character debug and preview boundaries"],
     "cody-planning-atlas-v1.pdf": [None, "The circle is usable space", "Cody's current cold boot", "Pair Codex, then find the retained PC", "A question deserves its own attention", "Battery notices feel like Cody", "Inspect the composed expression", "The shared palette / all 256 slots", "Setup keeps intent and routes explicit", "Planned voice: wake, capture, send"],
     "cody-manga-status-atlas-v1.pdf": [None, "The fourteen cues / sensations", "Pearl Mist / 01", "Aurora Veil / 01", "Cosmic Stardust / 01", "Enchanted Mosaic / 01", "Compare the four materials", "Small moments while Cody waits", "A mouth that visibly breathes", "VibeWare first. Cody next.", "Addendum / boot and Wi-Fi"],
@@ -80,7 +80,10 @@ def wrapped(surface, text, x, y, width, size, font="Helvetica"):
 # subtitle: Short purpose statement.
 # size: Native page dimensions.
 # entries: Section labels and final absolute page numbers.
-def front_pages(title, subtitle, size, entries):
+# edition_date: Original date to show on the cover.
+# classification: Cover classification appropriate to this document.
+def front_pages(title, subtitle, size, entries, edition_date="12 October 2026",
+                classification="CONFIDENTIAL / INTERNAL USE ONLY"):
     width, height = size
     stream = BytesIO()
     surface = canvas.Canvas(stream, pagesize=size)
@@ -94,7 +97,7 @@ def front_pages(title, subtitle, size, entries):
     surface.roundRect(margin, height * .89, width * .44, 23, 11, fill=1, stroke=0)
     surface.setFillColor(colors.HexColor("#11233B"))
     surface.setFont("Helvetica-Bold", 8)
-    surface.drawString(margin + 12, height * .89 + 8, "CONFIDENTIAL / INTERNAL USE ONLY")
+    surface.drawString(margin + 12, height * .89 + 8, classification)
     surface.drawImage(str(LOGO), margin, height * .67, width=width * .21, height=height * .14, preserveAspectRatio=True, mask="auto")
     surface.setFillColor(colors.HexColor("#58D5C9"))
     surface.setFont("Helvetica-Bold", 13)
@@ -104,7 +107,7 @@ def front_pages(title, subtitle, size, entries):
     surface.setFillColor(colors.HexColor("#C7D9E8"))
     wrapped(surface, subtitle, margin, end - 15, width - 2 * margin, 12)
     surface.setFont("Helvetica", 10)
-    surface.drawString(margin, height * .17, "DRAFT / 12 October 2026")
+    surface.drawString(margin, height * .17, "DRAFT / " + edition_date)
     surface.drawString(margin, height * .125, "Copyright (c) 2026 Umberto Giacobbi")
     surface.drawString(margin, height * .095, "umbertogiacobbi.biz")
     surface.showPage()
@@ -162,7 +165,9 @@ def publish(path):
         content.insert_pdf(register)
         sections = sections + [(count + 1, "This edition / revision record")]
     entries = [(label, number + 2) for number, label in sections]
-    front, step = front_pages(title, subtitle, size, entries)
+    edition_date = "15 October 2026" if path.name == "cody-ccp-connection-atlas-v1.pdf" else "12 October 2026"
+    classification = "DRAFT / SOURCE REFERENCE" if path.name == "cody-ccp-connection-atlas-v1.pdf" else "CONFIDENTIAL / INTERNAL USE ONLY"
+    front, step = front_pages(title, subtitle, size, entries, edition_date, classification)
     final = pymupdf.open(stream=front, filetype="pdf")
     final.insert_pdf(content)
     width, height = size
@@ -176,13 +181,16 @@ def publish(path):
             continue
         # The small edition label occupies the outer top margin, without rewriting history.
         page.draw_rect(pymupdf.Rect(0, 0, page.rect.width, 13), color=None, fill=(1, 1, 1), overlay=True)
-        page.insert_text((10, 9), f"DRAFT / CONFIDENTIAL / INTERNAL USE ONLY     PDF PAGE {index + 1} / {len(final)}", fontsize=6, color=(.22, .30, .39))
-        if any(line == "Security" or line.endswith(" / Security") for line in page.get_text().splitlines()[:5]):
+        page.insert_text((10, 9), f"{classification}     PDF PAGE {index + 1} / {len(final)}", fontsize=6, color=(.22, .30, .39))
+        if path.name != "cody-ccp-connection-atlas-v1.pdf" and any(
+            line == "Security" or line.endswith(" / Security")
+            for line in page.get_text().splitlines()[:5]
+        ):
             # An earlier edition painted over part of this heading. Replace only
             # its visual header band; the historical security entries stay intact.
             page.draw_rect(pymupdf.Rect(38, 39, page.rect.width - 38, 67), color=None, fill=(1, 1, 1), overlay=True)
             page.insert_text((42, 62), "Security", fontsize=23, fontname="hebo", color=(.09, .16, .24))
-    final.set_metadata({"title": "Cody / " + title, "author": "Umberto Giacobbi", "subject": "Draft - Confidential - Internal use only", "keywords": PREFIX + str(count)})
+    final.set_metadata({"title": "Cody / " + title, "author": "Umberto Giacobbi", "subject": classification, "keywords": PREFIX + str(count)})
     temporary = STAGING / path.name
     final.save(temporary, garbage=4, deflate=True)
     final.close()

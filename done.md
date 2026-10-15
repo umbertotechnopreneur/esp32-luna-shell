@@ -13,6 +13,24 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Visual communication atlas and audio pilot result - 2026-10-15
+
+The synthetic localAudio item left the public experimental queue for this exact
+Desktop chat. The next user turn reported that the audio content was omitted
+because audio input is unsupported. This confirms the queue pilot did not meet
+the requested same-chat transcription/response gate; no physical voice route
+was enabled or retried.
+
+The canonical CCP communication PDF now has 16 pages instead of 49: ten visual
+journey pages, cover/contents and a concise final dated revision/Security grid.
+Pairing, activity, questions, recording, audio handoff and diagnosis use diagrams;
+question and voice UI proposals are marked as proposals, not device captures.
+The former full narrative remains in Git history and exact wire fields remain
+in CCP1.md. The final rendered pages were visually reviewed. The Obsidian copy
+is byte-identical, SHA-256
+303623abe87c25872f09ab9a34ad1b85f16797f39ec64d6252e1c6e09baccd18.
+PDF authoring proves no new firmware or physical behavior.
+
 ## Readable tool names and public audio queue pilot - 2026-10-15
 
 The PC activity owner now projects genuine tool IDs through one English label
