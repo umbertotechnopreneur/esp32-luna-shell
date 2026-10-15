@@ -259,6 +259,13 @@ CODY_HOST_EXPORT bool cody_host_event_controls_ready(const Presentation::Plan *p
     return plan && Presentation::controls_ready(*plan, characters, title_length);
 }
 
+// line: Shared line style, passed by value as a bounded 68-byte host-only projection.
+// elapsed_us: Nonnegative host scene time in microseconds.
+CODY_HOST_EXPORT uint16_t cody_host_event_line_color(Presentation::Line line, uint64_t elapsed_us)
+{
+    return Presentation::line_color(line, elapsed_us);
+}
+
 // text: Bounded printable ASCII event narrative from the host transport boundary.
 // length: Exact byte count, excluding the trailing NUL.
 // plan: Receives complete production wrapping without a Python text algorithm.

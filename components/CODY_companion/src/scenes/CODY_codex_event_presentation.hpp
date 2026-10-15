@@ -125,7 +125,28 @@ inline Route destination(const LUNASHELL::CodexEventSnapshot &event,
 enum class ActionId : uint8_t { None, Open, Choose, Send, Dismiss, Retry, Failures, Back, SelectQuestion };
 enum class Effect : uint8_t { None, Render, Reply, Dismiss, Observe, SelectQuestion };
 struct Bounds { uint16_t x = 0, y = 0, width = 0, height = 0; };
-struct Line { char text[64]{}; uint16_t top = 0; bool instant = false; };
+struct Line {
+    char text[64]{};
+    uint16_t top = 0;
+    bool instant = false;
+    bool delivery_pulse = false;
+};
+
+// line: Shared narrative/status style; only an active delivery wait pulses.
+// elapsed_us: Pausable scene time, unrelated to the actual delivery deadline.
+inline uint16_t line_color(const Line &line, uint64_t elapsed_us)
+{
+    if (!line.delivery_pulse) { return line.instant ? 0xBDF7 : 0xFFFF; }
+    // A 1.6-second breathing cycle stays readable at its darkest point. Quantize
+    // to 50 ms so unchanged colors do not request redundant content redraws.
+    const uint32_t step = (elapsed_us % 1600000U) / 50000U;
+    const uint32_t ramp = (step <= 16U ? step : 32U - step) * 16U;
+    const uint32_t blend = ramp * ramp * (768U - 2U * ramp) / 65536U;
+    const uint16_t red = 3U + 2U * blend / 256U;
+    const uint16_t green = 20U + 16U * blend / 256U;
+    const uint16_t blue = 22U + 9U * blend / 256U;
+    return static_cast<uint16_t>((red << 11U) | (green << 5U) | blue);
+}
 struct Action {
     ActionId id = ActionId::None;
     char choice_id[13]{};
@@ -574,8 +595,15 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         text(event.title);
         text(!context.online ? "Offline - reply pending" : event.state == State::Received ?
             "Reply reached your PC" : "Sending your reply");
+        // Keep the single delivery indicator below the question and transport
+        // status. It is read-only and never enters the action or audio budget.
+        top = 320;
         text("Confirming delivery", true);
+        if (error == ESP_OK) {
+            plan.lines[plan.line_count - 1U].delivery_pulse = context.online && event.last_error == ESP_OK;
+        }
         if (event.last_error != ESP_OK) {
+            top = 354;
             std::snprintf(status, sizeof(status), "Error: 0x%08lX", static_cast<unsigned long>(event.last_error));
             text(status, true);
         }

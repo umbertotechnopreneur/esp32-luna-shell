@@ -203,8 +203,10 @@ class EventView:
             text = line.text.decode("ascii")
             characters = (len(text) if timing[5] else 0) if line.instant else painter.content_characters(
                 identity, elapsed, len(text), preceding)
+            if line.delivery_pulse and not controls_visible:
+                characters = 0
             painter.paint_text(image, text, line.top, body=True, max_width=300, visible=characters,
-                               color=0xBDF7 if line.instant else 0xFFFF)
+                               color=self.native.line_color(line, round(elapsed * 1000)))
             if not line.instant:
                 preceding += len(text)
         if controls_visible:

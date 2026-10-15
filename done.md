@@ -13,6 +13,17 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Delivery-wait indicator source refinement - 2026-10-15
+
+Moved the single `Confirming delivery` status to y=320 below the question and
+transport message. Online/error-free waits use a readable electric-blue pulse
+with a 1.6-second cycle, shared between firmware and Studio through the native
+presentation model. Offline/error states stay muted; real errors occupy y=354.
+The line remains read-only and outside narrative audio. Delivery acknowledgement,
+expiry and retry behavior are unchanged. Static source review only: no tests,
+simulator, configure/build/size, flash or physical visual validation was run.
+Pending validation and the separate reported delivery failure remain in TODO.md.
+
 ## WAV attachment delivery enabled without transcription services - 2026-10-15
 
 The owner accepts same-chat WAV attachments and declines additional speech APIs,

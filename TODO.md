@@ -6,6 +6,14 @@ presence owner, is installed in the local plugin cache. Host checks, Release
 build/size/individual compiled frames, flash and passive capture are recorded in
 [done.md](done.md), with the four Home panels and earlier delivery evidence.
 
+The 15 October delivery-wait visual refinement is implemented in source: a lower
+electric-blue breathing indicator shared by firmware and Studio. Its final
+checks, build, flash and physical visual confirmation remain pending explicit
+authorization. The reported `Reply unconfirmed` after a physical question is
+also under investigation: current LAN presence is confirmed, but
+available broker logs do not identify the missing delivery step for that ticket.
+No answer has been recovered, replayed or acknowledged on another caller's behalf.
+
 Normal-EOF reporting loads in existing development clients when Codex next
 reopens. Already-loaded clients supply no normal-close proof and remain
 Unavailable on release. After broker restart, a genuine new prompt restores

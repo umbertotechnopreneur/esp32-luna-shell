@@ -1271,6 +1271,9 @@ esp_err_t attach_content(SceneFrame &scene)
     }
     uint16_t preceding = scene.definition->title_visible ? scene.title.text.length : 0;
     for (uint8_t index = 0; index < s_view.line_count; ++index) {
+        if (is_codex_event_route(s_route) && index < s_event_plan.line_count) {
+            s_view.lines[index].color = event_presentation::line_color(s_event_plan.lines[index], scene.text_elapsed_us);
+        }
         s_view.visible_characters[index] = line_visible_characters(scene, index, preceding);
         if (!s_view.instant_lines[index]) {
             preceding += s_view.lines[index].text.length;
@@ -1639,7 +1642,7 @@ esp_err_t append_event_line(const event_presentation::Line &line)
     }
     const esp_err_t error = CODY2D::prepare_text_line(font, {buffer, static_cast<uint16_t>(count)},
         {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(line.top)},
-        line.instant ? 0xBDF7 : 0xFFFF, s_view.lines[index]);
+        event_presentation::line_color(line, 0), s_view.lines[index]);
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Shared event line geometry failed (%s)", esp_err_to_name(error));
         return error;
@@ -3486,6 +3489,10 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
     for (uint8_t index = 0; index < s_view.line_count; ++index) {
         const uint16_t visible = line_visible_characters(scene, index, preceding);
         caption_changed = caption_changed || visible != s_view.visible_characters[index];
+        if (visible != 0 && is_codex_event_route(s_route) && index < s_event_plan.line_count) {
+            caption_changed = caption_changed || s_view.lines[index].color !=
+                event_presentation::line_color(s_event_plan.lines[index], scene.text_elapsed_us);
+        }
         if (!s_view.instant_lines[index]) {
             preceding += s_view.lines[index].text.length;
         }

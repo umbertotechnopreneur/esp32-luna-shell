@@ -60,7 +60,8 @@ class Bounds(C.Structure):
 
 
 class Line(C.Structure):
-    _fields_ = [("text", C.c_char * 64), ("top", C.c_uint16), ("instant", C.c_bool)]
+    _fields_ = [("text", C.c_char * 64), ("top", C.c_uint16), ("instant", C.c_bool),
+                ("delivery_pulse", C.c_bool)]
 
 
 class Action(C.Structure):
@@ -132,6 +133,8 @@ class NativeEventPresentation:
         self.api.cody_host_event_scroll.restype = C.c_int
         self.api.cody_host_event_controls_ready.argtypes = [C.POINTER(Plan), C.c_uint32, C.c_uint32]
         self.api.cody_host_event_controls_ready.restype = C.c_bool
+        self.api.cody_host_event_line_color.argtypes = [Line, C.c_uint64]
+        self.api.cody_host_event_line_color.restype = C.c_uint16
         self.api.cody_host_event_result.argtypes = [C.POINTER(Navigation), C.POINTER(Context), C.c_uint8, C.c_int]
         self.api.cody_host_event_result.restype = C.c_int
         self.api.cody_host_event_wrap.argtypes = [C.c_char_p, C.c_uint32, C.POINTER(Plan)]
@@ -215,6 +218,15 @@ class NativeEventPresentation:
     # title_length: Actual authored or overridden scene title length.
     def controls_ready(self, visible: int, title_length: int) -> bool:
         return bool(self.api.cody_host_event_controls_ready(C.byref(self.output), visible, title_length))
+
+    # self: Thin host transport to the shared firmware color policy.
+    # line: Complete native line style, including its delivery-wait flag.
+    # elapsed_us: Nonnegative scene time in microseconds.
+    # Raises ValueError for an invalid clock instead of wrapping it into an unsigned value.
+    def line_color(self, line: Line, elapsed_us: int) -> int:
+        if not 0 <= elapsed_us <= 0xFFFFFFFFFFFFFFFF:
+            raise ValueError("Event line color requires a bounded nonnegative clock")
+        return self.api.cody_host_event_line_color(line, elapsed_us)
 
     # self: Native presentation timer transport.
     # snapshot: Isolated readonly result and actual endpoint state.
