@@ -34,6 +34,7 @@ function Get-DeviceActionParameters {
         'boot-screens' = @('Rotation','AtMs','SafeGuide','PythonExecutable')
         'simulator-luna' = @('PythonExecutable','ToolArguments')
         'package-simulator' = @()
+        'codex-audio' = @('CodexAudioEndpoint','CodexAudioTokenFile','InstallAudioDependencies','PythonExecutable')
         check = @('Check','PythonExecutable','ToolArguments')
         generate = @('Generator','PythonExecutable','ToolArguments')
         banner = @('ToolArguments')
@@ -191,6 +192,13 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
         }
         'simulator-luna' { Invoke-HostTool (Join-Path $ProjectRoot 'simulator/windows/lunashell_simulator.py') $Options.ToolArguments $Options.PythonExecutable }
         'package-simulator' { Invoke-HostTool (Join-Path $ProjectRoot 'scripts/commands/package-simulator.ps1') @() '' }
+        'codex-audio' {
+            $audioOptions = @{}
+            foreach ($key in (Get-DeviceActionParameters)['codex-audio']) {
+                if ($Options.ContainsKey($key)) { $audioOptions[$key] = $Options[$key] }
+            }
+            & (Join-Path $ProjectRoot 'scripts/commands/codex-audio.ps1') @audioOptions
+        }
         'check' {
             $name = if ($Options.Check) { $Options.Check } else { 'cody-alpha' }
             $tool = Find-DeviceTool 'checks' $name

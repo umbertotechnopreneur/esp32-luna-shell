@@ -25,7 +25,7 @@ Use 'help' or 'list' to discover the CLI. Runtime output belongs in artifacts/.
 param(
     [Parameter(Position = 0)]
     [ValidateSet('menu','help','list','simulator','simulator-luna','boot-screens',
-        'check','generate','banner','package-simulator','clean-artifacts',
+        'check','generate','banner','package-simulator','clean-artifacts','codex-audio',
         'build','clean','fullclean','flash','reset','monitor','capture','sd-log','endurance-read','erase',
         'reconfigure','set-target','update-lock','size','combo','ports','discovery','port-status','recover')]
     [string]$Action = 'menu',
@@ -66,6 +66,9 @@ param(
     [switch]$Ccp,
     [switch]$ActivityPreview,
     [string]$PythonExecutable,
+    [string]$CodexAudioEndpoint,
+    [string]$CodexAudioTokenFile,
+    [switch]$InstallAudioDependencies,
     [string]$Skin,
     [string]$Check = 'cody-alpha',
     [string]$Generator = 'cody-rig',

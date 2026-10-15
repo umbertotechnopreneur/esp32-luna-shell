@@ -57,6 +57,7 @@ function Show-DeviceHelp {
     Write-DeviceHelpEntry -Syntax 'Device.ps1 package-simulator' -Description 'Prepare local Python dependencies and package the Luna simulator EXE.' -Detail 'This packages Luna; the Cody simulator remains source-based.' -Width $width
 
     Write-DeviceHelpSection -Title 'FIRMWARE' -Icon '🔨' -Width $width -Color Cyan
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 codex-audio [-InstallAudioDependencies] -CodexAudioEndpoint <ws://127.0.0.1:port>' -Description 'Optional CCP installation step: verify an existing Desktop listener and its genuine followed chat, then save native audio configuration. No endpoint is invented and no server is launched.' -Detail 'Optional CodexAudioTokenFile references an existing absolute capability-file path. PythonExecutable must match MCP. Restart Codex after success; native_ready does not prove model audio acceptance. Without an endpoint, report Desktop listener availability and fail without changing configuration.' -Width $width
     Write-DeviceHelpSection -Title 'Build and configuration' -Icon '🎯' -Width $width -Subsection
     foreach ($name in @('set-target','build','reconfigure','update-lock','size')) {
         $syntax = switch ($name) {

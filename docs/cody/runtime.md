@@ -731,3 +731,21 @@ A later passive device capture contained no recording attempt and therefore does
 not capture the original failure. Firmware now logs authenticated PC rejection
 explicitly. Neither that log nor the taller recording ribbon completes native
 audio delivery; a verified endpoint remains required in VOICE-01.
+
+The 2026-10-15 optional installation step, `scripts/device.ps1 codex-audio`,
+checks an explicitly supplied loopback listener against the running Windows
+Store Desktop app-server process, then initializes a client and reads the genuine
+followed chat without resuming or submitting input. Only a live loaded chat with
+stable followed identity admits the atomic `audio-config.json` save under the
+existing per-user CCP storage owner. The capability remains in its existing file.
+The audio owner loads this configuration at startup; invalid storage is an explicit
+optional failure, and an intentional endpoint environment override is separately
+identified. Dependency installation is opt-in. Restart Codex after a successful
+save; read-probe readiness is distinct from genuine dictation/model acceptance.
+See the [installation instructions](../../plugins/cody-codex-plugin/README.md#install-and-review-hooks).
+
+On the inspected Desktop build 26.1007.9446.0, its actual app-server still uses
+stdio and owns no TCP listener. No supported attach setting for this host was
+verified in the current official documentation. The installation step must report
+that boundary without inventing an endpoint, starting another server or claiming
+audio is active.

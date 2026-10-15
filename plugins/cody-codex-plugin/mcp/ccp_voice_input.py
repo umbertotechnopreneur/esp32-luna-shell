@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import hashlib
 import hmac
-import ipaddress
 import json
 import os
 from pathlib import Path
@@ -14,10 +13,10 @@ import struct
 import sys
 import threading
 import time
-from urllib.parse import urlsplit
 import wave
 
 from ccp_windows import configure_exclusive_socket, runtime_directory
+import ccp_audio_config as audio_config
 
 HEADER = struct.Struct("!4s6s16s16sIBH")
 PORT = 42119
@@ -61,12 +60,7 @@ class Recording:
 # endpoint: Explicit local desktop/app-server endpoint; never a LAN listener.
 # Raises ValueError for a missing endpoint, credentials in a URL, or non-loopback target.
 def local_endpoint(endpoint: str) -> str:
-    value = urlsplit(endpoint)
-    if value.scheme != "ws" or value.username or value.password or not value.hostname or not value.port:
-        raise ValueError("Configure an explicit loopback Codex audio WebSocket endpoint")
-    if not ipaddress.ip_address(value.hostname).is_loopback or value.query or value.fragment:
-        raise ValueError("Codex audio endpoint must be a literal loopback address without URL credentials")
-    return endpoint
+    return audio_config.validate_endpoint(endpoint)
 
 
 # connection: Existing local native Codex connection, never a new independent chat.
@@ -100,11 +94,12 @@ def rpc(connection, identity: int, method: str, params: dict, deadline=None):
 
 # endpoint: Explicit already-running native desktop/app-server endpoint.
 # deadline: Shared monotonic budget including connection setup and initialization.
+# token_file: Installed capability-file reference; None preserves an explicit environment override.
 # Raises original connection, credential or protocol errors; closes failed initialization.
-def connect_native(endpoint: str, deadline: float):
+def connect_native(endpoint: str, deadline: float, token_file: str | None = None):
     import websocket
     headers = []
-    token_file = os.environ.get("CODY_CODEX_AUDIO_TOKEN_FILE", "")
+    token_file = os.environ.get("CODY_CODEX_AUDIO_TOKEN_FILE", "") if token_file is None else token_file
     if token_file:
         token = Path(token_file).read_text(encoding="ascii").strip()
         if not token or "\n" in token or "\r" in token:
@@ -126,10 +121,11 @@ def connect_native(endpoint: str, deadline: float):
 
 # thread_id: Genuine followed chat; readiness never creates or resumes a conversation.
 # endpoint: Explicit native endpoint checked before accepting START.
+# token_file: Optional installed capability-file reference, never the capability itself.
 # Raises original native/transport failure; this probe submits no user input.
-def probe_native(thread_id: str, endpoint: str):
+def probe_native(thread_id: str, endpoint: str, token_file: str | None = None):
     deadline = time.monotonic() + 5
-    connection = connect_native(endpoint, deadline)
+    connection = connect_native(endpoint, deadline, token_file)
     try:
         current = rpc(connection, 2, "thread/read", {"threadId": thread_id, "includeTurns": False}, deadline)
         if current["thread"]["id"] != thread_id or current["thread"].get("status", {}).get("type") not in ("active", "idle", "notLoaded"):
@@ -142,10 +138,11 @@ def probe_native(thread_id: str, endpoint: str):
 # path: Completed PCM WAV under the receiver's private runtime artifacts.
 # endpoint: Explicit already-running native desktop/app-server endpoint.
 # before_submit: Returns the current followed turn at the actual native admission boundary.
+# token_file: Optional installed capability-file reference, never the capability itself.
 # Raises original errors; ambiguous input is never automatically repeated.
-def submit_native(recording: Recording, path: Path, endpoint: str, before_submit):
+def submit_native(recording: Recording, path: Path, endpoint: str, before_submit, token_file: str | None = None):
     deadline = time.monotonic() + 15
-    connection = connect_native(endpoint, deadline)
+    connection = connect_native(endpoint, deadline, token_file)
     try:
         current = rpc(connection, 2, "thread/read", {"threadId": recording.thread_id, "includeTurns": False}, deadline)
         thread = current["thread"]
@@ -174,6 +171,7 @@ def submit_native(recording: Recording, path: Path, endpoint: str, before_submit
 class VoiceInputServer:
     # self: Optional audio owner, separate from ordinary CCP metadata.
     # responder: Existing paired CCP owner; supplies fresh authenticated endpoint/key metadata.
+    # Exceptions: Configuration failures remain explicit optional state for the readiness owner.
     def __init__(self, responder):
         self.responder = responder
         self.socket = None
@@ -185,7 +183,15 @@ class VoiceInputServer:
         self.lock = threading.Lock()
         self.stop = threading.Event()
         self.jobs = queue.Queue(maxsize=MAX_ACTIVE)
-        self.endpoint = os.environ.get("CODY_CODEX_AUDIO_ENDPOINT", "")
+        self.configuration_error = ""
+        try:
+            configuration = audio_config.load_config()
+        except (OSError, ValueError) as error:
+            configuration = audio_config.NativeAudioConfig(source="invalid")
+            self.configuration_error = f"Codex audio configuration failed: {error}"
+        self.endpoint = configuration.endpoint
+        self.token_file = configuration.token_file
+        self.configuration_source = configuration.source
         self.ready_thread = ""
         self.ready_at = 0.0
         self.native_error = "Native audio readiness has not been checked"
@@ -374,9 +380,11 @@ class VoiceInputServer:
         thread_id = followed[0]["session_id"] if len(followed) == 1 else ""
         error = ""
         try:
+            if self.configuration_error:
+                raise RuntimeError(self.configuration_error)
             if not thread_id:
                 raise RuntimeError("No genuine followed Codex chat")
-            probe_native(thread_id, self.endpoint)
+            probe_native(thread_id, self.endpoint, self.token_file)
         except Exception as failure:
             error = str(failure)
         with self.lock:
@@ -433,7 +441,7 @@ class VoiceInputServer:
                         recording.submitting = True
                         return turn_id
 
-                submit_native(recording, path, self.endpoint, before_submit)
+                submit_native(recording, path, self.endpoint, before_submit, self.token_file)
                 with self.lock:
                     recording.status, recording.accepted = 4, True
             except Exception as error:
@@ -457,6 +465,7 @@ class VoiceInputServer:
             return {"available": self.socket is not None, "error": self.error or None,
                 "rejected_packets": self.rejections,
                 "native_endpoint_configured": bool(self.endpoint),
+                "native_configuration_source": self.configuration_source,
                 "native_ready": native_ready,
                 "native_error": self.native_error or None,
                 "recordings": [{"device_id": item.device, "pc_received": item.finished,

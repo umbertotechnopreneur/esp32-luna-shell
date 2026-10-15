@@ -163,6 +163,9 @@ try {
         Assert-DeviceActionParameters 'simulator' @{ Action = 'simulator'; Ccp = $true } $contract
         Assert-DeviceActionParameters 'capture' @{ Action = 'capture'; Port = 'COM99'; DurationSeconds = 1 } $contract
         Assert-DeviceActionParameters 'build' @{ ActivityClassifier = $true; ActivityCapture = $true } $contract
+        Assert-DeviceActionParameters 'codex-audio' @{ CodexAudioEndpoint = 'ws://127.0.0.1:4500'; InstallAudioDependencies = $true } $contract
+        Assert-ConsoleRejection { Assert-DeviceActionParameters 'flash' @{ CodexAudioEndpoint = 'ws://127.0.0.1:4500' } $contract } 'not valid'
+        Assert-ConsoleRejection { Assert-DeviceActionParameters 'codex-audio' @{ Port = 'COM99' } $contract } 'not valid'
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'build' @{ ActivityCapture = $true } $contract } 'requires -ActivityClassifier'
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'simulator' @{ Port = 'COM99' } $contract } 'not valid'
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'help' @{ LogPath = 'artifacts/logs/help.log' } $contract } 'not valid'

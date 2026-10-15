@@ -11,6 +11,12 @@ reopens. Already-loaded clients supply no normal-close proof and remain
 Unavailable on release. After broker restart, a genuine new prompt restores
 followed chat metadata; no activity is synthesized to fill that gap.
 
+The optional native audio installer now has a `codex-audio` CLI/menu route with
+explicit dependency installation, live Desktop ownership/chat checks and atomic
+per-user configuration. Final host checks passed; local package adoption is
+recorded in [done.md](done.md). The inspected Desktop host uses stdio and owns no TCP listener, so
+actual native endpoint activation remains unavailable in VOICE-01.
+
 The latest Studio run passed 28 of 29 cases; Windows desktop screen capture
 failed in ImageGrab. Native pixel previews passed and remain available. This
 unavailable capture is retained as STUDIO-CAPTURE-01 in [planned-todo.md](planned-todo.md).

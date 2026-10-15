@@ -395,6 +395,13 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   authentication failures remain uncorrelated. The subsequent passive device
   capture did not contain the original recording attempts. Keep native endpoint
   attachment and genuine end-to-end dictation as explicit unresolved gates.
+  On 15 October, the actual Windows Desktop build 26.1007.9446.0 app-server used
+  default stdio and owned no TCP listener; no supported same-host attach setting
+  was verified. The new optional `device.ps1 codex-audio` installation step checks
+  explicit listener ownership and the live followed chat before saving settings.
+  It cannot activate a listener the Desktop host does not expose. Keep endpoint
+  activation and real model/audio acceptance pending, separate from installer
+  source/fixture validation.
 - [ ] **TTS-01 - Storage and audible speech.** Require observed SD availability
   after the accepted standby/wake workaround before claiming SD synthesis.
   The prepared four-language card and corrected `58757005` boot

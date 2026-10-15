@@ -50,7 +50,11 @@ environment. A missing dependency, bind failure, missing followed chat or native
 Codex rejection remains an explicit optional error, available through the
 read-only `ccp_audio_status` tool. Audio failure does not fabricate a CCP disconnect.
 
-Set `CODY_CODEX_AUDIO_ENDPOINT` to an explicit already-running **loopback** native
+The optional installation step is `scripts/device.ps1 codex-audio`, documented
+under [Install and review hooks](#install-and-review-hooks). It persists a verified
+endpoint in `%LOCALAPPDATA%\CodyCodexPlugin\audio-config.json`; no raw capability is
+stored there. Invalid/read-failed configuration remains an explicit audio error.
+For an intentional environment override, set `CODY_CODEX_AUDIO_ENDPOINT` to an explicit already-running **loopback** native
 desktop/app-server WebSocket endpoint. When that host requires a capability token,
 `CODY_CODEX_AUDIO_TOKEN_FILE` names its existing local token file; keys and tokens
 never appear in prompts or logs. No endpoint is guessed and no second Codex host
@@ -194,6 +198,47 @@ before a new one is offered. See the [wire contract](protocol/CCP1.md) and
 4. In a local Codex session, open `/hooks`, review and authorize CCP definitions.
    Installation and native hook trust are separate operations.
 5. Send a real prompt in the chat to establish observed activity.
+6. For optional device dictation, run the installation step below using the same
+   Python interpreter as MCP. Pairing, native endpoint availability and model audio
+   acceptance are separate gates. Ordinary CCP works without dictation.
+
+```powershell
+# Diagnose the running Desktop host without changing its configuration.
+.\scripts\device.ps1 codex-audio
+
+# Only if that same Desktop host exposes a documented loopback WebSocket listener:
+# replace the example port with the endpoint actually provided by that host.
+.\scripts\device.ps1 codex-audio -InstallAudioDependencies `
+    -CodexAudioEndpoint 'ws://127.0.0.1:4500'
+```
+
+Add `-CodexAudioTokenFile 'C:\absolute\existing-host-capability.txt'` if the host
+requires a capability. Never paste the capability itself. `-PythonExecutable`
+must select the interpreter used by the plugin; by default this is `python`, not
+the simulator environment. Dependency installation is explicit and runs only with
+`-InstallAudioDependencies`.
+
+Setup verifies that the exact loopback listener belongs to the app-server child
+of the Windows Store Codex Desktop app. It then initializes a native client and
+reads the genuine followed chat, requiring that chat to be loaded in this host.
+A changed chat, missing listener, capability failure, invalid existing settings
+or native rejection fails setup without replacing configuration. It never launches
+another app-server, resumes a chat or submits input to test readiness.
+Remove an intentional audio environment override before saving installation settings.
+
+After successful setup, restart Codex to load the updated installed plugin and
+configuration, send a genuine prompt, and inspect `ccp_audio_status`.
+`native_configuration_source` distinguishes `installation`, `environment`,
+`unconfigured` and `invalid`. `native_ready=true` confirms only the read probe;
+real dictation and account/model audio acceptance still need an end-to-end check.
+
+On the inspected Windows Desktop build `26.1007.9446.0` on 15 October 2026, the
+actual app-server uses the default stdio transport and owns no TCP listener.
+The official [transport documentation](https://learn.chatgpt.com/docs/app-server)
+describes listener selection at app-server startup, but no verified attach setting
+for this already-running Desktop host was found. Installation cannot activate
+native dictation on this host until it exposes a supported shared endpoint;
+an example URL or a second independent server would not supply that capability.
 
 The canonical manifest is `.codex-plugin/plugin.json`. Native inspections of
 Codex 0.161.0 and 0.162.0-alpha.17.2 found zero hooks when a portable root

@@ -162,6 +162,7 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
                 $maintenance = [ordered]@{
                     '1' = @{ Emoji = '📦'; Label = 'Package Luna simulator'; Description = 'Prepare Python dependencies and build the reference EXE'; Value = 'package-simulator' }
                     '2' = @{ Emoji = '🏷️'; Label = 'Preview source banners'; Description = 'Read-only banner maintenance preview'; Value = 'banner' }
+                    '3' = @{ Emoji = '🎵'; Label = 'Configure Codex audio'; Description = 'Verify the existing Desktop endpoint; no server is launched'; Value = 'codex-audio' }
                 }
                 $selected = Select-DeviceMenuItem 'MAINTENANCE' $maintenance
                 if (-not $selected) { continue }
@@ -225,6 +226,14 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
                         throw 'Expected an array of strings, for example ["--help"].'
                     }
                     $extra.ToolArguments = [string[]]$tokens
+                }
+            }
+            if ($selected -eq 'codex-audio') {
+                $endpoint = Read-Host 'Existing Codex Desktop loopback WebSocket endpoint (empty for diagnosis)'
+                if ($endpoint) {
+                    $extra.CodexAudioEndpoint = $endpoint
+                    $tokenPath = Read-Host 'Existing host capability file path (empty if not required)'
+                    if ($tokenPath) { $extra.CodexAudioTokenFile = $tokenPath }
                 }
             }
             $parameters = @{ Action = $selected }

@@ -13,6 +13,34 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Optional native audio installation - 2026-10-15
+
+The public `scripts/device.ps1 codex-audio` CLI and Maintenance menu now provide
+the optional installation step: explicit dependencies in the MCP interpreter,
+loopback listener ownership by the Windows Store Desktop app-server, a read-only
+probe of the genuine loaded followed chat, and atomic per-user `audio-config.json`
+persistence. No capability contents are copied. The audio owner loads installation
+settings at startup, identifies intentional environment overrides and preserves
+invalid-storage errors. Failed probes do not save, resume chats or submit input.
+A successful save requires a Codex restart; readiness does not prove dictation.
+The installed 0.6.8 development cache now contains the new configuration module,
+updated receiver and guide, verified byte for byte against source. Earlier cache
+files were backed up locally. The running broker was not restarted; it loads
+this preparation when Codex next reopens. No endpoint file was written.
+
+Final host evidence passed: ten isolated installer/storage cases, 13 voice cases,
+132 CCP cases and 14 console checks. Initial voice and CCP attempts lacked a host
+compiler on PATH; reruns in the existing Visual Studio developer environment
+passed without source or warning suppression. The live setup diagnosis found one
+actual Desktop app-server and zero owned TCP listeners, returning failure without
+changing configuration. Its process used default stdio on Desktop 26.1007.9446.0;
+no supported same-host attach setting was verified in the official documentation.
+Native endpoint activation and account/model/audio acceptance remain unresolved.
+
+Evidence, including failed environment attempts and the expected live diagnosis
+failure, is under `artifacts/checks/codex-audio-install-20261015/`. This change does
+not rebuild or flash firmware. The installed Release remains cody-178-g0d82a93f.
+
 ## Codex transport presence and cancellable voice countdowns - 2026-10-15
 
 Source implementation appends Preparing, StartCountdown and SendCountdown without
