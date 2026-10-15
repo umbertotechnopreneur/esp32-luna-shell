@@ -9,10 +9,11 @@ build/size/individual compiled frames, flash and passive capture are recorded in
 The 15 October delivery-wait visual refinement is implemented in source: a lower
 electric-blue breathing indicator shared by firmware and Studio. Its final
 checks, build, flash and physical visual confirmation remain pending explicit
-authorization. The reported `Reply unconfirmed` after a physical question is
-also under investigation: current LAN presence is confirmed, but
-available broker logs do not identify the missing delivery step for that ticket.
-No answer has been recovered, replayed or acknowledged on another caller's behalf.
+authorization. One separately authorized question on the installed firmware
+completed with recipient acknowledgement and owner-confirmed physical display
+success, as recorded in done.md. The earlier `Reply unconfirmed` was not
+reproduced; available broker logs cannot establish its missing delivery step.
+No other caller's answer was recovered, replayed or acknowledged.
 
 Normal-EOF reporting loads in existing development clients when Codex next
 reopens. Already-loaded clients supply no normal-close proof and remain

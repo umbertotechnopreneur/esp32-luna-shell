@@ -13,6 +13,22 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Physical reply-delivery probe - 2026-10-15
+
+One explicitly authorized LAN question on the already installed firmware
+returned the owner's `First test reply`. The caller read its exact answer ID
+and acknowledged it, producing `delivered` with `recipient_acknowledged=true`.
+The owner also reported sent followed by delivered on the physical display.
+The interval from reading the answer to receiving acknowledgement was 9.813 s;
+the acknowledgement tool call itself took 1.166 s. These are caller wall-clock
+measurements, not packet timings or a general latency guarantee.
+
+Evidence: `artifacts/checks/cody-reply-delivery-20261015/result.json`, without
+ticket capabilities, request/answer IDs or unrelated chat contents. The earlier
+unconfirmed question was not reproduced and its cause remains unestablished.
+No automatic replay, other caller's acknowledgement, firmware build/flash or
+visual validation of the new indicator was performed.
+
 ## Delivery-wait indicator source refinement - 2026-10-15
 
 Moved the single `Confirming delivery` status to y=320 below the question and
