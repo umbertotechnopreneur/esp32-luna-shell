@@ -82,6 +82,8 @@ struct SceneDefinition {
 struct SceneContent {
     SceneElementId id = SceneElementId::Content;
     DamageRect bounds{};
+    // Optional caption above the title; it never shares the title or body raster slot.
+    DamageRect leading_caption_bounds{};
     // Separate lower action slot: a broad card pair cannot borrow bottom-arc width.
     DamageRect bottom_action_bounds{};
     const void *state = nullptr;
@@ -182,7 +184,8 @@ uint16_t scene_content_characters(const SceneFrame &frame, uint16_t length,
                                  uint16_t preceding_characters);
 
 // frame: Valid prepared scene whose content slot is updated after validation.
-// content: Immutable optional content, wholly below the title and within the circle.
+// content: Immutable body below the title, with separate optional leading caption and lower action.
+// Exception: Rejects invalid or overlapping regions before replacing the frame.
 esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content);
 
 // previous: Last completely displayed text/content state, not a partially written frame.

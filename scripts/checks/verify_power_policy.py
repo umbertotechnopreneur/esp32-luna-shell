@@ -2232,8 +2232,8 @@ def verify_source_contracts() -> None:
                                  "standby radio policy")
     require_regex(radio_policy,
                   r"if\s*\(standby\s*&&\s*!s_shutdown_in_progress\s*&&\s*"
-                  r"s_standby_resources\.wireless\.consistent\s*\)",
-                  "radio retention requires observed consistency and excludes explicit shutdown")
+                  r"!s_codex_offline_standby\s*&&\s*s_standby_resources\.wireless\.consistent\s*\)",
+                  "radio retention excludes shutdown/offline standby and requires observed consistency")
     suspension = function_text(power, "esp_err_t suspend_standby_resources(", "resource suspension")
     require("s_standby_resources.wireless.consistent = false" not in suspension,
             "policy reassertion must preserve the last confirmed radio state")

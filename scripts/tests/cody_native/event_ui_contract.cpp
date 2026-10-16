@@ -416,6 +416,7 @@ void check_pr_views()
 }
 
 // No parameters: event lifecycle gates are read from the real presenter, without a mock response model.
+// Exception: Stops on invalid native caption separation or read-only permission behavior.
 void check_reply_semantics()
 {
     start_question();
@@ -453,8 +454,20 @@ void check_reply_semantics()
         "lost acknowledgement leaves an explicit unconfirmed outcome");
     s_presented_event.kind = Kind::ApprovalOnPc;
     s_presented_event.state = State::Pending;
-    prepare(Route::ApprovalOnPc, SceneId::ApprovalOnPc);
+    scene = prepare(Route::ApprovalOnPc, SceneId::ApprovalOnPc);
     require(!s_view.action_visible && s_view.event_choice_count == 0, "native permissions stay on the PC");
+    const auto &caption = scene.content.leading_caption_bounds;
+    const uint16_t caption_bottom = caption.bottom;
+    require(caption.bottom <= scene.title.bounds.y && caption.right > caption.left,
+        "the leading PC heading fits entirely above the native title");
+    require(scene.content.bounds.top >= scene.title.bounds.y + scene.title.bounds.height,
+        "approval body and artwork remain below the native title");
+    SceneContent overlapping = scene.content;
+    overlapping.leading_caption_bounds.bottom = scene.title.bounds.y + 1U;
+    require(set_scene_content(scene, overlapping) == ESP_ERR_INVALID_SIZE,
+        "a leading caption cannot overlap the title");
+    require(scene.content.leading_caption_bounds.bottom == caption_bottom,
+        "rejected caption geometry cannot replace the admitted frame");
 }
 
 // No parameters: typed background replies use the real shared layout, native fonts and dismissal intent.

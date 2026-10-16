@@ -53,6 +53,21 @@ uint32_t activity_paint_tick(const ActivityOverlayFrame &frame)
         kActivityPaintStepUs;
 }
 
+// bounds: Optional slot whose four zero edges explicitly mean absent.
+// Malformed nonzero rectangles remain errors rather than being treated as empty.
+bool empty_bounds(const DamageRect &bounds)
+{
+    return bounds.left == 0 && bounds.top == 0 && bounds.right == 0 && bounds.bottom == 0;
+}
+
+// previous: Previously admitted logical rectangle; no scene or caller-owned state is copied.
+// current: Newly admitted logical rectangle whose four edges determine its damage identity.
+bool same_damage_bounds(const DamageRect &previous, const DamageRect &current)
+{
+    return previous.left == current.left && previous.top == current.top &&
+        previous.right == current.right && previous.bottom == current.bottom;
+}
+
 // bounds: Nonempty half-open logical rectangle, including every visible content pixel.
 bool inside_circle(const DamageRect &bounds)
 {
@@ -418,22 +433,27 @@ uint16_t scene_content_characters(const SceneFrame &frame, uint16_t length,
 }
 
 // frame: Valid prepared scene whose content slot is updated after validation.
-// content: Immutable optional content, wholly below the title and within the circle.
+// content: Immutable body below the title, with separate optional leading caption and lower action.
 // Exception: Rejects invalid content/action/control rectangles before replacing the frame.
 esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content)
 {
     for (const auto &bounds : content.control_bounds) {
-        const bool empty_control = bounds.left == 0 && bounds.top == 0 && bounds.right == 0 && bounds.bottom == 0;
+        const bool empty_control = empty_bounds(bounds);
         if (!empty_control && !inside_circle(bounds)) {
             ESP_LOGE(kTag, "Scene control bounds leave the display (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
             return ESP_ERR_INVALID_SIZE;
         }
     }
-    const bool empty = content.draw_rows == nullptr && content.state == nullptr &&
-        content.bounds.left == 0 && content.bounds.top == 0 &&
-        content.bounds.right == 0 && content.bounds.bottom == 0;
+    const bool empty = content.draw_rows == nullptr && content.state == nullptr && empty_bounds(content.bounds);
+    const auto &caption = content.leading_caption_bounds;
+    const bool has_caption = !empty_bounds(caption);
+    if (has_caption && (empty || !frame.title.valid || !inside_circle(caption) ||
+        caption.bottom > text_bounds(frame.title).top)) {
+        ESP_LOGE(kTag, "Scene leading caption bounds rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
     const auto &action = content.bottom_action_bounds;
-    const bool empty_action = action.left == 0 && action.top == 0 && action.right == 0 && action.bottom == 0;
+    const bool empty_action = empty_bounds(action);
     if (!empty_action && (!inside_circle(action) || action.top < content.bounds.bottom ||
         !content.bottom_action_visible || empty)) {
         ESP_LOGE(kTag, "Scene bottom action bounds rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
@@ -565,16 +585,20 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
             return error;
         }
     }
-    if (legacy_visibility_changed ||
+    const bool content_regions_changed =
+        !same_damage_bounds(old_content.bounds, new_content.bounds) ||
+        !same_damage_bounds(old_content.leading_caption_bounds, new_content.leading_caption_bounds) ||
+        !same_damage_bounds(old_content.bottom_action_bounds, new_content.bottom_action_bounds);
+    if (legacy_visibility_changed || content_regions_changed ||
         old_content.revision != new_content.revision || old_content.state != new_content.state ||
-        old_content.draw_rows != new_content.draw_rows || old_content.bounds.left != new_content.bounds.left ||
-        old_content.bounds.top != new_content.bounds.top || old_content.bounds.right != new_content.bounds.right ||
-        old_content.bounds.bottom != new_content.bounds.bottom ||
-        old_content.bottom_action_bounds.left != new_content.bottom_action_bounds.left ||
-        old_content.bottom_action_bounds.top != new_content.bottom_action_bounds.top ||
-        old_content.bottom_action_bounds.right != new_content.bottom_action_bounds.right ||
-        old_content.bottom_action_bounds.bottom != new_content.bottom_action_bounds.bottom) {
-        error = include_damage(plan, old_content.bounds);
+        old_content.draw_rows != new_content.draw_rows) {
+        error = include_damage(plan, old_content.leading_caption_bounds);
+        if (error == ESP_OK) {
+            error = include_damage(plan, new_content.leading_caption_bounds);
+        }
+        if (error == ESP_OK) {
+            error = include_damage(plan, old_content.bounds);
+        }
         if (error == ESP_OK) {
             error = include_damage(plan, new_content.bounds);
         }
@@ -637,14 +661,15 @@ esp_err_t draw_scene_rows(const SceneFrame &frame, CODY2D::Surface strip,
     if (error != ESP_OK || frame.content.draw_rows == nullptr) {
         return error;
     }
-    const DamageRect slots[]{frame.content.bounds, frame.content.bottom_action_bounds};
+    const DamageRect slots[]{frame.content.leading_caption_bounds, frame.content.bounds,
+                             frame.content.bottom_action_bounds};
     for (const auto &bounds : slots) {
         if (first_row >= bounds.bottom || first_row + strip.height <= bounds.top ||
             first_column >= bounds.right || first_column + strip.width <= bounds.left) {
             continue;
         }
-        // Borrow only each slot's intersection with the tile. The separated
-        // bottom action keeps every borrowed rectangle within its local chord.
+        // Each borrowed slot stays inside its own circular chord. The leading
+        // caption cannot paint across the title, and the bottom action keeps its narrower width.
         const uint16_t top = std::max(first_row, bounds.top);
         const uint16_t left = std::max(first_column, bounds.left);
         const uint16_t bottom = std::min<uint16_t>(first_row + strip.height, bounds.bottom);

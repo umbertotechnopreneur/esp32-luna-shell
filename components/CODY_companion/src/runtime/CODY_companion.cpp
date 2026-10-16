@@ -3837,7 +3837,17 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             // Connection reactions cannot borrow QR, narrative or action space.
             const auto &content = s_state.scene.content;
             if (!frame_dashboard && content.bounds.right > content.bounds.left && content.bounds.bottom > content.bounds.top) {
-                exclusions[exclusion_count++] = content.bounds;
+                // One eight-byte union preserves the existing seven-slot exclusion bound.
+                // Symbols cannot borrow the leading caption, title gap or body footprint.
+                CODY::DamageRect content_exclusion = content.bounds;
+                const auto &caption = content.leading_caption_bounds;
+                if (caption.right > caption.left && caption.bottom > caption.top) {
+                    content_exclusion.left = std::min(content_exclusion.left, caption.left);
+                    content_exclusion.top = std::min(content_exclusion.top, caption.top);
+                    content_exclusion.right = std::max(content_exclusion.right, caption.right);
+                    content_exclusion.bottom = std::max(content_exclusion.bottom, caption.bottom);
+                }
+                exclusions[exclusion_count++] = content_exclusion;
             }
             if (!frame_dashboard && content.bottom_action_visible) {
                 exclusions[exclusion_count++] = content.bottom_action_bounds;

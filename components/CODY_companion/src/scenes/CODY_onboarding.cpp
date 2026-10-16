@@ -1279,7 +1279,7 @@ uint16_t line_visible_characters(const SceneFrame &scene, uint8_t index, uint16_
 }
 
 // scene: Valid route receiving the current content revision.
-// Exception: Returns the scene-content validation error without replacing the frame.
+// Exception: Returns scene-content or duplicate-caption validation errors without replacing the frame.
 esp_err_t attach_content(SceneFrame &scene)
 {
     if (s_route == Route::Look11) {
@@ -1385,8 +1385,28 @@ esp_err_t attach_content(SceneFrame &scene)
         }
         content.control_bounds[1] = content.bottom_action_bounds;
         if (s_route == Route::ApprovalOnPc) {
-            // Includes the amber heading and lower instruction without covering lateral Back.
-            content.bounds = {73, 120, 393, 388};
+            // The amber caption is above the title; body/artwork stay below it.
+            // Use the actual prepared caption extent instead of an overlapping union.
+            for (uint8_t index = 0; index < s_event_plan.line_count; ++index) {
+                if (!s_event_plan.lines[index].pc_heading) {
+                    continue;
+                }
+                if (content.leading_caption_bounds.bottom != 0) {
+                    ESP_LOGE(kTag, "Approval content rejected duplicate PC heading (%s)",
+                        esp_err_to_name(ESP_ERR_INVALID_STATE));
+                    return ESP_ERR_INVALID_STATE;
+                }
+                const auto &bounds = s_view.lines[index].bounds;
+                content.leading_caption_bounds = {bounds.x, bounds.y,
+                    static_cast<uint16_t>(bounds.x + bounds.width),
+                    static_cast<uint16_t>(bounds.y + bounds.height)};
+            }
+            if (content.leading_caption_bounds.bottom == 0) {
+                ESP_LOGE(kTag, "Approval content rejected missing PC heading (%s)",
+                    esp_err_to_name(ESP_ERR_INVALID_STATE));
+                return ESP_ERR_INVALID_STATE;
+            }
+            content.bounds = {73, 196, 393, 388};
             content.bottom_action_visible = true;
             content.bottom_action_bounds = {99, 393, 367, 419};
             content.control_bounds[0] = {10, 203, 70, 263};
