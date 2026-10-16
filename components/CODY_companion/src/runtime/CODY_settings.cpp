@@ -32,6 +32,9 @@ constexpr char kFirstBootKey[] = "cody_firstboot";
 constexpr char kShakeKey[] = "cody_shake";
 constexpr char kSoundsKey[] = "cody_sounds";
 constexpr char kUserNameKey[] = "cody_user_name";
+// A saved name, including an explicit empty clear, takes precedence over this first-boot default.
+constexpr char kDefaultUserName[] = "Umberto";
+static_assert(sizeof(kDefaultUserName) <= LUNASHELL::kPreferredNameMaximum + 1U);
 constexpr char kUsageModeKey[] = "cody_usage";
 std::mutex s_preferences_mutex;
 
@@ -66,12 +69,13 @@ esp_err_t load_user_name(LUNASHELL::CodyUserNameSnapshot &profile)
     std::string stored;
     esp_err_t error = store.getString(kUserNameKey, &stored);
     if (error == ESP_ERR_NVS_NOT_FOUND) {
-        ESP_LOGI(kTag, "First boot: key '%s' absent; persisting empty preferred name", kUserNameKey);
-        error = store.setString(kUserNameKey, "");
+        ESP_LOGI(kTag, "First boot: key '%s' absent; persisting preferred name '%s'",
+            kUserNameKey, kDefaultUserName);
+        error = store.setString(kUserNameKey, kDefaultUserName);
         if (error == ESP_OK) {
             error = store.getString(kUserNameKey, &stored);
         }
-        if (error == ESP_OK && !stored.empty()) {
+        if (error == ESP_OK && stored != kDefaultUserName) {
             error = ESP_ERR_INVALID_RESPONSE;
         }
     }

@@ -13,6 +13,17 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Preferred-name code default - 2026-10-16
+
+Set the compiled preferred-name default to the owner's explicitly supplied
+`Umberto`. The settings owner uses it only when NVS reports the name key genuinely
+absent, logs that first-boot decision, persists it and requires an exact readback.
+Existing saved names, including an explicit empty clear, keep their meaning.
+Read/type/persistence failures are not substituted with the default. The greeting
+continues to consume the canonical profile; no UI override or new storage key is
+introduced. Static source review only; no tests, build, device write or push was
+performed for this change.
+
 ## Memory diagnostic Release delivery - 2026-10-16
 
 Release `cody-199-g2f640422` built from source commit

@@ -1,5 +1,10 @@
 # Active work
 
+The owner's compiled preferred-name default is now `Umberto` for a genuinely
+absent `cody_user_name` key. Saved names and explicit empty clears retain priority;
+storage/type/readback failures remain errors. This source change has not been
+built, tested or installed; Release 199 remains the recorded device delivery.
+
 Release `cody-199-g2f640422` is installed on COM10 with all five written hashes
 verified. The facial-channel list, its PSRAM storage and scrolling are removed;
 internal animation channels remain. Device diagnostics are available in Release
