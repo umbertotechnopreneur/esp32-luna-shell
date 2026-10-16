@@ -38,6 +38,12 @@ a subsequent process observation found zero active Ninja/Xtensa/compiler tasks.
 Its log is under `device-diagnostics-only-20261016/`. Final delivery remains
 pending; new simulator/host suites and physical rendering/touch remain unverified.
 
+The first integrated memory build stopped before flashing because the Back
+renderer had depended on `CODY_rig.hpp` transitively including the native stroke
+API. Added the explicit `CODY2D_paths.hpp` include at the rendering owner; task
+stacks and warning policy are unchanged. The failed run's `flash.log` is retained
+under `memory-diagnostics-20261016/`; delivery requires a successful retry.
+
 ## Device diagnostic cleanup - 2026-10-16
 
 The owner removed the facial-channel diagnostic list from scope to save device

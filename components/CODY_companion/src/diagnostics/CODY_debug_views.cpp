@@ -21,6 +21,7 @@
 #include <cstring>
 
 #include "CODY2D_controls.hpp"
+#include "CODY2D_paths.hpp"
 #include "esp_log.h"
 
 namespace CODY {
