@@ -50,7 +50,7 @@ class PublicAudioQueue:
             )
             self.reader = threading.Thread(target=self.read_messages, name="CCP-audio-queue", daemon=True)
             self.reader.start()
-            self.call("initialize", {"clientInfo": {"name": "cody_audio_queue", "version": "0.6.8"},
+            self.call("initialize", {"clientInfo": {"name": "cody_audio_queue", "version": "0.6.9"},
                                      "capabilities": {"experimentalApi": True}})
             self.process.stdin.write(b'{"method":"initialized","params":{}}\n')
             self.process.stdin.flush()

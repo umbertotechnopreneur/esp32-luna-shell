@@ -4,7 +4,8 @@
 uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
 for pairing; public Internet availability is a separate condition.
 
-CCP 0.6.8 adds semantic question routing and other-chat reply notices to followed-chat token metadata and the optional one-way audio channel with native readiness,
+CCP 0.6.9 adds complete originating-chat approval titles and the redesigned PC
+notice to semantic question routing and other-chat reply notices to followed-chat token metadata and the optional one-way audio channel with native readiness,
 recording correlation and explicit uncertain-delivery handling. Source changes
 do not activate it.
 Its signed READY handshake retains the 0.6.4 endpoint-binding contract. Signed READY binds a fresh
@@ -37,7 +38,7 @@ does not imply Codex is Open. The read-only connection-status result exposes
 `app_presence.source=mcp_transport`, source age and any original publication
 failure. Source changes require a coordinated future plugin/firmware update;
 they do not install or activate it. See the [presence wire contract](protocol/CCP1.md#authenticated-codex-client-presence-15-october-2026).
-This incremental development update keeps version 0.6.8. An already-loaded
+Version 0.6.9 includes the earlier EOF reporting update. An already-loaded
 client's id-only release is explicitly treated as abnormal, with no Closed
 claim. A real Codex reopen that starts the updated broker/client loads the new
 EOF reporting; changing files on disk does not hot-reload a running broker.
