@@ -7,6 +7,11 @@ describe the current 466 x 466 adapter; they are not requirements of every futur
 
 ## Content, actions and Back
 
+The offline-standby farewell uses a character centered at (233,128), scale 100,
+above an ASCII `Bye bye` line centered at (233,233). The retained route, symbols,
+controls, status and Back are hidden for this exclusive presentation. Logical
+placement, clipping and the whole-panel fade use the selected display orientation.
+
 Use the central [73,393) square as a baseline. Expand into the circle only with
 local-chord admission of artwork, controls and complete hit bounds. Keep QR
 quiet zones intact. Scene content and lower actions have separate rectangles.

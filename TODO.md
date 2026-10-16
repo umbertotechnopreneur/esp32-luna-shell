@@ -5,7 +5,16 @@ recorded in [done.md](done.md). New 1.75C/1.43C hardware support remains deferre
 as HARDWARE-PORT-01 in [planned-todo.md](planned-todo.md); those boards are not
 covered by the existing firmware profile.
 
-Updated 2026-10-15. The retained firmware implementation queue is complete. Release
+Updated 2026-10-16. The offline standby/farewell and faster software-wake changes
+are implemented in source. Their native timer/owner/voice/lifecycle checks are
+prepared but have not been run. No configure, build, size, simulator, serial,
+flash, physical validation or GitHub publication was performed for this revision.
+Validate USB/battery PC absence, pairing/confirmation deferral, farewell cancellation,
+sound/quiet policy, retained-state rollback, manual-only offline wake, nested stack
+headroom and actual wake latency only after the owner's fresh explicit authorization.
+The authored software-wake timeline is 1.4 seconds; this is not a device timing result.
+
+Earlier delivery: Release
 `cody-187-g58b67f3b` is installed on COM10; tested CCP source, including the new
 presence owner, is installed in the local plugin cache. Host checks, Release
 build/size/individual compiled frames, flash and passive capture are recorded in

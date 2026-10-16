@@ -1,6 +1,8 @@
 // Executes verbatim firmware owner functions with deterministic peripheral results.
 // This proves host control flow, not PMU delivery, frame presentation or power loss.
 #include "LUNASHELL_button_hold.hpp"
+#include "LUNASHELL_standby_policy.hpp"
+#include "LUNASHELL_provisioning_state.hpp"
 #include "LUNASHELL_logger.h"
 #include <atomic>
 #include <cassert>
@@ -21,6 +23,8 @@ namespace LUNASHELL {
 // requested: Recorder boundary is injected; its real persistence is tested separately.
 esp_err_t battery_endurance_power_off(bool requested);
 #include "power_health_under_test.inc"
+#include "power_component_under_test.inc"
+#include "power_codex_observation_under_test.inc"
 // Only fields consumed by the real predicate are injected; health is copied
 // verbatim from the production typed enum, not replaced by integer conventions.
 struct BatteryObservation {
@@ -40,9 +44,10 @@ class DeviceSnapshotService {
 public:
     static DeviceSnapshotService &instance();
     esp_err_t readDeviceStatusObservation(DeviceStatusObservation &observation);
+    esp_err_t readCodexStandbyObservation(CodexStandbyObservation &observation);
 };
-enum class DeviceOperatingState { Active, Standby };
-enum class DeviceStateReason { PowerButton };
+enum class DeviceOperatingState { Active, EnteringStandby, Standby, Waking };
+#include "power_reason_under_test.inc"
 class UserSettingsService {
 public:
     static UserSettingsService &instance();
@@ -55,6 +60,14 @@ enum class Call { Wake, Prepare, SpeechSeal, Standby, SettingsSeal, UsbSeal,
                   EnduranceRequest, EnduranceCancel };
 std::vector<Call> calls;
 LUNASHELL::DeviceStatusObservation canonical_observation;
+LUNASHELL::CodexStandbyObservation canonical_codex;
+esp_err_t codex_observation_error;
+unsigned codex_observation_reads;
+int64_t fixture_now_us = 1000000;
+bool s_codex_offline_standby = false;
+LUNASHELL::power_policy::CodexOfflineTimer s_codex_offline_timer{};
+int64_t s_last_manual_activity_at_us = 0;
+LUNASHELL::DeviceStateReason last_transition_reason = LUNASHELL::DeviceStateReason::Startup;
 esp_err_t observation_error;
 unsigned observation_reads;
 esp_err_t prepare_error, speech_error, standby_error, settings_error, usb_error, pmu_error;
@@ -70,7 +83,7 @@ std::atomic<esp_err_t (*)(esp_err_t)> s_shutdown_failure;
 std::atomic<esp_err_t (*)(bool)> s_speech_shutdown;
 
 // No parameters: deterministic test time does not sample any hardware.
-int64_t esp_timer_get_time() { return 1000000; }
+int64_t esp_timer_get_time() { return fixture_now_us; }
 // time_us: Production gesture timestamp; no movement hardware exists on the host.
 void begin_motion_grace(int64_t time_us) { (void)time_us; }
 // error: Original result whose production publication is outside this host fixture.
@@ -81,9 +94,10 @@ void vTaskDelay(uint32_t ticks) { (void)ticks; calls.push_back(Call::Wait); }
 // reason: Production typed cause retained by the compiled caller.
 esp_err_t set_standby(bool standby, LUNASHELL::DeviceStateReason reason)
 {
-    (void)reason;
+    last_transition_reason = reason;
     calls.push_back(standby ? Call::Standby : Call::Wake);
     if (standby && standby_error != ESP_OK) return standby_error;
+    s_codex_offline_standby = standby && reason == LUNASHELL::DeviceStateReason::CodexOffline;
     s_state = standby ? LUNASHELL::DeviceOperatingState::Standby : LUNASHELL::DeviceOperatingState::Active;
     return ESP_OK;
 }
@@ -109,6 +123,17 @@ esp_err_t LUNASHELL::DeviceSnapshotService::readDeviceStatusObservation(DeviceSt
     ++observation_reads;
     if (observation_error == ESP_OK) observation = canonical_observation;
     return observation_error;
+}
+
+// observation: Receives the real bounded projection type with injected owner evidence.
+// Exception: Returns the injected snapshot error without substituting disconnected state.
+esp_err_t LUNASHELL::DeviceSnapshotService::readCodexStandbyObservation(CodexStandbyObservation &observation)
+{
+    ++codex_observation_reads;
+    if (codex_observation_error == ESP_OK) {
+        observation = canonical_codex;
+    }
+    return codex_observation_error;
 }
 
 // No parameters: the host settings owner has one service lifetime.
@@ -149,6 +174,17 @@ void reset_case()
 {
     calls.clear();
     canonical_observation = {};
+    canonical_codex = {};
+    canonical_codex.link.data_valid = true;
+    canonical_codex.link.last_attempt_at_us = 1000;
+    canonical_codex.link_state = LUNASHELL::CodexLinkState::Discovering;
+    codex_observation_error = ESP_OK;
+    codex_observation_reads = 0;
+    fixture_now_us = 1000000;
+    s_codex_offline_standby = false;
+    s_codex_offline_timer = {};
+    s_last_manual_activity_at_us = 0;
+    last_transition_reason = LUNASHELL::DeviceStateReason::Startup;
     observation_error = ESP_OK;
     observation_reads = 0;
     prepare_error = speech_error = standby_error = settings_error = usb_error = ESP_OK;
@@ -166,10 +202,96 @@ void reset_case()
 // call: Owner boundary whose invocation is asserted by a test case.
 bool called(Call call) { return std::find(calls.begin(), calls.end(), call) != calls.end(); }
 
+// No parameters: production PC-absence control flow runs against canonical projections and fake owners.
+// Exception: Assertions identify timing, pairing, source, audio-policy or recovery regressions.
+void check_offline_standby_owner()
+{
+    using namespace LUNASHELL;
+    bool owns_inactivity = false;
+    reset_case();
+    canonical_observation.battery.usb_present = true;
+    canonical_observation.battery.vbus_good = true;
+    assert(!audio_standby_target(true)); // Ordinary standby retains configured wake-word listening.
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && owns_inactivity);
+    fixture_now_us = 120999999;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && !called(Call::Standby));
+    s_last_manual_activity_at_us = 120000000;
+    fixture_now_us = 121000000;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && !called(Call::Standby));
+    fixture_now_us = 240000000;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && called(Call::Standby));
+    assert(last_transition_reason == DeviceStateReason::CodexOffline && s_codex_offline_standby);
+    assert(audio_standby_target(true) && !audio_standby_target(false));
+    assert(observation_reads == 0); // USB and battery-source policy do not gate confirmed PC absence.
+    const unsigned reads_before_sleep = codex_observation_reads;
+    codex_observation_error = ESP_FAIL;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK);
+    assert(codex_observation_reads == reads_before_sleep); // No repeated PC polling while offline asleep.
+
+    reset_case();
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK);
+    fixture_now_us = 120000000;
+    canonical_codex.link_state = CodexLinkState::Connected;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && !owns_inactivity);
+    assert(s_codex_offline_timer.disconnected_at_us == 0);
+    canonical_codex.link_state = CodexLinkState::Discovering;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && !called(Call::Standby));
+    fixture_now_us = 239999999;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && !called(Call::Standby));
+    fixture_now_us = 240000000;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && called(Call::Standby));
+
+    for (auto state : {PairingSessionState::Starting, PairingSessionState::ReadyToScan,
+                       PairingSessionState::Connecting, PairingSessionState::Completing,
+                       PairingSessionState::Cancelling}) {
+        reset_case();
+        canonical_codex.pairing_state = state;
+        assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && !owns_inactivity);
+        fixture_now_us = 500000000;
+        assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && !called(Call::Standby));
+    }
+    reset_case();
+    canonical_codex.link_state = CodexLinkState::AwaitingConfirmation;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && !owns_inactivity);
+    canonical_codex.link_state = CodexLinkState::Discovering;
+    canonical_codex.pending_pairing_present = true;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && !owns_inactivity);
+
+    reset_case();
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK);
+    fixture_now_us = 121000000;
+    canonical_codex.link.data_stale = true;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && !owns_inactivity);
+    assert(!called(Call::Standby) && s_codex_offline_timer.disconnected_at_us == 0);
+    canonical_codex.link.data_stale = false;
+    codex_observation_error = ESP_ERR_TIMEOUT;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_ERR_TIMEOUT && !called(Call::Standby));
+
+    reset_case();
+    canonical_codex.link_state = CodexLinkState::Failed;
+    canonical_codex.link.health = DeviceHealth::Degraded;
+    canonical_codex.link.last_error = ESP_ERR_TIMEOUT;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK);
+    fixture_now_us = 121000000;
+    standby_error = ESP_FAIL;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_FAIL);
+    calls.clear();
+    fixture_now_us += 1;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && !called(Call::Standby));
+
+    reset_case();
+    s_state = DeviceOperatingState::Standby;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK);
+    fixture_now_us = 121000000;
+    assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && called(Call::Standby));
+    assert(!called(Call::Wake)); // Already dark standby sheds services without a presentation wake.
+}
+
 // No parameters: exercise real firmware control functions and real ButtonHold code.
 // Exception: Assertion failures retain the violated invariant in native stderr.
 int main()
 {
+    check_offline_standby_owner();
     reset_case();
     assert(battery_allows_automatic_standby());
     canonical_observation.battery.usb_present = true;

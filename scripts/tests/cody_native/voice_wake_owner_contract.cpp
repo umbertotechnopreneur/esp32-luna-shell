@@ -34,6 +34,7 @@ esp_err_t requestVoiceInput(VoiceInputTrigger trigger)
 
 LUNASHELL::DeviceOperatingState s_state = LUNASHELL::DeviceOperatingState::Standby;
 bool s_shutdown_in_progress = false;
+bool s_codex_offline_standby = false;
 bool complete_wake = true;
 esp_err_t transition_error = ESP_OK;
 
@@ -55,6 +56,7 @@ void reset()
 {
     s_state = LUNASHELL::DeviceOperatingState::Standby;
     s_shutdown_in_progress = false;
+    s_codex_offline_standby = false;
     complete_wake = true;
     transition_error = LUNASHELL::read_error = LUNASHELL::admission_error = ESP_OK;
     LUNASHELL::fixture_voice = {};
@@ -82,6 +84,10 @@ int main()
         fixture_voice.input.phase = phase;
         assert(wake_from_user_input(false, DeviceStateReason::Touch) == ESP_OK && admission_count == 0);
     }
+    reset();
+    s_codex_offline_standby = true;
+    assert(wake_from_user_input(false, DeviceStateReason::Touch) == ESP_OK && admission_count == 0);
+    assert(s_state == DeviceOperatingState::Active); // First offline wake contact only restores Cody.
     reset();
     s_shutdown_in_progress = true;
     assert(wake_from_user_input(false, DeviceStateReason::PowerButton) == ESP_OK && admission_count == 0);

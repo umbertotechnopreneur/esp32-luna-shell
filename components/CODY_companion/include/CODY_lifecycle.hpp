@@ -30,6 +30,10 @@ inline constexpr uint32_t kBootSleepingUs = 2000000;
 inline constexpr uint32_t kBootWakingUs = 1500000;
 inline constexpr uint32_t kBootReadyUs = 2000000;
 inline constexpr uint32_t kPanelWakeSleepingUs = LUNASHELL::display_timing::kTransitionFadeMs * 1000U;
+inline constexpr uint32_t kPanelWakeWakingUs = 350000;
+inline constexpr uint32_t kPanelWakeReadyUs = 250000;
+// The farewell character stays above the centered caption inside the circular panel.
+inline constexpr Transform kOfflineFarewellPlacement{233.f, 128.f, 100.f};
 
 struct LifecycleState {
     LifecyclePhase phase = LifecyclePhase::BootSleeping;

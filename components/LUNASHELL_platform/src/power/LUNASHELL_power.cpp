@@ -112,6 +112,11 @@ using ShutdownPrepare = esp_err_t (*)(void);
 using ShutdownFailure = esp_err_t (*)(esp_err_t);
 std::atomic<ShutdownPrepare> s_shutdown_prepare{nullptr};
 std::atomic<ShutdownFailure> s_shutdown_failure{nullptr};
+std::atomic<ShutdownPrepare> s_offline_farewell{nullptr};
+// Only the power worker changes this mode, including rollback and standby promotion.
+bool s_codex_offline_standby = false;
+LUNASHELL::power_policy::CodexOfflineTimer s_codex_offline_timer{};
+int64_t s_last_manual_activity_at_us = 0;
 using SpeechShutdown = esp_err_t (*)(bool);
 std::atomic<SpeechShutdown> s_speech_shutdown{nullptr};
 portMUX_TYPE s_shutdown_admission_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -359,7 +364,7 @@ bool audio_standby_target(bool standby)
     constexpr bool voice_listening = false;
 #endif
     return LUNASHELL::power_policy::select_standby_audio(
-        standby, voice_listening && !s_shutdown_in_progress);
+        standby, voice_listening && !s_shutdown_in_progress && !s_codex_offline_standby);
 }
 
 // reason: Typed cause of the most recent power transition.
@@ -382,6 +387,8 @@ const char *device_state_reason_name(LUNASHELL::DeviceStateReason reason)
         return "inactivity";
     case LUNASHELL::DeviceStateReason::CodexNotification:
         return "codex-notification";
+    case LUNASHELL::DeviceStateReason::CodexOffline:
+        return "codex-offline";
     }
     return "unknown";
 }
@@ -851,23 +858,28 @@ esp_err_t set_standalone_wireless_standby(bool standby)
         s_standby_retains_codex_wireless = false;
         return ESP_OK;
     }
-    if (standby && !s_shutdown_in_progress && s_standby_resources.wireless.consistent) {
+    if (standby && !s_shutdown_in_progress && !s_codex_offline_standby &&
+        s_standby_resources.wireless.consistent) {
         // Failed partial radio initialization must take the real teardown path.
         // Retaining it would falsely report cleanup as a known stopped state.
-        LUNASHELL::ConnectivityObservation observation{};
+        LUNASHELL::CodexStandbyObservation observation{};
         const esp_err_t read_error = LUNASHELL::DeviceSnapshotService::instance()
-            .readConnectivityObservation(observation);
+            .readCodexStandbyObservation(observation);
         if (read_error != ESP_OK) {
             ESP_LOGE(kTag, "Codex standby radio policy read failed (%s)", esp_err_to_name(read_error));
             return read_error;
         }
-        const auto &link = observation.radios.codex_link;
-        if (link.data_valid && !link.data_stale && link.retained_link_present &&
-            !link.pairing_repair_required && observation.radios.wifi.started) {
+        const auto &link = observation.link;
+        if (link.data_valid && !link.data_stale && observation.retained_link_present &&
+            !observation.pairing_repair_required && observation.wifi_started) {
             s_standby_retains_codex_wireless = true;
             ESP_LOGI(kTag, "Cody standby retains wireless services for authenticated CCP notifications");
             return ESP_OK;
         }
+    }
+    if (standby) {
+        // This transaction really stops radios; wake must not take the retained-radio fast path.
+        s_standby_retains_codex_wireless = false;
     }
 #endif
     esp_err_t result = ESP_ERR_NOT_SUPPORTED;
@@ -935,15 +947,16 @@ LUNASHELL::power_policy::StandbySleep selected_standby_sleep()
 }
 
 // Release reduces sampling during the transaction, then arms hardware WoM.
-// Debug keeps the host monitor available for software wake and diagnostics.
-// standby: Transactional standby request; Debug retains its normal 10-Hz observation.
+// Debug ordinarily keeps the host monitor available for software wake and diagnostics.
+// standby: Transactional standby request; PC absence also requests reduced Debug sampling.
+// Exception: Returns the original motion-monitor owner error.
 esp_err_t set_motion_wake_standby(bool standby)
 {
     if (!s_motion_monitor_started) {
         return ESP_OK;
     }
     const bool reduce_sampling = standby &&
-        !LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled;
+        (!LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled || s_codex_offline_standby);
     return LUNASHELL_hardware_set_ui_motion_monitor_standby(reduce_sampling);
 }
 
@@ -1631,6 +1644,7 @@ esp_err_t recover_display_after_rejected_sleep(
 
 // transition_sequence: Exact standby generation whose GUI producers must quiesce.
 // display_recovery_error: Real recovery result if the standalone Sleep callback rejects.
+// Exception: Returns the original quiescence/farewell error, with recovery failure kept separate.
 esp_err_t wait_for_ui_quiescence(
     uint32_t transition_sequence,
     esp_err_t &display_recovery_error)
@@ -1682,7 +1696,10 @@ esp_err_t wait_for_ui_quiescence(
     (void)transition_sequence;
     const auto display_lifecycle = s_display_lifecycle_callback.load(std::memory_order_acquire);
     if (display_lifecycle != nullptr && !s_shutdown_in_progress) {
-        const esp_err_t error = display_lifecycle(true);
+        const auto offline_farewell = s_offline_farewell.load(std::memory_order_acquire);
+        const esp_err_t error = s_codex_offline_standby
+            ? (offline_farewell == nullptr ? ESP_ERR_INVALID_STATE : offline_farewell())
+            : display_lifecycle(true);
         if (error != ESP_OK) {
             ESP_LOGE(kTag, "Display Sleep preparation failed (%s)", esp_err_to_name(error));
             return recover_display_after_rejected_sleep(
@@ -1691,6 +1708,38 @@ esp_err_t wait_for_ui_quiescence(
     }
 #endif
     return ESP_OK;
+}
+
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+// observation: Coherent scalar link/setup state from the canonical snapshot owner.
+// now_us: Current monotonic power-owner time.
+bool codex_standby_link_known(const LUNASHELL::CodexStandbyObservation &observation, int64_t now_us)
+{
+    return observation.link.data_valid && !observation.link.data_stale &&
+        observation.link.last_attempt_at_us > 0 && now_us >= observation.link.last_attempt_at_us;
+}
+
+// observation: Canonical explicit setup activity; background discovery is not pairing.
+bool codex_standby_pairing_active(const LUNASHELL::CodexStandbyObservation &observation)
+{
+    using Pairing = LUNASHELL::PairingSessionState;
+    return observation.link_command_pending || observation.pairing_command_pending ||
+        observation.pairing_window_active || observation.pending_pairing_present ||
+        observation.link_state == LUNASHELL::CodexLinkState::StartingPairing ||
+        observation.link_state == LUNASHELL::CodexLinkState::Pairing ||
+        observation.link_state == LUNASHELL::CodexLinkState::AwaitingConfirmation ||
+        observation.pairing_state == Pairing::Starting || observation.pairing_state == Pairing::ReadyToScan ||
+        observation.pairing_state == Pairing::Connecting || observation.pairing_state == Pairing::Completing ||
+        observation.pairing_state == Pairing::Cancelling;
+}
+#endif
+
+// No parameters: completed wake or rollback grants a fresh offline interval without writing settings.
+void reset_codex_offline_grace()
+{
+    s_codex_offline_standby = false;
+    s_codex_offline_timer = {};
+    s_last_manual_activity_at_us = esp_timer_get_time();
 }
 
 // Coordinate UI quiescence and every hardware resource as one transaction.
@@ -1713,7 +1762,9 @@ esp_err_t set_standby(
     }
     const bool currently_standby =
         s_state == LUNASHELL::DeviceOperatingState::Standby;
-    if (standby == currently_standby) {
+    const bool promote_offline_standby = standby && currently_standby &&
+        reason == LUNASHELL::DeviceStateReason::CodexOffline && !s_codex_offline_standby;
+    if (standby == currently_standby && !promote_offline_standby) {
         return ESP_OK;
     }
 
@@ -1732,6 +1783,7 @@ esp_err_t set_standby(
 #endif
         s_deferred_standby_trace_report_at_us = 0;
         s_deferred_standby_trace_reports_remaining = 0;
+        s_codex_offline_standby = reason == LUNASHELL::DeviceStateReason::CodexOffline;
         s_state = LUNASHELL::DeviceOperatingState::EnteringStandby;
         s_reason = reason;
         ++s_transition_sequence;
@@ -1754,8 +1806,37 @@ esp_err_t set_standby(
         publish_power(ESP_OK);
 
         esp_err_t display_recovery_error = ESP_OK;
-        const esp_err_t ui_quiescence_error =
+        // An already dark standby can shed voice/radios without waking to show a farewell.
+        esp_err_t ui_quiescence_error = promote_offline_standby ? ESP_OK :
             wait_for_ui_quiescence(s_transition_sequence, display_recovery_error);
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+        if (ui_quiescence_error == ESP_OK && s_codex_offline_standby && !promote_offline_standby) {
+            LUNASHELL::CodexStandbyObservation observation{};
+            ui_quiescence_error = LUNASHELL::DeviceSnapshotService::instance()
+                .readCodexStandbyObservation(observation);
+            if (ui_quiescence_error == ESP_OK &&
+                (!codex_standby_link_known(observation, esp_timer_get_time()) ||
+                 observation.link_state == LUNASHELL::CodexLinkState::Connected ||
+                 codex_standby_pairing_active(observation))) {
+                ui_quiescence_error = ESP_ERR_SLEEP_REJECT;
+            }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+            if (ui_quiescence_error == ESP_OK &&
+                activity_before_standby != s_activity_sequence.load(std::memory_order_acquire)) {
+                ui_quiescence_error = ESP_ERR_SLEEP_REJECT;
+            }
+#endif
+            if (ui_quiescence_error != ESP_OK) {
+                ESP_LOGE(kTag, "Offline standby cancelled after farewell (%s)",
+                    esp_err_to_name(ui_quiescence_error));
+                const auto display_lifecycle = s_display_lifecycle_callback.load(std::memory_order_acquire);
+                if (display_lifecycle != nullptr) {
+                    ui_quiescence_error = recover_display_after_rejected_sleep(
+                        display_lifecycle, ui_quiescence_error, display_recovery_error);
+                }
+            }
+        }
+#endif
         if (ui_quiescence_error != ESP_OK) {
             record_standby_trace(
                 StandbyTracePhase::EntryFailed,
@@ -1763,6 +1844,7 @@ esp_err_t set_standby(
             );
             if (display_recovery_error == ESP_OK) {
                 s_state = LUNASHELL::DeviceOperatingState::Active;
+                reset_codex_offline_grace();
                 if (s_display_lifecycle_callback.load(std::memory_order_acquire) != nullptr) {
                     s_display_stage = LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
                 }
@@ -1798,6 +1880,7 @@ esp_err_t set_standby(
             const esp_err_t rollback_error = recovery.rollback_error;
             if (recovery.state == LUNASHELL::power_policy::StandbyRecoveryState::Previous) {
                 s_state = LUNASHELL::DeviceOperatingState::Active;
+                reset_codex_offline_grace();
                 s_display_stage =
                     LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
                 const esp_err_t recovery_publication_error =
@@ -1947,6 +2030,7 @@ esp_err_t set_standby(
         const esp_err_t recovery_error = recovery.recovery_error;
         if (recovery.state == LUNASHELL::power_policy::StandbyRecoveryState::Requested) {
             s_state = LUNASHELL::DeviceOperatingState::Active;
+            reset_codex_offline_grace();
             s_display_stage =
                 LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
             s_fullscreen_active = false;
@@ -1989,6 +2073,7 @@ esp_err_t set_standby(
     }
 
     s_state = LUNASHELL::DeviceOperatingState::Active;
+    reset_codex_offline_grace();
     s_display_stage =
         LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
     s_fullscreen_active = false;
@@ -2377,9 +2462,10 @@ bool voice_input_is_active(const LUNASHELL::VoiceInputObservation &input)
 esp_err_t wake_from_user_input(bool standby, LUNASHELL::DeviceStateReason reason)
 {
     const bool was_standby = s_state == LUNASHELL::DeviceOperatingState::Standby;
+    const bool was_offline_standby = s_codex_offline_standby;
     const esp_err_t wake_error = set_standby(standby, reason);
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-    if (!standby && was_standby && s_state == LUNASHELL::DeviceOperatingState::Active &&
+    if (!standby && was_standby && !was_offline_standby && s_state == LUNASHELL::DeviceOperatingState::Active &&
         !s_shutdown_in_progress && (reason == LUNASHELL::DeviceStateReason::PowerButton ||
         reason == LUNASHELL::DeviceStateReason::BootButton || reason == LUNASHELL::DeviceStateReason::Touch ||
         reason == LUNASHELL::DeviceStateReason::ImuMotion)) {
@@ -2398,6 +2484,7 @@ esp_err_t wake_from_user_input(bool standby, LUNASHELL::DeviceStateReason reason
     }
 #else
     (void)was_standby;
+    (void)was_offline_standby;
 #endif
     return wake_error;
 }
@@ -2594,9 +2681,55 @@ bool battery_allows_automatic_standby()
 #endif
 }
 
-// No parameters: apply real inactivity, or the active scene's independent entry interval.
+// owns_inactivity: True while the confirmed offline grace period replaces ordinary inactivity.
+// Exception: Returns canonical read/transition failures; unknown evidence never proves PC absence.
+esp_err_t apply_codex_offline_policy(bool &owns_inactivity)
+{
+    owns_inactivity = false;
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+    if (s_codex_offline_standby || s_shutdown_in_progress ||
+        (s_state != LUNASHELL::DeviceOperatingState::Active &&
+         s_state != LUNASHELL::DeviceOperatingState::Standby)) {
+        return ESP_OK;
+    }
+    LUNASHELL::CodexStandbyObservation observation{};
+    const esp_err_t read_error = LUNASHELL::DeviceSnapshotService::instance()
+        .readCodexStandbyObservation(observation);
+    if (read_error != ESP_OK) {
+        s_codex_offline_timer = {};
+        ESP_LOGE(kTag, "Offline standby link observation failed (%s)", esp_err_to_name(read_error));
+        return read_error;
+    }
+    const int64_t now_us = esp_timer_get_time();
+    const bool known = codex_standby_link_known(observation, now_us);
+    const bool connected = observation.link_state == LUNASHELL::CodexLinkState::Connected;
+    const bool pairing = codex_standby_pairing_active(observation);
+    owns_inactivity = known && !connected && !pairing;
+    if (!LUNASHELL::power_policy::codex_offline_expired(s_codex_offline_timer, now_us,
+            known, connected, pairing, s_last_manual_activity_at_us)) {
+        return ESP_OK;
+    }
+    ESP_LOGI(kTag, "No authenticated PC for 120 s; entering manual-wake standby");
+    const esp_err_t error = set_standby(true, LUNASHELL::DeviceStateReason::CodexOffline);
+    if (error != ESP_OK) {
+        // A real failure remains published; do not hammer the same transition every 20 ms.
+        s_codex_offline_timer.disconnected_at_us = esp_timer_get_time();
+    }
+    return error;
+#else
+    return ESP_OK;
+#endif
+}
+
+// No parameters: apply PC absence, real inactivity, or the active scene's independent interval.
+// Exception: Returns the original observation, standby or display-policy failure.
 esp_err_t apply_idle_policy()
 {
+    bool offline_owns_inactivity = false;
+    const esp_err_t offline_error = apply_codex_offline_policy(offline_owns_inactivity);
+    if (offline_error != ESP_OK) {
+        return offline_error;
+    }
     if (s_state != LUNASHELL::DeviceOperatingState::Active) {
         return ESP_OK;
     }
@@ -2629,7 +2762,7 @@ esp_err_t apply_idle_policy()
     const bool standby_due = scene_request.policy.seconds != 0
         ? LUNASHELL::power_policy::scene_standby_expired(now_us, s_last_activity_at_us, scene_request.policy)
         : expired(screen_idle_seconds);
-    if (standby_due && battery_allows_automatic_standby()) {
+    if (!offline_owns_inactivity && standby_due && battery_allows_automatic_standby()) {
         const int64_t standby_requested_at_us = esp_timer_get_time();
         // A timeout commonly expires while the device is still moving. Reset
         // the qualified-motion baseline before suspending so that movement
@@ -2897,8 +3030,8 @@ void power_task(void *argument)
             qualified_motion_detected(snapshot.imu);
         const bool wake_on_leg_motion =
             s_leg_wake_enabled.load(std::memory_order_acquire);
-        if ((leg_mode && wake_on_leg_motion && leg_motion.level > 0) ||
-            (!leg_mode && s_shake_wake_enabled.load(std::memory_order_acquire) && qualified_motion)) {
+        if (!s_codex_offline_standby && ((leg_mode && wake_on_leg_motion && leg_motion.level > 0) ||
+            (!leg_mode && s_shake_wake_enabled.load(std::memory_order_acquire) && qualified_motion))) {
             if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
                 const esp_err_t wake_error = set_standby(
                     false,
@@ -2971,6 +3104,7 @@ void power_task(void *argument)
                 // Consume active/transition events too, but wake only from a
                 // detection acquired after this settled standby began.
                 if (s_state == LUNASHELL::DeviceOperatingState::Standby &&
+                    !s_codex_offline_standby &&
                     voice.detected_at_us >= s_wake_word_standby_entered_at_us) {
                     const esp_err_t wake_error = set_standby(false, LUNASHELL::DeviceStateReason::WakeWord);
                     if (wake_error != ESP_OK) {
@@ -2987,7 +3121,14 @@ void power_task(void *argument)
             s_consumed_activity_sequence = activity_sequence;
             const LUNASHELL::DeviceStateReason activity_reason =
                 s_activity_reason.load(std::memory_order_relaxed);
-            if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
+            const bool manual_activity = activity_reason == LUNASHELL::DeviceStateReason::Touch ||
+                activity_reason == LUNASHELL::DeviceStateReason::PowerButton ||
+                activity_reason == LUNASHELL::DeviceStateReason::BootButton;
+            if (manual_activity) {
+                s_last_manual_activity_at_us = s_activity_at_us.load(std::memory_order_relaxed);
+            }
+            if (s_state == LUNASHELL::DeviceOperatingState::Standby &&
+                (!s_codex_offline_standby || manual_activity)) {
                 const esp_err_t wake_error = wake_from_user_input(false, activity_reason);
                 if (wake_error != ESP_OK) {
                     ESP_LOGE(kTag, "Input activity wake reported an error (%s)", esp_err_to_name(wake_error));
@@ -3158,7 +3299,31 @@ extern "C" esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     return ESP_OK;
 }
 
-// Start the single owner after strict restoration of its persisted settings.
+// prepare: Synchronous farewell owner; must be registered before power startup.
+// Exception: Returns the real invalid/missing/duplicate/late registration error.
+extern "C" esp_err_t LUNASHELL_power_manager_register_offline_farewell(esp_err_t (*prepare)(void))
+{
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+    if (prepare == nullptr || s_initialized.load(std::memory_order_acquire)) {
+        const esp_err_t error = prepare == nullptr ? ESP_ERR_INVALID_ARG : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Offline farewell registration rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    ShutdownPrepare expected = nullptr;
+    if (!s_offline_farewell.compare_exchange_strong(expected, prepare,
+            std::memory_order_release, std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "Duplicate offline farewell owner rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
+#else
+    (void)prepare;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+// No parameters: start the single owner after strict restoration of persisted settings.
+// Exception: Returns the original startup/settings/task-allocation failure.
 extern "C" esp_err_t LUNASHELL_power_manager_init(void)
 {
     if (s_initialized.exchange(true, std::memory_order_acq_rel)) {
@@ -3326,6 +3491,7 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
 
     s_state = LUNASHELL::DeviceOperatingState::Active;
     s_reason = LUNASHELL::DeviceStateReason::Startup;
+    reset_codex_offline_grace();
     s_ui_quiescence_requested_sequence.store(0, std::memory_order_release);
     s_ui_quiescence_acknowledged_sequence.store(0, std::memory_order_release);
     s_ui_quiescence_result.store(

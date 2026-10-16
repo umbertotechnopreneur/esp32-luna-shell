@@ -225,6 +225,9 @@ typedef esp_err_t (*LUNASHELL_display_lifecycle_callback_t)(bool sleeping);
 esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     LUNASHELL_display_lifecycle_callback_t callback
 );
+// prepare: Retires Cody's offline farewell and sound before the shared panel fade.
+// Exception: Rejects a missing, duplicate or late owner; excluded profiles return NOT_SUPPORTED.
+esp_err_t LUNASHELL_power_manager_register_offline_farewell(esp_err_t (*prepare)(void));
 
 /** Record activity without blocking the touch or UI callback. */
 void LUNASHELL_power_manager_note_activity(void);

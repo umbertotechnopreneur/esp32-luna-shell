@@ -2770,6 +2770,10 @@ def verify_native_owner(compiler: str | None) -> None:
     output.mkdir(parents=True, exist_ok=True)
     power = POWER_SOURCE.read_text(encoding="utf-8")
     signatures = (
+        "bool audio_standby_target(",
+        "bool codex_standby_link_known(",
+        "bool codex_standby_pairing_active(",
+        "esp_err_t apply_codex_offline_policy(",
         "esp_err_t wake_from_user_input(",
         "esp_err_t dispatch_power_single_press()",
         "esp_err_t handle_power_key_events(",
@@ -2781,12 +2785,22 @@ def verify_native_owner(compiler: str | None) -> None:
     health = function_text(DEVICE_SNAPSHOT_HEADER.read_text(encoding="utf-8"),
                            "enum class DeviceHealth", str(DEVICE_SNAPSHOT_HEADER))
     (output / "power_health_under_test.inc").write_text(health + ";\n", encoding="utf-8")
+    snapshot_header = DEVICE_SNAPSHOT_HEADER.read_text(encoding="utf-8")
+    for signature, filename in (
+        ("struct ComponentSnapshot", "power_component_under_test.inc"),
+        ("struct CodexStandbyObservation", "power_codex_observation_under_test.inc"),
+        ("enum class DeviceStateReason", "power_reason_under_test.inc"),
+    ):
+        declaration = function_text(snapshot_header, signature, str(DEVICE_SNAPSHOT_HEADER))
+        (output / filename).write_text(declaration + ";\n", encoding="utf-8")
     executable = output / "power-owner-contract.exe"
     command = compile_command(resolve_compiler(compiler),
         ("scripts/tests/cody_native", "components/LUNASHELL_platform/include",
          "components/LUNASHELL_logger/include", str(output)),
         ("scripts/tests/cody_native/power_owner_contract.cpp",), executable,
-        definitions=("CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION=1",))
+        definitions=("CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION=1",
+                     "CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX=1",
+                     "CONFIG_LUNASHELL_BUILD_WAKE_WORD_STANDBY_LISTENING=1"))
     run_stage(command, output, "compile")
     run_stage([str(executable)], output, "run")
 

@@ -2821,6 +2821,28 @@ esp_err_t DeviceSnapshotService::readConnectivityObservation(ConnectivityObserva
     return ESP_OK;
 }
 
+// observation: Caller-owned scalar link/setup policy; no driver or settings reads.
+// Exception: Returns the original lock/release error; output is unusable on failure.
+esp_err_t DeviceSnapshotService::readCodexStandbyObservation(CodexStandbyObservation &observation) const
+{
+    const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "Codex standby read");
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    const auto &link = s_snapshot.radios.codex_link;
+    observation.link = static_cast<const ComponentSnapshot &>(link);
+    observation.link_state = link.state;
+    observation.pairing_state = s_snapshot.radios.pairing.state;
+    observation.link_command_pending = link.command_pending;
+    observation.pairing_command_pending = s_snapshot.radios.pairing.command_pending;
+    observation.pairing_window_active = link.pairing_window_active;
+    observation.pending_pairing_present = link.pending_pairing_present;
+    observation.retained_link_present = link.retained_link_present;
+    observation.pairing_repair_required = link.pairing_repair_required;
+    observation.wifi_started = s_snapshot.radios.wifi.started;
+    return give_snapshot_mutex("Codex standby read");
+}
+
 // observation: Coherent power inputs; no driver reads or independent sensor cache.
 // Exception: Returns the original lock/release error without publishing a partial copy.
 esp_err_t DeviceSnapshotService::readPowerControlObservation(

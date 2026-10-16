@@ -1521,6 +1521,14 @@ void check_lifecycle_contract()
             state.phase == LifecyclePhase::BootSleeping, "software wake keeps Sleeping during the 800-ms panel fade");
     require(CODY::advance_lifecycle(state, 1, BootCheckpoint::Ready, state) == ESP_OK &&
             state.phase == LifecyclePhase::BootWaking, "waking begins after the shared panel fade");
+    require(CODY::advance_lifecycle(state, 349999, BootCheckpoint::Ready, state) == ESP_OK &&
+            state.phase == LifecyclePhase::BootWaking, "software wake retains its complete 350-ms opening");
+    require(CODY::advance_lifecycle(state, 1, BootCheckpoint::Ready, state) == ESP_OK &&
+            state.phase == LifecyclePhase::BootReady, "software wake enters Ready after 350 ms");
+    require(CODY::advance_lifecycle(state, 249999, BootCheckpoint::Ready, state) == ESP_OK &&
+            state.phase == LifecyclePhase::BootReady, "software Ready holds for 250 ms");
+    require(CODY::advance_lifecycle(state, 1, BootCheckpoint::Ready, state) == ESP_OK &&
+            state.phase == LifecyclePhase::Idle, "software wake returns the retained route after 1.4 seconds of animation");
     CODY::Channels face{};
     CODY::ContourControls contour{};
     require(CODY::lifecycle_targets({}, face, contour) == ESP_OK, "sleeping atlas expression resolves");

@@ -747,6 +747,7 @@ enum class DeviceStateReason : uint8_t {
     WakeWord,
     Inactivity,
     CodexNotification,
+    CodexOffline,
 };
 
 struct PowerManagementSnapshot : ComponentSnapshot {
@@ -927,6 +928,22 @@ struct ConnectivityObservation {
     DeviceOperatingState operating_state = DeviceOperatingState::Active;
 };
 
+// Scalar link/setup state only: PC absence must not copy chat text onto the power stack.
+struct CodexStandbyObservation {
+    ComponentSnapshot link;
+    CodexLinkState link_state = CodexLinkState::Idle;
+    PairingSessionState pairing_state = PairingSessionState::Idle;
+    bool link_command_pending = false;
+    bool pairing_command_pending = false;
+    bool pairing_window_active = false;
+    bool pending_pairing_present = false;
+    bool retained_link_present = false;
+    bool pairing_repair_required = false;
+    bool wifi_started = false;
+};
+static_assert(sizeof(CodexStandbyObservation) <= 64,
+    "Standby PC policy must remain a scalar projection on the internal power stack");
+
 // Only the canonical inputs consumed by the internal-stack power worker.
 // Unrelated audio, storage and CCP growth must not enlarge its wake call chain.
 struct PowerControlObservation {
@@ -1060,6 +1077,9 @@ public:
 #endif
     // observation: Canonical radio/session state and power state under one lock.
     esp_err_t readConnectivityObservation(ConnectivityObservation &observation) const;
+    // observation: Bounded canonical link/setup state; never reads radios or sensors.
+    // Exception: Returns the original snapshot lock/release error.
+    esp_err_t readCodexStandbyObservation(CodexStandbyObservation &observation) const;
     // observation: Coherent, bounded options projection; assigned only after a successful read.
     // Exception: Returns the original snapshot lock/release error.
     esp_err_t readCodyOptionsObservation(CodyOptionsObservation &observation) const;

@@ -13,6 +13,29 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Offline standby farewell and shorter software wake - 2026-10-16
+
+Implemented a 120-second confirmed-PC-absence policy on USB and battery, independent
+of ordinary battery-only inactivity. Pairing/confirmation and unknown link state
+defer the decision; real manual input/completed wake renew the interval. A bounded
+canonical projection avoids copying CCP chat metadata onto the power stack.
+Existing dark standby can shed voice/radios without a presentation wake. Touch or
+physical Power restores ordinary ownership; motion, wake word and queued network
+notices do not wake offline standby, and its first contact does not start recording.
+
+The shared power presentation draws a larger upper character and centered ASCII
+`Bye bye`, retires complete frames, plays the existing Sleep cue under sound/quiet
+policy and holds it visibly before the existing whole-panel fade. Late connection,
+setup or touch cancels entry. Original rendering/audio/resource errors remain real.
+Software wake retains the 800-ms panel fade but reduces Waking/Ready to 350/250 ms,
+for a nominal 1.4-second authored timeline; cold startup durations are preserved.
+
+Static source review only. Native timer/power-owner/voice-wake/lifecycle regression
+coverage is prepared, not executed. No tests, validation scans, configure/build/size,
+simulator, hardware/serial/flash or remote publication. Current, actual latency,
+physical rendering/sound, nested compiled frames and device stack headroom remain
+open in TODO.md. Wake word is retained; sending audio to Codex remains deferred.
+
 ## Purchased enclosed Waveshare reference import - 2026-10-15
 
 Copied both owner-supplied product folders into `hardware/references/waveshare/`:

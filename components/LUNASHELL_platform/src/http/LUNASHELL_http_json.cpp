@@ -1051,6 +1051,8 @@ const char *deviceStateReasonName(LUNASHELL::DeviceStateReason reason)
         return "inactivity";
     case LUNASHELL::DeviceStateReason::CodexNotification:
         return "codex-notification";
+    case LUNASHELL::DeviceStateReason::CodexOffline:
+        return "codex-offline";
     }
     return "unknown";
 }

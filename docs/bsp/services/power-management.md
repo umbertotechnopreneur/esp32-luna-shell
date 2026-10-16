@@ -14,6 +14,9 @@ The power owner keeps software standby when the confirmed radio transaction
 retains the Cody/Codex association or wake-word standby listening is enabled.
 It permits Deep-sleep only with neither live service and a touch-enabled profile.
 The build mode grants permission to sleep; it does not override requested services.
+The separate Cody PC-absence policy pauses standby voice and wireless services
+after 120 seconds without a confirmed PC; it still uses software standby to retain
+physical-Power wake. Its behavior is described below.
 Debug uses the same timeout and fade but keeps the CPU running and USB available.
 Leg Edition uses this shared timer too; its former fixed 25-second panel-only
 policy no longer overrides device inactivity.
@@ -215,12 +218,31 @@ Deep-sleep wake input. This preserves short-Power wake alongside enabled touch,
 shake and Sophia wake-word services. Other profiles retain their sleep selection.
 Away remains an animation policy, not a radio/CPU/voice energy-saving mode.
 
-Automatic Cody standby requires a valid, current, unambiguous battery-only sample
+Ordinary automatic Cody inactivity standby requires a valid, current, unambiguous battery-only sample
 from the canonical acquisition owner. Valid VBUS prevents automatic inactivity
 standby while charging, fully charged or battery absent. Unknown, stale or failed
 power observations inhibit the automatic decision without asserting either power
 source. Battery-only use retains the saved timer (first-boot default 60 seconds)
 and scene overrides. Explicit PWR standby and shutdown bypass this source gate.
+Confirmed PC absence is another independent source-independent policy: on USB or
+battery, 120 seconds without authenticated CCP transport enters manual-wake
+standby. A valid disconnected/failure state is evidence of PC absence; unknown
+or stale observations are not. Pairing/confirmation defers the offline interval;
+real touch/button activity and completed wake renew it. While confirmed offline,
+the 120-second grace replaces the ordinary inactivity deadline.
+
+The registered Cody display owner retires a larger upper character and centered
+`Bye bye`, the authored Sleep sound (unless Sounds/quiet policy suppresses it),
+and a 400-ms visible hold before the existing whole-panel fade. The power owner
+rechecks link/setup/input state before stopping services. This transaction pauses
+voice acquisition, closes radios without deleting pairing and ignores movement,
+voice and queued Codex-notification wake. Touch/Power restores ordinary ownership;
+the first offline-wake contact does not admit voice recording. An already dark
+standby can shed its retained services at the same deadline without a visible
+farewell. Active-state recovery grants a fresh grace period, and transition errors
+remain published instead of being replaced with success. The 64-byte-bounded
+canonical link/setup projection keeps chat metadata off the power worker stack.
+No new task, polling wake timer, silicon-sleep mode or PMU register is introduced.
 The AXP2101 battery activation bit is not a battery-source indicator.
 
 Shutdown first retires any screenshot operation, presents ASCII `Good night`

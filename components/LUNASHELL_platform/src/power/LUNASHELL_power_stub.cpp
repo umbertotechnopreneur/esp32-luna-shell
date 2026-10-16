@@ -38,6 +38,14 @@ extern "C" esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+// prepare: Excluded profile cannot register an offline farewell owner.
+// Exception: Always returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t LUNASHELL_power_manager_register_offline_farewell(esp_err_t (*prepare)(void))
+{
+    (void)prepare;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 // prepare: Excluded profile cannot register a farewell owner.
 // report_error: Excluded profile cannot restore a failure presentation.
 // Exception: Returns ESP_ERR_NOT_SUPPORTED.

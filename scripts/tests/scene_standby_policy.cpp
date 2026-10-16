@@ -66,3 +66,34 @@ static_assert(select_standby_sleep(true, true, true, true) == StandbySleep::Soft
 static_assert(select_standby_sleep(false, false, false, true) == StandbySleep::Software);
 static_assert(select_standby_sleep(false, true, true, true) == StandbySleep::Software);
 static_assert(select_standby_sleep(true, false, false, false) == StandbySleep::Software);
+
+// No parameters: real touch renews the interval, while unchanged disconnected samples do not.
+constexpr bool offline_timer_boundaries()
+{
+    using LUNASHELL::power_policy::codex_offline_expired;
+    LUNASHELL::power_policy::CodexOfflineTimer timer{};
+    if (codex_offline_expired(timer, 1000000, true, false, false, 0) ||
+        codex_offline_expired(timer, 120999999, true, false, false, 0) ||
+        !codex_offline_expired(timer, 121000000, true, false, false, 0)) {
+        return false;
+    }
+    if (codex_offline_expired(timer, 121000000, true, false, false, 120000000) ||
+        !codex_offline_expired(timer, 240000000, true, false, false, 120000000)) {
+        return false;
+    }
+    // A genuine reconnect, unknown observation or explicit pairing clears old absence time.
+    enum class ResetCause { Unknown, Connected, Pairing };
+    constexpr ResetCause reset_causes[] = {ResetCause::Unknown, ResetCause::Connected, ResetCause::Pairing};
+    for (const auto cause : reset_causes) {
+        timer.disconnected_at_us = 1000000;
+        if (codex_offline_expired(timer, 300000000, cause != ResetCause::Unknown,
+                cause == ResetCause::Connected, cause == ResetCause::Pairing, 0) ||
+            timer.disconnected_at_us != 0 ||
+            codex_offline_expired(timer, 301000000, true, false, false, 0) ||
+            !codex_offline_expired(timer, 421000000, true, false, false, 0)) {
+            return false;
+        }
+    }
+    return true;
+}
+static_assert(offline_timer_boundaries());

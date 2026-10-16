@@ -154,7 +154,9 @@ again. This does not increase periodic standby traffic or fabricate Online.
 See [wake reconnect](../bsp/services/connectivity-pairing.md#cody-wake-reconnect).
 
 Software wake first renders Sleeping behind the dark panel, exposes it through
-the shared 800-ms panel fade, then gives Waking 1.5 seconds and Ready 2 seconds. It does
+the shared 800-ms panel fade, then gives Waking 350 ms and Ready 250 ms. The authored
+software-wake sequence totals 1.4 seconds instead of 4.3 seconds; hardware restoration,
+frame scheduling and reconnection are additional, unmeasured costs. It does
 not multiply a second 2-second character fade over the panel fade. Route, pending
 operation, debug/pause state and scene entrance/text clocks stay in RAM; hidden
 routes do not update during the lifecycle wake sequence. Before showing the
@@ -169,8 +171,9 @@ profile-specific silicon-sleep policy remain in
 [power management](../bsp/services/power-management.md).
 
 Every authored scene supplies `standby_override_seconds`: zero inherits the saved
-user timeout, a positive value replaces it only for the active scene. Invitation
-05 and installation 06 use 60 seconds; real pairing 07 uses 90 seconds. The unused
+user timeout, a positive value replaces it only for the active scene. The separate
+confirmed-PC-absence policy below replaces ordinary inactivity during its grace interval.
+Invitation 05 and installation 06 use 60 seconds; real pairing 07 uses 90 seconds. The unused
 scan definition, Online 09, Debug-only 39, 10, 36 and 13-15 use 60 seconds.
 Connect Codex 12 uses 180 seconds; successful canonical code delivery refreshes
 its anchor once, so preparation time does not consume the code-reading interval.
@@ -186,6 +189,38 @@ Standby retains the active route. In particular, wake from screen 09 returns to
 09; the wake contact does not invoke its Continue action. Screen 39 is available
 only in Debug builds and one awake tap dismisses it. Release contains no generated
 scene definition or expression-catalog mapping for 39.
+
+### Standby without a connected PC
+
+Cody waits 120 seconds after a valid canonical observation first reports no
+authenticated CCP PC connection. Real touch/button activity and completed wake
+grant a fresh interval; background motion and repeated discovery do not extend
+it. Connected transport clears the timer even when no chat is active or Codex
+reports Closed. Unknown/stale link evidence cannot establish PC absence. Explicit
+network pairing, pending Codex pairing and confirmation defer this timer.
+
+This policy operates on USB and battery, independently of the ordinary battery-only
+inactivity gate. While awake, Cody presents a larger character above a centered
+ASCII `Bye bye`, waits for completed Sleep/caption frames, plays the existing
+220-ms Sleep cue through the audio owner, and keeps a minimum 400-ms visible
+dwell before the shared 800-ms whole-panel fade. Sounds Off, authored sound disable
+and quiet/time policy suppress the cue explicitly; real playback/preparation
+failures abort standby and retain their original errors. A link restored or real
+input acquired during the farewell cancels the transition before radio shutdown.
+
+After the transaction, radios, voice input and wake-word acquisition are suspended.
+Saved credentials/pairing are retained. Movement, voice and queued network notices
+cannot wake this offline standby; touch or a physical button restores the ordinary
+owners and reconnects. Its first contact does not select a control or start voice
+recording. Wake word remains available after wake and in ordinary listening standby.
+If an existing dark standby loses its PC, the same timeout sheds its retained
+services without waking the panel for a farewell. No periodic reconnect wake is armed.
+
+The power owner consumes a scalar canonical link/setup projection bounded to
+64 bytes, without copying chat text, reading radios directly or creating another
+task. New timeout/rollback/audio/wake coverage is prepared but unexecuted at the
+2026-10-16 source checkpoint; whole-board current, target stack headroom, sound,
+touch and actual wake latency remain unmeasured for this revision.
 
 ## Reusable scenes and text
 
