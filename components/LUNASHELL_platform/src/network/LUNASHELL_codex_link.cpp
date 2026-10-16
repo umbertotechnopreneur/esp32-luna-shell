@@ -163,7 +163,7 @@ char s_clock_consumed_id[33]{};
 char s_name_consumed_nonce[33]{};
 char s_name_consumed_id[33]{};
 LUNASHELL::CodexNameExecutor s_name_executor = nullptr;
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 struct DebugScreenMailbox {
     LUNASHELL::CodexDebugScreenRequest request{};
     char nonce[33]{};
@@ -1742,7 +1742,7 @@ esp_err_t sendCommittedLocked(const ReadyResponse &response, const sockaddr_in &
     return error;
 }
 
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 // response: Just-authenticated active READY, retaining the unchanged base FIND contract.
 // source: Exact responder endpoint receiving the signed optional Debug capability.
 // Exception: Returns real crypto/encoding/send errors; this optional failure is logged independently.
@@ -2011,7 +2011,7 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                     if (newly_connected) {
                         ESP_LOGI(kTag, "CCP peer authenticated");
                     }
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
                     const esp_err_t debug_error = sendDebugCapabilityLocked(response, source);
                     if (debug_error != ESP_OK) {
                         // Debug views are optional; retain this failure in their transport owner.
@@ -2938,7 +2938,7 @@ esp_err_t acceptClock(const char *payload, const sockaddr_in &source)
     return error != ESP_OK ? error : ack_error;
 }
 
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 // payload: Bounded DEBUG envelope received by the existing CCP socket owner.
 // source: Exact authenticated current READY endpoint.
 // Exception: Rejects malformed, replayed, stale, unauthenticated or busy requests.
@@ -3495,7 +3495,7 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
             }
             return;
         }
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
         if (std::strncmp(payload, "CCP1|DEBUG|", 11) == 0) {
             const esp_err_t error = acceptDebugScreen(payload, source);
             if (error != ESP_OK) {
@@ -3864,7 +3864,7 @@ void codexLinkWorker(void *context)
                 s_link_snapshot.state == State::Connected);
         }
 #endif
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
         maintainDebugScreen();
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
@@ -3905,7 +3905,7 @@ esp_err_t LUNASHELL::registerCodexNameExecutor(CodexNameExecutor executor)
     return ESP_OK;
 }
 
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 // request: Non-owning output receiving one authenticated transient request.
 // Exception: Returns NOT_FOUND when empty/expired/retired; the worker does not sample sensors.
 esp_err_t LUNASHELL::takeCodexDebugScreen(CodexDebugScreenRequest &request)

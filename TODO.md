@@ -1,5 +1,11 @@
 # Active work
 
+The 16 October owner correction replaces the repeated question alarm with one
+soft 1.8-second bell and quieter 300-ms reminders, retaining the ten-second
+cadence. Both diagnostic views are being made available in Release as well as
+Debug, without asking the user to choose a build mode. Source integration is in
+progress; build, installation and actual view application are not yet claimed.
+
 The owner's 15 October enclosed-board reference import and static assessment are
 recorded in [done.md](done.md). New 1.75C/1.43C hardware support remains deferred
 as HARDWARE-PORT-01 in [planned-todo.md](planned-todo.md); those boards are not

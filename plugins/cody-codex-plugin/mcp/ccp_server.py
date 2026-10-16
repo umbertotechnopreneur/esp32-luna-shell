@@ -936,8 +936,8 @@ class CompanionResponder:
             if self._debug_used_nonce.get(fields["device"]) != fields["nonce"]:
                 self._debug_peers[fields["device"]] = peer
 
-    # self: Authenticated responder receiving transient Debug requests from MCP.
-    # device_id: Explicit retained target with a recent authenticated Debug capability.
+    # self: Authenticated responder receiving transient diagnostic requests from MCP.
+    # device_id: Explicit retained target with a recent authenticated screen capability in either build mode.
     # mode: face_channels, character or normal; no arbitrary route/command is accepted.
     # scroll: Absolute first channel row; firmware checks its real channel count.
     # include_simulator: Explicit authorization to target loopback, never inferred.
@@ -956,7 +956,7 @@ class CompanionResponder:
             current = self._event_peers.get(device_id)
             if (peer is None or current is None or peer.nonce != current.nonce
                     or not 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS):
-                raise ValueError("No recent authenticated Debug capability; Release firmware does not support this tool")
+                raise ValueError("No recent authenticated diagnostic-screen capability; keep the paired Cody connected and awake")
             source_kind = observation_source(peer.source[0])
             if source_kind == "SIMULATED" and not include_simulator:
                 raise ValueError("SIMULATED debug requires explicit include_simulator=true")
@@ -1863,10 +1863,10 @@ def tool_catalog() -> list[dict[str, Any]]:
     ] + activity_tool_catalog() + interactions.tool_catalog() + clock.tool_catalog() + preferred_name.tool_catalog() + [voice_input.tool_definition(), debug_tool_definition()] + [reset.tool_definition(operation) for operation in reset.ResetOperation]
 
 
-# No parameters: private bounded Debug screen tool, omitted from public manuals.
+# No parameters: exposes the same bounded diagnostic views in customer and development builds.
 def debug_tool_definition() -> dict[str, Any]:
-    return {"name": "ccp_debug_screen", "title": "Cody Debug screen",
-        "description": "Request live face_channels, character with snapshot HUD, or normal on an authenticated Debug Cody. ACK confirms worker application only, never display pixels.",
+    return {"name": "ccp_debug_screen", "title": "Cody diagnostics",
+        "description": "Request live face_channels, character with snapshot HUD, or normal on a paired Cody with a fresh authenticated screen capability. Available in both Release and Debug. ACK confirms worker application only, never display pixels.",
         "inputSchema": {"type": "object", "additionalProperties": False,
             "properties": {"device_id": {"type": "string", "pattern": "^[0-9a-f]{12}$"},
                 "mode": {"type": "string", "enum": ["face_channels", "character", "normal"]},

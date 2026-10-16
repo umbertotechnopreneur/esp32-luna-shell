@@ -99,10 +99,11 @@ cannot accidentally reuse a Release build.
 | CPU frequency | Existing 80--240 MHz dynamic policy | Same 80--240 MHz policy |
 | Sleep residency diagnostics | Callback counters available | Debug-only callback instrumentation disabled |
 | Repeated post-wake trace reports | Available | Disabled; retained failure trace remains available |
-| Cody frame diagnostics | Authored execution timings, frame distributions and FPS/CPU HUD | No collection/reporting of diagnostic frame distributions, raster stage profiling or HUD |
+| Cody frame diagnostics | Authored execution timings, frame distributions and FPS/CPU HUD | No frame-distribution/raster profiling collection; explicitly opened diagnostic screens still show the canonical readout |
+| Cody diagnostic screens | Live character/readout and face-channel list through authenticated CCP | The same two screens, scrolling and Back; no build-mode choice is required |
 | Cody PWR | Short click enters/wakes standby; valid continuous 3-second hold requests farewell and PMU shutdown | Same dedicated power controls; no PWR screenshot or software reset |
 | BOOT software reset | 3-second BOOT hold | Excluded; ordinary BOOT controls remain |
-| Cody static/parked worker | Existing 50 ms/200 ms waits; paused HUD refresh | 1000 ms functional gate checks; touch IRQ wakes immediately; unchanged paused frames do not redraw |
+| Cody static/parked worker | Existing 50 ms/200 ms waits; paused HUD refresh | 1000 ms functional gate checks; touch IRQ wakes immediately; an explicit diagnostic view retains live refresh |
 | Active animation | Existing selected 40 ms or 33 ms target | Same target |
 | Compiler optimization | Existing performance optimization (`-O2`) | Same optimization for comparable rendering behavior |
 

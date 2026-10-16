@@ -872,3 +872,41 @@ in flight; its actual eventual result is returned rather than claiming rollback.
 Metadata CCP packets remain authenticated
 plaintext; this audio extension does not replace or strengthen the existing pairing
 scheme. Cryptographic/wire/physical checks of this source increment remain pending.
+
+## Authenticated diagnostic screens, 16 October 2026
+
+The Cody Companion profile offers the same two transient diagnostic screens in
+Release and Debug: `character` renders the live character with canonical snapshot
+readout; `face_channels` renders its actual composed channel list. `normal`
+restores the retained route. The wire names remain unchanged and do not select
+a firmware build mode. No arbitrary command, channel override or settings write
+is admitted by this extension.
+
+After an authenticated READY, Cody advertises `CCP1|DEBUGCAP` with ordered fields
+`device`, `pc`, `nonce`, `debug=1`, `proof`. HMAC-SHA256 uses the retained link
+key over `debug-cap|device|pc|nonce|1`. This denotes available screens, not Debug
+build identity. The broker binds it to the current authenticated endpoint and
+live READY nonce; saved pairing without this fresh capability is insufficient.
+
+`CCP1|DEBUG` carries `device`, `pc`, `nonce`, `id`, `mode`, `scroll`, `proof`.
+Its HMAC input is `debug|device|pc|nonce|id|mode|scroll`. The request ID is exactly
+32 hexadecimal characters. Scroll is a canonical unsigned decimal from 0 to 255;
+only `face_channels` permits a nonzero offset. The worker checks the actual
+compiled channel count. Mode and all fields are validated before mailbox admission.
+Both peers bind the operation to current credentials, endpoint and nonce, consume
+that nonce once, and require a new authenticated capability before another command.
+
+The four-second mailbox belongs to the existing CCP socket worker. The display
+worker takes its immutable projection, validates lifecycle/display readiness and
+native layout, and completes that exact request with its original error. Capability
+and mailbox service are compiled for the Cody profile in both build modes.
+Prepared channel text is component-owned PSRAM storage; diagnostic consumers
+never acquire sensor values independently of the canonical snapshot.
+
+`CCP1|DEBUGACK` carries `device`, `pc`, `nonce`, `id`, `mode`, `scroll`, `status`,
+`error`, `count`, `proof`. Its HMAC input is
+`debug-ack|device|pc|nonce|id|mode|scroll|status|error|count`.
+Status is `applied` or `rejected`; error preserves signed `esp_err_t`, and count
+is the actual compiled channel count. Missing/stale/retired requests and ambiguous
+timeouts never establish success or authorize automatic replay. An authenticated
+applied ACK proves worker application, not physical display pixels.

@@ -26,10 +26,9 @@ endif()
 
 set(cody_onboarding_sources "")
 set(cody_debug_sources "")
-if(CONFIG_LUNASHELL_BUILD_MODE_DEBUG AND CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION)
-    list(APPEND cody_debug_sources "src/diagnostics/CODY_debug_views.cpp")
-endif()
+# Diagnostic screens are Cody functionality in every build mode.
 if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION)
+    list(APPEND cody_debug_sources "src/diagnostics/CODY_debug_views.cpp")
     list(APPEND cody_onboarding_sources "src/scenes/CODY_onboarding.cpp" "src/scenes/CODY_look_screen.cpp")
 endif()
 

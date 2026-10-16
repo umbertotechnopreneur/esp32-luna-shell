@@ -224,17 +224,36 @@ touch and actual wake latency remain unmeasured for this revision.
 
 ### Pending-question sound cadence
 
-The initial pending-question alert repeats the existing 340-ms Question cue five
-times with 200-ms gaps (2.5 seconds). While the fresh canonical question remains
-Pending and visible, four-note reminders with 100-ms gaps (1.66 seconds) repeat
+The initial pending-question alert plays one soft 1.8-second Question bell with
+a long fading tail. While the fresh canonical question remains Pending and
+visible, one quieter 300-ms QuestionReminder plays
 every ten awake seconds, including animation pause and excluding standby.
 Choice browsing and detail review retain this cadence. Admitted Send, terminal
 outcomes or unavailable/stale/offline source evidence stop future attempts.
 Hidden/offline intervals renew the reminder interval without replaying the initial
 alert. Each attempt uses the shared bounded audio mailbox and existing Sounds,
 volume, quiet-hours and standby gates. Busy or suppressed cues never accumulate.
-No new PCM, buffer, worker or transport configuration is introduced. Native cadence
+Both samples derive from the purchased Soft Chime recording at -24/-27 dBFS.
+The shared owner streams their flash PCM in its existing 320-sample scratch;
+single Codex notices admit up to two seconds, while activity/personality and
+repeated clips retain their 350-ms bounds. No buffer, worker or clock is added. Native cadence
 coverage is prepared but unexecuted; actual speaker playback remains unverified.
+
+### Two diagnostic screens
+
+Both customer and development builds expose the same authenticated CCP
+diagnostic views: `character` shows the live character and canonical snapshot
+readout, and `face_channels` shows the actual composed channel list with touch
+scrolling. `normal` restores the retained route and is not a third diagnostic view.
+Build mode is not a user choice required to open these screens.
+
+The existing signed DEBUGCAP/DEBUG/DEBUGACK exchange, live paired endpoint,
+fresh nonce, request deadline and application acknowledgement remain required.
+The display worker owns all changes. Prepared channel strings stay in its stable
+PSRAM buffer; consumers read the canonical snapshot without acquiring sensors.
+Release renders the readout and refreshes a paused view while an explicit overlay
+is active. Back restores normal presentation and its ordinary power behavior.
+An applied ACK proves the rendering worker accepted the view, not visible pixels.
 
 ## Reusable scenes and text
 

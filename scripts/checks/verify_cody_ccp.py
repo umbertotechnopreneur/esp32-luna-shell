@@ -2163,7 +2163,7 @@ class DebugScreenContractTests(unittest.TestCase):
     # self: Debug capability/authentication boundary without a live connection.
     # Raises AssertionError if forged, missing or wrong-source capabilities authorize a command.
     def test_debug_capability_requires_active_key_and_exact_endpoint(self):
-        with self.assertRaisesRegex(ValueError, "No recent authenticated Debug"):
+        with self.assertRaisesRegex(ValueError, "No recent authenticated diagnostic-screen"):
             self.responder.debug_screen(self.device, "character", 0, True)
         with self.assertRaisesRegex(ValueError, "authentication failed"):
             self.responder._handle_datagram(self.capability("0" * 64), self.source)
@@ -2185,7 +2185,7 @@ class DebugScreenContractTests(unittest.TestCase):
         self.assertFalse(result["pixels_verified"])
         self.assertEqual(result["source"], "SIMULATED")
         self.responder._handle_datagram(self.capability(), self.source)
-        with self.assertRaisesRegex(ValueError, "No recent authenticated Debug"):
+        with self.assertRaisesRegex(ValueError, "No recent authenticated diagnostic-screen"):
             self.responder.debug_screen(self.device, "normal", 0, True)
         self.listener.sendto.assert_called_once()
 

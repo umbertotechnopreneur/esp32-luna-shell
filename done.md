@@ -13,6 +13,25 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Gentle question bells and shared diagnostic availability - 2026-10-16
+
+The owner rejected the repeated question alarm and the diagnostic build-mode
+choice. Prepared one 1.8-second Soft Chime bell at -24 dBFS, plus one shorter
+300-ms reminder at -27 dBFS on the existing ten-second pending-question cadence.
+Source recordings remain read-only. Single Codex notices admit at most two
+seconds through the existing 320-sample transport scratch; ordinary activity,
+personality and repeated clips retain their short bounds. No extra PCM buffer,
+task or sample clock is introduced. Digital level is not measured speaker loudness.
+
+Both existing authenticated diagnostic views are now included in the Cody profile
+independently of build mode, including capability, request, mailbox, raster, touch,
+readout preparation and paused-view refresh. The canonical snapshot, endpoint/
+nonce validation, bounded channel storage and original errors remain authoritative.
+The plugin's canonical skill/tool description and guide now describe the same
+two views; `normal` restores the route. The earlier mode-choice question was
+cancelled after the owner's explicit chat instruction. Test coverage is prepared
+but unexecuted; source implementation is not a physical rendering/audio result.
+
 ## Offline standby and question-alert Release delivery - 2026-10-16
 
 Release `cody-193-g7eab1a9d` built from the clean source checkpoint with ESP-IDF

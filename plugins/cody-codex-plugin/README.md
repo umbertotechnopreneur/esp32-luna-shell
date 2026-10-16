@@ -42,6 +42,20 @@ client's id-only release is explicitly treated as abnormal, with no Closed
 claim. A real Codex reopen that starts the updated broker/client loads the new
 EOF reporting; changing files on disk does not hot-reload a running broker.
 
+## Two diagnostic screens
+
+The same two live diagnostic screens are available on Cody in Release and Debug:
+`character` shows the character with canonical snapshot diagnostics, and
+`face_channels` shows the composed facial channels in a scrollable list.
+`normal` restores the retained screen; it is not a third diagnostic screen.
+
+Use `ccp_connection_status` to identify the intended connected physical Cody,
+then `ccp_debug_screen` with its `device_id` and the requested mode. These are
+transient display controls, with unchanged pairing, fresh signed capability and
+request/acknowledgement checks. An applied ACK is a worker result, not proof of
+physical pixels. Firmware without the screen capability needs a firmware update;
+changing the plugin alone cannot enable an unavailable device capability.
+
 ## One-way WAV attachments
 
 The encrypted receiver uses UDP 42119 independently of CCP metadata. Install

@@ -261,7 +261,7 @@ struct CompanionState {
     int64_t home_active_us = 0;
     int64_t home_sampled_us = -1;
     uint32_t panel_source_status = 0;
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     LUNASHELL::CodexDebugScreen debug_screen = LUNASHELL::CodexDebugScreen::Normal;
     uint8_t debug_channel_scroll = 0;
     bool debug_placement_dirty = false;
@@ -393,7 +393,7 @@ struct CompanionState {
 alignas(CompanionState) EXT_RAM_BSS_ATTR uint8_t s_state_storage[sizeof(CompanionState)]{};
 CompanionState &s_state = *new (s_state_storage) CompanionState{};
 
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 // Prepared lines borrow these PSRAM-owned strings across every tile of one frame.
 EXT_RAM_BSS_ATTR CODY::DebugChannelList s_debug_channel_list;
 #endif
@@ -401,7 +401,7 @@ EXT_RAM_BSS_ATTR CODY::DebugChannelList s_debug_channel_list;
 // No parameters: overlay permission follows the same active lifecycle and logical display as normal Cody.
 bool debug_view_active()
 {
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     return s_state.debug_screen != LUNASHELL::CodexDebugScreen::Normal &&
         s_state.rig_visible && s_state.branding_complete && s_state.boot_phase == BootPhase::Ready &&
         CODY::lifecycle_is_resting(s_state.lifecycle) && !s_state.resume_scene_pending;
@@ -413,7 +413,7 @@ bool debug_view_active()
 // No parameters: the channel list uses current composed values and owns no character raster.
 bool debug_channel_view_active()
 {
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     return debug_view_active() && s_state.debug_screen == LUNASHELL::CodexDebugScreen::FaceChannels;
 #else
     return false;
@@ -2754,13 +2754,13 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
             s_state.frame_rate = {};
         }
     }
-    if (!measured_readout_route_active() && !s_state.raster_benchmark_active) {
+    if (!measured_readout_route_active() && !s_state.raster_benchmark_active && !debug_view_active()) {
         return ESP_OK;
     }
     ++s_state.rig_frame_count;
     log.frame_count = s_state.rig_frame_count;
     const int64_t completed_us = log.completed_us;
-    if constexpr (kRenderDiagnosticsEnabled) {
+    if (kRenderDiagnosticsEnabled || debug_view_active()) {
         CODY::record_frame_rate(s_state.frame_rate, timings.started_us, completed_us);
     }
     if (!kExecutionTimingsEnabled) {
@@ -3575,7 +3575,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             s_state.frame_rate = {};
             s_benchmark.reset();
         }
-        if constexpr (kRenderDiagnosticsEnabled) {
+        if (kRenderDiagnosticsEnabled || frame_overlay) {
             if ((s_state.raster_benchmark_active || (frame_overlay && !frame_channel_list) ||
                  (measured_readout_route_active() && s_state.debug_readout_enabled)) &&
                 !footer_blocks_readout) {
@@ -3643,7 +3643,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         if (geometry_error != ESP_OK) {
             return frame.finish({geometry_error, false, 0});
         }
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
         if (frame_overlay || s_state.debug_placement_dirty) {
             // Keep the composed normal placement intact so Back restores it even while paused.
             const CODY::Transform placement = frame_overlay
@@ -3939,9 +3939,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
     }
     const bool frame_readout_visible = s_power_presentation.load(std::memory_order_acquire) ==
-        PowerPresentation::None && !s_state.raster_benchmark_active && kRenderDiagnosticsEnabled &&
+        PowerPresentation::None && !s_state.raster_benchmark_active &&
         ((frame_overlay && !frame_channel_list) ||
-         (measured_readout_route_active() && s_state.debug_readout_enabled && presentation.content_visible &&
+         (kRenderDiagnosticsEnabled && measured_readout_route_active() && s_state.debug_readout_enabled && presentation.content_visible &&
           !footer_blocks_readout && (!s_state.scene.valid || s_state.scene.definition->readout_visible)));
     // Fade a bounded palette once, not 466x466 boot pixels or the physical
     // backlight setting. The immutable source asset remains untouched.
@@ -3999,7 +3999,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             (frame_dashboard && s_cached_panel_revision != s_state.home_dashboard.revision))) {
             plan_error = CODY::include_damage(dirty_plan, CODY::kHomeDashboardBounds);
         }
-        if (plan_error == ESP_OK && kRenderDiagnosticsEnabled &&
+        if (plan_error == ESP_OK && (kRenderDiagnosticsEnabled || frame_overlay || s_cached_readout_visible) &&
             (s_cached_readout_visible != frame_readout_visible ||
              (frame_readout_visible &&
               (std::strcmp(s_cached_readout.frame_rate, debug_readout.frame_rate) != 0 ||
@@ -4166,7 +4166,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                         debug_readout, strip, damage.top, damage.left, scene_background
                     );
                 }
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
                 if (result == ESP_OK && frame_channel_list) {
                     result = CODY::draw_debug_channel_list_rows(s_debug_channel_list, strip, damage.top, damage.left);
                 }
@@ -4494,12 +4494,14 @@ esp_err_t enter_animation_demo()
     return ESP_OK;
 }
 
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 // screen: Validated reversible overlay mode; Normal restores the retained route.
 // scroll: Validated absolute channel row, zero for modes without a list.
 void apply_debug_view(LUNASHELL::CodexDebugScreen screen, uint8_t scroll)
 {
     s_state.debug_screen = screen;
+    // A view change starts a new measured window; never label the previous page's FPS as current.
+    s_state.frame_rate = {};
     s_state.debug_channel_scroll = scroll;
     s_state.debug_scroll_contact = false;
     s_state.debug_placement_dirty = true;
@@ -4517,7 +4519,7 @@ void apply_debug_view(LUNASHELL::CodexDebugScreen screen, uint8_t scroll)
 }
 #endif
 
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG && CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
 // optional_rejection: True only after a real rejection was acknowledged and canonically published.
 // Exception: Returns the original application, lock or completion error; absence is not a failure.
 esp_err_t apply_debug_screen_requests(bool &optional_rejection)
@@ -5279,7 +5281,7 @@ esp_err_t handle_setup_hold(const LUNASHELL_touch_point_t &point, bool pressed_e
     return ESP_OK;
 }
 
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 // point: Acquired logical touch in the same orientation as the completed diagnostic view.
 // pressed_edge: True for the first acquired press of this contact.
 void handle_debug_view_touch(const LUNASHELL_touch_point_t &point, bool pressed_edge)
@@ -5369,7 +5371,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
             log_optional_typewriter_result(feedback_error);
         }
     }
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     if (debug_view_active()) {
         handle_debug_view_touch(point, pressed_edge);
         return ESP_OK;
@@ -5727,7 +5729,8 @@ void companion_worker(void *context)
             // route was static/paused. Touch IRQ still interrupts this wait.
             wait_ms = remaining_us > 0 ? static_cast<uint32_t>((remaining_us + 999) / 1000) : 1;
 #endif
-        } else if (s_state.animation_paused && !kRenderDiagnosticsEnabled && !companion_home_route_active()) {
+        } else if (s_state.animation_paused && !kRenderDiagnosticsEnabled && !companion_home_route_active() &&
+                   !debug_view_active()) {
             wait_ms = kSamplePeriodMs;
         } else if (s_state.rig_visible) {
             wait_ms = remaining_us > 0 ?
@@ -5756,7 +5759,7 @@ void companion_worker(void *context)
                 break;
             }
         }
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG && CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
         // Poll even when animation or display frames are parked; mailbox expiry is independent.
         bool optional_debug_rejection = false;
         const esp_err_t debug_error = s_power_presentation.load(std::memory_order_acquire) ==
@@ -5849,7 +5852,7 @@ void companion_worker(void *context)
         CODY_boot_cues_observe_pending();
         const uint32_t revision = LUNASHELL_display_runtime_content_revision();
         const bool paused_release_frame = s_state.animation_paused && !kRenderDiagnosticsEnabled &&
-            !companion_home_route_active();
+            !companion_home_route_active() && !debug_view_active();
         if (!parked && s_state.rig_visible &&
             (paused_release_frame || esp_timer_get_time() < s_state.next_frame_us) &&
             !s_state.frame_dirty.load(std::memory_order_acquire) &&
