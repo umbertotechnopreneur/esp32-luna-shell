@@ -38,7 +38,8 @@ sys.path.insert(0, str(ROOT / "simulator/windows"))
 sys.path.insert(0, str(ROOT))
 import cody_ccp_simulator as simulated
 from cody_ccp_panel import CcpPanel, presentation
-from cody_ccp_event_view import EventView, paint_action, wrapped
+from cody_ccp_event_view import EventView, paint_actions
+from cody_native_event_presentation import wrapped
 from cody_scene import ScenePainter
 from cody_native import NativeRig
 from scripts.common.cody_rig_contract import load_contract
@@ -1320,7 +1321,7 @@ class SimulatorProtocolTests(unittest.TestCase):
             for line, top in lines:
                 painter.paint_text(framebuffer, line, top, body=True, max_width=300)
             for action in actions:
-                paint_action(framebuffer, painter, action)
+                paint_actions(framebuffer, painter, (action,))
         names = tuple(str(index) + "F" * 47 for index in range(6))
         payload = interactions.EventPayload(interactions.EventKind.CHECKS_FAILED, "", "Checks failed",
             "Review the real names.", failures=names)

@@ -18,8 +18,8 @@
 
 import ctypes as C
 from enum import IntEnum
-from PIL import Image
 from cody_native import checked
+from cody_native_rgb565 import image_to_native_rgb565, native_rgb565_to_image
 
 
 class DiagnosticPage(IntEnum):
@@ -40,17 +40,10 @@ def render_debug_controls(native, image, page=None):
     function = native.api.cody_host_debug_back if page is None else native.api.cody_host_diagnostic_page
     function.argtypes = [C.POINTER(C.c_uint16), C.c_uint32] + ([] if page is None else [C.c_uint8])
     function.restype = C.c_int
-    pixels = (C.c_uint16 * (466 * 466))()
-    for index, (red, green, blue) in enumerate(image.getdata()):
-        pixels[index] = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
+    pixels = image_to_native_rgb565(image)
     arguments = [pixels, len(pixels)] + ([] if page is None else [int(page)])
     checked("debug_controls", function(*arguments))
-    rgb = bytearray(len(pixels) * 3)
-    for index, color in enumerate(pixels):
-        rgb[index * 3] = ((color >> 11) & 31) * 255 // 31
-        rgb[index * 3 + 1] = ((color >> 5) & 63) * 255 // 63
-        rgb[index * 3 + 2] = (color & 31) * 255 // 31
-    return Image.frombytes("RGB", (466, 466), bytes(rgb))
+    return native_rgb565_to_image(pixels)
 
 
 # native: Already loaded shared C++ graphics owner.

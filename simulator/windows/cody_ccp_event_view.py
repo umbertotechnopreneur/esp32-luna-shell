@@ -23,15 +23,7 @@ import time
 from cody_native_debug import render_debug_controls
 from cody_native_behavior import CharacterActivity
 
-from cody_native_event_presentation import NativeEventPresentation, EventAction, ascii_field, wrapped, paint_native_actions, paint_native_approval
-
-
-# image: Logical RGB framebuffer prior to rotation.
-# painter: Native glyph coverage owner.
-# action: One approved gradient card/capsule and its complete untimed caption.
-# Raises ValueError or RuntimeError for invalid plan data, unavailable rendering or native failure.
-def paint_action(image, painter, action: EventAction) -> None:
-    paint_actions(image, painter, (action,))
+from cody_native_event_presentation import NativeEventPresentation, EventAction, ascii_field, paint_native_actions, paint_native_approval
 
 
 # image: Logical RGB framebuffer prior to rotation.

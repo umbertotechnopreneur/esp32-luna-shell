@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 from ccp_interactions import Tone
 from cody_native_runtime import load_runtime_library
+from cody_native_rgb565 import image_to_native_rgb565, native_rgb565_to_image
 
 
 class Choice(C.Structure):
@@ -109,6 +110,12 @@ def checked(operation: str, error: int) -> None:
 
 
 class NativeEventPresentation:
+    """Own reversible UI state and bounded ABI buffers for the shared C++ model.
+
+    Socket observations remain with the endpoint; a local intent never proves
+    delivery or a native PC decision. Each call projects one immutable event.
+    """
+
     # self: UI-owned native navigation/context and fixed ABI buffer.
     # Raises OSError, ValueError or AttributeError for absent/stale native output.
     def __init__(self) -> None:
@@ -301,7 +308,6 @@ def wrapped(text: str) -> tuple[str, ...]:
 # api: Already verified actual Cody native graphics library, configured independently here.
 # Raises ValueError or RuntimeError for missing plan provenance or actual C++ raster errors.
 def paint_native_actions(image, actions: tuple[EventAction, ...], api) -> None:
-    from PIL import Image
     if image.mode != "RGB" or image.size != (466, 466) or len(actions) > 3:
         raise ValueError("Native event drawing requires a complete production plan and logical RGB framebuffer")
     if any(len(action.native_action) != C.sizeof(Action) for action in actions):
@@ -312,16 +318,9 @@ def paint_native_actions(image, actions: tuple[EventAction, ...], api) -> None:
     function = api.cody_host_event_paint_actions
     function.argtypes = [C.POINTER(C.c_uint16), C.c_uint32, C.POINTER(Action), C.c_uint32]
     function.restype = C.c_int
-    pixels = (C.c_uint16 * (466 * 466))()
-    for index, (red, green, blue) in enumerate(image.getdata()):
-        pixels[index] = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
+    pixels = image_to_native_rgb565(image)
     checked("paint_actions", function(pixels, len(pixels), native, len(actions)))
-    output = bytearray(len(pixels) * 3)
-    for index, color in enumerate(pixels):
-        output[index * 3] = ((color >> 11) & 31) * 255 // 31
-        output[index * 3 + 1] = ((color >> 5) & 63) * 255 // 63
-        output[index * 3 + 2] = (color & 31) * 255 // 31
-    image.paste(Image.frombytes("RGB", (466, 466), bytes(output)))
+    image.paste(native_rgb565_to_image(pixels))
 
 
 # image: Logical SIMULATED RGB framebuffer, updated only after native success.
@@ -332,20 +331,16 @@ def paint_native_actions(image, actions: tuple[EventAction, ...], api) -> None:
 # api: Already loaded native production rendering backend.
 # Raises ValueError or RuntimeError for invalid geometry, ASCII or actual native failure.
 def paint_native_approval(image, request_id: str, chat: str, elapsed_us: int, visible: bool, api) -> None:
-    from PIL import Image
     if image.mode != "RGB" or image.size != (466, 466):
         raise ValueError("Native approval drawing requires the logical RGB framebuffer")
+    if not visible:
+        # Hidden artwork owns no pixels or readable marquee dwell yet.
+        return
+
     function = api.cody_host_event_paint_approval
     function.argtypes = [C.POINTER(C.c_uint16), C.c_uint32, C.c_char_p, C.c_char_p, C.c_int64, C.c_bool]
     function.restype = C.c_int
-    pixels = (C.c_uint16 * (466 * 466))()
-    for index, (red, green, blue) in enumerate(image.getdata()):
-        pixels[index] = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
+    pixels = image_to_native_rgb565(image)
     checked("paint_approval", function(pixels, len(pixels), ascii_field(request_id, 33),
                                       ascii_field(chat, 256), elapsed_us, visible))
-    output = bytearray(len(pixels) * 3)
-    for index, color in enumerate(pixels):
-        output[index * 3] = ((color >> 11) & 31) * 255 // 31
-        output[index * 3 + 1] = ((color >> 5) & 63) * 255 // 63
-        output[index * 3 + 2] = (color & 31) * 255 // 31
-    image.paste(Image.frombytes("RGB", (466, 466), bytes(output)))
+    image.paste(native_rgb565_to_image(pixels))

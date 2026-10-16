@@ -30,7 +30,7 @@ import time
 from typing import Any
 from ccp_pricing import PriceCache, PriceProjection
 from ccp_usage import NativeUsageReader, safe_usage_error
-from ccp_chat_title import ChatTitleObservation, NativeChatTitleReader, TITLE_LEASE_SECONDS, TitleState
+from ccp_chat_title import ChatTitleObservation, NativeChatTitleReader, TITLE_LEASE_SECONDS, TITLE_MAX_BYTES, TitleState
 from ccp_tool_labels import MAX_TOOL_LABEL_LENGTH, tool_display_label
 
 
@@ -168,14 +168,28 @@ class HookObservation:
 
 # title: Original canonical native metadata, including its exact observation timestamp.
 # now: Current monotonic source clock, never a hook or presentation timestamp.
-# Returns a complete displayable notice title or empty; never truncates or renews old metadata.
-def reply_notice_title(title: ChatTitleObservation, now: float) -> str:
-    age = now - title.observed_at if title.observed_at is not None else None
-    return (title.title if title.state == TitleState.CURRENT and age is not None
-            and 0 <= age < TITLE_LEASE_SECONDS and 1 <= len(title.title) <= 63 else "")
+# maximum_bytes: The receiving notice's complete ASCII field limit, without truncation.
+# Returns the complete current title or explicit absence; it never renews an old observation.
+def displayable_notice_title(title: ChatTitleObservation, now: float, maximum_bytes: int) -> str:
+    if title.state != TitleState.CURRENT or title.observed_at is None:
+        return ""
+
+    age = now - title.observed_at
+    source_is_current = 0 <= age < TITLE_LEASE_SECONDS
+    title_fits = 1 <= len(title.title) <= maximum_bytes
+    if not source_is_current or not title_fits:
+        return ""
+
+    return title.title
 
 
 class ActivityStore:
+    """Own accepted hook lifecycle state and serialize its native metadata reads.
+
+    The lifecycle lock protects session identity and selection. The source lock
+    serializes metadata IO, which must never run while holding the lifecycle lock.
+    """
+
     # self: New broker waits for a genuine prompt before following a chat.
     # pricing: Optional memory-only catalog owner; absence leaves the qualitative band Unknown.
     def __init__(self, pricing: PriceCache | None = None) -> None:
@@ -386,64 +400,67 @@ class ActivityStore:
                       f"compactseq={session.compact_sequence:016x}", file=sys.stderr, flush=True)
             # Event acceptance performs no source IO. The delivery owner may
             # refresh this exact background completion through the title owner.
-            notice_title = reply_notice_title(session.chat_title, time.monotonic())
+            notice_title = displayable_notice_title(session.chat_title, time.monotonic(), 63)
             return HookObservation(name, session_id, session.turn_id, session.project,
                                    session_id == self._followed_session_id, session.phase, reply_ready, notice_title)
 
-    # self: Canonical lifecycle owner; its existing source lock serializes the one metadata read.
-    # observation: First genuine background Stop accepted for its exact native session and turn.
-    # Returns refreshed immutable notice metadata, or cancels an obsolete completion after a race.
-    # Source errors remain explicit in session.chat_title and are logged by the title acquisition owner.
-    def refresh_reply_title(self, observation: HookObservation) -> HookObservation:
-        if observation.event != "Stop" or not observation.reply_ready or observation.followed:
+    # self: Lifecycle owner; the caller must hold _lock for this identity check.
+    # observation: Immutable accepted native event and its exact originating turn.
+    # session: Original session object retained across the source IO boundary.
+    # cwd: Original canonical checkout identity, retained before releasing _lock.
+    # Returns false when replacement, lifecycle or selection invalidates the notice.
+    def _notice_origin_is_current(self, observation: HookObservation, session: Session, cwd: str) -> bool:
+        current = self._sessions.get(observation.session_id)
+        if current is not session:
+            return False
+        if current.turn_id != observation.turn_id or current.cwd != cwd:
+            return False
+
+        is_followed = current.session_id == self._followed_session_id
+        if observation.event == "PermissionRequest":
+            return current.phase == Phase.PAUSED and is_followed
+        if observation.event == "Stop":
+            return current.phase == Phase.READY and not is_followed
+        return False
+
+    # self: Canonical lifecycle owner; source reads retain their original timestamps and errors.
+    # observation: Eligible genuine approval or background reply event, never inferred from UI focus.
+    # Returns refreshed immutable metadata or withdraws both eligibility flags after a race.
+    # Source failures remain explicit in session.chat_title and are logged by the acquisition owner.
+    def refresh_notice_title(self, observation: HookObservation) -> HookObservation:
+        approval = (observation.event == "PermissionRequest" and observation.followed
+                    and observation.phase == Phase.PAUSED)
+        reply_ready = (observation.event == "Stop" and observation.reply_ready
+                       and not observation.followed)
+        if not approval and not reply_ready:
             return observation
+
+        withdrawn = replace(observation, followed=False, reply_ready=False, title="")
         with self._lock:
             session = self._sessions.get(observation.session_id)
-            if (session is None or session.turn_id != observation.turn_id or session.phase != Phase.READY
-                    or session.session_id == self._followed_session_id):
-                return replace(observation, reply_ready=False, title="")
+            if session is None:
+                return withdrawn
             cwd = session.cwd
-        # Do not hold the hook-state lock during SQLite IO; do not ask the
-        # usage reader for a journal or change which session Cody follows.
+            if not self._notice_origin_is_current(observation, session, cwd):
+                return withdrawn
+
+        # The exact native metadata owner performs IO without blocking hook acceptance.
         with self._usage_lock:
-            title = self._titles.read_once(observation.session_id, cwd)
+            source_title = self._titles.read_once(observation.session_id, cwd)
+
         with self._lock:
-            current = self._sessions.get(observation.session_id)
-            if (current is not session or current.turn_id != observation.turn_id or current.cwd != cwd
-                    or current.phase != Phase.READY or current.session_id == self._followed_session_id):
-                return replace(observation, reply_ready=False, title="")
-            current.chat_title = title
-            if title.state == TitleState.CURRENT and len(title.title) > 63:
+            if not self._notice_origin_is_current(observation, session, cwd):
+                return withdrawn
+
+            session.chat_title = source_title
+            maximum_bytes = TITLE_MAX_BYTES if approval else 63
+            if (reply_ready and source_title.state == TitleState.CURRENT
+                    and len(source_title.title) > maximum_bytes):
                 print("CCP reply title unavailable: complete native title exceeds the 63-byte notice field",
                       file=sys.stderr, flush=True)
-            return replace(observation, title=reply_notice_title(title, time.monotonic()))
 
-    # self: Existing lifecycle/title acquisition owner; no selected-chat metadata is substituted.
-    # observation: Accepted PermissionRequest bound to its genuine native session and turn.
-    # Returns the full originating ASCII title, or explicit absence; a raced permission is retired.
-    # Source failures retain their original state and safe diagnostic in the acquisition owner.
-    def refresh_approval_title(self, observation: HookObservation) -> HookObservation:
-        if observation.event != "PermissionRequest" or not observation.followed or observation.phase != Phase.PAUSED:
-            return observation
-        with self._lock:
-            session = self._sessions.get(observation.session_id)
-            if (session is None or session.turn_id != observation.turn_id or session.phase != Phase.PAUSED
-                    or session.session_id != self._followed_session_id):
-                return replace(observation, followed=False, title="")
-            cwd = session.cwd
-        # Reuse the established metadata owner and release the lifecycle lock during IO.
-        with self._usage_lock:
-            title = self._titles.read_once(observation.session_id, cwd)
-        with self._lock:
-            current = self._sessions.get(observation.session_id)
-            if (current is not session or current.turn_id != observation.turn_id or current.cwd != cwd
-                    or current.phase != Phase.PAUSED or current.session_id != self._followed_session_id):
-                return replace(observation, followed=False, title="")
-            current.chat_title = title
-            age = time.monotonic() - title.observed_at if title.observed_at is not None else None
-            complete = (title.title if title.state == TitleState.CURRENT and age is not None
-                        and 0 <= age < TITLE_LEASE_SECONDS else "")
-            return replace(observation, title=complete)
+            title = displayable_notice_title(source_title, time.monotonic(), maximum_bytes)
+            return replace(observation, title=title)
 
     # No parameters: exposes identities and local context only, never chat contents.
     def list_sessions(self) -> list[dict[str, Any]]:

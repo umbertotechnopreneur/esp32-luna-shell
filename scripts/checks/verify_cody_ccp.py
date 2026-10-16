@@ -2846,13 +2846,13 @@ class NativeChatTitleTests(unittest.TestCase):
                 observation = owner.observe({"hook_event_name": "Stop", "session_id": "chat-a", "turn_id": "turn-a",
                     "cwd": self.cwd, "emitted_ns": int(self.now * 1_000_000_000)})
                 self.assertEqual(observation.title, "")
-                refreshed = owner.refresh_reply_title(observation)
+                refreshed = owner.refresh_notice_title(observation)
                 self.assertEqual((refreshed.followed, refreshed.reply_ready, refreshed.title),
                                  (False, True, "SIMULATED renamed completed chat"))
                 self.now += 1.0
                 repeated = owner.observe({"hook_event_name": "Stop", "session_id": "chat-a", "turn_id": "turn-a",
                     "cwd": self.cwd, "emitted_ns": int(self.now * 1_000_000_000)})
-                self.assertFalse(owner.refresh_reply_title(repeated).reply_ready)
+                self.assertFalse(owner.refresh_notice_title(repeated).reply_ready)
                 read_once.assert_called_once_with("chat-a", self.cwd)
             usage.assert_not_called()
             self.assertEqual(self.database.read_bytes(), before)

@@ -1275,14 +1275,11 @@ class CcpService:
         targets = self.physical_event_targets()
         if not targets:
             return False
-        if approval:
-            observation = self.activity.refresh_approval_title(observation)
-            if not observation.followed:
-                return False
-        if reply_ready:
-            observation = self.activity.refresh_reply_title(observation)
-            if not observation.reply_ready:
-                return False
+        observation = self.activity.refresh_notice_title(observation)
+        approval_is_current = approval and observation.followed
+        reply_is_current = reply_ready and observation.reply_ready
+        if not approval_is_current and not reply_is_current:
+            return False
         # Context is a compact project label. A real chat title is kept complete
         # in the body when available; opaque native IDs never become UI text.
         project = observation.project
@@ -1291,8 +1288,10 @@ class CcpService:
         context = project
         kind = interactions.EventKind.APPROVAL_ON_PC if approval else interactions.EventKind.REPLY_READY
         title = "Approval needed" if approval else "Reply ready"
-        body = (observation.title or "Chat title unavailable" if approval else
-                observation.title or "Open the other chat in Codex")
+        fallback_body = "Open the other chat in Codex"
+        if approval:
+            fallback_body = "Chat title unavailable"
+        body = observation.title or fallback_body
         payload = interactions.EventPayload(kind, context, title, body)
         for device_id in targets:
             active = self.state.retained_keys(device_id).active
