@@ -596,7 +596,7 @@ typedef enum {
 } lunashell_codex_audio_kind_t;
 
 // samples: Immutable flash-owned PCM retained through asynchronous playback.
-// sample_count: Exact mono sample count, bounded to 5600 (350 ms at 16 kHz).
+// sample_count: Exact mono length; notices allow 32000 samples (2 s), activity cues 5600 (350 ms).
 // sample_rate_hz: Exact authored rate, 16000 Hz.
 // cue_id: Stable application identity in the reserved Codex namespace.
 // kind: Activity is rate-limited; notices skip that limit but never interrupt current playback.
@@ -606,7 +606,7 @@ esp_err_t LUNASHELL_audio_notify_codex(const int16_t *samples, size_t sample_cou
     uint32_t sample_rate_hz, uint32_t cue_id, lunashell_codex_audio_kind_t kind,
     lunashell_audio_cue_status_t *status);
 // samples: One immutable flash-owned PCM chime reused throughout a single admitted notice.
-// sample_count: Exact mono clip length, at most 5600 samples.
+// sample_count: One play allows 32000 samples (2 s); repeated clips at most 5600 (350 ms).
 // sample_rate_hz: Authored 16000 Hz clock.
 // cue_id: Stable notice identity in the reserved Codex namespace.
 // repetitions: One through five plays owned by the same mailbox event.

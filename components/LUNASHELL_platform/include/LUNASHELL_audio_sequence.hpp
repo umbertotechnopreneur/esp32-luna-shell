@@ -11,7 +11,7 @@ struct AudioCueSequenceLayout {
     size_t total_samples = 0;
 };
 
-// source_samples: One immutable mono PCM clip, at most 350 ms.
+// source_samples: Immutable PCM; one clip may last two seconds, repeated clips at most 350 ms.
 // source_rate_hz: Authored 16000 Hz source clock.
 // transport_rate_hz: Existing duplex transport clock, never changed by a notice.
 // repetitions: One ordinary clip or a bounded sequence of at most five identical clips.
@@ -21,7 +21,8 @@ struct AudioCueSequenceLayout {
 inline bool prepare_audio_cue_sequence(size_t source_samples, uint32_t source_rate_hz,
     uint32_t transport_rate_hz, uint8_t repetitions, uint16_t gap_ms, AudioCueSequenceLayout &layout)
 {
-    if (source_samples == 0 || source_samples > 5600 || source_rate_hz != 16000 ||
+    const size_t source_limit = repetitions == 1 ? 32000 : 5600;
+    if (source_samples == 0 || source_samples > source_limit || source_rate_hz != 16000 ||
         transport_rate_hz < 8000 || transport_rate_hz > 48000 || repetitions == 0 || repetitions > 5 ||
         gap_ms > 200 || (repetitions == 1 && gap_ms != 0)) { return false; }
     const uint64_t duration_units = source_samples * uint64_t{1000} * repetitions +

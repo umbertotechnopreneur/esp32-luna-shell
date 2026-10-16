@@ -102,9 +102,16 @@ void verify_audio_notice_sequence()
         dashboard_require(LUNASHELL::prepare_audio_cue_sequence(3200, 16000, rate, 1, 0, sequence) &&
             sequence.total_samples == sequence.clip_samples && sequence.gap_samples == 0,
             "ordinary personality and Codex cues preserve their original single-clip duration");
+        dashboard_require(LUNASHELL::prepare_audio_cue_sequence(28800, 16000, rate, 1, 0, sequence) &&
+            sequence.total_samples * 1000 == rate * 1800 && sequence.gap_samples == 0 &&
+            LUNASHELL::audio_cue_sequence_clip_offset(sequence, sequence.total_samples - 1) ==
+                sequence.clip_samples - 1,
+            "one sustained question bell retains its tail without repeating attacks or changing the clock");
     }
     LUNASHELL::AudioCueSequenceLayout sequence{};
-    dashboard_require(!LUNASHELL::prepare_audio_cue_sequence(5601, 16000, 16000, 5, 100, sequence) &&
+    dashboard_require(!LUNASHELL::prepare_audio_cue_sequence(32001, 16000, 16000, 1, 0, sequence) &&
+        !LUNASHELL::prepare_audio_cue_sequence(28800, 16000, 16000, 2, 0, sequence) &&
+        !LUNASHELL::prepare_audio_cue_sequence(5601, 16000, 16000, 5, 100, sequence) &&
         !LUNASHELL::prepare_audio_cue_sequence(3200, 16000, 16000, 0, 100, sequence) &&
         !LUNASHELL::prepare_audio_cue_sequence(3200, 16000, 16000, 6, 100, sequence) &&
         !LUNASHELL::prepare_audio_cue_sequence(3200, 16000, 16000, 5, 201, sequence) &&

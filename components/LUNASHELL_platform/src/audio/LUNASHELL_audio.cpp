@@ -2171,7 +2171,7 @@ extern "C" esp_err_t LUNASHELL_audio_prepare_personality(const lunashell_persona
 }
 
 // samples: Immutable flash-owned original PCM, retained through dispatch and playback.
-// sample_count: Exact authored length, limited to 350 ms of mono PCM16.
+// sample_count: Exact PCM length; single Codex notices allow two seconds, other clips 350 ms.
 // sample_rate_hz: Exact authored format, 16000 Hz.
 // cue_id: Stable application identity preserved through the worker.
 // channel: Typed owner channel with independent presentation cancellation.
@@ -2188,11 +2188,13 @@ static esp_err_t notify_application_audio(const int16_t *samples, size_t sample_
     const bool codex = channel == ApplicationAudioChannel::Codex;
     const bool invalid_kind = codex && kind != LUNASHELL_CODEX_CUE_ACTIVITY && kind != LUNASHELL_CODEX_CUE_NOTICE;
     const bool invalid_identity = codex && (cue_id & 0xFFFF0000U) != 0x43430000U;
+    const bool sustained_notice = codex && kind == LUNASHELL_CODEX_CUE_NOTICE && repetitions == 1;
+    const size_t sample_limit = sustained_notice ? 32000 : 5600;
     LUNASHELL::AudioCueSequenceLayout sequence{};
     const bool invalid_sequence = !LUNASHELL::prepare_audio_cue_sequence(sample_count, sample_rate_hz,
         sample_rate_hz, repetitions, gap_ms, sequence) ||
         (repetitions != 1 && (!codex || kind != LUNASHELL_CODEX_CUE_NOTICE));
-    if (status == nullptr || samples == nullptr || sample_count == 0 || sample_count > 5600 ||
+    if (status == nullptr || samples == nullptr || sample_count == 0 || sample_count > sample_limit ||
         sample_rate_hz != 16000 || cue_id == 0 || invalid_kind || invalid_identity || invalid_sequence) {
         ESP_LOGE(TAG, "Application cue rejected: channel=%u cue=%lu samples=%u rate=%lu kind=%u repeat=%u gap_ms=%u status=%u",
             static_cast<unsigned>(channel), static_cast<unsigned long>(cue_id),
@@ -2291,7 +2293,7 @@ extern "C" esp_err_t LUNASHELL_audio_notify_personality(const int16_t *samples, 
 }
 
 // samples: Immutable flash-owned PCM for one actual Codex transition.
-// sample_count: Exact sample count, at most 5600 mono samples.
+// sample_count: Exact sample count; notices allow two seconds, activity clips 350 ms.
 // sample_rate_hz: Authored 16000 Hz clock.
 // cue_id: Stable Codex identity retained in owner status.
 // kind: Activity rate limit or notice admission, both without an event queue.
@@ -2306,7 +2308,7 @@ extern "C" esp_err_t LUNASHELL_audio_notify_codex(const int16_t *samples, size_t
 }
 
 // samples: One immutable flash-owned chime, never duplicated into a sequence buffer.
-// sample_count: Authored source length, at most 5600 mono samples.
+// sample_count: Authored source length; one play allows two seconds, repetitions 350 ms per clip.
 // sample_rate_hz: Exact 16000 Hz source format.
 // cue_id: Stable Codex notice identity for the entire sequence.
 // repetitions: One through five plays under the same ownership/cancellation generation.

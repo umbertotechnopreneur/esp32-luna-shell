@@ -15,7 +15,7 @@
       "duration_seconds": 1.8,
       "sha256": "cd971ef8877bfa756fae37494516bbec33eb59bd283c0b773c4be817ce04c44d",
       "origin": "selected licensed samples transformed into Cody boot-rise",
-      "selection_sha256": "d5dd84fbc4bca1b954430c268811a5584d015844f824bde28a214d89a3e9be07",
+      "selection_sha256": "c6aaa3aa195ecf53d40581a2fefac7c052de2f965728d90ab06ff3159e504e50",
       "cue": "boot-rise",
       "layers": [
         {

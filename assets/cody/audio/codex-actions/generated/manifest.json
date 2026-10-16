@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "selection_sha256": "d5dd84fbc4bca1b954430c268811a5584d015844f824bde28a214d89a3e9be07",
+  "selection_sha256": "c6aaa3aa195ecf53d40581a2fefac7c052de2f965728d90ab06ff3159e504e50",
   "generator": "scripts/device.ps1 generate -Generator cody-codex-sfx",
   "generator_sha256": "acef3ac06bf610f5347bd346b192b7e13a612c7df61cfd282db08bd58e0b2f27",
-  "contract_sha256": "f0e6a641433187a23b8bfb7ef305adef63e18224a0c91c174b09403170af45f6",
+  "contract_sha256": "3c592b64434f934497ca0d0b4a370006a0b869891f9762deb51803a10a6da117",
   "licensing": {
     "status": "owner_confirmed_purchased_commercial",
     "scope": "The owner confirmed purchased perpetual commercial-use SFX licences on 2026-10-04 and requested this selection on 2026-10-10. Licence documents were not present in the inspected archive; the PDF files are package indexes.",
@@ -12,7 +12,7 @@
   "channels": 1,
   "encoding": "PCM16LE",
   "listening_review": "Authored first pass; perceived sound and device playback have not been evaluated.",
-  "action_pcm_bytes": 140800,
+  "action_pcm_bytes": 197120,
   "cues": [
     {
       "id": 1128464384,
@@ -881,89 +881,54 @@
       "id": 1128464395,
       "name": "Question",
       "slug": "question",
-      "intent": "Two rising bell notes when a new question needs the user's decision.",
+      "intent": "One soft bell with a gentle natural tail when a new question needs the user's decision.",
       "sample_rate_hz": 16000,
-      "sample_count": 5440,
-      "pcm_bytes": 10880,
-      "duration_ms": 340.0,
-      "target_peak_dbfs": -14.0,
-      "linear_gain_after_mix": 7264.306697176143,
-      "peak_dbfs": -14.000100374307355,
-      "rms_dbfs": -23.289198317061718,
-      "pcm_sha256": "c9a1d0d236848ef2b66c8dd4946402c97a9810a13f6714819a0165a640fb217a",
+      "sample_count": 28800,
+      "pcm_bytes": 57600,
+      "duration_ms": 1800.0,
+      "target_peak_dbfs": -24.0,
+      "linear_gain_after_mix": 2067.4579306582496,
+      "peak_dbfs": -24.00218916664859,
+      "rms_dbfs": -34.40766045003809,
+      "pcm_sha256": "754cd2d66d33f43301055b514f8fb896844fc4035dc7662ff97ee8c7e9167ed4",
       "layers": [
         {
-          "source": "bell",
+          "source": "chime",
           "window_start_ms": 0,
-          "window_end_ms": 650,
+          "window_end_ms": 2200,
           "offset_ms": 0,
-          "duration_ms": 180,
-          "pitch_ratio": 0.8,
-          "gain": 0.75,
-          "highpass_hz": 180,
-          "lowpass_hz": 3400,
-          "fade_in_ms": 5,
-          "fade_out_ms": 85,
-          "source_path": "1001 Sound Effects/Metal/Bell 01.wav",
-          "source_sha256": "d20864513e4028fd43ff01b3fb55eeb6314b1003a83a10ce1b086bc5eb937fa7",
+          "duration_ms": 1800,
+          "pitch_ratio": 1.05,
+          "gain": 1.0,
+          "highpass_hz": 150,
+          "lowpass_hz": 2600,
+          "fade_in_ms": 12,
+          "fade_out_ms": 1150,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
           "source_format": {
-            "duration_seconds": 1.706667,
+            "duration_seconds": 4.364717,
             "sample_rate_hz": 44100,
             "channels": 1,
             "codec": "pcm_s16le"
           },
           "ffmpeg_filters": [
-            "atrim=start=0.000000:end=0.650000",
+            "atrim=start=0.000000:end=2.200000",
             "asetpts=PTS-STARTPTS",
             "pan=mono|c0=c0",
-            "highpass=f=180:p=2",
-            "lowpass=f=3400:p=2",
+            "highpass=f=150:p=2",
+            "lowpass=f=2600:p=2",
             "aresample=16000",
-            "asetrate=12800",
+            "asetrate=16800",
             "aresample=16000"
           ],
-          "active_excerpt_offset_frames_after_pitch": 2080,
-          "actual_pitch_ratio": 0.8,
+          "active_excerpt_offset_frames_after_pitch": 1600,
+          "actual_pitch_ratio": 1.05,
           "fade_curve": "sine-squared",
-          "normalization_gain_before_mix": 2.9802518446476904
-        },
-        {
-          "source": "bell",
-          "window_start_ms": 0,
-          "window_end_ms": 650,
-          "offset_ms": 135,
-          "duration_ms": 205,
-          "pitch_ratio": 1.07,
-          "gain": 0.9,
-          "highpass_hz": 180,
-          "lowpass_hz": 3400,
-          "fade_in_ms": 5,
-          "fade_out_ms": 100,
-          "source_path": "1001 Sound Effects/Metal/Bell 01.wav",
-          "source_sha256": "d20864513e4028fd43ff01b3fb55eeb6314b1003a83a10ce1b086bc5eb937fa7",
-          "source_format": {
-            "duration_seconds": 1.706667,
-            "sample_rate_hz": 44100,
-            "channels": 1,
-            "codec": "pcm_s16le"
-          },
-          "ffmpeg_filters": [
-            "atrim=start=0.000000:end=0.650000",
-            "asetpts=PTS-STARTPTS",
-            "pan=mono|c0=c0",
-            "highpass=f=180:p=2",
-            "lowpass=f=3400:p=2",
-            "aresample=16000",
-            "asetrate=17120",
-            "aresample=16000"
-          ],
-          "active_excerpt_offset_frames_after_pitch": 1040,
-          "actual_pitch_ratio": 1.07,
-          "fade_curve": "sine-squared",
-          "normalization_gain_before_mix": 3.049673205465747
+          "normalization_gain_before_mix": 4.488691463088031
         }
       ],
-      "wav_sha256": "25ab657c1bcb41fd284fba057c3305570883c4d67968059aef378695ef6939d7"
+      "wav_sha256": "63db4b1d4f3fd26822ac6c61d427910e166cd1529942cf969653deb4c2879231"
     },
     {
       "id": 1128464396,
@@ -1211,6 +1176,59 @@
         }
       ],
       "wav_sha256": "9ec412640c266148d15682a0ed83f6e2acee12864350d3712b4123d611a38a6a"
+    },
+    {
+      "id": 1128464400,
+      "name": "QuestionReminder",
+      "slug": "question-reminder",
+      "intent": "One short, quieter soft bell for a pending-question reminder; no repeating beep sequence.",
+      "sample_rate_hz": 16000,
+      "sample_count": 4800,
+      "pcm_bytes": 9600,
+      "duration_ms": 300.0,
+      "target_peak_dbfs": -27.0,
+      "linear_gain_after_mix": 1463.6481264010604,
+      "peak_dbfs": -26.9981771647469,
+      "rms_dbfs": -34.379200750905824,
+      "pcm_sha256": "d480b2d5483c460f902b49ea672ba354187033776f9a3dbdcfcd51290627a662",
+      "layers": [
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 0,
+          "duration_ms": 300,
+          "pitch_ratio": 1.05,
+          "gain": 1.0,
+          "highpass_hz": 150,
+          "lowpass_hz": 2600,
+          "fade_in_ms": 12,
+          "fade_out_ms": 220,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=150:p=2",
+            "lowpass=f=2600:p=2",
+            "aresample=16000",
+            "asetrate=16800",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 2000,
+          "actual_pitch_ratio": 1.05,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.488691463088031
+        }
+      ],
+      "wav_sha256": "6e13737425c1bf5b3fd4864066fe572534ac75ef0baa807406958a94b7098260"
     }
   ],
   "audition": {
@@ -1275,26 +1293,31 @@
       {
         "cue": "Question",
         "start_ms": 16620,
-        "duration_ms": 340.0
+        "duration_ms": 1800.0
       },
       {
         "cue": "AnswerReceived",
-        "start_ms": 17960,
+        "start_ms": 19420,
         "duration_ms": 250.0
       },
       {
         "cue": "ChecksPassed",
-        "start_ms": 19210,
+        "start_ms": 20670,
         "duration_ms": 350.0
       },
       {
         "cue": "ChecksFailed",
-        "start_ms": 20560,
+        "start_ms": 22020,
         "duration_ms": 340.0
       },
       {
         "cue": "ApprovalRequired",
-        "start_ms": 21900,
+        "start_ms": 23360,
+        "duration_ms": 300.0
+      },
+      {
+        "cue": "QuestionReminder",
+        "start_ms": 24660,
         "duration_ms": 300.0
       }
     ]
