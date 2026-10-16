@@ -219,7 +219,7 @@ _binary_activity_model_end:
     target_sources(${COMPONENT_LIB} PRIVATE "${activity_model_assembly}")
     # The reviewed requirement set describes this exact converted graph. A new
     # export needs a new operator/kernel review before its requirements are reused.
-    if(NOT activity_actual_hash STREQUAL "b5333dafe62835cc9999fe27ea652802fcdcaa5250604c5136087d1c1044d4e0")
+    if(NOT activity_actual_hash STREQUAL "ea7835068e138fd28afa62bce9bea58dab10c841ee07ff73825018914a3532f7")
         message(FATAL_ERROR "Activity model differs from the reviewed ESP-DL compile requirements; review the graph and update the requirement binding")
     endif()
     idf_build_get_property(activity_build_components BUILD_COMPONENTS)

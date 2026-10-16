@@ -29,9 +29,15 @@ vehicle travel, or the desired future Cody context classes. No training is perfo
   Other primitive dependencies come from the official operator specification.
   The same pretrained source was requantized with 8-bit weights and 16-bit
   activations: 172,304 bytes, SHA256
+  `ea7835068e138fd28afa62bce9bea58dab10c841ee07ff73825018914a3532f7`.
+  This 16 October local re-export replaces the former reviewed hash
   `b5333dafe62835cc9999fe27ea652802fcdcaa5250604c5136087d1c1044d4e0`.
-  The former 334,528-byte W16A16 artifacts are preserved locally under
-  `artifacts/models/activity/w16a16-3880fc61/`. This saves 162,224 model bytes;
+  Static graph review confirms the same seven operators, S16 primitives,
+  W8A16 2x2 bias+ReLU convolutions (1/16 and 16/32 channels) and packed linear
+  MatMul shapes (2496/64 and 64/6). Original source/calibration hashes are unchanged;
+  recovered preprocessing matches the calibration tensors with zero difference.
+  The four compile kernels remain appropriate; no inference accuracy is inferred.
+  The older W16A16 export was 334,528 bytes. W8A16 saves 162,224 model bytes;
   it does not establish classification accuracy or final application size.
   CMake binds the reviewed requirements to the current exact hash.
   Re-exporting a model requires reviewing and rebinding these requirements.
