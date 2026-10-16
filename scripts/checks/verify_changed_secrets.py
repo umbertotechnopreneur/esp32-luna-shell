@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 import argparse
+import hashlib
 import subprocess
 from pathlib import Path
 
@@ -35,6 +36,23 @@ SOURCE_SUFFIXES = frozenset({
 KNOWN_PUBLIC_MARKERS = (
     b"LUNASHELL-SIMULATOR-ONLY-" + b"NOT-A-SECRET",
 )
+# Read-only vendor references: one public demo network password and one storage-key name.
+# Each exception binds the original whole-file bytes AND the exact matched assignment.
+# Any changed file, new literal or other signature still requires inspection and fails closed.
+REVIEWED_VENDOR_LITERALS = {
+    ("hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/software/esp-idf-v5.5.3/"
+     "03_WIFI_STA/components/esp_wifi_bsp/esp_wifi_bsp.c"): (
+        "06b3f1193e24724eeed99aa1167a79c1c1c13ac73aa5f2be37f6cb1026b3a00c",
+        frozenset({("hard-coded credential assignment",
+                    "ff5915cb53eb8d7b68dd92f6a1c73e8408ef6412288b8641885b105f82150314")}),
+    ),
+    ("hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/software/esp-idf-bsp/"
+     "03_esp-brookesia/components/brookesia_core/systems/speaker/esp_brookesia_speaker_manager.hpp"): (
+        "7b57a65e241b3e5b5bba8b28be189655148f5bc53dcb35bc6ae81eca0620e5c3",
+        frozenset({("hard-coded credential assignment",
+                    "b729d07e183cc7b90f55d96a799e45125d750dd43eccfcacaaebc85c36ced001")}),
+    ),
+}
 PATTERNS: tuple[tuple[str, re.Pattern[bytes]], ...] = (
     (
         "private key material",
@@ -119,6 +137,7 @@ def main(argv=None) -> int:
     findings: list[str] = []
     scanned = 0
     excluded = 0
+    reviewed_count = 0
     for relative in changed_paths(base_commit):
         # Publication inspects source literals; firmware images are never a secret-scan input.
         if relative.suffix.lower() in FIRMWARE_IMAGE_SUFFIXES or (args.source_only and not is_source_path(relative)):
@@ -140,12 +159,19 @@ def main(argv=None) -> int:
             continue
 
         content = resolved.read_bytes()
+        reviewed = REVIEWED_VENDOR_LITERALS.get(relative.as_posix())
+        reviewed_matches = (reviewed[1] if reviewed is not None and
+                            hashlib.sha256(content).hexdigest() == reviewed[0] else frozenset())
         for marker in KNOWN_PUBLIC_MARKERS:
             content = content.replace(marker, b"")
         scanned += 1
         for label, pattern in PATTERNS:
-            if pattern.search(content):
+            for match in pattern.finditer(content):
+                if (label, hashlib.sha256(match.group()).hexdigest()) in reviewed_matches:
+                    reviewed_count += 1
+                    continue
                 findings.append(f"{relative.as_posix()}: {label}")
+                break
 
     if findings:
         print("changed-files secret scan: FAIL")
@@ -155,7 +181,8 @@ def main(argv=None) -> int:
 
     print(
         "changed-files secret scan: PASS "
-        f"({scanned} changed or untracked files, {len(PATTERNS)} signatures, {excluded} assets excluded)"
+        f"({scanned} changed or untracked files, {len(PATTERNS)} signatures, "
+        f"{excluded} assets excluded, {reviewed_count} exact public vendor literals reviewed)"
     )
     return 0
 

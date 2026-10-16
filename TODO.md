@@ -8,17 +8,19 @@ covered by the existing firmware profile.
 Updated 2026-10-16. The offline standby/farewell and faster software-wake changes
 are implemented in source, together with a longer first question alert and
 four-note reminders every ten awake seconds while a fresh question awaits Send.
-Their native timer/owner/voice/lifecycle/question-cadence checks are
-prepared but have not been run. No configure, build, size, simulator, serial,
-flash, physical validation or GitHub publication was performed for this revision.
+Release `cody-193-g7eab1a9d` built with ESP-IDF 6.0.2 and eight jobs and was installed
+on COM10 with all five written hashes verified. Wake word and the experimental
+activity classifier remain selected. Their native timer/owner/voice/lifecycle/
+question-cadence checks are prepared but have not been run. No new test suite,
+simulator, standalone size report, serial capture or physical observation was performed.
 Validate USB/battery PC absence, pairing/confirmation deferral, farewell cancellation,
 sound/quiet policy, retained-state rollback, manual-only offline wake, nested stack
 headroom and actual wake latency only after the owner's fresh explicit authorization.
 The authored software-wake timeline is 1.4 seconds; this is not a device timing result.
 
-Earlier delivery: Release
-`cody-187-g58b67f3b` is installed on COM10; tested CCP source, including the new
-presence owner, is installed in the local plugin cache. Host checks, Release
+Earlier delivery: Release `cody-187-g58b67f3b` was installed on COM10 on 15 October;
+tested CCP source, including the new presence owner, is installed in the local
+plugin cache. Host checks, Release
 build/size/individual compiled frames, flash and passive capture are recorded in
 [done.md](done.md), with the four Home panels and earlier delivery evidence.
 

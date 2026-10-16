@@ -13,6 +13,33 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Offline standby and question-alert Release delivery - 2026-10-16
+
+Release `cody-193-g7eab1a9d` built from the clean source checkpoint with ESP-IDF
+6.0.2 and eight jobs, completing 1,551 Ninja steps. The 7,154,832-byte application
+leaves 119,664 bytes in the unchanged 7,274,496-byte OTA slot. The public profile
+configuration and flash commands preserved wake-word and experimental
+activity-classifier selection. COM10 flash completed with all five written image
+hashes verified and the normal post-flash reset. Application SHA256:
+`05976c28fb397aa2b92019309a5d08c37c293dedbe0dfbec109c3dfb297407c7`.
+
+The public dispatcher performed shared transient cleanup before build/flash.
+Model provenance and prerequisite generator logs were preserved under
+`artifacts/build-cody-companion-wake-word-evidence/offline-question-delivery-20261016/`,
+together with configure/flash logs. Publication inspects changed source files
+against the prior remote checkpoint `13830d2725a77416c659f2e92fee48145cca9111`;
+firmware images and imported media are excluded from secret-scan inputs.
+Its first pass reported the unmodified Waveshare demo network password and a
+Brookesia storage-key identifier. Both were reviewed; the scanner binds their
+exceptions to the exact original file hash and exact assignment hash, without
+altering vendor bytes or exempting other credentials/signatures.
+The final source scan passed for 616 changed/untracked source files and eight
+signatures, excluding 221 media/firmware assets and retaining the two exact
+reviewed vendor literals. Its command result is in `publication-secrets.log`.
+No test suite, simulator, standalone size report, serial capture or physical
+behavior observation was performed. Actual speaker output, standby current,
+manual-wake behavior, elapsed wake time and target stack headroom remain open.
+
 ## Pending-question sound reminders - 2026-10-16
 
 The existing 340-ms Question sample now has a bounded five-note initial alert
