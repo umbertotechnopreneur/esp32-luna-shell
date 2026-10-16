@@ -149,13 +149,14 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
 
 ## Windows simulator evidence
 
-- [ ] **STUDIO-CAPTURE-01 - Windows desktop capture availability.** The final
-  2026-10-14 Studio suite passed 28 of 29 cases; Pillow ImageGrab failed twice
-  with `screen grab failed` in the actual integer-window screenshot case.
-  Native RGB565 previews, six context occupancies, Reply ready and GUI-owner
-  checks passed. An earlier 27-case run captured the real window successfully.
-  Verify the latest window capture when the desktop capture service is available;
-  retain the current failure and do not replace it with a passing synthetic image.
+- [x] **STUDIO-CAPTURE-01 - Windows window/canvas capture availability.** Resolved
+  2026-10-17: all 29 Character Studio cases pass, including actual Tk window and
+  canvas ImageGrab capture; the screenshot and metadata are retained under
+  `artifacts/checks/cody-character-studio/`. The images show the SIMULATED client,
+  not a physical Cody display. Historical failure: the final 2026-10-14 suite
+  passed 28 of 29; ImageGrab failed twice with `screen grab failed`. Native
+  RGB565 previews, six context occupancies, Reply ready and GUI-owner checks
+  passed then; an earlier 27-case run had also captured the real window.
 
 ## Reproduced device faults
 

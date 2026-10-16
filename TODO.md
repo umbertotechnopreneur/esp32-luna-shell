@@ -1,14 +1,30 @@
 # Active work
 
-The 17 October readability cleanup is implemented in source checkpoints
-`58c50082` and `83bdf266`: one notice-title acquisition path, one Studio RGB565
-codec, explicit headline decisions and current-only CCP activity admission.
-Prepared regression cases were updated but were not executed. No build,
-simulator run, flash or plugin installation was performed for this cleanup;
-Release 204 and the previously installed plugin files do not validate these edits.
-Static review examples and remaining larger refactors are recorded as
-CLARITY-01 through CLARITY-03 in [planned-todo.md](planned-todo.md). Validation
-requires the separate, exact-command authorizations in [AGENTS.md](AGENTS.md).
+The 17 October readability cleanup and its validation fixes are implemented.
+The final compiled source is `e90ca52a20bef1d2ba6bf696da716026ac30527c`.
+All 48 automatic check invocations were attempted on Windows: 46 passed and two
+remain failed. The 14 checks affected by the final native scene change and both
+native driver preparations passed on repeat. [done.md](done.md) records the exact
+scope, failures, image identity and source checkpoints.
+
+Active validation gates:
+
+- **BUILD-DEBUG-OTA-01:** Release `cody-210-ge90ca52a` builds at 7,228,000 bytes,
+  leaving 46,496 bytes in its OTA slot. Debug compiles and links at 7,384,656
+  bytes but fails the actual slot check by 110,160 bytes. Preserve diagnostics,
+  errors and the partition/storage contract while addressing its footprint.
+- **PROFILE-LOCKS-01:** The full catalog check stops at missing `display-touch.lock`.
+  Static catalog inspection also finds missing `full-wake-word.lock`. Resolve and
+  review these through the public firmware CLI; the current Cody lock is present.
+- **CODY-DOC-TOPOLOGY-01:** The document suite stops at the main-section boundary
+  assertion for `cody-navigation-atlas-v1.pdf`. Review document/test alignment
+  without losing original screen IDs, dated revisions or unrelated content.
+
+No firmware flash, serial operation or plugin installation/reload was performed
+for this cleanup. Physical pixels, touch, sound, actual wake latency and nested
+stack headroom remain unmeasured. The larger static refactoring examples remain
+CLARITY-01 through CLARITY-03 in [planned-todo.md](planned-todo.md). Future runs
+retain the authorization boundaries in [AGENTS.md](AGENTS.md).
 
 The approved PC-approval redesign is implemented: compact cloud, amber PC
 heading, white approval title, only the originating chat title in a cyan marquee,
@@ -22,7 +38,7 @@ shared artwork/title owner uses bounded PSRAM storage and compiled frames were
 reviewed; nested physical stack headroom remains unmeasured. Plugin 0.6.9 was
 installed through the public Codex CLI with matching source files. Reopen Codex
 to load the updated broker; installation does not prove running adoption.
-New host/native/Studio suites remain prepared and unexecuted. Physical pixels,
+The later host/native/Studio results are recorded in the 17 October entry. Physical pixels,
 Back touch and perceived animation/audio remain unverified. The mistaken personal
 firmware name default was reverted; personalization remains a runtime preference.
 
@@ -35,8 +51,8 @@ The plugin and Studio accept only `character` and `normal`; scroll stays zero.
 
 The authenticated physical LAN `character` command returned applied/error 0 and
 reopened the overview. This ACK does not verify pixels or the Memory touch path.
-New host/simulator suites, physical rendering/touch, sound quality/timing and
-nested target stack headroom remain unverified. Delivery logs, image identity,
+Later host/simulator results are recorded in the 17 October entry. Physical
+rendering/touch, sound quality/timing and nested target stack headroom remain unverified. Delivery logs, image identity,
 compiled-frame review and the separate source-only publication gate are recorded
 in [done.md](done.md).
 
@@ -51,8 +67,8 @@ gentle reminders every ten awake seconds while a fresh question awaits Send.
 Release `cody-199-g2f640422` built with ESP-IDF 6.0.2 and eight jobs and was installed
 on COM10 with all five written hashes verified. Wake word and the experimental
 activity classifier remain selected. Their native timer/owner/voice/lifecycle/
-question-cadence checks are prepared but have not been run. No new test suite,
-simulator, standalone size report, serial capture or physical observation was performed.
+question-cadence checks are included in the 17 October automated results. No
+standalone size report, serial capture or physical observation was performed for this cleanup.
 Validate USB/battery PC absence, pairing/confirmation deferral, farewell cancellation,
 sound/quiet policy, retained-state rollback, manual-only offline wake, nested stack
 headroom and actual wake latency only after the owner's fresh explicit authorization.
@@ -98,9 +114,10 @@ Readable tool captions are active on the PC, including a known-ID table and
 complete underscore-cleaned unknown names. Final host, installed-cache and
 authenticated post-reload adoption evidence is recorded in done.md.
 
-The latest Studio run passed 28 of 29 cases; Windows desktop screen capture
-failed in ImageGrab. Native pixel previews passed and remain available. This
-unavailable capture is retained as STUDIO-CAPTURE-01 in [planned-todo.md](planned-todo.md).
+The 17 October Studio run passed all 29 cases, including actual Windows Tk
+window/canvas ImageGrab capture. STUDIO-CAPTURE-01 is resolved in
+[planned-todo.md](planned-todo.md), with its earlier failure retained as history.
+This captures the SIMULATED client and does not verify physical Cody pixels.
 
 GitHub visibility is public. Main ruleset 25049727 is active: contributors need
 a pull request; only the owner's user identity has direct-push bypass.

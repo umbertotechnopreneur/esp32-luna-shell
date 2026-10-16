@@ -14,44 +14,81 @@ path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
 
-## Readability and current-only activity cleanup - 2026-10-17
+## Readability, native approval fixes and verification - 2026-10-17
 
-Static source review covered Cody activity presentation, Studio native rendering,
-CCP notice/protocol owners and selected canonical snapshot consumers. It was not
-an exhaustive audit of every repository or imported vendor file.
+Static review covered Cody activity presentation, Studio native rendering, CCP
+notice/protocol owners and selected canonical snapshot consumers. It was not an
+exhaustive audit of every source or imported vendor file. The larger ownership,
+marquee and by-value snapshot examples remain CLARITY-01 through CLARITY-03 in
+planned-todo.md.
 
-- `58c50082` consolidates the three repeated RGB565 image conversions into
-  `simulator/windows/cody_native_rgb565.py`. The synchronous native caller keeps
-  the owned buffer alive and publishes a new image only after native success.
-  The unused single-action wrapper and the event-view text-wrapper re-export
-  were removed; existing callers now use their actual owners directly.
-- The same checkpoint replaces separate reply/approval title-refresh methods
-  with `refresh_notice_title()`. Both retain exact session/turn/checkout checks
-  before and after source IO, original observation age, and their distinct
-  complete-title limits. Class comments explain lifecycle locks, source IO and
-  presentation ownership.
-- `83bdf266` rejects ACTIVITY capabilities 1, 2 and 4 before challenge admission.
-  Current `activity=5` always publishes its complete title/description fields and
-  coherent TECH observation. Presence-only FIND remains a separate supported
-  capability. The obsolete shortening and authentication branches were removed;
-  current firmware and Studio already advertise the retained contract.
-- The same checkpoint replaces the nested headline ternary with ordered branches
-  and gives work-route, identity and freshness conditions intermediate names.
-  The priority of attention, compaction and connection states is preserved.
+- `58c50082` shares three RGB565 conversions through `cody_native_rgb565.py`,
+  removes an unused event-view wrapper/re-export, and consolidates reply/approval
+  title acquisition into `refresh_notice_title()`. Exact session/turn/checkout
+  checks remain before and after IO; original title age and distinct field
+  limits remain explicit. Comments describe locks, buffers and state ownership.
+- `83bdf266` removes ACTIVITY 1/2/4 admission, obsolete shortening and old HMAC
+  branches. Only current activity=5 is accepted, with coherent TECH from the
+  same source projection. Presence-only FIND remains a separate capability.
+  Ordered headline branches and intermediate identity/freshness variables replace
+  the nested ternary. `fbf8b3d3` preserves native preparation on hidden frames.
+- `17aeefb0` fixes the invalid 18x20 monitor stem as a centered 20x20 capsule and
+  restores the 63-byte Python projection bound for non-approval events. It fixes
+  a self-deadlocking approval race fixture by injecting at the canonical owner,
+  updates BLE/RTC/offline-power assertions to current owners, and permits the
+  approved VibeWare site identity. The obsolete workflow-only test is removed:
+  that workflow was intentionally deleted in `ba05e46c`. Current budget tests
+  remain. Cleanup now preserves generated feature configuration; its fixture
+  shares one explicit directory list for creation and retention assertions.
+- `e90ca52a` gives the leading PC caption its own validated region above the
+  title. Main content remains below the title; clipping, damage retirement and
+  personality exclusions include the caption. Missing/duplicate headers and
+  title overlap remain errors. The eight-byte region grows SceneContent without
+  adding a framebuffer or increasing task stacks; the personality exclusion
+  list retains its existing bound. Shared rectangle predicates simplify the
+  repeated geometry comparisons.
 
-Final static review retains native approval dispatch even on hidden frames:
-the native owner still validates and prepares the request before artwork reveal.
-The codec consolidation therefore preserves that existing preparation path.
+The owner explicitly authorized all tests and compilation for this verification.
+The first complete run recorded 50 invocations including two native preparations,
+with ten failures; the second recorded four. Following the final region fix,
+all 14 affected checks plus both preparations passed. Consolidated latest results
+are **46 passed / 48 automatic check invocations**, with two failures retained:
+`build-profiles` stops at missing `display-touch.lock` (static catalog inspection
+also finds absent `full-wake-word.lock`), and `cody-context-documents` stops at the
+navigation PDF main-section boundary. Neither gate was suppressed or marked passed.
+Live audio pilots, a core-dump decoder without a supplied dump, and the full-profile
+measurement checker without matching full-profile artifacts were not scheduled.
 
-Existing regression fixtures now use the current protocol. A prepared negative
-case covers rejection of old versions before challenge, presence or send effects.
-These checks were not executed. No configure/build/size, simulator execution,
-flash, serial operation or plugin installation/reload was performed. Physical
-behavior and runtime concurrency remain unverified for these edits. Broader
-review findings are retained as CLARITY-01 through CLARITY-03 in planned-todo.md.
-Publication evidence is kept under
-`artifacts/reviews/readability-20261017/publication-secrets.log`; this source-only
-publication gate is separate from the unexecuted regression suites.
+The CCP suite passed 142 cases, CCP/Studio 47 and Character Studio 29, including
+the real Windows Tk window/canvas ImageGrab case. This resolves the earlier
+STUDIO-CAPTURE-01 availability failure; these remain SIMULATED client images.
+Runtime checks exercise the real presenter, separate caption admission and overlap
+rejection. Power checks include the production owner with fake peripherals.
+
+Both firmware modes used ESP-IDF 6.0.2, eight jobs, wake word and the activity
+classifier, from `e90ca52a20bef1d2ba6bf696da716026ac30527c` as
+`cody-210-ge90ca52a`. Release passes at 7,228,000 bytes, leaving 46,496 bytes
+in the unchanged 7,274,496-byte OTA slot. SHA256:
+`c6ae305030e9cd0aff582a4b4ff2e254ea30a3802787c9da1b664782ca870cdd`.
+Debug compiles and links at 7,384,656 bytes but **fails** the actual OTA check by
+110,160 bytes. Its image is not suitable for that partition table. SHA256:
+`41e7c463b198727a231cfecfc17513d0ac7dad8c91c415646a18ea915f018a6c`.
+The initial Debug attempt lacked a configured output; public set-target prepared
+it from the existing canonical lock before compilation. No dependency lock,
+partition, diagnostic logging policy or task-stack budget was changed.
+
+The individual compiled-frame checks passed in both modes, covering 4,846 Release
+and 4,879 Debug records. draw_companion_frame uses 3,168/3,184 bytes and
+draw_scene_rows 176 bytes in both modes. Source call sites and the small scene
+schema growth were reviewed; these individual frames do not measure nested
+physical stack headroom. No flash, serial operation, plugin installation/reload
+or physical display/audio/touch observation was performed.
+
+Evidence: `artifacts/build-cody-companion-wake-word-evidence/readability-20261017/`.
+`verification-summary.json` consolidates results; `final/` preserves the full
+second run, `regions/` the final firmware builds and `verified/` the affected
+rechecks and compiled-frame reports. Source-only publication uses
+`artifacts/reviews/readability-20261017/publication-secrets.log` separately.
 
 ## PC approval Release 204 USB delivery - 2026-10-16
 
