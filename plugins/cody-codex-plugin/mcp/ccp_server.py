@@ -685,15 +685,16 @@ class CompanionResponder:
             return
         if kind != "FIND":
             return
-        with_events = set(fields) == {"device", "pc", "nonce", "activity", "events", "current", "state", "event_select", "proof"}
-        with_activity = with_events or set(fields) == {"device", "pc", "nonce", "activity", "proof"}
-        if not with_activity and set(fields) != {"device", "pc", "nonce", "proof"}:
+        field_names = set(fields)
+        presence_fields = {"device", "pc", "nonce", "proof"}
+        activity_fields = presence_fields | {"activity"}
+        event_fields = activity_fields | {"events", "current", "state", "event_select"}
+        with_events = field_names == event_fields
+        with_activity = with_events or field_names == activity_fields
+        if not with_activity and field_names != presence_fields:
             raise ValueError("CCP FIND has unexpected or missing fields")
-        if with_activity and fields["activity"] not in {"1", "2", "4", "5"}:
-            raise ValueError("Unsupported CCP activity capability")
-        with_description = with_activity and fields["activity"] in {"2", "4", "5"}
-        with_technical = with_activity and fields["activity"] in {"4", "5"}
-        with_title = with_activity and fields["activity"] == "5"
+        if with_activity and fields["activity"] != "5":
+            raise ValueError("Unsupported CCP activity capability; update the peer to activity=5")
         if with_events:
             if fields["events"] != "3":
                 raise ValueError("Unsupported CCP events capability")
@@ -716,12 +717,8 @@ class CompanionResponder:
         for candidate in (retained.pending, retained.active):
             if candidate is None:
                 continue
-            domain = "find-events-v3" if with_events else "find-activity" if with_activity else "find"
-            if with_description:
-                domain = "find-events-activity-v3" if with_events else "find-activity-v2"
-            if with_technical:
-                domain = "find-events-activity-v5" if with_events else "find-activity-v4"
-            if with_title:
+            domain = "find"
+            if with_activity:
                 domain = "find-events-activity-v6" if with_events else "find-activity-v5"
             values = [fields["device"], fields["pc"], fields["nonce"]]
             if with_events:
@@ -761,44 +758,43 @@ class CompanionResponder:
         retained = self._state.retained_keys(fields["device"])
         with_events = "events" in fields
         with_activity = "activity" in fields
-        with_description = with_activity and fields["activity"] in {"2", "4", "5"}
-        with_technical = with_activity and fields["activity"] in {"4", "5"}
-        with_title = with_activity and fields["activity"] == "5"
         now = time.monotonic()
         self._state.mark_seen(fields["device"], source[0])
         if with_activity:
             activity, technical = self._activity.snapshot_bundle()
-            projected_project = activity["project"]
-            if not with_description and len(projected_project) > 48:
-                # Version-one peers retain their documented 24-byte display slot; identity stays in chat.
-                label = bytes.fromhex(projected_project).decode("ascii")
-                projected_project = (label[:21].rstrip() + "...").encode("ascii").hex()
-                print("CCP activity: legacy project display projected to its 24-byte slot", file=sys.stderr)
-            values = [fields["device"], fields["pc"], fields["nonce"],
-                      activity["chat"], activity["revision"], activity["phase"],
-                      projected_project or "-"]
-            names = ("device", "pc", "nonce", "chat", "revision", "phase", "project")
-            if with_description:
-                values.append(activity["description"] or "-")
-                names += ("description",)
-                values.append(activity["branch"] or "-")
-                names += ("branch",)
-            if with_title:
-                values.extend((activity["title"], activity["titlestate"], activity["titleage"]))
-                names += ("title", "titlestate", "titleage")
-            activity_proof = make_proof(link_key, "activity-v3" if with_title else
-                "activity-v2" if with_description else "activity", *values)
-            payload = encode_datagram("ACTIVITY", list(zip(
-                names, values
-            )) + [("proof", activity_proof)])
+            # Current activity=5 always publishes the complete title/description contract.
+            # The paired TECH packet comes from the same locked source projection.
+            activity_fields = [
+                ("device", fields["device"]),
+                ("pc", fields["pc"]),
+                ("nonce", fields["nonce"]),
+                ("chat", activity["chat"]),
+                ("revision", activity["revision"]),
+                ("phase", activity["phase"]),
+                ("project", activity["project"] or "-"),
+                ("description", activity["description"] or "-"),
+                ("branch", activity["branch"] or "-"),
+                ("title", activity["title"]),
+                ("titlestate", activity["titlestate"]),
+                ("titleage", activity["titleage"]),
+            ]
+            activity_values = [value for _, value in activity_fields]
+            activity_proof = make_proof(link_key, "activity-v3", *activity_values)
+            payload = encode_datagram("ACTIVITY", activity_fields + [("proof", activity_proof)])
             self._socket.sendto(payload, source)
-            if with_technical:
-                # One locked projection binds both packets to the same chat and activity revision.
-                technical_fields = {"device": fields["device"], "pc": fields["pc"], "nonce": fields["nonce"], **technical}
-                values = [technical_fields[name] for name in TECHNICAL_FIELDS]
-                proof = make_proof(link_key, "technical-v2", *values)
-                payload = encode_datagram("TECH", list(zip(TECHNICAL_FIELDS, values)) + [("proof", proof)])
-                self._socket.sendto(payload, source)
+
+            technical_fields = {
+                "device": fields["device"],
+                "pc": fields["pc"],
+                "nonce": fields["nonce"],
+                **technical,
+            }
+            technical_values = [technical_fields[name] for name in TECHNICAL_FIELDS]
+            technical_proof = make_proof(link_key, "technical-v2", *technical_values)
+            payload = encode_datagram(
+                "TECH", list(zip(TECHNICAL_FIELDS, technical_values)) + [("proof", technical_proof)]
+            )
+            self._socket.sendto(payload, source)
         if with_events and retained.active is not None and hmac.compare_digest(link_key, retained.active):
             # The old active link remains usable during commissioning. A candidate
             # receives interactions only after COMMITTED proves durable promotion.

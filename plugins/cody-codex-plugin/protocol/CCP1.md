@@ -1,5 +1,19 @@
 # CCP1 local pairing protocol
 
+## Current-only activity contract - 17 October 2026
+
+The responder accepts only `activity=5` when activity is advertised, with
+`events=3` for the current event extension. Activity capabilities 1, 2 and 4 are
+rejected before challenge admission; their project shortening, optional-title
+branches and older activity authentication domains were removed. A presence-only
+FIND advertises no activity and remains a separate current capability, not a
+version downgrade. Current activity always sends description, branch and the
+complete title observation, plus TECH from the same source projection.
+
+Older wire descriptions below are historical reference and are not accepted
+activity implementations. Firmware and Studio already emit the current contract.
+This source cleanup does not install or reload the plugin or flash a device.
+
 CCP1 connects one physical Cody device to one local Cody's Codex Plugin (CCP)
 runtime. It provides bounded UDP commissioning, liveness, selected chat
 activity and semantic question/answer exchange. It does not transport full chat

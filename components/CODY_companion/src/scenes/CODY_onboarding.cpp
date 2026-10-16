@@ -192,6 +192,8 @@ struct EventChoiceControl {
     CODY2D::TextLine second{};
 };
 
+// Display-task-owned buffers for one prepared route. TextLine borrows these
+// buffers, so serialized route preparation controls their lifetime and PSRAM access.
 struct ContentView {
     CODY2D::TextLine lines[kContentLineCapacity]{};
     uint8_t line_count = 0;
@@ -2603,18 +2605,51 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
         }
         return error;
     }
-    const bool only_work_detail_changed = s_route == Route::Working18 && destination == s_route &&
-        same_chat && std::strcmp(activity.project, s_presented_activity.project) == 0 &&
-        std::strcmp(activity.branch, s_presented_activity.branch) == 0 &&
-        activity.data_valid && s_presented_activity.data_valid &&
-        !activity.data_stale && !s_presented_activity.data_stale && s_view.activity_identity.project_line.valid;
+    const bool work_route_unchanged = s_route == Route::Working18 && destination == s_route;
+    const bool work_identity_unchanged =
+        std::strcmp(activity.project, s_presented_activity.project) == 0 &&
+        std::strcmp(activity.branch, s_presented_activity.branch) == 0;
+    const bool work_observations_current =
+        activity.data_valid && !activity.data_stale &&
+        s_presented_activity.data_valid && !s_presented_activity.data_stale;
+
+    // Keep reveal and scroll clocks when only a current work detail changes.
+    const bool only_work_detail_changed =
+        work_route_unchanged && same_chat && work_identity_unchanged &&
+        work_observations_current && s_view.activity_identity.project_line.valid;
     const Route previous_route = s_route;
     const bool headline_changed = work_phase != s_presented_work_phase || compaction_changed;
-    const char *headline = native_attention ? "Waiting for you" : compacting ? "Compacting" : reconnecting ? "Connecting" : !current_link ? "Disconnected" : !activity.data_valid || activity.data_stale ? nullptr : current_work ?
-        (work_phase == Activity::Editing ? "Editing code" : work_phase == Activity::Running ? "Running command" : "Working") :
-        activity.state == Activity::Paused ? "Waiting for you" :
-        activity.state == Activity::ResponseReady && reply_introduction ? "Reply ready" :
-        activity.state == Activity::Interrupted ? "Interrupted" : nullptr;
+    const char *headline = nullptr;
+    // Attention/compaction/connection take priority over the ordinary work caption.
+    if (native_attention) {
+        headline = "Waiting for you";
+    } else if (compacting) {
+        headline = "Compacting";
+    } else if (reconnecting) {
+        headline = "Connecting";
+    } else if (!current_link) {
+        headline = "Disconnected";
+    } else if (activity.data_valid && !activity.data_stale) {
+        if (current_work) {
+            switch (work_phase) {
+            case Activity::Editing:
+                headline = "Editing code";
+                break;
+            case Activity::Running:
+                headline = "Running command";
+                break;
+            default:
+                headline = "Working";
+                break;
+            }
+        } else if (activity.state == Activity::Paused) {
+            headline = "Waiting for you";
+        } else if (activity.state == Activity::ResponseReady && reply_introduction) {
+            headline = "Reply ready";
+        } else if (activity.state == Activity::Interrupted) {
+            headline = "Interrupted";
+        }
+    }
     s_presented_activity = activity;
     s_presented_work_phase = work_phase;
     s_presented_compaction = compaction;

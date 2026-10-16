@@ -914,7 +914,7 @@ class ChatActivityTests(unittest.TestCase):
         self.observe("UserPromptSubmit", cwd="E:/" + "P" * 64)
         self.assertEqual(bytes.fromhex(self.store.snapshot()["project"]), b"P" * 64)
 
-    # self: Synthetic authenticated version-four peer with the full reported model identity.
+    # self: Synthetic authenticated current peer with the full reported model identity.
     # Raises AssertionError if technical metadata loses activity correlation or admits invented token counts.
     def test_technical_reply_matches_activity_and_rejects_unobserved_metrics(self) -> None:
         self.observe("UserPromptSubmit", model="M" * 128)
@@ -925,9 +925,9 @@ class ChatActivityTests(unittest.TestCase):
         listener = Mock()
         responder = ccp.CompanionResponder(state, listener, self.store)
         values = ["abcdef012345", state.pc_id, "b" * 32]
-        proof = ccp.make_proof(link_key, "find-activity-v4", *values)
+        proof = ccp.make_proof(link_key, "find-activity-v5", *values)
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
-                                   [("activity", "4"), ("proof", proof)])
+                                   [("activity", "5"), ("proof", proof)])
         responder._handle_datagram(find, ("192.0.2.10", ccp.DEVICE_PORT))
         self.assertEqual([ccp.parse_datagram(call.args[0])[0] for call in listener.sendto.call_args_list], ["READY"])
         acknowledge_ready(responder, link_key, ("192.0.2.10", ccp.DEVICE_PORT))
@@ -970,6 +970,26 @@ class ChatActivityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "incoherent"):
             technical_metadata.decode_projection(invalid)
 
+    # self: Older wire capabilities with authentic synthetic proofs but no admissible current schema.
+    # Raises AssertionError if an old version creates a challenge, publishes presence or sends a packet.
+    def test_old_activity_versions_are_rejected_without_a_compatibility_path(self) -> None:
+        state = Mock(pc_id="a" * 32)
+        key = bytes(range(32))
+        state.retained_keys.return_value = ccp.RetainedKeys(key, None)
+        listener = Mock()
+        responder = ccp.CompanionResponder(state, listener, self.store)
+        values = ["abcdef012345", state.pc_id, "b" * 32]
+        old_versions = (("1", "find-activity"), ("2", "find-activity-v2"), ("4", "find-activity-v4"))
+        for version, domain in old_versions:
+            with self.subTest(version=version):
+                packet = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
+                    [("activity", version), ("proof", ccp.make_proof(key, domain, *values))])
+                with self.assertRaisesRegex(ValueError, "Unsupported CCP activity capability"):
+                    responder._handle_datagram(packet, ("192.0.2.10", ccp.DEVICE_PORT))
+        self.assertEqual(responder._commit_challenges, {})
+        listener.sendto.assert_not_called()
+        state.mark_seen.assert_not_called()
+
     # self: Authenticated synthetic responder and maximum display label.
     # Raises AssertionError if ACTIVITY lacks nonce/HMAC binding or exceeds the wire limit.
     def test_activity_reply_authenticates_every_field(self) -> None:
@@ -980,17 +1000,20 @@ class ChatActivityTests(unittest.TestCase):
         listener = Mock()
         responder = ccp.CompanionResponder(state, listener, self.store)
         values = ["abcdef012345", state.pc_id, "b" * 32]
-        proof = ccp.make_proof(link_key, "find-activity", *values)
+        proof = ccp.make_proof(link_key, "find-activity-v5", *values)
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
-                                   [("activity", "1"), ("proof", proof)])
+                                   [("activity", "5"), ("proof", proof)])
         responder._handle_datagram(find, ("192.0.2.10", ccp.DEVICE_PORT))
         acknowledge_ready(responder, link_key, ("192.0.2.10", ccp.DEVICE_PORT))
-        raw, _ = listener.sendto.call_args.args
+        raw = next(call.args[0] for call in listener.sendto.call_args_list
+                   if call.args[0].startswith(b"CCP1|ACTIVITY|"))
         kind, fields = ccp.parse_datagram(raw)
         self.assertEqual(kind, "ACTIVITY")
-        self.assertLessEqual(len(raw), 512)
-        authenticated = [fields[key] for key in ("device", "pc", "nonce", "chat", "revision", "phase", "project")]
-        expected = ccp.make_proof(link_key, "activity", *authenticated)
+        self.assertLessEqual(len(raw), ccp.MAX_ACTIVITY_DATAGRAM_BYTES)
+        field_order = ("device", "pc", "nonce", "chat", "revision", "phase", "project",
+                       "description", "branch", "title", "titlestate", "titleage")
+        authenticated = [fields[key] for key in field_order]
+        expected = ccp.make_proof(link_key, "activity-v3", *authenticated)
         self.assertEqual(fields["proof"], expected)
         self.assertEqual(fields["nonce"], values[2])
         self.assertEqual(bytes.fromhex(fields["project"]), b"P" * 24)
@@ -1699,8 +1722,8 @@ class ResetTests(unittest.TestCase):
                                            ccp.reset.CONFIRMATION_CODE, operation)
             values = [self.device, pc, self.nonce]
             find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values))
-                                      + [("activity", "1"), ("events", "3"), ("current", "0" * 32), ("state", "none"), ("event_select", "0" * 32),
-                                         ("proof", ccp.make_proof(key, "find-events-v3", *values, "0" * 32, "none", "0" * 32))])
+                                      + [("activity", "5"), ("events", "3"), ("current", "0" * 32), ("state", "none"), ("event_select", "0" * 32),
+                                         ("proof", ccp.make_proof(key, "find-events-activity-v6", *values, "0" * 32, "none", "0" * 32))])
             listener.sendto.reset_mock()
             responder._handle_datagram(find, self.endpoint)
             acknowledge_ready(responder, key, self.endpoint)
@@ -1846,8 +1869,8 @@ class InteractionTests(unittest.TestCase):
         source = ("192.0.2.10", ccp.DEVICE_PORT)
         values = [self.device, state.pc_id, "b" * 32, "c" * 32, "sending"]
         fields = list(zip(("device", "pc", "nonce", "current", "state"), values))
-        fields += [("activity", "1"), ("events", "3"), ("event_select", "0" * 32)]
-        proof = ccp.make_proof(key, "find-events-v3", *values, "0" * 32)
+        fields += [("activity", "5"), ("events", "3"), ("event_select", "0" * 32)]
+        proof = ccp.make_proof(key, "find-events-activity-v6", *values, "0" * 32)
         for name, changed in (("current", "d" * 32), ("state", "rejected")):
             altered = [(field, changed if field == name else value) for field, value in fields]
             with self.assertRaises(ValueError):
@@ -1860,8 +1883,8 @@ class InteractionTests(unittest.TestCase):
                          ("EVENT", values[3], "unavailable", "-"))
         values[-1] = "rejected"
         fields = list(zip(("device", "pc", "nonce", "current", "state"), values))
-        responder._handle_datagram(ccp.encode_datagram("FIND", fields + [("activity", "1"), ("events", "3"), ("event_select", "0" * 32),
-            ("proof", ccp.make_proof(key, "find-events-v3", *values, "0" * 32))]), source)
+        responder._handle_datagram(ccp.encode_datagram("FIND", fields + [("activity", "5"), ("events", "3"), ("event_select", "0" * 32),
+            ("proof", ccp.make_proof(key, "find-events-activity-v6", *values, "0" * 32))]), source)
         acknowledge_ready(responder, key, source)
         self.assertEqual(ccp.parse_datagram(listener.sendto.call_args.args[0])[1]["id"], queued["request_id"])
 
@@ -1918,7 +1941,7 @@ class InteractionTests(unittest.TestCase):
         source = ("192.0.2.10", ccp.DEVICE_PORT)
         values = [self.device, state.pc_id, "b" * 32]
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
-            [("activity", "1"), ("events", "3"), ("current", "0" * 32), ("state", "none"), ("event_select", "0" * 32), ("proof", ccp.make_proof(key, "find-events-v3", *values, "0" * 32, "none", "0" * 32))])
+            [("activity", "5"), ("events", "3"), ("current", "0" * 32), ("state", "none"), ("event_select", "0" * 32), ("proof", ccp.make_proof(key, "find-events-activity-v6", *values, "0" * 32, "none", "0" * 32))])
         responder._handle_datagram(find, source)
         acknowledge_ready(responder, key, source)
         self.store.cancel(first["request_id"], first["capability"])
@@ -2109,7 +2132,7 @@ class InteractionTests(unittest.TestCase):
         responder = ccp.CompanionResponder(state, listener, activity.ActivityStore(), self.store)
         values = [self.device, state.pc_id, "b" * 32]
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
-            [("activity", "1"), ("events", "3"), ("current", "0" * 32), ("state", "none"), ("event_select", "0" * 32), ("proof", ccp.make_proof(key, "find-events-v3", *values, "0" * 32, "none", "0" * 32))])
+            [("activity", "5"), ("events", "3"), ("current", "0" * 32), ("state", "none"), ("event_select", "0" * 32), ("proof", ccp.make_proof(key, "find-events-activity-v6", *values, "0" * 32, "none", "0" * 32))])
         source = ("192.0.2.10", ccp.DEVICE_PORT)
         responder._handle_datagram(find, source)
         acknowledge_ready(responder, key, source)
@@ -2131,7 +2154,7 @@ class InteractionTests(unittest.TestCase):
         responder._handle_datagram(reply, source)
         self.assertEqual(ccp.parse_datagram(listener.sendto.call_args.args[0])[1]["status"], "delivered")
         stripped = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
-            [("activity", "1"), ("proof", ccp.make_proof(key, "find-events-v3", *values, "0" * 32, "none", "0" * 32))])
+            [("activity", "5"), ("proof", ccp.make_proof(key, "find-events-activity-v6", *values, "0" * 32, "none", "0" * 32))])
         with self.assertRaises(ValueError):
             responder._handle_datagram(stripped, source)
 
@@ -2402,7 +2425,7 @@ class PricingContractTests(unittest.TestCase):
         responder = ccp.CompanionResponder(state, listener, activity_store)
         values = ["abcdef012345", state.pc_id, "b" * 32]
         find = ccp.encode_datagram("FIND", list(zip(("device", "pc", "nonce"), values)) +
-            [("activity", "4"), ("proof", ccp.make_proof(key, "find-activity-v4", *values))])
+            [("activity", "5"), ("proof", ccp.make_proof(key, "find-activity-v5", *values))])
         source = ("192.0.2.10", ccp.DEVICE_PORT)
         responder._handle_datagram(find, source)
         acknowledge_ready(responder, key, source)
