@@ -100,7 +100,7 @@ cannot accidentally reuse a Release build.
 | Sleep residency diagnostics | Callback counters available | Debug-only callback instrumentation disabled |
 | Repeated post-wake trace reports | Available | Disabled; retained failure trace remains available |
 | Cody frame diagnostics | Authored execution timings, frame distributions and FPS/CPU HUD | No frame-distribution/raster profiling collection; explicitly opened diagnostic screens still show the canonical readout |
-| Cody diagnostic screens | Live character/readout and face-channel list through authenticated CCP | The same two screens, scrolling and Back; no build-mode choice is required |
+| Cody device diagnostics | Character with canonical CPU/free RAM/PSRAM, FPS, IP and SD readout through authenticated CCP | The same diagnostic view and Back; no build-mode choice is required |
 | Cody PWR | Short click enters/wakes standby; valid continuous 3-second hold requests farewell and PMU shutdown | Same dedicated power controls; no PWR screenshot or software reset |
 | BOOT software reset | 3-second BOOT hold | Excluded; ordinary BOOT controls remain |
 | Cody static/parked worker | Existing 50 ms/200 ms waits; paused HUD refresh | 1000 ms functional gate checks; touch IRQ wakes immediately; an explicit diagnostic view retains live refresh |

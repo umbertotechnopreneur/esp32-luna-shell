@@ -873,14 +873,15 @@ Metadata CCP packets remain authenticated
 plaintext; this audio extension does not replace or strengthen the existing pairing
 scheme. Cryptographic/wire/physical checks of this source increment remain pending.
 
-## Authenticated diagnostic screens, 16 October 2026
+## Authenticated device diagnostics, 16 October 2026
 
-The Cody Companion profile offers the same two transient diagnostic screens in
+The Cody Companion profile offers one transient device diagnostic screen in
 Release and Debug: `character` renders the live character with canonical snapshot
-readout; `face_channels` renders its actual composed channel list. `normal`
-restores the retained route. The wire names remain unchanged and do not select
-a firmware build mode. No arbitrary command, channel override or settings write
-is admitted by this extension.
+readout for measured CPU utilization, free RAM/PSRAM, FPS, IP and SD status.
+`normal` restores the retained route. The facial-channel list was removed to save
+device space; `face_channels` is rejected, without a substitute view. Internal
+animation channels remain. Wire names do not select a firmware build mode.
+No arbitrary command, channel override or settings write is admitted.
 
 After an authenticated READY, Cody advertises `CCP1|DEBUGCAP` with ordered fields
 `device`, `pc`, `nonce`, `debug=1`, `proof`. HMAC-SHA256 uses the retained link
@@ -890,9 +891,8 @@ live READY nonce; saved pairing without this fresh capability is insufficient.
 
 `CCP1|DEBUG` carries `device`, `pc`, `nonce`, `id`, `mode`, `scroll`, `proof`.
 Its HMAC input is `debug|device|pc|nonce|id|mode|scroll`. The request ID is exactly
-32 hexadecimal characters. Scroll is a canonical unsigned decimal from 0 to 255;
-only `face_channels` permits a nonzero offset. The worker checks the actual
-compiled channel count. Mode and all fields are validated before mailbox admission.
+32 hexadecimal characters. The reserved scroll field must be exactly `0`.
+Mode and all fields are validated before mailbox admission.
 Both peers bind the operation to current credentials, endpoint and nonce, consume
 that nonce once, and require a new authenticated capability before another command.
 
@@ -900,8 +900,8 @@ The four-second mailbox belongs to the existing CCP socket worker. The display
 worker takes its immutable projection, validates lifecycle/display readiness and
 native layout, and completes that exact request with its original error. Capability
 and mailbox service are compiled for the Cody profile in both build modes.
-Prepared channel text is component-owned PSRAM storage; diagnostic consumers
-never acquire sensor values independently of the canonical snapshot.
+Diagnostic consumers never acquire sensor values independently of the canonical
+snapshot. Unmeasured or stale fields remain explicitly unavailable/stale.
 
 `CCP1|DEBUGACK` carries `device`, `pc`, `nonce`, `id`, `mode`, `scroll`, `status`,
 `error`, `count`, `proof`. Its HMAC input is

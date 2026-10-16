@@ -22,7 +22,8 @@
 
 namespace LUNASHELL {
 
-enum class CodexDebugScreen : uint8_t { Normal, FaceChannels, Character };
+// Identity 1 belonged to the removed face-channel screen and must not be reused.
+enum class CodexDebugScreen : uint8_t { Normal = 0, Character = 2 };
 
 struct CodexDebugScreenRequest {
     CodexDebugScreen screen = CodexDebugScreen::Normal;

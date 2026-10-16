@@ -938,17 +938,17 @@ class CompanionResponder:
 
     # self: Authenticated responder receiving transient diagnostic requests from MCP.
     # device_id: Explicit retained target with a recent authenticated screen capability in either build mode.
-    # mode: face_channels, character or normal; no arbitrary route/command is accepted.
-    # scroll: Absolute first channel row; firmware checks its real channel count.
+    # mode: character diagnostics or normal; no arbitrary route/command is accepted.
+    # scroll: Reserved protocol field, required to be exactly zero.
     # include_simulator: Explicit authorization to target loopback, never inferred.
     # Raises ValueError or OSError for invalid arguments, missing capability or send failure.
     def debug_screen(self, device_id: str, mode: str, scroll: int, include_simulator: bool) -> dict[str, Any]:
         if not isinstance(device_id, str) or HEX_PATTERNS["device"].fullmatch(device_id) is None:
             raise ValueError("Debug requires an explicit device_id")
-        if not isinstance(mode, str) or mode not in {"face_channels", "character", "normal"}:
-            raise ValueError("Debug mode must be face_channels, character or normal")
-        if type(scroll) is not int or not 0 <= scroll <= 255 or (mode != "face_channels" and scroll != 0):
-            raise ValueError("Only face_channels accepts a scroll offset between 0 and 255")
+        if not isinstance(mode, str) or mode not in {"character", "normal"}:
+            raise ValueError("Diagnostic mode must be character or normal")
+        if type(scroll) is not int or scroll != 0:
+            raise ValueError("Diagnostic scroll must be zero")
         if type(include_simulator) is not bool:
             raise ValueError("include_simulator must be a boolean")
         with self._event_lock:
@@ -1863,14 +1863,14 @@ def tool_catalog() -> list[dict[str, Any]]:
     ] + activity_tool_catalog() + interactions.tool_catalog() + clock.tool_catalog() + preferred_name.tool_catalog() + [voice_input.tool_definition(), debug_tool_definition()] + [reset.tool_definition(operation) for operation in reset.ResetOperation]
 
 
-# No parameters: exposes the same bounded diagnostic views in customer and development builds.
+# No parameters: exposes the same device diagnostic screen in both build modes.
 def debug_tool_definition() -> dict[str, Any]:
     return {"name": "ccp_debug_screen", "title": "Cody diagnostics",
-        "description": "Request live face_channels, character with snapshot HUD, or normal on a paired Cody with a fresh authenticated screen capability. Available in both Release and Debug. ACK confirms worker application only, never display pixels.",
+        "description": "Open device diagnostics with character, or restore normal, on a paired Cody with a fresh authenticated screen capability. Shows measured CPU, free RAM/PSRAM, FPS, IP and SD status in both Release and Debug. ACK confirms worker application only, never display pixels.",
         "inputSchema": {"type": "object", "additionalProperties": False,
             "properties": {"device_id": {"type": "string", "pattern": "^[0-9a-f]{12}$"},
-                "mode": {"type": "string", "enum": ["face_channels", "character", "normal"]},
-                "scroll": {"type": "integer", "minimum": 0, "maximum": 255, "default": 0},
+                "mode": {"type": "string", "enum": ["character", "normal"]},
+                "scroll": {"type": "integer", "minimum": 0, "maximum": 0, "default": 0},
                 "include_simulator": {"type": "boolean", "default": False}},
             "required": ["device_id", "mode"]},
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}}

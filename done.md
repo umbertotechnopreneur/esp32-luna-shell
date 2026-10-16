@@ -13,7 +13,47 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Device diagnostic cleanup - 2026-10-16
+
+The owner removed the facial-channel diagnostic list from scope to save device
+space. Deleted its text preparation/raster functions, PSRAM list storage, gesture
+scroll state and display branches. Internal face channels and the animation
+catalog remain. The retained `Character` screen keeps its numeric identity 2;
+identity 1 is retired. Firmware, plugin and Studio reject the removed mode and
+require the reserved wire scroll field to be zero. Studio keeps only the native
+Back overlay used by diagnostics and event navigation.
+
+The remaining diagnostic screen is unchanged across Release and Debug and reads
+the canonical snapshot: measured CPU utilization on both cores, free RAM/PSRAM,
+FPS, IP and SD availability/free space. Unknown/stale data stay explicit; no
+consumer sensor reads, new measurement source or task allocation is introduced.
+Existing CCP authentication/error assertions are adapted but have not been run.
+Final build, device delivery and publication evidence will be recorded separately.
+
 ## Gentle question bells and shared diagnostic availability - 2026-10-16
+
+Release `cody-196-gda3e03ad` built with ESP-IDF 6.0.2 and eight jobs, completing
+1,501 Ninja steps, and was flashed on COM10 with all five written hashes verified
+and the normal post-flash reset. The 7,222,176-byte app leaves 52,320 bytes in
+the unchanged OTA slot. Application SHA256:
+`5f351a196d36ddd3223fdb84f8466ee34b63e6c03846b8a1ea172d7f675f001c`.
+
+The already-installed MCP client then applied `character` and `face_channels`
+sequentially over the authenticated physical LAN, each returning `applied`,
+error 0 and the actual 34-channel catalog. Face channels was left selected.
+Both responses explicitly report `pixels_verified=false`. No broker restart
+or plugin-cache installation was performed; canonical plugin wording is updated,
+while existing loaded clients already understand the unchanged screen exchange.
+
+Compiled-frame source review found the 12,288-byte display worker's individual
+frames at 352 bytes for its entry, 3,168 for frame drawing, 1,040 for readout
+preparation and 64 for channel-list preparation. The 8,192-byte CCP worker's
+entry is 80 bytes, with 1,072-byte accept-READY and diagnostic-ACK frames.
+These are individual static compiler figures, not measured nested headroom.
+Evidence is under
+`artifacts/build-cody-companion-wake-word-evidence/gentle-bell-diagnostics-20261016/`.
+No new host test suite, simulator, standalone size report, serial capture or
+physical pixel/audio observation was performed.
 
 The owner rejected the repeated question alarm and the diagnostic build-mode
 choice. Prepared one 1.8-second Soft Chime bell at -24 dBFS, plus one shorter
@@ -23,12 +63,13 @@ seconds through the existing 320-sample transport scratch; ordinary activity,
 personality and repeated clips retain their short bounds. No extra PCM buffer,
 task or sample clock is introduced. Digital level is not measured speaker loudness.
 
-Both existing authenticated diagnostic views are now included in the Cody profile
+At this checkpoint both authenticated diagnostic views were included in the Cody profile
 independently of build mode, including capability, request, mailbox, raster, touch,
 readout preparation and paused-view refresh. The canonical snapshot, endpoint/
 nonce validation, bounded channel storage and original errors remain authoritative.
-The plugin's canonical skill/tool description and guide now describe the same
-two views; `normal` restores the route. The earlier mode-choice question was
+The plugin's canonical skill/tool description and guide described the same
+two views; `normal` restores the route. The later device-cleanup entry above
+records the owner's final removal of the facial-channel screen. The mode-choice question was
 cancelled after the owner's explicit chat instruction. Test coverage is prepared
 but unexecuted; source implementation is not a physical rendering/audio result.
 

@@ -1,10 +1,17 @@
 # Active work
 
-The 16 October owner correction replaces the repeated question alarm with one
-soft 1.8-second bell and quieter 300-ms reminders, retaining the ten-second
-cadence. Both diagnostic views are being made available in Release as well as
-Debug, without asking the user to choose a build mode. Source integration is in
-progress; build, installation and actual view application are not yet claimed.
+The owner's final 16 October diagnostic correction is implemented in source:
+remove the facial-channel list, its bounded PSRAM storage and scroll handling,
+while keeping internal animation channels and one device diagnostic view in
+Release and Debug. The plugin and Studio accept only `character` and `normal`;
+the reserved scroll field is zero. Final USB delivery and publication are pending.
+
+Release `cody-196-gda3e03ad` remains installed on COM10 with the soft 1.8-second
+question bell and quieter 300-ms reminders on the ten-second cadence. Its two
+diagnostic commands returned authenticated applied ACKs; `character` was reopened
+after the owner removed the facial-channel view from scope. These ACKs do not
+verify visible pixels. New host suites, physical sound quality/timing and nested
+target stack headroom remain unverified.
 
 The owner's 15 October enclosed-board reference import and static assessment are
 recorded in [done.md](done.md). New 1.75C/1.43C hardware support remains deferred
@@ -13,8 +20,8 @@ covered by the existing firmware profile.
 
 Updated 2026-10-16. The offline standby/farewell and faster software-wake changes
 are implemented in source, together with a longer first question alert and
-four-note reminders every ten awake seconds while a fresh question awaits Send.
-Release `cody-193-g7eab1a9d` built with ESP-IDF 6.0.2 and eight jobs and was installed
+gentle reminders every ten awake seconds while a fresh question awaits Send.
+Release `cody-196-gda3e03ad` built with ESP-IDF 6.0.2 and eight jobs and was installed
 on COM10 with all five written hashes verified. Wake word and the experimental
 activity classifier remain selected. Their native timer/owner/voice/lifecycle/
 question-cadence checks are prepared but have not been run. No new test suite,

@@ -31,7 +31,7 @@ from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
 from cody_ccp_event_view import EventView
 from cody_native import NativePersonalityPainter, NativePanelInputs, NativePanelMetric, NativePanelObservation, NativeImuStillnessState, NativeFirmwareBuildFieldState
 from cody_native_behavior import CharacterActivity, CharacterWorkKind
-from cody_native_debug import render_debug_channels
+from cody_native_debug import render_debug_back
 from cody_personality import PersonalityCue, PersonalityPresentation
 from runtime_paths import resolve_runtime_output
 
@@ -119,8 +119,6 @@ class CcpPanel:
         self._passive_visible = False
         self._shake_jobs = []
         self._debug_mode = "normal"
-        self._debug_scroll = 0
-        self._debug_press = None
         self._debug_normal_follow = True
         self._native_personality = None
         self._direction_cue = PersonalityCue.NONE
@@ -249,13 +247,11 @@ class CcpPanel:
                         raise ValueError("No composed native frame is available for Debug")
                     values = list(frame.face)
                 self.window.renderer.evaluate_scene(values, (233, 205, 130))
-                if request["mode"] == "face_channels":
-                    render_debug_channels(native, values, request["scroll"])
             if self._debug_mode == "normal" and request["mode"] != "normal":
                 self._debug_normal_follow = self.follow.get()
                 self._debug_base_values = list(self._last_base_values if self.follow.get() and self._last_base_values is not None
                                                else self.window.face_state)
-            self._debug_mode, self._debug_scroll = request["mode"], request["scroll"]
+            self._debug_mode = request["mode"]
             self.follow.set(self._debug_normal_follow if self._debug_mode == "normal" else True)
             self._frame_key = None
         except (ValueError, RuntimeError) as failure:
@@ -931,26 +927,23 @@ class CcpPanel:
 
     # self: Transient Debug presentation retaining the normal authored route and session preferences.
     # rotation: Same logical orientation applied to native graphics and acquired pointer coordinates.
-    # Raises RuntimeError for actual shared C++ geometry/list failures.
+    # Raises RuntimeError for actual shared C++ geometry or Back-control failures.
     def render_debug(self, rotation):
         native = self.window.renderer.require_native()
         elapsed = max(0, (time.monotonic() - self._route_started) * 1000)
-        scene, values = self.compose_scene(self._debug_base_values, (233, 205, 130), rotation)
+        scene, _ = self.compose_scene(self._debug_base_values, (233, 205, 130), rotation)
         if self._native_personality is not None:
             self._native_personality.disable(elapsed)
         self.window.renderer.personality_painter = None
-        if self._debug_mode == "face_channels":
-            image = render_debug_channels(native, values, self._debug_scroll)
-        else:
-            image = self.window.renderer.draw_scene(scene, debug=False, navigation_visible=False, background_rgb565=0)
-            image = render_debug_channels(native, values, 0, image)
-            # Host facts stay visibly SIMULATED and never enter firmware snapshots.
-            painter = self.window.renderer.scene_painter
-            address = self.endpoint.bound_address()
-            painter.paint_text(image, f"IP {address or 'UNAVAILABLE'}", 352, body=True)
-            painter.paint_text(image, "ESP32 DATA UNAVAILABLE", 384, body=True)
+        image = self.window.renderer.draw_scene(scene, debug=False, navigation_visible=False, background_rgb565=0)
+        image = render_debug_back(native, image)
+        # Host facts stay visibly SIMULATED and never enter firmware snapshots.
+        painter = self.window.renderer.scene_painter
+        address = self.endpoint.bound_address()
+        painter.paint_text(image, f"IP {address or 'UNAVAILABLE'}", 352, body=True)
+        painter.paint_text(image, "ESP32 DATA UNAVAILABLE", 384, body=True)
         self.window.renderer.scene_painter.paint_text(image, "SIMULATED", 22, color=64704, body=True)
-        return image, scene, ("ccp-debug", self._debug_mode, self._debug_scroll, rotation, round(elapsed / 33))
+        return image, scene, ("ccp-debug", self._debug_mode, rotation, round(elapsed / 33))
 
     # self: Circular interaction view using the parent's already-rotated logical touch coordinates.
     # point: Logical press, or None when the pointer is outside the display.
@@ -960,7 +953,6 @@ class CcpPanel:
         point = acquired_touch_pixel(point)
         preview = self.activity_preview.get() and self._preview_snapshot is not None
         if not preview and self._debug_mode != "normal":
-            self._debug_press = point
             if point is not None and (point[0] - 40) ** 2 + (point[1] - 233) ** 2 <= 900:
                 self._debug_mode = "normal"
                 self.follow.set(self._debug_normal_follow)
@@ -1010,15 +1002,6 @@ class CcpPanel:
         point = acquired_touch_pixel(point)
         preview = self.activity_preview.get() and self._preview_snapshot is not None
         if not preview and self._debug_mode != "normal":
-            if (self._debug_mode == "face_channels" and point is not None and self._debug_press is not None
-                    and 73 <= self._debug_press[0] < 393 and 100 <= self._debug_press[1] < 366
-                    and abs(point[0] - self._debug_press[0]) <= 80):
-                displacement = self._debug_press[1] - point[1]
-                count = int(self.window.renderer.require_native().api.cody_host_channel_count())
-                if abs(displacement) >= 24:
-                    rows = max(1, round(abs(displacement) / 34))
-                    self._debug_scroll = max(0, min(count - 1, self._debug_scroll + (rows if displacement > 0 else -rows)))
-            self._debug_press = None
             return
         if not preview and self.events.visible(self._snapshot, self.endpoint):
             try:

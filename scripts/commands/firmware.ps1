@@ -528,10 +528,13 @@ Write-Host "Firmware profile: $ProfileBuildKey"
 Write-Host "Firmware build mode: $BuildMode"
 if ($BuildMode -eq 'Release') {
     if ($Feature -eq 'wake-word') {
-        Write-Host 'Release: warnings/errors only, rendering diagnostics disabled; standby voice listening keeps CPU/audio active and disables silicon sleep.'
+        Write-Host 'Release: warnings/errors only, continuous rendering profiling disabled; standby voice listening keeps CPU/audio active and disables silicon sleep.'
     } else {
-        Write-Host 'Release: warnings/errors only, rendering diagnostics disabled, automatic Light-sleep allowed.'
+        Write-Host 'Release: warnings/errors only, continuous rendering profiling disabled, automatic Light-sleep allowed.'
         Write-Host 'Native USB Serial/JTAG may disconnect during Light-sleep; no flash or device operation is implied by building.'
+    }
+    if ($Profile -eq 'cody-companion') {
+        Write-Host 'Cody device diagnostics remain available on explicit request.'
     }
 }
 Write-Host "Build directory: $BuildDir"

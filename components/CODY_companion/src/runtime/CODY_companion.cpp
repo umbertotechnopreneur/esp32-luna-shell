@@ -263,12 +263,7 @@ struct CompanionState {
     uint32_t panel_source_status = 0;
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     LUNASHELL::CodexDebugScreen debug_screen = LUNASHELL::CodexDebugScreen::Normal;
-    uint8_t debug_channel_scroll = 0;
     bool debug_placement_dirty = false;
-    int16_t debug_scroll_origin_y = 0;
-    uint8_t debug_scroll_origin_row = 0;
-    bool debug_scroll_contact = false;
-    uint16_t debug_scroll_rotation_degrees = 0;
 #endif
     CODY::PersonalityCue requested_personality = CODY::PersonalityCue::None;
     CODY::PettingState petting{};
@@ -393,28 +388,13 @@ struct CompanionState {
 alignas(CompanionState) EXT_RAM_BSS_ATTR uint8_t s_state_storage[sizeof(CompanionState)]{};
 CompanionState &s_state = *new (s_state_storage) CompanionState{};
 
-#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-// Prepared lines borrow these PSRAM-owned strings across every tile of one frame.
-EXT_RAM_BSS_ATTR CODY::DebugChannelList s_debug_channel_list;
-#endif
-
 // No parameters: overlay permission follows the same active lifecycle and logical display as normal Cody.
 bool debug_view_active()
 {
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-    return s_state.debug_screen != LUNASHELL::CodexDebugScreen::Normal &&
+    return s_state.debug_screen == LUNASHELL::CodexDebugScreen::Character &&
         s_state.rig_visible && s_state.branding_complete && s_state.boot_phase == BootPhase::Ready &&
         CODY::lifecycle_is_resting(s_state.lifecycle) && !s_state.resume_scene_pending;
-#else
-    return false;
-#endif
-}
-
-// No parameters: the channel list uses current composed values and owns no character raster.
-bool debug_channel_view_active()
-{
-#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-    return debug_view_active() && s_state.debug_screen == LUNASHELL::CodexDebugScreen::FaceChannels;
 #else
     return false;
 #endif
@@ -3552,7 +3532,6 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     CODY::DirtyPlan dirty_plan;
     const bool frame_overlay = debug_view_active() &&
         s_power_presentation.load(std::memory_order_acquire) == PowerPresentation::None;
-    const bool frame_channel_list = frame_overlay && debug_channel_view_active();
     bool frame_dashboard = home_dashboard_view_active() &&
         s_power_presentation.load(std::memory_order_acquire) == PowerPresentation::None;
     const bool frame_debug = s_state.rig_debug && !frame_overlay && !frame_dashboard;
@@ -3576,7 +3555,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             s_benchmark.reset();
         }
         if (kRenderDiagnosticsEnabled || frame_overlay) {
-            if ((s_state.raster_benchmark_active || (frame_overlay && !frame_channel_list) ||
+            if ((s_state.raster_benchmark_active || frame_overlay ||
                  (measured_readout_route_active() && s_state.debug_readout_enabled)) &&
                 !footer_blocks_readout) {
                 const esp_err_t readout_error = CODY::prepare_debug_readout(
@@ -3654,14 +3633,6 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 return frame.finish({geometry_error, false, 0});
             }
             s_state.debug_placement_dirty = false;
-        }
-        if (frame_channel_list) {
-            const esp_err_t list_error = CODY::prepare_debug_channel_list(
-                s_state.response_frame.face, s_state.debug_channel_scroll,
-                CODY::SceneData::body_font, s_debug_channel_list);
-            if (list_error != ESP_OK) {
-                return frame.finish({list_error, false, 0});
-            }
         }
 #endif
         if (frame_debug) {
@@ -3940,7 +3911,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     }
     const bool frame_readout_visible = s_power_presentation.load(std::memory_order_acquire) ==
         PowerPresentation::None && !s_state.raster_benchmark_active &&
-        ((frame_overlay && !frame_channel_list) ||
+        (frame_overlay ||
          (kRenderDiagnosticsEnabled && measured_readout_route_active() && s_state.debug_readout_enabled && presentation.content_visible &&
           !footer_blocks_readout && (!s_state.scene.valid || s_state.scene.definition->readout_visible)));
     // Fade a bounded palette once, not 466x466 boot pixels or the physical
@@ -4115,7 +4086,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             };
             const int64_t raster_started_us = esp_timer_get_time();
             if (frame_was_rig) {
-                result = frame_channel_list ? CODY2D::clear(strip, scene_background) : CODY::draw_rig_rows(
+                result = CODY::draw_rig_rows(
                     *s_resources.rig, strip, damage.top, frame_debug, s_state.selected_point,
                     kExecutionTimingsEnabled ? &timings.raster_profile : nullptr,
                     s_state.animation_paused, damage.left,
@@ -4167,9 +4138,6 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                     );
                 }
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-                if (result == ESP_OK && frame_channel_list) {
-                    result = CODY::draw_debug_channel_list_rows(s_debug_channel_list, strip, damage.top, damage.left);
-                }
                 if (result == ESP_OK && frame_overlay) {
                     result = CODY::draw_debug_view_back_rows(strip, damage.top, damage.left);
                 }
@@ -4496,14 +4464,11 @@ esp_err_t enter_animation_demo()
 
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 // screen: Validated reversible overlay mode; Normal restores the retained route.
-// scroll: Validated absolute channel row, zero for modes without a list.
-void apply_debug_view(LUNASHELL::CodexDebugScreen screen, uint8_t scroll)
+void apply_debug_view(LUNASHELL::CodexDebugScreen screen)
 {
     s_state.debug_screen = screen;
     // A view change starts a new measured window; never label the previous page's FPS as current.
     s_state.frame_rate = {};
-    s_state.debug_channel_scroll = scroll;
-    s_state.debug_scroll_contact = false;
     s_state.debug_placement_dirty = true;
     s_state.body_drag_active = false;
     s_state.setup_hold_candidate = false;
@@ -4540,12 +4505,9 @@ esp_err_t apply_debug_screen_requests(bool &optional_rejection)
     }
     esp_err_t application_error = ESP_OK;
     if (request.screen != LUNASHELL::CodexDebugScreen::Normal &&
-        request.screen != LUNASHELL::CodexDebugScreen::FaceChannels &&
         request.screen != LUNASHELL::CodexDebugScreen::Character) {
         application_error = ESP_ERR_INVALID_ARG;
-    } else if ((request.screen == LUNASHELL::CodexDebugScreen::FaceChannels &&
-                request.scroll >= CODY::kFaceChannelCount) ||
-               (request.screen != LUNASHELL::CodexDebugScreen::FaceChannels && request.scroll != 0)) {
+    } else if (request.scroll != 0) {
         application_error = ESP_ERR_INVALID_ARG;
     } else if (s_state.boot_phase != BootPhase::Ready || !s_state.branding_complete ||
                !s_state.rig_visible || s_resources.rig == nullptr || !s_resources.rig->valid ||
@@ -4558,14 +4520,9 @@ esp_err_t apply_debug_screen_requests(bool &optional_rejection)
         const CODY::Transform placement = request.screen == LUNASHELL::CodexDebugScreen::Normal
             ? s_state.response_frame.transform : CODY::Transform{233, 205, 130};
         application_error = CODY::validate_rig_pose(s_state.response_frame.face, placement);
-        if (application_error == ESP_OK && request.screen == LUNASHELL::CodexDebugScreen::FaceChannels) {
-            // Preflight in the stable owner: TextLine borrows strings and cannot be copied.
-            application_error = CODY::prepare_debug_channel_list(s_state.response_frame.face,
-                request.scroll, CODY::SceneData::body_font, s_debug_channel_list);
-        }
     }
     if (application_error == ESP_OK) {
-        apply_debug_view(request.screen, request.scroll);
+        apply_debug_view(request.screen);
     } else {
         ESP_LOGE(kTag, "Debug screen request rejected: mode=%u scroll=%u cause=%s",
             static_cast<unsigned>(request.screen), request.scroll, esp_err_to_name(application_error));
@@ -5289,28 +5246,7 @@ void handle_debug_view_touch(const LUNASHELL_touch_point_t &point, bool pressed_
     s_state.touch_pressed = point.pressed;
     if (pressed_edge && CODY::debug_view_back_contains(
             {static_cast<int16_t>(point.x), static_cast<int16_t>(point.y)})) {
-        apply_debug_view(LUNASHELL::CodexDebugScreen::Normal, 0);
-        return;
-    }
-    if (!point.pressed || s_state.debug_scroll_rotation_degrees != s_state.rendered_rotation_degrees) {
-        s_state.debug_scroll_contact = false;
-    }
-    if (pressed_edge && debug_channel_view_active() && point.x >= 73 && point.x < 393 &&
-        point.y >= 90 && point.y < 375) {
-        s_state.debug_scroll_contact = true;
-        s_state.debug_scroll_origin_y = static_cast<int16_t>(point.y);
-        s_state.debug_scroll_origin_row = s_state.debug_channel_scroll;
-        s_state.debug_scroll_rotation_degrees = s_state.rendered_rotation_degrees;
-    }
-    if (point.pressed && s_state.debug_scroll_contact) {
-        const int offset = (s_state.debug_scroll_origin_y - static_cast<int>(point.y)) / 34;
-        // Only gesture travel is bounded; authored face values remain exact and unmodified.
-        const int row = std::clamp<int>(s_state.debug_scroll_origin_row + offset, 0, CODY::kFaceChannelCount - 1);
-        if (row != s_state.debug_channel_scroll) {
-            s_state.debug_channel_scroll = static_cast<uint8_t>(row);
-            s_resources.previous_frame_valid = false;
-            s_state.frame_dirty.store(true, std::memory_order_release);
-        }
+        apply_debug_view(LUNASHELL::CodexDebugScreen::Normal);
     }
 }
 #endif

@@ -2970,27 +2970,18 @@ esp_err_t acceptDebugScreen(const char *payload, const sockaddr_in &source)
         return ESP_ERR_INVALID_ARG;
     }
     LUNASHELL::CodexDebugScreen screen;
-    if (std::strcmp(values[4], "face_channels") == 0) {
-        screen = LUNASHELL::CodexDebugScreen::FaceChannels;
-    } else if (std::strcmp(values[4], "character") == 0) {
+    if (std::strcmp(values[4], "character") == 0) {
         screen = LUNASHELL::CodexDebugScreen::Character;
     } else if (std::strcmp(values[4], "normal") == 0) {
         screen = LUNASHELL::CodexDebugScreen::Normal;
     } else {
+        ESP_LOGE(kTag, "Diagnostic mode rejected: mode=%s cause=%s", values[4],
+            esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    const size_t digits = std::strlen(values[5]);
-    if (digits == 0 || digits > 3 || (digits > 1 && values[5][0] == '0')) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    unsigned scroll = 0;
-    for (size_t index = 0; index < digits; ++index) {
-        if (values[5][index] < '0' || values[5][index] > '9') {
-            return ESP_ERR_INVALID_ARG;
-        }
-        scroll = scroll * 10 + static_cast<unsigned>(values[5][index] - '0');
-    }
-    if (scroll > UINT8_MAX || (screen != LUNASHELL::CodexDebugScreen::FaceChannels && scroll != 0)) {
+    if (std::strcmp(values[5], "0") != 0) {
+        ESP_LOGE(kTag, "Diagnostic scroll rejected: value=%s cause=%s", values[5],
+            esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
     const int length = std::snprintf(s_event_proof_input, sizeof(s_event_proof_input),
@@ -3008,7 +2999,6 @@ esp_err_t acceptDebugScreen(const char *payload, const sockaddr_in &source)
     }
     s_debug_screen = {};
     s_debug_screen.request.screen = screen;
-    s_debug_screen.request.scroll = static_cast<uint8_t>(scroll);
     std::memcpy(s_debug_screen.request.request_id, values[3], 33);
     std::memcpy(s_debug_screen.nonce, values[2], 33);
     std::memcpy(s_debug_consumed_nonce, values[2], 33);

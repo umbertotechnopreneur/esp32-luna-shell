@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import time
 
-from cody_native_debug import render_debug_channels
+from cody_native_debug import render_debug_back
 from cody_native_behavior import CharacterActivity
 
 from cody_native_event_presentation import NativeEventPresentation, EventAction, ascii_field, wrapped, paint_native_actions
@@ -212,7 +212,7 @@ class EventView:
         if controls_visible:
             paint_actions(image, painter, actions)
         if back and controls_visible:
-            image = render_debug_channels(window.renderer.require_native(), values, 0, image)
+            image = render_debug_back(window.renderer.require_native(), image)
         # Keep the synthetic identity in the unobstructed top chord rather
         # than covering the answer paging hint or explicit Send action.
         painter.paint_text(image, "SIMULATED", 22, color=64704, body=True)

@@ -77,6 +77,11 @@ instruction file; do not add parallel agent or Copilot contracts.
   Home panels have no Back control. Setup, remote questions and Luna retain routes.
   The @CCP footer makes three complete passes per display-owner lifetime, then
   disappears; source gaps, standby and chat/panel changes pause it without replay.
+- Cody diagnostic-screen decision (2026-10-16): Keep one device diagnostic view
+  in both Debug and Release, with measured CPU, free RAM/PSRAM, FPS, IP and SD
+  status. Remove the facial-channel list and its storage from the device UI;
+  retain the internal animation channels. Never require a build-mode choice.
+  Normal restores the retained route. Preserve authenticated capability checks.
 
 ## Code clarity
 

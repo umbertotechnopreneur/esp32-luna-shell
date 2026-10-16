@@ -523,7 +523,7 @@ class SimulatorLink:
         self.accepted_packets += 1
 
     # self: Loopback protocol owner admitting only bounded transient Debug views.
-    # fields: Exact DEBUG envelope; channel offsets are validated by the actual C++ UI.
+    # fields: Exact DEBUG envelope; the reserved scroll field must be zero.
     # source: Exact authenticated READY endpoint, never a caller-supplied destination.
     # Raises ValueError or RuntimeError for forged, expired, replayed or conflicting requests.
     def _accept_debug(self, fields: dict[str, str], source: tuple[str, int]) -> None:
@@ -532,10 +532,8 @@ class SimulatorLink:
             raise ValueError("SIMULATED debug capability unavailable or malformed fields")
         require_hex({name: fields[name] for name in ("device", "pc", "nonce", "proof")})
         if (interactions.IDENTITY.fullmatch(fields["id"]) is None
-                or fields["mode"] not in {"face_channels", "character", "normal"}
-                or re.fullmatch(r"0|[1-9][0-9]{0,2}", fields["scroll"]) is None
-                or int(fields["scroll"]) > 255
-                or (fields["mode"] != "face_channels" and fields["scroll"] != "0")):
+                or fields["mode"] not in {"character", "normal"}
+                or fields["scroll"] != "0"):
             raise ValueError("SIMULATED Debug typed command rejected")
         if (self.active is None or self.pending or self.state != LinkState.CONNECTED
                 or fields["device"] != self.device_id or fields["pc"] != self.active["pc_id"]

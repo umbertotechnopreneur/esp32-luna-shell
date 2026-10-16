@@ -42,12 +42,14 @@ client's id-only release is explicitly treated as abnormal, with no Closed
 claim. A real Codex reopen that starts the updated broker/client loads the new
 EOF reporting; changing files on disk does not hot-reload a running broker.
 
-## Two diagnostic screens
+## Device diagnostics
 
-The same two live diagnostic screens are available on Cody in Release and Debug:
-`character` shows the character with canonical snapshot diagnostics, and
-`face_channels` shows the composed facial channels in a scrollable list.
-`normal` restores the retained screen; it is not a third diagnostic screen.
+One live diagnostic screen is available on Cody in Release and Debug:
+`character` shows the character with measured CPU utilization, free RAM/PSRAM,
+FPS, IP and SD status from the canonical snapshot. Unmeasured or stale values
+are labeled explicitly. `normal` restores the retained screen.
+The facial-channel list and its buffer were removed to save device space;
+internal animation channels remain. The reserved `scroll` field must be zero.
 
 Use `ccp_connection_status` to identify the intended connected physical Cody,
 then `ccp_debug_screen` with its `device_id` and the requested mode. These are

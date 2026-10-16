@@ -239,18 +239,21 @@ single Codex notices admit up to two seconds, while activity/personality and
 repeated clips retain their 350-ms bounds. No buffer, worker or clock is added. Native cadence
 coverage is prepared but unexecuted; actual speaker playback remains unverified.
 
-### Two diagnostic screens
+### Device diagnostics
 
-Both customer and development builds expose the same authenticated CCP
-diagnostic views: `character` shows the live character and canonical snapshot
-readout, and `face_channels` shows the actual composed channel list with touch
-scrolling. `normal` restores the retained route and is not a third diagnostic view.
-Build mode is not a user choice required to open these screens.
+Both customer and development builds expose the same authenticated CCP device
+diagnostic view: `character` shows the live character and canonical snapshot
+readout for measured CPU utilization on each core, free RAM/PSRAM, FPS, IP and
+SD status/free space. Memory values are free amounts, not used percentages.
+Unmeasured or stale fields remain explicitly unavailable/stale.
+`normal` restores the retained route. Build mode is not a required user choice.
+The owner removed the facial-channel list, its PSRAM buffer and scroll handling
+to save device space. Internal channels still drive character animation.
 
 The existing signed DEBUGCAP/DEBUG/DEBUGACK exchange, live paired endpoint,
 fresh nonce, request deadline and application acknowledgement remain required.
-The display worker owns all changes. Prepared channel strings stay in its stable
-PSRAM buffer; consumers read the canonical snapshot without acquiring sensors.
+The display worker owns all changes; consumers read the canonical snapshot
+without acquiring sensors. The reserved wire scroll field must remain zero.
 Release renders the readout and refreshes a paused view while an explicit overlay
 is active. Back restores normal presentation and its ordinary power behavior.
 An applied ACK proves the rendering worker accepted the view, not visible pixels.

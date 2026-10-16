@@ -2178,7 +2178,7 @@ class DebugScreenContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "explicit include_simulator"):
             self.responder.debug_screen(self.device, "character", 0, False)
         self.listener.sendto.side_effect = self.reject_view
-        result = self.responder.debug_screen(self.device, "face_channels", 2, True)
+        result = self.responder.debug_screen(self.device, "character", 0, True)
         self.assertEqual(result["status"], "rejected")
         self.assertEqual(result["error"], -1)
         self.assertEqual(result["channel_count"], 34)
@@ -2190,12 +2190,12 @@ class DebugScreenContractTests(unittest.TestCase):
         self.listener.sendto.assert_called_once()
 
     # self: Malformed MCP inputs which must remain structured invalid-command errors.
-    # Raises AssertionError if nonhashable modes or non-list offsets escape as TypeError or authorize a command.
+    # Raises AssertionError if removed modes, untyped inputs or reserved offsets authorize a command.
     def test_debug_rejects_untyped_commands_before_network_use(self):
-        for mode in ([], {}, None):
+        for mode in ([], {}, None, "face_channels"):
             with self.assertRaises(ValueError):
                 self.responder.debug_screen(self.device, mode, 0, True)
-        for mode, scroll in (("normal", 1), ("face_channels", True), ("face_channels", 256)):
+        for mode, scroll in (("normal", 1), ("character", True), ("character", 256)):
             with self.assertRaises(ValueError):
                 self.responder.debug_screen(self.device, mode, scroll, True)
         self.listener.sendto.assert_not_called()

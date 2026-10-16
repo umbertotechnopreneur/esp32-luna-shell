@@ -1477,42 +1477,21 @@ CODY_HOST_EXPORT int cody_host_capsule(uint16_t *pixels, uint32_t capacity, cons
     return host_result("draw_capsule_rows", CODY2D::draw_capsule_rows(control, canvas, 0, 0));
 }
 
-// values: Actual composed native face values copied through the typed host boundary.
-// count: Exact compiled channel catalog size, rejected rather than repaired.
-// first_channel: Absolute first row in the current real catalog.
-// pixels: Native RGB565 output or existing native character pixels for a Back-only pass.
+// pixels: Existing native character RGB565 pixels for a Back-only pass.
 // capacity: Exact writable 466x466 pixel count.
-// list_visible: Draw the shared C++ channel list on a clean dark background when true.
 // Exception: Returns original native layout/raster errors, never Python substitute geometry.
-CODY_HOST_EXPORT int cody_host_debug_channels(const float *values, uint32_t count,
-    uint8_t first_channel, uint16_t *pixels, uint32_t capacity, bool list_visible)
+CODY_HOST_EXPORT int cody_host_debug_back(uint16_t *pixels, uint32_t capacity)
 {
     if (!pixels || capacity != 466U * 466U) {
-        return host_result("debug_channels", ESP_ERR_INVALID_ARG);
+        return host_result("debug_back", ESP_ERR_INVALID_ARG);
     }
-    CODY::DebugChannelList list;
-    CODY::Channels channels;
     esp_err_t error = ESP_OK;
-    if (list_visible) {
-        error = read_channels(values, count, channels);
-        if (error == ESP_OK) {
-            error = CODY::prepare_debug_channel_list(channels, first_channel, CODY::SceneData::body_font, list);
-        }
-    }
     for (uint16_t first = 0; error == ESP_OK && first < 466; first += 16) {
         const uint16_t height = std::min<uint16_t>(16, 466 - first);
         CODY2D::Surface strip{pixels + first * 466U, 466, height, 466, uint32_t(height) * 466U};
-        if (list_visible) {
-            error = CODY2D::clear(strip, 0);
-            if (error == ESP_OK) {
-                error = CODY::draw_debug_channel_list_rows(list, strip, first, 0);
-            }
-        }
-        if (error == ESP_OK) {
-            error = CODY::draw_debug_view_back_rows(strip, first, 0);
-        }
+        error = CODY::draw_debug_view_back_rows(strip, first, 0);
     }
-    return host_result("debug_channels", error);
+    return host_result("debug_back", error);
 }
 
 // requested: Typed baseline manga cue after synthetic input classification.

@@ -103,3 +103,7 @@ The earlier repeated question alert and ten-second reminder cadence were include
 Release `cody-193-g7eab1a9d`, built and flashed on COM10 on 16 October 2026.
 New native cadence coverage remains unexecuted; actual speaker playback and
 reminder timing have not been physically observed.
+
+The replacement soft bell and quieter single reminder were included in Release
+`cody-196-gda3e03ad`, built and flashed on COM10 on 16 October 2026. This delivery
+does not establish perceived speaker loudness or sound quality.
