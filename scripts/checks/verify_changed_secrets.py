@@ -25,6 +25,13 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+FIRMWARE_IMAGE_SUFFIXES = frozenset({".bin", ".elf", ".hex", ".uf2", ".dfu"})
+SOURCE_SUFFIXES = frozenset({
+    ".c", ".cc", ".cpp", ".h", ".hpp", ".s", ".py", ".ps1", ".psm1", ".sh", ".bat", ".cmd",
+    ".cs", ".csproj", ".sln", ".js", ".ts", ".vue", ".html", ".css", ".json", ".yml", ".yaml",
+    ".toml", ".ini", ".conf", ".config", ".defaults", ".default", ".cmake", ".mk", ".projbuild",
+    ".md", ".txt", ".csv", ".patch", ".lock", ".ci", ".key", ".pem",
+})
 KNOWN_PUBLIC_MARKERS = (
     b"LUNASHELL-SIMULATOR-ONLY-" + b"NOT-A-SECRET",
 )
@@ -66,6 +73,12 @@ def git_paths(*args: str) -> set[Path]:
     }
 
 
+# relative: Repository-relative name, inspected without opening media or firmware images.
+def is_source_path(relative: Path) -> bool:
+    return (not relative.suffix or relative.suffix.lower() in SOURCE_SUFFIXES or
+            relative.name.startswith(("sdkconfig.", ".env")))
+
+
 # base_commit: Optional verified commit covering changes already checkpointed locally.
 # Raises subprocess.CalledProcessError for an unreadable index, worktree or comparison.
 def changed_paths(base_commit: str | None = None) -> list[Path]:
@@ -99,11 +112,18 @@ def resolve_base_commit(reference: str) -> str:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-ref", help="Also scan current files changed since this verified commit.")
+    parser.add_argument("--source-only", action="store_true",
+                        help="Inspect changed source/configuration files; exclude imported media and archives.")
     args = parser.parse_args(argv)
     base_commit = resolve_base_commit(args.base_ref) if args.base_ref else None
     findings: list[str] = []
     scanned = 0
+    excluded = 0
     for relative in changed_paths(base_commit):
+        # Publication inspects source literals; firmware images are never a secret-scan input.
+        if relative.suffix.lower() in FIRMWARE_IMAGE_SUFFIXES or (args.source_only and not is_source_path(relative)):
+            excluded += 1
+            continue
         path = ROOT / relative
         if not path.exists():
             continue
@@ -135,7 +155,7 @@ def main(argv=None) -> int:
 
     print(
         "changed-files secret scan: PASS "
-        f"({scanned} changed or untracked files, {len(PATTERNS)} signatures)"
+        f"({scanned} changed or untracked files, {len(PATTERNS)} signatures, {excluded} assets excluded)"
     )
     return 0
 
