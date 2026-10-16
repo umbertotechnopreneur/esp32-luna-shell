@@ -85,7 +85,7 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
             'build-profiles' = @{ Category = 'Build, console and repository'; Emoji = '🎯'; Description = 'Firmware profiles and dependency-closure contracts.' }
             'incremental-build' = @{ Category = 'Build, console and repository'; Emoji = '🔨'; Description = 'Timestamp-driven package and LittleFS generation.' }
             'check-resource-budgets' = @{ Category = 'Build, console and repository'; Emoji = '📊'; Description = 'Check memory and build-graph budgets against existing build artifacts; needs --build-dir.' }
-            'test-resource-budgets' = @{ Category = 'Build, console and repository'; Emoji = '📊'; Description = 'Host tests for the resource-budget checker and CI contract.' }
+            'test-resource-budgets' = @{ Category = 'Build, console and repository'; Emoji = '📊'; Description = 'Host tests for the current firmware resource-budget checker.' }
             'changed-secrets' = @{ Category = 'Build, console and repository'; Emoji = '🔐'; Description = 'Inspect changed repository files for common secret literals.' }
             'public-branding' = @{ Category = 'Build, console and repository'; Emoji = '🏷️'; Description = 'Public-release text and branding contracts.' }
         }

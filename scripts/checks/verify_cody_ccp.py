@@ -1360,8 +1360,19 @@ class HookRoutingTests(unittest.TestCase):
         # session: Original genuine approval session, deliberately not the newly followed session.
         # cwd: Original exact checkout identity retained by the metadata owner.
         # Returns obsolete source text after a newer prompt changes the canonical followed chat.
+        # Raises ValueError if the injected canonical lifecycle observation is rejected.
         def switched_during_read(session, cwd):
-            self.observe("UserPromptSubmit", "chat-b", "turn-b")
+            # Inject at the lifecycle owner; service hook delivery is already serialized.
+            # Re-entering observe_hook() here would deadlock the fixture on its own hook lock.
+            self.event_ns += 1
+            with patch.object(activity.time, "monotonic_ns", return_value=self.event_ns + 1):
+                self.service.activity.observe({
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "chat-b",
+                    "turn_id": "turn-b",
+                    "cwd": cwd,
+                    "emitted_ns": self.event_ns,
+                })
             return native_title.ChatTitleObservation("Old approval", native_title.TitleState.CURRENT, 100.0)
 
         self.title_read.side_effect = switched_during_read

@@ -143,10 +143,18 @@ inline esp_err_t draw_approval_notice_rows(const ApprovalNoticeState &state, COD
                                            uint16_t first_row, uint16_t first_column)
 {
     if (!state.artwork_ready || !state.chat_window.valid) { return ESP_ERR_INVALID_STATE; }
-    struct Panel { CODY2D::Rect bounds; uint16_t radius; uint16_t top; uint16_t bottom; uint16_t border; };
+    // Noninteractive artwork panels share the native capsule raster contract.
+    struct Panel {
+        CODY2D::Rect bounds;
+        uint16_t radius;
+        uint16_t top;
+        uint16_t bottom;
+        uint16_t border;
+    };
     // Every full rectangle is inside the circle's narrowest occupied chord, including the keyboard.
     static constexpr Panel panels[] = {
-        {{224, 340, 18, 20}, 4, 0x1B32, 0x09AB, 0x2C15},
+        // Capsule width must cover its height; keep the square stem centered at x=233.
+        {{223, 340, 20, 20}, 4, 0x1B32, 0x09AB, 0x2C15},
         {{205, 356, 56, 7}, 3, 0x3D39, 0x1A90, 0x3C97},
         {{151, 254, 164, 94}, 12, 0x65FF, 0x1B94, 0x867F},
         {{157, 260, 152, 78}, 8, 0x096A, 0x0045, 0x2BF6},

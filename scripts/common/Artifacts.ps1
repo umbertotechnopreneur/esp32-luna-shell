@@ -110,8 +110,13 @@ function Clear-DeviceArtifacts {
 
     $root = Get-DeviceArtifactsRoot
     $preserved = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    # Generated feature overlays remain CMake inputs across incremental builds.
     # The isolated simulator identity is durable user state, not a disposable capture.
-    foreach ($name in @('sdkconfig', 'board-config', 'python', 'models', 'managed_components', 'cody-simulator-state', '.device.lock')) {
+    $persistentDirectories = @(
+        'sdkconfig', 'board-config', 'feature-config', 'python', 'models',
+        'managed_components', 'cody-simulator-state', '.device.lock'
+    )
+    foreach ($name in $persistentDirectories) {
         $null = $preserved.Add($name)
     }
     foreach ($path in $ProtectedPaths) {

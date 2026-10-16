@@ -115,7 +115,11 @@ try {
     }
 
     Invoke-ConsoleCheck 'Cleanup retains build/config/Python caches, simulator identity and protected outputs' {
-        foreach ($directory in @('build-cody-companion', 'sdkconfig', 'board-config', 'python', 'models', 'managed_components', 'cody-simulator-state', 'custom-build')) {
+        $persistentDirectories = @(
+            'build-cody-companion', 'sdkconfig', 'board-config', 'feature-config',
+            'python', 'models', 'managed_components', 'cody-simulator-state', 'custom-build'
+        )
+        foreach ($directory in $persistentDirectories) {
             New-ConsoleFixtureFile (Join-Path $fixtureArtifacts "$directory/keep.txt")
         }
         New-ConsoleFixtureFile (Join-Path $fixtureArtifacts '.device.lock')
@@ -123,7 +127,7 @@ try {
         New-ConsoleFixtureFile (Join-Path $fixtureArtifacts 'simulator/remove.png')
         New-ConsoleFixtureFile (Join-Path $fixtureArtifacts 'capture.log')
         Clear-DeviceArtifacts -ProtectedPaths @((Join-Path $fixtureArtifacts 'custom-build/subtree'))
-        foreach ($directory in @('build-cody-companion', 'sdkconfig', 'board-config', 'python', 'models', 'managed_components', 'cody-simulator-state', 'custom-build')) {
+        foreach ($directory in $persistentDirectories) {
             Assert-ConsoleCondition (Test-Path -LiteralPath (Join-Path $fixtureArtifacts "$directory/keep.txt")) "Cleanup removed protected $directory."
         }
         Assert-ConsoleCondition (Test-Path -LiteralPath (Join-Path $fixtureArtifacts '.device.lock')) 'Cleanup removed the operation lock.'

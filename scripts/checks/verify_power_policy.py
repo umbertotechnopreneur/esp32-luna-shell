@@ -1623,10 +1623,11 @@ def verify_source_contracts() -> None:
     )
     require_regex(
         power_task,
-        r"if\s*\(\s*\(leg_mode\s*&&\s*wake_on_leg_motion\s*&&\s*leg_motion\.level\s*>\s*0\)\s*\|\|\s*"
+        r"if\s*\(\s*!s_codex_offline_standby\s*&&\s*\(\s*"
+        r"\(leg_mode\s*&&\s*wake_on_leg_motion\s*&&\s*leg_motion\.level\s*>\s*0\)\s*\|\|\s*"
         r"\(!leg_mode\s*&&\s*s_shake_wake_enabled\.load\(std::memory_order_acquire\)\s*&&\s*"
-        r"qualified_motion\)\s*\)",
-        "independent Leg/Cody wake preferences and qualified-motion isolation",
+        r"qualified_motion\)\s*\)\s*\)",
+        "manual-only offline wake with independent Leg/Cody motion preferences",
     )
     require_contains(
         power_task,

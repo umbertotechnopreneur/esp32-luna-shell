@@ -20,7 +20,7 @@ from __future__ import annotations
 import ctypes as C
 from dataclasses import dataclass
 
-from ccp_interactions import Tone
+from ccp_interactions import EventKind, Tone
 from cody_native_runtime import load_runtime_library
 from cody_native_rgb565 import image_to_native_rgb565, native_rgb565_to_image
 
@@ -172,7 +172,9 @@ class NativeEventPresentation:
         value.state = ascii_field(snapshot.event_state, 12)
         value.context = ascii_field(event.context, 25)
         value.title = ascii_field(event.title, 25)
-        value.body = ascii_field(event.body, 256)
+        # The wider approval ABI buffer does not enlarge other event kinds' text contract.
+        body_capacity = 256 if event.kind == EventKind.APPROVAL_ON_PC else 64
+        value.body = ascii_field(event.body, body_capacity)
         value.choice_count = len(event.choices)
         for index, choice in enumerate(event.choices):
             value.choices[index] = Choice(ascii_field(choice.choice_id, 13), ascii_field(choice.label, 64),
