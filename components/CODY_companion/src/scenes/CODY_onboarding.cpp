@@ -279,6 +279,7 @@ event_presentation::Plan s_event_plan{};
 int64_t s_checks_passed_readable_at_us = -1;
 char s_last_event_audio_request[33]{};
 char s_last_delivered_audio_request[33]{};
+QuestionAudioSchedule s_question_audio_schedule{};
 // Cue history survives Setup re-entry; hidden status is never replayed as a new action.
 char s_last_audio_chat[65]{};
 LUNASHELL::CodexActivityState s_last_audio_phase = LUNASHELL::CodexActivityState::None;
@@ -1441,8 +1442,12 @@ esp_err_t enter_pairing_debug(const LUNASHELL::ConnectivityObservation &observat
 #endif
 
 // visible: Whether the selected-chat presentation can request new semantic cues.
+// Exception: Logs optional owner failures without replacing their canonical result.
 void set_companion_audio_visible(bool visible)
 {
+    if (!visible) {
+        s_question_audio_schedule.last_attempt_at_us = -1;
+    }
     const esp_err_t error = set_codex_audio_suspended(!visible);
     if (error != ESP_OK) {
         // Audio is optional at this UI orchestration boundary. Its acquisition
@@ -2110,6 +2115,24 @@ void notify_event_audio(CodexAudioCue cue)
     }
 }
 
+// awake_time_us: Existing awake clock; standby cannot accumulate overdue reminders.
+// Exception: Logs optional playback failures; their real outcome remains owned by shared audio.
+void advance_question_audio(int64_t awake_time_us)
+{
+    const auto alert = question_audio_due(s_presented_event,
+        s_event_online && s_event_observation_error == ESP_OK && is_codex_event_route(s_route),
+        s_event_reply_admitted || s_event_dismiss_admitted, awake_time_us, s_question_audio_schedule);
+    if (alert == QuestionAudioAlert::None) {
+        return;
+    }
+    CodexAudioStatus status;
+    const esp_err_t error = notify_question_audio(alert, status);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Optional question alert failed: kind=%u (%s)",
+            static_cast<unsigned>(alert), esp_err_to_name(error));
+    }
+}
+
 // scene: Readonly checks result; the retained question path never calls this helper.
 // active_time_us: Existing pausable UI clock; the result gets three readable seconds.
 // changed: Receives whether an acknowledgement error needs an explicit Retry control.
@@ -2134,18 +2157,21 @@ esp_err_t advance_checks_passed_dwell(SceneFrame &scene, int64_t active_time_us,
 
 // link: Canonical connection validity used only to gate an explicit new Send.
 // scene: Current companion frame, retained through disconnects and activity/battery transitions.
-// active_time_us: Existing pausable clock, used only for the brief readonly checks-passed result.
+// active_time_us: Existing pausable clock for the brief readonly checks-passed result.
+// awake_time_us: Awake route clock for question reminders, independent of animation pause.
 // changed: Receives whether the event presentation needs rendering.
 // handled: True while an event or explicit event-read error owns the current screen.
 // Exception: Returns presentation errors; an optional snapshot failure has a visible Retry path.
 esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFrame &scene,
-                             int64_t active_time_us, bool &changed, bool &handled)
+                             int64_t active_time_us, int64_t awake_time_us, bool &changed, bool &handled)
 {
     handled = false;
     if (!is_companion_route(s_route)) {
+        s_question_audio_schedule.last_attempt_at_us = -1;
         return ESP_OK;
     }
     if (s_event_observation_error != ESP_OK) {
+        s_question_audio_schedule.last_attempt_at_us = -1;
         handled = true; // Only the visible Retry requests another failed observation.
         return ESP_OK;
     }
@@ -2153,6 +2179,7 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
     const esp_err_t read_error =
         LUNASHELL::DeviceSnapshotService::instance().readCodexEventObservation(observed);
     if (read_error != ESP_OK) {
+        s_question_audio_schedule.last_attempt_at_us = -1;
         s_event_observation_error = read_error;
         s_event_online = false;
         handled = true;
@@ -2165,6 +2192,7 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
     using State = LUNASHELL::CodexEventState;
     const bool have_event = observed.kind != Kind::None && observed.request_id[0] != '\0';
     if (!have_event) {
+        s_question_audio_schedule.last_attempt_at_us = -1;
         const bool retained_question = s_presented_event.kind == Kind::Question && !s_event_dismiss_admitted;
         if (retained_question) {
             // EVENT none cannot answer, cancel or acknowledge a question, including
@@ -2190,6 +2218,7 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
         observed.data_valid && !observed.data_stale;
     if (same_request && observed.revision == s_presented_event.revision &&
         online == s_event_online && s_route == codex_event_destination()) {
+        advance_question_audio(awake_time_us);
         return advance_checks_passed_dwell(scene, active_time_us, changed);
     }
     const bool selected_question = !same_request &&
@@ -2239,7 +2268,7 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
         // Each sound names an observed event. A completed response is not proof
         // of passed checks, and a permission request is still handled on the PC.
         switch (observed.kind) {
-        case Kind::Question: notify_event_audio(CodexAudioCue::Question); break;
+        case Kind::Question: break; // Pending-question cadence owns both initial and reminder alerts.
         case Kind::ApprovalOnPc: notify_event_audio(CodexAudioCue::ApprovalRequired); break;
         case Kind::ChecksFailed: notify_event_audio(CodexAudioCue::ChecksFailed); break;
         case Kind::ChecksPassed: notify_event_audio(CodexAudioCue::ChecksPassed); break;
@@ -2250,6 +2279,7 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
         case Kind::None: break;
         }
     }
+    advance_question_audio(awake_time_us);
     return advance_checks_passed_dwell(scene, active_time_us, changed);
 }
 
@@ -3698,7 +3728,8 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
     }
     if (is_companion_route(s_route)) {
         bool event_handled = false;
-        const esp_err_t event_error = present_codex_event(codex_link, scene, active_time_us, changed, event_handled);
+        const esp_err_t event_error = present_codex_event(codex_link, scene, active_time_us,
+            inactivity_active_time_us, changed, event_handled);
         if (event_error != ESP_OK || event_handled) {
             return event_error;
         }

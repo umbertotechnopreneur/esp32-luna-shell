@@ -143,6 +143,14 @@ esp_err_t notify_codex_audio(CodexAudioCue, CodexAudioStatus &)
     unexpected_owner(__func__);
 }
 
+// Unnamed alert: Question playback remains outside this layout fixture.
+// Unnamed status: No successful playback is synthesized.
+// Exception: Aborts if a layout scenario unexpectedly reaches the audio owner.
+esp_err_t notify_question_audio(QuestionAudioAlert, CodexAudioStatus &)
+{
+    unexpected_owner(__func__);
+}
+
 // Unnamed suspended: No shared audio lifecycle is changed.
 // Exception: Home receives an explicit optional failure; other scenarios abort.
 esp_err_t set_codex_audio_suspended(bool)

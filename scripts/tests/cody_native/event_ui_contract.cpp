@@ -107,6 +107,42 @@ void start_question()
     s_event_online = true;
 }
 
+// No parameters: prepares cadence boundaries and owner-state retirement without playing audio.
+// Exception: Stops when a pending question replays, catches up, or survives a terminal outcome.
+void check_question_audio_schedule()
+{
+    start_question();
+    QuestionAudioSchedule schedule{};
+    // now_us: Synthetic awake clock, never a physical timing claim.
+    // current: Simulated visibility and canonical freshness.
+    // replied: Simulated owner admission of the user's response.
+    const auto due = [&](int64_t now_us, bool current = true, bool replied = false) {
+        return question_audio_due(s_presented_event, current, replied, now_us, schedule);
+    };
+    require(due(0) == QuestionAudioAlert::Initial, "fresh question starts the longer initial alert");
+    require(due(9999999) == QuestionAudioAlert::None, "no reminder before ten seconds");
+    require(due(10000000) == QuestionAudioAlert::Reminder, "four-note reminder at ten seconds");
+    require(due(10000000) == QuestionAudioAlert::None, "status polling cannot duplicate an alert");
+    require(due(90000000) == QuestionAudioAlert::Reminder && due(90000000) == QuestionAudioAlert::None,
+        "late scheduling attempts one reminder without a catch-up burst");
+    require(due(100000000, false) == QuestionAudioAlert::None &&
+        due(110000000) == QuestionAudioAlert::None && due(120000000) == QuestionAudioAlert::Reminder,
+        "hidden or offline periods renew cadence without replaying the initial alert");
+    require(due(130000000, true, true) == QuestionAudioAlert::None,
+        "admitted Send stops alerts before delivery confirmation");
+    for (const auto state : {State::Sending, State::Received, State::Delivered, State::Cancelled,
+                             State::Expired, State::Rejected}) {
+        s_presented_event.state = state;
+        require(due(200000000) == QuestionAudioAlert::None, "non-pending owner states stop reminders");
+    }
+    s_presented_event.state = State::Pending;
+    s_presented_event.data_stale = true;
+    require(due(210000000) == QuestionAudioAlert::None, "stale retained questions cannot sound current");
+    s_presented_event.data_stale = false;
+    copy_field(s_presented_event.request_id, std::string(32, 'b'));
+    require(due(220000000) == QuestionAudioAlert::Initial, "a new stable request has its own first alert");
+}
+
 // route: Actual private presenter route selected by the fixture.
 // identity: Registered scene identity whose real generated geometry is used.
 // Exception: Stops on missing generation, invalid text or circle-layout failures.
@@ -669,6 +705,7 @@ void check_home_lifecycle()
 int main()
 {
     verify_shared_event_presentation();
+    check_question_audio_schedule();
     check_bounded_text();
     check_choice_cards();
     check_paged_reply_review();

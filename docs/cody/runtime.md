@@ -222,6 +222,20 @@ task. New timeout/rollback/audio/wake coverage is prepared but unexecuted at the
 2026-10-16 source checkpoint; whole-board current, target stack headroom, sound,
 touch and actual wake latency remain unmeasured for this revision.
 
+### Pending-question sound cadence
+
+The initial pending-question alert repeats the existing 340-ms Question cue five
+times with 200-ms gaps (2.5 seconds). While the fresh canonical question remains
+Pending and visible, four-note reminders with 100-ms gaps (1.66 seconds) repeat
+every ten awake seconds, including animation pause and excluding standby.
+Choice browsing and detail review retain this cadence. Admitted Send, terminal
+outcomes or unavailable/stale/offline source evidence stop future attempts.
+Hidden/offline intervals renew the reminder interval without replaying the initial
+alert. Each attempt uses the shared bounded audio mailbox and existing Sounds,
+volume, quiet-hours and standby gates. Busy or suppressed cues never accumulate.
+No new PCM, buffer, worker or transport configuration is introduced. Native cadence
+coverage is prepared but unexecuted; actual speaker playback remains unverified.
+
 ## Reusable scenes and text
 
 ### Event-to-screen contract

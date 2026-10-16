@@ -64,12 +64,14 @@ lunashell_codex_audio_kind_t cue_kind(CodexAudioCue cue)
         return LUNASHELL_CODEX_CUE_NOTICE;
     }
 }
-} // namespace
 
-// cue: One actual transition exposed in the current companion presentation.
+// cue: Stable authored identity exposed in the current companion presentation.
+// repetitions: One ordinary cue or an explicit bounded question alert.
+// gap_ms: Silence between clips; never a delayed replay of a dropped request.
 // status: Receives explicit owner admission; no delayed replay is scheduled.
 // Exception: Returns invalid identities or original shared-owner errors.
-esp_err_t notify_codex_audio(CodexAudioCue cue, CodexAudioStatus &status)
+esp_err_t dispatch_codex_audio(CodexAudioCue cue, uint8_t repetitions, uint16_t gap_ms,
+                             CodexAudioStatus &status)
 {
     const CodexAudioAssets::Clip *selected = nullptr;
     for (const auto &clip : CodexAudioAssets::clips) {
@@ -90,10 +92,41 @@ esp_err_t notify_codex_audio(CodexAudioCue cue, CodexAudioStatus &status)
         return ESP_ERR_INVALID_ARG;
     }
     lunashell_audio_cue_status_t owner{};
-    const esp_err_t error = LUNASHELL_audio_notify_codex(selected->samples, selected->sample_count,
-        selected->sample_rate_hz, static_cast<uint32_t>(cue), cue_kind(cue), &owner);
+    const esp_err_t error = repetitions == 1
+        ? LUNASHELL_audio_notify_codex(selected->samples, selected->sample_count,
+            selected->sample_rate_hz, static_cast<uint32_t>(cue), cue_kind(cue), &owner)
+        : LUNASHELL_audio_notify_codex_repeated_notice(selected->samples, selected->sample_count,
+            selected->sample_rate_hz, static_cast<uint32_t>(cue), repetitions, gap_ms, &owner);
     copy_status(owner, status);
     return error;
+}
+} // namespace
+
+// cue: One actual transition exposed in the current companion presentation.
+// status: Receives the original shared-owner disposition, including suppression or busy drops.
+// Exception: Returns invalid identities or original shared-owner errors.
+esp_err_t notify_codex_audio(CodexAudioCue cue, CodexAudioStatus &status)
+{
+    return dispatch_codex_audio(cue, 1, 0, status);
+}
+
+// alert: Initial five-note, 2.5-second alert or four-note, 1.66-second reminder.
+// status: Receives the existing owner's actual result; source PCM and transport stay unchanged.
+// Exception: Returns an invalid alert identity or the original shared-owner failure.
+esp_err_t notify_question_audio(QuestionAudioAlert alert, CodexAudioStatus &status)
+{
+    switch (alert) {
+    case QuestionAudioAlert::Initial:
+        return dispatch_codex_audio(CodexAudioCue::Question, 5, 200, status);
+    case QuestionAudioAlert::Reminder:
+        return dispatch_codex_audio(CodexAudioCue::Question, 4, 100, status);
+    case QuestionAudioAlert::None:
+        break;
+    }
+    status = {CodexAudioState::Failed, ESP_ERR_INVALID_ARG, 0, CodexAudioCue::Question};
+    ESP_LOGE(kTag, "Question audio alert=%u rejected (%s)",
+        static_cast<unsigned>(alert), esp_err_to_name(ESP_ERR_INVALID_ARG));
+    return ESP_ERR_INVALID_ARG;
 }
 
 // suspended: Cancels only Codex presentation sounds; ordinary symbol visibility remains independent.

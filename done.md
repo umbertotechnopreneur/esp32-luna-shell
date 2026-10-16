@@ -13,6 +13,27 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Pending-question sound reminders - 2026-10-16
+
+The existing 340-ms Question sample now has a bounded five-note initial alert
+(2.5 seconds) and four-note reminders (1.66 seconds) every ten awake seconds.
+The display owner uses its existing canonical event observation and an at-most-48-byte
+identity/timestamp schedule; no extra snapshot, audio buffer, task or sensor read
+is introduced. Fresh connected Pending questions qualify on notice, choice and
+review pages. Accepted Send and non-pending outcomes stop future attempts;
+hidden, offline or stale observations reset the interval without an initial replay.
+Quiet hours, volume, Sounds, standby and busy admission retain shared ownership.
+Dropped/suppressed attempts never accumulate. Native cadence coverage is prepared
+but not executed. Source review does not establish physical playback or timing.
+
+Local activity-model prerequisites were regenerated after earlier disposable
+artifacts were absent. The pinned ONNX/calibration identities and preprocessing
+are unchanged. The new 172,304-byte W8A16 export has SHA256
+`ea7835068e138fd28afa62bce9bea58dab10c841ee07ff73825018914a3532f7`;
+the same seven graph operators and four convolution kernels were statically
+reviewed before updating the exact compile-requirement binding. No training or
+runtime inference validation was performed; weights remain ignored local artifacts.
+
 ## Offline standby farewell and shorter software wake - 2026-10-16
 
 Implemented a 120-second confirmed-PC-absence policy on USB and battery, independent

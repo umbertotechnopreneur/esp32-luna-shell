@@ -6,7 +6,9 @@ as HARDWARE-PORT-01 in [planned-todo.md](planned-todo.md); those boards are not
 covered by the existing firmware profile.
 
 Updated 2026-10-16. The offline standby/farewell and faster software-wake changes
-are implemented in source. Their native timer/owner/voice/lifecycle checks are
+are implemented in source, together with a longer first question alert and
+four-note reminders every ten awake seconds while a fresh question awaits Send.
+Their native timer/owner/voice/lifecycle/question-cadence checks are
 prepared but have not been run. No configure, build, size, simulator, serial,
 flash, physical validation or GitHub publication was performed for this revision.
 Validate USB/battery PC absence, pairing/confirmation deferral, farewell cancellation,

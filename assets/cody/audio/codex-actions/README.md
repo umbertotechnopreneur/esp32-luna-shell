@@ -46,20 +46,29 @@ BootRise is a warm overlapping rise with a soft tail at 22,050 Hz. The action
 cues are mono 16 kHz PCM16, each within the existing 350-ms owner limit.
 Boot peaks at -13 dBFS; actions peak at -14 to -20 dBFS. These are authored
 digital levels, not measured loudness on Cody's speaker. Boundary samples are
-zero. No looping sound, continuous busy bed or speech is included.
+zero. No continuous busy bed or speech is included.
 
 Questions use rising bell notes, failed checks use descending bell notes, and
 confirmed reply delivery uses a short digital receipt. These identities are
 independent of the assistant response-ready cue. The more audible notice levels
 retain digital headroom and do not override the user's speaker volume or Sounds switch.
 
-Trigger once on a semantic state change, never on each status packet, repaint,
+Pending questions use the existing 340-ms Question clip through the shared
+bounded-sequence API: an initial five-note alert with 200-ms gaps (2,500 ms),
+then four-note reminders with 100-ms gaps (1,660 ms) every ten awake seconds.
+Only fresh, connected, visible Pending questions qualify. Admitted Send,
+terminal outcomes, stale observations and hidden views stop future reminders.
+Standby pauses the awake clock. Hidden/offline intervals start a fresh ten-second
+interval on return and do not replay the initial alert. Busy or suppressed attempts
+are consumed without a catch-up queue. Source PCM and its digital level are unchanged.
+
+Other cues trigger once on a semantic state change, never on each status packet, repaint,
 poll, tool output chunk or reconnect attempt. The display remains authoritative:
 a deliberately suppressed, expired or busy-dropped cue must not delay activity
 presentation or replay later. Reading is prepared as an asset only until its
 event can be observed reliably.
 
-`CODY_codex_audio.hpp` provides `notify_codex_audio`, `set_codex_audio_suspended`,
+`CODY_codex_audio.hpp` provides `notify_codex_audio`, `notify_question_audio`, `set_codex_audio_suspended`,
 `set_codex_audio_enabled` and `get_codex_audio_status`. The existing optional
 owner handles these cues through one shared mailbox; `Dispatched` is admission,
 not completion. Codex activity requests are limited to one start every 1.5
