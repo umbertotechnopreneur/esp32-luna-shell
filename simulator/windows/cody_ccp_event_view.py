@@ -23,7 +23,7 @@ import time
 from cody_native_debug import render_debug_controls
 from cody_native_behavior import CharacterActivity
 
-from cody_native_event_presentation import NativeEventPresentation, EventAction, ascii_field, wrapped, paint_native_actions
+from cody_native_event_presentation import NativeEventPresentation, EventAction, ascii_field, wrapped, paint_native_actions, paint_native_approval
 
 
 # image: Logical RGB framebuffer prior to rotation.
@@ -55,7 +55,8 @@ class EventView:
         self.selected_id = ""
         self.page = 0
         self._route = None
-        self._started = time.monotonic()
+        self._elapsed_us = 0
+        self._sampled_at = None
         self._actions: tuple[EventAction, ...] = ()
         self._back = False
         self._controls_visible = False
@@ -63,6 +64,10 @@ class EventView:
         self._press: tuple[float, float] | None = None
         self._pressed_event = None
         self._tap_cancelled = False
+
+    # self: Event scene preempted by another Studio view; hidden wall time is excluded.
+    def pause(self) -> None:
+        self._sampled_at = None
 
     @property
     # self: Semantic stage encoded only for the existing Studio control interface.
@@ -165,9 +170,18 @@ class EventView:
             title_color = self.native.output.title_color
         route = (snapshot.request_id, identity, self.stage, self.selected_id, self.page,
                  self.native.navigation.choice_page, self.native.navigation.detail_page)
+        now = time.monotonic()
         if route != self._route:
-            self._route, self._started = route, time.monotonic()
-        elapsed = (time.monotonic() - self._started) * 1000
+            self._route = route
+            self._elapsed_us = 0
+            self._sampled_at = None
+        if window.playing.get():
+            if self._sampled_at is not None:
+                self._elapsed_us += round(max(0.0, now - self._sampled_at) * 1000000)
+            self._sampled_at = now
+        else:
+            self.pause()
+        elapsed = self._elapsed_us / 1000
         total = len(title) + sum(len(line.text) for line in
             self.native.output.lines[:self.native.output.line_count] if not line.instant)
         if painter.native is None:
@@ -187,7 +201,8 @@ class EventView:
             bottom = max([definition["title"]["top"] + 30] + [top + 25 for _, top in lines if top < 394])
             # The shared native cue context admits six exclusions. One content
             # rectangle reserves all text without dropping any action or Back.
-            exclusions = [(73, top, 393, bottom), (73, 22, 393, 47)]
+            exclusions = [(73, 120, 393, 419), (73, 22, 393, 47)] if approval else [
+                (73, top, 393, bottom), (73, 22, 393, 47)]
             if any(top >= 394 for _, top in lines):
                 exclusions.append((99, 394, 367, 419))
             exclusions += [(x, y, x + width, y + height) for action in actions for x, y, width, height in (action.bounds,)]
@@ -209,6 +224,9 @@ class EventView:
                                color=self.native.line_color(line, round(elapsed * 1000)))
             if not line.instant:
                 preceding += len(text)
+        if approval:
+            paint_native_approval(image, snapshot.request_id, snapshot.event_payload.body,
+                                  round(elapsed * 1000), controls_visible, painter.native.api)
         if controls_visible:
             paint_actions(image, painter, actions)
         if back and controls_visible:

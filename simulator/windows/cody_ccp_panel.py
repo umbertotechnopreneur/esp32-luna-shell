@@ -674,6 +674,7 @@ class CcpPanel:
         self.change_companion_mode()
         snapshot, code = (self._preview_snapshot, "") if preview else (self._snapshot, self._display_code)
         if not preview and self._debug_mode != "normal":
+            self.events.pause()
             self.pause_home_presentation()
             return self.render_debug(rotation)
         if not preview and self.events.visible(snapshot, self.endpoint):
@@ -682,6 +683,7 @@ class CcpPanel:
             result = self.events.render(snapshot, self.window, rotation, self.prepare_personality, self.compose_scene,
                 activity=self.character_activity(snapshot, False))
             return result
+        self.events.pause()
         self.update_activity_observation(snapshot)
         identity, title, lines = presentation(replace(snapshot, phase=self._admitted_phase), code)
         compacting = self.is_compacting(snapshot, preview)

@@ -116,7 +116,7 @@ class NativeChatTitleReader:
         return ChatTitleObservation(title, TitleState.CURRENT, self._clock())
 
     # self: Existing metadata owner; a completion read must not evict the followed-chat cache.
-    # session: Exact accepted background Stop identity, never inferred from a workspace or title.
+    # session: Exact accepted hook notice identity, never inferred from a workspace or title.
     # cwd: Checkout identity from that same canonical hook-owned session.
     # Returns explicit unavailable/unsupported/error state; logs the original safe source cause.
     def read_once(self, session: str, cwd: str) -> ChatTitleObservation:
@@ -124,7 +124,7 @@ class NativeChatTitleReader:
             return self._read(session, checkout_identity(cwd))
         except (OSError, ValueError, sqlite3.Error) as error:
             state = TitleState.UNSUPPORTED if isinstance(error, TitleSourceError) else TitleState.ERROR
-            print(f"CCP reply title unavailable: {safe_title_error(error)}", file=sys.stderr, flush=True)
+            print(f"CCP notice title unavailable: {safe_title_error(error)}", file=sys.stderr, flush=True)
             return ChatTitleObservation(state=state)
 
     # self: Bounded cache; a successful index read is the only event that refreshes title age.

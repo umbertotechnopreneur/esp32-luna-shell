@@ -149,7 +149,7 @@ def validate_payload(payload: EventPayload) -> None:
         raise ValueError("EVENT kind is invalid")
     bounded_text(payload.context, "context", 24, True)
     bounded_text(payload.title, "title", 24)
-    bounded_text(payload.body, "body", 63)
+    bounded_text(payload.body, "body", 255 if payload.kind == EventKind.APPROVAL_ON_PC else 63)
     if payload.kind == EventKind.QUESTION:
         if len(payload.choices) not in (2, 3):
             raise ValueError("A Cody question requires exactly two or three choices")
@@ -296,7 +296,8 @@ def decode_payload(value: str) -> EventPayload:
     if reader.byte() != 2:
         raise ValueError("EVENT payload version is unsupported")
     kind = EventKind(reader.byte())
-    context, title, body = reader.text(24, True), reader.text(24), reader.text(63)
+    context, title = reader.text(24, True), reader.text(24)
+    body = reader.text(255 if kind == EventKind.APPROVAL_ON_PC else 63)
     count = reader.byte()
     if count > 3:
         raise ValueError("EVENT contains too many choices")

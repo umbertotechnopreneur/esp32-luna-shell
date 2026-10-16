@@ -123,7 +123,7 @@ class CharacterStudioTests(unittest.TestCase):
     def render_event_notice(self, snapshot):
         from cody_ccp_event_view import EventView
         view = EventView()
-        window = SimpleNamespace(renderer=self.renderer)
+        window = SimpleNamespace(renderer=self.renderer, playing=SimpleNamespace(get=lambda: True))
         with patch("cody_ccp_event_view.time.monotonic", return_value=1.):
             self.assertTrue(view.visible(snapshot))
             view.render(snapshot, window, 0, compose=self.compose_event_frame)

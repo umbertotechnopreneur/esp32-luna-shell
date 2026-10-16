@@ -46,6 +46,8 @@ def event_vectors() -> list[tuple[str, str, bool]]:
         ("question_selected", encode_payload(replace(question, selected_id="redis")), True),
         ("question_maximum", encode_payload(maximum), True),
         ("six_failure_names", encode_payload(failures), True),
+        ("approval_title_maximum", encode_payload(EventPayload(EventKind.APPROVAL_ON_PC,
+            "SIMULATED fixture", "Approval needed", "T" * 255)), True),
         ("reply_ready_title_maximum", encode_payload(EventPayload(EventKind.REPLY_READY,
             "SIMULATED fixture", "Reply ready", "T" * 63)), True),
     ]

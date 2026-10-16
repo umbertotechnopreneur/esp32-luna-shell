@@ -43,7 +43,7 @@ field order through `total`, with the following current limits and appended fiel
 | Field | Current schema 2 contract |
 | --- | --- |
 | kind | Existing IDs unchanged: 1 Notice, 2 Question, 3 ApprovalOnPc, 4 PrPending, 5 ChecksRunning, 6 ChecksFailed, 7 ChecksPassed; appended 8 ReplyReady |
-| context / title / body | Length-prefixed printable ASCII: 0..24 / 1..24 / 1..63 bytes |
+| context / title / body | Length-prefixed printable ASCII: 0..24 / 1..24 / 1..63 bytes; ApprovalOnPc body alone allows 1..255 |
 | choices | Question only, exactly 2 or 3; each ID 1..12, label 1..63, detail 1..255 ASCII bytes, followed by the unchanged u8 tone |
 | selected_id / failures / progress | Existing identity, at-most-six 48-byte failure names and big-endian u16 count rules remain unchanged |
 | pending_question_count | Appended after `total`: u8, 0..128 outstanding questions; zero for nonquestions |
@@ -63,6 +63,23 @@ title owner performs one exact read-only index lookup for an eligible physical
 recipient, with session/turn/checkout revalidation and no transcript read or focus
 change. This event carries no choices or check progress and never implies task
 success. Native approvals continue on the PC.
+
+`ApprovalOnPc=3` carries the complete current originating chat title in its
+body, up to 255 printable ASCII bytes. The same title acquisition owner reads
+that exact PermissionRequest session/turn and revalidates it after source IO.
+Unavailable, unsupported, failed or expired title metadata is explicitly displayed
+as `Chat title unavailable`; IDs and another selected chat never substitute it.
+The firmware and native Studio projection reserve 256 body bytes, while every
+other event kind retains its 63-byte body limit. The length prefix, schema 2,
+HMAC domains and datagram caps are unchanged; update plugin and firmware together.
+
+The approval view shows `On your PC:`, `Approval needed`, only the real chat title
+in a cyan horizontal marquee, one computer illustration and one
+`Continue on your PC` instruction. Its green tick/red cross are read-only artwork.
+The lateral Back dismisses only this informational ticket through EVENTACK and
+returns to Home; it sends no native approval or denial. Real transport errors
+replace the lower instruction with their original error code; offline state is
+explicit. The stored user name remains an authenticated runtime preference.
 
 ## Authenticated Codex client presence (15 October 2026)
 

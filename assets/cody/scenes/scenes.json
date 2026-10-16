@@ -2499,8 +2499,8 @@
       "entrance": {
         "from": {
           "x": 233,
-          "y": 92,
-          "scale": 42
+          "y": 77,
+          "scale": 34
         },
         "move_ms": 0,
         "text_delay_ms": 0
@@ -2511,8 +2511,8 @@
       },
       "cloud": {
         "x": 233,
-        "y": 92,
-        "scale": 42
+        "y": 77,
+        "scale": 34
       },
       "face": {
         "eye_left": 1,
@@ -2551,14 +2551,14 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "On your PC",
+        "text": "Approval needed",
         "top": 150,
-        "color_rgb565": 64704,
+        "color_rgb565": 65535,
         "character_interval_ms": 45,
         "visible": true
       },
       "navigation_visible": false,
-      "readout_visible": true
+      "readout_visible": false
     },
     {
       "id": "event-unavailable",

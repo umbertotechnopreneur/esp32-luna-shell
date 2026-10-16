@@ -35,7 +35,7 @@ class NativePendingQuestion(C.Structure):
 
 class NativePayload(C.Structure):
     _fields_ = [("kind", C.c_uint8), ("context", C.c_char * 25), ("title", C.c_char * 25),
-        ("body", C.c_char * 64), ("choice_count", C.c_uint8), ("choices", NativeChoice * 3),
+        ("body", C.c_char * 256), ("choice_count", C.c_uint8), ("choices", NativeChoice * 3),
         ("selected_id", C.c_char * 13), ("failure_count", C.c_uint8), ("failed_checks", (C.c_char * 49) * 6),
         ("progress_valid", C.c_bool), ("passed", C.c_uint16), ("total", C.c_uint16),
         ("pending_question_count", C.c_uint8), ("pending_entry_count", C.c_uint8),

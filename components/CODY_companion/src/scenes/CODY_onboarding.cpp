@@ -20,6 +20,7 @@
 #include "CODY_command_hints.hpp"
 #include "CODY_activity_observation.hpp"
 #include "CODY_codex_event_presentation.hpp"
+#include "CODY_approval_notice.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -222,6 +223,8 @@ struct ContentView {
     // Serialized scene-owned metadata and one bounded font window, outside the UI task stack.
     ActivityDescriptionState activity_description{};
     ActivityIdentityState activity_identity{};
+    const ApprovalNoticeState *approval_notice = nullptr;
+    bool approval_notice_visible = false;
 };
 #ifdef ESP_PLATFORM
 // IDF constructs the default view after PSRAM startup; host fixtures use ordinary RAM.
@@ -238,6 +241,13 @@ LUNASHELL::CodexTechnicalObservation &s_technical_observation =
     *new (s_technical_observation_storage) LUNASHELL::CodexTechnicalObservation{};
 #else
 LUNASHELL::CodexTechnicalObservation s_technical_observation{};
+#endif
+#ifdef ESP_PLATFORM
+// Independent from ContentView resets; same-event refreshes retain the visible title clock.
+alignas(ApprovalNoticeState) EXT_RAM_BSS_ATTR uint8_t s_approval_storage[sizeof(ApprovalNoticeState)]{};
+ApprovalNoticeState &s_approval_notice = *new (s_approval_storage) ApprovalNoticeState{};
+#else
+ApprovalNoticeState s_approval_notice{};
 #endif
 LUNASHELL::CodexCompactionState s_presented_compaction = LUNASHELL::CodexCompactionState::None;
 bool s_presented_compaction_feedback = false;
@@ -1167,6 +1177,9 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
 {
     const auto &view = *static_cast<const ContentView *>(state);
     esp_err_t error = draw_qr_rows(view.qr, view.qr_bounds, strip, first_row, first_column);
+    if (error == ESP_OK && view.approval_notice != nullptr && view.approval_notice_visible) {
+        error = draw_approval_notice_rows(*view.approval_notice, strip, first_row, first_column);
+    }
     for (uint8_t index = 0; error == ESP_OK && index < view.line_count; ++index) {
         error = CODY2D::draw_text_rows(view.lines[index], view.visible_characters[index],
             strip, first_row, first_column);
@@ -1287,6 +1300,7 @@ esp_err_t attach_content(SceneFrame &scene)
         }
     }
     s_view.actions_visible = actions_ready(scene);
+    s_view.approval_notice_visible = s_route == Route::ApprovalOnPc && s_view.actions_visible;
     s_view.action_visible_characters = s_view.actions_visible ? s_view.action.caption.text.length : 0;
     s_view.action_second_visible = s_view.actions_visible ? s_view.action_second_line.text.length : 0;
     s_view.alternative_visible_characters = s_view.actions_visible ? s_view.alternative.caption.text.length : 0;
@@ -1368,6 +1382,14 @@ esp_err_t attach_content(SceneFrame &scene)
             content.control_bounds[0] = {10, 203, 70, 263};
         }
         content.control_bounds[1] = content.bottom_action_bounds;
+        if (s_route == Route::ApprovalOnPc) {
+            // Includes the amber heading and lower instruction without covering lateral Back.
+            content.bounds = {73, 120, 393, 388};
+            content.bottom_action_visible = true;
+            content.bottom_action_bounds = {99, 393, 367, 419};
+            content.control_bounds[0] = {10, 203, 70, 263};
+            content.control_bounds[1] = {};
+        }
     }
     return set_scene_content(scene, content);
 }
@@ -1722,6 +1744,14 @@ esp_err_t prepare_event_content(SceneFrame &scene)
     for (uint8_t index = 0; error == ESP_OK && index < s_event_plan.line_count; ++index) {
         error = append_event_line(s_event_plan.lines[index]);
     }
+    if (error == ESP_OK && s_event_plan.route == Route::ApprovalOnPc) {
+        error = prepare_approval_notice(s_approval_notice, font, s_presented_event.body);
+        if (error != ESP_OK) {
+            ESP_LOGE(kTag, "Approval notice preparation failed (%s)", esp_err_to_name(error));
+            return error;
+        }
+        s_view.approval_notice = &s_approval_notice;
+    }
     s_view.action_visible = false;
     for (uint8_t index = 0; error == ESP_OK && index < s_event_plan.action_count; ++index) {
         const auto &action = s_event_plan.actions[index];
@@ -2067,6 +2097,9 @@ void reset_event_presentation()
     s_event_selection_target[0] = '\0';
     s_event_failure_page = s_event_choice_page = s_event_detail_page = 0;
     s_checks_passed_readable_at_us = -1;
+    s_approval_notice.chat[0] = '\0';
+    s_approval_notice.length = 0;
+    s_approval_notice.readable_at_us = -1;
 }
 
 // No parameters: projects the retained owner snapshot and reversible navigation into a route.
@@ -3516,6 +3549,14 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
     }
     uint16_t preceding = scene.definition->title_visible ? scene.title.text.length : 0;
     bool caption_changed = false;
+    if (s_route == Route::ApprovalOnPc) {
+        const esp_err_t approval_error = advance_approval_notice(s_approval_notice, SceneData::body_font,
+            scene.text_elapsed_us, actions_ready(scene), caption_changed);
+        if (approval_error != ESP_OK) {
+            ESP_LOGE(kTag, "Approval title advance failed (%s)", esp_err_to_name(approval_error));
+            return approval_error;
+        }
+    }
     for (uint8_t index = 0; index < s_view.line_count; ++index) {
         const uint16_t visible = line_visible_characters(scene, index, preceding);
         caption_changed = caption_changed || visible != s_view.visible_characters[index];
@@ -4090,16 +4131,10 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         if (!back_hit || !s_view.actions_visible) {
             return ESP_OK;
         }
-        auto navigation = event_navigation();
         event_presentation::Action back_action;
         back_action.id = event_presentation::ActionId::Back;
         back_action.enabled = s_event_plan.back;
-        event_presentation::Effect effect;
-        const esp_err_t error = event_presentation::activate(s_presented_event, event_context(),
-            back_action, navigation, effect);
-        if (error != ESP_OK) { return error; }
-        retain_event_navigation(navigation, effect);
-        return render_codex_event(scene);
+        return activate_event_action(scene, back_action);
     }
     if (back_hit && s_route == Route::Install06) {
         return enter_route(Route::Invitation05, scene);

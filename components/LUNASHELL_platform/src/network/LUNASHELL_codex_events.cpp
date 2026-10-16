@@ -151,6 +151,9 @@ esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayl
         !reader.text(candidate.body, true) || !reader.byte(candidate.choice_count)) {
         return reader.error;
     }
+    if (candidate.kind != CodexEventKind::ApprovalOnPc && std::strlen(candidate.body) > 63) {
+        return ESP_ERR_INVALID_SIZE;
+    }
     const bool question = candidate.kind == CodexEventKind::Question;
     if ((question && (candidate.choice_count < 2 || candidate.choice_count > 3)) ||
         (!question && candidate.choice_count != 0)) {

@@ -1310,6 +1310,44 @@ class HookRoutingTests(unittest.TestCase):
         self.title_read.assert_not_called()
         self.enqueue.assert_not_called()
 
+    # self: Exact approval origin with the maximum native ASCII title and unchanged question bounds.
+    # Raises AssertionError if a title is shortened, replaced by project/ID or accepted for another kind.
+    def test_approval_preserves_complete_origin_title_and_per_kind_body_bounds(self) -> None:
+        title = "Origin " + "T" * 248
+        self.title_read.return_value = native_title.ChatTitleObservation(
+            title, native_title.TitleState.CURRENT, 100.0)
+        with patch.object(activity.time, "monotonic", return_value=100.0):
+            self.observe("UserPromptSubmit")
+            self.observe("PermissionRequest")
+        self.title_read.assert_called_once_with("chat-a", "E:/same-long-project-name")
+        payload = self.enqueue.call_args.args[1]
+        self.assertEqual(payload.body, title)
+        self.assertEqual(interactions.decode_payload(interactions.encode_payload(payload)), payload)
+        self.assertEqual(self.enqueue.call_args.kwargs["native_session"], "chat-a")
+        with self.assertRaises(ValueError):
+            interactions.encode_payload(replace(payload, kind=interactions.EventKind.NOTICE))
+        with self.assertRaises(ValueError):
+            interactions.encode_payload(replace(payload, body=title + "X"))
+
+    # self: Accepted approval title read racing a genuine prompt in another native chat.
+    # Raises AssertionError if stale metadata publishes after the originating lifecycle loses eligibility.
+    def test_approval_title_read_revalidates_origin_after_source_io(self) -> None:
+        self.observe("UserPromptSubmit")
+
+        # session: Original genuine approval session, deliberately not the newly followed session.
+        # cwd: Original exact checkout identity retained by the metadata owner.
+        # Returns obsolete source text after a newer prompt changes the canonical followed chat.
+        def switched_during_read(session, cwd):
+            self.observe("UserPromptSubmit", "chat-b", "turn-b")
+            return native_title.ChatTitleObservation("Old approval", native_title.TitleState.CURRENT, 100.0)
+
+        self.title_read.side_effect = switched_during_read
+        with patch.object(activity.time, "monotonic", return_value=100.0):
+            self.observe("PermissionRequest")
+        self.enqueue.assert_not_called()
+        self.assertEqual(next(item["session_id"] for item in self.service.activity.list_sessions()
+                              if item["followed"]), "chat-b")
+
     # self: Native approval and optional notice failure remain separate from native authorization.
     # Raises AssertionError if a failure invents a decision, loses its cause or reads the journal.
     def test_native_approval_stays_on_pc_and_delivery_error_is_observable(self) -> None:
@@ -1317,7 +1355,7 @@ class HookRoutingTests(unittest.TestCase):
         self.observe("PermissionRequest")
         payload = self.enqueue.call_args.args[1]
         self.assertEqual((payload.kind, payload.title, payload.body),
-                         (interactions.EventKind.APPROVAL_ON_PC, "Approval needed", "Continue on your PC"))
+                         (interactions.EventKind.APPROVAL_ON_PC, "Approval needed", "Chat title unavailable"))
         self.assertEqual(payload.choices, ())
         self.observe("UserPromptSubmit", "chat-b", "turn-b")
         self.enqueue.side_effect = ValueError("synthetic queue full")

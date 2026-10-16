@@ -418,6 +418,33 @@ class ActivityStore:
                       file=sys.stderr, flush=True)
             return replace(observation, title=reply_notice_title(title, time.monotonic()))
 
+    # self: Existing lifecycle/title acquisition owner; no selected-chat metadata is substituted.
+    # observation: Accepted PermissionRequest bound to its genuine native session and turn.
+    # Returns the full originating ASCII title, or explicit absence; a raced permission is retired.
+    # Source failures retain their original state and safe diagnostic in the acquisition owner.
+    def refresh_approval_title(self, observation: HookObservation) -> HookObservation:
+        if observation.event != "PermissionRequest" or not observation.followed or observation.phase != Phase.PAUSED:
+            return observation
+        with self._lock:
+            session = self._sessions.get(observation.session_id)
+            if (session is None or session.turn_id != observation.turn_id or session.phase != Phase.PAUSED
+                    or session.session_id != self._followed_session_id):
+                return replace(observation, followed=False, title="")
+            cwd = session.cwd
+        # Reuse the established metadata owner and release the lifecycle lock during IO.
+        with self._usage_lock:
+            title = self._titles.read_once(observation.session_id, cwd)
+        with self._lock:
+            current = self._sessions.get(observation.session_id)
+            if (current is not session or current.turn_id != observation.turn_id or current.cwd != cwd
+                    or current.phase != Phase.PAUSED or current.session_id != self._followed_session_id):
+                return replace(observation, followed=False, title="")
+            current.chat_title = title
+            age = time.monotonic() - title.observed_at if title.observed_at is not None else None
+            complete = (title.title if title.state == TitleState.CURRENT and age is not None
+                        and 0 <= age < TITLE_LEASE_SECONDS else "")
+            return replace(observation, title=complete)
+
     # No parameters: exposes identities and local context only, never chat contents.
     def list_sessions(self) -> list[dict[str, Any]]:
         with self._lock:

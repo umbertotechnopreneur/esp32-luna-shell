@@ -2077,6 +2077,7 @@ class CodyWindow:
                 self.render_ccp_tick(started)
                 return
             self.ccp_panel.pause_home_presentation()
+            self.ccp_panel.events.pause()
             self.ccp_panel.refresh()
         self.advance_happiness_clock(int(started * 1_000_000))
         self.navigation_visibility.update(int(started * 1_000_000))

@@ -15,6 +15,8 @@
  * VBWR E */
 
 #include "CODY_codex_event_presentation.hpp"
+#include "CODY_approval_notice.hpp"
+#include <vector>
 #include "scene_data.hpp"
 #include <cassert>
 #include <cstring>
@@ -179,4 +181,47 @@ void verify_shared_event_presentation()
     std::strcpy(event.body, event.title);
     assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK && plan.title[0] == '\0');
     assert(plan.line_count == 1 && std::strcmp(plan.lines[0].text, "Reply ready") == 0);
+    // A full native title has its own bounded viewport and never becomes a permission control.
+    event = {};
+    event.kind = LUNASHELL::CodexEventKind::ApprovalOnPc;
+    event.state = LUNASHELL::CodexEventState::Pending;
+    event.last_error = ESP_OK;
+    std::memset(event.body, 'T', 255);
+    event.body[255] = '\0';
+    context = {};
+    context.online = true;
+    navigation = {};
+    assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK);
+    assert(plan.route == Presentation::Route::ApprovalOnPc && plan.back && plan.action_count == 0);
+    assert(std::strcmp(plan.title, "Approval needed") == 0 && plan.title_color == 0xFFFF);
+    assert(plan.line_count == 2 && std::strcmp(plan.lines[0].text, "On your PC:") == 0);
+    assert(plan.lines[0].pc_heading && Presentation::line_color(plan.lines[0], 0) == 0xFE07);
+    assert(std::strcmp(plan.lines[1].text, "Continue on your PC") == 0 && plan.lines[1].top == 393);
+    Presentation::Action approval_back;
+    approval_back.id = Presentation::ActionId::Back;
+    approval_back.enabled = true;
+    assert(Presentation::activate(event, context, approval_back, navigation, effect) == ESP_OK);
+    assert(effect == Presentation::Effect::Dismiss && !context.reply_admitted);
+    CODY::ApprovalNoticeState approval;
+    const auto &font = CODY::SceneData::body_font;
+    assert(CODY::prepare_approval_notice(approval, font, event.body) == ESP_OK);
+    assert(approval.length == 255 && std::strcmp(approval.chat, event.body) == 0);
+    bool moved = false;
+    assert(CODY::advance_approval_notice(approval, font, 0, true, moved) == ESP_OK);
+    assert(CODY::advance_approval_notice(approval, font, 1500000, true, moved) == ESP_OK && moved);
+    const uint16_t offset = approval.offset;
+    assert(CODY::prepare_approval_notice(approval, font, event.body) == ESP_OK && approval.offset == offset);
+    std::vector<uint16_t> pixels(466U * 466U, 0x1234);
+    CODY2D::Surface surface{pixels.data(), 466, 466, 466, static_cast<uint32_t>(pixels.size())};
+    assert(CODY::draw_approval_notice_rows(approval, surface, 0, 0) == ESP_OK);
+    for (uint16_t y = 203; y < 263; ++y) {
+        for (uint16_t x = 10; x < 70; ++x) { assert(pixels[y * 466U + x] == 0x1234); }
+    }
+    context.online = false;
+    assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK);
+    assert(std::strcmp(plan.lines[1].text, "Offline - check your PC") == 0);
+    context.ui_error = ESP_ERR_INVALID_STATE;
+    assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK);
+    assert(std::strstr(plan.lines[1].text, "Error: 0x") == plan.lines[1].text);
+
 }

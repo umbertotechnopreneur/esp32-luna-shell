@@ -42,6 +42,20 @@ client's id-only release is explicitly treated as abnormal, with no Closed
 claim. A real Codex reopen that starts the updated broker/client loads the new
 EOF reporting; changing files on disk does not hot-reload a running broker.
 
+## PC approval notices
+
+A genuine followed-chat permission request displays `On your PC:`,
+`Approval needed`, the complete originating chat title in cyan and one
+`Continue on your PC` instruction. Long titles scroll without a project box or
+`Chat:` prefix. The colorful computer's tick/cross are read-only artwork; Back
+closes this notice and returns to Home. Native permission decisions stay on the PC.
+Unavailable titles are explicit and never borrowed from a different chat.
+
+Update the plugin and firmware together for the 255-byte approval-title body.
+The source marketplace already points to this plugin directory. Use the supported
+local plugin installation/refresh flow and restart Codex to load the updated
+broker; source changes alone do not update a running process.
+
 ## Device diagnostics
 
 One diagnostic entry with overview and Memory details is available in both build modes:

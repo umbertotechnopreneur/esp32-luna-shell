@@ -16,6 +16,7 @@
 
 // SIMULATED input boundary. All presentation policy runs in the actual Cody model.
 #include "CODY_codex_event_presentation.hpp"
+#include "CODY_approval_notice.hpp"
 #include "scene_data.hpp"
 #include "esp_log.h"
 #include <cstring>
@@ -33,7 +34,7 @@ struct Input {
     char state[12];
     char context[25];
     char title[25];
-    char body[64];
+    char body[256];
     uint8_t choice_count;
     LUNASHELL::CodexEventChoice choices[3];
     char selected_id[13];
@@ -81,6 +82,8 @@ esp_err_t project(const Input &input, LUNASHELL::CodexEventSnapshot &event)
         input.pending_entry_count > input.pending_question_count) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (input.kind != static_cast<uint8_t>(LUNASHELL::CodexEventKind::ApprovalOnPc) &&
+        std::strlen(input.body) > 63) { return ESP_ERR_INVALID_SIZE; }
     event = {};
     bool state_valid = false;
     for (uint8_t value = 0; value <= static_cast<uint8_t>(LUNASHELL::CodexEventState::Rejected); ++value) {
@@ -132,6 +135,8 @@ esp_err_t project(const Input &input, LUNASHELL::CodexEventSnapshot &event)
 struct Owner {
     LUNASHELL::CodexEventSnapshot event{};
     Presentation::Plan plan{};
+    CODY::ApprovalNoticeState approval{};
+    char approval_request[33]{};
 };
 // This storage belongs only to the current host UI thread; no embedded task stack grows.
 thread_local Owner s_owner;
@@ -332,6 +337,38 @@ CODY_HOST_EXPORT int cody_host_event_paint_actions(uint16_t *pixels, uint32_t ca
         if (error != ESP_OK) { return result("paint_actions", error); }
     }
     return ESP_OK;
+}
+
+// pixels: Existing SIMULATED logical RGB565 framebuffer; published only on success.
+// capacity: Exact 466 by 466 framebuffer capacity.
+// request_id: Genuine simulated endpoint ticket identity, keeping same-title notices independent.
+// chat: Full originating title in the same bounded ASCII contract as the firmware.
+// elapsed_us: Pausable route clock supplied by the native scene drawing owner.
+// visible: Complete title/narrative gate; artwork has no interaction bounds.
+// Exception: Returns original text, clock or production raster error.
+CODY_HOST_EXPORT int cody_host_event_paint_approval(uint16_t *pixels, uint32_t capacity,
+    const char *request_id, const char *chat, int64_t elapsed_us, bool visible)
+{
+    if (!pixels || capacity != 466U * 466U || !request_id || !chat ||
+        std::strlen(request_id) != 32 || std::strlen(chat) > 255) {
+        return result("paint_approval", ESP_ERR_INVALID_ARG);
+    }
+    if (std::strcmp(s_owner.approval_request, request_id) != 0) {
+        std::memcpy(s_owner.approval_request, request_id, sizeof(s_owner.approval_request));
+        s_owner.approval.chat[0] = '\0';
+        s_owner.approval.length = 0;
+        s_owner.approval.readable_at_us = -1;
+    }
+    auto &state = s_owner.approval;
+    const auto &font = CODY::SceneData::body_font;
+    esp_err_t error = CODY::prepare_approval_notice(state, font, chat);
+    bool changed = false;
+    if (error == ESP_OK) { error = CODY::advance_approval_notice(state, font, elapsed_us, visible, changed); }
+    if (error == ESP_OK && visible) {
+        CODY2D::Surface surface{pixels, 466, 466, 466, capacity};
+        error = CODY::draw_approval_notice_rows(state, surface, 0, 0);
+    }
+    return result("paint_approval", error);
 }
 
 // navigation: Reversible local stage receiving actual endpoint admission outcome.

@@ -130,12 +130,14 @@ struct Line {
     uint16_t top = 0;
     bool instant = false;
     bool delivery_pulse = false;
+    bool pc_heading = false;
 };
 
 // line: Shared narrative/status style; only an active delivery wait pulses.
 // elapsed_us: Pausable scene time, unrelated to the actual delivery deadline.
 inline uint16_t line_color(const Line &line, uint64_t elapsed_us)
 {
+    if (line.pc_heading) { return 0xFE07; }
     if (!line.delivery_pulse) { return line.instant ? 0xBDF7 : 0xFFFF; }
     // A 1.6-second breathing cycle stays readable at its darkest point. Quantize
     // to 50 ms so unchanged colors do not request redundant content redraws.
@@ -475,7 +477,8 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
     if (identity == nullptr) { return ESP_ERR_INVALID_STATE; }
     std::strcpy(plan.scene, identity);
     plan.back = plan.route == Route::DecisionChoices27 || plan.route == Route::DecisionConfirm27 ||
-        plan.route == Route::CheckFailures24 || plan.route == Route::DecisionQueue;
+        plan.route == Route::CheckFailures24 || plan.route == Route::DecisionQueue ||
+        (plan.route == Route::ApprovalOnPc && !context.dismiss_admitted);
     uint16_t top = 196;
     esp_err_t error = ESP_OK;
     // value: Complete English copy or canonical event text, never shortened here.
@@ -618,6 +621,25 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         }
         add_action(plan, context.ui_error == ESP_OK ? ActionId::Dismiss : ActionId::Retry,
             context.ui_error == ESP_OK ? "Done" : "Try again", !context.dismiss_admitted, Tone::Positive);
+    } else if (plan.route == Route::ApprovalOnPc) {
+        // This read-only notice never offers a native permission decision on Cody.
+        std::strcpy(plan.title, "Approval needed");
+        plan.title_color = 0xFFFF;
+        auto &label = plan.lines[plan.line_count++];
+        std::strcpy(label.text, "On your PC:");
+        label.top = 120;
+        label.instant = true;
+        label.pc_heading = true;
+        auto &instruction = plan.lines[plan.line_count++];
+        const esp_err_t status_error = context.ui_error != ESP_OK ? context.ui_error : event.last_error;
+        if (status_error != ESP_OK) {
+            std::snprintf(instruction.text, sizeof(instruction.text), "Error: 0x%08lX",
+                static_cast<unsigned long>(status_error));
+        } else {
+            std::strcpy(instruction.text, context.online ? "Continue on your PC" : "Offline - check your PC");
+        }
+        instruction.top = 393;
+        instruction.instant = true;
     } else if (event.kind == Kind::ReplyReady && !LUNASHELL::codexEventIsTerminal(event.state)) {
         // A typed response-ready observation identifies an available reply, never a successful task.
         // Its body belongs to the originating chat; selected Home metadata cannot replace it.
@@ -660,7 +682,6 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         } else if (event.kind == Kind::ChecksPassed && context.ui_error != ESP_OK) {
             add_action(plan, ActionId::Retry, "Try again", true);
         }
-        if (plan.route == Route::ApprovalOnPc) { text("Continue on your PC", true); }
         const esp_err_t status_error = context.ui_error != ESP_OK ? context.ui_error : event.last_error;
         if (status_error != ESP_OK) {
             top = plan.action_count == 0 ? 354 : 326;
@@ -760,6 +781,12 @@ inline esp_err_t activate(const LUNASHELL::CodexEventSnapshot &event, const Cont
         effect = Effect::Render;
         break;
     case ActionId::Back:
+        if (event.kind == LUNASHELL::CodexEventKind::ApprovalOnPc) {
+            if (context.dismiss_admitted) { return ESP_ERR_INVALID_STATE; }
+            // Retire this read-only notice only; the native PC permission remains pending.
+            effect = Effect::Dismiss;
+            break;
+        }
         if (navigation.stage != EventStage::Confirm && navigation.stage != EventStage::Choices &&
             navigation.stage != EventStage::Failures && navigation.stage != EventStage::Questions) {
             return ESP_ERR_INVALID_STATE;

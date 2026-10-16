@@ -35,7 +35,7 @@ class PendingQuestion(C.Structure):
 
 class Input(C.Structure):
     _fields_ = [("kind", C.c_uint8), ("state", C.c_char * 12), ("context", C.c_char * 25),
-                ("title", C.c_char * 25), ("body", C.c_char * 64), ("choice_count", C.c_uint8),
+                ("title", C.c_char * 25), ("body", C.c_char * 256), ("choice_count", C.c_uint8),
                 ("choices", Choice * 3), ("selected_id", C.c_char * 13),
                 ("failure_count", C.c_uint8), ("failures", (C.c_char * 49) * 6),
                 ("progress_valid", C.c_bool), ("passed", C.c_uint16), ("total", C.c_uint16),
@@ -61,7 +61,7 @@ class Bounds(C.Structure):
 
 class Line(C.Structure):
     _fields_ = [("text", C.c_char * 64), ("top", C.c_uint16), ("instant", C.c_bool),
-                ("delivery_pulse", C.c_bool)]
+                ("delivery_pulse", C.c_bool), ("pc_heading", C.c_bool)]
 
 
 class Action(C.Structure):
@@ -165,7 +165,7 @@ class NativeEventPresentation:
         value.state = ascii_field(snapshot.event_state, 12)
         value.context = ascii_field(event.context, 25)
         value.title = ascii_field(event.title, 25)
-        value.body = ascii_field(event.body, 64)
+        value.body = ascii_field(event.body, 256)
         value.choice_count = len(event.choices)
         for index, choice in enumerate(event.choices):
             value.choices[index] = Choice(ascii_field(choice.choice_id, 13), ascii_field(choice.label, 64),
@@ -316,6 +316,33 @@ def paint_native_actions(image, actions: tuple[EventAction, ...], api) -> None:
     for index, (red, green, blue) in enumerate(image.getdata()):
         pixels[index] = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
     checked("paint_actions", function(pixels, len(pixels), native, len(actions)))
+    output = bytearray(len(pixels) * 3)
+    for index, color in enumerate(pixels):
+        output[index * 3] = ((color >> 11) & 31) * 255 // 31
+        output[index * 3 + 1] = ((color >> 5) & 63) * 255 // 63
+        output[index * 3 + 2] = (color & 31) * 255 // 31
+    image.paste(Image.frombytes("RGB", (466, 466), bytes(output)))
+
+
+# image: Logical SIMULATED RGB framebuffer, updated only after native success.
+# request_id: Actual simulated endpoint ticket, never a fabricated activity observation.
+# chat: Complete immutable originating title, separate from the currently followed Home chat.
+# elapsed_us: Visible route clock; standby and hidden time are excluded by the caller.
+# visible: Complete narrative gate shared with the firmware.
+# api: Already loaded native production rendering backend.
+# Raises ValueError or RuntimeError for invalid geometry, ASCII or actual native failure.
+def paint_native_approval(image, request_id: str, chat: str, elapsed_us: int, visible: bool, api) -> None:
+    from PIL import Image
+    if image.mode != "RGB" or image.size != (466, 466):
+        raise ValueError("Native approval drawing requires the logical RGB framebuffer")
+    function = api.cody_host_event_paint_approval
+    function.argtypes = [C.POINTER(C.c_uint16), C.c_uint32, C.c_char_p, C.c_char_p, C.c_int64, C.c_bool]
+    function.restype = C.c_int
+    pixels = (C.c_uint16 * (466 * 466))()
+    for index, (red, green, blue) in enumerate(image.getdata()):
+        pixels[index] = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
+    checked("paint_approval", function(pixels, len(pixels), ascii_field(request_id, 33),
+                                      ascii_field(chat, 256), elapsed_us, visible))
     output = bytearray(len(pixels) * 3)
     for index, color in enumerate(pixels):
         output[index * 3] = ((color >> 11) & 31) * 255 // 31

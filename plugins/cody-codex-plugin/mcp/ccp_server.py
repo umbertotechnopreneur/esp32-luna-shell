@@ -1260,7 +1260,7 @@ class CcpService:
 
     # self: Service accepting notices only from the canonical hook observation.
     # observation: Immutable accepted event; contains no prompt, response or tool arguments.
-    # Background completion titles use one exact read-only index lookup without changing chat focus.
+    # Hook notices reuse the exact originating title acquisition owner without changing chat focus.
     # Raises ValueError for a lost association or full bounded notification queue.
     def notify_hook_notice(self, observation: HookObservation) -> bool:
         if (observation.event in {"UserPromptSubmit", "Interrupt", "SessionEnd"}
@@ -1275,6 +1275,10 @@ class CcpService:
         targets = self.physical_event_targets()
         if not targets:
             return False
+        if approval:
+            observation = self.activity.refresh_approval_title(observation)
+            if not observation.followed:
+                return False
         if reply_ready:
             observation = self.activity.refresh_reply_title(observation)
             if not observation.reply_ready:
@@ -1287,7 +1291,7 @@ class CcpService:
         context = project
         kind = interactions.EventKind.APPROVAL_ON_PC if approval else interactions.EventKind.REPLY_READY
         title = "Approval needed" if approval else "Reply ready"
-        body = ("Continue on your PC" if approval else
+        body = (observation.title or "Chat title unavailable" if approval else
                 observation.title or "Open the other chat in Codex")
         payload = interactions.EventPayload(kind, context, title, body)
         for device_id in targets:

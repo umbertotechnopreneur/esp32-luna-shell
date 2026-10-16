@@ -86,7 +86,8 @@ struct CodexEventPayload {
     CodexEventKind kind = CodexEventKind::None;
     char context[25]{};
     char title[25]{};
-    char body[64]{};
+    // ApprovalOnPc carries the complete originating title; other bodies retain 63 bytes.
+    char body[256]{};
     uint8_t choice_count = 0;
     CodexEventChoice choices[3]{};
     char selected_id[13]{};

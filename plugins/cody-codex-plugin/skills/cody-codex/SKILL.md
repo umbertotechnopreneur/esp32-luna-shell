@@ -113,8 +113,11 @@ inventing chat activity:
   replace a pending question. Hook activity carries bounded phase/project
   metadata; `ccp_report_progress` adds explicit purpose without exposing full
   prompt text. Prefer that tool for ongoing work and notifications for milestones.
-- A real `PermissionRequest` hook shows only **On your PC**. Its hook continues
-  without a decision, leaving native authorization with Codex.
+- A real `PermissionRequest` hook shows **On your PC: Approval needed** with
+  the complete originating chat title in cyan, scrolling when needed. Unavailable
+  title metadata remains explicit. The computer illustration is read-only; Back
+  dismisses only the notice. The hook continues without a decision, leaving
+  native authorization with Codex.
 
 Distinguish two explicit intentions for restart and reset:
 

@@ -13,6 +13,35 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+
+## PC approval screen implementation - 2026-10-16
+
+Implemented the owner's approved layout with their final corrections: keep the
+left Back, remove the project/title box and Chat prefix, retain only the exact
+originating chat title in cyan, and scroll long titles within the 320-pixel
+viewport. The heading is On your PC:, followed by Approval needed, a colorful
+native 2D monitor/keyboard illustration and one Continue on your PC instruction.
+The depicted green tick/red cross have no touch targets or native decision path.
+Back retires only the informational notice and returns to Home. Offline and
+original transport/UI errors remain explicit in the lower line.
+
+ApprovalOnPc alone admits 255 printable ASCII body bytes in the existing schema
+2 length-prefixed field. Broker, firmware decoder, canonical payload, Studio
+transport and native presentation ABI were updated together. The established
+title acquisition owner reads the exact accepted permission session/turn and
+revalidates lifecycle/checkout after IO; absent/invalid metadata is explicit.
+No GUID, project prefix, another selected Home title or partial title substitutes
+it. The marquee uses a pausable visible scene clock, preserves same-event refresh
+position and has bounded display-owned PSRAM state rather than task-stack copies.
+The lower instruction uses its own measured circular chord. Existing fonts remain
+unchanged after definitions-only generation through device.ps1.
+
+Prepared regression coverage for 255-byte title round trips, rejection on other
+kinds, stale origin races, one instruction, Back's notice-only effect and clipping
+away from lateral navigation. These checks have not been executed. Source changes
+do not prove current broker adoption, physical pixels, touch, sound or nested
+stack headroom. Final build/flash/publication evidence follows separately.
+
 ## Memory diagnostic Release delivery - 2026-10-16
 
 Release `cody-199-g2f640422` built from source commit

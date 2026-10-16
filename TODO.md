@@ -1,5 +1,17 @@
 # Active work
 
+The approved PC-approval redesign is implemented: compact cloud, amber PC
+heading, white approval title, only the originating chat title in a cyan marquee,
+shared native colorful monitor artwork, one lower instruction and lateral Back.
+Schema 2 now permits a complete 255-byte approval-title body only; question/other
+body limits remain 63 bytes. The same title acquisition owner revalidates origin
+session/turn/checkout after IO. Plugin and firmware must be updated together.
+Source and prepared regressions are complete; final Release build/COM10 flash,
+compiled-frame review and publication source scan are pending. No new test or
+simulator execution is authorized. The mistaken personal firmware name default
+was reverted; the owner's authenticated saved name remains a runtime preference.
+
+
 Release `cody-199-g2f640422` is installed on COM10 with all five written hashes
 verified. The facial-channel list, its PSRAM storage and scrolling are removed;
 internal animation channels remain. Device diagnostics are available in Release
