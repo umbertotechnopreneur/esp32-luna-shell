@@ -1,21 +1,18 @@
 # Active work
 
-The owner's final 16 October diagnostic correction is implemented in source:
-remove the facial-channel list, its bounded PSRAM storage and scroll handling,
-while keeping internal animation channels and one device diagnostic view in
-Release and Debug. The plugin and Studio accept only `character` and `normal`;
-the reserved scroll field is zero. The additional Memory action opens canonical
-internal RAM/PSRAM capacity and fragmentation details without new acquisition.
-Final USB delivery and publication are pending. The preceding build was cancelled
-before flashing to integrate this new owner request; no Ninja/Xtensa processes
-remained after cancellation. No successful final build is claimed yet.
+Release `cody-199-g2f640422` is installed on COM10 with all five written hashes
+verified. The facial-channel list, its PSRAM storage and scrolling are removed;
+internal animation channels remain. Device diagnostics are available in Release
+and Debug. The Memory action opens existing canonical internal RAM/PSRAM heap
+capacity and fragmentation details. Back returns to the overview, then normal.
+The plugin and Studio accept only `character` and `normal`; scroll stays zero.
 
-Release `cody-196-gda3e03ad` remains installed on COM10 with the soft 1.8-second
-question bell and quieter 300-ms reminders on the ten-second cadence. Its two
-diagnostic commands returned authenticated applied ACKs; `character` was reopened
-after the owner removed the facial-channel view from scope. These ACKs do not
-verify visible pixels. New host suites, physical sound quality/timing and nested
-target stack headroom remain unverified.
+The authenticated physical LAN `character` command returned applied/error 0 and
+reopened the overview. This ACK does not verify pixels or the Memory touch path.
+New host/simulator suites, physical rendering/touch, sound quality/timing and
+nested target stack headroom remain unverified. Delivery logs, image identity,
+compiled-frame review and the separate source-only publication gate are recorded
+in [done.md](done.md).
 
 The owner's 15 October enclosed-board reference import and static assessment are
 recorded in [done.md](done.md). New 1.75C/1.43C hardware support remains deferred
@@ -23,9 +20,9 @@ as HARDWARE-PORT-01 in [planned-todo.md](planned-todo.md); those boards are not
 covered by the existing firmware profile.
 
 Updated 2026-10-16. The offline standby/farewell and faster software-wake changes
-are implemented in source, together with a longer first question alert and
+are implemented in source, together with the soft 1.8-second first question bell and
 gentle reminders every ten awake seconds while a fresh question awaits Send.
-Release `cody-196-gda3e03ad` built with ESP-IDF 6.0.2 and eight jobs and was installed
+Release `cody-199-g2f640422` built with ESP-IDF 6.0.2 and eight jobs and was installed
 on COM10 with all five written hashes verified. Wake word and the experimental
 activity classifier remain selected. Their native timer/owner/voice/lifecycle/
 question-cadence checks are prepared but have not been run. No new test suite,

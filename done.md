@@ -13,6 +13,40 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Memory diagnostic Release delivery - 2026-10-16
+
+Release `cody-199-g2f640422` built from source commit
+`2f640422de17925dffe5b54bc84ca82ec593a6ed` with ESP-IDF 6.0.2 and eight jobs,
+completing 1,500 Ninja steps. COM10 flashing completed with all five written image
+hashes verified and the normal RTS reset. Wake word and the experimental activity
+classifier remain selected. The 7,224,096-byte app leaves 50,400 bytes in the
+unchanged OTA slot. The added Memory page and facial-screen removal together
+increase the image by 1,920 bytes relative to Release 196; this is not a claim of
+net flash savings. The removed facial-list buffer is replaced by a fixed 48-byte
+projection. Application SHA256:
+`df8e9f30c8dc56ed73c76e10bbb7eefa9c7984137ff3a0eb2b867ffa48e7048f`.
+
+The physical paired LAN Cody then returned an authenticated `character` applied
+ACK, error 0, with its actual 34-channel internal animation catalog. The overview
+was selected remotely; Memory remains a local visible action. The ACK explicitly
+reports `pixels_verified=false`; Memory touch/rendering and perceived sound remain
+unverified. No new test suite, simulator, Debug build, standalone size report or
+serial capture was run.
+
+Compiled-frame inspection found 352 bytes for the display worker entry, 3,168
+for frame drawing, 784 for memory projection preparation, 64 for memory-page
+drawing, 256 for a heap section, 128 for centered text and 160 for the Memory
+button. The display task retains its 12,288-byte budget. These individual static
+figures do not measure nested runtime headroom.
+
+Evidence is under
+`artifacts/build-cody-companion-wake-word-evidence/memory-diagnostics-20261016/`,
+including the failed `flash.log`, successful `flash-retry.log` and the authenticated
+overview command record. The required GitHub publication source-only scan uses
+base `bb223f5076840ec1d6d6897c3d630eb24656e36a` and records its own result in
+`publication-secrets.log`; firmware images and media are excluded. Publication
+scanning is separate from firmware compilation and device writes.
+
 ## Memory diagnostic page implementation - 2026-10-16
 
 The owner's additional memory request is implemented as a Memory action in the
