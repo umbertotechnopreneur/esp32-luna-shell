@@ -14,6 +14,45 @@ path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
 
+## Readability and current-only activity cleanup - 2026-10-17
+
+Static source review covered Cody activity presentation, Studio native rendering,
+CCP notice/protocol owners and selected canonical snapshot consumers. It was not
+an exhaustive audit of every repository or imported vendor file.
+
+- `58c50082` consolidates the three repeated RGB565 image conversions into
+  `simulator/windows/cody_native_rgb565.py`. The synchronous native caller keeps
+  the owned buffer alive and publishes a new image only after native success.
+  The unused single-action wrapper and the event-view text-wrapper re-export
+  were removed; existing callers now use their actual owners directly.
+- The same checkpoint replaces separate reply/approval title-refresh methods
+  with `refresh_notice_title()`. Both retain exact session/turn/checkout checks
+  before and after source IO, original observation age, and their distinct
+  complete-title limits. Class comments explain lifecycle locks, source IO and
+  presentation ownership.
+- `83bdf266` rejects ACTIVITY capabilities 1, 2 and 4 before challenge admission.
+  Current `activity=5` always publishes its complete title/description fields and
+  coherent TECH observation. Presence-only FIND remains a separate supported
+  capability. The obsolete shortening and authentication branches were removed;
+  current firmware and Studio already advertise the retained contract.
+- The same checkpoint replaces the nested headline ternary with ordered branches
+  and gives work-route, identity and freshness conditions intermediate names.
+  The priority of attention, compaction and connection states is preserved.
+
+Final static review retains native approval dispatch even on hidden frames:
+the native owner still validates and prepares the request before artwork reveal.
+The codec consolidation therefore preserves that existing preparation path.
+
+Existing regression fixtures now use the current protocol. A prepared negative
+case covers rejection of old versions before challenge, presence or send effects.
+These checks were not executed. No configure/build/size, simulator execution,
+flash, serial operation or plugin installation/reload was performed. Physical
+behavior and runtime concurrency remain unverified for these edits. Broader
+review findings are retained as CLARITY-01 through CLARITY-03 in planned-todo.md.
+Publication evidence is kept under
+`artifacts/reviews/readability-20261017/publication-secrets.log`; this source-only
+publication gate is separate from the unexecuted regression suites.
+
 ## PC approval Release 204 USB delivery - 2026-10-16
 
 Release `cody-204-g7889bffe` built with ESP-IDF 6.0.2 and eight jobs from source

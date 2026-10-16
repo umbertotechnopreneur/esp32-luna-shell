@@ -333,10 +333,7 @@ def paint_native_actions(image, actions: tuple[EventAction, ...], api) -> None:
 def paint_native_approval(image, request_id: str, chat: str, elapsed_us: int, visible: bool, api) -> None:
     if image.mode != "RGB" or image.size != (466, 466):
         raise ValueError("Native approval drawing requires the logical RGB framebuffer")
-    if not visible:
-        # Hidden artwork owns no pixels or readable marquee dwell yet.
-        return
-
+    # Hidden frames still validate and prepare request identity through the native owner.
     function = api.cody_host_event_paint_approval
     function.argtypes = [C.POINTER(C.c_uint16), C.c_uint32, C.c_char_p, C.c_char_p, C.c_int64, C.c_bool]
     function.restype = C.c_int

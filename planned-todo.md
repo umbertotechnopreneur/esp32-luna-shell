@@ -1,5 +1,38 @@
 # Deferred work
 
+## Static readability review - 2026-10-17
+
+These are review findings remaining after the focused source cleanup in done.md,
+not completed refactors or authorization to execute validation.
+
+- [ ] **CLARITY-01 - Split route and frame responsibilities at their owners.**
+  `CODY_onboarding.cpp` combines Setup, preferences, QR, questions, PC notices and
+  Home activity. `draw_companion_frame()` in `CODY_companion.cpp` combines
+  observation, composition, damage, transfer and profiling in one long function.
+  Extract coherent route presenters and frame stages while preserving one
+  orchestrator, explicit state lifetime, error propagation and lock ownership.
+  Moving functions into more files without clarifying those owners is insufficient.
+- [ ] **CLARITY-02 - Share bounded marquee window calculations.**
+  `prepare_activity_description_window()` and `prepare_approval_chat_window()`
+  repeat first-glyph, fractional offset, visible capacity and centering math.
+  Extract only the shared calculation; leave text storage, color, viewport and
+  pausable reveal/scroll clocks with their current display owner. Review Home
+  identity/dashboard variants before introducing a shared helper.
+- [ ] **CLARITY-03 - Retire full snapshots used for narrow observations.**
+  `DeviceSnapshotService::snapshot()` still has live Luna callers and aborts on
+  canonical read failure. For example, the format-card request in
+  `LUNASHELL_app.cpp` obtains the full by-value snapshot solely for `.storage`.
+  Add a bounded, fallible canonical storage projection and convert real callers
+  before deleting the old API. Review owning buffers, deepest call chains and
+  error propagation; source inspection alone does not establish stack headroom.
+
+Deletion boundary: the committed scene-font manifest is still
+`cody.scene-font.v1`, although the full font generator can emit v2. Its current
+reader is not dead compatibility code. Retire the old format only after the
+canonical assets use one supported schema; no font bake was performed here.
+Likewise, recognizing an unsupported calibration record and reporting an explicit
+error is not a migration/fallback implementation to delete by name alone.
+
 ## Purchased enclosed Waveshare boards - 2026-10-15
 
 - [ ] **HARDWARE-PORT-01 - Separate 1.75C and 1.43C board support.** Reference

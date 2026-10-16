@@ -1,5 +1,15 @@
 # Active work
 
+The 17 October readability cleanup is implemented in source checkpoints
+`58c50082` and `83bdf266`: one notice-title acquisition path, one Studio RGB565
+codec, explicit headline decisions and current-only CCP activity admission.
+Prepared regression cases were updated but were not executed. No build,
+simulator run, flash or plugin installation was performed for this cleanup;
+Release 204 and the previously installed plugin files do not validate these edits.
+Static review examples and remaining larger refactors are recorded as
+CLARITY-01 through CLARITY-03 in [planned-todo.md](planned-todo.md). Validation
+requires the separate, exact-command authorizations in [AGENTS.md](AGENTS.md).
+
 The approved PC-approval redesign is implemented: compact cloud, amber PC
 heading, white approval title, only the originating chat title in a cyan marquee,
 shared native colorful monitor artwork, one lower instruction and lateral Back.
