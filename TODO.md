@@ -6,13 +6,17 @@ shared native colorful monitor artwork, one lower instruction and lateral Back.
 Schema 2 now permits a complete 255-byte approval-title body only; question/other
 body limits remain 63 bytes. The same title acquisition owner revalidates origin
 session/turn/checkout after IO. Plugin and firmware must be updated together.
-Source and prepared regressions are complete; final Release build/COM10 flash,
-compiled-frame review and publication source scan are pending. No new test or
-simulator execution is authorized. The mistaken personal firmware name default
-was reverted; the owner's authenticated saved name remains a runtime preference.
+Release `cody-204-g7889bffe` is installed on COM10 with all five written hashes
+verified. Its app is 7,227,264 bytes, leaving 47,232 bytes in the OTA slot. The
+shared artwork/title owner uses bounded PSRAM storage and compiled frames were
+reviewed; nested physical stack headroom remains unmeasured. Plugin 0.6.9 was
+installed through the public Codex CLI with matching source files. Reopen Codex
+to load the updated broker; installation does not prove running adoption.
+New host/native/Studio suites remain prepared and unexecuted. Physical pixels,
+Back touch and perceived animation/audio remain unverified. The mistaken personal
+firmware name default was reverted; personalization remains a runtime preference.
 
-
-Release `cody-199-g2f640422` is installed on COM10 with all five written hashes
+Earlier Release `cody-199-g2f640422` was installed on COM10 with all five written hashes
 verified. The facial-channel list, its PSRAM storage and scrolling are removed;
 internal animation channels remain. Device diagnostics are available in Release
 and Debug. The Memory action opens existing canonical internal RAM/PSRAM heap

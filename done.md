@@ -14,6 +14,46 @@ path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
 
+## PC approval Release 204 USB delivery - 2026-10-16
+
+Release `cody-204-g7889bffe` built with ESP-IDF 6.0.2 and eight jobs from source
+`7889bffe4d0d1ea4c71744d5fb507d037f5f4f99`, then flashed to COM10. All five
+written image hashes verified and the normal RTS reset completed. The single
+public `device.ps1 flash` operation ran the shared transient cleanup and retained
+wake word plus the experimental activity classifier. Generated configuration
+confirms the wake-word and Cody integration selections. The app is 7,227,264
+bytes, 3,168 bytes larger than Release 199, leaving 47,232 bytes in the unchanged
+7,274,496-byte OTA slot. App SHA256:
+`64b97a0b274c92332c30eabe9599d797635afef4ff2d42951484abd5f915020c`.
+
+Reviewed compiled static frames in the final build: display worker 352 bytes,
+frame drawing 3,168, onboarding update 2,064, event reset 1,968, route entry 384,
+event render 64, content raster 224, approval preparation 64 and chat window 48.
+The new illustration/title state is outside the task stack in display-owned
+PSRAM and retains its compile-time 1,536-byte bound. The canonical event snapshot
+still satisfies its 2 KiB bound. CCP worker is 80 bytes, event decoder 96,
+transaction application 144, publication 48, and snapshot read/report 32/48.
+Task budgets remain 12,288 display / 8,192 CCP bytes. These individual frames and
+source call-chain review do not measure nested physical stack headroom.
+
+The old in-use 0.6.8 cache could not be replaced by the public installer
+(Windows Access denied). The coordinated title contract was packaged as 0.6.9;
+`codex plugin add cody-codex-plugin@cody-local --json` then confirmed installation
+at `E:/.codex/plugins/cache/cody-local/cody-codex-plugin/0.6.9`. The manifest, five changed Python modules, README,
+protocol and skill were checked against their source copies; all matched at
+installation. Reopening Codex is required to load the updated broker/client;
+installed files do not prove running adoption. No private cache write, process
+kill, trust override or fabricated permission event was used.
+
+Evidence is under
+`artifacts/build-cody-companion-wake-word-evidence/approval-redesign-20261016/`:
+`generate-scenes.log` and `flash.log`. The source-only publication gate uses
+`publication-secrets.log` immediately before the separately authorized push.
+No new test suite, Studio execution, standalone size report, serial monitor or
+capture was run. Physical pixels, touch, sound and live approval-title delivery
+remain unverified. The mistaken personal firmware-name default was reverted in
+`88ee3372`; this redesign does not set profile storage defaults.
+
 ## PC approval screen implementation - 2026-10-16
 
 Implemented the owner's approved layout with their final corrections: keep the
@@ -40,7 +80,7 @@ Prepared regression coverage for 255-byte title round trips, rejection on other
 kinds, stale origin races, one instruction, Back's notice-only effect and clipping
 away from lateral navigation. These checks have not been executed. Source changes
 do not prove current broker adoption, physical pixels, touch, sound or nested
-stack headroom. Final build/flash/publication evidence follows separately.
+stack headroom. Release 204 delivery evidence is recorded above.
 
 ## Memory diagnostic Release delivery - 2026-10-16
 
