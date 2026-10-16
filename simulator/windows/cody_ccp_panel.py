@@ -31,7 +31,7 @@ from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
 from cody_ccp_event_view import EventView
 from cody_native import NativePersonalityPainter, NativePanelInputs, NativePanelMetric, NativePanelObservation, NativeImuStillnessState, NativeFirmwareBuildFieldState
 from cody_native_behavior import CharacterActivity, CharacterWorkKind
-from cody_native_debug import render_debug_back
+from cody_native_debug import DiagnosticPage, debug_memory_button_contains, render_debug_controls
 from cody_personality import PersonalityCue, PersonalityPresentation
 from runtime_paths import resolve_runtime_output
 
@@ -119,6 +119,8 @@ class CcpPanel:
         self._passive_visible = False
         self._shake_jobs = []
         self._debug_mode = "normal"
+        self._diagnostic_page = DiagnosticPage.OVERVIEW
+        self._diagnostic_controls_visible = False
         self._debug_normal_follow = True
         self._native_personality = None
         self._direction_cue = PersonalityCue.NONE
@@ -252,6 +254,8 @@ class CcpPanel:
                 self._debug_base_values = list(self._last_base_values if self.follow.get() and self._last_base_values is not None
                                                else self.window.face_state)
             self._debug_mode = request["mode"]
+            self._diagnostic_page = DiagnosticPage.OVERVIEW
+            self._diagnostic_controls_visible = False
             self.follow.set(self._debug_normal_follow if self._debug_mode == "normal" else True)
             self._frame_key = None
         except (ValueError, RuntimeError) as failure:
@@ -936,14 +940,16 @@ class CcpPanel:
             self._native_personality.disable(elapsed)
         self.window.renderer.personality_painter = None
         image = self.window.renderer.draw_scene(scene, debug=False, navigation_visible=False, background_rgb565=0)
-        image = render_debug_back(native, image)
+        image = render_debug_controls(native, image, self._diagnostic_page)
         # Host facts stay visibly SIMULATED and never enter firmware snapshots.
         painter = self.window.renderer.scene_painter
-        address = self.endpoint.bound_address()
-        painter.paint_text(image, f"IP {address or 'UNAVAILABLE'}", 352, body=True)
-        painter.paint_text(image, "ESP32 DATA UNAVAILABLE", 384, body=True)
+        if self._diagnostic_page == DiagnosticPage.OVERVIEW:
+            address = self.endpoint.bound_address()
+            painter.paint_text(image, f"IP {address or 'UNAVAILABLE'}", 390, body=True)
+            painter.paint_text(image, "ESP32 DATA N/A", 416, body=True)
         self.window.renderer.scene_painter.paint_text(image, "SIMULATED", 22, color=64704, body=True)
-        return image, scene, ("ccp-debug", self._debug_mode, rotation, round(elapsed / 33))
+        self._diagnostic_controls_visible = True
+        return image, scene, ("ccp-debug", self._debug_mode, self._diagnostic_page, rotation, round(elapsed / 33))
 
     # self: Circular interaction view using the parent's already-rotated logical touch coordinates.
     # point: Logical press, or None when the pointer is outside the display.
@@ -953,10 +959,21 @@ class CcpPanel:
         point = acquired_touch_pixel(point)
         preview = self.activity_preview.get() and self._preview_snapshot is not None
         if not preview and self._debug_mode != "normal":
+            if not self._diagnostic_controls_visible:
+                return
             if point is not None and (point[0] - 40) ** 2 + (point[1] - 233) ** 2 <= 900:
-                self._debug_mode = "normal"
-                self.follow.set(self._debug_normal_follow)
+                if self._diagnostic_page == DiagnosticPage.MEMORY:
+                    self._diagnostic_page = DiagnosticPage.OVERVIEW
+                else:
+                    self._debug_mode = "normal"
+                    self.follow.set(self._debug_normal_follow)
                 self._frame_key = None
+                self._diagnostic_controls_visible = False
+            elif self._diagnostic_page == DiagnosticPage.OVERVIEW and debug_memory_button_contains(
+                    self.window.renderer.require_native(), point):
+                self._diagnostic_page = DiagnosticPage.MEMORY
+                self._frame_key = None
+                self._diagnostic_controls_visible = False
             return
         if not preview and self.events.visible(self._snapshot, self.endpoint):
             try:

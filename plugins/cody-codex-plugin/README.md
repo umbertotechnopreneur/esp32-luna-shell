@@ -44,12 +44,16 @@ EOF reporting; changing files on disk does not hot-reload a running broker.
 
 ## Device diagnostics
 
-One live diagnostic screen is available on Cody in Release and Debug:
+One diagnostic entry with overview and Memory details is available in both build modes:
 `character` shows the character with measured CPU utilization, free RAM/PSRAM,
 FPS, IP and SD status from the canonical snapshot. Unmeasured or stale values
 are labeled explicitly. `normal` restores the retained screen.
 The facial-channel list and its buffer were removed to save device space;
 internal animation channels remain. The reserved `scroll` field must be zero.
+Tap **Memory** in the overview for internal RAM/PSRAM capacity, largest free block,
+minimum free memory, free-block count and fragmentation index. Capacity bars are
+not a map of block addresses. Back returns to the overview before restoring the
+normal route. The canonical measurements already exist; no tracing is added.
 
 Use `ccp_connection_status` to identify the intended connected physical Cody,
 then `ccp_debug_screen` with its `device_id` and the requested mode. These are

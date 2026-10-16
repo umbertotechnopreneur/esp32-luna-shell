@@ -263,6 +263,7 @@ struct CompanionState {
     uint32_t panel_source_status = 0;
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     LUNASHELL::CodexDebugScreen debug_screen = LUNASHELL::CodexDebugScreen::Normal;
+    CODY::DiagnosticPage diagnostic_page = CODY::DiagnosticPage::Overview;
     bool debug_placement_dirty = false;
 #endif
     CODY::PersonalityCue requested_personality = CODY::PersonalityCue::None;
@@ -388,6 +389,12 @@ struct CompanionState {
 alignas(CompanionState) EXT_RAM_BSS_ATTR uint8_t s_state_storage[sizeof(CompanionState)]{};
 CompanionState &s_state = *new (s_state_storage) CompanionState{};
 
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+// The display worker freezes this 48-byte canonical projection for all tiles of a memory frame.
+EXT_RAM_BSS_ATTR CODY::MemoryDiagnosticReadout s_memory_diagnostics;
+static_assert(sizeof(CODY::MemoryDiagnosticReadout) <= 48);
+#endif
+
 // No parameters: overlay permission follows the same active lifecycle and logical display as normal Cody.
 bool debug_view_active()
 {
@@ -395,6 +402,16 @@ bool debug_view_active()
     return s_state.debug_screen == LUNASHELL::CodexDebugScreen::Character &&
         s_state.rig_visible && s_state.branding_complete && s_state.boot_phase == BootPhase::Ready &&
         CODY::lifecycle_is_resting(s_state.lifecycle) && !s_state.resume_scene_pending;
+#else
+    return false;
+#endif
+}
+
+// No parameters: the memory page shares the authenticated diagnostic overlay lifecycle.
+bool debug_memory_page_active()
+{
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    return debug_view_active() && s_state.diagnostic_page == CODY::DiagnosticPage::Memory;
 #else
     return false;
 #endif
@@ -3532,6 +3549,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     CODY::DirtyPlan dirty_plan;
     const bool frame_overlay = debug_view_active() &&
         s_power_presentation.load(std::memory_order_acquire) == PowerPresentation::None;
+    const bool frame_memory = frame_overlay && debug_memory_page_active();
     bool frame_dashboard = home_dashboard_view_active() &&
         s_power_presentation.load(std::memory_order_acquire) == PowerPresentation::None;
     const bool frame_debug = s_state.rig_debug && !frame_overlay && !frame_dashboard;
@@ -3554,7 +3572,15 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             s_state.frame_rate = {};
             s_benchmark.reset();
         }
-        if (kRenderDiagnosticsEnabled || frame_overlay) {
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+        if (frame_memory) {
+            const esp_err_t memory_error = CODY::prepare_memory_diagnostics(s_memory_diagnostics);
+            if (memory_error != ESP_OK) {
+                return frame.finish({memory_error, false, 0});
+            }
+        }
+#endif
+        if ((kRenderDiagnosticsEnabled || frame_overlay) && !frame_memory) {
             if ((s_state.raster_benchmark_active || frame_overlay ||
                  (measured_readout_route_active() && s_state.debug_readout_enabled)) &&
                 !footer_blocks_readout) {
@@ -3695,8 +3721,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         PowerPresentation::None && CODY::lifecycle_is_resting(s_state.lifecycle) &&
         !s_state.resume_scene_pending;
     const uint8_t navigation_opacity = s_state.navigation_visibility.opacity(timings.started_us);
-    const uint16_t scene_background = frame_scene_visible ? s_state.scene.definition->background_rgb565 :
-        CODY::Data::palette[CODY::to_index(CODY::Data::background_color)];
+    const uint16_t scene_background = frame_overlay ? 0 : frame_scene_visible
+        ? s_state.scene.definition->background_rgb565
+        : CODY::Data::palette[CODY::to_index(CODY::Data::background_color)];
     const bool frame_navigation_visible = !frame_overlay && !frame_dashboard && !s_state.raster_benchmark_active && kRenderDiagnosticsEnabled && navigation_opacity != 0 &&
         lifecycle_navigation_allowed && !presentation.boot_bitmap_visible;
     const bool frame_status_visible = !frame_overlay && !s_state.raster_benchmark_active && !s_state.onboarding.effective_first_boot &&
@@ -3910,7 +3937,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
     }
     const bool frame_readout_visible = s_power_presentation.load(std::memory_order_acquire) ==
-        PowerPresentation::None && !s_state.raster_benchmark_active &&
+        PowerPresentation::None && !s_state.raster_benchmark_active && !frame_memory &&
         (frame_overlay ||
          (kRenderDiagnosticsEnabled && measured_readout_route_active() && s_state.debug_readout_enabled && presentation.content_visible &&
           !footer_blocks_readout && (!s_state.scene.valid || s_state.scene.definition->readout_visible)));
@@ -4086,7 +4113,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             };
             const int64_t raster_started_us = esp_timer_get_time();
             if (frame_was_rig) {
-                result = CODY::draw_rig_rows(
+                result = frame_memory ? CODY2D::clear(strip, scene_background) : CODY::draw_rig_rows(
                     *s_resources.rig, strip, damage.top, frame_debug, s_state.selected_point,
                     kExecutionTimingsEnabled ? &timings.raster_profile : nullptr,
                     s_state.animation_paused, damage.left,
@@ -4102,7 +4129,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 if (result == ESP_OK && frame_scene_visible && presentation.content_visible && !s_state.wake_battery.active) {
                     result = CODY::draw_scene_rows(s_state.scene, strip, damage.top, damage.left);
                 }
-                if (result == ESP_OK && s_state.battery_notice_line.valid && !frame_dashboard) {
+                if (result == ESP_OK && s_state.battery_notice_line.valid && !frame_dashboard && !frame_overlay) {
                     result = CODY2D::draw_text_rows(s_state.battery_notice_line,
                         s_state.battery_notice_line.text.length, strip, damage.top, damage.left);
                 }
@@ -4114,7 +4141,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                             s_state.home_dashboard, strip, damage.top, damage.left);
                     }
                 }
-                if (result == ESP_OK && presentation.content_visible && !frame_dashboard &&
+                if (result == ESP_OK && presentation.content_visible && !frame_dashboard && !frame_overlay &&
                     s_power_presentation.load(std::memory_order_acquire) == PowerPresentation::None) {
                     result = CODY::draw_onboarding_navigation(strip, damage.top, damage.left);
                 }
@@ -4138,6 +4165,13 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                     );
                 }
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+                if (result == ESP_OK && frame_memory) {
+                    result = CODY::draw_memory_diagnostics_rows(s_memory_diagnostics,
+                        CODY::SceneData::body_font, strip, damage.top, damage.left);
+                } else if (result == ESP_OK && frame_overlay) {
+                    result = CODY::draw_debug_memory_button_rows(CODY::SceneData::body_font,
+                        strip, damage.top, damage.left);
+                }
                 if (result == ESP_OK && frame_overlay) {
                     result = CODY::draw_debug_view_back_rows(strip, damage.top, damage.left);
                 }
@@ -4467,6 +4501,7 @@ esp_err_t enter_animation_demo()
 void apply_debug_view(LUNASHELL::CodexDebugScreen screen)
 {
     s_state.debug_screen = screen;
+    s_state.diagnostic_page = CODY::DiagnosticPage::Overview;
     // A view change starts a new measured window; never label the previous page's FPS as current.
     s_state.frame_rate = {};
     s_state.debug_placement_dirty = true;
@@ -5244,9 +5279,18 @@ esp_err_t handle_setup_hold(const LUNASHELL_touch_point_t &point, bool pressed_e
 void handle_debug_view_touch(const LUNASHELL_touch_point_t &point, bool pressed_edge)
 {
     s_state.touch_pressed = point.pressed;
+    // A route/page switch invalidates this flag until every pixel of its first frame retires.
+    if (!s_resources.previous_frame_valid) {
+        return;
+    }
     if (pressed_edge && CODY::debug_view_back_contains(
             {static_cast<int16_t>(point.x), static_cast<int16_t>(point.y)})) {
-        apply_debug_view(LUNASHELL::CodexDebugScreen::Normal);
+        apply_debug_view(s_state.diagnostic_page == CODY::DiagnosticPage::Memory
+            ? LUNASHELL::CodexDebugScreen::Character : LUNASHELL::CodexDebugScreen::Normal);
+    } else if (pressed_edge && s_state.diagnostic_page == CODY::DiagnosticPage::Overview &&
+        CODY::debug_memory_button_contains({static_cast<int16_t>(point.x), static_cast<int16_t>(point.y)})) {
+        apply_debug_view(LUNASHELL::CodexDebugScreen::Character);
+        s_state.diagnostic_page = CODY::DiagnosticPage::Memory;
     }
 }
 #endif

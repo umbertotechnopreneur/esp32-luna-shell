@@ -4,7 +4,11 @@ The owner's final 16 October diagnostic correction is implemented in source:
 remove the facial-channel list, its bounded PSRAM storage and scroll handling,
 while keeping internal animation channels and one device diagnostic view in
 Release and Debug. The plugin and Studio accept only `character` and `normal`;
-the reserved scroll field is zero. Final USB delivery and publication are pending.
+the reserved scroll field is zero. The additional Memory action opens canonical
+internal RAM/PSRAM capacity and fragmentation details without new acquisition.
+Final USB delivery and publication are pending. The preceding build was cancelled
+before flashing to integrate this new owner request; no Ninja/Xtensa processes
+remained after cancellation. No successful final build is claimed yet.
 
 Release `cody-196-gda3e03ad` remains installed on COM10 with the soft 1.8-second
 question bell and quieter 300-ms reminders on the ten-second cadence. Its two

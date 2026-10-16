@@ -250,6 +250,24 @@ Unmeasured or stale fields remain explicitly unavailable/stale.
 The owner removed the facial-channel list, its PSRAM buffer and scroll handling
 to save device space. Internal channels still drive character animation.
 
+Tap **Memory** to open heap details for internal RAM and PSRAM. Each section
+shows used/free capacity, the largest allocatable free block, the SDK-reported
+minimum free amount and the free-block count. Blue means used capacity, green
+the largest free block and amber all other free capacity. These are capacity
+bars, not an address map or an ordered allocation trace. The fragmentation index
+is `100 * (free - largest) / free`, rounded to the nearest whole percent;
+it is `N/A` when no free space remains. Separate allocator regions also contribute
+to this index, so it is an indication of noncontiguous free capacity rather than
+a count of damaged or unusable bytes. See the official
+[ESP-IDF heap information guidance](https://docs.espressif.com/projects/esp-idf/en/v6.0.2/esp32s3/api-reference/system/heap_debug.html).
+The page uses the already-published canonical measurements, with a display-owned
+48-byte projection; it adds no allocation tracing, heap walk or acquisition task.
+Unavailable/stale heaps show labels and gray bars instead of numeric readings.
+The Memory action appears fully drawn, without typewriter timing, and touch is
+admitted only after the corresponding frame completes. Back first returns to
+the diagnostic overview, then to the retained normal route. The same native
+layout is used by Studio, visibly SIMULATED with device heap readings unavailable.
+
 The existing signed DEBUGCAP/DEBUG/DEBUGACK exchange, live paired endpoint,
 fresh nonce, request deadline and application acknowledgement remain required.
 The display worker owns all changes; consumers read the canonical snapshot

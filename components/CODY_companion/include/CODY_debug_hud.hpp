@@ -20,6 +20,7 @@
 
 #include "CODY2D.hpp"
 #include "CODY_damage.hpp"
+#include "CODY_debug_views.hpp"
 
 namespace CODY {
 
@@ -55,6 +56,10 @@ void record_frame_rate(FrameRateMeasurement &measurement,
 // readout: Receives bounded text from canonical diagnostics and renderer timing.
 esp_err_t prepare_debug_readout(const FrameRateMeasurement &measurement,
                                int64_t now_us, DebugReadout &readout);
+
+// readout: Receives only the existing canonical heap measurements and validity.
+// Exception: Returns the original snapshot error or INVALID_RESPONSE for incoherent capacities.
+esp_err_t prepare_memory_diagnostics(MemoryDiagnosticReadout &readout);
 
 // readout: Text prepared once for this whole frame, shared by all strips.
 // strip: Compact RGB565 destination inside the canonical 466-pixel canvas.

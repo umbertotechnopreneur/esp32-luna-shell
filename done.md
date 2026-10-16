@@ -13,6 +13,31 @@ were removed by the authorized 2026-10-05 cleanup or later build cleanup; a reco
 path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
+## Memory diagnostic page implementation - 2026-10-16
+
+The owner's additional memory request is implemented as a Memory action in the
+existing diagnostic overview, with Back returning to that overview before the
+retained normal route. Both firmware build modes and the shared native Studio
+layout use the same capacity bars and controls. Studio labels device heap values
+unavailable and remains visibly SIMULATED. No new CCP mode or scroll meaning is
+introduced; the facial-channel view remains removed.
+
+The page reads existing canonical heap statistics: internal RAM/PSRAM used and
+free capacity, largest free block, SDK minimum free amount, free-block count and
+the rounded index `100 * (free - largest) / free`, undefined at zero free bytes.
+Bars show used capacity, largest free block and other free capacity, not addresses
+or the spatial order of allocations. A fixed 48-byte display projection replaces
+the removed facial-list storage; acquisition schema, task stacks and measurement
+cadences do not grow. No heap tracing, heap walk or consumer-side acquisition is
+added. Text/bar coordinates use the shared circular layout; numeric source validity is
+checked before rendering, and touch waits for a complete visible page.
+
+The preceding Release build/flash command was cancelled during compilation when
+the owner added this request, before any image write. The command exited 1 and
+a subsequent process observation found zero active Ninja/Xtensa/compiler tasks.
+Its log is under `device-diagnostics-only-20261016/`. Final delivery remains
+pending; new simulator/host suites and physical rendering/touch remain unverified.
+
 ## Device diagnostic cleanup - 2026-10-16
 
 The owner removed the facial-channel diagnostic list from scope to save device

@@ -1494,6 +1494,46 @@ CODY_HOST_EXPORT int cody_host_debug_back(uint16_t *pixels, uint32_t capacity)
     return host_result("debug_back", error);
 }
 
+// pixels: Existing character pixels for Overview, or writable output for Memory.
+// capacity: Exact 466x466 output capacity.
+// page: Typed diagnostic-page identity at the host boundary.
+// Exception: Rejects unknown page identities and returns original shared native raster failures.
+CODY_HOST_EXPORT int cody_host_diagnostic_page(uint16_t *pixels, uint32_t capacity, uint8_t page)
+{
+    if (!pixels || capacity != 466U * 466U ||
+        (page != static_cast<uint8_t>(CODY::DiagnosticPage::Overview) &&
+         page != static_cast<uint8_t>(CODY::DiagnosticPage::Memory))) {
+        return host_result("diagnostic_page", ESP_ERR_INVALID_ARG);
+    }
+    const bool memory = page == static_cast<uint8_t>(CODY::DiagnosticPage::Memory);
+    // Host data are explicitly unavailable; no synthetic values enter firmware snapshots.
+    const CODY::MemoryDiagnosticReadout readout;
+    esp_err_t error = ESP_OK;
+    for (uint16_t first = 0; error == ESP_OK && first < 466; first += 16) {
+        const uint16_t height = std::min<uint16_t>(16, 466 - first);
+        CODY2D::Surface strip{pixels + first * 466U, 466, height, 466, uint32_t(height) * 466U};
+        if (memory) {
+            error = CODY2D::clear(strip, 0);
+            if (error == ESP_OK) {
+                error = CODY::draw_memory_diagnostics_rows(readout, CODY::SceneData::body_font, strip, first, 0);
+            }
+        } else {
+            error = CODY::draw_debug_memory_button_rows(CODY::SceneData::body_font, strip, first, 0);
+        }
+        if (error == ESP_OK) {
+            error = CODY::draw_debug_view_back_rows(strip, first, 0);
+        }
+    }
+    return host_result("diagnostic_page", error);
+}
+
+// x: Acquired logical horizontal touch coordinate.
+// y: Acquired logical vertical touch coordinate.
+CODY_HOST_EXPORT bool cody_host_debug_memory_contains(int16_t x, int16_t y)
+{
+    return CODY::debug_memory_button_contains({x, y});
+}
+
 // requested: Typed baseline manga cue after synthetic input classification.
 // sleeping: Explicit semantic Sleep permission, never inferred from eyelid geometry.
 // affection: Whether an accepted host caress still has active lifetime.

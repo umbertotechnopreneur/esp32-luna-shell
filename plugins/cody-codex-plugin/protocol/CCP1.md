@@ -882,6 +882,10 @@ readout for measured CPU utilization, free RAM/PSRAM, FPS, IP and SD status.
 device space; `face_channels` is rejected, without a substitute view. Internal
 animation channels remain. Wire names do not select a firmware build mode.
 No arbitrary command, channel override or settings write is admitted.
+The diagnostic overview's local Memory action opens heap details and capacity
+bars for internal RAM/PSRAM. This does not add a wire mode or reinterpret scroll;
+Back returns to the overview, then the retained route. Existing canonical heap
+measurements remain the sole source; bars do not claim block-address order.
 
 After an authenticated READY, Cody advertises `CCP1|DEBUGCAP` with ordered fields
 `device`, `pc`, `nonce`, `debug=1`, `proof`. HMAC-SHA256 uses the retained link

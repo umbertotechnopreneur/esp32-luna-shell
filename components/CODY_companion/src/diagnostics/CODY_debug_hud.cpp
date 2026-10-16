@@ -347,6 +347,44 @@ esp_err_t prepare_debug_readout(const FrameRateMeasurement &measurement,
     return ESP_OK;
 }
 
+// readout: Compact display-owned heap projection, without acquisition or snapshot schema growth.
+// Exception: Logs and returns original snapshot errors or incoherent current heap values.
+esp_err_t prepare_memory_diagnostics(MemoryDiagnosticReadout &readout)
+{
+    readout = {};
+    LUNASHELL::DiagnosticsObservation observation;
+    const esp_err_t error =
+        LUNASHELL::DeviceSnapshotService::instance().readDiagnosticsObservation(observation);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Memory diagnostics snapshot read failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    const auto &memory = observation.memory;
+    if (!current_component(memory)) {
+        readout.internal.stale = memory.data_stale;
+        readout.psram.stale = memory.data_stale;
+        return ESP_OK;
+    }
+    if (memory.internal_heap_total_bytes == 0 || memory.psram_heap_total_bytes == 0 ||
+        memory.internal_free_bytes > memory.internal_heap_total_bytes ||
+        memory.internal_largest_block_bytes > memory.internal_free_bytes ||
+        memory.internal_minimum_free_bytes > memory.internal_free_bytes ||
+        memory.psram_free_bytes > memory.psram_heap_total_bytes ||
+        memory.psram_largest_block_bytes > memory.psram_free_bytes ||
+        memory.psram_minimum_free_bytes > memory.psram_free_bytes) {
+        ESP_LOGE(kTag, "Memory diagnostics capacities rejected (%s)",
+            esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    readout.internal = {memory.internal_heap_total_bytes, memory.internal_free_bytes,
+        memory.internal_largest_block_bytes, memory.internal_minimum_free_bytes,
+        memory.internal_free_blocks, true, false};
+    readout.psram = {memory.psram_heap_total_bytes, memory.psram_free_bytes,
+        memory.psram_largest_block_bytes, memory.psram_minimum_free_bytes,
+        memory.psram_free_blocks, true, false};
+    return ESP_OK;
+}
+
 // readout: Shared prepared text, with unavailable measurements visibly labelled.
 // strip: Destination owned by the companion renderer; no font or GUI allocation occurs.
 // first_row: Logical strip origin, mapped through the same cardinal rotation as Cody.
