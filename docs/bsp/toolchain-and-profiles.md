@@ -105,7 +105,13 @@ cannot accidentally reuse a Release build.
 | BOOT software reset | 3-second BOOT hold | Excluded; ordinary BOOT controls remain |
 | Cody static/parked worker | Existing 50 ms/200 ms waits; paused HUD refresh | 1000 ms functional gate checks; touch IRQ wakes immediately; an explicit diagnostic view retains live refresh |
 | Active animation | Existing selected 40 ms or 33 ms target | Same target |
-| Compiler optimization | Existing performance optimization (`-O2`) | Same optimization for comparable rendering behavior |
+| Compiler optimization | Size optimization (`-Os`) for general code; native Cody drawing and speech kernels retain `-O2` | Performance optimization (`-O2`); existing activity/control-plane size policy remains |
+
+Debug keeps the same OTA/storage geometry, VERBOSE log ceiling, assertions,
+UART core dumps and task stack budgets. Its smaller general-code policy does not
+change the native drawing, rig, SIMD or speech-kernel optimization. Existing
+activity/control-plane `-Os` overrides apply after the speed policy in both modes.
+Build-mode configuration checks reject a stale optimization selection.
 
 Release keeps real errors, canonical snapshot health/validity/timestamps,
 frame ownership/deadline checks, watchdogs, persistence semantics, requested

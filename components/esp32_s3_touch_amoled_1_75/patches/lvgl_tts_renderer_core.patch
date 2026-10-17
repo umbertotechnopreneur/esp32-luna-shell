@@ -1,7 +1,7 @@
 diff --git a/src/osal/lv_freertos.c b/src/osal/lv_freertos.c
 --- a/src/osal/lv_freertos.c
 +++ b/src/osal/lv_freertos.c
-@@ -15,4 +15,7 @@
+@@ -15,6 +15,9 @@
  #include "lv_os_private.h"
  #if LV_USE_OS == LV_OS_FREERTOS
  
@@ -9,7 +9,12 @@ diff --git a/src/osal/lv_freertos.c b/src/osal/lv_freertos.c
 +#include "bsp/runtime_cores.h"
 +#endif
  #include "atomic.h"
-@@ -81,3 +84,10 @@
+ 
+ #include "../tick/lv_tick.h"
+@@ -82,6 +85,13 @@
+  *   GLOBAL FUNCTIONS
+  **********************/
+ 
 +// pxThread: Receives the task handle and owns its callback context.
 +// name: Borrowed task name passed to FreeRTOS.
 +// xSchedPriority: LVGL task priority relative to idle.
@@ -20,12 +25,12 @@ diff --git a/src/osal/lv_freertos.c b/src/osal/lv_freertos.c
  lv_result_t lv_thread_init(lv_thread_t * pxThread,  const char * const name,
                             lv_thread_prio_t xSchedPriority,
                             void (*pvStartRoutine)(void *), size_t usStackSize,
-@@ -85,6 +95,17 @@
- {
+@@ -90,6 +100,17 @@
      pxThread->pTaskArg = xAttr;
      pxThread->pvStartRoutine = pvStartRoutine;
+ 
 +#if defined(ESP_PLATFORM) && CONFIG_LUNASHELL_BUILD_ENABLE_TTS
-+    // Pin the software draw workers as well as the adapter-owned GUI task.
++    // Use IDF's byte-sized stack API and the shared TTS/render ownership core.
 +    BaseType_t xTaskCreateStatus = xTaskCreatePinnedToCore(
 +                                       prvRunThread,
 +                                       name,
@@ -38,11 +43,11 @@ diff --git a/src/osal/lv_freertos.c b/src/osal/lv_freertos.c
      BaseType_t xTaskCreateStatus = xTaskCreate(
                                         prvRunThread,
                                         name,
-@@ -92,6 +113,7 @@
+@@ -97,6 +118,7 @@
                                         (void *)pxThread,
                                         tskIDLE_PRIORITY + xSchedPriority,
                                         &pxThread->xTaskHandle);
 +#endif
+ 
      /* Ensure that the FreeRTOS task was successfully created. */
      if(xTaskCreateStatus != pdPASS) {
-         LV_LOG_ERROR("xTaskCreate failed!");

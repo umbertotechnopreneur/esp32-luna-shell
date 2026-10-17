@@ -61,7 +61,7 @@ function Resolve-FirmwareBuildMode {
 
 # SdkconfigText is the generated ESP-IDF configuration, read before using its build.
 # BuildMode is the explicit mode selected for this command.
-# Throws when mode, logging, or debug-only power instrumentation disagrees.
+# Throws when mode, optimization, logging or debug-only power instrumentation disagrees.
 function Assert-FirmwareBuildModeConfiguration {
     param(
         [Parameter(Mandatory)][string]$SdkconfigText,
@@ -72,6 +72,8 @@ function Assert-FirmwareBuildModeConfiguration {
     $expectedFlags = @{
         LUNASHELL_BUILD_MODE_DEBUG = -not $release
         LUNASHELL_BUILD_MODE_RELEASE = $release
+        COMPILER_OPTIMIZATION_SIZE = -not $release
+        COMPILER_OPTIMIZATION_PERF = $release
         PM_LIGHT_SLEEP_CALLBACKS = -not $release
         USJ_NO_AUTO_LS_ON_CONNECTION = $false
     }

@@ -71,11 +71,10 @@ if(NOT DEFINED LUNASHELL_BUILD_MODE OR
    NOT LUNASHELL_BUILD_MODE MATCHES "^(Debug|Release)$")
     message(FATAL_ERROR "Explicit firmware build mode is missing; use scripts/device.ps1")
 endif()
-# The panic component must be discovered before Kconfig can select UART dumps.
-# Debug/Release remains independent of hardware and UI profile selection.
-if(LUNASHELL_BUILD_MODE STREQUAL "Debug")
-    list(APPEND COMPONENTS espcoredump)
-endif()
+# Both mode defaults select a panic policy, so its Kconfig must be discovered
+# even when Release selects NONE. That selection links no core-dump sources.
+# Keeping discovery explicit also lets a fresh native display profile configure.
+list(APPEND COMPONENTS espcoredump)
 if(NOT DEFINED LUNASHELL_DEPENDENCIES_LOCK OR
    LUNASHELL_DEPENDENCIES_LOCK STREQUAL "")
     message(FATAL_ERROR
@@ -276,6 +275,23 @@ foreach(brookesia_component ${brookesia_build_components})
         endif()
     endif()
 endforeach()
+
+# Debug's general code favors flash size so verbose diagnostics fit the same
+# OTA slots. Preserve the existing -O2 for native rendering and speech kernels;
+# their C/C++ code shares Release's speed policy and assembly stays unchanged.
+if(CONFIG_LUNASHELL_BUILD_MODE_DEBUG)
+    foreach(debug_speed_component CODY_companion CODY2D espressif__esp-sr
+            espressif__esp-dsp espressif__dl_fft)
+        set(debug_speed_library "__idf_${debug_speed_component}")
+        if(TARGET ${debug_speed_library})
+            get_target_property(debug_speed_library_type ${debug_speed_library} TYPE)
+            if(NOT debug_speed_library_type STREQUAL "INTERFACE_LIBRARY")
+                target_compile_options(${debug_speed_library} PRIVATE
+                    "$<$<COMPILE_LANGUAGE:C,CXX>:-O2>")
+            endif()
+        endif()
+    endforeach()
+endif()
 
 # Apply after ESP-DL's own -O3. Keep renderers, Sophia and assembly optimized
 # for speed; size-optimize the observer and control plane within existing OTA slots.

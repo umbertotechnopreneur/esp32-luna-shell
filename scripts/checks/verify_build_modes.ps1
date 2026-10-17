@@ -56,6 +56,8 @@ Assert-BuildModeRejection { Resolve-FirmwareBuildMode -Catalog $invalidCatalog }
 $debugConfig = @'
 CONFIG_LUNASHELL_BUILD_MODE_DEBUG=y
 # CONFIG_LUNASHELL_BUILD_MODE_RELEASE is not set
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+# CONFIG_COMPILER_OPTIMIZATION_PERF is not set
 CONFIG_PM_LIGHT_SLEEP_CALLBACKS=y
 # CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION is not set
 CONFIG_LOG_DEFAULT_LEVEL=3
@@ -65,6 +67,8 @@ CONFIG_BOOTLOADER_LOG_LEVEL=3
 $releaseConfig = @'
 CONFIG_LUNASHELL_BUILD_MODE_RELEASE=y
 # CONFIG_LUNASHELL_BUILD_MODE_DEBUG is not set
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+# CONFIG_COMPILER_OPTIMIZATION_SIZE is not set
 # CONFIG_PM_LIGHT_SLEEP_CALLBACKS is not set
 # CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION is not set
 CONFIG_LOG_DEFAULT_LEVEL=2
@@ -73,6 +77,9 @@ CONFIG_BOOTLOADER_LOG_LEVEL=2
 '@
 Assert-FirmwareBuildModeConfiguration -SdkconfigText $debugConfig -BuildMode Debug
 Assert-FirmwareBuildModeConfiguration -SdkconfigText $releaseConfig -BuildMode Release
+Assert-BuildModeRejection {
+    Assert-FirmwareBuildModeConfiguration -SdkconfigText ($debugConfig.Replace('CONFIG_COMPILER_OPTIMIZATION_SIZE=y', '# CONFIG_COMPILER_OPTIMIZATION_SIZE is not set')) -BuildMode Debug
+} 'COMPILER_OPTIMIZATION_SIZE'
 Assert-BuildModeRejection {
     Assert-FirmwareBuildModeConfiguration -SdkconfigText $releaseConfig -BuildMode Debug
 } 'rejected sdkconfig'

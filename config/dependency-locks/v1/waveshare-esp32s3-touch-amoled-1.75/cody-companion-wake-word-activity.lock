@@ -276,6 +276,6 @@ direct_dependencies:
 - idf
 - waveshare/esp_lcd_touch_cst9217
 - waveshare/qmi8658
-manifest_hash: a92b4e43fbcfdf961ed79423cd91759dd178ca12e2db2abbd5f25dbd191b53c6
+manifest_hash: 5b1f8cfa2e0064267c0ac28ebfed9c427abfeb84e1ab199d64f25a868da7d82e
 target: esp32s3
 version: 3.0.0

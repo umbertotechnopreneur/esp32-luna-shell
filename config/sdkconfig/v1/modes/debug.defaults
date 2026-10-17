@@ -15,6 +15,9 @@
 # VBWR E
 
 # Explicit development policy, applied after the hardware/profile layers.
+# Keep verbose logs, assertions and UART dumps within the existing OTA slots.
+# CMake retains -O2 for native drawing and speech kernels, matching Release.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 CONFIG_LUNASHELL_BUILD_MODE_DEBUG=y
 # CONFIG_LUNASHELL_BUILD_MODE_RELEASE is not set
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y

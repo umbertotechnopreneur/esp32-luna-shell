@@ -40,6 +40,7 @@ class DocumentKind(str, Enum):
 class ReviewSpec:
     filename: str
     kind: DocumentKind
+    # Original body pages exclude the publisher's cover and live contents.
     main_pages: int | None
     required: tuple[str, ...]
 
@@ -74,6 +75,7 @@ def is_register_page(value):
 # spec: Canonical document identity, main section boundary and independent content requirements.
 # Raises AssertionError for obsolete topology, absent content or misplaced revision history.
 # Raises OSError for an unreadable PDF.
+# Raises ValueError for an invalid PDF bookmark destination.
 def check_document(spec):
     reader = PdfReader(ROOT / "docs/cody" / spec.filename)
     texts = [page.extract_text() or "" for page in reader.pages]
@@ -90,11 +92,29 @@ def check_document(spec):
             assert forbidden not in content, "Technical appendix leaked into the A5 flyer: " + forbidden
         main_count = 4
     else:
+        # The current publisher adds a cover and navigable contents without
+        # renumbering historical screen/page identities in the retained body.
+        frontmatter_pages = 2
+        assert "CODY / VIBEWARE" in texts[0], "Missing publisher cover: " + spec.filename
+        assert texts[1].lstrip().startswith("Contents"), "Missing live contents: " + spec.filename
+        bookmarks = {}
+        for destination in reader.outline:
+            title = getattr(destination, "title", None)
+            if title in ("Cover", "Contents", "Revision register", "Security"):
+                assert title not in bookmarks, "Ambiguous section bookmark: " + title
+                bookmarks[title] = reader.get_destination_page_number(destination)
+        assert bookmarks.get("Cover") == 0 and bookmarks.get("Contents") == 1, (
+            "Front matter bookmarks do not match their pages: " + spec.filename)
         register_pages = [number for number, text in enumerate(texts) if is_register_page(text)]
         assert register_pages, "Missing final dated revision grid: " + spec.filename
         main_count = register_pages[0]
         if spec.main_pages is not None:
-            assert main_count == spec.main_pages, "Unexpected main section boundary: " + spec.filename
+            expected_boundary = frontmatter_pages + spec.main_pages
+            assert main_count == expected_boundary, (
+                f"Unexpected main section boundary: {spec.filename}; "
+                f"expected {expected_boundary}, found {main_count}")
+        assert bookmarks.get("Revision register") == main_count, (
+            "Contents bookmark does not locate the final revision grid: " + spec.filename)
         assert all(is_register_page(text) for text in texts[main_count:]), (
             "Standalone appendix remains outside the final grid: " + spec.filename)
         history = normalized(" ".join(texts[main_count:]))
@@ -102,8 +122,15 @@ def check_document(spec):
             assert category.casefold() in history.casefold(), "Missing historical category: " + category
         assert re.search(r"(?:[0-9]{1,2} October 2026|2026-10-[0-9]{2})", history), (
             "Historical revision dates are absent: " + spec.filename)
-        assert any("security" in line.casefold() for line in texts[-1].splitlines()), (
-            "Security must remain a clearly labelled final register section: " + spec.filename)
+        # A later dated Change may follow Security. Require an actual labelled
+        # Security section inside the final grid, with its own working bookmark.
+        security_pages = [number for number in register_pages if any(
+            normalized(line).casefold() == "security" or
+            normalized(line).casefold().endswith(" / security")
+            for line in texts[number].splitlines()[:5])]
+        assert security_pages, "Missing labelled Security register section: " + spec.filename
+        assert bookmarks.get("Security") == security_pages[0], (
+            "Contents bookmark does not locate Security: " + spec.filename)
     main = normalized(" ".join(texts[:main_count])).casefold()
     for required in spec.required:
         assert required.casefold() in main, f"Current main section lacks {required}: {spec.filename}"
