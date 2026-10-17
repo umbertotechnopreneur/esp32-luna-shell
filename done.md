@@ -15,6 +15,45 @@ private local diagnostics, not publication artifacts.
 
 
 
+## Approval-notice source fix, host checks and firmware flash - 2026-10-17
+
+Source checkpoint `ce83bd1` corrects repeated native approval notices in the PC
+plugin: each physical recipient is admitted once per genuine originating turn;
+admission survives Back, expiry and partial delivery failure. Accepted resumed
+tool activity retires only that chat's advisory approval ticket. Questions and
+native PC decisions retain their owners. Broker traces record accepted permission
+boundaries and queued/suppressed/retired outcomes with hashed identities, never
+commands, tool inputs or chat text. PC package 0.6.10 is prepared; installation and
+live activation are tracked in TODO.md rather than claimed complete here.
+
+The explicitly authorized CCP suite ran 147 cases: 146 passed and the native
+firmware-parser case stopped because the existing host compiler environment was
+not loaded. After a separate exact-command authorization, the same native parser
+case passed with Visual Studio's developer environment. Consolidated evidence is
+**147/147 passed**, including five new notice-lifetime/error/privacy regressions;
+this was not one entirely green invocation. Both original and recovery logs are
+preserved. Package version metadata changed afterward; the tested notice logic
+and parser sources are unchanged. No additional simulator/physical test, size
+command, diff check, publication scan or push was performed.
+
+The separately authorized new Release build and USB flash completed on COM10,
+using IDF 6.0.2 and eight jobs. Image version: `cody-220-gce83bd10`; source:
+`ce83bd106312103262310b5bb5036bd22f3537db`. App: 6,925,344 bytes,
+SHA256 `cfa37c4ba3f69a3db500ea04667595ccc2dcf6ba2a8cf78278a15d942dc198ee`. The flash command refreshed generated build metadata
+before writing; firmware-manifest.json retains both pre-command and actual final
+file hashes. All five segment hashes were verified, followed by the flash tool's
+RTS reset request. This is flash evidence, not physical UI/touch/acoustic/wake or
+post-reset behavior validation. No firmware logic was changed for the PC notice
+fix.
+
+Earlier authenticated LAN presence and openable Espressif COM10 were observed.
+The SD current-log readback failed with esp_err=263 / errno=0, without reset or
+formatting. Historical accepted permissions were not traced; other retained
+locator/capability errors do not establish the cause of the original repetition.
+The bounded historical log window, failed and passing test invocations, compiled
+native-parser evidence, build log, flash log and image hashes are preserved under
+`artifacts/build-cody-approval-evidence-20261017/`, copied before mandatory cleanup.
+
 ## Debug footprint, dependency locks and PDF validation - 2026-10-17
 
 The owner authorized all automatic checks, compilation, checkpoint commits,
