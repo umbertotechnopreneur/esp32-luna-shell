@@ -66,6 +66,19 @@ values, failed reads or failed writes return their actual errors.
 
 ## Physical wake and recovery
 
+Native Cody and Luna both use raw touch IRQ generation as software-standby wake
+intent. This observer consumes no report, acquires no display lock, reads no I2C
+and publishes no coordinates. A rejected CST9217 report remains a real touch
+error without discarding the independent wake request.
+
+The power owner retains the phase, typed resource, operation completion flag,
+original result and monotonic timestamp in bounded RTC RAM. Each resource is
+marked before its call and after its return. Startup reports that breadcrumb
+immediately after logger initialization, before other messages fill the early
+backlog. Lifecycle boundaries remain visible in Release. RTC-domain loss or a
+different schema is reported as unavailable. Diagnostic retention is not
+flash/SD persistence or proof that a transition completed.
+
 Both direct interrupts use EXT1 **ANY_LOW**, through the ESP-IDF 6.0.2 native API.
 The PMU and RTC interrupts reach an expander whose INT is not wired to the ESP,
 so they are not added as Deep-sleep wake sources. Normal inactivity arms no timer.

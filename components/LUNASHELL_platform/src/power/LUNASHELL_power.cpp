@@ -43,6 +43,7 @@
 #include <cstdlib>
 
 #include "bsp/esp-bsp.h"
+#include "bsp/touch.h"
 #include "driver/gpio.h"
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
@@ -102,7 +103,7 @@ constexpr uint32_t kDeferredStandbyTraceReportCount = 3U;
 constexpr int kMaximumCpuFrequencyMhz = 240;
 constexpr int kMinimumCpuFrequencyMhz = 80;
 constexpr uint32_t kStandbyTraceMagic = 0x53545243U;  // "STRC"
-constexpr uint32_t kStandbyTraceVersion = 1U;
+constexpr uint32_t kStandbyTraceVersion = 2U;
 
 TaskHandle_t s_task;
 LUNASHELL::InputSnapshot s_inputs;
@@ -297,9 +298,12 @@ struct StandbyTrace {
     uint32_t phase;
     int32_t error;
     int64_t recorded_at_us;
+    uint32_t resource;
+    uint32_t resource_completed;
 };
 
-RTC_NOINIT_ATTR StandbyTrace s_retained_standby_trace;
+static_assert(sizeof(StandbyTrace) <= 40, "Keep retained power diagnostics bounded");
+RTC_NOINIT_ATTR volatile StandbyTrace s_retained_standby_trace;
 
 struct ButtonState {
     bool raw_pressed = false;
@@ -322,6 +326,7 @@ LUNASHELL::ButtonHold s_power_off_hold;
 bool s_power_long_press_consumed = false;
 int64_t s_power_invalid_observed_at_us = 0;
 
+// phase: Typed transition identity retained by the power owner.
 const char *standby_trace_phase_name(StandbyTracePhase phase)
 {
     switch (phase) {
@@ -393,18 +398,68 @@ const char *device_state_reason_name(LUNASHELL::DeviceStateReason reason)
     return "unknown";
 }
 
+// resource: Typed hardware step; Count means no individual operation has started.
+const char *standby_resource_name(LUNASHELL::power_policy::StandbyStep resource)
+{
+    using Step = LUNASHELL::power_policy::StandbyStep;
+    switch (resource) {
+    case Step::FullSnapshots: return "full-snapshots";
+    case Step::UiSampling: return "ui-sampling";
+    case Step::Gps: return "gps";
+    case Step::Distance: return "distance";
+    case Step::Storage: return "storage";
+    case Step::Imu: return "imu";
+    case Step::MotionWake: return "motion-wake";
+    case Step::VoiceAfe: return "voice-afe";
+    case Step::BaseAudio: return "base-audio";
+    case Step::Wireless: return "wireless";
+    case Step::StandaloneDisplay: return "native-display";
+    case Step::Display: return "display";
+    case Step::Lvgl: return "lvgl";
+    case Step::PrepareDarkFrame: return "dark-frame";
+    case Step::PrepareWakeFrame: return "wake-frame";
+    case Step::Count: return "none";
+    }
+    return "invalid";
+}
+
+// resource: Individual owner about to run or just returned.
+// completed: True only after the synchronous operation returned.
+// error: Original mandatory or optional operation result.
+// This breadcrumb performs no logging, allocation, sensor read or persistence.
+void record_standby_resource_trace(LUNASHELL::power_policy::StandbyStep resource,
+    bool completed, esp_err_t error)
+{
+    s_retained_standby_trace.magic = 0;
+    s_retained_standby_trace.resource = static_cast<uint32_t>(resource);
+    s_retained_standby_trace.resource_completed = completed ? 1U : 0U;
+    s_retained_standby_trace.error = static_cast<int32_t>(error);
+    s_retained_standby_trace.recorded_at_us = esp_timer_get_time();
+    std::atomic_thread_fence(std::memory_order_release);
+    s_retained_standby_trace.magic = kStandbyTraceMagic;
+}
+
+// phase: Typed stage whose completion or failure is being recorded.
+// error: Original stage result; resource details remain available on failure.
 void record_standby_trace(StandbyTracePhase phase, esp_err_t error)
 {
     // Publish the magic last so an interrupted RTC write is never presented
     // as a coherent previous trace at the next boot.
     s_retained_standby_trace.magic = 0;
     s_retained_standby_trace.version = kStandbyTraceVersion;
+    if (phase == StandbyTracePhase::EntryRequested || phase == StandbyTracePhase::WakeRequested) {
+        s_retained_standby_trace.resource =
+            static_cast<uint32_t>(LUNASHELL::power_policy::StandbyStep::Count);
+        s_retained_standby_trace.resource_completed = 0;
+    }
     s_retained_standby_trace.transition_sequence = s_transition_sequence;
     s_retained_standby_trace.phase = static_cast<uint32_t>(phase);
     s_retained_standby_trace.error = static_cast<int32_t>(error);
     s_retained_standby_trace.recorded_at_us = esp_timer_get_time();
+    std::atomic_thread_fence(std::memory_order_release);
     s_retained_standby_trace.magic = kStandbyTraceMagic;
-    ESP_LOGI(
+    // Keep infrequent lifecycle boundaries in warning-only Release builds.
+    ESP_LOGW(
         kTag,
         "Standby trace: phase=%s sequence=%lu error=%s",
         standby_trace_phase_name(phase),
@@ -413,11 +468,12 @@ void record_standby_trace(StandbyTracePhase phase, esp_err_t error)
     );
 }
 
+// No parameters: report the retained breadcrumb, including in Release.
 void log_retained_standby_trace()
 {
     if (s_retained_standby_trace.magic != kStandbyTraceMagic ||
         s_retained_standby_trace.version != kStandbyTraceVersion) {
-        ESP_LOGI(kTag, "Previous standby trace unavailable: RTC retention was reset");
+        ESP_LOGW(kTag, "Previous standby trace unavailable: RTC retention or schema was reset");
         return;
     }
     const auto phase = static_cast<StandbyTracePhase>(
@@ -425,12 +481,15 @@ void log_retained_standby_trace()
     );
     ESP_LOGW(
         kTag,
-        "Retained standby trace: phase=%s sequence=%lu error=%s at=%lld us reset=%u",
+        "Retained standby trace: phase=%s sequence=%lu error=%s at=%lld us reset=%u resource=%s completed=%lu",
         standby_trace_phase_name(phase),
         static_cast<unsigned long>(s_retained_standby_trace.transition_sequence),
         esp_err_to_name(static_cast<esp_err_t>(s_retained_standby_trace.error)),
         static_cast<long long>(s_retained_standby_trace.recorded_at_us),
-        static_cast<unsigned>(esp_reset_reason())
+        static_cast<unsigned>(esp_reset_reason()),
+        standby_resource_name(static_cast<LUNASHELL::power_policy::StandbyStep>(
+            s_retained_standby_trace.resource)),
+        static_cast<unsigned long>(s_retained_standby_trace.resource_completed)
     );
 }
 
@@ -1103,7 +1162,7 @@ struct StandbyExecutionContext {
 // operation: Typed resource identity from the common firmware/host dependency plan.
 // target: Whether the named resource enters standby or restores active operation.
 // Exception: Reports original mandatory and optional errors independently.
-LUNASHELL::power_policy::StandbyStepResult execute_hardware_standby_step(
+LUNASHELL::power_policy::StandbyStepResult execute_hardware_standby_step_owned(
     void *owner, LUNASHELL::power_policy::StandbyStep operation, bool target)
 {
     using LUNASHELL::power_policy::StandbyStep;
@@ -1253,6 +1312,20 @@ LUNASHELL::power_policy::StandbyStepResult execute_hardware_standby_step(
             LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Unknown, result.mandatory);
         ESP_LOGE(kTag, "Display Wake preparation failed (%s)", esp_err_to_name(result.mandatory));
     }
+    return result;
+}
+
+// owner: Borrowed synchronous power-task context; no additional snapshot is copied.
+// operation: Typed resource retained before entering the owner's call.
+// target: Whether the resource is suspending or resuming.
+// Exception: Preserves mandatory and optional errors from the resource owner.
+LUNASHELL::power_policy::StandbyStepResult execute_hardware_standby_step(
+    void *owner, LUNASHELL::power_policy::StandbyStep operation, bool target)
+{
+    record_standby_resource_trace(operation, false, ESP_OK);
+    const auto result = execute_hardware_standby_step_owned(owner, operation, target);
+    const esp_err_t error = result.mandatory != ESP_OK ? result.mandatory : result.optional;
+    record_standby_resource_trace(operation, true, error);
     return result;
 }
 
@@ -2842,7 +2915,7 @@ esp_err_t apply_idle_policy()
 void power_task(void *argument)
 {
     (void)argument;
-#if CONFIG_LUNASHELL_BUILD_ENABLE_UI && CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
     uint32_t consumed_touch_interrupt_sequence = bsp_touch_interrupt_sequence();
 #endif
     TickType_t last_policy_tick = xTaskGetTickCount();
@@ -3074,13 +3147,13 @@ void power_task(void *argument)
         }
 
         bool physical_touch_interrupt = false;
-#if CONFIG_LUNASHELL_BUILD_ENABLE_UI && CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
         const uint32_t touch_interrupt_sequence = bsp_touch_interrupt_sequence();
         physical_touch_interrupt = touch_interrupt_sequence != consumed_touch_interrupt_sequence;
         consumed_touch_interrupt_sequence = touch_interrupt_sequence;
         if (physical_touch_interrupt && s_state == LUNASHELL::DeviceOperatingState::Standby) {
-            // LVGL is parked, but its IRQ observer remains alive. This is wake intent,
-            // not a measured touch contact; acquisition publishes the actual sample.
+            // Raw IRQ wake is independent of renderer locks and coordinate-read health.
+            // The input owner publishes the actual sample and its original error.
             const esp_err_t wake_error = wake_from_user_input(false, LUNASHELL::DeviceStateReason::Touch);
             if (wake_error != ESP_OK) {
                 ESP_LOGE(kTag, "Touch IRQ wake reported an error (%s)", esp_err_to_name(wake_error));
@@ -3279,6 +3352,13 @@ void stop_motion_monitor_after_init_failure(const char *stage)
 }
 
 }  // namespace
+
+// No parameters: retain the previous transition before startup fills the boot backlog.
+// No hardware acquisition or persistent setting write occurs here.
+extern "C" void LUNASHELL_power_manager_report_boot_trace(void)
+{
+    log_retained_standby_trace();
+}
 
 // callback: Single display consumer; publish once before the power owner can transition.
 extern "C" esp_err_t LUNASHELL_power_manager_register_display_lifecycle(

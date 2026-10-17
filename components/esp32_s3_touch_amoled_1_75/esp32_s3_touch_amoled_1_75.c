@@ -54,6 +54,9 @@ static const char *TAG = "ESP32-S3-Touch-AMOLED-1.75";
 
 static i2c_master_bus_handle_t i2c_handle = NULL; // I2C Handle
 static bool i2c_initialized = false;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+static uint32_t touch_interrupt_sequence;
+#endif
 static esp_io_expander_handle_t io_expander = NULL; // IO expander tca9554 handle
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
 static bool display_initialized;
@@ -66,7 +69,6 @@ static lv_display_t *display_handle = NULL;
 static lv_indev_t *disp_indev = NULL;
 static bsp_touch_activity_callback_t touch_activity_callback = NULL;
 static void *touch_activity_user_data = NULL;
-static uint32_t touch_interrupt_sequence;
 static uint8_t *display_frame_cache = NULL;
 static bool display_frame_cache_rows[BSP_LCD_V_RES];
 static size_t display_frame_cache_full_row_count = 0;
@@ -93,6 +95,15 @@ static bool display_dma_faulted;
 sdmmc_card_t *bsp_sdcard = NULL; // Global uSD card handler
 #endif
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+// No parameters: expose raw IRQ generation without consuming the input owner's report.
+uint32_t bsp_touch_interrupt_sequence(void)
+{
+    return __atomic_load_n(&touch_interrupt_sequence, __ATOMIC_ACQUIRE);
+}
+
+#endif
+
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 // touch_handle: Adapter-owned hardware controller; this observer never reads it.
 // user_context: Unused observer context; no allocation or task work runs in the ISR.
@@ -106,12 +117,6 @@ static void IRAM_ATTR bsp_touch_wake_interrupt(
     // The GPIO ISR remains live while LVGL is paused. This is wake intent,
     // not a measured contact; only the normal input owner may publish a touch.
     __atomic_add_fetch(&touch_interrupt_sequence, 1U, __ATOMIC_RELEASE);
-}
-
-// No parameters: expose raw IRQ generation without consuming the input owner's report.
-uint32_t bsp_touch_interrupt_sequence(void)
-{
-    return __atomic_load_n(&touch_interrupt_sequence, __ATOMIC_ACQUIRE);
 }
 
 // event: Existing LVGL input event used to publish physical activity intent.
@@ -2569,6 +2574,8 @@ static esp_err_t touch_last_report_error;
 static void IRAM_ATTR bsp_touch_report_interrupt(esp_lcd_touch_handle_t touch_handle)
 {
     (void)touch_handle;
+    // Preserve wake intent independently of coordinate-read success.
+    __atomic_add_fetch(&touch_interrupt_sequence, 1U, __ATOMIC_RELEASE);
     __atomic_store_n(&touch_report_irq_at_us, (uint32_t)esp_timer_get_time(), __ATOMIC_RELAXED);
     __atomic_store_n(&touch_report_pending, 1U, __ATOMIC_RELEASE);
     BaseType_t higher_priority_task_woken = pdFALSE;

@@ -385,11 +385,13 @@ void brookesia_task()
 }  // namespace
 
 // No parameters: restore wake pins, then start the selected Brookesia firmware.
+// Exception: Critical startup failures abort; optional logger errors retain their cause.
 extern "C" void app_main(void)
 {
     ESP_ERROR_CHECK(LUNASHELL_power_prepare_boot());
     ESP_ERROR_CHECK(LUNASHELL_memory_telemetry_init());
     const esp_err_t logger_error = LUNASHELL_logger_init();
+    LUNASHELL_power_manager_report_boot_trace();
     if (logger_error != ESP_OK) {
         // Logging is optional: preserve its failure without stopping UI/hardware startup.
         ESP_LOGE(kTag, "Optional logger initialization failed (%s); startup continues",

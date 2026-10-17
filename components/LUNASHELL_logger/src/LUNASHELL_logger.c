@@ -133,6 +133,7 @@ static bool s_boot_collecting = true;
 static bool s_boot_collecting;
 #endif
 static bool s_boot_file_prepared;
+static bool s_boot_identity_written;
 // Protected by s_io_mutex: appends retain identity; rename/remount changes it.
 static uint32_t s_log_revision = 1U;
 
@@ -1227,8 +1228,8 @@ esp_err_t LUNASHELL_logger_bind_sd(const char *mount_point)
     return result;
 }
 
-// mount_point is the storage owner's verified mount, never a logger-owned mount.
-// Returns the real directory, rotation or file creation error.
+// mount_point: Verified card root owned by the removable-storage service.
+// Exception: Returns real path, identity-write, flush and close errors.
 static esp_err_t prepare_sd_mirror_path(const char *mount_point)
 {
     char app_dir[128];
@@ -1273,6 +1274,8 @@ static esp_err_t prepare_sd_mirror_path(const char *mount_point)
             record_sd_failure("boot file stat", ESP_FAIL, stat_errno);
             return ESP_FAIL;
         }
+        // A failed identity write must not rotate over the previous boot on retry.
+        s_boot_file_prepared = true;
     }
     FILE *probe = fopen(s_log_path, "ab");
     if (probe == NULL) {
@@ -1280,12 +1283,35 @@ static esp_err_t prepare_sd_mirror_path(const char *mount_point)
         record_sd_failure("probe open", ESP_FAIL, open_errno);
         return ESP_FAIL;
     }
+    // Persist the current boot identity before admitting the asynchronous writer.
+    esp_err_t result = ESP_OK;
+    if (!s_boot_identity_written) {
+        if (fprintf(probe, "W (%lld) %s: SD SESSION START reset=%d version=%s\n",
+                (long long)(esp_timer_get_time() / 1000), TAG,
+                (int)esp_reset_reason(), esp_app_get_description()->version) < 0) {
+            record_sd_failure("session identity write", ESP_FAIL, errno);
+            result = ESP_FAIL;
+        } else if (fflush(probe) != 0) {
+            record_sd_failure("session identity flush", ESP_FAIL, errno);
+            result = ESP_FAIL;
+        } else {
+            note_persisted_write();
+        }
+    }
     if (fclose(probe) != 0) {
         const int close_errno = errno;
-        record_sd_failure("probe close", ESP_FAIL, close_errno);
-        return ESP_FAIL;
+        if (result == ESP_OK) {
+            record_sd_failure("probe close", ESP_FAIL, close_errno);
+            result = ESP_FAIL;
+        } else {
+            serial_printf("E (%lld) %s: Session probe secondary close failed: errno=%d\n",
+                (long long)(esp_timer_get_time() / 1000), TAG, close_errno);
+        }
     }
-    s_boot_file_prepared = true;
+    if (result != ESP_OK) {
+        return result;
+    }
+    s_boot_identity_written = true;
     advance_log_revision();
     return ESP_OK;
 }

@@ -104,6 +104,12 @@ remain explicit limits. A successful stdio flush is not a guarantee against
 filesystem/card corruption from power loss. No missing/corrupt preference or filesystem is repaired
 implicitly, and no removable card is formatted by logging or readback.
 
+The first mirror activation writes and flushes an SD SESSION START identity
+with the current firmware version and reset reason before asynchronous writer
+admission. Write, flush and close failures remain real errors. This marker makes
+a newly created current file identifiable even if later replay or writing fails;
+it does not prove that the rest of the boot was recorded.
+
 ## Read ownership and integrity
 
 The native USB receiver accepts only fixed current/previous identities. It

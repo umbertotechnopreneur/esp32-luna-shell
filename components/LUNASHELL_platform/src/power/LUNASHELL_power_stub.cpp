@@ -21,6 +21,7 @@
 
 
 #include "LUNASHELL_platform.h"
+#include "esp_log.h"
 
 // enabled: Unsupported motion policy in a build without the power owner.
 // Exception: Always returns ESP_ERR_NOT_SUPPORTED.
@@ -63,6 +64,12 @@ extern "C" esp_err_t LUNASHELL_power_manager_register_speech_shutdown(esp_err_t 
 {
     (void)seal;
     return ESP_ERR_NOT_SUPPORTED;
+}
+
+// No parameters: this profile has no power transition owner or retained trace.
+extern "C" void LUNASHELL_power_manager_report_boot_trace(void)
+{
+    ESP_LOGW("LUNASHELL_power", "Previous standby trace unavailable: power owner excluded");
 }
 
 extern "C" esp_err_t LUNASHELL_power_manager_init(void)

@@ -487,15 +487,6 @@ esp_err_t bsp_display_set_touch_activity_callback(
 );
 
 /**
- * @brief Return the raw touch interrupt generation, including while LVGL is paused.
- *
- * This is a wake-intent observation only. It does not read the controller,
- * consume its pending report, or prove that a contact/coordinate was measured.
- * The normal input owner remains responsible for publishing real touch data.
- */
-uint32_t bsp_touch_interrupt_sequence(void);
-
-/**
  * @brief Pause the LVGL worker and its periodic tick for display standby.
  *
  * The pinned adapter is patched to clear its acknowledgement before publishing

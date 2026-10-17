@@ -35,6 +35,12 @@ typedef struct {
 
 bool bsp_touch_is_ready(void);
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+// No parameters: observe IRQ wake intent in native and LVGL paths, including standby.
+// This never reads hardware, consumes a report, or publishes measured contact data.
+uint32_t bsp_touch_interrupt_sequence(void);
+#endif
+
 // timeout_ms: Maximum wait for a report; NOT_FOUND is a normal idle timeout.
 esp_err_t bsp_touch_wait_for_report(uint32_t timeout_ms);
 

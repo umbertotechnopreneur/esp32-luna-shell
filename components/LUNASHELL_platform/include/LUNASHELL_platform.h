@@ -215,6 +215,9 @@ typedef enum {
     LUNASHELL_POWER_TIMEOUT_SCREEN_IDLE = 4,
 } LUNASHELL_power_timeout_t;
 
+// No parameters: log retained power diagnostics immediately after logger initialization.
+void LUNASHELL_power_manager_report_boot_trace(void);
+
 /** Start the single BOOT/PWR, inactivity, display, audio, and IMU service. */
 esp_err_t LUNASHELL_power_manager_init(void);
 

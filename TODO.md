@@ -1,5 +1,17 @@
 # Active work
 
+## Standby wake hardening - 2026-10-17
+
+- Implement native touch-IRQ wake independently of coordinate-read success.
+- Retain resource-level RTC breadcrumbs and report them before the boot backlog fills.
+- Flush the SD session identity before asynchronous logger admission.
+- Owner-authorized Release build and COM10 flash are pending. Automated tests,
+  simulator checks, size reports and physical wake acceptance remain unexecuted.
+- Preserve recovered logs under artifacts/build-cody-wake-evidence-20261017/
+  before transient cleanup.
+
+## Earlier delivery record
+
 No unresolved gate remains for the authorized 17 October delivery. The Debug
 footprint, missing profile locks, PDF corrections and backlog reconciliation are
 complete. All 48 automatic checks and four selected builds/size reports passed;
