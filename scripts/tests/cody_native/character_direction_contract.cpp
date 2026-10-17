@@ -117,17 +117,60 @@ int check_character_direction_contract()
     CODY::CharacterDirectionInputs inputs{};
     inputs.enabled = inputs.affection_allowed = true;
     inputs.activity.chat = kChat;
+    inputs.activity.turn = kTurn;
     inputs.activity.current = inputs.activity.compacting = true;
     inputs.activity.compaction_sequence = 7;
     CODY::CharacterDirectionState active{};
     if (!expect(CODY::advance_character_direction(inputs, 1000000, active, active) == ESP_OK &&
         active.pose == Pose::Concentrating && CODY::character_direction_cue(active) == CODY::PersonalityCue::Confusion,
         "current start did not enter concentration")) { return 1; }
+    if (!expect(CODY::prioritize_compaction_cue(active, CODY::PersonalityCue::Joy) ==
+        CODY::PersonalityCue::Confusion, "authored working cue masked genuine compaction")) { return 1; }
+    if (!expect(CODY::prioritize_compaction_cue(active, CODY::PersonalityCue::LowBattery) ==
+        CODY::PersonalityCue::LowBattery && CODY::prioritize_compaction_cue(active, CODY::PersonalityCue::Sleep) ==
+        CODY::PersonalityCue::Sleep, "compaction replaced device or sleep priority")) { return 1; }
+    CODY::CompactionSoundLatch sound_latch{};
+    if (!expect(!CODY::claim_compaction_sound(active, false, CODY::PersonalityCue::Confusion, sound_latch) &&
+        CODY::claim_compaction_sound(active, true, CODY::PersonalityCue::Confusion, sound_latch) &&
+        !CODY::claim_compaction_sound(active, true, CODY::PersonalityCue::Confusion, sound_latch),
+        "compaction sound must first retire visibly and admit exactly once")) { return 1; }
+    auto resumed = active;
+    resumed.attention = true;
+    if (!expect(!CODY::claim_compaction_sound(resumed, true, CODY::PersonalityCue::Curiosity, sound_latch),
+        "attention originated a compaction sound")) { return 1; }
+    resumed.attention = false;
+    if (!expect(!CODY::claim_compaction_sound(resumed, true, CODY::PersonalityCue::Confusion, sound_latch),
+        "attention/resume replayed an admitted compaction sound")) { return 1; }
+    ++resumed.compaction_sequence;
+    if (!expect(CODY::claim_compaction_sound(resumed, true, CODY::PersonalityCue::Confusion, sound_latch),
+        "second genuine sequence was lost while the same symbol remained visible")) { return 1; }
+    std::strcpy(resumed.turn, kOtherTurn);
+    if (!expect(CODY::claim_compaction_sound(resumed, true, CODY::PersonalityCue::Confusion, sound_latch),
+        "new turn reusing a compaction sequence lost its sound admission")) { return 1; }
+    ++resumed.compaction_sequence;
+    resumed.current = false;
+    if (!expect(!CODY::claim_compaction_sound(resumed, true, CODY::PersonalityCue::Confusion, sound_latch),
+        "stale lifecycle originated a compaction sound")) { return 1; }
+    auto attention = active;
+    attention.attention = true;
+    if (!expect(CODY::prioritize_compaction_cue(attention, CODY::PersonalityCue::Curiosity) ==
+        CODY::PersonalityCue::Curiosity, "compaction replaced question priority")) { return 1; }
+    auto stale = active;
+    stale.current = false;
+    if (!expect(CODY::prioritize_compaction_cue(stale, CODY::PersonalityCue::Joy) ==
+        CODY::PersonalityCue::Joy, "stale compaction replaced the current scene")) { return 1; }
     inputs.activity.compacting = false;
     inputs.activity.refreshed = true;
     CODY::CharacterDirectionState completed{};
     if (!expect(CODY::advance_character_direction(inputs, 100000, active, completed) == ESP_OK &&
-        completed.pose == Pose::Release, "real same-sequence end did not release")) { return 1; }
+        completed.pose == Pose::Release &&
+        CODY::prioritize_compaction_cue(completed, CODY::PersonalityCue::Joy) == CODY::PersonalityCue::Joy,
+        "real same-sequence end did not release")) { return 1; }
+    CODY::CharacterDirectionState other_turn{};
+    inputs.activity.turn = kOtherTurn;
+    if (!expect(CODY::advance_character_direction(inputs, 100000, active, other_turn) == ESP_OK &&
+        other_turn.pose != Pose::Release, "new turn reusing a sequence invented prior completion")) { return 1; }
+    inputs.activity.turn = kTurn;
     inputs.activity.compaction_sequence = 8;
     CODY::CharacterDirectionState mismatched{};
     if (!expect(CODY::advance_character_direction(inputs, 100000, active, mismatched) == ESP_OK &&
@@ -178,6 +221,11 @@ int check_character_direction_contract()
     if (!expect(CODY::project_character_activity(link, technical, observation) == ESP_OK &&
         std::strcmp(observation.turn, kTurn) == 0 && observation.work_kind == CODY::CharacterWorkKind::Thinking,
         "coherent turn/work kind did not reach the director")) { return 1; }
+    technical.compaction = LUNASHELL::CodexCompactionState::Orphaned;
+    if (!expect(CODY::project_character_activity(link, technical, observation) == ESP_OK &&
+        !observation.compacting && !observation.refreshed,
+        "orphaned compaction invented an active or completed pose")) { return 1; }
+    technical.compaction = LUNASHELL::CodexCompactionState::Active;
     technical.data_stale = true;
     if (!expect(CODY::project_character_activity(link, technical, observation) == ESP_OK &&
         !observation.compacting && observation.turn[0] == '\0',

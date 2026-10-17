@@ -189,6 +189,8 @@ if ($null -eq $projectBuildFunction) {
 }
 $projectBuildText = $projectBuildFunction.Extent.Text
 foreach ($requiredBuildFragment in @(
+    '$buildMetadata = Get-FirmwareBuildMetadata',
+    'Write-FirmwareBuildMetadata -BuildDirectory $RequestedBuildDir -Metadata $buildMetadata',
     '$reconfigure = -not (Test-Path $buildNinja)',
     '"-DSDKCONFIG=$ProfileSdkconfigPath"',
     '"-DLUNASHELL_DEPENDENCIES_LOCK=',
@@ -197,6 +199,20 @@ foreach ($requiredBuildFragment in @(
     Assert-TextContains -Text $projectBuildText `
         -Expected $requiredBuildFragment `
         -Message "device.ps1 incremental build lost $requiredBuildFragment."
+}
+Assert-TextOrder -Text $projectBuildText `
+    -Earlier 'Write-FirmwareBuildMetadata -BuildDirectory $RequestedBuildDir -Metadata $buildMetadata' `
+    -Later '& ninja -C $RequestedBuildDir -j $parallelJobs all' `
+    -Message 'Firmware metadata must be captured before the actual Ninja compilation.'
+$metadataCaptureCalls = @($asts.Firmware.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.CommandAst] -and
+        $node.GetCommandName() -ceq 'Get-FirmwareBuildMetadata'
+}, $true))
+if ($metadataCaptureCalls.Count -ne 1 -or
+    $metadataCaptureCalls[0].Extent.StartOffset -lt $projectBuildFunction.Extent.StartOffset -or
+    $metadataCaptureCalls[0].Extent.EndOffset -gt $projectBuildFunction.Extent.EndOffset) {
+    throw 'Only actual Invoke-ProjectBuild entry may capture a new firmware identity.'
 }
 if ($projectBuildText.Contains('Get-ChildItem', [StringComparison]::Ordinal)) {
     throw 'device.ps1 must not recursively rescan the repository before each Ninja build.'

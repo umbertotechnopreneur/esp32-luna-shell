@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP32-S3-Touch-AMOLED-1.75C - galleria</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 28px; color: #17212b; background: #f5f7fa; }
+    h1 { margin-bottom: 4px; } p { max-width: 960px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
+    figure { background: #fff; border: 1px solid #d9e0e8; border-radius: 10px; padding: 10px; margin: 0; }
+    img { display: block; width: 100%; height: auto; border-radius: 5px; }
+    figcaption { font-size: 13px; overflow-wrap: anywhere; margin-top: 8px; } a { color: #0759a5; }
+  </style>
+</head>
+<body>
+  <h1>ESP32-S3-Touch-AMOLED-1.75C</h1>
+  <p>Galleria locale delle immagini ufficiali. Apri <a href="README.md">README.md</a> per chip, specifiche, BSP ESP-IDF, firmware e link. Lo schema completo e' in <a href="hardware-docs/schematic.pdf">hardware-docs/schematic.pdf</a>.</p>
+  <h2>Pagina prodotto</h2><section id="product" class="grid"></section>
+  <h2>Wiki</h2><section id="wiki" class="grid"></section>
+  <script>
+    const product = [
+      'product-photo-1.jpg','product-photo-2.jpg','product-photo-3.jpg','product-photo-4.jpg','product-photo-5.jpg','product-photo-6.jpg','product-photo-7.jpg',
+      'ESP32-S3-Touch-AMOLED-1.75C-details-1.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-3.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-4-1.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-4-2.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-5.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-6.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-7.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-8.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-9.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-11.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-13.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-15.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-17.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-19.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-intro.jpg','ESP32-S3-Touch-AMOLED-1.75C-details-size.jpg'
+    ];
+    const wiki = ['ESP32-S3-Touch-AMOLED-1.75C-details-intro-a6535c5c1ec9caa51d4a50b14e4166fe.webp','ESP32-S3-Touch-AMOLED-1.75C-details-size-3708cdd69b38531af98ad9a3ff974815.webp'];
+    function add(section, folder, name) { const f = document.createElement('figure'); const a = document.createElement('a'); const i = document.createElement('img'); const c = document.createElement('figcaption'); const path = folder + '/' + name; a.href = path; i.src = path; i.alt = name; c.textContent = name; a.append(i); f.append(a, c); section.append(f); }
+    product.forEach(name => add(document.getElementById('product'), 'images-product', name));
+    wiki.forEach(name => add(document.getElementById('wiki'), 'images-wiki', name));
+  </script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 """Inspect Codex hook parsing with isolated packages; never execute a hook."""
 
 import argparse
+from collections import Counter
 import json
 import os
 from pathlib import Path
@@ -208,11 +209,25 @@ def main():
     if any(case["hook_count"] is None for item in report for case in item["cases"]):
         raise RuntimeError("Some isolated packages could not be inspected; see the report.")
     if arguments.installed:
+        authored = json.loads((root / "plugins/cody-codex-plugin/hooks/hooks.json").read_text(
+            encoding="utf-8"))["hooks"]
+        # Native discovery lowercases the initial event character. Keep labels
+        # in the identity so a duplicate cannot substitute for a missing hook.
+        expected = Counter((event[0].lower() + event[1:], hook["statusMessage"])
+                           for event, groups in authored.items()
+                           for group in groups for hook in group["hooks"])
+        if not expected or any(count != 1 for count in expected.values()):
+            raise RuntimeError("Authored CCP hooks have empty or duplicate identities.")
         for item in report:
-            if item["cases"][0]["hook_count"] != 8:
-                raise RuntimeError("Installed CCP did not expose all eight authored hooks.")
-            if sum(entry["hook_count"] for entry in item["runtime"]) != 8:
-                raise RuntimeError("The runtime hook list did not expose the expected eight hooks.")
+            if item["cases"][0]["errors"] or item["cases"][0]["hook_count"] != sum(expected.values()):
+                raise RuntimeError("Installed CCP did not expose all authored hooks without errors.")
+            discovered = Counter((hook.get("eventName"), hook.get("statusMessage"))
+                                 for entry in item["runtime"] for hook in entry["hooks"]
+                                 if hook.get("pluginId") == "cody-codex-plugin@cody-local")
+            if discovered != expected:
+                raise RuntimeError("Runtime CCP hook identities differ from authored events/labels: "
+                                   f"missing={dict(expected - discovered)}, "
+                                   f"unexpected={dict(discovered - expected)}")
             if any(entry["errors"] for entry in item["runtime"]):
                 raise RuntimeError("The runtime reported a hook discovery error; see the report.")
             if any(not (hook.get("statusMessage") or "").strip()

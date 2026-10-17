@@ -20,6 +20,8 @@ set(LUNASHELL_platform_srcs
     "src/snapshot/LUNASHELL_acquisition_pmu.cpp"
     "src/snapshot/LUNASHELL_acquisition_rtc.cpp"
     "src/snapshot/LUNASHELL_acquisition_imu.cpp"
+    "src/snapshot/LUNASHELL_activity.cpp"
+    "src/power/LUNASHELL_battery_endurance.cpp"
     "src/snapshot/LUNASHELL_acquisition_gnss.cpp"
     "src/snapshot/LUNASHELL_acquisition_audio.cpp"
     "src/snapshot/LUNASHELL_acquisition_system.cpp"
@@ -28,6 +30,7 @@ set(LUNASHELL_platform_srcs
     "src/snapshot/LUNASHELL_snapshot_names.cpp"
     "src/snapshot/LUNASHELL_snapshot_reports.cpp"
     "src/runtime/LUNASHELL_liveness.cpp"
+    "src/runtime/LUNASHELL_build_metadata.cpp"
     "src/snapshot/LUNASHELL_snapshot_scheduler.cpp"
     "src/snapshot/LUNASHELL_sensor_fusion.cpp"
     "src/runtime/LUNASHELL_time.cpp"
@@ -51,6 +54,7 @@ set(LUNASHELL_platform_requires
     esp_hw_support
     esp_system
     app_update
+    esp_app_format
     bootloader_support
     esp_psram
     spi_flash
@@ -162,6 +166,70 @@ idf_component_register(
     PRIV_INCLUDE_DIRS "src/snapshot"
     REQUIRES ${LUNASHELL_platform_requires}
 )
+
+if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+    # The public build entrypoint refreshes this header for every compilation.
+    # Configure/size/capture must never manufacture a new build timestamp.
+    target_include_directories(${COMPONENT_LIB} PRIVATE "${CMAKE_BINARY_DIR}/generated")
+endif()
+
+if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
+    idf_component_optional_requires(PRIVATE esp-dl)
+    set(activity_model "${PROJECT_DIR}/artifacts/models/activity/activity.espdl")
+    # These files participate in configure-time provenance and graph validation.
+    # Reconfigure before an incremental compile can consume changed model bytes,
+    # preprocessing constants or their manifest; object dependencies alone cannot
+    # enforce those checks. Absolute paths are independent of component cwd.
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${activity_model}"
+        "${PROJECT_DIR}/artifacts/models/activity/activity_preprocessing.hpp"
+        "${PROJECT_DIR}/artifacts/models/activity/provenance.json"
+    )
+    if(NOT EXISTS "${activity_model}")
+        message(FATAL_ERROR "Generate the local pretrained model with scripts/device.ps1 generate -Generator activity-model before enabling activity inference")
+    endif()
+    if(NOT EXISTS "${PROJECT_DIR}/artifacts/models/activity/activity_preprocessing.hpp")
+        message(FATAL_ERROR "Recover the pretrained activity preprocessing through the activity-model generator")
+    endif()
+    file(READ "${PROJECT_DIR}/artifacts/models/activity/provenance.json" activity_provenance)
+    string(JSON activity_expected_hash GET "${activity_provenance}" model_sha256)
+    string(JSON activity_expected_preprocessing GET "${activity_provenance}" preprocessing_sha256)
+    file(SHA256 "${activity_model}" activity_actual_hash)
+    file(SHA256 "${PROJECT_DIR}/artifacts/models/activity/activity_preprocessing.hpp" activity_actual_preprocessing)
+    if(NOT activity_expected_hash STREQUAL activity_actual_hash OR
+       NOT activity_expected_preprocessing STREQUAL activity_actual_preprocessing)
+        message(FATAL_ERROR "Local activity model/preprocessing changed since conversion; regenerate explicitly")
+    endif()
+    target_include_directories(${COMPONENT_LIB} PRIVATE "${PROJECT_DIR}/artifacts/models/activity")
+    # IDF 6.0.2 target_add_binary_data has no alignment argument and emits no
+    # alignment directive. ESP-DL requires a 16-byte flash model base for zero-copy
+    # loading; native assembler embedding preserves every reviewed artifact byte.
+    set(activity_model_assembly "${CMAKE_CURRENT_BINARY_DIR}/activity_model.S")
+    file(GENERATE OUTPUT "${activity_model_assembly}" CONTENT
+".section .rodata.activity_model,\"a\",@progbits
+.balign 16
+.global _binary_activity_model_start
+_binary_activity_model_start:
+.incbin \"${activity_model}\"
+.global _binary_activity_model_end
+_binary_activity_model_end:
+")
+    set_source_files_properties("${activity_model_assembly}" PROPERTIES
+        OBJECT_DEPENDS "${activity_model}")
+    target_sources(${COMPONENT_LIB} PRIVATE "${activity_model_assembly}")
+    # The reviewed requirement set describes this exact converted graph. A new
+    # export needs a new operator/kernel review before its requirements are reused.
+    if(NOT activity_actual_hash STREQUAL "ea7835068e138fd28afa62bce9bea58dab10c841ee07ff73825018914a3532f7")
+        message(FATAL_ERROR "Activity model differs from the reviewed ESP-DL compile requirements; review the graph and update the requirement binding")
+    endif()
+    idf_build_get_property(activity_build_components BUILD_COMPONENTS)
+    if(NOT "espressif__esp-dl" IN_LIST activity_build_components)
+        message(FATAL_ERROR "Activity inference requires the pinned managed ESP-DL component")
+    endif()
+    idf_component_get_property(activity_esp_dl_dir espressif__esp-dl COMPONENT_DIR)
+    include("${activity_esp_dl_dir}/cmake/compile_register.cmake")
+    esp_dl_compile_add_yml("${CMAKE_CURRENT_LIST_DIR}/activity.compile_req.yml")
+endif()
 
 # Profile-specific dependencies are resolved after Kconfig becomes available;
 # the early component-discovery pass cannot reliably consume conditional

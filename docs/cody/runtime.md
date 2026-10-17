@@ -103,6 +103,10 @@ actually retired to the panel it remains readable for one active second before
 05. There is no second bitmap intro. Normal startup now selects network setup,
 the optional Codex choice (40), reconnect waiting (42), or authenticated PC search
 from the canonical saved-profile/link state; see [onboarding](navigation.md).
+An existing saved Wi-Fi profile receives a passive `Connecting to Wi-Fi` /
+`Please wait` presentation for up to 15 seconds before recovery choices appear.
+Valid association and IP advance immediately; the interval adds no polling task
+or forced minimum delay and does not infer Internet or authenticated PC presence.
 Only explicit development force-first-boot replays 04 regardless of that state.
 Returning devices with validated first-boot false receive one four-second
 random Affection or Joy request on entering Idle, using the existing icon and
@@ -143,8 +147,16 @@ error remains in the power snapshot, return value, trace and logs until verified
 radio recovery. Ordinary touch/motion publication cannot erase it. A subsequent
 standby reasserts radio shutdown through its owner after any explicit pairing.
 
+For a retained Cody/Codex association, the radio owners normally stay alive and
+authenticated traffic continues during the display transition. Completed wake
+prompts an existing Wi-Fi retry and CCP discovery once; acquired IP prompts CCP
+again. This does not increase periodic standby traffic or fabricate Online.
+See [wake reconnect](../bsp/services/connectivity-pairing.md#cody-wake-reconnect).
+
 Software wake first renders Sleeping behind the dark panel, exposes it through
-the shared 800-ms panel fade, then gives Waking 1.5 seconds and Ready 2 seconds. It does
+the shared 800-ms panel fade, then gives Waking 350 ms and Ready 250 ms. The authored
+software-wake sequence totals 1.4 seconds instead of 4.3 seconds; hardware restoration,
+frame scheduling and reconnection are additional, unmeasured costs. It does
 not multiply a second 2-second character fade over the panel fade. Route, pending
 operation, debug/pause state and scene entrance/text clocks stay in RAM; hidden
 routes do not update during the lifecycle wake sequence. Before showing the
@@ -159,8 +171,9 @@ profile-specific silicon-sleep policy remain in
 [power management](../bsp/services/power-management.md).
 
 Every authored scene supplies `standby_override_seconds`: zero inherits the saved
-user timeout, a positive value replaces it only for the active scene. Invitation
-05 and installation 06 use 60 seconds; real pairing 07 uses 90 seconds. The unused
+user timeout, a positive value replaces it only for the active scene. The separate
+confirmed-PC-absence policy below replaces ordinary inactivity during its grace interval.
+Invitation 05 and installation 06 use 60 seconds; real pairing 07 uses 90 seconds. The unused
 scan definition, Online 09, Debug-only 39, 10, 36 and 13-15 use 60 seconds.
 Connect Codex 12 uses 180 seconds; successful canonical code delivery refreshes
 its anchor once, so preparation time does not consume the code-reading interval.
@@ -177,23 +190,233 @@ Standby retains the active route. In particular, wake from screen 09 returns to
 only in Debug builds and one awake tap dismisses it. Release contains no generated
 scene definition or expression-catalog mapping for 39.
 
+### Standby without a connected PC
+
+Cody waits 120 seconds after a valid canonical observation first reports no
+authenticated CCP PC connection. Real touch/button activity and completed wake
+grant a fresh interval; background motion and repeated discovery do not extend
+it. Connected transport clears the timer even when no chat is active or Codex
+reports Closed. Unknown/stale link evidence cannot establish PC absence. Explicit
+network pairing, pending Codex pairing and confirmation defer this timer.
+
+This policy operates on USB and battery, independently of the ordinary battery-only
+inactivity gate. While awake, Cody presents a larger character above a centered
+ASCII `Bye bye`, waits for completed Sleep/caption frames, plays the existing
+220-ms Sleep cue through the audio owner, and keeps a minimum 400-ms visible
+dwell before the shared 800-ms whole-panel fade. Sounds Off, authored sound disable
+and quiet/time policy suppress the cue explicitly; real playback/preparation
+failures abort standby and retain their original errors. A link restored or real
+input acquired during the farewell cancels the transition before radio shutdown.
+
+After the transaction, radios, voice input and wake-word acquisition are suspended.
+Saved credentials/pairing are retained. Movement, voice and queued network notices
+cannot wake this offline standby; touch or a physical button restores the ordinary
+owners and reconnects. Its first contact does not select a control or start voice
+recording. Wake word remains available after wake and in ordinary listening standby.
+If an existing dark standby loses its PC, the same timeout sheds its retained
+services without waking the panel for a farewell. No periodic reconnect wake is armed.
+
+The power owner consumes a scalar canonical link/setup projection bounded to
+64 bytes, without copying chat text, reading radios directly or creating another
+task. New timeout/rollback/audio/wake coverage is prepared but unexecuted at the
+2026-10-16 source checkpoint; whole-board current, target stack headroom, sound,
+touch and actual wake latency remain unmeasured for this revision.
+
+### Pending-question sound cadence
+
+The initial pending-question alert plays one soft 1.8-second Question bell with
+a long fading tail. While the fresh canonical question remains Pending and
+visible, one quieter 300-ms QuestionReminder plays
+every ten awake seconds, including animation pause and excluding standby.
+Choice browsing and detail review retain this cadence. Admitted Send, terminal
+outcomes or unavailable/stale/offline source evidence stop future attempts.
+Hidden/offline intervals renew the reminder interval without replaying the initial
+alert. Each attempt uses the shared bounded audio mailbox and existing Sounds,
+volume, quiet-hours and standby gates. Busy or suppressed cues never accumulate.
+Both samples derive from the purchased Soft Chime recording at -24/-27 dBFS.
+The shared owner streams their flash PCM in its existing 320-sample scratch;
+single Codex notices admit up to two seconds, while activity/personality and
+repeated clips retain their 350-ms bounds. No buffer, worker or clock is added. Native cadence
+coverage is prepared but unexecuted; actual speaker playback remains unverified.
+
+### Device diagnostics
+
+Both customer and development builds expose the same authenticated CCP device
+diagnostic view: `character` shows the live character and canonical snapshot
+readout for measured CPU utilization on each core, free RAM/PSRAM, FPS, IP and
+SD status/free space. Memory values are free amounts, not used percentages.
+Unmeasured or stale fields remain explicitly unavailable/stale.
+`normal` restores the retained route. Build mode is not a required user choice.
+The owner removed the facial-channel list, its PSRAM buffer and scroll handling
+to save device space. Internal channels still drive character animation.
+
+Tap **Memory** to open heap details for internal RAM and PSRAM. Each section
+shows used/free capacity, the largest allocatable free block, the SDK-reported
+minimum free amount and the free-block count. Blue means used capacity, green
+the largest free block and amber all other free capacity. These are capacity
+bars, not an address map or an ordered allocation trace. The fragmentation index
+is `100 * (free - largest) / free`, rounded to the nearest whole percent;
+it is `N/A` when no free space remains. Separate allocator regions also contribute
+to this index, so it is an indication of noncontiguous free capacity rather than
+a count of damaged or unusable bytes. See the official
+[ESP-IDF heap information guidance](https://docs.espressif.com/projects/esp-idf/en/v6.0.2/esp32s3/api-reference/system/heap_debug.html).
+The page uses the already-published canonical measurements, with a display-owned
+48-byte projection; it adds no allocation tracing, heap walk or acquisition task.
+Unavailable/stale heaps show labels and gray bars instead of numeric readings.
+The Memory action appears fully drawn, without typewriter timing, and touch is
+admitted only after the corresponding frame completes. Back first returns to
+the diagnostic overview, then to the retained normal route. The same native
+layout is used by Studio, visibly SIMULATED with device heap readings unavailable.
+
+The existing signed DEBUGCAP/DEBUG/DEBUGACK exchange, live paired endpoint,
+fresh nonce, request deadline and application acknowledgement remain required.
+The display worker owns all changes; consumers read the canonical snapshot
+without acquiring sensors. The reserved wire scroll field must remain zero.
+Release renders the readout and refreshes a paused view while an explicit overlay
+is active. Back restores normal presentation and its ordinary power behavior.
+An applied ACK proves the rendering worker accepted the view, not visible pixels.
+
 ## Reusable scenes and text
+
+### Event-to-screen contract
+
+| Admitted source event | Visible result | Boundary |
+| --- | --- | --- |
+| Retained link enters Discovering | Connecting / Retrying PC connection | Discovery already retries every two seconds; no idle timer can claim Connected |
+| Authenticated READY and COMMITTED | Connected, then current followed activity | Eight-second transport expiry remains independent of activity freshness |
+| UserPromptSubmit | Working and the exact newly followed chat | Background tools cannot select another chat |
+| PreToolUse / PostToolUse | Working, Editing code or Running command | Ordinary tool changes do not cancel active compaction |
+| Native token_count | Exact Last call, Window, Free, Total, Input and Output where available | Same verified chat/turn, original source time, no count inferred from prose |
+| PreCompact | Orange Compacting on Home and orange technical heading/banner; compaction character cue | One sound admission per visible chat/turn/sequence, subject to audio policy |
+| PostCompact | Context refreshed; wait for a subsequent token sample | Missing start, interruption or lost source never implies successful completion |
+| Stop | Reply ready, then idle commands and retained statistics | A completed response does not prove task success |
+| PermissionRequest | Waiting for you / Approve on your PC | Native approval remains on the PC |
+| Transport expires | Connecting while retained discovery is active | Preserve the canonical timeout error; do not request a new pairing |
+
+Lifecycle diagnostics retain event names, phase, compaction sequence and hashed
+chat/turn identities. They exclude prompt text and raw identities. Host fixtures
+exercise the real activity owner, authenticated packets, Studio projection and
+native panel pixels; these synthetic captures do not prove physical sound or
+that a particular live compaction hook was delivered.
+
+### Semantic questions and other-chat replies, 2026-10-14
+
+The synchronous `UserPromptSubmit` hook uses the documented
+[`additionalContext` output](https://learn.chatgpt.com/docs/hooks) to tell the
+agent to route semantic choices through `ccp_ask_question` when a retained
+physical Cody has recently advertised the authenticated events extension.
+The context is fixed instruction text; prompt, response and tool-argument
+contents are discarded before hook ingestion. An explicit PC-only preference
+takes precedence, and simulator routing still requires explicit user intent.
+
+The agent creates the actual question with two or three complete English ASCII
+choices, retaining stable IDs and original meaning. Labels admit 63 characters
+and details 255; Cody shows two choices at a time and scrolls to the third.
+Questions needing free text or content outside the bounds remain on the PC.
+The originating caller keeps its private ticket/capability, polls for the real
+answer, and acknowledges the returned `answer_id` before acting. Receipt alone
+does not mean **Reply sent**. Expiry, cancellation and disconnection never select
+an answer, and an ambiguous enqueue is not automatically repeated.
+
+The bounded interaction owner retains multiple genuine MCP questions. Its queue
+publishes actual request identities and two pending summaries at a time. Explicit
+navigation is signed and does not change the followed PC chat; a reply being sent
+or awaiting recipient acknowledgement cannot be displaced. Every caller retains
+ownership of its own answer and cancellation capability. A genuine `Stop` from
+another chat queues the typed **ReplyReady** event once per native turn. For an
+eligible physical target, its existing title owner reads the exact indexed chat
+metadata once and revalidates the original session, turn, checkout and ready
+phase after IO. It preserves the followed title cache and chat selection.
+The event uses its project and complete current title when at most 63 characters;
+otherwise it says **Open the other chat in Codex**. The native screen has one
+mint **Reply ready** headline, the chat title, subordinate project and **Got it**.
+Generic notices also omit identical title/body repetition. No GUID, transcript,
+task-success inference or polling is introduced. A prompt retires native notices
+only for that chat; dismissal still requires the authenticated owner acknowledgement.
+
+Native `request_user_input` prompts already open in Desktop are not imported.
+The current Desktop app-server uses stdio without a verified public attach
+endpoint; starting another server would not own its requests. The official
+[App Server protocol](https://learn.chatgpt.com/docs/app-server) describes
+`item/tool/requestUserInput` and `serverRequest/resolved`, but those messages do
+not establish access to this running Desktop connection. Native permissions and
+existing native questions stay on the PC. No private UI automation, transcript
+question scraping, invented request registry or fabricated native reply is used.
+
+The earlier 2026-10-14 audit established that asynchronous tool `accepted` can
+precede a user response, so `PostToolUse` cannot prove question completion.
+It also identified two rejected turn identities as subagents: parent/child
+correlation must keep exact identity checks. These retained findings contain no
+chat text or raw session identifiers and do not constitute a live question test.
 
 ### Companion information panels
 
-Home retains the character, actual activity phase, alternating project/branch
-and concrete activity description. Names and descriptions use native font metrics:
-short text stays still; overflow scrolls within its own viewport. Identity fades
-affect only its row. Attention and authentic compaction hold the project.
+Home retains the character, actual activity title and independently aged model
+row above four lower panels. Tokens shows a Free token hero, occupied-context
+progress arc and Last/Window. Model & Context shows
+qualitative catalog price and reasoning effort; the shared header carries the
+model name once. Session & Link shows connection state, the device's own canonical
+Wi-Fi IP and device identity, independently valid IMU activity, compilation date
+and time in the compiling PC's local timezone, that actual timezone identity and
+the compiling computer's name. Chat shows the actual native title, the measured
+elapsed time of the current turn and its authenticated activity description.
+It does not infer a whole-chat lifetime or inspect raw commands/transcripts.
+Long titles, activity and build labels scroll within clipped native rows, and
+rotation allows enough visible time to read them. The former full-screen Activity
+page and numeric page footer are no longer part of passive Home navigation.
 
-A short released passive tap opens Activity, then Model & Context, then Session &
-Link, then Activity again. Each panel remains selected until another deliberate
-gesture. A deliberate shake returns directly to Home and changes no remote
-request, chat, approval or read acknowledgement. Panels have no lateral Back.
-Setup and questions keep their explicit controls and existing navigation.
-An explicit setup, remote question, PC approval or Debug view can preempt the
-technical compositor. Its real controls then own touch; the retained panel choice
-resumes when that route ends. This is attention arbitration, not a reading timeout.
+A display-owned, bounded model identity latches one Expensive-price notice per
+model change. It waits for current model/cost facts and a completely presented
+Model panel; late price metadata can complete the same pending decision.
+Stale data, reconnects, standby and carousel rotation do not rearm an attempted
+notice. A newer model supersedes an unseen notice. Busy, mute, quiet hours and
+recording retain the existing audio-owner admission policy without delayed replay.
+The notice repeats one 1,593-sample CC0 Kenney plink five times with four 100-ms
+gaps: 897.8 ms authored playback and 3,186 flash bytes. The existing audio worker
+resamples each bounded chunk into its existing scratch buffer and keeps its
+current duplex clock, cancellation generation and error reporting. Source,
+license and reproducible generation belong to
+[the model-cost asset](../../assets/cody/audio/model-cost/README.md).
+
+The footer shows "Use @CCP in Codex and ask for the available commands" in three
+complete right-to-left passes, then disappears for that display-owner lifetime.
+It enters fully off the right edge and exits fully off the left, moving two
+pixels every 50 ms with the existing active scene clock. Hidden presentation
+pauses it; panel/chat changes, standby and short reconnections never replay it.
+Ready for More shares that same finite introduction and has no replacement
+footer after its third pass;
+after 25 active seconds its title becomes Ready to team up. This changes no link
+state or measurement timestamp. Compaction and attention suppress the hints
+without creating a task, poll or wake lease.
+
+The hero uses the `TT` unit. Values below 1000 stay exact; larger values display
+completed decimal thousands with `K` and period grouping, such as `Free 319K TT`.
+Free is subtracted from the original coherent counters before abbreviation.
+Canonical and protocol counters retain full precision. The arc requires a
+coherent current pair; compaction uses an orange indeterminate accent rather
+than an invented progress percentage. Missing, stale, invalid and over-limit
+observations keep explicit nonnumeric states.
+
+A shared native carousel cycles Tokens, Model & Context, Session & Link, then
+Tokens after at least eight visible seconds per panel. Session & Link shows the
+actual canonical chat title without a `Chat` prefix or opaque ID. Long titles
+scroll within (73,315,320,28), with a 1.2-second start hold, 40 pixels per second
+in 50-ms steps and a 1.8-second end hold. The native glyph width extends the
+carousel dwell until the entire title has been visible. Same-title metadata
+refreshes preserve position; a new title receives a complete reading interval.
+The original title age plus local time since receipt expires after 45 seconds;
+missing, unsupported, failed and stale metadata remain explicit. No task or
+source polling is added for glyph movement. A short released passive tap
+advances immediately and restarts the interval. Hidden views, standby and
+current compaction pause automatic rotation, without accumulating catch-up
+transitions. Compaction selects Tokens and starts a fresh interval when it ends;
+active touch gestures also suspend the automatic advance. A deliberate shake
+selects Tokens without changing a remote request, chat,
+approval or read acknowledgement. These passive panels have no lateral Back.
+Setup, voice input, remote questions, PC approvals and Debug retain their real
+controls and presentation priority. The retained panel resumes when the
+interrupting route ends. A panel selection never resets the shared character,
+activity title or compaction sound latch.
 
 Touch recognition retains the contact's origin, displayed orientation and original
 timestamps. More than 12 pixels of displacement, a contact longer than 450 ms,
@@ -216,28 +439,23 @@ IMU data cancels recognition. These initial thresholds require physical calibrat
 source review and serial startup do not establish gesture quality while walking.
 Pausing artistic animation does not pause passive navigation sampling.
 
-Technical panels share native formatting, numeric validity, page identities and
-raster with Studio. Panel content and its coherent canonical observation belong
-to the serialized PSRAM renderer state, not nested frame-stack copies. Technical
-labels and numbers bypass typewriter timing and its audio. Every passive detail
-page retains Cody at logical (233, 115), scale 50, above a transparent content
-viewport beginning at y=170. At most four curated facts replace the old dense
-field list; unavailable or exact unknown placeholder values contribute no rows.
-Known STALE/INVALID states, genuine compaction and confirmed connection loss remain
-visible. A page with no model information offers one concise neutral explanation.
-An unmeasured context bar is omitted instead of suggesting a value.
-A page transition clears the retired full composition; subsequent changes damage
-the character's old/new artwork, detail viewport and independent status footprint.
-The base home route continues receiving events
-without forwarding panel touches to its hidden controls.
+The dashboard shares native formatting, validity, typed panel identities, fonts
+and raster code with Studio. Panel content and coherent observations belong to
+persistent renderer storage, never nested snapshot copies. Dashboard labels and
+numbers bypass typewriter timing and its audio. The common character transform
+is (233,122), scale 73; the title begins at y=190, model at y=236 and lower panel
+at y=268. Fonts are isolated from setup and event typography. Native damage
+tracks upper identity, lower panel and ticker revisions independently; hiding
+the dashboard invalidates its previous bounds. The semantic scene data remains
+available to the event and sound owners while its superseded footer is hidden.
 
 | Metric | Actual source and meaning | Availability in this integration |
 | --- | --- | --- |
-| Hook model | Common hook metadata for the followed chat/turn; full bounded slug | Available when an admitted genuine hook includes it; labelled Hook model |
-| Reasoning effort | A per-turn authoritative field, not a global default | UNAVAILABLE: current documented hook schema does not provide it |
-| Current context used / capacity | Coherent current session occupancy and declared capacity | UNAVAILABLE: no supported observer of this desktop chat's App Server channel established |
-| Free context / percent / colored bar | Derived only from valid coherent used and positive capacity | Omitted until both source measurements exist; known stale/invalid remains explicit |
-| Session cumulative tokens | Distinct cumulative counters, excluding double-counted subcategories | UNAVAILABLE through the currently connected plugin transport |
+| Model | Current exact native turn-context model, or a fresh genuine hook when native context is absent/expired | Original source age; no model-name alias or execution/rerouting claim |
+| Reasoning effort | Native turn-context effort, not a global default | Available only when the exact followed turn supplies it |
+| Last call / Window | Native last-token total and explicitly supplied model context window from one token sample | Independently present; Last call is not cumulative chat spending |
+| Free / percent / colored bar | Window minus Last call, only from the same valid sample | Not a guarantee about the next request's usable budget; over-limit and stale states stay explicit |
+| Session cumulative tokens | Native total-token total; subcategories are not added again | Exact observed cumulative value, separate from the current window |
 | Automatic compaction threshold | Explicit source threshold, distinct from capacity | UNAVAILABLE |
 | Turn elapsed | Host monotonic duration since genuine UserPromptSubmit, transported as a duration | Available only for the admitted observed turn; unobserved time is not operation work |
 | Observed work | Native accumulated active observation intervals | Explicitly labelled Observed, never operation elapsed |
@@ -245,17 +463,34 @@ without forwarding panel touches to its hidden controls.
 | Link and activity age | Authenticated link presence versus genuine activity update age | Independent; a heartbeat does not refresh model/context provenance |
 
 Official App Server exposes `thread/tokenUsage/updated`, but the installed desktop
-App Server uses its own stdio channel. The plugin MCP transport does not forward
-that channel. Starting another server, reading transcript text or guessing capacity
-from the model name would not establish this chat's telemetry and is not used.
-The missing supported observation channel is an explicit integration boundary.
+App Server uses its own stdio channel; the plugin does not subscribe through a
+second server. Instead, the existing broker verifies the genuine hook-selected
+session and checkout against local native journal metadata, using the original
+locator or a read-only state-index lookup. Only allowlisted session, turn-context
+and token-count metadata contributes. Prompt, message and tool-output bodies do
+not provide measurements. Reads, paths, line sizes and source identities are
+bounded; partial, replaced, truncated or contradictory sources fail closed.
+Native token timestamps keep their original age; repeated FIND replies do not
+refresh them. Token samples expire after 120 seconds, independently of the
+eight-second transport lease. Missing fields and thresholds are not inferred.
+A fresh hook model keeps its own timestamp when an older native context expires;
+native effort is unavailable in that projection rather than inheriting the newer
+model age. Read-only CCP connection status exposes the same atomic activity and
+technical bundle without creating a new observer.
 Unsupported optional fields remain unavailable internally and are hidden in the
 passive UI, rather than filling the page with unavailable labels.
 
-Compaction remains visible on Home and all panels. Ordinary tool phases cannot
+Compaction remains visible in orange on Home and all panels. Its genuine current
+character cue takes precedence over ordinary authored working cues, with sound
+admitted once per genuine chat/turn/compaction sequence through complete-frame
+retirement. Attention or hiding the view does not replay the same sequence.
+Ordinary tool phases cannot
 cancel it. A genuine completion may show Context refreshed while context counters
 remain unavailable or awaiting a coherent new measurement. Loss of updates,
-interruption, an orphan completion and disconnected state remain distinct;
+interruption, an orphan completion and disconnected state remain distinct.
+After PostCompact, a token sample predating that genuine completion stays
+unavailable until a subsequent native observation; the boundary never renews
+the old sample or model timestamp. Source ages remain independent;
 elapsed time alone never proves compaction completed.
 
 Current technical values also require the exact ACTIVITY revision, not merely
@@ -415,6 +650,13 @@ The [simulator guide](../../simulator/windows/README.md#host-audio-and-inspectio
 owns the host audio DLL, PC playback, inspection typography and browser links.
 These are synthetic host capabilities with separate execution evidence.
 
+The Home tool caption is a presentation of the genuine `PreToolUse` identity.
+The PC-owned table in `ccp_tool_labels.py` maps known native/MCP names to short
+English actions, such as `Tool: GitHub: read file`. Unknown names retain every
+server/method word with underscores rendered as spaces. Two tools may share a
+caption while retaining distinct correlation IDs. Wrapper arguments are never
+parsed to invent an inner tool or activity. No firmware protocol change is needed.
+
 ## Device diagnostics
 
 Debug FPS uses completed frames over real elapsed time. CPU1/core0 and CPU2/core1
@@ -434,22 +676,25 @@ sensor polling is introduced. The HUD preference is session-scoped under the
 display lock and gated by scene `readout_visible`. Authored scenes admit the HUD
 unless a visible bottom action occupies its area; Release excludes it.
 
-The Debug Screenshot touch control is hidden and non-interactive. One short PWR
-press while Cody is active waits 500 ms for a second click, then starts a
-session-enabled 3, 2, 1 countdown. Two separately acquired short clicks within
-that window request a software restart instead, preserving settings and using
-the existing bounded log drain. Failed acquisitions cancel the pending gesture;
-batched clicks without individual timing are rejected. Screenshot admission,
-shutter worker and button-triggered software restarts are Debug only. The
-session flag defaults on and can be changed through the Cody runtime API. Each
-number lasts one second after its frame retires. Cody clears the overlay in a
-completed frame before requesting the capture, so the numeral is absent from
-the saved image. The existing on-demand 466×466 RGB565 PSRAM buffer (434,312
-bytes) transfers to the SD owner, which writes an atomic top-down 24-bit BMP
-under `LUNASHELL/screenshots/`. The overlay reports SAVING, SAVED, or FAILED
-from the actual asynchronous result. An original 200-ms shutter cue is queued
-to a separate audio worker after the capture frame; quiet hours suppress it.
-Absent or unhealthy SD storage returns its real error and never causes formatting.
+Power is dedicated to standby/wake and deliberate shutdown in Debug and Release.
+A short click toggles software standby; a valid three-second continuous hold
+presents `Good night` with `Release Power` directly below it, retires the complete
+Sleep presentation, and requests the
+power owner's gradual fade and coordinated PMU shutdown. Screenshot and restart
+no longer consume PWR; BOOT diagnostics remain unchanged. The old Power-screenshot
+setter returns `ESP_ERR_NOT_SUPPORTED`, and its getter reports disabled.
+Other screenshot diagnostics retain the existing SD owner and real failures.
+
+The shutdown presentation blocks competing touch/scene/voice overlays, suspends
+character/typewriter audio, and waits for any existing screenshot operation with
+a bounded deadline. It acknowledges only complete retired frames, including a
+400-ms greeting dwell after retirement. The passive `Release Power` instruction
+shares that retired frame and asks the user to release the admitted hold before
+the configured 10-second emergency hardware cutoff can interrupt owner drains. A failed shutdown restores a visible
+`Shutdown failed` caption with the original hexadecimal error when display
+recovery succeeds; a subsequent touch dismisses it. This is source implementation,
+not evidence that power physically disappeared. See the
+[power transaction and hardware limitations](../bsp/services/power-management.md#power-key-farewell-and-pmu-shutdown).
 
 The CST9217 path retains 8-bit panel commands, 2-ms address-write settling/configuration
 before IRQ registration and real zero-contact release reports. ISR work is only
@@ -476,33 +721,54 @@ has not been resolved by short successful captures.
 
 The 2026-10-11 firmware source adds an explicit voice-input event for **Sophia**
 and an acquired double tap on the visible character. A single character tap waits
-420 ms before opening Activity; technical-panel taps still advance immediately.
+420 ms before changing the selected Home lower panel.
 Movement, stale/broken touch, rotation and explicit controls disqualify a double
 tap. The existing power owner handles standby wake; speech inference and enhanced
 mono PCM remain owned by the sole existing ESP-SR AFE.
-Wake-word admission skips its detection block and begins with the next real AFE
-block. No wake-word cache is prepended; wake-word tail exclusion and preservation
-of an immediately following command still need physical observation.
+The 2026-10-15 increment admits Preparing for wake-word, character double tap,
+and a completed physical standby wake from a short power press, touch or motion.
+Internal recovery, power-off farewell and Codex-notification wake do not start
+recording. A wake-word event already admitted before wake is not duplicated.
+No wake-word block or audio from preparation is recorded. Only a completely
+retired Preparing screen admits the three-second Start listening in countdown.
+Its real owner deadline and a fresh successful AFE Listening observation then
+admit PCM. No wake-word cache is prepended; physical timing still needs observation.
 
 Voice input has presentation priority while retaining the interrupted route and
 its real question deadlines. The character, geometry evaluation and normal scene
-animation are suspended behind a synthetic ribbon at 8 FPS: sixteen immutable
-poses in a 440 x 40 logical-pixel band. Four phase-shifted curves use lightweight
-Q8 edge coverage and alpha composition for smooth overlaps; there is no runtime
-trigonometry, 3D rendering or microphone-amplitude following. After the first full retirement, only the
-ribbon, single identity row, alternating hint and timer bands transfer again. One measured,
+animation are suspended behind a procedural ribbon with a 30-FPS scheduling
+target in a 384 x 58 logical-pixel band at (41,179), retaining its y208 center.
+Partial DMA refresh covers even rows [178,238), while artwork clips to [179,237).
+Four filled colored layers use fixed-point
+interpolation and native RGB565 alpha composition. A display-owned 784-byte knot
+buffer avoids per-frame allocation, video assets, SD access and runtime trigonometry.
+The visual gain follows valid, fresh microphone levels already published by the
+AFE owner; unavailable levels decay the artwork without inventing measurements.
+After the first full retirement, only the ribbon transfers at animation cadence;
+the identity and timer bands refresh at 5 Hz, and instructions remain static.
+Actual frame rate and energy cost require target measurements. One measured,
 fading/scrolling row cycles model, catalog cost band, thinking effort, branch,
 then project; unavailable fields disappear. No numeric price or bill is invented.
 The bottom timer shows elapsed and remaining seconds within the sixty-second
-budget, starting at `00s elapsed / 60s left`. Deliberate shake is the only cancellation
-gesture; the hint alternates `Shake to fade` and
-`We will send the audio to Codex for transcription` in the same lower row.
-The full second message scrolls inside a clipped 320 x 28 viewport before repeating.
-The requested fade wording still invokes cancellation; there is no voice button or touch action. It cannot revoke a turn
-already accepted by Codex. End of
-speech uses 1.2 seconds of actual VAD silence after speech, with an eight-second
-no-speech deadline and a 60-second maximum utterance. The overall capture/delivery
-budget is 90 seconds. New triggers never start a second simultaneous capture.
+budget, starting at `00s elapsed / 60s left`. Recording keeps all instructions
+visible: `Tap once to send`, `5s of silence to finish`, and
+`Shake or double tap` / `to discard`. A single completed tap waits 350 ms for
+double-tap arbitration; a second held contact postpones that decision. Double tap
+or deliberate shake requests discard. Session and orientation guards reject late
+gestures, and only a fully retired view admits input. Cancellation remains possible
+while sending before END, but cannot revoke END already transmitted or a turn
+accepted by Codex; no late gesture claims that remote audio was discarded.
+Five seconds of successfully acquired 16-kHz VAD nonspeech PCM finish capture,
+including initial silence. A straddling block admits only the exact five-second
+quiet prefix; scheduling gaps and failed reads do not count. Capture then enters
+Sending the audio in for three actual seconds before END may leave. Buffered PCM
+can continue its authenticated transfer, but no native submission is committed
+during that countdown. Both countdowns and Preparing allow one tap anywhere or
+shake to cancel. Recording retains single-send/double-discard arbitration.
+The former eight-second no-speech failure is removed. The maximum utterance is
+60 seconds from actual capture admission, with a 90-second overall session budget.
+Preparation that cannot retire a complete frame fails after 15 seconds. New
+triggers never start a second simultaneous capture.
 Explicit sleep and microphone pauses stop this input even when standby retains
 the recognition microphone. If END may already have left the device, the result
 is `Unconfirmed`, requiring review on the PC rather than claiming cancellation.
@@ -511,9 +777,12 @@ The component-owned PSRAM ring is 160,000 PCM16 samples: 320,000 bytes, or ten
 seconds of **unacknowledged** 16 kHz mono audio. It is not an utterance-duration
 limit. Full buffers fail explicitly without overwriting unheard words. Neither SD
 nor internal flash stores audio on the device. Canonical `voice.input` contains
-typed phase/trigger, actual counters, original event times and errors; no consumer
+typed phase/trigger, actual counters, original request/capture times, canonical
+countdown seconds and errors; its bounded projection remains at most 48 bytes. No consumer
 reads the microphone. The CCP worker borrows the transport with a 5-ms cadence
-only during an active input (at least one RTOS tick), restoring its normal 100-ms poll when idle.
+only while connected input needs service (at least one RTOS tick). Idle and
+disconnected input use the normal 100-ms cadence; the last 100 ms before an ACK
+or session deadline return to the fast cadence to preserve timeout granularity.
 
 The dedicated Wi-Fi channel is UDP 42119, separate from CCP metadata. It uses
 AES-256-GCM, fresh per-utterance keys derived from the paired link and current
@@ -541,7 +810,38 @@ Recording IDs, returned native turn IDs, artifact paths and uncertainty are
 available through audio status; ambiguous input is never automatically retried. Native approvals
 and questions are never answered by the device or plugin.
 
-This is source integration, not a claim of working device dictation. Firmware
-build/size, authenticated transport tests, native desktop integration and measured
-stack/CPU/PSRAM headroom remain in `VOICE-01` in the root TODO. The atlases retain
+This does not yet establish working device dictation. The 2026-10-12 recording
+increment passed the selected Debug wake-word/activity build/size, real owner and
+receiver host tests, native raster/gesture checks and individual compiled stack
+frames. It was not flashed over the ongoing battery experiment. Native desktop
+integration and measured stack/CPU/PSRAM headroom remain in `VOICE-01` in the root TODO. The atlases retain
 their planned audio flow until end-to-end verification establishes its behavior.
+
+The 2026-10-14 recording audit found a healthy authenticated CCP link and an
+available UDP receiver, but no configured native loopback audio endpoint. Two
+real START requests were rejected with "Configure an explicit loopback Codex
+audio WebSocket endpoint" before PCM/WAV receipt or native submission. Installed
+plugin 0.6.8 matched the receiver source. Separate AES-GCM authentication failures
+also occurred; the available logs cannot tie them to those two recordings.
+A later passive device capture contained no recording attempt and therefore does
+not capture the original failure. Firmware now logs authenticated PC rejection
+explicitly. Neither that log nor the taller recording ribbon completes native
+audio delivery; a verified endpoint remains required in VOICE-01.
+
+The 2026-10-15 optional installation step, `scripts/device.ps1 codex-audio`,
+checks an explicitly supplied loopback listener against the running Windows
+Store Desktop app-server process, then initializes a client and reads the genuine
+followed chat without resuming or submitting input. Only a live loaded chat with
+stable followed identity admits the atomic `audio-config.json` save under the
+existing per-user CCP storage owner. The capability remains in its existing file.
+The audio owner loads this configuration at startup; invalid storage is an explicit
+optional failure, and an intentional endpoint environment override is separately
+identified. Dependency installation is opt-in. Restart Codex after a successful
+save; read-probe readiness is distinct from genuine dictation/model acceptance.
+See the [installation instructions](../../plugins/cody-codex-plugin/README.md#install-and-review-hooks).
+
+On the inspected Desktop build 26.1007.9446.0, its actual app-server still uses
+stdio and owns no TCP listener. No supported attach setting for this host was
+verified in the current official documentation. The installation step must report
+that boundary without inventing an endpoint, starting another server or claiming
+audio is active.

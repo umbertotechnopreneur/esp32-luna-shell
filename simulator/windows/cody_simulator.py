@@ -65,7 +65,7 @@ from cody_scene import ScenePainter  # noqa: E402
 from cody_ccp_panel import CcpPanel  # noqa: E402
 from cody_fake_audio import FakeAudioDriver  # noqa: E402
 from cody_preview_layout import (  # noqa: E402
-    SIZE, PreviewLayout, logical_touch, physical_point,
+    SIZE, VIEW_PADDING, PreviewLayout, enlarge_framebuffer, logical_touch, physical_point,
 )
 from runtime_paths import resolve_runtime_output  # noqa: E402
 from cody_ui_theme import FONTS, install_theme, scale_pixels  # noqa: E402
@@ -798,7 +798,7 @@ class CodyWindow:
         self.ccp_panel = None
         self.jelly_study = renderer.jelly_study_enabled
         preview_name = 'PEARL JELLY / HOST ONLY' if self.jelly_study else 'Cody Alpha'
-        self.root.title(f"{renderer.rig['character']['name']} / VibeWare {preview_name} / SYNTHETIC")
+        self.root.title(f"{renderer.rig['character']['name']} / Cody Studio {preview_name} / SYNTHETIC")
         self.ui_colors = install_theme(root)
         self.screen = tk.StringVar(value=args.screen)
         self.rotation = tk.IntVar(value=args.rotation)
@@ -858,6 +858,7 @@ class CodyWindow:
         self.scene = None
         self.after_id = None
         self.layout_mode = None
+        self.startup_preview_fit_pending = True
         self.pending_canvas_size = (1,1)
         self.layout = PreviewLayout.fit(1,1,False)
         self.display_rotation = args.rotation
@@ -882,9 +883,12 @@ class CodyWindow:
         preview_header.grid(row=0, column=0, sticky="ew")
         ttk.Label(preview_header, text="LIVE PREVIEW", style="Section.TLabel",
                   background=self.ui_colors["background"]).pack(side="left")
-        ttk.Label(preview_header, text="466 x 466 / local touch", style="Subtitle.TLabel",
+        self.preview_scale = tk.StringVar(value="466 x 466 / integer pixels")
+        ttk.Label(preview_header, textvariable=self.preview_scale, style="Subtitle.TLabel",
                   background=self.ui_colors["background"]).pack(side="right")
-        self.canvas = tk.Canvas(self.preview_host, width=self.ui_pixels(600), height=self.ui_pixels(420),
+        # Framebuffer pixels are physical PMv2 pixels; only surrounding host chrome follows DPI.
+        initial_canvas_size = SIZE * 2 + VIEW_PADDING * 2
+        self.canvas = tk.Canvas(self.preview_host, width=initial_canvas_size, height=initial_canvas_size,
                                 highlightthickness=0, borderwidth=0, bg=self.ui_colors["canvas"])
         self.canvas.grid(row=1, column=0, sticky="nsew")
         self.canvas.bind("<Button-1>", self.touch)
@@ -934,6 +938,10 @@ class CodyWindow:
         status_bar.grid(row=2, column=0, sticky="ew")
         self.timing = ttk.Label(status_bar, text="SYNTHETIC / host timings only", style="Status.TLabel")
         self.timing.pack(fill="x")
+        # Measure real font/chrome requests before binding resize; the initial view
+        # admits a complete 2x framebuffer whenever the monitor work area allows it.
+        self.root.update_idletasks()
+        requested_width, requested_height = self.root.winfo_reqwidth(), self.root.winfo_reqheight()
         self.root.bind("<Escape>",self.back)
         self.root.bind("<Configure>",self.resize_window)
         self.root.bind("<MouseWheel>",self.scroll_controls)
@@ -941,8 +949,8 @@ class CodyWindow:
         work_left, work_top, work_right, work_bottom = window_work_area(root)
         self.available_ui_width = max(1, work_right - work_left - self.ui_pixels(40))
         self.available_ui_height = max(1, work_bottom - work_top - self.ui_pixels(60))
-        width = min(self.ui_pixels(1440), self.available_ui_width)
-        height = min(self.ui_pixels(900), self.available_ui_height)
+        width = min(requested_width, self.available_ui_width)
+        height = min(requested_height, self.available_ui_height)
         self.root.minsize(min(self.ui_pixels(700), width), min(self.ui_pixels(560), height))
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=1)
@@ -950,7 +958,31 @@ class CodyWindow:
         top = work_top + (work_bottom - work_top - height) // 2
         self.root.geometry(f"{width}x{height}{left:+d}{top:+d}")
         self.arrange_panels(width)
+        self.root.bind("<Map>", self.fit_startup_preview, add="+")
         self.tick()
+        self.root.after_idle(self.fit_startup_preview)
+
+    # self: Window owner applying the requested 2x preview once after real mapped geometry settles.
+    # event: Optional Tk Map notification; child-window mappings do not own the outer window size.
+    # Raises tk.TclError for failed layout or the original monitor API error.
+    def fit_startup_preview(self, event=None):
+        if (event is not None and event.widget is not self.root) or not self.startup_preview_fit_pending:
+            return
+        if not self.root.winfo_ismapped():
+            return
+        self.startup_preview_fit_pending = False
+        self.root.update_idletasks()
+        target = SIZE * 2 + VIEW_PADDING * 2
+        width = min(self.available_ui_width, self.root.winfo_width() + max(0, target - self.canvas.winfo_width()))
+        height = min(self.available_ui_height, self.root.winfo_height() + max(0, target - self.canvas.winfo_height()))
+        if width == self.root.winfo_width() and height == self.root.winfo_height():
+            return
+        # Actual toolbar wrapping and status height can differ from Tk's pre-map
+        # request. Grow by the measured deficit only; subsequent user resizes are free.
+        left, top, right, bottom = window_work_area(self.root)
+        x = left + (right - left - width) // 2
+        y = top + (bottom - top - height) // 2
+        self.root.geometry(f"{width}x{height}{x:+d}{y:+d}")
 
     # self: Desktop controller converting UI spacing without changing the logical scene.
     # value: One 96-DPI pixel count or a tuple of counts used for widget padding.
@@ -995,17 +1027,23 @@ class CodyWindow:
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
         identity = ttk.Frame(header, style="Studio.TFrame")
-        identity.grid(row=0, column=0, columnspan=2, sticky="w")
+        identity.grid(row=0, column=0, sticky="w")
         with Image.open(ROOT / "simulator/windows/assets/branding/vibeware-logo.png") as logo:
             # Display scaling preserves the approved source canvas and pixel-art edges.
             side = self.ui_pixels(80)
-            self.brand_logo = ImageTk.PhotoImage(logo.resize((side, side), Image.Resampling.NEAREST))
-        self.root.iconphoto(True, self.brand_logo)
-        ttk.Label(identity, image=self.brand_logo, style="Studio.TLabel").pack(side="left", padx=self.ui_pixels((0, 14)))
+            self.brand_logo = ImageTk.PhotoImage(logo.resize((side, side), Image.Resampling.NEAREST), master=self.root)
+        with Image.open(ROOT / "assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.png") as logo:
+            self.project_logo = ImageTk.PhotoImage(logo.resize((64, 64), Image.Resampling.LANCZOS), master=self.root)
+        self.root.iconphoto(True, self.project_logo)
+        ttk.Button(header, image=self.brand_logo, text="VibeWare manifesto", compound="top",
+                   style="Link.TButton", command=lambda: self.open_studio_link(StudioLink.MANIFESTO)).grid(
+                       row=0, column=1, sticky="ne")
         title = ttk.Frame(identity, style="Studio.TFrame")
         title.pack(side="left")
         ttk.Label(title, text="Cody Studio", style="Title.TLabel").pack(anchor="w")
         ttk.Label(title, text=preview_name + " / character playground", style="Subtitle.TLabel",
+                  background=self.ui_colors["background"]).pack(anchor="w", pady=(2, 0))
+        ttk.Label(title, text="Participates in the VibeWare initiative", style="Subtitle.TLabel",
                   background=self.ui_colors["background"]).pack(anchor="w", pady=(2, 0))
         links = ttk.Frame(header, style="Studio.TFrame")
         links.grid(row=1, column=0, sticky="w", pady=self.ui_pixels((6, 0)))
@@ -1460,7 +1498,9 @@ class CodyWindow:
     def arrange_panels(self, width):
         stack_fits = self.available_ui_height >= self.ui_pixels(720)
         compact_wide = not stack_fits and width >= self.ui_pixels(760)
-        mode = "wide" if width >= self.ui_pixels(1000) or compact_wide else "stacked"
+        wide_threshold = min(self.ui_pixels(1000), SIZE + VIEW_PADDING * 2 +
+            self.controls_host.winfo_reqwidth() + self.ui_pixels(60))
+        mode = "wide" if width >= wide_threshold or compact_wide else "stacked"
         if mode==self.layout_mode:
             return
         self.layout_mode = mode
@@ -1696,7 +1736,7 @@ class CodyWindow:
     # Audio failures are retained by the optional fake driver without stopping touch handling.
     def touch(self, event):
         if self.ccp_panel is not None and self.ccp_panel.follow.get():
-            self.ccp_panel.press(self.layout.to_logical(event.x, event.y, self.display_rotation))
+            self.ccp_panel.press(self.layout.to_device_pixel(event.x, event.y, self.display_rotation))
             return
         self.preview_interaction()
         self.body_drag_origin = None
@@ -1706,7 +1746,7 @@ class CodyWindow:
             for tag in self.canvas.gettags(item):
                 if tag.startswith("point:"):
                     clicked_name = tag.removeprefix("point:")
-        logical = self.layout.to_logical(event.x,event.y,self.display_rotation)
+        logical = self.layout.to_device_pixel(event.x,event.y,self.display_rotation)
         if logical is None:
             if clicked_name is not None and self.display_screen == Screen.RIG:
                 self.choose_point(clicked_name)
@@ -1772,12 +1812,12 @@ class CodyWindow:
     # event: Host pointer movement, interpreted using the last displayed layout.
     def drag_body(self, event):
         if self.ccp_panel is not None and self.ccp_panel.follow.get():
-            self.ccp_panel.drag(self.layout.to_logical(event.x, event.y, self.display_rotation))
+            self.ccp_panel.drag(self.layout.to_device_pixel(event.x, event.y, self.display_rotation))
             return
         self.navigation_visibility.interact(int(time.perf_counter() * 1_000_000))
         if self.body_drag_origin is None:
             return
-        point = self.layout.to_logical(event.x, event.y, self.body_drag_rotation)
+        point = self.layout.to_device_pixel(event.x, event.y, self.body_drag_rotation)
         if point is None:
             self.petting.cancel()
             return
@@ -1790,13 +1830,13 @@ class CodyWindow:
     # event: Actual host pointer release, including release outside the preview.
     def release_body(self, event):
         if self.ccp_panel is not None and self.ccp_panel.follow.get():
-            self.ccp_panel.release(self.layout.to_logical(event.x, event.y, self.display_rotation))
+            self.ccp_panel.release(self.layout.to_device_pixel(event.x, event.y, self.display_rotation))
             return
         self.navigation_visibility.interact(int(time.perf_counter() * 1_000_000))
         self.petting.cancel()
         if self.body_drag_origin is None:
             return
-        point = self.layout.to_logical(event.x, event.y, self.body_drag_rotation)
+        point = self.layout.to_device_pixel(event.x, event.y, self.body_drag_rotation)
         # Outside the preview there is no logical hit. The host-only release
         # preserves the last known gesture position rather than clipping it.
         if point is None:
@@ -1927,23 +1967,22 @@ class CodyWindow:
     # screen: Route associated with the displayed scene.
     # rotation: Cardinal orientation used for both display and subsequent input.
     # Raises tk.TclError if Tk cannot publish the frame.
+    # Raises ValueError if a non-native framebuffer or fractional display zoom is supplied.
     def present_frame(self, image, layout, screen, rotation):
-        # A bigger coat for the same skeleton: scale only the presentation.
-        display_image = image.resize(
-            (layout.image_size, layout.image_size),
-            Image.Resampling.NEAREST,
-        )
+        display_image = enlarge_framebuffer(image, layout.scale)
         # Reuse Tk's image storage while the viewport size stays unchanged.
         new_photo = (self.photo is None or self.photo.width() != layout.image_size or
                      self.photo.height() != layout.image_size)
         if new_photo:
-            self.photo = ImageTk.PhotoImage(display_image)
+            self.photo = ImageTk.PhotoImage(display_image, master=self.root)
             self.canvas.itemconfigure(self.image_item, image=self.photo)
         else:
             self.photo.paste(display_image)
         if layout != self.layout:
             self.label_text_cache.clear()
             self.canvas.coords(self.image_item, layout.left, layout.top)
+            clipped = layout.image_size > min(layout.width, layout.height)
+            self.preview_scale.set(f"466 x 466 / {layout.scale}x pixels" + (" / enlarge window" if clipped else ""))
 
         self.layout = layout
         self.display_rotation = rotation
@@ -2037,6 +2076,8 @@ class CodyWindow:
             if self.ccp_panel.follow.get():
                 self.render_ccp_tick(started)
                 return
+            self.ccp_panel.pause_home_presentation()
+            self.ccp_panel.events.pause()
             self.ccp_panel.refresh()
         self.advance_happiness_clock(int(started * 1_000_000))
         self.navigation_visibility.update(int(started * 1_000_000))
@@ -2225,6 +2266,7 @@ class CodyWindow:
             image.putalpha(mask)
             self.present_frame(orient(image, rotation), layout, Screen.GREETING, rotation)
             self.last_presentation_key = key
+            self.ccp_panel.present_home_audio(self.scene)
             # Optional SFX follow the exact native cue only after its frame was presented.
             self.present_audio(Screen.GREETING, personality_only=True)
         self.timing.configure(text="SIMULATED ACTIVITY PREVIEW / no packets or pairing / shared C++ renderer / ESP32 UNMEASURED"

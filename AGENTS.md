@@ -5,6 +5,12 @@ instruction file; do not add parallel agent or Copilot contracts.
 
 ## Platform and tooling
 
+- Use documented public integration points. Do not implement or install hacks,
+  undocumented entry points, private-protocol bridges or fragile startup/runtime
+  overrides. Explain the limitation, supported alternatives and maintenance risk
+  to the owner before proposing an exception; obtain explicit approval before
+  implementing it. General autonomy, build or installation authorization is not
+  approval for such an exception.
 - Target ESP-IDF 6.0.2 and official ESP-Brookesia 0.8 only. No compatibility
   branches, shims, wrappers, migrations or fallbacks for IDF 5.x, Brookesia
   0.6/0.7 or the removed Phone framework.
@@ -25,8 +31,13 @@ instruction file; do not add parallel agent or Copilot contracts.
   Run only the operations explicitly requested. Static source review is allowed;
   disclose deferred validation.
 - Before each individual test or suite, announce exact commands and wait for fresh
-  explicit authorization. Earlier test approval or approval to implement, build,
-  flash or capture does not authorize another test run.
+  explicit authorization. Never start tests on your own initiative. Earlier test
+  approval, general autonomy or approval to implement, build, flash or capture
+  does not authorize another test run. This owner requirement was reaffirmed on
+  2026-10-15; preparing tests does not authorize executing them.
+- Create a branch, pull request or worktree only when the owner explicitly asks
+  for that operation. General implementation, autonomy, commit or push requests
+  do not authorize creating any of them. Use the existing checkout and branch.
 - Finish implementation, static review and cross-component integration before
   requested final validation; no intermediate configure/build/size passes.
   Limit compilation to eight jobs and allow at least 240 seconds per build.
@@ -35,8 +46,11 @@ instruction file; do not add parallel agent or Copilot contracts.
   warnings to conceal them.
 - An explicitly requested complete final package comprises clean/incremental
   builds, size, simulator checks, `git diff --check`, dependency/legacy scans and
-  a changed-files secret scan. A narrower request authorizes only its named checks.
+  a changed-files secret scan at GitHub publication. A narrower request authorizes only its named checks.
   Host assertions, successful builds and flashes do not prove physical behavior.
+- Secret scanning belongs to GitHub publication, not local configure/build/size,
+  flash or capture. Inspect changed source files before an authorized push;
+  never scan firmware images or run secret checks as part of local compilation.
 
 ## Circular display
 
@@ -56,10 +70,21 @@ instruction file; do not add parallel agent or Copilot contracts.
   rotate touch independently. Read
   [circular-display-layout](docs/bsp/boards/waveshare-esp32s3-touch-amoled-1.75/display-geometry.md) before
   changing layouts.
-- Cody companion technical panels are a scoped exception to lateral Back:
-  a short passive tap advances Activity, Model & Context, Session & Link, then
-  Activity again; a deliberate shake returns directly to Home. These panels
-  have no Back control. Setup, remote questions and Luna retain their routes.
+- Cody Home keeps the character and status fixed above rotating Tokens, Model,
+  Connection and Chat panels. Tap advances; deliberate shake returns to Tokens.
+  Long titles/activity hold Chat until their horizontal scroll completes;
+  Connection also allows complete reading of build date, PC timezone and hostname.
+  Home panels have no Back control. Setup, remote questions and Luna retain routes.
+  The @CCP footer makes three complete passes per display-owner lifetime, then
+  disappears; source gaps, standby and chat/panel changes pause it without replay.
+- Cody diagnostic-screen decision (2026-10-16): Keep one device diagnostic entry
+  in both Debug and Release, with measured CPU, free RAM/PSRAM, FPS, IP and SD
+  status. Its Memory button opens internal RAM/PSRAM heap capacity and
+  fragmentation details; Back returns to the overview, then to the retained route.
+  Bars show used capacity, largest free block and other free space, not addresses.
+  Remove the facial-channel list and its storage from the device UI;
+  retain the internal animation channels. Never require a build-mode choice.
+  Normal restores the retained route. Preserve authenticated capability checks.
 
 ## Code clarity
 
@@ -68,11 +93,20 @@ instruction file; do not add parallel agent or Copilot contracts.
   Conversation with the user may remain Italian. The English requirement also
   covers PDF titles, diagrams, captions, footers and historical text in revised
   documents; preserve original dates, screen IDs and evidence when translating.
+- Keep the root README footer headed `This is VibeWare` with the canonical
+  manifesto, approved logo, project/VibeWare GitHub links, personal site,
+  Terms and Privacy. Explain the initiative without claiming the software is
+  finished or using a generic "I created this software with AI" disclosure.
+  Website footer links use `utm_source=github`, `utm_medium=referral`,
+  `utm_campaign=esp32-luna-shell` and placement-specific `utm_content`.
+  Preserve the root license and third-party license boundaries.
 
-- Cody action layout decision (2026-10-09): two actions use rounded gradient
+- Cody action layout decision (2026-10-14): captions use text without action icons.
+  Two ordinary actions use rounded gradient
   cards side by side; three use the same pair plus one centered action below.
-  One action uses a centered wide capsule with its icon to the left of its label.
-  Apply semantic colors, restrained gradients and action icons to all Cody
+  One action uses a centered wide capsule. Question choices use numbered,
+  single-line full-width rows, at most two visible, with scrolling and explicit
+  detail review before Send. Apply semantic colors and restrained gradients to Cody
   screens. Preserve the separate lateral Back, QR quiet zones and local chords.
   Approved references: `docs/cody/ui-proposals/20261009/selected-multi-action.png`
   and `selected-single-action.png` in the same directory.
@@ -133,6 +167,11 @@ instruction file; do not add parallel agent or Copilot contracts.
 
 ## Artifacts and checkpoints
 
+- Whenever a documentation PDF is created or updated in this repository, copy
+  the final file byte for byte to
+  `C:\Users\umber\OneDrive\Obsidian\30_Engineering\Products\Cody Companion\atlas`,
+  retaining the same filename. This copy is a required part of the documentation
+  task; do not regenerate or convert the PDF for the Obsidian copy.
 - For every user-requested PDF revision, maintain a dedicated final revision
   register. Use a structured grid with date and intervention type (Security,
   Errata, Addendum or Change) in the left column, and the description, affected

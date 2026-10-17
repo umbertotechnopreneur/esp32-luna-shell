@@ -92,6 +92,14 @@ component includes health, real error, validity, freshness, last-attempt, and
 last-success fields. GPS fix-dependent numeric fields are `null` unless the
 complete current fix is valid.
 
+The processor payload now names its per-core task watermark
+`processor.cores[].stack_high_water_bytes`, replacing `stack_high_water_words`.
+Consumers must update the JSON field name and treat it as bytes of minimum free
+task stack, not CPU usage. ESP-IDF 6.0.2 reports the watermark in bytes and its
+Xtensa `StackType_t` is `uint8_t`, so this unit-name correction does not change
+the numeric values. There is no duplicate legacy field. Check the canonical
+processor/core availability before presenting the measurement.
+
 The diagnostics storage object preserves mount outcome/stage, cleanup stage and
 error, guarded FatFs results, cleanup/poison state, verified-card and
 `format_required` state, single-use authorization evidence, partition/format

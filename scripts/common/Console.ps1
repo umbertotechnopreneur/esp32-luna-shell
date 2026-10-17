@@ -32,6 +32,7 @@ function Get-DeviceFirmwarePresentation {
         monitor = @{ Emoji = '📟'; Description = 'Attach the live ESP-IDF monitor without a startup reset; exit with Ctrl+].' }
         capture = @{ Emoji = '📝'; Description = 'Save serial output for a bounded duration; reset first only with -ResetBeforeCapture.' }
         'sd-log' = @{ Emoji = '📥'; Description = 'Download a stored SD log over USB with checked blocks; close the monitor first.' }
+        'endurance-read' = @{ Emoji = '📥'; Description = 'Read canonical current/previous endurance records over USB, including Release builds; no reset.' }
         flash = @{ Emoji = '⚡'; Description = 'Build and write the selected firmware to the device, then reset it.' }
         reset = @{ Emoji = '🔄'; Description = 'Reset the device through serial control lines without writing firmware.' }
         combo = @{ Emoji = '🚀'; Description = 'Build, flash and attach the live monitor without an additional startup reset.' }
@@ -55,6 +56,11 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
             'display-dma' = @{ Category = 'Snapshots, hardware and power'; Emoji = '🖥️'; Description = 'Execute native BSP slot, DMA completion, timeout and quarantine contracts on the host.' }
             'cody-response' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Deterministic touch, motion and expression response contracts.' }
             'cody-runtime' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Native response, demo, statistics and original boot-cue checks.' }
+            'cody-voice-ui' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Production recording gestures, native ribbon raster and synthetic preview.' }
+            'cody-voice-input' = @{ Category = 'Cody and simulators'; Emoji = '🎵'; Description = 'Production voice owner and authenticated receiver contracts on the host.' }
+            'cody-audio-setup' = @{ Category = 'Cody and simulators'; Emoji = '🎵'; Description = 'Isolated native audio installation, persistence and failed-probe boundaries.' }
+            'cody-public-audio-queue' = @{ Category = 'Cody and simulators'; Emoji = '🎵'; Description = 'Explicit live experimental queue probe or single-use WAV pilot; requires native CLI and genuine chat ID.' }
+            'voice-afe-lifecycle' = @{ Category = 'Snapshots, hardware and power'; Emoji = '🎵'; Description = 'Production AFE notification, startup and rollback helpers with host primitives.' }
             simulator = @{ Category = 'Cody and simulators'; Emoji = '🖥️'; Description = 'Windows Luna model and loopback fake-device contracts.' }
             'battery-ui' = @{ Category = 'UI and connectivity'; Emoji = '🔋'; Description = 'Battery-screen layout and navigation contracts.' }
             'fullscreen-layout' = @{ Category = 'UI and connectivity'; Emoji = '📐'; Description = 'Adaptive chrome and full-screen viewport geometry.' }
@@ -79,11 +85,12 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
             'build-profiles' = @{ Category = 'Build, console and repository'; Emoji = '🎯'; Description = 'Firmware profiles and dependency-closure contracts.' }
             'incremental-build' = @{ Category = 'Build, console and repository'; Emoji = '🔨'; Description = 'Timestamp-driven package and LittleFS generation.' }
             'check-resource-budgets' = @{ Category = 'Build, console and repository'; Emoji = '📊'; Description = 'Check memory and build-graph budgets against existing build artifacts; needs --build-dir.' }
-            'test-resource-budgets' = @{ Category = 'Build, console and repository'; Emoji = '📊'; Description = 'Host tests for the resource-budget checker and CI contract.' }
+            'test-resource-budgets' = @{ Category = 'Build, console and repository'; Emoji = '📊'; Description = 'Host tests for the current firmware resource-budget checker.' }
             'changed-secrets' = @{ Category = 'Build, console and repository'; Emoji = '🔐'; Description = 'Inspect changed repository files for common secret literals.' }
             'public-branding' = @{ Category = 'Build, console and repository'; Emoji = '🏷️'; Description = 'Public-release text and branding contracts.' }
         }
         generators = @{
+            'cody-audio-queue-fixture' = @{ Category = 'Cody and simulators'; Emoji = '🎵'; Description = 'Windows SAPI synthetic speech WAV for the explicit public audio queue pilot; no speaker playback.' }
             'cody-rig' = @{ Category = 'Cody assets'; Emoji = '🤖'; Description = 'Compile a selected skin into immutable named firmware rig tables.' }
             'cody-runtime-assets' = @{ Category = 'Cody assets'; Emoji = '🔊'; Description = 'Generate runtime settings and the two original synthesized boot cues.' }
             'cody-jelly' = @{ Category = 'Cody assets'; Emoji = '☁️'; Description = 'Package the pearl sprite and simulator bindings as flash-owned data.' }
@@ -91,6 +98,9 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
             'tts-assets' = @{ Category = 'Luna assets'; Emoji = '🔊'; Description = 'Package optional pinned speech data: SD four languages or English-only flash.' }
             'cody-personality-audio' = @{ Category = 'Cody assets'; Emoji = '🎵'; Description = 'Synthesize 14 original short symbol cues, WAV previews and immutable PCM flash assets.' }
             'cody-scenes' = @{ Category = 'Cody assets'; Emoji = '🎬'; Description = 'Bake cloud/title scenes and glyphs; requires --font-path.' }
+            'cody-home-dashboard-fonts' = @{ Category = 'Cody assets'; Emoji = '🔤'; Description = 'Bake independent Home sans fonts from the vendored OFL source.' }
+            'cody-model-cost-audio' = @{ Category = 'Cody assets'; Emoji = '🔊'; Description = 'Prepare the pinned CC0 model-price plink and five-note preview.' }
+            'cody-question-flow-mockups' = @{ Category = 'Cody documents'; Emoji = '🎨'; Description = 'Render eight question-flow design screens and an offline mouse/touch prototype.' }
             'package-cody-boot' = @{ Category = 'Cody assets'; Emoji = '🌅'; Description = 'Convert existing boot images into indexed RGB565 firmware resources.' }
             'vibeware-boot' = @{ Category = 'Cody assets'; Emoji = '💾'; Description = 'Package the approved transparent floppy GIF for native and LVGL boot.' }
             'vibeware-boot-revision' = @{ Category = 'Cody documents'; Emoji = '📄'; Description = 'Append and visually review the VibeWare boot identity revision in both existing PDF atlases.' }

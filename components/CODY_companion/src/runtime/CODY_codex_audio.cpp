@@ -66,7 +66,7 @@ lunashell_codex_audio_kind_t cue_kind(CodexAudioCue cue)
 }
 } // namespace
 
-// cue: One actual transition exposed in the current companion presentation.
+// cue: Stable authored identity exposed in the current companion presentation.
 // status: Receives explicit owner admission; no delayed replay is scheduled.
 // Exception: Returns invalid identities or original shared-owner errors.
 esp_err_t notify_codex_audio(CodexAudioCue cue, CodexAudioStatus &status)
@@ -94,6 +94,24 @@ esp_err_t notify_codex_audio(CodexAudioCue cue, CodexAudioStatus &status)
         selected->sample_rate_hz, static_cast<uint32_t>(cue), cue_kind(cue), &owner);
     copy_status(owner, status);
     return error;
+}
+// alert: One sustained initial bell or one shorter, quieter reminder.
+// status: Receives the existing owner's actual result; no beep sequence is queued.
+// Exception: Returns an invalid alert identity or the original shared-owner failure.
+esp_err_t notify_question_audio(QuestionAudioAlert alert, CodexAudioStatus &status)
+{
+    switch (alert) {
+    case QuestionAudioAlert::Initial:
+        return notify_codex_audio(CodexAudioCue::Question, status);
+    case QuestionAudioAlert::Reminder:
+        return notify_codex_audio(CodexAudioCue::QuestionReminder, status);
+    case QuestionAudioAlert::None:
+        break;
+    }
+    status = {CodexAudioState::Failed, ESP_ERR_INVALID_ARG, 0, CodexAudioCue::Question};
+    ESP_LOGE(kTag, "Question audio alert=%u rejected (%s)",
+        static_cast<unsigned>(alert), esp_err_to_name(ESP_ERR_INVALID_ARG));
+    return ESP_ERR_INVALID_ARG;
 }
 
 // suspended: Cancels only Codex presentation sounds; ordinary symbol visibility remains independent.

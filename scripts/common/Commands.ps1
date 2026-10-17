@@ -24,7 +24,7 @@ function Get-FirmwareActions {
 
 # No parameters: describe public options once for CLI rejection and menu forwarding.
 function Get-DeviceActionParameters {
-    $idf = @('Profile','Feature','BoardConfig','BuildMode','BuildDir','IdfPath','ToolsPath','PythonExe')
+    $idf = @('Profile','Feature','BoardConfig','BuildMode','BuildDir','IdfPath','ToolsPath','PythonExe','ActivityClassifier','ActivityCapture')
     $serial = @('Port','Baud','WaitSeconds')
     $preview = @('Screen','Rotation','AtMs','SafeGuide','CloudMaterialStudy','CloudPngMeshStudy','CloudJellyStudy','MeshOverlay','PythonExecutable','Skin')
     return @{
@@ -34,6 +34,7 @@ function Get-DeviceActionParameters {
         'boot-screens' = @('Rotation','AtMs','SafeGuide','PythonExecutable')
         'simulator-luna' = @('PythonExecutable','ToolArguments')
         'package-simulator' = @()
+        'codex-audio' = @('CodexExecutable','EnableAudioQueue','InstallAudioDependencies','PythonExecutable')
         check = @('Check','PythonExecutable','ToolArguments')
         generate = @('Generator','PythonExecutable','ToolArguments')
         banner = @('ToolArguments')
@@ -41,6 +42,7 @@ function Get-DeviceActionParameters {
         flash = $idf + $serial + @('Jobs'); reset = $idf + $serial
         monitor = $idf + $serial + @('ResetBeforeMonitor'); capture = $idf + $serial + @('DurationSeconds','OutputPath','ResetBeforeCapture')
         'sd-log' = $serial + @('StoredLog','OutputPath')
+        'endurance-read' = $serial + @('OutputPath')
         erase = $idf + $serial; reconfigure = $idf; 'set-target' = $idf; 'update-lock' = $idf
         size = $idf + @('SizeOutputFormat','SizeOutputFile')
         combo = $idf + $serial + @('Jobs','ResetBeforeMonitor'); recover = $idf + $serial + @('Jobs')
@@ -72,6 +74,9 @@ function Assert-DeviceActionParameters($RequestedAction, $BoundParameters, $Cont
     }
     if ($BoundParameters.ActivityPreview -and -not $BoundParameters.Ccp) {
         throw '-ActivityPreview requires simulator -Ccp; it is an explicitly synthetic interactive view.'
+    }
+    if ($BoundParameters.ActivityCapture -and -not $BoundParameters.ActivityClassifier) {
+        throw '-ActivityCapture requires -ActivityClassifier.'
     }
 }
 
@@ -136,6 +141,14 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
         return
     }
     switch ($RequestedAction) {
+        'endurance-read' {
+            . (Join-Path $ProjectRoot 'scripts/common/StoredLogs.ps1')
+            . (Join-Path $ProjectRoot 'scripts/common/EnduranceReadback.ps1')
+            $serialBaud = if ($Options.ContainsKey('Baud')) { $Options.Baud } else { 115200 }
+            $responseTimeout = if ($Options.ContainsKey('WaitSeconds')) { $Options.WaitSeconds } else { 30 }
+            Invoke-DeviceEnduranceReadback -RequestedPort $Options.Port -RequestedBaud $serialBaud `
+                -Destination $Options.OutputPath -ResponseTimeoutSeconds $responseTimeout
+        }
         'sd-log' {
             . (Join-Path $ProjectRoot 'scripts/common/StoredLogs.ps1')
             $storedLog = if ($Options.ContainsKey('StoredLog')) { $Options.StoredLog } else { 'current' }
@@ -179,6 +192,13 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
         }
         'simulator-luna' { Invoke-HostTool (Join-Path $ProjectRoot 'simulator/windows/lunashell_simulator.py') $Options.ToolArguments $Options.PythonExecutable }
         'package-simulator' { Invoke-HostTool (Join-Path $ProjectRoot 'scripts/commands/package-simulator.ps1') @() '' }
+        'codex-audio' {
+            $audioOptions = @{}
+            foreach ($key in (Get-DeviceActionParameters)['codex-audio']) {
+                if ($Options.ContainsKey($key)) { $audioOptions[$key] = $Options[$key] }
+            }
+            & (Join-Path $ProjectRoot 'scripts/commands/codex-audio.ps1') @audioOptions
+        }
         'check' {
             $name = if ($Options.Check) { $Options.Check } else { 'cody-alpha' }
             $tool = Find-DeviceTool 'checks' $name
@@ -188,6 +208,15 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
             $name = if ($Options.Generator) { $Options.Generator } else { 'cody-rig' }
             $tool = Find-DeviceTool 'generators' $name
             Invoke-HostTool $tool.Path $Options.ToolArguments $Options.PythonExecutable
+            # Document regeneration must also refresh contents and the identical Obsidian copy.
+            if ($name -in @('cody-connection-atlas','cody-navigation-atlas','cody-planning-atlas',
+                    'cody-idle-atlas','cody-security-atlases','cody-pdf-english','cody-pairing-flyer')) {
+                $publisher = Find-DeviceTool 'generators' 'cody-pdf-frontmatter'
+                $publicationArguments = if ($name -eq 'cody-connection-atlas') {
+                    @('--file', 'cody-ccp-connection-atlas-v1.pdf')
+                } else { @() }
+                Invoke-HostTool $publisher.Path $publicationArguments $Options.PythonExecutable
+            }
         }
         'banner' { Invoke-HostTool (Join-Path $ProjectRoot 'scripts/commands/add-source-banner.ps1') $Options.ToolArguments '' }
         'clean-artifacts' { Write-Host 'Transient artifacts removed; firmware, configuration and Python caches retained.' }

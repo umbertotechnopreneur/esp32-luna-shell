@@ -35,9 +35,10 @@ enum class Route : uint8_t {
     Project17, Working18, Response19, Paused20, Ended20, Lost32, CompanionIdle16, ActivityUnavailable,
     PrPending21 = 64, ChecksRunning22 = 65, ChecksFailed23 = 66, CheckFailures24 = 67,
     DecisionNotice26 = 68, DecisionChoices27 = 69, DecisionConfirm27 = 70,
-    DecisionWaiting = 71, ReplySent31 = 72, CodexNotice = 73, ApprovalOnPc = 74, EventUnavailable = 75
+    DecisionWaiting = 71, ReplySent31 = 72, CodexNotice = 73, ApprovalOnPc = 74, EventUnavailable = 75,
+    DecisionQueue = 76
 };
-enum class EventStage : uint8_t { Notice = 0, Choices = 1, Confirm = 2, Waiting = 3, Failures = 4 };
+enum class EventStage : uint8_t { Notice = 0, Choices = 1, Confirm = 2, Waiting = 3, Failures = 4, Questions = 5 };
 enum class EventRetry : uint8_t { None = 0, Reply = 2, Dismiss = 3 };
 
 // route: Stable presentation identity, independent of atlas page numbers or catalog order.
@@ -56,6 +57,7 @@ inline bool is_codex_event_route(Route route)
     case Route::CodexNotice:
     case Route::ApprovalOnPc:
     case Route::EventUnavailable:
+    case Route::DecisionQueue:
         return true;
     default:
         return false;
@@ -105,6 +107,7 @@ inline Route destination(const LUNASHELL::CodexEventSnapshot &event,
         if (stage == EventStage::Confirm) {
             return Route::DecisionConfirm27;
         }
+        if (stage == EventStage::Questions) { return Route::DecisionQueue; }
         return stage == EventStage::Choices ? Route::DecisionChoices27 : Route::DecisionNotice26;
     case Kind::PrPending: return Route::PrPending21;
     case Kind::ChecksRunning:
@@ -112,24 +115,50 @@ inline Route destination(const LUNASHELL::CodexEventSnapshot &event,
     case Kind::ChecksFailed:
         return stage == EventStage::Failures ? Route::CheckFailures24 : Route::ChecksFailed23;
     case Kind::ApprovalOnPc: return Route::ApprovalOnPc;
-    case Kind::Notice: return Route::CodexNotice;
+    case Kind::Notice:
+    case Kind::ReplyReady: return Route::CodexNotice;
     case Kind::None: return Route::Connected15;
     }
     return Route::EventUnavailable;
 }
 
-enum class ActionId : uint8_t { None, Open, Choose, Send, Dismiss, Retry, Failures, Back };
-enum class Effect : uint8_t { None, Render, Reply, Dismiss, Observe };
+enum class ActionId : uint8_t { None, Open, Choose, Send, Dismiss, Retry, Failures, Back, SelectQuestion };
+enum class Effect : uint8_t { None, Render, Reply, Dismiss, Observe, SelectQuestion };
 struct Bounds { uint16_t x = 0, y = 0, width = 0, height = 0; };
-struct Line { char text[64]{}; uint16_t top = 0; bool instant = false; };
+struct Line {
+    char text[64]{};
+    uint16_t top = 0;
+    bool instant = false;
+    bool delivery_pulse = false;
+    bool pc_heading = false;
+};
+
+// line: Shared narrative/status style; only an active delivery wait pulses.
+// elapsed_us: Pausable scene time, unrelated to the actual delivery deadline.
+inline uint16_t line_color(const Line &line, uint64_t elapsed_us)
+{
+    if (line.pc_heading) { return 0xFE07; }
+    if (!line.delivery_pulse) { return line.instant ? 0xBDF7 : 0xFFFF; }
+    // A 1.6-second breathing cycle stays readable at its darkest point. Quantize
+    // to 50 ms so unchanged colors do not request redundant content redraws.
+    const uint32_t step = (elapsed_us % 1600000U) / 50000U;
+    const uint32_t ramp = (step <= 16U ? step : 32U - step) * 16U;
+    const uint32_t blend = ramp * ramp * (768U - 2U * ramp) / 65536U;
+    const uint16_t red = 3U + 2U * blend / 256U;
+    const uint16_t green = 20U + 16U * blend / 256U;
+    const uint16_t blue = 22U + 9U * blend / 256U;
+    return static_cast<uint16_t>((red << 11U) | (green << 5U) | blue);
+}
 struct Action {
     ActionId id = ActionId::None;
     char choice_id[13]{};
-    char label[16]{};
+    char label[68]{}; // Bounded preview only; full canonical text remains in the event.
+    char request_id[33]{};
     LUNASHELL::CodexChoiceTone tone = LUNASHELL::CodexChoiceTone::Neutral;
     Bounds bounds{};
     bool enabled = false;
     bool card = false;
+    bool row = false;
     uint16_t colors[4]{}; // Top, bottom, border and icon ink; owned by the shared semantic model.
     CODY2D::ActionIcon icon = CODY2D::ActionIcon::None;
 };
@@ -137,6 +166,8 @@ struct Navigation {
     EventStage stage = EventStage::Notice;
     char selected_id[13]{};
     uint8_t failure_page = 0;
+    uint8_t choice_page = 0;
+    uint8_t detail_page = 0;
 };
 struct Context {
     bool online = false;
@@ -145,6 +176,7 @@ struct Context {
     esp_err_t observation_error = ESP_OK;
     esp_err_t ui_error = ESP_OK;
     EventRetry retry = EventRetry::None;
+    bool selection_pending = false;
 };
 struct Plan {
     Route route = Route::None;
@@ -155,54 +187,50 @@ struct Plan {
     Action actions[3]{};
     uint8_t action_count = 0;
     bool back = false;
+    uint8_t page_index = 0;
+    uint8_t page_count = 1;
+    bool scrollable = false;
+    uint16_t title_color = 0xFFFF;
 };
 
-// action: Complete semantic identity/tone receiving production colors and explicit icon.
+// action: Complete semantic identity/tone receiving text-only production colors.
 inline void style(Action &action)
 {
     using Tone = LUNASHELL::CodexChoiceTone;
-    using Icon = CODY2D::ActionIcon;
+    action.icon = CODY2D::ActionIcon::None;
     switch (action.tone) {
     case Tone::Neutral:
         action.colors[0] = 0x18E5;
         action.colors[1] = 0x10A3;
         action.colors[2] = 0x4A8C;
         action.colors[3] = 0xBDF7;
-        action.icon = Icon::Arrow;
         break;
     case Tone::Positive:
         action.colors[0] = 0x1147;
         action.colors[1] = 0x08C4;
         action.colors[2] = 0x2B4F;
         action.colors[3] = 0x8F1D;
-        action.icon = Icon::Check;
         break;
     case Tone::Negative:
         action.colors[0] = 0x28A4;
         action.colors[1] = 0x1883;
         action.colors[2] = 0x796B;
         action.colors[3] = 0xED53;
-        action.icon = Icon::Close;
         break;
     case Tone::Info:
         action.colors[0] = 0x1106;
         action.colors[1] = 0x08A4;
         action.colors[2] = 0x3291;
         action.colors[3] = 0xA71F;
-        action.icon = Icon::Link;
         break;
     }
     switch (action.id) {
-    case ActionId::Send: action.icon = Icon::Link; break;
-    case ActionId::Dismiss: action.icon = Icon::Check; break;
-    case ActionId::Open: action.icon = Icon::Arrow; break;
     case ActionId::Retry:
     case ActionId::Failures:
         action.colors[0] = 0x2924;
         action.colors[1] = 0x18C3;
         action.colors[2] = 0x7BEF;
         action.colors[3] = 0xE5F1;
-        action.icon = action.id == ActionId::Retry ? Icon::Retry : Icon::Arrow;
         break;
     default: break;
     }
@@ -211,8 +239,8 @@ inline void style(Action &action)
 // action: Model-owned semantic style, exact bounds and full untimed caption.
 // font: Actual shared Cody body-font glyphs and metrics.
 // control: Receives native immutable rounded control geometry/style and first caption.
-// second: Receives a second caption only for an authored multiword card.
-// Exception: Returns exact native caption/bounds errors; never truncates a label.
+// second: Receives a second caption only for an authored non-list card.
+// Exception: Returns exact native caption/bounds errors; previews are already bounded.
 inline esp_err_t prepare_control(const Action &action, const CODY2D::MonoFont &font,
     CODY2D::CapsuleControl &control, CODY2D::TextLine &second)
 {
@@ -226,38 +254,29 @@ inline esp_err_t prepare_control(const Action &action, const CODY2D::MonoFont &f
     control.bottom_color = action.colors[1];
     control.border_color = action.colors[2];
     control.icon_color = action.colors[3];
-    control.icon = action.icon;
-    const uint16_t drop = action.card ? 10U : bounds.height >= 72 ? 6U : 4U;
-    control.icon_center = {static_cast<int16_t>(action.card ? bounds.x + bounds.width / 2 : bounds.x + 27),
-        static_cast<int16_t>((action.card ? bounds.y + 23 : bounds.y + bounds.height / 2) + drop)};
+    control.icon = CODY2D::ActionIcon::None;
     const char *label = action.label;
-    const char *space = action.card ? std::strchr(label, ' ') : nullptr;
+    const char *space = action.card && !action.row ? std::strchr(label, ' ') : nullptr;
     if (space == label || (space != nullptr && space[1] == '\0')) { space = nullptr; }
     const uint16_t length = static_cast<uint16_t>(space != nullptr ? space - label : std::strlen(label));
-    const uint16_t text_width = action.card ? bounds.width : bounds.width - 56;
-    if (length == 0 || bounds.width < 56 || bounds.height < font.height) { return ESP_ERR_INVALID_SIZE; }
+    if (length == 0 || bounds.width < 20 || bounds.height < font.height) { return ESP_ERR_INVALID_SIZE; }
+    const uint16_t text_width = bounds.width - 20;
     const uint16_t width = (length - 1U) * font.advance + font.width;
     if (width > text_width) { return ESP_ERR_INVALID_SIZE; }
-    const uint16_t top = action.card ? bounds.y + (space != nullptr ? 48 : 57) :
-        bounds.y + (bounds.height - font.height) / 2;
-    const uint16_t left = action.card ? bounds.x + (bounds.width - width) / 2 :
-        bounds.x + (bounds.width - width - 36U) / 2U + 36U;
-    if (!action.card) {
-        // Caption and icon form one centered group, with the same vertical
-        // alignment used by onboarding's actual native controls.
-        control.icon_center.x = static_cast<int16_t>(left - 24);
-        control.icon_center.y = static_cast<int16_t>(top + font.height / 2U);
-    }
+    const uint16_t height = space != nullptr ? font.height * 2U + 2U : font.height;
+    if (height > bounds.height) { return ESP_ERR_INVALID_SIZE; }
+    const uint16_t top = bounds.y + (bounds.height - height) / 2;
+    const uint16_t left = action.row ? bounds.x + 10U : bounds.x + (bounds.width - width) / 2;
     esp_err_t error = CODY2D::prepare_text_line(font, {label, length},
         {static_cast<int16_t>(left), static_cast<int16_t>(top)}, 0xFFFF, control.caption);
     if (error == ESP_OK && space != nullptr) {
         const char *text = space + 1;
         const uint16_t count = static_cast<uint16_t>(std::strlen(text));
         const uint16_t width_second = (count - 1U) * font.advance + font.width;
-        if (width_second > bounds.width) { return ESP_ERR_INVALID_SIZE; }
+        if (width_second > text_width) { return ESP_ERR_INVALID_SIZE; }
         error = CODY2D::prepare_text_line(font, {text, count},
             {static_cast<int16_t>(bounds.x + (bounds.width - width_second) / 2),
-             static_cast<int16_t>(bounds.y + 75)}, 0xFFFF, second);
+             static_cast<int16_t>(top + font.height + 2U)}, 0xFFFF, second);
     }
     return error;
 }
@@ -272,6 +291,7 @@ inline const char *scene_name(Route route)
     case Route::CheckFailures24: return "check-failures";
     case Route::DecisionNotice26: return "decision-notice";
     case Route::DecisionChoices27: return "decision-choices";
+    case Route::DecisionQueue: return "decision-choices";
     case Route::DecisionConfirm27: return "decision-confirm";
     case Route::DecisionWaiting: return "decision-waiting";
     case Route::ReplySent31: return "reply-sent";
@@ -345,6 +365,88 @@ inline void add_action(Plan &plan, ActionId id, const char *label, bool enabled,
     action.bounds = {113, 352, 240, 72};
 }
 
+// action: Retained single-line preview; the complete source stays canonical.
+// number: One-based offered position, never used as the response identity.
+// label: Original bounded ASCII choice or pending-question title.
+// capacity: Exact number of body-font characters admitted by the 300-pixel inset.
+// Exception: Returns INVALID_SIZE rather than overflowing or hiding continuation.
+inline esp_err_t prepare_row_label(Action &action, uint8_t number, const char *label, size_t capacity)
+{
+    if (capacity < 7 || capacity >= sizeof(action.label)) { return ESP_ERR_INVALID_SIZE; }
+    const size_t length = std::strlen(label);
+    if (number == 0 || number > 9 || length + 3U >= sizeof(action.label)) { return ESP_ERR_INVALID_SIZE; }
+    action.label[0] = static_cast<char>('0' + number);
+    action.label[1] = '.';
+    action.label[2] = ' ';
+    std::memcpy(action.label + 3, label, length + 1U);
+    if (length + 3U > capacity) {
+        // A visible ellipsis names a preview. The review page renders every
+        // original label/detail character and never sends this shortened text.
+        std::memcpy(action.label + capacity - 3U, "...", 4);
+    }
+    return ESP_OK;
+}
+
+// plan: Receives only the requested five-line review viewport and its page count.
+// label: Full canonical response caption, read before its description.
+// detail: Full canonical detail (or the question body when detail is absent).
+// page: Explicit local review page; no owner state is changed while reading.
+// capacity: Measured body-font capacity, with no pixel or timing approximation.
+// Exception: Returns INVALID_SIZE for an invalid viewport/page or oversized field.
+inline esp_err_t prepare_detail_page(Plan &plan, const char *label, const char *detail,
+                                    uint8_t page, size_t capacity)
+{
+    if (capacity < 7 || capacity >= sizeof(Line::text)) { return ESP_ERR_INVALID_SIZE; }
+    constexpr uint8_t lines_per_page = 5;
+    uint16_t line_number = 0;
+    const char *sources[] = {label, detail};
+    for (const char *source : sources) {
+        const size_t length = std::strlen(source);
+        size_t offset = 0;
+        while (offset < length) {
+            size_t count = std::min(capacity, length - offset);
+            if (offset + count < length) {
+                for (size_t split = count; split > 0; --split) {
+                    // Keep an ordinal with a following long word instead of
+                    // stranding "3." on a line by itself.
+                    if (source[offset + split] == ' ' && split >= capacity / 2U) { count = split; break; }
+                }
+            }
+            if (line_number / lines_per_page == page) {
+                auto &line = plan.lines[plan.line_count++];
+                std::memcpy(line.text, source + offset, count);
+                line.text[count] = '\0';
+                line.top = 196U + (line_number % lines_per_page) * 26U;
+                // Review scrolling does not replay narration or typewriter audio.
+                line.instant = true;
+            }
+            ++line_number;
+            offset += count;
+            if (offset < length && source[offset] == ' ') { ++offset; }
+        }
+    }
+    const uint16_t pages = (line_number + lines_per_page - 1U) / lines_per_page;
+    if (pages == 0 || pages > UINT8_MAX || page >= pages) { return ESP_ERR_INVALID_SIZE; }
+    plan.page_index = page;
+    plan.page_count = static_cast<uint8_t>(pages);
+    plan.scrollable = pages > 1;
+    return ESP_OK;
+}
+
+// plan: Prepared list viewport receiving one narrow hint below the safe square.
+// message: Short ASCII status measured against the lower circular chord.
+// Exception: Returns INVALID_SIZE if the fixed footer cannot retain the whole hint.
+inline esp_err_t append_list_hint(Plan &plan, const char *message)
+{
+    const size_t length = std::strlen(message);
+    if (plan.line_count >= 8 || length == 0 || length > 24) { return ESP_ERR_INVALID_SIZE; }
+    auto &line = plan.lines[plan.line_count++];
+    std::memcpy(line.text, message, length + 1U);
+    line.top = 394;
+    line.instant = true;
+    return ESP_OK;
+}
+
 // event: Coherent canonical event on firmware; isolated SIMULATED observation on host.
 // navigation: Reversible local choices and read-only paging.
 // context: Actual freshness, admissions and errors, never guessed transport success.
@@ -359,7 +461,9 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
     using Kind = LUNASHELL::CodexEventKind;
     using Tone = LUNASHELL::CodexChoiceTone;
     plan = {};
-    if (event.choice_count > 3 || event.failure_count > 6) { return ESP_ERR_INVALID_SIZE; }
+    if (event.choice_count > 3 || event.failure_count > 6 || event.pending_entry_count > 2) {
+        return ESP_ERR_INVALID_SIZE;
+    }
     for (uint8_t index = 0; index < event.choice_count; ++index) {
         const auto &choice = event.choices[index];
         if (!LUNASHELL::validCodexChoiceId(choice.id) || choice.label[0] == '\0' ||
@@ -373,7 +477,8 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
     if (identity == nullptr) { return ESP_ERR_INVALID_STATE; }
     std::strcpy(plan.scene, identity);
     plan.back = plan.route == Route::DecisionChoices27 || plan.route == Route::DecisionConfirm27 ||
-        plan.route == Route::CheckFailures24;
+        plan.route == Route::CheckFailures24 || plan.route == Route::DecisionQueue ||
+        (plan.route == Route::ApprovalOnPc && !context.dismiss_admitted);
     uint16_t top = 196;
     esp_err_t error = ESP_OK;
     // value: Complete English copy or canonical event text, never shortened here.
@@ -391,37 +496,95 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         add_action(plan, ActionId::Retry, "Try again", true);
     } else if (plan.route == Route::DecisionChoices27) {
         text(event.title);
-        top = 228;
-        text(context.online ? "What's your call?" : "Offline - pending", true);
         if (event.choice_count < 2 || event.choice_count > 3) { return ESP_ERR_INVALID_SIZE; }
-        const Bounds bounds[] = {{73, 260, 154, 104}, {239, 260, 154, 104}, {113, 376, 240, 52}};
-        for (uint8_t index = 0; index < event.choice_count; ++index) {
+        plan.page_count = (event.choice_count + 1U) / 2U;
+        plan.page_index = navigation.choice_page;
+        plan.scrollable = plan.page_count > 1;
+        if (plan.page_index >= plan.page_count) { return ESP_ERR_INVALID_SIZE; }
+        const uint8_t first = plan.page_index * 2U;
+        for (uint8_t index = first; index < event.choice_count && index < first + 2U; ++index) {
             const auto &choice = event.choices[index];
             auto &action = plan.actions[plan.action_count++];
             action.id = ActionId::Choose;
             std::memcpy(action.choice_id, choice.id, sizeof(action.choice_id));
-            std::memcpy(action.label, choice.label, sizeof(choice.label));
+            if (error == ESP_OK) { error = prepare_row_label(action, index + 1U, choice.label, capacity); }
             action.tone = choice.tone;
-            action.bounds = bounds[index];
+            action.bounds = {73, static_cast<uint16_t>(256U + (index - first) * 72U), 320, 60};
             action.enabled = event.state == State::Pending && !context.reply_admitted;
-            action.card = index < 2;
+            action.card = action.row = true;
+        }
+        if (plan.scrollable) {
+            std::snprintf(status, sizeof(status), "Swipe %u/%u",
+                static_cast<unsigned>(plan.page_index + 1U), static_cast<unsigned>(plan.page_count));
+        } else { std::strcpy(status, "Tap to read reply"); }
+        if (error == ESP_OK) { error = append_list_hint(plan, context.online ? status : "Offline - read replies"); }
+    } else if (plan.route == Route::DecisionQueue) {
+        std::strcpy(plan.title, "Pending questions");
+        if (event.pending_entry_count == 0) { return ESP_ERR_INVALID_STATE; }
+        for (uint8_t index = 0; index < event.pending_entry_count; ++index) {
+            const auto &pending = event.pending_questions[index];
+            if (pending.request_id[0] == '\0' || pending.title[0] == '\0') { return ESP_ERR_INVALID_ARG; }
+            for (uint8_t preceding = 0; preceding < index; ++preceding) {
+                if (std::strcmp(pending.request_id, event.pending_questions[preceding].request_id) == 0) {
+                    return ESP_ERR_INVALID_ARG;
+                }
+            }
+            auto &action = plan.actions[plan.action_count++];
+            action.id = ActionId::SelectQuestion;
+            std::memcpy(action.request_id, pending.request_id, sizeof(action.request_id));
+            if (error == ESP_OK) {
+                error = prepare_row_label(action, index + 1U,
+                    pending.context[0] != '\0' ? pending.context : "Context unavailable", capacity);
+                text(action.label);
+            }
+            if (error == ESP_OK) { error = prepare_row_label(action, index + 1U, pending.title, capacity); }
+            action.tone = Tone::Info;
+            action.bounds = {73, static_cast<uint16_t>(256U + index * 72U), 320, 60};
+            action.enabled = context.online && !context.reply_admitted && !context.selection_pending &&
+                event.state == State::Pending;
+            action.card = action.row = true;
+        }
+        if (error == ESP_OK) {
+            std::snprintf(status, sizeof(status), "%u waiting; tap to open",
+                static_cast<unsigned>(event.pending_question_count));
+            error = append_list_hint(plan, context.selection_pending ? "Opening question..." :
+                context.ui_error != ESP_OK ? "Selection failed - retry" :
+                context.online ? status : "Offline - pending");
         }
     } else if (plan.route == Route::DecisionConfirm27) {
         const auto *choice = find_choice(event, navigation.selected_id);
         if (choice == nullptr) { return ESP_ERR_NOT_FOUND; }
-        text(choice->label);
-        text(choice->detail[0] != '\0' ? choice->detail : event.body);
+        // Only this 68-byte display prefix is copied; full detail stays borrowed
+        // from the canonical event. Its ordinal never replaces the stable ID.
+        char review_label[68]{};
+        const size_t label_length = std::strlen(choice->label);
+        if (label_length + 3U >= sizeof(review_label)) { return ESP_ERR_INVALID_SIZE; }
+        review_label[0] = static_cast<char>('1' + (choice - event.choices));
+        review_label[1] = '.';
+        review_label[2] = ' ';
+        std::memcpy(review_label + 3, choice->label, label_length + 1U);
+        error = prepare_detail_page(plan, review_label,
+            choice->detail[0] != '\0' ? choice->detail : event.body, navigation.detail_page, capacity);
         top = 326;
         if (context.ui_error != ESP_OK) {
             std::snprintf(status, sizeof(status), context.online ? "Send error: 0x%08lX" : "Offline: 0x%08lX",
                 static_cast<unsigned long>(context.ui_error));
             text(status, true);
-        } else { text(context.online ? "Happy with this reply?" : "Offline - not sent", true); }
+        } else {
+            if (plan.scrollable) {
+                std::snprintf(status, sizeof(status), "Tap or swipe %u/%u",
+                    static_cast<unsigned>(plan.page_index + 1U), static_cast<unsigned>(plan.page_count));
+            } else { std::strcpy(status, "Review before sending"); }
+            text(context.online ? status : "Offline - not sent", true);
+        }
         add_action(plan, context.ui_error == ESP_OK ? ActionId::Send : ActionId::Retry,
-            context.ui_error == ESP_OK ? "Send" : "Try again",
+            context.ui_error == ESP_OK ? "Send reply" : "Try again",
             context.online && event.state == State::Pending && !context.reply_admitted, choice->tone);
     } else if (plan.route == Route::CheckFailures24) {
         if (event.failure_count > 6 || navigation.failure_page > 1) { return ESP_ERR_INVALID_SIZE; }
+        plan.page_index = navigation.failure_page;
+        plan.page_count = std::max<uint8_t>(1, (event.failure_count + 2U) / 3U);
+        plan.scrollable = plan.page_count > 1;
         const uint8_t first = navigation.failure_page * 3U;
         if (event.failure_count == 0) { text("No failure details"); }
         for (uint8_t index = first; index < event.failure_count && index < first + 3U; ++index) {
@@ -435,8 +598,15 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         text(event.title);
         text(!context.online ? "Offline - reply pending" : event.state == State::Received ?
             "Reply reached your PC" : "Sending your reply");
+        // Keep the single delivery indicator below the question and transport
+        // status. It is read-only and never enters the action or audio budget.
+        top = 320;
         text("Confirming delivery", true);
+        if (error == ESP_OK) {
+            plan.lines[plan.line_count - 1U].delivery_pulse = context.online && event.last_error == ESP_OK;
+        }
         if (event.last_error != ESP_OK) {
+            top = 354;
             std::snprintf(status, sizeof(status), "Error: 0x%08lX", static_cast<unsigned long>(event.last_error));
             text(status, true);
         }
@@ -451,11 +621,51 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         }
         add_action(plan, context.ui_error == ESP_OK ? ActionId::Dismiss : ActionId::Retry,
             context.ui_error == ESP_OK ? "Done" : "Try again", !context.dismiss_admitted, Tone::Positive);
+    } else if (plan.route == Route::ApprovalOnPc) {
+        // This read-only notice never offers a native permission decision on Cody.
+        std::strcpy(plan.title, "Approval needed");
+        plan.title_color = 0xFFFF;
+        auto &label = plan.lines[plan.line_count++];
+        std::strcpy(label.text, "On your PC:");
+        label.top = 120;
+        label.instant = true;
+        label.pc_heading = true;
+        auto &instruction = plan.lines[plan.line_count++];
+        const esp_err_t status_error = context.ui_error != ESP_OK ? context.ui_error : event.last_error;
+        if (status_error != ESP_OK) {
+            std::snprintf(instruction.text, sizeof(instruction.text), "Error: 0x%08lX",
+                static_cast<unsigned long>(status_error));
+        } else {
+            std::strcpy(instruction.text, context.online ? "Continue on your PC" : "Offline - check your PC");
+        }
+        instruction.top = 393;
+        instruction.instant = true;
+    } else if (event.kind == Kind::ReplyReady && !LUNASHELL::codexEventIsTerminal(event.state)) {
+        // A typed response-ready observation identifies an available reply, never a successful task.
+        // Its body belongs to the originating chat; selected Home metadata cannot replace it.
+        std::strcpy(plan.title, "Reply ready");
+        plan.title_color = 0x5FF9;
+        top = 214;
+        text(event.body, false, 28);
+        top = 312;
+        const esp_err_t status_error = context.ui_error != ESP_OK ? context.ui_error : event.last_error;
+        if (status_error != ESP_OK) {
+            std::snprintf(status, sizeof(status), "Error: 0x%08lX", static_cast<unsigned long>(status_error));
+            text(status, true);
+        } else if (!context.online) {
+            text("Offline - saved notice", true);
+        } else {
+            text(event.context[0] != '\0' ? event.context : "Project unavailable", true);
+        }
+        add_action(plan, context.ui_error == ESP_OK ? ActionId::Dismiss : ActionId::Retry,
+            context.ui_error == ESP_OK ? "Got it" : "Try again", !context.dismiss_admitted);
     } else {
         const bool unconfirmed = plan.route == Route::CodexNotice && event.state == State::Expired &&
             event.selected_id[0] != '\0';
         text(event.title);
-        text(unconfirmed ? "Delivery unconfirmed" : event.body);
+        if (unconfirmed || event.kind != Kind::Notice || std::strcmp(event.title, event.body) != 0) {
+            text(unconfirmed ? "Delivery unconfirmed" : event.body);
+        }
         if (unconfirmed) { text("Check on your PC"); }
         if (plan.route == Route::ChecksRunning22) {
             if (event.progress_valid && context.online) {
@@ -472,7 +682,6 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         } else if (event.kind == Kind::ChecksPassed && context.ui_error != ESP_OK) {
             add_action(plan, ActionId::Retry, "Try again", true);
         }
-        if (plan.route == Route::ApprovalOnPc) { text("Continue on your PC", true); }
         const esp_err_t status_error = context.ui_error != ESP_OK ? context.ui_error : event.last_error;
         if (status_error != ESP_OK) {
             top = plan.action_count == 0 ? 354 : 326;
@@ -558,20 +767,54 @@ inline esp_err_t activate(const LUNASHELL::CodexEventSnapshot &event, const Cont
     effect = Effect::None;
     if (!action.enabled) { return ESP_ERR_INVALID_STATE; }
     switch (action.id) {
-    case ActionId::Open: navigation.stage = EventStage::Choices; effect = Effect::Render; break;
+    case ActionId::Open:
+        navigation.stage = event.pending_question_count > 1 ? EventStage::Questions : EventStage::Choices;
+        navigation.choice_page = navigation.detail_page = 0;
+        effect = Effect::Render;
+        break;
     case ActionId::Failures: navigation.stage = EventStage::Failures; navigation.failure_page = 0; effect = Effect::Render; break;
     case ActionId::Choose:
         if (event.state != LUNASHELL::CodexEventState::Pending || find_choice(event, action.choice_id) == nullptr) { return ESP_ERR_NOT_FOUND; }
         std::memcpy(navigation.selected_id, action.choice_id, sizeof(navigation.selected_id));
         navigation.stage = EventStage::Confirm;
+        navigation.detail_page = 0;
         effect = Effect::Render;
         break;
     case ActionId::Back:
+        if (event.kind == LUNASHELL::CodexEventKind::ApprovalOnPc) {
+            if (context.dismiss_admitted) { return ESP_ERR_INVALID_STATE; }
+            // Retire this read-only notice only; the native PC permission remains pending.
+            effect = Effect::Dismiss;
+            break;
+        }
         if (navigation.stage != EventStage::Confirm && navigation.stage != EventStage::Choices &&
-            navigation.stage != EventStage::Failures) { return ESP_ERR_INVALID_STATE; }
-        navigation.stage = navigation.stage == EventStage::Confirm ? EventStage::Choices : EventStage::Notice;
+            navigation.stage != EventStage::Failures && navigation.stage != EventStage::Questions) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        navigation.stage = navigation.stage == EventStage::Confirm ? EventStage::Choices :
+            navigation.stage == EventStage::Choices && event.pending_question_count > 1 ?
+                EventStage::Questions : EventStage::Notice;
         effect = Effect::Render;
         break;
+    case ActionId::SelectQuestion:
+        if (!context.online || context.reply_admitted || context.selection_pending ||
+            event.state != LUNASHELL::CodexEventState::Pending ||
+            event.pending_entry_count > 2) { return ESP_ERR_INVALID_STATE; }
+        for (uint8_t index = 0; index < event.pending_entry_count; ++index) {
+            if (std::strcmp(event.pending_questions[index].request_id, action.request_id) == 0) {
+                if (std::strcmp(event.request_id, action.request_id) == 0) {
+                    navigation.stage = EventStage::Choices;
+                    navigation.choice_page = navigation.detail_page = 0;
+                    effect = Effect::Render;
+                } else {
+                    // Admission requests a source change only. The next canonical
+                    // observation supplies that question's complete choices.
+                    effect = Effect::SelectQuestion;
+                }
+                return ESP_OK;
+            }
+        }
+        return ESP_ERR_NOT_FOUND;
     case ActionId::Retry:
         if (context.observation_error != ESP_OK) { effect = Effect::Observe; break; }
         if (context.retry == EventRetry::Dismiss) { effect = Effect::Dismiss; break; }
@@ -601,20 +844,54 @@ inline void accept_navigation(Context &context, Effect effect)
     }
 }
 
-// event: Canonical readonly failure collection.
+// plan: Measured page limits from the current immutable presentation.
 // navigation: Current local page identity.
 // controls_visible: Same reveal gate as every other input.
 // dx: Released horizontal displacement in logical coordinates.
 // dy: Released vertical displacement in logical coordinates.
-inline bool scroll(const LUNASHELL::CodexEventSnapshot &event, Navigation &navigation,
+inline bool scroll(const Plan &plan, Navigation &navigation,
                    bool controls_visible, int dx, int dy)
 {
-    if (!controls_visible || navigation.stage != EventStage::Failures || std::abs(dy) < 36 ||
+    if (!controls_visible || !plan.scrollable || std::abs(dy) < 36 ||
         std::abs(dy) * 2 <= std::abs(dx) * 3) { return false; }
-    const uint8_t previous = navigation.failure_page;
-    if (dy < 0 && (navigation.failure_page + 1U) * 3U < event.failure_count) { ++navigation.failure_page; }
-    else if (dy > 0 && navigation.failure_page > 0) { --navigation.failure_page; }
-    return previous != navigation.failure_page;
+    uint8_t *page = navigation.stage == EventStage::Choices ? &navigation.choice_page :
+        navigation.stage == EventStage::Confirm ? &navigation.detail_page :
+        navigation.stage == EventStage::Failures ? &navigation.failure_page : nullptr;
+    if (page == nullptr || *page != plan.page_index) { return false; }
+    const uint8_t previous = *page;
+    if (dy < 0 && *page + 1U < plan.page_count) { ++*page; }
+    else if (dy > 0 && *page > 0) { --*page; }
+    return previous != *page;
+}
+
+// plan: Retained plan that owned both endpoints; caller cancels on route/source changes.
+// navigation: Receives only a bounded read-only page change.
+// controls_visible: Actual completed-narrative visibility gate.
+// start_x: Logical horizontal contact origin after shared orientation mapping.
+// start_y: Logical vertical contact origin after shared orientation mapping.
+// end_x: Last pressed logical horizontal coordinate, not a fabricated release sample.
+// end_y: Last pressed logical vertical coordinate.
+// action: Receives the exact tapped action, or null for scrolling and rejected gestures.
+inline Effect release(const Plan &plan, Navigation &navigation, bool controls_visible,
+                      int start_x, int start_y, int end_x, int end_y, const Action *&action)
+{
+    action = nullptr;
+    if (!controls_visible) { return Effect::None; }
+    const int dx = end_x - start_x;
+    const int dy = end_y - start_y;
+    if (scroll(plan, navigation, controls_visible, dx, dy)) { return Effect::Render; }
+    // A diagonal drag must not slip through two independent axis thresholds.
+    if (dx * dx + dy * dy >= 144) { return Effect::None; }
+    if (navigation.stage == EventStage::Confirm && plan.scrollable &&
+        start_x >= 73 && start_x < 393 && end_x >= 73 && end_x < 393 &&
+        start_y >= 196 && start_y < 325 && end_y >= 196 && end_y < 325) {
+        navigation.detail_page = (navigation.detail_page + 1U) % plan.page_count;
+        return Effect::Render;
+    }
+    const Action *start = hit_action(plan, controls_visible, start_x, start_y);
+    const Action *end = hit_action(plan, controls_visible, end_x, end_y);
+    if (start != nullptr && start == end) { action = start; }
+    return Effect::None;
 }
 
 // event: Coherent readonly checks result, never a question or native approval.

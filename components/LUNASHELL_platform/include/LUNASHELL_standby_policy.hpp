@@ -22,6 +22,33 @@ namespace LUNASHELL::power_policy {
 
 enum class StandbySleep : uint8_t { Software, Deep };
 
+inline constexpr int64_t kCodexOfflineTimeoutUs = 120000000;
+
+struct CodexOfflineTimer {
+    int64_t disconnected_at_us = 0;
+};
+
+// timer: Power-owner clock; reconnect, unknown evidence and explicit pairing clear it.
+// now_us: Current monotonic owner time.
+// link_known: A valid canonical link observation, including a real offline failure.
+// connected: Confirmed authenticated PC transport, independent of chat activity.
+// pairing_active: Explicit setup work must finish before the offline interval starts.
+// manual_activity_at_us: Last real touch/button or completed wake, never background motion.
+constexpr bool codex_offline_expired(CodexOfflineTimer &timer, int64_t now_us,
+    bool link_known, bool connected, bool pairing_active, int64_t manual_activity_at_us)
+{
+    if (!link_known || connected || pairing_active) {
+        timer.disconnected_at_us = 0;
+        return false;
+    }
+    if (timer.disconnected_at_us == 0) {
+        timer.disconnected_at_us = now_us;
+    }
+    const int64_t anchor_us = timer.disconnected_at_us > manual_activity_at_us
+        ? timer.disconnected_at_us : manual_activity_at_us;
+    return now_us >= anchor_us && now_us - anchor_us >= kCodexOfflineTimeoutUs;
+}
+
 // standby: Requested overall software standby state.
 // voice_listening: Whether speech acquisition still owns the audio transport.
 [[nodiscard]] constexpr bool select_standby_audio(bool standby, bool voice_listening)

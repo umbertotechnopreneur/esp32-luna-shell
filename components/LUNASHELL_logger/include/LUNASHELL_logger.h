@@ -51,6 +51,11 @@ esp_err_t LUNASHELL_logger_init(void);
 // Exception: Returns the real initialization/notification error; never waits for file I/O.
 esp_err_t LUNASHELL_logger_finish_boot_capture(void);
 
+// timeout_ms: Positive bounded wait, at most 5000 ms, for the logger owner's completion.
+// Exception: Returns the actual archive/state/notification error or ESP_ERR_TIMEOUT.
+// Success proves the internal boot backlog has been released, not merely detached.
+esp_err_t LUNASHELL_logger_finish_boot_capture_wait(uint32_t timeout_ms);
+
 /**
  * Enable SD mirroring after the card has been mounted.
  *
@@ -62,6 +67,23 @@ esp_err_t LUNASHELL_logger_enable_sd(const char *mount_point);
  * Stop SD mirroring safely. Serial output and the RAM ring remain active.
  */
 esp_err_t LUNASHELL_logger_disable_sd(void);
+
+typedef struct {
+    bool sealed;
+    bool ownership_quiesced;
+    bool host_connected;
+    bool drain_attempted;
+    esp_err_t drain_error;
+    uint32_t dropped_lines;
+} LUNASHELL_logger_power_off_status_t;
+
+// sealed: Stop new logger USB transmissions and bound retirement of earlier writes.
+// status: Receives actual ownership, host, drain and loss results even on failure.
+// Exception: Returns original drain/lock errors; absent host returns ESP_ERR_NOT_FOUND.
+// USB non-delivery is optional only by the power orchestrator's explicit policy.
+// SD must already be quiesced separately; RAM capture remains active after sealing.
+// Unseal on every aborted shutdown, including a failed seal. No hardware uninstall occurs.
+esp_err_t LUNASHELL_logger_set_power_off(bool sealed, LUNASHELL_logger_power_off_status_t *status);
 
 /**
  * Suspend or resume RAM-ring capture while keeping best-effort USB output.
@@ -152,6 +174,16 @@ typedef esp_err_t (*LUNASHELL_logger_sd_reader_t)(
 // reader is the immutable storage-owner callback that protects mount/power lifetime.
 // Returns an argument/state error if ownership cannot be established.
 esp_err_t LUNASHELL_logger_set_sd_reader(LUNASHELL_logger_sd_reader_t reader);
+
+// buffer: Receives one canonical endurance projection, never an SD/NVS fallback.
+// capacity: Available transport bytes, at most one existing USB block.
+// written: Exact serialized length, set only after a complete successful read.
+// Exception: Returns the original snapshot/argument error; performs no acquisition or persistence.
+typedef esp_err_t (*LUNASHELL_logger_endurance_reader_t)(void *buffer, size_t capacity, size_t *written);
+
+// reader: Immutable canonical endurance reader, registered by its acquisition owner.
+// Exception: Returns argument/state errors instead of replacing an existing owner.
+esp_err_t LUNASHELL_logger_set_endurance_reader(LUNASHELL_logger_endurance_reader_t reader);
 
 #define LUNASHELL_LOGGER_SNAPSHOT_MAX_LINES 15U
 

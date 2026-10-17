@@ -9,11 +9,14 @@ latency require measurements on the identified board and image.
 
 The shared inactivity timer starts at the last real touch or qualified movement.
 Its first-boot default is **60 seconds**. The display fades out over a nominal
-**800 ms**, then Release chooses sleep after successful transactional standby.
+**800 ms**, then eligible non-Cody Release profiles choose sleep after successful transactional standby.
 The power owner keeps software standby when the confirmed radio transaction
 retains the Cody/Codex association or wake-word standby listening is enabled.
 It permits Deep-sleep only with neither live service and a touch-enabled profile.
 The build mode grants permission to sleep; it does not override requested services.
+The separate Cody PC-absence policy pauses standby voice and wireless services
+after 120 seconds without a confirmed PC; it still uses software standby to retain
+physical-Power wake. Its behavior is described below.
 Debug uses the same timeout and fade but keeps the CPU running and USB available.
 Leg Edition uses this shared timer too; its former fixed 25-second panel-only
 policy no longer overrides device inactivity.
@@ -201,47 +204,183 @@ source of truth; lower success verbosity does not change `esp_err_t`, health,
 validity, or timestamps.
 
 
-## PWR software restart and retained log files
+## Power key, farewell and PMU shutdown
 
-In Debug, two separately acquired short PWR clicks within 500 ms, or holding
-the physical PWR key continuously for 3 seconds, request `esp_restart()`
-without resetting the AXP2101 or erasing NVS, settings, or log files. The existing
-hardware owner enables/decodes PWRON negative (press) and positive (release)
-edges, queues them before verified IRQ clear, and publishes the acquired level
-and press timestamp through `InputSnapshot`, with explicit `power_pressed_valid`
-to distinguish an unknown level from a real release. Consumers never read PMIC registers
-or sensors directly. Both edges in one acquisition cancel the ambiguous hold.
+Cody reserves PWR in both Debug and Release: one completed short click enters
+standby or wakes software standby. A valid continuous three-second hold requests
+shutdown. Screenshot, double-click restart and PWR restart no longer consume this
+key. BOOT diagnostics retain their existing behavior. Failed/stale/unknown key
+samples invalidate the hold until a fresh release; long IRQs suppress short-click
+actions but do not independently prove a valid continuous hold.
 
-The power policy checks current canonical sample health and a 500-ms freshness
-bound. An unknown press start, failed/stale sample or early release cannot
-trigger reset; recovery requires a fresh release. A key held before initialization
-does not retrigger software resets. The PMIC's earlier long IRQ now waits for
-release to enter standby, leaving the owner running until the 3-second reset.
-In Debug Cody, an active short PWR tap waits 500 ms to resolve a possible double
-click before starting the 3, 2, 1 screenshot countdown while its session flag is
-enabled by default. A double click restarts without admitting that screenshot.
-Failed acquisition cancels a pending click; multiple clicks delivered in one
-acquisition are rejected because their timing cannot be established.
-The Cody worker refreshes PWR activity
-during the countdown and save so inactivity cannot enter standby mid-capture.
-Disabling that flag restores the active short-tap standby behavior. A short PWR
-tap in software standby still wakes in one press, after the same Debug window.
-Release excludes screenshot admission, its shutter worker and all button-triggered
-software resets; ordinary short PWR standby/wake and short BOOT fullscreen
-remain immediate. Debug 3-second PWR/BOOT restart paths retain their log drain.
-An acquired current PWR hold inhibits automatic inactivity sleep in either mode.
+Cody keeps software standby because this board cannot route PMU PKEY to an ESP
+Deep-sleep wake input. This preserves short-Power wake alongside enabled touch,
+shake and Sophia wake-word services. Other profiles retain their sleep selection.
+Away remains an animation policy, not a radio/CPU/voice energy-saving mode.
 
-The reset helper logs the reason, requests the existing bounded one-second SD
-writer drain/close when mirroring is enabled, flushes stdout, and gives USB 50 ms
-to transmit before restarting. The PMIC's emergency hardware power-off is set
-and read back at 10 seconds to leave room for this drain. Errors remain visible;
-a failed SD or disconnected host cannot guarantee delivery. Serial capture
-files on the host and successfully persisted SD lines survive. The ordinary
-RAM log ring does not survive an ESP software reset, and USB may re-enumerate.
+Ordinary automatic Cody inactivity standby requires a valid, current, unambiguous battery-only sample
+from the canonical acquisition owner. Valid VBUS prevents automatic inactivity
+standby while charging, fully charged or battery absent. Unknown, stale or failed
+power observations inhibit the automatic decision without asserting either power
+source. Battery-only use retains the saved timer (first-boot default 60 seconds)
+and scene overrides. Explicit PWR standby and shutdown bypass this source gate.
+Confirmed PC absence is another independent source-independent policy: on USB or
+battery, 120 seconds without authenticated CCP transport enters manual-wake
+standby. A valid disconnected/failure state is evidence of PC absence; unknown
+or stale observations are not. Pairing/confirmation defers the offline interval;
+real touch/button activity and completed wake renew it. While confirmed offline,
+the 120-second grace replaces the ordinary inactivity deadline.
 
-This firmware gesture is available while the power worker runs, including
-Debug software standby. It is not an electrical wake source from Release
-Deep-sleep: the board still has no verified ESP-routed PWR wake pin.
+The registered Cody display owner retires a larger upper character and centered
+`Bye bye`, the authored Sleep sound (unless Sounds/quiet policy suppresses it),
+and a 400-ms visible hold before the existing whole-panel fade. The power owner
+rechecks link/setup/input state before stopping services. This transaction pauses
+voice acquisition, closes radios without deleting pairing and ignores movement,
+voice and queued Codex-notification wake. Touch/Power restores ordinary ownership;
+the first offline-wake contact does not admit voice recording. An already dark
+standby can shed its retained services at the same deadline without a visible
+farewell. Active-state recovery grants a fresh grace period, and transition errors
+remain published instead of being replaced with success. The 64-byte-bounded
+canonical link/setup projection keeps chat metadata off the power worker stack.
+No new task, polling wake timer, silicon-sleep mode or PMU register is introduced.
+The AXP2101 battery activation bit is not a battery-source indicator.
+
+Shutdown first retires any screenshot operation, presents ASCII `Good night`
+with the existing Sleep character, waits for complete-frame retirement and a
+visible dwell, then uses the existing gradual display fade. The ordered owner
+transaction stops recording, AFE/audio, storage/log writers, acquisition and
+radios instead of retaining standby services. The settings owner serializes and
+seals new requests after earlier commits finish. Original errors abort the PMU
+request, are retained in canonical power health and are displayed after recovery
+when the display itself can be restored. No storage formatting or setting reset
+is part of shutdown.
+
+The PMU owner checks configured emergency shutdown behavior and writes
+AXP2101 REG10H[0]. A successful I2C write means command acceptance only. If the CPU
+still executes after the bounded 1.5-second wait, firmware reports a timeout and
+attempts restoration; it never declares physical power-off from an ACK.
+
+REG27 readback supplies the configured power-on hold duration to battery status
+and startup logs; no physical duration has yet been measured for this revision.
+The emergency hardware hold is configured/read back at 10 seconds and performs
+power-off rather than reset. It can cut power independently if the key remains
+held, including during a failed firmware drain. Release the key after the farewell
+starts; exact hardware behavior requires device evidence.
+
+After successful PMU shutdown, firmware, classifier, touch, motion and wake-word
+processing do not run. Power-on uses the PMU hardware key. The
+[AXP2101 datasheet](https://files.waveshare.com/wiki/common/X-power-AXP2101_SWcharge_V1.0.pdf)
+also describes customized VBUS/battery/IRQ startup conditions and does not expose
+a documented runtime mask to disable them. Therefore Power-only restart across
+USB reinsertion, battery recovery or those hardware conditions is **not yet
+guaranteed**. No undocumented register is changed to pretend otherwise. Test
+USB-connected and battery-only shutdown separately. The 40-uA typical shutdown
+figure describes one PMU condition, not whole-board current or zero consumption.
+
+## Battery-only runtime recording
+
+Cody records a session when a fresh canonical PMU sample reports a present battery
+with USB absent and VBUS not good. Disconnecting USB after startup can start a
+session. Observed USB presence or good VBUS closes it; reconnecting USB does not
+continue a battery-only measurement. A later unplug starts a distinct session.
+
+The existing power loop saves a last-alive checkpoint approximately every 60
+seconds and immediately records the first completed standby wake. Monotonic elapsed
+time includes software standby. This recorder creates no task, wake timer or wake
+lease; it does not change voice, radio or standby policy. At checkpoints, the PMU
+acquisition owner refreshes battery telemetry through its existing serialized path.
+Unknown/stale power observations remain flagged as source gaps, including intervals
+in standby when the ordinary acquisition monitor is suspended. Elapsed time then
+describes liveness since the observed battery-only start, with those gaps disclosed.
+Recording and occasional NVS commits have not had their energy cost measured.
+
+A bounded CRC/version-checked internal NVS record retains the current and preceding
+session atomically. Only a genuinely absent key initializes empty data. Wrong type,
+size, schema, CRC or storage errors preserve the record and disable further writes
+for that boot; the original error is published in the canonical endurance projection.
+The recorder is an optional observation service: its failures never prevent a real
+wake or bypass mandatory shutdown owners. No SD card is required.
+
+Canonical metadata publication coalesces unchanged power-loop ticks: unchanged
+error, initialization and source-current state do not refresh `observed_at_us`.
+Committed record changes still publish immediately, including wake/off/cancel
+events at the same clock value. Failed publication remains retryable without
+another NVS commit or a change to the durable commit timestamp.
+
+`SHUTDOWN_REQUESTED` records the ordered shutdown request before settings are sealed.
+An aborted transaction reopens it only after settings access is restored. This
+marker is not proof of rail power loss. A boot finding a saved `RUNNING` session
+retains it as `INTERRUPTED_UNKNOWN`. Battery exhaustion, reset and other interruptions
+cannot be distinguished from that flag alone. No monotonic clock is bridged across
+boots, and no battery-death timestamp is inferred.
+
+For a battery run, disconnect USB, use Cody normally, and leave the configured
+standby/wake behavior enabled. After it stops, reconnect USB and turn it on if
+necessary. In Debug with INFO output enabled, the current/preceding durable records
+repeat in `Endurance` serial reports every 60 seconds, so reading them does not
+depend on catching startup logs:
+
+```powershell
+./scripts/device.ps1 capture -Profile cody-companion -Feature wake-word -ActivityClassifier -Port COM10 -DurationSeconds 120 -OutputPath artifacts/serial/battery-runtime.log
+```
+
+Release records the same NVS endurance journal at WARN logging, with INFO serial
+reports suppressed. Both build modes support an explicitly requested USB read:
+
+```powershell
+./scripts/device.ps1 endurance-read -Port COM10 -OutputPath artifacts/serial/endurance.json
+```
+
+The existing bounded USB transport returns one 128-byte `LBE1` projection with
+CRC verification. A separate registered reader copies the canonical endurance
+snapshot, without sensor acquisition, NVS reads/writes, SD fallback or reset.
+The host validates schema, flags, reserved fields and session ordering before
+atomically replacing JSON. It preserves both records and owner errors; an
+uninitialized/failed recorder returns an error after saving the verified state.
+`source_current=false` is normal on USB and is not a readback failure. The `.wire`
+file retains transport evidence. Firmware without this reader reports unsupported.
+Logging levels remain unchanged. This command reads retained evidence; it does
+not establish a new battery-only runtime measurement.
+
+Use the currently identified port. `liveness_lower_bound_ms` is the elapsed time
+at the last successful commit. For example, 3600000 means it was known alive at
+least one hour after the observed start. `wake_recorded` identifies the first wake
+ping, and `source_gaps` discloses incomplete power-source observation. Valid UTC
+fields contain original observed epoch seconds; unavailable time prints `UNAVAILABLE`.
+The final unsaved interval is unknown: scheduling, storage failures or power loss
+can make it longer than the nominal 60-second heartbeat. Whole-board shutdown
+and restart require separate physical evidence.
+
+### Observed 1,000 mAh run - 12-13 October 2026
+
+The user reported a **1,000 mAh battery**, disconnected USB for this run and
+reconnected the device on 13 October. The practical result is **about seven
+hours of operation in this configuration**, including standby. Capacity is the
+user-reported nominal rating; no capacity or current measurement was performed.
+
+| Item | Captured evidence |
+| --- | --- |
+| Installed firmware | `cody-142-g869e45e2-dirty`, Cody Debug, wake-word/activity profile |
+| Features | Sophia WakeNet listening and pretrained activity observer enabled; automatic Light-sleep disabled in Debug |
+| Battery-only start | 12 October 2026, 21:40:11, Asia/Saigon (UTC+07:00) |
+| Last durable elapsed time | `24942870 ms`: 6 h 55 min 42.870 s, or 415.7145 minutes |
+| First recorded wake | `874343 ms`: 14 min 34.343 s after start; recorded UTC corresponds to 21:54:45 Asia/Saigon |
+| Retained session | Session 1, `INTERRUPTED_UNKNOWN`; previous session empty |
+| Readback | Three matching reports during a passive 130-second capture on COM10; no flash or explicit reset |
+
+The journal reports `source_gaps=1`: power-source observations were incomplete,
+so the record alone cannot certify uninterrupted battery-only operation across
+the whole interval. The final `last_alive` UTC field is unavailable; the elapsed
+counter is retained. Neither the exact power-loss instant nor its cause can be
+established from `INTERRUPTED_UNKNOWN`. This measures device liveness, including
+standby, without establishing display-on time or continuous Wi-Fi/Codex presence.
+The later polling, recording UI and reconnect changes were not installed for
+this run; no Release runtime or gain from those changes is claimed.
+
+Raw readback and a bounded parsed result are under
+`artifacts/battery-endurance-watch/readback-20261013.log` and
+`artifacts/battery-endurance-watch/readback-20261013.json`. These are local
+disposable captures; [done.md](../../../done.md) retains the compact evidence.
 
 ## Evidence and deferred policy
 

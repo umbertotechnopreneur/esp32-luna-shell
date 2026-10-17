@@ -45,3 +45,8 @@ __pycache__/
 .venv-simulator/
 simulator/windows/build/
 simulator/windows/dist/
+
+# The complete vendor archive remains available in the local hardware reference.
+# Its 134324048 bytes exceed GitHub's ordinary 100 MiB file limit; the extracted
+# ESP-IDF examples, documentation and upstream download link are versioned.
+/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/software/waveshare-source-main.zip

@@ -1,12 +1,9 @@
-"""Separate authenticated PCM receiver and native Codex audio input bridge."""
+"""Authenticated PCM receiver and explicit public Codex WAV queue delivery."""
 
 from __future__ import annotations
 from dataclasses import dataclass, field
 import hashlib
 import hmac
-import ipaddress
-import json
-import os
 from pathlib import Path
 import queue
 import socket
@@ -14,10 +11,11 @@ import struct
 import sys
 import threading
 import time
-from urllib.parse import urlsplit
 import wave
 
 from ccp_windows import configure_exclusive_socket, runtime_directory
+import ccp_audio_config as audio_config
+from ccp_audio_queue import PublicAudioQueue, NativeInputRejected
 
 HEADER = struct.Struct("!4s6s16s16sIBH")
 PORT = 42119
@@ -26,14 +24,6 @@ MAX_PCM = 16000 * 2 * 60
 MAX_RECORDINGS = 64
 MAX_ACTIVE = 4
 WINDOW = 4
-
-
-class NativeInputRejected(RuntimeError):
-    """The native host explicitly rejected the operation."""
-
-
-class NativeInputUnconfirmed(RuntimeError):
-    """An input was attempted, but its native acknowledgement is uncertain."""
 
 
 @dataclass
@@ -54,126 +44,14 @@ class Recording:
     finished: bool = False
     accepted: bool = False
     submitting: bool = False
-    native_turn_id: str = ""
+    native_queue_id: str = ""
     artifact: str = ""
-
-
-# endpoint: Explicit local desktop/app-server endpoint; never a LAN listener.
-# Raises ValueError for a missing endpoint, credentials in a URL, or non-loopback target.
-def local_endpoint(endpoint: str) -> str:
-    value = urlsplit(endpoint)
-    if value.scheme != "ws" or value.username or value.password or not value.hostname or not value.port:
-        raise ValueError("Configure an explicit loopback Codex audio WebSocket endpoint")
-    if not ipaddress.ip_address(value.hostname).is_loopback or value.query or value.fragment:
-        raise ValueError("Codex audio endpoint must be a literal loopback address without URL credentials")
-    return endpoint
-
-
-# connection: Existing local native Codex connection, never a new independent chat.
-# identity: Monotonic request identity for this connection.
-# method: Fixed protocol operation name.
-# params: Exact native input fields.
-# deadline: Optional shared monotonic deadline for the complete native submission.
-# Raises RuntimeError on native errors or native authorization/input requests.
-def rpc(connection, identity: int, method: str, params: dict, deadline=None):
-    deadline = time.monotonic() + 15 if deadline is None else deadline
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        raise TimeoutError("Codex native input deadline expired")
-    connection.settimeout(remaining)
-    connection.send(json.dumps({"id": identity, "method": method, "params": params}))
-    for _ in range(512):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError("Codex native input deadline expired")
-        connection.settimeout(remaining)
-        message = json.loads(connection.recv())
-        if "id" in message and "method" in message:
-            # Request IDs belong to independent directions; an approval can share our ID.
-            raise NativeInputUnconfirmed("Native Codex action requires the desktop client on your PC")
-        if message.get("id") == identity:
-            if "error" in message:
-                raise NativeInputRejected(f"Codex {method} rejected audio: {message['error'].get('message', 'native error')}")
-            return message["result"]
-    raise RuntimeError("Codex response exceeded the bounded notification budget")
-
-
-# endpoint: Explicit already-running native desktop/app-server endpoint.
-# deadline: Shared monotonic budget including connection setup and initialization.
-# Raises original connection, credential or protocol errors; closes failed initialization.
-def connect_native(endpoint: str, deadline: float):
-    import websocket
-    headers = []
-    token_file = os.environ.get("CODY_CODEX_AUDIO_TOKEN_FILE", "")
-    if token_file:
-        token = Path(token_file).read_text(encoding="ascii").strip()
-        if not token or "\n" in token or "\r" in token:
-            raise ValueError("Codex WebSocket token file is invalid")
-        headers.append("Authorization: Bearer " + token)
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        raise TimeoutError("Codex connection deadline expired")
-    connection = websocket.create_connection(local_endpoint(endpoint), timeout=remaining, suppress_origin=True, header=headers)
-    try:
-        rpc(connection, 1, "initialize", {"clientInfo": {"name": "cody_voice_input", "version": "0.6.5"},
-            "capabilities": {"experimentalApi": True}}, deadline)
-        connection.send(json.dumps({"method": "initialized", "params": {}}))
-        return connection
-    except Exception:
-        connection.close()
-        raise
-
-
-# thread_id: Genuine followed chat; readiness never creates or resumes a conversation.
-# endpoint: Explicit native endpoint checked before accepting START.
-# Raises original native/transport failure; this probe submits no user input.
-def probe_native(thread_id: str, endpoint: str):
-    deadline = time.monotonic() + 5
-    connection = connect_native(endpoint, deadline)
-    try:
-        current = rpc(connection, 2, "thread/read", {"threadId": thread_id, "includeTurns": False}, deadline)
-        if current["thread"]["id"] != thread_id or current["thread"].get("status", {}).get("type") not in ("active", "idle", "notLoaded"):
-            raise RuntimeError("The followed Codex chat is not available for audio input")
-    finally:
-        connection.close()
-
-
-# recording: Authenticated utterance bound to the exact genuine followed chat at START.
-# path: Completed PCM WAV under the receiver's private runtime artifacts.
-# endpoint: Explicit already-running native desktop/app-server endpoint.
-# before_submit: Returns the current followed turn at the actual native admission boundary.
-# Raises original errors; ambiguous input is never automatically repeated.
-def submit_native(recording: Recording, path: Path, endpoint: str, before_submit):
-    deadline = time.monotonic() + 15
-    connection = connect_native(endpoint, deadline)
-    try:
-        current = rpc(connection, 2, "thread/read", {"threadId": recording.thread_id, "includeTurns": False}, deadline)
-        thread = current["thread"]
-        if thread["id"] != recording.thread_id:
-            raise RuntimeError("Native Codex returned a different chat identity")
-        status = thread.get("status", {}).get("type")
-        input_items = [{"type": "localAudio", "path": str(path)}]
-        params = {"threadId": recording.thread_id, "input": input_items,
-                  "clientUserMessageId": recording.session.hex()}
-        if status == "active":
-            params["expectedTurnId"] = before_submit(True)
-            result = rpc(connection, 3, "turn/steer", params, deadline)
-            recording.native_turn_id = result["turnId"]
-            return result
-        if status not in ("idle", "notLoaded"):
-            raise RuntimeError("Codex chat is not in an input-ready state")
-        rpc(connection, 3, "thread/resume", {"threadId": recording.thread_id, "excludeTurns": True}, deadline)
-        before_submit(False)
-        result = rpc(connection, 4, "turn/start", params, deadline)
-        recording.native_turn_id = result["turn"]["id"]
-        return result
-    finally:
-        connection.close()
 
 
 class VoiceInputServer:
     # self: Optional audio owner, separate from ordinary CCP metadata.
     # responder: Existing paired CCP owner; supplies fresh authenticated endpoint/key metadata.
+    # Exceptions: Configuration failures remain explicit optional state for the readiness owner.
     def __init__(self, responder):
         self.responder = responder
         self.socket = None
@@ -185,7 +63,15 @@ class VoiceInputServer:
         self.lock = threading.Lock()
         self.stop = threading.Event()
         self.jobs = queue.Queue(maxsize=MAX_ACTIVE)
-        self.endpoint = os.environ.get("CODY_CODEX_AUDIO_ENDPOINT", "")
+        self.configuration_error = ""
+        try:
+            configuration = audio_config.load_config()
+        except (OSError, ValueError) as error:
+            configuration = audio_config.NativeAudioConfig(source="invalid")
+            self.configuration_error = f"Codex audio configuration failed: {error}"
+        self.executable = configuration.executable
+        self.queue_client = None
+        self.configuration_source = configuration.source
         self.ready_thread = ""
         self.ready_at = 0.0
         self.native_error = "Native audio readiness has not been checked"
@@ -374,11 +260,22 @@ class VoiceInputServer:
         thread_id = followed[0]["session_id"] if len(followed) == 1 else ""
         error = ""
         try:
+            if self.configuration_error:
+                raise RuntimeError(self.configuration_error)
             if not thread_id:
                 raise RuntimeError("No genuine followed Codex chat")
-            probe_native(thread_id, self.endpoint)
+            if not self.executable:
+                raise RuntimeError("Codex audio queue is not configured; run codex-audio setup")
+            audio_config.validate_executable(self.executable)
+            if self.queue_client is None:
+                self.queue_client = PublicAudioQueue(self.executable, self.stop)
+            self.queue_client.probe(thread_id)
         except Exception as failure:
             error = str(failure)
+            try:
+                self.close_queue()
+            except Exception as cleanup_error:
+                error += f"; queue cleanup failed: {cleanup_error}"
         with self.lock:
             if error and error != self.native_error:
                 print(f"CCP native audio unavailable: {error}", file=sys.stderr, flush=True)
@@ -387,8 +284,28 @@ class VoiceInputServer:
             self.ready_at = time.monotonic() if not error else 0.0
             self.next_probe = time.monotonic() + 5
 
-    # self: File/native input worker, independent of authenticated UDP reception.
+    # self: Sole queue-client owner, including shutdown after cancellation or failure.
+    # Raises original cleanup errors; never terminates the Desktop process.
+    def close_queue(self):
+        if self.queue_client is not None:
+            self.queue_client.close()
+            self.queue_client = None
+
+    # self: Delivery worker owns its queue process for its entire lifetime.
+    # Exceptions: Cleanup failures remain visible in the optional audio state and log.
     def deliver(self):
+        try:
+            self.deliver_recordings()
+        finally:
+            try:
+                self.close_queue()
+            except Exception as error:
+                with self.lock:
+                    self.error = str(error)
+                print(f"CCP audio queue cleanup failed: {error}", file=sys.stderr, flush=True)
+
+    # self: File/queue worker, independent of authenticated UDP reception.
+    def deliver_recordings(self):
         while not self.stop.is_set():
             self.refresh_readiness()
             if self.stop.is_set():
@@ -410,30 +327,30 @@ class VoiceInputServer:
                 path = directory / (recording.device + "-" + recording.session.hex() + ".wav")
                 with self.lock:
                     pcm = bytes(recording.pcm)
-                with wave.open(str(path), "wb") as output:
-                    output.setnchannels(1)
-                    output.setsampwidth(2)
-                    output.setframerate(16000)
-                    output.writeframes(pcm)
+                with path.open("xb") as artifact:
+                    with wave.open(artifact, "wb") as output:
+                        output.setnchannels(1)
+                        output.setsampwidth(2)
+                        output.setframerate(16000)
+                        output.writeframes(pcm)
                 with self.lock:
                     recording.artifact = str(path)
                 followed = [item for item in self.responder._activity.list_sessions() if item["followed"]]
                 if len(followed) != 1 or followed[0]["session_id"] != recording.thread_id:
                     raise RuntimeError("The followed Codex chat changed during audio capture")
-                # require_turn: Steering requires a genuine current turn in the same frozen chat.
-                # Raises RuntimeError without sending any user input if either owner changed.
-                def before_submit(require_turn):
+                # No parameters: cancellation and the frozen chat are checked at queue admission.
+                # Raises RuntimeError without sending user input if either owner changed.
+                def before_submit():
                     with self.lock:
                         current = [item for item in self.responder._activity.list_sessions() if item["followed"]]
                         if self.stop.is_set() or recording.status == 5 or len(current) != 1 or current[0]["session_id"] != recording.thread_id:
                             raise RuntimeError("Audio cancelled or followed chat changed before native submission")
-                        turn_id = current[0]["turn_id"]
-                        if require_turn and not turn_id:
-                            raise RuntimeError("Codex active turn is not yet observed; audio retained on PC")
                         recording.submitting = True
-                        return turn_id
 
-                submit_native(recording, path, self.endpoint, before_submit)
+                if self.queue_client is None:
+                    raise RuntimeError("Codex audio queue is unavailable; WAV retained on PC")
+                recording.native_queue_id = self.queue_client.submit(
+                    recording.thread_id, recording.session.hex(), path, before_submit)
                 with self.lock:
                     recording.status, recording.accepted = 4, True
             except Exception as error:
@@ -441,7 +358,11 @@ class VoiceInputServer:
                 with self.lock:
                     recording.status = 6 if recording.submitting and not isinstance(error, NativeInputRejected) else 5
                     recording.error = str(error)
-                print(f"CCP native audio delivery failed: {error}", file=sys.stderr, flush=True)
+                print(f"CCP audio queue delivery failed: {error}", file=sys.stderr, flush=True)
+                try:
+                    self.close_queue()
+                except Exception as cleanup_error:
+                    print(f"CCP audio queue cleanup failed: {cleanup_error}", file=sys.stderr, flush=True)
             finally:
                 pcm = b""
                 with self.lock:
@@ -456,18 +377,22 @@ class VoiceInputServer:
                             0 <= time.monotonic() - self.ready_at <= 10)
             return {"available": self.socket is not None, "error": self.error or None,
                 "rejected_packets": self.rejections,
-                "native_endpoint_configured": bool(self.endpoint),
+                "native_executable_configured": bool(self.executable),
+                "delivery_route": "public_audio_queue",
+                "delivery_scope": "queue_admission_only",
+                "transcription_available": False,
+                "native_configuration_source": self.configuration_source,
                 "native_ready": native_ready,
                 "native_error": self.native_error or None,
                 "recordings": [{"device_id": item.device, "pc_received": item.finished,
                     "recording_id": item.session.hex(), "thread_id": item.thread_id,
-                    "native_turn_id": item.native_turn_id or None, "artifact": item.artifact or None,
+                    "native_queue_id": item.native_queue_id or None, "artifact": item.artifact or None,
                     "unconfirmed": item.status == 6,
                     "codex_accepted": item.accepted, "error": item.error or None} for item in self.records.values()]}
 
 
 # No parameters: read-only audio diagnostics; never selects a chat or starts a capture.
 def tool_definition():
-    return {"name": "ccp_audio_status", "description": "Read one-way voice receiver and native Codex audio delivery status; no PCM or secrets.",
+    return {"name": "ccp_audio_status", "description": "Read Cody WAV queue status; queue admission does not prove transcription or model understanding.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}}

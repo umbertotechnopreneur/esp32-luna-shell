@@ -253,6 +253,7 @@ def main(argv=None):
         shared_includes = ("simulator/native/platform", "simulator/native", "components/LUNASHELL_platform/include",
                            "components/LUNASHELL_platform/src/snapshot", "components/LUNASHELL_platform/src/power")
         shared_groups = {
+            "shared-imu-stillness": ("scripts/tests/cody_native/imu_stillness_contract.cpp",),
             "shared-ccp": ("scripts/tests/shared_ccp.cpp", "components/LUNASHELL_platform/src/network/LUNASHELL_codex_transaction.cpp",
                            "components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp"),
             "shared-snapshot": ("scripts/tests/shared_snapshot.cpp", "simulator/native/CODY_host_snapshot.cpp",
@@ -274,6 +275,7 @@ def main(argv=None):
         report.update(status="passed", response_ticks=500, fixture_seconds=50,
             ccp_event_vectors=len(vectors), shared_firmware_groups=list(shared_groups),
             contracts=["native/host audio, fatigue and idle parity", "smooth interruption",
+                       "real IMU stillness policy: independent hold/count, gravity/gyro/axis bounds, errors, gaps and aging",
                        "actual CCP host encoder versus native firmware decoder, strict truncation and buffer guards",
                        "real event presenter: bounded ASCII, semantic cards, narrative gates, readonly PR and delivered-only success",
                        "real settings owner: scoped factory erase, exact failures, empty readback, sealed writes and explicit retry",

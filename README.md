@@ -26,6 +26,15 @@ Other Espressif boards require explicit integration; see [BSP](docs/bsp/README.m
 Repository documentation, device text and logs are English; Cody text is
 bounded printable ASCII.
 
+## Observed battery runtime
+
+**About 7 hours with a 1,000 mAh battery** in the tested Cody Debug configuration,
+with wake-word listening and the pretrained activity observer enabled. The
+12-13 October 2026 run retained a last-alive checkpoint at **6 h 55 min 42 s**,
+including standby. This is one observed run; incomplete power-source observations
+and the unknown final interval limit its precision. See the
+[test configuration and saved evidence](docs/bsp/services/power-management.md#observed-1000-mah-run---12-13-october-2026).
+
 ## Work and evidence
 
 [AGENTS.md](AGENTS.md) owns repository rules and authorization.
@@ -52,20 +61,48 @@ captures and temporary output belong in `artifacts/`.
 | [LUNASHELL_tof400f](components/LUNASHELL_tof400f/README.md) | Optional distance transport |
 | `plugins/`, `assets/`, `config/`, `scripts/` | CCP, authored resources, firmware composition and tooling |
 
+## License and attribution
+
+Project-owned source and documentation are available under the [MIT License](LICENSE).
+Keep the copyright and permission notice when reusing covered material.
+Third-party components, models and assets retain their own licenses and notices;
+see [third-party notices](THIRD_PARTY_NOTICES.md). Firmware distributions must
+respect the licenses of the components included in their selected profile.
+
+The VibeWare name and logo follow the initiative's
+[identity and reuse guidance](https://github.com/umbertotechnopreneur/VibeWare/blob/main/PRESS-KIT.md).
+The shared Terms and Privacy pages below accompany this project; they do not
+replace its license or the CCP documentation about audio and external services.
+
 ---
 
 <p align="right">
-  <a href="https://umbertogiacobbi.biz/vibeware/manifesto">
+  <a href="https://umbertogiacobbi.biz/vibeware/manifesto?utm_source=github&amp;utm_medium=referral&amp;utm_campaign=esp32-luna-shell&amp;utm_content=readme-logo">
     <img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="160">
   </a><br>
   <strong>VibeWare</strong><br>
   <em>Human intent, AI execution, and plenty of tokens</em>
 </p>
 
-### What is VibeWare?
+### This is VibeWare · [Manifesto](https://umbertogiacobbi.biz/vibeware/manifesto?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=readme-manifesto)
 
-I coined the term [VibeWare](https://umbertogiacobbi.biz) and started an open initiative for developers who build with AI and care about the craft. I challenge the assumption that vibe coding is synonymous with low-quality code, while openly acknowledging the weaknesses and risks of AI-generated software: experienced developers must guide the process, test carefully, check security and take responsibility for the result. With this footer, I acknowledge that I developed this software with AI and ask you to judge the quality of the work.
+ESP32 Luna Shell / Cody Companion participates in the **VibeWare initiative**,
+an open movement for developers who build useful software with AI under human
+direction. VibeWare describes participation; it is not the project's author
+or publisher.
 
-[**Read the VibeWare manifesto**](https://umbertogiacobbi.biz/vibeware/manifesto)
+I am [Umberto Giacobbi](https://umbertogiacobbi.biz/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=readme-author).
+I guide this project's development and remain responsible for checking the
+result. The project keeps its own identity, license, release status and
+validation evidence.
 
-*You are welcome to explore, adapt and reuse the open-source VibeWare materials under the project license — my contribution to the developer community.*
+To learn what VibeWare means and why I started it, read the manifesto above.
+
+[ESP32 Luna Shell on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) ·
+[VibeWare on GitHub](https://github.com/umbertotechnopreneur/VibeWare) ·
+[umbertogiacobbi.biz](https://umbertogiacobbi.biz/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=readme-website)
+
+*Explore, adapt and reuse the project materials under their applicable licenses.*
+
+[Terms](https://umbertogiacobbi.biz/terms/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=readme-terms) ·
+[Privacy](https://umbertogiacobbi.biz/privacy/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=readme-privacy)

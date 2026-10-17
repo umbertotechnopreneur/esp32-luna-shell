@@ -16,36 +16,47 @@
 
 #pragma once
 
-#include "CODY_rig.hpp"
 #include "CODY2D_text.hpp"
 
 namespace CODY {
 
-constexpr uint8_t kDebugChannelVisibleRows = 8;
+enum class DiagnosticPage : uint8_t { Overview = 0, Memory = 1 };
 
-// Prepared text borrows this object's own bounded strings; never copy a prepared list.
-struct DebugChannelList {
-    char text[kDebugChannelVisibleRows + 2][40]{};
-    CODY2D::TextLine lines[kDebugChannelVisibleRows + 2]{};
-    uint8_t line_count = 0;
-    bool valid = false;
+// A bounded projection of the existing canonical heap measurements, with no addresses.
+struct HeapDiagnosticReadout {
+    uint32_t total_bytes = 0;
+    uint32_t free_bytes = 0;
+    uint32_t largest_block_bytes = 0;
+    uint32_t minimum_free_bytes = 0;
+    uint32_t free_blocks = 0;
+    bool available = false;
+    bool stale = false;
 };
 
-// face: Actual composed values from the single current frame; no sensor acquisition occurs.
-// first_channel: Absolute first catalog row, rejected when outside the real channel count.
-// font: Native ASCII body font shared with the simulator's C++ raster.
-// list: Stable owner for strings/layout; prepared lines borrow its own storage.
-// Exception: Returns real layout/finite-value errors; never repairs channel values.
-esp_err_t prepare_debug_channel_list(const Channels &face, uint8_t first_channel,
-                                    const CODY2D::MonoFont &font, DebugChannelList &list);
+struct MemoryDiagnosticReadout {
+    HeapDiagnosticReadout internal;
+    HeapDiagnosticReadout psram;
+};
 
-// list: Immutable successfully prepared live channel text.
-// strip: Borrowed RGB565 tile, using the same logical rotation as character rendering.
+// font: Existing immutable ASCII body font.
+// strip: Borrowed native RGB565 tile.
 // first_row: Logical y origin of the tile.
 // first_column: Logical x origin of the tile.
-// Exception: Returns real native raster errors; no display/transport operation occurs here.
-esp_err_t draw_debug_channel_list_rows(const DebugChannelList &list, CODY2D::Surface strip,
-                                      uint16_t first_row, uint16_t first_column);
+// Exception: Returns the original text/control error; the touch target shares these bounds.
+esp_err_t draw_debug_memory_button_rows(const CODY2D::MonoFont &font, CODY2D::Surface strip,
+                                       uint16_t first_row, uint16_t first_column);
+
+// point: Logical acquired contact; only the visible Memory button admits navigation.
+bool debug_memory_button_contains(CODY2D::Point point);
+
+// readout: Canonical heap capacity projection; unavailable heaps never show numeric values.
+// font: Immutable native ASCII body font.
+// strip: Borrowed native RGB565 tile.
+// first_row: Logical y origin of the tile.
+// first_column: Logical x origin of the tile.
+// Exception: Returns original layout/raster errors or rejects inconsistent heap values.
+esp_err_t draw_memory_diagnostics_rows(const MemoryDiagnosticReadout &readout,
+    const CODY2D::MonoFont &font, CODY2D::Surface strip, uint16_t first_row, uint16_t first_column);
 
 // strip: Borrowed native RGB565 tile for the reversible debug view.
 // first_row: Logical y origin of the tile.

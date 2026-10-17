@@ -18,12 +18,15 @@ constexpr uint16_t kNeutral = 0x632C;
 constexpr uint16_t kPanelWidth = 320;
 constexpr uint16_t kBarWidth = 296;
 constexpr uint8_t kDetailRows = 4;
-constexpr uint8_t kModelDetailRows = 3;
+constexpr uint8_t kModelDetailRows = 6;
 
 // presentation: Prepared page identity; the dedicated badge reserves one row only on Model & Context.
 uint8_t detail_capacity(const PanelPresentation &presentation)
 {
-    return presentation.panel == CompanionPanel::ModelContext ? kModelDetailRows : kDetailRows;
+    if (presentation.panel == CompanionPanel::ModelContext) {
+        return presentation.banner[0] == '\0' ? kModelDetailRows : kDetailRows;
+    }
+    return presentation.panel == CompanionPanel::SessionLink ? 6 : kDetailRows;
 }
 
 // operation: Specific rejected panel boundary or native rendering operation.
@@ -100,6 +103,37 @@ const char *phase_text(LUNASHELL::CodexActivityState phase)
     case Phase::Interrupted: return "Interrupted";
     case Phase::Ended: return "Ended";
     default: return "Activity updates unavailable";
+    }
+}
+
+// motion: Canonical HAR and independent IMU stillness result; labels retain their upstream meanings.
+// now_us: Local observation time for the original IMU sample's freshness.
+// No score is displayed as calibrated confidence or inferred hand/bag placement.
+const char *motion_result_text(const LUNASHELL::ActivitySnapshot &motion, int64_t now_us)
+{
+    if (is_current_imu_stillness(motion.stillness, now_us)) { return "Still"; }
+    if (!motion.scores_valid || motion.error != ESP_OK) {
+        if (motion.error == ESP_ERR_TIMEOUT &&
+            motion.rejection == LUNASHELL::ActivityRejection::MissingSample) return "STALE";
+        using Rejection = LUNASHELL::ActivityRejection;
+        switch (motion.rejection) {
+        case Rejection::Collecting: return "COLLECTING";
+        case Rejection::Suspended: return "SUSPENDED";
+        case Rejection::CadenceGap: return "CADENCE GAP";
+        case Rejection::Busy: return "BUSY";
+        case Rejection::ModelError: return "ERROR";
+        default: return "UNAVAILABLE";
+        }
+    }
+    using Activity = LUNASHELL::ActivityClass;
+    switch (motion.activity) {
+    case Activity::Downstairs: return "downstairs";
+    case Activity::Jogging: return "jogging";
+    case Activity::Sitting: return "sitting";
+    case Activity::Standing: return "standing";
+    case Activity::Upstairs: return "upstairs";
+    case Activity::Walking: return "walking";
+    default: return "UNKNOWN";
     }
 }
 
@@ -180,7 +214,7 @@ void format_duration(char (&destination)[32], const char *label, const PanelMetr
         static_cast<unsigned long long>(seconds / 60U), static_cast<unsigned long long>(seconds % 60U));
 }
 
-// presentation: Serialized detail owner; at most four curated rows are admitted.
+// presentation: Serialized detail owner; the selected panel admits four or six curated rows.
 // font: Actual glyph metrics used to project text without changing canonical metadata.
 // source: Known bounded display value; an absent optional field contributes no row.
 // prefix: Authored semantic label, distinct from the canonical identity.
@@ -309,7 +343,7 @@ uint64_t age_with_receipt(uint64_t age, uint64_t local_age)
 esp_err_t next_companion_panel(CompanionPanel current, CompanionPanel &next)
 {
     switch (current) {
-    case CompanionPanel::Home: next = CompanionPanel::Activity; break;
+    case CompanionPanel::Home: next = CompanionPanel::ModelContext; break;
     case CompanionPanel::Activity: next = CompanionPanel::ModelContext; break;
     case CompanionPanel::ModelContext: next = CompanionPanel::SessionLink; break;
     case CompanionPanel::SessionLink: next = CompanionPanel::Activity; break;
@@ -324,9 +358,12 @@ esp_err_t next_companion_panel(CompanionPanel current, CompanionPanel &next)
 // active_time_us: Nonnegative active clock for the indeterminate accent.
 // presentation: Serialized in-place owner; partial preparation remains invalid.
 // content: Receives its native compositor callback only after complete preparation.
+// motion: Optional canonical HAR and independent IMU stillness result.
+// now_us: Local observation time; zero cannot admit a current Still result.
 // Exception: Returns real metadata or glyph preparation errors.
 esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &inputs,
-    const CODY2D::MonoFont &font, int64_t active_time_us, PanelPresentation &presentation, SceneContent &content)
+    const CODY2D::MonoFont &font, int64_t active_time_us, PanelPresentation &presentation, SceneContent &content,
+    const LUNASHELL::ActivitySnapshot *motion, int64_t now_us)
 {
     const bool previously_valid = presentation.valid;
     const CompanionPanel previous_panel = presentation.panel;
@@ -336,9 +373,8 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     const bool previous_bar_visible = presentation.context_bar_visible;
     const bool previous_compaction_active = presentation.compaction_active;
     const uint32_t previous_compaction_clock = presentation.compaction_clock_us;
-    uint64_t previous_row_colors = 0;
-    for (uint8_t row = 0; row < kDetailRows; ++row) {
-        previous_row_colors |= static_cast<uint64_t>(presentation.lines[row].color) << (row * 16U);
+    for (size_t row = 0; row < std::size(presentation.lines); ++row) {
+        presentation.prior_row_colors[row] = presentation.lines[row].color;
     }
     std::memcpy(presentation.prior_captions, presentation.captions, sizeof(presentation.captions));
     std::memcpy(presentation.prior_title, presentation.title, sizeof(presentation.title));
@@ -346,13 +382,14 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     std::memcpy(presentation.prior_hint, presentation.hint, sizeof(presentation.hint));
     presentation.valid = false;
     if (panel < CompanionPanel::Activity || panel > CompanionPanel::SessionLink ||
-        active_time_us < 0 || font.advance == 0 || font.width > kPanelWidth || font.height > 25) {
+        active_time_us < 0 || now_us < 0 || font.advance == 0 || font.width > kPanelWidth || font.height > 25) {
         return panel_result("prepare_shape", ESP_ERR_INVALID_ARG);
     }
-    const char *fields[] = {inputs.project, inputs.branch, inputs.description, inputs.chat_id, inputs.model, inputs.effort};
-    constexpr const char *field_names[] = {"project", "branch", "description", "chat", "model", "effort"};
-    constexpr size_t limits[] = {64, 64, 192, 64, 128, 16};
-    for (size_t field = 0; field < 6; ++field) {
+    const char *fields[] = {inputs.project, inputs.branch, inputs.description, inputs.chat_id, inputs.model, inputs.effort,
+        inputs.peer_ip, inputs.firmware_version};
+    constexpr const char *field_names[] = {"project", "branch", "description", "chat", "model", "effort", "peer_ip", "firmware_version"};
+    constexpr size_t limits[] = {64, 64, 192, 64, 128, 16, 15, 32};
+    for (size_t field = 0; field < std::size(fields); ++field) {
         const esp_err_t error = validate_panel_text(fields[field], limits[field]);
         if (error != ESP_OK) { return panel_result(field_names[field], error); }
     }
@@ -370,7 +407,7 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
         static_cast<uint8_t>(inputs.cost_band) > 3 || static_cast<uint8_t>(inputs.cost_state) > 3) {
         return panel_result("prepare_identity", ESP_ERR_INVALID_ARG);
     }
-    const PanelMetric *metrics[] = {&inputs.used, &inputs.capacity, &inputs.threshold, &inputs.cumulative,
+    const PanelMetric *metrics[] = {&inputs.used, &inputs.capacity, &inputs.threshold, &inputs.cumulative, &inputs.input, &inputs.output,
         &inputs.activity_age_us, &inputs.usage_age_us, &inputs.turn_elapsed_us, &inputs.compaction_elapsed_us};
     for (const auto *metric : metrics) {
         if (static_cast<uint8_t>(metric->state) > 3) { return panel_result("prepare_metric_state", ESP_ERR_INVALID_ARG); }
@@ -396,13 +433,22 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     if (panel == CompanionPanel::Activity) {
         std::strcpy(presentation.title, "Activity");
         append_detail(presentation, font, inputs.project, "", kWhite);
-        append_detail(presentation, font, inputs.branch, "branch: ");
+        if (motion == nullptr) { append_detail(presentation, font, inputs.branch, "branch: "); }
         if (inputs.activity == PanelValueState::Current && inputs.phase != LUNASHELL::CodexActivityState::None) {
             append_detail(presentation, font, phase_text(inputs.phase), "", kCyan);
         } else if (inputs.activity == PanelValueState::Stale || inputs.activity == PanelValueState::Invalid) {
             append_detail(presentation, font, value_state_text(inputs.activity), "Activity: ", kAmber);
         }
-        if (inputs.activity == PanelValueState::Current) { append_detail(presentation, font, inputs.description); }
+        if (motion != nullptr) {
+            // Unavailable is meaningful here; the ordinary optional-metadata helper omits it.
+            const uint8_t row = presentation.line_count++;
+            format_caption(presentation.captions[row], font, motion_result_text(*motion, now_us), "IMU: ");
+            const bool current_motion = is_current_imu_stillness(motion->stillness, now_us) ||
+                (motion->scores_valid && motion->error == ESP_OK);
+            presentation.lines[row].color = current_motion ? kCyan : kAmber;
+        } else if (inputs.activity == PanelValueState::Current) {
+            append_detail(presentation, font, inputs.description);
+        }
         if (presentation.line_count == 0) { append_detail(presentation, font, "Start a chat in Codex"); }
     } else if (panel == CompanionPanel::ModelContext) {
         std::strcpy(presentation.title, "Model & Context");
@@ -410,54 +456,91 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
         if (inputs.cost_state == PanelValueState::Current && inputs.model_state == PanelValueState::Current) {
             presentation.cost_band = inputs.cost_band;
         }
-        std::snprintf(presentation.cost_caption, sizeof(presentation.cost_caption), "Standard: %s",
-            cost_band_text(presentation.cost_band));
+        if (presentation.cost_band == LUNASHELL::CodexCostBand::Unknown) {
+            std::strcpy(presentation.cost_caption, "Price unavailable");
+        } else if (presentation.cost_band == LUNASHELL::CodexCostBand::Balanced) {
+            std::strcpy(presentation.cost_caption, cost_band_text(presentation.cost_band));
+        } else {
+            std::snprintf(presentation.cost_caption, sizeof(presentation.cost_caption), "Std price: %s",
+                cost_band_text(presentation.cost_band));
+        }
         if (inputs.model_state == PanelValueState::Current && has_detail_value(inputs.model)) {
             const size_t row_capacity = std::min<size_t>(31, (kPanelWidth - font.width) / font.advance + 1U);
-            if (std::strlen(inputs.model) + 12U > row_capacity) {
-                format_two_rows(presentation.captions[0], presentation.captions[1], font, inputs.model, "Hook model: ");
+            if (std::strlen(inputs.model) + 7U > row_capacity) {
+                format_two_rows(presentation.captions[0], presentation.captions[1], font, inputs.model, "Model: ");
                 presentation.line_count = 2;
                 presentation.lines[0].color = kWhite;
                 presentation.lines[1].color = kWhite;
-            } else { append_detail(presentation, font, inputs.model, "Hook model: ", kWhite); }
+            } else { append_detail(presentation, font, inputs.model, "Model: ", kWhite); }
         } else if (inputs.model_state == PanelValueState::Stale || inputs.model_state == PanelValueState::Invalid) {
             append_detail(presentation, font, value_state_text(inputs.model_state), "Model: ");
+        } else {
+            append_detail(presentation, font, "UNAVAILABLE", "Model: ");
         }
-        const bool context_status = measured || inputs.used.state == PanelValueState::Invalid ||
-            inputs.capacity.state == PanelValueState::Invalid || inputs.used.state == PanelValueState::Stale ||
-            inputs.capacity.state == PanelValueState::Stale;
-        // Two model rows still leave a guaranteed context row. Optional effort and counts yield to it.
-        if (presentation.line_count + (context_status ? 1U : 0U) < kModelDetailRows) {
-            if (inputs.effort_state == PanelValueState::Current) { append_detail(presentation, font, inputs.effort, "Effort: "); }
-            else if (inputs.effort_state == PanelValueState::Stale || inputs.effort_state == PanelValueState::Invalid) {
-                append_detail(presentation, font, value_state_text(inputs.effort_state), "Effort: ");
-            }
-        }
+        // Last-call usage is not cumulative chat spending. Keep its count and
+        // window headroom before optional reasoning and lifetime totals.
+        append_metric(presentation, "Last call", inputs.used);
         if (measured) {
             const uint16_t percent = scaled_usage(inputs.used.value, inputs.capacity.value, 100);
             presentation.bar_pixels = scaled_usage(inputs.used.value, inputs.capacity.value, kBarWidth);
             presentation.bar_color = percent >= 90 ? kRed : percent >= 70 ? kAmber : kCyan;
             presentation.context_bar_visible = true;
-            if (presentation.line_count >= kModelDetailRows) {
+            if (presentation.line_count >= detail_capacity(presentation)) {
                 return panel_result("context_row_capacity", ESP_ERR_INVALID_SIZE);
             }
-            const uint8_t context_row = presentation.line_count++;
-            presentation.lines[context_row].color = presentation.bar_color;
-            auto &caption = presentation.captions[context_row];
-            if (inputs.used.value > inputs.capacity.value) { std::strcpy(caption, "Context: OVER LIMIT"); }
-            else { std::snprintf(caption, sizeof(caption), "Context used: %u%%%s", percent, inputs.context_estimated ? " ESTIMATE" : ""); }
-            append_metric(presentation, "Used", inputs.used);
-            append_metric(presentation, "Limit", inputs.capacity);
+            if (inputs.used.value <= inputs.capacity.value) {
+                append_metric(presentation, "Free", {inputs.capacity.value - inputs.used.value, PanelValueState::Current});
+            } else {
+                append_detail(presentation, font, "OVER LIMIT", "Free: ");
+            }
         } else {
             const bool invalid = inputs.used.state == PanelValueState::Invalid || inputs.capacity.state == PanelValueState::Invalid;
             const bool stale = inputs.used.state == PanelValueState::Stale || inputs.capacity.state == PanelValueState::Stale;
             if (invalid || stale) {
                 presentation.context_bar_visible = true;
-                append_detail(presentation, font, invalid ? "INVALID" : "STALE", "Context: ");
+                append_detail(presentation, font, invalid ? "INVALID" : "STALE", "Free: ");
+            } else {
+                append_detail(presentation, font, "UNAVAILABLE", "Free: ");
             }
         }
-        append_metric(presentation, "Auto", inputs.threshold);
+        append_metric(presentation, "Window", inputs.capacity);
+        if (inputs.capacity.state == PanelValueState::Unavailable) {
+            append_detail(presentation, font, "UNAVAILABLE", "Window: ");
+        }
+        if (inputs.used.state == PanelValueState::Unavailable) {
+            append_detail(presentation, font, "UNAVAILABLE", "Last call: ");
+        }
+        if (inputs.cumulative.state == PanelValueState::Unavailable) {
+            append_detail(presentation, font, "UNAVAILABLE", "Total: ");
+        } else {
+            append_metric(presentation, "Total", inputs.cumulative);
+        }
+        append_metric(presentation, "Input", inputs.input);
+        append_metric(presentation, "Output", inputs.output);
+        if (inputs.effort_state == PanelValueState::Current) { append_detail(presentation, font, inputs.effort, "Reasoning: "); }
+        else if (inputs.effort_state == PanelValueState::Stale || inputs.effort_state == PanelValueState::Invalid) {
+            append_detail(presentation, font, value_state_text(inputs.effort_state), "Reasoning: ");
+        }
         if (presentation.line_count == 0) { append_detail(presentation, font, "No model details yet"); }
+        // The existing scene clock advances both pages; metadata refreshes cannot starve output counts.
+        presentation.model_page = (active_time_us / 8000000) % 2 == 0
+            ? ModelDetailPage::Context : ModelDetailPage::TokenDetails;
+        if (presentation.model_page == ModelDetailPage::TokenDetails) {
+            std::strcpy(presentation.title, "Token details");
+            presentation.line_count = 0;
+            for (auto &caption : presentation.captions) { caption[0] = '\0'; }
+            for (auto &line : presentation.lines) { line.color = kMuted; }
+            // These three rows precede optional metadata even with the longest model name.
+            format_metric(presentation.captions[presentation.line_count++], "Input", inputs.input);
+            format_metric(presentation.captions[presentation.line_count++], "Output", inputs.output);
+            format_metric(presentation.captions[presentation.line_count++], "Total", inputs.cumulative);
+            if (inputs.effort_state == PanelValueState::Current) {
+                append_detail(presentation, font, inputs.effort, "Reasoning: ");
+            } else if (inputs.effort_state == PanelValueState::Stale || inputs.effort_state == PanelValueState::Invalid) {
+                append_detail(presentation, font, value_state_text(inputs.effort_state), "Reasoning: ");
+            }
+        }
+
     } else {
         std::strcpy(presentation.title, "Session & Link");
         // An invalid initial snapshot cannot prove disconnection; retained state
@@ -474,23 +557,37 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
                 "Chat ID %.6s...%.6s", inputs.chat_id, inputs.chat_id + 58);
         }
         append_duration(presentation, "Updated", inputs.activity_age_us);
-        append_metric(presentation, "Total", inputs.cumulative);
+        append_detail(presentation, font,
+            inputs.link == PanelValueState::Current && has_detail_value(inputs.peer_ip) ? inputs.peer_ip :
+                inputs.link == PanelValueState::Stale ? "STALE" : "UNAVAILABLE", "PC IP: ");
+        append_detail(presentation, font,
+            has_detail_value(inputs.firmware_version) ? inputs.firmware_version : "UNAVAILABLE", "Firmware: ");
     }
-    std::snprintf(presentation.page, sizeof(presentation.page), "%u/3", static_cast<unsigned>(panel));
+    // Page numbering follows the passive Home entry order, independently of stable enum IDs.
+    const unsigned page_number = panel == CompanionPanel::ModelContext ? 1U :
+        panel == CompanionPanel::SessionLink ? 2U : 3U;
+    std::snprintf(presentation.page, sizeof(presentation.page), "%u/3", page_number);
     std::snprintf(presentation.hint, sizeof(presentation.hint), "%s  Tap next; shake Home", presentation.page);
     presentation.page_line = {};
-    esp_err_t error = prepare_centered_line(font, presentation.title, 170, kWhite, presentation.title_line);
+    esp_err_t error = prepare_centered_line(font, presentation.title, 170,
+        presentation.compaction_active ? kAmber : kWhite, presentation.title_line);
     if (error == ESP_OK) { error = prepare_centered_line(font, presentation.banner, 208, kAmber, presentation.banner_line); }
-    if (error == ESP_OK) { error = prepare_centered_line(font, presentation.hint, 367, kMuted, presentation.hint_line); }
+    if (error == ESP_OK) {
+        error = prepare_centered_line(font, panel == CompanionPanel::Activity ? presentation.hint : "",
+            367, kMuted, presentation.hint_line);
+    }
     if (error == ESP_OK && panel == CompanionPanel::ModelContext) {
         const size_t length = std::strlen(presentation.cost_caption);
         const size_t width = (length - 1U) * font.advance + font.width;
         if (width > 248) { return panel_result("cost_badge_width", ESP_ERR_INVALID_SIZE); }
         error = prepare_centered_line(font, presentation.cost_caption,
-            234 + (28 - font.height) / 2, cost_band_color(presentation.cost_band), presentation.cost_line);
+            (presentation.banner[0] == '\0' ? 206 : 234) + (28 - font.height) / 2,
+            cost_band_color(presentation.cost_band), presentation.cost_line);
     }
     for (uint8_t row = 0; error == ESP_OK && row < presentation.line_count; ++row) {
-        const uint16_t y = (panel == CompanionPanel::ModelContext ? 267 : 234) + row * 30;
+        const uint16_t y = panel == CompanionPanel::ModelContext
+            ? (presentation.banner[0] == '\0' ? 238 : 267) + row * 25
+            : 234 + row * (panel == CompanionPanel::SessionLink ? 25 : 30);
         const uint16_t color = presentation.lines[row].color;
         error = prepare_panel_line(font, presentation.captions[row],
             {73, static_cast<int16_t>(y)}, color, presentation.lines[row]);
@@ -498,13 +595,13 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     if (error != ESP_OK) { return panel_result("prepare_text", error); }
     presentation.compaction_clock_us = static_cast<uint32_t>(active_time_us % 1800000 / 50000 * 50000);
     presentation.valid = true;
-    uint64_t row_colors = 0;
-    for (uint8_t row = 0; row < kDetailRows; ++row) {
-        row_colors |= static_cast<uint64_t>(presentation.lines[row].color) << (row * 16U);
+    bool row_colors_changed = false;
+    for (size_t row = 0; row < std::size(presentation.lines); ++row) {
+        row_colors_changed = row_colors_changed || presentation.prior_row_colors[row] != presentation.lines[row].color;
     }
     const bool visual_changed = !previously_valid || previous_panel != presentation.panel ||
         previous_cost_band != presentation.cost_band ||
-        previous_row_colors != row_colors ||
+        row_colors_changed ||
         previous_bar_pixels != presentation.bar_pixels || previous_bar_color != presentation.bar_color ||
         previous_bar_visible != presentation.context_bar_visible ||
         previous_compaction_active != presentation.compaction_active ||
@@ -522,27 +619,32 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     return ESP_OK;
 }
 
-// panel: Selected technical page identity.
-// link: Canonical link and activity from one synchronized observation.
-// technical: Independently aged source metrics from the same observation.
-// font: Actual immutable native glyph catalog.
-// now_us: Device monotonic time, used only to age receipt-relative durations.
-// presentation: Persistent serialized owner outside the renderer task stack.
-// content: Receives a direct compositor callback on success.
-// Exception: Returns the native preparation failure without guessing missing metrics.
-esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
-    const LUNASHELL::CodexLinkSnapshot &link, const LUNASHELL::CodexTechnicalSnapshot &technical,
-    const CODY2D::MonoFont &font, int64_t now_us, PanelPresentation &presentation, SceneContent &content)
+// link: Canonical link/activity observation borrowed for one projection.
+// technical: Canonical independently aged metadata, never copied or mutated.
+// now_us: Local monotonic receipt clock, independent of presentation animation.
+// firmware_version: Immutable running image identity, or empty when unavailable.
+// inputs: Receives bounded borrowed fields and independently valid metrics.
+// Exception: Returns the original duration or clock error without fabricating source data.
+esp_err_t project_companion_panel_inputs(const LUNASHELL::CodexLinkSnapshot &link,
+    const LUNASHELL::CodexTechnicalSnapshot &technical, int64_t now_us,
+    const char *firmware_version, PanelInputs &inputs)
 {
     if (now_us < 0) { return panel_result("observation_clock", ESP_ERR_INVALID_ARG); }
-    PanelInputs inputs{};
+    inputs = {};
     inputs.connected = link.state == LUNASHELL::CodexLinkState::Connected;
     inputs.link = observed_value_state(link.data_valid, link.data_stale);
     inputs.activity = observed_value_state(link.activity.data_valid, link.activity.data_stale || !inputs.connected);
+    // Retained validity flags do not authorize an old purpose after its owner
+    // reports a failure. A genuinely absent source still remains unavailable.
+    if (link.activity.last_error != ESP_OK && inputs.activity != PanelValueState::Unavailable) {
+        inputs.activity = PanelValueState::Invalid;
+    }
     inputs.project = link.activity.project;
     inputs.branch = link.activity.branch;
     inputs.description = link.activity.description;
     inputs.chat_id = has_observed_chat(link.activity.chat_id, link.activity.state) ? link.activity.chat_id : "";
+    inputs.peer_ip = link.peer_ip_address;
+    inputs.firmware_version = firmware_version;
     inputs.phase = link.activity.state;
     // ACTIVITY and TECH travel separately. An older turn's metadata must remain
     // unavailable until the matching revision arrives, even when its chat is unchanged.
@@ -587,10 +689,12 @@ esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
         if (stale && inputs.compaction == LUNASHELL::CodexCompactionState::Active) { inputs.compaction = LUNASHELL::CodexCompactionState::Stale; }
         inputs.context_coherent = technical.context_valid;
         const PanelValueState context = observed_value_state(technical.context_valid, stale || technical.context_stale);
-        inputs.used = {technical.used, context};
-        inputs.capacity = {technical.capacity, context};
+        inputs.used = {technical.used, observed_value_state(technical.used_valid, stale || technical.context_stale)};
+        inputs.capacity = {technical.capacity, observed_value_state(technical.capacity_valid, stale || technical.context_stale)};
         inputs.threshold = {technical.threshold, observed_value_state(technical.threshold_valid, stale || technical.context_stale)};
         inputs.cumulative = {technical.cumulative, observed_value_state(technical.cumulative_valid, stale || technical.context_stale)};
+        inputs.input = {technical.input, observed_value_state(technical.input_valid, stale || technical.context_stale)};
+        inputs.output = {technical.output, observed_value_state(technical.output_valid, stale || technical.context_stale)};
         inputs.activity_age_us = {age_with_receipt(technical.activity_age_at_receive_us, receipt_age), observed_value_state(technical.activity_age_valid, stale)};
         inputs.usage_age_us = {age_with_receipt(technical.usage_age_at_receive_us, receipt_age), context};
         using Phase = LUNASHELL::CodexActivityState;
@@ -599,7 +703,46 @@ esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
         inputs.compaction_elapsed_us = {age_with_receipt(technical.compaction_age_at_receive_us, receipt_age), observed_value_state(technical.compaction_age_valid && inputs.compaction == LUNASHELL::CodexCompactionState::Active, stale)};
         inputs.counters_pending = inputs.compaction == LUNASHELL::CodexCompactionState::Refreshed && context != PanelValueState::Current;
     }
-    return prepare_companion_panel(panel, inputs, font, now_us, presentation, content);
+    // Historical payload flags cannot make a failed canonical owner current on any consuming Home layer.
+    if (link.last_error != ESP_OK || link.activity.last_error != ESP_OK || technical.last_error != ESP_OK) {
+        PanelMetric *metrics[] = {&inputs.used, &inputs.capacity, &inputs.threshold, &inputs.cumulative,
+            &inputs.input, &inputs.output, &inputs.activity_age_us, &inputs.usage_age_us,
+            &inputs.turn_elapsed_us, &inputs.compaction_elapsed_us};
+        for (auto *metric : metrics) {
+            if (metric->state == PanelValueState::Current) { metric->state = PanelValueState::Invalid; }
+        }
+        inputs.context_coherent = false;
+        if (inputs.model_state == PanelValueState::Current) { inputs.model_state = PanelValueState::Invalid; }
+        if (inputs.effort_state == PanelValueState::Current) { inputs.effort_state = PanelValueState::Invalid; }
+        if (inputs.cost_state == PanelValueState::Current) { inputs.cost_state = PanelValueState::Invalid; }
+        if (inputs.compaction == LUNASHELL::CodexCompactionState::Active) {
+            inputs.compaction = LUNASHELL::CodexCompactionState::Stale;
+        }
+    }
+    return ESP_OK;
+}
+
+// panel: Selected technical page identity.
+// link: Canonical link and activity from one synchronized observation.
+// technical: Independently aged source metrics from the same observation.
+// font: Actual immutable native glyph catalog.
+// now_us: Device monotonic time, used only to age receipt-relative durations.
+// active_time_us: Independent local presentation clock; never contributes to source freshness or ages.
+// presentation: Persistent serialized owner outside the renderer task stack.
+// content: Receives a direct compositor callback on success.
+// firmware_version: Canonical immutable firmware identity, or absent synthetic host metadata.
+// motion: Optional canonical HAR and independent IMU stillness result; no sensor reads occur here.
+// Exception: Returns the native preparation failure without guessing missing metrics.
+esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
+    const LUNASHELL::CodexLinkSnapshot &link, const LUNASHELL::CodexTechnicalSnapshot &technical,
+    const CODY2D::MonoFont &font, int64_t now_us, int64_t active_time_us,
+    PanelPresentation &presentation, SceneContent &content,
+    const char *firmware_version, const LUNASHELL::ActivitySnapshot *motion)
+{
+    PanelInputs inputs{};
+    const esp_err_t error = project_companion_panel_inputs(link, technical, now_us, firmware_version, inputs);
+    if (error != ESP_OK) { return error; }
+    return prepare_companion_panel(panel, inputs, font, active_time_us, presentation, content, motion, now_us);
 }
 
 // presentation: Valid prepared owner whose animation is independent of observations.
@@ -629,7 +772,7 @@ esp_err_t draw_companion_panel_rows(const PanelPresentation &presentation, CODY2
     esp_err_t error = CODY2D::validate_surface(strip);
     if (error == ESP_OK && presentation.cost_line.valid) {
         CODY2D::CapsuleControl badge{};
-        badge.bounds = {101, 234, 264, 28};
+        badge.bounds = {101, static_cast<uint16_t>(presentation.banner[0] == '\0' ? 206 : 234), 264, 28};
         const uint16_t color = cost_band_color(presentation.cost_band);
         badge.top_color = CODY2D::blend_rgb565(color, 0, 40);
         badge.bottom_color = CODY2D::blend_rgb565(color, 0, 20);
@@ -647,7 +790,7 @@ esp_err_t draw_companion_panel_rows(const PanelPresentation &presentation, CODY2
     }
     if (error == ESP_OK && presentation.context_bar_visible) {
         CODY2D::CapsuleControl track{};
-        track.bounds = {85, 354, kBarWidth, 12};
+        track.bounds = {85, 389, kBarWidth, 12};
         track.top_color = kNeutral;
         track.bottom_color = kNeutral;
         track.border_color = kNeutral;

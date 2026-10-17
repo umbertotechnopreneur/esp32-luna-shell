@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "sdkconfig.h"
 #include "esp_err.h"
 #include "bsp/display.h"
 
@@ -16,7 +17,13 @@
 #define BSP_DISPLAY_DMA_PIPELINE_DEPTH     2U
 #define BSP_DISPLAY_DMA_ALIGNMENT          64U
 #define BSP_DISPLAY_DMA_HEADROOM_BYTES     4096U
+// Cody's damage planner rasterizes row pairs; its last-resort lease must obey
+// that minimum too. Other producers retain their existing one-row contract.
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+#define BSP_DISPLAY_DMA_EMERGENCY_ROWS     2U
+#else
 #define BSP_DISPLAY_DMA_EMERGENCY_ROWS     1U
+#endif
 #define BSP_DISPLAY_REPLAY_TRANSFER_HEIGHT BSP_DISPLAY_DMA_TRANSFER_HEIGHT
 #define BSP_DISPLAY_CIRCLE_EDGE_PADDING    2
 #define BSP_DISPLAY_CONTROL_LOCK_TIMEOUT_MS 1000U

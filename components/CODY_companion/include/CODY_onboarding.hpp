@@ -42,6 +42,9 @@ void reset_onboarding();
 // No parameters: cancel gesture recognition after an invalid acquired report.
 void cancel_onboarding_touch();
 
+// No parameters: preserve Home marquee position while its route is visually preempted.
+void suspend_onboarding_command_hints();
+
 // scene: Current worker-owned scene, replaced only by a validated route.
 // completed_scene: Last fully retired scene; typewriter evaluation alone is not completion.
 // active_time_us: Existing animation clock, excluding pause and standby.

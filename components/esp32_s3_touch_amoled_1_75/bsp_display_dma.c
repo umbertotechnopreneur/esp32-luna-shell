@@ -297,7 +297,8 @@ esp_err_t bsp_display_acquire_dma_pipeline(
             .data = display_dma_emergency_buffer,
             .slot_stride_bytes = BSP_DISPLAY_DMA_EMERGENCY_BYTES,
             .buffer_count = 1U,
-            .transfer_rows = BSP_DISPLAY_DMA_EMERGENCY_ROWS,
+            .transfer_rows = maximum_transfer_rows < BSP_DISPLAY_DMA_EMERGENCY_ROWS
+                ? maximum_transfer_rows : BSP_DISPLAY_DMA_EMERGENCY_ROWS,
             .heap_owned = false,
             .emergency = true,
         };

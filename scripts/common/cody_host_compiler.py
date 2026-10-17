@@ -22,11 +22,14 @@ from scripts.common.cody_native_checks import resolve_compiler
 
 
 # No parameters: loads an installed MSVC toolchain into this generator process only.
-# Raises OSError or subprocess.CalledProcessError for missing installation or setup failure.
+# Raises OSError, subprocess.CalledProcessError or subprocess.TimeoutExpired for discovery/setup failure.
 def prepare_host_compiler():
     try:
         return resolve_compiler(None)
     except FileNotFoundError:
+        if os.name != "nt":
+            # Preserve the host discovery cause; Visual Studio setup is Windows-only.
+            raise
         program_files = os.environ.get("ProgramFiles(x86)")
         if not program_files:
             raise FileNotFoundError("Windows compiler discovery requires ProgramFiles(x86).")

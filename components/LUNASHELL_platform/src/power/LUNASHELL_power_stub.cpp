@@ -38,11 +38,30 @@ extern "C" esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     return ESP_ERR_NOT_SUPPORTED;
 }
 
-// callback: Unsupported active PWR consumer in a profile without power inputs.
-extern "C" esp_err_t LUNASHELL_power_manager_register_short_press(
-    LUNASHELL_power_short_press_callback_t callback)
+// prepare: Excluded profile cannot register an offline farewell owner.
+// Exception: Always returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t LUNASHELL_power_manager_register_offline_farewell(esp_err_t (*prepare)(void))
 {
-    (void)callback;
+    (void)prepare;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// prepare: Excluded profile cannot register a farewell owner.
+// report_error: Excluded profile cannot restore a failure presentation.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t LUNASHELL_power_manager_register_shutdown_callbacks(
+    esp_err_t (*prepare)(void), esp_err_t (*report_error)(esp_err_t))
+{
+    (void)prepare;
+    (void)report_error;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// seal: Excluded profile cannot coordinate speech shutdown.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t LUNASHELL_power_manager_register_speech_shutdown(esp_err_t (*seal)(bool))
+{
+    (void)seal;
     return ESP_ERR_NOT_SUPPORTED;
 }
 

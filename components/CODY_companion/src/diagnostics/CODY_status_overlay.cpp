@@ -103,6 +103,17 @@ constexpr IconGlyph kBluetoothGlyph = {
         0x66C, 0xC66, 0x660, 0x360, 0x1E0, 0x0E0, 0x060,
     },
 };
+static_assert(kStatusOverlayBounds.left == kDateLeft && kStatusOverlayBounds.top == kDateTop &&
+    kStatusOverlayBounds.right == kBluetoothLeft + kBluetoothGlyph.width &&
+    kStatusOverlayBounds.bottom == kBluetoothTop + kBluetoothGlyph.height,
+    "Shared status exclusion must match the actual authored chrome footprint");
+static_assert(kTimeLeft >= kStatusOverlayBounds.left && kTimeTop >= kStatusOverlayBounds.top &&
+    kTimeTop + kGlyphRows * 2 <= kStatusOverlayBounds.bottom &&
+    kBatteryLeft + kBatteryGlyph.width <= kStatusOverlayBounds.right &&
+    kBatteryTop + kBatteryGlyph.height <= kStatusOverlayBounds.bottom &&
+    kWifiLeft + kWifiGlyphs[2].width <= kStatusOverlayBounds.right &&
+    kWifiTop + kWifiGlyphs[2].height <= kStatusOverlayBounds.bottom,
+    "Time and status icons must remain within the shared reserved footprint");
 
 // Full uppercase ASCII needed by dates and explicit unavailable states.
 constexpr MonoGlyph kGlyphs[] = {
@@ -385,9 +396,7 @@ esp_err_t format_number(char *destination, size_t capacity, const char *format, 
 // No parameters: return the complete half-open footprint shared by damage planning.
 DamageRect status_overlay_damage_bounds()
 {
-    return {kDateLeft, kDateTop,
-        static_cast<uint16_t>(kBluetoothLeft + kBluetoothGlyph.width),
-        static_cast<uint16_t>(kBluetoothTop + kBluetoothGlyph.height)};
+    return kStatusOverlayBounds;
 }
 
 // observation: Coherent canonical battery, local calendar, Wi-Fi and BLE state.

@@ -31,6 +31,7 @@ constexpr uint32_t kWakeTransitionUs = 900000;
 // active_delta_us: Nonnegative elapsed animation time, never a sensor measurement.
 // checkpoint: Last successful startup checkpoint; never advance beyond real readiness.
 // next: Receives the complete phase update only on success.
+// Exception: Returns INVALID_ARG/INVALID_STATE for invalid clocks, checkpoints or phases.
 esp_err_t advance_lifecycle(const LifecycleState &state, int64_t active_delta_us,
                             BootCheckpoint checkpoint, LifecycleState &next)
 {
@@ -56,12 +57,14 @@ esp_err_t advance_lifecycle(const LifecycleState &state, int64_t active_delta_us
             checkpoint_allows_transition = checkpoint != BootCheckpoint::Sleeping;
             break;
         case LifecyclePhase::BootWaking:
-            duration_us = kBootWakingUs;
+            duration_us = result.startup_presentation == StartupPresentation::PanelFade
+                ? kPanelWakeWakingUs : kBootWakingUs;
             following = LifecyclePhase::BootReady;
             checkpoint_allows_transition = checkpoint == BootCheckpoint::Ready;
             break;
         case LifecyclePhase::BootReady:
-            duration_us = kBootReadyUs;
+            duration_us = result.startup_presentation == StartupPresentation::PanelFade
+                ? kPanelWakeReadyUs : kBootReadyUs;
             break;
         case LifecyclePhase::Wake:
             duration_us = kWakeTransitionUs;
@@ -122,6 +125,7 @@ uint8_t lifecycle_opacity(const LifecycleState &state)
 // state: Current boot, idle or sleep/wake presentation.
 // face: Receives the authored target without replacing the rhythmic channels.
 // contour: Receives gentle independent body movement.
+// Exception: Returns the original phase, catalog or expression error.
 esp_err_t lifecycle_targets(const LifecycleState &state, Channels &face, ContourControls &contour)
 {
     ExpressionId expression = ExpressionId::Calm;
@@ -168,8 +172,10 @@ esp_err_t lifecycle_targets(const LifecycleState &state, Channels &face, Contour
         if (sleeping_error != ESP_OK) {
             return sleeping_error;
         }
-        const float progress = std::min(state.phase_elapsed_us, kBootWakingUs) /
-            static_cast<float>(kBootWakingUs);
+        const uint32_t waking_us = state.startup_presentation == StartupPresentation::PanelFade
+            ? kPanelWakeWakingUs : kBootWakingUs;
+        const float progress = std::min(state.phase_elapsed_us, waking_us) /
+            static_cast<float>(waking_us);
         const float blend = progress * progress * (3.f - 2.f * progress);
         for (size_t channel = 0; channel < kFaceChannelCount; ++channel) {
             face.values[channel] = sleeping.values[channel] +

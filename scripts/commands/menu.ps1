@@ -162,6 +162,7 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
                 $maintenance = [ordered]@{
                     '1' = @{ Emoji = '📦'; Label = 'Package Luna simulator'; Description = 'Prepare Python dependencies and build the reference EXE'; Value = 'package-simulator' }
                     '2' = @{ Emoji = '🏷️'; Label = 'Preview source banners'; Description = 'Read-only banner maintenance preview'; Value = 'banner' }
+                    '3' = @{ Emoji = '🎵'; Label = 'Configure Codex audio'; Description = 'Enable WAV attachments through the public Codex queue'; Value = 'codex-audio' }
                 }
                 $selected = Select-DeviceMenuItem 'MAINTENANCE' $maintenance
                 if (-not $selected) { continue }
@@ -226,6 +227,11 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
                     }
                     $extra.ToolArguments = [string[]]$tokens
                 }
+            }
+            if ($selected -eq 'codex-audio') {
+                $extra.EnableAudioQueue = (Read-Host 'Enable public experimental WAV queue delivery without transcription? (y/N)') -eq 'y'
+                $nativePath = Read-Host 'Installed native Codex executable (empty to use the running Desktop version)'
+                if ($nativePath) { $extra.CodexExecutable = $nativePath }
             }
             $parameters = @{ Action = $selected }
             foreach ($key in $settings.Keys) {

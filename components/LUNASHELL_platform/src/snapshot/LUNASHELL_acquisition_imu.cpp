@@ -4,6 +4,8 @@
 #include "LUNASHELL_acquisition_internal.hpp"
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_sensor_fusion.hpp"
+#include "LUNASHELL_activity_internal.hpp"
+#include "LUNASHELL_imu_stillness.hpp"
 
 #include <atomic>
 #include <cmath>
@@ -71,6 +73,24 @@ StaticTask_t s_imu_calibration_task_control;
 StackType_t s_imu_calibration_task_stack[3072];
 // Sampling and profile changes are serialized by the canonical refresh barrier.
 int64_t s_last_error_log_us;
+// The refresh barrier protects sensor/bias reads; this small lock also serializes
+// external admission/calibration failures with stillness publication. It never
+// acquires the refresh barrier or performs sensor I/O while held.
+std::mutex s_stillness_mutex;
+LUNASHELL::imu_stillness::State s_stillness;
+bool s_stillness_active = false;
+
+// error: Real acquisition/transition failure, or explicit suspension cause.
+// attempted_at_us: Original owner event time; the last measured timestamp is retained.
+void invalidate_stillness(esp_err_t error, int64_t attempted_at_us)
+{
+    std::lock_guard<std::mutex> lock(s_stillness_mutex);
+    LUNASHELL::imu_stillness::invalidate(s_stillness, error, attempted_at_us);
+    const esp_err_t publication = update_snapshot([](LUNASHELL::DeviceSnapshot &snapshot) {
+        snapshot.activity.stillness = s_stillness.observation;
+    });
+    log_snapshot_publication_failure("IMU stillness invalidation", publication);
+}
 
 // data: Same decoded acquisition to validate before any publication.
 bool finite_imu_sample(const RawSample &data)
@@ -90,6 +110,7 @@ void reset_imu_filter()
     std::memset(s_accel_filtered, 0, sizeof(s_accel_filtered));
     std::memset(s_gyro_filtered, 0, sizeof(s_gyro_filtered));
     s_imu_filter_ready = false;
+    invalidate_stillness(ESP_ERR_INVALID_STATE, esp_timer_get_time());
 }
 
 // error: Original rejected calibration operation.
@@ -99,6 +120,7 @@ void publish_imu_calibration_failure(
     int64_t attempted_at_us
 )
 {
+    invalidate_stillness(error, attempted_at_us);
     update_snapshot([error, attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
         mark_sample_failure(
             snapshot.imu.calibration,
@@ -370,6 +392,7 @@ esp_err_t configure_imu_profile(bool low_power)
 // attempted_at_us: Original hardware transition attempt timestamp.
 void publish_imu_profile_failure(esp_err_t error, int64_t attempted_at_us)
 {
+    invalidate_stillness(error, attempted_at_us);
     const esp_err_t publication_error = update_snapshot(
         [error, attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
             mark_sample_failure(snapshot.imu, error, attempted_at_us);
@@ -452,12 +475,14 @@ esp_err_t init_imu(i2c_master_bus_handle_t bus)
     if (!s_imu_ready) {
         s_imu_profile_valid = false;
         s_imu_profile_error = error;
+        invalidate_stillness(error, esp_timer_get_time());
         ESP_LOGW(TAG, "IMU QMI8658: not detected");
     }
     return error;
 #else
     (void)bus;
     const esp_err_t error = ESP_ERR_NOT_SUPPORTED;
+    invalidate_stillness(error, esp_timer_get_time());
     update_snapshot([error](LUNASHELL::DeviceSnapshot &snapshot) {
         set_component(snapshot.imu, false, error);
         snapshot.imu.gesture_acceleration_valid = false;
@@ -467,10 +492,12 @@ esp_err_t init_imu(i2c_master_bus_handle_t bus)
 #endif
 }
 
+// No parameters: calibration owns the existing refresh barrier and sensor sample set.
 // Exception: Returns acquisition failure or a measured nonstationary sample rejection.
 esp_err_t calibrate_imu()
 {
     const int64_t calibration_attempted_at_us = esp_timer_get_time();
+    invalidate_stillness(ESP_ERR_INVALID_STATE, calibration_attempted_at_us);
     if (!s_imu_ready) {
         update_snapshot([calibration_attempted_at_us](
                             LUNASHELL::DeviceSnapshot &snapshot
@@ -500,6 +527,7 @@ esp_err_t calibrate_imu()
         }
         if (error != ESP_OK) {
             const int64_t attempted_at_us = esp_timer_get_time();
+            invalidate_stillness(error, attempted_at_us);
             update_snapshot([error, attempted_at_us,
                              calibration_attempted_at_us](
                                 LUNASHELL::DeviceSnapshot &snapshot
@@ -653,15 +681,20 @@ esp_err_t calibrate_imu()
 // phase: Original acquisition context used for publication and logging.
 // verbose: Whether to log every sample or use bounded error reminders.
 // track_orientation: Whether the root owner classifies the same acquired raw sample.
+// activity_sample: Whether the owner scheduled this acquisition for the model window.
 // Exception: Returns the original acquisition, publication or sensor-fusion error.
 esp_err_t sample_imu(
     const char *phase,
     bool verbose = true,
-    bool track_orientation = false
+    bool track_orientation = false,
+    bool activity_sample = false
 )
 {
     const int64_t attempted_at_us = esp_timer_get_time();
+    LUNASHELL::ImuSnapshot sample;
 #if !CONFIG_LUNASHELL_BUILD_ENABLE_IMU
+    invalidate_stillness(ESP_ERR_NOT_SUPPORTED, attempted_at_us);
+    LUNASHELL::snapshot_detail::activity::accept(sample, ESP_ERR_NOT_SUPPORTED, attempted_at_us);
     LUNASHELL::DeviceSnapshotService::instance().reportSensorFusion(
         {},
         ESP_ERR_NOT_SUPPORTED,
@@ -690,6 +723,8 @@ esp_err_t sample_imu(
     );
 #endif
     if (!s_imu_smoothing_valid.load(std::memory_order_relaxed)) {
+        invalidate_stillness(ESP_ERR_INVALID_STATE, attempted_at_us);
+        LUNASHELL::snapshot_detail::activity::accept(sample, ESP_ERR_INVALID_STATE, attempted_at_us);
         LUNASHELL::DeviceSnapshotService::instance().reportSensorFusion(
             {},
             ESP_ERR_INVALID_STATE,
@@ -721,8 +756,8 @@ esp_err_t sample_imu(
         );
     }
 
-    LUNASHELL::ImuSnapshot sample;
     RawSample data = {};
+    float corrected_gyro[3]{};
     esp_err_t error = read_imu_sample(&data);
     if (error == ESP_OK && !finite_imu_sample(data)) {
         error = ESP_ERR_INVALID_RESPONSE;
@@ -746,6 +781,7 @@ esp_err_t sample_imu(
                 acceleration[axis] - (s_imu_calibrated ? s_accel_bias[axis] : 0.0F);
             const float angular_velocity_corrected =
                 angular_velocity[axis] - (s_imu_calibrated ? s_gyro_bias[axis] : 0.0F);
+            corrected_gyro[axis] = angular_velocity_corrected;
             // Gestures retain the measured impulse from this acquisition; the EMA
             // below remains the existing source for animation, power and fusion.
             sample.gesture_acceleration_mps2[axis] = acceleration_corrected;
@@ -772,6 +808,8 @@ esp_err_t sample_imu(
         }
     }
     if (error != ESP_OK) {
+        invalidate_stillness(error, attempted_at_us);
+        LUNASHELL::snapshot_detail::activity::accept(sample, error, attempted_at_us);
         LUNASHELL::DeviceSnapshotService::instance().reportSensorFusion(
             {},
             error,
@@ -808,17 +846,44 @@ esp_err_t sample_imu(
         );
     }
     mark_sample_success(sample, attempted_at_us);
-    const esp_err_t publication_error = update_snapshot(
-        [&sample, track_orientation](LUNASHELL::DeviceSnapshot &snapshot) {
-            const LUNASHELL::ComponentSnapshot calibration =
-                snapshot.imu.calibration;
-            snapshot.imu = sample;
-            snapshot.imu.calibration = calibration;
-            if (track_orientation) {
-                copy_orientation_snapshot(snapshot.ui.orientation);
-            }
+    LUNASHELL::ImuStillnessSnapshot stillness;
+    esp_err_t publication_error = ESP_OK;
+    {
+        std::lock_guard<std::mutex> lock(s_stillness_mutex);
+        // Without admitted calibration the existing owner uses measured axes
+        // unchanged. That is valid input; only a calibration in progress blocks it.
+        bool eligible = s_stillness_active &&
+            !s_imu_calibration_request_pending.load(std::memory_order_acquire);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_IMU && CONFIG_LUNASHELL_BUILD_IMU_DRIVER_QMI8658
+        eligible = eligible && s_imu_profile_valid && !s_imu_profile_low_power && !s_imu_motion_wakeup_enabled;
+#endif
+        const esp_err_t stillness_error = LUNASHELL::imu_stillness::accept(s_stillness,
+            sample.gesture_acceleration_mps2, corrected_gyro, attempted_at_us, eligible);
+        // This optional observation retains its own exact rejection. A missing
+        // stable history does not turn a successful physical IMU read into a failure.
+        if (eligible && stillness_error != ESP_OK &&
+            (verbose || attempted_at_us - s_last_error_log_us >= 5000000)) {
+            s_last_error_log_us = attempted_at_us;
+            ESP_LOGW(TAG, "IMU stillness sample rejected (%s)", esp_err_to_name(stillness_error));
         }
-    );
+        stillness = s_stillness.observation;
+        publication_error = update_snapshot(
+            [&sample, &stillness, track_orientation](LUNASHELL::DeviceSnapshot &snapshot) {
+                const LUNASHELL::ComponentSnapshot calibration = snapshot.imu.calibration;
+                snapshot.imu = sample;
+                snapshot.imu.calibration = calibration;
+                snapshot.activity.stillness = stillness;
+                if (track_orientation) {
+                    copy_orientation_snapshot(snapshot.ui.orientation);
+                }
+            }
+        );
+    }
+    // Successful unrelated UI/full-refresh reads must not shift the model phase.
+    // Any acquisition/publication failure still invalidates the observed stream.
+    if (activity_sample || publication_error != ESP_OK) {
+        LUNASHELL::snapshot_detail::activity::accept(sample, publication_error, attempted_at_us, &stillness);
+    }
     if (verbose) {
         if (high_frequency_sample_phase(phase)) {
             ESP_LOGD(
@@ -972,13 +1037,29 @@ bool ready()
     return s_imu_ready;
 }
 
+// enabled: Existing active acquisition admission; unavailable hardware never becomes Still.
+void set_stillness_active(bool enabled)
+{
+    std::lock_guard<std::mutex> lock(s_stillness_mutex);
+    if (enabled == s_stillness_active) {
+        return;
+    }
+    s_stillness_active = enabled;
+    LUNASHELL::imu_stillness::invalidate(s_stillness, ESP_ERR_INVALID_STATE, esp_timer_get_time());
+    const esp_err_t publication = update_snapshot([](LUNASHELL::DeviceSnapshot &snapshot) {
+        snapshot.activity.stillness = s_stillness.observation;
+    });
+    log_snapshot_publication_failure("IMU stillness admission", publication);
+}
+
 // phase: Original acquisition context used for publication and logging.
 // verbose: Whether to log every acquisition instead of bounded error reminders.
 // track_orientation: Whether the same measured sample updates the root orientation owner.
+// activity_sample: Whether this acquisition fulfills the owner's model sampling lease.
 // Exception: Returns the original acquisition, publication or sensor-fusion error.
-esp_err_t sample(const char *phase, bool verbose, bool track_orientation)
+esp_err_t sample(const char *phase, bool verbose, bool track_orientation, bool activity_sample)
 {
-    return sample_imu(phase, verbose, track_orientation);
+    return sample_imu(phase, verbose, track_orientation, activity_sample);
 }
 
 // percent: Already validated smoothing value admitted by the persistence owner.
@@ -1283,6 +1364,7 @@ extern "C" esp_err_t LUNASHELL_imu_calibrate(void)
         return ESP_ERR_INVALID_STATE;
     }
 
+    invalidate_stillness(ESP_ERR_INVALID_STATE, calibration_attempted_at_us);
     xTaskNotifyGive(calibration_task);
     ESP_LOGI(TAG, "IMU calibration scheduled");
     return ESP_OK;

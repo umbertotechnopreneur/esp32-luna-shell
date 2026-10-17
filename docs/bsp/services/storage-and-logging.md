@@ -9,6 +9,13 @@ dependency required by the logger's USB driver owner.
 
 ## SD startup clocks
 
+On 2026-10-12 the user confirmed the remaining SD startup/reset behavior as a
+known PCB limitation and accepted a standby/wake cycle as the recovery workaround.
+It is not tracked as a new software defect or a request for further SD investigation.
+This is user-confirmed operating context, not new physical validation performed
+by this documentation change. Real mount/read/write failures remain visible through
+the existing storage owner and canonical health reporting.
+
 After SDMMC slot initialization, the BSP selects the official 400-kHz probing
 frequency and queries its calculated frequency before initializing the card.
 The latter official host operation also prepares the clock-source identity in
@@ -37,11 +44,12 @@ pull-ups, on IDF 4.4.4. It is an analogy, not the same verified cause. A
 describes indefinite ACMD41 busy despite repeated CMD0 after an initial power-up
 sequence; waiting before the first command avoided it there. Our first attempt
 already occurs seconds into startup, so that report does not justify adding an
-arbitrary delay. No matching confirmed Waveshare resolution was found.
-The next discriminating evidence is simultaneous SD VDD and CLK/CMD observation
-across the known working-to-reset transition; unchanged reset loops or further
-card swaps do not distinguish power disturbance from actual clock loss or
-retained card state. No shared power rail is cycled by this implementation.
+arbitrary delay. No matching confirmed Waveshare resolution was found in that
+historical investigation. Simultaneous SD VDD and CLK/CMD observation was proposed
+to distinguish power disturbance, clock loss and retained card state; it was not
+performed by that investigation and is not a new pending software task. The
+2026-10-12 accepted operating workaround is standby/wake. No shared power rail is
+cycled by this implementation.
 
 ## Recording and retention
 

@@ -135,11 +135,10 @@
     },
     {
       "name": "Question", "id": 1128464395, "slug": "question", "sample_rate_hz": 16000,
-      "duration_ms": 340, "target_peak_dbfs": -14.0,
-      "intent": "Two rising bell notes when a new question needs the user's decision.",
+      "duration_ms": 1800, "target_peak_dbfs": -24.0,
+      "intent": "One soft bell with a gentle natural tail when a new question needs the user's decision.",
       "layers": [
-        {"source": "bell", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 180, "pitch_ratio": 0.80, "gain": 0.75, "highpass_hz": 180, "lowpass_hz": 3400, "fade_in_ms": 5, "fade_out_ms": 85},
-        {"source": "bell", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 135, "duration_ms": 205, "pitch_ratio": 1.07, "gain": 0.90, "highpass_hz": 180, "lowpass_hz": 3400, "fade_in_ms": 5, "fade_out_ms": 100}
+        {"source": "chime", "window_start_ms": 0, "window_end_ms": 2200, "offset_ms": 0, "duration_ms": 1800, "pitch_ratio": 1.05, "gain": 1.0, "highpass_hz": 150, "lowpass_hz": 2600, "fade_in_ms": 12, "fade_out_ms": 1150}
       ]
     },
     {
@@ -173,6 +172,14 @@
       "intent": "One lower bell notice for a native permission request that must be handled on the PC.",
       "layers": [
         {"source": "bell", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 300, "pitch_ratio": 0.75, "gain": 1.0, "highpass_hz": 180, "lowpass_hz": 3000, "fade_in_ms": 5, "fade_out_ms": 140}
+      ]
+    },
+    {
+      "name": "QuestionReminder", "id": 1128464400, "slug": "question-reminder", "sample_rate_hz": 16000,
+      "duration_ms": 300, "target_peak_dbfs": -27.0,
+      "intent": "One short, quieter soft bell for a pending-question reminder; no repeating beep sequence.",
+      "layers": [
+        {"source": "chime", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 300, "pitch_ratio": 1.05, "gain": 1.0, "highpass_hz": 150, "lowpass_hz": 2600, "fade_in_ms": 12, "fade_out_ms": 220}
       ]
     }
   ]

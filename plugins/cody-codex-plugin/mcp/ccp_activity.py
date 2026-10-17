@@ -18,16 +18,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 import hashlib
 from pathlib import PureWindowsPath
 import re
+import sqlite3
 import sys
 import threading
 import time
 from typing import Any
 from ccp_pricing import PriceCache, PriceProjection
+from ccp_usage import NativeUsageReader, safe_usage_error
+from ccp_chat_title import ChatTitleObservation, NativeChatTitleReader, TITLE_LEASE_SECONDS, TITLE_MAX_BYTES, TitleState
+from ccp_tool_labels import MAX_TOOL_LABEL_LENGTH, tool_display_label
 
 
 class Phase(str, Enum):
@@ -58,7 +62,7 @@ EVENTS = frozenset({
 })
 MAX_SESSIONS = 64
 ACTIVITY_LEASE_SECONDS = 120.0
-MAX_DESCRIPTION_LENGTH = 192
+MAX_DESCRIPTION_LENGTH = MAX_TOOL_LABEL_LENGTH
 OPAQUE_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 
 
@@ -132,6 +136,7 @@ class Session:
     last_event_ns: int = 0
     observed_at: float = 0.0
     tools: dict[str, Phase] = field(default_factory=dict)
+    tool_labels: dict[str, str] = field(default_factory=dict)
     interrupted: bool = False
     description: str = ""
     description_observed_at: float = 0.0
@@ -144,9 +149,47 @@ class Session:
     compact_observed_at: float = 0.0
     compact_trigger: str = ""
     compact_last_event: str = ""
+    transcript_path: str = ""
+    reply_notice_turn: str = ""
+    chat_title: ChatTitleObservation = field(default_factory=ChatTitleObservation)
+
+
+@dataclass(frozen=True)
+class HookObservation:
+    event: str
+    session_id: str
+    turn_id: str
+    project: str
+    followed: bool
+    phase: Phase
+    reply_ready: bool
+    title: str = ""
+
+
+# title: Original canonical native metadata, including its exact observation timestamp.
+# now: Current monotonic source clock, never a hook or presentation timestamp.
+# maximum_bytes: The receiving notice's complete ASCII field limit, without truncation.
+# Returns the complete current title or explicit absence; it never renews an old observation.
+def displayable_notice_title(title: ChatTitleObservation, now: float, maximum_bytes: int) -> str:
+    if title.state != TitleState.CURRENT or title.observed_at is None:
+        return ""
+
+    age = now - title.observed_at
+    source_is_current = 0 <= age < TITLE_LEASE_SECONDS
+    title_fits = 1 <= len(title.title) <= maximum_bytes
+    if not source_is_current or not title_fits:
+        return ""
+
+    return title.title
 
 
 class ActivityStore:
+    """Own accepted hook lifecycle state and serialize its native metadata reads.
+
+    The lifecycle lock protects session identity and selection. The source lock
+    serializes metadata IO, which must never run while holding the lifecycle lock.
+    """
+
     # self: New broker waits for a genuine prompt before following a chat.
     # pricing: Optional memory-only catalog owner; absence leaves the qualitative band Unknown.
     def __init__(self, pricing: PriceCache | None = None) -> None:
@@ -156,10 +199,16 @@ class ActivityStore:
         self._followed_session_id = ""
         self._last_prompt_ns = 0
         self._revision = 0
+        self._usage = NativeUsageReader()
+        self._titles = NativeChatTitleReader()
+        self._title_signature = ("", "", TitleState.UNAVAILABLE)
+        self._usage_lock = threading.Lock()
+        self._usage_error = ""
 
+    # self: Canonical owner of bounded native hook identities and accepted lifecycle state.
     # event: Allowlisted metadata from one genuine Codex hook invocation.
     # Raises ValueError for malformed, stale or contradictory event metadata.
-    def observe(self, event: dict[str, Any]) -> None:
+    def observe(self, event: dict[str, Any]) -> HookObservation:
         name = event.get("hook_event_name")
         if name not in EVENTS:
             raise ValueError("Unsupported CCP hook event")
@@ -178,6 +227,9 @@ class ActivityStore:
         if name not in {"SessionStart", "SessionEnd"}:
             turn_id = require_id(event.get("turn_id"), "turn_id")
         model = hook_model(event.get("model"))
+        locator = event.get("transcript_path", "")
+        if not isinstance(locator, str) or len(locator) > 4096 or "\x00" in locator:
+            raise ValueError("Native transcript locator is invalid")
         trigger = event.get("trigger")
         if name in {"PreCompact", "PostCompact"} and (not isinstance(trigger, str) or trigger not in {"auto", "manual"}):
             raise ValueError("Compaction trigger must be the genuine auto or manual hook value")
@@ -206,6 +258,7 @@ class ActivityStore:
                     session.turn_started_at = emitted_ns / 1_000_000_000
                     session.turn_ended_at = 0.0
                     session.tools.clear()
+                    session.tool_labels.clear()
                     session.model = ""
                     session.model_observed_at = 0.0
                     session.compaction = Compaction.NONE
@@ -213,6 +266,7 @@ class ActivityStore:
                     session.compact_observed_at = 0.0
                     session.compact_trigger = ""
                     session.compact_last_event = ""
+                    session.reply_notice_turn = ""
                 session.turn_id = turn_id
                 session.interrupted = False
                 session.description = ""
@@ -230,6 +284,7 @@ class ActivityStore:
                     session.phase = Phase.ACTIVE
                     session.turn_id = ""
                     session.tools.clear()
+                    session.tool_labels.clear()
                     session.model = ""
                     session.model_observed_at = 0.0
                     session.turn_started_at = 0.0
@@ -242,6 +297,7 @@ class ActivityStore:
             elif name == "SessionEnd":
                 session.phase = Phase.ENDED
                 session.tools.clear()
+                session.tool_labels.clear()
                 session.description = ""
                 if session.turn_started_at and not session.turn_ended_at:
                     session.turn_ended_at = emitted_ns / 1_000_000_000
@@ -264,12 +320,14 @@ class ActivityStore:
                         raise ValueError("Duplicate tool identity or too many concurrent tools")
                     phase = tool_phase(event.get("tool_name"))
                     session.tools[tool_id] = phase
+                    session.tool_labels[tool_id] = tool_display_label(event["tool_name"])
                     session.phase = phase
                 elif name == "PostToolUse":
                     tool_id = require_id(event.get("tool_use_id"), "tool_use_id")
                     if tool_id not in session.tools:
                         raise ValueError("Tool completion has no matching start")
                     del session.tools[tool_id]
+                    del session.tool_labels[tool_id]
                     # A late command completion cannot undo Stop/Interrupt.
                     if session.phase != Phase.READY and not session.interrupted:
                         session.phase = next(reversed(session.tools.values()), Phase.WORKING)
@@ -320,10 +378,89 @@ class ActivityStore:
             if session.cwd != cwd:
                 session.project = project_label(cwd)
                 session.cwd = cwd
+                session.chat_title = ChatTitleObservation()
             session.last_event_ns = emitted_ns
+            if locator:
+                session.transcript_path = locator
             session.branch = branch
             session.observed_at = emitted_ns / 1_000_000_000
             self._revision += 1
+            # The notice decision is tied to the accepted native turn, not a
+            # later followed-chat snapshot or inferred response text.
+            reply_ready = name == "Stop" and session.reply_notice_turn != session.turn_id
+            if reply_ready:
+                session.reply_notice_turn = session.turn_id
+            if name in {"UserPromptSubmit", "Stop", "PreCompact", "PostCompact", "Interrupt", "SessionEnd"}:
+                # Trace only genuine accepted lifecycle boundaries. Tool hooks
+                # remain quiet; opaque digests keep native IDs and chat text local.
+                chat_digest = hashlib.sha256(session_id.encode("ascii")).hexdigest()[:12]
+                turn_digest = hashlib.sha256(session.turn_id.encode("ascii")).hexdigest()[:12]
+                print(f"CCP lifecycle accepted: event={name} chat={chat_digest} turn={turn_digest} "
+                      f"phase={session.phase.value} compaction={session.compaction.value} "
+                      f"compactseq={session.compact_sequence:016x}", file=sys.stderr, flush=True)
+            # Event acceptance performs no source IO. The delivery owner may
+            # refresh this exact background completion through the title owner.
+            notice_title = displayable_notice_title(session.chat_title, time.monotonic(), 63)
+            return HookObservation(name, session_id, session.turn_id, session.project,
+                                   session_id == self._followed_session_id, session.phase, reply_ready, notice_title)
+
+    # self: Lifecycle owner; the caller must hold _lock for this identity check.
+    # observation: Immutable accepted native event and its exact originating turn.
+    # session: Original session object retained across the source IO boundary.
+    # cwd: Original canonical checkout identity, retained before releasing _lock.
+    # Returns false when replacement, lifecycle or selection invalidates the notice.
+    def _notice_origin_is_current(self, observation: HookObservation, session: Session, cwd: str) -> bool:
+        current = self._sessions.get(observation.session_id)
+        if current is not session:
+            return False
+        if current.turn_id != observation.turn_id or current.cwd != cwd:
+            return False
+
+        is_followed = current.session_id == self._followed_session_id
+        if observation.event == "PermissionRequest":
+            return current.phase == Phase.PAUSED and is_followed
+        if observation.event == "Stop":
+            return current.phase == Phase.READY and not is_followed
+        return False
+
+    # self: Canonical lifecycle owner; source reads retain their original timestamps and errors.
+    # observation: Eligible genuine approval or background reply event, never inferred from UI focus.
+    # Returns refreshed immutable metadata or withdraws both eligibility flags after a race.
+    # Source failures remain explicit in session.chat_title and are logged by the acquisition owner.
+    def refresh_notice_title(self, observation: HookObservation) -> HookObservation:
+        approval = (observation.event == "PermissionRequest" and observation.followed
+                    and observation.phase == Phase.PAUSED)
+        reply_ready = (observation.event == "Stop" and observation.reply_ready
+                       and not observation.followed)
+        if not approval and not reply_ready:
+            return observation
+
+        withdrawn = replace(observation, followed=False, reply_ready=False, title="")
+        with self._lock:
+            session = self._sessions.get(observation.session_id)
+            if session is None:
+                return withdrawn
+            cwd = session.cwd
+            if not self._notice_origin_is_current(observation, session, cwd):
+                return withdrawn
+
+        # The exact native metadata owner performs IO without blocking hook acceptance.
+        with self._usage_lock:
+            source_title = self._titles.read_once(observation.session_id, cwd)
+
+        with self._lock:
+            if not self._notice_origin_is_current(observation, session, cwd):
+                return withdrawn
+
+            session.chat_title = source_title
+            maximum_bytes = TITLE_MAX_BYTES if approval else 63
+            if (reply_ready and source_title.state == TitleState.CURRENT
+                    and len(source_title.title) > maximum_bytes):
+                print("CCP reply title unavailable: complete native title exceeds the 63-byte notice field",
+                      file=sys.stderr, flush=True)
+
+            title = displayable_notice_title(source_title, time.monotonic(), maximum_bytes)
+            return replace(observation, title=title)
 
     # No parameters: exposes identities and local context only, never chat contents.
     def list_sessions(self) -> list[dict[str, Any]]:
@@ -366,22 +503,63 @@ class ActivityStore:
     def snapshot(self) -> dict[str, str]:
         return self.snapshot_bundle()[0]
 
-    # No parameters: obtains activity and technical projection atomically for one authenticated FIND reply.
+    # self: Canonical hook owner; title and usage acquisition share its existing bounded source IO lock.
+    # No other parameters: obtains coherent activity and technical projections for one authenticated FIND reply.
     def snapshot_bundle(self) -> tuple[dict[str, str], dict[str, str]]:
+        # File IO has its own owner lock and never holds the activity/hook lock.
+        with self._lock:
+            followed = self._sessions.get(self._followed_session_id)
+            source = ((followed.session_id, followed.cwd, followed.turn_id, followed.transcript_path)
+                      if followed and followed.turn_id and followed.phase != Phase.ENDED else None)
+        usage, context = None, None
+        title = ChatTitleObservation()
+        if source is not None:
+            with self._usage_lock:
+                title = self._titles.poll(source[0], source[1])
+                try:
+                    usage, context = self._usage.poll(*source)
+                    self._usage_error = ""
+                except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as error:
+                    # Do not echo native file paths, JSON lines or chat content.
+                    cause = safe_usage_error(error)
+                    if cause != self._usage_error:
+                        print(f"CCP native usage unavailable: {cause}", file=sys.stderr, flush=True)
+                        self._usage_error = cause
         with self._lock:
             session = self._sessions.get(self._followed_session_id)
+            if (session is None or source != (session.session_id, session.cwd, session.turn_id, session.transcript_path)
+                    or session.phase == Phase.ENDED):
+                usage, context = None, None
+                title = ChatTitleObservation()
             now = time.monotonic()
             phase = self._effective_phase(session) if session else Phase.NONE
             description = (session.description if session and
                 phase in {Phase.WORKING, Phase.EDITING, Phase.RUNNING} and
                 now - session.description_observed_at <= ACTIVITY_LEASE_SECONDS else "")
+            if not description and session and session.tools and phase in {Phase.WORKING, Phase.EDITING, Phase.RUNNING}:
+                # Only the current native tool identity is exposed; arguments and shell commands stay on the PC.
+                description = session.tool_labels[next(reversed(session.tools))]
+            title_age = wire_milliseconds(now - title.observed_at) if title.observed_at is not None else "-"
+            if title.state == TitleState.CURRENT and title_age == "-":
+                title = ChatTitleObservation(state=TitleState.ERROR)
+            if session is not None:
+                session.chat_title = title
+            title_signature = (session.session_id if session else "", title.title, title.state)
+            if title_signature != self._title_signature:
+                # Renaming a thread is a metadata change even without a new
+                # prompt. Cached rereads and age alone do not restart the UI.
+                self._title_signature = title_signature
+                self._revision += 1
             # Full digests preserve opaque identity without exposing native Codex identifiers.
             identity = {"chat": hashlib.sha256(session.session_id.encode("ascii")).hexdigest() if session else "0" * 64,
                         "revision": f"{self._revision:016x}"}
             activity = {**identity, "phase": phase.value,
                         "project": session.project.encode("ascii").hex() if session else "",
                         "description": description.encode("ascii").hex(),
-                        "branch": session.branch.encode("ascii").hex() if session else ""}
+                        "branch": session.branch.encode("ascii").hex() if session else "",
+                        "title": title.title.encode("ascii").hex() if title.state == TitleState.CURRENT else "-",
+                        "titlestate": title.state.value,
+                        "titleage": title_age}
             compact = session.compaction if session else Compaction.NONE
             # Replies preserve the genuine lifecycle timestamp. A broker heartbeat is not
             # a fresh Codex observation that compaction is still running beyond its source lease.
@@ -398,14 +576,40 @@ class ActivityStore:
                 "activityage": wire_milliseconds(now - session.observed_at) if session else "-",
                 "turnelapsed": wire_milliseconds((session.turn_ended_at or now) - session.turn_started_at)
                     if session and session.turn_started_at else "-",
-                # No desktop-owned App Server notification stream is available to this plugin.
-                # Hook model is reported metadata; effort and token/capacity fields remain unavailable.
+                # Missing native fields stay unavailable; no prompt-based estimates or defaults.
                 **{key: "-" for key in ("effort", "used", "capacity", "cumulative", "input", "output", "threshold", "usageage")}}
+            if (usage is not None and session is not None and session.compaction == Compaction.REFRESHED
+                    and usage[1] < session.compact_observed_at):
+                # PostCompact confirms completion, not renewed token counters.
+                # Wait for a native observation after that genuine boundary.
+                usage = None
+            if usage is not None:
+                values, observed = usage
+                age = wire_milliseconds(now - observed)
+                if age != "-":
+                    technical.update({key: str(value) for key, value in values.items()})
+                    technical["usageage"] = age
+            effective_model = session.model if session else ""
+            effective_model_observed = session.model_observed_at if session else 0.0
+            if context is not None:
+                native_model, effort, observed = context
+                age = wire_milliseconds(now - observed)
+                hook_is_current = bool(effective_model and
+                                       0 <= now - effective_model_observed < ACTIVITY_LEASE_SECONDS)
+                # An expired turn-context observation cannot hide a newer genuine
+                # hook observation for this exact chat/turn. Keep each source's
+                # original age; effort has no independent wire age and therefore
+                # remains unavailable when the hook supplies the selected model.
+                use_native = now - observed < ACTIVITY_LEASE_SECONDS or not hook_is_current
+                if age != "-" and use_native:
+                    effective_model, effective_model_observed = native_model, observed
+                    technical.update(model=native_model.encode("ascii").hex(), modelage=age,
+                                     effort=effort.encode("ascii").hex() if effort else "-")
             if technical["modelage"] == "-":
                 technical["model"] = "-"
-            price = (self._pricing.projection(session.model)
+            price = (self._pricing.projection(effective_model)
                      if self._pricing is not None and session is not None and technical["model"] != "-"
-                     and now - session.model_observed_at < ACTIVITY_LEASE_SECONDS else PriceProjection())
+                     and now - effective_model_observed < ACTIVITY_LEASE_SECONDS else PriceProjection())
             technical.update(cost=price.band.value,
                              costage=str(price.age_ms) if price.age_ms is not None else "-",
                              costttl=str(price.valid_for_ms) if price.valid_for_ms is not None else "-")

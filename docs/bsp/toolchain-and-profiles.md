@@ -93,18 +93,26 @@ cannot accidentally reuse a Release build.
 | Bootloader logging | INFO | WARN |
 | Boot identity | Debug notice | One Release notice warning about the USB sleep limitation |
 | Automatic Light-sleep | Disabled for USB debugging | Enabled when power management is present and workloads permit it |
-| Inactivity sleep | CPU/USB remain awake in software standby | Software standby for retained Codex or voice listening; otherwise Deep-sleep with touch wake |
+| Inactivity sleep | CPU/USB remain awake in software standby | Cody always uses software standby for PWR wake; other profiles retain software standby for Codex or voice listening, otherwise Deep-sleep with touch wake |
 | Screen inactivity and fade | Runtime `idle_sleep_s`, default 60 s; 800-ms fade | Same timeout and fades |
-| Standby motion observation | 10-Hz host snapshots | Accelerometer-only hardware WoM; no host polling during Deep-sleep |
+| Standby motion observation | 10-Hz host snapshots | Software observation in Cody/retained-service standby; accelerometer-only hardware WoM without host polling during Deep-sleep |
 | CPU frequency | Existing 80--240 MHz dynamic policy | Same 80--240 MHz policy |
 | Sleep residency diagnostics | Callback counters available | Debug-only callback instrumentation disabled |
 | Repeated post-wake trace reports | Available | Disabled; retained failure trace remains available |
-| Cody frame diagnostics | Authored execution timings, frame distributions and FPS/CPU HUD | No collection/reporting of diagnostic frame distributions, raster stage profiling or HUD |
-| Cody PWR screenshot | One click waits 500 ms, then starts the existing countdown | Admission disabled; no shutter worker |
-| Button software reset | PWR double click within 500 ms or 3-second PWR/BOOT hold | Excluded; ordinary standby/fullscreen controls remain |
-| Cody static/parked worker | Existing 50 ms/200 ms waits; paused HUD refresh | 1000 ms functional gate checks; touch IRQ wakes immediately; unchanged paused frames do not redraw |
+| Cody frame diagnostics | Authored execution timings, frame distributions and FPS/CPU HUD | No frame-distribution/raster profiling collection; explicitly opened diagnostic screens still show the canonical readout |
+| Cody device diagnostics | Character with canonical CPU/free RAM/PSRAM, FPS, IP and SD readout, plus local Memory details | The same overview, Memory page and Back; no build-mode choice is required |
+| Cody PWR | Short click enters/wakes standby; valid continuous 3-second hold requests farewell and PMU shutdown | Same dedicated power controls; no PWR screenshot or software reset |
+| BOOT software reset | 3-second BOOT hold | Excluded; ordinary BOOT controls remain |
+| Cody static/parked worker | Existing 50 ms/200 ms waits; paused HUD refresh | 1000 ms functional gate checks; touch IRQ wakes immediately; an explicit diagnostic view retains live refresh |
 | Active animation | Existing selected 40 ms or 33 ms target | Same target |
-| Compiler optimization | Existing performance optimization (`-O2`) | Same optimization for comparable rendering behavior |
+| Compiler optimization | Performance optimization (`-O2`); existing activity/control-plane size policy remains | Same optimization for comparable rendering behavior |
+
+Both modes keep the same OTA/storage geometry, compiler policy and task budgets.
+Debug preserves the VERBOSE log ceiling, assertions and UART core dumps. Sprite
+storage omits only exactly transparent pixels outside each immutable bounding
+rectangle; logical geometry, full reference assets and rendered pixels remain.
+Existing activity/control-plane `-Os` overrides apply in both modes. Build-mode
+configuration checks reject a stale optimization selection.
 
 Release keeps real errors, canonical snapshot health/validity/timestamps,
 frame ownership/deadline checks, watchdogs, persistence semantics, requested
@@ -114,12 +122,23 @@ diagnostic services are functional features and are not silently disabled.
 Performance Mode restores the compiled log default when it ends, so it cannot
 turn Release INFO logging back on.
 
-Release enters Deep-sleep after confirmed standby on touch-enabled profiles
-only when the power owner retains neither the Codex radio association nor
-wake-word standby listening. Those services keep software standby, without
-attempting sleep and restoring Active due to an expected policy rejection;
-touch GPIO11 and accelerometer-only IMU INT2/GPIO21 provide physical wake.
-The normal inactivity timer adds no periodic wake and PWR polling stops.
+The battery-endurance NVS journal remains active in Release. Its periodic
+`Endurance` readback messages are INFO and are suppressed by the compiled WARN
+maximum; passive serial capture alone cannot retrieve those records from a
+Release image. Use `scripts/device.ps1 endurance-read -Port COM10` for an explicit
+CRC-checked canonical readback without raising normal logging. The command
+preserves recorder failures and unknown termination; it does not refresh sensors
+or write device storage. See [battery-only runtime recording](services/power-management.md#battery-only-runtime-recording)
+for the persistence contract and readback procedure.
+
+Cody keeps software standby in both modes so the PMU PWR key can wake it; that
+key has no ESP Deep-sleep wake route. Other touch-enabled Release profiles enter
+Deep-sleep after confirmed standby only when the power owner retains neither
+the Codex radio association nor wake-word standby listening. Those services keep
+software standby without attempting sleep and restoring Active due to an expected
+policy rejection. During Deep-sleep, touch GPIO11 and accelerometer-only IMU
+INT2/GPIO21 provide physical wake; PWR polling stops and the normal inactivity
+timer adds no periodic wake.
 Debug keeps CPU/USB awake and retains 10-Hz software motion observation.
 See [power lifecycle](services/power-management.md) for runtime settings,
 IRQ/revision checks, rollback, startup and shared-rail limits. Whole-board
@@ -130,6 +149,21 @@ this change. Wake/reconnect may be necessary before a later explicitly
 authorized serial/flash operation.
 
 ## Artifacts and evidence
+
+Each actual public build captures the compiling computer's local date and time
+(`dd/MM/yy HH:mm`), its exact operating-system timezone ID and its local hostname.
+`FirmwareBuildMetadata` stores this bounded identity as immutable firmware data;
+it does not read device clock settings or sensors. The build writes its generated
+header and `firmware-build-metadata.json` audit record under the selected build's
+`generated/` directory. Configuration, size reports and serial capture do not
+replace the stamp. Flash first builds, so its embedded stamp belongs to that build.
+
+Timezone and hostname fields accept at most 63 printable ASCII characters.
+Unavailable or unsupported values retain their explicit state for the display;
+they are never truncated, transliterated or replaced with a guessed timezone.
+Acquisition and write errors stop compilation. The public `build-modes` check uses
+synthetic inputs to cover local-date rollover, bounded identity, literal escaping
+and capture renewal without probing the current computer.
 
 Before authorized build/flash/combo/recover, the shared helper cleans transient
 artifacts while preserving firmware, reviewed locks, generated configuration,

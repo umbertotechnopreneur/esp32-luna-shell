@@ -10,15 +10,26 @@
 
 namespace CODY {
 
-enum class ActivityIdentityKind : uint8_t { Project, Branch, Model };
-inline constexpr char kActivityModelPrefix[] = "model: ";
+enum class ActivityIdentityKind : uint8_t { Project, Branch, Model, Tokens };
+enum class HomeTokenMetric : uint8_t { LastCall = 0, Window = 1, Free = 2, Total = 3 };
+inline constexpr HomeTokenMetric kHomeTokenMetrics[]{HomeTokenMetric::LastCall, HomeTokenMetric::Window,
+    HomeTokenMetric::Free, HomeTokenMetric::Total};
+inline constexpr char kActivityModelPrefix[] = "Model: ";
 
 // Serialized route-owned text; prepared lines borrow these stable buffers through retirement.
 struct ActivityIdentityState {
     char project[80]{};
     char branch[80]{};
     char model[144]{};
-    char cost_caption[16]{};
+    char tokens[40]{};
+    char token_fields[4][40]{};
+    HomeTokenMetric token_metric = HomeTokenMetric::LastCall;
+    uint8_t token_page_count = 1;
+    CODY2D::TextLine tokens_line{};
+    uint16_t tokens_width = 0;
+    uint16_t tokens_length = 0;
+    uint16_t tokens_offset = 0;
+    char cost_caption[24]{};
     char timer[24]{};
     CODY2D::TextLine project_line{};
     CODY2D::TextLine branch_line{};
@@ -43,12 +54,15 @@ struct ActivityIdentityState {
     bool attention_active = false;
     bool compaction_timer = false;
 };
-static_assert(sizeof(ActivityIdentityState) <= 896,
+static_assert(sizeof(ActivityIdentityState) <= 1184,
     "Home identity/model/cost captions must stay in one bounded route-owned buffer");
 
 constexpr CODY2D::Rect kActivityIdentityBounds{73, 300, 320, 28};
 constexpr CODY2D::Rect kActivityTimerBounds{153, 330, 160, 28};
 constexpr CODY2D::Rect kActivityCostRowBounds{73, 330, 320, 28};
+constexpr uint16_t kActivityCostChipWidth = 196;
+constexpr uint16_t kActivityCostTimerWidth = 116;
+constexpr uint16_t kActivityCostTimerCenter = 335;
 
 // font: Validated native font whose measured advance determines the whole caption capacity.
 // source: Printable ASCII identity, bounded by its canonical producer.
@@ -142,11 +156,11 @@ inline esp_err_t prepare_activity_identity(ActivityIdentityState &state, const C
     }
     esp_err_t error = CODY2D::validate_mono_font(font);
     if (error == ESP_OK) {
-        error = prepare_activity_identity_caption(font, project, "", state.project, state.project_line,
+        error = prepare_activity_identity_caption(font, project, "Project: ", state.project, state.project_line,
             0xFFFF, state.project_length, state.project_width, 64);
     }
     if (error == ESP_OK) {
-        error = prepare_activity_identity_caption(font, branch, "branch: ", state.branch, state.branch_line,
+        error = prepare_activity_identity_caption(font, branch, "Branch: ", state.branch, state.branch_line,
             0xF7BE, state.branch_length, state.branch_width, 64);
     }
     if (error != ESP_OK) {
@@ -157,6 +171,14 @@ inline esp_err_t prepare_activity_identity(ActivityIdentityState &state, const C
     state.selected = ActivityIdentityKind::Project;
     state.project_offset = 0;
     state.branch_offset = 0;
+    state.token_metric = HomeTokenMetric::LastCall;
+    state.token_page_count = 1;
+    std::memset(state.token_fields, 0, sizeof(state.token_fields));
+    state.tokens_offset = 0;
+    state.tokens_length = 0;
+    state.tokens_width = 0;
+    state.tokens[0] = '\0';
+    state.tokens_line = {};
     state.model_offset = 0;
     state.model_width = 0;
     state.model_length = 0;
@@ -192,7 +214,7 @@ inline esp_err_t set_activity_model_cost(ActivityIdentityState &state, const COD
     const bool model_changed = std::strcmp(model, previous_model) != 0;
     if (model_changed) {
         const esp_err_t error = prepare_activity_identity_caption(font, model, kActivityModelPrefix,
-            state.model, state.model_line, cost_band_color(band), state.model_length, state.model_width, 128);
+            state.model, state.model_line, 0xFD20, state.model_length, state.model_width, 128);
         if (error != ESP_OK) { return error; }
         state.model_offset = 0;
         state.started_at_us = active_time_us;
@@ -203,7 +225,7 @@ inline esp_err_t set_activity_model_cost(ActivityIdentityState &state, const COD
         std::strcpy(state.cost_caption, cost_band_text(band));
         const uint16_t length = static_cast<uint16_t>(std::strlen(state.cost_caption));
         const uint16_t width = (length - 1U) * font.advance + font.width;
-        if (width > 134 || font.height > 28) {
+        if (width > kActivityCostChipWidth - 16 || font.height > 28) {
             ESP_LOGE("CODY_identity", "Cost chip size rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
             return ESP_ERR_INVALID_SIZE;
         }
@@ -220,6 +242,7 @@ inline uint16_t activity_identity_offset(const ActivityIdentityState &state)
     switch (state.selected) {
     case ActivityIdentityKind::Branch: return state.branch_offset;
     case ActivityIdentityKind::Model: return state.model_offset;
+    case ActivityIdentityKind::Tokens: return state.tokens_offset;
     default: return state.project_offset;
     }
 }
@@ -240,6 +263,7 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
         return ESP_ERR_INVALID_ARG;
     }
     const auto old_selected = state.selected;
+    const auto old_token_metric = state.token_metric;
     const uint8_t old_opacity = state.opacity;
     const bool old_timer = state.timer_visible;
     const uint64_t old_seconds = state.timer_seconds;
@@ -253,7 +277,7 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
     constexpr int64_t pixel_step_us = 50000;
     constexpr int64_t start_hold_us = 1200000;
     constexpr int64_t end_hold_us = 1800000;
-    // Three bounded borrowed descriptors stay on the stack; all text/glyph storage belongs to state.
+    // Four bounded borrowed descriptors stay on the stack; all text/glyph storage belongs to state.
     struct Caption {
         ActivityIdentityKind kind;
         const char *text;
@@ -264,23 +288,27 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
         uint16_t color;
         int64_t hold_us;
     };
-    static_assert(sizeof(Caption) * 3 <= 192, "Home carousel descriptors must remain bounded");
+    static_assert(sizeof(Caption) * 4 <= 256, "Home carousel descriptors must remain bounded");
     Caption captions[] = {
         {ActivityIdentityKind::Project, state.project, &state.project_line, &state.project_offset,
             state.project_length, state.project_width, 0xFFFF, 5000000},
         {ActivityIdentityKind::Branch, state.branch, &state.branch_line, &state.branch_offset,
             state.branch_length, state.branch_width, 0xF7BE, 3000000},
         {ActivityIdentityKind::Model, state.model, &state.model_line, &state.model_offset,
-            state.model_length, state.model_width, cost_band_color(state.cost_band), 4000000}};
-    Caption *sequence[3]{};
+            state.model_length, state.model_width, 0xFD20, 4000000},
+        {ActivityIdentityKind::Tokens, state.tokens, &state.tokens_line, &state.tokens_offset,
+            state.tokens_length, state.tokens_width, 0xBDF7, 5000000}};
+    Caption *sequence[4]{};
     size_t count = 0;
     int64_t cycle_us = 0;
     for (auto &caption : captions) {
         *caption.offset = 0;
-        if (caption.kind != ActivityIdentityKind::Project && (attention || !state.project_line.valid)) { continue; }
+        if (caption.kind != ActivityIdentityKind::Project && attention) { continue; }
         if (caption.length == 0) { continue; }
         const uint16_t overflow = caption.width > kActivityIdentityBounds.width ? caption.width - kActivityIdentityBounds.width : 0;
-        caption.hold_us = std::max(caption.hold_us, start_hold_us + overflow * pixel_step_us + end_hold_us);
+        caption.hold_us = caption.kind == ActivityIdentityKind::Tokens
+            ? static_cast<int64_t>(state.token_page_count) * 5000000
+            : std::max(caption.hold_us, start_hold_us + overflow * pixel_step_us + end_hold_us);
         sequence[count++] = &caption;
         cycle_us += caption.hold_us;
     }
@@ -307,10 +335,24 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
         break;
     }
     state.selected = shown->kind;
+    if (shown->kind == ActivityIdentityKind::Tokens) {
+        const size_t page_index = std::min<size_t>(state.token_page_count - 1U, scroll_us / 5000000);
+        state.token_metric = kHomeTokenMetrics[page_index];
+        const char *caption = state.token_fields[static_cast<size_t>(state.token_metric)];
+        if (old_token_metric != state.token_metric || std::strcmp(state.tokens, caption) != 0) {
+            const esp_err_t error = prepare_activity_identity_caption(font, caption, "", state.tokens,
+                state.tokens_line, 0xBDF7, state.tokens_length, state.tokens_width, sizeof(state.tokens) - 1);
+            if (error != ESP_OK) { return error; }
+        }
+        shown->text = state.tokens;
+        shown->length = state.tokens_length;
+        shown->width = state.tokens_width;
+        scroll_us = std::min<int64_t>(scroll_us - static_cast<int64_t>(page_index) * 5000000, 5000000);
+    }
     const uint16_t overflow = shown->width > kActivityIdentityBounds.width ? shown->width - kActivityIdentityBounds.width : 0;
     *shown->offset = scroll_us < start_hold_us ? 0 :
         static_cast<uint16_t>(std::min<int64_t>(overflow, (scroll_us - start_hold_us) / pixel_step_us));
-    if (old_selected != state.selected || old_offset != *shown->offset) {
+    if (old_selected != state.selected || old_token_metric != state.token_metric || old_offset != *shown->offset) {
         const esp_err_t error = prepare_activity_identity_window(font, shown->text, shown->length,
             shown->width, *shown->offset, shown->color, *shown->line);
         if (error != ESP_OK) { return error; }
@@ -320,7 +362,9 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
         (state.compaction_timer ? operation_elapsed_us >= 0 : !attention && operation_elapsed_us >= 10000000);
     if (state.timer_visible) {
         state.timer_seconds = static_cast<uint64_t>(operation_elapsed_us / 1000000);
-        if (!old_timer || old_seconds != state.timer_seconds || !state.timer_line.valid) {
+        // Reposition on the same frame as Model/chip visibility changes, even within one timer second.
+        if (!old_timer || old_seconds != state.timer_seconds || !state.timer_line.valid ||
+            old_selected != state.selected || (old_opacity == 0) != (state.opacity == 0)) {
             const int count = std::snprintf(state.timer, sizeof(state.timer), "%02llu:%02llu",
                 static_cast<unsigned long long>(state.timer_seconds / 60U),
                 static_cast<unsigned long long>(state.timer_seconds % 60U));
@@ -329,20 +373,22 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
                 return ESP_ERR_INVALID_SIZE;
             }
             const uint16_t width = (count - 1U) * font.advance + font.width;
-            const bool cost_visible = state.cost_line.valid && state.project_line.valid;
-            if (width > (cost_visible ? 124 : kActivityTimerBounds.width)) {
+            const bool cost_visible = state.selected == ActivityIdentityKind::Model && state.opacity != 0 &&
+                state.cost_line.valid && state.project_line.valid;
+            if (width > (cost_visible ? kActivityCostTimerWidth : kActivityTimerBounds.width)) {
                 ESP_LOGE("CODY_identity", "Elapsed caption width rejected: width=%u (%s)", width, esp_err_to_name(ESP_ERR_INVALID_SIZE));
                 return ESP_ERR_INVALID_SIZE;
             }
             const esp_err_t error = CODY2D::prepare_text_line(font,
                 {state.timer, static_cast<uint16_t>(count)},
-                {static_cast<int16_t>((cost_visible ? 640U : 466U) / 2U - width / 2U), 330}, 0xC618, state.timer_line);
+                {static_cast<int16_t>((cost_visible ? kActivityCostTimerCenter : 233U) - width / 2U), 330},
+                0xC618, state.timer_line);
             if (error != ESP_OK) {
                 return error;
             }
         }
     }
-    changed = old_selected != state.selected || old_opacity != state.opacity ||
+    changed = old_selected != state.selected || old_token_metric != state.token_metric || old_opacity != state.opacity ||
         old_timer != state.timer_visible || (state.timer_visible && old_seconds != state.timer_seconds) ||
         old_offset != activity_identity_offset(state);
     return ESP_OK;
@@ -357,7 +403,8 @@ inline esp_err_t draw_activity_identity(const ActivityIdentityState &state, CODY
     uint16_t first_row, uint16_t first_column)
 {
     const auto &line = state.selected == ActivityIdentityKind::Branch ? state.branch_line :
-        state.selected == ActivityIdentityKind::Model ? state.model_line : state.project_line;
+        state.selected == ActivityIdentityKind::Model ? state.model_line :
+        state.selected == ActivityIdentityKind::Tokens ? state.tokens_line : state.project_line;
     esp_err_t error = ESP_OK;
     if (state.opacity != 0 && line.valid) {
         const auto &bounds = kActivityIdentityBounds;
@@ -378,10 +425,13 @@ inline esp_err_t draw_activity_identity(const ActivityIdentityState &state, CODY
     if (error == ESP_OK && state.timer_visible && state.timer_line.valid) {
         error = CODY2D::draw_text_rows(state.timer_line, state.timer_line.text.length, strip, first_row, first_column);
     }
-    if (error == ESP_OK && state.project_line.valid && state.cost_line.valid) {
+    if (error == ESP_OK && state.selected == ActivityIdentityKind::Model && state.opacity != 0 &&
+        state.project_line.valid && state.cost_line.valid) {
         CODY2D::CapsuleControl chip{};
-        chip.bounds = {static_cast<uint16_t>(state.timer_visible ? 85 : 158), 330, 150, 28};
-        const uint16_t color = cost_band_color(state.cost_band);
+        // Keep the complete price phrase beside the independent timer within the existing damage row.
+        chip.bounds = {static_cast<uint16_t>(state.timer_visible ? 73 : (466 - kActivityCostChipWidth) / 2),
+            330, kActivityCostChipWidth, 28};
+        const uint16_t color = CODY2D::blend_rgb565(cost_band_color(state.cost_band), 0, state.opacity);
         chip.top_color = CODY2D::blend_rgb565(color, 0, 64);
         chip.bottom_color = CODY2D::blend_rgb565(color, 0, 32);
         chip.border_color = color;
@@ -390,6 +440,7 @@ inline esp_err_t draw_activity_identity(const ActivityIdentityState &state, CODY
             // One small borrowed line relocates with the timer; its counted text stays in the owner.
             static_assert(sizeof(CODY2D::TextLine) <= 64, "Cost placement must not copy caption storage");
             CODY2D::TextLine caption = state.cost_line;
+            caption.color = CODY2D::blend_rgb565(caption.color, 0, state.opacity);
             const uint16_t width = (caption.text.length - 1U) * caption.font->advance + caption.font->width;
             caption.origin.x = static_cast<int16_t>(chip.bounds.x + (chip.bounds.width - width) / 2);
             caption.bounds.x = caption.origin.x;

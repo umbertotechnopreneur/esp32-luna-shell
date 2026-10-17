@@ -79,6 +79,10 @@ class SimulatorSnapshot:
     project: str = ""
     description: str = ""
     branch: str = ""
+    title: str = ""
+    title_state: str = "unavailable"
+    title_age_ms: int | None = None
+    title_error: int = 0x105
     chat: str = ""
     activity_valid: bool = False
     technical: technical_metadata.TechnicalProjection | None = None
@@ -93,6 +97,7 @@ class SimulatorSnapshot:
     event_fresh: bool = False
     event_remaining_seconds: int = 0
     event_error: int = 0
+    selection_request_id: str = ""
     reset_count: int = 0
 
 
@@ -226,6 +231,10 @@ class SimulatorLink:
         self.phase, self.project, self.chat = "none", "", ""
         self.description = ""
         self.branch = ""
+        self.title = ""
+        self.title_state = "unavailable"
+        self._title_source_age_ms: int | None = None
+        self.title_error = 0x105
         self.accepted_packets = self.rejected_packets = 0
         self.last_error = ""
         self._logged_error = ""
@@ -233,6 +242,7 @@ class SimulatorLink:
         self._duplicate_errors = 0
         self._transaction: NativeTransaction | None = None
         self._request_id = ""
+        self._selection_request_id = ""
         self._event_state = "none"
         self._event_payload: interactions.EventPayload | None = None
         self._event_at: float | None = None
@@ -280,6 +290,7 @@ class SimulatorLink:
         result = self._native_transaction().snapshot(interactions)
         self._request_id, self._event_payload, self._event_state = result.request_id, result.payload, result.state
         self._event_expires, self._event_error = result.expires, result.error
+        self._selection_request_id = result.selection_request_id
         # Retry eligibility is a projection of the engine's Sending state.
         self._reply_choice = result.payload.selected_id if result.payload is not None and result.state == "sending" else ""
 
@@ -291,6 +302,7 @@ class SimulatorLink:
             self._sync_transaction()
         else:
             self._request_id, self._event_state, self._event_payload = "", "none", None
+            self._selection_request_id = ""
         self._reply_choice, self._event_error = "", 0
         self._ready_nonce, self._reply_nonce = "", ""
 
@@ -312,13 +324,17 @@ class SimulatorLink:
             network_ready=self.network_ready, phase=self.phase, project=self.project, chat=self.chat,
             description=self.description if valid else "",
             branch=self.branch if valid else "",
+            title=self.title, title_state=self.title_state, title_error=self.title_error,
+            title_age_ms=(self._title_source_age_ms + int((self.clock() - self._activity_at) * 1000)
+                          if self._title_source_age_ms is not None and self._activity_at is not None else None),
             activity_valid=valid and self.state == LinkState.CONNECTED,
             technical=self._technical, technical_valid=technical_valid,
             technical_age_ms=int((self.clock() - self._technical_at) * 1000) if self._technical_at is not None else None,
             accepted_packets=self.accepted_packets, rejected_packets=self.rejected_packets,
             last_error=self._reset_error or self.last_error, request_id=self._request_id, event_state=self._event_state,
             event_payload=self._event_payload, event_fresh=event_fresh,
-            event_remaining_seconds=max(0, int(self._event_expires - self.clock())), event_error=self._event_error, reset_count=self.reset_count)
+            event_remaining_seconds=max(0, int(self._event_expires - self.clock())), event_error=self._event_error,
+            selection_request_id=self._selection_request_id, reset_count=self.reset_count)
 
     # self: Explicit user commissioning target; never called by discovery.
     # replace_confirmed: User confirmation for an existing saved association.
@@ -446,9 +462,11 @@ class SimulatorLink:
         current_id, current_state = "0" * 32, "none"
         if self._event_payload is not None and self._event_payload.kind == interactions.EventKind.QUESTION:
             current_id, current_state = self._request_id, self._event_state
-        fields = [("device", self.device_id), ("pc", pc), ("nonce", nonce), ("activity", "4"),
-                  ("events", "2"), ("current", current_id), ("state", current_state)]
-        proof = protocol.make_proof(key, "find-events-activity-v4", self.device_id, pc, nonce, current_id, current_state)
+        selected = self._selection_request_id or "0" * 32
+        fields = [("device", self.device_id), ("pc", pc), ("nonce", nonce), ("activity", "5"),
+                  ("events", "3"), ("current", current_id), ("state", current_state), ("event_select", selected)]
+        proof = protocol.make_proof(key, "find-events-activity-v6", self.device_id, pc, nonce,
+                                    current_id, current_state, selected)
         send(protocol.encode_datagram("FIND", fields + [("proof", proof)]), (LOOPBACK, protocol.PLUGIN_PORT))
         self._nonce = nonce
         # A retained Connected state does not authenticate this new FIND yet.
@@ -505,7 +523,7 @@ class SimulatorLink:
         self.accepted_packets += 1
 
     # self: Loopback protocol owner admitting only bounded transient Debug views.
-    # fields: Exact DEBUG envelope; channel offsets are validated by the actual C++ UI.
+    # fields: Exact DEBUG envelope; the reserved scroll field must be zero.
     # source: Exact authenticated READY endpoint, never a caller-supplied destination.
     # Raises ValueError or RuntimeError for forged, expired, replayed or conflicting requests.
     def _accept_debug(self, fields: dict[str, str], source: tuple[str, int]) -> None:
@@ -514,10 +532,8 @@ class SimulatorLink:
             raise ValueError("SIMULATED debug capability unavailable or malformed fields")
         require_hex({name: fields[name] for name in ("device", "pc", "nonce", "proof")})
         if (interactions.IDENTITY.fullmatch(fields["id"]) is None
-                or fields["mode"] not in {"face_channels", "character", "normal"}
-                or re.fullmatch(r"0|[1-9][0-9]{0,2}", fields["scroll"]) is None
-                or int(fields["scroll"]) > 255
-                or (fields["mode"] != "face_channels" and fields["scroll"] != "0")):
+                or fields["mode"] not in {"character", "normal"}
+                or fields["scroll"] != "0"):
             raise ValueError("SIMULATED Debug typed command rejected")
         if (self.active is None or self.pending or self.state != LinkState.CONNECTED
                 or fields["device"] != self.device_id or fields["pc"] != self.active["pc_id"]
@@ -704,7 +720,7 @@ class SimulatorLink:
         if kind == "READY":
             expected |= {"challenge", "address", "port"}
         else:
-            expected |= {"chat", "revision", "phase", "project", "description", "branch"}
+            expected |= {"chat", "revision", "phase", "project", "description", "branch", "title", "titlestate", "titleage"}
         if set(fields) != expected:
             raise ValueError("Malformed CCP presence fields")
         require_hex({name: fields[name] for name in ("device", "pc", "nonce", "proof")})
@@ -721,8 +737,9 @@ class SimulatorLink:
             raise ValueError("CCP presence identity differs")
         key = protocol.unprotect_secret(record["protected_link_key"])
         names = (("device", "pc", "nonce", "challenge", "address", "port") if kind == "READY" else
-                 ("device", "pc", "nonce", "chat", "revision", "phase", "project", "description", "branch"))
-        domain = "ready-v2" if kind == "READY" else "activity-v2"
+                 ("device", "pc", "nonce", "chat", "revision", "phase", "project", "description", "branch",
+                  "title", "titlestate", "titleage"))
+        domain = "ready-v2" if kind == "READY" else "activity-v3"
         if not hmac.compare_digest(protocol.make_proof(key, domain, *(fields[name] for name in names)), fields["proof"]):
             raise ValueError("CCP presence authentication failed")
         if kind == "READY":
@@ -784,8 +801,28 @@ class SimulatorLink:
             branch = bytes.fromhex(encoded_branch).decode("ascii")
             if empty or any(not 32 <= ord(character) <= 126 for character in branch):
                 raise ValueError("ACTIVITY branch does not belong to an observed chat")
+        title_state, title, title_age_ms = fields["titlestate"], "", None
+        if title_state not in ("current", "unavailable", "unsupported", "error"):
+            raise ValueError("ACTIVITY title state is unsupported")
+        if title_state == "current":
+            encoded = fields["title"]
+            age = fields["titleage"]
+            if (empty or len(encoded) % 2 or not 2 <= len(encoded) <= 510 or
+                    any(character not in "0123456789abcdef" for character in encoded) or
+                    not 1 <= len(age) <= 10 or not age.isascii() or not age.isdecimal() or str(int(age)) != age or
+                    int(age) > 0xffffffff):
+                raise ValueError("ACTIVITY title or source age is malformed")
+            title = bytes.fromhex(encoded).decode("ascii")
+            if any(not 32 <= ord(character) <= 126 for character in title):
+                raise ValueError("ACTIVITY title is not printable ASCII")
+            title_age_ms = int(age)
+        elif fields["title"] != "-" or fields["titleage"] != "-":
+            raise ValueError("ACTIVITY unavailable title must not carry text or numeric source age")
+        title_error = {"current": 0, "unavailable": 0x105, "unsupported": 0x106, "error": -1}[title_state]
         self.phase, self.project, self.chat = fields["phase"], project, fields["chat"]
         self.description, self.branch = description, branch
+        self.title, self.title_state = title, title_state
+        self._title_source_age_ms, self.title_error = title_age_ms, title_error
         self._activity_at, self._activity_nonce = self.clock(), fields["nonce"]
         self._activity_revision = fields["revision"]
 
@@ -880,10 +917,23 @@ class SimulatorLink:
 
     # self: Explicit simulator Done target; never closes an unanswered question.
     # request_id: Immutable informational/terminal identity currently displayed.
-    # Raises ValueError with the real native dismissal admission error.
-    def dismiss_event(self, request_id: str) -> None:
+    # send: Existing authenticated socket owner; retained dismissal retries on the next EVENT.
+    # Raises original native admission or transport error, never inferred broker retirement.
+    def dismiss_event(self, request_id: str, send: Send) -> None:
         self._native_transaction().dismiss(request_id)
         self._sync_transaction()
+        self._send_terminal_ack(send)
+        self._next_find = 0.0
+
+    # self: Authenticated owner selecting another pending request without changing followed activity.
+    # request_id: Stable ticket identity from the native queue row, never a chat label.
+    # send: Existing endpoint callback used by the next authenticated FIND.
+    # Raises original native admission, authentication or transport errors.
+    def select_question(self, request_id: str, send: Send) -> None:
+        self._native_transaction().select_question(request_id, self.snapshot().event_fresh, self.clock())
+        self._sync_transaction()
+        self._next_find = 0.0
+        self.tick(send)
 
     # self: Endpoint retaining one explicitly confirmed answer across retries and temporary offline periods.
     # send: Sole socket callback; only a later authenticated delivered acknowledgement shows Reply sent.
@@ -1054,12 +1104,25 @@ class SimulatorEndpoint:
     # Raises ValueError or the original native error, retained for the visible simulator UI.
     def dismiss_event(self, request_id: str) -> None:
         with self._lock:
-            if self._link is None or self._fatal_error is not None:
+            if self._link is None or self._fatal_error is not None or self._socket is None:
                 raise RuntimeError("SIMULATED CCP endpoint is unavailable")
             try:
-                self._link.dismiss_event(request_id)
+                self._link.dismiss_event(request_id, self._socket.sendto)
             except (OSError, RuntimeError, ValueError) as error:
                 self._link.record_error("dismiss", error)
+                raise
+
+    # self: Endpoint forwarding explicit pending-question selection under its existing owner lock.
+    # request_id: Exact pending ticket identity represented by the visible queue row.
+    # Raises original native or transport failure, retained for the visible simulator UI.
+    def select_question(self, request_id: str) -> None:
+        with self._lock:
+            if self._link is None or self._fatal_error is not None or self._socket is None:
+                raise RuntimeError("SIMULATED CCP endpoint is unavailable")
+            try:
+                self._link.select_question(request_id, self._socket.sendto)
+            except (OSError, RuntimeError, ValueError) as error:
+                self._link.record_error("select question", error)
                 raise
 
     # self: Simulator endpoint accepting only the user's explicit reviewed Send action.

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "author": "Kenney",
+  "pack": "Interface Sounds 1.0",
+  "license": "CC0-1.0",
+  "source_url": "https://kenney.nl/assets/interface-sounds",
+  "download_url": "https://kenney.nl/media/pages/assets/interface-sounds/fa43c1dd4d-1677589452/kenney_interface-sounds.zip",
+  "archive_sha256": "f2193d072726d6758a5f7871b2dcc54dcce0d5c35c6f0a62f92549b327c81232",
+  "archive_entry": "Audio/pluck_001.ogg",
+  "source_file": "source/pluck_001.ogg",
+  "source_sha256": "be97ec4893a02d6eccfb678daa76c83e34cb2583b834ec2593d2641def739fa4",
+  "sample_rate_hz": 16000,
+  "maximum_duration_ms": 220,
+  "target_peak_dbfs": -18.0,
+  "repeat_count": 5,
+  "repeat_gap_ms": 100,
+  "intent": "Five short plinks on the first displayed Expensive price after a model change; the shared audio owner repeats one flash sample."
+}

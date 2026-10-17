@@ -39,6 +39,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cerrno>
 #include <cstdlib>
 
 #include "bsp/esp-bsp.h"
@@ -67,12 +68,10 @@ constexpr TickType_t kUiQuiescenceTimeoutTicks = pdMS_TO_TICKS(1500);
 constexpr TickType_t kDebounceTicks = pdMS_TO_TICKS(30);
 constexpr TickType_t kBootArmReleaseTicks = pdMS_TO_TICKS(500);
 constexpr TickType_t kBootResetPressTicks = pdMS_TO_TICKS(3000);
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
-constexpr int64_t kPowerResetPressUs = 3000000;
-constexpr int64_t kPowerDoublePressWindowUs = 500000;
-#endif
+constexpr int64_t kPowerOffPressUs = 3000000;
 constexpr int64_t kPowerKeyFreshnessUs = 500000;
 constexpr uint32_t kTaskStackBytes = 8192;
+constexpr TickType_t kStackSampleTicks = pdMS_TO_TICKS(2000);
 // These copies stay live across nested wake calls on the internal task stack.
 static_assert(sizeof(LUNASHELL::PowerControlObservation) <= 768,
               "Review the complete power-task stack budget before growing its inputs");
@@ -109,7 +108,21 @@ TaskHandle_t s_task;
 LUNASHELL::InputSnapshot s_inputs;
 std::atomic_bool s_initialized{false};
 std::atomic<LUNASHELL_display_lifecycle_callback_t> s_display_lifecycle_callback{nullptr};
-std::atomic<LUNASHELL_power_short_press_callback_t> s_short_press_callback{nullptr};
+using ShutdownPrepare = esp_err_t (*)(void);
+using ShutdownFailure = esp_err_t (*)(esp_err_t);
+std::atomic<ShutdownPrepare> s_shutdown_prepare{nullptr};
+std::atomic<ShutdownFailure> s_shutdown_failure{nullptr};
+std::atomic<ShutdownPrepare> s_offline_farewell{nullptr};
+// Only the power worker changes this mode, including rollback and standby promotion.
+bool s_codex_offline_standby = false;
+LUNASHELL::power_policy::CodexOfflineTimer s_codex_offline_timer{};
+int64_t s_last_manual_activity_at_us = 0;
+using SpeechShutdown = esp_err_t (*)(bool);
+std::atomic<SpeechShutdown> s_speech_shutdown{nullptr};
+portMUX_TYPE s_shutdown_admission_mux = portMUX_INITIALIZER_UNLOCKED;
+bool s_shutdown_admission_closed = false; // Protected by the admission mux.
+bool s_shutdown_in_progress = false; // Power-task-owned resource policy.
+esp_err_t s_shutdown_error = ESP_OK;
 std::atomic<uint32_t> s_ui_quiescence_requested_sequence{0};
 std::atomic<uint32_t> s_ui_quiescence_acknowledged_sequence{0};
 std::atomic<int32_t> s_ui_quiescence_result{ESP_ERR_INVALID_STATE};
@@ -305,14 +318,9 @@ enum class ButtonEvent : uint8_t {
 };
 
 ButtonState s_boot;
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
-LUNASHELL::ButtonHold s_power_reset_hold;
-bool s_power_single_press_pending;
-int64_t s_power_single_press_at_us;
-LUNASHELL::DeviceOperatingState s_power_single_press_state =
-    LUNASHELL::DeviceOperatingState::Active;
-#endif
-bool s_power_long_press_pending_release = false;
+LUNASHELL::ButtonHold s_power_off_hold;
+bool s_power_long_press_consumed = false;
+int64_t s_power_invalid_observed_at_us = 0;
 
 const char *standby_trace_phase_name(StandbyTracePhase phase)
 {
@@ -355,7 +363,8 @@ bool audio_standby_target(bool standby)
 #else
     constexpr bool voice_listening = false;
 #endif
-    return LUNASHELL::power_policy::select_standby_audio(standby, voice_listening);
+    return LUNASHELL::power_policy::select_standby_audio(
+        standby, voice_listening && !s_shutdown_in_progress && !s_codex_offline_standby);
 }
 
 // reason: Typed cause of the most recent power transition.
@@ -378,6 +387,8 @@ const char *device_state_reason_name(LUNASHELL::DeviceStateReason reason)
         return "inactivity";
     case LUNASHELL::DeviceStateReason::CodexNotification:
         return "codex-notification";
+    case LUNASHELL::DeviceStateReason::CodexOffline:
+        return "codex-offline";
     }
     return "unknown";
 }
@@ -581,7 +592,7 @@ esp_err_t queue_codex_maintenance(CodexMaintenance command)
 // error: Real transition or settings error published with the current power state.
 void publish_power(esp_err_t error)
 {
-    esp_err_t publication_error = error;
+    esp_err_t publication_error = error != ESP_OK ? error : s_shutdown_error;
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
     // A partial factory reset remains visible across routine power updates.
     if (publication_error == ESP_OK) {
@@ -847,23 +858,28 @@ esp_err_t set_standalone_wireless_standby(bool standby)
         s_standby_retains_codex_wireless = false;
         return ESP_OK;
     }
-    if (standby && s_standby_resources.wireless.consistent) {
+    if (standby && !s_shutdown_in_progress && !s_codex_offline_standby &&
+        s_standby_resources.wireless.consistent) {
         // Failed partial radio initialization must take the real teardown path.
         // Retaining it would falsely report cleanup as a known stopped state.
-        LUNASHELL::ConnectivityObservation observation{};
+        LUNASHELL::CodexStandbyObservation observation{};
         const esp_err_t read_error = LUNASHELL::DeviceSnapshotService::instance()
-            .readConnectivityObservation(observation);
+            .readCodexStandbyObservation(observation);
         if (read_error != ESP_OK) {
             ESP_LOGE(kTag, "Codex standby radio policy read failed (%s)", esp_err_to_name(read_error));
             return read_error;
         }
-        const auto &link = observation.radios.codex_link;
-        if (link.data_valid && !link.data_stale && link.retained_link_present &&
-            !link.pairing_repair_required && observation.radios.wifi.started) {
+        const auto &link = observation.link;
+        if (link.data_valid && !link.data_stale && observation.retained_link_present &&
+            !observation.pairing_repair_required && observation.wifi_started) {
             s_standby_retains_codex_wireless = true;
             ESP_LOGI(kTag, "Cody standby retains wireless services for authenticated CCP notifications");
             return ESP_OK;
         }
+    }
+    if (standby) {
+        // This transaction really stops radios; wake must not take the retained-radio fast path.
+        s_standby_retains_codex_wireless = false;
     }
 #endif
     esp_err_t result = ESP_ERR_NOT_SUPPORTED;
@@ -917,21 +933,30 @@ LUNASHELL::power_policy::StandbySleep selected_standby_sleep()
 #else
         false;
 #endif
+    // PMU PKEY cannot wake this board from silicon Deep-sleep. Cody promises
+    // short-Power wake, so its standby retains the canonical polling owner.
+    constexpr bool cody_requires_power_polling =
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+        true;
+#else
+        false;
+#endif
     return LUNASHELL::power_policy::select_standby_sleep(
-        LUNASHELL::build_mode::kDeepSleepOnStandbyEnabled, retained_connection,
+        LUNASHELL::build_mode::kDeepSleepOnStandbyEnabled && !cody_requires_power_polling, retained_connection,
         voice_listening, touch_wake_available);
 }
 
 // Release reduces sampling during the transaction, then arms hardware WoM.
-// Debug keeps the host monitor available for software wake and diagnostics.
-// standby: Transactional standby request; Debug retains its normal 10-Hz observation.
+// Debug ordinarily keeps the host monitor available for software wake and diagnostics.
+// standby: Transactional standby request; PC absence also requests reduced Debug sampling.
+// Exception: Returns the original motion-monitor owner error.
 esp_err_t set_motion_wake_standby(bool standby)
 {
     if (!s_motion_monitor_started) {
         return ESP_OK;
     }
     const bool reduce_sampling = standby &&
-        !LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled;
+        (!LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled || s_codex_offline_standby);
     return LUNASHELL_hardware_set_ui_motion_monitor_standby(reduce_sampling);
 }
 
@@ -1476,6 +1501,25 @@ bool update_power_key_component(esp_err_t error)
     return report_due;
 }
 
+// No parameters: one optional connectivity prompt after an actual completed wake.
+// Exception: Optional owner errors are logged and published without undoing wake.
+// Component owners retain timer/notification errors in their canonical state;
+// failed acceleration must not tear down working radios or undo a visible wake.
+void prompt_wake_connectivity()
+{
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
+    const esp_err_t wifi_error = LUNASHELL_wifi_expedite_reconnect();
+    esp_err_t codex_error = ESP_OK;
+#if CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+    codex_error = LUNASHELL_codex_link_notify_network_ready();
+#endif
+    if (wifi_error != ESP_OK || codex_error != ESP_OK) {
+        ESP_LOGE(kTag, "Wake reconnect: Wi-Fi=%s CCP=%s",
+            esp_err_to_name(wifi_error), esp_err_to_name(codex_error));
+    }
+#endif
+}
+
 // reason: Observed activity that requires the display and input policy to be active.
 // display_snapshot_diverged: Whether the applied panel state disagrees with active policy.
 // exit_fullscreen: Whether the activity must also close the transient fullscreen state.
@@ -1600,6 +1644,7 @@ esp_err_t recover_display_after_rejected_sleep(
 
 // transition_sequence: Exact standby generation whose GUI producers must quiesce.
 // display_recovery_error: Real recovery result if the standalone Sleep callback rejects.
+// Exception: Returns the original quiescence/farewell error, with recovery failure kept separate.
 esp_err_t wait_for_ui_quiescence(
     uint32_t transition_sequence,
     esp_err_t &display_recovery_error)
@@ -1650,8 +1695,11 @@ esp_err_t wait_for_ui_quiescence(
 #else
     (void)transition_sequence;
     const auto display_lifecycle = s_display_lifecycle_callback.load(std::memory_order_acquire);
-    if (display_lifecycle != nullptr) {
-        const esp_err_t error = display_lifecycle(true);
+    if (display_lifecycle != nullptr && !s_shutdown_in_progress) {
+        const auto offline_farewell = s_offline_farewell.load(std::memory_order_acquire);
+        const esp_err_t error = s_codex_offline_standby
+            ? (offline_farewell == nullptr ? ESP_ERR_INVALID_STATE : offline_farewell())
+            : display_lifecycle(true);
         if (error != ESP_OK) {
             ESP_LOGE(kTag, "Display Sleep preparation failed (%s)", esp_err_to_name(error));
             return recover_display_after_rejected_sleep(
@@ -1660,6 +1708,38 @@ esp_err_t wait_for_ui_quiescence(
     }
 #endif
     return ESP_OK;
+}
+
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+// observation: Coherent scalar link/setup state from the canonical snapshot owner.
+// now_us: Current monotonic power-owner time.
+bool codex_standby_link_known(const LUNASHELL::CodexStandbyObservation &observation, int64_t now_us)
+{
+    return observation.link.data_valid && !observation.link.data_stale &&
+        observation.link.last_attempt_at_us > 0 && now_us >= observation.link.last_attempt_at_us;
+}
+
+// observation: Canonical explicit setup activity; background discovery is not pairing.
+bool codex_standby_pairing_active(const LUNASHELL::CodexStandbyObservation &observation)
+{
+    using Pairing = LUNASHELL::PairingSessionState;
+    return observation.link_command_pending || observation.pairing_command_pending ||
+        observation.pairing_window_active || observation.pending_pairing_present ||
+        observation.link_state == LUNASHELL::CodexLinkState::StartingPairing ||
+        observation.link_state == LUNASHELL::CodexLinkState::Pairing ||
+        observation.link_state == LUNASHELL::CodexLinkState::AwaitingConfirmation ||
+        observation.pairing_state == Pairing::Starting || observation.pairing_state == Pairing::ReadyToScan ||
+        observation.pairing_state == Pairing::Connecting || observation.pairing_state == Pairing::Completing ||
+        observation.pairing_state == Pairing::Cancelling;
+}
+#endif
+
+// No parameters: completed wake or rollback grants a fresh offline interval without writing settings.
+void reset_codex_offline_grace()
+{
+    s_codex_offline_standby = false;
+    s_codex_offline_timer = {};
+    s_last_manual_activity_at_us = esp_timer_get_time();
 }
 
 // Coordinate UI quiescence and every hardware resource as one transaction.
@@ -1682,7 +1762,9 @@ esp_err_t set_standby(
     }
     const bool currently_standby =
         s_state == LUNASHELL::DeviceOperatingState::Standby;
-    if (standby == currently_standby) {
+    const bool promote_offline_standby = standby && currently_standby &&
+        reason == LUNASHELL::DeviceStateReason::CodexOffline && !s_codex_offline_standby;
+    if (standby == currently_standby && !promote_offline_standby) {
         return ESP_OK;
     }
 
@@ -1701,6 +1783,7 @@ esp_err_t set_standby(
 #endif
         s_deferred_standby_trace_report_at_us = 0;
         s_deferred_standby_trace_reports_remaining = 0;
+        s_codex_offline_standby = reason == LUNASHELL::DeviceStateReason::CodexOffline;
         s_state = LUNASHELL::DeviceOperatingState::EnteringStandby;
         s_reason = reason;
         ++s_transition_sequence;
@@ -1723,8 +1806,37 @@ esp_err_t set_standby(
         publish_power(ESP_OK);
 
         esp_err_t display_recovery_error = ESP_OK;
-        const esp_err_t ui_quiescence_error =
+        // An already dark standby can shed voice/radios without waking to show a farewell.
+        esp_err_t ui_quiescence_error = promote_offline_standby ? ESP_OK :
             wait_for_ui_quiescence(s_transition_sequence, display_recovery_error);
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+        if (ui_quiescence_error == ESP_OK && s_codex_offline_standby && !promote_offline_standby) {
+            LUNASHELL::CodexStandbyObservation observation{};
+            ui_quiescence_error = LUNASHELL::DeviceSnapshotService::instance()
+                .readCodexStandbyObservation(observation);
+            if (ui_quiescence_error == ESP_OK &&
+                (!codex_standby_link_known(observation, esp_timer_get_time()) ||
+                 observation.link_state == LUNASHELL::CodexLinkState::Connected ||
+                 codex_standby_pairing_active(observation))) {
+                ui_quiescence_error = ESP_ERR_SLEEP_REJECT;
+            }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+            if (ui_quiescence_error == ESP_OK &&
+                activity_before_standby != s_activity_sequence.load(std::memory_order_acquire)) {
+                ui_quiescence_error = ESP_ERR_SLEEP_REJECT;
+            }
+#endif
+            if (ui_quiescence_error != ESP_OK) {
+                ESP_LOGE(kTag, "Offline standby cancelled after farewell (%s)",
+                    esp_err_to_name(ui_quiescence_error));
+                const auto display_lifecycle = s_display_lifecycle_callback.load(std::memory_order_acquire);
+                if (display_lifecycle != nullptr) {
+                    ui_quiescence_error = recover_display_after_rejected_sleep(
+                        display_lifecycle, ui_quiescence_error, display_recovery_error);
+                }
+            }
+        }
+#endif
         if (ui_quiescence_error != ESP_OK) {
             record_standby_trace(
                 StandbyTracePhase::EntryFailed,
@@ -1732,6 +1844,7 @@ esp_err_t set_standby(
             );
             if (display_recovery_error == ESP_OK) {
                 s_state = LUNASHELL::DeviceOperatingState::Active;
+                reset_codex_offline_grace();
                 if (s_display_lifecycle_callback.load(std::memory_order_acquire) != nullptr) {
                     s_display_stage = LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
                 }
@@ -1767,6 +1880,7 @@ esp_err_t set_standby(
             const esp_err_t rollback_error = recovery.rollback_error;
             if (recovery.state == LUNASHELL::power_policy::StandbyRecoveryState::Previous) {
                 s_state = LUNASHELL::DeviceOperatingState::Active;
+                reset_codex_offline_grace();
                 s_display_stage =
                     LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
                 const esp_err_t recovery_publication_error =
@@ -1839,7 +1953,7 @@ esp_err_t set_standby(
             device_state_reason_name(reason),
             static_cast<unsigned long>(s_transition_sequence)
         );
-        if (selected_standby_sleep() == LUNASHELL::power_policy::StandbySleep::Deep) {
+        if (!s_shutdown_in_progress && selected_standby_sleep() == LUNASHELL::power_policy::StandbySleep::Deep) {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
             const bool activity_during_suspend =
                 activity_before_standby != s_activity_sequence.load(std::memory_order_acquire);
@@ -1916,6 +2030,7 @@ esp_err_t set_standby(
         const esp_err_t recovery_error = recovery.recovery_error;
         if (recovery.state == LUNASHELL::power_policy::StandbyRecoveryState::Requested) {
             s_state = LUNASHELL::DeviceOperatingState::Active;
+            reset_codex_offline_grace();
             s_display_stage =
                 LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
             s_fullscreen_active = false;
@@ -1934,6 +2049,7 @@ esp_err_t set_standby(
                 StandbyTracePhase::Awake,
                 recovery_optional_errors.first_error()
             );
+            prompt_wake_connectivity();
             if (recovery_optional_errors.first_error() != ESP_OK) {
                 recovery_publication_error = recovery_optional_errors.first_error();
                 ESP_LOGE(
@@ -1957,6 +2073,7 @@ esp_err_t set_standby(
     }
 
     s_state = LUNASHELL::DeviceOperatingState::Active;
+    reset_codex_offline_grace();
     s_display_stage =
         LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
     s_fullscreen_active = false;
@@ -1974,6 +2091,15 @@ esp_err_t set_standby(
     const esp_err_t optional_error = optional_errors.first_error();
     publish_power(optional_error);
     record_standby_trace(StandbyTracePhase::Awake, optional_error);
+    prompt_wake_connectivity();
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    // Recording is optional and owns its canonical error; an NVS failure must
+    // not undo a completed wake or become a new power-policy dependency.
+    const esp_err_t endurance_error = LUNASHELL::battery_endurance_woke();
+    if (endurance_error != ESP_OK) {
+        ESP_LOGE(kTag, "Optional endurance wake ping failed (%s)", esp_err_to_name(endurance_error));
+    }
+#endif
     if constexpr (LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
         s_deferred_standby_trace_report_at_us =
             esp_timer_get_time() + kDeferredStandbyTraceReportDelayUs;
@@ -2319,144 +2445,291 @@ void queue_leg_sound(const LegMotionReading &motion, int64_t now_us)
 }
 #endif
 
-// No parameters: dispatch one resolved short press to the active consumer or standby policy.
-// Exception: Returns the original consumer or standby transition error.
-esp_err_t dispatch_power_single_press()
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+// input: Bounded canonical voice projection; never a second microphone read.
+bool voice_input_is_active(const LUNASHELL::VoiceInputObservation &input)
 {
-    if (s_state == LUNASHELL::DeviceOperatingState::Active) {
-        const auto callback = s_short_press_callback.load(std::memory_order_acquire);
-        if (callback != nullptr) {
-            bool claimed = false;
-            const esp_err_t callback_error = callback(&claimed);
-            if (claimed) {
-                // An admitted countdown is activity, including on dimmed displays.
-                // The idle policy runs later in this same power loop.
-                s_last_activity_at_us = esp_timer_get_time();
-                if (callback_error != ESP_OK) {
-                    ESP_LOGE(kTag, "Active PWR consumer rejected press (%s)",
-                             esp_err_to_name(callback_error));
-                }
-                return callback_error;
-            }
-            if (callback_error != ESP_OK) {
-                ESP_LOGE(kTag, "Active PWR consumer failed without claiming press (%s)",
-                         esp_err_to_name(callback_error));
-                return callback_error;
-            }
+    using Phase = LUNASHELL::VoiceInputPhase;
+    return input.phase == Phase::Preparing || input.phase == Phase::StartCountdown ||
+        input.phase == Phase::Listening || input.phase == Phase::SendCountdown ||
+        input.phase == Phase::Sending || input.phase == Phase::Cancelling || input.phase == Phase::Received;
+}
+#endif
+
+// standby: True for the same short-button sleep action, false for an explicit input wake.
+// reason: Actual physical power/touch/motion input, not a shutdown recovery or Codex notice.
+// Exception: Returns the first real wake/admission error; voice failure never rolls back an awake device.
+esp_err_t wake_from_user_input(bool standby, LUNASHELL::DeviceStateReason reason)
+{
+    const bool was_standby = s_state == LUNASHELL::DeviceOperatingState::Standby;
+    const bool was_offline_standby = s_codex_offline_standby;
+    const esp_err_t wake_error = set_standby(standby, reason);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    if (!standby && was_standby && !was_offline_standby && s_state == LUNASHELL::DeviceOperatingState::Active &&
+        !s_shutdown_in_progress && (reason == LUNASHELL::DeviceStateReason::PowerButton ||
+        reason == LUNASHELL::DeviceStateReason::BootButton || reason == LUNASHELL::DeviceStateReason::Touch ||
+        reason == LUNASHELL::DeviceStateReason::ImuMotion)) {
+        // This optional action follows a completed physical wake only. Internal
+        // recovery and farewell calls continue to use set_standby directly.
+        LUNASHELL::VoiceSnapshot voice{};
+        static_assert(sizeof(voice) <= 256, "Wake voice admission must remain a bounded power-task projection");
+        esp_err_t voice_error = LUNASHELL::DeviceSnapshotService::instance().readVoiceObservation(voice);
+        if (voice_error == ESP_OK && !voice_input_is_active(voice.input)) {
+            voice_error = LUNASHELL::requestVoiceInput(LUNASHELL::VoiceInputTrigger::StandbyWake);
+        }
+        if (voice_error != ESP_OK) {
+            ESP_LOGE(kTag, "Optional standby-wake recording admission failed (%s)", esp_err_to_name(voice_error));
+            return wake_error != ESP_OK ? wake_error : voice_error;
         }
     }
+#else
+    (void)was_standby;
+    (void)was_offline_standby;
+#endif
+    return wake_error;
+}
+
+// No parameters: a completed physical short click toggles standby through the power owner.
+// Exception: Returns the original transition error or optional voice admission error.
+esp_err_t dispatch_power_single_press()
+{
     ESP_LOGI(kTag, "PWR short press: toggling standby (count=%lu)",
              static_cast<unsigned long>(s_inputs.power_short_press_count));
-    return set_standby(
-        s_state != LUNASHELL::DeviceOperatingState::Standby,
-        LUNASHELL::DeviceStateReason::PowerButton
-    );
+    const bool waking = s_state == LUNASHELL::DeviceOperatingState::Standby;
+    return wake_from_user_input(!waking, LUNASHELL::DeviceStateReason::PowerButton);
 }
 
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
-// now_us: Monotonic acquisition-loop time for the bounded double-press window.
-// new_short_press: A newly acquired completed click may resolve the previous expired click.
-// Exception: Returns the original single-press action error after the window expires.
-esp_err_t dispatch_expired_power_press(int64_t now_us, bool new_short_press)
+// short_presses: Completed short-click IRQs from the canonical PMU owner.
+// long_presses: Long IRQs suppress the short action; the valid level timer owns shutdown.
+// acquisition_error: Original PMU acquisition result.
+// Exception: Returns the original acquisition/action error or rejects ambiguous batches.
+esp_err_t handle_power_key_events(uint32_t short_presses, uint32_t long_presses,
+                                  esp_err_t acquisition_error)
 {
-    if (!s_power_single_press_pending) {
-        return ESP_OK;
+    if (acquisition_error != ESP_OK) {
+        s_power_long_press_consumed = true;
+        return acquisition_error;
     }
-    if (s_state != s_power_single_press_state) {
-        s_power_single_press_pending = false;
-        ESP_LOGW(kTag, "Pending Debug PWR click cancelled after operating-state change");
-        return ESP_OK;
-    }
-    if (now_us - s_power_single_press_at_us <= kPowerDoublePressWindowUs) {
-        return ESP_OK;
-    }
-    // A fresh known hold may still become a long press; do not start a capture mid-hold.
-    if (!new_short_press && s_inputs.power_pressed_valid && s_inputs.power_pressed) {
-        return ESP_OK;
-    }
-    s_power_single_press_pending = false;
-    return dispatch_power_single_press();
-}
-#endif
-
-// short_presses: Newly acquired discrete short-press IRQ count.
-// long_presses: Newly acquired long-press IRQ count; release still enters standby.
-// acquisition_error: Real owner acquisition status; invalid input cancels pending Debug gestures.
-// Exception: Returns acquisition, counter, ambiguous-event or action errors without guessed gestures.
-esp_err_t handle_power_key_events(
-    uint32_t short_presses,
-    uint32_t long_presses,
-    esp_err_t acquisition_error
-)
-{
     if (UINT32_MAX - s_inputs.power_short_press_count < short_presses ||
         UINT32_MAX - s_inputs.power_long_press_count < long_presses) {
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
-        s_power_single_press_pending = false;
-#endif
-        ESP_LOGE(kTag, "PKEY counter overflow rejected: short=%lu long=%lu",
-                 static_cast<unsigned long>(short_presses), static_cast<unsigned long>(long_presses));
+        ESP_LOGE(kTag, "PKEY event counter overflow (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
     s_inputs.power_short_press_count += short_presses;
     s_inputs.power_long_press_count += long_presses;
-    if (acquisition_error != ESP_OK) {
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
-        if (s_power_single_press_pending) {
-            s_power_single_press_pending = false;
-            ESP_LOGE(kTag, "Pending Debug PWR click rejected: input acquisition failed (%s)",
-                     esp_err_to_name(acquisition_error));
-        }
-#endif
-        return acquisition_error;
+    if (short_presses != 0 || long_presses != 0) {
+        begin_motion_grace(esp_timer_get_time());
     }
-    const int64_t now_us = esp_timer_get_time();
-    if (short_presses != 0U || long_presses != 0U) {
-        begin_motion_grace(now_us);
-    }
-    if (long_presses > 0U) {
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
-        s_power_single_press_pending = false;
-        ESP_LOGI(kTag, "PWR long press: release for standby; Debug 3-second hold restarts");
-#else
-        ESP_LOGI(kTag, "PWR long press: release for standby");
-#endif
-        s_power_long_press_pending_release = true;
+    if (long_presses != 0) {
+        s_power_long_press_consumed = true;
         return ESP_OK;
     }
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
-    if (short_presses > 1U) {
-        s_power_single_press_pending = false;
-        ESP_LOGE(kTag, "Debug PWR gesture rejected: batched clicks have ambiguous timing (%s)",
-                 esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+    if (short_presses > 1) {
+        ESP_LOGE(kTag, "PKEY batched clicks rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
         return ESP_ERR_INVALID_RESPONSE;
     }
-    const esp_err_t pending_error = dispatch_expired_power_press(now_us, short_presses != 0U);
-    if (pending_error != ESP_OK) {
-        return pending_error;
-    }
-    if (short_presses == 0U) {
+    if (short_presses == 0 || s_power_long_press_consumed) {
         return ESP_OK;
     }
-    if (s_power_single_press_pending &&
-        now_us - s_power_single_press_at_us <= kPowerDoublePressWindowUs) {
-        s_power_single_press_pending = false;
-        restart_preserving_logs("Debug PWR double press");
+    return dispatch_power_single_press();
+}
+
+// No parameters: only a validated long physical hold may enter this transaction.
+// Exception: Any farewell, owner-drain or PMU failure aborts and is shown after restoration.
+esp_err_t request_power_off()
+{
+    const auto prepare = s_shutdown_prepare.load(std::memory_order_acquire);
+    const auto failure = s_shutdown_failure.load(std::memory_order_acquire);
+    if (prepare == nullptr || failure == nullptr) {
+        ESP_LOGE(kTag, "Power-off presentation unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+        return ESP_ERR_NOT_SUPPORTED;
     }
-    s_power_single_press_pending = true;
-    s_power_single_press_at_us = now_us;
-    s_power_single_press_state = s_state;
-    s_last_activity_at_us = now_us;
-    ESP_LOGI(kTag, "Debug PWR short press: waiting 500 ms for a second click");
-    return ESP_OK;
+    esp_err_t error = set_standby(false, LUNASHELL::DeviceStateReason::PowerButton);
+    if (error != ESP_OK) {
+        return error;
+    }
+    s_shutdown_error = ESP_OK;
+    portENTER_CRITICAL(&s_shutdown_admission_mux);
+    s_shutdown_admission_closed = true;
+    const auto speech_shutdown = s_speech_shutdown.load(std::memory_order_acquire);
+    portEXIT_CRITICAL(&s_shutdown_admission_mux);
+    s_shutdown_in_progress = true;
+    error = prepare();
+    bool speech_seal_attempted = false;
+    if (error == ESP_OK && speech_shutdown != nullptr) {
+        speech_seal_attempted = true;
+        error = speech_shutdown(true);
+    }
+    if (error == ESP_OK) {
+        // Reuse the ordered owner transaction, but never retain voice/radios or
+        // enter silicon sleep during a PMU power-off. The farewell is already retired.
+        error = set_standby(true, LUNASHELL::DeviceStateReason::PowerButton);
+    }
+    bool settings_sealed = false;
+    if (error == ESP_OK) {
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+        const esp_err_t endurance_error = LUNASHELL::battery_endurance_power_off(true);
+        if (endurance_error != ESP_OK) {
+            ESP_LOGE(kTag, "Optional endurance off marker failed (%s)", esp_err_to_name(endurance_error));
+        }
+#endif
+        error = LUNASHELL::UserSettingsService::instance().setPowerOffSealed(true);
+        settings_sealed = error == ESP_OK;
+    }
+    if (error == ESP_OK) {
+        // Storage standby already drained the writer and excluded new SD work.
+        ESP_LOGW(kTag, "PMU shutdown requested; command acceptance is not physical power-off evidence");
+        if (std::fflush(stdout) != 0) {
+            ESP_LOGE(kTag, "Power-off serial flush failed: errno=%d", errno);
+            error = ESP_FAIL;
+        }
+    }
+    bool logger_seal_attempted = false;
+    LUNASHELL_logger_power_off_status_t logger_status{};
+    if (error == ESP_OK) {
+        logger_seal_attempted = true;
+        const esp_err_t logger_error = LUNASHELL_logger_set_power_off(true, &logger_status);
+        if (logger_error != ESP_OK) {
+            if (!logger_status.ownership_quiesced) {
+                error = logger_error;
+            } else {
+                // USB host delivery is optional: an absent or stalled host must
+                // not prevent battery shutdown. Ownership and SD drains are not optional.
+                s_shutdown_error = logger_error;
+                publish_power(logger_error);
+                ESP_LOGW(kTag, "Shutdown continues after optional USB non-delivery: host=%u attempted=%u error=%s",
+                         logger_status.host_connected, logger_status.drain_attempted, esp_err_to_name(logger_error));
+            }
+        }
+    }
+    if (error == ESP_OK) {
+        error = LUNASHELL_hardware_request_power_off();
+        if (error == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            // Still executing means rails did not disappear within the bounded wait.
+            error = ESP_ERR_TIMEOUT;
+            ESP_LOGE(kTag, "CPU still powered after PMU request (%s)", esp_err_to_name(error));
+        }
+    }
+    s_shutdown_error = error;
+    if (logger_seal_attempted) {
+        const esp_err_t logger_error = LUNASHELL_logger_set_power_off(false, &logger_status);
+        if (logger_error != ESP_OK) {
+            ESP_LOGE(kTag, "Power-off logger recovery failed (%s)", esp_err_to_name(logger_error));
+        }
+    }
+    bool settings_available = !settings_sealed;
+    if (settings_sealed) {
+        const esp_err_t reopen_error = LUNASHELL::UserSettingsService::instance().setPowerOffSealed(false);
+        settings_available = reopen_error == ESP_OK;
+        if (reopen_error != ESP_OK) {
+            ESP_LOGE(kTag, "Power-off persistence recovery failed (%s)", esp_err_to_name(reopen_error));
+        }
+    }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    if (settings_available) {
+        const esp_err_t endurance_error = LUNASHELL::battery_endurance_power_off(false);
+        if (endurance_error != ESP_OK) {
+            ESP_LOGE(kTag, "Optional endurance off cancellation failed (%s)", esp_err_to_name(endurance_error));
+        }
+    }
 #else
-    return (short_presses & 1U) == 0U ? ESP_OK : dispatch_power_single_press();
+    (void)settings_available;
+#endif
+    s_shutdown_in_progress = false;
+    const esp_err_t wake_error = set_standby(false, LUNASHELL::DeviceStateReason::PowerButton);
+    if (speech_seal_attempted) {
+        const esp_err_t speech_error = speech_shutdown(false);
+        if (speech_error != ESP_OK) {
+            ESP_LOGE(kTag, "Power-off speech recovery failed (%s)", esp_err_to_name(speech_error));
+        }
+    }
+    portENTER_CRITICAL(&s_shutdown_admission_mux);
+    s_shutdown_admission_closed = false;
+    portEXIT_CRITICAL(&s_shutdown_admission_mux);
+    if (wake_error == ESP_OK) {
+        const esp_err_t display_error = failure(error);
+        if (display_error != ESP_OK) {
+            ESP_LOGE(kTag, "Power-off error presentation failed (%s)", esp_err_to_name(display_error));
+        }
+    } else {
+        ESP_LOGE(kTag, "Power-off recovery failed (%s)", esp_err_to_name(wake_error));
+    }
+    publish_power(error);
+    ESP_LOGE(kTag, "Power-off aborted (%s)", esp_err_to_name(error));
+    return error;
+}
+
+// No parameters: only a fresh unambiguous battery-only sample permits automatic standby.
+// Missing/stale/error data inhibits this automatic decision without declaring external power.
+bool battery_allows_automatic_standby()
+{
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    LUNASHELL::DeviceStatusObservation observation;
+    const esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readDeviceStatusObservation(observation);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Inactivity power-source observation failed (%s)", esp_err_to_name(error));
+        return false;
+    }
+    const auto &battery = observation.battery;
+    return battery.health == LUNASHELL::DeviceHealth::Ready && battery.data_valid &&
+        !battery.data_stale && battery.last_error == ESP_OK && battery.last_success_at_us > 0 &&
+        battery.battery_present &&
+        !battery.usb_present && !battery.vbus_good;
+#else
+    return true;
 #endif
 }
 
-// No parameters: apply real inactivity, or the active scene's independent entry interval.
+// owns_inactivity: True while the confirmed offline grace period replaces ordinary inactivity.
+// Exception: Returns canonical read/transition failures; unknown evidence never proves PC absence.
+esp_err_t apply_codex_offline_policy(bool &owns_inactivity)
+{
+    owns_inactivity = false;
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+    if (s_codex_offline_standby || s_shutdown_in_progress ||
+        (s_state != LUNASHELL::DeviceOperatingState::Active &&
+         s_state != LUNASHELL::DeviceOperatingState::Standby)) {
+        return ESP_OK;
+    }
+    LUNASHELL::CodexStandbyObservation observation{};
+    const esp_err_t read_error = LUNASHELL::DeviceSnapshotService::instance()
+        .readCodexStandbyObservation(observation);
+    if (read_error != ESP_OK) {
+        s_codex_offline_timer = {};
+        ESP_LOGE(kTag, "Offline standby link observation failed (%s)", esp_err_to_name(read_error));
+        return read_error;
+    }
+    const int64_t now_us = esp_timer_get_time();
+    const bool known = codex_standby_link_known(observation, now_us);
+    const bool connected = observation.link_state == LUNASHELL::CodexLinkState::Connected;
+    const bool pairing = codex_standby_pairing_active(observation);
+    owns_inactivity = known && !connected && !pairing;
+    if (!LUNASHELL::power_policy::codex_offline_expired(s_codex_offline_timer, now_us,
+            known, connected, pairing, s_last_manual_activity_at_us)) {
+        return ESP_OK;
+    }
+    ESP_LOGI(kTag, "No authenticated PC for 120 s; entering manual-wake standby");
+    const esp_err_t error = set_standby(true, LUNASHELL::DeviceStateReason::CodexOffline);
+    if (error != ESP_OK) {
+        // A real failure remains published; do not hammer the same transition every 20 ms.
+        s_codex_offline_timer.disconnected_at_us = esp_timer_get_time();
+    }
+    return error;
+#else
+    return ESP_OK;
+#endif
+}
+
+// No parameters: apply PC absence, real inactivity, or the active scene's independent interval.
+// Exception: Returns the original observation, standby or display-policy failure.
 esp_err_t apply_idle_policy()
 {
+    bool offline_owns_inactivity = false;
+    const esp_err_t offline_error = apply_codex_offline_policy(offline_owns_inactivity);
+    if (offline_error != ESP_OK) {
+        return offline_error;
+    }
     if (s_state != LUNASHELL::DeviceOperatingState::Active) {
         return ESP_OK;
     }
@@ -2489,7 +2762,7 @@ esp_err_t apply_idle_policy()
     const bool standby_due = scene_request.policy.seconds != 0
         ? LUNASHELL::power_policy::scene_standby_expired(now_us, s_last_activity_at_us, scene_request.policy)
         : expired(screen_idle_seconds);
-    if (standby_due) {
+    if (!offline_owns_inactivity && standby_due && battery_allows_automatic_standby()) {
         const int64_t standby_requested_at_us = esp_timer_get_time();
         // A timeout commonly expires while the device is still moving. Reset
         // the qualified-motion baseline before suspending so that movement
@@ -2574,6 +2847,7 @@ void power_task(void *argument)
 #endif
     TickType_t last_policy_tick = xTaskGetTickCount();
     UBaseType_t reported_stack_minimum = kTaskStackBytes;
+    TickType_t stack_sampled_at = 0;
     publish_inputs();
     publish_power(ESP_OK);
     while (true) {
@@ -2716,24 +2990,23 @@ void power_task(void *argument)
             key.power_button.last_success_at_us > 0 &&
             key_now_us >= key.power_button.last_success_at_us &&
             key_now_us - key.power_button.last_success_at_us <= kPowerKeyFreshnessUs;
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
-        if (!key_current) {
-            s_power_reset_hold.update(key.power_pressed, key.power_pressed_at_us,
-                                      false, key_now_us, kPowerResetPressUs);
+        if (!key_current || !key.power_pressed_valid) {
+            s_power_invalid_observed_at_us = key_now_us;
+        } else if (key.power_pressed && key.power_pressed_at_us > s_power_invalid_observed_at_us) {
+            // A newly acquired press edge after an unknown startup level is a
+            // new gesture. Recovery midway through the old hold cannot qualify.
+            s_power_off_hold.blocked_until_release = false;
         }
-        if (key_current && key.power_pressed_valid &&
-            s_power_reset_hold.update(key.power_pressed, key.power_pressed_at_us,
-                                      true, key_now_us, kPowerResetPressUs)) {
-            restart_preserving_logs("Debug PWR held for 3 seconds");
-        }
-#endif
-        if (key_current && key.power_pressed_valid && !key.power_pressed && s_power_long_press_pending_release) {
-            s_power_long_press_pending_release = false;
-            const esp_err_t standby_error =
-                set_standby(true, LUNASHELL::DeviceStateReason::PowerButton);
-            if (standby_error != ESP_OK) {
-                ESP_LOGE(kTag, "PWR release standby failed (%s)", esp_err_to_name(standby_error));
+        if (s_power_off_hold.update(key.power_pressed, key.power_pressed_at_us,
+                                   key_current && key.power_pressed_valid, key_now_us, kPowerOffPressUs)) {
+            s_power_long_press_consumed = true;
+            const esp_err_t shutdown_error = request_power_off();
+            if (shutdown_error != ESP_OK) {
+                ESP_LOGE(kTag, "PWR shutdown failed (%s)", esp_err_to_name(shutdown_error));
             }
+        }
+        if (key_current && key.power_pressed_valid && !key.power_pressed) {
+            s_power_long_press_consumed = false;
         }
         const bool leg_mode =
             s_leg_mode_enabled.load(std::memory_order_acquire);
@@ -2757,8 +3030,8 @@ void power_task(void *argument)
             qualified_motion_detected(snapshot.imu);
         const bool wake_on_leg_motion =
             s_leg_wake_enabled.load(std::memory_order_acquire);
-        if ((leg_mode && wake_on_leg_motion && leg_motion.level > 0) ||
-            (!leg_mode && s_shake_wake_enabled.load(std::memory_order_acquire) && qualified_motion)) {
+        if (!s_codex_offline_standby && ((leg_mode && wake_on_leg_motion && leg_motion.level > 0) ||
+            (!leg_mode && s_shake_wake_enabled.load(std::memory_order_acquire) && qualified_motion))) {
             if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
                 const esp_err_t wake_error = set_standby(
                     false,
@@ -2808,7 +3081,7 @@ void power_task(void *argument)
         if (physical_touch_interrupt && s_state == LUNASHELL::DeviceOperatingState::Standby) {
             // LVGL is parked, but its IRQ observer remains alive. This is wake intent,
             // not a measured touch contact; acquisition publishes the actual sample.
-            const esp_err_t wake_error = set_standby(false, LUNASHELL::DeviceStateReason::Touch);
+            const esp_err_t wake_error = wake_from_user_input(false, LUNASHELL::DeviceStateReason::Touch);
             if (wake_error != ESP_OK) {
                 ESP_LOGE(kTag, "Touch IRQ wake reported an error (%s)", esp_err_to_name(wake_error));
             }
@@ -2831,6 +3104,7 @@ void power_task(void *argument)
                 // Consume active/transition events too, but wake only from a
                 // detection acquired after this settled standby began.
                 if (s_state == LUNASHELL::DeviceOperatingState::Standby &&
+                    !s_codex_offline_standby &&
                     voice.detected_at_us >= s_wake_word_standby_entered_at_us) {
                     const esp_err_t wake_error = set_standby(false, LUNASHELL::DeviceStateReason::WakeWord);
                     if (wake_error != ESP_OK) {
@@ -2847,8 +3121,15 @@ void power_task(void *argument)
             s_consumed_activity_sequence = activity_sequence;
             const LUNASHELL::DeviceStateReason activity_reason =
                 s_activity_reason.load(std::memory_order_relaxed);
-            if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
-                const esp_err_t wake_error = set_standby(false, activity_reason);
+            const bool manual_activity = activity_reason == LUNASHELL::DeviceStateReason::Touch ||
+                activity_reason == LUNASHELL::DeviceStateReason::PowerButton ||
+                activity_reason == LUNASHELL::DeviceStateReason::BootButton;
+            if (manual_activity) {
+                s_last_manual_activity_at_us = s_activity_at_us.load(std::memory_order_relaxed);
+            }
+            if (s_state == LUNASHELL::DeviceOperatingState::Standby &&
+                (!s_codex_offline_standby || manual_activity)) {
+                const esp_err_t wake_error = wake_from_user_input(false, activity_reason);
                 if (wake_error != ESP_OK) {
                     ESP_LOGE(kTag, "Input activity wake reported an error (%s)", esp_err_to_name(wake_error));
                 }
@@ -2884,7 +3165,7 @@ void power_task(void *argument)
         }
         // Let the ordinary acquisition path consume a new IRQ before parking it.
         // A raw IRQ never becomes a fabricated touch sample or activity timestamp.
-        // Do not enter Release Deep-sleep between the press edge and reset.
+        // Do not enter inactivity standby between the press edge and shutdown.
         // This is a current physical hold, not a fabricated activity timestamp.
         const bool power_hold_active = key_current && key.power_pressed;
         const esp_err_t idle_error = physical_touch_interrupt || power_hold_active
@@ -2912,9 +3193,24 @@ void power_task(void *argument)
                 }
             }
         }
-        if (LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+        // The existing loop remains the only scheduler; storage failures stay
+        // in the recorder's canonical status and never inhibit standby.
+        const esp_err_t endurance_error = LUNASHELL::battery_endurance_tick(
+            s_state == LUNASHELL::DeviceOperatingState::Standby);
+        static int64_t next_endurance_error_report_us = 0;
+        const int64_t endurance_now_us = esp_timer_get_time();
+        if (endurance_error != ESP_OK && endurance_now_us >= next_endurance_error_report_us) {
+            ESP_LOGW(kTag, "Optional endurance recorder unavailable (%s)", esp_err_to_name(endurance_error));
+            next_endurance_error_report_us = endurance_now_us + 60000000;
+        }
+#endif
+        if (LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled &&
+            (stack_sampled_at == 0 || now - stack_sampled_at >= kStackSampleTicks)) {
             // IDF reports bytes here. Log only substantial new minima, after
-            // the nested policy/wake paths have returned, to bound log traffic.
+            // the nested policy/wake paths have returned. Its cumulative minimum
+            // remains available without rescanning the stack at every 100-ms tick.
+            stack_sampled_at = now;
             const UBaseType_t minimum_free = uxTaskGetStackHighWaterMark(nullptr);
             if (reported_stack_minimum == kTaskStackBytes ||
                 minimum_free + 256U <= reported_stack_minimum) {
@@ -3003,7 +3299,31 @@ extern "C" esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     return ESP_OK;
 }
 
-// Start the single owner after strict restoration of its persisted settings.
+// prepare: Synchronous farewell owner; must be registered before power startup.
+// Exception: Returns the real invalid/missing/duplicate/late registration error.
+extern "C" esp_err_t LUNASHELL_power_manager_register_offline_farewell(esp_err_t (*prepare)(void))
+{
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+    if (prepare == nullptr || s_initialized.load(std::memory_order_acquire)) {
+        const esp_err_t error = prepare == nullptr ? ESP_ERR_INVALID_ARG : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Offline farewell registration rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    ShutdownPrepare expected = nullptr;
+    if (!s_offline_farewell.compare_exchange_strong(expected, prepare,
+            std::memory_order_release, std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "Duplicate offline farewell owner rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
+#else
+    (void)prepare;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+// No parameters: start the single owner after strict restoration of persisted settings.
+// Exception: Returns the original startup/settings/task-allocation failure.
 extern "C" esp_err_t LUNASHELL_power_manager_init(void)
 {
     if (s_initialized.exchange(true, std::memory_order_acq_rel)) {
@@ -3171,6 +3491,7 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
 
     s_state = LUNASHELL::DeviceOperatingState::Active;
     s_reason = LUNASHELL::DeviceStateReason::Startup;
+    reset_codex_offline_grace();
     s_ui_quiescence_requested_sequence.store(0, std::memory_order_release);
     s_ui_quiescence_acknowledged_sequence.store(0, std::memory_order_release);
     s_ui_quiescence_result.store(
@@ -3313,22 +3634,37 @@ extern "C" esp_err_t LUNASHELL_power_manager_set_scene_standby_override(uint32_t
     return ESP_OK;
 }
 
-// callback: One nonblocking active PWR consumer; standby and long-hold remain power-owned.
-extern "C" esp_err_t LUNASHELL_power_manager_register_short_press(
-    LUNASHELL_power_short_press_callback_t callback)
+// seal: Optional speech owner registered before it starts admitting speech requests.
+// Exception: Rejects missing or duplicate ownership.
+extern "C" esp_err_t LUNASHELL_power_manager_register_speech_shutdown(esp_err_t (*seal)(bool))
 {
-    if (callback == nullptr || s_initialized.load(std::memory_order_acquire)) {
-        const esp_err_t error = callback == nullptr ? ESP_ERR_INVALID_ARG : ESP_ERR_INVALID_STATE;
-        ESP_LOGE(kTag, "PWR short-press registration rejected (%s)", esp_err_to_name(error));
-        return error;
+    portENTER_CRITICAL(&s_shutdown_admission_mux);
+    const bool rejected = seal == nullptr || s_shutdown_admission_closed ||
+        s_speech_shutdown.load(std::memory_order_acquire) != nullptr;
+    if (!rejected) {
+        s_speech_shutdown.store(seal, std::memory_order_release);
     }
-    LUNASHELL_power_short_press_callback_t expected = nullptr;
-    if (!s_short_press_callback.compare_exchange_strong(
-            expected, callback, std::memory_order_release, std::memory_order_acquire)) {
-        ESP_LOGE(kTag, "Duplicate PWR short-press consumer rejected (%s)",
-                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+    portEXIT_CRITICAL(&s_shutdown_admission_mux);
+    if (rejected) {
+        ESP_LOGE(kTag, "Speech shutdown owner registration rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
+    return ESP_OK;
+}
+
+// prepare: Synchronous retired farewell callback, registered before power startup.
+// report_error: Synchronous error presentation after restoring the panel.
+// Exception: Rejects null, duplicate or late registration.
+extern "C" esp_err_t LUNASHELL_power_manager_register_shutdown_callbacks(
+    esp_err_t (*prepare)(void), esp_err_t (*report_error)(esp_err_t))
+{
+    if (prepare == nullptr || report_error == nullptr || s_initialized.load(std::memory_order_acquire) ||
+        s_shutdown_prepare.load(std::memory_order_acquire) != nullptr) {
+        ESP_LOGE(kTag, "Shutdown callback registration rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_shutdown_failure.store(report_error, std::memory_order_release);
+    s_shutdown_prepare.store(prepare, std::memory_order_release);
     return ESP_OK;
 }
 

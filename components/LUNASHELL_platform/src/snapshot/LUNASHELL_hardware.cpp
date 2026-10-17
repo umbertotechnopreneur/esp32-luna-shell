@@ -28,12 +28,15 @@
 #include "LUNASHELL_acquisition_pmu.hpp"
 #include "LUNASHELL_acquisition_rtc.hpp"
 #include "LUNASHELL_acquisition_imu.hpp"
+#include "LUNASHELL_activity_internal.hpp"
+#include "LUNASHELL_imu_stillness.hpp"
 #include "LUNASHELL_acquisition_gnss.hpp"
 #include "LUNASHELL_acquisition_audio.hpp"
 #include "LUNASHELL_acquisition_system.hpp"
 #include "LUNASHELL_distance_service.hpp"
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_snapshot_cadence.hpp"
+#include "LUNASHELL_task_affinity.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -55,6 +58,7 @@
 #endif
 #include "driver/i2c_master.h"
 #include "esp_attr.h"
+#include "esp_app_desc.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -496,6 +500,7 @@ void merge_snapshot_stage(
         current.sensor_fusion = staged.sensor_fusion;
     }
     merge_staged_microphone(current.audio, staged.audio);
+    LUNASHELL::imu_stillness::merge_activity(current.activity, staged.activity);
     current.last_update_attempt_at_us =
         staged.last_update_attempt_at_us;
     current.last_update_complete = staged.last_update_complete;
@@ -1212,8 +1217,17 @@ void diagnostic_monitor_task(void *arg)
 {
     (void)arg;
     configASSERT(s_diagnostic_stage_snapshot != nullptr);
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+    ESP_LOGI(TAG, "Activity acquisition owner started: core=%d priority=%u",
+             xPortGetCoreID(), static_cast<unsigned>(uxTaskPriorityGet(nullptr)));
+#endif
     TickType_t last_diagnostic_sample = 0;
     TickType_t last_ui_motion_sample = 0;
+    TickType_t last_activity_sample = 0;
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+    int64_t previous_activity_attempt_us = 0;
+    int64_t last_activity_timing_log_us = 0;
+#endif
 
     for (;;) {
         const bool ui_sampling_power_suspended =
@@ -1239,6 +1253,16 @@ void diagnostic_monitor_task(void *arg)
             s_ui_motion_monitor_active.load(std::memory_order_relaxed);
         const bool ui_motion_standby =
             s_ui_motion_monitor_standby.load(std::memory_order_relaxed);
+        const bool activity_active =
+            LUNASHELL::snapshot_detail::activity::requested() &&
+            !ui_sampling_power_suspended && !ui_motion_standby && imu::ready();
+        imu::set_stillness_active(!ui_sampling_power_suspended && !ui_motion_standby && imu::ready());
+        LUNASHELL::snapshot_detail::activity::set_active(activity_active);
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+        if (!activity_active) {
+            previous_activity_attempt_us = 0;
+        }
+#endif
         const bool auto_rotation_requested =
             s_auto_rotation_enabled.load(std::memory_order_relaxed);
         const bool auto_rotation_active =
@@ -1255,6 +1279,8 @@ void diagnostic_monitor_task(void *arg)
         }
 
         const TickType_t now = xTaskGetTickCount();
+        const bool activity_due = activity_active &&
+            (last_activity_sample == 0 || now - last_activity_sample >= pdMS_TO_TICKS(LUNASHELL::snapshot_detail::activity::kPeriodMs));
         const TickType_t diagnostic_period = pdMS_TO_TICKS(
             s_diagnostic_period_ms.load(std::memory_order_relaxed)
         );
@@ -1279,7 +1305,7 @@ void diagnostic_monitor_task(void *arg)
         const bool diagnostic_microphone_due =
             diagnostic_due && diagnostic_microphone_active;
         const bool imu_sample_due =
-            diagnostic_imu_due || ui_motion_due || orientation_due;
+            diagnostic_imu_due || ui_motion_due || orientation_due || activity_due;
         const bool sampling_due =
             imu_sample_due || diagnostic_microphone_due;
         bool effective_diagnostic_due = diagnostic_due;
@@ -1294,6 +1320,14 @@ void diagnostic_monitor_task(void *arg)
         bool effective_imu_sample_due = imu_sample_due;
 
         if (sampling_due) {
+            TickType_t activity_attempt_tick = now;
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+            const int64_t refresh_wait_started_us = esp_timer_get_time();
+            int64_t refresh_wait_us = 0;
+            int64_t stage_wait_us = 0;
+            int64_t activity_gap_us = 0;
+            int64_t imu_read_us = 0;
+#endif
             esp_err_t aggregate = ESP_OK;
             bool diagnostic_result_published = false;
             int64_t committed_imu_sample_at_us = 0;
@@ -1316,6 +1350,9 @@ void diagnostic_monitor_task(void *arg)
                     "Hardware monitor sample rejected: refresh mutex take timed out"
                 );
             } else {
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+                refresh_wait_us = esp_timer_get_time() - refresh_wait_started_us;
+#endif
                 // Stream selection and standby UI sampling can both change
                 // while this task waits for the refresh lock. Re-check all of
                 // them under the same lock so either transition is a real
@@ -1351,17 +1388,25 @@ void diagnostic_monitor_task(void *arg)
                 effective_imu_sample_due =
                     effective_diagnostic_imu_due ||
                     ui_motion_due ||
-                    effective_auto_rotation_active;
+                    effective_auto_rotation_active ||
+                    (activity_due && !effective_ui_sampling_power_suspended &&
+                     !s_ui_motion_monitor_standby.load(std::memory_order_acquire));
                 const bool effective_sampling_due =
                     effective_imu_sample_due ||
                     effective_diagnostic_microphone_due;
                 if (effective_sampling_due) {
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+                    const int64_t stage_wait_started_us = esp_timer_get_time();
+#endif
                     const esp_err_t snapshot_lock_error =
                         begin_snapshot_stage(
                             staged_snapshot,
                             pdMS_TO_TICKS(250),
                             "hardware monitor stage"
                         );
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+                    stage_wait_us = esp_timer_get_time() - stage_wait_started_us;
+#endif
                     record_first_error(snapshot_lock_error, &aggregate);
                     if (snapshot_lock_error == ESP_OK) {
                         const int64_t previous_imu_success_at_us =
@@ -1380,6 +1425,24 @@ void diagnostic_monitor_task(void *arg)
                             if (reset_orientation_filter) {
                                 reset_auto_rotation_filter_after_power_resume();
                             }
+                            const bool effective_activity_due = activity_due &&
+                                LUNASHELL::snapshot_detail::activity::requested() &&
+                                !effective_ui_sampling_power_suspended &&
+                                !s_ui_motion_monitor_standby.load(std::memory_order_acquire);
+                            // The lease starts at acquisition, after owner/stage locks.
+                            // Using loop entry here would shorten the next real interval
+                            // by lock wait time and make the model discard that sample.
+                            if (effective_activity_due) {
+                                activity_attempt_tick = xTaskGetTickCount();
+                            }
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+                            const int64_t imu_read_started_us = esp_timer_get_time();
+                            if (effective_activity_due) {
+                                activity_gap_us = previous_activity_attempt_us == 0 ? 0 :
+                                    imu_read_started_us - previous_activity_attempt_us;
+                                previous_activity_attempt_us = imu_read_started_us;
+                            }
+#endif
                             imu_sample_error = imu::sample(
                                 effective_diagnostic_imu_due
                                     ? "diagnostic-ui"
@@ -1387,8 +1450,12 @@ void diagnostic_monitor_task(void *arg)
                                         ? "adaptive-ui"
                                         : "auto-rotation",
                                 effective_diagnostic_imu_due,
-                                effective_auto_rotation_active
+                                effective_auto_rotation_active,
+                                effective_activity_due
                             );
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+                            imu_read_us = esp_timer_get_time() - imu_read_started_us;
+#endif
                             if (reset_orientation_filter &&
                                 imu_sample_error == ESP_OK) {
                                 s_ui_sampling_orientation_reset_pending.store(
@@ -1478,6 +1545,17 @@ void diagnostic_monitor_task(void *arg)
                 );
             }
 
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+            // Report only delayed scheduled acquisitions, outside the refresh
+            // barrier and at most once a second; these are measured costs, not
+            // sensor replacements or synthetic timestamps.
+            const int64_t timing_log_at_us = esp_timer_get_time();
+            if (activity_gap_us > 75000 && timing_log_at_us - last_activity_timing_log_us >= 1000000) {
+                last_activity_timing_log_us = timing_log_at_us;
+                ESP_LOGW(TAG, "Activity timing core=%d gap=%lld refresh_wait=%lld stage_wait=%lld imu_call=%lld us",
+                         xPortGetCoreID(), activity_gap_us, refresh_wait_us, stage_wait_us, imu_read_us);
+            }
+#endif
             if (effective_diagnostic_due) {
                 last_diagnostic_sample = now;
                 if (!diagnostic_result_published) {
@@ -1512,6 +1590,9 @@ void diagnostic_monitor_task(void *arg)
             }
             if (ui_motion_due) {
                 last_ui_motion_sample = now;
+            }
+            if (activity_due) {
+                last_activity_sample = activity_attempt_tick;
             }
         } else {
             if (!monitor_active) {
@@ -1590,7 +1671,7 @@ void diagnostic_monitor_task(void *arg)
             !auto_rotation_active &&
             !rotation_apply_pending &&
             !ui_motion_active &&
-            !monitor_active;
+            !monitor_active && !activity_active;
         TickType_t wait_ticks = wait_indefinitely
             ? portMAX_DELAY
             : pdMS_TO_TICKS(
@@ -1604,6 +1685,19 @@ void diagnostic_monitor_task(void *arg)
             );
         if (!wait_indefinitely && wait_ticks == 0) {
             wait_ticks = 1;
+        }
+        if (activity_active) {
+            // Wake at the remaining owner deadline, not another whole period
+            // after acquisition. A faster UI wake must not push the 50 ms lease
+            // to its next UI tick; acquisition/commit time also counts as elapsed.
+            const TickType_t activity_period =
+                pdMS_TO_TICKS(LUNASHELL::snapshot_detail::activity::kPeriodMs);
+            const TickType_t elapsed = xTaskGetTickCount() - last_activity_sample;
+            const TickType_t remaining = last_activity_sample == 0 || elapsed >= activity_period
+                ? 0 : activity_period - elapsed;
+            if (wait_ticks > remaining) {
+                wait_ticks = remaining;
+            }
         }
         // Configuration setters notify this task, so an idle monitor has no
         // polling wakeup and any newly requested consumer starts immediately.
@@ -2482,6 +2576,114 @@ esp_err_t DeviceSnapshotService::readSnapshot(DeviceSnapshot &destination) const
     return ESP_OK;
 }
 
+// destination: Bounded observer result copied under the canonical lock.
+// Exception: Returns the original canonical lock/release error.
+esp_err_t DeviceSnapshotService::readActivity(ActivitySnapshot &destination) const
+{
+    const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "activity read");
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    destination = s_snapshot.activity;
+    const esp_err_t release_error = give_snapshot_mutex("activity read");
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    const int64_t observed_at_us = esp_timer_get_time();
+    imu_stillness::age(destination.stillness, observed_at_us);
+    if (destination.scores_valid &&
+        (observed_at_us < destination.window_end_us || observed_at_us - destination.window_end_us > 6000000)) {
+        destination.scores_valid = false;
+        destination.activity = ActivityClass::Unknown;
+        destination.rejection = ActivityRejection::MissingSample;
+        destination.error = ESP_ERR_TIMEOUT;
+        destination.stable_windows = 0;
+    }
+    return ESP_OK;
+}
+
+// destination: Bounded persisted endurance observation, never a synthesized measurement.
+// Exception: Returns the original canonical lock/release error.
+esp_err_t DeviceSnapshotService::readBatteryEndurance(BatteryEnduranceSnapshot &destination) const
+{
+    const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "endurance read");
+    if (error != ESP_OK) {
+        return error;
+    }
+    const BatteryEnduranceSnapshot copy = s_snapshot.battery_endurance;
+    const esp_err_t release_error = give_snapshot_mutex("endurance read");
+    if (release_error == ESP_OK) {
+        destination = copy;
+    }
+    return release_error;
+}
+
+// report: Owner status including retained durable records on a failed write.
+// Exception: Returns the original canonical publication error.
+esp_err_t DeviceSnapshotService::reportBatteryEndurance(const BatteryEnduranceSnapshot &report)
+{
+    return ::update_snapshot([&report](DeviceSnapshot &snapshot) {
+        snapshot.battery_endurance = report;
+    }, SnapshotPublicationPolicy::Optional);
+}
+
+// destination: Aged canonical battery projection; no driver access is performed.
+// Exception: Returns the original canonical lock/release error.
+esp_err_t DeviceSnapshotService::readBatteryObservation(BatterySnapshot &destination) const
+{
+    const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "battery observation");
+    if (error != ESP_OK) {
+        return error;
+    }
+    BatterySnapshot copy = s_snapshot.battery;
+    const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
+    const esp_err_t release_error = give_snapshot_mutex("battery observation");
+    if (release_error == ESP_OK) {
+        age_measured_sample(copy, esp_timer_get_time(), ttl_us);
+        destination = copy;
+    }
+    return release_error;
+}
+
+// No parameters: one PMU-owner acquisition reuses the existing refresh serialization.
+// Exception: Returns original acquisition/lock errors without replacing failed samples.
+esp_err_t DeviceSnapshotService::refreshBatteryForEndurance()
+{
+    SemaphoreHandle_t mutex = ensure_refresh_mutex();
+    if (mutex == nullptr) {
+        ESP_LOGE(TAG, "Endurance PMU refresh mutex unavailable (%s)", esp_err_to_name(ESP_ERR_NO_MEM));
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+        ESP_LOGE(TAG, "Endurance PMU refresh lock failed (%s)", esp_err_to_name(ESP_ERR_TIMEOUT));
+        return ESP_ERR_TIMEOUT;
+    }
+    esp_err_t error = acquisition_pmu::ready()
+        ? acquisition_pmu::sample("endurance") : ESP_ERR_INVALID_STATE;
+    record_first_error(give_refresh_mutex(mutex, "endurance PMU refresh"), &error);
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Endurance PMU owner sample failed (%s)", esp_err_to_name(error));
+    }
+    return error;
+}
+
+// power: Receives only the canonical power state after a successful locked read.
+// Exception: Returns the original lock/release error without changing the destination.
+esp_err_t DeviceSnapshotService::readPowerState(PowerManagementSnapshot &power) const
+{
+    const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "power state read");
+    if (error != ESP_OK) {
+        return error;
+    }
+    const PowerManagementSnapshot copy = s_snapshot.power;
+    const esp_err_t release_error = give_snapshot_mutex("power state read");
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    power = copy;
+    return ESP_OK;
+}
+
 // No parameters: legacy by-value consumers retain their explicit fatal read contract.
 // Exception: Aborts on canonical read failure; fallible consumers must call readSnapshot().
 DeviceSnapshot DeviceSnapshotService::snapshot() const
@@ -2529,7 +2731,7 @@ esp_err_t DeviceSnapshotService::readCodyOptionsObservation(CodyOptionsObservati
     return ESP_OK;
 }
 
-// observation: Bounded canonical event, copied only after acquiring the snapshot mutex.
+// observation: Caller-owned event storage copied under the snapshot mutex; unusable on error.
 // Exception: Returns the original lock/release failure, never an invented empty event.
 esp_err_t DeviceSnapshotService::readCodexEventObservation(CodexEventSnapshot &observation) const
 {
@@ -2537,19 +2739,37 @@ esp_err_t DeviceSnapshotService::readCodexEventObservation(CodexEventSnapshot &o
     if (error != ESP_OK) {
         return error;
     }
-    const CodexEventSnapshot copy = s_snapshot.codex_event;
+    // Choice details now occupy most of this bounded schema. Write directly to
+    // the caller's persistent observation instead of doubling its stack cost.
+    observation = s_snapshot.codex_event;
     const esp_err_t release_error = give_snapshot_mutex("Codex event read");
     if (release_error != ESP_OK) {
         return release_error;
     }
-    observation = copy;
     return ESP_OK;
 }
 
 // observation: Bounded canonical telemetry; no network, filesystem or sensor reads.
-// Exception: Returns the original mutex error; callers must not consume output on failure.
+// Exception: Returns the original mutex or immutable image-identity error; output is unusable on failure.
 esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObservation &observation) const
 {
+    const auto *application = esp_app_get_description();
+    if (application == nullptr) {
+        ESP_LOGE(TAG, "Firmware identity unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    const size_t version_length = strnlen(application->version, sizeof(application->version));
+    if (version_length == 0 || version_length == sizeof(application->version)) {
+        ESP_LOGE(TAG, "Firmware version has no bounded identity (%s)", esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    for (size_t index = 0; index < version_length; ++index) {
+        if (application->version[index] < 32 || application->version[index] > 126) {
+            ESP_LOGE(TAG, "Firmware version contains an invalid byte at %u (%s)",
+                static_cast<unsigned>(index), esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+    }
     const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "Codex technical read");
     if (error != ESP_OK) {
         return error;
@@ -2557,16 +2777,23 @@ esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObs
     // The caller owns a persistent buffer; avoid a nested link-plus-telemetry stack copy.
     observation.link = s_snapshot.radios.codex_link;
     observation.technical = s_snapshot.codex_technical;
+    std::memcpy(observation.firmware_version, application->version, version_length + 1);
     const esp_err_t release_error = give_snapshot_mutex("Codex technical read");
     if (release_error != ESP_OK) {
         return release_error;
     }
-    age_codex_technical(observation.technical, esp_timer_get_time());
+    const int64_t now_us = esp_timer_get_time();
+    age_codex_technical(observation.technical, now_us);
+    codex_presence::age(observation.link.app_presence, now_us);
     if (observation.link.state != CodexLinkState::Connected) {
         observation.technical.data_stale = observation.technical.received_at_us > 0;
         observation.technical.model_stale = observation.technical.model_valid;
+        observation.technical.effort_stale = observation.technical.effort_valid;
         observation.technical.cost_stale = observation.technical.cost_band != CodexCostBand::Unknown;
-        observation.technical.context_stale = observation.technical.context_valid;
+        observation.technical.context_stale = observation.technical.context_valid ||
+            observation.technical.used_valid || observation.technical.capacity_valid ||
+            observation.technical.cumulative_valid || observation.technical.input_valid ||
+            observation.technical.output_valid || observation.technical.threshold_valid;
         if (observation.technical.compaction == CodexCompactionState::Active) {
             observation.technical.compaction = CodexCompactionState::Stale;
         }
@@ -2575,22 +2802,45 @@ esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObs
 }
 
 // observation: Coherent projection for the connectivity worker; no driver reads.
+// Exception: Returns the original mutex error; output is unusable on failure.
 esp_err_t DeviceSnapshotService::readConnectivityObservation(ConnectivityObservation &observation) const
 {
     const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "connectivity read");
     if (lock_error != ESP_OK) {
         return lock_error;
     }
-    const ConnectivityObservation copy{
-        .radios = s_snapshot.radios,
-        .operating_state = s_snapshot.power.state,
-    };
+    // Write into the caller-owned projection; schema growth must not create a
+    // second nested radio/link snapshot on the network worker's 8 KiB stack.
+    observation.radios = s_snapshot.radios;
+    observation.operating_state = s_snapshot.power.state;
     const esp_err_t release_error = give_snapshot_mutex("connectivity read");
     if (release_error != ESP_OK) {
         return release_error;
     }
-    observation = copy;
+    codex_presence::age(observation.radios.codex_link.app_presence, esp_timer_get_time());
     return ESP_OK;
+}
+
+// observation: Caller-owned scalar link/setup policy; no driver or settings reads.
+// Exception: Returns the original lock/release error; output is unusable on failure.
+esp_err_t DeviceSnapshotService::readCodexStandbyObservation(CodexStandbyObservation &observation) const
+{
+    const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "Codex standby read");
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    const auto &link = s_snapshot.radios.codex_link;
+    observation.link = static_cast<const ComponentSnapshot &>(link);
+    observation.link_state = link.state;
+    observation.pairing_state = s_snapshot.radios.pairing.state;
+    observation.link_command_pending = link.command_pending;
+    observation.pairing_command_pending = s_snapshot.radios.pairing.command_pending;
+    observation.pairing_window_active = link.pairing_window_active;
+    observation.pending_pairing_present = link.pending_pairing_present;
+    observation.retained_link_present = link.retained_link_present;
+    observation.pairing_repair_required = link.pairing_repair_required;
+    observation.wifi_started = s_snapshot.radios.wifi.started;
+    return give_snapshot_mutex("Codex standby read");
 }
 
 // observation: Coherent power inputs; no driver reads or independent sensor cache.
@@ -3091,6 +3341,8 @@ void DeviceSnapshotService::reportTouchActivity()
 
 
 // Allocate and start the shared diagnostics/orientation task once.
+// No parameters: uses the canonical shared acquisition state.
+// Exception: Returns snapshot allocation or task creation failure.
 static esp_err_t ensure_hardware_monitor_task_locked()
 {
     if (s_diagnostic_monitor_started) {
@@ -3112,13 +3364,18 @@ static esp_err_t ensure_hardware_monitor_task_locked()
     s_ui_motion_monitor_standby.store(false, std::memory_order_relaxed);
     TaskHandle_t task = nullptr;
     s_diagnostic_monitor_started =
-        xTaskCreateWithCaps(
+        xTaskCreatePinnedToCoreWithCaps(
             diagnostic_monitor_task,
             "LUNASHELL_diag_monitor",
             3072,
             nullptr,
             3,
             &task,
+#if CONFIG_LUNASHELL_ACTIVITY_MODEL
+            LUNASHELL::task_affinity::kActivityAcquisitionCoreId,
+#else
+            tskNO_AFFINITY,
+#endif
             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
         ) == pdPASS;
     if (!s_diagnostic_monitor_started) {
@@ -3321,6 +3578,9 @@ extern "C" esp_err_t LUNASHELL_hardware_set_ui_motion_monitor_standby(bool stand
     }
 
     s_ui_motion_monitor_standby.store(standby, std::memory_order_release);
+    if (standby) {
+        imu::set_stillness_active(false);
+    }
     notify_hardware_monitor();
     ESP_LOGI(
         TAG,
@@ -3337,6 +3597,8 @@ extern "C" esp_err_t LUNASHELL_hardware_set_ui_motion_monitor_standby(bool stand
 
 // Preserve requested diagnostic streams and auto-rotation across Device
 // Standby while making their sampler quiescent at the shared refresh barrier.
+// suspended: Existing power barrier admission; no sensor or sampling cadence is added.
+// Exception: Returns the original ownership/quiescence error.
 extern "C" esp_err_t LUNASHELL_hardware_set_ui_sampling_power_suspended(
     bool suspended
 )
@@ -3371,6 +3633,7 @@ extern "C" esp_err_t LUNASHELL_hardware_set_ui_sampling_power_suspended(
         std::memory_order_acq_rel
     );
     if (suspended) {
+        imu::set_stillness_active(false);
         s_ui_sampling_orientation_reset_pending.store(
             false,
             std::memory_order_release

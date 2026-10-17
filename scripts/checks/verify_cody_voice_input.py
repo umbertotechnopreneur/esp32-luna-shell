@@ -1,9 +1,7 @@
 """Prepared host boundary cases; execute only with fresh explicit authorization."""
 
-from collections import deque
 import hashlib
 import hmac
-import json
 from pathlib import Path
 import sys
 import threading
@@ -12,6 +10,11 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
+from scripts.checks.verify_power_policy import function_text
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugins/cody-codex-plugin/mcp"))
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.exceptions import InvalidTag
@@ -19,6 +22,49 @@ import ccp_voice_input as audio
 
 
 class VoiceInputBoundaries(unittest.TestCase):
+    # self: Executes extracted real firmware functions with fake acquisition/publication.
+    # Raises on compile, assertion or source-extraction failure; no hardware is used.
+    def test_firmware_owner_gestures_silence_and_polling(self):
+        output = ROOT / "artifacts/checks/voice-input-owner"
+        output.mkdir(parents=True, exist_ok=True)
+        source_path = ROOT / "components/LUNASHELL_platform/src/audio/LUNASHELL_voice_input.cpp"
+        source = source_path.read_text(encoding="utf-8")
+        signatures = [
+            "esp_err_t publish(", "bool active()", "esp_err_t start_countdown_locked(",
+            "esp_err_t advance_countdown_locked(", "esp_err_t LUNASHELL::requestVoiceInput(",
+            "esp_err_t LUNASHELL::beginVoiceInputCountdown(",
+            "void LUNASHELL::feedVoiceInput(", "static esp_err_t cancel_voice_input_locked()",
+            "esp_err_t LUNASHELL::cancelVoiceInput()", "esp_err_t LUNASHELL::finishVoiceInput(",
+            "esp_err_t LUNASHELL::cancelVoiceInput(int64_t",
+            "esp_err_t LUNASHELL::pauseVoiceInput()",
+        ]
+        (output / "voice_input_owner_under_test.inc").write_text(
+            "\n\n".join(function_text(source, signature, str(source_path)) for signature in signatures),
+            encoding="utf-8")
+        executable = output / "voice-input-owner.exe"
+        run_stage(compile_command(resolve_compiler(None),
+            [str(output), "scripts/tests/cody_native", "components/LUNASHELL_platform/include"],
+            ["scripts/tests/cody_native/voice_input_owner_contract.cpp"], executable), output, "compile")
+        run_stage([str(executable)], output, "owner")
+
+    # self: Executes the actual physical-wake admission wrapper with fake owner boundaries.
+    # Raises on compilation, source extraction or an incorrect wake/shutdown distinction.
+    def test_completed_physical_wake_admits_one_voice_request(self):
+        output = ROOT / "artifacts/checks/voice-wake-owner"
+        output.mkdir(parents=True, exist_ok=True)
+        source_path = ROOT / "components/LUNASHELL_platform/src/power/LUNASHELL_power.cpp"
+        source = source_path.read_text(encoding="utf-8")
+        signatures = ("bool voice_input_is_active(", "esp_err_t wake_from_user_input(")
+        (output / "voice_wake_under_test.inc").write_text(
+            "\n\n".join(function_text(source, signature, str(source_path)) for signature in signatures),
+            encoding="utf-8")
+        executable = output / "voice-wake-owner.exe"
+        run_stage(compile_command(resolve_compiler(None),
+            [str(output), "scripts/tests/cody_native", "components/LUNASHELL_platform/include"],
+            ["scripts/tests/cody_native/voice_wake_owner_contract.cpp"], executable,
+            definitions=("CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT=1",)), output, "compile")
+        run_stage([str(executable)], output, "owner")
+
     # self: Isolated receiver fixture; no sockets, model calls or device access.
     def setUp(self):
         # Synthetic public test bytes, unrelated to any paired device credential.
@@ -103,6 +149,20 @@ class VoiceInputBoundaries(unittest.TestCase):
         self.assertFalse(recording.accepted)
         self.assertEqual(len(recording.pcm), 0)
 
+    # self: Real receiver holding streamed PCM before the sender admitted END.
+    # Raises AssertionError if explicit discard schedules delivery or retains audio.
+    def test_cancel_stream_before_end_discards_without_delivery(self):
+        self.receiver.accept(self.packet(0, 1), self.source)
+        self.receiver.accept(self.packet(1, 2, bytes(32)), self.source)
+        # Sender may retire an unacknowledged window, so CANCEL can skip its IDs.
+        self.receiver.accept(self.packet(6, 4), self.source)
+        self.receiver.accept(self.packet(6, 4), self.source)
+        recording = next(iter(self.receiver.records.values()))
+        self.assertEqual(recording.status, 5)
+        self.assertFalse(recording.pcm)
+        self.assertFalse(recording.accepted)
+        self.assertTrue(self.receiver.jobs.empty())
+
     # self: Receiver fixture with a full sixty-second utterance.
     # Raises AssertionError if new audio overwrites or exceeds retained PCM.
     def test_full_buffer_fails_without_overwriting(self):
@@ -112,15 +172,6 @@ class VoiceInputBoundaries(unittest.TestCase):
         self.receiver.accept(self.packet(1, 2, bytes(32)), self.source)
         self.assertEqual(recording.status, 5)
         self.assertEqual(len(recording.pcm), audio.MAX_PCM)
-
-    # self: Native protocol fixture with a genuine pending approval request.
-    # Raises AssertionError if the plugin returns any approval or invents audio acceptance.
-    def test_native_approval_is_never_answered(self):
-        connection = Mock()
-        connection.recv.side_effect = deque([json.dumps({"id": 3, "method": "item/commandExecution/requestApproval", "params": {}})])
-        with self.assertRaisesRegex(RuntimeError, "desktop client"):
-            audio.rpc(connection, 3, "turn/start", {"threadId": "test-chat", "input": []})
-        self.assertEqual(connection.send.call_count, 1)
 
     # self: Receiver whose native readiness is unavailable or stale.
     # Raises AssertionError if recording is admitted without a recent matching native probe.
@@ -153,24 +204,6 @@ class VoiceInputBoundaries(unittest.TestCase):
                                              ack[audio.HEADER.size:], ack[:audio.HEADER.size])
         self.assertEqual(audio.struct.unpack("!IB", plain), (4, 2))
 
-    # self: Native bridge fixture; the current same-chat hook turn differs from capture start.
-    # Raises AssertionError if steering uses the old turn or loses the recording correlation ID.
-    def test_submission_uses_current_turn_in_frozen_chat(self):
-        self.receiver.accept(self.packet(0, 1), self.source)
-        recording = next(iter(self.receiver.records.values()))
-        admission = Mock(return_value="new-turn")
-        connection = Mock()
-        with patch.object(audio, "connect_native", return_value=connection), patch.object(audio, "rpc") as native:
-            native.side_effect = [{"thread": {"id": "test-chat", "status": {"type": "active"}}},
-                                  {"turnId": "new-turn"}]
-            audio.submit_native(recording, Path("synthetic.wav"), "ws://127.0.0.1:1", admission)
-        admission.assert_called_once_with(True)
-        params = native.call_args.args[3]
-        self.assertEqual(params["expectedTurnId"], "new-turn")
-        self.assertEqual(params["threadId"], "test-chat")
-        self.assertEqual(params["clientUserMessageId"], self.session.hex())
-        self.assertEqual(recording.native_turn_id, "new-turn")
-        connection.close.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Author ten synthetic voice-screen proposals and the firmware waveform lookup."""
+"""Author ten historical synthetic voice-screen proposals without changing firmware."""
 from pathlib import Path
 import math
 from PIL import Image, ImageDraw, ImageFont
@@ -69,16 +69,10 @@ def proposal(index, pose=None):
     centered(draw, f'{used:02}s elapsed / {60 - used:02}s left', 402, 16, '#dceeff')
     return image
 
-# No parameters: publishes proposal images and a small immutable waveform table.
+# No parameters: publishes historical proposal artwork only.
 # Raises OSError for font or output failures.
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    header = ROOT / 'components/CODY_companion/include/CODY_voice_waveform.hpp'
-    rows = ',\n'.join('    {' + ', '.join(str(value) for value in samples(frame)) + '}' for frame in range(16))
-    header.write_text('#pragma once\n#include <cstdint>\n\nnamespace CODY {\n'
-        '// Authored synthetic ribbon: no runtime trigonometry or audio amplitude claim.\n'
-        'inline constexpr unsigned kVoiceWaveformFrameCount = 16;\n'
-        'inline constexpr int8_t kVoiceWaveform[kVoiceWaveformFrameCount][64] = {\n' + rows + '\n};\n}\n', encoding='ascii')
     sheet = Image.new('RGB', (5 * 486, 2 * 526 + 84), '#f3f6fa')
     draw = ImageDraw.Draw(sheet)
     draw.text((20, 12), 'CODY VOICE / TEN DESIGN PROPOSALS', font=font(30), fill='#18283e')
@@ -96,7 +90,7 @@ def main():
                       duration=125, loop=0, disposal=2)
     (OUTPUT / 'README.md').write_text('# Voice screen proposals\n\nTen synthetic design studies, not device captures. '
         'Project/model/branch/cost captions are illustrative and never enter firmware snapshots. '
-        'The firmware shares only the sixteen immutable waveform poses. The model price is a catalog '
+        'Firmware uses its separately maintained procedural ribbon; this generator never overwrites it. The model price is a catalog '
         'cost band, not dollars or a measured session bill. The lower row alternates '
         'Shake to fade with We will send the audio to Codex for transcription; '
         'the long message scrolls within the clipped row. Shake still cancels input.\n', encoding='ascii')

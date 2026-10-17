@@ -51,6 +51,39 @@ class NativeActionIcon(IntEnum):
     ORIENTATION = 12
 
 
+class NativeImuStillnessState(IntEnum):
+    UNAVAILABLE = 0
+    COLLECTING = 1
+    MOVING = 2
+    STILL = 3
+
+
+class NativeCompanionPanel(IntEnum):
+    HOME = 0
+    RETIRED_ACTIVITY = 1
+    MODEL_CONTEXT = 2
+    SESSION_LINK = 3
+    CHAT_ACTIVITY = 4
+
+
+class NativeFirmwareBuildFieldState(IntEnum):
+    AVAILABLE = 0
+    UNAVAILABLE = 1
+    UNSUPPORTED = 2
+    ERROR = 3
+
+
+class NativeActivityRejection(IntEnum):
+    DISABLED = 0
+    COLLECTING = 1
+    MISSING_SAMPLE = 2
+    CADENCE_GAP = 3
+    BUSY = 4
+    MODEL_ERROR = 5
+    NONE = 6
+    SUSPENDED = 7
+
+
 # value: Original transport integer, checked before ctypes could truncate or wrap it.
 # lower: Minimum representable/domain value.
 # upper: Maximum representable/domain value.
@@ -60,6 +93,14 @@ def bounded_integer(value, lower, upper, name):
     if type(value) is not int or not lower <= value <= upper:
         raise ValueError(f'Cody native transport {name} rejected: {value!r}; requires integer [{lower},{upper}]')
     return value
+
+
+# value: Original Home panel identity, either the shared enum or a transport integer.
+# name: Exact operation field retained in rejection diagnostics.
+# Raises ValueError for unknown identities, booleans or non-integer input.
+def companion_panel_value(value, name):
+    identity = value.value if isinstance(value, NativeCompanionPanel) else value
+    return bounded_integer(identity, 0, NativeCompanionPanel.CHAT_ACTIVITY.value, name)
 
 class HostResponseInputs(C.Structure):
     """Versioned transport of synthetic driver facts; never a firmware snapshot."""
@@ -88,20 +129,20 @@ class NativePanelMetric(C.Structure):
 
 class NativePanelInputs(C.Structure):
     """Borrowed PC facts only; native firmware owns all formatting, layout and bar arithmetic."""
-    _fields_ = [(name, C.c_char_p) for name in ("project", "branch", "description", "chat_id", "model", "effort")] + [
+    _fields_ = [(name, C.c_char_p) for name in ("project", "branch", "description", "chat_id", "model", "effort", "peer_ip", "firmware_version")] + [
         ("phase", C.c_uint8), ("compaction", C.c_uint8),
         ("link", C.c_uint8), ("activity", C.c_uint8), ("model_state", C.c_uint8), ("effort_state", C.c_uint8),
         ("cost_band", C.c_uint8), ("cost_state", C.c_uint8),
         ("connected", C.c_bool), ("simulated", C.c_bool), ("context_coherent", C.c_bool),
         ("context_estimated", C.c_bool), ("counters_pending", C.c_bool)] + [
-        (name, NativePanelMetric) for name in ("used", "capacity", "threshold", "cumulative",
+        (name, NativePanelMetric) for name in ("used", "capacity", "threshold", "cumulative", "input", "output",
             "activity_age_us", "usage_age_us", "turn_elapsed_us", "compaction_elapsed_us")]
 
     # self: Bounded PC projection retained through its synchronous native preparation call.
     # Raises no exceptions; absent strings and metrics remain explicitly unavailable.
     def __init__(self):
         super().__init__()
-        for name in ("project", "branch", "description", "chat_id", "model", "effort"):
+        for name in ("project", "branch", "description", "chat_id", "model", "effort", "peer_ip", "firmware_version"):
             setattr(self, name, b"")
 
 
@@ -113,14 +154,32 @@ class NativePanelObservation(C.Structure):
             "activity_stale", "technical_valid", "model_valid", "effort_valid", "compaction_valid",
             "compaction_age_valid", "activity_age_valid", "turn_elapsed_valid")] + [
         (name, C.c_uint64) for name in ("model_age_us", "compaction_age_us", "activity_age_us",
-            "turn_elapsed_us", "receipt_age_us", "cost_age_us", "cost_valid_for_us")]
+            "turn_elapsed_us", "receipt_age_us", "cost_age_us", "cost_valid_for_us")] + [
+        (name + "_valid", C.c_bool) for name in ("used", "capacity", "cumulative", "input", "output", "threshold")] + [
+        (name, C.c_uint64) for name in ("used", "capacity", "cumulative", "input", "output", "threshold", "usage_age_us")] + [
+        ("device_ip", C.c_char_p), ("device_ip_valid", C.c_bool), ("reconnecting", C.c_bool),
+        ("simulated_motion_valid", C.c_bool), ("simulated_motion", C.c_uint8),
+        ("simulated_motion_age_us", C.c_uint64), ("chat_title", C.c_char_p), ("chat_title_state", C.c_uint8),
+        ("chat_title_age_us", C.c_uint64), ("chat_title_error", C.c_int32),
+        ("simulated_stillness", C.c_uint8), ("simulated_stillness_valid", C.c_bool),
+        ("simulated_stillness_error", C.c_int32), ("simulated_stillness_age_us", C.c_uint64),
+        ("simulated_motion_rejection", C.c_uint8), ("simulated_motion_error", C.c_int32),
+        ("device_id", C.c_char_p), ("simulated_build_local_date_time", C.c_char_p),
+        ("simulated_build_time_zone", C.c_char_p), ("simulated_build_computer", C.c_char_p),
+        ("simulated_build_clock_state", C.c_uint8), ("simulated_build_computer_state", C.c_uint8)]
 
     # self: Raw source projection consumed synchronously by the native scratch owner.
     # Raises no exceptions; absent fields retain unavailable flags rather than numeric claims.
     def __init__(self):
         super().__init__()
-        for name in ("project", "branch", "description", "chat_id", "technical_chat_id", "model", "effort"):
+        for name in ("project", "branch", "description", "chat_id", "technical_chat_id", "model", "effort", "device_ip", "chat_title",
+                     "device_id", "simulated_build_local_date_time", "simulated_build_time_zone", "simulated_build_computer"):
             setattr(self, name, b"")
+        self.chat_title_error = 0x105
+        self.simulated_stillness_error = 0x103
+        self.simulated_motion_rejection = NativeActivityRejection.NONE
+        self.simulated_build_clock_state = NativeFirmwareBuildFieldState.UNAVAILABLE
+        self.simulated_build_computer_state = NativeFirmwareBuildFieldState.UNAVAILABLE
 
 
 # operation: Native call being checked.
@@ -185,13 +244,21 @@ class NativeRig:
             "panel_transform": (C.c_int, (F,)),
             "panel_prepare": (C.c_int, (P, C.c_uint8, C.POINTER(NativePanelInputs), C.c_int64)),
             "panel_observation": (C.c_int, (P, C.c_uint8, C.POINTER(NativePanelObservation), C.c_int64)),
+            "home_dashboard": (C.c_int, (P, P, C.c_uint8, C.POINTER(NativePanelObservation), C.c_int64)),
+            "home_presented": (C.c_int, (P, P, C.c_bool, C.POINTER(C.c_bool))),
+            "home_identity": (C.c_int, (P, P, C.POINTER(NativePanelObservation), C.c_char_p, C.c_uint16, C.c_int64)),
+            "home_transform": (C.c_int, (F,)),
+            "home_rotation": (C.c_int, (P, C.c_uint8, C.c_int64, C.c_bool, C.c_bool, C.POINTER(C.c_uint8))),
+            "home_rotation_reset": (C.c_int, (P,)),
             "panel_tap": (C.c_int, (P, C.c_int16, C.c_int16, C.c_bool, C.c_bool, C.c_int64,
                 C.c_uint16, C.c_bool, C.c_bool, C.POINTER(C.c_bool))),
             "panel_cancel_tap": (C.c_int, (P,)),
             "panel_shake": (C.c_int, (P, C.c_float, C.c_float, C.c_float, C.c_int64, C.c_int64,
                 C.c_bool, C.POINTER(C.c_bool))),
             "panel_suspend_shake": (C.c_int, (P, C.c_int64)),
-            "connection": (C.c_int, (P, C.c_bool, C.c_bool, C.c_bool, C.c_bool, C.c_bool, C.c_int64, C.POINTER(C.c_uint8))),
+            "connection": (C.c_int, (P, C.c_bool, C.c_bool, C.c_bool, C.c_bool, C.c_bool, C.c_int64,
+                C.c_bool, C.c_bool, C.POINTER(C.c_uint8))),
+            "connection_face": (C.c_int, (P, C.POINTER(C.c_float), C.c_uint32, C.POINTER(C.c_bool))),
             "scene_cue": (C.c_int, (C.c_uint16, C.c_uint8, C.POINTER(C.c_uint8))),
             "scene_id": (C.c_int, (C.c_char_p, U16)),
             "advance_face": (C.c_int, (F, F, C.c_uint32, C.c_float, F)),
@@ -218,7 +285,7 @@ class NativeRig:
         for name, (result, arguments) in signatures.items():
             function = getattr(self.api, "cody_host_" + name)
             function.restype, function.argtypes = result, arguments
-        if self.api.cody_host_abi() != 1:
+        if self.api.cody_host_abi() != 2:
             raise ValueError("Incompatible Cody C++ graphics ABI")
         channels = [self.api.cody_host_channel_name(index).decode("ascii")
                     for index in range(self.api.cody_host_channel_count())]
@@ -366,10 +433,10 @@ class NativeRig:
             project.encode("ascii"), branch.encode("ascii"), C.byref(observation), elapsed_us, attention, operation_elapsed_us, compacting))
 
     # self: Shared native renderer transport owner.
-    # current: Explicit Home=0/Activity=1/ModelContext=2/SessionLink=3 identity.
+    # current: Stable Home=0, ModelContext=2, SessionLink=3 or ChatActivity=4; retired Activity=1 returns Home.
     # Raises ValueError for unknown identities; RuntimeError for the original native failure.
     def next_companion_panel(self, current):
-        bounded_integer(current, 0, 3, "panel.current")
+        current = companion_panel_value(current, "panel.current")
         selected = C.c_uint8()
         checked("panel_next", self.api.cody_host_panel_next(current, C.byref(selected)))
         return selected.value
@@ -408,6 +475,75 @@ class NativeRig:
             raise ValueError("Technical panels require original typed hook observations")
         checked("panel_observation", self.api.cody_host_panel_observation(scene["_native_scene"].handle,
             panel, C.byref(observation), elapsed_us))
+
+    # self: Native persistent owner; no Python implementation of dashboard layout or source validity.
+    # scene: Current native rig frame borrowing the persistent dashboard through raster retirement.
+    # panel: Typed lower-panel identity; top character and status retain the same frame.
+    # observation: Original isolated PC observation with independent validity and source ages.
+    # elapsed_us: Pausable active display clock, not a renewed source observation.
+    # Raises ValueError for invalid inputs or RuntimeError for original native preparation errors.
+    def prepare_home_dashboard(self, scene, panel, observation, elapsed_us):
+        panel = companion_panel_value(panel, "dashboard.identity")
+        bounded_integer(elapsed_us, 0, 0x7fffffffffffffff, "dashboard.elapsed_us")
+        if not isinstance(observation, NativePanelObservation):
+            raise ValueError("Home dashboard requires original typed hook observations")
+        checked("home_dashboard", self.api.cody_host_home_dashboard(scene["_native_scene"].handle,
+            self.state, panel, C.byref(observation), elapsed_us))
+
+    # self: Native transport retaining the production model-marquee owner across frames.
+    # scene: Current native frame owning a copied authored title through raster retirement.
+    # observation: Original metadata and ages, or explicitly labeled isolated preview metadata.
+    # title: Existing Home title; Python neither measures nor redraws its glyphs.
+    # visible: Existing typewriter prefix preserved by the shared native preparation.
+    # elapsed_us: Pausable presentation clock, independent of packet arrival/revision.
+    # Raises ValueError or RuntimeError for the original boundary and native errors.
+    def prepare_home_identity(self, scene, observation, title, visible, elapsed_us):
+        if not isinstance(observation, NativePanelObservation):
+            raise ValueError("Home identity requires original typed hook observations")
+        bounded_integer(visible, 0, len(title), "home.visible")
+        bounded_integer(elapsed_us, 0, 0x7fffffffffffffff, "home.elapsed_us")
+        checked("home_identity", self.api.cody_host_home_identity(scene["_native_scene"].handle,
+            self.state, C.byref(observation), title.encode("ascii"), visible, elapsed_us))
+
+    # self: Shared renderer transport; geometry comes exclusively from firmware source.
+    # Raises RuntimeError for the original native boundary failure.
+    def home_transform(self):
+        transform = (C.c_float * 3)()
+        checked("home_transform", self.api.cody_host_home_transform(transform))
+        return tuple(transform)
+
+    # self: Persistent native display owner; the eight-second rotation policy remains in shared C++.
+    # current: Stable selected Home lower-panel identity.
+    # active_us: Pausable display clock independent of network/sensor source timestamps.
+    # visible: Whether ordinary Home is actually visible in this frame.
+    # compacting: Current admitted compaction requiring the token arc to stay visible.
+    # Returns the native policy's selected panel; raises original boundary or clock errors.
+    def advance_home_rotation(self, current, active_us, visible, compacting):
+        current = companion_panel_value(current, "home_rotation.current")
+        bounded_integer(active_us, 0, 0x7fffffffffffffff, "home_rotation.active_us")
+        if type(visible) is not bool or type(compacting) is not bool:
+            raise ValueError("Home rotation requires actual typed visibility and compaction flags")
+        selected = C.c_uint8()
+        checked("home_rotation", self.api.cody_host_home_rotation(self.state, current, active_us,
+            visible, compacting, C.byref(selected)))
+        return selected.value
+
+    # self: Persistent native presentation owner, reset only by accepted tap/shake or explicit preview replay.
+    # Raises RuntimeError for the original native owner error.
+    def reset_home_rotation(self):
+        checked("home_rotation_reset", self.api.cody_host_home_rotation_reset(self.state))
+
+    # self: Persistent native Home policy owner, retained across panel and route changes.
+    # scene: Native frame whose complete image was successfully presented on the Studio canvas.
+    # content_visible: Whether complete Home content was visible with its clock running.
+    # Returns one shared expensive-model claim; raises the original native projection or state error.
+    def home_presented(self, scene, content_visible):
+        if type(content_visible) is not bool:
+            raise ValueError("Home presentation requires a typed visibility flag")
+        notify = C.c_bool()
+        checked("home_presented", self.api.cody_host_home_presented(scene["_native_scene"].handle,
+            self.state, content_visible, C.byref(notify)))
+        return notify.value
 
     # self: Persistent recognizer owner, isolated from physical snapshots.
     # x: Original logical acquired touch coordinate.
@@ -523,15 +659,28 @@ class NativeRig:
     # pc_connected: Synthetic current authenticated PC connection.
     # pc_searching: Synthetic PC discovery activity.
     # active_delta_us: Nonnegative active elapsed time, zero while paused.
+    # wifi_connected: Explicit synthetic LAN connection; never inferred from validity alone.
+    # search_view_visible: Explicit synthetic discovery-screen visibility.
+    # Raises ValueError for untyped facts or unsupported active time.
     # Raises RuntimeError for the actual shared model's validation errors.
-    def connection_personality(self, wifi_current, wifi_searching, pc_current, pc_connected, pc_searching, active_delta_us):
-        if any(type(value) is not bool for value in (wifi_current, wifi_searching, pc_current, pc_connected, pc_searching)):
+    def connection_personality(self, wifi_current, wifi_searching, pc_current, pc_connected, pc_searching, active_delta_us,
+                               *, wifi_connected=False, search_view_visible=False):
+        if any(type(value) is not bool for value in (wifi_current, wifi_searching, pc_current, pc_connected, pc_searching,
+                                                   wifi_connected, search_view_visible)):
             raise ValueError('Native connection facts require explicitly typed synthetic booleans')
         bounded_integer(active_delta_us, 0, 0x7fffffffffffffff, 'connection.active_delta_us')
         cue = C.c_uint8()
         checked("connection_personality", self.api.cody_host_connection(self.state, wifi_current, wifi_searching,
-            pc_current, pc_connected, pc_searching, active_delta_us, C.byref(cue)))
+            pc_current, pc_connected, pc_searching, active_delta_us, wifi_connected, search_view_visible, C.byref(cue)))
         return PersonalityCue(cue.value)
+
+    # self: Native search narrative owner; returns no face when the cycle is inactive.
+    # Raises RuntimeError for the original native expression or capacity failure.
+    def connection_face(self):
+        channels = (C.c_float * len(self.rig['channels']))()
+        active = C.c_bool()
+        checked("connection_face", self.api.cody_host_connection_face(self.state, channels, len(channels), C.byref(active)))
+        return list(channels) if active.value else None
 
     # self: Native scene reaction resolver.
     # scene: Exact authored scene name.
@@ -767,19 +916,16 @@ class NativeRig:
         if int(tone) not in (0, 1, 2, 3):
             raise ValueError('Native action tone must be Neutral/Positive/Negative/Info')
         # Driver composition supplies theme/layout data; all coverage, gradient, border,
-        # icon and glyph pixel operations execute unchanged CODY2D production functions.
+        # and glyph pixel operations execute unchanged CODY2D production functions.
         palettes = ((0x18E5, 0x10A3, 0x4A8C, 0xBDF7), (0x1147, 0x08C4, 0x2B4F, 0x8F1D),
             (0x28A4, 0x1883, 0x796B, 0xED53), (0x1106, 0x08A4, 0x3291, 0xA71F))
         x, y, width, height = bounds
         card = height > 80
-        icon_x = x + width // 2 if card else x + 31
-        icon_y = y + 33 if card else y + (height - 25) // 2 + 25 // 2
-        icons = (NativeActionIcon.ARROW, NativeActionIcon.CHECK, NativeActionIcon.CLOSE, NativeActionIcon.ARROW)
         pixels = (C.c_uint16 * (466 * 466))()
         for index, (red, green, blue) in enumerate(image.getdata()):
             pixels[index] = (red >> 3) << 11 | (green >> 2) << 5 | blue >> 3
         checked('draw_capsule_rows', self.api.cody_host_capsule(pixels, len(pixels), (C.c_uint16 * 4)(*bounds),
-            (C.c_uint16 * 4)(*palettes[int(tone) if enabled else 0]), icons[int(tone)], icon_x, icon_y,
+            (C.c_uint16 * 4)(*palettes[int(tone) if enabled else 0]), NativeActionIcon.NONE, 0, 0,
             28 if card else 0, enabled))
         output = bytearray(len(pixels) * 3)
         for index, value in enumerate(pixels):
@@ -787,9 +933,9 @@ class NativeRig:
             output[index * 3 + 1] = ((value >> 5) & 63) * 255 // 63
             output[index * 3 + 2] = (value & 31) * 255 // 31
         prepared = Image.frombytes('RGB', (466, 466), bytes(output))
-        center = x + width // 2 if card else x + (width + 40) // 2
-        top = y + 64 if card else y + (height - 25) // 2
-        caption_width = width - (20 if card else 64)
+        center = x + width // 2
+        top = y + (height - 25) // 2
+        caption_width = width - 20
         if card and len(label) > caption_width // 11:
             # Driver composition preserves complete choice labels on two lines.
             # Each line still uses the actual native font and its chord checks.
@@ -800,8 +946,8 @@ class NativeRig:
             second = label[split + 1:] if label[split:split + 1] == ' ' else label[split:]
             if len(first) > limit or len(second) > limit:
                 raise ValueError(f'Native action caption does not fit two complete lines: {label!r}')
-            self.paint_text(prepared, first, y + 48, body=True, center_x=center, max_width=caption_width)
-            self.paint_text(prepared, second, y + 75, body=True, center_x=center, max_width=caption_width)
+            self.paint_text(prepared, first, y + (height - 52) // 2, body=True, center_x=center, max_width=caption_width)
+            self.paint_text(prepared, second, y + (height - 52) // 2 + 27, body=True, center_x=center, max_width=caption_width)
         else:
             self.paint_text(prepared, label, top, body=True, center_x=center, max_width=caption_width)
         image.paste(prepared)

@@ -197,15 +197,16 @@ class BrokerClient:
             raise error
         return exchange(operation, payload, self._secret, timeout=20.0)
 
-    # self: Existing transport releasing only its own lease, preserving other open chats.
+    # self: Existing transport releasing only its own lease, preserving other open clients.
+    # normal: True only when the MCP input stream reaches EOF without a transport/processing failure.
     # Raises OSError or RuntimeError if the owned lease cannot be released.
-    def close(self) -> None:
+    def close(self, *, normal: bool = False) -> None:
         self._stop.set()
         # An in-flight recovery has a five-second startup and two-second lease bound.
         self._thread.join(timeout=8.0)
         if self._thread.is_alive():
             raise RuntimeError("CCP lease worker did not stop")
-        exchange("release", {"id": self._lease}, self._secret)
+        exchange("release", {"id": self._lease, "normal": normal}, self._secret)
 
 
 class ControlServer(ThreadingHTTPServer):
@@ -308,20 +309,27 @@ def dispatch(server: ControlServer, operation: str, payload: dict[str, Any]) -> 
         return {"version": ccp.SERVER_VERSION}
     if operation in {"lease", "release"}:
         identity = payload.get("id")
-        if set(payload) != {"id"} or not isinstance(identity, str) or ccp.HEX_PATTERNS["pc"].fullmatch(identity) is None:
+        allowed_fields = ({"id"},) if operation == "lease" else ({"id"}, {"id", "normal"})
+        if (set(payload) not in allowed_fields or not isinstance(identity, str)
+                or ccp.HEX_PATTERNS["pc"].fullmatch(identity) is None
+                or ("normal" in payload and type(payload["normal"]) is not bool)):
             raise ValueError("Invalid CCP transport lease identity")
+        if operation == "release" and "normal" not in payload:
+            # An already-loaded development client can release its old envelope
+            # after a source update, but it supplied no evidence of normal EOF.
+            print("CCP transport release lacks normal EOF evidence; treating it as abnormal",
+                  file=sys.stderr, flush=True)
         new_transport = False
         with server.lease_lock:
+            now = time.monotonic()
             if operation == "lease":
-                now = time.monotonic()
-                server.leases = {key: observed for key, observed in server.leases.items()
-                                 if now - observed <= IDLE_GRACE_SECONDS}
-                if identity not in server.leases and len(server.leases) >= 64:
-                    raise ValueError("CCP active transport limit reached")
-                new_transport = identity not in server.leases
-                server.leases[identity] = time.monotonic()
+                new_transport = server.service.responder.app_presence.lease(identity, now)
             else:
-                server.leases.pop(identity, None)
+                server.service.responder.app_presence.release(identity, payload.get("normal", False), now)
+            # Shutdown grace is separate from source evidence. It allows the next
+            # authenticated FIND to retry a lost final Closed packet.
+            server.last_transport_activity = now
+        server.service.responder.publish_app_presence()
         if new_transport:
             # A new MCP transport is a plugin start, including when yesterday's broker stayed alive.
             # Lease renewals and hooks never fetch; the cache durably enforces one daily attempt.
@@ -331,22 +339,10 @@ def dispatch(server: ControlServer, operation: str, payload: dict[str, Any]) -> 
                 print(f"CCP pricing plugin-start refresh failed: {error}", file=sys.stderr, flush=True)
         return {}
     if operation == "hook":
-        server.service.activity.observe(payload)
-        notification_error = None
-        try:
-            server.service.notify_native_permission(payload)
-            if payload.get("hook_event_name") == "PermissionRequest":
-                server.service.notifications_error = None
-        except (OSError, RuntimeError, ValueError) as error:
-            # Delivery of the On your PC notice is optional. Preserve and
-            # publish its real failure while leaving native permission ownership
-            # with Codex; this hook must never grant or deny an operation.
-            notification_error = str(error)
-            server.service.notifications_error = notification_error
-            print(f"CCP native notice failed: {error}", file=sys.stderr, flush=True)
+        result = server.service.observe_hook(payload)
         with server.lease_lock:
             server.last_hook = time.monotonic()
-        return {"notification_error": notification_error} if notification_error else {}
+        return result
     if operation == "mcp":
         # A bounded interaction poll waits on its own condition. Holding the
         # pairing/cache lock here would block its recipient acknowledgement.
@@ -376,10 +372,10 @@ def run_broker() -> int:
         pricing = PriceCache(runtime_directory() / "artifacts" / "pricing" / "codex-standard.json")
         server.pricing = pricing
         server.service = ccp.CcpService(pricing)
-        server.leases = {}
         server.lease_lock = threading.Lock()
         server.tool_lock = threading.Lock()
         server.last_hook = time.monotonic()
+        server.last_transport_activity = server.last_hook
         server.timeout = 1.0
         try:
             # Pricing is optional metadata. Its real error remains in PriceCache and the log;
@@ -391,8 +387,11 @@ def run_broker() -> int:
             while True:
                 server.service.responder.require_running()
                 server.handle_request()
+                # Reuse the existing one-second control loop; hook events never
+                # become app-presence evidence, and no new worker is introduced.
+                server.service.responder.publish_app_presence()
                 with server.lease_lock:
-                    latest = max([server.last_hook, *server.leases.values()])
+                    latest = max(server.last_hook, server.last_transport_activity)
                     if time.monotonic() - latest > IDLE_GRACE_SECONDS:
                         break
         finally:
@@ -403,7 +402,25 @@ def run_broker() -> int:
     return 0
 
 
-# No parameters: discards prompts, responses, transcript paths and tool arguments at ingestion.
+QUESTION_ROUTING_CONTEXT = (
+    "A paired physical Cody currently supports questions. When you need a semantic user choice, "
+    "use the cody-codex skill and ccp_ask_question for the intended paired LAN device instead of "
+    "opening the same clarification only on the PC. Verify the target with ccp_connection_status; "
+    "do not guess among multiple devices or include a simulator without explicit user intent. "
+    "Send the actual self-contained question and two or three complete English ASCII choices: "
+    "preserve the original choice wording, stable IDs and meaning; labels allow 63 characters "
+    "and details 255. If it does not fit or needs free text, keep it on the PC and explain why. "
+    "Keep the returned capability private. Poll ccp_poll_request (at most 15 seconds per call); "
+    "after received, read answer and answer_id, acknowledge that exact answer_id, and use the "
+    "choice only after delivered. Pending, expiry, cancellation and errors are not answers. "
+    "Never replay an ambiguously admitted question or duplicate it on both surfaces. Native "
+    "permissions and approvals remain on the PC. Existing native request_user_input prompts "
+    "cannot be imported or answered through this hook; do not inspect transcripts or fabricate "
+    "native responses. Follow an explicit user preference for PC-only questions."
+)
+
+
+# No parameters: discards private contents and emits only supported static question-routing context.
 # Raises ValueError, OSError or RuntimeError for malformed input or failed event delivery.
 def run_hook() -> int:
     emitted_ns = time.monotonic_ns()
@@ -413,7 +430,7 @@ def run_hook() -> int:
     original = json.loads(raw)
     if not isinstance(original, dict) or original.get("hook_event_name") not in EVENTS:
         raise ValueError("CCP hook event is not supported")
-    allowed = ("hook_event_name", "session_id", "cwd", "turn_id", "tool_name", "tool_use_id", "model", "trigger")
+    allowed = ("hook_event_name", "session_id", "cwd", "turn_id", "tool_name", "tool_use_id", "model", "trigger", "transcript_path")
     event = {key: original[key] for key in allowed if key in original}
     event["emitted_ns"] = emitted_ns
     # Only checkout metadata is read; tool arguments and all chat contents remain discarded.
@@ -423,6 +440,11 @@ def run_hook() -> int:
     # within Codex's three-second limit, even when the runtime is unavailable.
     secret = (ensure_runtime() if event["hook_event_name"] in {"SessionStart", "UserPromptSubmit"}
               else control_secret())
-    exchange("hook", event, secret, timeout=1.0)
-    sys.stdout.write("{}\n")
+    result = exchange("hook", event, secret, timeout=1.0)
+    output: dict[str, Any] = {}
+    if (event["hook_event_name"] == "UserPromptSubmit" and isinstance(result, dict)
+            and result.get("physical_question_routing") is True):
+        output["hookSpecificOutput"] = {"hookEventName": "UserPromptSubmit",
+                                       "additionalContext": QUESTION_ROUTING_CONTEXT}
+    sys.stdout.write(json.dumps(output, separators=(",", ":")) + "\n")
     return 0

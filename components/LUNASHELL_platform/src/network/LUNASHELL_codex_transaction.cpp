@@ -66,6 +66,21 @@ bool sameContent(const CodexEventPayload &left, const CodexEventPayload &right)
     }
     return true;
 }
+
+// left: Previously admitted queue projection, independent of the immutable question text.
+// right: Newly authenticated count and advertised request identities.
+bool samePendingQuestions(const CodexEventPayload &left, const CodexEventPayload &right)
+{
+    if (left.pending_question_count != right.pending_question_count ||
+        left.pending_entry_count != right.pending_entry_count) { return false; }
+    for (uint8_t index = 0; index < left.pending_entry_count; ++index) {
+        const auto &a = left.pending_questions[index];
+        const auto &b = right.pending_questions[index];
+        if (std::strcmp(a.request_id, b.request_id) != 0 || std::strcmp(a.context, b.context) != 0 ||
+            std::strcmp(a.title, b.title) != 0) { return false; }
+    }
+    return true;
+}
 } // namespace
 
 // token: Exact EVENT wire token; socket authentication belongs to the transport owner.
@@ -128,6 +143,9 @@ esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
             effect.changed = true;
             effect.unavailable = true;
         }
+        if (!codexEventIsOpen(current.state)) {
+            current.selection_request_id[0] = '\0';
+        }
         effect.clear_reply = effect.changed;
         return ESP_OK;
     }
@@ -145,7 +163,12 @@ esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
     if (same && !sameContent(current.payload, *candidate)) {
         return ESP_ERR_INVALID_RESPONSE;
     }
-    if (!same && current.payload.kind == CodexEventKind::Question && codexEventIsOpen(current.state)) {
+    const bool explicit_handoff = current.state == CodexEventState::Pending &&
+        current.payload.selected_id[0] == '\0' && candidate->kind == CodexEventKind::Question &&
+        state == CodexEventState::Pending && current.selection_request_id[0] != '\0' &&
+        std::strcmp(request_id, current.selection_request_id) == 0;
+    if (!same && current.payload.kind == CodexEventKind::Question && codexEventIsOpen(current.state) &&
+        !explicit_handoff) {
         return ESP_ERR_INVALID_STATE;
     }
     if (same && codexEventIsTerminal(current.state) && state != current.state) {
@@ -163,17 +186,22 @@ esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
         (current.state == CodexEventState::Sending || current.state == CodexEventState::Received);
     const bool elapsed = same && codexEventIsOpen(current.state) && now_us >= current.expires_at_us;
     const int64_t deadline = now_us + static_cast<int64_t>(ttl) * 1000000LL;
-    effect.changed = !same || (!keep_reply && state != current.state);
+    const bool queue_changed = same && !samePendingQuestions(current.payload, *candidate);
+    effect.changed = !same || queue_changed || (!keep_reply && state != current.state);
     effect.wake = !same && state == CodexEventState::Pending;
     if (!same) {
         current.payload = *candidate;
         std::memcpy(current.request_id, request_id, 33);
         current.expires_at_us = deadline;
+        current.selection_request_id[0] = '\0';
     } else {
         if (answered) {
             std::memcpy(current.payload.selected_id, candidate->selected_id, sizeof(current.payload.selected_id));
         }
         current.expires_at_us = std::min(current.expires_at_us, deadline);
+        current.payload.pending_question_count = candidate->pending_question_count;
+        current.payload.pending_entry_count = candidate->pending_entry_count;
+        std::memcpy(current.payload.pending_questions, candidate->pending_questions, sizeof(current.payload.pending_questions));
     }
     if (!keep_reply) {
         current.state = state;
@@ -183,6 +211,22 @@ esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
         effect.changed = true;
     }
     current.last_error = current.state == CodexEventState::Expired ? ESP_ERR_TIMEOUT : ESP_OK;
+    if (codexEventIsTerminal(current.state)) {
+        current.selection_request_id[0] = '\0';
+    }
+    if (same && current.selection_request_id[0] != '\0') {
+        bool target_present = false;
+        for (uint8_t index = 0; index < candidate->pending_entry_count; ++index) {
+            target_present = target_present ||
+                std::strcmp(candidate->pending_questions[index].request_id, current.selection_request_id) == 0;
+        }
+        if (!target_present) {
+            // The requested question expired or was withdrawn before the authenticated handoff.
+            current.selection_request_id[0] = '\0';
+            current.last_error = ESP_ERR_NOT_FOUND;
+            effect.changed = true;
+        }
+    }
     effect.clear_reply = !same || !codexEventIsOpen(current.state) || answered;
     effect.acknowledge = current.payload.kind == CodexEventKind::Question && codexEventIsTerminal(current.state);
     return ESP_OK;
@@ -258,6 +302,7 @@ void expireCodexTransaction(CodexTransactionView current, int64_t now_us, CodexT
     }
     effect.changed = true;
     effect.clear_reply = true;
+    current.selection_request_id[0] = '\0';
 }
 
 // current: Owner-held question.
@@ -273,7 +318,7 @@ esp_err_t submitCodexChoice(CodexTransactionView current, const char *request_id
         return ESP_ERR_INVALID_ARG;
     }
     if (!fresh || current.payload.kind != CodexEventKind::Question || current.state != CodexEventState::Pending ||
-        std::strcmp(request_id, current.request_id) != 0) {
+        std::strcmp(request_id, current.request_id) != 0 || current.selection_request_id[0] != '\0') {
         return ESP_ERR_INVALID_STATE;
     }
     if (now_us >= current.expires_at_us) {
@@ -292,6 +337,38 @@ esp_err_t submitCodexChoice(CodexTransactionView current, const char *request_id
     return ESP_OK;
 }
 
+// current: Owner-held unanswered question and its canonical pending summaries.
+// request_id: Exact displayed request identity, never a viewport index.
+// fresh: Current authenticated owner admission.
+// now_us: Monotonic admission time; navigation never extends an existing deadline.
+// Exception: Returns the original identity, state, freshness or expiry cause without mutation.
+esp_err_t selectCodexQuestion(CodexTransactionView current, const char *request_id,
+    bool fresh, int64_t now_us)
+{
+    bool zero = false;
+    if (!validIdentity(request_id, zero) || zero || now_us < 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!fresh || current.payload.kind != CodexEventKind::Question || current.state != CodexEventState::Pending ||
+        current.payload.selected_id[0] != '\0') {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (now_us >= current.expires_at_us) {
+        return ESP_ERR_TIMEOUT;
+    }
+    bool found = false;
+    for (uint8_t index = 0; index < current.payload.pending_entry_count; ++index) {
+        found = found || std::strcmp(current.payload.pending_questions[index].request_id, request_id) == 0;
+    }
+    if (!found) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (std::strcmp(request_id, current.request_id) != 0) {
+        std::memcpy(current.selection_request_id, request_id, 33);
+    }
+    return ESP_OK;
+}
+
 // current: Owner-held transaction; owner retains a rollback buffer if publication can fail.
 // request_id: Exact identity explicitly dismissed.
 // Exception: Returns INVALID_STATE without mutation for an open question or changed identity.
@@ -304,6 +381,7 @@ esp_err_t dismissCodexTransaction(CodexTransactionView current, const char *requ
     current.payload = {};
     current.state = CodexEventState::None;
     current.last_error = ESP_OK;
+    current.selection_request_id[0] = '\0';
     return ESP_OK;
 }
 } // namespace LUNASHELL

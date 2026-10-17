@@ -24,6 +24,11 @@ The preview starts without a rig overlay. The **Face**, **Shape**, **Inputs** an
 Each tab retains its own scroll position; in narrow windows, the inspector moves
 below the preview when vertical space permits.
 
+The preview displays the native 466 x 466 framebuffer at integer pixel scales.
+Each device pixel becomes a sharp 2 x 2, 3 x 3 or larger square as the window
+allows. Nearest-neighbor enlargement preserves the original pixel colors; it
+does not add smoothing. The default preview requests a 2x canvas when the
+monitor has room. Smaller windows retain at least 1x and center the image.
 Resizing affects presentation only: geometry, rotation and pointer input stay in
 the display's logical coordinates. Per Monitor v2 is enabled before Tk, using the
 monitor's initial DPI scale. Moving between monitors with different DPI still
@@ -88,12 +93,14 @@ To resume, enable **SIMULATED LAN available** and start new pairing.
 The old PC record remains separate; nothing is deleted on the physical device,
 in firmware or on the SD card.
 
-The preview shows existing scenes/fonts and the state received from the broker.
-Project, branch and a current reported model share the native fading identity
-row; the narrative body does not duplicate the project. Home keeps a separate
-green/orange/red/gray Economy/Balanced/Expensive!/Unknown chip, including while
-compacting. The real authenticated cost band and source lease are aged and drawn
-by the same C++ used in firmware. Explicit **Economy model**, **Balanced model**
+The preview uses the same native Home fonts, character transform and three lower
+panels as firmware. They rotate every eight visible seconds; a short tap advances
+immediately and restarts the interval. Hidden views and current compaction pause
+the automatic rotation. Tokens includes Free, Last, Window, elapsed time and IMU;
+Model contains the price capsule and thinking effort; Session contains link,
+chat and the simulator endpoint's own address. State/model stay above the panels
+and commands scroll below. The real authenticated cost band and source lease
+are aged and drawn by the same C++ used in firmware. Explicit **Cheap model**, **Reasonable model**
 and **Expensive model** preview scenarios supply labeled SIMULATED fixtures only;
 they never download prices or change the live endpoint or firmware snapshot.
 Activity appears only after fresh packets arrive.
@@ -341,10 +348,14 @@ are explicitly overridden. Character scene typography retains its authored
 device assets. Palette text provenance is normalized both by the generator
 and the Windows painter; indexed coverage and PCM binary hashes remain exact.
 
-The studio header bundles the approved VibeWare floppy PNG unchanged from
-`Obsidian/20_Execution/Projects/VibeWare/Branding/vibeware-logo.png`; the host
-copy, original MIT notice and provenance are under
-`simulator/windows/assets/branding/`. The buttons open the Cody GitHub project,
-`https://umbertogiacobbi.biz` and the published VibeWare `MANIFESTO.md` on GitHub
-only on a user click. The planned website manifesto is not used as a published
-destination. Browser launch failures remain in the simulator status/console.
+The Cody Studio and Luna simulator desktop headers show the approved VibeWare
+floppy at the top right, outside the simulated device canvas. The clickable,
+keyboard-accessible badge opens `https://umbertogiacobbi.biz/vibeware/manifesto`
+only on user activation. It indicates participation in the initiative, not
+application authorship. Both windows use the Luna Shell project artwork for
+their window icon, separately from the initiative badge.
+
+The unchanged floppy source, original MIT notice and provenance are under
+`simulator/windows/assets/branding/`. Cody Studio also retains its project and
+personal-site links. Browser launch failures are retained and reported to the
+host console. These source changes do not establish an interactive UI check.

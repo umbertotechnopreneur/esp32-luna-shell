@@ -39,6 +39,18 @@ esp_err_t CODY_companion_boot_completed(void);
 // Preserve the existing startup request without replacing the active facial lifecycle.
 esp_err_t CODY_companion_demo_start(void);
 
+// No parameters: requires an awake panel and the power owner's serialized transition.
+// Returns only after the greeting/sleep frame retires and admitted screenshot work finishes.
+// Audio/recording/peripheral shutdown remains the power owner's responsibility.
+// Exception: Returns the original preparation, rendering or screenshot failure, or timeout.
+esp_err_t CODY_companion_prepare_shutdown(void);
+
+// error: Original shutdown failure; restore display writes and brightness before calling.
+// Returns only after a visible error frame retires; the caller retains the operation error.
+// A subsequent wake lifecycle clears the retained failure presentation.
+// Exception: Returns the real presentation error or timeout; rejects ESP_OK.
+esp_err_t CODY_companion_report_shutdown_error(esp_err_t error);
+
 // expression_key: Exact implemented catalog key, such as "calm", "happy", or "embarrassed".
 // Select a base combination during Idle without resetting breathing or blinking.
 // Sleep/Wake transitions and unknown keys are rejected with their real error.
@@ -51,12 +63,11 @@ esp_err_t CODY_companion_set_debug_readout_enabled(bool enabled);
 // enabled: Non-null output receiving the current session preference on success only.
 esp_err_t CODY_companion_get_debug_readout_enabled(bool *enabled);
 
-// enabled: Debug session flag for active short-PWR screenshot countdowns; Debug defaults on.
-// Disabled mode restores the original active short-PWR standby behavior.
-// Exception: Returns ESP_ERR_NOT_SUPPORTED in Release or the real renderer state error.
+// enabled: Removed PWR screenshot preference; Power exclusively owns standby/shutdown.
+// Exception: Always returns ESP_ERR_NOT_SUPPORTED.
 esp_err_t CODY_companion_set_power_screenshot_enabled(bool enabled);
 
-// enabled: Receives the current session flag on success only; always false in Release.
+// enabled: Receives false; Power never admits screenshots.
 esp_err_t CODY_companion_get_power_screenshot_enabled(bool *enabled);
 
 // enabled: Follow the pearl body's row deformation when true; keep the independent face when false.

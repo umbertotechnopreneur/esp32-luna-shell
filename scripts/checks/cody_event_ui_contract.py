@@ -32,6 +32,7 @@ def check_event_ui(compiler: str, output: Path) -> None:
                 "components/LUNASHELL_platform/include", "assets/cody/rig/generated",
                 "assets/cody/scenes/generated", "assets/cody/appearance/jelly-scanline/generated",
                 "assets/cody/audio/codex-actions/generated", "assets/cody/personality/generated")
+    includes += ("assets/cody/home-dashboard-fonts/generated",)
     sources = ("scripts/tests/cody_native/event_ui_contract.cpp",
                "scripts/tests/cody_native/event_ui_owner_boundary.cpp",
                "scripts/tests/shared_event_presentation.cpp",
@@ -40,6 +41,10 @@ def check_event_ui(compiler: str, output: Path) -> None:
                "components/CODY2D/src/CODY2D_text.cpp", "components/CODY2D/src/CODY2D_controls.cpp",
                "components/CODY_companion/src/model/CODY_rig.cpp",
                "components/CODY_companion/src/scenes/CODY_scene.cpp",
+               "components/CODY_companion/src/scenes/CODY_technical_panels.cpp",
+               "components/CODY_companion/src/scenes/CODY_home_dashboard.cpp",
+               "components/CODY_companion/src/scenes/CODY_home_identity.cpp",
+               "assets/cody/home-dashboard-fonts/generated/home_dashboard_fonts.cpp",
                "assets/cody/scenes/generated/scene_font.cpp",
                "assets/cody/scenes/generated/scene_body_font.cpp")
     command = compile_command(compiler, includes, sources, executable,

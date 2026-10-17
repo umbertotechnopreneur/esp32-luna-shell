@@ -19,6 +19,7 @@
 #include <cstdint>
 #include "esp_err.h"
 #include "codex_audio_assets.hpp"
+#include "CODY_question_audio.hpp"
 
 namespace CODY {
 
@@ -34,10 +35,14 @@ struct CodexAudioStatus {
     CodexAudioCue cue = CodexAudioCue::None;
 };
 
-// cue: One newly observed semantic transition, never a polling/repaint event.
+// cue: Authored semantic cue or due question reminder, never a polling/repaint event.
 // status: Receives admitted/dropped/suppressed disposition; Dispatched is not completed playback.
 // Exception: Returns rejected identities or the original shared audio owner error.
 esp_err_t notify_codex_audio(CodexAudioCue cue, CodexAudioStatus &status);
+// alert: One sustained soft bell or shorter reminder for a currently pending question.
+// status: Receives the shared owner's actual admission result; dropped cues are not queued.
+// Exception: Returns an invalid alert identity or the original audio-owner failure.
+esp_err_t notify_question_audio(QuestionAudioAlert alert, CodexAudioStatus &status);
 // suspended: True when the companion presentation is hidden; cancels pending audio without replay.
 // Exception: Returns the original retained owner error.
 esp_err_t set_codex_audio_suspended(bool suspended);

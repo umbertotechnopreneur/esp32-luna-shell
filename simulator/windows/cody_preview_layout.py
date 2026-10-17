@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+from PIL import Image
 
 
 SIZE = 466
@@ -27,6 +28,16 @@ LABEL_MARGIN = 230
 LABEL_PAGE_SIZE = 36
 VIEW_PADDING = 12
 CARDINAL_ROTATIONS = (0, 90, 180, 270)
+
+
+# image: Completed native 466 x 466 framebuffer, including the device's original antialiasing.
+# zoom: Positive integer number of physical desktop pixels per device pixel.
+# Raises ValueError for a non-native source size or fractional/nonpositive zoom.
+def enlarge_framebuffer(image, zoom):
+    if image.size != (SIZE, SIZE) or type(zoom) is not int or zoom < 1:
+        raise ValueError(f"Native preview requires a 466 x 466 source and integer zoom: {image.size}, {zoom!r}")
+    # Preserve every source RGB value as a uniform NxN block; no host smoothing is admitted.
+    return image.resize((SIZE * zoom, SIZE * zoom), Image.Resampling.NEAREST)
 
 
 # x is the horizontal coordinate in the native logical display.
@@ -65,7 +76,7 @@ class PreviewLayout:
     left: int
     top: int
     margin: int
-    scale: float
+    scale: int
 
     # width is the available desktop canvas width in pixels.
     # height is the available desktop canvas height in pixels.
@@ -78,13 +89,15 @@ class PreviewLayout:
         if type(show_labels) is not bool:
             raise ValueError("Preview label visibility must be boolean")
         side_reserve = min(LABEL_MARGIN, width * .23) if show_labels else 0
-        # The square is fitted once; all annotation and input coordinates reuse it.
+        # Pixel replication is always integral. A viewport smaller than one native
+        # frame clips its centered edges until enlarged; it never resamples them.
         available_width = width - 2 * (VIEW_PADDING + side_reserve)
         available_height = height - 2 * VIEW_PADDING
-        image_size = max(1, math.floor(min(available_width, available_height)))
+        zoom = max(1, math.floor(min(available_width, available_height) / SIZE))
+        image_size = SIZE * zoom
         left = (width - image_size) // 2
         top = (height - image_size) // 2
-        return PreviewLayout(width, height, image_size, left, top, left, image_size / SIZE)
+        return PreviewLayout(width, height, image_size, left, top, max(0, left), zoom)
 
     # self holds the immutable placement of the last displayed frame.
     # x is a native logical point's horizontal coordinate, including fractional positions.
@@ -107,6 +120,22 @@ class PreviewLayout:
                 self.top <= y < self.top + self.image_size):
             return None
         return logical_touch((x - self.left) / self.scale, (y - self.top) / self.scale, rotation)
+
+    # self: Immutable layout used by the last published framebuffer.
+    # x: Original physical desktop pointer x inside the Canvas widget.
+    # y: Original physical desktop pointer y inside the Canvas widget.
+    # rotation: Actual displayed cardinal orientation, never a pending selection.
+    # Returns one exact native pixel for every point in its NxN block, or None outside the shown image.
+    # Raises ValueError for an unsupported display rotation.
+    def to_device_pixel(self, x, y, rotation):
+        if rotation not in CARDINAL_ROTATIONS:
+            raise ValueError(f"Unsupported rotation: {rotation}")
+        if not (0 <= x < self.width and 0 <= y < self.height and
+                self.left <= x < self.left + self.image_size and
+                self.top <= y < self.top + self.image_size):
+            return None
+        return logical_touch(math.floor((x - self.left) / self.scale),
+                             math.floor((y - self.top) / self.scale), rotation)
 
     # self supplies the available height of the current preview viewport.
     # row_height is the measured desktop font line height plus label spacing.

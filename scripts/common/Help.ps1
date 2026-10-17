@@ -57,6 +57,7 @@ function Show-DeviceHelp {
     Write-DeviceHelpEntry -Syntax 'Device.ps1 package-simulator' -Description 'Prepare local Python dependencies and package the Luna simulator EXE.' -Detail 'This packages Luna; the Cody simulator remains source-based.' -Width $width
 
     Write-DeviceHelpSection -Title 'FIRMWARE' -Icon '🔨' -Width $width -Color Cyan
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 codex-audio -EnableAudioQueue [-CodexExecutable <path>]' -Description 'Opt in to public experimental WAV queue delivery in the genuine followed chat. Uses the installed native CLI; no listener, API key or transcription service.' -Detail 'Without EnableAudioQueue, inspect the executable only. InstallAudioDependencies is explicit. The queue client never starts or resumes a model session. Queue admission is not transcription or understanding. Reload CCP after successful setup.' -Width $width
     Write-DeviceHelpSection -Title 'Build and configuration' -Icon '🎯' -Width $width -Subsection
     foreach ($name in @('set-target','build','reconfigure','update-lock','size')) {
         $syntax = switch ($name) {
@@ -88,6 +89,7 @@ function Show-DeviceHelp {
     }
     Write-DeviceHelpEntry -Syntax 'Device.ps1 monitor -Port COM10 -Baud 115200 -ResetBeforeMonitor' -Description 'Explicitly reset the device when the monitor starts so the new boot is visible.' -Detail 'Ordinary monitor attach uses --no-reset and opens the port only through ESP-IDF; it does not stop an existing monitor. Close the application using that port yourself before retrying a busy-port failure.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 sd-log -Port COM10 -StoredLog previous' -Description 'Download the retained previous SD log over native USB into artifacts/serial/sd-log-previous.log.' -Detail 'Requires the updated firmware, an awake device and a mounted SD. Close the monitor first. No reset or format is requested; each block is checked before replacing the local output file.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 endurance-read -Port COM10' -Description 'Read canonical current and previous endurance records into artifacts/serial/endurance.json plus the checked .wire frame.' -Detail 'Works at Release WARN logging. Close the monitor first; requires matching firmware. No reset, sensor refresh or device write. An unavailable recorder saves its verified failure state and returns a failing command result; USB transfer success is separate. USB connection itself may end a battery-only session; elapsed time remains a lower bound, never a measured death time.' -Width $width
     Write-DeviceHelpSection -Title 'Programming and recovery' -Icon '⚡' -Width $width -Color Yellow -Subsection
     foreach ($name in @('flash','reset','combo','recover','erase')) {
         Write-DeviceHelpEntry -Syntax "Device.ps1 $name -Port COM8" -Description $firmware[$name].Description -Width $width
@@ -118,6 +120,7 @@ function Show-DeviceHelp {
     Write-DeviceHelpEntry -Syntax '-Profile <name> / -BoardConfig <path.yaml>' -Description 'Default profile: cody-companion. BoardConfig chooses its own profile and feature; do not combine it with -Profile or -Feature.' -Width $width
     Write-DeviceHelpText -Text 'Profiles: cody-companion, full, connected, ui-minimal, display-touch, headless, leg-edition. Features: none (default), distance, wake-word, tts-sd or tts-flash. TTS is supported on cody-companion and full only. tts-sd enables the Italian boot test; tts-flash starts silently. Synthesis uses core 0 and the renderer core 1.' -Width $width
     Write-DeviceHelpEntry -Syntax '-BuildMode Debug|Release / -Jobs 0..8' -Description 'Default mode: Debug. Jobs defaults to 0 (automatic, capped at 8).' -Width $width
+    Write-DeviceHelpEntry -Syntax '-ActivityClassifier [-ActivityCapture]' -Description 'Opt-in pretrained HAR observer on cody-companion with wake-word retained. Requires the local activity-model generator output. Capture logs real labeled-export inputs; neither option trains a model or changes power policy.' -Width $width
     Write-DeviceHelpEntry -Syntax '-BuildDir / -IdfPath / -ToolsPath' -Description 'Override the selected build directory or the ESP-IDF installation/tool paths.' -Width $width
 
     Write-DeviceHelpSection -Title 'Preview and connection options' -Icon '📐' -Width $width -Subsection

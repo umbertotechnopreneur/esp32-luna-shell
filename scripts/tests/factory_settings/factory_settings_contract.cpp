@@ -42,6 +42,12 @@ std::map<std::string, uint64_t> staged;
 std::map<std::string, uint64_t> persisted;
 std::map<std::string, uint64_t> foreign_namespace{{"preserve", 429U}};
 std::vector<Operation> operations;
+size_t blob_size = 112;
+esp_err_t blob_size_error = ESP_OK;
+esp_err_t blob_data_error = ESP_OK;
+bool blob_short_read = false;
+unsigned blob_copies = 0;
+unsigned allocations = 0;
 
 // handle: Only the dedicated settings namespace may be addressed.
 // operation: Exact fake SDK operation admitted by the real worker dispatcher.
@@ -264,14 +270,26 @@ esp_err_t nvs_set_blob(nvs_handle_t, const char *, const void *, size_t)
     std::abort();
 }
 
-// Unnamed handle: Blob reads are outside this fixture's reset coverage.
-// Unnamed key: Unused requested blob key.
-// Unnamed value: Unused blob destination.
-// Unnamed size: Unused blob destination size.
-// Exception: Aborts on an unexpected dependency instead of returning fabricated data.
-esp_err_t nvs_get_blob(nvs_handle_t, const char *, void *, size_t *)
+// handle: Dedicated settings namespace, reached only from its executor.
+// key: The explicit bounded blob contract fixture identity.
+// value: Internal owner buffer, or null for the size-only query.
+// size: Measured stored size or completed byte count.
+// Exception: Returns the injected original NVS read error.
+esp_err_t nvs_get_blob(nvs_handle_t handle, const char *key, void *value, size_t *size)
 {
-    std::abort();
+    fixture::observe(handle, fixture::Operation::Read);
+    assert(std::string(key) == "bounded_blob");
+    if (value == nullptr) {
+        if (fixture::blob_size_error != ESP_OK) return fixture::blob_size_error;
+        *size = fixture::blob_size;
+        return ESP_OK;
+    }
+    ++fixture::blob_copies;
+    if (fixture::blob_data_error != ESP_OK) return fixture::blob_data_error;
+    assert(*size == 112);
+    std::memset(value, 0x42, *size);
+    if (fixture::blob_short_read) --*size;
+    return ESP_OK;
 }
 
 // handle: Dedicated user namespace, checked at the SDK boundary.
@@ -336,6 +354,7 @@ void nvs_release_iterator(nvs_iterator_t iterator)
 void *heap_caps_malloc(size_t size, uint32_t capabilities)
 {
     assert(capabilities == (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    ++fixture::allocations;
     return std::malloc(size);
 }
 
@@ -440,6 +459,47 @@ int main()
     assert(fixture::operations.empty() && !LUNASHELL::s_factory_reset_sealed.load());
     assert(settings.initialize() == ESP_OK);
     assert((fixture::operations == std::vector<Operation>{Operation::FlashInit, Operation::Open}));
+
+    // The real bounded API checks storage size before any allocation or data read.
+    uint8_t destination[112];
+    std::memset(destination, 0xA5, sizeof(destination));
+    // No parameters: require the caller buffer to retain its original sentinel.
+    const auto unchanged = [&destination]() {
+        for (uint8_t byte : destination) assert(byte == 0xA5);
+    };
+    for (size_t invalid_size : {size_t(0), size_t(111), size_t(113), size_t(1000000)}) {
+        fixture::blob_size = invalid_size;
+        const unsigned allocated = fixture::allocations;
+        const unsigned copies = fixture::blob_copies;
+        assert(settings.getBlobExact("bounded_blob", destination, sizeof(destination)) == ESP_ERR_INVALID_SIZE);
+        assert(fixture::allocations == allocated && fixture::blob_copies == copies);
+        unchanged();
+    }
+    fixture::blob_size = 112;
+    for (esp_err_t error : {ESP_ERR_NVS_NOT_FOUND, esp_err_t(0x1103), ESP_FAIL}) {
+        fixture::blob_size_error = error;
+        const unsigned allocated = fixture::allocations;
+        assert(settings.getBlobExact("bounded_blob", destination, sizeof(destination)) == error);
+        assert(fixture::allocations == allocated);
+        unchanged();
+    }
+    fixture::blob_size_error = ESP_OK;
+    fixture::blob_data_error = ESP_ERR_TIMEOUT;
+    assert(settings.getBlobExact("bounded_blob", destination, sizeof(destination)) == ESP_ERR_TIMEOUT);
+    unchanged();
+    fixture::blob_data_error = ESP_OK;
+    fixture::blob_short_read = true;
+    assert(settings.getBlobExact("bounded_blob", destination, sizeof(destination)) == ESP_ERR_INVALID_SIZE);
+    unchanged();
+    fixture::blob_short_read = false;
+    assert(settings.setPowerOffSealed(true) == ESP_OK);
+    const auto sealed_operations = fixture::operations;
+    assert(settings.getBlobExact("bounded_blob", destination, sizeof(destination)) == ESP_ERR_INVALID_STATE);
+    assert(fixture::operations == sealed_operations);
+    unchanged();
+    assert(settings.setPowerOffSealed(false) == ESP_OK);
+    assert(settings.getBlobExact("bounded_blob", destination, sizeof(destination)) == ESP_OK);
+    for (uint8_t byte : destination) assert(byte == 0x42);
 
     fixture::new_case();
     assert(settings.setUInt32("before_reset", 92U) == ESP_OK);

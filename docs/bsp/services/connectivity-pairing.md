@@ -76,6 +76,33 @@ New UI consumers read `DeviceSnapshot.radios.pairing` or the same canonical
 connectivity projection. No callback into the renderer is necessary. The
 pairing snapshot contains no QR or authentication secret.
 
+## Cody wake reconnect
+
+Paired Cody normally retains its Wi-Fi/CCP owners in software standby. A wake
+therefore does not require a new DHCP lease when the actual association survives.
+Retained traffic is admitted from the valid canonical Wi-Fi state even during
+EnteringStandby/Waking; display animation is not a network-readiness condition.
+
+After a completed wake, the Wi-Fi owner may shorten one already-pending reconnect
+wait to one second. It does not change the ordinary 1/2/4/8/16/30-second backoff,
+start a new connection intent, reopen provisioning, interrupt an active connection
+or postpone a nearer/due attempt. A queued timer command owns its deadline;
+stale callbacks cannot retire a newer retry. Errors remain in the owner snapshot.
+
+The same wake and a successful acquired-IP event prompt the existing CCP worker
+to send its next FIND without the ordinary two-second wait. Prompts coalesce and
+remain bound to the current attempt; explicit Pair/Cancel/Forget commands win.
+Only a fresh authenticated READY proves PC presence. Nonce/endpoint checks,
+COMMITTED admission and the eight-second presence expiry remain unchanged.
+The PC responder already replies to FIND immediately; normal Cody standby does
+not restart the PC broker or wait for its ten-second lease renewal.
+
+These scheduling changes do not establish an end-to-end latency guarantee. A
+real association/DHCP delay, lost datagram or failed PC broker can still delay
+recovery. Correlate completed-wake, Wi-Fi Online and the new authenticated-peer
+connection log before attributing a particular observed delay. Visual wake and
+battery presentations have their own duration and do not block the network owner.
+
 ## Delivery boundary
 
 The cleanup/admission separation and retained-error cancellation behavior have

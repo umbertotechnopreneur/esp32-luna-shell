@@ -338,7 +338,7 @@ def verify_documents() -> None:
     require_binding(detail, "labelProps.text", "text", "power metric detail")
 
 
-# Check the named Battery route and its binding contract in the current source layout.
+# No parameters: inspect the current Battery route and bounded canonical BLE projection.
 # Raises OSError or AssertionError for missing sources or rejected Battery contracts.
 def verify_firmware_contract() -> None:
     app = read("components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
@@ -740,13 +740,16 @@ def verify_firmware_contract() -> None:
         "static int LUNASHELL_gatt_access(",
         "LUNASHELL_radios.cpp",
     )
+    require_contains(gatt_access, "BleTelemetryObservation snapshot;", "bounded BLE telemetry owner")
+    require_contains(gatt_access, ".readBleTelemetryObservation(snapshot)", "canonical BLE projection read")
+    require_contains(gatt_access, "return BLE_ATT_ERR_INSUFFICIENT_RES;", "BLE canonical read failure")
     require_regex(
         gatt_access,
         r"const\s+bool\s+battery_valid\s*=\s*"
         r"has_fresh_data\(snapshot\.battery\)\s*&&\s*"
-        r"snapshot\.battery\.level_percent_valid\s*&&\s*"
-        r"snapshot\.battery\.level_percent\s*>=\s*0\s*&&\s*"
-        r"snapshot\.battery\.level_percent\s*<=\s*100",
+        r"snapshot\.battery_level_percent_valid\s*&&\s*"
+        r"snapshot\.battery_level_percent\s*>=\s*0\s*&&\s*"
+        r"snapshot\.battery_level_percent\s*<=\s*100",
         "BLE percentage validity gate",
     )
     require_contains(

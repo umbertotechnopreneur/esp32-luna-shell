@@ -118,6 +118,9 @@ static uint32_t s_boot_dropped_total;
 static bool s_boot_replay_complete;
 static bool s_boot_lines_external;
 static atomic_bool s_boot_archive_requested;
+static atomic_bool s_boot_archive_started;
+static atomic_bool s_boot_archive_completed;
+static atomic_int s_boot_archive_error;
 static portMUX_TYPE s_capture_status_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t s_format_dropped_lines;
 static uint32_t s_queue_dropped_lines;
@@ -1049,6 +1052,10 @@ static void writer_task(void *arg)
     while (true) {
         if (atomic_exchange_explicit(&s_boot_archive_requested, false, memory_order_acquire)) {
             const esp_err_t archive_error = archive_boot_records();
+            // The helper returns only after freeing the internal allocation.
+            // Publish completion separately from the earlier protected pointer swap.
+            atomic_store_explicit(&s_boot_archive_error, archive_error, memory_order_relaxed);
+            atomic_store_explicit(&s_boot_archive_completed, true, memory_order_release);
             if (archive_error != ESP_OK) {
                 // The helper retained the error and original records. Do not
                 // retry allocations in a loop or stop other best-effort sinks.
@@ -1400,7 +1407,7 @@ esp_err_t LUNASHELL_logger_init(void)
 }
 
 // No parameters: seal records under their producer lock, then wake their sole owner.
-// Exception: Returns the original state/notification failure; no flush is awaited.
+// Exception: Returns the original state/notification/archive failure; no flush is awaited.
 esp_err_t LUNASHELL_logger_finish_boot_capture(void)
 {
     if (!s_initialized) {
@@ -1409,6 +1416,10 @@ esp_err_t LUNASHELL_logger_finish_boot_capture(void)
         serial_printf("E (0) %s: Boot capture finish rejected: %s\n", TAG, esp_err_to_name(error));
         return error;
     }
+    if (atomic_exchange_explicit(&s_boot_archive_started, true, memory_order_acq_rel)) {
+        return atomic_load_explicit(&s_boot_archive_completed, memory_order_acquire)
+            ? atomic_load_explicit(&s_boot_archive_error, memory_order_relaxed) : ESP_OK;
+    }
     portENTER_CRITICAL(&s_boot_lock);
     s_boot_collecting = false;
     portEXIT_CRITICAL(&s_boot_lock);
@@ -1416,8 +1427,35 @@ esp_err_t LUNASHELL_logger_finish_boot_capture(void)
     const esp_err_t notification_error = notify_writer_state_change("boot-archive");
     if (notification_error != ESP_OK) {
         record_capture_loss(NULL, notification_error);
+        atomic_store_explicit(&s_boot_archive_error, notification_error, memory_order_relaxed);
+        atomic_store_explicit(&s_boot_archive_completed, true, memory_order_release);
     }
     return notification_error;
+}
+
+// timeout_ms: Bounded startup wait; completion belongs exclusively to the writer.
+// Exception: Returns original archive/init/notification failure or the actual wait timeout.
+esp_err_t LUNASHELL_logger_finish_boot_capture_wait(uint32_t timeout_ms)
+{
+    if (timeout_ms == 0U || timeout_ms > 5000U) {
+        ESP_LOGE(TAG, "Boot archive wait rejected: timeout_ms=%lu (%s)",
+            (unsigned long)timeout_ms, esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t request_error = LUNASHELL_logger_finish_boot_capture();
+    if (request_error != ESP_OK) {
+        return request_error;
+    }
+    const int64_t deadline_us = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+    while (!atomic_load_explicit(&s_boot_archive_completed, memory_order_acquire)) {
+        if (esp_timer_get_time() >= deadline_us) {
+            ESP_LOGE(TAG, "Boot archive completion timed out after %lu ms; owner retains pending work (%s)",
+                (unsigned long)timeout_ms, esp_err_to_name(ESP_ERR_TIMEOUT));
+            return ESP_ERR_TIMEOUT;
+        }
+        vTaskDelay(1);
+    }
+    return atomic_load_explicit(&s_boot_archive_error, memory_order_relaxed);
 }
 
 esp_err_t LUNASHELL_logger_set_io_watch(

@@ -22,7 +22,8 @@
 
 namespace LUNASHELL {
 
-enum class CodexDebugScreen : uint8_t { Normal, FaceChannels, Character };
+// Identity 1 belonged to the removed face-channel screen and must not be reused.
+enum class CodexDebugScreen : uint8_t { Normal = 0, Character = 2 };
 
 struct CodexDebugScreenRequest {
     CodexDebugScreen screen = CodexDebugScreen::Normal;
@@ -30,7 +31,7 @@ struct CodexDebugScreenRequest {
     char request_id[33]{};
 };
 
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG && CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && \
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && \
     CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
 // request: Receives one authenticated, unexpired command for the rendering worker.
 // Exception: Returns NOT_FOUND for no pending request; no sensors or settings are read.

@@ -116,6 +116,7 @@ std::atomic<esp_err_t> s_poison_error{ESP_OK};
 std::atomic<uint32_t> s_completed_generation{0};
 uint32_t s_next_generation = 0;
 std::atomic<bool> s_factory_reset_sealed{false};
+bool s_power_off_sealed = false; // Protected by the service mutex.
 
 // operation: Typed internal executor operation for secret-free diagnostic names.
 const char *operation_name(SettingsOperation operation)
@@ -250,6 +251,10 @@ esp_err_t prepare_request(
     const char *key = nullptr
 )
 {
+    if (s_power_off_sealed) {
+        log_operation_failure(operation, key, ESP_ERR_INVALID_STATE);
+        return ESP_ERR_INVALID_STATE;
+    }
     const bool writes_settings = operation == SettingsOperation::SetU8 ||
         operation == SettingsOperation::SetI32 || operation == SettingsOperation::SetU32 ||
         operation == SettingsOperation::SetI64 || operation == SettingsOperation::SetU64 ||
@@ -1042,6 +1047,54 @@ esp_err_t UserSettingsService::setBlob(const char *key, const void *data, size_t
     return submit_request();
 }
 
+// key: Exact record whose type and length must already match the caller's schema.
+// data: Caller-owned bounded destination, unchanged on a failed operation.
+// size: Required nonzero byte count; persisted length never controls allocation.
+// Exception: Returns the original owner/NVS failure or mismatched record size.
+esp_err_t UserSettingsService::getBlobExact(const char *key, void *data, size_t size) const
+{
+    if (data == nullptr || size == 0) {
+        log_operation_failure(SettingsOperation::GetBlob, key, ESP_ERR_INVALID_ARG);
+        return ESP_ERR_INVALID_ARG;
+    }
+    std::lock_guard<std::mutex> lock(_mutex);
+    esp_err_t error = ensureInitialized();
+    if (error == ESP_OK) {
+        error = prepare_request(SettingsOperation::GetBlobSize, _handle, key);
+    }
+    if (error == ESP_OK) {
+        error = submit_request();
+    }
+    if (error == ESP_OK && s_request.size != size) {
+        error = ESP_ERR_INVALID_SIZE;
+    }
+    if (error != ESP_OK) {
+        log_operation_failure(SettingsOperation::GetBlob, key, error);
+        return error;
+    }
+    error = prepare_request(SettingsOperation::GetBlob, _handle, key);
+    if (error != ESP_OK) {
+        return error;
+    }
+    s_request_buffer = allocate_internal(size, SettingsOperation::GetBlob, key);
+    if (s_request_buffer == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    RequestBufferReleaseGuard release_buffer;
+    s_request.data = s_request_buffer.get();
+    s_request.size = size;
+    error = submit_request();
+    if (error == ESP_OK && s_request.size != size) {
+        error = ESP_ERR_INVALID_SIZE;
+    }
+    if (error == ESP_OK) {
+        std::memcpy(data, s_request_buffer.get(), size);
+    } else {
+        log_operation_failure(SettingsOperation::GetBlob, key, error);
+    }
+    return error;
+}
+
 esp_err_t UserSettingsService::getBlob(const char *key, std::vector<uint8_t> *data) const
 {
     if (data == nullptr) {
@@ -1151,6 +1204,24 @@ esp_err_t UserSettingsService::resetOwnedNamespaceForFactoryReset()
     // only a newly explicit factory-reset retry may erase again before reboot.
     s_factory_reset_sealed.store(true, std::memory_order_release);
     return submit_request();
+}
+
+// sealed: The power owner seals persistence only after producers have quiesced.
+// Exception: Preserves timed-out/in-flight executor failures instead of assuming writes ended.
+esp_err_t UserSettingsService::setPowerOffSealed(bool sealed)
+{
+    std::lock_guard<std::mutex> lock(_mutex);
+    const auto state = s_executor_state.load(std::memory_order_acquire);
+    if (state != SettingsExecutorState::Ready) {
+        const esp_err_t error = state == SettingsExecutorState::Poisoned
+            ? executor_poison_error() : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Power-off persistence seal rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    // Every setter synchronously commits on the internal-stack executor while
+    // holding this same mutex. Ready therefore proves prior owner work retired.
+    s_power_off_sealed = sealed;
+    return ESP_OK;
 }
 
 }  // namespace LUNASHELL

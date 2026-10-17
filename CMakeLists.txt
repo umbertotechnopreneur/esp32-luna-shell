@@ -71,11 +71,10 @@ if(NOT DEFINED LUNASHELL_BUILD_MODE OR
    NOT LUNASHELL_BUILD_MODE MATCHES "^(Debug|Release)$")
     message(FATAL_ERROR "Explicit firmware build mode is missing; use scripts/device.ps1")
 endif()
-# The panic component must be discovered before Kconfig can select UART dumps.
-# Debug/Release remains independent of hardware and UI profile selection.
-if(LUNASHELL_BUILD_MODE STREQUAL "Debug")
-    list(APPEND COMPONENTS espcoredump)
-endif()
+# Both mode defaults select a panic policy, so its Kconfig must be discovered
+# even when Release selects NONE. That selection links no core-dump sources.
+# Keeping discovery explicit also lets a fresh native display profile configure.
+list(APPEND COMPONENTS espcoredump)
 if(NOT DEFINED LUNASHELL_DEPENDENCIES_LOCK OR
    LUNASHELL_DEPENDENCIES_LOCK STREQUAL "")
     message(FATAL_ERROR
@@ -276,6 +275,45 @@ foreach(brookesia_component ${brookesia_build_components})
         endif()
     endif()
 endforeach()
+
+# Apply after ESP-DL's own -O3. Keep renderers, Sophia and assembly optimized
+# for speed; size-optimize the observer and control plane within existing OTA slots.
+if(CONFIG_LUNASHELL_ACTIVITY_MODEL)
+    idf_component_get_property(activity_dl_library espressif__esp-dl COMPONENT_LIB)
+    target_compile_options(${activity_dl_library} PRIVATE
+        "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>"
+        "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-usage>")
+    # Storage, OTA, provisioning and HTTP are control-plane services; size-optimize
+    # their source libraries rather than changing model assets or OTA geometry.
+    foreach(activity_control_component LUNASHELL_platform LUNASHELL_logger main
+            nvs_flash app_update espressif__network_provisioning esp_http_server protocomm)
+        idf_component_get_property(activity_control_library ${activity_control_component} COMPONENT_LIB)
+        target_compile_options(${activity_control_library} PRIVATE
+            "$<$<COMPILE_LANGUAGE:C,CXX>:-Os>"
+            "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-usage>")
+    endforeach()
+    # Control, policy and diagnostic panels need a bounded flash footprint.
+    # Keep drawing, the geometric rig and benchmark translation units at speed.
+    idf_component_get_property(activity_cody_library CODY_companion COMPONENT_LIB)
+    # Compiler sidecars remain in this build's artifacts; they do not change
+    # firmware behavior and make schema/callback stack growth reviewable.
+    target_compile_options(${activity_cody_library} PRIVATE
+        "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-usage>")
+    # Include the nested native raster helpers in the same compiler-only evidence.
+    # Preserve their optimization level and the device's existing task budgets.
+    idf_component_get_property(activity_cody2d_library CODY2D COMPONENT_LIB)
+    target_compile_options(${activity_cody2d_library} PRIVATE
+        "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-usage>")
+    get_target_property(activity_cody_sources ${activity_cody_library} SOURCES)
+    foreach(activity_cody_source IN LISTS activity_cody_sources)
+        if(activity_cody_source MATCHES "(^|/)src/(runtime|scenes|model|diagnostics)/.*[.]cpp$" AND
+           NOT activity_cody_source MATCHES "/CODY_(rig|benchmark|raster_benchmark|jelly_simd_validation)[.]cpp$")
+            set_property(SOURCE "${activity_cody_source}"
+                DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/components/CODY_companion"
+                APPEND PROPERTY COMPILE_OPTIONS -Os)
+        endif()
+    endforeach()
+endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_TTS AND CONFIG_LUNASHELL_BUILD_ENABLE_UI)
     # Supply the shared core constants without a circular LVGL/BSP dependency.
