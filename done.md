@@ -15,6 +15,43 @@ private local diagnostics, not publication artifacts.
 
 
 
+## Native touch wake and retained diagnostics - 2026-10-17
+
+Implemented in 70678d9f; source-contract integration in 99b167b3. The native
+touch ISR now retains the same independent raw IRQ generation used by Luna.
+The power owner can wake software standby even when the coordinate report
+fails; only the existing input owner acquires/publishes actual touch data.
+Offline manual wake and its first-contact recording policy are preserved.
+
+The bounded RTC breadcrumb now marks each typed resource before/after its
+operation, with ordered volatile publication, original errors and completion
+state. Its early startup report precedes other boot-log traffic, and lifecycle
+boundaries remain compiled in Release. RTC-domain/schema loss stays unavailable.
+The first SD mirror activation flushes a version/reset identity; retrying a
+failed identity write does not rotate over the previous boot again.
+
+The recovered 494,054-byte previous log identifies cody-114-g33377507 with
+October 11 UTC observations, successful wakes and later CST9217/display-lock
+errors. The then-current file was empty on both reads. Those old observations
+do not establish today's failed-wake cause. Copies survived build cleanup under
+artifacts/build-cody-wake-evidence-20261017/readback-before-change/.
+
+ESP-IDF 6.0.2 Release cody-224-g99b167b3, wake word and activity classifier,
+was delivered to COM10. App: 6,926,768 bytes; SHA-256
+83ed2d51c8af8bfd7711701c4579cef1e4cf74119d44ffcdd0d2d47071985bfc.
+All five flash segment hashes were verified and esptool requested an RTS reset.
+The first build at eight jobs and the flash pre-build at four jobs hit the same
+GCC internal segmentation fault in unchanged ESP-DSP dspi_conv_f32_ansi.c.
+Incremental retries at four and one job passed without changing library source
+or compiler flags. Full logs and the final per-segment manifest are under
+artifacts/build-cody-wake-evidence-20261017/.
+
+Static source review, build and flash are the evidence for this delivery.
+No automated suite, simulator, separate size report, whitespace/dependency/
+legacy scan, post-flash capture or physical wake trial was executed. Original
+failure causation, current-image wake behavior, SD identity readback and device
+stack headroom remain open in TODO.md. No push was requested or performed.
+
 ## Approval-notice source fix, host checks and firmware flash - 2026-10-17
 
 Source checkpoint `ce83bd1` corrects repeated native approval notices in the PC

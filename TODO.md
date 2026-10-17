@@ -1,17 +1,25 @@
 # Active work
 
-## Standby wake hardening - 2026-10-17
+## Standby wake hardening - delivered, physical acceptance pending
 
-- Native touch-IRQ wake now operates independently of coordinate-read success.
-- Resource-level RTC breadcrumbs are reported before the boot backlog fills.
-- The SD session identity is flushed before asynchronous logger admission.
-- The owner-authorized Release build passed at four jobs after an initial GCC
-  internal compiler error at eight jobs in unchanged ESP-DSP source. COM10 flash
-  is pending. Automated tests, simulator checks, size reports and physical wake
-  acceptance remain unexecuted; the existing source-contract lookup is aligned
-  with the renamed resource owner without executing that check.
-- Preserve recovered logs under artifacts/build-cody-wake-evidence-20261017/
-  before transient cleanup.
+- Source checkpoints 70678d9f and 99b167b3 decouple native touch-IRQ wake from
+  coordinate-read success, retain resource-level RTC breadcrumbs and report
+  them before boot-log overflow, and flush an SD session identity before
+  asynchronous writer admission.
+- Release cody-224-g99b167b3 was built and flashed on COM10 on 17 October.
+  All five segment hashes were verified; the tool requested its RTS reset.
+- The original failure remains unproven. Verify physical touch/PWR wake,
+  rejected-touch-report behavior, retained diagnostics after a reset and the
+  current-image SD identity before claiming device acceptance.
+- No automated tests, simulator, separate size, dependency/legacy scans or
+  whitespace check were run for this narrower build/flash request. The
+  existing source-contract lookup was aligned without executing the check.
+- GCC crashed twice in unchanged ESP-DSP dspi_conv_f32_ansi.c during complete
+  recompilation (eight/four jobs). Incremental retries passed at four/one job;
+  no source or compiler-flag workaround was applied. The toolchain cause
+  remains undiagnosed; retain both failures.
+- Evidence and recovered historical logs:
+  artifacts/build-cody-wake-evidence-20261017/.
 
 ## Earlier delivery record
 
