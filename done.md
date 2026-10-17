@@ -14,6 +14,87 @@ path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
 
+
+## Debug footprint, dependency locks and PDF validation - 2026-10-17
+
+The owner authorized all automatic checks, compilation, checkpoint commits,
+push and USB flash. The three requested implementation gates are resolved:
+
+- **BUILD-DEBUG-OTA-01:** Exact nonzero-alpha storage bounds reduce the existing
+  sprite payload from 1,778,624 to 1,475,720 bytes, saving 302,904 flash bytes.
+  Full raw indexed/coverage planes and PNGs remain byte-identical. Native tests
+  compare all logical pixels and the rendered output for fourteen assets, two
+  byte orders and two opacities; bounded rows retain their existing ownership.
+  Both modes preserve their original compiler policy, diagnostics, task stacks
+  and OTA/storage geometry. The earlier general-code size attempt still exceeded
+  Debug by 73,232 bytes and was removed; its failed evidence remains local.
+- **PROFILE-LOCKS-01:** Both formerly missing canonical locks are generated and
+  checked: display-touch has nine dependencies; full-wake-word has 46. IDF is
+  6.0.2 and Luna uses official Brookesia 0.8. Cody's existing lock only refreshes
+  its manifest hash, without changing dependency identities or versions.
+  New-graph rules do not read invisible Kconfig values. The LVGL 9.5 patch now
+  applies to the pinned upstream source. A full build exposed the missing public
+  LVGL image-cache declaration; including its documented header fixes the cause.
+- **CODY-DOC-TOPOLOGY-01:** The checker distinguishes the two publisher pages
+  from the retained body and validates actual register/Security bookmarks.
+  The current CCP guide describes diagnostics in both modes and local Memory;
+  its ten-page visual body delegates exact protocol fields to CCP1.md and keeps
+  historical corrections and Security in the final revision register.
+  The quickstart publisher now preserves exactly four A5 instructional pages,
+  with direct bookmarks and correct page labels; it adds no technical appendix.
+  Both revised PDFs were rendered, visually reviewed and copied byte-for-byte
+  to the required Obsidian atlas directory. Other canonical PDFs are unchanged.
+
+The full automatic run recorded 47/48 passing check invocations plus two passing
+native graphics/audio preparations. Its PDF failure was repaired and the final
+`cody-context-documents` invocation passed, rendering all four documents. Latest
+consolidated evidence is **48/48 automatic checks passed**; the failed full run
+is preserved rather than rewritten. This includes CCP 142 cases, CCP/Studio 47,
+Character Studio 29 with real Windows Tk/canvas capture, the native personality
+pixel/render parity checks, the complete profile catalog, the production power
+owner with fake peripherals and both selected compiled-frame checks. Native
+SIMD arithmetic is a host model, not execution of S3 assembly. Native public hook
+metadata discovery passed; it does not prove a live hook or user prompt ran.
+
+Four builds and four size reports passed at eight jobs. Initial validated images:
+
+| Profile | Source / version | App bytes | Free OTA bytes |
+| --- | --- | ---: | ---: |
+| display-touch Release | 18a363c0 / cody-214-g18a363c0 | 396,976 | 7,401,808 |
+| full-wake-word Release | dacb2ed2 / cody-215-gdacb2ed2 | 6,445,232 | 829,264 |
+| Cody wake-word/activity Debug | dacb2ed2 / cody-215-gdacb2ed2 | 7,081,968 | 192,528 |
+| Cody wake-word/activity Release | dacb2ed2 / cody-215-gdacb2ed2 | 6,925,344 | 349,152 |
+
+The display-touch slot is 7,798,784 bytes; other selected slots are 7,274,496.
+The later boot-header change is excluded from display-touch. Full-wake-word's
+configuration enables LC76G acquisition; a passing build is not sensor evidence.
+Initial app SHA256, in table order:
+
+- `f600abb25fcbfb02084af07d9ea36ee3be395402e289f35ecccec6392e15b513`
+- `edd96767ed977dc2cd13b58c0b5750e2373f7506b6330dae0692b71a01fe1d9a`
+- `31fd79ce2a10a12344138e1f4a8fb41b9f070dc06ce9f5e10ea079d68ce6c013`
+- `d565cad5ef1cfd661bda45d0ece527fa9fb72fabfa50ba9b942cd16b886aab91`
+
+PDF SHA256: CCP `3643215a4bd38bc7186fc89acd3911f4963caff1dbf783abd47671a188a576e0`;
+quickstart `7d96d691a9d38aaa6fb6341b3826b7f942b5f8192e29698250415d800807b703`.
+Evidence and exact commands are retained under
+`artifacts/build-cody-delivery-evidence-20261017/`, including the full-run and
+firmware manifests, first failures, targeted PDF recheck and rendered pages.
+
+The stale POWER-ACTIVITY-CHECKS backlog item is closed for automatic evidence.
+Its earlier USB worker minimum of 2504/12288 bytes remains historical, not a new
+measurement. IDF 6.0.2 uses byte-sized StackType_t here; the old multiplication
+therefore did not change that numeric result. Physical input/rail behavior and
+nested stack headroom remain in their specific deferred entries.
+
+No live audio pilot or core-dump decoder was run without its required input.
+The full-profile resource measurement baseline does not match these feature
+variants; its eight unit cases and actual size reports passed, without inventing
+a replacement baseline. Physical pixels/touch/audio, measured wake latency,
+endurance and nested stack headroom remain unverified. Voice/walking trials and
+speech understanding stay deferred. Publication and USB flash are recorded
+separately after completion.
+
 ## Backlog reconciliation - 2026-10-17
 
 The pending register was reviewed against current source and dated evidence;

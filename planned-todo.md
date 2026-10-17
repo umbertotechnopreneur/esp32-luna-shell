@@ -4,15 +4,17 @@
 
 This register separates unfinished implementation from missing physical evidence.
 A checked host case, compiled image or flash does not close a device observation.
-Current delivery and its running validation are in [TODO.md](TODO.md); exact
+Current delivery status is in [TODO.md](TODO.md); exact
 completed evidence and retired items are in [done.md](done.md).
 
 - Implemented: offline farewell/manual wake, the shorter wake timeline, gentle
   question bell/reminders, unified diagnostics/Memory, PC-approval presentation
   and the focused readability cleanup. Their remaining physical gates stay below.
 - Implemented in the current delivery: lossless sprite storage reduction for
-  Debug's footprint, both missing dependency locks and current PDF topology checks. Final builds/tests
-  are still running; this is not a passing-validation claim.
+  Debug's footprint, both missing dependency locks and corrected PDF topology.
+  All 48 automatic checks and four selected builds/size reports passed on
+  17 October; the full run's initial PDF failure and final targeted pass are
+  preserved in done.md. These results do not close physical acceptance.
 - Unimplemented: CLARITY-01 through CLARITY-03, enclosed-board ports, other-platform
   credential/launcher owners, OTA upload/rollback and the explicitly deferred
   product ideas. They are not silently included in this delivery.
@@ -113,15 +115,6 @@ installation/readback evidence belongs in done.md. Broader endurance remains bel
   tensors; sensor/placement domain, accuracy, energy cost and stack headroom remain
   unverified. The earlier 2,368-byte OTA margin is historical; selected current
   Debug/Release footprint evidence is recorded in done.md.
-- [ ] **POWER-ACTIVITY-CHECKS - Remaining validation.** Power/source/production-owner,
-  native runtime/raster, console, Studio, CCP/reference simulator, selected Cody
-  profile and snapshot checks passed after the user's continuous authorization.
-  Individual compiled task frames passed; Cody's USB-connected worker minimum free
-  was 2504/12288 bytes. Physical input/rail evidence and complete stack headroom
-  remain open. Stack telemetry now names its units as bytes; IDF 6.0.2 Xtensa
-  uses a one-byte StackType_t, so the previous monitor multiplication did not
-  alter the numeric result. Unselected display-touch/full-wake-word locks are absent
-  in the whole-catalog check; do not report those variants as verified.
 - [ ] **BATTERY-ENDURANCE-01 - Continuous-source endurance evidence.** The first
   user-reported 1,000 mAh battery run retained 6 h 55 min 42.870 s of liveness
   and the first wake after 14 min 34.343 s, verified on 13 October after reconnect.
@@ -206,8 +199,9 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   with three counter-rotating gears and waiting/compaction accents with a fast
   two-hand clock. Validate the final build, visible animation, partial repaint
   retirement, rotations and device stack headroom when explicitly authorized.
-  The changed icon source is included in the current compiled/flashed image;
-  simulator and visible physical animation remain unverified.
+  Native runtime/raster and compiled-frame checks passed on 17 October.
+  Physical animation, rotations and repaint retirement remain unverified;
+  a passing host contract does not establish visible device behavior.
 
 - [ ] **BATTERY-01 - Quiet battery notices.** Firmware source implements free-Home
   admission after ten seconds, four-second caption/manga dwell, 20/10-percent
@@ -215,8 +209,9 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   removal, startup/charging transitions, periodic reminders, route/touch deferral,
   caption/artwork clearance at all rotations, compiled frames and physical stack
   headroom. Studio automatic notice/caption parity remains pending; manual power
-  studies keep their factual selector. The integrated Debug/wake-word image was
-  built and flashed on 12 October; battery behavior and host cases are unverified.
+  studies keep their factual selector. The battery UI/endurance host contracts
+  and both Cody builds/compiled-frame checks passed on 17 October; physical
+  battery behavior and nested device stack headroom remain unverified.
 
 - [ ] **FAULT-02 - CST9217 and caress freeze.** Identify the first rejected packet
   or terminal transition. Verify legitimate two-contact reports, D000/AB ACK,
@@ -244,8 +239,9 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   retained in dedicated checkpoint `bbb11e10`. Matching READY/COMMITTED plus
   TECH v2 firmware from `8cfb6ce3` was built/flashed on COM10 on 2026-10-11.
   Identify the active paired-PC service and its exact source revision for runtime observations; the cited 0.6.4 rollout is historical.
-  Inspect affected compiled frames and measured stacks; run prepared security
-  regressions with fresh suite authorization. Observe real pairing, retained recovery, packet/ACK loss,
+  The 17 October CCP regression suite passed 142 cases; the CCP/Studio suite
+  passed 47, and both selected Cody compiled-frame checks passed. Measure nested
+  target stacks and observe real pairing, retained recovery, packet/ACK loss,
   broker restart, consecutive questions and notice routing; tune bounded ingress
   from measured bursts. Older 0.6.0/0.6.2 installation evidence is historical.
 - [ ] **CCP-02 - Native hook delivery.** Restart/review modified hooks in `/hooks`
@@ -438,12 +434,13 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   isolated configuration/locks/flash lists, package/SHA rejection and UTF-8 in all
   four languages. Measure continuous PCM, CPU0 synthesis/CPU1 Cody or LVGL,
   guarded LVGL patch, PSRAM/stack/CPU, cancellation, normal quiet policy, codec
-  lifecycle, standby and changed/removed SD. Full Luna and flash-English builds
-  remain open; additional automatic speech triggers require a product decision.
+  lifecycle, standby and changed/removed SD. Full Luna TTS and flash-English
+  builds remain open; the passing full-wake-word build is a separate feature.
+  Additional automatic speech triggers require a product decision.
 - [ ] **HW-01 - Acquisition integration and nested target stacks.** Hardware,
   status, RTC, snapshot, power and ToF host checks are in the current automated
-  matrix. The GNSS-enabled full-wake-word Release build is also selected here;
-  it does not prove acquisition on a new board. Review remaining sensor/staging
+  matrix and passed on 17 October. The GNSS-enabled full-wake-word Release
+  build also passed; it does not prove acquisition on a new board. Review remaining sensor/staging
   responsibilities and actual growing-snapshot callers including HTTP, Luna,
   DeepSleepRelease, BLE, callbacks/logging and wake. Boot headroom is historical;
   deepest panel/hardware paths and direct BLE watermarks remain unmeasured.
@@ -471,9 +468,10 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
 
 - [ ] **LUNA-01 - Remaining Luna composition matrix and target behavior.**
   Official Brookesia 0.8 is integrated; the formerly missing display-touch and
-  full-wake-word locks are now generated with ESP-IDF 6.0.2. Their final Release
-  builds are included in the current delivery; configuration alone is not a
-  passing build. Broader display-off/all-services and input/output compositions
+  full-wake-word locks are now generated with ESP-IDF 6.0.2. Both Release builds
+  and size reports passed on 17 October. The public LVGL image-cache header is
+  included explicitly in Luna boot. Broader display-off/all-services and
+  input/output compositions
   plus physical display/touch, rotations, DMA, standby/radio coexistence and
   PMU-on/battery-off remain to be verified. Keep physical board selection separate
   from UI, and retain the explicitly deferred SD dependency removal.
