@@ -27,6 +27,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
+// Public cache API documented in LVGL 9.5 docs/src/main-modules/images/caching.rst.
+#include "src/misc/cache/instance/lv_image_cache.h"
 
 static const char *TAG = "LUNASHELL_boot";
 static lv_obj_t *s_screen;
