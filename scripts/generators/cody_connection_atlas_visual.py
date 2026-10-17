@@ -261,7 +261,7 @@ def page_capabilities(surface):
     card(surface, 42, 260, 360, 146, "Connect", "Discover the physical Cody; pair with its live code; read retained and current connection; list genuine followed sessions.", CYAN)
     card(surface, 440, 260, 360, 146, "Inform", "Report actual progress; publish a known notice; ask a bounded question; poll and acknowledge its answer.", BLUE)
     card(surface, 42, 91, 360, 146, "Personalize", "Read or set preferred name, timezone and quiet hours. Readback confirms a durable change; unsupported values fail.", PURPLE)
-    card(surface, 440, 91, 360, 146, "Inspect or power", "Read audio status; show Debug views only on a Debug device. Restart and factory reset need separate explicit current intent and confirmation.", AMBER)
+    card(surface, 440, 91, 360, 146, "Inspect or power", "Read audio status; show diagnostics in Debug and Release. Tap Memory on Cody for heap details. Restart and factory reset require explicit current intent and confirmation.", AMBER)
     copy(surface, "Native Codex approvals remain on the computer. CCP has no arbitrary shell, mount browser, firmware updater, transcript reader or PR action tool.",
          42, 77, W - 84, 9, MUTED, max_height=32)
 
@@ -338,6 +338,7 @@ REVISION_DIGEST = {
     "Voice countdowns, public audio API and integration policy": "Three-second listening and sending countdowns plus five acquired silent seconds. Public localAudio queue admission was a pilot, not transcription. Unsupported private bridges were removed.",
     "Visual journey replaces the table-heavy atlas": "Replace the 49-page text-heavy edition with a short visual journey, source-labelled UI proposals and diagrams. Preserve dated corrections and crosswalks in this final grid.",
     "Public audio pilot outcome": "The synthetic WAV left the queue, but the Desktop chat displayed that audio content was omitted because audio input is unsupported. Physical voice submission stays disabled.",
+    "Current diagnostics and visual-guide content contract": "Diagnostics work in Debug and Release; Memory is opened locally on Cody. Validate the current visual journey and its source/proof boundaries; obsolete listener/turn RPC text is not a current requirement. Original dates, IDs and Security history remain.",
     "Fresh endpoint-bound proof before current data": "A recorded FIND cannot establish presence or obtain current data. READY binds a fresh one-time challenge to observed IP/port; matching COMMITTED gates current metadata and recovery.",
     "Bound unauthenticated work and retained logs": "Device/PC ingress, discovery, verifier work and broker logs have explicit limits. Startup runtime.log growth and real flood/pairing measurements remain separate open evidence.",
     "Remaining protocol risks are explicit": "Six-character transcripts permit offline guessing and ordinary CCP metadata is not confidential. Standard PAKE or high-entropy pairing plus authenticated encryption needs a coordinated redesign.",

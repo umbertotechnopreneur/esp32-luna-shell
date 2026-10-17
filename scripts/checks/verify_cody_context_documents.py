@@ -50,9 +50,10 @@ DOCUMENTS = (
                ("Model & Context", "Session & Link", "shake", "planned", "NOTES")),
     ReviewSpec("cody-planning-atlas-v1.pdf", DocumentKind.Atlas, 24,
                ("Model & Context", "Session & Link", "planned voice", "NOTES")),
-    ReviewSpec("cody-ccp-connection-atlas-v1.pdf", DocumentKind.Atlas, None,
-               ("MCP", "READY", "COMMITTED", "HMAC", "DPAPI", "42119",
-                "PCM", "buffer", "turn/start", "turn/steer")),
+    ReviewSpec("cody-ccp-connection-atlas-v1.pdf", DocumentKind.Atlas, 10,
+               ("FIND", "READY", "COMMITTED", "DPAPI", "NVS", "answer_id", "ACK",
+                "PCM", "5 s quiet", "queue", "omitted", "No transcript", "not encrypted",
+                "PAKE", "CCP1.md", "model/list", "Debug and Release", "Memory")),
     ReviewSpec("cody-ccp-pairing-quickstart-a5-v1.pdf", DocumentKind.Quickstart, 4,
                ("Wi-Fi", "Codex", "code")),
 )
@@ -134,6 +135,12 @@ def check_document(spec):
     main = normalized(" ".join(texts[:main_count])).casefold()
     for required in spec.required:
         assert required.casefold() in main, f"Current main section lacks {required}: {spec.filename}"
+    if spec.filename == "cody-ccp-connection-atlas-v1.pdf":
+        # The current customer guide delegates exact wire fields to CCP1.md.
+        # Retired listener/turn injection and Debug-only diagnostics must not be
+        # reintroduced as current behavior; dated register history stays intact.
+        for obsolete in ("turn/start", "turn/steer", "only on a debug device"):
+            assert obsolete not in main, "Obsolete current communication route: " + obsolete
     for obsolete in ("choose the chat", "then explicitly select"):
         assert obsolete not in main, "Obsolete manual chat-selection route: " + spec.filename
     print(f"{spec.filename}: {len(texts)} pages; canonical topology and content passed")

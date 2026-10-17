@@ -147,6 +147,10 @@ def main(argv=None):
         "Replace repeated narrative tables with a ten-page illustrated journey for system roles, Setup, pairing, activity, question delivery, recording, audio handoff, available operations and diagnosis. Existing UI proposal images are labelled as proposals rather than device captures.",
         "Retain earlier dates, substantive corrections, original page/screen identities and the Security section in the final concise register. Exact protocol fields remain in versioned CCP1.md; detailed earlier editions remain recoverable in Git.",
     ), "All former communication-atlas pages; original screens 01-42", "Document rendering and visual review only; no physical behavior is inferred."))
+    history.append(RevisionRecord("2026-10-17", "Change", "Current diagnostics and visual-guide content contract", (
+        "Correct the operations card: authenticated device diagnostics are available in both Debug and Release. The local Memory button opens RAM/PSRAM capacity and fragmentation; Normal restores the retained route. The removed facial-channel UI does not return.",
+        "Align document checks with the current ten-page visual journey, recipient answer_id ACK, public audio queue, omitted-audio limit and versioned CCP1.md. Older transport ports and turn/start or turn/steer are historical source details, not required current guide text. Preserve all earlier revision dates, original screen IDs and Security records.",
+    ), "Current core page 8 / physical PDF page 10; original diagnostic screen 38 and local Memory route", "Document correction and content-contract review; no new physical device observation."))
     register = visual_register(history,first_register_page+3)
     writer.append(PdfReader(BytesIO(register)))
     writer.add_outline_item("Revision register", first_register_page)

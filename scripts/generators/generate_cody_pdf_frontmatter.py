@@ -138,6 +138,7 @@ def front_pages(title, subtitle, size, entries, edition_date="12 October 2026",
 # Raises OSError on authoring, mirror or rendering failure.
 def publish(path):
     title, subtitle, sections = CATALOG[path.name]
+    quick = path.name == "cody-ccp-pairing-quickstart-a5-v1.pdf"
     original = pymupdf.open(path)
     metadata = original.metadata
     previous = metadata.get("keywords", "")
@@ -156,7 +157,8 @@ def publish(path):
             if any(line == label or line.endswith(" / " + label) for line in page.get_text().splitlines()[:5]):
                 sections = sections + [(index + 1, label)]
                 break
-    quick = "quickstart" in path.name
+    if quick and count != 4:
+        raise ValueError("The A5 quickstart requires exactly four instructional pages")
     # The communication atlas owns this dated entry in its canonical final
     # register. Other existing documents retain their publisher-owned record.
     if not quick and path.name != "cody-ccp-connection-atlas-v1.pdf":
@@ -164,21 +166,34 @@ def publish(path):
         register = pymupdf.open(stream=render_revision_register((record,), size, title, start_page=count + 3), filetype="pdf")
         content.insert_pdf(register)
         sections = sections + [(count + 1, "This edition / revision record")]
-    entries = [(label, number + 2) for number, label in sections]
-    edition_date = "15 October 2026" if path.name == "cody-ccp-connection-atlas-v1.pdf" else "12 October 2026"
-    classification = "DRAFT / SOURCE REFERENCE" if path.name == "cody-ccp-connection-atlas-v1.pdf" else "CONFIDENTIAL / INTERNAL USE ONLY"
-    front, step = front_pages(title, subtitle, size, entries, edition_date, classification)
-    final = pymupdf.open(stream=front, filetype="pdf")
-    final.insert_pdf(content)
-    width, height = size
-    margin = width * .08
-    for index, (_, page_number) in enumerate(entries):
-        y = 118 + index * step
-        final[1].insert_link({"kind": pymupdf.LINK_GOTO, "from": pymupdf.Rect(margin, y - 14, width - margin, y + 10), "page": page_number - 1})
-    final.set_toc([[1, "Cover", 1], [1, "Contents", 2]] + [[1, label, number] for label, number in entries])
+    if quick:
+        # This four-page flyer owns its introduction. A cover or contents page
+        # would change the nontechnical journey and violate its fixed format.
+        entries = [(label, number) for number, label in sections]
+        classification = "DRAFT / QUICKSTART"
+        final = content
+        final.set_toc([[1, label, number] for label, number in entries])
+    else:
+        entries = [(label, number + 2) for number, label in sections]
+        edition_date = "15 October 2026" if path.name == "cody-ccp-connection-atlas-v1.pdf" else "12 October 2026"
+        classification = "DRAFT / SOURCE REFERENCE" if path.name == "cody-ccp-connection-atlas-v1.pdf" else "CONFIDENTIAL / INTERNAL USE ONLY"
+        front, step = front_pages(title, subtitle, size, entries, edition_date, classification)
+        final = pymupdf.open(stream=front, filetype="pdf")
+        final.insert_pdf(content)
+        width, height = size
+        margin = width * .08
+        for index, (_, page_number) in enumerate(entries):
+            y = 118 + index * step
+            final[1].insert_link({"kind": pymupdf.LINK_GOTO, "from": pymupdf.Rect(margin, y - 14, width - margin, y + 10), "page": page_number - 1})
+        final.set_toc([[1, "Cover", 1], [1, "Contents", 2]] + [[1, label, number] for label, number in entries])
     for index, page in enumerate(final):
-        if index < 2:
+        if not quick and index < 2:
             continue
+        if quick:
+            # Remove obsolete publisher page numbers from the text layer as
+            # well as the image; keep all four original instruction bodies.
+            page.add_redact_annot(pymupdf.Rect(0, 0, page.rect.width, 13), fill=(1, 1, 1))
+            page.apply_redactions(images=0, graphics=0)
         # The small edition label occupies the outer top margin, without rewriting history.
         page.draw_rect(pymupdf.Rect(0, 0, page.rect.width, 13), color=None, fill=(1, 1, 1), overlay=True)
         page.insert_text((10, 9), f"{classification}     PDF PAGE {index + 1} / {len(final)}", fontsize=6, color=(.22, .30, .39))
@@ -190,7 +205,10 @@ def publish(path):
             # its visual header band; the historical security entries stay intact.
             page.draw_rect(pymupdf.Rect(38, 39, page.rect.width - 38, 67), color=None, fill=(1, 1, 1), overlay=True)
             page.insert_text((42, 62), "Security", fontsize=23, fontname="hebo", color=(.09, .16, .24))
-    final.set_metadata({"title": "Cody / " + title, "author": "Umberto Giacobbi", "subject": classification, "keywords": PREFIX + str(count)})
+    # Only wrapped editions carry the stripping marker. Re-publishing the
+    # quickstart must retain its first two instructional pages.
+    keywords = "CodyQuickstart/4" if quick else PREFIX + str(count)
+    final.set_metadata({"title": "Cody / " + title, "author": "Umberto Giacobbi", "subject": classification, "keywords": keywords})
     temporary = STAGING / path.name
     final.save(temporary, garbage=4, deflate=True)
     final.close()
