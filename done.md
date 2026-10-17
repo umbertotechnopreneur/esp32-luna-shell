@@ -14,6 +14,47 @@ path below does not promise the disposable file still exists. Core dumps are
 private local diagnostics, not publication artifacts.
 
 
+## Backlog reconciliation - 2026-10-17
+
+The pending register was reviewed against current source and dated evidence;
+this is not an exhaustive audit or proof that every physical gate passed.
+
+- **DOC-01 resolved:** both approved 9 October UI references are present and
+  tracked under docs/cody/ui-proposals/20261009. Git 1d46253f (11 October)
+  already contains them; the later statement that they were missing was stale.
+- **STUDIO-CAPTURE-01 resolved:** the 17 October Windows suite passed all 29
+  cases, including actual Tk window/canvas ImageGrab. The 14 October run's
+  28/29 failure (`screen grab failed`, twice) remains historical. Its earlier
+  27-case run also captured a real window. These are SIMULATED client pixels.
+- Retired PWR screenshot/double-click and expression-debug-screen-38 tasks are
+  removed from the current queue. Short PWR owns standby/wake and deliberate
+  shutdown; Debug BOOT reset is separate. Internal face channels remain while
+  the facial-channel UI/storage is removed. UI-07 now tracks the actual shared
+  diagnostics/Memory/Back path; ART-03 tracks the composed physical face.
+- Known automatic checks are no longer described as unimplemented features.
+  Hardware observation, larger source refactors, new boards, OTA upload/rollback
+  and deferred product ideas retain explicit pending gates. Current validation
+  results are recorded separately after execution.
+
+VOICE-01 history was condensed in the pending register without reopening trials.
+Sophia was physically confirmed on 7 October. Twelve owner/receiver host cases
+passed on 12 October; the 13 October recording/polling build/size and frame
+checks were not a physical recording result. Plugin 0.6.6 plus optional audio
+packages were installed on 14 October; 0.6.8 subsequently reported two START
+rejections because no native loopback endpoint was configured. Healthy CCP and
+later passive capture did not prove recording or recover those attempts.
+On 15 October Desktop 26.1007.9446.0 used stdio without an observed TCP listener;
+the exported 170-method schema supplied no dictation/transcription RPC. Public
+daemon-version failed with Windows 10050, so it proved no attach route. The
+launcher/proxy was discarded before activation. A separately authorized public
+queue pilot delivered all 359406 WAV bytes to this same chat with matching SHA256;
+model prompt preparation stripped unsupported audio, without a transcript.
+The owner accepted WAV attachment delivery and declined separately billed
+transcription. The implemented receiver now uses that public experimental queue;
+old listener setup is historical, and physical end-to-end recording and native
+speech understanding remain deferred. Earlier TODO context is preserved in
+Git b4738cbf; this reconciliation does not reinterpret it as current evidence.
+
 ## Readability, native approval fixes and verification - 2026-10-17
 
 Static review covered Cody activity presentation, Studio native rendering, CCP

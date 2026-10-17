@@ -1,5 +1,28 @@
 # Deferred work
 
+## Status reconciliation - 2026-10-17
+
+This register separates unfinished implementation from missing physical evidence.
+A checked host case, compiled image or flash does not close a device observation.
+Current delivery and its running validation are in [TODO.md](TODO.md); exact
+completed evidence and retired items are in [done.md](done.md).
+
+- Implemented: offline farewell/manual wake, the shorter wake timeline, gentle
+  question bell/reminders, unified diagnostics/Memory, PC-approval presentation
+  and the focused readability cleanup. Their remaining physical gates stay below.
+- Implemented in the current delivery: Debug footprint policy, both previously
+  absent dependency locks and current PDF topology checks. Final builds/tests
+  are still running; this is not a passing-validation claim.
+- Unimplemented: CLARITY-01 through CLARITY-03, enclosed-board ports, other-platform
+  credential/launcher owners, OTA upload/rollback and the explicitly deferred
+  product ideas. They are not silently included in this delivery.
+- Removed from this pending register: completed Windows capture and located UI
+  references. Retired PWR screenshot/double-click and facial-channel UI checks
+  are replaced by the current controls; historical decisions remain in done.md.
+
+Physical voice/walking trials and accepted SD/PCB limitations remain deferred.
+This reconciliation does not reactivate them or authorize destructive tests.
+
 ## Static readability review - 2026-10-17
 
 These are review findings remaining after the focused source cleanup in done.md,
@@ -130,7 +153,7 @@ installation/readback evidence belongs in done.md. Broader endurance remains bel
   replaces paused/startup AFE polling with notifications, reduces disconnected
   voice service cadence, and adds a procedural recording ribbon targeting 30 FPS.
   One tap sends after 350-ms double-tap arbitration; shake/double tap discard;
-  more than two seconds of acquired VAD silence after speech sends automatically.
+  five seconds of acquired VAD silence after speech starts the send countdown.
   Validate visible frame pacing, actual voice gain, rotations, physical gestures,
   standby/resume/rollback, target stack headroom and battery current. Host native
   raster/owner evidence is separate. The battery image and NVS journal were read
@@ -147,17 +170,6 @@ installation/readback evidence belongs in done.md. Broader endurance remains bel
 The owner confirmed the SD/PCB limitation and standby/wake workaround on
 2026-10-12. This review does not add another SD software-defect investigation.
 
-## Windows simulator evidence
-
-- [x] **STUDIO-CAPTURE-01 - Windows window/canvas capture availability.** Resolved
-  2026-10-17: all 29 Character Studio cases pass, including actual Tk window and
-  canvas ImageGrab capture; the screenshot and metadata are retained under
-  `artifacts/checks/cody-character-studio/`. The images show the SIMULATED client,
-  not a physical Cody display. Historical failure: the final 2026-10-14 suite
-  passed 28 of 29; ImageGrab failed twice with `screen grab failed`. Native
-  RGB565 previews, six context occupancies, Reply ready and GUI-owner checks
-  passed then; an earlier 27-case run had also captured the real window.
-
 ## Reproduced device faults
 
 - [ ] **UI-ACTIVITY-02 - Connection and activity presentation evidence.** Source
@@ -167,7 +179,7 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   panels with canonical IP/firmware identity. The integrated Debug wake-word/activity
   image is compiled and installed; visual geometry, interaction and physical
   stack-headroom evidence remain pending.
-- [ ] **CCP-USAGE-01 - Native Desktop telemetry evidence.** Installed plugin 0.6.7
+- [ ] **CCP-USAGE-01 - Native Desktop telemetry evidence.** Historical plugin 0.6.7
   integrates exact hook-owned local native journal metadata without a second
   App Server. Host checks and selected Release delivery passed on 14 October.
   The same-day native launch/path/envelope correction is installed as Release
@@ -258,35 +270,25 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   recognized-caress warmth, positive-only mood and exact matching compaction release.
   Preserve protective closure, root motion, audio mouth, source-gap rejection and
   Debug/preset/setup isolation. Inspect nested compiled frames/device stack minima.
-  Expression-debug screen 38 remains a separate existing task.
-- [ ] **CCP-06 - Codex acting final validation, 2026-10-11.** Regenerate the
-  native Studio driver, then run the prepared runtime/personality/Studio cases
-  with fresh command-specific authorization. Cover Thinking/Editing/Running
-  accents, one attention double blink, exact-turn reply/interruption, repeated
-  frames, source gaps, hidden routes/pause and the real PC approval view. Verify
-  automatic Cody low-battery/charging cues, fractional threshold boundaries,
-  missing percentage/presence and immediate source-expiry invalidation. The
-  integrated Debug wake-word firmware from `8cfb6ce3` is built/flashed; inspect
-  compiled frames and physical stack headroom
-  for the 208-byte director and display-owned status projection. Earlier test
-  results cover the preceding revision. Python additions are platform-neutral;
-  the existing Windows credential/launcher boundary still needs a separate port.
+  The old expression-debug screen 38 is retired; internal channels remain.
+- [ ] **CCP-06 - Physical Codex acting and notification evidence.** Runtime,
+  personality, Studio and native drivers already have automated evidence in
+  done.md and are being rerun for the current delivery. Observe Thinking/Editing/
+  Running accents, attention blink, exact-turn reply/interruption, source gaps,
+  hidden routes and the real PC-approval view on Cody. Confirm low-battery/
+  charging cues, fractional thresholds and expiry visually. Individual compiled
+  frames do not establish the director/display owner's nested stack headroom.
+  Platform-neutral additions do not port Windows credential/launcher ownership.
 
 ## Cody routes and presentation
 
-- [ ] **CCP-07 - Daily Codex price bands and Home visibility, 2026-10-11.**
-  Portable Python daily cache, strict public Standard table, exact model IDs,
-  durable once-per-day attempts and authenticated TECH v2 are implemented.
-  Native Model & Context displays the band without displacing compaction or a
-  measured context row. Home project/branch/model rotation and a persistent
-  green/orange/red/gray band chip are integrated with compaction priority,
-  partial-frame damage and native Studio previews. Obtain fresh named authorization
-  for CCP, native aging/rendering, Studio/simulator and firmware runtime checks.
-  Prepared cache, signed transport, expiry, raster and Studio cases have not run.
-  Debug wake-word firmware from `8cfb6ce3` was built/flashed on COM10 on
-  2026-10-11. Regeneration, compiled frames, device stack headroom and actual
-  badge/compaction/tap/shake behavior remain unverified; the flash alone does
-  not establish the active PC plugin version or reviewed hook execution.
+- [ ] **CCP-07 - Physical price-band and Home-panel evidence.** Portable daily
+  cache, exact model IDs, bounded attempts, authenticated TECH v2 and native
+  Model & Context bands are implemented. Host cache/transport/expiry, native
+  raster and Studio checks are part of the recorded automated suites; they are
+  not an unexecuted implementation queue. Observe the actual badge, compaction
+  priority, complete marquee, tap/shake and panel transitions on Cody. Measure
+  current-image stack headroom and verify actual PC-plugin adoption separately.
 
 - [ ] **UI-01 - Setup and retained onboarding.** Exercise first-run versus
   retained pairing, missing/saved Wi-Fi, reconnect/DHCP, unavailable/stale data,
@@ -308,7 +310,7 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   The 27.790323-s PBKDF2 capture proved code generation; later size/timer changes
   and the subsequent malformed-touch report still need physical review.
 - [ ] **UI-04 - Approved controls and QR.** Review semantic paired cards,
-  two-plus-one actions and icon-left capsule, two-line labels, title/body-complete
+  two-plus-one actions, the centered wide capsule and text-only captions, title/body-complete
   control reveal and visible-only touch admission. Verify Setup/Network/Options/
   Look/Back paths, white-theme contrast, local circular chords, quiet zones,
   actual installation/session QR and real phone scans at every rotation.
@@ -322,13 +324,16 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   busy Back/Done, route reset during write, rotated touch, canonical errors,
   stable skin/palette IDs and bounded memory over repeated entries. Host
   persistence faults are covered; device races/leak soak remain open.
-- [ ] **UI-07 - Debug controls and screenshots.** Validate PWR single click after
-  the 500-ms decision window, separately acquired double-click reset, long holds,
-  acquisition failure and Release exclusion. Review 3/2/1 timing, overlay-free
-  atomic BMP, SAVING/SAVED/FAILED, status/HUD validity and hidden touch targets.
-  Cover absent/removed/full SD, logging contention, Performance Mode, standby,
-  rotations and PSRAM failure. Review graphite Back, fades and swipe/drag/scroll
-  ownership on both Cody and Luna's separate input ports.
+- [ ] **UI-07 - Current diagnostics, Memory and capture behavior.** Review the
+  same canonical overview and Memory page in Debug and Release: measured CPU,
+  free RAM/PSRAM, FPS, IP, SD and explicit unavailable states. Verify capacity/
+  fragmentation bars, lateral Back -> overview -> retained route and authenticated
+  Normal restoration, including rotations, standby and allocation failures.
+  The facial-channel UI/storage and old PWR screenshot/double-click workflow are
+  retired. PWR belongs to short-press standby/wake and deliberate shutdown;
+  Debug BOOT reset is separate. Do not recreate the removed controls.
+  Review any explicitly requested capture/HUD against current owners, with real
+  storage errors and hidden-control touch rejection; host checks do not prove pixels.
 
 ## Character, audio and performance
 
@@ -344,11 +349,13 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   Confirm 400-ms fades, stable selection, completed-frame SFX, busy drops,
   cooldown/expiry, quiet/zero-volume/standby and idle-mute restoration. Measure
   complete frame, DMA, CPU and stack cost; static area counts are not performance.
-- [ ] **ART-03 - Face and response.** Review all 34 typed face controls, rounded
-  lip/eye curves, tongue clipping, wider breathing mouth, Whistle minimum width,
-  cloud sizes/pearl warp, contour response, independent blink/breath, eye taps,
-  drag and exact Debug presets. Verify canonical charge/microphone/motion axes,
+- [ ] **ART-03 - Composed face and response on the device.** Review rounded lip/
+  eye curves, tongue clipping, breathing mouth, Whistle width, cloud sizes/pearl
+  warp, contour response, independent blink/breath, eye taps and drag. The 34
+  typed animation channels remain internal; the facial-channel debug UI was
+  removed on 16 October. Verify canonical charge/microphone/motion axes,
   stress/fatigue recovery, pause/rotation and stale/error gating physically.
+
 - [ ] **AUDIO-01 - Current boot and action sound.** Listen to BootRise and the
   sixteen current Codex cues, with true completed-frame/semantic admission,
   trusted-clock/quiet/volume policy, no standby-wake replay and retained errors.
@@ -398,82 +405,29 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   unavailable state. Cover first-IP NTP failure/recovery, unset/oscillator-stopped
   RTC reaching trusted time, offset/rate before correction, write/readback,
   offline reboot/backup retention, greetings/title damage and deferred boot cue.
-- [ ] **VOICE-01 - Recognition variants.** Resolve/review `full-wake-word` and
-  establish three-model packing, 1-MiB partition/flash inventory and startup.
-  The 2026-10-11 Cody Debug build does not prove Jarvis/Computer recognition.
-  Cover the sole off flag, capture/input/output closure, voice CPU0 versus render
-  CPU1, PSRAM-only AFE, external BSS/stack cache safety and 64-KiB internal reserve.
-  Measure Sophia false positives, AEC during playback, settled-standby-only wake,
-  old-event rejection, diagnostic/Performance Mode pause/resume, CPU/PSRAM/current
-  and model/capture failures. Single-model Sophia wake was physically confirmed
-  on 2026-10-07; full/Release and broader reliability remain open.
-  The new Cody source consumer starts capture from awake/standby Sophia events or
-  acquired double taps. Validate the derived Cody/Wi-Fi/Codex-only gate, 420-ms
-  single-tap delay on Home, failed/stale touch and rotation, route restoration,
-  explicit sleep with retained wake-word microphone, microphone pause, the
-  recording ribbon and tap/shake controls, the 60-second countdown/PCM bound,
-  partial-band redraws at every orientation, genuine-data fade carousel and
-  actual 30-FPS target cost. Exercise ten-second PSRAM
-  pressure, lost/duplicate/reordered/forged ACKs, fresh-discovery replay binding,
-  wake-word tail and first-command preservation without a fabricated pre-roll,
-  expiry, native errors and changed followed chats. Twelve `cody-voice-input`
-  host cases passed on 2026-10-12, including actual owner gesture/silence functions
-  and authenticated receiver boundaries; this does not prove native delivery.
-  Audio reliability changes also need the four-packet cumulative ACK/gap/replay
-  cases, stale/unavailable native readiness, same-chat turn changes, approval ID
-  collision, short CCP outages and uncertain delivery after END. The additional
-  ciphertext window is component-owned (at most 4,352 bytes); verify native socket
-  recovery and the 5-ms/minimum-one-tick service cadence under actual load.
-  Revisit all callers after the bounded voice snapshot
-  growth; inspect compiled AFE/CCP/render frames and measure stack/PSRAM headroom.
-  Plugin 0.6.6 and its optional audio dependencies were installed on 14 October;
-  source/cache hashes and ten enabled, trusted hook identities were verified.
-  Observe adoption by the actual Desktop chat, configure the real loopback
-  desktop endpoint, then verify native localAudio account/model access and native
-  approval routing. Endpoint/token-file configuration is currently absent;
-  discovery and installation do not prove execution or voice delivery.
-  An earlier integrated firmware build/flash completed on 12 October. The later
-  recording/polling increment passed Debug build/size, host lifecycle/voice/native
-  raster checks and individual compiled stack frames, and was not flashed at that
-  time. The selected 14 October Release delivery includes those source changes;
-  its exact image/readback evidence is in done.md. Native delivery and physical
-  recording behavior remain unverified.
-  On 14 October, installed plugin 0.6.8 reported two actual START rejections:
-  the native loopback audio endpoint was not configured. CCP presence and UDP
-  availability were healthy; no PCM/WAV or native acceptance followed. Separate
-  authentication failures remain uncorrelated. The subsequent passive device
-  capture did not contain the original recording attempts. Keep native endpoint
-  attachment and genuine end-to-end dictation as explicit unresolved gates.
-  On 15 October, the actual Windows Desktop build 26.1007.9446.0 app-server used
-  default stdio and owned no TCP listener; no supported same-host attach setting
-  was verified. The new optional `device.ps1 codex-audio` installation step checks
-  explicit listener ownership and the live followed chat before saving settings.
-  It cannot activate a listener the Desktop host does not expose. Keep endpoint
-  activation and real model/audio acceptance pending, separate from installer
-  source/fixture validation.
-  The owner subsequently approved the public experimental queue pilot. The
-  installed native alpha accepted initialize/queue-list and one synthetic WAV
-  through queue-add, with no resume/start in the temporary stdio writer. The
-  item later left the queue. A second explicitly authorized marked pilot proved
-  that the entire 359406-byte WAV persisted in this exact chat, with matching
-  SHA-256. Delivery to chat is verified. The live model catalog advertises only
-  text/image; public Codex prompt normalization strips unsupported audio and emits
-  the exact observed omission placeholder. No transcript or speech response was
-  produced. Revisit with supported audio/transcription ingress; never override
-  modality metadata to bypass this gate.
-  The owner then declined separately billed transcription APIs through an
-  acknowledged physical Cody answer and explicit chat confirmation. WAV attachment
-  delivery is accepted without transcription. The receiver now uses the public
-  experimental queue, not turn/start, turn/steer or a Desktop listener. Validate
-  physical capture -> final WAV -> queue receipt -> actual Desktop consumption
-  separately; do not equate queue acceptance with speech understanding.
-  The installed exported schema has 170 methods and no standalone dictation or
-  transcription RPC. Public realtime/start requires a loaded conversation in
-  its owning process; the inspected Desktop still has no TCP listener. The public
-  daemon-version read failed to connect to its control socket (Windows 10050),
-  so it supplies no verified attach route. Future native dictation remains deferred.
-  The custom Desktop launcher/proxy was discarded before activation; do not
-  restore undocumented or fragile integration without specific owner approval.
+- [ ] **VOICE-01 - Deferred recognition/recording evidence.** The full-wake-word
+  dependency lock is now resolved; three-model packing, partition inventory and
+  actual Jarvis/Computer recognition remain separate from the historical Sophia
+  confirmation. The user has deferred physical voice trials and speech-to-Codex
+  follow-up. Do not start recording, a queue pilot or an external transcription
+  service as part of the automatic suite.
+  When resumed, verify capture/input/output closure, CPU/core and PSRAM ownership,
+  playback AEC, settled-standby wake, stale-event rejection, pause/resume, failures,
+  current and nested stack headroom. Physical recording checks include Home's
+  420-ms double-tap window, recording's 350-ms tap arbitration, acquired five-second
+  silence and cancellable three-second start/send countdowns, rotated ribbon,
+  genuine frames and route restoration. Cover the real bounded PCM/ACK/gap/replay
+  paths, socket recovery, changed followed chats and uncertain END delivery.
+  The current implemented PC route is the public experimental queue. Verify
+  capture -> final WAV -> frozen followed-chat queue -> actual Desktop consumption
+  separately. A WAV was delivered intact to this chat on 15 October, but the
+  model stripped unsupported audio; no speech understanding was established.
+  Earlier listener/endpoint work and the discarded launcher are historical,
+  not active setup requirements for that queue. Any future audio ingress must
+  be a supported public integration. Preserve the owner's refusal of separately
+  billed transcription and keep credentials on the PC. Historical evidence and
+  original dates are consolidated in done.md.
+
 - [ ] **TTS-01 - Storage and audible speech.** Require observed SD availability
   after the accepted standby/wake workaround before claiming SD synthesis.
   The prepared four-language card and corrected `58757005` boot
@@ -486,12 +440,14 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   guarded LVGL patch, PSRAM/stack/CPU, cancellation, normal quiet policy, codec
   lifecycle, standby and changed/removed SD. Full Luna and flash-English builds
   remain open; additional automatic speech triggers require a product decision.
-- [ ] **HW-01 - Acquisition and stack ownership.** Run still-needed hardware/
-  status/RTC/snapshot/power/ToF suites with fresh authorization. Compile the
-  GNSS-enabled path, finish R6 sensor/staging separation without changing locks,
-  and inspect every growing canonical-snapshot caller including HTTP, Luna,
-  DeepSleepRelease, BLE, callbacks/logging and wake. Boot headroom is measured;
+- [ ] **HW-01 - Acquisition integration and nested target stacks.** Hardware,
+  status, RTC, snapshot, power and ToF host checks are in the current automated
+  matrix. The GNSS-enabled full-wake-word Release build is also selected here;
+  it does not prove acquisition on a new board. Review remaining sensor/staging
+  responsibilities and actual growing-snapshot callers including HTTP, Luna,
+  DeepSleepRelease, BLE, callbacks/logging and wake. Boot headroom is historical;
   deepest panel/hardware paths and direct BLE watermarks remain unmeasured.
+
 - [ ] **POWER-01 - Sleep/wake transactions.** Cover Debug software standby and
   Release Deep-sleep, dark Wake, retained route/text/pose clocks, resource order,
   rejected-entry rollback, optional-radio known-off cleanup and BLE reserve rearm.
@@ -513,13 +469,15 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
 
 ## Luna Shell, boards and tooling
 
-- [ ] **LUNA-01 - Brookesia and profiles.** Finish official Brookesia 0.8
-  integration/reviewed locks, including missing `display-touch`. Cover full,
-  standalone, display-off, all-off/all-services and output-only/input-only
-  composition; board selection must remain separate from UI. Verify mandatory
-  display/touch, rotations, DMA, standby and radio coexistence. SD dependency
-  removal remains deferred. Review PMU-on/battery-off, PWR, directional codecs,
-  build-local cleanup and corrected environment-variable restoration.
+- [ ] **LUNA-01 - Remaining Luna composition matrix and target behavior.**
+  Official Brookesia 0.8 is integrated; the formerly missing display-touch and
+  full-wake-word locks are now generated with ESP-IDF 6.0.2. Their final Release
+  builds are included in the current delivery; configuration alone is not a
+  passing build. Broader display-off/all-services and input/output compositions
+  plus physical display/touch, rotations, DMA, standby/radio coexistence and
+  PMU-on/battery-off remain to be verified. Keep physical board selection separate
+  from UI, and retain the explicitly deferred SD dependency removal.
+
 - [ ] **LUNA-02 - Lazy documents and navigation.** Exercise bootstrap memory,
   one route/document owner, Back/Forward/history, zero-to-five commands, stale
   generations, scoped subscriptions/partial failures and unload memory. Cover
@@ -542,36 +500,36 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   calibration/persistence, timeout/recovery, tilt correction, memory and Settings.
   The obsolete wiring guide was intentionally removed; deletion does not close
   this physical gate or establish correct wiring.
-- [ ] **TOOL-01 - Console and composition.** Execute still-needed device-console/
-  script-contracts and source/dependency checks through `scripts/device.ps1`.
-  Cover deliberate COM selection, numeric/COM equivalence, cancellation, missing/
-  ambiguous ports and retained native failures before IDF loads. Review relocated
-  imports, menu routing, captures, packaging/cleanup and concurrent artifact locks.
-  Normal COM10 flash evidence does not cover these edge cases.
+- [ ] **TOOL-01 - Remaining packaged/runtime console evidence.** Device-console,
+  script-contracts, dependency and cleanup assertions have automated coverage
+  and are being rerun. Retain real cancellation/ambiguous-port failure and owner
+  behavior when exercising packaging, captures and concurrent artifact users.
+  A normal USB flash covers its selected path, not every error or packaged flow.
+  Do not list already passing source/fixture cases as unimplemented code.
 
 ## Decisions, documentation and publication
 
-- [ ] **OTA-01 - Two application slots.** The aligned 16 MiB wake-word table,
-  otadata initialization and ota_0 firmware were installed by USB on 12 October.
-  The linked image fits: 7,011,312 of 7,274,496 bytes, 263,184 bytes remain per slot.
-  Model/LittleFS remain independent shared partitions. Physical boot selection,
-  explicit storage handling, authenticated Wi-Fi upload and rollback policy
-  remain pending. This is partition/USB-flash evidence, not OTA-service validation.
+- [ ] **OTA-01 - OTA upload, boot selection and rollback.** The aligned 16-MiB
+  wake-word table, otadata and two application slots were installed by USB on
+  12 October. Current compiled sizes are recorded by revision in done.md; the
+  old 7,011,312-byte value is not the current image. Model/LittleFS remain shared
+  independent partitions. Authenticated Wi-Fi upload, physical boot selection,
+  explicit storage policy and rollback remain unfinished/unverified; a fitting
+  image and USB flash do not implement an OTA service.
 
 - [ ] **PRODUCT-01 - Character presets.** Decide whether 04/05 share one size
   (three total) or retain separate presets (four); preserve response/QR clearance.
-- [ ] **DOC-01 - Reference continuity.** The approved 2026-10-09 UI-proposal
-  files were already missing locally before this consolidation. Restore or locate
-  the intended references before artwork/layout changes; preserve that unrelated
-  deletion state. Markdown/PDF folder names are now lowercase `docs/cody`.
-- [ ] **DOC-02 - Deferred documentation checks.** When explicitly requested,
-  check moved links/anchors, the updated HTTP/script contracts, whitespace and
-  changed-file secrets. No test, validation scan, build, generator, simulator or
-  physical operation accompanies this documentation consolidation.
-- [ ] **RELEASE-01 - Final evidence and publication.** Complete the specifically
-  requested profile/Debug/Release matrix and startup/UI branding, proprietary-name
-  and legal review before GitHub publication. Source support, a narrower passing
-  suite or a written image does not close other gates. Push is separately authorized.
+- [ ] **DOC-02 - Remaining documentation links and anchors.** Current PDF
+  topology/rendering, HTTP/script contracts, whitespace and publication-source
+  checks belong to the current delivery evidence. A repository-wide moved-link/
+  anchor review beyond those checks remains open; do not describe all of those
+  already executed contracts as an unrun documentation task.
+
+- [ ] **RELEASE-01 - Broader release evidence.** The explicitly selected current
+  Cody Debug/Release and two repaired-profile Release builds, automatic checks,
+  branch push and USB flash belong to the current scoped delivery. Other profile
+  matrices, observed startup/branding and wider product/legal acceptance retain
+  their own gates. A scoped delivery does not silently close them.
 
 ## Deferred design and product ideas
 
@@ -631,8 +589,6 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
 - [ ] Consider richer time-of-day personality and long-task acting only if existing
   synchronized clock, day/night greetings and quiet rhythm prove insufficient.
   Reuse their owner; no new calendar, wellbeing reminders or inferred work fatigue.
-- [ ] Reconcile expression-debug screen 38 after its separate agent's review;
-  this character change does not add a replacement screen or alter debug poses.
 
 ## Cody companion follow-up - 2026-10-10
 
