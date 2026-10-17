@@ -40,6 +40,7 @@ from scripts.tests.cody_wellbeing_contract import check_host_wellbeing
 def check_asset_contracts(root):
     directory = root / "assets/cody/personality-icons"
     icons = json.loads((directory / "generated/manifest.json").read_text(encoding="utf-8"))
+    assert icons["schema"] == "cody.personality-icons.v2", "Unsupported immutable sprite layout"
     # Normalize only text line endings; binary sprite/audio hashes remain byte exact.
     palette_data = (root / icons["palette_source"]).read_text(encoding="utf-8").encode("utf-8")
     assert hashlib.sha256(palette_data).hexdigest() == icons["palette_sha256"], "Canonical palette digest differs"
@@ -66,32 +67,44 @@ def check_asset_contracts(root):
         assert hashlib.sha256(coverage).hexdigest() == icon["coverage_sha256"], "Coverage digest differs"
         assert any(coverage), "Icon must contain visible artwork"
         assert all(not palette[slot]["reserved"] for slot, alpha in zip(indices, coverage) if alpha), "Reserved palette slot used"
-        assert icon["stored_inset"] == 2 and icon["stored_extent"] == 252, "Only the guaranteed transparent border may be omitted"
+        left, top, right, bottom = icon["stored_bounds"]
+        assert 0 <= left < right <= 256 and 0 <= top < bottom <= 256, "Invalid flash rectangle"
         assert all(coverage[y * 256 + x] == 0 for y in range(256) for x in range(256)
-                   if x < 2 or y < 2 or x >= 254 or y >= 254), "Discarded border contains visible alpha"
+                   if x < left or y < top or x >= right or y >= bottom), "Omitted pixel contains visible alpha"
+        # Independent edge occupancy makes the stored rectangle minimal, while
+        # the full raw planes remain the native raster oracle below.
+        assert all(any(coverage[y * 256 + x] for x, y in edge) for edge in (
+            ((x, top) for x in range(left, right)),
+            ((x, bottom - 1) for x in range(left, right)),
+            ((left, y) for y in range(top, bottom)),
+            ((right - 1, y) for y in range(top, bottom)))), "Flash rectangle retains transparent padding"
         for plane, name in ((indices, "indices"), (coverage, "coverage")):
-            stored = b"".join(plane[y * 256 + 2:y * 256 + 254] for y in range(2, 254))
+            stored = b"".join(plane[y * 256 + left:y * 256 + right] for y in range(top, bottom))
             assert hashlib.sha256(stored).hexdigest() == icon[f"stored_{name}_sha256"], "Stored plane digest differs"
-        assert icon["data_bytes"] == 256 * 256 * 2 and icon["flash_data_bytes"] == 252 * 252 * 2, "Logical/flash plane sizes differ"
+        assert icon["data_bytes"] == 256 * 256 * 2, "Logical plane sizes differ"
+        assert icon["flash_data_bytes"] == (right - left) * (bottom - top) * 2, "Stored plane sizes differ"
         flash_payload_bytes += icon["flash_data_bytes"]
     assert set(identities) == set(range(1, 15)), "The14 stable cue IDs are incomplete"
     assert len(set(identities.values())) == 14, "Typed icon names must be unique"
-    assert icons["flash_payload_bytes"] == flash_payload_bytes == 14 * 252 * 252 * 2 + 512, "Packed flash payload differs"
-    assert 14 * 256 * 256 * 2 + 512 - flash_payload_bytes == 56896, "Transparent-border payload saving differs"
-    from scripts.generators.generate_cody_personality_icons import crop_transparent_border
-    # A palette slot has no alpha meaning: nonzero indices in the discarded
-    # border are harmless, while even alpha=1 must be rejected, never clamped.
-    packed = crop_transparent_border(bytes([17] * 36), bytes(36), 6, 2)
-    assert packed == (bytes([17] * 4), bytes(4)), "Transparent indices must not become a palette transparency convention"
+    assert icons["flash_payload_bytes"] == flash_payload_bytes, "Packed flash payload differs"
+    assert flash_payload_bytes <= 1500000, "Sprite storage exceeds the reviewed flash budget"
+    from scripts.generators.generate_cody_personality_icons import crop_transparent_bounds
+    # A nonzero palette index outside coverage must not enlarge the rectangle;
+    # alpha=1 at any edge must remain, including a sprite touching logical zero.
     for offset in (0, 5, 6, 11, 30, 35):
-        invalid_coverage = bytearray(36)
-        invalid_coverage[offset] = 1
+        alpha = bytearray(36)
+        alpha[offset] = 1
+        bounds, indices, coverage = crop_transparent_bounds(bytes([17] * 36), alpha, 6)
+        x, y = offset % 6, offset // 6
+        assert bounds == (x, y, x + 1, y + 1) and indices == bytes([17]) and coverage == bytes([1]), (
+            "Minimal crop changed a visible pixel or interpreted a palette slot as transparency")
+    for indices, coverage, extent in ((bytes(36), bytes(36), 6), (bytes(35), bytes(36), 6), (b"", b"", 0)):
         try:
-            crop_transparent_border(bytes(36), invalid_coverage, 6, 2)
+            crop_transparent_bounds(indices, coverage, extent)
         except ValueError:
             pass
         else:
-            raise AssertionError("Generator accepted visible discarded border pixels")
+            raise AssertionError("Generator accepted an empty or malformed sprite")
     sounds = json.loads((directory / "audio/manifest.json").read_text(encoding="utf-8"))
     assert (sounds["sample_rate_hz"], sounds["channels"], sounds["bits_per_sample"]) == (16000, 1, 16), "PCM format differs"
     assert len(sounds["clips"]) == 14, "Exactly14 sound identities are required"

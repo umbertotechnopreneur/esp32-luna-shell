@@ -27,7 +27,6 @@ ROOT = Path(__file__).resolve().parents[2]
 ASSETS = ROOT / "assets/cody/personality-icons"
 OUTPUT = ASSETS / "generated"
 EXTENT = 256
-STORED_INSET = 2
 
 # Stable domain identities shared by native firmware and the Windows preview.
 CATALOG = (
@@ -102,20 +101,22 @@ def cpp_bytes(data):
                      for start in range(0, len(data), 24))
 
 
-# indices: Full logical palette-index plane; palette slot zero has no transparency meaning.
-# coverage: Full logical alpha plane; only exactly transparent border pixels may be omitted.
+# indices: Full logical palette-index plane; slot zero has no alpha meaning.
+# coverage: Full logical alpha8 plane; even alpha=1 must survive packaging.
 # extent: Logical square dimension retained by rendering and previews.
-# inset: Symmetric border excluded from the flash planes.
-# Raises ValueError for invalid dimensions or any visible pixel in the omitted border.
-def crop_transparent_border(indices, coverage, extent, inset):
-    if inset < 0 or extent <= 2 * inset or len(indices) != extent * extent or len(coverage) != len(indices):
-        raise ValueError("Invalid personality sprite border dimensions")
-    for y in range(extent):
-        for x in range(extent):
-            if (x < inset or y < inset or x >= extent - inset or y >= extent - inset) and coverage[y * extent + x]:
-                raise ValueError(f"Visible personality sprite border pixel at ({x}, {y})")
-    return tuple(b"".join(bytes(plane[y * extent + inset:(y + 1) * extent - inset])
-                          for y in range(inset, extent - inset)) for plane in (indices, coverage))
+# Raises ValueError for invalid dimensions or a completely transparent sprite.
+def crop_transparent_bounds(indices, coverage, extent):
+    if extent <= 0 or len(indices) != extent * extent or len(coverage) != len(indices):
+        raise ValueError("Invalid personality sprite plane dimensions")
+    bounds = Image.frombytes("L", (extent, extent), bytes(coverage)).getbbox()
+    if bounds is None:
+        raise ValueError("Personality sprite has no visible pixel")
+    left, top, right, bottom = bounds
+    # Store the original bytes in row order. No quantization, decoding, runtime
+    # allocation or change to the sprite's logical coordinates is introduced.
+    stored = tuple(b"".join(bytes(plane[y * extent + left:y * extent + right])
+                            for y in range(top, bottom)) for plane in (indices, coverage))
+    return bounds, stored[0], stored[1]
 
 
 # No parameters: package preserved individual masters and palette into deterministic assets.
@@ -149,13 +150,13 @@ def main():
                     'const uint16_t palette[256] = {',
                     "    " + ", ".join(entry["rgb565"] for entry in entries), "};"]
     descriptors = []
-    manifest = {"schema": "cody.personality-icons.v1", "source": source_path.relative_to(ROOT).as_posix(),
+    manifest = {"schema": "cody.personality-icons.v2", "source": source_path.relative_to(ROOT).as_posix(),
                 "source_sha256": digest(source_bytes),
                 "palette_source": palette_path.relative_to(ROOT).as_posix(), "palette_sha256": digest(palette_bytes),
                 "quantization": "nearest squared sRGB distance; lowest non-reserved slot breaks ties; no dithering",
                 "coverage": "separate unpremultiplied alpha8; no reserved transparency color",
                 "component_policy": "one native ImageGen master per identity; 4-connected alpha >= 8; minimum 100 pixels per 324x324 source area",
-                "master_extent": EXTENT, "flash_encoding": "indexed-alpha8; transparent border omitted",
+                "master_extent": EXTENT, "flash_encoding": "indexed-alpha8; exact nonzero-alpha bounds; logical extent unchanged",
                 "icons": []}
     identities = [item[2] for item in CATALOG]
     if len(set(identities)) != 14 or len({item[0] for item in CATALOG}) != 14:
@@ -205,16 +206,18 @@ def main():
         Image.frombytes("L", (EXTENT, EXTENT), bytes(coverage)).save(OUTPUT / f"{name}.coverage.png")
         preview.paste(master, (column * 288 + 16, row * 288 + 16))
         symbol = cpp_id.lower()
-        stored_indices, stored_coverage = crop_transparent_border(indices, coverage, EXTENT, STORED_INSET)
+        stored_bounds, stored_indices, stored_coverage = crop_transparent_bounds(indices, coverage, EXTENT)
+        left, top, right, bottom = stored_bounds
+        stored_width, stored_height = right - left, bottom - top
         source_lines += [f"static const uint8_t {symbol}_indices[{len(stored_indices)}] = {{", cpp_bytes(stored_indices), "};",
                          f"static const uint8_t {symbol}_coverage[{len(stored_coverage)}] = {{", cpp_bytes(stored_coverage), "};"]
-        descriptors.append(f"    {{PersonalityCue::{cpp_id}, {EXTENT}, {EXTENT}, {symbol}_indices, {symbol}_coverage, {STORED_INSET}}},")
+        descriptors.append(f"    {{PersonalityCue::{cpp_id}, {EXTENT}, {EXTENT}, {symbol}_indices, {symbol}_coverage, {left}, {top}, {stored_width}, {stored_height}}},")
         manifest["icons"].append({"id": name, "enum": cpp_id, "identity": identity,
                                    "source": authored_source["source"], "source_sha256": digest(image_bytes),
                                    "source_size": list(source_image.size), "components": components,
                                    "indices_sha256": digest(indices), "coverage_sha256": digest(coverage),
                                    "used_slots": sorted(set(indices)), "data_bytes": len(indices) + len(coverage),
-                                   "stored_inset": STORED_INSET, "stored_extent": EXTENT - 2 * STORED_INSET,
+                                   "stored_bounds": list(stored_bounds),
                                    "stored_indices_sha256": digest(stored_indices),
                                    "stored_coverage_sha256": digest(stored_coverage),
                                    "flash_data_bytes": len(stored_indices) + len(stored_coverage)})
@@ -223,8 +226,12 @@ def main():
     (OUTPUT / "personality_icons.hpp").write_text(
         '// Generated by scripts/device.ps1 generate -Generator cody-personality-icons.\n'
         '#pragma once\n#include "CODY_personality.hpp"\nnamespace CODY::PersonalityAssets {\n'
-        'struct Sprite { PersonalityCue cue; uint16_t width; uint16_t height; '
-        'const uint8_t *indices; const uint8_t *coverage; uint16_t stored_inset = 0; };\n'
+        '// Immutable flash descriptor; stored geometry does not alter logical placement.\n'
+        'struct Sprite {\n'
+        '    PersonalityCue cue;\n    uint16_t width;\n    uint16_t height;\n'
+        '    const uint8_t *indices;\n    const uint8_t *coverage;\n'
+        '    uint16_t stored_left;\n    uint16_t stored_top;\n'
+        '    uint16_t stored_width;\n    uint16_t stored_height;\n};\n'
         'extern const uint16_t palette[256];\nextern const Sprite sprites[14];\n}\n', encoding="utf-8")
     preview.save(OUTPUT / "preview.png")
     manifest["flash_payload_bytes"] = sum(icon["flash_data_bytes"] for icon in manifest["icons"]) + 512

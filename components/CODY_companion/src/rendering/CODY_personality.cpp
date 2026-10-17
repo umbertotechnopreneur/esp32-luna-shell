@@ -109,13 +109,13 @@ constexpr auto kBatteryReadyCoverage = connection_symbol_coverage(PersonalityCue
 constexpr auto kBatteryLowCoverage = connection_symbol_coverage(PersonalityCue::BatteryLow);
 // Native symbols use a single semantic color and own no palette-index plane.
 constexpr PersonalityAssets::Sprite kWifiConnectedSprite{PersonalityCue::WifiConnected, 64, 64,
-    nullptr, kWifiConnectedCoverage.data()};
+    nullptr, kWifiConnectedCoverage.data(), 0, 0, 64, 64};
 constexpr PersonalityAssets::Sprite kSearchSprite{PersonalityCue::Search, 64, 64,
-    nullptr, kSearchCoverage.data()};
+    nullptr, kSearchCoverage.data(), 0, 0, 64, 64};
 constexpr PersonalityAssets::Sprite kBatteryReadySprite{PersonalityCue::BatteryReady, 64, 64,
-    nullptr, kBatteryReadyCoverage.data()};
+    nullptr, kBatteryReadyCoverage.data(), 0, 0, 64, 64};
 constexpr PersonalityAssets::Sprite kBatteryLowSprite{PersonalityCue::BatteryLow, 64, 64,
-    nullptr, kBatteryLowCoverage.data()};
+    nullptr, kBatteryLowCoverage.data(), 0, 0, 64, 64};
 constexpr int8_t kSearchOffsetX[]{0, 1, 2, 1, 0, -1, -2, -1};
 constexpr int8_t kSearchOffsetY[]{-1, 0, 1, 2, 1, 0, -1, -2};
 
@@ -1015,7 +1015,8 @@ esp_err_t prepare_personality_frame(
 // strip: Borrowed compact RGB565 destination.
 // first_row: Logical y origin of this tile.
 // first_column: Logical x origin of this tile.
-// Exception: Returns the original surface or invalid sprite-bounds error.
+// Exception: Returns the original surface error or invalid request bounds.
+// Exception: Returns ESP_ERR_INVALID_STATE for corrupt immutable storage geometry.
 esp_err_t draw_personality_rows(const PersonalityFrame &frame, CODY2D::Surface strip,
                                 uint16_t first_row, uint16_t first_column)
 {
@@ -1045,10 +1046,17 @@ esp_err_t draw_personality_rows(const PersonalityFrame &frame, CODY2D::Surface s
     const uint16_t right = std::min<uint16_t>(bounds.right, first_column + strip.width);
     // Flash descriptors are immutable; load their geometry before destination
     // stores, which could otherwise conservatively alias the uint16_t fields.
-    const int inset = sprite->stored_inset;
-    const int stored_width = sprite->width - 2 * inset;
-    const int stored_right = sprite->width - inset;
-    const int stored_bottom = sprite->height - inset;
+    const int stored_left = sprite->stored_left;
+    const int stored_top = sprite->stored_top;
+    const int stored_width = sprite->stored_width;
+    const int stored_right = stored_left + stored_width;
+    const int stored_bottom = stored_top + sprite->stored_height;
+    if (stored_width == 0 || sprite->stored_height == 0 || sprite->coverage == nullptr ||
+        stored_right > sprite->width || stored_bottom > sprite->height) {
+        ESP_LOGE(kTag, "Sprite storage geometry rejected cue=%u (%s)",
+            static_cast<unsigned>(frame.cue), esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
     for (uint16_t y = top; y < bottom; ++y) {
         const uint16_t source_y = (y - bounds.top) * sprite->height / height;
         auto *destination = strip.pixels + (y - first_row) * strip.stride;
@@ -1064,11 +1072,11 @@ esp_err_t draw_personality_rows(const PersonalityFrame &frame, CODY2D::Surface s
             }
             // Logical dimensions include the generator-verified transparent
             // border. Native procedural symbols retain their uncropped planes.
-            if (source_x < inset || animated_y < inset ||
+            if (source_x < stored_left || animated_y < stored_top ||
                 source_x >= stored_right || animated_y >= stored_bottom) {
                 continue;
             }
-            const uint32_t source = (animated_y - inset) * stored_width + source_x - inset;
+            const uint32_t source = (animated_y - stored_top) * stored_width + source_x - stored_left;
             const uint8_t coverage = (static_cast<uint16_t>(sprite->coverage[source]) * frame.opacity + 127) / 255;
             if (coverage == 0) {
                 continue;

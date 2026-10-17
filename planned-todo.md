@@ -10,8 +10,8 @@ completed evidence and retired items are in [done.md](done.md).
 - Implemented: offline farewell/manual wake, the shorter wake timeline, gentle
   question bell/reminders, unified diagnostics/Memory, PC-approval presentation
   and the focused readability cleanup. Their remaining physical gates stay below.
-- Implemented in the current delivery: Debug footprint policy, both previously
-  absent dependency locks and current PDF topology checks. Final builds/tests
+- Implemented in the current delivery: lossless sprite storage reduction for
+  Debug's footprint, both missing dependency locks and current PDF topology checks. Final builds/tests
   are still running; this is not a passing-validation claim.
 - Unimplemented: CLARITY-01 through CLARITY-03, enclosed-board ports, other-platform
   credential/launcher owners, OTA upload/rollback and the explicitly deferred

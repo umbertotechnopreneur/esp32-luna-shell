@@ -6,10 +6,13 @@ The owner requested fixes for BUILD-DEBUG-OTA-01, PROFILE-LOCKS-01 and
 CODY-DOC-TOPOLOGY-01, all tests/compilations, checkpoint commits, push and USB flash.
 The existing codex/cody checkout is retained; no branch/worktree/PR is requested.
 
-- [ ] **BUILD-DEBUG-OTA-01:** Debug now uses size optimization for general code
-  while native drawing and speech retain their speed policy. Verbose logs,
-  UART core dumps, assertions, task budgets and OTA/storage geometry remain.
-  The actual final partition check and size result are still pending.
+- [ ] **BUILD-DEBUG-OTA-01:** Minimal nonzero-alpha sprite rectangles save
+  302,904 flash bytes against the previous package with unchanged full raw planes
+  and PNGs. Both modes retain the original compiler policy, diagnostics, task
+  budgets and OTA/storage geometry. Final native parity, partition and size
+  verification are pending. The first general-code size optimization still
+  exceeded Debug's slot by 73,232 bytes and was removed in favor of this lossless
+  resource change; no tests were run against an oversized image.
 - [ ] **PROFILE-LOCKS-01:** display-touch and full-wake-word canonical locks
   are generated with IDF 6.0.2. New-graph Kconfig dependency rules and the existing
   pinned-LVGL patch application are corrected. Cody dependency identities and

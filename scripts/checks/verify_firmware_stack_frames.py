@@ -115,7 +115,7 @@ def main(argv=None) -> int:
     audio_notice_helpers = helper_frames(rows, ("LUNASHELL_audio.cpp",),
         r"personality_audio_worker|play_personality_locked|notify_application_audio|repeated_notice")
     native_raster_helpers = helper_frames(
-        rows, ("CODY2D_paths.cpp", "CODY2D_controls.cpp", "CODY2D_text.cpp"))
+        rows, ("CODY2D_paths.cpp", "CODY2D_controls.cpp", "CODY2D_text.cpp", "CODY_personality.cpp"))
     imu_acquisition_helpers = helper_frames(
         rows, ("LUNASHELL_acquisition_imu.cpp", "LUNASHELL_hardware.cpp",
                "LUNASHELL_activity.cpp"),
@@ -135,6 +135,8 @@ def main(argv=None) -> int:
                 failures.append("IMU acquisition: unbounded or exhausting individual frame: " + frame["function"])
     if not native_raster_helpers["compiled_record_count"]:
         failures.append("Native raster stack records are missing; rebuild the activity profile with current flags")
+    if not any("CODY_personality.cpp" in row["sidecar"] and "draw_personality_rows" in row["function"] for row in rows):
+        failures.append("Personality row-compositor stack frame is missing; rebuild the changed sprite owner")
     ccp_helpers = {}
     if codex_enabled:
         ccp_groups = (

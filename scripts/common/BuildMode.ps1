@@ -72,8 +72,8 @@ function Assert-FirmwareBuildModeConfiguration {
     $expectedFlags = @{
         LUNASHELL_BUILD_MODE_DEBUG = -not $release
         LUNASHELL_BUILD_MODE_RELEASE = $release
-        COMPILER_OPTIMIZATION_SIZE = -not $release
-        COMPILER_OPTIMIZATION_PERF = $release
+        COMPILER_OPTIMIZATION_SIZE = $false
+        COMPILER_OPTIMIZATION_PERF = $true
         PM_LIGHT_SLEEP_CALLBACKS = -not $release
         USJ_NO_AUTO_LS_ON_CONNECTION = $false
     }

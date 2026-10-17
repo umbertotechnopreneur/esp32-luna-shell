@@ -445,7 +445,7 @@ bool read_sprite_plane(const char *name, const char *plane, std::vector<uint8_t>
 
 // No parameters: compare every logical pixel and actual raster output with preserved raw assets.
 // Exception: Host reference-plane allocations may throw std::bad_alloc; file failures remain test failures.
-void check_lossless_sprite_border()
+void check_lossless_sprite_bounds()
 {
     struct Identity { PersonalityCue cue; const char *name; };
     constexpr Identity identities[] = {
@@ -463,18 +463,22 @@ void check_lossless_sprite_border()
         for (const auto &identity : identities) {
             if (identity.cue == sprite.cue) { name = identity.name; }
         }
-        require(name != nullptr && sprite.width == 256 && sprite.height == 256 && sprite.stored_inset == 2,
-            "packed bitmap retains typed identity and full logical dimensions");
-        if (name == nullptr || sprite.width != 256 || sprite.height != 256 || sprite.stored_inset != 2) { return; }
+        const unsigned right = sprite.stored_left + sprite.stored_width;
+        const unsigned bottom = sprite.stored_top + sprite.stored_height;
+        const bool valid_storage = sprite.stored_width > 0 && sprite.stored_height > 0 &&
+            right <= sprite.width && bottom <= sprite.height;
+        require(name != nullptr && sprite.width == 256 && sprite.height == 256 && valid_storage,
+            "packed bitmap retains typed identity, logical dimensions and bounded storage");
+        if (name == nullptr || sprite.width != 256 || sprite.height != 256 || !valid_storage) { return; }
         if (!read_sprite_plane(name, "indices", indices) || !read_sprite_plane(name, "coverage", coverage)) { return; }
         bool exact = true;
         for (unsigned y = 0; y < 256; ++y) {
             for (unsigned x = 0; x < 256; ++x) {
                 const unsigned logical = y * 256 + x;
-                if (x < 2 || y < 2 || x >= 254 || y >= 254) {
+                if (x < sprite.stored_left || y < sprite.stored_top || x >= right || y >= bottom) {
                     exact = exact && coverage[logical] == 0;
                 } else {
-                    const unsigned stored = (y - 2) * 252 + x - 2;
+                    const unsigned stored = (y - sprite.stored_top) * sprite.stored_width + x - sprite.stored_left;
                     exact = exact && sprite.indices[stored] == indices[logical] &&
                         sprite.coverage[stored] == coverage[logical];
                 }
@@ -1351,7 +1355,7 @@ int main()
     check_rejection_and_sizes();
     check_home_personality_layout();
     check_dirty_and_raster();
-    check_lossless_sprite_border();
+    check_lossless_sprite_bounds();
     check_petting();
     check_routine_greeting_caress();
     check_happiness();
