@@ -440,7 +440,8 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
 - [ ] **HW-01 - Acquisition integration and nested target stacks.** Hardware,
   status, RTC, snapshot, power and ToF host checks are in the current automated
   matrix and passed on 17 October. The GNSS-enabled full-wake-word Release
-  build also passed; it does not prove acquisition on a new board. Review remaining sensor/staging
+  build also passed; it does not prove acquisition on a new board. Review remaining
+  sensor/staging
   responsibilities and actual growing-snapshot callers including HTTP, Luna,
   DeepSleepRelease, BLE, callbacks/logging and wake. Boot headroom is historical;
   deepest panel/hardware paths and direct BLE watermarks remain unmeasured.
@@ -471,8 +472,8 @@ The owner confirmed the SD/PCB limitation and standby/wake workaround on
   full-wake-word locks are now generated with ESP-IDF 6.0.2. Both Release builds
   and size reports passed on 17 October. The public LVGL image-cache header is
   included explicitly in Luna boot. Broader display-off/all-services and
-  input/output compositions
-  plus physical display/touch, rotations, DMA, standby/radio coexistence and
+  input/output compositions plus physical display/touch, rotations, DMA,
+  standby/radio coexistence and
   PMU-on/battery-off remain to be verified. Keep physical board selection separate
   from UI, and retain the explicitly deferred SD dependency removal.
 

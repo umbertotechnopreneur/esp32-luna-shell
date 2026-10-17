@@ -95,6 +95,20 @@ endurance and nested stack headroom remain unverified. Voice/walking trials and
 speech understanding stay deferred. Publication and USB flash are recorded
 separately after completion.
 
+
+## Publication and USB availability - 2026-10-17
+
+The source-only changed-file secret scan passed (28 files, eight signatures,
+two binary assets excluded). git diff --check passed. The requested checkpoints
+were pushed to origin/codex/cody; remote commit
+`0f24924c1a480fc125c43df01ebf1c0992a04105` was verified after the push.
+
+Before flash, public discovery found no present USB serial candidate. The public
+port inventory and Windows PnP independently listed only COM1 and Bluetooth
+COM3-COM6, with no present USB Espressif device. The owner was asked to reconnect
+and wake Cody. No flash has been attempted or claimed from this result; the
+remaining USB delivery gate is retained in TODO.md.
+
 ## Backlog reconciliation - 2026-10-17
 
 The pending register was reviewed against current source and dated evidence;

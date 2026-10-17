@@ -21,7 +21,12 @@ the existing codex/cody checkout; no branch/worktree/PR was created.
 - [x] Four selected firmware builds and size reports, two native preparations
   and all 48 automatic check invocations pass. The initial full-run PDF failure
   and final targeted pass are retained separately; see done.md for scope.
-- [ ] Complete publication checks, push and flash the identified USB device.
+- [x] Source-only changed-file secret scan and git diff --check pass. Checkpoints
+  were pushed to origin/codex/cody and remote 0f24924c was verified.
+- [ ] Flash Cody Release with wake word/activity over USB. Discovery and the full
+  Windows port inventory currently show no USB serial device (only COM1 and
+  Bluetooth COM3-COM6). Waiting for the owner to reconnect/wake Cody; no flash
+  was attempted against an absent port.
 
 planned-todo.md now excludes completed references, Windows capture and the stale
 power/activity automatic-check gate. It distinguishes implemented behavior,
