@@ -1263,14 +1263,28 @@ class CcpService:
                 or observation.event == "Stop" and observation.reply_ready):
             # A prompt in another chat must not erase this chat's pending notice.
             self.interactions.retire_native(observation.session_id)
+        if (observation.event in {"PreToolUse", "PostToolUse"}
+                and observation.phase not in {Phase.PAUSED, Phase.INTERRUPTED}):
+            # Native hook activity has resumed. Retire only this chat's advisory
+            # approval ticket; questions and other chats retain their ownership.
+            self.interactions.retire_native(observation.session_id, interactions.EventKind.APPROVAL_ON_PC)
         approval = (observation.event == "PermissionRequest" and observation.followed
                     and observation.phase == Phase.PAUSED)
         reply_ready = observation.reply_ready and not observation.followed
         if not approval and not reply_ready:
+            if observation.event == "PermissionRequest":
+                self.trace_approval_notice(observation, "suppressed", "background_chat")
             return False
         targets = self.physical_event_targets()
         if not targets:
+            if approval:
+                self.trace_approval_notice(observation, "unavailable", "no_authenticated_physical_target")
             return False
+        if approval:
+            targets = self.activity.unnotified_approval_targets(observation, targets)
+            if not targets:
+                self.trace_approval_notice(observation, "suppressed", "turn_already_notified_or_origin_changed")
+                return False
         observation = self.activity.refresh_notice_title(observation)
         approval_is_current = approval and observation.followed
         reply_is_current = reply_ready and observation.reply_ready
@@ -1296,7 +1310,20 @@ class CcpService:
             self.interactions.enqueue(device_id, payload, "LAN",
                                       association_id=hashlib.sha256(active).hexdigest(),
                                       native_session=observation.session_id)
+            if approval:
+                self.activity.mark_approval_notice_sent(observation, device_id)
+                self.trace_approval_notice(observation, "queued", "first_notice_for_recipient_in_turn")
         return bool(targets)
+
+    # self: Service recording bounded diagnostic facts without commands or chat text.
+    # observation: Genuine accepted permission event with opaque native identities.
+    # state: Actual notice admission outcome, independent of native authorization.
+    # reason: Fixed diagnostic reason selected by the delivery owner.
+    def trace_approval_notice(self, observation: HookObservation, state: str, reason: str) -> None:
+        chat = hashlib.sha256(observation.session_id.encode("ascii")).hexdigest()[:12]
+        turn = hashlib.sha256(observation.turn_id.encode("ascii")).hexdigest()[:12]
+        print(f"CCP approval notice: state={state} reason={reason} chat={chat} turn={turn}",
+              file=sys.stderr, flush=True)
 
     # No parameters: stops the background UDP listener.
     # Raises RuntimeError or OSError when responder shutdown or socket closure fails.

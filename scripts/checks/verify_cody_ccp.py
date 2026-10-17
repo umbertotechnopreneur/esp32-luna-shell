@@ -1149,11 +1149,12 @@ class HookRoutingTests(unittest.TestCase):
     # name: Documented lifecycle hook identity.
     # session: Opaque native session identity, never a workspace-derived identity.
     # turn: Exact native turn identity.
+    # fields: Additional allowlisted native tool metadata for the selected lifecycle event.
     # Raises ValueError if production correlation rejects the fixture event.
-    def observe(self, name: str, session: str = "chat-a", turn: str = "turn-a") -> dict:
+    def observe(self, name: str, session: str = "chat-a", turn: str = "turn-a", **fields) -> dict:
         self.event_ns += 1
         event = {"hook_event_name": name, "session_id": session, "turn_id": turn,
-                 "cwd": "E:/same-long-project-name", "emitted_ns": self.event_ns}
+                 "cwd": "E:/same-long-project-name", "emitted_ns": self.event_ns, **fields}
         with patch.object(activity.time, "monotonic_ns", return_value=self.event_ns + 1):
             return self.service.observe_hook(event)
 
@@ -1401,6 +1402,113 @@ class HookRoutingTests(unittest.TestCase):
         self.assertNotIn("decision", result)
         self.observe("Stop")
         self.assertEqual(self.service.notifications_error, "synthetic queue full")
+
+
+    # self: Genuine repeated permission events, a device dismissal and an expired registry record.
+    # Raises AssertionError if one native turn reopens its informational notice or blocks the next turn.
+    def test_approval_notice_is_once_per_turn_after_dismissal_and_expiry(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("PermissionRequest")
+        association = hashlib.sha256(self.key).hexdigest()
+        first = self.service.interactions.snapshot(self.device, association)
+        self.service.interactions.acknowledge_notice(self.device, first[0], association)
+        self.observe("PermissionRequest")
+        self.service.interactions._clock = lambda: 1000.0
+        self.service.interactions.snapshot(self.device, association)
+        self.observe("PermissionRequest")
+        self.enqueue.assert_called_once()
+        self.title_read.assert_called_once()
+        self.observe("UserPromptSubmit", turn="turn-next")
+        self.observe("PermissionRequest", turn="turn-next")
+        self.assertEqual(self.enqueue.call_count, 2)
+        self.assertNotEqual(self.service.interactions.snapshot(self.device, association)[0], first[0])
+
+    # self: Resumed native tool activity alongside a caller-owned question and another chat's notice.
+    # Raises AssertionError if retirement changes question ownership or erases an unrelated chat notice.
+    def test_resumed_tool_activity_retires_only_the_origin_approval(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("PreToolUse", tool_use_id="tool-a", tool_name="Bash")
+        self.observe("PermissionRequest")
+        origin = next(iter(self.service.interactions._tickets.values()))
+        association = hashlib.sha256(self.key).hexdigest()
+        other_payload = interactions.EventPayload(interactions.EventKind.REPLY_READY, "Other chat",
+                                                 "Reply ready", "Other chat finished")
+        other = self.service.interactions.enqueue(self.device, other_payload, "LAN",
+                                                  association_id=association, native_session="chat-other")
+        question_payload = interactions.EventPayload(interactions.EventKind.QUESTION, "Caller", "Choose cache",
+            "Which cache?", (
+                interactions.Choice("memory", "Memory", "Keep it in memory.", interactions.Tone.POSITIVE),
+                interactions.Choice("disk", "Disk", "Keep it on disk.", interactions.Tone.INFO)))
+        question = self.service.interactions.enqueue(self.device, question_payload, "LAN", association_id=association)
+        self.enqueue.reset_mock()
+        self.observe("PostToolUse", tool_use_id="tool-a")
+        self.assertEqual(origin.state, "cancelled")
+        self.assertEqual(self.service.interactions._tickets[other["request_id"]].state, "pending")
+        self.assertEqual(self.service.interactions._tickets[question["request_id"]].state, "pending")
+        self.observe("PermissionRequest")
+        self.enqueue.assert_not_called()
+
+    # self: Real optional queue rejection followed by another genuine permission event in the same turn.
+    # Raises AssertionError if failed admission consumes the one notice or hides its structured error.
+    def test_failed_approval_admission_can_retry_without_consuming_the_notice(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.enqueue.side_effect = ValueError("synthetic queue full")
+        self.assertEqual(self.observe("PermissionRequest"), {"notification_error": "synthetic queue full"})
+        self.assertEqual(self.service.notifications_error, "synthetic queue full")
+        self.enqueue.side_effect = None
+        self.assertEqual(self.observe("PermissionRequest"), {})
+        self.assertIsNone(self.service.notifications_error)
+        self.assertEqual(self.enqueue.call_count, 2)
+        self.observe("PermissionRequest")
+        self.assertEqual(self.enqueue.call_count, 2)
+
+    # self: Two explicit physical recipients with one partial admission and a later genuine retry.
+    # Raises AssertionError if retry replaces the first ticket, refreshes its deadline or loses the second peer.
+    def test_partial_approval_admission_preserves_the_first_ticket_and_deadline(self) -> None:
+        other_device = "abcdef012346"
+        self.service.state.public_status.return_value.append({
+            "device_id": other_device, "retained_pairing": True, "source": "LAN", "pairing_pending": False})
+        failed_once = False
+
+        # device_id: Exact retained physical recipient from the production target projection.
+        # payload: Complete native informational content generated by the notice owner.
+        # source: Authenticated observation source, unchanged by the fixture.
+        # fields: Association and native session metadata forwarded to the real queue.
+        # Raises ValueError once for the second target to model partial admission.
+        def admit_with_one_failure(device_id, payload, source, **fields):
+            nonlocal failed_once
+            if device_id == other_device and not failed_once:
+                failed_once = True
+                raise ValueError("synthetic second recipient failure")
+            return interactions.InteractionStore.enqueue(self.service.interactions, device_id, payload, source, **fields)
+
+        self.enqueue.side_effect = admit_with_one_failure
+        self.observe("UserPromptSubmit")
+        self.assertIn("notification_error", self.observe("PermissionRequest"))
+        first = next(iter(self.service.interactions._tickets.values()))
+        self.service.interactions._clock = lambda: 105.0
+        self.title_read.return_value = native_title.ChatTitleObservation(
+            "New complete native title", native_title.TitleState.CURRENT, activity.time.monotonic())
+        self.assertEqual(self.observe("PermissionRequest"), {})
+        self.assertEqual(len(self.service.interactions._tickets), 2)
+        self.assertIs(self.service.interactions._tickets[first.request_id], first)
+        self.assertEqual((first.state, first.created_at, first.expires_at), ("pending", 100.0, 280.0))
+        self.observe("PermissionRequest")
+        self.assertEqual(self.enqueue.call_count, 3)
+
+    # self: Genuine lifecycle diagnostics with deliberately private native IDs and title metadata.
+    # Raises AssertionError if the trace exposes identities/title text or omits queue/suppression outcomes.
+    def test_approval_trace_uses_only_hashed_origin_and_fixed_outcomes(self) -> None:
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output):
+            self.observe("UserPromptSubmit", session="private-chat", turn="private-turn")
+            self.observe("PermissionRequest", session="private-chat", turn="private-turn")
+            self.observe("PermissionRequest", session="private-chat", turn="private-turn")
+        trace = output.getvalue()
+        for private in ("private-chat", "private-turn", "same-long-project-name", "Chat title unavailable"):
+            self.assertNotIn(private, trace)
+        for outcome in ("event=PermissionRequest", "state=queued", "state=suppressed"):
+            self.assertIn(outcome, trace)
 
 
 class AppPresenceTests(unittest.TestCase):

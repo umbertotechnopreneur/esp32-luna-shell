@@ -95,6 +95,19 @@ returns to Home; it sends no native approval or denial. Real transport errors
 replace the lower instruction with their original error code; offline state is
 explicit. The stored user name remains an authenticated runtime preference.
 
+
+Native PC-approval attention is limited to one successfully queued notice per
+originating chat turn. Repeated PermissionRequest hooks in that turn do not renew
+its ticket, deadline or device route, including after Back or expiry. A new turn
+can signal again. Accepted native tool activity retires only that chat's approval
+notice; questions and other chats' notices keep their ownership. A rejected queue
+admission remains an observable error and can retry on a later genuine event.
+Partial multi-device retries retain already admitted ticket identities/deadlines.
+This is an advisory attention policy, not a statement that each native request is
+still pending or was approved. Broker diagnostics record accepted permission
+boundaries and queued/suppressed/retired outcomes using hashed chat/turn identities;
+commands, tool inputs and chat text are never included in this trace.
+
 ## Authenticated Codex client presence (15 October 2026)
 
 App presence is separate from retained pairing, READY/LAN liveness and the followed

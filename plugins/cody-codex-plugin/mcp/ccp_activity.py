@@ -151,6 +151,7 @@ class Session:
     compact_last_event: str = ""
     transcript_path: str = ""
     reply_notice_turn: str = ""
+    approval_notice_devices: set[str] = field(default_factory=set)
     chat_title: ChatTitleObservation = field(default_factory=ChatTitleObservation)
 
 
@@ -267,6 +268,7 @@ class ActivityStore:
                     session.compact_trigger = ""
                     session.compact_last_event = ""
                     session.reply_notice_turn = ""
+                    session.approval_notice_devices.clear()
                 session.turn_id = turn_id
                 session.interrupted = False
                 session.description = ""
@@ -390,7 +392,7 @@ class ActivityStore:
             reply_ready = name == "Stop" and session.reply_notice_turn != session.turn_id
             if reply_ready:
                 session.reply_notice_turn = session.turn_id
-            if name in {"UserPromptSubmit", "Stop", "PreCompact", "PostCompact", "Interrupt", "SessionEnd"}:
+            if name in {"UserPromptSubmit", "PermissionRequest", "Stop", "PreCompact", "PostCompact", "Interrupt", "SessionEnd"}:
                 # Trace only genuine accepted lifecycle boundaries. Tool hooks
                 # remain quiet; opaque digests keep native IDs and chat text local.
                 chat_digest = hashlib.sha256(session_id.encode("ascii")).hexdigest()[:12]
@@ -461,6 +463,30 @@ class ActivityStore:
 
             title = displayable_notice_title(source_title, time.monotonic(), maximum_bytes)
             return replace(observation, title=title)
+
+    # self: Canonical lifecycle owner retaining per-device notice admission until the next turn.
+    # observation: Exact genuine permission origin, still eligible for the followed chat.
+    # candidates: Retained physical targets supplied by the authenticated delivery owner.
+    # Returns only recipients not yet admitted in this originating native turn.
+    def unnotified_approval_targets(self, observation: HookObservation, candidates: list[str]) -> list[str]:
+        with self._lock:
+            session = self._sessions.get(observation.session_id)
+            if session is None or not self._notice_origin_is_current(observation, session, session.cwd):
+                return []
+            return [device for device in candidates if device not in session.approval_notice_devices]
+
+    # self: Canonical lifecycle owner recording each successful informational delivery admission.
+    # observation: Exact accepted permission origin after a target's notice was queued.
+    # device_id: Explicit authenticated physical recipient whose admission succeeded.
+    # Raises ValueError if the originating turn changed before delivery admission completed.
+    def mark_approval_notice_sent(self, observation: HookObservation, device_id: str) -> None:
+        with self._lock:
+            session = self._sessions.get(observation.session_id)
+            if session is None or session.turn_id != observation.turn_id:
+                raise ValueError("Approval notice origin changed before delivery admission")
+            # Admission survives dismissal, expiry and another target's failure.
+            # Only a genuine new native turn resets this bounded recipient set.
+            session.approval_notice_devices.add(device_id)
 
     # No parameters: exposes identities and local context only, never chat contents.
     def list_sessions(self) -> list[dict[str, Any]]:

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import IntEnum
+import hashlib
 import hmac
 import math
 import re
@@ -435,7 +436,7 @@ class InteractionStore:
     # source: LAN or SIMULATED source label derived from the authenticated target observation.
     # ttl_seconds: Bounded complete request/recipient-acknowledgement lifetime.
     # association_id: Internal digest binding this ticket to the active association, never a wire identity.
-    # native_session: Genuine hook identity used only to retire a native notice when that turn ends.
+    # native_session: Genuine hook identity retiring notices at lifecycle or resumed-activity boundaries.
     # Raises ValueError if the target/content/TTL is invalid or a bounded queue is occupied.
     def enqueue(self, device_id: str, payload: EventPayload, source: str, ttl_seconds: int = 180,
                 association_id: str = "", native_session: str = "") -> dict[str, Any]:
@@ -588,14 +589,20 @@ class InteractionStore:
             return ticket.state
 
     # self: Automatic-notice owner; retiring a hook context never affects caller-owned questions.
-    # session_id: Genuine ended/interrupted session, or None after a new followed user prompt.
-    def retire_native(self, session_id: str | None) -> None:
+    # session_id: Genuine native session, or None to retire all native notices.
+    # kind: Optional informational kind; resumed activity must not retire reply-ready notices.
+    def retire_native(self, session_id: str | None, kind: EventKind | None = None) -> None:
         with self._condition:
             self._expire()
             for ticket in self._tickets.values():
                 if (ticket.native_session and (session_id is None or ticket.native_session == session_id)
+                        and (kind is None or ticket.payload.kind == kind)
                         and ticket.state not in TERMINAL_STATES):
                     ticket.state, ticket.terminal_at = "cancelled", self._clock()
+                    if ticket.payload.kind == EventKind.APPROVAL_ON_PC:
+                        chat = hashlib.sha256(ticket.native_session.encode("ascii")).hexdigest()[:12]
+                        print(f"CCP approval notice: state=retired reason=native_lifecycle chat={chat}",
+                              file=sys.stderr, flush=True)
                     self._condition.notify_all()
 
     # self: Owner recording authenticated device retirement separately from recipient delivery.
