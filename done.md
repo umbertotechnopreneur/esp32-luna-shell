@@ -92,11 +92,10 @@ The full-profile resource measurement baseline does not match these feature
 variants; its eight unit cases and actual size reports passed, without inventing
 a replacement baseline. Physical pixels/touch/audio, measured wake latency,
 endurance and nested stack headroom remain unverified. Voice/walking trials and
-speech understanding stay deferred. Publication and USB flash are recorded
-separately after completion.
+speech understanding stay deferred. Publication and USB flash evidence follows.
 
 
-## Publication and USB availability - 2026-10-17
+## Publication and USB flash - 2026-10-17
 
 The source-only changed-file secret scan passed (28 files, eight signatures,
 two binary assets excluded). git diff --check passed. The requested checkpoints
@@ -106,8 +105,28 @@ were pushed to origin/codex/cody; remote commit
 Before flash, public discovery found no present USB serial candidate. The public
 port inventory and Windows PnP independently listed only COM1 and Bluetooth
 COM3-COM6, with no present USB Espressif device. The owner was asked to reconnect
-and wake Cody. No flash has been attempted or claimed from this result; the
-remaining USB delivery gate is retained in TODO.md.
+and wake Cody; no flash was attempted against an absent port.
+
+After the owner confirmed reconnection, fresh discovery identified an openable
+Espressif USB VID 303A / PID 1001 device on COM10. The public flash command ran
+shared transient-artifact cleanup, rebuilt at eight jobs and successfully wrote
+Release with wake word and the activity classifier. Its final configuration
+confirms both features. The image source is
+`35467b25c9cbd70e3cb1030022448b30288b816f`, version `cody-218-g35467b25`.
+The application remains 6,925,344 bytes, with 349,152 bytes free in the existing
+OTA slot; final application SHA256 is
+`566e476be6a897bb9be51359ba8108ea2223691dd33fb704c9b14a486350654b`.
+
+The command exited zero. Written-data hashes were verified for all five segments:
+bootloader, partition table, initial OTA data, speech models and application.
+The command then requested a hard reset via RTS. Its flash list does not write
+NVS/settings; the partition layout and task budgets are unchanged. This is
+verified flash evidence, not a physical UI/touch/audio/wake-latency or post-reset
+boot observation. Exact command, segment hashes and discovery/flash logs are
+retained in `artifacts/build-cody-delivery-evidence-20261017/flash-delivery.json`.
+
+The delivery gate is closed. A final documentation-only checkpoint records this
+result; its newer Git revision does not change the flashed firmware source above.
 
 ## Backlog reconciliation - 2026-10-17
 

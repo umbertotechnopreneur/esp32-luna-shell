@@ -1,45 +1,16 @@
 # Active work
 
-## Authorized Cody delivery - 2026-10-17
-
-The owner requested the Debug footprint, two dependency locks and PDF fixes,
-all tests/compilations, checkpoint commits, push and USB flash. Work remains on
-the existing codex/cody checkout; no branch/worktree/PR was created.
-
-- [x] **BUILD-DEBUG-OTA-01:** Lossless nonzero-alpha sprite rectangles save
-  302,904 flash bytes without changing logical pixels, raw planes or PNGs.
-  Debug passes at 7,081,968 bytes with 192,528 bytes free in the existing OTA slot.
-  The original compiler policy, diagnostics, task budgets and storage geometry
-  are retained. Native logical-pixel/render parity and both compiled-frame
-  checks pass; nested physical stack headroom remains separate.
-- [x] **PROFILE-LOCKS-01:** display-touch and full-wake-word canonical locks
-  are generated with IDF 6.0.2. Catalog checks and both Release builds/size
-  reports pass. Cody dependency identities and versions are unchanged.
-- [x] **CODY-DOC-TOPOLOGY-01:** All four document contracts pass with rendering.
-  The CCP guide reflects shared diagnostics; the quickstart retains exactly
-  four A5 instructional pages. Both revised PDFs match their Obsidian copies.
-- [x] Four selected firmware builds and size reports, two native preparations
-  and all 48 automatic check invocations pass. The initial full-run PDF failure
-  and final targeted pass are retained separately; see done.md for scope.
-- [x] Source-only changed-file secret scan and git diff --check pass. Checkpoints
-  were pushed to origin/codex/cody and remote 0f24924c was verified.
-- [ ] Flash Cody Release with wake word/activity over USB. Discovery and the full
-  Windows port inventory currently show no USB serial device (only COM1 and
-  Bluetooth COM3-COM6). Waiting for the owner to reconnect/wake Cody; no flash
-  was attempted against an absent port.
-
-planned-todo.md now excludes completed references, Windows capture and the stale
-power/activity automatic-check gate. It distinguishes implemented behavior,
-remaining source work and missing physical evidence. Earlier context remains in
-Git b4738cbf; current evidence is in [done.md](done.md).
-
-## Retained limits and deferred work
+No unresolved gate remains for the authorized 17 October delivery. The Debug
+footprint, missing profile locks, PDF corrections and backlog reconciliation are
+complete. All 48 automatic checks and four selected builds/size reports passed;
+checkpoint commits were pushed and the Release firmware was flashed over USB.
+Exact source versions, image hashes, initial failures and final delivery evidence
+are in [done.md](done.md).
 
 Physical pixels, touch, acoustics, measured wake latency, current, endurance and
-nested target stack headroom are separate from host tests, builds and flash.
-The authored shorter wake timeline is not a measured device timing result.
-Voice/walking/classifier trials and speech-to-Codex follow-up remain deferred;
+nested device stack headroom remain separate from host checks/build/flash.
+Voice/walking/classifier trials and speech-to-Codex follow-up stay deferred;
 WAV delivery does not establish model-side speech understanding. Keep wake word,
 the accepted SD/PCB limitation and observational HAR without model training or
-automatic classifier-led shutdown. Broader work remains in
-[planned-todo.md](planned-todo.md).
+automatic classifier-led shutdown. Specific remaining physical gates and broader
+source/board/product work are in [planned-todo.md](planned-todo.md).
