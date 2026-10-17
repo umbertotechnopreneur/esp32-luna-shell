@@ -2,11 +2,14 @@
 
 ## Standby wake hardening - 2026-10-17
 
-- Implement native touch-IRQ wake independently of coordinate-read success.
-- Retain resource-level RTC breadcrumbs and report them before the boot backlog fills.
-- Flush the SD session identity before asynchronous logger admission.
-- Owner-authorized Release build and COM10 flash are pending. Automated tests,
-  simulator checks, size reports and physical wake acceptance remain unexecuted.
+- Native touch-IRQ wake now operates independently of coordinate-read success.
+- Resource-level RTC breadcrumbs are reported before the boot backlog fills.
+- The SD session identity is flushed before asynchronous logger admission.
+- The owner-authorized Release build passed at four jobs after an initial GCC
+  internal compiler error at eight jobs in unchanged ESP-DSP source. COM10 flash
+  is pending. Automated tests, simulator checks, size reports and physical wake
+  acceptance remain unexecuted; the existing source-contract lookup is aligned
+  with the renamed resource owner without executing that check.
 - Preserve recovered logs under artifacts/build-cody-wake-evidence-20261017/
   before transient cleanup.
 

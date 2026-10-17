@@ -1002,6 +1002,8 @@ def verify_transaction_fault_injection() -> None:
 
 # No parameters: tie the executable model to every firmware and scheduler lifecycle invariant.
 # Raises AssertionError, OSError or ValueError when a required contract is missing or invalid.
+# No parameters: inspect the canonical firmware owners and shared dependency plan.
+# Exception: Raises AssertionError or the original source-read error on a broken contract.
 def verify_source_contracts() -> None:
     power = read(POWER_SOURCE)
     shared_standby = read(ROOT / "components/LUNASHELL_platform/include/LUNASHELL_standby_transition.hpp")
@@ -2237,7 +2239,7 @@ def verify_source_contracts() -> None:
     suspension = function_text(power, "esp_err_t suspend_standby_resources(", "resource suspension")
     require("s_standby_resources.wireless.consistent = false" not in suspension,
             "policy reassertion must preserve the last confirmed radio state")
-    hardware_step = function_text(power, "execute_hardware_standby_step(", "hardware resource adapter")
+    hardware_step = function_text(power, "execute_hardware_standby_step_owned(", "hardware resource owner")
     require_contains(hardware_step, "set_standalone_wireless_standby, target",
                      "radio policy reassertion is explicit")
     require_contains(suspension, "execute_standby_sequence(true, best_effort",
