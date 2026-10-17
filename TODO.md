@@ -31,13 +31,12 @@ source/board/product work are in [planned-todo.md](planned-todo.md).
 - Release firmware cody-220-gce83bd10 was built at eight jobs and flashed on COM10.
   All five segment hashes were verified, followed by the tool's RTS reset request.
   This does not establish physical pixels, touch, audio or wake behavior.
-- PC package 0.6.10 is prepared. The owner chose Install on the physical Cody;
-  its exact answer was acknowledged as delivered. Automatic approval review then
-  rejected the public install command without executing it because a Cody/MCP
-  answer is not accepted as trusted direct authorization for persistent plugin
-  state. A direct confirmation is now pending in the PC chat. Do not bypass that
-  rejection. An update requires a Codex restart/plugin reload and a genuine new
-  prompt; no hook events are replayed. Installed version remains 0.6.9.
+- PC plugin 0.6.10 is installed through the public Codex CLI after direct
+  owner confirmation in this PC chat. The installed manifest and notice source
+  were inspected. The owner will restart Codex later; plugin reload and a genuine
+  new prompt remain required for live activation. No hook events are replayed.
+  The earlier automatic-review rejection and completed installation are retained
+  in done.md and the local evidence rather than treated as a current blocker.
 - Historical accepted PermissionRequest events were not traced, so the exact
   cause/count of the original repetitions remains unproven. New broker traces
   retain fixed outcomes and hashed native identities without tool/chat contents.

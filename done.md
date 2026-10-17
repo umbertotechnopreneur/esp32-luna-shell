@@ -23,8 +23,15 @@ admission survives Back, expiry and partial delivery failure. Accepted resumed
 tool activity retires only that chat's advisory approval ticket. Questions and
 native PC decisions retain their owners. Broker traces record accepted permission
 boundaries and queued/suppressed/retired outcomes with hashed identities, never
-commands, tool inputs or chat text. PC package 0.6.10 is prepared; installation and
-live activation are tracked in TODO.md rather than claimed complete here.
+commands, tool inputs or chat text. PC plugin 0.6.10 was subsequently installed
+through `codex plugin add cody-codex-plugin@cody-local --json`, exit 0, after direct
+owner confirmation in the PC chat. Its installed manifest and notice source were
+inspected at `E:\.codex\plugins\cache\cody-local\cody-codex-plugin\0.6.10`.
+The earlier install attempt was not executed: automatic approval review rejected
+Cody/MCP consent as insufficient for persistent plugin state and required direct
+PC confirmation. That gate is now resolved. The owner will restart Codex later;
+live activation, a genuine new prompt and physical notice acceptance remain in
+TODO.md, without replaying hooks or claiming the current broker loaded new code.
 
 The explicitly authorized CCP suite ran 147 cases: 146 passed and the native
 firmware-parser case stopped because the existing host compiler environment was
