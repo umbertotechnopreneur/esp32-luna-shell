@@ -1,9 +1,164 @@
 # CCP1 local pairing protocol
 
+## Current-only activity contract - 17 October 2026
+
+The responder accepts only `activity=5` when activity is advertised, with
+`events=3` for the current event extension. Activity capabilities 1, 2 and 4 are
+rejected before challenge admission; their project shortening, optional-title
+branches and older activity authentication domains were removed. A presence-only
+FIND advertises no activity and remains a separate current capability, not a
+version downgrade. Current activity always sends description, branch and the
+complete title observation, plus TECH from the same source projection.
+
+Older wire descriptions below are historical reference and are not accepted
+activity implementations. Firmware and Studio already emit the current contract.
+This source cleanup does not install or reload the plugin or flash a device.
+
 CCP1 connects one physical Cody device to one local Cody's Codex Plugin (CCP)
 runtime. It provides bounded UDP commissioning, liveness, selected chat
 activity and semantic question/answer exchange. It does not transport full chat
 transcripts or audio.
+
+## Current activity=5 / events=3 contract (14 October 2026)
+
+This section supersedes the historical activity=4, events=2 and EVENT v1 wire
+examples below. Current source uses the [host encoder/decoder](../mcp/ccp_interactions.py),
+[firmware decoder](../../../components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp)
+and [authenticated envelope owner](../mcp/ccp_server.py). Pairing and the fresh
+READY/COMMITTED handshake retain their existing contract.
+
+```text
+CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=5|events=3|current=<32hex>|state=<device-state>|event_select=<32hex>|proof=<64hex>
+HMAC input: find-events-activity-v6|<device>|<pc>|<nonce>|<current>|<state>|<event_select>
+```
+
+`event_select` is all zeroes unless explicitly selecting another pending question.
+Selection is allowed only from `state=pending`; it neither changes the followed
+chat nor answers a question. A sending/received reply and an unacknowledged
+terminal result retain ownership. Multiple independently owned questions may
+queue, with at most two pending summaries displayed at once. Questions take
+priority over informational notices; different native chats keep separate notices.
+An authenticated `EVENTACK state=dismissed` retires only the published
+informational notice, never a question or an answer.
+
+ACTIVITY appends `title`, `titlestate`, `titleage` after `branch`, before `proof`.
+Its HMAC domain is `activity-v3`, covering device, pc, nonce, chat, revision,
+phase, project, description, branch and those three title fields in that order.
+The exact native title is at most 255 printable ASCII bytes, hex encoded; its
+state is `current`, `unavailable`, `unsupported` or `error`. Invalid title/age
+fields are `-`; a current title retains its source age and 45-second lease.
+TECH remains `technical-v2`. EVENT, REPLY, REPLYACK and EVENTACK retain the
+`event`, `reply`, `reply-ack` and `event-ack` domains and envelope field order
+documented below; only the negotiated FIND domain changes.
+
+EVENT binary **schema 2** starts with `u8 version=2`. It keeps the historical
+field order through `total`, with the following current limits and appended fields:
+
+| Field | Current schema 2 contract |
+| --- | --- |
+| kind | Existing IDs unchanged: 1 Notice, 2 Question, 3 ApprovalOnPc, 4 PrPending, 5 ChecksRunning, 6 ChecksFailed, 7 ChecksPassed; appended 8 ReplyReady |
+| context / title / body | Length-prefixed printable ASCII: 0..24 / 1..24 / 1..63 bytes; ApprovalOnPc body alone allows 1..255 |
+| choices | Question only, exactly 2 or 3; each ID 1..12, label 1..63, detail 1..255 ASCII bytes, followed by the unchanged u8 tone |
+| selected_id / failures / progress | Existing identity, at-most-six 48-byte failure names and big-endian u16 count rules remain unchanged |
+| pending_question_count | Appended after `total`: u8, 0..128 outstanding questions; zero for nonquestions |
+| pending_entry_count | Next u8, 0..2 and no greater than the question count; zero for nonquestions |
+| pending entries | Each has length-prefixed nonzero 32-lowercase-hex request ID, context 0..24 and title 1..24 ASCII bytes; IDs are unique |
+
+Schema 2 admits at most **1,536 binary bytes / 3,072 lowercase hexadecimal
+characters**. Datagram caps are **EVENT 4,096**, **ACTIVITY 2,048**, **TECH 1,024**
+and **512 bytes for other packets**. There is no fragmentation or silent text
+truncation; schema 1, unknown kinds and contradictory/trailing fields are rejected.
+
+`ReplyReady=8` is native-lifecycle-only: the first genuine background-chat `Stop`
+may enqueue it once per turn; public notification tools cannot manufacture it.
+Its title is `Reply ready`, and its body is the complete current native chat title
+when it fits 63 ASCII bytes, otherwise `Open the other chat in Codex`. The existing
+title owner performs one exact read-only index lookup for an eligible physical
+recipient, with session/turn/checkout revalidation and no transcript read or focus
+change. This event carries no choices or check progress and never implies task
+success. Native approvals continue on the PC.
+
+`ApprovalOnPc=3` carries the complete current originating chat title in its
+body, up to 255 printable ASCII bytes. The same title acquisition owner reads
+that exact PermissionRequest session/turn and revalidates it after source IO.
+Unavailable, unsupported, failed or expired title metadata is explicitly displayed
+as `Chat title unavailable`; IDs and another selected chat never substitute it.
+The firmware and native Studio projection reserve 256 body bytes, while every
+other event kind retains its 63-byte body limit. The length prefix, schema 2,
+HMAC domains and datagram caps are unchanged; update plugin and firmware together.
+
+The approval view shows `On your PC:`, `Approval needed`, only the real chat title
+in a cyan horizontal marquee, one computer illustration and one
+`Continue on your PC` instruction. Its green tick/red cross are read-only artwork.
+The lateral Back dismisses only this informational ticket through EVENTACK and
+returns to Home; it sends no native approval or denial. Real transport errors
+replace the lower instruction with their original error code; offline state is
+explicit. The stored user name remains an authenticated runtime preference.
+
+## Authenticated Codex client presence (15 October 2026)
+
+App presence is separate from retained pairing, READY/LAN liveness and the followed
+chat's ACTIVITY phase. Its source is the existing MCP transport lease owner,
+`mcp/ccp_presence.py`: a real transport start/renewal establishes `open`; normal
+EOF releasing the last known live transport establishes `closed`. Hook-only
+broker startup establishes neither. `SessionEnd` cannot establish app closure:
+the [official hooks documentation](https://learn.chatgpt.com/docs/hooks#sessionend)
+also defines it for archive/delete and abandoned conversations.
+
+After READY and COMMITTED, capable firmware sends:
+
+```text
+CCP1|APPCAP|device=<12hex>|pc=<32hex>|nonce=<32hex>|app=1|proof=<64hex>
+HMAC input: app-cap-v1|<device>|<pc>|<nonce>|1
+
+CCP1|APPSTATE|device=<12hex>|pc=<32hex>|nonce=<32hex>|sequence=<16hex>|state=<state>|reason=<reason>|age=<milliseconds-or-dash>|proof=<64hex>
+HMAC input: app-state-v1|<device>|<pc>|<nonce>|<sequence>|<state>|<reason>|<age>
+```
+
+Both envelopes retain the **512-byte** cap. APPCAP must match the current committed
+active key, nonce and observed UDP endpoint; an incapable peer receives no
+APPSTATE. APPSTATE validates the active key, current READY nonce, exact endpoint
+and strictly increasing nonzero unsigned 64-bit sequence. Duplicate/out-of-order
+packets cannot refresh evidence. A repeated READY with the same nonce does not
+reset the receiver's sequence; only a newly authenticated nonce does.
+
+`state` is `open`, `closed` or `unavailable`. Open/Closed require `reason=none`
+and canonical unsigned decimal `age` in milliseconds, bounded to uint32.
+Unavailable requires `age=-` and reason `unobserved`, `expired` or `transport`.
+The firmware maps these to NOT_FOUND, TIMEOUT and FAIL respectively. Source age
+is a host duration, never a comparison of clocks on two machines. Open requires
+a genuine lease less than 60 seconds old; every accepted state also depends on
+an authenticated packet less than eight seconds old. Expiry becomes Unavailable,
+never Closed, and retains the original receipt/source timestamps as evidence.
+
+Lease transitions push through the existing UDP owner; each fresh APPCAP also
+returns current state. The existing one-second broker loop detects expiry and
+retries optional publication failures; no new task, timer or process scan is
+introduced. Up to 64 active transports and 128 capable peers are retained. An
+ambiguous expired/failed transport prevents a later normal release of another
+client from claiming all clients closed for that broker lifetime. Shutdown grace
+remains 60 seconds after the last genuine lease/release, allowing authenticated
+polls to recover a lost final packet. Session hooks can keep the broker alive but
+cannot create an Open lease or a Closed transition.
+
+Normal EOF proves the plugin's MCP client connection ended; plugin reload or
+disable can also do that. It is not an independent OS/window observation. A
+killed bridge, failed release or lost connection remains Unavailable when its
+lease expires. `ccp_connection_status.app_presence` identifies
+`source=mcp_transport`, source age and any original optional publication error.
+Presence never switches the followed chat, answers a question, confirms native
+audio availability or erases a pairing. The bounded canonical firmware owner is
+[`CodexAppPresenceSnapshot`](../../../components/LUNASHELL_platform/include/LUNASHELL_codex_presence.hpp),
+appended as `CodexLinkSnapshot.app_presence`.
+
+Plugin 0.6.9 includes this EOF contract and the complete approval-title body.
+New clients send local `release` with `id` and explicit boolean `normal`.
+An already-loaded client's earlier `release` containing only `id` retires that
+lease as abnormal and logs the missing EOF evidence; it can never establish
+Closed. Other missing/unknown fields and nonboolean `normal` values are rejected.
+An already-running broker does not hot-reload installed Python source. A real
+Codex reopen that starts the updated broker/client is required for the new
+presence and EOF reporting; cache installation alone does not prove activation.
 
 ## Identity and ports
 
@@ -18,7 +173,7 @@ Discovery requires explicit inclusion; this identity is never represented as a
 measured physical-device MAC.
 
 Every datagram is printable ASCII and uses `|` separators. Ordinary packets
-admit 512 bytes; ACTIVITY and TECH admit 1024; EVENT admits 1280.
+admit 512 bytes; ACTIVITY admits 2048, TECH 1024 and EVENT 4096.
 Unknown, duplicated or missing fields are rejected. Senders use the canonical
 field order shown below for reproducible proofs and diagnostics.
 
@@ -199,9 +354,11 @@ CCP 0.6.4, firmware and the explicit simulator must be updated together.
 Earlier READY/COMMITTED layouts and HMAC domains are rejected; there is no
 compatibility fallback. The saved pairing record format remains unchanged.
 
-## Authenticated chat activity and purpose
+## Historical activity=4 contract and presentation
 
-Current firmware negotiates `activity=4`, with or without the separate events
+The examples and presentation description in this section preserve the earlier
+activity contract; the current activity=5/events=3 contract is specified above.
+That firmware negotiated `activity=4`, with or without the separate events
 capability. Each capability is bound to its own HMAC domain; stripping or
 changing a capability never reuses a presence proof. Version three adds the
 separate TECH projection below; its ACTIVITY payload keeps version-two fields.
@@ -317,7 +474,7 @@ revision even when a hook arrives during UDP transmission. EVENT and other
 independent extensions retain their own authenticated contracts.
 
 ```text
-CCP1|TECH|device=<12hex>|pc=<32hex>|nonce=<32hex>|chat=<64hex>|turn=<64hex>|revision=<16hex>|model=<hex or ->|effort=-|modelage=<ms or ->|compaction=<token>|compactseq=<16hex>|compactage=<ms or ->|activityage=<ms or ->|turnelapsed=<ms or ->|used=-|capacity=-|cumulative=-|input=-|output=-|threshold=-|usageage=-|cost=<band>|costage=<ms or ->|costttl=<ms or ->|proof=<64hex>
+CCP1|TECH|device=<12hex>|pc=<32hex>|nonce=<32hex>|chat=<64hex>|turn=<64hex>|revision=<16hex>|model=<hex or ->|effort=<hex or ->|modelage=<ms or ->|compaction=<token>|compactseq=<16hex>|compactage=<ms or ->|activityage=<ms or ->|turnelapsed=<ms or ->|used=<uint64 or ->|capacity=<uint64 or ->|cumulative=<uint64 or ->|input=<uint64 or ->|output=<uint64 or ->|threshold=<uint64 or ->|usageage=<ms or ->|cost=<band>|costage=<ms or ->|costttl=<ms or ->|proof=<64hex>
 HMAC input: technical-v2|<device>|<pc>|<nonce>|<chat>|<turn>|<revision>|<model>|<effort>|<modelage>|<compaction>|<compactseq>|<compactage>|<activityage>|<turnelapsed>|<used>|<capacity>|<cumulative>|<input>|<output>|<threshold>|<usageage>|<cost>|<costage>|<costttl>
 ```
 
@@ -347,14 +504,14 @@ an ended chat preserves the known chat without inventing a new turn.
 
 | Field | Actual source and meaning |
 | --- | --- |
-| model, modelage | Common hook model metadata, its source emission age; reported model, not proof of separately executed/rerouted selection |
-| effort | UNAVAILABLE: no documented reasoning-effort field in the hook payload |
+| model, modelage | Exact native turn-context model or admitted hook model, with its original source age; not proof of rerouted execution |
+| effort | Bounded native turn-context reasoning effort, hex-encoded printable ASCII, or unavailable |
 | compaction, compactseq, compactage | Genuine PreCompact/PostCompact lifecycle within the exact current chat/turn; age of the latest observed lifecycle transition |
 | activityage | Age of the latest admitted hook emission; a broker heartbeat never refreshes it |
 | turnelapsed | Observed UserPromptSubmit-to-now duration, frozen at genuine Stop, Interrupt or SessionEnd |
-| used, capacity | UNAVAILABLE: no connected desktop-owned usage/capacity stream |
-| cumulative, input, output | UNAVAILABLE: no connected desktop-owned token counters |
-| threshold, usageage | UNAVAILABLE: no observed automatic threshold or token sample |
+| used, capacity | Native last_token_usage.total_tokens and explicit model_context_window from the same token-count metadata |
+| cumulative, input, output | Native total_token_usage.total_tokens, last_token_usage.input_tokens and last_token_usage.output_tokens |
+| threshold, usageage | Explicit automatic threshold when observed (currently unavailable); original age of the native token sample |
 | cost | Exact-model qualitative Codex Standard catalog band: `unknown`, `economy`, `balanced`, `expensive`; no rates/currency/bill |
 | costage | Original public-catalog retrieval age on the PC, independent of hook/packet liveness |
 | costttl | Remaining PC local-calendar lease until next midnight; no receiver wall-clock comparison |
@@ -367,15 +524,19 @@ packets do not change the original retrieval age or the catalog's local day.
 The source, numeric rates, attempt/error state and classification thresholds
 remain on the PC; see the [catalog policy](../README.md).
 
-The currently unsupported fields must be `-`; decoders reject numeric values
-until an actual source and its semantics are implemented. No model-global
-capacity, last-request input count, cumulative counter or guessed threshold is
-substituted for current context occupancy. No percentage or free-token bar is
-derived from missing data. Hook source ages use the PC monotonic clock and genuine
+Counts are canonical uint64 decimal with no signs, padding or leading zeroes.
+Presence is independent of value: measured zero is not absence. Any present
+counter requires usageage; a present capacity must be positive. Both used and
+capacity are required for Free and the bar. Free subtracts the last-call total
+from that sample's window; it does not promise exact future-request headroom.
+Cumulative usage is never substituted for window use. The currently unobserved
+threshold stays `-`. No percentage or free-token bar is derived from missing data.
+Native journal timestamps are mapped once to monotonic age, preserving original
+source time rather than the polling time. Hook source ages use the PC monotonic clock and genuine
 emission timestamp, distinct from receiver-local transport timestamps. Catalog
 retrieval age and its local-day lease use the PC wall clock; the receiver expires
 that lease using its own monotonic elapsed time, without comparing wall clocks.
-Reported model and active compaction observations expire independently after
+Native token, reported model and active compaction observations expire independently after
 120 seconds. Same-turn steering preserves the observed turn start and active
 tools; a new actual turn clears the previous model and compaction scope.
 
@@ -395,13 +556,18 @@ state supplies no new token sample and cannot revive old token numerators.
 Official Codex documents the common hook model field and genuine compact
 boundaries in [Hooks](https://learn.chatgpt.com/docs/hooks), and
 `thread/tokenUsage/updated` plus `model/rerouted` in
-[App Server](https://learn.chatgpt.com/docs/app-server). The plugin has no
-connected notification channel for the currently owned desktop chat. No second
-App Server, chat resume/start or transcript parsing is introduced to simulate
-that channel. Changed plugin hooks require native review before execution;
+[App Server](https://learn.chatgpt.com/docs/app-server). The plugin reads allowlisted
+local native journal metadata for the genuine hook-owned chat; it does not parse
+conversation text for estimates. No second App Server or chat resume/start is
+introduced. Changed plugin hooks require native review before execution;
 enabling the plugin alone does not establish trusted live hook delivery.
 
-## Authentic notifications and decisions (CCP 0.6)
+## Historical EVENT v1 / events=2 contract (CCP 0.6)
+
+The v1 payload table, earlier size limits and single-question queue description
+below are retained as historical protocol evidence. The current schema 2 and
+multi-question contract above supersede them. EVENT/REPLY/REPLYACK/EVENTACK proof
+domains and recipient-confirmed answer semantics remain as documented here.
 
 Automatic chat metadata and explicit MCP requests have separate ownership.
 An MCP request creates a random 128-bit ticket and 256-bit capability, disclosed
@@ -545,7 +711,7 @@ HMAC input: factory-reset-ack|<device>|<pc>|<nonce>|<id>|accepted
 ```
 
 All four packets fit 512 bytes. A random 128-bit ID owns one operation per device.
-Wait for fresh authenticated FIND events=2 under the active key, then send once
+Wait for fresh authenticated FIND events=3 under the active key, then send once
 after the current READY/COMMITTED and EVENT sequence, using its observed endpoint
 and nonce. Cody replies from 42117 to 42118, admits an ID once and does not move
 the deadline for identical copies. Command type, ID, nonce, key and endpoint must
@@ -674,7 +840,8 @@ be retained when that coordinated future protocol is designed.
 UDP port 42119 carries a separate one-way enhanced PCM16 mono 16 kHz stream.
 An utterance is at most 60 seconds, or 1,920,000 real PCM bytes. The device has a
 separate ten-second acknowledgement ring, not a sixty-second recording buffer.
-Deliberate shake requests cancellation; no voice touch control is presented.
+Deliberate shake or a double tap discards a recording; a single tap sends it.
+Start/send countdowns admit immediate tap cancellation before native submission.
 The header is network-order `!4s6s16s16sIBH`: magic, binary device identity,
 16-byte utterance identity, 16-byte authenticated discovery nonce, uint32 sequence,
 uint8 kind and uint16 plaintext byte count. Device magic is `CYA1`; PC magic is
@@ -693,15 +860,16 @@ and the 12-byte nonce `DAT1 || uint64(sequence)` for device packets. Retries rep
 identical ciphertext, never different plaintext under the same nonce. PC ACKs
 use `ACK1 || uint64(ack counter)` with a strictly increasing counter. ACK plaintext
 is `!IB`: acknowledged device sequence plus status START accepted=1, PCM received=2,
-whole utterance received=3, native Codex accepted=4, failed/cancelled=5 or native
+whole utterance received=3, native Codex queue accepted=4, failed/cancelled=5 or native
 submission unconfirmed=6. An unconfirmed input is never automatically repeated.
 
 START requires both a fresh authenticated CCP peer and that peer's current
 discovery nonce. This prevents an old recorded START from reopening an utterance
 after the bounded transient record expires. Retained pairing alone never admits
 audio. A recent successful native initialization/thread-read probe for the followed
-chat is also required: five-second probe budget, five-second refresh, ten-second
-maximum age. This is reachability evidence, not model/audio capability evidence.
+chat is also required: five-second refresh, ten-second maximum age. Each bounded
+public RPC allows up to fifteen seconds; a stalled probe does not renew freshness.
+This is reachability evidence, not model/audio capability evidence.
 Later blocks remain bound to the original endpoint, credential, utterance
 and discovery nonce; ordinary CCP challenge rotation does not rekey an active stream.
 
@@ -711,15 +879,69 @@ and fails explicitly on overflow. Reconnection requires the same authenticated
 credential and IP. A transmitted END makes later transport failure Unconfirmed.
 The four ciphertext slots use at most 4,352 component-owned bytes, not task stack.
 The transport service cadence is five milliseconds, with a minimum of one RTOS tick.
-The PC freezes the genuine followed chat
-at START and submits only a completed recording to that same native chat. Steering
-uses the current same-chat hook turn at submission, protected by expectedTurnId;
-a concurrent conflict fails explicitly and retains the WAV. clientUserMessageId
-carries the utterance identity for correlation, not assumed deduplication. Status
-exposes that identity, native turn, WAV path and uncertainty without audio content.
-END receipt
-is not native acceptance, and native acceptance is not task completion. CANCEL
-cannot revoke a native submission already in flight; its actual eventual outcome
-is returned rather than claiming rollback. Metadata CCP packets remain authenticated
+The PC freezes the genuine followed chat at START. After END it writes the complete
+WAV exclusively and calls the public experimental `thread/queue/add` once, using
+that same chat and `clientUserMessageId` equal to the recording ID. A last-moment
+chat switch or cancellation prevents admission. The stable ID is correlation,
+not an assumption of server deduplication. A matching native receipt publishes
+status 4; a lost or mismatched receipt publishes uncertainty without replay.
+
+The queue-only standard stdio app-server permits initialization, `thread/read`,
+`thread/queue/list` and `thread/queue/add` only. It never starts/resumes a model
+session or answers a native approval. Readiness reuses one owned process rather
+than spawning repeatedly. Its `notLoaded` metadata describes this client, not
+Desktop's actual active state. The installed native executable is explicit;
+there is no loopback endpoint, separate API credential or transcription service.
+
+Status exposes the recording ID, real native queue ID, WAV path and uncertainty
+without audio contents. END receipt is not queue acceptance; queue acceptance is
+not Desktop consumption, transcription or task completion. The verified synthetic
+trace on 15 October preserved the full WAV in chat, while Codex prompt preparation
+replaced unsupported audio with the omission placeholder for the model. Physical
+recording remains a separate gate. CANCEL cannot revoke queue admission already
+in flight; its actual eventual result is returned rather than claiming rollback.
+Metadata CCP packets remain authenticated
 plaintext; this audio extension does not replace or strengthen the existing pairing
 scheme. Cryptographic/wire/physical checks of this source increment remain pending.
+
+## Authenticated device diagnostics, 16 October 2026
+
+The Cody Companion profile offers one transient device diagnostic screen in
+Release and Debug: `character` renders the live character with canonical snapshot
+readout for measured CPU utilization, free RAM/PSRAM, FPS, IP and SD status.
+`normal` restores the retained route. The facial-channel list was removed to save
+device space; `face_channels` is rejected, without a substitute view. Internal
+animation channels remain. Wire names do not select a firmware build mode.
+No arbitrary command, channel override or settings write is admitted.
+The diagnostic overview's local Memory action opens heap details and capacity
+bars for internal RAM/PSRAM. This does not add a wire mode or reinterpret scroll;
+Back returns to the overview, then the retained route. Existing canonical heap
+measurements remain the sole source; bars do not claim block-address order.
+
+After an authenticated READY, Cody advertises `CCP1|DEBUGCAP` with ordered fields
+`device`, `pc`, `nonce`, `debug=1`, `proof`. HMAC-SHA256 uses the retained link
+key over `debug-cap|device|pc|nonce|1`. This denotes available screens, not Debug
+build identity. The broker binds it to the current authenticated endpoint and
+live READY nonce; saved pairing without this fresh capability is insufficient.
+
+`CCP1|DEBUG` carries `device`, `pc`, `nonce`, `id`, `mode`, `scroll`, `proof`.
+Its HMAC input is `debug|device|pc|nonce|id|mode|scroll`. The request ID is exactly
+32 hexadecimal characters. The reserved scroll field must be exactly `0`.
+Mode and all fields are validated before mailbox admission.
+Both peers bind the operation to current credentials, endpoint and nonce, consume
+that nonce once, and require a new authenticated capability before another command.
+
+The four-second mailbox belongs to the existing CCP socket worker. The display
+worker takes its immutable projection, validates lifecycle/display readiness and
+native layout, and completes that exact request with its original error. Capability
+and mailbox service are compiled for the Cody profile in both build modes.
+Diagnostic consumers never acquire sensor values independently of the canonical
+snapshot. Unmeasured or stale fields remain explicitly unavailable/stale.
+
+`CCP1|DEBUGACK` carries `device`, `pc`, `nonce`, `id`, `mode`, `scroll`, `status`,
+`error`, `count`, `proof`. Its HMAC input is
+`debug-ack|device|pc|nonce|id|mode|scroll|status|error|count`.
+Status is `applied` or `rejected`; error preserves signed `esp_err_t`, and count
+is the actual compiled channel count. Missing/stale/retired requests and ambiguous
+timeouts never establish success or authorize automatic replay. An authenticated
+applied ACK proves worker application, not physical display pixels.

@@ -18,15 +18,21 @@
 #include <cstdint>
 namespace LUNASHELL {
 enum class DeviceOperatingState { Active, EnteringStandby, Standby, Waking };
-struct PowerSnapshot {
+struct PowerManagementSnapshot {
     DeviceOperatingState state = DeviceOperatingState::Active;
     uint32_t transition_sequence = 0;
 };
-struct DeviceSnapshot { PowerSnapshot power; };
+struct DeviceSnapshot { PowerManagementSnapshot power; };
 class DeviceSnapshotService {
 public:
     DeviceSnapshot current;
+    int read_error = 0;
     static DeviceSnapshotService &instance() { static DeviceSnapshotService service; return service; }
-    DeviceSnapshot snapshot() const { return current; }
+    // power: Bounded fixture transport; unchanged when the injected read fails.
+    int readPowerState(PowerManagementSnapshot &power) const {
+        if (read_error != 0) return read_error;
+        power = current.power;
+        return 0;
+    }
 };
 }

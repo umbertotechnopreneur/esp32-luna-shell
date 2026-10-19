@@ -33,12 +33,13 @@ struct HostTransaction {
     LUNASHELL::CodexEventState state = LUNASHELL::CodexEventState::None;
     int64_t expires_at_us = 0;
     esp_err_t last_error = ESP_OK;
+    char selection_request_id[33]{};
     char dismissed_id[33]{};
     LUNASHELL::CodexEventState dismissed_state = LUNASHELL::CodexEventState::None;
     // No parameters: Exclusive per-link owner; Python serializes all endpoint access.
     LUNASHELL::CodexTransactionView view()
     {
-        return {payload, request_id, state, expires_at_us, last_error};
+        return {payload, request_id, state, expires_at_us, last_error, selection_request_id};
     }
 };
 // operation: Actual synthetic-host boundary operation.
@@ -138,6 +139,20 @@ CODY_HOST_EXPORT int32_t cody_host_ccp_submit(void *handle, const char *id, cons
     }
     return hostError("Send", LUNASHELL::submitCodexChoice(static_cast<HostTransaction *>(handle)->view(), id, choice, fresh != 0, now_us));
 }
+// handle: Exclusive simulated owner performing request navigation, never an answer.
+// id: Full advertised pending-question identity.
+// fresh: Original endpoint freshness.
+// now_us: Explicit monotonic admission time.
+// Exception: Returns the exact portable owner admission error.
+CODY_HOST_EXPORT int32_t cody_host_ccp_select(void *handle, const char *id, uint8_t fresh, int64_t now_us)
+{
+    if (handle == nullptr || fresh > 1) {
+        return hostError("select question", ESP_ERR_INVALID_ARG);
+    }
+    return hostError("select question", LUNASHELL::selectCodexQuestion(
+        static_cast<HostTransaction *>(handle)->view(), id, fresh != 0, now_us));
+}
+
 // handle: Exclusive synthetic host owner explicitly reset by commissioning/reset.
 // Exception: Returns INVALID_ARG for a missing owner.
 CODY_HOST_EXPORT int32_t cody_host_ccp_reset(void *handle)
@@ -190,14 +205,16 @@ CODY_HOST_EXPORT int32_t cody_host_ccp_terminal(void *handle, char *id, uint32_t
 // state: Writable state ordinal output.
 // deadline: Writable original monotonic deadline output.
 // error: Writable actual transaction error output.
+// selection_id: Writable 33-byte explicit pending-navigation identity output.
 // Exception: Returns INVALID_SIZE or INVALID_ARG without exposing a partial transport.
 CODY_HOST_EXPORT int32_t cody_host_ccp_read(void *handle, LUNASHELL::CodexEventPayload *payload,
-    uint32_t payload_size, char *id, uint32_t *state, int64_t *deadline, int32_t *error)
+    uint32_t payload_size, char *id, uint32_t *state, int64_t *deadline, int32_t *error, char *selection_id)
 {
     if (payload_size != sizeof(LUNASHELL::CodexEventPayload)) {
         return hostError("read layout", ESP_ERR_INVALID_SIZE);
     }
-    if (handle == nullptr || payload == nullptr || id == nullptr || state == nullptr || deadline == nullptr || error == nullptr) {
+    if (handle == nullptr || payload == nullptr || id == nullptr || state == nullptr || deadline == nullptr ||
+        error == nullptr || selection_id == nullptr) {
         return hostError("read", ESP_ERR_INVALID_ARG);
     }
     const auto &owner = *static_cast<HostTransaction *>(handle);
@@ -206,5 +223,6 @@ CODY_HOST_EXPORT int32_t cody_host_ccp_read(void *handle, LUNASHELL::CodexEventP
     *state = static_cast<uint32_t>(owner.state);
     *deadline = owner.expires_at_us;
     *error = owner.last_error;
+    std::memcpy(selection_id, owner.selection_request_id, 33);
     return ESP_OK;
 }

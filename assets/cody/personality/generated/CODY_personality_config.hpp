@@ -49,8 +49,12 @@ inline constexpr CueRule cue_rules[] = {
     {PersonalityCue::Confusion, 100, false, 15000000, true},
     {PersonalityCue::Affection, 200, true, 0, true},
     {PersonalityCue::Frustration, 300, true, 0, true},
+    {PersonalityCue::WifiConnected, 100, false, 0, false},
+    {PersonalityCue::Search, 100, false, 15000000, false},
+    {PersonalityCue::BatteryReady, 100, false, 0, false},
+    {PersonalityCue::BatteryLow, 100, false, 0, false},
 };
-inline constexpr uint8_t cue_rule_count = 14;
+inline constexpr uint8_t cue_rule_count = 18;
 inline constexpr uint8_t low_battery_enter_percent = 20;
 inline constexpr uint8_t low_battery_exit_percent = 25;
 } // namespace CODY::PersonalityConfig

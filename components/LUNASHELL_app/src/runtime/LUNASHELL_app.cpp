@@ -4698,6 +4698,7 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
 }
 
 // context: Brookesia binding context receiving canonical battery and power state.
+// Exception: Returns the original binding failure as an unexpected result.
 std::expected<void, std::string> App::refresh_battery(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
@@ -5136,6 +5137,9 @@ std::expected<void, std::string> App::refresh_battery(AppContext &context)
             break;
         case DeviceStateReason::CodexNotification:
             reason = "CODEX NOTIFICATION";
+            break;
+        case DeviceStateReason::CodexOffline:
+            reason = "PC OFFLINE";
             break;
         }
         std::snprintf(

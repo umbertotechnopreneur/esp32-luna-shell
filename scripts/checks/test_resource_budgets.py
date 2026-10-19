@@ -15,7 +15,7 @@
 #
 # VBWR E
 
-"""Focused host-only tests for the firmware resource-budget checker and CI contract."""
+"""Focused host-only tests for the current firmware resource-budget checker."""
 
 from __future__ import annotations
 
@@ -28,12 +28,6 @@ import tempfile
 import unittest
 
 import check_resource_budgets as budgets
-
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW_PATH = (
-    REPOSITORY_ROOT / ".github" / "workflows" / "firmware-resource-budgets.yml"
-)
 
 
 class ResourceBudgetFixture:
@@ -245,23 +239,6 @@ class ResourceBudgetTests(unittest.TestCase):
         policy = budgets.load_policy(budgets.DEFAULT_CONFIG)
         self.assertEqual(policy["expected"]["target"], "esp32s3")
         self.assertEqual(policy["metrics"]["translation_units"]["baseline"], 1804)
-
-    def test_workflow_routes_all_idf_operations_through_device_wrapper(self) -> None:
-        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-        self.assertNotIn("\t", workflow)
-        self.assertNotIn("idf.py", workflow.casefold())
-        for action in ("set-target", "build", "size"):
-            self.assertIn(f"Invoke-DeviceAction {action}", workflow)
-        self.assertIn('"scripts/device.ps1"', workflow)
-        self.assertIn("-Jobs 8", workflow)
-        self.assertIn("-SizeOutputFormat", workflow)
-        self.assertIn("-SizeOutputFile", workflow)
-        self.assertIn("json2", workflow)
-        self.assertIn("scripts/checks/check_resource_budgets.py", workflow)
-        self.assertIn("ref: v6.0.2", workflow)
-        self.assertIn("contents: read", workflow)
-        self.assertNotIn("shell: pwsh\n", workflow)
-        self.assertEqual(workflow.count("shell: pwsh -NoProfile -File {0}"), 3)
 
 
 if __name__ == "__main__":

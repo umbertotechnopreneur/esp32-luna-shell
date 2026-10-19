@@ -73,6 +73,11 @@ typedef struct {
     int64_t pressed_at_us;
 } LUNASHELL_power_key_sample_t;
 
+// Exception: Returns original PMU access errors or unavailable hardware.
+// ESP_OK means only that REG10[0] was written; it does not prove physical power-off.
+// Customized VBUS/battery/IRQ startup sources cannot be disabled by this API.
+esp_err_t LUNASHELL_hardware_request_power_off(void);
+
 /**
  * Atomically consume AXP2101 PKEY events captured from the PMIC IRQ status.
  *
@@ -220,17 +225,20 @@ typedef esp_err_t (*LUNASHELL_display_lifecycle_callback_t)(bool sleeping);
 esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     LUNASHELL_display_lifecycle_callback_t callback
 );
-
-// claimed: Set true when this active PWR press belongs to the registered consumer.
-// The callback only queues work; it must not wait for display, audio, or storage.
-typedef esp_err_t (*LUNASHELL_power_short_press_callback_t)(bool *claimed);
-// callback: Single active-state PWR consumer, registered before power startup.
-esp_err_t LUNASHELL_power_manager_register_short_press(
-    LUNASHELL_power_short_press_callback_t callback
-);
+// prepare: Retires Cody's offline farewell and sound before the shared panel fade.
+// Exception: Rejects a missing, duplicate or late owner; excluded profiles return NOT_SUPPORTED.
+esp_err_t LUNASHELL_power_manager_register_offline_farewell(esp_err_t (*prepare)(void));
 
 /** Record activity without blocking the touch or UI callback. */
 void LUNASHELL_power_manager_note_activity(void);
+// prepare: Retires the complete farewell presentation and seals UI actions.
+// report_error: Presents the real failure after display restoration.
+// Exception: Rejects missing/duplicate callbacks or registration after startup.
+esp_err_t LUNASHELL_power_manager_register_shutdown_callbacks(
+    esp_err_t (*prepare)(void), esp_err_t (*report_error)(esp_err_t));
+// seal: Optional speech owner's bounded admission/cancellation/retirement operation.
+// Exception: Rejects null/duplicate owners; optional service may register after power startup.
+esp_err_t LUNASHELL_power_manager_register_speech_shutdown(esp_err_t (*seal)(bool));
 /** Refresh the active PWR countdown without blocking or changing persisted timeouts. */
 void LUNASHELL_power_manager_note_power_activity(void);
 // No parameters: queues one authenticated new Codex event through the power owner.
@@ -588,7 +596,7 @@ typedef enum {
 } lunashell_codex_audio_kind_t;
 
 // samples: Immutable flash-owned PCM retained through asynchronous playback.
-// sample_count: Exact mono sample count, bounded to 5600 (350 ms at 16 kHz).
+// sample_count: Exact mono length; notices allow 32000 samples (2 s), activity cues 5600 (350 ms).
 // sample_rate_hz: Exact authored rate, 16000 Hz.
 // cue_id: Stable application identity in the reserved Codex namespace.
 // kind: Activity is rate-limited; notices skip that limit but never interrupt current playback.
@@ -596,6 +604,17 @@ typedef enum {
 // Exception: Returns and publishes original argument, preparation or asynchronous failures.
 esp_err_t LUNASHELL_audio_notify_codex(const int16_t *samples, size_t sample_count,
     uint32_t sample_rate_hz, uint32_t cue_id, lunashell_codex_audio_kind_t kind,
+    lunashell_audio_cue_status_t *status);
+// samples: One immutable flash-owned PCM chime reused throughout a single admitted notice.
+// sample_count: One play allows 32000 samples (2 s); repeated clips at most 5600 (350 ms).
+// sample_rate_hz: Authored 16000 Hz clock.
+// cue_id: Stable notice identity in the reserved Codex namespace.
+// repetitions: One through five plays owned by the same mailbox event.
+// gap_ms: Zero through 200 ms between plays; total sequence is at most 2500 ms.
+// status: Receives one dispatch/drop/suppression outcome for the entire sequence.
+// Exception: Returns and publishes the original argument or shared-owner failure.
+esp_err_t LUNASHELL_audio_notify_codex_repeated_notice(const int16_t *samples, size_t sample_count,
+    uint32_t sample_rate_hz, uint32_t cue_id, uint8_t repetitions, uint16_t gap_ms,
     lunashell_audio_cue_status_t *status);
 // suspended: Cancels Codex cues when their presentation hides, independently of personality symbols.
 // Exception: Returns the original retained owner failure.
@@ -761,6 +780,10 @@ esp_err_t LUNASHELL_wifi_connect(const char *ssid, const char *password, bool pe
  */
 esp_err_t LUNASHELL_wifi_disconnect(void);
 
+// No parameters: shorten one existing reconnect wait after a completed wake.
+// Exception: Returns timer/owner errors; never starts a new connection intent.
+esp_err_t LUNASHELL_wifi_expedite_reconnect(void);
+
 /**
  * Start one asynchronous all-channel scan.
  */
@@ -835,6 +858,9 @@ typedef enum {
 
 /** No parameters: initialize the bounded CCP1 commissioning and liveness owner. */
 esp_err_t LUNASHELL_codex_link_service_init(void);
+// No parameters: prompt the existing retained-link worker after wake or acquired IP.
+// Exception: Returns owner/notification errors; admission never proves PC presence.
+esp_err_t LUNASHELL_codex_link_notify_network_ready(void);
 /** action: Explicit pairing, confirmed replacement, discovery, or cancellation request. */
 /** expected_attempt_id: Exact canonical attempt observed by the caller. */
 esp_err_t LUNASHELL_codex_link_request(
@@ -854,6 +880,9 @@ esp_err_t LUNASHELL_codex_link_copy_pairing_code(
 // choice_id: Stable semantic option selected and explicitly confirmed on Cody.
 // Exception: Returns state, expiry, identity or mailbox admission errors; admission is not delivery.
 esp_err_t LUNASHELL_codex_event_reply(const char *expected_request_id, const char *choice_id);
+// request_id: Exact canonical pending-question identity explicitly selected on Cody.
+// Exception: Returns actual state, freshness, deadline or canonical publication errors.
+esp_err_t LUNASHELL_codex_event_select(const char *request_id);
 // expected_request_id: Exact non-question or terminal interaction explicitly dismissed.
 // Exception: Rejects dismissal of an unanswered question or a newer request.
 esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_id);

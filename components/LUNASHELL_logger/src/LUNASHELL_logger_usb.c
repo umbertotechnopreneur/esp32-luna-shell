@@ -40,7 +40,59 @@ static StaticSemaphore_t s_tx_mutex_control;
 static TaskHandle_t s_command_task;
 static LUNASHELL_logger_sd_reader_t s_sd_reader;
 static atomic_bool s_reader_ready;
+static LUNASHELL_logger_endurance_reader_t s_endurance_reader;
+static atomic_bool s_endurance_reader_ready;
 static atomic_uint s_dropped_serial_lines;
+static atomic_bool s_power_off_sealed;
+
+// sealed: Block new owner TX before retiring any already-admitted USB writer.
+// status: Receives the bounded operation outcome, including optional non-delivery.
+// Exception: Returns actual lock/drain errors or ESP_ERR_NOT_FOUND for an absent host.
+esp_err_t LUNASHELL_logger_set_power_off(bool sealed, LUNASHELL_logger_power_off_status_t *status)
+{
+    if (status == NULL) {
+        ESP_LOGE("LUNASHELL_log_usb", "Power-off USB seal rejected: null status");
+        return ESP_ERR_INVALID_ARG;
+    }
+    *status = (LUNASHELL_logger_power_off_status_t){0};
+    atomic_store_explicit(&s_power_off_sealed, sealed, memory_order_release);
+    status->sealed = sealed;
+    status->dropped_lines = LUNASHELL_logger_usb_dropped_lines();
+    if (!sealed) {
+        return ESP_OK;
+    }
+    if (s_tx_mutex == NULL || !usb_serial_jtag_is_driver_installed()) {
+        status->drain_error = ESP_ERR_INVALID_STATE;
+        ESP_LOGE("LUNASHELL_log_usb", "Power-off USB seal failed: driver unavailable");
+        return status->drain_error;
+    }
+    // An admitted protocol response has two one-second writes. New log and
+    // protocol writes observe the seal under this same ownership mutex.
+    if (xSemaphoreTake(s_tx_mutex, pdMS_TO_TICKS(2200)) != pdTRUE) {
+        status->drain_error = ESP_ERR_TIMEOUT;
+        ESP_LOGE("LUNASHELL_log_usb", "Power-off USB ownership retirement timed out");
+        return status->drain_error;
+    }
+    status->ownership_quiesced = true;
+    status->host_connected = usb_serial_jtag_is_connected();
+    if (status->host_connected) {
+        status->drain_attempted = true;
+        status->drain_error = usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(250));
+    } else {
+        // Charging-only cables and battery use have no SOF host. Their absent
+        // sink is reported as non-delivery, never as a successful USB drain.
+        status->drain_error = ESP_ERR_NOT_FOUND;
+    }
+    if (xSemaphoreGive(s_tx_mutex) != pdTRUE) {
+        abort();
+    }
+    if (status->drain_error != ESP_OK) {
+        ESP_LOGW("LUNASHELL_log_usb", "Power-off USB delivery unavailable: host=%d attempted=%d (%s)",
+            status->host_connected, status->drain_attempted, esp_err_to_name(status->drain_error));
+    }
+    status->dropped_lines = LUNASHELL_logger_usb_dropped_lines();
+    return status->drain_error;
+}
 
 // No parameters: expose serial loss rather than treating delivery as guaranteed.
 uint32_t LUNASHELL_logger_usb_dropped_lines(void)
@@ -61,12 +113,13 @@ int LUNASHELL_logger_usb_vprintf(const char *format, va_list args)
         ? (size_t)length : sizeof(text) - 1U;
     // A connected USB cable does not mean the host is consuming serial data.
     // Offline logging must never wait for that host to drain its TX queue.
-    if (s_tx_mutex == NULL ||
+    if (atomic_load_explicit(&s_power_off_sealed, memory_order_acquire) || s_tx_mutex == NULL ||
         xSemaphoreTake(s_tx_mutex, 0) != pdTRUE) {
         atomic_fetch_add_explicit(&s_dropped_serial_lines, 1U, memory_order_relaxed);
         return length;
     }
-    const int sent = usb_serial_jtag_write_bytes(text, available, 0);
+    const int sent = atomic_load_explicit(&s_power_off_sealed, memory_order_acquire)
+        ? 0 : usb_serial_jtag_write_bytes(text, available, 0);
     if (sent != (int)available || (size_t)length >= sizeof(text)) {
         atomic_fetch_add_explicit(&s_dropped_serial_lines, 1U, memory_order_relaxed);
     }
@@ -98,6 +151,25 @@ esp_err_t LUNASHELL_logger_set_sd_reader(LUNASHELL_logger_sd_reader_t reader)
     return ESP_OK;
 }
 
+// reader: One canonical acquisition owner; registration precedes its first publication.
+// Exception: Returns actual invalid argument/ownership errors without replacing the reader.
+esp_err_t LUNASHELL_logger_set_endurance_reader(LUNASHELL_logger_endurance_reader_t reader)
+{
+    if (reader != NULL && atomic_load_explicit(&s_endurance_reader_ready, memory_order_acquire) &&
+        s_endurance_reader == reader) {
+        return ESP_OK;
+    }
+    if (reader == NULL || (atomic_load_explicit(&s_endurance_reader_ready, memory_order_acquire) &&
+        s_endurance_reader != reader)) {
+        const esp_err_t error = reader == NULL ? ESP_ERR_INVALID_ARG : ESP_ERR_INVALID_STATE;
+        ESP_LOGE("LUNASHELL_log_usb", "Endurance reader rejected: %s", esp_err_to_name(error));
+        return error;
+    }
+    s_endurance_reader = reader;
+    atomic_store_explicit(&s_endurance_reader_ready, true, memory_order_release);
+    return ESP_OK;
+}
+
 // text contains only unsigned decimal digits, or hexadecimal digits for tokens.
 // base selects the protocol's explicit numeric representation.
 // value receives a checked 32-bit result.
@@ -126,10 +198,18 @@ static bool parse_number(const char *text, int base, uint32_t *value)
 
 // response is one complete protocol frame, already terminated with LF.
 // Returns timeout if the host stops consuming; it never parks the boot task.
+// Exception: Returns invalid state while USB delivery is sealed for power-off.
 static esp_err_t send_response(const char *response)
 {
     if (xSemaphoreTake(s_tx_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
+    }
+    if (atomic_load_explicit(&s_power_off_sealed, memory_order_acquire)) {
+        atomic_fetch_add_explicit(&s_dropped_serial_lines, 1U, memory_order_relaxed);
+        if (xSemaphoreGive(s_tx_mutex) != pdTRUE) {
+            abort();
+        }
+        return ESP_ERR_INVALID_STATE;
     }
     // A best-effort log may have ended mid-line when its TX queue filled.
     // Start a fresh line so the host can recognize this response reliably.
@@ -147,6 +227,7 @@ static esp_err_t send_response(const char *response)
 // Each request reads one block; no mount lease is held while USB transmits.
 static void process_command(char *command)
 {
+    enum { SOURCE_SD, SOURCE_ENDURANCE } source = SOURCE_SD;
     char *tokens[8];
     size_t count = 0U;
     char *context = NULL;
@@ -177,6 +258,9 @@ static void process_command(char *command)
         } else if (strcmp(tokens[4], "previous") == 0) {
             file = LUNASHELL_LOG_FILE_PREVIOUS;
             result = ESP_OK;
+        } else if (strcmp(tokens[4], "endurance") == 0 && offset == 0U && expected_revision == 0U) {
+            source = SOURCE_ENDURANCE;
+            result = ESP_OK;
         }
     }
     uint8_t data[LOG_USB_BLOCK_BYTES];
@@ -185,7 +269,15 @@ static void process_command(char *command)
     uint32_t revision = 0U;
     int system_errno = 0;
     if (result == ESP_OK) {
-        if (!atomic_load_explicit(&s_reader_ready, memory_order_acquire)) {
+        if (source == SOURCE_ENDURANCE) {
+            result = atomic_load_explicit(&s_endurance_reader_ready, memory_order_acquire)
+                ? s_endurance_reader(data, sizeof(data), &bytes_read) : ESP_ERR_NOT_SUPPORTED;
+            if (result == ESP_OK && bytes_read != LOG_USB_BLOCK_BYTES) {
+                result = ESP_ERR_INVALID_SIZE;
+            }
+            total_size = (uint32_t)bytes_read;
+            revision = 1U; // Single-frame schema identity, never an SD file revision.
+        } else if (!atomic_load_explicit(&s_reader_ready, memory_order_acquire)) {
             result = ESP_ERR_NOT_SUPPORTED;
         } else {
             result = s_sd_reader(file, offset, expected_revision, data,
@@ -194,7 +286,7 @@ static void process_command(char *command)
     }
     char response[384];
     if (result != ESP_OK) {
-        ESP_LOGE("LUNASHELL_log_usb", "SD read rejected: %s errno=%d offset=%" PRIu32,
+        ESP_LOGE("LUNASHELL_log_usb", "USB read rejected: %s errno=%d offset=%" PRIu32,
             esp_err_to_name(result), system_errno, offset);
         snprintf(response, sizeof(response), "LUNA LOG ERROR %08" PRIx32 " %d %d\n",
             request_id, (int)result, system_errno);

@@ -315,6 +315,14 @@ extern "C" void app_main(void)
 #endif
     ESP_ERROR_CHECK(startup_watch.finish());
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    // The ready frame needs internal DMA capacity after Wi-Fi/BLE startup.
+    // Only the logger writer may move its sealed backlog to PSRAM; wait for
+    // its post-free acknowledgement before admitting the frame. Live callback
+    // buffers stay internal so cache-disabled logging retains its safety.
+    report_optional_startup_failure(
+        "boot log archival before ready frame",
+        LUNASHELL_logger_finish_boot_capture_wait(2000)
+    );
     ESP_ERROR_CHECK(CODY_companion_boot_completed());
     CODY_boot_cues_boot_checkpoint("ready frame / mandatory startup complete");
     ESP_ERROR_CHECK(CODY_companion_demo_start());

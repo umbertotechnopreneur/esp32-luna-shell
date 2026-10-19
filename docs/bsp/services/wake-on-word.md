@@ -143,6 +143,20 @@ and speaker-reference buffers before admitting capture. A terminal failure
 wins over an inference result already in flight. Runtime restart/repair is
 not attempted silently; the failed component remains visible.
 
+The 2026-10-12 lifecycle uses worker notifications for startup and indefinite
+paused waits, plus one static binary semaphore for bounded owner acknowledgments.
+The owner always checks atomic predicates before waiting; a pending notification
+is never cleared across that check. Both workers receive resume, rollback and
+terminal-stop notifications. Handle retirement has its own lock, separate from
+the standby lock held by an acknowledgment waiter. Terminal workers retain their
+static stacks and park; failed partial startup suspends/deletes the acknowledged
+worker before releasing its resources. Resume rollback closes audio only after
+both workers have quiesced. Completed route state prevents an incomplete pause
+rollback from resetting a still-active AFE. Active capture and the existing
+200-ms bounded inference wait are unchanged. Software standby configured to keep
+wake-word listening still runs acquisition; notification waits do not imply that
+recognition is paused or establish any measured battery-current reduction.
+
 ## Native acceleration and SIMD
 
 `LUNASHELL_task_affinity.hpp` assigns voice to CPU0 and native Cody rendering to

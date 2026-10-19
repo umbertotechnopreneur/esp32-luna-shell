@@ -16,21 +16,81 @@
 
 """Shared host compiler/execution owner for portable Cody checks."""
 from pathlib import Path
+import platform
 import shutil
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
+# machine: Architecture reported by the host OS or the compiler target triple.
+# Unknown architectures retain their exact normalized identity.
+def canonical_architecture(machine: str) -> str:
+    machine = machine.lower()
+    if machine in ("amd64", "x86_64"):
+        return "x86_64"
+    if machine in ("arm64", "aarch64"):
+        return "aarch64"
+    if machine in ("x86", "i386", "i486", "i586", "i686"):
+        return "x86"
+    if machine == "arm" or machine.startswith("armv"):
+        return "arm"
+    return machine
+
+
+# compiler: Located Clang/GCC executable; queried without compiling or installing anything.
+# Raises ValueError for a failed target query or a different host OS/architecture.
+# Raises OSError or subprocess.TimeoutExpired for an unavailable or stalled compiler.
+def require_host_target(compiler: str) -> None:
+    result = subprocess.run([compiler, "-dumpmachine"], capture_output=True, text=True, timeout=10)
+    target = result.stdout.strip().lower()
+    if result.returncode != 0 or not target or len(target.split()) != 1:
+        raise ValueError(f"Compiler target query failed: {compiler}; exit={result.returncode}; "
+                         f"stdout={result.stdout.strip()!r}; stderr={result.stderr.strip()!r}")
+    if "windows" in target or "mingw" in target:
+        target_os = "win32"
+    elif "darwin" in target:
+        target_os = "darwin"
+    elif "linux" in target:
+        target_os = "linux"
+    else:
+        target_os = "unknown"
+    host_arch = canonical_architecture(platform.machine())
+    target_arch = canonical_architecture(target.split("-", 1)[0])
+    if target_os != sys.platform or target_arch != host_arch:
+        raise ValueError(f"Cross compiler rejected: {compiler}; target={target}; "
+                         f"required host={sys.platform}/{host_arch}")
+
+
 # requested: Existing host Clang/GCC/MSVC driver supplied as a literal executable path.
 # Raises FileNotFoundError when no supported host compiler is available; nothing is installed.
+# Raises ValueError, OSError or subprocess.TimeoutExpired for an explicitly rejected compiler.
 def resolve_compiler(requested: str | None) -> str:
-    candidates = (requested,) if requested else ("clang++", "g++", "cl")
+    if requested:
+        candidates = (requested,)
+    elif sys.platform == "win32":
+        candidates = ("cl", "clang++", "g++")
+    else:
+        candidates = ("clang++", "g++")
+    rejected = []
     for candidate in candidates:
         compiler = shutil.which(candidate)
         if compiler:
-            return compiler
-    raise FileNotFoundError("Native Cody checks require an existing clang++, g++ or cl host compiler.")
+            try:
+                if Path(compiler).stem.lower() == "cl":
+                    if sys.platform != "win32":
+                        raise ValueError(f"MSVC requires a Windows host: {compiler}")
+                else:
+                    require_host_target(compiler)
+                return compiler
+            except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+                if requested:
+                    raise
+                rejected.append(str(error))
+                print(f"Host compiler discovery: {error}", file=sys.stderr)
+    detail = " " + "; ".join(rejected) if rejected else ""
+    raise FileNotFoundError("Native Cody checks require an existing clang++, g++ or cl host compiler." + detail)
 
 
 # compiler: Explicit host driver, not an ESP-IDF workflow entrypoint.

@@ -133,7 +133,7 @@ bool validCodexChoiceId(const char *value)
 esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayload &candidate)
 {
     candidate = {};
-    if (hex == nullptr || length == 0 || length > 1024 || length % 2 != 0) {
+    if (hex == nullptr || length == 0 || length > 3072 || length % 2 != 0) {
         return ESP_ERR_INVALID_SIZE;
     }
     PayloadReader reader{hex, length};
@@ -142,13 +142,17 @@ esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayl
     if (!reader.byte(version) || !reader.byte(kind)) {
         return reader.error;
     }
-    if (version != 1 || kind < 1 || kind > 7) {
+    if (version != 2 || kind < static_cast<uint8_t>(CodexEventKind::Notice) ||
+        kind > static_cast<uint8_t>(CodexEventKind::ReplyReady)) {
         return ESP_ERR_INVALID_ARG;
     }
     candidate.kind = static_cast<CodexEventKind>(kind);
     if (!reader.text(candidate.context, false) || !reader.text(candidate.title, true) ||
         !reader.text(candidate.body, true) || !reader.byte(candidate.choice_count)) {
         return reader.error;
+    }
+    if (candidate.kind != CodexEventKind::ApprovalOnPc && std::strlen(candidate.body) > 63) {
+        return ESP_ERR_INVALID_SIZE;
     }
     const bool question = candidate.kind == CodexEventKind::Question;
     if ((question && (candidate.choice_count < 2 || candidate.choice_count > 3)) ||
@@ -203,6 +207,28 @@ esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayl
     uint8_t progress = 0;
     if (!reader.byte(progress) || !reader.word(candidate.passed) || !reader.word(candidate.total)) {
         return reader.error;
+    }
+    if (!reader.byte(candidate.pending_question_count) || !reader.byte(candidate.pending_entry_count)) {
+        return reader.error;
+    }
+    if (candidate.pending_entry_count > 2 || candidate.pending_question_count > 128 ||
+        candidate.pending_entry_count > candidate.pending_question_count ||
+        (!question && (candidate.pending_question_count != 0 || candidate.pending_entry_count != 0))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    for (uint8_t index = 0; index < candidate.pending_entry_count; ++index) {
+        auto &entry = candidate.pending_questions[index];
+        if (!reader.text(entry.request_id, true) || !reader.text(entry.context, false) ||
+            !reader.text(entry.title, true)) { return reader.error; }
+        if (std::strlen(entry.request_id) != 32 || std::strspn(entry.request_id, "0123456789abcdef") != 32 ||
+            std::strcmp(entry.request_id, "00000000000000000000000000000000") == 0) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        for (uint8_t previous = 0; previous < index; ++previous) {
+            if (std::strcmp(candidate.pending_questions[previous].request_id, entry.request_id) == 0) {
+                return ESP_ERR_INVALID_ARG;
+            }
+        }
     }
     if (reader.offset != length || progress > 1) {
         return ESP_ERR_INVALID_ARG;

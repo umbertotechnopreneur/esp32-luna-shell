@@ -2,7 +2,18 @@
 #pragma once
 #include "CODY_personality.hpp"
 namespace CODY::PersonalityAssets {
-struct Sprite { PersonalityCue cue; uint16_t width; uint16_t height; const uint8_t *indices; const uint8_t *coverage; };
+// Immutable flash descriptor; stored geometry does not alter logical placement.
+struct Sprite {
+    PersonalityCue cue;
+    uint16_t width;
+    uint16_t height;
+    const uint8_t *indices;
+    const uint8_t *coverage;
+    uint16_t stored_left;
+    uint16_t stored_top;
+    uint16_t stored_width;
+    uint16_t stored_height;
+};
 extern const uint16_t palette[256];
 extern const Sprite sprites[14];
 }

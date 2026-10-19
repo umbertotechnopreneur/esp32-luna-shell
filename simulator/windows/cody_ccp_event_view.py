@@ -20,18 +20,10 @@ from __future__ import annotations
 
 import time
 
-from cody_native_debug import render_debug_channels
+from cody_native_debug import render_debug_controls
 from cody_native_behavior import CharacterActivity
 
-from cody_native_event_presentation import NativeEventPresentation, EventAction, ascii_field, wrapped, paint_native_actions
-
-
-# image: Logical RGB framebuffer prior to rotation.
-# painter: Native glyph coverage owner.
-# action: One approved gradient card/capsule and its complete untimed caption.
-# Raises ValueError or RuntimeError for invalid plan data, unavailable rendering or native failure.
-def paint_action(image, painter, action: EventAction) -> None:
-    paint_actions(image, painter, (action,))
+from cody_native_event_presentation import NativeEventPresentation, EventAction, ascii_field, paint_native_actions, paint_native_approval
 
 
 # image: Logical RGB framebuffer prior to rotation.
@@ -50,28 +42,36 @@ class EventView:
         self.native = NativeEventPresentation()
         self.request_id = ""
         self.hidden_id = ""
+        self._opening_request_id = ""
         self.stage = "notice"
         self.selected_id = ""
         self.page = 0
         self._route = None
-        self._started = time.monotonic()
+        self._elapsed_us = 0
+        self._sampled_at = None
         self._actions: tuple[EventAction, ...] = ()
         self._back = False
         self._controls_visible = False
         self._rendered_event = None
         self._press: tuple[float, float] | None = None
+        self._pressed_event = None
+        self._tap_cancelled = False
+
+    # self: Event scene preempted by another Studio view; hidden wall time is excluded.
+    def pause(self) -> None:
+        self._sampled_at = None
 
     @property
     # self: Semantic stage encoded only for the existing Studio control interface.
     def stage(self):
-        return ("notice", "choices", "confirm", "waiting", "failures")[self.native.navigation.stage]
+        return ("notice", "choices", "confirm", "waiting", "failures", "questions")[self.native.navigation.stage]
 
     @stage.setter
     # self: Local navigation ABI owner.
     # value: Explicit semantic stage for authored preview setup, not a user transition.
     # Raises ValueError for unsupported stage identities.
     def stage(self, value):
-        self.native.navigation.stage = ("notice", "choices", "confirm", "waiting", "failures").index(value)
+        self.native.navigation.stage = ("notice", "choices", "confirm", "waiting", "failures", "questions").index(value)
 
     @property
     # self: Current local stable choice identity.
@@ -110,6 +110,9 @@ class EventView:
         if snapshot.request_id != self.request_id:
             self.native.reset()
             self.request_id = snapshot.request_id
+            if self.request_id == self._opening_request_id:
+                self.stage = "choices"
+            self._opening_request_id = ""
             self._controls_visible = False
             self._rendered_event = None
         if self.native.dismiss_due(snapshot, round(time.monotonic() * 1000000), self._controls_visible):
@@ -134,7 +137,9 @@ class EventView:
     # snapshot: Current immutable synthetic observation including freshness and original error.
     def rendered_identity(self, snapshot):
         return (snapshot.request_id, snapshot.event_state, snapshot.event_payload,
-                snapshot.event_fresh, snapshot.event_error, self.stage, self.selected_id, self.page,
+                snapshot.event_fresh, snapshot.event_error, snapshot.selection_request_id,
+                self.stage, self.selected_id, self.page,
+                self.native.navigation.choice_page, self.native.navigation.detail_page,
                 self.native.context.ui_error, self.native.context.reply_admitted,
                 self.native.context.dismiss_admitted)
 
@@ -151,12 +156,24 @@ class EventView:
         painter = window.renderer.scene_painter
         definition = painter.definition(identity)
         title = definition["title"]["text"]
+        title_color = definition["title"]["color_rgb565"]
         if self.native.output.title:
             title = self.native.output.title.decode("ascii")
-        route = (snapshot.request_id, identity, self.stage, self.selected_id, self.page)
+            title_color = self.native.output.title_color
+        route = (snapshot.request_id, identity, self.stage, self.selected_id, self.page,
+                 self.native.navigation.choice_page, self.native.navigation.detail_page)
+        now = time.monotonic()
         if route != self._route:
-            self._route, self._started = route, time.monotonic()
-        elapsed = (time.monotonic() - self._started) * 1000
+            self._route = route
+            self._elapsed_us = 0
+            self._sampled_at = None
+        if window.playing.get():
+            if self._sampled_at is not None:
+                self._elapsed_us += round(max(0.0, now - self._sampled_at) * 1000000)
+            self._sampled_at = now
+        else:
+            self.pause()
+        elapsed = self._elapsed_us / 1000
         total = len(title) + sum(len(line.text) for line in
             self.native.output.lines[:self.native.output.line_count] if not line.instant)
         if painter.native is None:
@@ -172,34 +189,42 @@ class EventView:
             character_enabled=approval, activity=activity,
             source="ccp" if approval else "ccp-hidden")
         if personality is not None:
-            top = min([definition["title"]["top"]] + [top for _, top in lines])
-            bottom = max([definition["title"]["top"] + 30] + [top + 25 for _, top in lines])
+            top = min([definition["title"]["top"]] + [top for _, top in lines if top < 394])
+            bottom = max([definition["title"]["top"] + 30] + [top + 25 for _, top in lines if top < 394])
             # The shared native cue context admits six exclusions. One content
             # rectangle reserves all text without dropping any action or Back.
-            exclusions = [(73, top, 393, bottom), (73, 22, 393, 47)]
+            exclusions = [(73, 120, 393, 419), (73, 22, 393, 47)] if approval else [
+                (73, top, 393, bottom), (73, 22, 393, 47)]
+            if any(top >= 394 for _, top in lines):
+                exclusions.append((99, 394, 367, 419))
             exclusions += [(x, y, x + width, y + height) for action in actions for x, y, width, height in (action.bounds,)]
             if back:
                 exclusions.append((10, 203, 70, 263))
             personality(snapshot, identity, scene, cloud["scale"], rotation, elapsed, exclusions)
         image = window.renderer.draw_scene(scene, debug=False, navigation_visible=False,
                                            background_rgb565=definition["background_rgb565"]).convert("RGB")
-        painter.paint_text(image, title, definition["title"]["top"],
+        painter.paint_text(image, title, definition["title"]["top"], title_color,
                            visible=painter.content_characters(identity, elapsed, len(title), 0))
         preceding = len(title)
         for line in self.native.output.lines[:self.native.output.line_count]:
             text = line.text.decode("ascii")
             characters = (len(text) if timing[5] else 0) if line.instant else painter.content_characters(
                 identity, elapsed, len(text), preceding)
+            if line.delivery_pulse and not controls_visible:
+                characters = 0
             painter.paint_text(image, text, line.top, body=True, max_width=300, visible=characters,
-                               color=0xBDF7 if line.instant else 0xFFFF)
+                               color=self.native.line_color(line, round(elapsed * 1000)))
             if not line.instant:
                 preceding += len(text)
+        if approval:
+            paint_native_approval(image, snapshot.request_id, snapshot.event_payload.body,
+                                  round(elapsed * 1000), controls_visible, painter.native.api)
         if controls_visible:
             paint_actions(image, painter, actions)
         if back and controls_visible:
-            image = render_debug_channels(window.renderer.require_native(), values, 0, image)
-        # With three actions the lower capsule reaches y428; keep the synthetic
-        # identity in the unobstructed top chord instead of covering that action.
+            image = render_debug_controls(window.renderer.require_native(), image)
+        # Keep the synthetic identity in the unobstructed top chord rather
+        # than covering the answer paging hint or explicit Send action.
         painter.paint_text(image, "SIMULATED", 22, color=64704, body=True)
         key = ("ccp-event", route, min(visible, total), lines, actions, snapshot.event_fresh, rotation, round(elapsed / 33))
         self._controls_visible = controls_visible
@@ -207,19 +232,43 @@ class EventView:
         self._rendered_event = self.rendered_identity(snapshot)
         return image, scene, key
 
-    # self: Pointer owner whose selection remains local until the explicit Send action.
+    # self: Pointer owner retaining the exact fully drawn observation until release.
     # point: Logical coordinates using the same rotation as the rendered framebuffer.
     # snapshot: Latest authenticated request and freshness.
-    # endpoint: Socket owner called only after an enabled Send hit.
-    # Raises ValueError, RuntimeError or OSError if the reviewed reply can no longer be sent.
+    # endpoint: Existing transport owner, never called on touch down.
     def press(self, point, snapshot, endpoint) -> None:
-        self._press = point
+        self._press = None
+        self._pressed_event = None
+        self._tap_cancelled = False
+        if point is not None and self._controls_visible and self._rendered_event == self.rendered_identity(snapshot):
+            self._press = point
+            self._pressed_event = self._rendered_event
+
+    # self: Gesture owner preserving excursions even when the pointer returns to its origin.
+    # point: Logical pressed sample or None when contact leaves the device canvas.
+    def drag(self, point) -> None:
+        if self._press is None:
+            return
         if point is None:
+            self._press = None
+            self._pressed_event = None
+        elif (point[0] - self._press[0]) ** 2 + (point[1] - self._press[1]) ** 2 >= 144:
+            self._tap_cancelled = True
+
+    # self: Gesture owner using the same production release policy as firmware.
+    # point: Released logical point, or None outside the preview.
+    # snapshot: Latest complete authenticated event; changes cancel an in-flight touch.
+    # endpoint: Actual reply, dismissal and question-selection owner.
+    # Raises ValueError, RuntimeError or OSError for the original native or endpoint rejection.
+    def release(self, point, snapshot, endpoint) -> None:
+        origin, self._press = self._press, None
+        pressed_event, self._pressed_event = self._pressed_event, None
+        if (origin is None or point is None or snapshot.event_payload is None or
+                pressed_event != self.rendered_identity(snapshot) or self._rendered_event != pressed_event):
             return
-        if self._rendered_event != self.rendered_identity(snapshot):
-            self._controls_visible = False
+        if self._tap_cancelled and (point[0] - origin[0]) ** 2 + (point[1] - origin[1]) ** 2 < 144:
             return
-        effect = self.native.press(snapshot, point, self._controls_visible)
+        effect, request_id = self.native.release(snapshot, origin, point, self._controls_visible)
         if effect == 0:
             return
         if effect in (2, 3):
@@ -239,13 +288,13 @@ class EventView:
                 self.hidden_id = self.request_id
         elif effect == 4:
             self.native.context.observation_error = 0
+        elif effect == 5:
+            try:
+                endpoint.select_question(request_id)
+            except (ValueError, RuntimeError, OSError) as error:
+                self.native.result(effect, getattr(error, 'esp_err_t', -1))
+                self._controls_visible = False
+                raise
+            self.native.result(effect, 0)
+            self._opening_request_id = request_id
         self._controls_visible = False
-
-    # self: Read-only failure-list navigation; no row is selectable.
-    # point: Released logical coordinate, or None outside the preview.
-    # snapshot: Current complete failure-name collection.
-    def release(self, point, snapshot) -> None:
-        origin, self._press = self._press, None
-        if origin is None or point is None or snapshot.event_payload is None:
-            return
-        self.native.scroll(snapshot, (point[0] - origin[0], point[1] - origin[1]), self._controls_visible)

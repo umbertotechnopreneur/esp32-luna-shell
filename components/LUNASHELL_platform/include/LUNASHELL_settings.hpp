@@ -40,6 +40,10 @@ public:
     esp_err_t initialize();
     bool isInitialized() const;
 
+    // sealed: Block new operations after all earlier owner requests have completed.
+    // Exception: Returns the real executor failure; never cuts power during uncertain NVS work.
+    esp_err_t setPowerOffSealed(bool sealed);
+
     esp_err_t setBool(const char *key, bool value);
     esp_err_t getBool(const char *key, bool *value) const;
 
@@ -63,6 +67,11 @@ public:
 
     esp_err_t setBlob(const char *key, const void *data, size_t size);
     esp_err_t getBlob(const char *key, std::vector<uint8_t> *data) const;
+    // key: Exact persisted record key; absence is returned without a default.
+    // data: Caller-owned fixed-size destination, changed only after a successful read.
+    // size: Expected stored size, checked before allocating any request buffer.
+    // Exception: Returns original NVS/executor errors or ESP_ERR_INVALID_SIZE.
+    esp_err_t getBlobExact(const char *key, void *data, size_t size) const;
 
     // key: One explicitly selected setting; the rest of the namespace is untouched.
     // Exception: Returns the original erase/commit error, including genuine absence.

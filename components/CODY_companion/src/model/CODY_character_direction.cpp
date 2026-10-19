@@ -248,8 +248,8 @@ esp_err_t advance_character_direction(const CharacterDirectionInputs &inputs, in
     const bool same_turn = same_chat && state.turn[0] != '\0' && inputs.activity.turn[0] != '\0' &&
         std::strcmp(state.turn, inputs.activity.turn) == 0;
     const bool compacting = inputs.activity.current && inputs.activity.compacting;
-    // Success requires observing the real end of the same sequence, without a source gap or wake.
-    const bool refreshed = state.enabled && same_chat && state.compacting && inputs.activity.refreshed &&
+    // Sequence numbers restart per turn; success requires that exact turn and sequence, without a source gap or wake.
+    const bool refreshed = state.enabled && same_turn && state.compacting && inputs.activity.refreshed &&
         state.compaction_sequence == inputs.activity.compaction_sequence;
     const bool caress = !inputs.rebase && inputs.caress_at_us > state.consumed_caress_at_us;
     const bool attention_edge = state.enabled && same_chat && !state.attention && inputs.activity.attention;
@@ -464,5 +464,37 @@ PersonalityCue character_direction_cue(const CharacterDirectionState &state)
         return PersonalityCue::Joy;
     }
     return state.reaction == CharacterReaction::Interrupted ? PersonalityCue::Confusion : PersonalityCue::None;
+}
+// state: Canonical current actor state; stale, disabled and question states cannot override a scene.
+// fallback: Ordinary scene/request cue retained when no genuine compaction is active.
+PersonalityCue prioritize_compaction_cue(const CharacterDirectionState &state, PersonalityCue fallback)
+{
+    if (state.enabled && state.current && state.compacting && !state.attention &&
+        !personality_cue_is_device(fallback) && fallback != PersonalityCue::Sleep) {
+        return character_direction_cue(state);
+    }
+    return fallback;
+}
+// state: Current canonical acting; stale, orphaned and completed states cannot originate sound.
+// retired_visible: Full-frame visibility with ordinary Home and lifecycle admission.
+// retired_cue: Actual retired symbol, preserving device/question/layout priority.
+// latch: Bounded chat/turn/sequence identity consumed once, independent of opacity interruptions.
+// Returns false for ineligible or already-observed identities; no hardware/audio work occurs here.
+bool claim_compaction_sound(const CharacterDirectionState &state, bool retired_visible,
+    PersonalityCue retired_cue, CompactionSoundLatch &latch)
+{
+    if (!retired_visible || !state.enabled || !state.current || !state.compacting || state.attention ||
+        retired_cue != PersonalityCue::Confusion || state.compaction_sequence == 0 ||
+        state.chat[0] == '\0' || state.turn[0] == '\0') {
+        return false;
+    }
+    if (latch.sequence == state.compaction_sequence && std::strcmp(latch.chat, state.chat) == 0 &&
+        std::strcmp(latch.turn, state.turn) == 0) {
+        return false;
+    }
+    std::memcpy(latch.chat, state.chat, sizeof(latch.chat));
+    std::memcpy(latch.turn, state.turn, sizeof(latch.turn));
+    latch.sequence = state.compaction_sequence;
+    return true;
 }
 } // namespace CODY

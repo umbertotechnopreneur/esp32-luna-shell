@@ -26,7 +26,9 @@ namespace CODY {
 
 struct ActivityDescriptionState;
 struct ActivityIdentityState;
+struct CommandHintsState;
 enum class ActivityIdentityKind : uint8_t;
+enum class HomeTokenMetric : uint8_t;
 
 // Explicit IDs do not change if authoring declarations are reordered.
 enum class SceneId : uint16_t {
@@ -80,6 +82,8 @@ struct SceneDefinition {
 struct SceneContent {
     SceneElementId id = SceneElementId::Content;
     DamageRect bounds{};
+    // Optional caption above the title; it never shares the title or body raster slot.
+    DamageRect leading_caption_bounds{};
     // Separate lower action slot: a broad card pair cannot borrow bottom-arc width.
     DamageRect bottom_action_bounds{};
     const void *state = nullptr;
@@ -101,6 +105,10 @@ struct SceneContent {
 };
 
 struct SceneFrame {
+    const CommandHintsState *command_hints = nullptr;
+    uint32_t command_hints_revision = 0;
+    // Home retains semantic activity owners while dedicated native layers replace their legacy drawing.
+    bool home_dashboard = false;
     const SceneDefinition *definition = nullptr;
     CODY2D::TextLine title{};
     SceneContent content{};
@@ -117,6 +125,7 @@ struct SceneFrame {
     uint32_t activity_description_revision = 0;
     const ActivityIdentityState *activity_identity = nullptr;
     uint32_t activity_identity_revision = 0;
+    HomeTokenMetric activity_token_metric{};
     uint64_t activity_identity_timer_seconds = 0;
     uint16_t activity_identity_offset = 0;
     uint8_t activity_identity_opacity = 0;
@@ -175,7 +184,8 @@ uint16_t scene_content_characters(const SceneFrame &frame, uint16_t length,
                                  uint16_t preceding_characters);
 
 // frame: Valid prepared scene whose content slot is updated after validation.
-// content: Immutable optional content, wholly below the title and within the circle.
+// content: Immutable body below the title, with separate optional leading caption and lower action.
+// Exception: Rejects invalid or overlapping regions before replacing the frame.
 esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content);
 
 // previous: Last completely displayed text/content state, not a partially written frame.

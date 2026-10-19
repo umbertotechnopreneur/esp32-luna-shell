@@ -1,0 +1,45 @@
+{
+  "schema": "cody.home-fonts.v1",
+  "derived_name": "Cody Dashboard Sans",
+  "source_family": "Telex",
+  "license": "SIL-OFL-1.1",
+  "source_sha256": "4a5868766918974d0c56d53f4c8e70eac271dc47fd47584033d2305469a1635d",
+  "fonts": {
+    "small_font": {
+      "pixel_size": 14,
+      "first_character": 32,
+      "character_count": 95,
+      "width": 16,
+      "height": 18,
+      "advance": 16,
+      "row_bytes": 8,
+      "coverage_bits": 4,
+      "coverage_bytes": 13680,
+      "coverage_sha256": "176a1498cac0484c7666d6857418468601925102a19c8ec6f1bf8eacb50697c4"
+    },
+    "heading_font": {
+      "pixel_size": 20,
+      "first_character": 32,
+      "character_count": 95,
+      "width": 22,
+      "height": 25,
+      "advance": 22,
+      "row_bytes": 11,
+      "coverage_bits": 4,
+      "coverage_bytes": 26125,
+      "coverage_sha256": "219adf2c62aa4fa448cc5e2381e0aa0aef3f7cbcbe70631682c7d27080290ed8"
+    },
+    "value_font": {
+      "pixel_size": 32,
+      "first_character": 46,
+      "character_count": 30,
+      "width": 32,
+      "height": 40,
+      "advance": 32,
+      "row_bytes": 16,
+      "coverage_bits": 4,
+      "coverage_bytes": 19200,
+      "coverage_sha256": "79e34ebf890ce5ed55881b7707dc338c64fb856c5fbdb8ad081956c0b5e305ab"
+    }
+  }
+}

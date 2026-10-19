@@ -28,7 +28,9 @@ FIELDS = ("device", "pc", "nonce", "chat", "turn", "revision", "model", "effort"
           "compaction", "compactseq", "compactage", "activityage", "turnelapsed",
           "used", "capacity", "cumulative", "input", "output", "threshold", "usageage",
           "cost", "costage", "costttl")
-UNAVAILABLE_FIELDS = ("effort", "used", "capacity", "cumulative", "input", "output", "threshold", "usageage")
+TOKEN_FIELDS = ("used", "capacity", "cumulative", "input", "output", "threshold")
+# Empty-source baseline shared by contracts; native observations may populate these fields.
+UNAVAILABLE_FIELDS = ("effort", *TOKEN_FIELDS, "usageage")
 
 
 class CompactionState(str, Enum):
@@ -52,8 +54,8 @@ class TechnicalProjection:
     compaction_age_ms: int | None = None
     activity_age_ms: int | None = None
     turn_elapsed_ms: int | None = None
-    # The hooked slug is reported metadata; it does not prove a separately executed/rerouted model.
-    model_source: str = "hook-metadata"
+    # Native/hook metadata does not prove a separately executed or rerouted model.
+    model_source: str = "reported-metadata"
     effort: str = ""
     context_used: int | None = None
     context_capacity: int | None = None
@@ -78,6 +80,17 @@ def milliseconds(value: str, name: str) -> int | None:
     return int(value)
 
 
+# value: Canonical decimal token count or explicit absence; zero remains measured zero.
+# name: Exact protocol identity retained in rejection diagnostics.
+# Raises ValueError for malformed or overflowing uint64 counts.
+def token_count(value: str, name: str) -> int | None:
+    if value == "-":
+        return None
+    if re.fullmatch(r"0|[1-9][0-9]{0,19}", value) is None or int(value) > 0xffffffffffffffff:
+        raise ValueError(f"TECH {name} must be uint64 tokens or unavailable")
+    return int(value)
+
+
 # fields: Strict ordered authenticated TECH fields; authenticity remains the transport owner's responsibility.
 # Raises ValueError for unsupported fields, identities, model metadata or fabricated metrics.
 def decode_projection(fields: dict[str, str]) -> TechnicalProjection:
@@ -86,8 +99,11 @@ def decode_projection(fields: dict[str, str]) -> TechnicalProjection:
     for name, width in (("chat", 64), ("turn", 64), ("revision", 16), ("compactseq", 16)):
         if re.fullmatch(r"[0-9a-f]{" + str(width) + "}", fields[name]) is None:
             raise ValueError(f"TECH {name} identity encoding is malformed")
-    if any(fields[name] != "-" for name in UNAVAILABLE_FIELDS):
-        raise ValueError("TECH effort and token metrics have no connected authoritative source")
+    counts = {name: token_count(fields[name], name) for name in TOKEN_FIELDS}
+    usage_age = milliseconds(fields["usageage"], "usageage")
+    has_usage = any(value is not None for value in counts.values())
+    if has_usage != (usage_age is not None) or counts["capacity"] == 0:
+        raise ValueError("TECH token counts require their original source age and a positive supplied capacity")
     model = ""
     if fields["model"] != "-":
         encoded = fields["model"]
@@ -97,6 +113,13 @@ def decode_projection(fields: dict[str, str]) -> TechnicalProjection:
         if any(not 33 <= ord(character) <= 126 for character in model):
             raise ValueError("TECH model is not printable ASCII metadata")
     model_age = milliseconds(fields["modelage"], "modelage")
+    effort = ""
+    if fields["effort"] != "-":
+        if re.fullmatch(r"(?:[0-9a-f]{2}){1,16}", fields["effort"]) is None:
+            raise ValueError("TECH effort encoding exceeds its bounded native identity")
+        effort = bytes.fromhex(fields["effort"]).decode("ascii")
+        if any(not 33 <= ord(character) <= 126 for character in effort):
+            raise ValueError("TECH effort is not printable ASCII metadata")
     compact_age = milliseconds(fields["compactage"], "compactage")
     activity_age = milliseconds(fields["activityage"], "activityage")
     turn_elapsed = milliseconds(fields["turnelapsed"], "turnelapsed")
@@ -107,6 +130,8 @@ def decode_projection(fields: dict[str, str]) -> TechnicalProjection:
     sequence = int(fields["compactseq"], 16)
     if bool(model) != (model_age is not None):
         raise ValueError("TECH model metadata and source age are incoherent")
+    if effort and not model:
+        raise ValueError("TECH native effort requires its original model metadata and age")
     if cost == CostBand.UNKNOWN:
         if cost_age is not None or cost_ttl is not None:
             raise ValueError("TECH Unknown cost must not claim current catalog durations")
@@ -116,10 +141,13 @@ def decode_projection(fields: dict[str, str]) -> TechnicalProjection:
     if (compaction == CompactionState.NONE) != (sequence == 0) or sequence == 0 and compact_age is not None:
         raise ValueError("TECH compaction identity and source age are incoherent")
     if fields["chat"] == "0" * 64:
-        if (fields["turn"] != "0" * 64 or model or sequence or activity_age is not None or turn_elapsed is not None):
+        if (fields["turn"] != "0" * 64 or model or sequence or activity_age is not None or turn_elapsed is not None or has_usage):
             raise ValueError("TECH empty followed context is incoherent")
-    elif fields["turn"] == "0" * 64 and (model or sequence or turn_elapsed is not None):
+    elif fields["turn"] == "0" * 64 and (model or sequence or turn_elapsed is not None or has_usage):
         raise ValueError("TECH turn-scoped metadata requires its observed turn identity")
     return TechnicalProjection(fields["chat"], fields["turn"], fields["revision"], model,
         model_age, compaction, sequence, compact_age, activity_age, turn_elapsed,
+        effort=effort, context_used=counts["used"], context_capacity=counts["capacity"],
+        cumulative_tokens=counts["cumulative"], input_tokens=counts["input"],
+        output_tokens=counts["output"], compact_threshold=counts["threshold"], usage_age_ms=usage_age,
         cost_band=cost, cost_age_ms=cost_age, cost_valid_for_ms=cost_ttl)

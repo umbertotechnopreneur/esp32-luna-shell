@@ -406,7 +406,7 @@ esp_err_t sample()
                     sizeof(sampled_core.current_task)
                 );
                 sampled_core.priority = uxTaskPriorityGet(task);
-                sampled_core.stack_high_water_words =
+                sampled_core.stack_high_water_bytes =
                     uxTaskGetStackHighWaterMark(task);
             }
         }

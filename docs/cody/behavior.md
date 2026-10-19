@@ -110,7 +110,7 @@ an urgent current state. Cooldown persists across hidden/Micro/layout changes,
 while paused animation freezes its clock. An expired heart is discarded instead
 of replayed later. Gesture cooldown and icon cooldown are independent: a new
 eligible caress may increase happiness while its decorative heart is suppressed.
-Battery hysteresis enters at<=15% and releases at>=20%; unavailable/stale facts
+Battery hysteresis enters at <=20% and releases at >=25%; unavailable/stale facts
 clear the latch and cannot support a numeric alert.
 
 ## Dormant wellbeing logic

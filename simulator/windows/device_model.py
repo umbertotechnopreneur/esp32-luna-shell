@@ -146,6 +146,7 @@ def _off_component() -> dict[str, Any]:
     )
 
 
+# timestamp_us: Explicit synthetic observation time, never a firmware measurement.
 def _base_snapshot(timestamp_us: int) -> dict[str, Any]:
     component = lambda: _component(timestamp_us)
     tof_1 = {
@@ -481,7 +482,7 @@ def _base_snapshot(timestamp_us: int) -> dict[str, Any]:
                     "utilization_available": False,
                     "utilization_percent": 0,
                     "current_task": "unavailable",
-                    "stack_high_water_words": 0,
+                    "stack_high_water_bytes": 0,
                     "priority": 0,
                 },
                 {
@@ -489,7 +490,7 @@ def _base_snapshot(timestamp_us: int) -> dict[str, Any]:
                     "utilization_available": False,
                     "utilization_percent": 0,
                     "current_task": "unavailable",
-                    "stack_high_water_words": 0,
+                    "stack_high_water_bytes": 0,
                     "priority": 0,
                 },
             ],

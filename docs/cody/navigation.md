@@ -1,9 +1,60 @@
 # Cody navigation and recovery
 
+## Connection search and working presentation - 2026-10-12
+
+Looking for PC uses a ten-minute screen standby interval. A current Wi-Fi link
+with an acquired IP first requests the connected symbol, followed by a repeating
+96-second discovery presentation: question mark, calm gaps, moving search lens,
+worry, brief fear and recovery. This silent narrative does not assert Internet
+reachability or failed pairing. Real canonical link transitions take priority;
+hidden or sleeping views do not advance the narrative.
+
+Working uses a three-minute screen standby interval. Home retains the character,
+state title and model above three interchangeable lower panels. Tokens shows
+Free, Last, Window, elapsed time and IMU activity. Model & Context shows the model,
+thinking effort and qualitative price: Cheap, Reasonable price or Expensive.
+These Standard catalog classes do not measure monetary chat spending or model
+quality. Session & Link shows connection state, abbreviated chat ID and the
+device's own canonical Wi-Fi IP, without firmware identity or the PC address.
+
+Genuine hooks select the exact native metadata source; unavailable or expired
+counts remain explicit. Free is the observed window minus last-call tokens,
+not a promise about the next request's budget. Supported chat requests scroll
+right to left along the bottom. Orange compaction takes precedence over ordinary
+captions and command hints. The valid-battery wake prelude is described
+in [the personality contract](personality-icons.md). Implementation and validation
+evidence remain separate in [done.md](../../done.md).
+
 This is the current source contract for device routes. Screen IDs come from the
 atlases and remain independent of physical page numbers. Installation belongs
 to the [CCP guide](../../plugins/cody-codex-plugin/README.md); authentication,
 packet fields and budgets belong to [CCP1](../../plugins/cody-codex-plugin/protocol/CCP1.md).
+
+## Observe walking, running and sitting
+
+The default Home token panel includes the IMU label beside the timer. Panels
+rotate every eight visible seconds: Tokens, Model & Context, Session & Link,
+then Tokens again. A short released tap advances immediately and restarts the
+eight-second interval. Hidden views, standby and current compaction pause the
+automatic rotation. A double tap starts voice input, so wait for the single-tap
+decision. A deliberate shake selects Tokens; running or jumping may also
+trigger that navigation gesture.
+
+Keep the device in the same position and orientation on your body for each trial.
+Observe sitting, standing, walking and jogging for 20-30 seconds each, allowing
+about four seconds after changing activity for a new full sensor window. Compare
+several consecutive labels. Hand waving or a device left on a table is a different
+input; placement and sitting/standing separation have not been physically validated.
+
+The pretrained labels are walking, jogging, sitting, standing, upstairs and
+downstairs. There is no jump class: jumps can be observed but cannot be reported
+as correctly classified jumps by this model. No training or SD access is needed.
+COLLECTING, SUSPENDED, CADENCE GAP, BUSY, ERROR, UNAVAILABLE and STALE describe
+sample availability, not activities. Standby suspends the observer.
+
+Release and Debug both show the canonical classifier result on the first Home
+panel, including without a PC connection. Displayed labels alone are not an accuracy
+measurement or authorization for automatic power decisions.
 
 ## Choose the startup route
 
@@ -12,10 +63,19 @@ After branding and local checkpoints, read one canonical observation:
 | Saved and observed state | Route |
 | --- | --- |
 | Wi-Fi profile genuinely absent | 04 / Welcome, then network setup 05-09 |
-| Credentials present, association or IP unavailable | 42 / No connection: Network setup or Later |
+| Credentials present, association or IP pending | Passive connection wait for up to 15 seconds; advance immediately on valid Wi-Fi/IP |
+| Saved profile still offline after that wait | 42 / No connection: Network setup or Later |
 | Wi-Fi/IP valid, Codex pairing absent | 40 / Connect Codex?: Yes or No |
 | Retained pairing valid | 14 / Looking for PC, then 15 after authenticated READY |
 | Read, type, CRC or storage failure | Visible original error; never substitute an absent profile |
+
+The saved-profile wait shows `Connecting to Wi-Fi` and `Please wait`, with no
+setup or Codex action while the radio owner makes its existing attempt. Repeated
+frames do not extend the deadline. The wait changes presentation only: it never
+blocks the worker, starts a scan, rewrites credentials or claims Internet access.
+An explicit startup retry starts a new bounded wait. A genuinely absent profile
+still goes directly to first setup. A saved profile's observation failure remains
+logged and canonical during grace, then appears with the recovery choices.
 
 LAN connectivity and Internet availability are separate observations. No returns
 to Idle without starting CCP or persisting a refusal. A later boot may offer

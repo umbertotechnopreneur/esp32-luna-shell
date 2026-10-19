@@ -10,6 +10,17 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
   Deep-sleep; expected service policy must not become a failed sleep/Active rollback.
   Setting `consistent=false` to force a callback broke the paired Cody LAN gate.
   Use an explicit reapplication parameter and retain observed state/real errors.
+- Account for startup memory handoff before admitting a mandatory frame. Keeping
+  the 32-KiB boot backlog internal until after Cody's ready frame forced emergency
+  DMA and a real frame timeout. Await the logger owner's post-free archival result;
+  request acceptance or a detached pointer does not prove memory is reusable.
+- A requested sampling period includes acquisition and commit time. Waiting the
+  full period afterward can repeatedly invalidate model windows; schedule the
+  remaining owner deadline and retain actual timestamps and gap rejection.
+- IDF can pin an unpinned floating-point task on its first FPU use. Small measured
+  read/lock costs do not rule out dispatch starvation behind higher-priority voice
+  work. The 20-Hz activity owner needed explicit CPU1 affinity; retain measured
+  core/timing evidence and do not change voice or renderer priorities to hide it.
 - Recipient delivery and device retirement are separate CCP observations.
   Hold a published terminal question until its authenticated device ACK before
   publishing its successor; a UI dwell timeout does not prove device closure.

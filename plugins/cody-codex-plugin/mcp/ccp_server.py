@@ -34,13 +34,14 @@ import threading
 import time
 from typing import Any
 
-from ccp_activity import ActivityStore
+from ccp_activity import ActivityStore, HookObservation, Phase
 import ccp_interactions as interactions
 import ccp_reset as reset
 import ccp_clock as clock
 import ccp_name as preferred_name
 import ccp_technical as technical_metadata
 import ccp_voice_input as voice_input
+from ccp_presence import AppPresence
 from ccp_pricing import PriceCache
 from ccp_security import DatagramAdmission, RejectionReporter
 from ccp_windows import configure_exclusive_socket, protect_secret, unprotect_secret, runtime_directory
@@ -50,11 +51,11 @@ PROTOCOL = "CCP1"
 DEVICE_PORT = 42117
 PLUGIN_PORT = 42118
 MAX_DATAGRAM_BYTES = 512
-MAX_ACTIVITY_DATAGRAM_BYTES = 1024
+MAX_ACTIVITY_DATAGRAM_BYTES = 2048
 MAX_TECHNICAL_DATAGRAM_BYTES = 1024
 TECHNICAL_FIELDS = technical_metadata.FIELDS
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.5"
+SERVER_VERSION = "0.6.9"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CHALLENGE_TIMEOUT_SECONDS = 2.0
 MAX_DISCOVERY_OFFERS = 16
@@ -570,6 +571,11 @@ class CompanionResponder:
         self._commit_challenges: dict[tuple[str, str, int], CommitChallenge] = {}
         self._event_peers: dict[str, EventPeer] = {}
         self._event_lock = threading.Lock()
+        self.app_presence = AppPresence()
+        self._app_peers: dict[str, EventPeer] = {}
+        self._app_sequence = 0
+        self._last_app_presence: tuple[str, str] | None = None
+        self.app_presence_error: Exception | None = None
         self._resets = reset.ResetRequests()
         self._debug_peers: dict[str, EventPeer] = {}
         self._debug_requests: dict[str, dict[str, Any]] = {}
@@ -674,23 +680,31 @@ class CompanionResponder:
         if kind == "NAMEACK":
             self.names.accept_ack(fields, source)
             return
+        if kind == "APPCAP":
+            self._accept_app_capability(fields, source)
+            return
         if kind != "FIND":
             return
-        with_events = set(fields) == {"device", "pc", "nonce", "activity", "events", "current", "state", "proof"}
-        with_activity = with_events or set(fields) == {"device", "pc", "nonce", "activity", "proof"}
-        if not with_activity and set(fields) != {"device", "pc", "nonce", "proof"}:
+        field_names = set(fields)
+        presence_fields = {"device", "pc", "nonce", "proof"}
+        activity_fields = presence_fields | {"activity"}
+        event_fields = activity_fields | {"events", "current", "state", "event_select"}
+        with_events = field_names == event_fields
+        with_activity = with_events or field_names == activity_fields
+        if not with_activity and field_names != presence_fields:
             raise ValueError("CCP FIND has unexpected or missing fields")
-        if with_activity and fields["activity"] not in {"1", "2", "4"}:
-            raise ValueError("Unsupported CCP activity capability")
-        with_description = with_activity and fields["activity"] in {"2", "4"}
-        with_technical = with_activity and fields["activity"] == "4"
+        if with_activity and fields["activity"] != "5":
+            raise ValueError("Unsupported CCP activity capability; update the peer to activity=5")
         if with_events:
-            if fields["events"] != "2":
+            if fields["events"] != "3":
                 raise ValueError("Unsupported CCP events capability")
             if (interactions.IDENTITY.fullmatch(fields["current"]) is None
                     or fields["state"] not in interactions.DEVICE_STATES
                     or (fields["current"] == "0" * 32) != (fields["state"] == "none")):
                 raise ValueError("CCP FIND question observation is incoherent")
+            if (interactions.IDENTITY.fullmatch(fields["event_select"]) is None or
+                    (fields["event_select"] != "0" * 32 and fields["state"] != "pending")):
+                raise ValueError("CCP FIND pending-question selection is incoherent")
         for name in ("device", "pc", "nonce", "proof"):
             if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
                 raise ValueError(f"CCP FIND field {name!r} is malformed")
@@ -703,14 +717,12 @@ class CompanionResponder:
         for candidate in (retained.pending, retained.active):
             if candidate is None:
                 continue
-            domain = "find-events-v2" if with_events else "find-activity" if with_activity else "find"
-            if with_description:
-                domain = "find-events-activity-v2" if with_events else "find-activity-v2"
-            if with_technical:
-                domain = "find-events-activity-v4" if with_events else "find-activity-v4"
+            domain = "find"
+            if with_activity:
+                domain = "find-events-activity-v6" if with_events else "find-activity-v5"
             values = [fields["device"], fields["pc"], fields["nonce"]]
             if with_events:
-                values.extend((fields["current"], fields["state"]))
+                values.extend((fields["current"], fields["state"], fields["event_select"]))
             expected = make_proof(candidate, domain, *values)
             if hmac.compare_digest(expected, fields["proof"]):
                 link_key = candidate
@@ -746,39 +758,43 @@ class CompanionResponder:
         retained = self._state.retained_keys(fields["device"])
         with_events = "events" in fields
         with_activity = "activity" in fields
-        with_description = with_activity and fields["activity"] in {"2", "4"}
-        with_technical = with_activity and fields["activity"] == "4"
         now = time.monotonic()
         self._state.mark_seen(fields["device"], source[0])
         if with_activity:
             activity, technical = self._activity.snapshot_bundle()
-            projected_project = activity["project"]
-            if not with_description and len(projected_project) > 48:
-                # Version-one peers retain their documented 24-byte display slot; identity stays in chat.
-                label = bytes.fromhex(projected_project).decode("ascii")
-                projected_project = (label[:21].rstrip() + "...").encode("ascii").hex()
-                print("CCP activity: legacy project display projected to its 24-byte slot", file=sys.stderr)
-            values = [fields["device"], fields["pc"], fields["nonce"],
-                      activity["chat"], activity["revision"], activity["phase"],
-                      projected_project or "-"]
-            names = ("device", "pc", "nonce", "chat", "revision", "phase", "project")
-            if with_description:
-                values.append(activity["description"] or "-")
-                names += ("description",)
-                values.append(activity["branch"] or "-")
-                names += ("branch",)
-            activity_proof = make_proof(link_key, "activity-v2" if with_description else "activity", *values)
-            payload = encode_datagram("ACTIVITY", list(zip(
-                names, values
-            )) + [("proof", activity_proof)])
+            # Current activity=5 always publishes the complete title/description contract.
+            # The paired TECH packet comes from the same locked source projection.
+            activity_fields = [
+                ("device", fields["device"]),
+                ("pc", fields["pc"]),
+                ("nonce", fields["nonce"]),
+                ("chat", activity["chat"]),
+                ("revision", activity["revision"]),
+                ("phase", activity["phase"]),
+                ("project", activity["project"] or "-"),
+                ("description", activity["description"] or "-"),
+                ("branch", activity["branch"] or "-"),
+                ("title", activity["title"]),
+                ("titlestate", activity["titlestate"]),
+                ("titleage", activity["titleage"]),
+            ]
+            activity_values = [value for _, value in activity_fields]
+            activity_proof = make_proof(link_key, "activity-v3", *activity_values)
+            payload = encode_datagram("ACTIVITY", activity_fields + [("proof", activity_proof)])
             self._socket.sendto(payload, source)
-            if with_technical:
-                # One locked projection binds both packets to the same chat and activity revision.
-                technical_fields = {"device": fields["device"], "pc": fields["pc"], "nonce": fields["nonce"], **technical}
-                values = [technical_fields[name] for name in TECHNICAL_FIELDS]
-                proof = make_proof(link_key, "technical-v2", *values)
-                payload = encode_datagram("TECH", list(zip(TECHNICAL_FIELDS, values)) + [("proof", proof)])
-                self._socket.sendto(payload, source)
+
+            technical_fields = {
+                "device": fields["device"],
+                "pc": fields["pc"],
+                "nonce": fields["nonce"],
+                **technical,
+            }
+            technical_values = [technical_fields[name] for name in TECHNICAL_FIELDS]
+            technical_proof = make_proof(link_key, "technical-v2", *technical_values)
+            payload = encode_datagram(
+                "TECH", list(zip(TECHNICAL_FIELDS, technical_values)) + [("proof", technical_proof)]
+            )
+            self._socket.sendto(payload, source)
         if with_events and retained.active is not None and hmac.compare_digest(link_key, retained.active):
             # The old active link remains usable during commissioning. A candidate
             # receives interactions only after COMMITTED proves durable promotion.
@@ -791,7 +807,7 @@ class CompanionResponder:
                 self._debug_peers = {identity: peer for identity, peer in self._debug_peers.items()
                                      if 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS}
             request_id, state, ttl, data = self._requests.snapshot(
-                fields["device"], hashlib.sha256(link_key).hexdigest(), fields["current"], fields["state"])
+                fields["device"], hashlib.sha256(link_key).hexdigest(), fields["current"], fields["state"], fields["event_select"])
             values = [fields["device"], fields["pc"], fields["nonce"], request_id, state, ttl, data]
             event_proof = make_proof(link_key, "event", *values)
             payload = encode_datagram("EVENT", list(zip(
@@ -811,6 +827,88 @@ class CompanionResponder:
                 except (OSError, ValueError, RuntimeError) as error:
                     self._resets.fail_send(request.request_id, error)
                     raise
+
+    # self: Responder admitting an explicit capability without changing FIND or chat ownership.
+    # fields: Exact signed APPCAP envelope emitted after the current COMMITTED exchange.
+    # source: Socket-observed endpoint, required to match the current active authenticated peer.
+    # Raises ValueError, OSError or RuntimeError for malformed, stale, forged or failed capability delivery.
+    def _accept_app_capability(self, fields: dict[str, str], source: tuple[str, int]) -> None:
+        if set(fields) != {"device", "pc", "nonce", "app", "proof"} or fields["app"] != "1":
+            raise ValueError("App presence capability fields malformed")
+        for name in ("device", "pc", "nonce", "proof"):
+            if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
+                raise ValueError("App presence capability identity/proof malformed")
+        with self._event_lock:
+            peer = self._event_peers.get(fields["device"])
+            active = self._state.retained_keys(fields["device"]).active
+            now = time.monotonic()
+            if (peer is None or active is None or source != peer.source or fields["nonce"] != peer.nonce
+                    or fields["pc"] != self._state.pc_id or not hmac.compare_digest(active, peer.key)
+                    or not 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS
+                    or not hmac.compare_digest(make_proof(peer.key, "app-cap-v1", fields["device"],
+                        fields["pc"], fields["nonce"], "1"), fields["proof"])):
+                raise ValueError("App presence capability authentication failed")
+            self._app_peers = {identity: candidate for identity, candidate in self._app_peers.items()
+                               if identity in self._event_peers and
+                               0 <= now - candidate.observed_at <= LIVENESS_TIMEOUT_SECONDS}
+            if len(self._app_peers) >= 128 and fields["device"] not in self._app_peers:
+                raise ValueError("App presence capability registry is full")
+            self._app_peers[fields["device"]] = peer
+            try:
+                self._send_app_presence_locked(fields["device"], peer)
+            except (OSError, RuntimeError, ValueError) as error:
+                self.app_presence_error = error
+                raise
+
+    # self: Responder holding _event_lock; callers already admitted this active capable peer.
+    # device_id: Retained device identity from the authenticated challenge.
+    # peer: Current nonce, key and socket endpoint; never supplied by a hook.
+    # Raises OSError, RuntimeError or ValueError for failed bounded encoding or delivery.
+    def _send_app_presence_locked(self, device_id: str, peer: EventPeer) -> None:
+        observation = self.app_presence.snapshot()
+        if self._app_sequence >= 0xffffffffffffffff:
+            raise RuntimeError("CCP app presence sequence exhausted")
+        self._app_sequence += 1
+        values = [device_id, self._state.pc_id, peer.nonce, f"{self._app_sequence:016x}",
+                  observation.state.value, observation.reason,
+                  "-" if observation.age_ms is None else str(observation.age_ms)]
+        payload = encode_datagram("APPSTATE", list(zip(
+            ("device", "pc", "nonce", "sequence", "state", "reason", "age"), values))
+            + [("proof", make_proof(peer.key, "app-state-v1", *values))])
+        self._socket.sendto(payload, peer.source)
+
+    # self: Existing control-loop/lease callback; no timer, process scan or chat inference.
+    # Optional delivery failure remains structured and logged; the next owner pass retries.
+    def publish_app_presence(self) -> None:
+        try:
+            with self._event_lock:
+                observation = self.app_presence.snapshot()
+                identity = (observation.state.value, observation.reason)
+                if identity == self._last_app_presence and self.app_presence_error is None:
+                    return
+                now = time.monotonic()
+                for device_id, peer in self._app_peers.items():
+                    active = self._state.retained_keys(device_id).active
+                    current = self._event_peers.get(device_id)
+                    if (active is not None and hmac.compare_digest(active, peer.key)
+                            and current is not None and current.nonce == peer.nonce
+                            and current.source == peer.source
+                            and 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS):
+                        self._send_app_presence_locked(device_id, peer)
+                self._last_app_presence = identity
+                self.app_presence_error = None
+        except (OSError, RuntimeError, ValueError) as error:
+            # Presence is optional metadata: an unavailable send must not kill
+            # existing questions, pairing or other MCP clients. Retain its cause.
+            self.app_presence_error = error
+            self._report_rejection("app presence publication", str(error))
+
+    # self: Current owner providing structured source evidence and optional send failure.
+    def app_presence_status(self) -> dict[str, Any]:
+        observation = self.app_presence.snapshot()
+        return {"state": observation.state.value, "reason": observation.reason,
+                "source": "mcp_transport", "source_age_ms": observation.age_ms,
+                "publication_error": str(self.app_presence_error) if self.app_presence_error else None}
 
     # self: Responder keeping an optional capability separate from the unchanged FIND protocol.
     # fields: Exact signed DEBUGCAP envelope emitted only by Debug firmware after READY.
@@ -834,19 +932,19 @@ class CompanionResponder:
             if self._debug_used_nonce.get(fields["device"]) != fields["nonce"]:
                 self._debug_peers[fields["device"]] = peer
 
-    # self: Authenticated responder receiving transient Debug requests from MCP.
-    # device_id: Explicit retained target with a recent authenticated Debug capability.
-    # mode: face_channels, character or normal; no arbitrary route/command is accepted.
-    # scroll: Absolute first channel row; firmware checks its real channel count.
+    # self: Authenticated responder receiving transient diagnostic requests from MCP.
+    # device_id: Explicit retained target with a recent authenticated screen capability in either build mode.
+    # mode: character diagnostics or normal; no arbitrary route/command is accepted.
+    # scroll: Reserved protocol field, required to be exactly zero.
     # include_simulator: Explicit authorization to target loopback, never inferred.
     # Raises ValueError or OSError for invalid arguments, missing capability or send failure.
     def debug_screen(self, device_id: str, mode: str, scroll: int, include_simulator: bool) -> dict[str, Any]:
         if not isinstance(device_id, str) or HEX_PATTERNS["device"].fullmatch(device_id) is None:
             raise ValueError("Debug requires an explicit device_id")
-        if not isinstance(mode, str) or mode not in {"face_channels", "character", "normal"}:
-            raise ValueError("Debug mode must be face_channels, character or normal")
-        if type(scroll) is not int or not 0 <= scroll <= 255 or (mode != "face_channels" and scroll != 0):
-            raise ValueError("Only face_channels accepts a scroll offset between 0 and 255")
+        if not isinstance(mode, str) or mode not in {"character", "normal"}:
+            raise ValueError("Diagnostic mode must be character or normal")
+        if type(scroll) is not int or scroll != 0:
+            raise ValueError("Diagnostic scroll must be zero")
         if type(include_simulator) is not bool:
             raise ValueError("include_simulator must be a boolean")
         with self._event_lock:
@@ -854,7 +952,7 @@ class CompanionResponder:
             current = self._event_peers.get(device_id)
             if (peer is None or current is None or peer.nonce != current.nonce
                     or not 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS):
-                raise ValueError("No recent authenticated Debug capability; Release firmware does not support this tool")
+                raise ValueError("No recent authenticated diagnostic-screen capability; keep the paired Cody connected and awake")
             source_kind = observation_source(peer.source[0])
             if source_kind == "SIMULATED" and not include_simulator:
                 raise ValueError("SIMULATED debug requires explicit include_simulator=true")
@@ -947,8 +1045,11 @@ class CompanionResponder:
             raise ValueError("CCP EVENTACK belongs to a retired association")
         if not hmac.compare_digest(make_proof(active, "event-ack", *(fields[name] for name in names)), fields["proof"]):
             raise ValueError("CCP EVENTACK authentication failed")
-        self._requests.acknowledge_terminal(fields["device"], fields["id"], fields["state"],
-                                            hashlib.sha256(active).hexdigest())
+        association = hashlib.sha256(active).hexdigest()
+        if fields["state"] == "dismissed":
+            self._requests.acknowledge_notice(fields["device"], fields["id"], association)
+        else:
+            self._requests.acknowledge_terminal(fields["device"], fields["id"], fields["state"], association)
 
     # self: Responder sharing only non-secret current extension capability with MCP.
     # device_id: Retained target whose last FIND must advertise events with an active key.
@@ -1058,6 +1159,7 @@ class CcpService:
             self.activity = ActivityStore(pricing)
             self.interactions = interactions.InteractionStore()
             self.notifications_error: str | None = None
+            self._hook_lock = threading.Lock()
             self.responder = CompanionResponder(self.state, listener, self.activity, self.interactions)
             self.responder.start()
         except BaseException:
@@ -1123,34 +1225,78 @@ class CcpService:
                                                  arguments["confirmation_code"], operation)
         return self.responder._resets.wait(identity)
 
-    # self: Service accepting only genuine hook metadata after ActivityStore validates it.
-    # event: Metadata from the authenticated hook endpoint, never model-created lifecycle data.
-    # Raises ValueError for a full bounded notification queue; the native prompt still owns authorization.
-    def notify_native_permission(self, event: dict[str, Any]) -> None:
-        if event.get("hook_event_name") == "UserPromptSubmit":
-            self.interactions.retire_native(None)
-        elif event.get("hook_event_name") in {"Stop", "Interrupt", "SessionEnd"}:
-            self.interactions.retire_native(event["session_id"])
-        if event.get("hook_event_name") != "PermissionRequest":
-            return
-        activity = self.activity.snapshot()
-        digest = hashlib.sha256(event["session_id"].encode("ascii")).hexdigest()
-        if activity["chat"] != digest or activity["phase"] != "paused":
-            return
-        context = bytes.fromhex(activity["project"]).decode("ascii") if activity["project"] else ""
-        payload = interactions.EventPayload(interactions.EventKind.APPROVAL_ON_PC, context,
-                                            "Approval needed", "Continue on your PC")
-        for target in self.state.public_status():
-            # Automatic native notices are physical-only; a simulator requires an
-            # explicit interaction request and never receives native approval data.
-            if (target["retained_pairing"] and target["source"] == "LAN"
-                    and self.responder.supports_events(target["device_id"])):
-                active = self.state.retained_keys(target["device_id"]).active
-                if active is None:
-                    raise ValueError("Native notice target lost its active association")
-                self.interactions.enqueue(target["device_id"], payload, "LAN",
-                                           association_id=hashlib.sha256(active).hexdigest(),
-                                           native_session=event["session_id"])
+    # self: Service with a single ordered hook-to-notice ownership boundary.
+    # event: Allowlisted metadata from the authenticated hook endpoint.
+    # Raises ValueError for a malformed, stale or uncorrelated native hook.
+    def observe_hook(self, event: dict[str, Any]) -> dict[str, Any]:
+        with self._hook_lock:
+            observation = self.activity.observe(event)
+            result: dict[str, Any] = {}
+            try:
+                notice_sent = self.notify_hook_notice(observation)
+                if observation.event == "UserPromptSubmit":
+                    result["physical_question_routing"] = bool(self.physical_event_targets())
+                if notice_sent:
+                    self.notifications_error = None
+            except (OSError, RuntimeError, ValueError) as error:
+                # The real optional delivery error remains observable. Hook
+                # acceptance never grants permission or invents a user answer.
+                self.notifications_error = str(error)
+                result["notification_error"] = self.notifications_error
+                print(f"CCP hook notice failed: {error}", file=sys.stderr, flush=True)
+            return result
+
+    # self: Service projecting only recently authenticated retained physical peers.
+    # Raises OSError or RuntimeError if protected pairing state cannot be read.
+    def physical_event_targets(self) -> list[str]:
+        return [target["device_id"] for target in self.state.public_status()
+                if target["retained_pairing"] and target["source"] == "LAN"
+                and not target.get("pairing_pending", False)
+                and self.responder.supports_events(target["device_id"])]
+
+    # self: Service accepting notices only from the canonical hook observation.
+    # observation: Immutable accepted event; contains no prompt, response or tool arguments.
+    # Hook notices reuse the exact originating title acquisition owner without changing chat focus.
+    # Raises ValueError for a lost association or full bounded notification queue.
+    def notify_hook_notice(self, observation: HookObservation) -> bool:
+        if (observation.event in {"UserPromptSubmit", "Interrupt", "SessionEnd"}
+                or observation.event == "Stop" and observation.reply_ready):
+            # A prompt in another chat must not erase this chat's pending notice.
+            self.interactions.retire_native(observation.session_id)
+        approval = (observation.event == "PermissionRequest" and observation.followed
+                    and observation.phase == Phase.PAUSED)
+        reply_ready = observation.reply_ready and not observation.followed
+        if not approval and not reply_ready:
+            return False
+        targets = self.physical_event_targets()
+        if not targets:
+            return False
+        observation = self.activity.refresh_notice_title(observation)
+        approval_is_current = approval and observation.followed
+        reply_is_current = reply_ready and observation.reply_ready
+        if not approval_is_current and not reply_is_current:
+            return False
+        # Context is a compact project label. A real chat title is kept complete
+        # in the body when available; opaque native IDs never become UI text.
+        project = observation.project
+        if len(project) > 24:
+            project = project[:21] + "..."
+        context = project
+        kind = interactions.EventKind.APPROVAL_ON_PC if approval else interactions.EventKind.REPLY_READY
+        title = "Approval needed" if approval else "Reply ready"
+        fallback_body = "Open the other chat in Codex"
+        if approval:
+            fallback_body = "Chat title unavailable"
+        body = observation.title or fallback_body
+        payload = interactions.EventPayload(kind, context, title, body)
+        for device_id in targets:
+            active = self.state.retained_keys(device_id).active
+            if active is None:
+                raise ValueError("Hook notice target lost its active association")
+            self.interactions.enqueue(device_id, payload, "LAN",
+                                      association_id=hashlib.sha256(active).hexdigest(),
+                                      native_session=observation.session_id)
+        return bool(targets)
 
     # No parameters: stops the background UDP listener.
     # Raises RuntimeError or OSError when responder shutdown or socket closure fails.
@@ -1507,13 +1653,15 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
         if arguments:
             raise ValueError("Connection status does not accept arguments")
         devices = service.state.public_status()
-        activity = service.activity.snapshot()
+        activity, technical = service.activity.snapshot_bundle()
         return tool_result(
             {"pc_id": service.state.pc_id, "devices": devices, "count": len(devices),
              "follow_mode": "latest_user_prompt",
              "notifications_error": service.notifications_error,
+             "app_presence": service.responder.app_presence_status(),
              "clock_setup": service.responder.clock.setup_status(),
-             "activity": {item["device_id"]: activity for item in devices}},
+             "activity": {item["device_id"]: activity for item in devices},
+             "technical": {item["device_id"]: technical for item in devices}},
             f"CCP retains {len(devices)} Cody pairing record(s).",
         )
     if name == "ccp_list_sessions":
@@ -1601,7 +1749,11 @@ def handle_request(request: dict[str, Any], service: CcpService) -> dict[str, An
                     "to discard an unresolved PC candidate and a new visible code. Never reveal cryptographic protocol fields. "
                     "Trusted hooks automatically follow the latest user-prompt chat. "
                     "Do not ask the user to select a chat on Cody or fabricate activity events. "
-                    "Explicit Cody questions are separate from native permissions and chat focus. "
+                    "When trusted prompt context enables physical Cody question routing, use ccp_ask_question "
+                    "for semantic choices unless the user prefers the PC. Preserve the original complete English "
+                    "choices; use the PC when the content exceeds the tool bounds or needs free text. "
+                    "Cody questions are separate from native permissions and chat focus; existing native "
+                    "request_user_input prompts cannot be imported by this hook. "
                     "Keep the returned request capability private. Poll for a reply, then poll again "
                     "with its answer_id as acknowledge_answer_id before using that decision. "
                     "Only that acknowledgement confirms Reply sent. Cancelled, expired, offline or "
@@ -1710,14 +1862,14 @@ def tool_catalog() -> list[dict[str, Any]]:
     ] + activity_tool_catalog() + interactions.tool_catalog() + clock.tool_catalog() + preferred_name.tool_catalog() + [voice_input.tool_definition(), debug_tool_definition()] + [reset.tool_definition(operation) for operation in reset.ResetOperation]
 
 
-# No parameters: private bounded Debug screen tool, omitted from public manuals.
+# No parameters: exposes the same device diagnostic screen in both build modes.
 def debug_tool_definition() -> dict[str, Any]:
-    return {"name": "ccp_debug_screen", "title": "Cody Debug screen",
-        "description": "Request live face_channels, character with snapshot HUD, or normal on an authenticated Debug Cody. ACK confirms worker application only, never display pixels.",
+    return {"name": "ccp_debug_screen", "title": "Cody diagnostics",
+        "description": "Open device diagnostics with character, or restore normal, on a paired Cody with a fresh authenticated screen capability. Shows measured CPU, free RAM/PSRAM, FPS, IP and SD status in both Release and Debug. ACK confirms worker application only, never display pixels.",
         "inputSchema": {"type": "object", "additionalProperties": False,
             "properties": {"device_id": {"type": "string", "pattern": "^[0-9a-f]{12}$"},
-                "mode": {"type": "string", "enum": ["face_channels", "character", "normal"]},
-                "scroll": {"type": "integer", "minimum": 0, "maximum": 255, "default": 0},
+                "mode": {"type": "string", "enum": ["character", "normal"]},
+                "scroll": {"type": "integer", "minimum": 0, "maximum": 0, "default": 0},
                 "include_simulator": {"type": "boolean", "default": False}},
             "required": ["device_id", "mode"]},
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}}
@@ -1750,6 +1902,7 @@ def write_response(response: dict[str, Any]) -> None:
 def run_stdio() -> int:
     from ccp_runtime import BrokerClient
     client = BrokerClient()
+    normal_eof = False
     try:
         for line in sys.stdin:
             try:
@@ -1765,8 +1918,16 @@ def run_stdio() -> int:
                 }
             if response is not None:
                 write_response(response)
+        normal_eof = True
     finally:
-        client.close()
+        if normal_eof:
+            client.close(normal=True)
+        else:
+            # Preserve the primary transport/processing exception if cleanup also fails.
+            try:
+                client.close(normal=False)
+            except (OSError, RuntimeError, ValueError) as error:
+                print(f"CCP abnormal transport release failed: {error}", file=sys.stderr, flush=True)
     return 0
 
 

@@ -127,12 +127,138 @@ std::atomic_bool s_standby_requested{false};
 bool s_power_standby_requested;
 bool s_performance_suspended;
 bool s_diagnostic_suspended;
+// Owner-only completed route state; worker ACKs alone do not prove transport closure.
+bool s_audio_suspended;
 std::mutex s_standby_mutex;
 std::mutex s_publication_mutex;
 std::atomic_bool s_feed_paused{false};
 std::atomic<TaskHandle_t> s_feed_task_handle{nullptr};
+std::atomic<TaskHandle_t> s_fetch_task_handle{nullptr};
+// Handle retirement never takes the standby lock held by an acknowledgment waiter.
+std::mutex s_worker_mutex;
+StaticSemaphore_t s_lifecycle_change_control;
+std::atomic<SemaphoreHandle_t> s_lifecycle_change{nullptr};
 std::atomic_bool s_initialization_attempted{false};
 std::atomic<esp_err_t> s_initialization_result{ESP_ERR_INVALID_STATE};
+
+// No parameters: publish an edge after changing the authoritative atomic predicate.
+void signal_lifecycle_change()
+{
+    const SemaphoreHandle_t changed = s_lifecycle_change.load(std::memory_order_acquire);
+    if (changed != nullptr) {
+        // A full binary semaphore already carries the edge. Coalescing is safe:
+        // the owner always rechecks both predicates before blocking again.
+        (void)xSemaphoreGive(changed);
+    }
+}
+
+// operation: Diagnostic name for this wake request.
+// require_both: Reject absent workers after successful task creation.
+// Exception: Returns the first missing-handle or notification error; wakes both.
+esp_err_t notify_workers(const char *operation, bool require_both)
+{
+    std::lock_guard<std::mutex> lock(s_worker_mutex);
+    esp_err_t error = ESP_OK;
+    const TaskHandle_t workers[] = {
+        s_feed_task_handle.load(std::memory_order_acquire),
+        s_fetch_task_handle.load(std::memory_order_acquire),
+    };
+    for (const TaskHandle_t worker : workers) {
+        if (worker == nullptr) {
+            if (require_both) {
+                ESP_LOGE(kTag, "AFE %s notification rejected: worker unavailable", operation);
+                if (error == ESP_OK) {
+                    error = ESP_ERR_INVALID_STATE;
+                }
+            }
+        } else if (xTaskNotifyGive(worker) != pdPASS) {
+            ESP_LOGE(kTag, "AFE %s worker notification failed (%s)", operation, esp_err_to_name(ESP_FAIL));
+            if (error == ESP_OK) {
+                error = ESP_FAIL;
+            }
+        }
+    }
+    return error;
+}
+
+// started_at: Beginning of the owner's bounded acknowledgment interval.
+// timeout: Total tick budget, not a new timeout for each coalesced notification.
+void wait_lifecycle_change(TickType_t started_at, TickType_t timeout)
+{
+    const TickType_t elapsed = xTaskGetTickCount() - started_at;
+    if (elapsed < timeout) {
+        // Never clear before waiting: an ACK between predicate check and take
+        // must remain pending. Timeout is interpreted by the caller's predicate.
+        (void)xSemaphoreTake(s_lifecycle_change.load(std::memory_order_acquire), timeout - elapsed);
+    }
+}
+
+// No parameters: retain static task storage and a valid published notification handle.
+[[noreturn]] void park_finished_worker()
+{
+    signal_lifecycle_change();
+    for (;;) {
+        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    }
+}
+
+// feed_worker: The feed task alone may exist when second-task creation fails.
+bool wait_worker_start(bool feed_worker)
+{
+    while (!s_start_released.load(std::memory_order_acquire)) {
+        if (s_start_cancelled.load(std::memory_order_acquire)) {
+            if (feed_worker) {
+                s_feed_start_cancelled_ack.store(true, std::memory_order_release);
+                signal_lifecycle_change();
+            }
+            // The initializer force-suspends then deletes the acknowledged task
+            // before freeing its stack; the ACK alone is not retirement proof.
+            park_finished_worker();
+        }
+        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    }
+    return s_running.load(std::memory_order_acquire);
+}
+
+// feed_task: The sole created worker, still behind the unreleased startup gate.
+// Exception: Returns a notification or timeout error, retaining all live storage.
+esp_err_t cancel_feed_start(TaskHandle_t feed_task)
+{
+    s_start_cancelled.store(true, std::memory_order_release);
+    const esp_err_t notification_error = notify_workers("startup-cancel", false);
+    if (notification_error != ESP_OK) {
+        return notification_error;
+    }
+    const TickType_t started_at = xTaskGetTickCount();
+    while (!s_feed_start_cancelled_ack.load(std::memory_order_acquire)) {
+        if (xTaskGetTickCount() - started_at >= kTaskCancellationTimeout) {
+            ESP_LOGE(kTag, "AFE feed startup cancellation timed out; live task resources retained (%s)",
+                     esp_err_to_name(ESP_ERR_TIMEOUT));
+            return ESP_ERR_TIMEOUT;
+        }
+        wait_lifecycle_change(started_at, kTaskCancellationTimeout);
+    }
+    // ACK proves no AFE access; forced suspension/deletion proves retirement.
+    // Serialize notification and withdrawal before releasing static storage.
+    std::lock_guard<std::mutex> lock(s_worker_mutex);
+    vTaskSuspend(feed_task);
+    vTaskDelete(feed_task);
+    s_feed_task_handle.store(nullptr, std::memory_order_release);
+    return ESP_OK;
+}
+
+// paused: This worker's acknowledgment, written only outside AFE/audio calls.
+void park_paused_worker(std::atomic_bool &paused)
+{
+    paused.store(true, std::memory_order_release);
+    signal_lifecycle_change();
+    while (s_running.load(std::memory_order_acquire) &&
+           s_standby_requested.load(std::memory_order_acquire)) {
+        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    }
+    paused.store(false, std::memory_order_release);
+    signal_lifecycle_change();
+}
 
 // state: Actual AFE lifecycle state.
 // error: Original operation error, retained in the canonical snapshot.
@@ -141,13 +267,23 @@ void publish_voice(LUNASHELL::VoiceState state, esp_err_t error, int64_t detecte
 {
     // A terminal failure wins over a fetch result already in flight.
     std::lock_guard<std::mutex> lock(s_publication_mutex);
-    if (state == LUNASHELL::VoiceState::Listening &&
+    if ((state == LUNASHELL::VoiceState::Listening || state == LUNASHELL::VoiceState::Paused) &&
         s_initialization_result.load(std::memory_order_acquire) != ESP_OK) {
         return;
     }
     if (state == LUNASHELL::VoiceState::Failed) {
         s_initialization_result.store(error, std::memory_order_release);
         s_running.store(false, std::memory_order_release);
+        if (!s_start_released.load(std::memory_order_acquire)) {
+            s_start_cancelled.store(true, std::memory_order_release);
+        }
+        signal_lifecycle_change();
+        // This can run while the owner holds s_standby_mutex. Notification uses
+        // only the independent handle-lifetime lock, never the owner/ACK lock.
+        const esp_err_t notification_error = notify_workers("terminal-stop", false);
+        if (notification_error != ESP_OK) {
+            ESP_LOGE(kTag, "AFE terminal wake failed (%s)", esp_err_to_name(notification_error));
+        }
     }
     const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportVoice(
         state, error, detected_at_us);
@@ -271,46 +407,13 @@ SemaphoreHandle_t reference_mutex()
     return s_reference_mutex;
 }
 
-// operation: Name of the lifecycle transition needing a feed notification.
-// The standby lock protects the published handle until notification completes.
-esp_err_t notify_feed_task_locked(const char *operation)
-{
-    TaskHandle_t feed_task = s_feed_task_handle.load(std::memory_order_acquire);
-    if (feed_task == nullptr) {
-        ESP_LOGE(kTag, "AFE feed %s notification rejected: task is unavailable", operation);
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (xTaskNotifyGive(feed_task) != pdPASS) {
-        ESP_LOGE(kTag, "AFE feed %s notification failed", operation);
-        return ESP_FAIL;
-    }
-    return ESP_OK;
-}
-
-// Remove the published handle under the standby lock before a live worker exits.
-void finish_feed_task()
-{
-    {
-        std::lock_guard<std::mutex> lock(s_standby_mutex);
-        s_feed_task_handle.store(nullptr, std::memory_order_release);
-    }
-    vTaskDelete(nullptr);
-}
-
 // arg: Unused FreeRTOS task context.
 // The only voice capture owner also publishes real microphone levels.
 void voice_feed_task(void *arg)
 {
     (void)arg;
-    while (!s_start_released.load(std::memory_order_acquire)) {
-        if (s_start_cancelled.load(std::memory_order_acquire)) {
-            s_feed_start_cancelled_ack.store(true, std::memory_order_release);
-            // Initialization owns deletion after observing this parked state.
-            vTaskSuspend(nullptr);
-            vTaskDelete(nullptr);
-            return;
-        }
-        vTaskDelay(1);
+    if (!wait_worker_start(true)) {
+        park_finished_worker();
     }
     const int feed_frames = s_afe_handle->get_feed_chunksize(s_afe_data);
     const int feed_channels = s_afe_handle->get_feed_channel_num(s_afe_data);
@@ -324,9 +427,7 @@ void voice_feed_task(void *arg)
             kAfeInputFormat
         );
         publish_voice(LUNASHELL::VoiceState::Failed, ESP_ERR_INVALID_RESPONSE);
-        s_running.store(false, std::memory_order_release);
-        finish_feed_task();
-        return;
+        park_finished_worker();
     }
 
     const size_t microphone_samples =
@@ -347,20 +448,13 @@ void voice_feed_task(void *arg)
         ESP_LOGE(kTag, "AFE feed allocation failed");
         free(microphones);
         free(feed);
-        s_running.store(false, std::memory_order_release);
         publish_voice(LUNASHELL::VoiceState::Failed, ESP_ERR_NO_MEM);
-        finish_feed_task();
-        return;
+        park_finished_worker();
     }
 
     while (s_running.load(std::memory_order_acquire)) {
         if (s_standby_requested.load(std::memory_order_acquire)) {
-            s_feed_paused.store(true, std::memory_order_release);
-            while (s_running.load(std::memory_order_acquire) &&
-                   s_standby_requested.load(std::memory_order_acquire)) {
-                (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-            }
-            s_feed_paused.store(false, std::memory_order_release);
+            park_paused_worker(s_feed_paused);
             continue;
         }
         const esp_err_t capture_error = LUNASHELL_audio_capture_voice_pcm16(
@@ -376,7 +470,6 @@ void voice_feed_task(void *arg)
             );
             publish_microphones(nullptr, 0, esp_timer_get_time(), capture_error);
             publish_voice(LUNASHELL::VoiceState::Failed, capture_error);
-            s_running.store(false, std::memory_order_release);
             break;
         }
         publish_microphones(microphones, static_cast<size_t>(feed_frames), esp_timer_get_time(), ESP_OK);
@@ -384,7 +477,6 @@ void voice_feed_task(void *arg)
         if (xSemaphoreTake(reference_mutex(), kReferenceLockTimeout) != pdTRUE) {
             ESP_LOGE(kTag, "AEC reference ring lock timed out");
             publish_voice(LUNASHELL::VoiceState::Failed, ESP_ERR_TIMEOUT);
-            s_running.store(false, std::memory_order_release);
             break;
         }
         for (int frame = 0; frame < feed_frames; ++frame) {
@@ -418,14 +510,13 @@ void voice_feed_task(void *arg)
             ESP_LOGE(kTag, "AFE feed rejected a %d-frame input block (%s)",
                      feed_frames, esp_err_to_name(ESP_FAIL));
             publish_voice(LUNASHELL::VoiceState::Failed, ESP_FAIL);
-            s_running.store(false, std::memory_order_release);
         }
     }
 
     free(microphones);
     free(feed);
     s_feed_paused.store(false, std::memory_order_release);
-    finish_feed_task();
+    park_finished_worker();
 }
 
 // arg: Unused FreeRTOS task context.
@@ -433,20 +524,15 @@ void voice_feed_task(void *arg)
 void voice_fetch_task(void *arg)
 {
     (void)arg;
-    while (!s_start_released.load(std::memory_order_acquire)) {
-        if (s_start_cancelled.load(std::memory_order_acquire)) {
-            vTaskDelete(nullptr);
-            return;
-        }
-        vTaskDelay(1);
+    if (!wait_worker_start(false)) {
+        park_finished_worker();
     }
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     int64_t last_detection_at_us = 0;
 #endif
     while (s_running.load(std::memory_order_acquire)) {
         if (s_standby_requested.load(std::memory_order_acquire)) {
-            s_fetch_paused.store(true, std::memory_order_release);
-            vTaskDelay(pdMS_TO_TICKS(20));
+            park_paused_worker(s_fetch_paused);
             continue;
         }
         s_fetch_paused.store(false, std::memory_order_release);
@@ -463,20 +549,6 @@ void voice_fetch_task(void *arg)
 #endif
             ESP_LOGE(kTag, "AFE fetch returned null (%s)", esp_err_to_name(ESP_FAIL));
             publish_voice(LUNASHELL::VoiceState::Failed, ESP_FAIL);
-            s_running.store(false, std::memory_order_release);
-            esp_err_t notification_error = ESP_OK;
-            {
-                // Serialize against handle withdrawal in finish_feed_task().
-                std::lock_guard<std::mutex> lock(s_standby_mutex);
-                notification_error = notify_feed_task_locked("fetch-failure");
-            }
-            if (notification_error != ESP_OK) {
-                ESP_LOGE(
-                    kTag,
-                    "AFE feed wake after fetch failure failed (%s)",
-                    esp_err_to_name(notification_error)
-                );
-            }
             break;
         }
         if (result->ret_value != ESP_OK) {
@@ -485,12 +557,6 @@ void voice_fetch_task(void *arg)
 #endif
             ESP_LOGE(kTag, "AFE fetch failed (%s)", esp_err_to_name(result->ret_value));
             publish_voice(LUNASHELL::VoiceState::Failed, result->ret_value);
-            s_running.store(false, std::memory_order_release);
-            std::lock_guard<std::mutex> lock(s_standby_mutex);
-            const esp_err_t notification_error = notify_feed_task_locked("inference-failure");
-            if (notification_error != ESP_OK) {
-                ESP_LOGE(kTag, "Feed failure notification failed (%s)", esp_err_to_name(notification_error));
-            }
             break;
         }
         int64_t detected_at_us = 0;
@@ -502,7 +568,6 @@ void voice_fetch_task(void *arg)
                          result->wakenet_model_index, result->wake_word_index,
                          esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
                 publish_voice(LUNASHELL::VoiceState::Failed, ESP_ERR_INVALID_RESPONSE);
-                s_running.store(false, std::memory_order_release);
                 break;
             }
             const int64_t now_us = esp_timer_get_time();
@@ -536,20 +601,45 @@ void voice_fetch_task(void *arg)
 #endif
     }
     s_fetch_paused.store(false, std::memory_order_release);
-    {
-        std::lock_guard<std::mutex> lock(s_standby_mutex);
-        if (s_feed_task_handle.load(std::memory_order_acquire) != nullptr) {
-            const esp_err_t notification_error = notify_feed_task_locked("fetch-exit");
-            if (notification_error != ESP_OK) {
-                ESP_LOGE(kTag, "Feed exit notification failed (%s)", esp_err_to_name(notification_error));
-            }
-        }
+    park_finished_worker();
+}
+
+// No parameters: undo a partial resume only after both workers leave AFE/audio calls.
+// Exception: Returns the actual notification, worker, timeout or audio error.
+esp_err_t rollback_afe_resume()
+{
+    s_standby_requested.store(true, std::memory_order_release);
+    const esp_err_t notification_error = notify_workers("resume-rollback", true);
+    if (notification_error != ESP_OK) {
+        return notification_error;
     }
-    vTaskDelete(nullptr);
+    constexpr TickType_t kRollbackTimeout = pdMS_TO_TICKS(1000);
+    const TickType_t started_at = xTaskGetTickCount();
+    while (!s_feed_paused.load(std::memory_order_acquire) ||
+           !s_fetch_paused.load(std::memory_order_acquire)) {
+        if (!s_running.load(std::memory_order_acquire)) {
+            const esp_err_t error = s_initialization_result.load(std::memory_order_acquire);
+            return error != ESP_OK ? error : ESP_ERR_INVALID_STATE;
+        }
+        if (xTaskGetTickCount() - started_at >= kRollbackTimeout) {
+            ESP_LOGE(kTag, "AFE resume rollback timed out; audio route retained (%s)",
+                     esp_err_to_name(ESP_ERR_TIMEOUT));
+            return ESP_ERR_TIMEOUT;
+        }
+        wait_lifecycle_change(started_at, kRollbackTimeout);
+    }
+    // An uncertain worker remains the route's owner. Never close its I2S handle
+    // underneath an active read merely because the original transition failed.
+    const esp_err_t audio_error = LUNASHELL_audio_set_standby(true);
+    if (audio_error == ESP_OK) {
+        s_audio_suspended = true;
+    }
+    return audio_error;
 }
 
 // standby: Whether all microphone acquisition must pause.
 // Keep the capture lease until the audio route has completed its transition.
+// Exception: Returns the original transition failure, logging any rollback failure separately.
 esp_err_t apply_afe_standby_locked(bool standby)
 {
     if (!s_running.load(std::memory_order_acquire)) {
@@ -562,6 +652,7 @@ esp_err_t apply_afe_standby_locked(bool standby)
         return ESP_OK;
     }
     if (s_standby_requested.load(std::memory_order_acquire) == standby &&
+        s_audio_suspended == standby &&
         s_feed_paused.load(std::memory_order_acquire) == standby &&
         s_fetch_paused.load(std::memory_order_acquire) == standby) {
         return ESP_OK;
@@ -590,7 +681,7 @@ esp_err_t apply_afe_standby_locked(bool standby)
                 ESP_LOGE(kTag, "AFE feed pause timed out");
                 s_standby_requested.store(false, std::memory_order_release);
                 const esp_err_t notification_error =
-                    notify_feed_task_locked("pause-timeout");
+                    notify_workers("pause-timeout", true);
                 if (notification_error != ESP_OK) {
                     ESP_LOGE(
                         kTag,
@@ -600,13 +691,18 @@ esp_err_t apply_afe_standby_locked(bool standby)
                 }
                 return ESP_ERR_TIMEOUT;
             }
-            vTaskDelay(1);
+            wait_lifecycle_change(started_at, kPauseTimeout);
+        }
+        if (!s_running.load(std::memory_order_acquire)) {
+            const esp_err_t stopped_error = s_initialization_result.load(std::memory_order_acquire);
+            ESP_LOGE(kTag, "AFE stopped during pause completion (%s)", esp_err_to_name(stopped_error));
+            return stopped_error != ESP_OK ? stopped_error : ESP_ERR_INVALID_STATE;
         }
         const esp_err_t audio_error = LUNASHELL_audio_set_standby(true);
         if (audio_error != ESP_OK) {
             s_standby_requested.store(false, std::memory_order_release);
             const esp_err_t notification_error =
-                notify_feed_task_locked("audio-suspend-rollback");
+                notify_workers("audio-suspend-rollback", true);
             if (notification_error != ESP_OK) {
                 s_standby_requested.store(true, std::memory_order_release);
                 ESP_LOGE(
@@ -617,6 +713,7 @@ esp_err_t apply_afe_standby_locked(bool standby)
             }
             return audio_error;
         }
+        s_audio_suspended = true;
         publish_microphones(nullptr, 0, esp_timer_get_time(), ESP_ERR_NOT_ALLOWED);
         publish_voice(LUNASHELL::VoiceState::Paused, ESP_OK);
         ESP_LOGI(kTag, "AFE capture loop suspended");
@@ -625,33 +722,36 @@ esp_err_t apply_afe_standby_locked(bool standby)
 
     // Keep capture claimed until the 16 kHz route is fully restored so a
     // diagnostic request cannot reopen the codec at 22.05 kHz in between.
-    const esp_err_t audio_error = LUNASHELL_audio_set_standby(false);
-    if (audio_error != ESP_OK) {
-        return audio_error;
-    }
-    // Discard inference buffers from before the pause before capture resumes.
-    if (s_afe_handle->reset_buffer(s_afe_data) < 0) {
-        ESP_LOGE(kTag, "AFE buffer reset failed (%s)", esp_err_to_name(ESP_FAIL));
-        publish_voice(LUNASHELL::VoiceState::Failed, ESP_FAIL);
-        return ESP_FAIL;
-    }
-    if (xSemaphoreTake(reference_mutex(), kReferenceLockTimeout) != pdTRUE) {
-        ESP_LOGE(kTag, "AEC reference reset lock timed out (%s)", esp_err_to_name(ESP_ERR_TIMEOUT));
-        publish_voice(LUNASHELL::VoiceState::Failed, ESP_ERR_TIMEOUT);
-        return ESP_ERR_TIMEOUT;
-    }
-    s_reference_read = 0;
-    s_reference_write = 0;
-    s_reference_count = 0;
-    if (xSemaphoreGive(reference_mutex()) != pdTRUE) {
-        ESP_LOGE(kTag, "AEC reference reset unlock failed");
-        std::abort();
+    if (s_audio_suspended) {
+        const esp_err_t audio_error = LUNASHELL_audio_set_standby(false);
+        if (audio_error != ESP_OK) {
+            return audio_error;
+        }
+        s_audio_suspended = false;
+        // A completed suspension proves both workers quiesced. A failed pause
+        // may leave one still processing; its rollback must not reset live AFE.
+        if (s_afe_handle->reset_buffer(s_afe_data) < 0) {
+            ESP_LOGE(kTag, "AFE buffer reset failed (%s)", esp_err_to_name(ESP_FAIL));
+            publish_voice(LUNASHELL::VoiceState::Failed, ESP_FAIL);
+            return ESP_FAIL;
+        }
+        if (xSemaphoreTake(reference_mutex(), kReferenceLockTimeout) != pdTRUE) {
+            ESP_LOGE(kTag, "AEC reference reset lock timed out (%s)", esp_err_to_name(ESP_ERR_TIMEOUT));
+            publish_voice(LUNASHELL::VoiceState::Failed, ESP_ERR_TIMEOUT);
+            return ESP_ERR_TIMEOUT;
+        }
+        s_reference_read = 0;
+        s_reference_write = 0;
+        s_reference_count = 0;
+        if (xSemaphoreGive(reference_mutex()) != pdTRUE) {
+            ESP_LOGE(kTag, "AEC reference reset unlock failed");
+            std::abort();
+        }
     }
     s_standby_requested.store(false, std::memory_order_release);
-    const esp_err_t notification_error = notify_feed_task_locked("resume");
+    const esp_err_t notification_error = notify_workers("resume", true);
     if (notification_error != ESP_OK) {
-        s_standby_requested.store(true, std::memory_order_release);
-        const esp_err_t rollback_error = LUNASHELL_audio_set_standby(true);
+        const esp_err_t rollback_error = rollback_afe_resume();
         if (rollback_error != ESP_OK) {
             ESP_LOGE(
                 kTag,
@@ -667,8 +767,7 @@ esp_err_t apply_afe_standby_locked(bool standby)
         if (!s_running.load(std::memory_order_acquire)) {
             const esp_err_t stopped_error = s_initialization_result.load(std::memory_order_acquire);
             ESP_LOGE(kTag, "AFE feed stopped while a resume was pending (%s)", esp_err_to_name(stopped_error));
-            s_standby_requested.store(true, std::memory_order_release);
-            const esp_err_t rollback_error = LUNASHELL_audio_set_standby(true);
+            const esp_err_t rollback_error = rollback_afe_resume();
             if (rollback_error != ESP_OK) {
                 ESP_LOGE(
                     kTag,
@@ -680,8 +779,7 @@ esp_err_t apply_afe_standby_locked(bool standby)
         }
         if (xTaskGetTickCount() - started_at >= kPauseTimeout) {
             ESP_LOGE(kTag, "AFE feed resume timed out");
-            s_standby_requested.store(true, std::memory_order_release);
-            const esp_err_t rollback_error = LUNASHELL_audio_set_standby(true);
+            const esp_err_t rollback_error = rollback_afe_resume();
             if (rollback_error != ESP_OK) {
                 ESP_LOGE(
                     kTag,
@@ -691,7 +789,7 @@ esp_err_t apply_afe_standby_locked(bool standby)
             }
             return ESP_ERR_TIMEOUT;
         }
-        vTaskDelay(1);
+        wait_lifecycle_change(started_at, kPauseTimeout);
     }
     if (!s_running.load(std::memory_order_acquire)) {
         const esp_err_t stopped_error = s_initialization_result.load(std::memory_order_acquire);
@@ -717,6 +815,13 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
         return s_initialization_result.load(std::memory_order_acquire);
     }
     InitializationPublication publication;
+    const SemaphoreHandle_t changed = xSemaphoreCreateBinaryStatic(&s_lifecycle_change_control);
+    if (changed == nullptr) {
+        ESP_LOGE(kTag, "AFE lifecycle semaphore creation failed (%s)", esp_err_to_name(ESP_ERR_NO_MEM));
+        s_initialization_result.store(ESP_ERR_NO_MEM, std::memory_order_release);
+        return ESP_ERR_NO_MEM;
+    }
+    s_lifecycle_change.store(changed, std::memory_order_release);
     publish_voice(LUNASHELL::VoiceState::Starting, ESP_OK);
     if (LUNASHELL_audio_input_channel_count() != kMicrophoneChannels) {
         ESP_LOGE(kTag, "Selected microphone topology does not match AFE layout");
@@ -814,9 +919,7 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
     // Both workers wait behind this gate so partial task creation cannot use
     // an AFE instance that startup subsequently tears down.
     s_running.store(false, std::memory_order_release);
-    s_start_cancelled.store(false, std::memory_order_release);
     s_feed_start_cancelled_ack.store(false, std::memory_order_release);
-    s_feed_task_handle.store(nullptr, std::memory_order_release);
     s_feed_task_stack = static_cast<StackType_t *>(heap_caps_aligned_alloc(
         16,
         kFeedTaskStackBytes,
@@ -870,7 +973,10 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
         s_initialization_result.store(ESP_ERR_NO_MEM, std::memory_order_release);
         return ESP_ERR_NO_MEM;
     }
-    s_feed_task_handle.store(feed_task, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(s_worker_mutex);
+        s_feed_task_handle.store(feed_task, std::memory_order_release);
+    }
 
     TaskHandle_t fetch_task = xTaskCreateStaticPinnedToCore(
         voice_fetch_task,
@@ -884,28 +990,11 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
     );
     if (fetch_task == nullptr) {
         ESP_LOGE(kTag, "AFE fetch task creation failed after feed task startup");
-        s_start_cancelled.store(true, std::memory_order_release);
-        const TickType_t cancellation_started_at = xTaskGetTickCount();
-        while (!s_feed_start_cancelled_ack.load(std::memory_order_acquire)) {
-            if (xTaskGetTickCount() - cancellation_started_at >=
-                kTaskCancellationTimeout) {
-                ESP_LOGE(
-                    kTag,
-                    "AFE feed startup cancellation timed out; live task resources retained"
-                );
-                s_initialization_result.store(
-                    ESP_ERR_TIMEOUT,
-                    std::memory_order_release
-                );
-                return ESP_ERR_TIMEOUT;
-            }
-            vTaskDelay(1);
+        const esp_err_t cancellation_error = cancel_feed_start(feed_task);
+        if (cancellation_error != ESP_OK) {
+            s_initialization_result.store(cancellation_error, std::memory_order_release);
+            return cancellation_error;
         }
-        // The feed task acknowledged cancellation and parked before its static
-        // stack and AFE dependencies are released.
-        vTaskSuspend(feed_task);
-        vTaskDelete(feed_task);
-        s_feed_task_handle.store(nullptr, std::memory_order_release);
         s_afe_handle->destroy(s_afe_data);
         s_afe_data = nullptr;
         s_afe_handle = nullptr;
@@ -919,9 +1008,25 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    s_initialization_result.store(ESP_OK, std::memory_order_release);
-    s_running.store(true, std::memory_order_release);
-    s_start_released.store(true, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(s_worker_mutex);
+        s_fetch_task_handle.store(fetch_task, std::memory_order_release);
+    }
+    {
+        std::lock_guard<std::mutex> lock(s_publication_mutex);
+        // A concurrent terminal failure must not be overwritten by gate release.
+        if (s_start_cancelled.load(std::memory_order_acquire)) {
+            return s_initialization_result.load(std::memory_order_acquire);
+        }
+        s_initialization_result.store(ESP_OK, std::memory_order_release);
+        s_running.store(true, std::memory_order_release);
+        s_start_released.store(true, std::memory_order_release);
+    }
+    const esp_err_t notification_error = notify_workers("startup-release", true);
+    if (notification_error != ESP_OK) {
+        s_initialization_result.store(notification_error, std::memory_order_release);
+        return notification_error;
+    }
     {
         std::lock_guard<std::mutex> lock(s_standby_mutex);
         const bool standby =

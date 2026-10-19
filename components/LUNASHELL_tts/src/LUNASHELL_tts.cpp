@@ -58,6 +58,11 @@ TaskHandle_t s_worker;
 bool s_initialization_attempted;
 esp_err_t s_initialization_error = ESP_ERR_INVALID_STATE;
 bool s_busy;
+// Admission and worker retirement use the same mutex; no caller borrows engine buffers.
+bool s_power_off_sealed;
+bool s_worker_executing;
+esp_err_t s_retirement_error = ESP_OK;
+constexpr uint32_t kPowerOffRetirementTimeoutMs = 5000;
 uint32_t s_last_id;
 uint32_t s_active_id;
 std::atomic<uint32_t> s_cancel_id;
@@ -264,7 +269,11 @@ void finish_request(SpeechState state, esp_err_t error)
         state = SpeechState::Cancelled;
         error = ESP_ERR_INVALID_STATE;
     }
-    publish(state, error);
+    const esp_err_t publication_error = publish(state, error);
+    // Explicit cancellation is an expected terminal outcome, not a failed shutdown.
+    // Other engine/storage/transport errors remain available to the power owner.
+    s_retirement_error = publication_error != ESP_OK ? publication_error :
+        state == SpeechState::Cancelled && error == ESP_ERR_INVALID_STATE ? ESP_OK : error;
     s_busy = false;
     s_active_id = 0;
 }
@@ -401,12 +410,18 @@ void speech_worker(void *context)
         {
             std::lock_guard<std::mutex> lock(s_request_mutex);
             if (!s_busy) continue;
+            s_worker_executing = true;
             s_status = {};
             s_status.storage = kSpeechStorage;
             s_status.request_id = s_active_id;
             s_status.language = s_request.language;
         }
         execute_request();
+        {
+            std::lock_guard<std::mutex> lock(s_request_mutex);
+            // Only this point proves that engine, PCM cleanup and terminal publication returned.
+            s_worker_executing = false;
+        }
     }
 }
 // request: Explicit validated UTF-8 request; a private bounded copy is made on admission.
@@ -431,6 +446,10 @@ esp_err_t admit_speech(const SpeechRequest &request, uint32_t &request_id, Reque
         return error;
     }
     std::lock_guard<std::mutex> lock(s_request_mutex);
+    if (s_power_off_sealed) {
+        ESP_LOGE(TAG, "Speech admission rejected: power-off sealed (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
 #if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
     if (purpose == RequestPurpose::ItalianBootTest) {
         if (s_boot_test_requested) {
@@ -441,7 +460,7 @@ esp_err_t admit_speech(const SpeechRequest &request, uint32_t &request_id, Reque
     }
 #endif
     if (s_initialization_error != ESP_OK) error = s_initialization_error;
-    else if (s_worker == nullptr || s_busy || s_last_id == UINT32_MAX) error = ESP_ERR_INVALID_STATE;
+    else if (s_worker == nullptr || s_busy || s_worker_executing || s_last_id == UINT32_MAX) error = ESP_ERR_INVALID_STATE;
     else if (s_publication_error.load() != ESP_OK) error = s_publication_error.load();
     if (error != ESP_OK) {
         ESP_LOGE(TAG, "Speech admission rejected (%s)", esp_err_to_name(error));
@@ -455,6 +474,7 @@ esp_err_t admit_speech(const SpeechRequest &request, uint32_t &request_id, Reque
     s_active_id = ++s_last_id;
     s_cancel_id.store(0);
     s_busy = true;
+    s_retirement_error = ESP_OK;
     SpeechSnapshot queued;
     queued.storage = kSpeechStorage;
     queued.state = SpeechState::Queued;
@@ -490,6 +510,11 @@ esp_err_t initialize_speech()
     s_initialization_attempted = true;
     s_status.storage = kSpeechStorage;
     s_initialization_error = publish(SpeechState::Idle, ESP_OK);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
+    if (s_initialization_error == ESP_OK) {
+        s_initialization_error = LUNASHELL_power_manager_register_speech_shutdown(set_speech_power_off_sealed);
+    }
+#endif
     if (s_initialization_error == ESP_OK && xTaskCreatePinnedToCoreWithCaps(speech_worker, "LunaSpeech",
         CONFIG_LUNASHELL_TTS_STACK_BYTES, nullptr, 3, &s_worker, LUNASHELL_TTS_CORE_ID,
         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
@@ -531,6 +556,52 @@ esp_err_t request_boot_speech_test()
     return error;
 }
 #endif
+
+// sealed: True seals admission and waits for cancelled work; false reopens only after retirement.
+// Exception: Returns a real terminal operation/publication error or timeout, retaining the seal on failure.
+esp_err_t set_speech_power_off_sealed(bool sealed)
+{
+    {
+        std::lock_guard<std::mutex> lock(s_request_mutex);
+        if (!sealed) {
+            if (s_busy || s_worker_executing) {
+                ESP_LOGE(TAG, "Speech admission reopen rejected: worker not retired (%s)",
+                    esp_err_to_name(ESP_ERR_INVALID_STATE));
+                return ESP_ERR_INVALID_STATE;
+            }
+            s_power_off_sealed = false;
+            return ESP_OK;
+        }
+        s_power_off_sealed = true;
+        if (!s_busy && !s_worker_executing) {
+            // An earlier request's failure remains canonical history, not outstanding owned work.
+            const esp_err_t error = s_publication_error.load(std::memory_order_acquire);
+            if (error != ESP_OK) {
+                ESP_LOGE(TAG, "Speech shutdown publication unavailable (%s)", esp_err_to_name(error));
+            }
+            return error;
+        }
+        if (s_busy) s_cancel_id.store(s_active_id, std::memory_order_release);
+    }
+    const TickType_t started_at = xTaskGetTickCount();
+    for (;;) {
+        {
+            std::lock_guard<std::mutex> lock(s_request_mutex);
+            if (!s_busy && !s_worker_executing) {
+                if (s_retirement_error != ESP_OK) {
+                    ESP_LOGE(TAG, "Speech power-off retirement failed (%s)", esp_err_to_name(s_retirement_error));
+                }
+                return s_retirement_error;
+            }
+        }
+        if (xTaskGetTickCount() - started_at >= pdMS_TO_TICKS(kPowerOffRetirementTimeoutMs)) {
+            // A stalled engine/storage call still owns its buffers; never delete its task or fake ACK.
+            ESP_LOGE(TAG, "Speech power-off retirement timed out (%s)", esp_err_to_name(ESP_ERR_TIMEOUT));
+            return ESP_ERR_TIMEOUT;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
 
 // request_id: Exact active request identity; a later request is never cancelled accidentally.
 // Exception: Returns unknown or completed identities; cancellation admission is not completion.

@@ -111,7 +111,7 @@ class EventActionBatchBoundaryTests(unittest.TestCase):
 
 
 class EventActionBatchNativeTests(unittest.TestCase):
-    # self: Two- and three-control fixtures use actual shared plans and production C++ glyph/raster code.
+    # self: Two- and three-choice pages use actual shared plans and production C++ glyph/raster code.
     # Raises original missing/stale-library error or AssertionError for AA/layout/count divergence.
     def test_real_plan_batch_matches_native_single_control_calls(self):
         native = NativeEventPresentation()
@@ -128,19 +128,24 @@ class EventActionBatchNativeTests(unittest.TestCase):
                 snapshot = SimulatorSnapshot(request_id="a" * 32, event_state="pending",
                                              event_payload=payload, event_fresh=True)
                 native.navigation.stage = 1
-                _, _, plan_actions, _ = native.prepare(snapshot)
-                actions = (Action * count)(*(Action.from_buffer_copy(action.native_action) for action in plan_actions))
-                pixel_count = 466 * 466
-                # A nonuniform RGB565 background exposes AA differences at rounded
-                # edges and glyphs; comparisons never add intermediate RGB conversions.
-                background = tuple((index * 37) & 0xFFFF for index in range(pixel_count))
-                batch = (C.c_uint16 * pixel_count)(*background)
-                separate = (C.c_uint16 * pixel_count)(*background)
-                self.assertEqual(function(batch, pixel_count, actions, count), 0)
-                for action in actions:
-                    self.assertEqual(function(separate, pixel_count, C.byref(action), 1), 0)
-                self.assertEqual(bytes(batch), bytes(separate))
-                self.assertNotEqual(bytes(batch), bytes((C.c_uint16 * pixel_count)(*background)))
+                for page in range((count + 1) // 2):
+                    native.navigation.choice_page = page
+                    _, _, plan_actions, _ = native.prepare(snapshot)
+                    visible_count = len(plan_actions)
+                    self.assertEqual(visible_count, min(2, count - page * 2))
+                    actions = (Action * visible_count)(*(Action.from_buffer_copy(action.native_action)
+                                                        for action in plan_actions))
+                    pixel_count = 466 * 466
+                    # A nonuniform RGB565 background exposes AA differences at rounded
+                    # edges and glyphs; comparisons never add intermediate RGB conversions.
+                    background = tuple((index * 37) & 0xFFFF for index in range(pixel_count))
+                    batch = (C.c_uint16 * pixel_count)(*background)
+                    separate = (C.c_uint16 * pixel_count)(*background)
+                    self.assertEqual(function(batch, pixel_count, actions, visible_count), 0)
+                    for action in actions:
+                        self.assertEqual(function(separate, pixel_count, C.byref(action), 1), 0)
+                    self.assertEqual(bytes(batch), bytes(separate))
+                    self.assertNotEqual(bytes(batch), bytes((C.c_uint16 * pixel_count)(*background)))
 
     # self: An invalid second caption is rejected before any native pixel mutation.
     # Raises original native-load error or AssertionError if preparation becomes partial publication.

@@ -213,20 +213,11 @@ esp_err_t prepare_done_control(const char *label, bool enabled)
     }
     CODY2D::CapsuleControl prepared{kDoneBounds, {}, kSelectedTop, kSelectedBottom, enabled};
     prepared.border_color = 0x2B4F;
-    prepared.icon_color = 0x8F1D;
-    prepared.icon = enabled ? CODY2D::ActionIcon::Check : CODY2D::ActionIcon::None;
-    const uint16_t text_left = enabled ? kDoneBounds.x + (kDoneBounds.width - width - 36U) / 2U + 36U : kDoneBounds.x;
-    // Match onboarding's centered icon-label group using the same font container.
-    prepared.icon_center = {static_cast<int16_t>(text_left - 24U),
-        static_cast<int16_t>(kDoneBounds.y + (kDoneBounds.height - font.height) / 2U + font.height / 2U)};
-    const uint16_t text_width = enabled ? 164 : kDoneBounds.width;
-    if (width > text_width) {
-        ESP_LOGE(kTag, "Look footer icon/caption does not fit (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
-        return ESP_ERR_INVALID_SIZE;
-    }
+    prepared.icon = CODY2D::ActionIcon::None;
+    const uint16_t text_left = kDoneBounds.x + (kDoneBounds.width - width) / 2U;
     const esp_err_t error = CODY2D::prepare_text_line(font,
         {label, static_cast<uint16_t>(length)},
-        {static_cast<int16_t>(enabled ? text_left : text_left + (text_width - width) / 2U),
+        {static_cast<int16_t>(text_left),
          static_cast<int16_t>(kDoneBounds.y + (kDoneBounds.height - font.height) / 2U)},
         0xFFFF, prepared.caption);
     if (error == ESP_OK) {

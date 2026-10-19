@@ -14,6 +14,25 @@
 #
 # VBWR E
 
+config LUNASHELL_ACTIVITY_MODEL
+    bool "Experimental pretrained activity observer (local model required)"
+    depends on LUNASHELL_BUILD_ENABLE_IMU && LUNASHELL_BUILD_IMU_DRIVER_QMI8658
+    default n
+    help
+        Runs the original 80-sample 20 Hz HAR model through ESP-DL 3.3.11.
+        Requires artifacts/models/activity/activity.espdl generated explicitly.
+        Local experiment only: original weights have unresolved redistribution rights.
+        Observational only, with original labels and no automatic power decisions.
+        Suspended during standby; increases active acquisition/inference energy use.
+
+config LUNASHELL_ACTIVITY_CAPTURE
+    bool "Log measured activity windows for explicit host capture"
+    depends on LUNASHELL_ACTIVITY_MODEL
+    default n
+    help
+        Logs timestamped unsmoothed XYZ samples without requiring SD storage.
+        Capture and label using scripts/device.ps1; no training is performed.
+
 config LUNASHELL_PROVISIONING_START_ON_BOOT
     bool "Start BLE provisioning automatically without a saved Wi-Fi profile"
     depends on LUNASHELL_BUILD_ENABLE_PROVISIONING

@@ -44,6 +44,11 @@ esp_err_t request_speech(const SpeechRequest &request, uint32_t &request_id);
 // Exception: Returns admission error; active power, card integrity and audio volume still apply.
 esp_err_t request_boot_speech_test();
 #endif
+// sealed: True blocks admission, cancels the exact active request and waits for worker retirement.
+// False reopens admission only after owned work has actually retired.
+// Exception: Returns the real operation/publication error or bounded timeout; timeout keeps the seal.
+esp_err_t set_speech_power_off_sealed(bool sealed);
+
 // request_id: Exact current identity to cancel; never cancels a later request.
 // Exception: Returns an invalid identity/state or retained publication failure.
 esp_err_t cancel_speech(uint32_t request_id);

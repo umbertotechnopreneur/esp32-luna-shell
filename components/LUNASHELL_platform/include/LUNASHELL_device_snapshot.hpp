@@ -28,7 +28,10 @@
 
 #include "LUNASHELL_provisioning_state.hpp"
 #include "LUNASHELL_codex_events.hpp"
+#include "LUNASHELL_codex_presence.hpp"
 #include "LUNASHELL_voice_input.hpp"
+#include "LUNASHELL_activity.hpp"
+#include "LUNASHELL_battery_endurance.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -62,6 +65,10 @@ struct ComponentSnapshot {
 };
 
 struct BatterySnapshot : ComponentSnapshot {
+    // Configuration readback only; physical key timing remains unmeasured.
+    bool power_key_config_valid = false;
+    uint16_t power_on_hold_ms = 0;
+    uint16_t emergency_power_off_hold_ms = 0;
     bool battery_present = false;
     bool usb_present = false;
     bool vbus_good = false;
@@ -274,6 +281,8 @@ struct PairingSessionSnapshot : ComponentSnapshot {
     bool command_pending = false;
 };
 
+enum class CodexChatTitleState : uint8_t { Unavailable, Current, Unsupported, Error };
+
 struct CodexActivitySnapshot : ComponentSnapshot {
     CodexActivityState state = CodexActivityState::None;
     uint64_t revision = 0;
@@ -281,6 +290,10 @@ struct CodexActivitySnapshot : ComponentSnapshot {
     char project[65] = {}; // Actual bounded ASCII display label, never a chat identity.
     char description[193] = {}; // Actual bounded purpose; no raw prompt, command or transcript.
     char branch[65] = {}; // Genuine checkout branch or explicit DETACHED; empty is unavailable.
+    char title[256]{}; // Actual Codex display name from its indexed metadata, never the GUID or prompt.
+    CodexChatTitleState title_state = CodexChatTitleState::Unavailable;
+    uint64_t title_age_at_receive_us = 0;
+    esp_err_t title_error = ESP_ERR_NOT_FOUND;
 };
 
 enum class CodexModelSource : uint8_t { Unavailable, HookMetadata };
@@ -312,13 +325,16 @@ struct CodexTechnicalSnapshot : ComponentSnapshot {
     uint64_t activity_age_at_receive_us = 0;
     bool turn_elapsed_valid = false;
     uint64_t turn_elapsed_at_receive_us = 0;
+    // Pair coherence is separate from independent native last-call/window presence.
     bool context_valid = false;
     bool context_stale = false;
+    bool used_valid = false;
+    bool capacity_valid = false;
     bool cumulative_valid = false;
     bool input_valid = false;
     bool output_valid = false;
     bool threshold_valid = false;
-    uint64_t used = 0;
+    uint64_t used = 0; // Native last model-call total; never the cumulative chat count.
     uint64_t capacity = 0;
     uint64_t cumulative = 0;
     uint64_t input = 0;
@@ -340,7 +356,9 @@ struct CodexEventSnapshot : ComponentSnapshot, CodexEventPayload {
     uint64_t revision = 0;
     char request_id[33]{};
     int64_t expires_at_us = 0;
+    char selection_request_id[33]{}; // Explicit navigation admission; never an answer.
 };
+static_assert(sizeof(CodexEventSnapshot) <= 2048, "Question projection requires owner storage, bounded to 2 KiB");
 
 struct CodexLinkSnapshot : ComponentSnapshot {
     CodexLinkState state = CodexLinkState::Idle;
@@ -357,6 +375,7 @@ struct CodexLinkSnapshot : ComponentSnapshot {
     char paired_pc_id[33] = {};
     char peer_ip_address[16] = {};
     CodexActivitySnapshot activity;
+    CodexAppPresenceSnapshot app_presence;
     // The displayed code, verifier, salt and link key never enter the snapshot.
 };
 
@@ -371,6 +390,8 @@ struct RadioSnapshot {
 struct CodexTechnicalObservation {
     CodexLinkSnapshot link;
     CodexTechnicalSnapshot technical;
+    // Immutable running-image identity, acquired only by the canonical owner.
+    char firmware_version[33]{};
 };
 
 enum class StorageMountOutcome : uint8_t {
@@ -726,6 +747,7 @@ enum class DeviceStateReason : uint8_t {
     WakeWord,
     Inactivity,
     CodexNotification,
+    CodexOffline,
 };
 
 struct PowerManagementSnapshot : ComponentSnapshot {
@@ -787,7 +809,8 @@ struct CoreSnapshot {
     bool utilization_available = false;
     uint8_t utilization_percent = 0;
     char current_task[24] = "unavailable";
-    uint32_t stack_high_water_words = 0;
+    // ESP-IDF reports the minimum remaining task stack in bytes.
+    uint32_t stack_high_water_bytes = 0;
     uint32_t priority = 0;
 };
 
@@ -849,6 +872,8 @@ struct CodyOptionsObservation {
 };
 
 struct DeviceSnapshot {
+    BatteryEnduranceSnapshot battery_endurance;
+    ActivitySnapshot activity;
     CodexEventSnapshot codex_event;
     CodexTechnicalSnapshot codex_technical;
     uint32_t sequence = 0;
@@ -902,6 +927,22 @@ struct ConnectivityObservation {
     RadioSnapshot radios;
     DeviceOperatingState operating_state = DeviceOperatingState::Active;
 };
+
+// Scalar link/setup state only: PC absence must not copy chat text onto the power stack.
+struct CodexStandbyObservation {
+    ComponentSnapshot link;
+    CodexLinkState link_state = CodexLinkState::Idle;
+    PairingSessionState pairing_state = PairingSessionState::Idle;
+    bool link_command_pending = false;
+    bool pairing_command_pending = false;
+    bool pairing_window_active = false;
+    bool pending_pairing_present = false;
+    bool retained_link_present = false;
+    bool pairing_repair_required = false;
+    bool wifi_started = false;
+};
+static_assert(sizeof(CodexStandbyObservation) <= 64,
+    "Standby PC policy must remain a scalar projection on the internal power stack");
 
 // Only the canonical inputs consumed by the internal-stack power worker.
 // Unrelated audio, storage and CCP growth must not enlarge its wake call chain.
@@ -1011,6 +1052,21 @@ public:
     // destination: Caller-owned full buffer; usable only when this read returns ESP_OK.
     // Exception: Returns the original canonical lock/release error without reading hardware.
     esp_err_t readSnapshot(DeviceSnapshot &destination) const;
+    // destination: Small caller-owned projection, no full snapshot on its stack.
+    // Exception: Returns the original canonical snapshot lock error.
+    esp_err_t readActivity(ActivitySnapshot &destination) const;
+    // destination: Bounded canonical record projection with original persistence status.
+    // Exception: Returns the real canonical lock or release error.
+    esp_err_t readBatteryEndurance(BatteryEnduranceSnapshot &destination) const;
+    // destination: Aged canonical PMU measurement, never a consumer-side I2C read.
+    // Exception: Returns the real canonical lock or release error.
+    esp_err_t readBatteryObservation(BatterySnapshot &destination) const;
+    // No parameters: asks the canonical PMU owner for one serialized endurance checkpoint.
+    // Exception: Returns original acquisition, publication or ownership errors.
+    esp_err_t refreshBatteryForEndurance();
+    // report: Recorder-owned persisted values and actual optional-operation error.
+    // Exception: Returns original canonical publication error.
+    esp_err_t reportBatteryEndurance(const BatteryEnduranceSnapshot &report);
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
     // observation: Coherent speech policy and card availability; never samples hardware.
     // Exception: Returns the original canonical lock or release error.
@@ -1021,6 +1077,9 @@ public:
 #endif
     // observation: Canonical radio/session state and power state under one lock.
     esp_err_t readConnectivityObservation(ConnectivityObservation &observation) const;
+    // observation: Bounded canonical link/setup state; never reads radios or sensors.
+    // Exception: Returns the original snapshot lock/release error.
+    esp_err_t readCodexStandbyObservation(CodexStandbyObservation &observation) const;
     // observation: Coherent, bounded options projection; assigned only after a successful read.
     // Exception: Returns the original snapshot lock/release error.
     esp_err_t readCodyOptionsObservation(CodyOptionsObservation &observation) const;
@@ -1045,6 +1104,9 @@ public:
     // observation: Coherent radio, button, motion and voice inputs, with original timestamps.
     // Exception: Returns the original lock/release error without changing the destination.
     esp_err_t readPowerControlObservation(PowerControlObservation &observation) const;
+    // power: Bounded canonical state and transition identity; no hardware access.
+    // Exception: Returns the original lock/release error without changing the destination.
+    esp_err_t readPowerState(PowerManagementSnapshot &power) const;
     // observation: Current applied panel policy from the canonical owner, without hardware I/O.
     // Exception: Returns the original lock/release error without changing the destination.
     esp_err_t readDisplayPolicyObservation(DisplayPolicyObservation &observation) const;
@@ -1167,7 +1229,8 @@ public:
     // pairing: Coherent async controller observation, without any secret payload.
     void reportPairingSession(const PairingSessionSnapshot &pairing);
     // codex_link: Coherent commissioning/liveness state, without code or key material.
-    void reportCodexLink(const CodexLinkSnapshot &codex_link);
+    // Exception: Returns and logs the original canonical publication failure.
+    esp_err_t reportCodexLink(const CodexLinkSnapshot &codex_link);
     void reportBle(
         bool ready,
         esp_err_t error,

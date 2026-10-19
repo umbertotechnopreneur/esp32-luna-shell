@@ -16,6 +16,7 @@
 
 #include "CODY_scene.hpp"
 #include "CODY_activity_description.hpp"
+#include "CODY_command_hints.hpp"
 #include "CODY_activity_identity.hpp"
 
 #include <algorithm>
@@ -50,6 +51,21 @@ uint32_t activity_paint_tick(const ActivityOverlayFrame &frame)
     return std::min(frame.elapsed_us,
         frame.state == ActivityOverlayState::ResponseReady ? kResponseAccentUs : kActivityCycleUs) /
         kActivityPaintStepUs;
+}
+
+// bounds: Optional slot whose four zero edges explicitly mean absent.
+// Malformed nonzero rectangles remain errors rather than being treated as empty.
+bool empty_bounds(const DamageRect &bounds)
+{
+    return bounds.left == 0 && bounds.top == 0 && bounds.right == 0 && bounds.bottom == 0;
+}
+
+// previous: Previously admitted logical rectangle; no scene or caller-owned state is copied.
+// current: Newly admitted logical rectangle whose four edges determine its damage identity.
+bool same_damage_bounds(const DamageRect &previous, const DamageRect &current)
+{
+    return previous.left == current.left && previous.top == current.top &&
+        previous.right == current.right && previous.bottom == current.bottom;
 }
 
 // bounds: Nonempty half-open logical rectangle, including every visible content pixel.
@@ -103,13 +119,15 @@ void capture_scene_activity_identity(SceneFrame &frame, const ActivityIdentitySt
     // Retired frames keep their numeric visual keys when current route-owned text advances.
     frame.activity_identity = identity;
     frame.activity_identity_revision = identity ? revision : 0;
+    frame.activity_token_metric = identity ? identity->token_metric : HomeTokenMetric::LastCall;
     frame.activity_identity_timer_seconds = identity ? identity->timer_seconds : 0;
     frame.activity_identity_timer_visible = identity && identity->timer_visible;
     frame.activity_identity_offset = identity ? activity_identity_offset(*identity) : 0;
     frame.activity_identity_opacity = identity ? identity->opacity : 0;
     frame.activity_identity_kind = identity ? identity->selected : ActivityIdentityKind::Project;
     frame.activity_cost_band = identity ? identity->cost_band : LUNASHELL::CodexCostBand::Unknown;
-    frame.activity_cost_visible = identity && identity->project_line.valid && identity->cost_line.valid;
+    frame.activity_cost_visible = identity && identity->selected == ActivityIdentityKind::Model &&
+        identity->opacity != 0 && identity->project_line.valid && identity->cost_line.valid;
 }
 
 // identity: Named generic scene, not a table position; demo has its own existing route.
@@ -415,22 +433,27 @@ uint16_t scene_content_characters(const SceneFrame &frame, uint16_t length,
 }
 
 // frame: Valid prepared scene whose content slot is updated after validation.
-// content: Immutable optional content, wholly below the title and within the circle.
+// content: Immutable body below the title, with separate optional leading caption and lower action.
 // Exception: Rejects invalid content/action/control rectangles before replacing the frame.
 esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content)
 {
     for (const auto &bounds : content.control_bounds) {
-        const bool empty_control = bounds.left == 0 && bounds.top == 0 && bounds.right == 0 && bounds.bottom == 0;
+        const bool empty_control = empty_bounds(bounds);
         if (!empty_control && !inside_circle(bounds)) {
             ESP_LOGE(kTag, "Scene control bounds leave the display (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
             return ESP_ERR_INVALID_SIZE;
         }
     }
-    const bool empty = content.draw_rows == nullptr && content.state == nullptr &&
-        content.bounds.left == 0 && content.bounds.top == 0 &&
-        content.bounds.right == 0 && content.bounds.bottom == 0;
+    const bool empty = content.draw_rows == nullptr && content.state == nullptr && empty_bounds(content.bounds);
+    const auto &caption = content.leading_caption_bounds;
+    const bool has_caption = !empty_bounds(caption);
+    if (has_caption && (empty || !frame.title.valid || !inside_circle(caption) ||
+        caption.bottom > text_bounds(frame.title).top)) {
+        ESP_LOGE(kTag, "Scene leading caption bounds rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
     const auto &action = content.bottom_action_bounds;
-    const bool empty_action = action.left == 0 && action.top == 0 && action.right == 0 && action.bottom == 0;
+    const bool empty_action = empty_bounds(action);
     if (!empty_action && (!inside_circle(action) || action.top < content.bounds.bottom ||
         !content.bottom_action_visible || empty)) {
         ESP_LOGE(kTag, "Scene bottom action bounds rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
@@ -454,17 +477,26 @@ esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content)
 esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &current, DirtyPlan &plan)
 {
     if (!previous.valid || !current.valid || current.definition == nullptr ||
-        !previous.title.valid || !current.title.valid || current.title.font == nullptr ||
+        !previous.title.valid || !current.title.valid || previous.title.font == nullptr || current.title.font == nullptr ||
         previous.definition != current.definition ||
         previous.visible_characters > previous.title.text.length ||
         current.visible_characters > current.title.text.length) {
         ESP_LOGE(kTag, "Scene damage state rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
+    const bool dashboard_changed = previous.home_dashboard != current.home_dashboard;
+    const bool legacy_hidden = previous.home_dashboard && current.home_dashboard;
+    const auto old_title_bounds = text_bounds(previous.title);
+    const auto new_title_bounds = text_bounds(current.title);
     const bool title_changed = previous.title.text.characters != current.title.text.characters ||
-        previous.title.text.length != current.title.text.length;
-    if (previous.activity_overlay.state != current.activity_overlay.state ||
-        activity_paint_tick(previous.activity_overlay) != activity_paint_tick(current.activity_overlay)) {
+        previous.title.text.length != current.title.text.length || previous.title.color != current.title.color ||
+        previous.title.font != current.title.font || previous.title.origin.x != current.title.origin.x ||
+        previous.title.origin.y != current.title.origin.y || old_title_bounds.left != new_title_bounds.left ||
+        old_title_bounds.top != new_title_bounds.top || old_title_bounds.right != new_title_bounds.right ||
+        old_title_bounds.bottom != new_title_bounds.bottom;
+    if (!legacy_hidden && (dashboard_changed ||
+        previous.activity_overlay.state != current.activity_overlay.state ||
+        activity_paint_tick(previous.activity_overlay) != activity_paint_tick(current.activity_overlay))) {
         const esp_err_t overlay_error = include_damage(plan, activity_overlay_bounds());
         if (overlay_error != ESP_OK) {
             return overlay_error;
@@ -506,9 +538,24 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
         return error;
     }
     const bool visibility_changed = old_presentation.content_visible != new_presentation.content_visible;
+    if (previous.command_hints != current.command_hints ||
+        previous.command_hints_revision != current.command_hints_revision ||
+        (visibility_changed && (previous.command_hints != nullptr || current.command_hints != nullptr))) {
+        const auto &bounds = kHomeCommandHintsBounds;
+        error = include_damage(plan, {bounds.x, bounds.y,
+            static_cast<uint16_t>(bounds.x + bounds.width),
+            static_cast<uint16_t>(bounds.y + bounds.height)});
+        if (error != ESP_OK) { return error; }
+    }
+    // Dashboard layers keep these semantic owners alive for audio and priority decisions.
+    // Their hidden timers and text cannot dirty the screen until the legacy view returns.
+    if (legacy_hidden) {
+        return ESP_OK;
+    }
+    const bool legacy_visibility_changed = visibility_changed || dashboard_changed;
     if (previous.activity_description != current.activity_description ||
         previous.activity_description_revision != current.activity_description_revision ||
-        (visibility_changed && (previous.activity_description != nullptr || current.activity_description != nullptr))) {
+        (legacy_visibility_changed && (previous.activity_description != nullptr || current.activity_description != nullptr))) {
         error = include_damage(plan, {73, 360, 393, 388});
         if (error != ESP_OK) {
             return error;
@@ -516,10 +563,11 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
     }
     if (previous.activity_identity != current.activity_identity ||
         previous.activity_identity_revision != current.activity_identity_revision ||
+        previous.activity_token_metric != current.activity_token_metric ||
         previous.activity_identity_offset != current.activity_identity_offset ||
         previous.activity_identity_opacity != current.activity_identity_opacity ||
         previous.activity_identity_kind != current.activity_identity_kind ||
-        (visibility_changed && (previous.activity_identity != nullptr || current.activity_identity != nullptr))) {
+        (legacy_visibility_changed && (previous.activity_identity != nullptr || current.activity_identity != nullptr))) {
         error = include_damage(plan, {73, 300, 393, 328});
         if (error != ESP_OK) {
             return error;
@@ -531,22 +579,26 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
         previous.activity_identity_timer_visible != current.activity_identity_timer_visible ||
         (current.activity_identity_timer_visible &&
          previous.activity_identity_timer_seconds != current.activity_identity_timer_seconds) ||
-        (visibility_changed && (previous.activity_identity != nullptr || current.activity_identity != nullptr))) {
+        (legacy_visibility_changed && (previous.activity_identity != nullptr || current.activity_identity != nullptr))) {
         error = include_damage(plan, {73, 330, 393, 358});
         if (error != ESP_OK) {
             return error;
         }
     }
-    if (visibility_changed ||
+    const bool content_regions_changed =
+        !same_damage_bounds(old_content.bounds, new_content.bounds) ||
+        !same_damage_bounds(old_content.leading_caption_bounds, new_content.leading_caption_bounds) ||
+        !same_damage_bounds(old_content.bottom_action_bounds, new_content.bottom_action_bounds);
+    if (legacy_visibility_changed || content_regions_changed ||
         old_content.revision != new_content.revision || old_content.state != new_content.state ||
-        old_content.draw_rows != new_content.draw_rows || old_content.bounds.left != new_content.bounds.left ||
-        old_content.bounds.top != new_content.bounds.top || old_content.bounds.right != new_content.bounds.right ||
-        old_content.bounds.bottom != new_content.bounds.bottom ||
-        old_content.bottom_action_bounds.left != new_content.bottom_action_bounds.left ||
-        old_content.bottom_action_bounds.top != new_content.bottom_action_bounds.top ||
-        old_content.bottom_action_bounds.right != new_content.bottom_action_bounds.right ||
-        old_content.bottom_action_bounds.bottom != new_content.bottom_action_bounds.bottom) {
-        error = include_damage(plan, old_content.bounds);
+        old_content.draw_rows != new_content.draw_rows) {
+        error = include_damage(plan, old_content.leading_caption_bounds);
+        if (error == ESP_OK) {
+            error = include_damage(plan, new_content.leading_caption_bounds);
+        }
+        if (error == ESP_OK) {
+            error = include_damage(plan, old_content.bounds);
+        }
         if (error == ESP_OK) {
             error = include_damage(plan, new_content.bounds);
         }
@@ -560,7 +612,7 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
             return error;
         }
     }
-    if (visibility_changed || old_content.control_revision != new_content.control_revision) {
+    if (legacy_visibility_changed || old_content.control_revision != new_content.control_revision) {
         for (uint16_t index = 0; index < 2; ++index) {
             error = include_damage(plan, old_content.control_bounds[index]);
             if (error == ESP_OK) {
@@ -594,6 +646,12 @@ esp_err_t draw_scene_rows(const SceneFrame &frame, CODY2D::Surface strip,
     esp_err_t error = frame.definition->title_visible
         ? CODY2D::draw_text_rows(frame.title, frame.visible_characters, strip, first_row, first_column)
         : ESP_OK;
+    if (error == ESP_OK && frame.command_hints != nullptr) {
+        error = draw_command_hints(*frame.command_hints, strip, first_row, first_column);
+    }
+    if (frame.home_dashboard) {
+        return error;
+    }
     if (error == ESP_OK && frame.activity_description != nullptr) {
         error = draw_activity_description(*frame.activity_description, strip, first_row, first_column);
     }
@@ -603,14 +661,15 @@ esp_err_t draw_scene_rows(const SceneFrame &frame, CODY2D::Surface strip,
     if (error != ESP_OK || frame.content.draw_rows == nullptr) {
         return error;
     }
-    const DamageRect slots[]{frame.content.bounds, frame.content.bottom_action_bounds};
+    const DamageRect slots[]{frame.content.leading_caption_bounds, frame.content.bounds,
+                             frame.content.bottom_action_bounds};
     for (const auto &bounds : slots) {
         if (first_row >= bounds.bottom || first_row + strip.height <= bounds.top ||
             first_column >= bounds.right || first_column + strip.width <= bounds.left) {
             continue;
         }
-        // Borrow only each slot's intersection with the tile. The separated
-        // bottom action keeps every borrowed rectangle within its local chord.
+        // Each borrowed slot stays inside its own circular chord. The leading
+        // caption cannot paint across the title, and the bottom action keeps its narrower width.
         const uint16_t top = std::max(first_row, bounds.top);
         const uint16_t left = std::max(first_column, bounds.left);
         const uint16_t bottom = std::min<uint16_t>(first_row + strip.height, bounds.bottom);

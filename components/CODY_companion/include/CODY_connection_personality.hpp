@@ -19,6 +19,7 @@
 #include <cstdint>
 #include "CODY_personality.hpp"
 #include "CODY_scene.hpp"
+#include "CODY_expression_catalog.hpp"
 
 namespace CODY {
 
@@ -29,6 +30,8 @@ struct ConnectionPersonalityInputs {
     bool pc_current = false;
     bool pc_connected = false;
     bool pc_searching = false;
+    bool wifi_connected = false;
+    bool search_view_visible = false;
 };
 
 struct ConnectionPersonalityState {
@@ -37,7 +40,22 @@ struct ConnectionPersonalityState {
     bool pc_was_connected = false;
     PersonalityCue event = PersonalityCue::None;
     int64_t event_remaining_us = 0;
+    bool wifi_observed = false;
+    bool wifi_observation_continuous = false;
+    bool wifi_was_connected = false;
+    int64_t wifi_connected_remaining_us = 0;
+    bool search_active = false;
+    int64_t search_elapsed_us = 0;
 };
+
+struct ConnectionSearchPresentation {
+    PersonalityCue cue = PersonalityCue::None;
+    ExpressionId expression = ExpressionId::Calm;
+};
+static_assert(sizeof(ConnectionPersonalityState) <= 64, "Connection narrative state must stay bounded");
+
+// state: Display-owned active search clock; never a prediction of network progress.
+ConnectionSearchPresentation connection_search_presentation(const ConnectionPersonalityState &state);
 
 // inputs: Classified canonical connectivity, with validity independent of animation.
 // active_delta_us: Nonnegative active time; standby and pause contribute zero.

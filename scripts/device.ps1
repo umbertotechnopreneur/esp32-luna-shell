@@ -25,8 +25,8 @@ Use 'help' or 'list' to discover the CLI. Runtime output belongs in artifacts/.
 param(
     [Parameter(Position = 0)]
     [ValidateSet('menu','help','list','simulator','simulator-luna','boot-screens',
-        'check','generate','banner','package-simulator','clean-artifacts',
-        'build','clean','fullclean','flash','reset','monitor','capture','sd-log','erase',
+        'check','generate','banner','package-simulator','clean-artifacts','codex-audio',
+        'build','clean','fullclean','flash','reset','monitor','capture','sd-log','endurance-read','erase',
         'reconfigure','set-target','update-lock','size','combo','ports','discovery','port-status','recover')]
     [string]$Action = 'menu',
     [string]$Port,
@@ -37,6 +37,8 @@ param(
     [ValidateSet('Debug','Release')]
     [string]$BuildMode = 'Debug',
     [ValidateSet('none','distance','wake-word','tts-sd','tts-flash')][string]$Feature = 'none',
+    [switch]$ActivityClassifier,
+    [switch]$ActivityCapture,
     [string]$BoardConfig,
     [ValidateRange(1,86400)][int]$WaitSeconds = 30,
     [ValidateRange(1,86400)][int]$DurationSeconds = 30,
@@ -64,6 +66,9 @@ param(
     [switch]$Ccp,
     [switch]$ActivityPreview,
     [string]$PythonExecutable,
+    [string]$CodexExecutable,
+    [switch]$EnableAudioQueue,
+    [switch]$InstallAudioDependencies,
     [string]$Skin,
     [string]$Check = 'cody-alpha',
     [string]$Generator = 'cody-rig',
@@ -109,16 +114,21 @@ try {
         if ($BuildDir) {
             $dispatch.BuildDir = Resolve-ArtifactPath $BuildDir ''
         }
-        if ($OutputPath -or $Action -in @('capture','sd-log')) {
+        if ($OutputPath -or $Action -in @('capture','sd-log','endurance-read')) {
             $defaultOutput = if ($Action -eq 'sd-log') {
                 $dispatch.StoredLog = $StoredLog.ToLowerInvariant()
                 "artifacts/serial/sd-log-$($dispatch.StoredLog).log"
+            } elseif ($Action -eq 'endurance-read') {
+                'artifacts/serial/endurance.json'
             } else {
                 'artifacts/serial/capture.log'
             }
             $dispatch.OutputPath = Resolve-ArtifactPath $OutputPath $defaultOutput
             if ($dispatch.OutputPath -eq $resolvedLog) {
                 throw 'OutputPath and LogPath must be different files.'
+            }
+            if ($Action -eq 'endurance-read' -and ($dispatch.OutputPath + '.wire') -eq $resolvedLog) {
+                throw 'Endurance wire output and LogPath must be different files.'
             }
         }
         if ($SizeOutputFile -or $Action -eq 'size') {
@@ -146,7 +156,7 @@ try {
         }
 
         $failureStage = 'selecting serial port'
-        if ($Action -in @('flash','reset','monitor','capture','sd-log','erase','combo','port-status','recover')) {
+        if ($Action -in @('flash','reset','monitor','capture','sd-log','endurance-read','erase','combo','port-status','recover')) {
             if ($PSBoundParameters.ContainsKey('Port')) {
                 $dispatch.Port = Normalize-PortName -RequestedPort $Port
             } else {

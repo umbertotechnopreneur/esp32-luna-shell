@@ -40,6 +40,7 @@ import re
 from typing import Callable
 
 from scripts.common.firmware_profile import read_profile_defaults
+from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1475,16 +1476,17 @@ def verify_source_contracts() -> None:
         require_contains(pmu_owner, edge, "physical PWR press/release acquisition")
         require_contains(queued_before_clear, edge, "PWR edges queued before verified IRQ clear")
     for fragment in ("snapshot.input", "key.power_pressed_at_us", "key.power_button.data_valid",
-                     "key.power_pressed_valid", "kPowerKeyFreshnessUs", "s_power_reset_hold.update(",
-                     'restart_preserving_logs("Debug PWR held for 3 seconds")'):
-        require_contains(power_task, fragment, "continuous PWR reset uses only fresh canonical input")
-    require_contains(power, "kPowerResetPressUs = 3000000", "three-second PWR software hold")
+                     "key.power_pressed_valid", "kPowerKeyFreshnessUs", "s_power_off_hold.update(",
+                     "request_power_off()"):
+        require_contains(power_task, fragment, "continuous PWR shutdown uses only fresh canonical input")
+    require_contains(power, "kPowerOffPressUs = 3000000", "three-second PWR software hold")
     restart = function_text(power, "void restart_preserving_logs(", "LUNASHELL_power.cpp")
     for fragment in ("LUNASHELL_logger_disable_sd()", "std::fflush(stdout)", "esp_restart()"):
         require_contains(restart, fragment, "bounded soft restart preserves serial and SD logs")
     require("nvs_flash_erase" not in restart and "setLongPressRestart" not in restart,
-            "PWR reset must not erase settings or power-cycle the PMIC")
-    require_contains(init_pmu, "XPOWERS_POWEROFF_10S", "emergency shutdown leaves time to drain logs")
+            "BOOT/CCP software reset must not erase settings or power-cycle the PMIC")
+    require_contains(init_pmu, "update_and_verify_power_configuration(0x27, 0x0C, 0x0C)",
+                     "emergency shutdown timing is written and read back")
     require_contains(power_task, "key_current && key.power_pressed", "fresh PWR hold inhibits inactivity sleep")
 
     idle_policy = function_text(
@@ -1621,10 +1623,11 @@ def verify_source_contracts() -> None:
     )
     require_regex(
         power_task,
-        r"if\s*\(\s*\(leg_mode\s*&&\s*wake_on_leg_motion\s*&&\s*leg_motion\.level\s*>\s*0\)\s*\|\|\s*"
+        r"if\s*\(\s*!s_codex_offline_standby\s*&&\s*\(\s*"
+        r"\(leg_mode\s*&&\s*wake_on_leg_motion\s*&&\s*leg_motion\.level\s*>\s*0\)\s*\|\|\s*"
         r"\(!leg_mode\s*&&\s*s_shake_wake_enabled\.load\(std::memory_order_acquire\)\s*&&\s*"
-        r"qualified_motion\)\s*\)",
-        "independent Leg/Cody wake preferences and qualified-motion isolation",
+        r"qualified_motion\)\s*\)\s*\)",
+        "manual-only offline wake with independent Leg/Cody motion preferences",
     )
     require_contains(
         power_task,
@@ -2227,8 +2230,10 @@ def verify_source_contracts() -> None:
     )
     radio_policy = function_text(power, "esp_err_t set_standalone_wireless_standby(",
                                  "standby radio policy")
-    require_contains(radio_policy, "standby && s_standby_resources.wireless.consistent",
-                     "retention requires observed radio consistency")
+    require_regex(radio_policy,
+                  r"if\s*\(standby\s*&&\s*!s_shutdown_in_progress\s*&&\s*"
+                  r"!s_codex_offline_standby\s*&&\s*s_standby_resources\.wireless\.consistent\s*\)",
+                  "radio retention excludes shutdown/offline standby and requires observed consistency")
     suspension = function_text(power, "esp_err_t suspend_standby_resources(", "resource suspension")
     require("s_standby_resources.wireless.consistent = false" not in suspension,
             "policy reassertion must preserve the last confirmed radio state")
@@ -2484,22 +2489,49 @@ def verify_source_contracts() -> None:
         "error = bsp_audio_set_transport_standby(\n        false,",
         "I2S resume",
     )
-    voice_feed = function_text(
-        voice_afe,
-        "void voice_feed_task(",
-        "voice AFE feed worker",
+    for worker, paused in (("feed", "s_feed_paused"), ("fetch", "s_fetch_paused")):
+        worker_body = function_text(
+            voice_afe, f"void voice_{worker}_task(", f"voice AFE {worker} worker",
+        )
+        require_regex(
+            worker_body,
+            r"if\s*\(s_standby_requested\.load\([^)]*\)\)\s*\{\s*"
+            rf"park_paused_worker\({paused}\);\s*continue;",
+            f"voice AFE {worker} delegates standby to the shared event-driven gate",
+        )
+        require_contains(
+            worker_body, f"wait_worker_start({'true' if worker == 'feed' else 'false'})",
+            f"voice AFE {worker} uses the shared startup gate",
+        )
+        require("vTaskDelay(" not in worker_body,
+                f"voice AFE {worker} must not retain startup or paused polling")
+    afe_park = function_text(
+        voice_afe, "void park_paused_worker(", "voice AFE shared paused gate",
     )
     require_regex(
-        voice_feed,
-        r"if\s*\(s_standby_requested\.load\(.*?"
-        r"ulTaskNotifyTake\s*\(\s*pdTRUE\s*,\s*portMAX_DELAY\s*\)",
-        "event-driven voice AFE standby",
+        afe_park,
+        r"paused\.store\(true,.*?signal_lifecycle_change\(\);.*?"
+        r"while\s*\(s_running\.load\([^)]*\)\s*&&\s*"
+        r"s_standby_requested\.load\([^)]*\)\)\s*\{\s*"
+        r"\(void\)ulTaskNotifyTake\(pdTRUE,\s*portMAX_DELAY\);\s*\}.*?"
+        r"paused\.store\(false,.*?signal_lifecycle_change\(\);",
+        "AFE shared gate acknowledges both edges and waits indefinitely while paused and running",
     )
+    require("vTaskDelay(" not in afe_park, "AFE shared paused gate must not poll")
+    afe_wait = function_text(
+        voice_afe, "void wait_lifecycle_change(", "AFE owner acknowledgment wait",
+    )
+    require_contains(afe_wait, "timeout - elapsed", "AFE owner retains its original deadline budget")
+    require_contains(afe_wait, "xSemaphoreTake(", "AFE owner blocks on actual acknowledgment events")
+    require("vTaskDelay(" not in afe_wait, "AFE owner acknowledgment must not poll")
     afe_standby = function_text(
         voice_afe,
         "esp_err_t apply_afe_standby_locked(",
         "voice AFE standby transaction",
     )
+    require_contains(afe_standby, "wait_lifecycle_change(started_at, kPauseTimeout)",
+                     "AFE owner delegates acknowledgment waiting to the bounded event gate")
+    require("vTaskDelay(" not in afe_standby, "AFE standby transaction must not poll for acknowledgment")
     audio_resume_index = afe_standby.find("LUNASHELL_audio_set_standby(false)")
     afe_resume_order = [
         audio_resume_index,
@@ -2508,14 +2540,14 @@ def verify_source_contracts() -> None:
             audio_resume_index,
         ),
         afe_standby.find(
-            'notify_feed_task_locked("resume")',
+            'notify_workers("resume", true)',
             audio_resume_index,
         ),
     ]
     require(
         all(index >= 0 for index in afe_resume_order)
         and afe_resume_order == sorted(afe_resume_order),
-        "voice AFE must restore audio before releasing and waking its feed worker",
+        "voice AFE must restore audio before releasing and waking both workers",
     )
     logger_writer = function_text(
         logger,
@@ -2617,7 +2649,7 @@ def verify_source_contracts() -> None:
         r"!auto_rotation_active\s*&&\s*"
         r"!rotation_apply_pending\s*&&\s*"
         r"!ui_motion_active\s*&&\s*"
-        r"!monitor_active\s*;",
+        r"!monitor_active\s*&&\s*!activity_active\s*;",
         "hardware monitor idle-only indefinite wait",
     )
     notifier = function_text(
@@ -2635,7 +2667,20 @@ def verify_source_contracts() -> None:
         "static esp_err_t ensure_hardware_monitor_task_locked(",
         "hardware monitor task start",
     )
-    create_at = monitor_start.find("xTaskCreateWithCaps(")
+    create_at = monitor_start.find("xTaskCreatePinnedToCoreWithCaps(")
+    require_regex(
+        monitor_start,
+        r"#if\s+CONFIG_LUNASHELL_ACTIVITY_MODEL\s+"
+        r"LUNASHELL::task_affinity::kActivityAcquisitionCoreId\s*,\s*"
+        r"#else\s+tskNO_AFFINITY\s*,\s*#endif\s+"
+        r"MALLOC_CAP_SPIRAM\s*\|\s*MALLOC_CAP_8BIT",
+        "only activity-enabled acquisition pins the PSRAM-stack monitor to its declared core",
+    )
+    affinity = read(ROOT / "components/LUNASHELL_platform/include/LUNASHELL_task_affinity.hpp")
+    require_contains(affinity, "kActivityAcquisitionCoreId != kVoiceCoreId",
+                     "activity acquisition must retain its compile-time voice-core isolation")
+    require_contains(affinity, '#error "Activity acquisition requires dual cores"',
+                     "activity affinity must reject unsupported single-core configurations")
     handle_at = monitor_start.find(
         "s_diagnostic_monitor_task_handle.store(task",
         create_at,
@@ -2719,10 +2764,57 @@ def verify_source_contracts() -> None:
     )
 
 
+# compiler: Existing host C++ compiler selected by the caller, or automatic discovery.
+# Raises the original source/compiler/executable failure; artifacts preserve each stage.
+def verify_native_owner(compiler: str | None) -> None:
+    output = ROOT / "artifacts" / "checks" / "power-owner"
+    output.mkdir(parents=True, exist_ok=True)
+    power = POWER_SOURCE.read_text(encoding="utf-8")
+    signatures = (
+        "bool audio_standby_target(",
+        "bool codex_standby_link_known(",
+        "bool codex_standby_pairing_active(",
+        "esp_err_t apply_codex_offline_policy(",
+        "esp_err_t wake_from_user_input(",
+        "esp_err_t dispatch_power_single_press()",
+        "esp_err_t handle_power_key_events(",
+        "esp_err_t request_power_off()",
+        "bool battery_allows_automatic_standby()",
+    )
+    extracted = "\n\n".join(function_text(power, signature, str(POWER_SOURCE)) for signature in signatures)
+    (output / "power_owner_under_test.inc").write_text(extracted + "\n", encoding="utf-8")
+    health = function_text(DEVICE_SNAPSHOT_HEADER.read_text(encoding="utf-8"),
+                           "enum class DeviceHealth", str(DEVICE_SNAPSHOT_HEADER))
+    (output / "power_health_under_test.inc").write_text(health + ";\n", encoding="utf-8")
+    snapshot_header = DEVICE_SNAPSHOT_HEADER.read_text(encoding="utf-8")
+    for signature, filename in (
+        ("struct ComponentSnapshot", "power_component_under_test.inc"),
+        ("struct CodexStandbyObservation", "power_codex_observation_under_test.inc"),
+        ("enum class DeviceStateReason", "power_reason_under_test.inc"),
+    ):
+        declaration = function_text(snapshot_header, signature, str(DEVICE_SNAPSHOT_HEADER))
+        (output / filename).write_text(declaration + ";\n", encoding="utf-8")
+    executable = output / "power-owner-contract.exe"
+    command = compile_command(resolve_compiler(compiler),
+        ("scripts/tests/cody_native", "components/LUNASHELL_platform/include",
+         "components/LUNASHELL_logger/include", str(output)),
+        ("scripts/tests/cody_native/power_owner_contract.cpp",), executable,
+        definitions=("CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION=1",
+                     "CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX=1",
+                     "CONFIG_LUNASHELL_BUILD_WAKE_WORD_STANDBY_LISTENING=1"))
+    run_stage(command, output, "compile")
+    run_stage([str(executable)], output, "run")
+
+
+# No parameters: dispatch explicitly selected specification, source and native-owner checks.
+# Raises original verification errors; never operates on firmware or physical hardware.
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run deterministic power-policy and static source checks."
     )
+    parser.add_argument("--native-owner", action="store_true",
+                        help="Compile and execute verbatim firmware power owner functions with fake peripherals")
+    parser.add_argument("--compiler", help="Existing host C++ compiler; nothing is installed")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--model-only",
@@ -2745,6 +2837,8 @@ def main() -> int:
         verify_transaction_fault_injection()
     if not args.model_only:
         verify_source_contracts()
+    if args.native_owner:
+        verify_native_owner(args.compiler)
 
     checked = (
         "source contracts"
@@ -2753,6 +2847,8 @@ def main() -> int:
         if args.model_only
         else "behavioral model and source contracts"
     )
+    if args.native_owner:
+        checked += " and production C++ owner with fake peripherals"
     print(
         "power policy verification: PASS "
         f"({checked}: inactivity, 50% dim, qualified motion, "

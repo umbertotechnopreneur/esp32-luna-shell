@@ -27,6 +27,7 @@ struct CodexTransactionView {
     CodexEventState &state;
     int64_t &expires_at_us;
     esp_err_t &last_error;
+    char (&selection_request_id)[33];
 };
 
 struct CodexTransactionEffect {
@@ -76,6 +77,14 @@ void expireCodexTransaction(CodexTransactionView current, int64_t now_us, CodexT
 // Exception: Returns invalid identity/choice/state/freshness or timeout; no mutation on failure.
 esp_err_t submitCodexChoice(CodexTransactionView current, const char *request_id,
     const char *choice_id, bool fresh, int64_t now_us);
+
+// current: Exclusive owner-held unanswered question and advertised queue.
+// request_id: Full request identity selected from that queue; not a choice ID.
+// fresh: Authenticated owner freshness for a new navigation request.
+// now_us: Explicit monotonic admission time, preserving the original question deadline.
+// Exception: Returns identity/state/freshness/expiry errors without altering the current question.
+esp_err_t selectCodexQuestion(CodexTransactionView current, const char *request_id,
+    bool fresh, int64_t now_us);
 
 // current: Exclusive owner-held transaction.
 // request_id: Exact informational/terminal identity explicitly dismissed.

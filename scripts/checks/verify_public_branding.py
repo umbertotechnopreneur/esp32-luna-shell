@@ -14,7 +14,7 @@
 #
 # VBWR E
 
-"""Verify that the in-scope public-release text surface stays neutral."""
+"""Reject retired public-release markers while preserving approved VibeWare identity."""
 
 from __future__ import annotations
 
@@ -57,10 +57,11 @@ DEFERRED_UI_PATHS = (
     Path("components/LUNASHELL_boot/src/ui/LUNASHELL_boot_ui.c"),
     Path("littlefs/apps"),
 )
-PERSONAL_TERMS = (
+# The approved creator/site identity is required repository metadata.
+# Reject only retired author/contact forms, not the canonical VibeWare links.
+RETIRED_MARKERS = (
     "Author:" + " Umberto Giacobbi",
     "hello@" + "LUNA" + "SHELL.ai",
-    "umbertogiacobbi" + ".biz",
 )
 
 
@@ -122,10 +123,12 @@ def discover_scannable_files() -> list[Path]:
     return sorted(files)
 
 
+# No parameters: inspect public source text using the current identity contract.
+# Raises OSError for unreadable source files; invalid UTF-8 is reported as a failed check.
 def main() -> int:
     files = discover_scannable_files()
     hits: list[str] = []
-    folded_terms = tuple((term, term.casefold()) for term in PERSONAL_TERMS)
+    folded_terms = tuple((term, term.casefold()) for term in RETIRED_MARKERS)
     for path in files:
         try:
             text = path.read_text(encoding="utf-8")
@@ -147,7 +150,7 @@ def main() -> int:
     print(
         "public branding verification: PASS "
         f"({len(files)} dynamically discovered text files, "
-        f"{len(PERSONAL_TERMS)} personal markers; deferred UI excluded: "
+        f"{len(RETIRED_MARKERS)} retired markers; deferred UI excluded: "
         f"{deferred})"
     )
     return 0

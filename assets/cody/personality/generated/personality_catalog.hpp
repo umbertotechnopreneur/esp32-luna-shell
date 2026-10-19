@@ -69,6 +69,10 @@ enum class PersonalityCue : uint8_t {
     Confusion = 12,
     Affection = 13,
     Frustration = 14,
+    WifiConnected = 15,
+    Search = 16,
+    BatteryReady = 17,
+    BatteryLow = 18,
 };
 struct PersonalityCueIdentity {
     PersonalityCue id;
@@ -89,6 +93,10 @@ inline constexpr PersonalityCueIdentity icons_catalog[] = {
     {PersonalityCue::Confusion, "confusion"},
     {PersonalityCue::Affection, "affection"},
     {PersonalityCue::Frustration, "frustration"},
+    {PersonalityCue::WifiConnected, "wifi_connected"},
+    {PersonalityCue::Search, "search"},
+    {PersonalityCue::BatteryReady, "battery_ready"},
+    {PersonalityCue::BatteryLow, "battery_low"},
 };
 enum class PersonalityReminder : uint8_t {
     None = 0,

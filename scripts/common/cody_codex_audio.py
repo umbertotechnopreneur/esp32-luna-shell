@@ -108,7 +108,10 @@ def load_selection():
             raise ValueError(f"Cody action audio: unsupported PCM clock for {cue['name']}")
         if type(cue["duration_ms"]) is not int:
             raise ValueError(f"Cody action audio: integer duration required for {cue['name']}")
-        number(cue["duration_ms"], 1000 if boot else 50, 3000 if boot else 350, "cue.duration_ms")
+        # Only the stable question identity admits a single sustained bell; other actions stay short.
+        question = (cue["id"], cue["name"], cue["slug"]) == (0x4343000B, "Question", "question")
+        maximum_duration_ms = 3000 if boot else 2000 if question else 350
+        number(cue["duration_ms"], 1000 if boot else 50, maximum_duration_ms, "cue.duration_ms")
         # Keep authored headroom while allowing short notices to stand above quiet activity textures.
         number(cue["target_peak_dbfs"], -30, -9 if boot else -12, "cue.target_peak_dbfs")
         if not isinstance(cue["intent"], str) or not cue["intent"].strip():

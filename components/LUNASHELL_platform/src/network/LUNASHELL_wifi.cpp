@@ -40,6 +40,7 @@
 #include "esp_wifi_default.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "freertos/timers.h"
 #include "lwip/ip4_addr.h"
 #include "nvs_flash.h"
@@ -59,6 +60,7 @@ StaticSemaphore_t s_lifecycle_lock_storage;
 portMUX_TYPE s_lock_init_mux = portMUX_INITIALIZER_UNLOCKED;
 TimerHandle_t s_reconnect_timer;
 StaticTimer_t s_reconnect_timer_storage;
+TickType_t s_reconnect_scheduled_tick;
 esp_netif_t *s_station_netif;
 esp_event_handler_instance_t s_wifi_event_instance;
 esp_event_handler_instance_t s_ip_event_instance;
@@ -442,12 +444,14 @@ esp_err_t schedule_reconnect(uint32_t delay_ms)
     // Publish the pending reconnect only after the timer daemon has accepted
     // the command. On failure, an already-active reconnect (if any) remains
     // represented by its previous delay instead of exposing an unscheduled one.
+    const TickType_t scheduled_tick = xTaskGetTickCount();
     const bool command_accepted = xTimerChangePeriod(
         s_reconnect_timer,
         pdMS_TO_TICKS(delay_ms),
         0
     ) == pdPASS;
     if (command_accepted) {
+        s_reconnect_scheduled_tick = scheduled_tick;
         s_status.reconnect_pending = true;
         s_status.reconnect_delay_ms = delay_ms;
     } else {
@@ -463,6 +467,15 @@ esp_err_t schedule_reconnect(uint32_t delay_ms)
     return ESP_OK;
 }
 
+// No parameters: caller holds the Wi-Fi status lock.
+// Exception: None; unsigned tick subtraction preserves deadlines across tick wrap.
+bool reconnect_deadline_pending_locked()
+{
+    const TickType_t elapsed = xTaskGetTickCount() - s_reconnect_scheduled_tick;
+    return s_status.reconnect_pending &&
+        elapsed < pdMS_TO_TICKS(s_status.reconnect_delay_ms);
+}
+
 // timer: Existing one-shot reconnect timer; its callback rechecks reset ownership before connecting.
 // Exception: Logs real lock/driver/watch failures; never restarts a sealed factory-reset connection.
 void reconnect_timer_callback(TimerHandle_t timer)
@@ -472,6 +485,12 @@ void reconnect_timer_callback(TimerHandle_t timer)
         wifi_lifecycle_try_lock("reconnect callback");
     if (lifecycle_error != ESP_OK) {
         wifi_lock();
+        // An expired old callback may run before a queued ChangePeriod is
+        // processed. The newly accepted deadline belongs to that command.
+        if (!s_status.reconnect_pending || reconnect_deadline_pending_locked()) {
+            wifi_unlock();
+            return;
+        }
         const bool retry =
             s_initialized && s_status.started && s_connect_requested &&
             !s_provisioning_owns_connection && !s_factory_reset_sealed.load(std::memory_order_acquire);
@@ -502,6 +521,10 @@ void reconnect_timer_callback(TimerHandle_t timer)
     // State may have changed while this timer was pending. Recheck only after
     // acquiring the lifecycle gate, before calling into the Wi-Fi driver.
     wifi_lock();
+    if (!s_status.reconnect_pending || reconnect_deadline_pending_locked()) {
+        wifi_unlock();
+        return;
+    }
     const bool should_connect = s_initialized && s_status.started &&
         s_connect_requested && !s_provisioning_owns_connection &&
         !s_factory_reset_sealed.load(std::memory_order_acquire);
@@ -856,6 +879,13 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             );
             return;
         }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+        const esp_err_t link_error = LUNASHELL_codex_link_notify_network_ready();
+        if (link_error != ESP_OK) {
+            ESP_LOGE(TAG, "CCP hint failed (%s)",
+                esp_err_to_name(link_error));
+        }
+#endif
         ESP_LOGI(
             TAG,
             "Online: SSID=%s IP=%s RSSI=%d dBm",
@@ -1549,6 +1579,55 @@ extern "C" esp_err_t LUNASHELL_wifi_init(void)
 extern "C" esp_err_t LUNASHELL_wifi_stop(void)
 {
     return run_watched_wifi_operation("stop", wifi_stop_impl);
+}
+
+// No parameters: wake orchestration requests an earlier existing reconnect.
+// Exception: Returns and publishes original lifecycle/timer errors; inactive intent is a no-op.
+extern "C" esp_err_t LUNASHELL_wifi_expedite_reconnect(void)
+{
+    const esp_err_t lock_error = wifi_lifecycle_lock("wake reconnect");
+    if (lock_error != ESP_OK) {
+        record_error(lock_error);
+        return lock_error;
+    }
+    WifiLifecycleGuard lifecycle_guard;
+    wifi_lock();
+    if (!s_initialized || !s_driver_started || !s_status.started ||
+        !s_connect_requested || s_status.connected || s_status.scanning ||
+        s_provisioning_owns_connection ||
+        s_factory_reset_sealed.load(std::memory_order_acquire) ||
+        !s_status.reconnect_pending) {
+        wifi_unlock();
+        return ESP_OK;
+    }
+    const TickType_t now = xTaskGetTickCount();
+    const TickType_t elapsed = now - s_reconnect_scheduled_tick;
+    const TickType_t period = pdMS_TO_TICKS(s_status.reconnect_delay_ms);
+    const TickType_t wake_delay = pdMS_TO_TICKS(WIFI_RECONNECT_INITIAL_MS);
+    // Leave imminent or already-expired callbacks alone. In particular, do
+    // not restart an expired one-shot while its callback is in flight.
+    if (elapsed >= period || period - elapsed <= wake_delay) {
+        wifi_unlock();
+        return ESP_OK;
+    }
+    const esp_err_t error = s_reconnect_timer == nullptr
+        ? ESP_ERR_INVALID_STATE
+        : (xTimerChangePeriod(s_reconnect_timer, wake_delay, 0) == pdPASS
+            ? ESP_OK : ESP_ERR_TIMEOUT);
+    if (error == ESP_OK) {
+        s_reconnect_scheduled_tick = now;
+        s_status.reconnect_delay_ms = WIFI_RECONNECT_INITIAL_MS;
+    } else {
+        // Keep the previous pending deadline after a rejected timer command.
+        s_status.last_error = error;
+    }
+    ++s_status.event_sequence;
+    wifi_unlock();
+    publish_snapshot();
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Wake retry failed (%s)", esp_err_to_name(error));
+    }
+    return error;
 }
 
 // No parameters: explicit factory-reset orchestration must call from an internal-stack worker.

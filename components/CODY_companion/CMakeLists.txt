@@ -26,10 +26,9 @@ endif()
 
 set(cody_onboarding_sources "")
 set(cody_debug_sources "")
-if(CONFIG_LUNASHELL_BUILD_MODE_DEBUG AND CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION)
-    list(APPEND cody_debug_sources "src/diagnostics/CODY_debug_views.cpp")
-endif()
+# Device diagnostics are Cody functionality in every build mode.
 if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION)
+    list(APPEND cody_debug_sources "src/diagnostics/CODY_debug_views.cpp")
     list(APPEND cody_onboarding_sources "src/scenes/CODY_onboarding.cpp" "src/scenes/CODY_look_screen.cpp")
 endif()
 
@@ -38,6 +37,9 @@ idf_component_register(
         "src/runtime/CODY_companion.cpp"
         "src/scenes/CODY_scene.cpp"
         "src/scenes/CODY_technical_panels.cpp"
+        "src/scenes/CODY_home_dashboard.cpp"
+        "src/scenes/CODY_home_identity.cpp"
+        "../../assets/cody/home-dashboard-fonts/generated/home_dashboard_fonts.cpp"
         "src/runtime/CODY_lifecycle.cpp"
         "src/model/CODY_expression_catalog.cpp"
         "src/model/CODY_connection_personality.cpp"
@@ -47,6 +49,7 @@ idf_component_register(
         "src/runtime/CODY_codex_audio.cpp"
         "../../assets/cody/personality-icons/audio/personality_audio.cpp"
         "../../assets/cody/audio/codex-actions/generated/codex_audio_assets.cpp"
+        "../../assets/cody/audio/model-cost/generated/model_cost_audio.cpp"
         "src/scenes/CODY_typewriter_audio.cpp"
         "src/diagnostics/CODY_screenshot.cpp"
         "src/diagnostics/CODY_status_overlay.cpp"
@@ -80,6 +83,8 @@ idf_component_register(
         "../../assets/cody/audio/codex-actions/generated"
     PRIV_INCLUDE_DIRS "../../assets/cody/boot/generated" "../../assets/cody/rig/generated" "../../assets/cody/runtime/generated"
         "../../assets/cody/scenes/generated"
+        "../../assets/cody/home-dashboard-fonts/generated"
+        "../../assets/cody/audio/model-cost/generated"
         "../../assets/cody/appearance/jelly-scanline/generated"
         "../../assets/cody/personality-icons/generated"
         "../../assets/cody/personality-icons/audio"

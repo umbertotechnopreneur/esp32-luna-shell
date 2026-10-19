@@ -23,6 +23,15 @@
 #include <string>
 
 namespace {
+static_assert(static_cast<uint8_t>(LUNASHELL::CodexEventKind::Notice) == 1 &&
+    static_cast<uint8_t>(LUNASHELL::CodexEventKind::Question) == 2 &&
+    static_cast<uint8_t>(LUNASHELL::CodexEventKind::ApprovalOnPc) == 3 &&
+    static_cast<uint8_t>(LUNASHELL::CodexEventKind::PrPending) == 4 &&
+    static_cast<uint8_t>(LUNASHELL::CodexEventKind::ChecksRunning) == 5 &&
+    static_cast<uint8_t>(LUNASHELL::CodexEventKind::ChecksFailed) == 6 &&
+    static_cast<uint8_t>(LUNASHELL::CodexEventKind::ChecksPassed) == 7 &&
+    static_cast<uint8_t>(LUNASHELL::CodexEventKind::ReplyReady) == 8,
+    "ReplyReady appends a wire identity without renumbering existing events");
 struct GuardedPayload {
     uint64_t before = 0x12345678abcdef90ULL;
     LUNASHELL::CodexEventPayload payload{};

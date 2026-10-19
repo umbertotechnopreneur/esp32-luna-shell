@@ -484,6 +484,7 @@ def verify_gps_sync_model() -> None:
 
 # No parameters: verify the repository's published RTC ownership and UTC contracts.
 # Raises AssertionError for contract drift and preserves real source/model failures.
+# Raises OSError for unreadable canonical sources.
 def main() -> int:
     hardware = HARDWARE.read_text(encoding="utf-8")
     rtc_owner = (HARDWARE.parent / "LUNASHELL_acquisition_rtc.cpp").read_text(encoding="utf-8")
@@ -769,7 +770,7 @@ def main() -> int:
     for fragment in (
         "s_rtc_persistence_error_latched.store(",
         "s_rtc_persistence_failure_at_us.store(",
-        "const esp_err_t result = sample_publication_result(",
+        "const esp_err_t result = LUNASHELL::snapshot_detail::sample_publication_result(",
         "if (result != ESP_OK)",
     ):
         require_contains(

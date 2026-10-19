@@ -15,6 +15,7 @@
  * VBWR E */
 
 #include "LUNASHELL_snapshot_aging.hpp"
+#include "LUNASHELL_imu_stillness.hpp"
 #include <algorithm>
 
 namespace LUNASHELL {
@@ -67,7 +68,17 @@ void apply_measured_sample_aging(
     int64_t now_us
 )
 {
+    imu_stillness::age(snapshot.activity.stillness, now_us);
+    if (snapshot.activity.scores_valid &&
+        (now_us < snapshot.activity.window_end_us || now_us - snapshot.activity.window_end_us > 6000000)) {
+        snapshot.activity.scores_valid = false;
+        snapshot.activity.activity = ActivityClass::Unknown;
+        snapshot.activity.rejection = ActivityRejection::MissingSample;
+        snapshot.activity.error = ESP_ERR_TIMEOUT;
+        snapshot.activity.stable_windows = 0;
+    }
     age_codex_technical(snapshot.codex_technical, now_us);
+    codex_presence::age(snapshot.radios.codex_link.app_presence, now_us);
     const int64_t ttl_us = measured_sample_ttl_us(snapshot);
     age_measured_sample(snapshot.battery, now_us, ttl_us);
     age_measured_sample(snapshot.rtc, now_us, ttl_us);
@@ -111,6 +122,7 @@ void age_codex_technical(CodexTechnicalSnapshot &technical, int64_t now_us)
     technical.model_stale = technical.model_valid && (technical.data_stale ||
         technical.model_age_at_receive_us >= source_ttl_us ||
         elapsed >= source_ttl_us - technical.model_age_at_receive_us);
+    technical.effort_stale = technical.effort_valid && technical.model_stale;
     // Heartbeats carry the remaining host calendar lease; they cannot renew a yesterday catalog.
     technical.cost_stale = technical.cost_band != CodexCostBand::Unknown &&
         (technical.data_stale || technical.model_stale ||
@@ -126,7 +138,9 @@ void age_codex_technical(CodexTechnicalSnapshot &technical, int64_t now_us)
         // Loss of observation never becomes successful completion.
         technical.compaction = CodexCompactionState::Stale;
     }
-    technical.context_stale = technical.context_valid && (technical.data_stale ||
+    const bool usage_present = technical.context_valid || technical.used_valid || technical.capacity_valid ||
+        technical.cumulative_valid || technical.input_valid || technical.output_valid || technical.threshold_valid;
+    technical.context_stale = usage_present && (technical.data_stale ||
         technical.usage_age_at_receive_us >= source_ttl_us ||
         elapsed >= source_ttl_us - technical.usage_age_at_receive_us);
 }

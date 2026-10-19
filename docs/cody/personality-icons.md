@@ -11,7 +11,8 @@ suppresses symbols. All skins use the same fourteen fixed-palette masters.
 ## Selection and ownership
 
 `set_personality_cue()` selects a narrative target. `set_personality_device_cue()`
-selects None, LowBattery, Charging or NoWifi. Repeating the same request does not
+selects None, LowBattery, Charging, NoWifi, WifiConnected, BatteryReady or
+BatteryLow. Repeating the same request does not
 restart its fade, stability period or hold. Only the latest desired identity is
 retained; there is no queue of previous requests and no per-symbol animation task.
 
@@ -30,6 +31,19 @@ Charging follows the actual charging state; NoWifi requires a started/configured
 radio with no connected link. Stale or disproven facts immediately invalidate
 their current symbol, so artistic hold never preserves a false device status.
 Canonical read/contract failures retain their real errors.
+
+On a real software-standby wake into Working, a current detected battery with
+a valid percentage can precede working content for four visible seconds.
+BatteryLow is red with a worried face at or below 20 percent; BatteryReady is
+green with a happy face above that threshold. Charging, absent, invalid or stale
+battery data skips this prelude. No USB connection is inferred from absence.
+Backend processing continues; route changes or unavailable layout cancel the
+prelude. Its timer starts only after a visible frame retires.
+
+Four native compile-time 64 x 64 alpha planes complement the fourteen bitmap
+masters: WifiConnected, Search, BatteryReady and BatteryLow. These new cues are
+silent; Search animates eight small lens poses without per-frame trigonometry or
+a separate task. Runtime rendering and stack headroom remain unverified.
 
 From 2026-10-11 the firmware admits short battery notices after ten uninterrupted
 seconds on free Home. Touch, affection, other narrative cues, work, questions,
@@ -165,22 +179,15 @@ participate in dirty comparison; both old and new footprints are erased/redrawn.
 Rasterization multiplies stored alpha8 coverage by the channel's opacity with
 integer rounding and composites directly into the existing RGB565 tile.
 
-The fourteen 256 x 256 index/coverage pairs use 1,835,008 bytes, plus the exact
-512-byte RGB565 palette: 1,835,520 flash bytes before descriptors, alignment and
-code. There are no per-skin copies, new framebuffer or native per-frame heap
-allocations. The destination guard permits at most 53,361 pixels for one complete
-visible sprite frame; the default Full 104 x 104 profile covers 10,816 pixels before
-deformation. The 2026-10-07 ImageGen revision replaces the 64-pixel textures with
-256-pixel masters, covering every admitted destination without magnification.
-Native high-resolution originals and exact prompts are versioned separately;
-palette, runtime geometry, cue identities and audio recipes remain shared.
-The geometric follower stores seventeen fixed 24-byte buckets (408 bytes).
-A compile-time assertion limits the entire channel/follower state to 768 bytes;
-preparation also takes one transient copy on the existing worker stack. Its work
-is bounded independently of frame frequency; it adds no layer framebuffer or
-separate animation worker. The 2026-10-05 native host compile reports 616 bytes
-for this state, including fourteen 8-byte repeat timestamps (112 bytes).
-These are host ABI sizes, not a firmware stack measurement.
+The fourteen logical 256 x 256 index/coverage pairs retain their complete
+reference binaries and PNGs. Immutable flash storage uses the minimal rectangle
+containing every nonzero-alpha pixel: 1,475,720 bytes including the exact
+512-byte RGB565 palette, before descriptors/alignment. Omitted pixels remain
+transparent in logical coordinates; colors, opacity, sampling and placement
+are unchanged. This saves 302,904 bytes against the former fixed border and
+359,800 against full planes, without runtime decompression or allocation.
+The native contract compares every logical pixel and actual row composition
+against the full raw planes at both byte orders and two opacity levels.
 
 These are source estimates, not compiled size, stack or FPS measurements. The
 existing paired-row dirty planner can transfer gaps between the icon and body,

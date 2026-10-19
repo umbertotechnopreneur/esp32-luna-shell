@@ -47,10 +47,11 @@ from cody_coverage import FULL_COVERAGE, coverage_mask
 from cody_scene import ScenePainter
 from scripts.common.cody_navigation import load_navigation, NavigationVisibility
 from cody_preview_layout import PreviewLayout
+from cody_ui_dpi import configure_tk_scaling, prepare_display
 from cody_simulator import (
     CodyRenderer, CodyWindow, logical_touch, orient, physical_point, rgb565,
 )
-from PIL import Image
+from PIL import Image, ImageChops, ImageTk
 import tkinter as tk
 
 
@@ -58,6 +59,7 @@ class RigContractTests(unittest.TestCase):
     # cls receives the shared immutable source documents for host checks.
     @classmethod
     def setUpClass(cls):
+        prepare_display()
         cls.rig,cls.palette=load_contract()
         cls.transform=tuple(cls.rig['default_transform'][key] for key in ('x','y','scale'))
         cls.ready=cls.rig['boot_channels']['ready']
@@ -107,12 +109,15 @@ class RigContractTests(unittest.TestCase):
             self.assertEqual(scene["title"]["character_interval_ms"], 45)
         self.assertEqual(installation["standby_override_seconds"], 60)
         self.assertEqual(device["standby_override_seconds"], 90)
-        self.assertFalse(installation["title"]["visible"])
-        self.assertEqual(installation["cloud"], {"x": 233, "y": 94, "scale": 58})
+        self.assertTrue(installation["title"]["visible"])
+        self.assertEqual(installation["title"]["text"], "Scan to install")
+        self.assertEqual(installation["title"]["top"], 96)
+        self.assertEqual(installation["cloud"], {"x": 233, "y": 56, "scale": 40})
         self.assertLess(installation["cloud"]["scale"], scenes.definition("pair-invitation")["cloud"]["scale"])
         self.assertTrue(device["title"]["visible"])
-        self.assertEqual(device["title"]["top"], 131)
-        self.assertEqual(device["title"]["text"], "Pairing...")
+        self.assertEqual(device["cloud"], installation["cloud"])
+        self.assertEqual(device["title"]["top"], 115)
+        self.assertEqual(device["title"]["text"], "Connecting...")
 
     # self supplies the authored ready expression and stable channel-name mapping.
     # overrides contains only the facial channels changed by the current scenario.
@@ -494,15 +499,16 @@ class RigContractTests(unittest.TestCase):
     # self receives the test context: cheek opacity must composite over the body without moving facial geometry.
     def test_cheek_opacity_composites_and_quantizes_partial_color(self):
         renderer = CodyRenderer()
-        original = evaluate(self.rig, self.ready, self.transform)
+        original = renderer.evaluate_scene(self.ready, self.transform)
         sample = tuple(round(value) for value in original['world']['cheek.left'])
         pixels = {}
         for opacity in (0, .5, 1):
-            scene = evaluate(self.rig, self.face_channels(cheek_opacity=opacity), self.transform)
+            scene = renderer.evaluate_scene(self.face_channels(cheek_opacity=opacity), self.transform)
             self.assertEqual(scene['world'], original['world'])
             for path in scene['paths']:
                 expected = opacity if path['definition']['name'].startswith('cheek.') else 1
-                self.assertEqual(path['opacity'], expected)
+                # Firmware retains Q8 opacity; half coverage occupies one of the two middle codes.
+                self.assertAlmostEqual(path['opacity'], expected, delta=1 / 255)
             image = renderer.draw_scene(scene, debug=False)
             # The body's edge coverage requires derived native colors at every cheek opacity.
             self.assertEqual(image.mode, 'RGB')
@@ -787,7 +793,8 @@ class RigContractTests(unittest.TestCase):
                         lx,ly=logical_touch(x,y,angle)
                         self.assertEqual(marker.getpixel((lx,ly)),255)
 
-    # self receives the test context: fitting and rotating a preview must preserve its aspect and point precision.
+    # self: Native preview context; integer display magnification preserves aspect and inspector point precision.
+    # Raises AssertionError for fractional pixel scaling or a lost logical-coordinate round trip.
     def test_resized_preview_preserves_aspect_and_fractional_point_mapping(self):
         state = make_contour_state(self.rig)
         state.update(fullness=.4, amplitude=.8, phase=1.23)
@@ -797,10 +804,14 @@ class RigContractTests(unittest.TestCase):
             for show_labels in (False, True):
                 layout = PreviewLayout.fit(width, height, show_labels)
                 self.assertGreater(layout.image_size, 0)
-                self.assertGreaterEqual(layout.left, 0)
-                self.assertGreaterEqual(layout.top, 0)
-                self.assertLessEqual(layout.left + layout.image_size, width)
-                self.assertLessEqual(layout.top + layout.image_size, height)
+                self.assertIsInstance(layout.scale, int)
+                self.assertGreaterEqual(layout.scale, 1)
+                self.assertEqual(layout.image_size, 466 * layout.scale)
+                self.assertEqual(layout.left, (width - layout.image_size) // 2)
+                self.assertEqual(layout.top, (height - layout.image_size) // 2)
+                # A physically smaller viewport keeps 1x and clips; it cannot blur the framebuffer.
+                if layout.image_size > min(width, height):
+                    self.assertEqual(layout.scale, 1)
                 self.assertIsNone(layout.to_logical(layout.left - 1, layout.top + layout.image_size / 2, 0))
                 self.assertIsNone(layout.to_logical(layout.left + layout.image_size / 2,
                                                     layout.top + layout.image_size + 1, 0))
@@ -833,7 +844,7 @@ class RigContractTests(unittest.TestCase):
     def test_palette_and_debug_colors(self):
         renderer = CodyRenderer()
         original_palette = list(renderer.native_palette)
-        scene = evaluate(self.rig, self.ready, self.transform)
+        scene = renderer.evaluate_scene(self.ready, self.transform)
         image = renderer.draw_scene(scene, True)
         self.assertEqual(image.mode, 'RGB')
         self.assertEqual(len(renderer.native_palette), 256)
@@ -880,9 +891,14 @@ class RigContractTests(unittest.TestCase):
 
     # self: Test context checking current named controls against the last displayed viewport.
     def test_tk_boot_back_and_point_inspection(self):
-        root=tk.Tk(); root.withdraw()
-        window=CodyWindow(root,CodyRenderer(),SimpleNamespace(screen='boot-ready',rotation=180,safe_guide=True))
+        root = tk.Tk()
+        window = None
         try:
+            root.withdraw()
+            configure_tk_scaling(root)
+            window = CodyWindow(root, CodyRenderer(), SimpleNamespace(
+                screen='boot-ready', rotation=180, safe_guide=True, ccp=False,
+                activity_preview=False, at_ms=0))
             root.geometry('1100x760')
             root.deiconify()
             self.render_preview_frame(window)
@@ -909,13 +925,17 @@ class RigContractTests(unittest.TestCase):
             window.touch(SimpleNamespace(x=x, y=y))
             self.assertFalse(overlay['visible_by_default'])
             self.assertEqual(window.debug.get(), initial_debug)
-            # Only Screenshot is exposed on-device; desktop inspector toggles remain separate.
+            # Authored device toolbar controls remain hidden, including Screenshot.
             screenshot = next(control for control in window.renderer.navigation['controls']
                               if control['id'] == 'screenshot')
-            self.assertTrue(screenshot['visible_by_default'])
+            self.assertFalse(screenshot['visible_by_default'])
+            before_info = window.info.cget('text')
+            before_playing = window.playing.get()
             x, y = window.layout.to_canvas(*screenshot['icon_center'], window.display_rotation)
             window.touch(SimpleNamespace(x=x, y=y))
-            self.assertIn('host preview does not emulate storage', window.info.cget('text'))
+            self.assertEqual(window.info.cget('text'), before_info)
+            self.assertEqual(window.playing.get(), before_playing)
+            self.assertEqual(window.debug.get(), initial_debug)
             window.preset('sleep')
             self.assertEqual([value.get() for value in window.values][:2],[0,0])
             x, y = window.layout.to_canvas(40, 233, window.display_rotation)
@@ -929,16 +949,40 @@ class RigContractTests(unittest.TestCase):
             for screen in ('boot-sleep','boot-waking','boot-ready','rig'):
                 window.screen.set(screen)
                 self.render_preview_frame(window)
-                self.assertIsNotNone(window.scene)
+                self.assertEqual(window.display_screen, screen)
+                self.assertEqual(window.display_rotation, window.rotation.get())
+                self.assertIsNotNone(window.photo)
+                self.assertEqual(window.canvas.itemcget(window.image_item, 'image'), str(window.photo))
+                displayed = ImageTk.getimage(window.photo).convert('RGB')
+                self.assertEqual(displayed.size, (window.layout.image_size, window.layout.image_size))
+                if screen == 'rig':
+                    self.assertIsNotNone(window.scene)
+                    self.assertIn('_native_scene', window.scene)
+                else:
+                    # Boot routes publish their bitmap directly and deliberately own no rig scene.
+                    self.assertIsNone(window.scene)
+                    zoom = window.layout.scale
+                    source = orient(window.renderer.boot[screen], window.display_rotation).convert('RGB')
+                    expected = source.crop((73, 73, 393, 393)).resize(
+                        (320 * zoom, 320 * zoom), Image.Resampling.NEAREST)
+                    shown = displayed.crop((73 * zoom, 73 * zoom, 393 * zoom, 393 * zoom))
+                    self.assertIsNone(ImageChops.difference(shown, expected).getbbox())
         finally:
-            window.close()
+            if window is not None:
+                window.close()
+            else:
+                root.destroy()
 
     # self receives the test context: names and touch must follow the displayed points after resize and rotation.
     def test_tk_name_leaders_follow_evaluated_points_and_rotation(self):
         root = tk.Tk()
-        root.withdraw()
-        window = CodyWindow(root, CodyRenderer(), SimpleNamespace(screen='rig', rotation=0, safe_guide=False))
+        window = None
         try:
+            root.withdraw()
+            configure_tk_scaling(root)
+            window = CodyWindow(root, CodyRenderer(), SimpleNamespace(
+                screen='rig', rotation=0, safe_guide=False, ccp=False,
+                activity_preview=False, at_ms=0))
             window.playing.set(False)
             window.contour_playing.set(False)
             window.face_state = list(self.ready)
@@ -951,8 +995,10 @@ class RigContractTests(unittest.TestCase):
             state = make_contour_state(self.rig)
             state.update(fullness=.4, amplitude=.8)
             displayed_sizes = []
-            displayed_modes = []
+            displayed_viewports = []
             root.deiconify()
+            # Finish the one-time automatic startup fit before requesting explicit test sizes.
+            root.update()
             for geometry, phase in (('920x780', .3), ('1280x780', 2.1)):
                 root.geometry(geometry)
                 state['phase'] = phase
@@ -990,9 +1036,16 @@ class RigContractTests(unittest.TestCase):
                     self.assertEqual(window.selected, 'lobe.crown')
                     window.choose_point(None)
                 displayed_sizes.append(window.layout.image_size)
-                displayed_modes.append(window.layout_mode)
-            self.assertNotEqual(displayed_sizes[0], displayed_sizes[1])
-            self.assertEqual(displayed_modes, ['stacked', 'wide'])
+                displayed_viewports.append((window.layout.width, window.layout.height,
+                                            window.layout.left, window.layout.top))
+                self.assertIn(window.layout_mode, ('stacked', 'wide'))
+                self.assertEqual(int(window.controls_host.grid_info()['row']),
+                                 1 if window.layout_mode == 'stacked' else 0)
+            # Adjacent host sizes may share 1x zoom; the viewport still relayouts and all labels follow it.
+            self.assertNotEqual(displayed_viewports[0], displayed_viewports[1])
+            for image_size in displayed_sizes:
+                self.assertGreaterEqual(image_size, 466)
+                self.assertEqual(image_size % 466, 0)
             window.choose_point('eye.left.p1')
             self.assertIn('eye.left.p1', window.overlay_names())
             window.choose_point(None)
@@ -1011,7 +1064,10 @@ class RigContractTests(unittest.TestCase):
             window.draw_labels()
             self.assertFalse(window.canvas.find_withtag('rig_label'))
         finally:
-            window.close()
+            if window is not None:
+                window.close()
+            else:
+                root.destroy()
 
 
 # output receives artifacts only under the checkout; renderer provides current authoring tables.

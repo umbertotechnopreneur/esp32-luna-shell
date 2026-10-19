@@ -59,15 +59,15 @@ constexpr char kCodeAlphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 constexpr uint16_t kDevicePort = 42117;
 constexpr uint16_t kPluginPort = 42118;
 constexpr size_t kMaximumDatagramBytes = 512;
-constexpr size_t kMaximumActivityDatagramBytes = 1024;
-constexpr size_t kMaximumEventDatagramBytes = 1280;
+constexpr size_t kMaximumActivityDatagramBytes = 2048;
+constexpr size_t kMaximumEventDatagramBytes = 4096;
 constexpr uint32_t kPbkdf2Iterations = 50000;
 constexpr int64_t kDerivationSliceUs = 10000;
 constexpr int64_t kPairingWindowUs = 5LL * 60LL * 1000000LL;
 constexpr int64_t kFindIntervalUs = 2LL * 1000000LL;
 constexpr int64_t kReadyExpiryUs = 8LL * 1000000LL;
 constexpr int64_t kActivationReplayUs = 10LL * 1000000LL;
-constexpr uint32_t kWorkerPollMs = 100;
+constexpr uint32_t kWorkerPollMs = LUNASHELL::voice_poll::kIdleMs;
 constexpr uint32_t kMaximumPacketsPerPass = 8;
 constexpr int64_t kMaximumReceivePassUs = 5000;
 constexpr uint32_t kGlobalIngressRate = 32;
@@ -108,8 +108,12 @@ static_assert(sizeof(s_worker_stack) == kWorkerStackSize,
     "The ESP-IDF Xtensa CCP task stack budget is 8192 bytes, not 8192 words");
 TaskHandle_t s_worker = nullptr;
 Command s_pending = Command::None;
+bool s_network_ready_pending = false;
+uint32_t s_network_ready_attempt_id = 0;
 int s_socket = -1;
 LUNASHELL::CodexLinkSnapshot s_link_snapshot{};
+bool s_link_publication_pending = false;
+int64_t s_link_publication_retry_at_us = 0;
 PersistedLink s_persisted_link{};
 bool s_link_present = false;
 PersistedLink s_candidate_link{};
@@ -135,6 +139,7 @@ LUNASHELL::CodexTechnicalSnapshot s_technical_snapshot{};
 // READY endpoint checks borrow only the canonical projection owned by acquisition.
 LUNASHELL::ConnectivityObservation s_ready_connectivity{};
 bool s_event_received_for_nonce = false;
+uint64_t s_app_sequence = 0;
 char s_ready_nonce[33]{};
 LUNASHELL::CodexEventSnapshot s_event_snapshot{};
 LUNASHELL::CodexEventPayload s_event_candidate{};
@@ -145,7 +150,7 @@ LUNASHELL::CodexEventSnapshot s_event_rollback{};
 LUNASHELL::CodexTransactionView eventTransactionLocked()
 {
     return {s_event_snapshot, s_event_snapshot.request_id, s_event_snapshot.state,
-        s_event_snapshot.expires_at_us, s_event_snapshot.last_error};
+        s_event_snapshot.expires_at_us, s_event_snapshot.last_error, s_event_snapshot.selection_request_id};
 }
 char s_dismissed_event_id[33]{};
 LUNASHELL::CodexEventState s_dismissed_event_state = LUNASHELL::CodexEventState::None;
@@ -158,7 +163,7 @@ char s_clock_consumed_id[33]{};
 char s_name_consumed_nonce[33]{};
 char s_name_consumed_id[33]{};
 LUNASHELL::CodexNameExecutor s_name_executor = nullptr;
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 struct DebugScreenMailbox {
     LUNASHELL::CodexDebugScreenRequest request{};
     char nonce[33]{};
@@ -521,8 +526,23 @@ esp_err_t deriveVerifier(
     return error;
 }
 
+// No parameters: Synchronous owner publication under s_mutex; failed work remains queued.
+// Exception: Returns the real publication error and records degraded owner state for retry.
+esp_err_t publishLinkObservationLocked()
+{
+    const esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
+    s_link_publication_pending = error != ESP_OK;
+    if (error != ESP_OK) {
+        s_link_snapshot.last_error = error;
+        s_link_snapshot.health = LUNASHELL::DeviceHealth::Degraded;
+        s_link_publication_retry_at_us = esp_timer_get_time() + kFindIntervalUs;
+    }
+    return error;
+}
+
 // state: Confirmed service state or admitted pending command.
 // error: Original operation error.
+// Exception: An asynchronous projection failure remains logged, degraded and queued for the worker.
 void publishLocked(State state, esp_err_t error)
 {
     const int64_t now_us = esp_timer_get_time();
@@ -540,6 +560,10 @@ void publishLocked(State state, esp_err_t error)
     s_link_snapshot.health = error == ESP_OK
         ? LUNASHELL::DeviceHealth::Ready
         : LUNASHELL::DeviceHealth::Degraded;
+    if (state != State::Connected || s_pending != Command::None) {
+        LUNASHELL::codex_presence::invalidate(s_link_snapshot.app_presence,
+            error != ESP_OK ? error : ESP_ERR_INVALID_STATE);
+    }
     if (state != State::Connected && state != State::Discovering) {
         s_link_snapshot.activity.data_valid = false;
         s_link_snapshot.activity.data_stale = s_link_snapshot.activity.last_success_at_us > 0;
@@ -549,7 +573,9 @@ void publishLocked(State state, esp_err_t error)
     if (error == ESP_OK) {
         s_link_snapshot.last_success_at_us = now_us;
     }
-    LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
+    // Runtime projection is retryable; this owner retains the real error and
+    // pending publication rather than treating the failed update as completion.
+    publishLinkObservationLocked();
 }
 
 // No parameters: erases the current display code and ephemeral pairing secrets.
@@ -578,11 +604,9 @@ void clearActivationReplayLocked()
 bool wifiOnline(const LUNASHELL::ConnectivityObservation &observation)
 {
     const auto &wifi = observation.radios.wifi;
-    // Paired Cody retains its radio owners during software standby. Canonical
-    // Wi-Fi readiness, not the display state, admits authenticated traffic.
-    return (observation.operating_state == LUNASHELL::DeviceOperatingState::Active ||
-        observation.operating_state == LUNASHELL::DeviceOperatingState::Standby) &&
-        wifi.data_valid && !wifi.data_stale &&
+    // The display/power transition is not network readiness. Retained radios
+    // can carry authenticated traffic while the UI is suspending or waking.
+    return wifi.data_valid && !wifi.data_stale && wifi.started &&
         wifi.health == LUNASHELL::DeviceHealth::Ready &&
         wifi.last_error == ESP_OK && wifi.connected && wifi.ip_acquired &&
         wifi.ip_address[0] != '\0' && wifi.mac_address[0] != '\0';
@@ -927,6 +951,9 @@ struct ActivityResponse {
     char project[129]{};
     char description[385]{};
     char branch[129]{};
+    char title[511]{};
+    char title_state[12]{};
+    char title_age[11]{};
     char proof[65]{};
 };
 
@@ -944,15 +971,17 @@ bool parseActivity(const char *payload, ActivityResponse &response)
     const int fields = std::sscanf(payload,
         "CCP1|ACTIVITY|device=%12[0-9a-f]|pc=%32[0-9a-f]|nonce=%32[0-9a-f]"
         "|chat=%64[0-9a-f]|revision=%16[0-9a-f]|phase=%11[a-z]"
-        "|project=%128[-0-9a-f]|description=%384[-0-9a-f]|branch=%128[-0-9a-f]|proof=%64[0-9a-f]%n",
+        "|project=%128[-0-9a-f]|description=%384[-0-9a-f]|branch=%128[-0-9a-f]"
+        "|title=%510[-0-9a-f]|titlestate=%11[a-z]|titleage=%10[-0-9]|proof=%64[0-9a-f]%n",
         response.device_id, response.pc_id, response.nonce, response.chat_id,
-        response.revision, response.phase, response.project, response.description, response.branch, response.proof, &consumed);
-    const bool valid = fields == 10 && std::strlen(response.device_id) == 12 &&
+        response.revision, response.phase, response.project, response.description, response.branch,
+        response.title, response.title_state, response.title_age, response.proof, &consumed);
+    const bool valid = fields == 13 && std::strlen(response.device_id) == 12 &&
         std::strlen(response.pc_id) == 32 && std::strlen(response.nonce) == 32 &&
         std::strlen(response.chat_id) == 64 && std::strlen(response.revision) == 16 &&
         std::strlen(response.proof) == 64 && consumed == static_cast<int>(std::strlen(payload));
     if (!valid) {
-        ESP_LOGE(kTag, "CCP ACTIVITY field parsing failed: fields=%d/10 consumed=%d bytes=%u (%s)",
+        ESP_LOGE(kTag, "CCP ACTIVITY field parsing failed: fields=%d/13 consumed=%d bytes=%u (%s)",
             fields, consumed, static_cast<unsigned>(std::strlen(payload)),
             esp_err_to_name(ESP_ERR_INVALID_ARG));
     }
@@ -1532,6 +1561,7 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
     }
     char pc_id[33]{};
     char current_id[33] = "00000000000000000000000000000000";
+    char selected_id[33] = "00000000000000000000000000000000";
     const char *current_state = "none";
     uint8_t link_key[32]{};
     uint8_t nonce[16]{};
@@ -1570,6 +1600,9 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
                 return ESP_ERR_INVALID_STATE;
             }
         }
+        if (s_event_snapshot.selection_request_id[0] != '\0') {
+            std::memcpy(selected_id, s_event_snapshot.selection_request_id, sizeof(selected_id));
+        }
     }
     esp_fill_random(nonce, sizeof(nonce));
     char nonce_hex[33]{};
@@ -1579,12 +1612,13 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
         ? std::snprintf(
             proof_input,
             sizeof(proof_input),
-            "find-events-activity-v4|%s|%s|%s|%s|%s",
+            "find-events-activity-v6|%s|%s|%s|%s|%s|%s",
             device_id,
             pc_id,
             nonce_hex,
             current_id,
-            current_state
+            current_state,
+            selected_id
         )
         : -1;
     uint8_t proof[32]{};
@@ -1602,13 +1636,14 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
         ? std::snprintf(
             request,
             sizeof(request),
-            "%s|FIND|device=%s|pc=%s|nonce=%s|activity=4|events=2|current=%s|state=%s|proof=%s",
+            "%s|FIND|device=%s|pc=%s|nonce=%s|activity=5|events=3|current=%s|state=%s|event_select=%s|proof=%s",
             kProtocol,
             device_id,
             pc_id,
             nonce_hex,
             current_id,
             current_state,
+            selected_id,
             proof_hex
         )
         : -1;
@@ -1707,7 +1742,7 @@ esp_err_t sendCommittedLocked(const ReadyResponse &response, const sockaddr_in &
     return error;
 }
 
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 // response: Just-authenticated active READY, retaining the unchanged base FIND contract.
 // source: Exact responder endpoint receiving the signed optional Debug capability.
 // Exception: Returns real crypto/encoding/send errors; this optional failure is logged independently.
@@ -1820,11 +1855,46 @@ esp_err_t sendNameCapability(const ReadyResponse &response, const sockaddr_in &s
     return error;
 }
 
+// response: Authenticated current READY after the device sends COMMITTED.
+// source: Observed PC endpoint; the fixed plugin port is checked during READY admission.
+// Exception: Returns the original state, HMAC, encoding or send error; caller holds s_mutex.
+esp_err_t sendAppCapabilityLocked(const ReadyResponse &response, const sockaddr_in &source)
+{
+    if (!s_link_present || s_candidate_present || s_pending != Command::None ||
+        s_link_snapshot.state != State::Connected || std::strcmp(response.nonce, s_ready_nonce) != 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    char input[128]{};
+    uint8_t proof[32]{};
+    char proof_hex[65]{};
+    const int length = std::snprintf(input, sizeof(input), "app-cap-v1|%s|%s|%s|1",
+        response.device_id, response.pc_id, response.nonce);
+    esp_err_t error = length > 0 && static_cast<size_t>(length) < sizeof(input)
+        ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), input, proof)
+        : ESP_ERR_INVALID_SIZE;
+    if (error == ESP_OK) {
+        error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
+    }
+    auto &packet = s_event_ack_packet;
+    const int packet_length = std::snprintf(packet, sizeof(packet),
+        "CCP1|APPCAP|device=%s|pc=%s|nonce=%s|app=1|proof=%s",
+        response.device_id, response.pc_id, response.nonce, proof_hex);
+    if (error == ESP_OK) {
+        error = packet_length > 0 && static_cast<size_t>(packet_length) < sizeof(packet)
+            ? sendDatagram(packet, source.sin_addr, ntohs(source.sin_port), "CCP APPCAP") : ESP_ERR_INVALID_SIZE;
+    }
+    wipe(input, sizeof(input));
+    wipe(proof, sizeof(proof));
+    wipe(packet, sizeof(packet));
+    return error;
+}
+
 // response: Canonical READY message candidate.
 // source: Observed responder address.
 // Exception: Returns identity, proof, crypto, superseded-command, persistence or acknowledgement errors.
 esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
 {
+    esp_err_t optional_app_error = ESP_OK;
     if (ntohs(source.sin_port) != kPluginPort) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -1915,7 +1985,11 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                     error = commitCandidateLocked();
                 }
                 if (error == ESP_OK) {
+                    const bool newly_connected = s_link_snapshot.state != State::Connected;
                     s_last_ready_at_us = esp_timer_get_time();
+                    if (std::strcmp(s_ready_nonce, response.nonce) != 0) {
+                        s_app_sequence = 0;
+                    }
                     std::memcpy(s_ready_nonce, response.nonce, sizeof(s_ready_nonce));
                     s_link_snapshot.ready_at_us = s_last_ready_at_us;
                     std::memcpy(s_link_snapshot.peer_ip_address, peer_address,
@@ -1924,7 +1998,20 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                     // READY still proves liveness if the outbound ACK fails;
                     // retain the real error and retry COMMITTED on the next READY.
                     publishLocked(State::Connected, error);
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+                    if (error == ESP_OK) {
+                        const esp_err_t app_error = sendAppCapabilityLocked(response, source);
+                        if (app_error != ESP_OK) {
+                            // Optional app metadata cannot change LAN or chat truth.
+                            LUNASHELL::codex_presence::invalidate(s_link_snapshot.app_presence, app_error);
+                            const esp_err_t publication_error = publishLinkObservationLocked();
+                            ESP_LOGE(kTag, "Optional CCP app capability failed (%s)", esp_err_to_name(app_error));
+                            optional_app_error = publication_error != ESP_OK ? publication_error : app_error;
+                        }
+                    }
+                    if (newly_connected) {
+                        ESP_LOGI(kTag, "CCP peer authenticated");
+                    }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
                     const esp_err_t debug_error = sendDebugCapabilityLocked(response, source);
                     if (debug_error != ESP_OK) {
                         // Debug views are optional; retain this failure in their transport owner.
@@ -1953,9 +2040,68 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
         if (name_error != ESP_OK) {
             ESP_LOGE(kTag, "Optional CCP name capability failed (%s)", esp_err_to_name(name_error));
         }
-        error = clock_error != ESP_OK ? clock_error : name_error;
+        error = optional_app_error != ESP_OK ? optional_app_error :
+            clock_error != ESP_OK ? clock_error : name_error;
     }
     return error;
+}
+
+// response: Authenticated bounded title, source state and original source age.
+// activity: Owner-held candidate; no consumer or stack copy is introduced.
+// Exception: Returns malformed content, contradictory state or unsigned age overflow.
+esp_err_t decodeActivityTitle(const ActivityResponse &response, LUNASHELL::CodexActivitySnapshot &activity)
+{
+    if (std::strcmp(response.title_state, "current") == 0) {
+        const size_t count = std::strlen(response.title);
+        const size_t age_size = std::strlen(response.title_age);
+        if (activity.state == LUNASHELL::CodexActivityState::None || count == 0 ||
+            count % 2 != 0 || count / 2 >= sizeof(activity.title) || age_size == 0 ||
+            (age_size > 1 && response.title_age[0] == '0') ||
+            std::strspn(response.title_age, "0123456789") != age_size) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        uint64_t age_ms = 0;
+        for (const char *digit = response.title_age; *digit != '\0'; ++digit) {
+            age_ms = age_ms * 10 + static_cast<uint64_t>(*digit - '0');
+        }
+        if (age_ms > UINT32_MAX) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        const esp_err_t error = decodeHex(response.title, reinterpret_cast<uint8_t *>(activity.title), count / 2);
+        if (error != ESP_OK) {
+            return error;
+        }
+        bool has_content = false;
+        for (size_t index = 0; index < count / 2; ++index) {
+            if (activity.title[index] < 32 || activity.title[index] > 126) {
+                return ESP_ERR_INVALID_ARG;
+            }
+            has_content = has_content || activity.title[index] != ' ';
+        }
+        if (!has_content) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        activity.title_state = LUNASHELL::CodexChatTitleState::Current;
+        activity.title_age_at_receive_us = age_ms * 1000;
+        activity.title_error = ESP_OK;
+        return ESP_OK;
+    }
+    if (std::strcmp(response.title, "-") != 0 || std::strcmp(response.title_age, "-") != 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (std::strcmp(response.title_state, "unavailable") == 0) {
+        activity.title_state = LUNASHELL::CodexChatTitleState::Unavailable;
+        activity.title_error = ESP_ERR_NOT_FOUND;
+    } else if (std::strcmp(response.title_state, "unsupported") == 0) {
+        activity.title_state = LUNASHELL::CodexChatTitleState::Unsupported;
+        activity.title_error = ESP_ERR_NOT_SUPPORTED;
+    } else if (std::strcmp(response.title_state, "error") == 0) {
+        activity.title_state = LUNASHELL::CodexChatTitleState::Error;
+        activity.title_error = ESP_FAIL;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_OK;
 }
 
 // response: Bounded, parsed candidate activity from the paired PC.
@@ -1975,10 +2121,11 @@ esp_err_t acceptActivity(const ActivityResponse &response)
         error = ESP_ERR_INVALID_STATE;
     }
     // s_mutex protects these reusable buffers; neither large schema nor HMAC text is copied onto the worker stack.
-    static char proof_input[1024]{};
+    auto &proof_input = s_event_proof_input;
     const int length = std::snprintf(proof_input, sizeof(proof_input),
-        "activity-v2|%s|%s|%s|%s|%s|%s|%s|%s|%s", response.device_id, response.pc_id,
-        response.nonce, response.chat_id, response.revision, response.phase, response.project, response.description, response.branch);
+        "activity-v3|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s", response.device_id, response.pc_id,
+        response.nonce, response.chat_id, response.revision, response.phase, response.project, response.description,
+        response.branch, response.title, response.title_state, response.title_age);
     uint8_t expected[32]{};
     uint8_t received[32]{};
     if (error == ESP_OK) {
@@ -2058,6 +2205,9 @@ esp_err_t acceptActivity(const ActivityResponse &response)
         for (const uint8_t value : revision) {
             activity.revision = (activity.revision << 8U) | value;
         }
+        error = decodeActivityTitle(response, activity);
+    }
+    if (error == ESP_OK) {
         std::memcpy(activity.chat_id, response.chat_id, sizeof(activity.chat_id));
         activity.data_valid = activity.state != LUNASHELL::CodexActivityState::Unavailable;
         activity.data_stale = !activity.data_valid;
@@ -2071,9 +2221,9 @@ esp_err_t acceptActivity(const ActivityResponse &response)
             s_link_snapshot.activity.state != activity.state ||
             std::strcmp(s_link_snapshot.activity.chat_id, activity.chat_id) != 0;
         s_link_snapshot.activity = activity;
-        LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
-        s_activity_received_for_nonce = true;
-        if (transition) {
+        error = publishLinkObservationLocked();
+        s_activity_received_for_nonce = error == ESP_OK;
+        if (transition && error == ESP_OK) {
             ESP_LOGI(kTag, "CCP ACTIVITY authenticated: state=%u selected=%s",
                 static_cast<unsigned>(activity.state),
                 activity.state == LUNASHELL::CodexActivityState::None ? "no" : "yes");
@@ -2246,6 +2396,96 @@ bool parseTechnicalDuration(const char *value, bool &present, uint64_t &microsec
     return true;
 }
 
+// payload: Exact bounded APPSTATE envelope; all fields are authenticated before publication.
+// source: Current READY endpoint, never an address taken from the packet body.
+// Exception: Returns original parse, source, replay, HMAC or canonical publication errors.
+esp_err_t acceptAppPresence(const char *payload, const sockaddr_in &source)
+{
+    const char *names[] = {"device", "pc", "nonce", "sequence", "state", "reason", "age", "proof"};
+    char *values[8]{};
+    if (std::strlen(payload) > kMaximumDatagramBytes ||
+        !parseEventFields(payload, "CCP1|APPSTATE|", names, 8, values)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint64_t sequence = 0;
+    uint64_t age_us = 0;
+    bool age_present = false;
+    if (!parseTechnicalSequence(values[3], sequence) ||
+        !parseTechnicalDuration(values[6], age_present, age_us)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    using AppState = LUNASHELL::CodexAppPresenceState;
+    AppState state = AppState::Unavailable;
+    esp_err_t source_error = ESP_OK;
+    if (std::strcmp(values[4], "open") == 0 || std::strcmp(values[4], "closed") == 0) {
+        if (!age_present || std::strcmp(values[5], "none") != 0) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        state = std::strcmp(values[4], "open") == 0 ? AppState::Open : AppState::Closed;
+    } else if (std::strcmp(values[4], "unavailable") == 0 && !age_present) {
+        if (std::strcmp(values[5], "expired") == 0) {
+            source_error = ESP_ERR_TIMEOUT;
+        } else if (std::strcmp(values[5], "transport") == 0) {
+            source_error = ESP_FAIL;
+        } else if (std::strcmp(values[5], "unobserved") == 0) {
+            source_error = ESP_ERR_NOT_FOUND;
+        } else {
+            return ESP_ERR_INVALID_ARG;
+        }
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+    std::lock_guard<std::mutex> guard(s_mutex);
+    esp_err_t error = admitEventEnvelopeLocked(source, values[0], values[1], values[2],
+        InboundCommand::Maintenance);
+    if (error != ESP_OK) {
+        return error;
+    }
+    const int64_t received_at_us = esp_timer_get_time();
+    if (s_last_ready_at_us <= 0 || received_at_us < s_last_ready_at_us ||
+        received_at_us - s_last_ready_at_us >= kReadyExpiryUs) {
+        return ESP_ERR_TIMEOUT;
+    }
+    const int length = std::snprintf(s_event_proof_input, sizeof(s_event_proof_input),
+        "app-state-v1|%s|%s|%s|%s|%s|%s|%s", values[0], values[1], values[2],
+        values[3], values[4], values[5], values[6]);
+    if (length <= 0 || static_cast<size_t>(length) >= sizeof(s_event_proof_input)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    error = verifyEventProofLocked(values[7]);
+    if (error == ESP_OK) {
+        error = LUNASHELL::codex_presence::accept(s_link_snapshot.app_presence, state, source_error,
+            sequence, age_us, received_at_us, s_app_sequence);
+    }
+    if (error != ESP_OK) {
+        return error;
+    }
+    // App-state packets never refresh READY, activity timestamps or the followed chat.
+    return publishLinkObservationLocked();
+}
+
+// value: Missing sentinel or canonical unsigned decimal native usage count.
+// present: Receives presence independently from the numeric value, including zero.
+// output: Receives the uint64 count only after every digit passes overflow checks.
+// Exception: Rejects signs, padding, leading zeroes and overflow without accepting a partial count.
+bool parseTechnicalCount(const char *value, bool &present, uint64_t &output)
+{
+    present = std::strcmp(value, "-") != 0;
+    output = 0;
+    if (!present) { return true; }
+    const size_t length = std::strlen(value);
+    if (length == 0 || length > 20 || (length > 1 && value[0] == '0')) { return false; }
+    uint64_t count = 0;
+    for (size_t index = 0; index < length; ++index) {
+        if (value[index] < '0' || value[index] > '9') { return false; }
+        const auto digit = static_cast<unsigned>(value[index] - '0');
+        if (count > (UINT64_MAX - digit) / 10U) { return false; }
+        count = count * 10U + digit;
+    }
+    output = count;
+    return true;
+}
+
 // value: Complete bounded hex-encoded printable ASCII, or unavailable sentinel.
 // output: Caller-owned destination; no silent truncation is permitted.
 // capacity: Exact destination capacity including the terminator.
@@ -2315,18 +2555,24 @@ esp_err_t acceptTechnical(const char *payload, const sockaddr_in &source)
         decodeHex(values[4], identity, sizeof(identity)) != ESP_OK) {
         return ESP_ERR_INVALID_ARG;
     }
-    // This transport currently has no observable desktop token-usage channel or effort source.
-    // Reject numeric claims rather than silently reinterpret cumulative counts as context use.
-    if (std::strcmp(values[7], "-") != 0) {
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-    for (size_t index = 14; index <= 20; ++index) {
-        if (std::strcmp(values[index], "-") != 0) {
-            return ESP_ERR_NOT_SUPPORTED;
-        }
-    }
     s_technical_snapshot = {};
     auto &technical = s_technical_snapshot;
+    bool usage_age_present = false;
+    if (!parseTechnicalCount(values[14], technical.used_valid, technical.used) ||
+        !parseTechnicalCount(values[15], technical.capacity_valid, technical.capacity) ||
+        !parseTechnicalCount(values[16], technical.cumulative_valid, technical.cumulative) ||
+        !parseTechnicalCount(values[17], technical.input_valid, technical.input) ||
+        !parseTechnicalCount(values[18], technical.output_valid, technical.output) ||
+        !parseTechnicalCount(values[19], technical.threshold_valid, technical.threshold) ||
+        !parseTechnicalDuration(values[20], usage_age_present, technical.usage_age_at_receive_us)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const bool has_usage = technical.used_valid || technical.capacity_valid || technical.cumulative_valid ||
+        technical.input_valid || technical.output_valid || technical.threshold_valid;
+    if (has_usage != usage_age_present || (technical.capacity_valid && technical.capacity == 0)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    technical.context_valid = technical.used_valid && technical.capacity_valid;
     if (!parseTechnicalSequence(values[5], technical.revision) ||
         technical.revision != s_link_snapshot.activity.revision ||
         !parseTechnicalSequence(values[10], technical.compaction_sequence)) {
@@ -2336,6 +2582,9 @@ esp_err_t acceptTechnical(const char *payload, const sockaddr_in &source)
     if (error != ESP_OK) {
         return error;
     }
+    error = decodeTechnicalText(values[7], technical.effort, sizeof(technical.effort));
+    if (error != ESP_OK) { return error; }
+    technical.effort_valid = technical.effort[0] != '\0';
     bool model_age_present = false;
     if (!parseTechnicalDuration(values[8], model_age_present, technical.model_age_at_receive_us) ||
         !parseTechnicalDuration(values[11], technical.compaction_age_valid,
@@ -2344,7 +2593,8 @@ esp_err_t acceptTechnical(const char *payload, const sockaddr_in &source)
             technical.activity_age_at_receive_us) ||
         !parseTechnicalDuration(values[13], technical.turn_elapsed_valid,
             technical.turn_elapsed_at_receive_us) ||
-        model_age_present != (technical.model[0] != '\0')) {
+        model_age_present != (technical.model[0] != '\0') ||
+        (technical.effort_valid && !model_age_present)) {
         return ESP_ERR_INVALID_ARG;
     }
     using Band = LUNASHELL::CodexCostBand;
@@ -2394,7 +2644,7 @@ esp_err_t acceptTechnical(const char *payload, const sockaddr_in &source)
     if (!found || (technical.compaction == Compact::None &&
         (technical.compaction_sequence != 0 || technical.compaction_age_valid)) ||
         (technical.compaction != Compact::None && (technical.compaction_sequence == 0 || no_turn)) ||
-        (no_turn && (technical.turn_elapsed_valid || model_age_present ||
+        (no_turn && (technical.turn_elapsed_valid || model_age_present || has_usage ||
             technical.compaction != Compact::None)) ||
         (no_chat && (!no_turn || model_age_present || technical.activity_age_valid ||
             technical.compaction != Compact::None))) {
@@ -2688,7 +2938,7 @@ esp_err_t acceptClock(const char *payload, const sockaddr_in &source)
     return error != ESP_OK ? error : ack_error;
 }
 
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 // payload: Bounded DEBUG envelope received by the existing CCP socket owner.
 // source: Exact authenticated current READY endpoint.
 // Exception: Rejects malformed, replayed, stale, unauthenticated or busy requests.
@@ -2720,27 +2970,18 @@ esp_err_t acceptDebugScreen(const char *payload, const sockaddr_in &source)
         return ESP_ERR_INVALID_ARG;
     }
     LUNASHELL::CodexDebugScreen screen;
-    if (std::strcmp(values[4], "face_channels") == 0) {
-        screen = LUNASHELL::CodexDebugScreen::FaceChannels;
-    } else if (std::strcmp(values[4], "character") == 0) {
+    if (std::strcmp(values[4], "character") == 0) {
         screen = LUNASHELL::CodexDebugScreen::Character;
     } else if (std::strcmp(values[4], "normal") == 0) {
         screen = LUNASHELL::CodexDebugScreen::Normal;
     } else {
+        ESP_LOGE(kTag, "Diagnostic mode rejected: mode=%s cause=%s", values[4],
+            esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    const size_t digits = std::strlen(values[5]);
-    if (digits == 0 || digits > 3 || (digits > 1 && values[5][0] == '0')) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    unsigned scroll = 0;
-    for (size_t index = 0; index < digits; ++index) {
-        if (values[5][index] < '0' || values[5][index] > '9') {
-            return ESP_ERR_INVALID_ARG;
-        }
-        scroll = scroll * 10 + static_cast<unsigned>(values[5][index] - '0');
-    }
-    if (scroll > UINT8_MAX || (screen != LUNASHELL::CodexDebugScreen::FaceChannels && scroll != 0)) {
+    if (std::strcmp(values[5], "0") != 0) {
+        ESP_LOGE(kTag, "Diagnostic scroll rejected: value=%s cause=%s", values[5],
+            esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
     const int length = std::snprintf(s_event_proof_input, sizeof(s_event_proof_input),
@@ -2758,7 +2999,6 @@ esp_err_t acceptDebugScreen(const char *payload, const sockaddr_in &source)
     }
     s_debug_screen = {};
     s_debug_screen.request.screen = screen;
-    s_debug_screen.request.scroll = static_cast<uint8_t>(scroll);
     std::memcpy(s_debug_screen.request.request_id, values[3], 33);
     std::memcpy(s_debug_screen.nonce, values[2], 33);
     std::memcpy(s_debug_consumed_nonce, values[2], 33);
@@ -2822,12 +3062,16 @@ void maintainDebugScreen()
 }
 #endif
 
-// request_id: Exact retired question; may be retained after explicit dismissal.
-// state: Actual published terminal device state, never the MCP recipient's inferred state.
+// request_id: Exact retired question or explicitly dismissed informational ticket.
+// state: Actual terminal question state; None is informational only for the retained dismissed identity.
 // Exception: Returns original crypto/transport errors; caller holds s_mutex on the CCP worker.
 esp_err_t sendTerminalEventAckLocked(const char *request_id, LUNASHELL::CodexEventState state)
 {
     const char *token = LUNASHELL::codexEventTerminalToken(state);
+    if (token == nullptr && state == LUNASHELL::CodexEventState::None &&
+        s_dismissed_event_id[0] != '\0' && std::strcmp(request_id, s_dismissed_event_id) == 0) {
+        token = "dismissed";
+    }
     if (token == nullptr) {
         return ESP_OK; // No closed question is available to acknowledge.
     }
@@ -3220,6 +3464,13 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
         }
     }
     if (state == State::Discovering || state == State::Connected) {
+        if (std::strncmp(payload, "CCP1|APPSTATE|", 13) == 0) {
+            const esp_err_t error = acceptAppPresence(payload, source);
+            if (error != ESP_OK) {
+                reportDatagramRejection("APPSTATE", error);
+            }
+            return;
+        }
         if (std::strncmp(payload, "CCP1|CLOCK|", 11) == 0) {
             const esp_err_t error = acceptClock(payload, source);
             if (error != ESP_OK) {
@@ -3234,7 +3485,7 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
             }
             return;
         }
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
         if (std::strncmp(payload, "CCP1|DEBUG|", 11) == 0) {
             const esp_err_t error = acceptDebugScreen(payload, source);
             if (error != ESP_OK) {
@@ -3345,6 +3596,27 @@ void receiveDatagrams()
     }
 }
 
+// No parameters: caller holds s_mutex; explicit commands keep priority over readiness hints.
+bool networkReadyAdmittedLocked()
+{
+    return s_pending == Command::None && (s_link_present || s_candidate_present) &&
+        (s_link_snapshot.state == State::Discovering || s_link_snapshot.state == State::Connected);
+}
+
+// No parameters: caller holds s_mutex; consume at most one hint for its original attempt.
+void consumeNetworkReadyLocked()
+{
+    if (s_network_ready_pending) {
+        s_network_ready_pending = false;
+        if (networkReadyAdmittedLocked() &&
+            s_network_ready_attempt_id == s_link_snapshot.attempt_id) {
+            // Only scheduling changes. Nonce, proof admission and READY expiry
+            // remain owned by the normal authenticated protocol transaction.
+            s_next_find_at_us = 0;
+        }
+    }
+}
+
 // No parameters: expires code windows and retries retained discovery across LAN/standby loss.
 // Exception: Read and send failures stay canonical until an authenticated READY succeeds.
 void maintainState()
@@ -3357,6 +3629,11 @@ void maintainState()
     uint32_t attempt_id = 0;
     {
         std::lock_guard<std::mutex> guard(s_mutex);
+        if (s_link_publication_pending && esp_timer_get_time() >= s_link_publication_retry_at_us &&
+            publishLinkObservationLocked() != ESP_OK) {
+            return;
+        }
+        consumeNetworkReadyLocked();
         if (s_pending != Command::None) {
             return;
         }
@@ -3409,13 +3686,19 @@ void maintainState()
             return;
         }
         auto &activity = s_link_snapshot.activity;
+        if (LUNASHELL::codex_presence::age(s_link_snapshot.app_presence, now_us) &&
+            publishLinkObservationLocked() != ESP_OK) {
+            return;
+        }
         if (activity.data_valid && activity.last_attempt_at_us > 0 &&
             now_us - activity.last_attempt_at_us >= kReadyExpiryUs) {
             activity.data_valid = false;
             activity.data_stale = true;
             activity.last_error = ESP_ERR_TIMEOUT;
             activity.health = LUNASHELL::DeviceHealth::Degraded;
-            LUNASHELL::DeviceSnapshotService::instance().reportCodexLink(s_link_snapshot);
+            if (publishLinkObservationLocked() != ESP_OK) {
+                return;
+            }
             ESP_LOGW(kTag, "CCP activity expired: no authenticated snapshot for eight seconds");
         }
     }
@@ -3571,11 +3854,11 @@ void codexLinkWorker(void *context)
                 s_link_snapshot.state == State::Connected);
         }
 #endif
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
         maintainDebugScreen();
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-        ulTaskNotifyTake(pdTRUE, voice_busy ? std::max<TickType_t>(1, pdMS_TO_TICKS(5)) : pdMS_TO_TICKS(kWorkerPollMs));
+        ulTaskNotifyTake(pdTRUE, voice_busy ? std::max<TickType_t>(1, pdMS_TO_TICKS(LUNASHELL::voice_poll::kActiveMs)) : pdMS_TO_TICKS(kWorkerPollMs));
 #else
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kWorkerPollMs));
 #endif
@@ -3612,7 +3895,7 @@ esp_err_t LUNASHELL::registerCodexNameExecutor(CodexNameExecutor executor)
     return ESP_OK;
 }
 
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 // request: Non-owning output receiving one authenticated transient request.
 // Exception: Returns NOT_FOUND when empty/expired/retired; the worker does not sample sensors.
 esp_err_t LUNASHELL::takeCodexDebugScreen(CodexDebugScreenRequest &request)
@@ -3659,6 +3942,33 @@ esp_err_t LUNASHELL::completeCodexDebugScreen(const CodexDebugScreenRequest &req
     return ESP_OK;
 }
 #endif
+
+// No parameters: a canonical LAN-ready or completed-wake event requests one prompt recheck.
+// Exception: Returns INVALID_STATE before initialization or the actual notification failure.
+extern "C" esp_err_t LUNASHELL_codex_link_notify_network_ready(void)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    // Before initialization there is no owner to publish into.
+    esp_err_t error = ESP_ERR_INVALID_STATE;
+    if (s_worker != nullptr) {
+        if (!networkReadyAdmittedLocked() || (s_network_ready_pending &&
+            s_network_ready_attempt_id == s_link_snapshot.attempt_id)) {
+            // Dormant/pairing/explicit-command states need no discovery wake.
+            // An already queued hint is coalesced; neither case claims presence.
+            return ESP_OK;
+        }
+        if (xTaskNotifyGive(s_worker) == pdPASS) {
+            // The worker cannot consume this until the owner lock is released.
+            s_network_ready_attempt_id = s_link_snapshot.attempt_id;
+            s_network_ready_pending = true;
+            return ESP_OK;
+        }
+        error = ESP_FAIL;
+        publishLocked(s_link_snapshot.state, error);
+    }
+    ESP_LOGE(kTag, "CCP hint failed (%s)", esp_err_to_name(error));
+    return error;
+}
 
 // No parameters: loads exact retained state and binds the fixed CCP1 device port.
 // Exception: Returns the original storage/crypto error or the logged socket/task failure.
@@ -3870,6 +4180,31 @@ extern "C" esp_err_t LUNASHELL_codex_event_reply(const char *expected_request_id
     return ESP_OK;
 }
 
+// request_id: Canonical advertised question selected without submitting an answer.
+// Exception: Returns admission/publication failure and retains the prior question on rejection.
+extern "C" esp_err_t LUNASHELL_codex_event_select(const char *request_id)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    const bool fresh = s_worker != nullptr && s_pending == Command::None && s_link_present &&
+        s_link_snapshot.state == State::Connected && s_event_snapshot.data_valid && !s_event_snapshot.data_stale;
+    const esp_err_t admission = LUNASHELL::selectCodexQuestion(eventTransactionLocked(), request_id,
+        fresh, esp_timer_get_time());
+    if (admission != ESP_OK) {
+        ESP_LOGE(kTag, "CCP pending-question selection rejected (%s)", esp_err_to_name(admission));
+        return admission;
+    }
+    ++s_event_snapshot.revision;
+    const esp_err_t error = publishEventLocked();
+    if (error != ESP_OK) {
+        s_event_snapshot.selection_request_id[0] = '\0';
+        s_event_snapshot.last_error = error;
+        return error;
+    }
+    s_next_find_at_us = 0;
+    xTaskNotifyGive(s_worker);
+    return ESP_OK;
+}
+
 // expected_request_id: Exact informational or terminal event explicitly dismissed on Cody.
 // Exception: Unanswered questions, changed identity and canonical publication errors remain errors.
 extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_id)
@@ -3897,10 +4232,22 @@ extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_
     s_dismissed_event_state = s_event_rollback.kind == LUNASHELL::CodexEventKind::Question
         ? s_event_rollback.state : LUNASHELL::CodexEventState::None;
     s_reply_pending = false;
+    s_next_find_at_us = 0;
+    if (s_worker != nullptr) {
+        xTaskNotifyGive(s_worker);
+    }
     return ESP_OK;
 }
 
 #else
+
+// request_id: Unused queue identity in a build without the authenticated transport.
+// Exception: Returns the actual selected-route unavailability.
+extern "C" esp_err_t LUNASHELL_codex_event_select(const char *request_id)
+{
+    (void)request_id;
+    return ESP_ERR_NOT_SUPPORTED;
+}
 
 // executor: Unused owner in a profile where the authenticated Cody transport is not compiled.
 // Exception: Returns ESP_ERR_NOT_SUPPORTED without registering or invoking an owner.
@@ -3925,6 +4272,13 @@ extern "C" esp_err_t LUNASHELL_codex_event_reply(const char *expected_request_id
 extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_id)
 {
     (void)expected_request_id;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// No parameters: CCP1 is unavailable outside the selected Cody Wi-Fi profile.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED; no worker notification was attempted.
+extern "C" esp_err_t LUNASHELL_codex_link_notify_network_ready(void)
+{
     return ESP_ERR_NOT_SUPPORTED;
 }
 

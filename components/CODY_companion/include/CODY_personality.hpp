@@ -33,6 +33,8 @@ enum class CodySize : uint8_t {
 };
 
 enum class PersonalityPresentation : uint8_t { Disabled = 0, Main = 1, Sleep = 2 };
+// Home reserves status chrome above the compact character without changing cue size.
+enum class PersonalityLayout : uint8_t { Standard = 0, HomeDashboard = 1 };
 enum class PersonalityPresentationStatus : uint8_t {
     Hidden = 0, Visible = 1, BlockedByLayout = 2, SuppressedByCooldown = 3,
 };
@@ -40,6 +42,7 @@ enum class PersonalityPhase : uint8_t { Hidden = 0, FadeIn = 1, Visible = 2, Fad
 
 struct PersonalityContext {
     PersonalityPresentation presentation = PersonalityPresentation::Disabled;
+    PersonalityLayout layout = PersonalityLayout::Standard;
     float nominal_scale = 145;
     uint32_t route = 0;
     uint16_t rotation = 0;
@@ -52,7 +55,9 @@ struct PersonalityFrame {
     DamageRect bounds{};
     uint8_t opacity = 0;
     PersonalityPresentationStatus status = PersonalityPresentationStatus::Hidden;
+    uint8_t animation_phase = 0;
 };
+static_assert(sizeof(PersonalityFrame) <= 16, "Retired personality metadata must remain a small projection");
 
 struct PersonalityFollowTarget {
     float center_x = 0;
@@ -84,6 +89,7 @@ struct PersonalityLag {
     float opacity = 0;
     float fade_out_opacity = 0;
     CodySize size = CodySize::Micro;
+    PersonalityLayout layout = PersonalityLayout::Standard;
     uint32_t route = 0;
     uint16_t rotation = 0;
     float center_x = 0;
@@ -109,6 +115,22 @@ struct PersonalityPowerObservation {
     bool charging = false;
     float level_percent = 0;
 };
+
+struct WakeBatteryPrelude {
+    bool pending = false;
+    bool active = false;
+    bool retired = false;
+    PersonalityCue cue = PersonalityCue::None;
+    int64_t visible_us = 0;
+};
+
+// observation: Fresh canonical battery facts, never an inference from USB presence.
+// working: The first resumed route is the real Working view.
+// delta_us: Active time; only a fully retired prelude contributes visible dwell.
+// state: Display-owned single-use wake presentation.
+// Exception: Returns invalid timing or measured percentage without changing state.
+esp_err_t advance_wake_battery_prelude(const PersonalityPowerObservation &observation,
+    bool working, int64_t delta_us, WakeBatteryPrelude &state);
 
 enum class BatteryNotice : uint8_t { None, Low, Critical, Charging, Full };
 enum class BatteryWarningBand : uint8_t { None, Low, Critical };
@@ -160,6 +182,10 @@ esp_err_t select_personality_power_cue(const PersonalityPowerObservation &observ
 // cue: Typed identity whose catalog membership is requested.
 bool personality_cue_valid(PersonalityCue cue);
 
+// cue: Typed visible identity; only an explicit authored sound opt-out is silent.
+// Unknown identities return false so the audio owner still rejects invalid requests.
+bool personality_cue_is_silent(PersonalityCue cue);
+
 // cue: Typed identity to classify as a device observation rather than narrative.
 bool personality_cue_is_device(PersonalityCue cue);
 
@@ -198,7 +224,7 @@ esp_err_t get_personality_frame(PersonalityFrame &frame);
 // scene: Evaluated pose owning the face and upper-lobe anchors.
 // cue: Single selected symbol after canonical device-state gating.
 // size: Stable nominal character presentation, independent of animated scale.
-// context: Scene permission, authored scale and explicit smooth-release policy.
+// context: Scene permission, authored layout/scale and explicit smooth-release policy.
 // active_delta_us: Elapsed active animation time; never includes paused/standby time.
 // paused: Freeze channel and follow time while still accepting an updated desired cue.
 // reset: Re-prime geometric following only; fade and hold retain their progress.

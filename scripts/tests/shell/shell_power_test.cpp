@@ -29,6 +29,7 @@ const lv_image_dsc_t *MascotAsset::idle_head_image() {
 }
 }
 
+// No parameters: exercise the real shell and inject only transport/GUI outcomes.
 int main() {
     AppContext context;
     ShellApp app;
@@ -42,6 +43,12 @@ int main() {
         power = {DeviceOperatingState::EnteringStandby, sequence};
         assert(tick());
     };
+    auto &snapshots = DeviceSnapshotService::instance();
+    snapshots.read_error = ESP_ERR_TIMEOUT;
+    const auto rejected_read = tick();
+    assert(!rejected_read && rejected_read.error().find("ESP_ERR_TIMEOUT") != std::string::npos);
+    assert(fixture.drains.empty() && fixture.acknowledgements.empty());
+    snapshots.read_error = ESP_OK;
     enter(1);
     assert(fixture.acknowledgements.empty()); // No acknowledgement before drain.
     assert(app.on_action(context, kTouchAction));
@@ -73,6 +80,14 @@ int main() {
     assert(fixture.acknowledgements.size() == count);
     fixture.drains.back()(std::unexpected("asynchronous drain failure"));
     assert((fixture.acknowledgements.back() == std::pair<uint32_t, int>{3, ESP_FAIL}));
+    power.state = DeviceOperatingState::Active;
+    assert(tick());
+
+    enter(20);
+    snapshots.read_error = ESP_ERR_TIMEOUT;
+    fixture.drains.back()({});
+    assert((fixture.acknowledgements.back() == std::pair<uint32_t, int>{20, ESP_ERR_TIMEOUT}));
+    snapshots.read_error = ESP_OK;
     power.state = DeviceOperatingState::Active;
     assert(tick());
 
