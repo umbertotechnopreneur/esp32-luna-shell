@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 1,
+  "nodes": {
+    "README.md": {
+      "x": 1252.537,
+      "y": -1252.537,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/README.md": {
+      "x": 0,
+      "y": 0,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/boards/purchased-amoled-comparison.md": {
+      "x": -1252.537,
+      "y": -1252.537,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/boards/waveshare-esp32s3-touch-amoled-1.75/display-geometry.md": {
+      "x": 677.868,
+      "y": -1636.519,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/boards/waveshare-esp32s3-touch-amoled-1.75/hardware.md": {
+      "x": 1737.319,
+      "y": -345.574,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/boards/waveshare-esp32s3-touch-amoled-1.75/power-reference.md": {
+      "x": 1771.355,
+      "y": 0,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/core/device-snapshot.md": {
+      "x": -677.868,
+      "y": 1636.519,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/core/display-touch-runtime.md": {
+      "x": 1636.519,
+      "y": -677.868,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/core/hardware-api.md": {
+      "x": 984.112,
+      "y": 1472.828,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/services/connectivity-pairing.md": {
+      "x": 677.868,
+      "y": 1636.519,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/services/http-device-api.md": {
+      "x": 345.574,
+      "y": 1737.319,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/services/power-management.md": {
+      "x": 1737.319,
+      "y": 345.574,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/services/storage-and-logging.md": {
+      "x": 1636.519,
+      "y": 677.868,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/services/text-to-speech.md": {
+      "x": 0,
+      "y": 1771.355,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/services/time.md": {
+      "x": 1472.828,
+      "y": 984.112,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/services/wake-on-word.md": {
+      "x": -345.574,
+      "y": 1737.319,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/toolchain-and-profiles.md": {
+      "x": 984.112,
+      "y": -1472.828,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "bsp/workstation-inventory.md": {
+      "x": 1252.537,
+      "y": 1252.537,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "cody/README.md": {
+      "x": 0,
+      "y": -1771.355,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "cody/activity-observer.md": {
+      "x": -677.868,
+      "y": -1636.519,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "cody/behavior.md": {
+      "x": -1636.519,
+      "y": 677.868,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "cody/clock.md": {
+      "x": -1771.355,
+      "y": 0,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "cody/layout.md": {
+      "x": 1472.828,
+      "y": -984.112,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "cody/navigation.md": {
+      "x": -1252.537,
+      "y": 1252.537,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "cody/personality-icons.md": {
+      "x": -1737.319,
+      "y": 345.574,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "cody/rendering.md": {
+      "x": -1472.828,
+      "y": 984.112,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "cody/runtime.md": {
+      "x": -984.112,
+      "y": 1472.828,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "cody/ui-proposals/20261012-voice/README.md": {
+      "x": -984.112,
+      "y": -1472.828,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "cody/ui-proposals/20261014/home-token-proposals.md": {
+      "x": -345.574,
+      "y": -1737.319,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "luna-shell/README.md": {
+      "x": 345.574,
+      "y": -1737.319,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "luna-shell/configuration.md": {
+      "x": -1636.519,
+      "y": -677.868,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "luna-shell/startup.md": {
+      "x": -1737.319,
+      "y": -345.574,
+      "color": "#0085ff",
+      "icon": "file"
+    },
+    "luna-shell/ui-guidelines.md": {
+      "x": -1472.828,
+      "y": -984.112,
+      "color": "#0085ff",
+      "icon": "file"
+    }
+  }
+}
