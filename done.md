@@ -15,6 +15,39 @@ private local diagnostics, not publication artifacts.
 
 
 
+## Canonical branch consolidation and Debug build - 2026-10-20
+
+The owner authorized publication of all local work and consolidation onto
+`main` and `codex/cody`. Checkpoint 0f1721f2 includes the external-binary import
+policy and documentation map; integration commit 027800b1 retains both the
+previous remote main history and all six unpublished Cody checkpoints. Both
+canonical branches were pushed atomically to that commit and verified live.
+
+All retired tips were verified as ancestors before deleting the four remote
+branches (activity-classifier-poweroff, base-display-touch, luna-shell and
+vibeware-readme-license, under codex/) and three obsolete local branches. The
+owner's configured direct-push/deletion bypass was used without changing rules.
+The stale origin/HEAD reference now points to main. Whitespace review passed;
+the publication-only secret scan passed for 23 changed source files and eight
+signatures. No firmware image was scanned for secrets.
+
+The current-source Debug build used ESP-IDF 6.0.2, cody-companion, wake-word,
+the existing activity classifier and four Ninja jobs. All 1,560 build steps
+passed. Firmware identity: `cody-229-g027800b1`; application: 7,083,232 bytes,
+leaving 191,264 bytes in the unchanged 7,274,496-byte OTA slot. SHA-256:
+`4623918b8369b7b7ccbd964176142398ac40e49e8a89538506795a7d225d08d1`.
+The resolved dependency lock matches the reviewed canonical lock byte for byte.
+Existing upstream Kconfig/tool-environment notices and the 3% OTA-space warning
+remain visible in the logs; no compiler flags or warnings were suppressed.
+
+The public dispatcher ran transient-artifact cleanup before compilation. The
+latest build, ELF, five flash segments, hashes, configuration and delivery logs
+are retained under artifacts/build-cody-companion-wake-word-activity-debug/
+and artifacts/build-canonical-delivery-20261020/. No USB serial candidate was
+present. The owner then explicitly limited this delivery to Git and build:
+no flash, reset, capture, simulator or automated test suite was executed, and
+no new physical-device behavior is claimed. Earlier device gates remain open.
+
 ## Native touch wake and retained diagnostics - 2026-10-17
 
 Implemented in 70678d9f; source-contract integration in 99b167b3. The native

@@ -1,5 +1,14 @@
 # Active work
 
+## Canonical Git delivery - 2026-10-20
+
+- All source work is consolidated on main and codex/cody; obsolete branches
+  were removed only after verifying their history is retained.
+- Debug cody-229-g027800b1 built successfully from source with wake word and
+  the activity classifier. Build provenance and hashes are in done.md.
+- The owner explicitly limited this delivery to Git and build. The new Debug
+  image was not flashed; the earlier physical acceptance gates below stay open.
+
 ## Standby wake hardening - delivered, physical acceptance pending
 
 - Source checkpoints 70678d9f and 99b167b3 decouple native touch-IRQ wake from
