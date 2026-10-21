@@ -6,10 +6,47 @@ Two interfaces share an Espressif hardware platform:
 - **Luna Shell** uses official ESP-Brookesia 0.8 System Super/Core and declarative
   GUI packages, with LVGL underneath.
 
-The current adapter is the Waveshare ESP32-S3 Touch AMOLED 1.75: round 466 x 466
+The current adapter is the Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS: round 466 x 466
 display, touch, 16 MB flash and 8 MB PSRAM. The supported SDK is **ESP-IDF 6.0.2**.
 Board, interface, optional services and Debug/Release mode are separate choices.
 Other Espressif boards require explicit integration; see [BSP](docs/bsp/README.md).
+
+## Why I chose Waveshare for Cody
+
+I chose and bought the **Waveshare ESP32-S3-Touch-AMOLED-1.75C**, with its CNC-machined
+aluminum-alloy case, for Cody Companion. Its compact
+round form factor suits a small desktop character, and the ESP32-S3, 8 MB PSRAM
+and 32 MB flash make it an attractive platform for this project. Waveshare's
+hardware quality and the balance of features and price were the reasons I chose
+this direction; that is my personal assessment as a paying customer.
+
+<p align="center">
+  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-2.jpg" alt="Waveshare ESP32-S3-Touch-AMOLED-1.75C front view with silver aluminum case and wrist strap" width="300">
+  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-6.jpg" alt="Waveshare ESP32-S3-Touch-AMOLED-1.75C angled front view showing the round display and side controls" width="300"><br>
+  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-4.jpg" alt="Waveshare ESP32-S3-Touch-AMOLED-1.75C side view showing the USB port cover and button" width="300">
+  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-7.jpg" alt="Waveshare ESP32-S3-Touch-AMOLED-1.75C angled rear view showing the aluminum case" width="300"><br>
+  <em>Waveshare ESP32-S3-Touch-AMOLED-1.75C. Manufacturer product photos;
+  image rights remain with their respective owners.</em>
+</p>
+
+Cody was developed and tested on the **Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS**;
+the **1.75C pictured above** is the model I chose for its aluminum case.
+Technical board details are in the [hardware guide](docs/bsp/boards/purchased-amoled-comparison.md).
+
+Cody and Luna Shell keep the interface separate from the hardware, allowing
+adaptation to other Espressif devices. Waveshare is my chosen starting point.
+
+## Independence and trademarks
+
+I am not affiliated with, sponsored by, or employed by **Espressif** or
+**Waveshare**. ESP32 Luna Shell and Cody Companion are independent projects;
+neither company endorses or certifies them.
+
+All third-party product names, trademarks, logos and images belong to their
+respective owners. They are used here to identify the hardware, software and
+reference material involved. Their inclusion does not imply a partnership or
+endorsement. Third-party materials retain their applicable licenses and notices;
+see [third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## Start with the task
 

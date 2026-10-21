@@ -7,6 +7,25 @@ sources, models and assets keep their original copyright and license notices,
 including local modifications to imported files. This index records provenance;
 the license files accompanying each component remain authoritative.
 
+## Independence, trademarks and product imagery
+
+The author is not affiliated with, sponsored by, or employed by Espressif or
+Waveshare. ESP32 Luna Shell and Cody Companion are independent projects and are
+not endorsed or certified by either company.
+
+All third-party product names, trademarks, logos and images belong to their
+respective owners. References identify the products and technologies involved;
+they do not imply a partnership or endorsement and do not change any license.
+
+The root README displays the existing Waveshare manufacturer photos
+`product-photo-2.jpg`, `product-photo-4.jpg`, `product-photo-6.jpg` and
+`product-photo-7.jpg` from
+`hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/`
+to identify the purchased aluminum-case model. These images remain third-party
+material, outside the project's MIT license.
+The original collection and provenance are retained in the
+[hardware reference index](hardware/references/waveshare/README.md).
+
 ## Waveshare board support package
 
 - Component: `components/esp32_s3_touch_amoled_1_75`

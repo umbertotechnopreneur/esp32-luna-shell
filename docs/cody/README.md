@@ -23,7 +23,16 @@ The [documentation index](../README.md) lists the current illustrated atlases.
 
 ## Profile and services
 
-The current physical adapter is the [Waveshare board](../bsp/boards/waveshare-esp32s3-touch-amoled-1.75/hardware.md).
+Cody was developed and tested on the
+[Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS](../bsp/boards/waveshare-esp32s3-touch-amoled-1.75/hardware.md).
+I chose and bought the **Waveshare ESP32-S3-Touch-AMOLED-1.75C** with its aluminum
+case for Cody: its round form factor, compute resources, and Waveshare's quality
+and value made it a good fit for the project. The
+[root README](../../README.md#why-i-chose-waveshare-for-cody) shows the model and
+explains the choice. The interface stays separate from the board to allow
+adaptation to other Espressif devices; see the
+[hardware guide](../bsp/boards/purchased-amoled-comparison.md) for board details.
+
 Cody admits power/battery, IMU, RTC, speaker, microphones, Wi-Fi, BLE provisioning
 and removable SD according to its profile. GNSS and distance are excluded.
 Firmware exclusion does not establish an electrically unpowered peripheral.
@@ -38,6 +47,14 @@ Consumers read canonical projections with validity, original timestamps and real
 errors. Only acquisition owners read hardware. Shared contracts are in
 [BSP](../bsp/README.md); source ownership is in the
 [component README](../../components/CODY_companion/README.md).
+
+## Independence and trademarks
+
+I am not affiliated with, sponsored by, or employed by Espressif or Waveshare.
+Cody Companion is an independent project and is not endorsed or certified by
+either company. Third-party names, trademarks, logos and images belong to their
+respective owners; their use identifies the relevant products and does not imply
+a partnership. See the [license and attribution notices](../../THIRD_PARTY_NOTICES.md).
 
 ## Evidence
 
