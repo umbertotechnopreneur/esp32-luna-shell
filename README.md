@@ -1,5 +1,8 @@
 # ESP32 Luna Shell / Cody Companion
 
+![Platform: ESP32-S3](https://img.shields.io/badge/platform-ESP32--S3-0078D4)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2EA44F)](LICENSE)
+
 A small round screen, a little personality, and a surprising amount of C++.
 
 **Cody Companion** is a **Codex plugin and a little device for your desk**.
