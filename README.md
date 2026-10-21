@@ -74,23 +74,6 @@ The VibeWare name and logo follow the initiative's
 The shared Terms and Privacy pages below accompany this project; they do not
 replace its license or the CCP documentation about audio and external services.
 
-## External binary security policy
-
-Before including any third-party prebuilt binary or compiled library in this
-repository or its deliverables, including files supplied without source code,
-run an explicit targeted Microsoft Windows Defender scan of the downloaded
-package/archive and all extracted files and required dependencies that will be
-used. Keep them staged until the scan finishes; real-time protection alone is
-not enough.
-
-Proceed only after the scan completes without detections. Record the official
-source, version or SHA-256, scan command and result. An unavailable, disabled,
-failed or unfinished scan, or any detection, blocks import. Do not bypass a
-detection with exclusions, allowlisting, restored quarantine items or disabled
-protection without separate explicit owner approval.
-
-This rule applies to future imports; it does not certify existing dependencies.
-
 ---
 
 <p align="right">
@@ -123,3 +106,9 @@ To learn what VibeWare means and why I started it, read the manifesto above.
 
 [Terms](https://umbertogiacobbi.biz/terms/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=readme-terms) ·
 [Privacy](https://umbertogiacobbi.biz/privacy/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=readme-privacy)
+
+## A note on security
+
+I care about what goes into this project. Before I add a third-party library or prebuilt binary, including files supplied without source code, I scan the downloaded package, its extracted files and any dependencies with Microsoft Windows Defender. I keep new imports aside until the scan finishes without detections.
+
+I keep a record of where each new import came from and the scan result. If a scan cannot finish or flags something, I leave it out.
