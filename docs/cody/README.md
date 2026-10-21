@@ -28,7 +28,7 @@ Cody was developed and tested on the
 I chose and bought the **Waveshare ESP32-S3-Touch-AMOLED-1.75C** with its aluminum
 case for Cody: its round form factor, compute resources, and Waveshare's quality
 and value made it a good fit for the project. The
-[root README](../../README.md#why-i-chose-waveshare-for-cody) shows the model and
+[root README](../../README.md#the-little-round-thing) shows the model and
 explains the choice. The interface stays separate from the board to allow
 adaptation to other Espressif devices; see the
 [hardware guide](../bsp/boards/purchased-amoled-comparison.md) for board details.

@@ -1,121 +1,82 @@
 # ESP32 Luna Shell / Cody Companion
 
-Two interfaces share an Espressif hardware platform:
+A small round screen, a little personality, and a surprising amount of C++.
 
-- **Cody Companion** is the default native 2D character/interface, using `CODY2D`.
-- **Luna Shell** uses official ESP-Brookesia 0.8 System Super/Core and declarative
-  GUI packages, with LVGL underneath.
+**Cody Companion** is a **Codex plugin and a little device for your desk**.
+The plugin brings Codex's hooks out of the app and into the physical world:
+Cody shows what your coding assistant is doing, which model it's using and how
+much context is left. Codex can send notifications and questions to Cody, and
+you can tap an answer on Cody to send it back to the chat. It goes both ways.
 
-The current adapter is the Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS: round 466 x 466
-display, touch, 16 MB flash and 8 MB PSRAM. The supported SDK is **ESP-IDF 6.0.2**.
-Board, interface, optional services and Debug/Release mode are separate choices.
-Other Espressif boards require explicit integration; see [BSP](docs/bsp/README.md).
+Setup starts on your phone: Bluetooth helps you configure Cody's Wi-Fi, so
+there's no password to peck out on a tiny round screen. Then you pair it with
+the Codex plugin using the code shown on Cody. From there, device and plugin
+communicate over your **local Wi-Fi network**. Remote connections are on the
+wish list; for now, they share the same neighborhood.
 
-## Why I chose Waveshare for Cody
+Cody does more than sit there looking round:
 
-I chose and bought the **Waveshare ESP32-S3-Touch-AMOLED-1.75C**, with its CNC-machined
-aluminum-alloy case, for Cody Companion. Its compact
-round form factor suits a small desktop character, and the ESP32-S3, 8 MB PSRAM
-and 32 MB flash make it an attractive platform for this project. Waveshare's
-hardware quality and the balance of features and price were the reasons I chose
-this direction; that is my personal assessment as a paying customer.
+- **Wake word and standby.** With wake-word listening enabled, Cody recognizes
+  **Sophia** locally and can wake from listening standby. On battery it can take
+  inactivity naps; powered over USB and connected to Codex, it stays awake for work.
+- **A bit of personality.** Touch interaction, animations and sound cues bring
+  activity and notifications to life. Yes, you can pet your coding sidekick.
+- **Make it yours.** Pick a look, switch sounds on or off, and configure rotation,
+  shake-to-wake and Desk/Away behavior.
+
+**Luna Shell** is the other interface in this repository, built on Espressif's
+ESP-Brookesia and sharing the hardware layer. Both are works in progress.
+Cody already has opinions about your token budget; polishing the rest is my job.
+
+## The little round thing
+
+Cody was developed and tested on the **Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS**.
+I bought the **Waveshare ESP32-S3-Touch-AMOLED-1.75C** pictured below for its aluminum
+case. The round display, ESP32-S3 resources, Waveshare's build quality and price
+felt like a good match. Also, a tiny desk companion deserves a decent outfit.
 
 <p align="center">
-  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-2.jpg" alt="Waveshare ESP32-S3-Touch-AMOLED-1.75C front view with silver aluminum case and wrist strap" width="300">
-  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-6.jpg" alt="Waveshare ESP32-S3-Touch-AMOLED-1.75C angled front view showing the round display and side controls" width="300"><br>
-  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-4.jpg" alt="Waveshare ESP32-S3-Touch-AMOLED-1.75C side view showing the USB port cover and button" width="300">
-  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-7.jpg" alt="Waveshare ESP32-S3-Touch-AMOLED-1.75C angled rear view showing the aluminum case" width="300"><br>
-  <em>Waveshare ESP32-S3-Touch-AMOLED-1.75C. Manufacturer product photos;
-  image rights remain with their respective owners.</em>
+  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-2.jpg" alt="Waveshare 1.75C front view with aluminum case and wrist strap" width="300">
+  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-6.jpg" alt="Waveshare 1.75C angled front view" width="300"><br>
+  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-4.jpg" alt="Waveshare 1.75C side view with USB cover and button" width="300">
+  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-7.jpg" alt="Waveshare 1.75C aluminum case from the rear" width="300"><br>
+  <em>Official Waveshare product photos. Image rights belong to their respective owners.</em>
 </p>
 
-Cody was developed and tested on the **Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS**;
-the **1.75C pictured above** is the model I chose for its aluminum case.
-Technical board details are in the [hardware guide](docs/bsp/boards/purchased-amoled-comparison.md).
+The interface is separate from the board, so other Espressif devices can join in
+with their own integration. [Hardware details](docs/bsp/boards/purchased-amoled-comparison.md).
 
-Cody and Luna Shell keep the interface separate from the hardware, allowing
-adaptation to other Espressif devices. Waveshare is my chosen starting point.
+Battery so far: **about seven hours on 1,000 mAh** in one Cody Debug run, with
+wake-word listening and the activity observer enabled. A useful observation,
+not a stopwatch promise. [Configuration and evidence](docs/bsp/services/power-management.md#observed-1000-mah-run---12-13-october-2026).
 
-## Independence and trademarks
+## Pick a door
 
-I am not affiliated with, sponsored by, or employed by **Espressif** or
-**Waveshare**. ESP32 Luna Shell and Cody Companion are independent projects;
-neither company endorses or certifies them.
+- **Use Cody:** [setup and navigation](docs/cody/navigation.md), then the
+  [PC plugin](plugins/cody-codex-plugin/README.md).
+- **Build something:** [Cody's native 2D interface](docs/cody/README.md),
+  [Luna's Brookesia interface](docs/luna-shell/README.md), or the [shared hardware layer](docs/bsp/README.md).
+- **Find the details:** [documentation and atlases](docs/README.md),
+  [device console](scripts/README.md), and [open work](TODO.md).
 
-All third-party product names, trademarks, logos and images belong to their
-respective owners. They are used here to identify the hardware, software and
-reference material involved. Their inclusion does not imply a partnership or
-endorsement. Third-party materials retain their applicable licenses and notices;
-see [third-party notices](THIRD_PARTY_NOTICES.md).
+Development uses **ESP-IDF 6.0.2** and, for Luna, **ESP-Brookesia 0.8** with LVGL.
+Cody uses its own native 2D renderer. `scripts/device.ps1` is the command-line
+entry point; [AGENTS.md](AGENTS.md) has the working agreements.
 
-## Start with the task
+## The small print, kept small
 
-| Task | Guide |
-| --- | --- |
-| Use Cody or recover setup/pairing | [Cody navigation](docs/cody/navigation.md) |
-| Develop native character/screens | [Cody](docs/cody/README.md) |
-| Develop LVGL/Brookesia screens | [Luna Shell](docs/luna-shell/README.md) |
-| Work on display/touch, services or a board | [BSP](docs/bsp/README.md) |
-| Install and operate CCP on Windows | [CCP](plugins/cody-codex-plugin/README.md) |
-| Build, generate, capture or run an authorized check | [Public console](scripts/README.md) |
+I'm not affiliated with, sponsored by, or employed by **Espressif** or
+**Waveshare**. This is my independent project, not an official product from
+either company. All third-party names, trademarks, logos and images belong to
+their respective owners.
 
-[Documentation](docs/README.md) is the complete guide and atlas index.
-Repository documentation, device text and logs are English; Cody text is
-bounded printable ASCII.
+My source and documentation use the [MIT License](LICENSE). Third-party code,
+models and assets keep their [own licenses and notices](THIRD_PARTY_NOTICES.md);
+the VibeWare identity has its own [reuse guidance](https://github.com/umbertotechnopreneur/VibeWare/blob/main/PRESS-KIT.md).
 
-## Observed battery runtime
-
-**About 7 hours with a 1,000 mAh battery** in the tested Cody Debug configuration,
-with wake-word listening and the pretrained activity observer enabled. The
-12-13 October 2026 run retained a last-alive checkpoint at **6 h 55 min 42 s**,
-including standby. This is one observed run; incomplete power-source observations
-and the unknown final interval limit its precision. See the
-[test configuration and saved evidence](docs/bsp/services/power-management.md#observed-1000-mah-run---12-13-october-2026).
-
-## Work and evidence
-
-[AGENTS.md](AGENTS.md) owns repository rules and authorization.
-[TODO.md](TODO.md) owns open work, [planned-todo.md](planned-todo.md) deferred
-work, [done.md](done.md) dated checkpoints/evidence, and [lessons.md](lessons.md)
-recurring engineering lessons. Build/host/flash results and physical behavior
-retain separate evidence levels.
-
-Use `scripts/device.ps1` as the public CLI/menu. Operations follow the explicit
-authorization rules; help and list are read-only entry points. Builds, logs,
-captures and temporary output belong in `artifacts/`.
-
-## Source ownership
-
-| Area | Owner |
-| --- | --- |
-| `main/` | Profile composition and startup orchestration |
-| [CODY_companion](components/CODY_companion/README.md) | Character runtime, scenes, model and diagnostics |
-| [CODY2D](components/CODY2D/README.md) | Native 2D primitives, text and controls |
-| [LUNASHELL_platform](components/LUNASHELL_platform/README.md) | Shared hardware, snapshots and services |
-| [LUNASHELL_app](components/LUNASHELL_app/README.md) | Luna documents, chrome and navigation |
-| [LUNASHELL_boot](components/LUNASHELL_boot/README.md) | Boot UI and audio |
-| [LUNASHELL_logger](components/LUNASHELL_logger/README.md) | Canonical logging and readback |
-| [LUNASHELL_tof400f](components/LUNASHELL_tof400f/README.md) | Optional distance transport |
-| `plugins/`, `assets/`, `config/`, `scripts/` | CCP, authored resources, firmware composition and tooling |
-
-## License and attribution
-
-Project-owned source and documentation are available under the [MIT License](LICENSE).
-Keep the copyright and permission notice when reusing covered material.
-Third-party components, models and assets retain their own licenses and notices;
-see [third-party notices](THIRD_PARTY_NOTICES.md). Firmware distributions must
-respect the licenses of the components included in their selected profile.
-
-The VibeWare name and logo follow the initiative's
-[identity and reuse guidance](https://github.com/umbertotechnopreneur/VibeWare/blob/main/PRESS-KIT.md).
-The shared Terms and Privacy pages below accompany this project; they do not
-replace its license or the CCP documentation about audio and external services.
-
-## A note on security
-
-I care about what goes into this project. Before I add a third-party library or prebuilt binary, including files supplied without source code, I scan the downloaded package, its extracted files and any dependencies with Microsoft Windows Defender. I keep new imports aside until the scan finishes without detections.
-
-I keep a record of where each new import came from and the scan result. If a scan cannot finish or flags something, I leave it out.
+New external libraries and binaries get a Microsoft Defender scan of the download,
+extracted files and imported dependencies before use. I record the source and
+result; failed, incomplete or flagged scans keep the import on hold.
 
 ---
 

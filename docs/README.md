@@ -26,6 +26,20 @@ selections. The supported physical adapter is currently the Waveshare ESP32-S3
 Touch AMOLED 1.75. Other Espressif devices are a future integration direction;
 the folder structure does not claim additional firmware support.
 
+## Source map
+
+| Area | Responsibility |
+| --- | --- |
+| [main](../main/README.md) | Profile composition and startup |
+| [CODY_companion](../components/CODY_companion/README.md) | Character, scenes, model and diagnostics |
+| [CODY2D](../components/CODY2D/README.md) | Native graphics, text and controls |
+| [LUNASHELL_platform](../components/LUNASHELL_platform/README.md) | Hardware, snapshots and services |
+| [LUNASHELL_app](../components/LUNASHELL_app/README.md) | Luna documents and navigation |
+| [LUNASHELL_boot](../components/LUNASHELL_boot/README.md) | Boot UI and audio |
+| [LUNASHELL_logger](../components/LUNASHELL_logger/README.md) | Logging and readback |
+| [LUNASHELL_tof400f](../components/LUNASHELL_tof400f/README.md) | Optional distance transport |
+| `plugins/`, `assets/`, `config/`, `scripts/` | PC integration, resources, composition and tools |
+
 ## Illustrated Cody references
 
 | Current document | Purpose |
@@ -56,7 +70,8 @@ Document illustrations and simulator frames are synthetic evidence.
 | [AGENTS.md](../AGENTS.md) | Repository rules and authorization |
 | [TODO.md](../TODO.md) | Open work and remaining validation |
 | [planned-todo.md](../planned-todo.md) | Deferred work and activation conditions |
-| [done.md](../done.md) | Dated implementation and observed evidence |
+| [done.md](../done.md) | Short dated completion and evidence summaries |
+| [archive.md](../archive.md) | Detailed history and superseded plans |
 | [lessons.md](../lessons.md) | Causes and practical lessons from recurring errors |
 
 Guides describe source contracts. Build, host execution, flash and physical

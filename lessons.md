@@ -1,199 +1,136 @@
-# Recurring engineering lessons
+# Lessons worth keeping
 
-These are observed pitfalls, not a second instruction contract or proof of device
-validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open work.
+Observed failure patterns and their remedies. Policy belongs in [AGENTS.md](AGENTS.md),
+open work in [TODO.md](TODO.md), and dated evidence in [archive.md](archive.md).
+Read the startup, memory and build sections before boot/Brookesia changes.
 
-## Ownership and truthful evidence
+## Startup and memory
 
-- Keep radio-state verification separate from standby policy reassertion. A
-  service requirement can retain software standby even when Release permits
-  Deep-sleep; expected service policy must not become a failed sleep/Active rollback.
-  Setting `consistent=false` to force a callback broke the paired Cody LAN gate.
-  Use an explicit reapplication parameter and retain observed state/real errors.
-- Account for startup memory handoff before admitting a mandatory frame. Keeping
-  the 32-KiB boot backlog internal until after Cody's ready frame forced emergency
-  DMA and a real frame timeout. Await the logger owner's post-free archival result;
-  request acceptance or a detached pointer does not prove memory is reusable.
-- A requested sampling period includes acquisition and commit time. Waiting the
-  full period afterward can repeatedly invalidate model windows; schedule the
-  remaining owner deadline and retain actual timestamps and gap rejection.
-- IDF can pin an unpinned floating-point task on its first FPU use. Small measured
-  read/lock costs do not rule out dispatch starvation behind higher-priority voice
-  work. The 20-Hz activity owner needed explicit CPU1 affinity; retain measured
-  core/timing evidence and do not change voice or renderer priorities to hide it.
-- Recipient delivery and device retirement are separate CCP observations.
-  Hold a published terminal question until its authenticated device ACK before
-  publishing its successor; a UI dwell timeout does not prove device closure.
-- A responsibility split must update CMake and source-contract families together.
-  Keep acquisition, timestamps, persistence format and publication in their owners;
-  moving DPAPI/launch code does not establish multiplatform runtime support.
-- After branch/worktree consolidation, describe the merged capability and exact
-  commit rather than treating a deleted branch name as current state. Ignored
-  `artifacts/` paths are disposable, not durable evidence; retain lasting results
-  in tracked records and say when a later cleanup removed the local files.
-- Request admission, credentials, a successful strip write or watchdog progress
-  is not operation completion. Pairing needs observed backend/session outcomes;
-  display transitions need a retired complete frame; optional faults stay real.
-- Keep canonical snapshot ownership/timestamps through source splits. Reuse each
-  fresh diagnostic sample at most once; never create a parallel sensor cache.
-  Coalesce duplicate logs only: immediate error, counted 60-second reminder,
-  immediate recovery. Do not hide errors or slow healthy acquisition.
-- A working-device report or a capture started after failure does not identify
-  an intermittent trigger. A flashed/ELF mismatch invalidates symbolic diagnosis.
-  Compare complete-frame/stage costs, payload and CPU together; a higher frame
-  rate alone is not lower CPU. Establish an actually static route baseline.
-  [Response and rendering](docs/cody/rendering.md).
-- A requested double DMA buffer is not evidence of overlap: inspect the admitted
-  slot count in the complete connected firmware. Aggregate free memory does not
-  guarantee two large contiguous blocks. Prefer bounded independently owned,
-  shorter paired-row slots when fragmentation requires it, preserve aggregate
-  headroom, and retain every block on ambiguous completion. Increased strip count
-  adds panel-command overhead; compare the completed frame against the target.
+- **A handoff must finish before its memory is reusable.** Keeping the 32-KiB
+  boot backlog internal until after Cody's ready frame forced emergency DMA and
+  a frame timeout. Wait for the logger owner's post-free archival result, not
+  merely an accepted request or detached pointer.
+- **Budget nested copies, not just individual functions.** Full snapshot frames
+  of 3,904/3,792 bytes exhausted the 8-KiB power stack. Schema growth also exposed
+  two copies in the 12-KiB acquisition worker and a 5,616-byte GATT frame on a
+  4,096-byte NimBLE task. Use bounded projections and locked owner scratch;
+  recheck all callers after growth, including fresh display state after wake.
+- **Small graphics can have large scratch costs.** The worker/frame/coverage
+  chain reached 8,176 bytes: startup's 12-KiB stack drew successfully while the
+  8-KiB worker overflowed. A successful boot frame is not worker headroom evidence.
+- **External allocation does not relocate linked BSS.** TTS `57121ca2` exhausted
+  internal RAM before creating the mandatory 8-KiB power task. Explicit linker
+  placement and admitting optional workers after mandatory owners fixed the design.
+- **PSRAM has cache constraints.** NVS/cache-disabling flash commits need the
+  internal-stack settings/storage executors. Capability-allocated tasks require
+  matching deletion APIs. Allocation-failure hooks must not allocate or log;
+  long active clocks need wide saturating arithmetic.
 
-## Console and storage
+## Display and radio ownership
 
-- Best-effort log pressure is a counted delivery loss, not a terminal SD failure.
-  Keep capture zero-wait and internal; archive only sealed records on the writer.
-  Advance boot replay only after confirmed flush and retain uncertain ownership
-  on real I/O failure. Optional logging must not subscribe a device-reset watchdog
-  or make startup depend on its own availability. Source estimates need a new
-  linked image and hardware watermarks before they become memory evidence.
-- Monitor can reset a continuously connected MCU; passive attach must not probe
-  the port. COM numbers/list order are not identities. Classify missing ports
-  by native codes, preserve exception/exit causes and acquire artifact ownership
-  before diagnostic writes; secondary logging failure is separate.
-- Capture before best-effort USB output. Release storage/logger locks before USB
-  transmission. File revisions/CRCs prove transfer identity, not a freeze's cause.
-  [Offline logging](docs/bsp/services/storage-and-logging.md).
+- **A frame owns DMA until confirmed completion.** Quarantine ambiguous transfers
+  after deadlines; partial frames invalidate comparison history. Commit geometry
+  only after success, erase old and new bounds, and respect native pixel byte order.
+- **Free RAM is not contiguous DMA.** CO5300 QSPI uses bounded internal bounce
+  strips here; direct PSRAM DMA is unsafe. Two requested buffers do not prove
+  overlap. Inspect admitted slots and complete-frame costs, including strip-command
+  overhead and deferred touch work.
+- **Reserve BLE memory before SD/display startup.** Park and drain display DMA
+  during radio startup and before explicit Pair telemetry teardown. Keep aggregate
+  and per-block budgets distinct. An assembly address offset is not an allocation
+  size: the old monolithic guard rejected healthy controller restarts.
+- **Record parking while holding its lock.** Re-reading a quickly reopened gate
+  once turned deliberate frame parking into a terminal renderer failure. Keep BLE
+  reserve ownership across standby/errors; rearm only after confirmed SDK closure.
+  A failed future reservation must not pretend a closed session is still alive.
+- **Measure completed work.** A working-device report or capture begun after a
+  failure cannot identify its trigger; a mismatched ELF invalidates backtraces.
+  Compare frame stages, payload, CPU and an actually static route, not FPS alone.
+  [Rendering](docs/cody/rendering.md) has the current contracts.
 
-## Continuous audio ownership
+## Power, wake and acquisition
 
-- A working WakeNet startup does not prove continuous listening. A playback
-  mutex held across a clip or DMA-retirement delay can starve the microphone
-  feed beyond the inference fetch timeout. Keep the sole acknowledged AFE RX
-  owner independent of TX waits; pause acknowledgment must precede route close.
-  Convert authored boot PCM to the fixed duplex clock in bounded owner chunks
-  and supply identical speaker/AEC samples. Do not reconfigure capture clocks,
-  suppress fetch errors or remove prerecorded sound to conceal the conflict.
+- **Policy reapplication is not failed state verification.** Setting
+  `consistent=false` just to force a callback broke paired Cody's LAN gate.
+  Use an explicit reapplication path; service requirements may legitimately retain
+  software standby even when Release permits Deep-sleep.
+- **Acquisition time counts toward cadence.** Waiting a full sampling period
+  after acquisition/commit repeatedly invalidated HAR windows. Schedule the remaining
+  deadline, preserve real timestamps and reject actual gaps.
+- **Low lock cost does not exclude scheduler starvation.** IDF can pin a floating-
+  point task on first FPU use. The 20-Hz activity owner needed explicit CPU1
+  affinity beside higher-priority voice work; do not hide it by changing other priorities.
+- **Restore while dark.** Complete Sleep before closing writes; restore consumers,
+  then producers, before exposing Wake. Lock display/brightness/rotation before
+  settings; require fresh orientation before replay. Roll back failed transitions
+  or retain explicit inconsistency. Recheck diagnostic microphone ownership under lock.
+- **Software standby and Deep-sleep have different state lifetimes.** Retain route,
+  pose and active clocks only in software standby, reconciling backend changes on
+  return. Scene timeouts must not persist global settings or renew activity each frame.
+  Positive pairing overrides suppress early dim; Deep-sleep resets RAM/session owners.
+- **Know the actual wake wiring.** PWR is PMU PKEY, not SD GPIO41; PMU/RTC interrupts
+  lack a direct ESP wake route. Touch GPIO11 and IMU INT2/GPIO21 are separate
+  candidates. QMI WoM needs revision-aware CmdDone/ACK, explicit exit and release of
+  RTC holds/mux after rejected sleep. Keep touch scanning alive.
+- **Optional radio failure needs known-off cleanup before graphical wake.** Keep
+  the real error even if graphics resume. Never log inside touch critical sections:
+  filtered ESP logs can still acquire the log-level mutex and break event-list operations.
+- **Chip sleep figures are not board current.** Native USB does not survive
+  Light-sleep here; keep unsafe IDF 6.0.2 SOF/unsupported retention hooks disabled.
+  Shared powered GPS rails prevent Backup claims. Retain the measured 80-MHz floor;
+  codec shutdown and lower floors need physical evidence.
+- **Slower polling is not power-off.** RTC oscillator-stop stays unavailable until
+  trusted write/readback. LC76G ACK timing, terminal parsing and bounded read backoff
+  matter to the shared bus. Reuse each fresh sample once; coalesce duplicate logs
+  with immediate error/recovery and counted 60-second reminders, not hidden faults.
 
-## Build graph and GUI lifetimes
+## Audio and protocol lifecycle
 
-- Native scene/raster checks do not exercise every onboarding route. A literal
-  body caption still has to fit the actual font and its 232-pixel slot: 22
-  characters occupied 243 pixels and stopped screen 15 on `da37aaac`. Share
-  bounded instructions across connected, idle and ended views; do not widen
-  layout guards or discard the renderer error to hide an oversized caption.
-- Native Windows checks need the existing C++ developer environment before the
-  authorized run. Visual Studio Insiders is omitted by vswhere unless
-  `-prerelease` is supplied. Load its `Launch-VsDevShell.ps1` with x64 host/target
-  selection before device.ps1 checks; a missing PATH entry is not a missing
-  installation or permission to install another compiler.
-- ESP-IDF resolves components before Kconfig: variants need admitted roots,
-  defaults and reviewed build-local locks. Optional-requires cannot discover
-  excluded roots. Gate SDK headers too; codec admission does not enable boot WAV.
-- Keep fresh build roots empty until IDF creates them; generated assets/stamps
-  belong to each build, not shared source staging. Debug/Release is independent
-  of hardware composition; existing Release output is not user intent.
-  [Build modes](docs/bsp/toolchain-and-profiles.md#debug-and-release).
-- System Core is the app runtime, not System Super startup overlays/services.
-  One lazy route owns its document/subscriptions/maps; unload releases captures,
-  and callbacks are destroyed outside registry locks. On partial failure retain
-  the real error and clean/restore explicitly. Intern only static styles.
-- Bindings write final values, apply coalesced backend masks, then notify. No-op
-  values need no batch. Declarative transparency/popup styling must follow the
-  actual schema/backend, not invented properties.
-  [Architecture](docs/README.md).
+- **WakeNet startup is not continuous listening.** Playback locks or DMA retirement
+  can starve AFE fetch. Keep the acknowledged RX owner independent of TX waits;
+  acknowledge pause before route close. Convert boot PCM in bounded chunks to the
+  fixed duplex clock, supplying identical speaker/AEC samples.
+- **Sound follows what was displayed.** Typewriter audio uses retired visible-prefix
+  deltas. Scroll/replacement/resume re-prime silently; cancellation and pending audio
+  share one generation/mailbox. Admission does not prove playback or justify
+  suppressing codec/fetch errors.
+- **Transport delivery and device retirement differ.** Hold a terminal question
+  until authenticated EVENTACK before publishing its successor. Dwell expiry,
+  accepted credentials, one strip write or watchdog progress is not completion.
+- **A deadline cannot kill a wedged SDK call.** Keep buffers and Task-WDT ownership
+  until actual worker exit; recoverable deadlines need margin below Task-WDT.
+  Repeated fast errors are neither success nor necessarily a hang.
 
-## Cache, memory and frame ownership
+## Builds, UI and diagnostics
 
-- Full canonical snapshots grow with unrelated features. The power worker's
-  nested 3904/3792-byte compiled frames exhausted its 8-KiB internal stack at
-  boot and after wake. Use bounded owner projections for control paths and keep
-  the applied-display read fresh after wake. Preserve real lock errors; never
-  substitute empty observations. Inspect the compiled call chain and observe
-  device stack minima before claiming that a memory correction is verified.
-- Adding Codex events also exposed two full copies in the 12-KiB acquisition
-  worker and a 5616-byte GATT callback frame on a 4096-byte NimBLE task. Keep
-  acquisition scratch in owner storage under its refresh lock and project only
-  the BLE telemetry fields under one canonical read lock. Recheck all compiled
-  snapshot callers when the canonical schema grows, not only the feature worker.
-- An optional engine's external heap/stack does not move its linked BSS out of
-  internal RAM. TTS `57121ca2` boot repeatedly failed creating the mandatory
-  8-KiB power task before speech was requested. Keep native cache-dependent BSS
-  in PSRAM through an explicit component linker fragment and create optional
-  workers after mandatory owners; compile/flash success alone cannot verify boot.
-- PSRAM-stack tasks cannot safely commit NVS/cache-disabling flash operations.
-  Use the internal-stack settings/storage executors; do not shrink worker stacks
-  without measurements. Delete capability-allocated tasks with the matching API.
-- Bound logger/scratch together and publish raw heap/block/allocation failures.
-  Allocation-failure hooks must neither allocate nor log. Use bounded arithmetic;
-  long active clocks need an explicitly wide, saturating representation.
-- Coverage antialiasing adds nested raster scratch even for small cheeks. Cody's
-  compiled worker/frame/coverage chain reached 8,176 bytes and overflowed an
-  8 KiB worker while startup's 12 KiB main stack still drew successfully.
-  Budget the full call chain and retain measured worker headroom in Debug.
-- A frame owns its transient internal DMA lease and watchdog from geometry to
-  completion. Quarantine uncertain DMA completion even after deadline; a partial
-  frame invalidates comparison history. Endian conversion consumes native pixels.
-  Commit previous geometry only on success and erase both old/new bounds.
-- CO5300 QSPI cannot safely use direct PSRAM DMA here. Bounded internal bounce
-  strips preserve completion ownership; smaller tiles must not create unbounded
-  deferred touch work. Protect the BLE startup budget before Wi-Fi.
-  [Mitigations](docs/bsp/core/display-touch-runtime.md),
-  [rendering](docs/cody/rendering.md).
-- On Cody, reserve the BLE DMA budget before SD/display startup, then drain
-  and briefly park frame-owned display DMA during Wi-Fi/BLE startup. Keep
-  aggregate and per-block admission distinct. Do not infer a malloc size from
-  an address offset: controller 51d9dfd's EMI `addmi ...,30720` is not a 30-KiB
-  allocation. The old monolithic guard itself rejected healthy SDK restarts.
-  Explicit Pair must drain before telemetry teardown too. Capture deliberate
-  frame parking under its lock: re-reading a quickly reopened gate can turn a
-  harmless parked admission into a terminal renderer failure.
-- Keep unused BLE DMA in one lifetime owner through standby and pre-handoff
-  errors. After confirmed SDK closure, rearm under the parked display gate.
-  Report hardware cleanup separately from the future memory budget: losing a
-  reservation must not falsely keep a closed pairing session alive.
-
-## Power, wake and audio
-
-- Complete Sleep before closing display writes; prepare Wake while dark before
-  panel exposure. Lock display/brightness/rotation before settings, defer
-  rotation while off and require fresh orientation before replay.
-- Software standby retains route/active clocks/paused pose; lifecycle presentation
-  must not overwrite that state. Reconcile actual backend changes before resume.
-  Real Deep-sleep resets RAM/owners/sessions; no fabricated session restoration.
-- Transient scene timeout policy must not persist global settings or refresh
-  activity every frame. Positive pairing overrides also suppress early dim.
-- Typewriter audio follows retired visible-prefix deltas, not evaluated frames.
-  Replacement/scroll/resume silently re-prime; cancellation and pending payload
-  must share one coherent generation/mailbox. Admission does not prove playback;
-  use existing codec/quiet/volume ownership and retain real async failures.
-  [Runtime and scenes](docs/cody/runtime.md).
-- Standby quiesces producers before consumers; wake restores consumers dark,
-  then producers before exposure. Failed transitions roll back or remain explicitly
-  inconsistent. Diagnostic microphone handoff rechecks ownership under the lock.
-- PWR is PMU PKEY, not SD GPIO41. PMU/RTC interrupts lack a direct ESP wake route;
-  touch GPIO11 and IMU INT2/GPIO21 are separate RTC candidates. QMI WoM needs
-  revision-aware CmdDone/ACK and explicit exit; release RTC holds/mux after
-  rejected sleep. Keep touch wake scanning alive.
-- Keep unsafe IDF 6.0.2 USB SOF and unavailable PHY-retention hooks disabled.
-  Native USB does not survive Light-sleep; CPU sleep figures are not board
-  current. Powered GPS/shared rails prevent claimed Backup savings; verify
-  codec shutdown physically. Retain the measured 80 MHz floor pending PWR tests.
-- Radio aggregate free RAM does not prove a wake can reacquire the contiguous
-  BLE controller block. Graphical wake may continue only after a failed optional
-  radio restore is cleaned to a known-off state; preserve the real error. Never
-  call ESP logging inside touch critical sections: even filtered logs can take
-  the SDK log-level mutex and corrupt/block FreeRTOS event-list operations.
-- RTC oscillator-stop remains unavailable until trusted write/readback. LC76G
-  I2C control timing/terminal ACK parsing and bounded failed-read backoff matter
-  to shared-lock responsiveness. Polling slower alone does not power down IMU.
-  [Deep-sleep](docs/bsp/services/power-management.md#standby-and-wake),
-  [low-power](docs/bsp/services/power-management.md#acquisition-policy),
-  [hardware](docs/bsp/boards/waveshare-esp32s3-touch-amoled-1.75/power-reference.md).
-
-## Watchdogs
-
-- A software timeout cannot terminate a wedged SDK call. Its worker keeps buffers/
-  Task-WDT ownership until actual exit; recoverable deadlines need margin below
-  Task-WDT. Fast repeated failures are errors, not success or necessarily a hang.
+- **Set up the existing compiler before authorized native checks.** `vswhere`
+  needs `-prerelease` to find Visual Studio Insiders. Load `Launch-VsDevShell.ps1`
+  with x64 host/target; missing PATH is not permission to install another compiler.
+- **IDF discovers components before Kconfig.** Admit roots/defaults and reviewed
+  build-local locks explicitly; optional-requires cannot discover excluded roots.
+  Gate headers too. Codec admission alone does not enable boot WAV.
+- **Fresh build roots start empty.** Assets/stamps belong to their own build.
+  Existing Release output does not select Release for the next request.
+- **CMake and source contracts move with responsibilities.** Keep acquisition,
+  timestamps, persistence and publication at their owners. Moving DPAPI/launcher
+  code into modules does not implement other-platform support.
+- **Core runtime and Super overlays have different lifetimes.** One lazy route
+  owns its document/subscriptions/maps; unload releases captures. Destroy callbacks
+  outside registry locks, retain real partial failures and intern only static styles.
+  Bindings write final values, coalesce masks, then notify; no-op values need no batch.
+  Use actual declarative schemas, not invented transparency/popup properties.
+- **Text still has to fit its real font.** A 22-character caption occupied 243 pixels
+  in a 232-pixel slot and stopped screen 15 on `da37aaac`. Share bounded instructions;
+  do not widen guards or drop renderer errors to hide it.
+- **Optional logging must stay optional.** Queue pressure is counted delivery loss,
+  not terminal SD failure. Capture zero-wait internally, archive sealed records,
+  and advance replay only after flush. Keep uncertain I/O ownership and no reset
+  watchdog/startup dependency on logging. Memory estimates need linked/runtime evidence.
+- **Passive serial capture must stay passive.** Monitor can reset an attached MCU;
+  COM order is not identity. Preserve native error/exit codes, own artifacts before
+  writing diagnostics, and keep secondary log failures separate. Capture before
+  best-effort USB output; release storage locks before transmitting. CRCs prove
+  transfer identity, not a freeze's cause.
+- **History needs dates, not stale branch names.** After consolidation, record the
+  merged capability and commit. Ignored artifacts can disappear; retain results
+  in tracked records without promising that old local files still exist.
