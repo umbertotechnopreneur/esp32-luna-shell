@@ -50,9 +50,7 @@ the folder structure does not claim additional firmware support.
 | [CCP Communication Atlas](cody/cody-ccp-connection-atlas-v1.pdf) | One canonical pairing, plugin and voice reference: plain-English flow first, detailed source/security reference after |
 | [Manga Status Atlas](cody/cody-manga-status-atlas-v1.pdf) | Expressive cues, artwork and boot identity |
 
-Earlier service and Codex connection atlases are historical sources retained in
-Git; their substantive history belongs to the Communication Atlas revision
-register. The Pairing Quickstart retains four practical pages after its cover and contents.
+The Pairing Quickstart retains four practical pages after its cover and contents.
 All five guides carry a VibeWare cover, author copyright, Draft / Confidential /
 Internal use only classification, clickable contents and current PDF page labels.
 Contents locate unique section headings in the current edition; historical page
@@ -63,16 +61,15 @@ Screen IDs remain stable independently of page numbers. PDF authoring
 commands and translation provenance are in the [console guide](../scripts/README.md).
 Document illustrations and simulator frames are synthetic evidence.
 
-## Work and evidence
+## Current work
 
 | Record | Purpose |
 | --- | --- |
 | [AGENTS.md](../AGENTS.md) | Repository rules and authorization |
 | [TODO.md](../TODO.md) | Open work and remaining validation |
 | [planned-todo.md](../planned-todo.md) | Deferred work and activation conditions |
-| [done.md](../done.md) | Short dated completion and evidence summaries |
-| [archive.md](../archive.md) | Detailed history and superseded plans |
+| [done.md](../done.md) | Latest validation round only |
 | [lessons.md](../lessons.md) | Causes and practical lessons from recurring errors |
 
-Guides describe source contracts. Build, host execution, flash and physical
-behavior retain their own evidence levels and dates in the root records.
+Guides describe current contracts and limitations. Keep one concise validation
+summary; replace it after the next round without appending a chronology.

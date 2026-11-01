@@ -163,14 +163,8 @@ Before any eventual automatic shutdown policy, measured false-shutdown rates,
 placement evaluation, persistent evidence, lack of recent interaction and a cancellable
 warning are still required. The observer currently cannot request standby or shutdown.
 
-## Current evidence
+## Remaining work
 
-On 2026-10-12 the isolated conversion environment was provisioned and actual fixed
-pretrained weights were converted successfully. Original scaler and axis ordering
-were recovered without training, with all 107 provided calibration inputs matched
-exactly at float32 precision. The first W16A16 model hash was
-`3880fc61b887283f785028f310930b629c6adeb9dba1519e98bb62d1a7f7af89`.
-The final W8A16 conversion and its different hash are recorded above. Source
-integration and static review are separate from firmware compilation, flash,
-runtime inference, physical classification accuracy and energy measurements; consult
-the canonical `done.md` and `TODO.md` records for subsequent evidence.
+Physical classification accuracy, runtime inference, energy and stack headroom
+remain unverified. Outstanding acceptance is tracked in [TODO.md](../../TODO.md)
+and [planned-todo.md](../../planned-todo.md).

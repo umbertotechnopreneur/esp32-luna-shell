@@ -9,12 +9,10 @@ dependency required by the logger's USB driver owner.
 
 ## SD startup clocks
 
-On 2026-10-12 the user confirmed the remaining SD startup/reset behavior as a
-known PCB limitation and accepted a standby/wake cycle as the recovery workaround.
-It is not tracked as a new software defect or a request for further SD investigation.
-This is user-confirmed operating context, not new physical validation performed
-by this documentation change. Real mount/read/write failures remain visible through
-the existing storage owner and canonical health reporting.
+SD startup/reset behavior is an accepted PCB limitation. A standby/wake cycle
+is the accepted recovery workaround; further SD investigation remains deferred.
+Real mount/read/write failures stay visible through the storage owner and
+canonical health reporting.
 
 After SDMMC slot initialization, the BSP selects the official 400-kHz probing
 frequency and queries its calculated frequency before initializing the card.
@@ -28,28 +26,11 @@ continuous clocking. Explicit probing selection prevents that overwrite.
 Espressif's [ACMD41 clock correction](https://github.com/espressif/esp-idf/commit/7524f40)
 documents the continuous-clock requirement. Clock-selection/query failures
 retain their original error and slot-initialization stage; ordinary staged
-cleanup remains responsible for the attempt. Runtime verification is recorded
-in the root `done.md` and open limits in `TODO.md`.
+cleanup remains responsible for the attempt.
 
-The corrected device capture no longer reprograms the frequency before every
-command, but ACMD41 remains busy: this correction is insufficient to resolve
-the startup fault. A continuous-clock request log and calculated frequency do
-not establish the physical CLK waveform. Debug automatic light sleep is off;
-the current evidence does not justify a power-management change.
-
-An [ESP32-S3 reset report](https://github.com/espressif/esp-idf/issues/11438)
-describes a working card failing OCR after reset, with one-bit SDMMC and external
-pull-ups, on IDF 4.4.4. It is an analogy, not the same verified cause. A
-[first-person STM32 report](https://www.mikrocontroller.net/topic/424234#6502446)
-describes indefinite ACMD41 busy despite repeated CMD0 after an initial power-up
-sequence; waiting before the first command avoided it there. Our first attempt
-already occurs seconds into startup, so that report does not justify adding an
-arbitrary delay. No matching confirmed Waveshare resolution was found in that
-historical investigation. Simultaneous SD VDD and CLK/CMD observation was proposed
-to distinguish power disturbance, clock loss and retained card state; it was not
-performed by that investigation and is not a new pending software task. The
-2026-10-12 accepted operating workaround is standby/wake. No shared power rail is
-cycled by this implementation.
+The probing-clock correction does not resolve the accepted startup limitation.
+A calculated frequency does not establish the physical CLK waveform. No shared
+power rail is cycled by this implementation.
 
 ## Recording and retention
 
@@ -185,9 +166,6 @@ the previous destination; cleanup failures retain their own real diagnostics.
 The ordinary monitor now uses `--no-reset` and forwards its baud explicitly.
 `-ResetBeforeMonitor` requests ESP-IDF's startup reset when intentionally needed.
 Its inventory wait never opens a probe handle or stops an existing monitor.
-
-The 2026-10-05 PSRAM/best-effort revision has static source review only. No new build, suite, simulator, flash,
-download, monitor, SD mount, standby or physical boot behavior was validated.
 
 ## Storage lifecycle
 

@@ -114,12 +114,9 @@ adding LVGL or its adapter dependency.
 [`wake-word.csv`](../../../config/partitions/wake-word.csv), end at `0x1000000`
 (16 MiB); an 8 MiB device ends at `0x800000`. They cannot be reused. The current
 wake-word table has two `0x6f0000` application slots, a 1 MiB speech-model
-partition and a 1 MiB LittleFS partition. The last recorded Release application
-in [done.md](../../../done.md) is 7,151,328 bytes, already larger than half of
-the new board's entire flash. That historical size is not a new build result.
-The current-sized application cannot support two such internal OTA slots on
-1.43C. Review feature/asset size and OTA requirements before choosing a smaller
-layout; a single application slot may be possible, but full-feature fit is not
+partition and a 1 MiB LittleFS partition. Two existing application slots alone
+exceed the 1.43C's entire 8 MiB flash. Review feature/asset size and OTA
+requirements before choosing a smaller layout; a single application slot may be possible, but full-feature fit is not
 established, especially with speech models and internal assets.
 
 **Power and missing sensors change behavior on 1.43C.** Add a board-owned ADC

@@ -135,12 +135,18 @@ before layout changes and [Cody layout](docs/cody/layout.md) for control details
 | `AGENTS.md` | Current working agreements |
 | `TODO.md` | Active work and its remaining acceptance gates |
 | `planned-todo.md` | Deferred work, stable IDs and activation conditions |
-| `done.md` | Short dated completion/evidence summaries |
-| `archive.md` | Detailed historical records and superseded plans |
+| `done.md` | One concise summary of the latest validation round only |
 | `lessons.md` | Reusable lessons from observed failures |
 
-- Move history to `archive.md`; do not duplicate queues or add alias TASKS/TODO/
-  lessons files. Archived plans are not active instructions. Never mark pending
+- Keep documentation focused on current behavior, configuration, limitations and
+  remaining work. Do not accumulate chronological reports, old attempts, CI runs,
+  PR references or superseded validation results. Replace the latest validation
+  summary instead of appending rounds; do not create history/story/archive or
+  validation Markdown files. Do not move deleted history into another document.
+- Keep only the latest validation round's disposable reports and logs; preserve
+  active build inputs/state and required dependency provenance/first-import scan
+  records. This retention rule does not authorize builds, scans or device operations.
+- Do not duplicate queues or add alias TASKS/TODO/lessons files. Never mark pending
   validation done. Read `lessons.md` before boot/startup/Brookesia changes.
 - Keep generated builds, state, logs, captures, reports, temporary files and local
   simulator environments in `artifacts/`. Before each authorized firmware build/

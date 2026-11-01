@@ -88,8 +88,6 @@ System Super's SD backend is disabled. The shared
 [storage contract](../bsp/services/storage-and-logging.md#storage-lifecycle)
 owns absence, transport failures, format-required admission and one-shot consent.
 
-## Evidence
+## Remaining work
 
-Current startup/dependency gates are in [TODO.md](../../TODO.md). Earlier serial
-captures and builds retain their profile, date and checkpoint in
-[done.md](../../done.md); they do not establish another profile's behavior.
+Current startup/dependency gates are in [TODO.md](../../TODO.md).

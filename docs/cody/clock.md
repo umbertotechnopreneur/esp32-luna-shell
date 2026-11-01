@@ -22,9 +22,8 @@ error with conservative suppression. The original microclick also obeys its zero
 volume/standby/hidden-scene gates. Both cue types share clock policy; see
 [runtime](runtime.md). It is not a claim of safe audible loudness on the speaker.
 
-## Evidence and future reminders
+## Future reminders
 
 Routines choose presentation; they do not create an alarm or wake scheduler.
 Reminder, snooze and scheduled-wake ideas remain in [planned-todo.md](../../planned-todo.md).
-Source and physical clock/audio evidence remain in [done.md](../../done.md),
-with outstanding observations in [TODO.md](../../TODO.md).
+Outstanding observations are in [TODO.md](../../TODO.md).

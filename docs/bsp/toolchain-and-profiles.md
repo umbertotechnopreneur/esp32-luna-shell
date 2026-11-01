@@ -171,7 +171,7 @@ Python caches and simulator pairing state. Fullclean affects only the selected
 build; managed/versioned inputs are not runtime cleanup targets.
 
 Clean/incremental builds, size, simulator checks, source/dependency checks and
-physical operations follow [AGENTS.md](../../AGENTS.md). Their actual commands,
-dates, profiles and outcomes belong in [done.md](../../done.md); current gates
-belong in [TODO.md](../../TODO.md). A successful build does not prove boot,
+physical operations follow [AGENTS.md](../../AGENTS.md). Keep only the latest
+round in [done.md](../../done.md) and current gates in [TODO.md](../../TODO.md).
+A successful build does not prove boot,
 display/touch, service behavior or current consumption on a physical device.

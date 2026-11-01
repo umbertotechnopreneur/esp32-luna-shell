@@ -2,13 +2,12 @@
 
 This guide owns the implemented artistic mood, petting and idle policy.
 
-The 2026-10-11 Codex acting increment adds work-kind accents, an attention double
-blink and exact-turn reply/interruption reactions through the existing native
-director. It adds no wellbeing session, inferred human fatigue or host OS event
-monitor. See [runtime](runtime.md#minimal-character-direction---2026-10-10) for
+The native character director provides work-kind accents, an attention double
+blink and exact-turn reply/interruption reactions. It adds no wellbeing session, inferred human fatigue or host OS event
+monitor. See [runtime](runtime.md#minimal-character-direction) for
 source continuity, priorities, bounded state and pending validation.
-The 2026-10-04/05 exploration also produced a disabled native wellbeing model;
-its integration remains deferred. Routes belong to [navigation](navigation.md),
+The native wellbeing model is disabled; its integration remains deferred.
+Routes belong to [navigation](navigation.md),
 cue raster/resources to [personality channel](personality-icons.md), and clocks/
 standby to [runtime](runtime.md). Future product decisions belong to
 [planned-todo.md](../../planned-todo.md).
@@ -39,11 +38,9 @@ happiness above the authored initial value into a gentle smile and raised cheeks
 lower values do not create an unattended frown. Each accepted caress also leaves
 a bounded 30-second active-time warmth tail after its existing heart cue. This
 does not change breathing, acquired motion or cue priorities. See
-[runtime](runtime.md#minimal-character-direction---2026-10-10) for admission,
-pause and debug isolation. The same native director is integrated into Studio; driver compilation and
-named synthetic character cases passed on 2026-10-11. Physical behavior remains open.
-Those results precede the later Codex acting/power-cue increment; its final
-validation remains open in TODO.md.
+[runtime](runtime.md#minimal-character-direction) for admission,
+pause and debug isolation. Studio uses the same native director. Physical
+behavior remains open in [TODO.md](../../TODO.md).
 The native getter exposes an artistic snapshot under the existing display
 lock. The Windows source reads the same YAML and displays synthetic diagnostic
 values; it does not write firmware observations.
@@ -62,10 +59,7 @@ bindings. It emits `personality_catalog.hpp`, `personality_rules.hpp`,
 `manifest.json`. Firmware uses those flash constants rather than
 parsing YAML or evaluating arbitrary expressions at runtime. After editing the
 YAML, regenerate through the console before expecting a rule change on Cody.
-The `positive_only` revision was generated and its named native/Studio tests
-passed on 2026-10-11. Dated counts, earlier failed fixture expectations and
-firmware evidence live in [done.md](../../done.md); physical petting, audio and
-stack headroom remain in [TODO.md](../../TODO.md).
+Physical petting, audio and stack headroom remain in [TODO.md](../../TODO.md).
 
 ## Permanent identities and configurable policy
 
@@ -220,10 +214,7 @@ same native whistle PCM through its PC-only fake audio owner. It never publishes
 PC playback as firmware samples or physical-device evidence.
 
 
-## Status and evidence
+## Remaining work
 
-Native-source and Studio integration do not establish gesture feel, physical
-audio, performance or stack headroom. Current gates are in [TODO.md](../../TODO.md).
-Historical generated-artwork, host and device results retain their dates and
-checkpoints in [done.md](../../done.md). The original exploration and idle-atlas
-production history are preserved at Git checkpoint `9956446`.
+Gesture feel, physical audio, performance and stack headroom remain open in
+[TODO.md](../../TODO.md).

@@ -1,6 +1,6 @@
 # CCP1 local pairing protocol
 
-## Current-only activity contract - 17 October 2026
+## Supported activity contract
 
 The responder accepts only `activity=5` when activity is advertised, with
 `events=3` for the current event extension. Activity capabilities 1, 2 and 4 are
@@ -10,19 +10,14 @@ FIND advertises no activity and remains a separate current capability, not a
 version downgrade. Current activity always sends description, branch and the
 complete title observation, plus TECH from the same source projection.
 
-Older wire descriptions below are historical reference and are not accepted
-activity implementations. Firmware and Studio already emit the current contract.
-This source cleanup does not install or reload the plugin or flash a device.
-
 CCP1 connects one physical Cody device to one local Cody's Codex Plugin (CCP)
 runtime. It provides bounded UDP commissioning, liveness, selected chat
 activity and semantic question/answer exchange. It does not transport full chat
 transcripts or audio.
 
-## Current activity=5 / events=3 contract (14 October 2026)
+## Activity and event wire format
 
-This section supersedes the historical activity=4, events=2 and EVENT v1 wire
-examples below. Current source uses the [host encoder/decoder](../mcp/ccp_interactions.py),
+Current source uses the [host encoder/decoder](../mcp/ccp_interactions.py),
 [firmware decoder](../../../components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp)
 and [authenticated envelope owner](../mcp/ccp_server.py). Pairing and the fresh
 READY/COMMITTED handshake retain their existing contract.
@@ -51,8 +46,8 @@ TECH remains `technical-v2`. EVENT, REPLY, REPLYACK and EVENTACK retain the
 `event`, `reply`, `reply-ack` and `event-ack` domains and envelope field order
 documented below; only the negotiated FIND domain changes.
 
-EVENT binary **schema 2** starts with `u8 version=2`. It keeps the historical
-field order through `total`, with the following current limits and appended fields:
+EVENT binary **schema 2** starts with `u8 version=2`. Its ordered fields through
+`total` are specified under Event transport below. Current limits and queue fields:
 
 | Field | Current schema 2 contract |
 | --- | --- |
@@ -108,7 +103,7 @@ still pending or was approved. Broker diagnostics record accepted permission
 boundaries and queued/suppressed/retired outcomes using hashed chat/turn identities;
 commands, tool inputs and chat text are never included in this trace.
 
-## Authenticated Codex client presence (15 October 2026)
+## Authenticated Codex client presence
 
 App presence is separate from retained pairing, READY/LAN liveness and the followed
 chat's ACTIVITY phase. Its source is the existing MCP transport lease owner,
@@ -367,40 +362,17 @@ CCP 0.6.4, firmware and the explicit simulator must be updated together.
 Earlier READY/COMMITTED layouts and HMAC domains are rejected; there is no
 compatibility fallback. The saved pairing record format remains unchanged.
 
-## Historical activity=4 contract and presentation
+## Activity ownership and presentation
 
-The examples and presentation description in this section preserve the earlier
-activity contract; the current activity=5/events=3 contract is specified above.
-That firmware negotiated `activity=4`, with or without the separate events
-capability. Each capability is bound to its own HMAC domain; stripping or
-changing a capability never reuses a presence proof. Version three adds the
-separate TECH projection below; its ACTIVITY payload keeps version-two fields.
-
-```text
-CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=4|proof=<64hex>
-HMAC input: find-activity-v4|<device>|<pc>|<nonce>
-
-CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=4|events=2|current=<32hex>|state=<device-state>|proof=<64hex>
-HMAC input: find-events-activity-v4|<device>|<pc>|<nonce>|<current>|<state>
-
-CCP1|ACTIVITY|device=<12hex>|pc=<32hex>|nonce=<32hex>|chat=<64hex>|revision=<16hex>|phase=<token>|project=<hex or ->|description=<hex or ->|branch=<hex or ->|proof=<64hex>
-HMAC input: activity-v2|<device>|<pc>|<nonce>|<chat>|<revision>|<phase>|<project>|<description>|<branch>
-```
-
-The PC sends this complete activity snapshot only after the fresh COMMITTED. The link
-key authenticates every field, in exactly the documented order. `chat` is the
-SHA-256 of the followed opaque Codex session ID; all zeroes denote no followed
-prompt. `revision` is a volatile diagnostic counter, not a persisted ordering
-guarantee. The current random FIND nonce admits at most one ACTIVITY snapshot;
-old polls, duplicate replies and altered metadata are rejected.
-
-ACTIVITY and TECH use separate 1024-byte extension envelopes. EVENT retains its
-1280-byte envelope; every other datagram retains its original 512-byte bound.
-There is no fragmentation. Printable ASCII text is hex encoded: `project` and
-`branch` each admit at most 64 characters, `description` at most 192. `-` means
-no description or unavailable branch. A no-chat snapshot requires `phase=none`,
-zero chat, `project=-`, `description=-` and `branch=-`. A description is admitted
-only for actual `working`, `editing` or `running` phases.
+The link key authenticates every activity field in the documented order. `chat`
+is the SHA-256 of the followed session ID; zeroes denote no followed prompt.
+`revision` is a volatile diagnostic counter, not a persisted ordering guarantee.
+The current FIND nonce admits at most one ACTIVITY snapshot; old polls, duplicate
+replies and altered metadata are rejected. Printable ASCII text is hex encoded:
+`project` and `branch` admit at most 64 characters, `description` at most 192.
+`-` means no description or unavailable branch. A description is admitted only
+for actual `working`, `editing` or `running` phases. No-chat snapshots use
+`phase=none`, zero chat and absent project, description and branch.
 
 The hook ingestion owner obtains the actual branch from the nearest checkout's
 `.git/HEAD`, including an explicit worktree `gitdir` pointer. Detached HEAD is
@@ -410,15 +382,6 @@ transcript, raw tool input or guessed branch is used. Project metadata uses the
 actual workspace leaf within its 64-character ASCII contract; unrepresentable
 labels explicitly report `UNAVAILABLE`. Measured overflow scrolling belongs to
 the native display; authenticated metadata retains the accepted full label.
-
-Version-one peers continue to negotiate `activity=1`, using `find-activity` or
-`find-events-v2`. Their ACTIVITY fields remain device, pc, nonce, chat, revision,
-phase, project and proof, authenticated with `activity`. Their 24-byte project
-slot receives a separately logged display projection when a newer owner holds
-a longer name. Version-one responses remain below 512 bytes. Version-two peers
-use `find-activity-v2` or `find-events-activity-v2` and receive ACTIVITY without
-TECH. Current firmware requires the version-three contract it requests; it
-does not silently downgrade.
 
 Phases are `none`, `active`, `working`, `editing`, `running`, `ready`, `paused`,
 `interrupted`, `ended` and `unavailable`. A genuine `apply_patch` tool, including
@@ -481,8 +444,8 @@ change redraws the chip without restarting the carousel or replaying audio.
 
 ## Authenticated technical metadata
 
-Version-four FIND yields READY; fresh COMMITTED then yields ACTIVITY and TECH. Activity and technical
-metadata are acquired under one ActivityStore lock, preserving one chat and
+Authenticated FIND yields READY; fresh COMMITTED then yields ACTIVITY and TECH.
+Activity and technical metadata are acquired under one ActivityStore lock, preserving one chat and
 revision even when a hook arrives during UDP transmission. EVENT and other
 independent extensions retain their own authenticated contracts.
 
@@ -575,12 +538,7 @@ conversation text for estimates. No second App Server or chat resume/start is
 introduced. Changed plugin hooks require native review before execution;
 enabling the plugin alone does not establish trusted live hook delivery.
 
-## Historical EVENT v1 / events=2 contract (CCP 0.6)
-
-The v1 payload table, earlier size limits and single-question queue description
-below are retained as historical protocol evidence. The current schema 2 and
-multi-question contract above supersede them. EVENT/REPLY/REPLYACK/EVENTACK proof
-domains and recipient-confirmed answer semantics remain as documented here.
+## Event transport and reply lifecycle
 
 Automatic chat metadata and explicit MCP requests have separate ownership.
 An MCP request creates a random 128-bit ticket and 256-bit capability, disclosed
@@ -589,9 +547,6 @@ or focus. Explicit questions need no invented hook. Genuine PermissionRequest
 produces only On your PC; native authorization stays in the normal Codex prompt.
 
 ```text
-CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=1|events=2|current=<32hex>|state=<device-state>|proof=<64hex>
-HMAC input: find-events-v2|<device>|<pc>|<nonce>|<current>|<state>
-
 CCP1|EVENT|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|state=<state>|ttl=<seconds>|data=<hex or ->|proof=<64hex>
 HMAC input: event|<device>|<pc>|<nonce>|<id>|<state>|<ttl>|<data>
 
@@ -605,12 +560,11 @@ CCP1|EVENTACK|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|state=<terminal
 HMAC input: event-ack|<device>|<pc>|<nonce>|<id>|<state>
 ```
 
-`events=2` accepts activity version 1, 2 or 3 with the matching HMAC domain.
 `current` is the observed question ID, or all zeroes when absent. `state=none`
 requires zero ID; other device states are pending, sending, received, delivered,
 cancelled, expired or rejected. Notifications are not open questions.
-EVENT admits 1280 bytes, ACTIVITY v2 and TECH admit 1024, and other packets
-retain 512. Application messages are never fragmented.
+Datagram caps are EVENT 4,096, ACTIVITY 2,048, TECH 1,024 and other packets
+512 bytes. Application messages are never fragmented.
 
 EVENT is a complete immutable ticket snapshot, signed by the link key and current
 FIND nonce. Admit one EVENT publication per nonce after the current authenticated
@@ -620,7 +574,7 @@ TTL is remaining seconds rounded up, 0..180, not UTC; pending/received require
 at least one second. Repetition never extends the original local deadline.
 Offline retains question/route; timeout, restart or LAN return never selects a choice.
 
-Since CCP 0.6.2, an open question unknown to the current association's broker
+An open question unknown to the current association's broker
 (for example after restart) first receives EVENT unavailable with the same ID,
 ttl=0 and data=-. A queued successor waits. Cody retires only its own question,
 keeps the local choice as unconfirmed delivery and publishes rejected with
@@ -629,15 +583,16 @@ retirement before new publication. Frame/canonical publication failure repeats
 retirement. An unknown ticket needs no EVENTACK; this cannot reconstruct answers
 or extend deadlines.
 
-`data` is lowercase hexadecimal bytes. The v1 payload contains these fields in order:
+`data` is lowercase hexadecimal bytes. Schema 2 contains these fields in order,
+followed by the queue fields specified above:
 
 | Field | Format and limit |
 | --- | --- |
-| version | u8, value 1 |
-| kind | u8: 1 notice, 2 question, 3 approval_on_pc, 4 pr_pending, 5 checks_running, 6 checks_failed, 7 checks_passed |
+| version | u8, value 2 |
+| kind | u8: 1 notice, 2 question, 3 approval_on_pc, 4 pr_pending, 5 checks_running, 6 checks_failed, 7 checks_passed, 8 reply_ready |
 | context | u8 length + 0..24 printable ASCII bytes |
 | title | u8 length + 1..24 printable ASCII bytes |
-| body | u8 length + 1..63 printable ASCII bytes |
+| body | u8 length + 1..63 printable ASCII bytes; approval_on_pc allows 1..255 |
 | choice_count | u8: 2 or 3 for question only, otherwise 0 |
 | choices | Per choice: id, label, detail, tone as below |
 | selected_id | u8 length + 0..12 bytes; empty until an answer |
@@ -648,7 +603,7 @@ or extend deadlines.
 | total | u16 big endian; zero when progress_valid=0 |
 
 Each choice contains id (u8 length + 1..12 bytes, `[a-z][a-z0-9_]{0,11}`),
-label (u8 + 1..12 ASCII), detail (u8 + 1..63 ASCII), and u8 tone:
+label (u8 + 1..63 ASCII), detail (u8 + 1..255 ASCII), and u8 tone:
 0 neutral, 1 positive, 2 negative, 3 info. IDs/labels are unique; IDs survive
 reordering. Mandatory text cannot be all spaces. Reject excess fields, trailing
 bytes, incoherent combinations and oversized content without silent truncation.
@@ -666,7 +621,7 @@ permits Reply sent. Other REPLYACK states are received, expired, cancelled, conf
 and unknown. Repeating one choice is idempotent; another cannot overwrite it.
 Lost ACK does not clear state: later authenticated FIND/REPLY reports it.
 
-Since CCP 0.6.1, recipient receipt and observed device closure are separate.
+Recipient receipt and observed device closure are separate.
 A published broker-terminal question precedes its successor until Cody applies
 the terminal state and sends EVENTACK. It admits delivered, cancelled, expired
 or rejected only, with active key, observed endpoint and current FIND nonce.
@@ -687,8 +642,8 @@ Unpublished questions need no device closure. Deadlines begin at enqueue;
 waiting for earlier closure never extends TTL. Update coordinated firmware/plugin
 versions together; a presentation timeout never releases the next question.
 
-Only one question is open per device; activity, battery and notices cannot displace
-it. Screen 27 selection stays reversible before Send; Back to 26 preserves it.
+Only one question is presented at a time; activity, battery and notices cannot
+displace it. Screen 27 selection stays reversible before Send; Back to 26 preserves it.
 Poll/cancel need the creator's ticket/capability; capability never travels over LAN.
 Poll waits at most 15 s without retaining other MCP-operation locks. Volatile
 results/deadlines have a bounded cache; broker restart does not replay requests
@@ -917,7 +872,7 @@ Metadata CCP packets remain authenticated
 plaintext; this audio extension does not replace or strengthen the existing pairing
 scheme. Cryptographic/wire/physical checks of this source increment remain pending.
 
-## Authenticated device diagnostics, 16 October 2026
+## Authenticated device diagnostics
 
 The Cody Companion profile offers one transient device diagnostic screen in
 Release and Debug: `character` renders the live character with canonical snapshot

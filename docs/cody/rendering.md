@@ -48,8 +48,8 @@ rejects compilation with the host flag. The PC never publishes firmware snapshot
 
 The shared lip control points are 18 percent wider, preserving each preset's
 relative width and opening. The existing breathing clock now closes and opens
-the mouth around that preset and adds a small width pulse; the 2026-10-05 revision
-uses 35-percent closing, 16-22-percent reopening and 4.5-percent width excursion so
+the mouth around that preset and adds a small width pulse. It uses 35-percent
+closing, 16-22-percent reopening and 4.5-percent width excursion so
 the closed-mouth Stressed preset also has a visible pulse. It does not add a
 timer or acquire measurements. A coral-pink tongue is a separate authored fill
 under the same mouth anchor and width/opening channels. It appears at opening
@@ -210,13 +210,10 @@ the existing 256-intersection scratch between subject and containing polygon,
 without an additional raster array or mask allocation. Runtime stack, timing and
 physical appearance after this mouth change remain unverified.
 
-The 2026-10-05 PSRAM revision also releases the logger's temporary 32-KiB boot
-allocation after replay or archives sealed records to PSRAM. Relative to the
-previous map, roughly 36 KiB of selected application data/stacks plus 32 KiB of
-temporary boot retention can leave internal RAM at steady state. This roughly
-68-KiB estimate is not a new linker/heap measurement. PSRAM allocation failure
-retains the boot buffer and reduces that recovery. DMA, ISR/control state,
-pairing and the NVS/flash-reading workers remain internal; mbedTLS allocation
+The logger releases its temporary 32-KiB boot allocation after replay or archives
+sealed records to PSRAM. Allocation failure retains the internal boot buffer.
+DMA, ISR/control state, pairing and the NVS/flash-reading workers remain
+internal; mbedTLS allocation
 policy is unchanged. Native Cody adds no persistent framebuffer cache.
 Texture data, five catalog entries and core graphics stay available without SD.
 Optional action/audio worker budgets are in [onboarding](navigation.md) and
@@ -256,8 +253,6 @@ missing/duplicate completion, deadline and ownership rejection, and synchronous
 interleaving. Source integration checks require watchdog retirement after DMA and
 geometry commit after frame end. This validates ownership control flow, not the
 physical SPI peripheral, display appearance or measured performance.
-
-Dated scalar/SIMD/DMA results and their exact workloads are in [done.md](../../done.md).
 
 `assets/cody/runtime.yaml` selects a temporary fixed raster benchmark only when
 Debug execution timings and the native Pearl renderer are enabled. The worker
@@ -371,6 +366,6 @@ After an explicitly authorized verification passes, change only `kernel: simd`
 for a separately authorized timing capture with detail disabled, then compare
 with a fresh `scalar` run under identical conditions. Keep the distinction between
 source-level arithmetic bounds, host-model contracts and executed S3 evidence;
-none is interchangeable with another. Historical fixed-route gains do not
-establish frame times in the combined main UI. Physical motion/rotation, long-run buffer
+none is interchangeable with another. Fixed-route benchmarks do not establish
+frame times in the combined main UI. Physical motion/rotation, long-run buffer
 retirement, high-water memory and the intermittent display/touch stop remain open.

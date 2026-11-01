@@ -37,7 +37,7 @@ or reloading the plugin can also close that connection. Hook-only broker startup
 does not imply Codex is Open. The read-only connection-status result exposes
 `app_presence.source=mcp_transport`, source age and any original publication
 failure. Source changes require a coordinated future plugin/firmware update;
-they do not install or activate it. See the [presence wire contract](protocol/CCP1.md#authenticated-codex-client-presence-15-october-2026).
+they do not install or activate it. See the [presence wire contract](protocol/CCP1.md#authenticated-codex-client-presence).
 Version 0.6.9 includes the earlier EOF reporting update. An already-loaded
 client's id-only release is explicitly treated as abnormal, with no Closed
 claim. A real Codex reopen that starts the updated broker/client loads the new
@@ -412,5 +412,5 @@ Authorized checks use the public console:
 
 These use labelled synthetic fixtures. The simulator suite includes temporary
 loopback UDP without LAN broadcast, personal state, windows or real chats.
-Follow [AGENTS.md](../../AGENTS.md) before execution. Dated results live in
-[done.md](../../done.md); pending checks/device evidence live in [TODO.md](../../TODO.md).
+Follow [AGENTS.md](../../AGENTS.md) before execution. Pending checks and physical
+acceptance are tracked in [TODO.md](../../TODO.md).

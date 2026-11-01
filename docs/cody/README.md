@@ -56,10 +56,8 @@ either company. Third-party names, trademarks, logos and images belong to their
 respective owners; their use identifies the relevant products and does not imply
 a partnership. See the [license and attribution notices](../../THIRD_PARTY_NOTICES.md).
 
-## Evidence
+## Remaining work
 
-Current release gates are in [TODO.md](../../TODO.md). Dated source, host, build,
-flash and device observations are in [done.md](../../done.md). Old benchmark or
-boot observations do not certify a later source change. Testing, generation,
+Current release gates are in [TODO.md](../../TODO.md). Testing, generation,
 simulation and physical operations use the public console and the authorization
 rules in [AGENTS.md](../../AGENTS.md).

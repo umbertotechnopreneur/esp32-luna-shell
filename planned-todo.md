@@ -1,25 +1,20 @@
 # Deferred work
 
-Last reconciled: **2026-10-21**. These items are parked, not an execution queue.
-[TODO.md](TODO.md) holds active follow-ups; [done.md](done.md) records completed
-work. Stable IDs are retained below. The
-[archived register](archive.md#superseded-deferred-work-register) preserves the
-original detailed checklists and dated investigations.
+These items are parked, not an execution queue. [TODO.md](TODO.md) holds active
+follow-ups. Stable IDs identify the deferred items below.
 
 ## Boundaries that still apply
 
-- The owner deferred physical voice, walking/classifier and speech-to-Codex trials
-  on 13 October. Listing them here does not resume them. HAR stays observational:
+- Physical voice, walking/classifier and speech-to-Codex trials remain deferred.
+  Listing them here does not resume them. HAR stays observational:
   original labels, actual timestamps, no training or automatic shutdown.
 - The accepted SD/PCB limitation and standby/wake workaround remain accepted.
   Storage entries do not reopen the old SD fault investigation.
-- The public experimental WAV queue is implemented. The 15 October pilot delivered
-  a file intact, but did not establish model-side speech understanding. The old
-  native-loopback endpoint/launcher is historical, not a current setup blocker.
+- The public experimental WAV queue is implemented; model-side speech
+  understanding remains unverified.
   Separately billed transcription was declined; future ingress must be public/supported.
 - Firmware build, host tests, flash and physical acceptance are separate evidence.
-  Authorization follows [AGENTS.md](AGENTS.md). Older check counts and image sizes
-  live in the archive, not as requirements to rerun them.
+  Authorization follows [AGENTS.md](AGENTS.md).
 
 ## Implementation and product decisions
 
@@ -87,7 +82,6 @@ original detailed checklists and dated investigations.
   captures do not establish long stability or explain the missing `bb8fd327` interval.
 - [ ] **FAULT-PERIPHERAL-01 - Peripheral/USB errors.** Diagnose codec/PMU I2C,
   I2S disable-before-enable, logger loss and interrupted serial captures separately.
-  This is the renamed second historical FAULT-04, not the reboot-loop item.
 - [ ] **POWER-01 - Sleep/wake transactions.** Observe Debug standby and Release
   Deep-sleep: dark restore, retained clocks/routes, failed-entry rollback, known-off
   radio cleanup/BLE reserve, rotations and QMI ACK/held IRQ. Include cold boots,
@@ -103,7 +97,6 @@ original detailed checklists and dated investigations.
 ## CCP and device presentation
 
 The four-panel Home contract is in [Cody layout](docs/cody/layout.md).
-Old three-panel layouts and character coordinates in the archive are superseded.
 
 - [ ] **CCP-01 - Security rollout on target.** Record the actual paired-PC
   revision and observe pairing/recovery, packet/ACK loss, restart, consecutive
@@ -184,8 +177,8 @@ Old three-panel layouts and character coordinates in the archive are superseded.
   rotations, sleep policy and Luna linked memory.
 - [ ] **PERF-01 - Native budget.** Measure a truly static route and full stage/
   payload/DMA/CPU distributions, 50/75/100% and non-Pearl parity, interruption,
-  alignment/tails, log overhead and radio/HTTP/BLE load. Historical 100% missed
-  40 ms; pixels and current-image nested headroom must accompany improvements.
+  alignment/tails, log overhead and radio/HTTP/BLE load. Pixels and current-image
+  nested headroom must accompany improvements against the 40-ms target.
 - [ ] **PERF-02 - Host budget.** Measure ABI-2 raster/snapshot cost and memory,
   atomic import/failure, redaction/aging and sparse coverage. Review DPI/controls/
   gestures after a requested restart; cross-monitor DPI handling is unimplemented.
@@ -249,25 +242,22 @@ Old three-panel layouts and character coordinates in the archive are superseded.
 
 ## Ideas, not commitments
 
-Activate a specific item in TODO.md before implementation. These are consolidated
-from the 4-12 October product/research notes; detailed proposals remain in the archive.
+Activate a specific item in TODO.md before implementation.
 
 | Area | Possible next work and limits |
 | --- | --- |
 | Other PC platforms | Implement Linux/macOS credential and launcher owners before claiming support. Keep Python additions neutral; no new Windows service/general PC observer. |
 | Remote connection | Explore genuine host events -> ASP.NET Core/Azure relay -> outbound TLS from Cody, with user/device identity, ordering, expiry and recovery. Aspire implementation/deployment remain deferred. |
-| Built-in assistant audio | Recheck supported App Server audio access, formats, account availability and existing-chat attachment. The 0.147.0 schema observation is historical. No separate paid transcription. |
+| Built-in assistant audio | Recheck supported App Server audio access, formats, account availability and existing-chat attachment. No separate paid transcription. |
 | Other assistants | Explore explicit adapters for Codex, Claude, Hermes, OpenClaw and possibly Your Dot; verify each public integration and real acknowledgements rather than assume a universal API. |
 | Offline outbox | Explicit SD recording with original timestamp/clock validity, destination, bounded buffers, interrupted-write recovery, retention/deletion and uncertain-delivery reconciliation. No formatting/fallback; review stale actions before replay. |
 | Reminders and focus | Start with user-started sessions, one-time reminders/countdown/snooze/daily overview; later consider lists, notes and recurrence. Trusted time, quiet preferences and existing power/timer ownership; RTC INT cannot directly wake ESP. No home automation or inferred health/fatigue. |
 | Message/reply UX | Research push-to-talk, preview, destination, Send/Cancel and drafts through a supported channel. Keep credentials on PC and distinguish sent, received and completed; additional speech triggers need a decision. |
 | Wellbeing model | Still disabled: no session adapter/timer/selector/UI. Keep activity, rest, drink, meal, mood and reaction domains separate; motion stress/battery fatigue retain their causes. Lost liveness is Unknown, not counted work. One latest eligible cue, no decorative queue; snooze, quiet, expiry and acknowledged events remain distinct. A caress is not proof of a break/drink. |
-| Character | Wake stretch/idle variants and richer clock personality only after physical review. Choose antialiasing/tessellation/damage from timings. Review the host-only 99-vertex/138-triangle cloud before native work; rejected billows-v5 stays historical, approved pearl renderer stays separate. |
+| Character | Wake stretch/idle variants and richer clock personality only after physical review. Choose antialiasing/tessellation/damage from timings. Review the host-only 99-vertex/138-triangle cloud before native work; keep the approved Pearl renderer separate. |
 | Automatic power | Only after observer validation: persistent observations, absent interaction, cancellable warning and measured false-shutdown rate. Keep this separate from the classifier and explicit shutdown. |
 | Protocol security | Evaluate standard PAKE/high-entropy QR against offline guessing and standard AEAD with nonce/replay discipline; current HMAC adds authenticity, not confidentiality. Review optional plaintext HTTP separately. Bound startup runtime.log with multiprocess ownership. |
 | Dependencies/BSP | Deferred removal of indirect FatFS/SDMMC when SD is off; split bus/display/audio/SD/expander owners and review board locks, including rectangular ES8311 input. Replace pinned LVGL-adapter/default feature workarounds with supported upstream configuration. |
 | Energy research | Measure AFE/transport cadence and actual component currents. BOOT interrupt work needs debounce/rearm/hold ownership; idle CCP still needs deadlines. Compare Wi-Fi power-save, 40-MHz floor/Light-sleep and USB reconnect; retain unsafe SOF exclusion. Consider 2-Hz dim acquisition only with Full Snapshot cadence and measured 600-ms P99 wake. Battery-absent ADC disable needs BAT_INSERT reenable/settling evidence. Future PCB may route PMU IRQ to an RTC GPIO. |
 | Maintenance | Transactional banner updates only after a banner-policy decision; scoped GNSS parser extraction with separately requested coverage; extract hardware/audio/Leg/settings presenters without changing navigation/bindings or promising Cody RAM gains. |
 
-The dormant wellbeing defaults superseded the early 120-minute exploration;
-that history is not a current recommendation or a shipped reminder feature.

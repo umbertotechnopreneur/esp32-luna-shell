@@ -149,9 +149,8 @@ by release. Opening the completion scenario alone does not imply an observed sta
 The authenticated simulator endpoint uses its admitted chat/sequence and source
 freshness instead. Pointer gaze and visible activity text use logical coordinates
 at the selected rotation; synthetic preview facts never enter that endpoint.
-The 2026-10-11 verification built the native driver, passed the character binding
-and real Tk frame-loop checks, and reviewed labelled synthetic captures. Physical
-behavior and full CCP panel interaction remain pending in [TODO.md](../../TODO.md).
+Physical behavior and full CCP panel interaction remain pending in
+[TODO.md](../../TODO.md).
 
 IDs, priorities, timing, gestures and mood come from `assets/cody/personality.yaml`.
 The channel waits for a stable request for 300 ms, enters over 400 ms, remains for
@@ -309,8 +308,7 @@ It checks gaze, accepted caress warmth, matching compaction completion, source
 gaps and Debug isolation; it does not connect to a physical Cody or live Codex.
 The raster suite compares pixels with the per-pixel compositor and an independent
 coverage oracle on small masks. The Luna suite covers fixtures, actions, redaction
-and loopback transport. Results and limitations are recorded in
-[done.md](../../done.md) and [TODO.md](../../TODO.md).
+and loopback transport. Current acceptance gates are in [TODO.md](../../TODO.md).
 For interpreters, paths and packaging, see the [console](../../scripts/README.md);
 for the device, see the [runtime](../../docs/cody/runtime.md) and
 [rendering](../../docs/cody/rendering.md) contracts.

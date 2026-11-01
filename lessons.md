@@ -1,7 +1,7 @@
 # Lessons worth keeping
 
 Observed failure patterns and their remedies. Policy belongs in [AGENTS.md](AGENTS.md),
-open work in [TODO.md](TODO.md), and dated evidence in [archive.md](archive.md).
+and open work in [TODO.md](TODO.md). Keep lessons reusable and concise.
 Read the startup, memory and build sections before boot/Brookesia changes.
 
 ## Startup and memory
@@ -131,6 +131,3 @@ Read the startup, memory and build sections before boot/Brookesia changes.
   writing diagnostics, and keep secondary log failures separate. Capture before
   best-effort USB output; release storage locks before transmitting. CRCs prove
   transfer identity, not a freeze's cause.
-- **History needs dates, not stale branch names.** After consolidation, record the
-  merged capability and commit. Ignored artifacts can disappear; retain results
-  in tracked records without promising that old local files still exist.

@@ -49,9 +49,8 @@ felt like a good match. Also, a tiny desk companion deserves a decent outfit.
 The interface is separate from the board, so other Espressif devices can join in
 with their own integration. [Hardware details](docs/bsp/boards/purchased-amoled-comparison.md).
 
-Battery so far: **about seven hours on 1,000 mAh** in one Cody Debug run, with
-wake-word listening and the activity observer enabled. A useful observation,
-not a stopwatch promise. [Configuration and evidence](docs/bsp/services/power-management.md#observed-1000-mah-run---12-13-october-2026).
+Standby, wake and battery behavior are described in the
+[power guide](docs/bsp/services/power-management.md).
 
 ## Pick a door
 
@@ -92,8 +91,7 @@ or publisher.
 
 I am [Umberto Giacobbi](https://umbertogiacobbi.biz/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=readme-author).
 I guide this project's development and remain responsible for checking the
-result. The project keeps its own identity, license, release status and
-validation evidence.
+result. The project keeps its own identity, license and release status.
 
 To learn what VibeWare means and why I started it, read the manifesto above.
 

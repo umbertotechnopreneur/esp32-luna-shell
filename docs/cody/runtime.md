@@ -6,10 +6,10 @@ immutable state until every display transaction retires; partial writes never
 become the next displayed-state reference. See [rendering](rendering.md) for the
 damage/DMA contract and [onboarding](navigation.md) for route gates.
 
-## Minimal character direction - 2026-10-10
+## Minimal character direction
 
-The 2026-10-11 increment stays within the Codex companion. The shared director
-adds restrained, continuously composed Thinking/Editing/Running accents,
+The shared character director provides restrained, continuously composed
+Thinking/Editing/Running accents,
 one double blink on an observed attention edge, a smile and contour squash/stretch
 on an observed same-turn reply, and a short puzzled reaction on interruption.
 The PC approval route permits the attention performance while retaining its
@@ -30,11 +30,10 @@ the final validation recorded in TODO.md. No task stack was enlarged.
 
 Python only transports typed source observations into the native C++ director;
 the new host code adds no operating-system observers or companion service.
-Prepared native/Studio regression cases have not yet been executed for this
-increment. Earlier 2026-10-11 results describe the preceding revision.
+Current acceptance gates are in [TODO.md](../../TODO.md).
 
-The initial `CODY_character_direction` revision added three artistic contributions after the
-existing native response: gaze towards acquired body touch or visible information,
+`CODY_character_direction` composes three artistic contributions after the
+native response: gaze towards acquired body touch or visible information,
 positive warmth after a recognized caress, and concentration/release during genuine
 compaction. Rendering and touch keep the existing logical coordinates. Gaze can
 follow the last fully retired manga bounds without a second face/icon evaluation.
@@ -61,8 +60,7 @@ Pause freezes artistic time while consuming source edges. A caress leaves a
 the authored initial value contributes additional warmth. Low/unattended happiness
 does not create a sad expression. All numeric mood rules and their awake clock stay
 unchanged. Physical timing, visual strength and nested stack headroom remain
-unverified. The registered `cody-runtime` character cases and Studio execution
-have dated passing evidence in [done.md](../../done.md).
+unverified.
 Studio now binds this same director through its native mood/caress owner. The
 ordinary rig supplies fresh acquired desktop pointer targets and recognized
 caresses. SIMULATED CCP supplies visible text/pointer targets and coherence-qualified
@@ -72,9 +70,7 @@ disable the contribution.
 The existing Long compaction and Refreshed / pending preview scenarios retain one
 rendering-only sequence; opening the latter alone cannot fabricate an observed end.
 Python does not duplicate the director's animation equations, and synthetic facts
-never enter firmware snapshots. The preceding three-contribution revision's drivers
-and named synthetic cases passed on 2026-10-11; this does not validate the later
-Codex acting/power-cue increment or establish device behavior. Optional extra gestures stay in
+never enter firmware snapshots. Optional extra gestures stay in
 [planned-todo.md](../../planned-todo.md); authorized generation/build/device
 work is tracked in [TODO.md](../../TODO.md).
 
@@ -112,8 +108,7 @@ Returning devices with validated first-boot false receive one four-second
 random Affection or Joy request on entering Idle, using the existing icon and
 completed-frame SFX owner. Urgent symbols and real interactions retain priority;
 hidden requests are dropped. No pairing or credential keys are rewritten by this
-presentation change. The requested 2026-10-06 Navigation Atlas revision documents
-this boot sequence, with earlier pages retained and dated errata appended.
+presentation policy.
 
 `cody_firstboot` is a validated persisted boolean. Only a genuinely absent key
 logs and persists the default `true`; invalid type/value or storage failure stops
@@ -580,10 +575,8 @@ already-true `changed` flag and does not attach mutable state on every tile.
 
 Boot cues start with original procedural `audio-ready` (0.18 s), followed by the
 explicit `audio.eyes_open_cue: boot-rise` in `assets/cody/runtime.yaml`. BootRise
-is a 1.8-second rising chime: 79,380 mono PCM16 bytes at 22,050 Hz. On 2026-10-10
-this replaced the earlier chime-plus-murmur greeting; historical vocal auditions
-remain separate and are not embedded. Source/rendered hash mismatch or stale
-authoring fails preparation rather than selecting another sound.
+is a 1.8-second rising chime: 79,380 mono PCM16 bytes at 22,050 Hz.
+Source/rendered hash mismatch or stale authoring fails preparation rather than selecting another sound.
 See [boot and Codex action authoring](../../assets/cody/audio/codex-actions/README.md)
 for transformations and owner-confirmed commercial-use licence provenance.
 Preparation validates the
@@ -719,13 +712,13 @@ operations still require approval. The intermittent mandatory display/touch stop
 has not been resolved by short successful captures.
 ## One-way voice input source increment
 
-The 2026-10-11 firmware source adds an explicit voice-input event for **Sophia**
+The firmware uses an explicit voice-input event for **Sophia**
 and an acquired double tap on the visible character. A single character tap waits
 420 ms before changing the selected Home lower panel.
 Movement, stale/broken touch, rotation and explicit controls disqualify a double
 tap. The existing power owner handles standby wake; speech inference and enhanced
 mono PCM remain owned by the sole existing ESP-SR AFE.
-The 2026-10-15 increment admits Preparing for wake-word, character double tap,
+Preparing is admitted for wake-word, character double tap,
 and a completed physical standby wake from a short power press, touch or motion.
 Internal recovery, power-off farewell and Codex-notification wake do not start
 recording. A wake-word event already admitted before wake is not duplicated.
@@ -810,25 +803,11 @@ Recording IDs, returned native turn IDs, artifact paths and uncertainty are
 available through audio status; ambiguous input is never automatically retried. Native approvals
 and questions are never answered by the device or plugin.
 
-This does not yet establish working device dictation. The 2026-10-12 recording
-increment passed the selected Debug wake-word/activity build/size, real owner and
-receiver host tests, native raster/gesture checks and individual compiled stack
-frames. It was not flashed over the ongoing battery experiment. Native desktop
-integration and measured stack/CPU/PSRAM headroom remain in `VOICE-01` in the root TODO. The atlases retain
-their planned audio flow until end-to-end verification establishes its behavior.
+Device dictation remains unverified end to end. Native desktop integration and
+measured stack/CPU/PSRAM headroom remain in `VOICE-01` in [planned-todo.md](../../planned-todo.md).
+Physical voice trials remain deferred.
 
-The 2026-10-14 recording audit found a healthy authenticated CCP link and an
-available UDP receiver, but no configured native loopback audio endpoint. Two
-real START requests were rejected with "Configure an explicit loopback Codex
-audio WebSocket endpoint" before PCM/WAV receipt or native submission. Installed
-plugin 0.6.8 matched the receiver source. Separate AES-GCM authentication failures
-also occurred; the available logs cannot tie them to those two recordings.
-A later passive device capture contained no recording attempt and therefore does
-not capture the original failure. Firmware now logs authenticated PC rejection
-explicitly. Neither that log nor the taller recording ribbon completes native
-audio delivery; a verified endpoint remains required in VOICE-01.
-
-The 2026-10-15 optional installation step, `scripts/device.ps1 codex-audio`,
+The optional installation step, `scripts/device.ps1 codex-audio`,
 checks an explicitly supplied loopback listener against the running Windows
 Store Desktop app-server process, then initializes a client and reads the genuine
 followed chat without resuming or submitting input. Only a live loaded chat with

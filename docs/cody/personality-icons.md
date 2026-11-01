@@ -124,9 +124,8 @@ an icon extent per nominal character scale. The renderer scales around the
 icon's center, not a bottom edge or an automatically inferred body-top point.
 
 Main and Sleep share local offsets `(0.09, -1.14)` and base extent factor `0.20`.
-The readability correction moves their centers 30 logical pixels right
-and 40 pixels down. The 2026-10-06 revision increases the previous threefold
-size by 20 percent, to a 3.6 multiplier around the same center.
+The center offset is 30 logical pixels right and 40 pixels down, with a
+3.6 size multiplier around the same center.
 At nominal Full scale 145 the side rounds from 104.4 to 104 pixels. Greeting
 rounds to 94 pixels and Medium 76; smaller eligible sizes retain the existing
 12-pixel base minimum, now displayed at 43 pixels. Micro still suppresses the
@@ -285,15 +284,10 @@ message distinguishes a requested heart from an occupied-channel suppression.
 
 The Windows source supports the same synthetic pointer flow in the normal Rig
 view, with Debug geometry disabled and symbol selection None. The existing
-optional Affection sound follows completed-frame audio admission; no new sound
-or direct touch-side playback was added. The merged Debug build and host suite
-passed on 2026-10-05 and the Rig simulator opened; listening, interactive gesture
-evaluation and physical touch validation remain open.
+optional Affection sound follows completed-frame audio admission through its
+audio owner. Listening, interactive gesture evaluation and physical touch
+validation remain open.
 
-## Evidence
+## Remaining work
 
-Generated artwork, portable native parity, target compilation and physical
-gesture/visual/audio quality are separate observations. Dated results, including
-the 2026-10-04/05 suites and 2026-10-07 artwork revision, remain in
-[done.md](../../done.md). [TODO.md](../../TODO.md) owns current validation gates.
-Original transcripts/worktree history are preserved at Git checkpoint `9956446`.
+Physical gesture, visual and audio quality remain open in [TODO.md](../../TODO.md).

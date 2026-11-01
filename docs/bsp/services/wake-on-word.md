@@ -3,11 +3,9 @@
 The shared Luna platform can recognize **Sophia** locally with ESP-SR 2.4.6
 and `wn9_sophia_tts_v1`. Jarvis (`wn9_jarvis_tts`) and Computer
 (`wn9_computer_tts`) are packaged but inactive; there is no user selector.
-The power owner wakes a settled software standby. The 2026-10-11 source increment
-also connects Cody detections, including already-awake detections, to one-way
-voice capture. Two short acquired taps on visible Cody enter the same owner.
-This new capture/transport increment has not been built, flashed or physically
-verified; earlier WakeNet recognition evidence does not validate voice delivery.
+The power owner wakes a settled software standby. Cody detections, including
+already-awake detections, connect to one-way voice capture. Two short acquired taps on visible Cody enter the same owner.
+End-to-end voice delivery remains unverified.
 See [Cody voice input](../../cody/runtime.md#one-way-voice-input-source-increment).
 The model does not recognize **Cody**, transcribe speech or accept commands.
 
@@ -143,7 +141,7 @@ and speaker-reference buffers before admitting capture. A terminal failure
 wins over an inference result already in flight. Runtime restart/repair is
 not attempted silently; the failed component remains visible.
 
-The 2026-10-12 lifecycle uses worker notifications for startup and indefinite
+The lifecycle uses worker notifications for startup and indefinite
 paused waits, plus one static binary semaphore for bounded owner acknowledgments.
 The owner always checks atomic predicates before waiting; a pending notification
 is never cleared across that check. Both workers receive resume, rollback and
@@ -274,11 +272,9 @@ pwsh -NoProfile -File .\scripts\device.ps1 update-lock -Profile cody-companion -
 pwsh -NoProfile -File .\scripts\device.ps1 update-lock -Profile full -Feature wake-word
 ```
 
-The 2026-10-07 Jarvis/Computer extension added assets and widened the model
-partition while retaining Sophia. Earlier single-model device observations
-do not validate the three-model pack. [done.md](../../../done.md) owns dated
-implementation and execution history; [TODO.md](../../../TODO.md) owns remaining
-packing, full-profile and physical evidence.
+The model pack contains Sophia, Jarvis and Computer. Remaining packing,
+full-profile and physical acceptance are tracked in [TODO.md](../../../TODO.md)
+and [planned-todo.md](../../../planned-todo.md).
 
 Review feature-on/off exclusion, mono/dual/no-output capture, codec/CPU/PSRAM
 gates, model errors, standby/performance/diagnostic handoffs and UI dependency

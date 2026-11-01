@@ -22,8 +22,7 @@ counts remain explicit. Free is the observed window minus last-call tokens,
 not a promise about the next request's budget. Supported chat requests scroll
 right to left along the bottom. Orange compaction takes precedence over ordinary
 captions and command hints. The valid-battery wake prelude is described
-in [the personality contract](personality-icons.md). Implementation and validation
-evidence remain separate in [done.md](../../done.md).
+in [the personality contract](personality-icons.md).
 
 This is the current source contract for device routes. Screen IDs come from the
 atlases and remain independent of physical page numbers. Installation belongs
@@ -169,7 +168,7 @@ Failed, original error and timestamps. Coordinates are in [layout](layout.md).
 ## Pairing progress and reconnection
 
 Screen 12 shows Preparing secure code / Please wait / About 30 seconds until
-the actual code is available. The estimate is historical, not measured progress.
+the actual code is available. The estimate is fixed, not measured progress.
 The six characters never enter logs, public snapshots, HTTP or datagrams.
 The backend window is five minutes; this screen has a separate 180-second
 standby override anchored once when the prepared code reaches presentation.
@@ -233,6 +232,4 @@ exposes CCP secrets. Remote restart and factory reset require explicit current
 intent and the exact confirmation string; syntax, ambiguous results and retained
 PC state belong to the [CCP guide](../../plugins/cody-codex-plugin/README.md#explicit-restart-or-settings-reset).
 
-Current gates are in [TODO.md](../../TODO.md). Source, host and physical evidence
-remain dated in [done.md](../../done.md). Historical atlas production notes are
-preserved in Git checkpoint `9956446`; they do not describe current installation.
+Current gates are in [TODO.md](../../TODO.md).

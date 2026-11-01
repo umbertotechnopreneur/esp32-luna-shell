@@ -72,18 +72,7 @@ An SDMMC OCR timeout happens before FAT parsing. It means that protocol
 initialization did not complete, so card presence and transport remain
 unconfirmed and no filesystem or formatting conclusion is valid.
 
-## Historical runtime inventory evidence
-
-An earlier 2026-07-25 session used a physical board then assigned to `COM12`.
-That older firmware run observed PMU, RTC, calibrated IMU, display, touch,
-Wi-Fi, BLE provisioning advertising, ES8311 speaker playback, and ES7210
-capture. It also returned and parsed two bounded LC76G NMEA chunks; the indoor
-pass had no fix. With the card intentionally removed for that session, the
-SDMMC probe timed out and scheduled a non-blocking retry.
-
-These observations predate the current tree and do not validate this commit,
-its binaries, or its present runtime behavior. Current validation must produce
-new build identity and serial evidence.
+## Runtime inventory
 
 The platform snapshot also records native ESP-IDF heap and PSRAM metrics,
 largest allocatable blocks, chip core count, and FreeRTOS task/stack state for

@@ -31,4 +31,3 @@ removed; supported commands scroll right to left at the bottom.
 Native font metrics, local circular chords and damage revisions govern the
 actual layout. Compaction stays orange and indeterminate, with its original
 event/sound ownership. The PNG is a design reference, not a playback asset.
-Validation and installation evidence belong to [done.md](../../../../done.md).

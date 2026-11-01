@@ -1,11 +1,8 @@
 # Optional local text-to-speech
 
 TTS is an optional native service with explicit SD/flash packages and one audio
-owner. The dated build/flash/card-provisioning observations, including the
-2026-10-05 PSRAM/startup correction and unresolved SD initialization, belong in
-[done.md](../../../done.md). A flashed image or copied package does not establish
-successful synthesis, audible playback or current-device behavior.
-Open evidence is tracked in [TODO.md](../../../TODO.md).
+owner. Successful synthesis and audible playback require physical acceptance.
+Open work is tracked in [TODO.md](../../../TODO.md).
 
 ## Composition and languages
 
@@ -59,8 +56,6 @@ The bounded request text and SD package buffer directory also reside in PSRAM;
 the immutable package, synthesis heap, transient stack buffers and worker stack
 already use external memory. Small initialized native control values keep their
 original initialization; they cannot be placed in zero-initialized external BSS.
-The dated PSRAM/startup observation is retained in [done.md](../../../done.md).
-It does not establish speech load or longer-term budgets.
 With `CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN`, mandatory startup then calls the
 one-shot `request_boot_speech_test()`. The `tts-sd` catalog variant enables that
 symbol; `tts-flash` and ordinary profiles do not. No scene, UI, HTTP endpoint or
@@ -207,10 +202,7 @@ The card-ready artifact is
 `artifacts/tts/sd/sd-root/LUNASHELL/tts/espeak-ng-data`. An authorized SD build
 also produces it under
 `artifacts/build-<profile>-tts-sd-<mode>/esp-idf/LUNASHELL_tts/tts-sd/sd-root`.
-Copying it to a physical SD card is a separate operation. On 2026-10-05 the
-authorized copy to `G:/LUNASHELL/tts/espeak-ng-data` wrote 12 payload files
-(3,112,743 bytes including voice definitions) plus their manifest. Every copied
-file matched its manifest SHA-256 on readback; unrelated card files were preserved.
+Copying it to a physical SD card is a separate operation.
 A firmware flash never provisions the SD card or selects a fallback data source.
 All build/flash commands retain the existing transient-artifact cleanup and
 configuration/dependency-lock checks from `scripts/device.ps1`.
