@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=OpenAI Usage
+Comment=Codex allowance, reset countdown and usage history
+Exec=openai-usage
+Icon=biz.umbertogiacobbi.OpenAIUsage
+Terminal=false
+Categories=Utility;Monitor;
+StartupNotify=true

@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <WindowsAppSdkBootstrapInitialize>false</WindowsAppSdkBootstrapInitialize>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <ApplicationIcon>../Branding/app-icon.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Remove="mockup-*.png" />
+    <Content Include="../Branding/app-icon.ico" Link="Branding/app-icon.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../Branding/app-icon-512.png" Link="Branding/app-icon-512.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.6.4" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" />
+    <ProjectReference Include="../Shared/OpenAIUsage.Core.csproj" />
+  </ItemGroup>
+  <!-- The component-only WinUI package does not add the application's compiled resources
+       to the SDK publish list. Publish the current source-generated PRI and XBF explicitly. -->
+  <Target Name="PublishCompiledXaml" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(OutDir)$(TargetName).pri" RelativePath="$(TargetName).pri" CopyToPublishDirectory="PreserveNewest" />
+      <ResolvedFileToPublish Include="$(OutDir)App.xbf" RelativePath="App.xbf" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+</Project>

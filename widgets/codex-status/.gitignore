@@ -1,0 +1,7 @@
+desktop.ini
+bin/
+obj/
+artifacts/
+.imports/
+__pycache__/
+*.pyc

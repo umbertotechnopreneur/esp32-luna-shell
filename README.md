@@ -56,6 +56,8 @@ Standby, wake and battery behavior are described in the
 
 - **Use Cody:** [setup and navigation](docs/cody/navigation.md), then the
   [PC plugin](plugins/cody-codex-plugin/README.md).
+- **Desktop widget:** [OpenAI Usage](widgets/codex-status/README.md), a standalone
+  Windows/Linux widget for Codex allowance, tokens, credits and reset countdown.
 - **Build something:** [Cody's native 2D interface](docs/cody/README.md),
   [Luna's Brookesia interface](docs/luna-shell/README.md), or the [shared hardware layer](docs/bsp/README.md).
 - **Find the details:** [documentation and atlases](docs/README.md),

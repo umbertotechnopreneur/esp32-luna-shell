@@ -1,0 +1,21 @@
+Use case: ui-mockup
+Asset type: high fidelity native Windows desktop widget concept, single polished screenshot.
+Primary request: OpenAI usage monitor built with C# and WinUI 3, real-looking dark Windows acrylic material, black mechanical split-flap countdown. Showcase the native widget large and legible, occupying almost all the square image with a small margin of muted Windows blue wallpaper. Front-on orthographic desktop screenshot, no perspective, no device frame, no marketing captions.
+Style: authentic restrained Fluent Windows 11 controls, Segoe UI typography, dark translucent charcoal acrylic with obvious soft blue wallpaper blur through the panel, subtle grain, thin luminous border, 12px corners and soft shadow. Crisp text, excellent contrast. Cyan accent. Compact information-dense but beautifully spaced. Native small pin, settings, minimize and close icons in title row.
+Exact UI content and hierarchy:
+Title "OpenAI Usage" with compact "Pro" badge and small "DEMO" badge.
+Two compact native tabs "Overview" selected and "History".
+Large "42%" with "Weekly allowance remaining", a horizontal cyan progress bar filled to exactly 42%.
+"Weekly reset in"
+Hero row of FOUR separate black split-flap groups: "02" "14" "08" "36". Beneath them precisely "DAYS" "HOURS" "MINUTES" "SECONDS". Large off-white mechanical numerals; each tile has a clearly visible horizontal split across its middle, small side hinges, upper/lower card shading, tiny realistic shadows. Suggest flipping movement on the seconds tile only while keeping digits readable.
+Below countdown a prominent insight panel:
+"At your current pace"
+"2 days 8 hours" in large text, then "Estimated time remaining"
+Two small supporting values on one line: "7-day average" and "18 pp / day"
+Small amber dot and sentence "May run out 6 hours before reset"
+Below, two equal compact metric cards:
+"Credits remaining" with "1,250"
+"Estimated credit value" with "≈ $50.00" and tiny "Configured purchase rate"
+Below, a restrained bar sparkline of SEVEN cyan bars labeled "Daily quota used · last 7 days"; day labels "Mon Tue Wed Thu Fri Sat Sun"; bar heights proportional to 14,17,22,16,20,19,18. Alongside or underneath "Tokens · last 7 days" value "8.4M" and "Previous week" value "7.6M".
+Footer "Illustrative data · Updated just now" plus a small refresh icon.
+Constraints: one widget only; all text in English; no code, no implementation annotations, no fake browser shell; no large logos. The forecast card and countdown must be visually prominent. Numbers are illustrative and the DEMO badge must be visible. Screenshot should look credible and buildable in native WinUI 3, not a web dashboard. All content readable with generous internal spacing.

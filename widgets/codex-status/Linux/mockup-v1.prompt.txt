@@ -1,0 +1,21 @@
+Use case: ui-mockup
+Asset type: high fidelity native Linux GNOME 50 GTK4 libadwaita desktop widget concept, single polished screenshot.
+Primary request: OpenAI usage monitor for GNOME 50, dark libadwaita styling with a bespoke black mechanical split-flap countdown. Showcase the native compact application window large and legible, occupying almost all the square image with a small margin of muted GNOME abstract indigo wallpaper. Front-on orthographic desktop screenshot, no perspective, no device frame, no marketing captions.
+Style: authentic GNOME native dark GTK4/libadwaita aesthetic, opaque warm graphite surfaces, Adwaita Sans-like typography, rounded 12px window corners, unobtrusive shadow, native symbolic icons, headerbar with centered "OpenAI Usage", menu icon and a circular close button at right. No Windows acrylic or translucent glass. Blue native accent, subtle card grouping, calm visually balanced spacing. A small "Pro" badge and "DEMO" badge beneath header.
+Exact UI content and hierarchy:
+Native pill view switcher "Overview" selected and "History".
+Large "42%" with "Weekly allowance remaining", a horizontal blue progress bar filled to exactly 42%.
+"Weekly reset in"
+Hero row of FOUR separate black split-flap groups: "02" "14" "08" "36". Beneath precisely "DAYS" "HOURS" "MINUTES" "SECONDS". Large off-white mechanical numerals; each tile has clearly visible horizontal split across its middle, tiny side hinges, subtle top/bottom surface shading and shadows. Suggest flipping movement on the seconds tile only with readable digits.
+Below countdown a prominent native Adwaita card:
+"At your current pace"
+"2 days 8 hours" in large text, then "Estimated time remaining"
+Supporting row: "7-day average" and "18 pp / day"
+Small amber symbolic warning icon and sentence "May run out 6 hours before reset"
+Below, a native grouped rounded list with two clean rows:
+"Credits remaining" and trailing value "1,250"
+"Estimated credit value" and trailing value "≈ $50.00", with small subtitle "Configured purchase rate"
+Below, a restrained bar sparkline of SEVEN blue bars labeled "Daily quota used · last 7 days"; day labels "Mon Tue Wed Thu Fri Sat Sun"; bar heights proportional to 14,17,22,16,20,19,18.
+Compact stats "Tokens · last 7 days" value "8.4M" and "Previous week" value "7.6M".
+Footer "Illustrative data · Updated just now" and a small refresh icon.
+Constraints: one native GNOME window only; all text English; no code or implementation annotations; no Windows titlebar, no glass, no browser interface, no oversized logos. Forecast and countdown equally useful and prominent. DEMO badge visible. This is the Linux sibling of a WinUI usage widget: same exact sample numbers and functional hierarchy but unmistakably GNOME native presentation. Fit all content with readable text and generous internal spacing.
