@@ -44,6 +44,12 @@ foreach ($Board in @('waveshare-esp32s3-touch-amoled-1.75', 'waveshare-esp32s3-t
                 $slots += $size
             }
             $end = $offset + $size
+            # The bootloader maps app segments and ESP-SR maps its model. IDF's
+            # 24-bit quad-flash cache must address the entire half-open range.
+            $usesFlashCache = $fields[1] -eq 'app' -or $fields[0] -eq 'model'
+            if ($usesFlashCache -and $end -gt 16MB) {
+                throw "Partition '$($fields[0])' exceeds the 16 MiB cache range on $Board / $Feature (offset=$($fields[3]), size=$($fields[4]))."
+            }
         }
         if ($end -ne $capacity -or $slots.Count -ne 2 -or $slots[0] -ne $slots[1]) {
             throw "Physical flash/OTA geometry disagrees with $Board / $Feature."

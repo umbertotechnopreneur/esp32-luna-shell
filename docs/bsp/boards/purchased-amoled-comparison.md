@@ -102,9 +102,12 @@ prototype's fuel-gauge percentage, current or reliable battery-presence data.
 **The 1.75C is the closest target.** Rendering, Wi-Fi/BLE, CCP, application
 logic and codec services share the existing implementation. Its physical
 selection owns the reset/MCLK pins, PMU rails, PWR handling, IMU interrupt and
-peripheral exclusions. Dedicated 32 MB tables keep two equal OTA slots, 1 MiB
-LittleFS and, with wake word selected, 1 MiB model storage. The old 16 MB tables
-and default board selection remain unchanged.
+peripheral exclusions. Both OTA slots fit entirely in the lower 16 MiB of the
+1.75C flash. The wake-word layout also places the complete 1 MiB Sophia model
+partition in that range so ESP-SR can map it through the 24-bit flash cache.
+LittleFS occupies 1 MiB at `0x1f00000`. The 15 MiB between `0x1000000` and
+`0x1f00000` are unallocated. See the [base layout](../../../config/partitions/amoled-1.75c.csv)
+and [wake-word layout](../../../config/partitions/amoled-1.75c-wake-word.csv).
 
 The official [1.75C repository](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C)
 advertises ESP-IDF 6.0.2 examples. The supplied display demo selects

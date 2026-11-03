@@ -43,8 +43,13 @@ command. Its generated configuration and build directory are isolated by the
 .\scripts\device.ps1 flash -Board waveshare-esp32s3-touch-amoled-1.75c -Profile cody-companion -Feature wake-word -BuildMode Debug -Port COM8 -Jobs 8
 ```
 
-The 1.75C uses 32 MB OTA tables, its own reset/MCLK wiring and IMU INT1 wake
-output. Its PMU owner verifies the DCDC1/ALDO1 rails and uses the vendor's 4.10 V
+Both 1.75C OTA slots and the optional Sophia model fit entirely below `0x1000000`
+(16 MiB), within the firmware's 24-bit flash cache mapping range. LittleFS
+occupies the final 1 MiB at `0x1f00000`. The space from `0x1000000` up to
+LittleFS is unallocated.
+
+The 1.75C uses its own reset/MCLK wiring and IMU INT1 wake output.
+Its PMU owner verifies the DCDC1/ALDO1 rails and uses the vendor's 4.10 V
 charge target. SD, GNSS, PCF85063 RTC and TCA9554 acquisition are unavailable on
 this board. System time can synchronize over SNTP without an external RTC.
 The `tts-sd`, distance and Leg Edition compositions are rejected on 1.75C.

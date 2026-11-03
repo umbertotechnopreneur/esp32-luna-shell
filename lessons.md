@@ -103,6 +103,11 @@ Read the startup, memory and build sections before boot/Brookesia changes.
 
 ## Builds, UI and diagnostics
 
+- **Check the flash mapping window separately from physical capacity.** The
+  32 MB quad chip accepts writes above 16 MiB, but the standard cache mapping
+  rejects addresses there. Keep complete OTA images and ESP-SR model partitions
+  inside the 24-bit window. A verified flash write cannot detect this boot failure.
+
 - **Set up the existing compiler before authorized native checks.** `vswhere`
   needs `-prerelease` to find Visual Studio Insiders. Load `Launch-VsDevShell.ps1`
   with x64 host/target; missing PATH is not permission to install another compiler.

@@ -2,7 +2,8 @@
 nvs,data,nvs,0x9000,0x6000,
 phy_init,data,phy,0xf000,0x1000,
 otadata,data,ota,0x10000,0x2000,
-ota_0,app,ota_0,0x20000,0xef0000,
-ota_1,app,ota_1,0xf10000,0xef0000,
-model,data,,0x1e00000,1024K,
+# Executable images and ESP-SR model data use the 24-bit cache window.
+ota_0,app,ota_0,0x20000,0x770000,
+ota_1,app,ota_1,0x790000,0x770000,
+model,data,,0xf00000,1024K,
 littlefs_data,data,littlefs,0x1f00000,1024K,
