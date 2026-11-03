@@ -6,6 +6,7 @@
 #include "LUNASHELL_sensor_fusion.hpp"
 #include "LUNASHELL_activity_internal.hpp"
 #include "LUNASHELL_imu_stillness.hpp"
+#include "LUNASHELL_board.hpp"
 
 #include <atomic>
 #include <cmath>
@@ -233,7 +234,10 @@ esp_err_t configure_imu_motion_wakeup(bool enabled)
     constexpr uint8_t kWomInterruptRegister = 0x0C;
     constexpr uint8_t kWomCommand = 0x08;
     constexpr uint8_t kCommandAcknowledge = 0x00;
-    constexpr uint8_t kInt2InitiallyHigh = 0xC0;
+    // CAL1_H[7:6]: INT1 initially high = 10; INT2 initially high = 11.
+    constexpr uint8_t kInterruptInitiallyHigh =
+        LUNASHELL::board::kImuWakeOutput == LUNASHELL::board::ImuWakeOutput::Int1
+            ? 0x80 : 0xC0;
     constexpr uint8_t kBlankingSamples = 3;
     ESP_RETURN_ON_ERROR(verify_imu_wake_revision(), TAG, "QMI8658 wake protocol");
     ESP_RETURN_ON_ERROR(qmi8658_enable_sensors(&s_imu, QMI8658_DISABLE_ALL), TAG, "QMI8658 WoM sensor disable");
@@ -242,13 +246,13 @@ esp_err_t configure_imu_motion_wakeup(bool enabled)
         ESP_RETURN_ON_ERROR(qmi8658_set_accel_odr(&s_imu, QMI8658_ACCEL_ODR_LOWPOWER_21HZ), TAG, "QMI8658 WoM low-power ODR");
     }
     // The vendor helper only writes CAL registers. It omits the required CTRL9
-    // command/ACK and selects INT1, which is not wired to the ESP32 on this PCB.
+    // command/ACK. Select the output physically wired to GPIO21 on this board.
     ESP_RETURN_ON_ERROR(qmi8658_write_register(&s_imu, QMI8658_CTRL9, kCommandAcknowledge), TAG, "QMI8658 clear prior command");
     ESP_RETURN_ON_ERROR(wait_imu_command_done(false), TAG, "QMI8658 command idle");
     ESP_RETURN_ON_ERROR(qmi8658_write_register(&s_imu, kWomThresholdRegister,
                         enabled ? LUNASHELL::power_policy::kMotionWakeThresholdMg : 0), TAG, "QMI8658 WoM threshold");
     ESP_RETURN_ON_ERROR(qmi8658_write_register(&s_imu, kWomInterruptRegister,
-                        kInt2InitiallyHigh | kBlankingSamples), TAG, "QMI8658 WoM INT2 polarity");
+                        kInterruptInitiallyHigh | kBlankingSamples), TAG, "QMI8658 WoM board interrupt polarity");
     ESP_RETURN_ON_ERROR(qmi8658_write_register(&s_imu, QMI8658_CTRL9, kWomCommand), TAG, "QMI8658 WoM command");
     ESP_RETURN_ON_ERROR(wait_imu_command_done(true), TAG, "QMI8658 WoM command completion");
     ESP_RETURN_ON_ERROR(qmi8658_write_register(&s_imu, QMI8658_CTRL9, kCommandAcknowledge), TAG, "QMI8658 WoM command ACK");
@@ -1161,8 +1165,10 @@ extern "C" esp_err_t LUNASHELL_hardware_set_imu_motion_wakeup(bool enabled)
     if (error != ESP_OK) {
         ESP_LOGE(TAG, "QMI8658 WoM %s failed (%s)", enabled ? "enable" : "disable", esp_err_to_name(error));
     } else {
-        ESP_LOGI(TAG, "QMI8658 WoM %s: INT2 initially high, threshold=%u mg, accelerometer-only ~21 Hz",
-                 enabled ? "armed" : "disabled", LUNASHELL::power_policy::kMotionWakeThresholdMg);
+        ESP_LOGI(TAG, "QMI8658 WoM %s: INT%u initially high, threshold=%u mg, accelerometer-only ~21 Hz",
+                 enabled ? "armed" : "disabled",
+                 static_cast<unsigned>(LUNASHELL::board::kImuWakeOutput),
+                 LUNASHELL::power_policy::kMotionWakeThresholdMg);
     }
     return error;
 #else

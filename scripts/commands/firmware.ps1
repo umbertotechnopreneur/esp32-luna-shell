@@ -27,6 +27,9 @@ param(
 
     [string]$BuildDir,
 
+    [ValidateSet('waveshare-esp32s3-touch-amoled-1.75','waveshare-esp32s3-touch-amoled-1.75c')]
+    [string]$Board = 'waveshare-esp32s3-touch-amoled-1.75',
+
     [ValidateSet("full", "connected", "ui-minimal", "display-touch", "headless", "leg-edition", "cody-companion")]
     [string]$Profile = "cody-companion",
 
@@ -240,6 +243,10 @@ if (-not [string]::IsNullOrWhiteSpace($BoardConfig)) {
     }
     $Profile = [string]$boardSelection.profile
     $Feature = [string]$boardSelection.feature
+    if ($PSBoundParameters.ContainsKey('Board') -and $Board -cne $boardSelection.board) {
+        throw 'Board YAML and explicit -Board select different physical boards.'
+    }
+    $Board = [string]$boardSelection.board
     $BoardModules = $boardSelection.modules
     $ProfileBuildKey = if ($Feature -eq "none") { $Profile } else { "$Profile-$Feature" }
 }
@@ -261,8 +268,9 @@ if ($profileCatalog.schema_version -ne 1) {
 $modeSelection = Resolve-FirmwareBuildMode -Catalog $profileCatalog `
     -BuildMode $BuildMode -ExplicitSelection ($PSBoundParameters.ContainsKey('BuildMode'))
 $BuildMode = $modeSelection.Name
-if ($null -ne $BoardConfigPath -and $profileCatalog.board -cne $boardSelection.board) {
-    throw "Board YAML and firmware profile catalog select different boards"
+if ($Board -cne $profileCatalog.board -and
+    $Board -cne 'waveshare-esp32s3-touch-amoled-1.75c') {
+    throw "Physical board has no registered build adapter: $Board"
 }
 $variantProperty = $profileCatalog.variants.PSObject.Properties[$ProfileBuildKey]
 if ($null -eq $variantProperty) {
@@ -351,7 +359,17 @@ if ($ActivityClassifier) {
     $SelectedProfileVariant.default_build_dir += $(if ($ActivityCapture) { '-activity-capture' } else { '-activity' })
     $SelectedProfileVariant.dependency_lock = $SelectedProfileVariant.dependency_lock -replace '\.lock$', '-activity.lock'
 }
-$FeaturePartitionPath = Get-FirmwareFeaturePartitionPath -ProjectRoot $ProjectRoot -Feature $Feature
+if ($Board -ceq 'waveshare-esp32s3-touch-amoled-1.75c') {
+    if ($Feature -in @('tts-sd', 'distance') -or $Profile -eq 'leg-edition') {
+        throw 'The 1.75C has no SD slot or reviewed external distance wiring; this composition is unsupported.'
+    }
+    $SelectedProfileVariant = $SelectedProfileVariant |
+        ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20
+    $ProfileBuildKey += '-1.75c'
+    $SelectedProfileVariant.generated_sdkconfig += '-1.75c'
+    $SelectedProfileVariant.default_build_dir += '-1.75c'
+}
+$FeaturePartitionPath = Get-FirmwareFeaturePartitionPath -ProjectRoot $ProjectRoot -Feature $Feature -Board $Board
 $SelectedSdkconfigDefaults = @(
     $SelectedProfileVariant.defaults |
         ForEach-Object { Resolve-ProfileCatalogPath "$_" }
@@ -421,6 +439,11 @@ $SelectedSdkconfigDefaults += $featureOverlayPath
 if ($SelectedSdkconfigDefaults.Count -eq 0) {
     throw "Firmware profile variant has no SDKCONFIG defaults: $ProfileBuildKey"
 }
+# Apply physical capabilities after interface/service selection. The inherited
+# memory policy stays shared; only the fitted flash and wiring change on 1.75C.
+if ($Board -ceq 'waveshare-esp32s3-touch-amoled-1.75c') {
+    $SelectedSdkconfigDefaults += Resolve-ProfileCatalogPath 'config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75c.defaults'
+}
 # Apply mode policy last, independently of board/profile/module selection.
 $SelectedSdkconfigDefaults += @(
     $modeSelection.Defaults | ForEach-Object { Resolve-ProfileCatalogPath $_ }
@@ -466,6 +489,18 @@ $ProfileSdkconfigPath = Resolve-ArtifactPath(
 # Throws before build/size/flash if the selected graph or generated settings disagree.
 function Assert-BoardSdkconfig {
     $activityConfigText = Get-Content -Raw -LiteralPath $ProfileSdkconfigPath
+    $isCBoard = $Board -ceq 'waveshare-esp32s3-touch-amoled-1.75c'
+    $boardSymbol = 'LUNASHELL_BUILD_BOARD_PROFILE_WAVESHARE_ESP32S3_TOUCH_AMOLED_1_75'
+    if ($isCBoard) { $boardSymbol += 'C' }
+    $flashSize = if ($isCBoard) { '32MB' } else { '16MB' }
+    if (-not [regex]::IsMatch($activityConfigText, "(?m)^CONFIG_$boardSymbol=y`r?$") -or
+        -not [regex]::IsMatch($activityConfigText, "(?m)^CONFIG_ESPTOOLPY_FLASHSIZE=`"$flashSize`"`r?$")) {
+        throw "Generated configuration disagrees with physical board $Board ($flashSize)."
+    }
+    if ($isCBoard -and [regex]::IsMatch($activityConfigText,
+            '(?m)^CONFIG_LUNASHELL_BUILD_ENABLE_(RTC|GNSS|REMOVABLE_STORAGE)=y\r?$')) {
+        throw 'The 1.75C configuration enabled a physically absent prototype peripheral.'
+    }
     if ([regex]::IsMatch($activityConfigText, '(?m)^CONFIG_LUNASHELL_ACTIVITY_MODEL=y\r?$') -ne [bool]$ActivityClassifier -or
         [regex]::IsMatch($activityConfigText, '(?m)^CONFIG_LUNASHELL_ACTIVITY_CAPTURE=y\r?$') -ne [bool]$ActivityCapture) {
         throw 'Generated activity configuration disagrees with the explicit classifier/capture selection.'
@@ -525,6 +560,7 @@ $ArtifactsRoot = Get-DeviceArtifactsRoot
 $ResolvedBuildDir = Resolve-ArtifactPath $BuildDir ''
 $BuildDir = $ResolvedBuildDir
 Write-Host "Firmware profile: $ProfileBuildKey"
+Write-Host "Physical board: $Board"
 Write-Host "Firmware build mode: $BuildMode"
 if ($BuildMode -eq 'Release') {
     if ($Feature -eq 'wake-word') {
@@ -1163,6 +1199,7 @@ function Get-DependencyLockUpdateCommand([string]$RequestedBuildDir) {
         "-Profile $Profile" +
         $(if ($Feature -eq "none") { "" } else { " -Feature $Feature" })
     }
+    $selector += " -Board $Board"
     if ($ActivityClassifier) { $selector += ' -ActivityClassifier' }
     if ($ActivityCapture) { $selector += ' -ActivityCapture' }
     return (
@@ -1345,7 +1382,7 @@ function Invoke-ProfileConfiguration(
     Assert-FirmwareBuildModeConfiguration `
         -SdkconfigText (Get-Content -Raw -LiteralPath $ProfileSdkconfigPath) -BuildMode $BuildMode
     Assert-WakeWordConfiguration -SdkconfigText (Get-Content -Raw -LiteralPath $ProfileSdkconfigPath) `
-        -ProjectRoot $ProjectRoot -Feature $Feature
+        -ProjectRoot $ProjectRoot -Feature $Feature -Board $Board
 }
 
 # No parameters: fingerprint the selected profile, mode, defaults and generated configuration.
@@ -1386,7 +1423,7 @@ function Get-SdkconfigDefaultsState {
     Assert-FirmwareBuildModeConfiguration `
         -SdkconfigText (Get-Content -Raw -LiteralPath $generatedSdkconfig) -BuildMode $BuildMode
     Assert-WakeWordConfiguration -SdkconfigText (Get-Content -Raw -LiteralPath $generatedSdkconfig) `
-        -ProjectRoot $ProjectRoot -Feature $Feature
+        -ProjectRoot $ProjectRoot -Feature $Feature -Board $Board
     $sdkconfigHash = (
         Get-FileHash -LiteralPath $generatedSdkconfig -Algorithm SHA256
     ).Hash.ToLowerInvariant()
@@ -1411,6 +1448,7 @@ function Get-SdkconfigDefaultsState {
         Signature = (
             @(
                 "target=esp32s3"
+                "board=$Board"
                 "schema=1"
                 "profile=$Profile"
                 "feature=$Feature"
@@ -1447,6 +1485,9 @@ function Get-SetTargetRecoveryCommand([string]$RequestedBuildDir) {
         "-Profile $Profile" +
         $(if ($Feature -eq "none") { "" } else { " -Feature $Feature" })
     }
+    $selector += " -Board $Board"
+    if ($ActivityClassifier) { $selector += ' -ActivityClassifier' }
+    if ($ActivityCapture) { $selector += ' -ActivityCapture' }
     return (
         "pwsh -NoProfile -File .\scripts\device.ps1 set-target " +
         "$selector -BuildMode $BuildMode -BuildDir '" + $RequestedBuildDir.Replace("'", "''") + "'"

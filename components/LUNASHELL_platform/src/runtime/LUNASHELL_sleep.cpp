@@ -14,7 +14,7 @@
  *
  * VBWR E */
 
-/* Physical Deep-sleep wake wiring for the GPS Waveshare 1.75-inch board. */
+/* Physical Deep-sleep wake wiring selected independently of the interface. */
 #include "LUNASHELL_sleep.hpp"
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_build_mode.hpp"
@@ -33,15 +33,15 @@ namespace {
 constexpr char kTag[] = "LUNASHELL_sleep";
 bool s_recovery_complete = true;
 constexpr gpio_num_t kTouchInterrupt = GPIO_NUM_11;
-constexpr gpio_num_t kImuInterrupt2 = GPIO_NUM_21;
+constexpr gpio_num_t kImuWakeInterrupt = GPIO_NUM_21;
 struct RetainedOutput {
     gpio_num_t pin;
     uint32_t level;
 };
 constexpr RetainedOutput kRetainedOutputs[] = {
     {GPIO_NUM_12, 1},  // QSPI chip select stays inactive while its host is powered off.
-    {GPIO_NUM_39, 1},  // Panel reset stays deasserted while the MCU sleeps.
-    {GPIO_NUM_40, 1},  // Touch must remain powered and out of reset to detect a finger.
+    {static_cast<gpio_num_t>(CONFIG_LUNASHELL_BOARD_LCD_RESET_GPIO), 1},
+    {static_cast<gpio_num_t>(CONFIG_LUNASHELL_BOARD_TOUCH_RESET_GPIO), 1},
     {GPIO_NUM_46, 0},  // The physical NS4150B amplifier remains shut down.
 };
 
@@ -64,8 +64,8 @@ esp_err_t release_wake_inputs()
     ESP_RETURN_ON_ERROR(rtc_gpio_hold_dis(kTouchInterrupt), kTag, "Release touch RTC hold");
     ESP_RETURN_ON_ERROR(rtc_gpio_deinit(kTouchInterrupt), kTag, "Release touch RTC pad");
 #if CONFIG_LUNASHELL_BUILD_ENABLE_IMU
-    ESP_RETURN_ON_ERROR(rtc_gpio_hold_dis(kImuInterrupt2), kTag, "Release IMU RTC hold");
-    ESP_RETURN_ON_ERROR(rtc_gpio_deinit(kImuInterrupt2), kTag, "Release IMU RTC pad");
+    ESP_RETURN_ON_ERROR(rtc_gpio_hold_dis(kImuWakeInterrupt), kTag, "Release IMU RTC hold");
+    ESP_RETURN_ON_ERROR(rtc_gpio_deinit(kImuWakeInterrupt), kTag, "Release IMU RTC pad");
 #endif
     return ESP_OK;
 }
@@ -99,15 +99,15 @@ esp_err_t prepare_sleep(uint64_t wake_after_us)
     }
     uint64_t wake_pins = 1ULL << kTouchInterrupt;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_IMU
-    ESP_RETURN_ON_ERROR(gpio_set_direction(kImuInterrupt2, GPIO_MODE_INPUT), kTag, "Configure IMU wake input");
-    ESP_RETURN_ON_ERROR(LUNASHELL_hardware_set_imu_motion_wakeup(true), kTag, "Arm QMI8658 INT2 wake");
-    wake_pins |= 1ULL << kImuInterrupt2;
+    ESP_RETURN_ON_ERROR(gpio_set_direction(kImuWakeInterrupt, GPIO_MODE_INPUT), kTag, "Configure IMU wake input");
+    ESP_RETURN_ON_ERROR(LUNASHELL_hardware_set_imu_motion_wakeup(true), kTag, "Arm board-wired QMI8658 wake");
+    wake_pins |= 1ULL << kImuWakeInterrupt;
 #endif
     // This is a wake-level check, not a second touch/IMU measurement path.
     // Refuse an asserted IRQ instead of repeatedly rebooting while a finger is held.
     if (gpio_get_level(kTouchInterrupt) == 0
 #if CONFIG_LUNASHELL_BUILD_ENABLE_IMU
-        || gpio_get_level(kImuInterrupt2) == 0
+        || gpio_get_level(kImuWakeInterrupt) == 0
 #endif
     ) {
         ESP_LOGW(kTag, "Deep-sleep rejected: touch or motion IRQ is already active");

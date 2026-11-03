@@ -1,13 +1,21 @@
 # Purchased Waveshare AMOLED boards: compatibility assessment
 
-Reviewed 2026-10-15 using the supplied reference folders, repository source,
-the complete three-page schematic/PCB PDFs, product dimension drawings and live
-official Waveshare documentation. This is a static assessment. No firmware
-checks, configure, build, size, simulator, serial, flash or device tests were run.
+Hardware evidence comes from the supplied schematic/PCB PDFs, product dimension
+drawings and official Waveshare documentation. Software support and physical
+acceptance are separate; remaining acceptance belongs in the root TODO.
 
 ## Result
 
-The current repository targets **ESP32-S3-Touch-AMOLED-1.75, GPS variant,
+The shared BSP includes a distinct
+`waveshare-esp32s3-touch-amoled-1.75c` physical selection, 32 MB OTA layouts,
+board-selected reset/MCLK and IMU interrupt output, PMU rail readback checks and
+explicitly absent prototype peripherals. The default 16 MB GPS profile remains.
+Use `scripts/device.ps1 -Board` as documented in the
+[device console](../../../scripts/README.md). Native Cody keeps its DMA/QSPI
+path and does not import the vendor LVGL application. Remaining physical acceptance is tracked in
+[TODO.md](../../../TODO.md).
+
+The default target remains **ESP32-S3-Touch-AMOLED-1.75, GPS variant,
 without the C suffix**. The purchased **1.75C is a different board**, even
 though its display has the same advertised size, resolution and controller
 family. A casing does not establish electrical or firmware equivalence.
@@ -15,17 +23,17 @@ family. A casing does not establish electrical or firmware equivalence.
 The purchased **1.43C is also AMOLED**. It preserves the 466 x 466 logical
 canvas and the ESP32-S3 processor architecture, but changes the pinout, touch,
 power hardware and flash capacity, and omits the current board's motion sensor.
-Both purchases need explicit board support; neither is covered by the current
-firmware profile simply because its screen is round.
+The 1.43C still needs its own board support; the 1.75C has an explicit selection.
 
-The current target is established by
+The original prototype is established by
 [`hardware/inventory.json`](../../../hardware/inventory.json), the
 [current board inventory](waveshare-esp32s3-touch-amoled-1.75/hardware.md),
 [`catalog.json`](../../../config/sdkconfig/v1/catalog.json),
 [16 MB board defaults](../../../config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75.defaults)
 and the [current BSP pin definitions](../../../components/esp32_s3_touch_amoled_1_75/include/bsp/esp32_s3_touch_amoled_1_75.h).
-These identify the software target and documented prototype; they do not
-identify or electrically validate the units that will arrive.
+These identify the documented prototype. The 1.75C selection adds its own
+[defaults](../../../config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75c.defaults)
+and isolated build state; neither configuration proves physical behavior.
 
 ## Hardware comparison
 
@@ -91,20 +99,20 @@ prototype's fuel-gauge percentage, current or reliable battery-presence data.
 
 ## Software reuse and the main porting constraints
 
-**The 1.75C is the closest target.** Most rendering, Wi-Fi/BLE, CCP, application
-logic and audio codec work can be reused in principle. A separate board profile
-must select the new reset/MCLK pins, PMU rails, PWR handling, IMU interrupt and
-actual peripherals. The existing 16 MB partition layouts fit within 32 MB as
-an address range, but the profile must describe the fitted flash and review its
-layout. Extra capacity does not establish that the existing binary can boot.
+**The 1.75C is the closest target.** Rendering, Wi-Fi/BLE, CCP, application
+logic and codec services share the existing implementation. Its physical
+selection owns the reset/MCLK pins, PMU rails, PWR handling, IMU interrupt and
+peripheral exclusions. Dedicated 32 MB tables keep two equal OTA slots, 1 MiB
+LittleFS and, with wake word selected, 1 MiB model storage. The old 16 MB tables
+and default board selection remain unchanged.
 
 The official [1.75C repository](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C)
 advertises ESP-IDF 6.0.2 examples. The supplied display demo selects
 `waveshare/esp32_s3_touch_amoled_1_75c` `^3.0.0`. The pinned official Brookesia
 tree already contains the board definition
 `hal/brookesia_hal_boards/boards/waveshare/esp32_s3_touch_amoled_1_75c/`;
-that is a public integration starting point, not evidence that Luna currently
-selects it. The archived vendor Brookesia demo includes the old Phone framework;
+that is a public hardware reference. This repository extends its shared BSP
+instead of importing that application/HAL path. The archived vendor Brookesia demo includes the old Phone framework;
 it remains reference material and must not replace the project's Brookesia 0.8
 System Super/Core architecture. Cody must retain its native 2D path without
 adding LVGL or its adapter dependency.
@@ -148,28 +156,16 @@ manifest is not proof of IDF 6.0.2 compatibility. Derive new support from the
 documented hardware and public ESP-IDF interfaces while retaining IDF 6.0.2
 and Brookesia 0.8. Do not add an IDF 5.x or old-framework compatibility path.
 
-## Proposed delivery sequence and remaining evidence
+## Remaining evidence and deferred support
 
-1. Add typed physical-board identities for the existing GPS prototype, 1.75C
-   and 1.43C, separate from Cody/Luna/display-only UI selection. Extend the
-   current board catalog/parser, defaults, BSP selection and dependency locks;
-   `scripts/common/board_config.py` currently accepts only the old 1.75 ID.
-2. Port 1.75C first using its public board support, reviewed pins and capability
-   set, preserving native Cody and the existing prototype profile.
-3. Resolve the 1.43C display-controller evidence, then decide its flash/OTA/
-   speech budget and implement its display, CST820, audio and ADC/power owners.
-4. Adapt consumers to the actual hardware capabilities, retaining canonical
-   snapshots and explicit unavailable/error states. Do not infer missing data
-   or bypass startup failures.
-5. After implementation is complete, obtain the separately required command-
-   specific authorizations for checks, builds and physical bring-up through
-   `scripts/device.ps1`. Confirm board revision, battery, panel transform,
-   audio, power, wake behavior and stack headroom on the received hardware.
+The [active work](../../../TODO.md) owns 1.75C physical acceptance: delivered
+board revision/RTC population, panel/touch transform, audio, battery telemetry,
+PWR/standby/wake and stack headroom. These remain separate from compilation and
+flash success. Missing hardware remains explicitly unavailable in snapshots.
 
-This request imported references and produced the assessment; it did not
-implement those profiles or establish runtime compatibility. The proposed work
-is retained as **HARDWARE-PORT-01** in the root
-[deferred register](../../../planned-todo.md).
+The unsupported 1.43C remains **HARDWARE-PORT-01** in the
+[deferred register](../../../planned-todo.md). Resolve its panel driver, 8 MB
+OTA/speech budget, CST820, audio wiring and ADC/charger ownership before activation.
 
 ## Local primary evidence
 

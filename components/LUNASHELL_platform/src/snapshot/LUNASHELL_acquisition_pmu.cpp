@@ -5,6 +5,7 @@
 #include "LUNASHELL_acquisition_i2c.hpp"
 #include "LUNASHELL_snapshot_internal.hpp"
 #include "LUNASHELL_platform.h"
+#include "LUNASHELL_board.hpp"
 
 #include <array>
 #include <atomic>
@@ -202,6 +203,33 @@ esp_err_t update_and_verify_power_configuration(uint8_t reg, uint8_t mask, uint8
     if (error != ESP_OK) {
         ESP_LOGE(TAG, "Power configuration failed: register=0x%02x mask=0x%02x expected=0x%02x observed=0x%02x (%s)",
                  reg, mask, value, observed, esp_err_to_name(error));
+    }
+    return error;
+}
+
+// No parameters: configure only the 1.75C rails documented by its official board support.
+// Exception: Returns the original I2C error or a configuration readback mismatch.
+esp_err_t configure_board_power_rails()
+{
+    if constexpr (!LUNASHELL::board::kIs175C) {
+        return ESP_OK;
+    }
+    // DCDC1 powers the system at 3.3 V. ALDO1 supplies the microphone front end.
+    // Preserve unrelated enable bits; never switch the running CPU rail off.
+    esp_err_t error = update_and_verify_power_configuration(0x82, 0x1F, 18);
+    if (error == ESP_OK) {
+        error = update_and_verify_power_configuration(0x80, 0x01, 0x01);
+    }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
+    if (error == ESP_OK) {
+        error = update_and_verify_power_configuration(0x92, 0x1F, 28);
+    }
+    if (error == ESP_OK) {
+        error = update_and_verify_power_configuration(0x90, 0x01, 0x01);
+    }
+#endif
+    if (error == ESP_OK) {
+        ESP_LOGI(TAG, "1.75C board power rails verified; DCDC1=3.30V, microphone ALDO1 follows compiled input capability");
     }
     return error;
 }
@@ -936,6 +964,9 @@ esp_err_t initialize(i2c_master_bus_handle_t bus)
         )) {
         error = ESP_FAIL;
     }
+    if (error == ESP_OK) {
+        error = configure_board_power_rails();
+    }
     if (error != ESP_OK) {
         record_first_error(remove_pmu_device(), &error);
         update_snapshot([error](LUNASHELL::DeviceSnapshot &snapshot) {
@@ -1063,7 +1094,9 @@ esp_err_t initialize(i2c_master_bus_handle_t bus)
     if (error == ESP_OK &&
         !require_pmu_write(
             s_power.setChargeTargetVoltage(
-                XPOWERS_AXP2101_CHG_VOL_4V2
+                LUNASHELL::board::kIs175C
+                    ? XPOWERS_AXP2101_CHG_VOL_4V1
+                    : XPOWERS_AXP2101_CHG_VOL_4V2
             ),
             "set charge target voltage"
         )) {
@@ -1088,13 +1121,15 @@ esp_err_t initialize(i2c_master_bus_handle_t bus)
     });
     ESP_LOGI(
         TAG,
-        "PMU AXP2101: battery detector verified, ADCs enabled, TS disabled, charge policy=50/400/25mA target=4.20V, events enabled"
+        "PMU AXP2101: battery detector verified, ADCs enabled, TS disabled, charge policy=50/400/25mA target=%sV, events enabled",
+        LUNASHELL::board::kIs175C ? "4.10" : "4.20"
     );
 #else
     const esp_err_t publication_error = update_snapshot([](LUNASHELL::DeviceSnapshot &snapshot) {
         set_component(snapshot.battery, false, ESP_ERR_NOT_SUPPORTED);
     });
-    ESP_LOGI(TAG, "PMU AXP2101: PKEY enabled, TS disabled, charge policy=50/400/25mA target=4.20V; battery telemetry disabled");
+    ESP_LOGI(TAG, "PMU AXP2101: PKEY enabled, TS disabled, charge policy=50/400/25mA target=%sV; battery telemetry disabled",
+             LUNASHELL::board::kIs175C ? "4.10" : "4.20");
 #endif
     if (publication_error != ESP_OK) {
         s_pmu_ready = false;

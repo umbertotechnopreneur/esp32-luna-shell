@@ -31,6 +31,27 @@ Read [toolchain and profiles](../docs/bsp/toolchain-and-profiles.md) for composi
 configuration guards and dependency-lock review. Confirm device identity and
 port before authorized serial operations.
 
+Physical board selection is independent of the interface, feature and build mode.
+The default remains `waveshare-esp32s3-touch-amoled-1.75` (GPS, 16 MB).
+Select the enclosed 32 MB board explicitly with
+`-Board waveshare-esp32s3-touch-amoled-1.75c` on **every** configure/build/flash
+command. Its generated configuration and build directory are isolated by the
+`-1.75c` suffix; the old board's build state is not reused.
+
+```powershell
+.\scripts\device.ps1 set-target -Board waveshare-esp32s3-touch-amoled-1.75c -Profile cody-companion -Feature wake-word -BuildMode Debug
+.\scripts\device.ps1 flash -Board waveshare-esp32s3-touch-amoled-1.75c -Profile cody-companion -Feature wake-word -BuildMode Debug -Port COM8 -Jobs 8
+```
+
+The 1.75C uses 32 MB OTA tables, its own reset/MCLK wiring and IMU INT1 wake
+output. Its PMU owner verifies the DCDC1/ALDO1 rails and uses the vendor's 4.10 V
+charge target. SD, GNSS, PCF85063 RTC and TCA9554 acquisition are unavailable on
+this board. System time can synchronize over SNTP without an external RTC.
+The `tts-sd`, distance and Leg Edition compositions are rejected on 1.75C.
+The shared BSP keeps Cody/display-only rendering native, without LVGL.
+Physical acceptance is tracked in [TODO.md](../TODO.md); a build or flash does
+not establish display, touch, audio, battery or wake behavior.
+
 To preserve Cody's Sophia wake word and experimental activity observer in Release,
 use the same explicit feature selection for configuration, build, flash and size:
 

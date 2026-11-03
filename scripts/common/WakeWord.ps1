@@ -18,12 +18,22 @@
 
 # ProjectRoot is the current checkout, never another worktree's generated state.
 # Feature is the explicit catalog feature selected by device.ps1.
+# Board is the physical flash topology, independent of the firmware feature.
 # Throws for a missing table, ambiguous partition identity or unselected model storage.
 function Get-FirmwareFeaturePartitionPath {
-    param([string]$ProjectRoot, [string]$Feature)
+    param([string]$ProjectRoot, [string]$Feature,
+        [ValidateSet('waveshare-esp32s3-touch-amoled-1.75','waveshare-esp32s3-touch-amoled-1.75c')]
+        [string]$Board = 'waveshare-esp32s3-touch-amoled-1.75')
 
     $wakeEnabled = $Feature -eq 'wake-word'
     $relativePath = if ($wakeEnabled) { 'config/partitions/wake-word.csv' } else { 'partitions.csv' }
+    if ($Board -ceq 'waveshare-esp32s3-touch-amoled-1.75c') {
+        $relativePath = if ($wakeEnabled) {
+            'config/partitions/amoled-1.75c-wake-word.csv'
+        } else {
+            'config/partitions/amoled-1.75c.csv'
+        }
+    }
     $partitionPath = Join-Path $ProjectRoot $relativePath
     $names = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $modelCount = 0
@@ -74,9 +84,12 @@ function Assert-WakeWordVariant {
 # SdkconfigText is the actual generated configuration, not merely requested defaults.
 # ProjectRoot is the checkout owning the reviewed partition table and model.
 # Feature is the explicit selector; a mismatched cached configuration is rejected.
+# Board identifies the physical board whose partition table must be selected.
 # Throws for leaked engine/model selection, missing PSRAM capabilities or renderer-core overlap.
 function Assert-WakeWordConfiguration {
-    param([string]$SdkconfigText, [string]$ProjectRoot, [string]$Feature)
+    param([string]$SdkconfigText, [string]$ProjectRoot, [string]$Feature,
+        [ValidateSet('waveshare-esp32s3-touch-amoled-1.75','waveshare-esp32s3-touch-amoled-1.75c')]
+        [string]$Board = 'waveshare-esp32s3-touch-amoled-1.75')
 
     $wakeEnabled = $Feature -eq 'wake-word'
     $expectedFlags = @{
@@ -112,7 +125,7 @@ function Assert-WakeWordConfiguration {
             throw "Feature $Feature rejected sdkconfig: $symbol expected=$($expectedFlags[$symbol]) actual=$actual"
         }
     }
-    $partitionPath = Get-FirmwareFeaturePartitionPath -ProjectRoot $ProjectRoot -Feature $Feature
+    $partitionPath = Get-FirmwareFeaturePartitionPath -ProjectRoot $ProjectRoot -Feature $Feature -Board $Board
     $relativePartition = [IO.Path]::GetRelativePath($ProjectRoot, $partitionPath).Replace('\', '/')
     $tableMatch = [regex]::Match($SdkconfigText, '(?m)^CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="([^"]+)"\r?$')
     if (-not $tableMatch.Success -or $tableMatch.Groups[1].Value.Replace('\', '/') -cne $relativePartition) {

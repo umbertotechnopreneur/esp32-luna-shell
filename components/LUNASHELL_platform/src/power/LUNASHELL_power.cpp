@@ -3546,6 +3546,7 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
     }
     s_last_pkey_error = ESP_OK;
 
+#if CONFIG_LUNASHELL_BOARD_HAS_PROTOTYPE_PERIPHERALS
     esp_io_expander_handle_t expander = nullptr;
     const esp_err_t expander_error =
         bsp_io_expander_init(&expander);
@@ -3568,6 +3569,11 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
             esp_err_to_name(effective_expander_error)
         );
     }
+
+#else
+    // Absence is a board capability, never a failed probe disguised as success.
+    set_input_component(s_inputs.io_expander, false, ESP_ERR_NOT_SUPPORTED);
+#endif
 
     s_state = LUNASHELL::DeviceOperatingState::Active;
     s_reason = LUNASHELL::DeviceStateReason::Startup;

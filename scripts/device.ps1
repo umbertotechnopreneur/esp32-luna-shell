@@ -32,6 +32,8 @@ param(
     [string]$Port,
     [ValidateRange(1,4000000)][int]$Baud = 115200,
     [string]$BuildDir,
+    [ValidateSet('waveshare-esp32s3-touch-amoled-1.75','waveshare-esp32s3-touch-amoled-1.75c')]
+    [string]$Board = 'waveshare-esp32s3-touch-amoled-1.75',
     [ValidateSet('full','connected','ui-minimal','display-touch','headless','leg-edition','cody-companion')]
     [string]$Profile = 'cody-companion',
     [ValidateSet('Debug','Release')]

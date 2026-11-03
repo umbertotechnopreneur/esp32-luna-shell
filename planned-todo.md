@@ -29,9 +29,9 @@ follow-ups. Stable IDs identify the deferred items below.
   Add fallible bounded projections and migrate real callers before deleting the API.
   Budget nested stacks. The committed v1 scene-font reader is still needed until
   assets migrate; rejecting old calibration records is not a fallback to delete.
-- [ ] **HARDWARE-PORT-01 - Enclosed Waveshare boards.** Add typed board selection
-  independently of UI; port 1.75C pins, power/IMU wiring and actual peripherals
-  first. For 1.43C resolve CO5300/SH8601, 8-MB flash/OTA/speech fit, CST820,
+- [ ] **HARDWARE-PORT-01 - Waveshare 1.43C support.** The 1.75C port and physical
+  acceptance are active in [TODO.md](TODO.md). For 1.43C resolve CO5300/SH8601,
+  8-MB flash/OTA/speech fit, CST820,
   audio wiring and ADC/charger acquisition. It lacks the IMU; neither schematic
   has GNSS/SD/the old expander, and 1.75C external RTC remains disputed.
   [Board comparison](docs/bsp/boards/purchased-amoled-comparison.md).

@@ -50,14 +50,20 @@
 #include "bsp/touch.h"
 #include "bsp_display_dma.h"
 
+#if CONFIG_LUNASHELL_BUILD_BOARD_PROFILE_WAVESHARE_ESP32S3_TOUCH_AMOLED_1_75C
+static const char *TAG = "ESP32-S3-Touch-AMOLED-1.75C";
+#else
 static const char *TAG = "ESP32-S3-Touch-AMOLED-1.75";
+#endif
 
 static i2c_master_bus_handle_t i2c_handle = NULL; // I2C Handle
 static bool i2c_initialized = false;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
 static uint32_t touch_interrupt_sequence;
 #endif
-static esp_io_expander_handle_t io_expander = NULL; // IO expander tca9554 handle
+#if CONFIG_LUNASHELL_BOARD_HAS_PROTOTYPE_PERIPHERALS
+static esp_io_expander_handle_t io_expander = NULL; // Owned only by the GPS prototype.
+#endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
 static bool display_initialized;
 static uint32_t display_content_revision;
@@ -2588,6 +2594,7 @@ static void IRAM_ATTR bsp_touch_report_interrupt(esp_lcd_touch_handle_t touch_ha
 
 // config: Raw controller coordinate transformation, independent of a renderer.
 // ret_touch: Output handle, cleared before the initialization attempt.
+// Exception: Returns the original configuration, allocation or I2C/controller failure.
 esp_err_t bsp_touch_new_raw(const bsp_touch_config_t *config, esp_lcd_touch_handle_t *ret_touch)
 {
     if (config == NULL || ret_touch == NULL) {
@@ -2627,7 +2634,7 @@ esp_err_t bsp_touch_new_raw(const bsp_touch_config_t *config, esp_lcd_touch_hand
         .x_max = BSP_LCD_H_RES - 1U,
         .y_max = BSP_LCD_V_RES - 1U,
 #endif
-        .rst_gpio_num = BSP_LCD_TOUCH_RST, // Dedicated touch reset GPIO40; the panel uses GPIO39.
+        .rst_gpio_num = BSP_LCD_TOUCH_RST, // Dedicated board-selected touch reset.
         .int_gpio_num = BSP_LCD_TOUCH_INT,
         .levels = {
             .reset = 0,
@@ -2711,6 +2718,9 @@ esp_err_t bsp_touch_new(const bsp_display_cfg_t *cfg, esp_lcd_touch_handle_t *re
  * IO Expander Function
  *
  **************************************************************************************************/
+// out_handle: Receives the prototype's shared expander; cleared on every failure.
+// Exception: Returns unsupported without bus access on a board without an expander.
+// Exception: Returns the original allocation/I2C failure on the GPS prototype.
 esp_err_t bsp_io_expander_init(
     esp_io_expander_handle_t *out_handle
 )
@@ -2720,6 +2730,9 @@ esp_err_t bsp_io_expander_init(
         return ESP_ERR_INVALID_ARG;
     }
     *out_handle = NULL;
+#if !CONFIG_LUNASHELL_BOARD_HAS_PROTOTYPE_PERIPHERALS
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     ESP_RETURN_ON_ERROR(
         bsp_i2c_init(),
         TAG,
@@ -2742,6 +2755,7 @@ esp_err_t bsp_io_expander_init(
     }
     *out_handle = io_expander;
     return ESP_OK;
+#endif
 }
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY

@@ -117,7 +117,8 @@ function Show-DeviceHelp {
 
     Write-DeviceHelpSection -Title 'OPTIONS AND DEFAULTS' -Icon '⚙️' -Width $width
     Write-DeviceHelpSection -Title 'Firmware selection' -Icon '🎯' -Width $width -Subsection
-    Write-DeviceHelpEntry -Syntax '-Profile <name> / -BoardConfig <path.yaml>' -Description 'Default profile: cody-companion. BoardConfig chooses its own profile and feature; do not combine it with -Profile or -Feature.' -Width $width
+    Write-DeviceHelpEntry -Syntax '-Board <board-id>' -Description 'Physical wiring and flash: waveshare-esp32s3-touch-amoled-1.75 (default, GPS/16 MB) or waveshare-esp32s3-touch-amoled-1.75c (32 MB). Independent of Profile, Feature and BuildMode.' -Width $width
+    Write-DeviceHelpEntry -Syntax '-Profile <name> / -BoardConfig <path.yaml>' -Description 'Default profile: cody-companion. BoardConfig chooses its own board, profile and feature; an explicit Board must agree. Do not combine it with Profile or Feature.' -Width $width
     Write-DeviceHelpText -Text 'Profiles: cody-companion, full, connected, ui-minimal, display-touch, headless, leg-edition. Features: none (default), distance, wake-word, tts-sd or tts-flash. TTS is supported on cody-companion and full only. tts-sd enables the Italian boot test; tts-flash starts silently. Synthesis uses core 0 and the renderer core 1.' -Width $width
     Write-DeviceHelpEntry -Syntax '-BuildMode Debug|Release / -Jobs 0..8' -Description 'Default mode: Debug. Jobs defaults to 0 (automatic, capped at 8).' -Width $width
     Write-DeviceHelpEntry -Syntax '-ActivityClassifier [-ActivityCapture]' -Description 'Opt-in pretrained HAR observer on cody-companion with wake-word retained. Requires the local activity-model generator output. Capture logs real labeled-export inputs; neither option trains a model or changes power policy.' -Width $width

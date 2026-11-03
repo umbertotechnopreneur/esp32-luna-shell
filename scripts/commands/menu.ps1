@@ -54,9 +54,22 @@ function Edit-DeviceMenuSettings([hashtable]$Settings) {
         '5' = @{ Emoji = '📋'; Label = 'Board YAML'; Description = $Settings.BoardConfig; Value = 'BoardConfig' }
         '6' = @{ Emoji = '⚙️'; Label = 'Firmware build mode'; Description = $Settings.BuildMode; Value = 'BuildMode' }
         '7' = @{ Emoji = '🔊'; Label = 'Optional firmware feature'; Description = $Settings.Feature; Value = 'Feature' }
+        '8' = @{ Emoji = '🔧'; Label = 'Physical board'; Description = $Settings.Board; Value = 'Board' }
     }
     $key = Select-DeviceMenuItem 'SESSION SETTINGS' $options
     if (-not $key) { return }
+    if ($key -eq 'Board') {
+        $boards = [ordered]@{
+            '1' = @{ Emoji = '🛰️'; Label = 'Waveshare 1.75 GPS'; Description = '16 MB flash; original board'; Value = 'waveshare-esp32s3-touch-amoled-1.75' }
+            '2' = @{ Emoji = '🔧'; Label = 'Waveshare 1.75C'; Description = '32 MB flash; enclosed board'; Value = 'waveshare-esp32s3-touch-amoled-1.75c' }
+        }
+        $board = Select-DeviceMenuItem 'PHYSICAL BOARD' $boards
+        if ($board) {
+            $Settings.Remove('BoardConfig')
+            $Settings.Board = $board
+        }
+        return
+    }
     if ($key -eq 'Feature') {
         $features = [ordered]@{
             '1' = @{ Emoji = '🪶'; Label = 'None'; Description = 'Default lightweight composition'; Value = 'none' }
@@ -106,6 +119,7 @@ function Edit-DeviceMenuSettings([hashtable]$Settings) {
             $board = if ([IO.Path]::IsPathRooted($value)) { $value } else { Join-Path $ProjectRoot $value }
             if (-not (Test-Path -LiteralPath $board -PathType Leaf)) { throw "Board YAML not found: $board" }
             $Settings.Remove('Profile'); $Settings.Remove('Feature')
+            $Settings.Remove('Board')
         }
         PythonExecutable { $value = Resolve-HostPython $value }
     }
@@ -118,7 +132,7 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
     . (Join-Path $ProjectRoot 'scripts/common/Errors.ps1')
     if ([Console]::IsInputRedirected) { throw 'The interactive menu requires a terminal. Use device.ps1 help or an explicit CLI action.' }
     Import-Module (Join-Path $ProjectRoot 'scripts/common/MenuManager/MenuManager.psd1') -Force -ErrorAction Stop
-    $settings = @{ Rotation = 0; Jobs = 8; BuildMode = 'Debug' }
+    $settings = @{ Rotation = 0; Jobs = 8; BuildMode = 'Debug'; Board = 'waveshare-esp32s3-touch-amoled-1.75' }
     foreach ($key in $InitialSettings.Keys) {
         if ($key -notin @('Action')) { $settings[$key] = $InitialSettings[$key] }
     }
@@ -132,6 +146,7 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
         }
         Write-Host "`n  CODY COMPANION  /  DEVELOPMENT CONSOLE" -ForegroundColor Cyan
         Write-Host "  Firmware: $selector    Build mode: $($settings.BuildMode)    Feature: $(if ($settings.Feature) { $settings.Feature } else { 'none' })    Port: $portDescription    Rotation: $($settings.Rotation) degrees" -ForegroundColor Gray
+        Write-Host "  Physical board: $($settings.Board)" -ForegroundColor Gray
         Write-Host '  Output: artifacts/    Opening the menu does not access hardware.' -ForegroundColor DarkGray
         $main = [ordered]@{
             '1' = @{ Emoji = '🤖'; Label = 'Cody simulator'; Description = 'Rig, face, contour and debug overlay'; Value = 'simulator' }

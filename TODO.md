@@ -3,6 +3,18 @@
 Keep current follow-ups here and deferred work in [planned-todo.md](planned-todo.md).
 Listing an item does not authorize execution; see [AGENTS.md](AGENTS.md).
 
+## Waveshare 1.75C: physical acceptance
+
+The 32 MB board has an independent physical selector and OTA layout. Remaining:
+
+- Complete the requested source build and flash on the confirmed COM8 unit.
+- Observe display/touch alignment and all rotations, speaker/microphones,
+  pairing, measured battery telemetry, PWR controls, standby and IMU INT1 wake.
+- Confirm the delivered PCB's RTC population before enabling an external RTC;
+  the supplied schematic has none. Retain explicit unavailability for SD/GNSS.
+- Run the physical-board regression suite when separately authorized; preserve
+  the 16 MB prototype profile and its existing peripheral owners.
+
 ## Standby wake: physical acceptance
 
 Touch-IRQ wake is independent of coordinate-read success. Early RTC breadcrumbs

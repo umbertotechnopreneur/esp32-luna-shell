@@ -26,6 +26,7 @@
 #include "LUNASHELL_snapshot_internal.hpp"
 #include "LUNASHELL_acquisition_internal.hpp"
 #include "LUNASHELL_acquisition_pmu.hpp"
+#include "LUNASHELL_board.hpp"
 #include "LUNASHELL_acquisition_rtc.hpp"
 #include "LUNASHELL_acquisition_imu.hpp"
 #include "LUNASHELL_activity_internal.hpp"
@@ -2261,6 +2262,7 @@ esp_err_t DeviceSnapshotService::initialize()
 #endif
 
     s_initialization_attempted = true;
+    ESP_LOGI(TAG, "Physical board: %s", board::kName);
     esp_err_t aggregate = ESP_OK;
     const auto record_optional_chip = [&aggregate](
                                           const char *chip,
@@ -2279,6 +2281,16 @@ esp_err_t DeviceSnapshotService::initialize()
     };
 
     error = acquisition_pmu::initialize(bus);
+    if constexpr (board::kIs175C) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
+        // This owner establishes microphone/system rails before display/audio startup.
+        // A failed rail configuration is startup-critical on the 1.75C.
+        if (error != ESP_OK) {
+            s_initialization_result = error;
+            return error;
+        }
+#endif
+    }
     record_optional_chip("PMU", error);
 
     error = rtc::initialize(bus);

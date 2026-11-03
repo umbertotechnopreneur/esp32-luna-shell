@@ -128,6 +128,21 @@ if(_wake_word_selected)
 else()
     set(_feature_partition_table "partitions.csv")
 endif()
+if(CONFIG_LUNASHELL_BUILD_BOARD_PROFILE_WAVESHARE_ESP32S3_TOUCH_AMOLED_1_75C)
+    if(_wake_word_selected)
+        set(_feature_partition_table "config/partitions/amoled-1.75c-wake-word.csv")
+    else()
+        set(_feature_partition_table "config/partitions/amoled-1.75c.csv")
+    endif()
+    if(NOT CONFIG_ESPTOOLPY_FLASHSIZE_32MB OR
+       CONFIG_LUNASHELL_BUILD_ENABLE_RTC OR CONFIG_LUNASHELL_BUILD_ENABLE_GNSS OR
+       CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE)
+        message(FATAL_ERROR "1.75C requires 32 MB flash and excludes prototype RTC/GNSS/SD owners")
+    endif()
+elseif(NOT CONFIG_LUNASHELL_BUILD_BOARD_PROFILE_WAVESHARE_ESP32S3_TOUCH_AMOLED_1_75 OR
+       NOT CONFIG_ESPTOOLPY_FLASHSIZE_16MB)
+    message(FATAL_ERROR "Unknown physical board or mismatched prototype flash size")
+endif()
 if(NOT CONFIG_PARTITION_TABLE_CUSTOM OR
    NOT CONFIG_PARTITION_TABLE_CUSTOM_FILENAME STREQUAL _feature_partition_table)
     message(FATAL_ERROR "Selected feature requires its reviewed partition table: ${_feature_partition_table}")

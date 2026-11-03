@@ -108,8 +108,27 @@ def validate_board_config_data(data: object) -> dict[str, object]:
         raise ValueError("board YAML has missing or unknown top-level fields")
     if data["schema_version"] != 2 or type(data["schema_version"]) is not int:
         raise ValueError("unsupported board YAML schema_version")
-    if data["board"] != "waveshare-esp32s3-touch-amoled-1.75":
+    if data["board"] not in {
+        "waveshare-esp32s3-touch-amoled-1.75",
+        "waveshare-esp32s3-touch-amoled-1.75c",
+    }:
         raise ValueError("this board has no registered build adapter")
+    if data["board"] == "waveshare-esp32s3-touch-amoled-1.75c":
+        if data["name"] != "ui-bootstrap":
+            raise ValueError("1.75C board YAML currently supports ui-bootstrap only; use -Board for other interfaces")
+        modules = data["modules"]
+        if not isinstance(modules, dict):
+            raise ValueError("board modules must be a mapping")
+        for name in ("rtc", "gnss", "sd", "distance"):
+            if not isinstance(modules.get(name), dict) or modules[name].get("mode") != "off":
+                raise ValueError(f"1.75C has no reviewed {name} service")
+        for name in ("audio_output", "microphones", "pmu"):
+            if not isinstance(modules.get(name), dict):
+                raise ValueError(f"1.75C {name} must be a module mapping")
+        audio = (modules["audio_output"].get("mode") == "service" or
+                 modules["microphones"].get("mode") == "service")
+        if audio and modules["pmu"].get("mode") != "service":
+            raise ValueError("1.75C audio requires its PMU rail owner")
     if data["name"] == "leg-edition":
         if data["variant"] != "leg-edition":
             raise ValueError("Leg Edition requires its dedicated compiler profile")

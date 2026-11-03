@@ -24,7 +24,7 @@ function Get-FirmwareActions {
 
 # No parameters: describe public options once for CLI rejection and menu forwarding.
 function Get-DeviceActionParameters {
-    $idf = @('Profile','Feature','BoardConfig','BuildMode','BuildDir','IdfPath','ToolsPath','PythonExe','ActivityClassifier','ActivityCapture')
+    $idf = @('Board','Profile','Feature','BoardConfig','BuildMode','BuildDir','IdfPath','ToolsPath','PythonExe','ActivityClassifier','ActivityCapture')
     $serial = @('Port','Baud','WaitSeconds')
     $preview = @('Screen','Rotation','AtMs','SafeGuide','CloudMaterialStudy','CloudPngMeshStudy','CloudJellyStudy','MeshOverlay','PythonExecutable','Skin')
     return @{

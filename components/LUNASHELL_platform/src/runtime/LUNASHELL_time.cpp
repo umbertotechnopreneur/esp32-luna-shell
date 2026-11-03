@@ -593,6 +593,7 @@ void establish_drift_baseline(LUNASHELL::RtcDriftSnapshot &measurement, esp_err_
 }
 
 // time_value: SNTP's committed trusted UTC; reject malformed/out-of-calendar values.
+// Exception: Publishes synchronization/publication failures; absent RTC is an explicit capability.
 void sntp_sync_callback(struct timeval *time_value)
 {
     std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
@@ -621,6 +622,20 @@ void sntp_sync_callback(struct timeval *time_value)
         return;
     }
 
+    // An absent RTC does not prevent a real SNTP-synchronized system clock.
+    // Do not attempt nonexistent persistence or schedule repair retries.
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_RTC
+    LUNASHELL::RtcDriftSnapshot unavailable_drift;
+    LUNASHELL::snapshot_detail::set_component(unavailable_drift, false, ESP_ERR_NOT_SUPPORTED);
+    const esp_err_t drift_error = LUNASHELL::DeviceSnapshotService::instance().reportRtcDrift(unavailable_drift);
+    report_time(true, true, "sntp", ESP_OK);
+    const esp_err_t publication_error = publish_clock_observation();
+    s_initialization_result = drift_error != ESP_OK ? drift_error : publication_error;
+    if (s_initialization_result != ESP_OK) {
+        ESP_LOGE(TAG, "SNTP clock publication failed (%s)", esp_err_to_name(s_initialization_result));
+    }
+    return;
+#endif
     auto drift = measure_drift_before_correction();
     const esp_err_t rtc_result = persist_epoch_to_rtc(time_value->tv_sec);
     establish_drift_baseline(drift, rtc_result);
