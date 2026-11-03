@@ -432,8 +432,8 @@ uint16_t scene_content_characters(const SceneFrame &frame, uint16_t length,
         static_cast<uint16_t>(std::min<uint64_t>(length, total - preceding_characters));
 }
 
-// frame: Valid prepared scene whose content slot is updated after validation.
-// content: Immutable body below the title, with separate optional leading caption and lower action.
+// frame: Prepared scene whose definition specifies whether its title is drawn.
+// content: Immutable body with separate optional leading caption and lower action.
 // Exception: Rejects invalid content/action/control rectangles before replacing the frame.
 esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content)
 {
@@ -448,7 +448,7 @@ esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content)
     const auto &caption = content.leading_caption_bounds;
     const bool has_caption = !empty_bounds(caption);
     if (has_caption && (empty || !frame.title.valid || !inside_circle(caption) ||
-        caption.bottom > text_bounds(frame.title).top)) {
+        caption.bottom > text_bounds(frame.title).top || caption.bottom > content.bounds.top)) {
         ESP_LOGE(kTag, "Scene leading caption bounds rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
@@ -459,9 +459,11 @@ esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content)
         ESP_LOGE(kTag, "Scene bottom action bounds rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
-    if (!frame.valid || !frame.title.valid || content.id != SceneElementId::Content ||
+    // A hidden title still has prepared font metrics, but occupies no display rows.
+    if (!frame.valid || frame.definition == nullptr || !frame.title.valid || content.id != SceneElementId::Content ||
         (!empty && (content.draw_rows == nullptr || content.state == nullptr ||
-         !inside_circle(content.bounds) || content.bounds.top < text_bounds(frame.title).bottom))) {
+         !inside_circle(content.bounds) ||
+         (frame.definition->title_visible && content.bounds.top < text_bounds(frame.title).bottom)))) {
         ESP_LOGE(kTag, "Scene content rejected: id=%u (%s)", to_index(content.id),
             esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
