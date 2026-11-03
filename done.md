@@ -1,16 +1,17 @@
 # Latest validation round
 
-Keep only the latest firmware validation round here. Replace this summary when
-another round completes; do not append delivery history or CI/PR reports.
-Open work belongs in [TODO.md](TODO.md) and [planned-todo.md](planned-todo.md).
+## 2026-11-04 · Waveshare 1.75C Wi-Fi pairing on COM8
 
-## 2026-10-20: Cody Debug build
+The Debug image with Sophia and the activity classifier was built from source and
+flashed to the 32 MB board. All five regions passed hash verification. Cody
+reconnected with its saved Wi-Fi settings and synchronized UTC via SNTP.
+The 180-second capture reached the Codex connection prompt without a panic.
+It ended before the repeated Wi-Fi setup reached the Debug details screen.
 
-- Source: `027800b1`; firmware: `cody-229-g027800b1`.
-- Profile: Cody Companion with wake word and activity classifier; ESP-IDF 6.0.2.
-- Result: source build passed at four jobs; resolved dependency lock matched
-  the canonical lock.
-- Application: 7,083,232 bytes; 191,264 bytes free in the 7,274,496-byte OTA slot.
-- Output: `artifacts/build-cody-companion-wake-word-activity-debug/`.
-- Scope: build only. No flash, simulator, capture or automated suite was run.
-  Physical acceptance remains open.
+The phone confirmed the provisioning exchange during this validation round.
+The pairing worker retained at least 1,016 of its 4,096 stack bytes through
+BLE startup and cleanup. The physical 1.75C subsequently confirmed CCP pairing
+with the PC, and the plugin reported an authenticated connection.
+On wake, the touch controller rejected a packet and
+display rotation was deferred. Touch and rotation remain physical acceptance
+items.

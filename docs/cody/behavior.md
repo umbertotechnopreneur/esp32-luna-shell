@@ -128,11 +128,9 @@ Caress1 never acknowledges a reminder.
 | `eye_rest` | 20 minutes | Look 20 feet away for 20 seconds | [National Eye Institute](https://www.nei.nih.gov/eye-health-information/healthy-vision/nei-for-kids/healthy-vision-tips) |
 | `drink_water` | 60 minutes | Optional water invitation; no fixed quantity | Cody product default; [NHS recommends drinking regularly](https://www.nhs.uk/live-well/eat-well/food-guidelines-and-food-labels/water-drinks-nutrition/) without an hourly interval |
 
-These are configurable reminder defaults, with their source and interval basis
-recorded in YAML. The proposed 120-minute break interval is superseded by the
-HSE-based 60-minute default. Eye and movement reminders retain separate cycles.
-The deferred delivery policy can combine simultaneous due reminders rather than
-showing several icons in succession; it has not been implemented in the UI.
+The YAML records the default interval and its source for each reminder. Eye
+and movement reminders keep separate cycles. Grouping reminders that fall due
+together remains a deferred UI feature.
 
 `fatigue_minutes` represents active session duration, not observed bodily
 fatigue. Explicit Start begins a cycle; Pause freezes it, Resume continues and

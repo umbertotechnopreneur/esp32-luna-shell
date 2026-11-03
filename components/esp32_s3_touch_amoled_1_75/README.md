@@ -1,9 +1,10 @@
-# BSP: Waveshare ESP32-S3-Touch-AMOLED-1.75
+# Waveshare 1.75 GPS and 1.75C board support
 
 [![Component Registry](https://components.espressif.com/components/waveshare/esp32_s3_touch_amoled_1_75/badge.svg)](https://components.espressif.com/components/waveshare/esp32_s3_touch_amoled_1_75)
 
-The ESP32-S3-Touch-AMOLED-1.75 is a 1.75-inch 466×466 capacitive touch development board designed by waveshare electronics.
-
-|                            HW version                            | BSP Version |
-|:----------------------------------------------------------------:| :---------: |
-| [V1.0](http://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.75) |      ^1     |
+This repository adapts the Waveshare BSP for two ESP32-S3 boards with a
+466 × 466 touch display. Select the 16 MB GPS model or the 32 MB 1.75C with
+the firmware console's `-Board` option. The shared driver uses the selected
+board's pin assignments, panel reset and audio clock. See the
+[board comparison](../../docs/bsp/boards/purchased-amoled-comparison.md) and
+[firmware console](../../scripts/README.md).

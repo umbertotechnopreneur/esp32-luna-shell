@@ -1,51 +1,36 @@
 # Active work
 
-Keep current follow-ups here and deferred work in [planned-todo.md](planned-todo.md).
-Listing an item does not authorize execution; see [AGENTS.md](AGENTS.md).
+The operating and authorization rules are in [AGENTS.md](AGENTS.md).
 
-## Waveshare 1.75C: physical acceptance
+## Waveshare 1.75C physical acceptance
 
-The 32 MB board has an independent physical selector and OTA layout. Remaining:
+- Confirm that the post-pairing Debug screen displays the connection details and
+  accepts a tap to continue. The phone has confirmed provisioning and Cody has
+  obtained a Wi-Fi lease.
+- Check alignment and touch at all four rotations, speaker and microphones,
+  measured battery telemetry, PWR controls, standby and IMU INT1 wake.
+- Confirm the fitted RTC before enabling an external one. Keep SD and GNSS
+  unavailable on this board.
 
-- Complete the requested source build and flash on the confirmed COM8 unit.
-- Observe display/touch alignment and all rotations, speaker/microphones,
-  pairing, measured battery telemetry, PWR controls, standby and IMU INT1 wake.
-- Confirm the delivered PCB's RTC population before enabling an external RTC;
-  the supplied schematic has none. Retain explicit unavailability for SD/GNSS.
-- Run the physical-board regression suite when separately authorized; preserve
-  the 16 MB prototype profile and its existing peripheral owners.
+## Standby wake on the SD-equipped prototype
 
-## Standby wake: physical acceptance
+- Observe touch and PWR wake, including a touch interrupt with rejected
+  coordinates. Check retained diagnostics after reset and the current-image SD
+  session identity. Preserve the accepted SD/PCB workaround.
+- If the wake fault recurs, capture its onset and decode against the running ELF.
 
-Touch-IRQ wake is independent of coordinate-read success. Early RTC breadcrumbs
-and SD session identity are implemented. Still needed:
+## Native approval notices
 
-- Observe touch/PWR wake, including a rejected coordinate report.
-- Read retained diagnostics after reset and confirm the current-image SD identity.
-- Capture the original failure before assigning a cause, using matching firmware
-  and logs. Retain the accepted SD/PCB limitation.
+- After the updated plugin loads, use a genuine new prompt to observe one
+  advisory notice per physical recipient and native turn. Follow Back or expiry,
+  resumed activity and routing on Cody. Approval decisions stay on the PC.
+- Capture any recurrence at its onset. Keep replayed hooks out of this observation.
 
-## Approval notices: live activation
+## Compiler failure on recurrence
 
-The plugin admits one advisory notice per physical recipient/native turn.
-Still needed:
+If an authorized build reproduces the GCC internal segmentation fault in ESP-DSP
+`dspi_conv_f32_ansi.c`, retain the failing invocation and compiler diagnostic.
+Reproduction alone does not justify another build.
 
-- Confirm the current plugin is loaded after Codex restart, then use a genuine new
-  prompt to observe activation. Never replay hooks to manufacture activity.
-- Observe notice admission, Back/expiry, resumed activity and routing on Cody.
-- Capture a recurrence before assigning its cause or count.
-
-Native approval decisions remain on the PC.
-
-## Toolchain: unresolved compiler failure
-
-A GCC internal segmentation fault in unchanged ESP-DSP `dspi_conv_f32_ansi.c`
-remains unexplained. If it recurs during an authorized build, retain the exact
-invocation and failure; do not start a reproduction build solely for this item.
-
-## Parked work
-
-Physical voice, walking/classifier trials and speech-to-Codex follow-up remain
-explicitly deferred. HAR is observational: no training or automatic shutdown.
-The accepted SD/PCB workaround is not a reopened SD investigation. Other physical
-acceptance and future features stay in the [deferred register](planned-todo.md).
+Deferred hardware ports, voice and walking trials, speech-to-Codex and other
+acceptance work are in [planned-todo.md](planned-todo.md).

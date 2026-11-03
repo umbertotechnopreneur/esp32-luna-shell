@@ -1,29 +1,15 @@
-# Purchased Waveshare AMOLED boards: compatibility assessment
+# Waveshare ESP32-S3 AMOLED board comparison
 
-Hardware evidence comes from the supplied schematic/PCB PDFs, product dimension
-drawings and official Waveshare documentation. Software support and physical
-acceptance are separate; remaining acceptance belongs in the root TODO.
+Hardware specifications come from the supplied schematics, PCB sheets, dimension
+drawings and Waveshare documentation.
 
-## Result
+## Board selection
 
-The shared BSP includes a distinct
-`waveshare-esp32s3-touch-amoled-1.75c` physical selection, 32 MB OTA layouts,
-board-selected reset/MCLK and IMU interrupt output, PMU rail readback checks and
-explicitly absent prototype peripherals. The default 16 MB GPS profile remains.
-Use `scripts/device.ps1 -Board` as documented in the
-[device console](../../../scripts/README.md). Native Cody keeps its DMA/QSPI
-path and does not import the vendor LVGL application. Remaining physical acceptance is tracked in
-[TODO.md](../../../TODO.md).
-
-The default target remains **ESP32-S3-Touch-AMOLED-1.75, GPS variant,
-without the C suffix**. The purchased **1.75C is a different board**, even
-though its display has the same advertised size, resolution and controller
-family. A casing does not establish electrical or firmware equivalence.
-
-The purchased **1.43C is also AMOLED**. It preserves the 466 x 466 logical
-canvas and the ESP32-S3 processor architecture, but changes the pinout, touch,
-power hardware and flash capacity, and omits the current board's motion sensor.
-The 1.43C still needs its own board support; the 1.75C has an explicit selection.
+The default target is the **1.75 GPS** with 16 MB flash. For the **1.75C**,
+select `-Board waveshare-esp32s3-touch-amoled-1.75c`. This selects the
+32 MB partition table, GPIO assignments, PMU rails and available peripherals.
+The **1.43C** has an 8 MB flash and needs a separate BSP selection.
+See the [device console](../../../scripts/README.md).
 
 The original prototype is established by
 [`hardware/inventory.json`](../../../hardware/inventory.json), the
@@ -37,7 +23,7 @@ and isolated build state; neither configuration proves physical behavior.
 
 ## Hardware comparison
 
-| Area | Current 1.75 GPS prototype | Purchased 1.75C | Purchased 1.43C |
+| Area | 1.75 GPS | 1.75C | 1.43C |
 | --- | --- | --- | --- |
 | Processor | ESP32-S3R8, dual LX7 up to 240 MHz | ESP32-S3R8, same architecture | ESP32-S3-PICO-1-N8R8, same CPU architecture |
 | Flash / PSRAM | 16 MB / 8 MB | 32 MB / 8 MB | 8 MB / 8 MB |
@@ -61,12 +47,9 @@ The 1.75C wiki's RTC claim conflicts with those drawings: do not enable the
 prototype's PCF85063 owner on that basis. A PMU rail named `VCC-RTC` does not
 establish the presence of an external RTC chip.
 
-The wiki lists 1.75C SKUs 33691 with battery and 33692 without battery;
-1.43C SKU 34383 includes a battery and 34384 (`-EN`) does not. The request
-establishes that both purchased products have cases, but not their exact battery
-variant or capacity. Check the order and battery label when received. Store
-pages returned HTTP 403 during this review, so captured prices are not treated
-as a fresh quotation or evidence of stock, taxes or shipping.
+Waveshare lists 1.75C SKU 33691 and 1.43C SKU 34383 with batteries.
+The corresponding battery-free variants are 33692 and 34384 (`-EN`).
+Check the cell label for the capacity of a particular unit.
 
 ## Pin differences that prevent reusing the current binary
 
@@ -140,19 +123,15 @@ and design any additional replacement gesture explicitly. Neither new board
 should start GNSS/SD/RTC/expander owners whose hardware is absent. Configure those
 capabilities explicitly; never hide a failed initialization as success.
 
-**A 466 x 466 canvas helps reuse the UI, but does not validate the panel.**
-The 1.43C vendor page names CO5300, while its supplied ESP-IDF source actually
-selects `esp_lcd_sh8601`, issues SH8601 initialization calls and sets an X gap of
-8 pixels. The current board documents a 6-pixel controller gap. Resolve the
-controller/initialization discrepancy against the actual panel revision and
-public driver documentation before selecting the driver; do not add a guessed
-compatibility shim. CST820 needs its own supported touch path and a verified
-transform shared with rendering. The nominal screen-size ratio is
-`1.43 / 1.75 = 0.817`: unchanged pixel controls are about 18 percent smaller
-physically. Review complete text, touch comfort, QR readability, bezel clipping
-and all four orientations on the delivered device. The
-[existing circular geometry rules](waveshare-esp32s3-touch-amoled-1.75/display-geometry.md)
-remain the starting logical layout, not a physical calibration result.
+**1.43C display and touch.** Waveshare identifies the panel as CO5300.
+Its supplied demo uses the SH8601 QSPI driver with a board-specific command
+table, sets MADCTL to `0xC0` and applies an 8-pixel X gap for drawing. The
+1.75 GPS uses a 6-pixel gap. The CST820 reports touch on I²C address `0x15`.
+Verify that touch and drawing agree at all four orientations on the physical
+panel. Each screen has 466 × 466 pixels, so the same control on a 1.43-inch
+panel is about 18 percent smaller in millimetres. Check text and QR readability,
+hit targets and bezel clearance using the
+[shared circular geometry](waveshare-esp32s3-touch-amoled-1.75/display-geometry.md).
 
 The supplied 1.43C examples are under `esp-idf-v5.5.3/`; their minimum IDF
 manifest is not proof of IDF 6.0.2 compatibility. Derive new support from the

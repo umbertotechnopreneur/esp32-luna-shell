@@ -26,7 +26,7 @@ sequenceDiagram
     Main->>Log: install vprintf tee
     Main->>BSP: display + CST9217
     Main->>UI: show boot artwork + INITIALIZING
-    Main->>HW: PMU, RTC, IMU, GPS, audio
+    Main->>HW: Initialize the board's enabled hardware owners
     Main->>BSP: restore persisted brightness
     Main->>SD: start probe/mount retries without format
     SD-->>Log: enable mirror only if mounted
@@ -43,12 +43,12 @@ sequenceDiagram
     Super->>Super: start System Core app
 ```
 
-`LUNASHELL_hardware_init()` runs PMU, RTC, IMU, GPS, and audio initialization in a
-fixed order and returns at its first failed stage. The main orchestrator
-explicitly allows hardware inventory, time, boot audio, removable
-storage, and the pre-UI refresh to fail while continuing to the UI; their real
-errors remain in the logger and `DeviceSnapshotService`. Touch unavailability
-is also reported without stopping the handoff.
+`LUNASHELL_hardware_init()` initializes the selected hardware owners and
+publishes their individual results. It continues past optional chip failures
+and retains the first error. On the 1.75C, a failure to configure the required
+PMU rails with power inputs enabled ends hardware initialization. The 1.75C
+profile disables external RTC, GNSS and SD acquisition. The time service waits
+for a trusted source before publishing UTC.
 
 Boot power preparation, memory telemetry/liveness, display startup, an enabled
 boot screen, persisted brightness/wake-display restoration and the ready/handoff

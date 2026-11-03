@@ -1,6 +1,6 @@
 # Cody navigation and recovery
 
-## Connection search and working presentation - 2026-10-12
+## Connection search and working presentation
 
 Looking for PC uses a ten-minute screen standby interval. A current Wi-Fi link
 with an acquired IP first requests the connected symbol, followed by a repeating
@@ -9,18 +9,17 @@ worry, brief fear and recovery. This silent narrative does not assert Internet
 reachability or failed pairing. Real canonical link transitions take priority;
 hidden or sleeping views do not advance the narrative.
 
-Working uses a three-minute screen standby interval. Home retains the character,
-state title and model above three interchangeable lower panels. Tokens shows
-Free, Last, Window, elapsed time and IMU activity. Model & Context shows the model,
-thinking effort and qualitative price: Cheap, Reasonable price or Expensive.
-These Standard catalog classes do not measure monetary chat spending or model
-quality. Session & Link shows connection state, abbreviated chat ID and the
-device's own canonical Wi-Fi IP, without firmware identity or the PC address.
+Working uses a three-minute screen standby interval. The character, state title
+and model stay visible while the lower panel cycles through Tokens, Model &
+Context, Device and Chat & Activity. Tokens shows Free, Last and Window. Model &
+Context shows reasoning effort and the Standard catalog price band. Device
+shows the connection, Cody's IP, device identity, motion and build details.
+Chat & Activity shows the chat title, current turn duration and activity.
 
 Genuine hooks select the exact native metadata source; unavailable or expired
-counts remain explicit. Free is the observed window minus last-call tokens,
-not a promise about the next request's budget. Supported chat requests scroll
-right to left along the bottom. Orange compaction takes precedence over ordinary
+counts remain explicit. Free is the observed window minus last-call tokens.
+The @CCP command hint scrolls across the footer three times per display-owner
+lifetime. Orange compaction takes precedence over ordinary
 captions and command hints. The valid-battery wake prelude is described
 in [the personality contract](personality-icons.md).
 
@@ -31,13 +30,11 @@ packet fields and budgets belong to [CCP1](../../plugins/cody-codex-plugin/proto
 
 ## Observe walking, running and sitting
 
-The default Home token panel includes the IMU label beside the timer. Panels
-rotate every eight visible seconds: Tokens, Model & Context, Session & Link,
-then Tokens again. A short released tap advances immediately and restarts the
-eight-second interval. Hidden views, standby and current compaction pause the
-automatic rotation. A double tap starts voice input, so wait for the single-tap
-decision. A deliberate shake selects Tokens; running or jumping may also
-trigger that navigation gesture.
+Open the Device panel to read the IMU label. A short released tap advances one
+panel. Automatic rotation allows at least eight visible seconds per panel and
+extends Device and Chat until scrolling text can be read. Hidden views, standby
+and compaction pause rotation. A double tap starts voice input. A deliberate
+shake returns to Tokens, so running or jumping may also change the panel.
 
 Keep the device in the same position and orientation on your body for each trial.
 Observe sitting, standing, walking and jogging for 20-30 seconds each, allowing
@@ -51,9 +48,9 @@ as correctly classified jumps by this model. No training or SD access is needed.
 COLLECTING, SUSPENDED, CADENCE GAP, BUSY, ERROR, UNAVAILABLE and STALE describe
 sample availability, not activities. Standby suspends the observer.
 
-Release and Debug both show the canonical classifier result on the first Home
-panel, including without a PC connection. Displayed labels alone are not an accuracy
-measurement or authorization for automatic power decisions.
+Release and Debug can show the motion result without a PC connection. A fresh
+independent stillness measurement takes priority on Device. Accuracy for Cody's
+placement remains unverified. See the [activity observer](activity-observer.md).
 
 ## Choose the startup route
 
@@ -94,7 +91,7 @@ and Deep-sleep reconstruct admission from saved data and current observations.
 | 07, Cancel | Remove QR, await confirmed cleanup, return to 06 |
 | 08, Retry | Resume the correct stage after successful cleanup |
 | Wi-Fi/IP healthy and Online | Persist and read back `cody_firstboot=false` |
-| Completed handoff, Debug | 39 / copied real data; a fresh tap continues |
+| Completed handoff, Debug | 39 / Wi-Fi and BLE connection details. Tap to open Online. |
 | Completed handoff, Release | 09 / Online |
 | 09, Continue | 10 / Make it yours |
 | 10, Next; 36, Continue | Settings 36, then Skin 11 |
@@ -104,8 +101,10 @@ and Deep-sleep reconstruct admission from saved data and current observations.
 | 13, Let's go | Immediately search on 14 or reuse a current authenticated presence on 15 |
 | 15, authentic followed prompt | Show that chat's activity |
 
-`06-bis` remains an authored ID; the runtime session QR is a state of screen 07.
-The former ten-second Idle detour after Let's go is retired.
+The atlas uses `06-bis` for the session QR displayed on screen 07.
+Screen 39 gives the network name its own row. It displays up to 32 printable
+ASCII bytes and labels names the font cannot represent. The IP and connection
+status remain visible in either case.
 `CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX=n` skips Codex setup explicitly.
 On 09, loss of Wi-Fi/IP replaces confirmation with No connection or UNAVAILABLE.
 Wake cannot activate Continue. If only first-boot persistence fails after Online,

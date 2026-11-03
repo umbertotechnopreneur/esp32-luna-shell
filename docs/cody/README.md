@@ -23,20 +23,14 @@ The [documentation index](../README.md) lists the current illustrated atlases.
 
 ## Profile and services
 
-Cody was developed and tested on the
-[Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS](../bsp/boards/waveshare-esp32s3-touch-amoled-1.75/hardware.md).
-I chose and bought the **Waveshare ESP32-S3-Touch-AMOLED-1.75C** with its aluminum
-case for Cody: its round form factor, compute resources, and Waveshare's quality
-and value made it a good fit for the project. The
-[root README](../../README.md#the-little-round-thing) shows the model and
-explains the choice. The interface stays separate from the board to allow
-adaptation to other Espressif devices; see the
-[hardware guide](../bsp/boards/purchased-amoled-comparison.md) for board details.
+Select the physical board independently of the Cody profile. The Waveshare
+1.75 GPS prototype uses 16 MB flash. The aluminum-cased 1.75C uses 32 MB flash,
+with the external RTC and removable SD services disabled. Board wiring and
+available peripherals are listed in the [hardware guide](../bsp/boards/purchased-amoled-comparison.md).
+The [project introduction](../../README.md#the-little-round-thing) explains the choice of device.
 
-Cody admits power/battery, IMU, RTC, speaker, microphones, Wi-Fi, BLE provisioning
-and removable SD according to its profile. GNSS and distance are excluded.
-Firmware exclusion does not establish an electrically unpowered peripheral.
-Wake word and TTS are explicit optional features.
+Cody uses the shared power, battery, motion, audio, Wi-Fi and BLE provisioning
+owners. The profile excludes GNSS and distance. Wake word and TTS are optional.
 
 The saved-profile startup policy is authoritative; the Cody profile sets
 `CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT=n`. Development replay requires explicit

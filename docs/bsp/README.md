@@ -45,15 +45,13 @@ Cody controls live in [Cody layout](../cody/layout.md); LVGL layout lives in
 
 ## Boards
 
-The implemented adapter is [Waveshare ESP32-S3 Touch AMOLED 1.75](boards/waveshare-esp32s3-touch-amoled-1.75/hardware.md).
-Its [display geometry](boards/waveshare-esp32s3-touch-amoled-1.75/display-geometry.md)
-and [power references](boards/waveshare-esp32s3-touch-amoled-1.75/power-reference.md)
-retain their physical and evidence limits.
+The shared BSP supports the Waveshare 1.75 GPS (16 MB) and 1.75C (32 MB).
+They share a 466 × 466 canvas and the CO5300/CST9217 drivers. Board selection
+determines flash layout, reset and audio clock pins, motion interrupt routing
+and available peripherals. The [board comparison](boards/purchased-amoled-comparison.md)
+also documents the 1.43C hardware.
 
-Future boards stay within the Espressif ecosystem, including devices with greater
-compute capacity. Each needs an explicit adapter, capability description, pinout,
-reviewed dependencies and board-specific evidence. Changing a YAML name does not
-add support. The documentation split adds no new adapter or compatibility path.
-
-[Workstation inventory](workstation-inventory.md) is a dated historical snapshot;
-the selected project toolchain is defined by the repository configuration.
+The [1.75 GPS hardware inventory](boards/waveshare-esp32s3-touch-amoled-1.75/hardware.md),
+[display geometry](boards/waveshare-esp32s3-touch-amoled-1.75/display-geometry.md)
+and [power reference](boards/waveshare-esp32s3-touch-amoled-1.75/power-reference.md)
+describe the original board.

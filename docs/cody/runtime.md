@@ -23,10 +23,9 @@ Attention frames never restart a performance; animation elapsed time is not
 evidence of task completion. Existing explicit compaction presentation, including
 its Home indicator and exact sequence-end release, remains independent.
 
-Character observations remain bounded to 96 bytes and their display-owned state
-to 208 bytes after adding the exact turn identity and reaction clock. Transaction
-copies remain bounded; compiled nested frames and physical stack headroom require
-the final validation recorded in TODO.md. No task stack was enlarged.
+Character observations are bounded to 96 bytes and their display-owned state
+to 208 bytes, including turn identity and the reaction clock. Compiled nested
+frames and physical stack headroom remain acceptance gates.
 
 Python only transports typed source observations into the native C++ director;
 the new host code adds no operating-system observers or companion service.
@@ -211,11 +210,10 @@ recording. Wake word remains available after wake and in ordinary listening stan
 If an existing dark standby loses its PC, the same timeout sheds its retained
 services without waking the panel for a farewell. No periodic reconnect wake is armed.
 
-The power owner consumes a scalar canonical link/setup projection bounded to
-64 bytes, without copying chat text, reading radios directly or creating another
-task. New timeout/rollback/audio/wake coverage is prepared but unexecuted at the
-2026-10-16 source checkpoint; whole-board current, target stack headroom, sound,
-touch and actual wake latency remain unmeasured for this revision.
+The power owner reads link and setup state through a canonical projection
+bounded to 64 bytes. Offline standby still requires verification of timeout,
+rollback, sound, touch and wake behavior. Whole-board current, stack headroom
+and wake latency require device measurements.
 
 ### Pending-question sound cadence
 
@@ -294,7 +292,7 @@ exercise the real activity owner, authenticated packets, Studio projection and
 native panel pixels; these synthetic captures do not prove physical sound or
 that a particular live compaction hook was delivered.
 
-### Semantic questions and other-chat replies, 2026-10-14
+### Semantic questions and other-chat replies
 
 The synchronous `UserPromptSubmit` hook uses the documented
 [`additionalContext` output](https://learn.chatgpt.com/docs/hooks) to tell the
@@ -329,20 +327,14 @@ Generic notices also omit identical title/body repetition. No GUID, transcript,
 task-success inference or polling is introduced. A prompt retires native notices
 only for that chat; dismissal still requires the authenticated owner acknowledgement.
 
-Native `request_user_input` prompts already open in Desktop are not imported.
-The current Desktop app-server uses stdio without a verified public attach
-endpoint; starting another server would not own its requests. The official
-[App Server protocol](https://learn.chatgpt.com/docs/app-server) describes
-`item/tool/requestUserInput` and `serverRequest/resolved`, but those messages do
-not establish access to this running Desktop connection. Native permissions and
-existing native questions stay on the PC. No private UI automation, transcript
-question scraping, invented request registry or fabricated native reply is used.
+Native permissions and `request_user_input` prompts already open in Desktop
+stay on the PC. Those requests belong to the connection that created them.
+Cody accepts replies through its own authenticated question flow. See the
+[App Server protocol](https://learn.chatgpt.com/docs/app-server).
 
-The earlier 2026-10-14 audit established that asynchronous tool `accepted` can
-precede a user response, so `PostToolUse` cannot prove question completion.
-It also identified two rejected turn identities as subagents: parent/child
-correlation must keep exact identity checks. These retained findings contain no
-chat text or raw session identifiers and do not constitute a live question test.
+An asynchronous tool can return `accepted` before the user answers. Question
+completion requires the acknowledged answer for the originating request.
+Parent and subagent turns retain their distinct identities.
 
 ### Companion information panels
 
@@ -350,15 +342,14 @@ Home retains the character, actual activity title and independently aged model
 row above four lower panels. Tokens shows a Free token hero, occupied-context
 progress arc and Last/Window. Model & Context shows
 qualitative catalog price and reasoning effort; the shared header carries the
-model name once. Session & Link shows connection state, the device's own canonical
+model name once. Device shows connection state, the device's own canonical
 Wi-Fi IP and device identity, independently valid IMU activity, compilation date
 and time in the compiling PC's local timezone, that actual timezone identity and
 the compiling computer's name. Chat shows the actual native title, the measured
 elapsed time of the current turn and its authenticated activity description.
 It does not infer a whole-chat lifetime or inspect raw commands/transcripts.
 Long titles, activity and build labels scroll within clipped native rows, and
-rotation allows enough visible time to read them. The former full-screen Activity
-page and numeric page footer are no longer part of passive Home navigation.
+rotation allows enough visible time to read them.
 
 A display-owned, bounded model identity latches one Expensive-price notice per
 model change. It waits for current model/cost facts and a completely presented
@@ -392,10 +383,10 @@ coherent current pair; compaction uses an orange indeterminate accent rather
 than an invented progress percentage. Missing, stale, invalid and over-limit
 observations keep explicit nonnumeric states.
 
-A shared native carousel cycles Tokens, Model & Context, Session & Link, then
-Tokens after at least eight visible seconds per panel. Session & Link shows the
-actual canonical chat title without a `Chat` prefix or opaque ID. Long titles
-scroll within (73,315,320,28), with a 1.2-second start hold, 40 pixels per second
+A shared native carousel cycles through Tokens, Model & Context, Device and
+Chat & Activity after at least eight visible seconds per panel. Chat & Activity
+shows the canonical chat title. Long titles
+scroll within (73,276,320,28), with a 1.2-second start hold, 40 pixels per second
 in 50-ms steps and a 1.8-second end hold. The native glyph width extends the
 carousel dwell until the entire title has been visible. Same-title metadata
 refreshes preserve position; a new title receives a complete reading interval.
@@ -536,13 +527,10 @@ separating canonical motion sampling could miss deliberate shake peaks. Reduced
 accessory motion is implemented; CPU time, energy use and walking rejection are
 not measured by source review. Reachability continues to follow the actual link.
 
-The options projection is guarded at 256 bytes in the render path. Mode fields
-add one enum, one validity flag and one esp_err_t to the canonical preferences;
-padding and compiled structure size still require the next authorized build.
-One additional preference control belongs to the existing persistent content
-owner. Host Away state is one boolean; no task stack was increased. Previously
-recorded boot stack headroom and compiled frames predate these changes and do not
-validate the new nested render/projection path.
+The options projection is bounded to 256 bytes in the render path. The canonical
+preference carries the mode, its validity and its error. The persistent content
+owner holds the control. Stack headroom for the nested render path still
+requires a target measurement.
 
 `CODY_scene` resolves immutable definitions by `SceneId`, prepares cloud/title and
 an optional bounded content slot, advances fixed-capacity state and plans old/new
@@ -631,11 +619,9 @@ The authored fixed audio RAM budget is approximately 6.5 KiB: 4,096-byte task
 stack + 2,400-byte transport scratch + small fixed state, not measured linked-image
 RAM. The stack and PCM scratch now use external BSS in PSRAM, as does the
 separate 4-KiB personality-audio stack; task controls/mailboxes and codec DMA
-remain internal. Speaker loudness/gentleness remains a listening check. The separate ten
-[archive cue candidates](../../assets/cody/audio/gentle-sfx/README.md) exist only
-as private `artifacts/audio/cody-gentle-sfx/` previews/audition/manifest. They are
-not firmware or automatic cues. Perpetual commercial-use licences were confirmed
-by the owner on 2026-10-04; perceptual review is pending.
+remain internal. Speaker loudness and tone require listening on the device.
+Candidate cues for separate audition are documented in the
+[audio asset guide](../../assets/cody/audio/gentle-sfx/README.md).
 
 ## Windows preview
 
@@ -673,9 +659,9 @@ Power is dedicated to standby/wake and deliberate shutdown in Debug and Release.
 A short click toggles software standby; a valid three-second continuous hold
 presents `Good night` with `Release Power` directly below it, retires the complete
 Sleep presentation, and requests the
-power owner's gradual fade and coordinated PMU shutdown. Screenshot and restart
-no longer consume PWR; BOOT diagnostics remain unchanged. The old Power-screenshot
-setter returns `ESP_ERR_NOT_SUPPORTED`, and its getter reports disabled.
+power owner's gradual fade and coordinated PMU shutdown. BOOT retains its
+diagnostics. The Power-screenshot setter returns `ESP_ERR_NOT_SUPPORTED` and
+its getter reports disabled.
 Other screenshot diagnostics retain the existing SD owner and real failures.
 
 The shutdown presentation blocks competing touch/scene/voice overlays, suspends
@@ -758,7 +744,7 @@ Sending the audio in for three actual seconds before END may leave. Buffered PCM
 can continue its authenticated transfer, but no native submission is committed
 during that countdown. Both countdowns and Preparing allow one tap anywhere or
 shake to cancel. Recording retains single-send/double-discard arbitration.
-The former eight-second no-speech failure is removed. The maximum utterance is
+The maximum utterance is
 60 seconds from actual capture admission, with a 90-second overall session budget.
 Preparation that cannot retire a complete frame fails after 15 seconds. New
 triggers never start a second simultaneous capture.
@@ -819,8 +805,6 @@ identified. Dependency installation is opt-in. Restart Codex after a successful
 save; read-probe readiness is distinct from genuine dictation/model acceptance.
 See the [installation instructions](../../plugins/cody-codex-plugin/README.md#install-and-review-hooks).
 
-On the inspected Desktop build 26.1007.9446.0, its actual app-server still uses
-stdio and owns no TCP listener. No supported attach setting for this host was
-verified in the current official documentation. The installation step must report
-that boundary without inventing an endpoint, starting another server or claiming
-audio is active.
+If the running Desktop app-server exposes only stdio, the installer reports
+that it cannot attach. Dictation requires a reachable supported listener on
+the process that owns the followed chat.

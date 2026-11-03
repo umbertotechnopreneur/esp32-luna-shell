@@ -91,10 +91,10 @@ off, `esp_codec_dev` leaves the managed graph.
 QMI8658 and XPowers leave the graph when IMU and PMU are off, respectively.
 Battery readings and the battery snapshot sampling path compile only when
 `battery: service`; battery detector and ADC setup belong to that module. The
-PMU retains PWR IRQ handling, TS disablement, and the same 50/400/25 mA charge
-policy with a 4.20 V target even when battery telemetry is off.
-The enabled SD service now declares its own FatFS/SDMMC dependencies; it does
-not depend on an unrelated component admitting them accidentally. When
+PMU retains PWR IRQ handling and the board's configured charging policy even
+when battery telemetry is off. The voltage target is 4.20 V on the GPS board
+and 4.10 V on the 1.75C.
+The enabled SD service declares its own FatFS/SDMMC dependencies. When
 `sd: off`, this BSP does not compile SD mount, format, or status functions,
 although Brookesia or another required component can still pull the libraries
 into the graph. Separating the BSP into smaller units and removing remaining
@@ -114,8 +114,5 @@ LVGL, panel, or CST9217 behavior on hardware.
 No flash or on-device behavior is implied by a successful host build. Device
 access needs explicit authorization for the requested operation.
 
-The lifecycle, charging, codec, and build-clean corrections above are pending the
-final validation package recorded in `TODO.md`. Regression cases for the actual
-shell lifecycle and build-clean helper are prepared in
-`scripts/device.ps1 check -Check board-services`; tests and firmware builds will run only on
-explicit user request.
+The `board-services` check covers the shell lifecycle and build cleanup.
+Hardware acceptance is tracked in [open work](../../TODO.md).

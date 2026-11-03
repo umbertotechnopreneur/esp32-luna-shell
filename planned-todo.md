@@ -1,18 +1,16 @@
 # Deferred work
 
-These items are parked, not an execution queue. [TODO.md](TODO.md) holds active
-follow-ups. Stable IDs identify the deferred items below.
+Activate a stable ID in [TODO.md](TODO.md) before starting deferred work.
 
 ## Boundaries that still apply
 
 - Physical voice, walking/classifier and speech-to-Codex trials remain deferred.
-  Listing them here does not resume them. HAR stays observational:
-  original labels, actual timestamps, no training or automatic shutdown.
-- The accepted SD/PCB limitation and standby/wake workaround remain accepted.
-  Storage entries do not reopen the old SD fault investigation.
-- The public experimental WAV queue is implemented; model-side speech
-  understanding remains unverified.
-  Separately billed transcription was declined; future ingress must be public/supported.
+  Keep HAR observational, using original labels and actual timestamps. Training
+  and automatic shutdown require separate product decisions.
+- Keep the accepted SD/PCB standby and wake workaround. Further investigation
+  of the underlying SD fault requires a separate decision.
+- The experimental WAV queue uses public ingress. Model-side speech understanding
+  still needs verification. Keep separately billed transcription out of scope.
 - Firmware build, host tests, flash and physical acceptance are separate evidence.
   Authorization follows [AGENTS.md](AGENTS.md).
 
@@ -24,20 +22,22 @@ follow-ups. Stable IDs identify the deferred items below.
 - [ ] **CLARITY-02 - Share bounded marquee calculations.** The activity and approval
   headers still duplicate first-glyph/offset/capacity/centering math. Share only
   that calculation; retain text, viewport and pausable clocks with each owner.
-- [ ] **CLARITY-03 - Replace narrow uses of full snapshots.** Live Luna callers
-  still use by-value `snapshot()`; the storage-only format request is one example.
-  Add fallible bounded projections and migrate real callers before deleting the API.
-  Budget nested stacks. The committed v1 scene-font reader is still needed until
-  assets migrate; rejecting old calibration records is not a fallback to delete.
-- [ ] **HARDWARE-PORT-01 - Waveshare 1.43C support.** The 1.75C port and physical
-  acceptance are active in [TODO.md](TODO.md). For 1.43C resolve CO5300/SH8601,
-  8-MB flash/OTA/speech fit, CST820,
-  audio wiring and ADC/charger acquisition. It lacks the IMU; neither schematic
-  has GNSS/SD/the old expander, and 1.75C external RTC remains disputed.
-  [Board comparison](docs/bsp/boards/purchased-amoled-comparison.md).
-- [ ] **OTA-01 - Upload, boot selection and rollback.** Two OTA slots and shared
-  model/LittleFS partitions exist; authenticated Wi-Fi upload, explicit storage
-  policy and observed boot/rollback still need implementation/acceptance.
+- [ ] **CLARITY-03 - Replace narrow uses of full snapshots.**
+  Replace snapshot() by-value reads with bounded, fallible projections,
+  starting with storage formatting. Budget the nested stack before removing the
+  API. Keep the v1 scene-font reader until its assets migrate and continue
+  rejecting invalid calibration records.
+- [ ] **HARDWARE-PORT-01 - Waveshare 1.43C support.**
+  Porting is deferred. Before enabling a profile, resolve the CO5300/SH8601
+  panel identity, CST820 touch, audio wiring and ADC/charger acquisition.
+  Budget the application, speech assets, internal storage and any OTA slots
+  against 8 MB of flash. Model the missing IMU, SD, GNSS and I/O expander
+  explicitly. [Board
+  comparison](docs/bsp/boards/purchased-amoled-comparison.md).
+- [ ] **OTA-01 - Upload, boot selection and rollback.**
+  Implement authenticated Wi-Fi upload, boot selection and rollback on boards
+  with two supported OTA slots. Define shared storage policy and observe
+  rollback on target.
 - [ ] **LUNA-03 - Product controls.** Shared JSON geometry tokens, product keyboard/
   confirmations, Settings access to existing IMU calibration and opt-in HTTP,
   plus measured FFT gain/layout/latency and status presentation. Use public APIs.
@@ -59,27 +59,28 @@ follow-ups. Stable IDs identify the deferred items below.
   gaps, calibration/standby/pressure boundaries, energy and stack headroom before
   relying on classifications. No synthetic samples or training. Resolve original
   weight redistribution rights before publishing an embedding firmware binary.
-- [ ] **BATTERY-ENDURANCE-01 - Repeatable runtime.** The first run retained
-  6 h 55 min 42.870 s with `source_gaps=1` and `INTERRUPTED_UNKNOWN`; it did not
-  establish exact battery death. Obtain continuous-source evidence and compare
-  Debug/Release only with matched workload, battery and starting conditions.
-- [ ] **WAKE-RECONNECT-01 - Wake-to-Codex latency.** Measure request, completed
-  wake, association, IP and authenticated READY; the reported 10-30-second delay
-  is not closed by source changes. Check saved-network startup, immediate IP
-  advance and recovery choices after 15 seconds offline.
-- [ ] **AUDIT-TARGET-01 - Memory/failure recovery.** Observe nested stack margins,
-  rejected-model cleanup, incremental model-tamper rejection and wake/callback
-  paths. Recorded builds and individual frames do not prove these runtime cases.
-- [ ] **FAULT-04 - Codex-choice reboot report.** Capture the first panic with
-  matching ELF during the actual choice. The `33377507` captures retained a prior
-  panic reset but no new panic in their 30/60-second windows; cause is unconfirmed.
+- [ ] **BATTERY-ENDURANCE-01 - Repeatable runtime.**
+  Measure continuous runtime through confirmed battery shutdown. Compare Debug
+  and Release with matched workload, battery and starting conditions. Treat a
+  source gap or unknown interruption as an incomplete observation.
+- [ ] **WAKE-RECONNECT-01 - Wake-to-Codex latency.**
+  Measure the interval from wake request through completed wake, association,
+  IP and authenticated READY. Check saved-network startup, immediate progress
+  after IP and recovery choices after 15 seconds offline.
+- [ ] **AUDIT-TARGET-01 - Memory/failure recovery.**
+  Measure nested stack margins during wake and callbacks. Exercise
+  rejected-model cleanup and incremental model-tamper rejection.
+- [ ] **FAULT-04 - Codex-choice reboot report.**
+  If selecting a Codex choice triggers a reboot, capture the first panic from
+  the actual choice and decode it against the running ELF.
 - [ ] **FAULT-02 - Touch/caress freeze.** Capture the first rejected packet or
   transition; review two contacts, D000/AB ACK, malformed fifteen-FF isolation,
   normal-mode return, invalid samples and release-before-readmission. Then observe
   an eligible 300-ms caress and its sound, distinguishing gaps/speed/zone exit.
-- [ ] **FAULT-03 - Renderer stop.** Capture the first failing frame with matching
-  ELF. The `2bd0626` core identified infinite SPI acquisition; later `c3dceaf`
-  captures do not establish long stability or explain the missing `bb8fd327` interval.
+- [ ] **FAULT-03 - Renderer stop.**
+  Capture a renderer stop from its first failing frame with the matching ELF.
+  Inspect SPI acquisition deadlines and measure sustained rendering on the
+  affected route.
 - [ ] **FAULT-PERIPHERAL-01 - Peripheral/USB errors.** Diagnose codec/PMU I2C,
   I2S disable-before-enable, logger loss and interrupted serial captures separately.
 - [ ] **POWER-01 - Sleep/wake transactions.** Observe Debug standby and Release
@@ -98,10 +99,10 @@ follow-ups. Stable IDs identify the deferred items below.
 
 The four-panel Home contract is in [Cody layout](docs/cody/layout.md).
 
-- [ ] **CCP-01 - Security rollout on target.** Record the actual paired-PC
-  revision and observe pairing/recovery, packet/ACK loss, restart, consecutive
-  questions and routing. Measure ingress bursts/nested stacks; old rollout
-  versions and passing host suites are not current device acceptance.
+- [ ] **CCP-01 - Security rollout on target.**
+  Identify the paired-PC revision and observe pairing, recovery, packet/ACK
+  loss, restart, consecutive questions and routing. Measure ingress bursts and
+  nested stack use on target.
 - [ ] **CCP-02 - Genuine hook delivery.** After an authorized reload, follow a
   real prompt through autoload, latest-prompt selection, chat leases, broker/LAN
   recovery and turn correlation. No replayed activity, transcript inference or trust edits.
@@ -115,22 +116,23 @@ The four-panel Home contract is in [Cody layout](docs/cody/layout.md).
 - [ ] **CCP-05 - Character response.** Observe cardinal-rotation gaze, caress
   warmth, positive-only mood and exact compaction release, preserving source-gap,
   setup/preset/Debug isolation and protected channels. Measure nested stack minima.
-- [ ] **CCP-06 - Acting and notices.** Observe Thinking/Editing/Running, attention
-  blink, exact-turn reply/interruption, real PC approval, source gaps, hidden routes,
-  battery/charging thresholds and expiry. Host automation is already recorded.
-- [ ] **CCP-07 - Price bands and panel timing.** Observe the actual badge,
-  compaction priority, full marquees and tap/shake transitions; verify PC adoption
-  and current-image headroom. Cache/transport/raster implementation is complete.
+- [ ] **CCP-06 - Acting and notices.**
+  Observe Thinking/Editing/Running, attention blink, exact-turn reply and
+  interruption, genuine PC approval, source gaps, hidden routes,
+  battery/charging thresholds and expiry.
+- [ ] **CCP-07 - Price bands and panel timing.**
+  Observe the displayed price band, compaction priority, full marquees and
+  tap/shake transitions. Verify PC adoption and current-image stack headroom.
 - [ ] **CCP-USAGE-01 - Native telemetry on the display.** Observe Home counts and
   genuine compaction animation/sound. Reload clears followed-chat state until a
   new prompt; do not synthesize recovery or infer bills/thresholds from model names.
-- [ ] **UI-ACTIVITY-02 - Connection/activity presentation.** Observe discovery,
-  ten-minute search/three-minute Working standby, valid-battery wake prelude,
-  genuine activity text and current Home metadata/geometry. Use today's layout,
-  not the retired firmware-identity or three-panel presentation.
-- [ ] **UI-ACCENT-01 - Animation acceptance.** Observe gears/clock accents,
-  rotations and completed partial repaint. Host raster/runtime/frame evidence exists;
-  device pixels and nested headroom remain open.
+- [ ] **UI-ACTIVITY-02 - Connection/activity presentation.**
+  Observe discovery, the ten-minute search and three-minute Working standby,
+  the valid-battery wake prelude, genuine activity text and four-panel Home
+  metadata and geometry.
+- [ ] **UI-ACCENT-01 - Animation acceptance.**
+  Observe gears and clock accents, rotations and completed partial repaint on
+  the device. Measure nested stack headroom.
 - [ ] **BATTERY-01 - Quiet notices.** Observe ten-second free-Home admission,
   four-second dwell, 20/10-percent warnings, charge/full transitions and stale/error
   removal with route/touch deferral. Studio automatic notice/caption parity and
@@ -154,24 +156,27 @@ The four-panel Home contract is in [Cody layout](docs/cody/layout.md).
   the previous-route rule; Home retains its explicit no-Back contract.
 - [ ] **UI-06 - Look persistence.** Observe save/readback retry, busy Back/Done,
   reset-during-write, rotated touch, stable IDs and repeated-entry leak/race behavior.
-- [ ] **UI-07 - Diagnostics/Memory.** Observe the same measured overview and heap
-  bars in Debug/Release, unavailable states, Back/Normal restoration, standby,
-  allocation errors and rotations. Facial-channel UI and PWR screenshot/double-click
-  are retired; do not reintroduce them. PWR owns standby/shutdown; Debug BOOT is separate.
+- [ ] **UI-07 - Diagnostics/Memory.**
+  Observe the measured overview and heap bars in Debug and Release. Cover
+  unavailable states, Back/Normal restoration, standby, allocation errors and
+  rotations. Reserve PWR for standby and shutdown and keep Debug BOOT
+  independent. Keep facial channels internal.
 - [ ] **ART-01 - Petting/idle.** Observe 300-ms caresses, heart/gain interruption,
   stress-dependent eye taps, zones/cooldowns/pause, nonrepeating 20-40-second idle
   actions, stressed breathing and cancellation.
 - [ ] **ART-02 - Manga.** Review all fourteen symbols, scale/anchors/clearance,
   Main/Sleep versus Micro admission, follow/erasure, 400-ms fades, completed-frame
   sound, drops/cooldowns/quiet and idle mute. Measure full frame/DMA/CPU/stack cost.
-- [ ] **ART-03 - Composed face.** Observe lip/eye/tongue/breath/whistle/cloud/pearl
-  shapes, independent blink, taps/drag, canonical charge/mic/motion axes and
-  stale/error/rotation behavior. Internal channels remain; their old debug UI does not.
+- [ ] **ART-03 - Composed face.**
+  Observe lip, eye, tongue, breath, whistle, cloud and pearl shapes,
+  independent blink, taps/drag, canonical charging, microphone and motion axes,
+  stale/error and rotation behavior. Keep facial channels internal.
 - [ ] **AUDIO-01 - Device sound.** Listen to BootRise and sixteen current Codex
   cues with frame/semantic admission, quiet/volume, no wake replay, microclick
   reveal deltas, cancellation and codec contention. Greeting C remains an audition.
-- [ ] **AUDIO-02 - Windows sound.** Listen to host tap/manga/whistle/greeting/boot
-  cues, cancellation and real playback errors; a built DLL does not prove audibility.
+- [ ] **AUDIO-02 - Windows sound.**
+  Listen to host tap, manga, whistle, greeting and boot cues. Confirm
+  cancellation and the reports from real playback errors.
 - [ ] **BOOT-01 - Branding handoff.** Review the full 42-frame/3500-ms VibeWare
   cycle, readiness dwell, titles, failure/DMA parking, first/returning boot,
   rotations, sleep policy and Luna linked memory.
@@ -185,13 +190,15 @@ The four-panel Home contract is in [Cody layout](docs/cody/layout.md).
 
 ## Optional services and release coverage
 
-- [ ] **STORE-01 - Logger/readback.** Establish linked/actual evidence for the
-  estimated ~68-KiB recovery; observe pressure, archival failures, unavailable SD,
-  optional failure without reset and watermarks. Review CRC/session identity,
-  interrupted/busy/passive USB, remount and standby ownership.
-- [ ] **STORE-02 - SD lifecycle.** Only if separately resumed on a disposable
-  card, review format/cancel/progress/failure/removal/full states and mounted wake.
-  Formatting needs its own single-use approval; one old Debug cycle proves no reset recovery.
+- [ ] **STORE-01 - Logger/readback.**
+  Measure recovered internal memory, queue pressure, archival failure,
+  unavailable SD, optional failures and watermarks. Check CRC and session
+  identity across passive or interrupted USB capture, busy storage, remount and
+  standby.
+- [ ] **STORE-02 - SD lifecycle.**
+  On separately authorized disposable media, review format, cancel, progress,
+  failure, removal, full-card states, mounted wake and reset recovery.
+  Formatting requires its own single-use approval.
 - [ ] **TIME-01 - Clock/routines.** Observe atomic timezone/quiet settings, overnight
   windows/Rome DST, corrupt/missing values, NTP failure/recovery, RTC trust/write/readback,
   backup retention, greeting damage and deferred boot sound.
@@ -202,47 +209,50 @@ The four-panel Home contract is in [Cody layout](docs/cody/layout.md).
 - [ ] **VOICE-POLL-UI-01 - Voice timing/resources.** Measure AFE notification waits,
   disconnected cadence, ribbon pacing/gain, 350-ms send/double-tap arbitration,
   shake/discard, rotations, rollback, stacks and current. No battery-gain claim from code alone.
-- [ ] **VOICE-01 - Recognition and end-to-end recording.** Physical trials stay
-  deferred. Sophia was observed; Jarvis/Computer and three-model packing are separate.
-  On resumption, cover capture/AEC/ownership, CPU/PSRAM, standby/stale events,
-  Home's 420-ms double tap, recording's countdowns and 350-ms arbitration, bounded
-  PCM/ACK/gap/replay/recovery, changed chats and uncertain END. Verify capture -> WAV
-  -> frozen-chat queue -> Desktop consumption separately from speech understanding.
-- [ ] **TTS-01 - Audible SD speech.** Confirm SD availability after the accepted
-  workaround, then the boot diagnostic, bounded wait, real errors and diagnostic-only
-  quiet bypass. Prepared files and corrected boot did not prove intelligible Italian.
+- [ ] **VOICE-01 - Recognition and end-to-end recording.**
+  When physical trials resume, review Sophia, Jarvis, Computer and three-model
+  packing separately. Cover capture/AEC ownership, CPU/PSRAM, standby/stale
+  events, Home’s 420-ms double tap, recording countdowns and 350-ms
+  arbitration, bounded PCM, ACK, gaps, replay, recovery, changed chats and
+  uncertain END. Trace capture through WAV, the frozen-chat queue and Desktop
+  consumption. Assess speech understanding separately.
+- [ ] **TTS-01 - Audible SD speech.**
+  With the accepted SD workaround in place, check availability, the boot
+  diagnostic, bounded wait, errors and diagnostic-only quiet bypass. Listen for
+  intelligible Italian.
 - [ ] **TTS-02 - Variants/budgets.** Cover excluded, metadata-only SD and English
   flash profiles, locks/config/flash lists, SHA rejection and four-language UTF-8.
   Measure PCM, CPU/PSRAM/stacks, LVGL coexistence, cancel/quiet/codec/sleep and SD removal.
   Full Luna TTS and flash-English builds remain separate; new triggers need a decision.
-- [ ] **HW-01 - Acquisition/stacks.** Review sensor/staging owners and full-snapshot
-  HTTP/Luna/DeepSleepRelease/BLE/callback/logging/wake paths. Host checks and the
-  GNSS-enabled build passed; deepest physical paths/BLE watermarks remain unmeasured.
-- [ ] **LUNA-01 - Composition matrix.** Brookesia 0.8 and repaired display-touch/
-  full-wake-word builds/locks passed. Broader display-off/all-services and audio I/O,
-  physical display/touch/rotation/DMA/radio/sleep and PMU-on/battery-off remain open.
+- [ ] **HW-01 - Acquisition/stacks.**
+  Measure deepest physical stack use for acquisition and staging, full-snapshot
+  HTTP, Luna, DeepSleepRelease, BLE, callbacks, logging and wake.
+- [ ] **LUNA-01 - Composition matrix.**
+  Cover the Brookesia 0.8 display-off/all-services and audio I/O combinations.
+  Observe display, touch, rotation, DMA, radios and sleep on target and cover
+  the PMU-enabled, battery-service-disabled profile.
 - [ ] **LUNA-02 - Document lifetime.** Observe lazy bootstrap/unload memory,
   navigation/history, zero-to-five commands, stale generations, scoped bindings,
   partial failure, reordered identities, pause/frame locks and BLE Settings responsiveness.
-- [ ] **BOARD-01 - Leg Edition.** Review five views, fresh sensors/peaks, controls,
-  levels, audio/PWR/settings/rotations, excluded peripherals and disabled RTC status.
-  Use current-image evidence; old level-3/motion/off timing is not weight-bearing acceptance.
-- [ ] **BOARD-02 - ToF.** Before enabling, review both modules, R15/R16 isolation,
-  shared-TX/dual-RX wiring, calibration/persistence, timeout/recovery, tilt and Settings.
-  Removing the obsolete wiring guide did not validate wiring.
-- [ ] **TOOL-01 - Console runtime/package cases.** Retain cancellation, ambiguous
-  ports and artifact ownership under packaging/capture/concurrency. Automated source
-  fixtures are complete; a normal flash does not cover these remaining runtime paths.
-- [ ] **DOC-02 - Wider links/anchors.** A repository-wide moved-link/anchor review
-  remains beyond the scoped documentation review. Recorded PDF topology/rendering
-  and script/HTTP checks are already complete for their recorded revisions.
-- [ ] **RELEASE-01 - Broader acceptance.** Other profile matrices, observed startup/
-  branding and wider product/licensing acceptance remain beyond the completed
-  selected-build/host/USB delivery. Model-weight rights are retained under ACTIVITY-01.
+- [ ] **BOARD-01 - Leg Edition.**
+  Review all five views with fresh sensors and peaks, controls, levels, audio,
+  PWR, settings, rotations, excluded peripherals and disabled RTC status.
+  Observe load-bearing behavior on the current image.
+- [ ] **BOARD-02 - ToF.**
+  Before enabling, review both ToF modules, R15/R16 isolation, shared TX and
+  dual RX wiring, calibration, persistence, timeout and recovery, tilt and
+  Settings.
+- [ ] **TOOL-01 - Console runtime/package cases.**
+  Exercise cancellation, ambiguous ports and artifact ownership during
+  packaging, capture and concurrent operations.
+- [ ] **DOC-02 - Wider links/anchors.**
+  Review moved documentation links and anchors across the repository.
+- [ ] **RELEASE-01 - Broader acceptance.**
+  Define and execute the needed profile matrix and physical startup/branding
+  acceptance when release work resumes. Resolve wider product and licensing
+  requirements, including model-weight rights under ACTIVITY-01.
 
-## Ideas, not commitments
-
-Activate a specific item in TODO.md before implementation.
+## Product ideas
 
 | Area | Possible next work and limits |
 | --- | --- |

@@ -45,8 +45,8 @@ masters: WifiConnected, Search, BatteryReady and BatteryLow. These new cues are
 silent; Search animates eight small lens poses without per-frame trigonometry or
 a separate task. Runtime rendering and stack headroom remain unverified.
 
-From 2026-10-11 the firmware admits short battery notices after ten uninterrupted
-seconds on free Home. Touch, affection, other narrative cues, work, questions,
+The firmware admits short battery notices after ten uninterrupted seconds on
+free Home. Touch, affection, other narrative cues, work, questions,
 setup and technical panels defer admission. Semantic Sleep retains priority;
 notices never extend standby or replace a route. The latest supported pending
 event is retained, not a queue of old battery announcements.
@@ -66,12 +66,9 @@ by Sounds/quiet preferences. A 25-percent recovery re-arms low warnings; critica
 warnings re-arm at 15 percent. Source loss immediately clears pending and active
 notices. These facts refer to Cody's battery, not the PC battery.
 
-The canonical status projection is retained by the display owner instead of
-copied onto the nested frame stack. Studio's manual power studies retain the
-native factual selector and explicitly synthetic facts; they do not establish
-the firmware's automatic notice timing or caption behavior. That integration,
-compiled frames, stack headroom and physical behavior remain pending validation.
-The previous results below do not validate this increment.
+The display owner retains the canonical status projection. Studio exercises
+the selector with synthetic battery data. Automatic notice timing, captions
+and stack headroom still require verification on the device.
 
 ## Timing and semantic Sleep
 
@@ -182,9 +179,8 @@ The fourteen logical 256 x 256 index/coverage pairs retain their complete
 reference binaries and PNGs. Immutable flash storage uses the minimal rectangle
 containing every nonzero-alpha pixel: 1,475,720 bytes including the exact
 512-byte RGB565 palette, before descriptors/alignment. Omitted pixels remain
-transparent in logical coordinates; colors, opacity, sampling and placement
-are unchanged. This saves 302,904 bytes against the former fixed border and
-359,800 against full planes, without runtime decompression or allocation.
+transparent in logical coordinates. Rendering reads the stored rectangle
+directly without decompression or allocation.
 The native contract compares every logical pixel and actual row composition
 against the full raw planes at both byte orders and two opacity levels.
 

@@ -112,11 +112,9 @@ recovery. Correlate completed-wake, Wi-Fi Online and the new authenticated-peer
 connection log before attributing a particular observed delay. Visual wake and
 battery presentations have their own duration and do not block the network owner.
 
-## Delivery boundary
+## Physical acceptance
 
-The cleanup/admission separation and retained-error cancellation behavior have
-received static source review only. These edits have not received configure,
-build, size, automated-test, simulator or physical-device validation. Existing
-observations of the previous firmware do not verify the new behavior. First
-provisioning, wrong password, missing AP, cancellation, retry, timeout, telemetry
-handoff, standby/wake and HTTP LAN behavior remain end-to-end validation gates.
+Exercise first provisioning through the phone's final status, wrong password,
+missing AP, cancellation, retry, timeout, telemetry handoff, standby/wake and
+HTTP access over the LAN. The [active work](../../../TODO.md) tracks outstanding
+device observations.

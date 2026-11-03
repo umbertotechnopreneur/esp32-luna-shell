@@ -5,11 +5,10 @@ Target: GPS variant of the Waveshare ESP32-S3-Touch-AMOLED-1.75.
 The purchased enclosed 1.75C and 1.43C are separate hardware targets. See the
 [purchased-board comparison](../purchased-amoled-comparison.md) and
 [imported vendor references](../../../../hardware/references/waveshare/README.md).
-Their reference import does not change this inventory or add firmware support.
 
 The board [hardware consumption and sleep-wakeup reference](power-reference.md)
 records datasheet ranges, supply conditions, source revisions and unavailable
-values. Its 2026-10-04 schematic review is source evidence, not a device test.
+values for the GPS board.
 
 | Area | Device / capability | Firmware integration |
 | --- | --- | --- |
@@ -25,8 +24,8 @@ values. Its 2026-10-04 schematic review is source evidence, not a device test.
 | Audio in | Dual microphones / ES7210 path | Shared 22.05 kHz mono PCM16 initialization and bounded level sample |
 | RTC | PCF85063 | Initialized and sampled with clock-integrity reporting |
 | I/O expander | TCA9554 at I2C `0x20` | Managed by the official BSP |
-| Wi-Fi | ESP32-S3 2.4 GHz 802.11 b/g/n | STA driver started with RAM-only config; no credentials embedded |
-| Bluetooth | Bluetooth LE | NimBLE peripheral advertises as `LUNASHELL-xxxx` |
+| Wi-Fi | ESP32-S3 2.4 GHz 802.11 b/g/n | Station driver loads saved profiles from flash. The provisioning manager persists accepted credentials. |
+| Bluetooth | Bluetooth LE | NimBLE telemetry advertises as `CODY-xxxx`. Provisioning uses its own `PROV_` name. |
 
 ## Shared bus and pin ownership
 
@@ -48,8 +47,8 @@ I2C driver.
 The published schematic routes PMU IRQ to TCA9554 P5, RTC INT to P3 and IMU
 INT1 to P6. TCA9554 INT has a pull-up but no ESP connection. PWR is AXP2101
 PWRON; GPIO0 is BOOT. Touch GPIO11 and IMU INT2 GPIO21 are direct candidate
-Deep-sleep wake routes. See the root census for conditions and implementation
-status. Common VCC3V3 supplies GNSS VCC, touch, IMU, SD and the amplifier;
+Deep-sleep wake routes. See the [power reference](power-reference.md) for wake
+conditions. Common VCC3V3 supplies GNSS VCC, touch, IMU, SD and the amplifier;
 VCC-RTC supplies RTC/GNSS backup, and A3V3 supplies the audio ADC/codec analog
 path. Firmware exclusion does not prove an electrically disabled device.
 

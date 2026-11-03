@@ -1,14 +1,12 @@
 # Hardware inventory: consumption and sleep wakeup
 
-Target: **Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS**, ESP32-S3R8.
-Datasheet and schematic review: **2026-10-04**. No electrical measurements,
-firmware builds, tests, flashing or serial access were performed for this review.
+The values below apply to the **Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS**
+with ESP32-S3R8. Component values come from the cited datasheets. Whole-board
+current and battery runtime require electrical measurements.
 
 This board reference owns the consumption ranges below. See the
 [pin and firmware integration inventory](hardware.md)
 and [machine-readable component inventory](../../../../hardware/inventory.json).
-The [workstation inventory](../../workstation-inventory.md) is a dated
-development-PC snapshot, separate from the selected project toolchain.
 
 ## How to read the ranges
 
@@ -142,7 +140,6 @@ The panel, microphones, SD identity, enabled-PMU overhead and exact rail states
 prevent a defensible complete range. A useful future measurement records USB
 versus battery supply, charge state, image/brightness, radios, GNSS state,
 inserted card, attached TOFs, wake-source configuration and firmware identity.
-No physical measurement is authorized or performed by this documentation task.
 
 [esp32]: https://documentation.espressif.com/esp32_s3_datasheet_en.pdf
 [flash]: https://www.winbond.com/resource-files/w25q128jv%20revf%2003272018%20plus.pdf

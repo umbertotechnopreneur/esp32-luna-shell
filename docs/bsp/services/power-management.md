@@ -142,7 +142,7 @@ monitor's existing consumer arbitration.
 The shared hardware monitor serves four independent consumers: diagnostic IMU,
 diagnostic microphone, adaptive UI motion, and auto-rotation. When none is
 active and no rotation application is pending, its task blocks indefinitely on
-a FreeRTOS notification instead of waking on the former idle delay.
+a FreeRTOS notification until a consumer needs it.
 
 Every setter that can make work eligible notifies the task after publishing the
 new state. This includes diagnostic-stream selection, adaptive-motion enable or

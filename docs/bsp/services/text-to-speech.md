@@ -217,12 +217,11 @@ runtime dictionary compilers are excluded. Native modifications are recorded in
 [ORIGIN.md](../../../third_party/espeak-ng/ORIGIN.md). Original license notices and
 GPL/Apache/BSD/UCD license files accompany the sources. Optional linked firmware
 must satisfy the imported source licenses when distributed; the repository's
-own license does not replace them. No external release has been performed.
+own license does not replace them.
 
 The [upstream language list](https://github.com/espeak-ng/espeak-ng/blob/master/docs/languages.md)
 and pinned definitions establish source support for the four chosen languages;
-pronunciation quality on this device is unverified. The disposable reference
-checkout under `artifacts/research/` is not required by the integration.
+pronunciation quality on this device remains an acceptance item.
 
 [TODO.md](../../../TODO.md) retains all final validation and additional trigger decisions.
 Fresh exact-command authorization is required before each test/suite and before

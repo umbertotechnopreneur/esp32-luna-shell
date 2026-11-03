@@ -23,8 +23,10 @@ The YAML hash belongs to the fingerprint and cannot silently reuse prior state.
 
 ## Board and interface
 
-The implemented physical adapter is Waveshare ESP32-S3 Touch AMOLED 1.75.
-Its display/touch baseline selects neither Luna nor optional sensors/radios.
+The default physical board is the Waveshare ESP32-S3 Touch AMOLED 1.75 GPS
+with 16 MB flash. Select `-Board waveshare-esp32s3-touch-amoled-1.75c` for the
+32 MB board. Its partition table, wiring and available peripherals are listed
+in the [board comparison](boards/purchased-amoled-comparison.md).
 `LUNASHELL_BUILD_ENABLE_DISPLAY` and `LUNASHELL_BUILD_ENABLE_TOUCH` select devices;
 `LUNASHELL_BUILD_ENABLE_UI` selects Luna. Touch requires display and the shared
 logical orientation. Headless selects neither. Profiles admit component roots
@@ -45,8 +47,7 @@ capabilities; they do not define the physical-device identity.
 
 The wrapper owns `-IdfPath`, `-ToolsPath`, `-PythonExe` and the corresponding
 `LUNASHELL_IDF_PATH`, `LUNASHELL_IDF_TOOLS_PATH`, `LUNASHELL_IDF_PYTHON` overrides.
-It prints the actual selected versions before an operation. The dated
-[workstation inventory](workstation-inventory.md) is historical host context.
+It prints the selected tool versions before an operation.
 
 The official upstream framework is the `third_party/esp-brookesia` Git submodule.
 Project manifests use local `override_path` entries into its official layout;
@@ -136,17 +137,17 @@ key has no ESP Deep-sleep wake route. Other touch-enabled Release profiles enter
 Deep-sleep after confirmed standby only when the power owner retains neither
 the Codex radio association nor wake-word standby listening. Those services keep
 software standby without attempting sleep and restoring Active due to an expected
-policy rejection. During Deep-sleep, touch GPIO11 and accelerometer-only IMU
-INT2/GPIO21 provide physical wake; PWR polling stops and the normal inactivity
+policy rejection. During Deep-sleep, touch GPIO11 and the accelerometer interrupt
+on GPIO21 supply wake inputs. The GPS board wires IMU INT2 to GPIO21 and the
+1.75C wires INT1. PWR polling stops and the normal inactivity
 timer adds no periodic wake.
 Debug keeps CPU/USB awake and retains 10-Hz software motion observation.
 See [power lifecycle](services/power-management.md) for runtime settings,
 IRQ/revision checks, rollback, startup and shared-rail limits. Whole-board
 current and battery life remain unmeasured. Native USB Serial/JTAG disconnects
-during Deep-sleep. `CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION` stays disabled in both modes:
-the known ESP-IDF 6.0.2 SOF-hook cache-error problem has not been repaired by
-this change. Wake/reconnect may be necessary before a later explicitly
-authorized serial/flash operation.
+during Deep-sleep. Both modes disable `CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION`
+because the ESP-IDF 6.0.2 USB start-of-frame hook can encounter a cache error.
+Wake and reconnect the device if a serial operation needs the USB connection.
 
 ## Artifacts and evidence
 

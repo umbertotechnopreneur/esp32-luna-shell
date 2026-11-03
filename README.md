@@ -33,10 +33,11 @@ Cody already has opinions about your token budget; polishing the rest is my job.
 
 ## The little round thing
 
-Cody was developed and tested on the **Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS**.
-I bought the **Waveshare ESP32-S3-Touch-AMOLED-1.75C** pictured below for its aluminum
-case. The round display, ESP32-S3 resources, Waveshare's build quality and price
-felt like a good match. Also, a tiny desk companion deserves a decent outfit.
+The default target is the **Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS** with
+16 MB of flash. For the **1.75C** with 32 MB of flash and the aluminum case
+pictured below, select `-Board waveshare-esp32s3-touch-amoled-1.75c`. Both
+use a round 466 × 466 display. Their pin assignments and onboard peripherals
+differ. The **1.43C** has a hardware reference only. [Board comparison](docs/bsp/boards/purchased-amoled-comparison.md) · [Open hardware checks](TODO.md)
 
 <p align="center">
   <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-2.jpg" alt="Waveshare 1.75C front view with aluminum case and wrist strap" width="300">
@@ -45,9 +46,6 @@ felt like a good match. Also, a tiny desk companion deserves a decent outfit.
   <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-7.jpg" alt="Waveshare 1.75C aluminum case from the rear" width="300"><br>
   <em>Official Waveshare product photos. Image rights belong to their respective owners.</em>
 </p>
-
-The interface is separate from the board, so other Espressif devices can join in
-with their own integration. [Hardware details](docs/bsp/boards/purchased-amoled-comparison.md).
 
 Standby, wake and battery behavior are described in the
 [power guide](docs/bsp/services/power-management.md).
@@ -78,9 +76,9 @@ My source and documentation use the [MIT License](LICENSE). Third-party code,
 models and assets keep their [own licenses and notices](THIRD_PARTY_NOTICES.md);
 the VibeWare identity has its own [reuse guidance](https://github.com/umbertotechnopreneur/VibeWare/blob/main/PRESS-KIT.md).
 
-New external libraries and binaries get a Microsoft Defender scan of the download,
-extracted files and imported dependencies before use. I record the source and
-result; failed, incomplete or flagged scans keep the import on hold.
+On first import, check the official source and version, then run a targeted
+Microsoft Defender scan of the download and extracted dependencies. Use the
+import after the scan completes without detections.
 
 ---
 

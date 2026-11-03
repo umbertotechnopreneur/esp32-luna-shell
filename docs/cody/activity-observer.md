@@ -30,18 +30,11 @@ vehicle travel, or the desired future Cody context classes. No training is perfo
   The same pretrained source was requantized with 8-bit weights and 16-bit
   activations: 172,304 bytes, SHA256
   `ea7835068e138fd28afa62bce9bea58dab10c841ee07ff73825018914a3532f7`.
-  This 16 October local re-export replaces the former reviewed hash
-  `b5333dafe62835cc9999fe27ea652802fcdcaa5250604c5136087d1c1044d4e0`.
-  Static graph review confirms the same seven operators, S16 primitives,
+  The graph uses seven operators, S16 primitives,
   W8A16 2x2 bias+ReLU convolutions (1/16 and 16/32 channels) and packed linear
-  MatMul shapes (2496/64 and 64/6). Original source/calibration hashes are unchanged;
-  recovered preprocessing matches the calibration tensors with zero difference.
-  The four compile kernels remain appropriate; no inference accuracy is inferred.
-  The older W16A16 export was 334,528 bytes. W8A16 saves 162,224 model bytes;
-  it does not establish classification accuracy or final application size.
-  CMake binds the reviewed requirements to the current exact hash.
+  MatMul shapes (2496/64 and 64/6). CMake binds the four required kernels
+  to the exact model hash.
   Re-exporting a model requires reviewing and rebinding these requirements.
-  This selection changes neither partitions nor Sophia and edits no managed source.
   For this activity-enabled build only, ESP-DL C/C++ uses `-Os` after upstream
   `-O3`. Platform control, startup, logging and Cody's coordinators, policies and diagnostic
   panels also use `-Os`. Separate drawing kernels, the geometric rig, benchmarks,

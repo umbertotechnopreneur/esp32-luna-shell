@@ -21,10 +21,10 @@ formats stay in their canonical guides.
 - **BSP** owns the display/touch baseline, shared service contracts and board
   details. Optional services do not become requirements of the minimal baseline.
 
-Physical board, interface, optional services and Debug/Release mode are separate
-selections. The supported physical adapter is currently the Waveshare ESP32-S3
-Touch AMOLED 1.75. Other Espressif devices are a future integration direction;
-the folder structure does not claim additional firmware support.
+Select the physical board independently of the interface, services and build
+mode. The shared BSP supports the Waveshare 1.75 GPS (16 MB) and 1.75C
+(32 MB). The 1.43C entry documents hardware compatibility only.
+[Board comparison](bsp/boards/purchased-amoled-comparison.md)
 
 ## Source map
 
@@ -50,16 +50,8 @@ the folder structure does not claim additional firmware support.
 | [CCP Communication Atlas](cody/cody-ccp-connection-atlas-v1.pdf) | One canonical pairing, plugin and voice reference: plain-English flow first, detailed source/security reference after |
 | [Manga Status Atlas](cody/cody-manga-status-atlas-v1.pdf) | Expressive cues, artwork and boot identity |
 
-The Pairing Quickstart retains four practical pages after its cover and contents.
-All five guides carry a VibeWare cover, author copyright, Draft / Confidential /
-Internal use only classification, clickable contents and current PDF page labels.
-Contents locate unique section headings in the current edition; historical page
-references remain labelled as original-edition references. Regenerate front matter
-and identical Obsidian mirrors with `scripts/device.ps1 generate -Generator cody-pdf-frontmatter`.
-Atlas, translation and pairing-flyer generation also invoke this publisher automatically.
-Screen IDs remain stable independently of page numbers. PDF authoring
-commands and translation provenance are in the [console guide](../scripts/README.md).
-Document illustrations and simulator frames are synthetic evidence.
+Use screen IDs to match atlas pages to the firmware. The console guide covers
+PDF generation, front matter and the Obsidian mirror. [Console guide](../scripts/README.md)
 
 ## Current work
 
@@ -71,5 +63,3 @@ Document illustrations and simulator frames are synthetic evidence.
 | [done.md](../done.md) | Latest validation round only |
 | [lessons.md](../lessons.md) | Causes and practical lessons from recurring errors |
 
-Guides describe current contracts and limitations. Keep one concise validation
-summary; replace it after the next round without appending a chronology.

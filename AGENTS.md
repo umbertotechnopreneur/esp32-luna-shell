@@ -12,7 +12,7 @@ do not add nested agent files or parallel Copilot contracts.
   operations (serial, flash, erase, recover, capture or monitor).
 - Before each test or suite, announce the exact command and obtain fresh explicit
   authorization. Earlier test approval or permission to implement/build/flash/
-  capture does not authorize another run (owner reaffirmed 2026-10-15).
+  capture does not authorize another run.
 - Finish implementation, integration and static review before requested final
   validation. No intermediate configure/build/size passes. Use at most eight
   compiler jobs and allow at least 240 seconds per build. After cancellation,
@@ -48,8 +48,10 @@ do not add nested agent files or parallel Copilot contracts.
 - Build Debug applications/packages from current source, never installed or
   prebuilt application copies. Missing dependencies come from official sources.
   Keep first-time external imports aside for one targeted on-demand Defender
-  scan of the archive and extracted/imported dependencies; record source,
-  version/hash, command and clean completion. Reuse evidence for unchanged imports.
+  scan of the archive and extracted/imported dependencies. Verify the official
+  source, version and clean scan completion in the current staging session.
+  Reuse the result for the same unchanged import within that session. Keep
+  any scan gate in memory only and discard it at session end.
   Failed/unavailable scans block import; no whole-system scans or detection bypass.
   Keep a short requirement in maintained READMEs; do not certify old imports.
 
@@ -74,12 +76,12 @@ before layout changes and [Cody layout](docs/cody/layout.md) for control details
   remote questions and Luna retain routes.
 - The @CCP footer makes three full passes per display-owner lifetime, then hides.
   Source gaps, standby and chat/panel changes pause it without replay.
-- Diagnostics (2026-10-16): one entry in Debug and Release, with measured CPU,
+- Diagnostics use one entry in Debug and Release, with measured CPU,
   free RAM/PSRAM, FPS, IP and SD. Memory shows heap capacity/fragmentation: used,
   largest free block and other free space, not addresses. Back returns to overview,
   then retained route; authenticated Normal restores that route. No build-mode
   choice or facial-channel UI/storage; retain internal animation channels.
-- Cody actions (2026-10-14): text-only captions; two rounded gradient cards side
+- Cody actions use text-only captions. Use two rounded gradient cards side
   by side, three as that pair plus one centered below, one as a wide centered
   capsule. Question choices are numbered single-line full-width rows, at most
   two visible, with scrolling and full detail review before Send. Use semantic
@@ -143,9 +145,10 @@ before layout changes and [Cody layout](docs/cody/layout.md) for control details
   PR references or superseded validation results. Replace the latest validation
   summary instead of appending rounds; do not create history/story/archive or
   validation Markdown files. Do not move deleted history into another document.
-- Keep only the latest validation round's disposable reports and logs; preserve
-  active build inputs/state and required dependency provenance/first-import scan
-  records. This retention rule does not authorize builds, scans or device operations.
+- Keep active build inputs, logs and captures only while needed for the
+  authorized operation. Remove temporary output after handoff and retain only
+  requested deliverables. Never retain scan logs, reports, verification manifests
+  or build history. Report validation outcomes in the conversation.
 - Do not duplicate queues or add alias TASKS/TODO/lessons files. Never mark pending
   validation done. Read `lessons.md` before boot/startup/Brookesia changes.
 - Keep generated builds, state, logs, captures, reports, temporary files and local
