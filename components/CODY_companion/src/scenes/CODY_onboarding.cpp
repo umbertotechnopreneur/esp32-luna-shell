@@ -1416,15 +1416,33 @@ esp_err_t attach_content(SceneFrame &scene)
     return set_scene_content(scene, content);
 }
 
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+// wifi: Canonical station snapshot with up to 32 SSID bytes and a terminator.
+// Returns the original name or a printable explanation when Cody cannot display it.
+const char *pairing_debug_ssid(const LUNASHELL::WifiSnapshot &wifi)
+{
+    if (wifi.ssid[0] == '\0') {
+        return "SSID unavailable";
+    }
+    for (const unsigned char byte : wifi.ssid) {
+        if (byte == 0) {
+            return wifi.ssid;
+        }
+        if (byte < 0x20 || byte > 0x7E) {
+            return "SSID not printable in ASCII";
+        }
+    }
+    return "SSID unavailable";
+}
+
 // observation: One coherent canonical Wi-Fi/BLE/pairing snapshot after successful handoff.
 // scene: Receives the reusable micro-cloud debug layout and six immutable text rows.
-// Exception: Rejects unavailable identities, truncation or layout failures without inventing values.
-#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+// Exception: Rejects missing IP/BLE identity, truncation and layout errors.
 esp_err_t enter_pairing_debug(const LUNASHELL::ConnectivityObservation &observation, SceneFrame &scene)
 {
     const auto &wifi = observation.radios.wifi;
     const auto &ble = observation.radios.ble;
-    if (wifi.ssid[0] == '\0' || wifi.ip_address[0] == '\0' || ble.device_name[0] == '\0') {
+    if (wifi.ip_address[0] == '\0' || ble.device_name[0] == '\0') {
         ESP_LOGE(kTag, "Pairing debug rejected incomplete identities (%s)",
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
@@ -1446,14 +1464,15 @@ esp_err_t enter_pairing_debug(const LUNASHELL::ConnectivityObservation &observat
     s_route = Route::DebugText;
     s_view.line_count = kPairingDebugLineCount;
     error = format_debug_line(s_view.debug_text[0], kDebugLineBytes,
-        "1. Wi-Fi connected to `%s`", wifi.ssid);
+        "1. %s", "Wi-Fi connected");
     if (error == ESP_OK) {
+        // The numbered row fits all 32 printable SSID bytes at the native font advance.
         error = format_debug_line(s_view.debug_text[1], kDebugLineBytes,
-            "2. IP obtained: `%s`", wifi.ip_address);
+            "2. %s", pairing_debug_ssid(wifi));
     }
     if (error == ESP_OK) {
         error = format_debug_line(s_view.debug_text[2], kDebugLineBytes,
-            "3. `%s`", "STA Got IP");
+            "3. IP obtained: `%s`", wifi.ip_address);
     }
     if (error == ESP_OK) {
         error = format_debug_line(s_view.debug_text[3], kDebugLineBytes,
