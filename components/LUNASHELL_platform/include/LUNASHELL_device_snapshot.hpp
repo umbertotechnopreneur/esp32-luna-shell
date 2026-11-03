@@ -1242,7 +1242,7 @@ public:
         const char *device_name = nullptr,
         bool provisioning = false
     );
-    void reportTime(
+    esp_err_t reportTime(
         bool system_time_valid,
         bool synchronized,
         const char *source,

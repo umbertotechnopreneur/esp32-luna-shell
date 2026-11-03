@@ -419,13 +419,19 @@ using namespace LUNASHELL::snapshot_detail::rtc;
 
 // time: Required output assigned only after hardware acquisition and publication succeed.
 // sampled_at_us: Original timestamp of that same canonical sample.
-// Exception: Returns admission, read or publication failure.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED for an excluded RTC.
+// Exception: Returns admission, read or publication failure for an enabled RTC.
 extern "C" esp_err_t LUNASHELL_rtc_read(LUNASHELL_calendar_time_t *time, int64_t *sampled_at_us)
 {
     if (time == nullptr || sampled_at_us == nullptr) {
         ESP_LOGE(TAG, "RTC read rejected: output is null");
         return ESP_ERR_INVALID_ARG;
     }
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_RTC
+    // Initialization already published physical unavailability. A request for
+    // an excluded clock does not constitute an attempted sensor observation.
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
     std::lock_guard<std::mutex> rtc_lock(s_rtc_operation_mutex);
     LUNASHELL_calendar_time_t sample = {};
     const uint32_t trusted_write_generation_at_read =
@@ -461,6 +467,7 @@ extern "C" esp_err_t LUNASHELL_rtc_read(LUNASHELL_calendar_time_t *time, int64_t
 }
 
 // time: Explicit trusted UTC calendar verified by the sole acquisition owner.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED for an excluded RTC.
 // Exception: Returns original admission, write, readback, persistence or publication failure.
 extern "C" esp_err_t LUNASHELL_rtc_write(const LUNASHELL_calendar_time_t *time)
 {
@@ -468,6 +475,9 @@ extern "C" esp_err_t LUNASHELL_rtc_write(const LUNASHELL_calendar_time_t *time)
         ESP_LOGE(TAG, "RTC write rejected: invalid UTC calendar");
         return ESP_ERR_INVALID_ARG;
     }
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_RTC
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
     if (!s_rtc_ready || s_rtc == nullptr) {
         ESP_LOGE(TAG, "RTC write rejected: device is not initialized");
         return ESP_ERR_INVALID_STATE;

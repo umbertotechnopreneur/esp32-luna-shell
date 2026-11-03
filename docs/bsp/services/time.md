@@ -15,11 +15,18 @@ offline even if an RTC persistence write fails; that separate failure remains
 visible. Restart retention still requires valid RTC contents and actual backup
 power. No build date or guessed time is a fallback.
 
+On builds without the external RTC, including the 1.75C, startup publishes
+the clock preferences and an unknown system clock while waiting for trusted UTC.
+Periodic snapshots can complete in this state. Time-dependent routines require
+a valid sample. An actual synchronization, clock-read or publication failure
+retains its error.
+
 SNTP is not started at boot. The first usable Wi-Fi IP calls
 `LUNASHELL_time_notify_wifi_online()` asynchronously; repeated IP events do not
 create a second client. A rejected start retains its real error and may retry on
 a later event. DHCP is not Internet/time confirmation. Only a valid 2024–2099 SNTP
-callback confirms trusted system time and attempts trusted RTC write/readback.
+callback confirms trusted system time. Builds with the RTC enabled also attempt
+trusted RTC write/readback.
 Optional initial full-snapshot refresh failure is logged with its actual error,
 not rewritten to success or used to create an RTC-unset boot loop; mandatory
 driver initialization failure still stops startup.

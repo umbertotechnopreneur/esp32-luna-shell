@@ -55,6 +55,7 @@ std::mutex s_sync_mutex;
 bool s_trusted_gps_fix_observed;
 bool s_reported_system_time_valid;
 bool s_reported_system_time_synchronized;
+esp_err_t s_reported_system_time_error = ESP_ERR_INVALID_STATE;
 char s_reported_system_time_source[8] = "none";
 time_t s_last_rtc_persisted_epoch;
 int64_t s_rtc_persistence_retry_after_us;
@@ -180,6 +181,7 @@ LUNASHELL::RoutinePeriod routine_period(uint16_t minute)
 }
 
 // No parameters: called under the time-owner mutex; system time is a real clock read.
+// Exception: Returns acquisition or snapshot publication failures.
 esp_err_t publish_clock_observation()
 {
     using namespace LUNASHELL;
@@ -195,7 +197,14 @@ esp_err_t publish_clock_observation()
     }
     struct timeval current = {};
     struct tm local = {};
-    esp_err_t error = s_clock_preferences_ready ? ESP_ERR_INVALID_STATE : s_clock_preferences_error;
+    if (s_clock_preferences_ready && !s_reported_system_time_valid &&
+        s_reported_system_time_error == ESP_OK) {
+        // Initialization completed with no UTC source yet. Publish preferences
+        // and an unknown clock without claiming a sample or a failed refresh.
+        clock.last_error = ESP_OK;
+        return DeviceSnapshotService::instance().reportClock(clock);
+    }
+    esp_err_t error = s_clock_preferences_ready ? s_reported_system_time_error : s_clock_preferences_error;
     if (s_clock_preferences_ready && s_reported_system_time_valid) {
         if (gettimeofday(&current, nullptr) != 0) {
             error = ESP_FAIL;
@@ -389,7 +398,12 @@ esp_err_t apply_timezone(const char *timezone)
     return ESP_OK;
 }
 
-void report_time(
+// valid: Whether the system clock holds trusted UTC.
+// synchronized: Whether an external time source established that UTC.
+// source: Identity of the source, or "none" while awaiting UTC.
+// error: Actual synchronization result, including failures before the first UTC.
+// Exception: Returns metadata publication failures to the caller.
+esp_err_t report_time(
     bool valid,
     bool synchronized,
     const char *source,
@@ -398,6 +412,7 @@ void report_time(
 {
     s_reported_system_time_valid = valid;
     s_reported_system_time_synchronized = synchronized;
+    s_reported_system_time_error = error;
     if (source != nullptr && source[0] != '\0' &&
         std::strlen(source) < sizeof(s_reported_system_time_source)) {
         strlcpy(
@@ -406,7 +421,7 @@ void report_time(
             sizeof(s_reported_system_time_source)
         );
     }
-    LUNASHELL::DeviceSnapshotService::instance().reportTime(
+    return LUNASHELL::DeviceSnapshotService::instance().reportTime(
         valid,
         synchronized,
         source,
@@ -628,9 +643,12 @@ void sntp_sync_callback(struct timeval *time_value)
     LUNASHELL::RtcDriftSnapshot unavailable_drift;
     LUNASHELL::snapshot_detail::set_component(unavailable_drift, false, ESP_ERR_NOT_SUPPORTED);
     const esp_err_t drift_error = LUNASHELL::DeviceSnapshotService::instance().reportRtcDrift(unavailable_drift);
-    report_time(true, true, "sntp", ESP_OK);
+    const esp_err_t time_error = report_time(true, true, "sntp", ESP_OK);
     const esp_err_t publication_error = publish_clock_observation();
-    s_initialization_result = drift_error != ESP_OK ? drift_error : publication_error;
+    s_initialization_result = drift_error != ESP_OK ? drift_error : time_error;
+    if (s_initialization_result == ESP_OK) {
+        s_initialization_result = publication_error;
+    }
     if (s_initialization_result != ESP_OK) {
         ESP_LOGE(TAG, "SNTP clock publication failed (%s)", esp_err_to_name(s_initialization_result));
     }
@@ -724,13 +742,13 @@ esp_err_t apply_system_utc(time_t epoch, const char *source)
         report_time(false, false, "none", ESP_FAIL);
         return ESP_FAIL;
     }
-    report_time(true, true, source, ESP_OK);
-    return ESP_OK;
+    return report_time(true, true, source, ESP_OK);
 }
 
 }  // namespace
 
 // timezone: Reviewed first-boot default only; an existing setting always takes precedence.
+// Exception: Returns preference, enabled RTC, network setup or publication failures.
 extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
 {
     std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
@@ -768,6 +786,7 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
 
     bool restored = false;
     esp_err_t restore_result = ESP_OK;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_RTC
     LUNASHELL_calendar_time_t rtc = {};
     int64_t rtc_sampled_at_us = 0;
     const esp_err_t rtc_result = LUNASHELL_rtc_read(&rtc, &rtc_sampled_at_us);
@@ -791,6 +810,7 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
     } else {
         restore_result = rtc_result;
     }
+#endif
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
     const esp_err_t netif_result = esp_netif_init();
@@ -823,17 +843,21 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
 
     s_initialized = true;
     s_initialization_result = restore_result;
-    report_time(
+    const esp_err_t time_error = report_time(
         restored,
         restored,
         restored ? "rtc" : "none",
         restore_result
     );
     const esp_err_t clock_error = publish_clock_observation();
-    if (clock_error != ESP_OK) {
-        ESP_LOGE(TAG, "Initial clock observation failed (%s)", esp_err_to_name(clock_error));
-        return restore_result != ESP_OK ? restore_result : clock_error;
+    if (s_initialization_result == ESP_OK) {
+        s_initialization_result = time_error != ESP_OK ? time_error : clock_error;
     }
+    if (s_initialization_result != ESP_OK) {
+        ESP_LOGE(TAG, "Initial clock observation failed (%s)", esp_err_to_name(s_initialization_result));
+        return s_initialization_result;
+    }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_RTC
     ESP_LOGI(
         TAG,
         "Time service ready: timezone=%s RTC=%s restored=%s",
@@ -841,6 +865,9 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
         esp_err_to_name(rtc_result),
         restored ? "yes" : "no"
     );
+#else
+    ESP_LOGI(TAG, "Time service ready: timezone=%s; awaiting trusted UTC", s_timezone);
+#endif
     return restore_result;
 }
 
@@ -949,12 +976,13 @@ esp_err_t configure_clock_preferences(const ClockPreferences &preferences)
         return error;
     }
     s_clock_preferences = preferences;
-    report_time(s_reported_system_time_valid, s_reported_system_time_synchronized,
-        s_reported_system_time_source, ESP_OK);
+    const esp_err_t time_error = report_time(s_reported_system_time_valid, s_reported_system_time_synchronized,
+        s_reported_system_time_source, s_reported_system_time_error);
     ESP_LOGI(TAG, "Clock preferences persisted: zone=%s routines=%u quiet=%u start=%u end=%u",
         s_timezone, preferences.routines_enabled, preferences.quiet_hours_enabled,
         preferences.quiet_start_minute, preferences.quiet_end_minute);
-    return publish_clock_observation();
+    const esp_err_t clock_error = publish_clock_observation();
+    return time_error != ESP_OK ? time_error : clock_error;
 }
 
 // preferences: Receives only validated settings belonging to the time owner.
@@ -1172,12 +1200,18 @@ extern "C" esp_err_t LUNASHELL_time_sync_from_gps(
     } else {
         // A coalesced fix still proves that the already-running system clock is
         // valid. Repair any older unavailable snapshot without rewriting it.
-        report_time(true, true, "gps", ESP_OK);
+        const esp_err_t time_error = report_time(true, true, "gps", ESP_OK);
+        if (time_error != ESP_OK) {
+            return time_error;
+        }
     }
 
     if (!rtc_persistence_required) {
         return ESP_OK;
     }
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_RTC
+    return ESP_OK;
+#endif
 
     const int64_t persistence_attempt_at_us = esp_timer_get_time();
     if (s_rtc_persistence_retry_after_us != 0) {

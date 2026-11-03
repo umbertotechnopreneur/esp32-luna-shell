@@ -1198,8 +1198,9 @@ void DeviceSnapshotService::reportBle(
 // synchronized: Whether an external clock synchronization completed.
 // source: Verified system-time source name.
 // timezone: Configured timezone identifier.
-// error: Original operation or publication failure.
-void DeviceSnapshotService::reportTime(
+// error: Original time-owner operation result retained in the observation.
+// Exception: Returns any failure to publish the observation.
+esp_err_t DeviceSnapshotService::reportTime(
     bool system_time_valid,
     bool synchronized,
     const char *source,
@@ -1216,8 +1217,10 @@ void DeviceSnapshotService::reportTime(
         timezone != nullptr &&
         timezone[0] != '\0' &&
         std::strlen(timezone) < sizeof(RtcSnapshot::timezone);
+    const bool waiting_for_source = error == ESP_OK && !system_time_valid &&
+        !synchronized && source_valid && timezone_valid && std::strcmp(source, "none") == 0;
     esp_err_t effective_error = error;
-    if (effective_error == ESP_OK && !system_time_valid) {
+    if (effective_error == ESP_OK && !system_time_valid && !waiting_for_source) {
         effective_error = ESP_ERR_INVALID_STATE;
     } else if (
         effective_error == ESP_OK &&
@@ -1243,7 +1246,14 @@ void DeviceSnapshotService::reportTime(
                     sizeof(snapshot.rtc.timezone)
                 );
             }
-            if (system_time_valid && effective_error == ESP_OK) {
+            if (waiting_for_source) {
+                auto &system_time = snapshot.rtc.system_time;
+                system_time.health = DeviceHealth::Unknown;
+                system_time.last_error = ESP_OK;
+                system_time.data_valid = false;
+                system_time.data_stale = system_time.last_success_at_us > 0;
+                system_time.last_attempt_at_us = attempted_at_us;
+            } else if (system_time_valid && effective_error == ESP_OK) {
                 mark_sample_success(
                     snapshot.rtc.system_time,
                     attempted_at_us
@@ -1257,7 +1267,10 @@ void DeviceSnapshotService::reportTime(
             }
         }
     );
-    log_snapshot_publication_failure("Time report", publication_error);
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(TAG, "Time report snapshot publication failed (%s)", esp_err_to_name(publication_error));
+    }
+    return publication_error;
 }
 
 // clock: Time-owner observation; failed reads keep explicit unavailable routine state.
