@@ -8,6 +8,8 @@ before its delayed connect runs. It accepts the first real IP event while
 leaving credential persistence and provisioning retries to the stock manager.
 It suppresses its own reconnect timer during that ownership interval. Direct
 Wi-Fi connect, scan and stop calls are rejected while provisioning owns them.
+Provisioning rejects a handoff while a local scan is active. Each owner reads
+only its own completed scan because reading the AP list frees the driver buffer.
 
 `LUNASHELL_radios_start_pairing()` stops telemetry before starting provisioning.
 `LUNASHELL_radios_end_pairing(restore_telemetry)` stops and deinitializes the
@@ -55,16 +57,23 @@ expected_attempt_id)` admits Start, Retry or Cancel against the exact observed
 attempt. Its success acknowledges admission; the snapshot reports completion.
 The controller rejects duplicates, stale identities and retry after failed
 cleanup. Cancel may queue while Start is still running. The worker parks when
-idle and observes an active attempt every 250 ms through the canonical small
-`ConnectivityObservation`, without a second sensor/network read path.
+idle and observes an active attempt every 250 ms through `PairingObservation`.
+This projection reads provisioning state, power state and Wi-Fi lease validity
+under one snapshot lock. Its 96-byte limit leaves stack space for BLE startup.
+The worker logs its minimum free stack after radio startup and cleanup.
 
 The attempt expires after five minutes. Credential failure, timeout and cancel
 close provisioning before publishing the terminal state. Retry creates a new
-manager session, QR proof and attempt ID. Online requires manager success plus
-a valid, healthy Wi-Fi snapshot with association and a real nonzero IP; the
-provisioning manager is released before telemetry starts. A cleanup failure
-remains visible separately from the original failure and blocks reuse. A power
-transition out of Active closes the attempt; wake never silently reopens it.
+manager session, QR proof and attempt ID. After the station gets an IP, the
+Espressif manager keeps BLE available for the phone to read the final Wi-Fi
+status. The manager then stops provisioning. Its auto-stop timer also closes
+the session if the phone leaves without reading the result. The controller
+waits for the manager's END event to publish the Wi-Fi handoff result and the
+stopped BLE transport. A successful result and a valid, healthy Wi-Fi lease
+allow the controller to deinitialize the manager, restore telemetry and publish
+Online. A cleanup failure remains visible separately from the original failure
+and blocks reuse. A power transition out of Active closes the attempt. Wake
+requires another explicit pairing request.
 Explicit Cancel recovery retains the failed attempt's original error through
 Cancelling and confirmed Cancelled. A valid Cancelled snapshot may therefore
 remain degraded while `cleanup_error=ESP_OK` confirms closure. Consumers gate

@@ -97,6 +97,8 @@ void closeSession(State terminal, esp_err_t primary_error, Reason reason, bool r
         publishLocked(restore_telemetry ? State::Completing : State::Cancelling, attempt_error);
     }
     const auto closure = LUNASHELL_radios_end_pairing(restore_telemetry);
+    ESP_LOGI(kTag, "Pairing worker minimum free stack after radio cleanup: %u bytes",
+             static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
     const esp_err_t cleanup_error = closure.cleanup_error;
     if (cleanup_error != ESP_OK) {
         ESP_LOGE(kTag, "Pairing cleanup failed (%s), attempt result %s",
@@ -117,15 +119,18 @@ void closeSession(State terminal, esp_err_t primary_error, Reason reason, bool r
     }
 }
 
+// No parameters. The controller worker admits and starts one provisioning attempt.
+// Exception: Publish the original read, radio or cleanup error on failure.
 void startSession()
 {
-    LUNASHELL::ConnectivityObservation observation{};
-    esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
+    LUNASHELL::PairingObservation observation{};
+    esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readPairingObservation(observation);
+    const bool manager_in_use = error == ESP_OK && observation.provisioning.initialized;
     if (error == ESP_OK && observation.operating_state != LUNASHELL::DeviceOperatingState::Active) {
         error = ESP_ERR_INVALID_STATE;
         ESP_LOGE(kTag, "Pairing cannot start outside Active power state (%s)", esp_err_to_name(error));
     }
-    if (error == ESP_OK && observation.radios.provisioning.initialized) {
+    if (error == ESP_OK && manager_in_use) {
         error = ESP_ERR_INVALID_STATE;
         ESP_LOGE(kTag, "Pairing controller cannot adopt another caller's manager (%s)", esp_err_to_name(error));
     }
@@ -135,37 +140,42 @@ void startSession()
         std::lock_guard<std::mutex> guard(s_mutex);
         s_busy = false;
         s_pending = Command::None;
-        s_session.cleanup_error = observation.radios.provisioning.initialized
+        s_session.cleanup_error = manager_in_use
             ? ESP_ERR_INVALID_STATE : ESP_OK;
         publishLocked(State::Failed, error);
         return;
     }
     if (error == ESP_OK) {
         error = LUNASHELL_radios_start_pairing();
+        ESP_LOGI(kTag, "Pairing worker minimum free stack after radio startup: %u bytes",
+                 static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
     }
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Pairing start failed (%s)", esp_err_to_name(error));
         closeSession(State::Failed, error, Reason::None, false);
         return;
     }
-    error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
-    if (error != ESP_OK || !observation.radios.provisioning.running ||
-        observation.radios.provisioning.session_id == 0) {
+    error = LUNASHELL::DeviceSnapshotService::instance().readPairingObservation(observation);
+    if (error != ESP_OK || !observation.provisioning.running ||
+        observation.provisioning.session_id == 0) {
         closeSession(State::Failed, error == ESP_OK ? ESP_ERR_INVALID_STATE : error, Reason::None, false);
         return;
     }
     std::lock_guard<std::mutex> guard(s_mutex);
     s_busy = false;
-    s_session.provisioning_session_id = observation.radios.provisioning.session_id;
+    s_session.provisioning_session_id = observation.provisioning.session_id;
     s_session.deadline_at_us = esp_timer_get_time() + kSessionTimeoutUs;
     State state = State::ReadyToScan;
-    if (observation.radios.provisioning.state == LUNASHELL::ProvisioningState::CredentialsReceived ||
-        observation.radios.provisioning.state == LUNASHELL::ProvisioningState::Connecting) {
+    if (observation.provisioning.state == LUNASHELL::ProvisioningState::CredentialsReceived ||
+        observation.provisioning.state == LUNASHELL::ProvisioningState::Connecting ||
+        observation.provisioning.state == LUNASHELL::ProvisioningState::Success) {
         state = State::Connecting;
     }
     publishLocked(s_pending == Command::Cancel ? State::Cancelling : state, ESP_OK);
 }
 
+// No parameters. Observe the active attempt on its controller worker.
+// Exception: Report the original provisioning or cleanup failure on terminal transitions.
 void observeSession()
 {
     LUNASHELL::PairingSessionSnapshot session{};
@@ -176,8 +186,8 @@ void observeSession()
         }
         session = s_session;
     }
-    LUNASHELL::ConnectivityObservation observation{};
-    const esp_err_t read_error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
+    LUNASHELL::PairingObservation observation{};
+    const esp_err_t read_error = LUNASHELL::DeviceSnapshotService::instance().readPairingObservation(observation);
     if (read_error != ESP_OK) {
         closeSession(State::Failed, read_error, Reason::None, false);
         return;
@@ -186,7 +196,7 @@ void observeSession()
         closeSession(State::Cancelled, ESP_OK, Reason::None, false);
         return;
     }
-    const auto &provisioning = observation.radios.provisioning;
+    const auto &provisioning = observation.provisioning;
     if (!provisioning.data_valid || provisioning.session_id != session.provisioning_session_id) {
         closeSession(State::Failed, ESP_ERR_INVALID_STATE, Reason::Unknown, false);
         return;
@@ -197,11 +207,9 @@ void observeSession()
                      provisioning.failure_reason, false);
         return;
     }
-    const auto &wifi = observation.radios.wifi;
-    const bool online = wifi.health == LUNASHELL::DeviceHealth::Ready &&
-        wifi.data_valid && !wifi.data_stale && wifi.last_error == ESP_OK &&
-        wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0';
-    if (provisioning.state == ProvisioningState::Success && online) {
+    // Got IP precedes the phone's final status query. The manager closes its
+    // transport after serving that query or reaching its own auto-stop timeout.
+    if (provisioning.state == ProvisioningState::Success && !provisioning.running && observation.wifi_online) {
         closeSession(State::Online, ESP_OK, Reason::None, true);
         return;
     }
@@ -216,7 +224,8 @@ void observeSession()
         return;
     }
     if (provisioning.state == ProvisioningState::CredentialsReceived ||
-        provisioning.state == ProvisioningState::Connecting) {
+        provisioning.state == ProvisioningState::Connecting ||
+        provisioning.state == ProvisioningState::Success) {
         std::lock_guard<std::mutex> guard(s_mutex);
         if (s_pending == Command::None && s_session.state != State::Connecting) {
             publishLocked(State::Connecting, ESP_OK);

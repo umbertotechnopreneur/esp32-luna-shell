@@ -573,10 +573,18 @@ void reconnect_timer_callback(TimerHandle_t timer)
     );
 }
 
-// No parameters: acquire the completed driver scan only while the Wi-Fi owner remains active.
+// No parameters: acquire only results from a scan requested by the local Wi-Fi owner.
 // Exception: Logs/publishes scan or cleanup failures; reset never accepts retired scan content.
 void handle_scan_done()
 {
+    wifi_lock();
+    const bool local_scan = s_status.scanning;
+    wifi_unlock();
+    if (!local_scan) {
+        // Reading the driver list frees it. Provisioning consumes its own results.
+        return;
+    }
+
     uint16_t count = LUNASHELL_WIFI_MAX_NETWORKS;
     std::memset(s_scan_records, 0, sizeof(s_scan_records));
     const esp_err_t error = esp_wifi_scan_get_ap_records(&count, s_scan_records);
@@ -1718,7 +1726,7 @@ extern "C" esp_err_t LUNASHELL_wifi_start_scan(void)
 
 namespace LUNASHELL::wifi_provisioning {
 
-// No parameters: provisioning cannot begin after factory-reset admission.
+// No parameters: provisioning takes over after any local scan has retired.
 // Exception: Returns lifecycle/disconnection errors without allowing new credential writes.
 esp_err_t begin()
 {
@@ -1731,11 +1739,12 @@ esp_err_t begin()
     const bool ready = s_initialized && s_status.started &&
         !s_factory_reset_sealed.load(std::memory_order_acquire);
     const bool already_owned = s_provisioning_owns_connection;
+    const bool scanning = s_status.scanning;
     const bool disconnect = s_connect_requested || s_status.connected;
     wifi_unlock();
-    if (!ready || already_owned) {
-        ESP_LOGE(TAG, "Provisioning Wi-Fi ownership rejected (%s)",
-                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+    if (!ready || already_owned || scanning) {
+        ESP_LOGE(TAG, "Provisioning Wi-Fi ownership rejected (ready=%d owned=%d local_scan=%d, %s)",
+                 ready, already_owned, scanning, esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
     const esp_err_t error = disconnect

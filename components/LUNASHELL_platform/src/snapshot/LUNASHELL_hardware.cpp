@@ -2833,6 +2833,23 @@ esp_err_t DeviceSnapshotService::readConnectivityObservation(ConnectivityObserva
     return ESP_OK;
 }
 
+// observation: Caller-owned provisioning state and lease validity from one snapshot.
+// Exception: Returns the original mutex error. The caller discards output on failure.
+esp_err_t DeviceSnapshotService::readPairingObservation(PairingObservation &observation) const
+{
+    const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "pairing read");
+    if (error != ESP_OK) {
+        return error;
+    }
+    observation.provisioning = s_snapshot.radios.provisioning;
+    observation.operating_state = s_snapshot.power.state;
+    const auto &wifi = s_snapshot.radios.wifi;
+    observation.wifi_online = wifi.health == DeviceHealth::Ready && wifi.data_valid &&
+        !wifi.data_stale && wifi.last_error == ESP_OK && wifi.connected &&
+        wifi.ip_acquired && wifi.ip_address[0] != '\0';
+    return give_snapshot_mutex("pairing read");
+}
+
 // observation: Caller-owned scalar link/setup policy; no driver or settings reads.
 // Exception: Returns the original lock/release error; output is unusable on failure.
 esp_err_t DeviceSnapshotService::readCodexStandbyObservation(CodexStandbyObservation &observation) const

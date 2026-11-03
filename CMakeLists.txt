@@ -290,6 +290,11 @@ endif()
 # Keep the Brookesia C++ runtime compact under the firmware's -O2 build,
 # matching the upstream System Super example integration.
 idf_build_get_property(brookesia_build_components BUILD_COMPONENTS)
+if("espressif__qrcode" IN_LIST brookesia_build_components)
+    # The encoder logs its entire input at INFO, including the session proof.
+    idf_component_get_property(qrcode_library espressif__qrcode COMPONENT_LIB)
+    target_compile_definitions(${qrcode_library} PRIVATE LOG_LOCAL_LEVEL=ESP_LOG_WARN)
+endif()
 foreach(brookesia_component ${brookesia_build_components})
     if(NOT _wake_word_selected AND brookesia_component MATCHES "(^|__)(esp-sr|esp-dsp|dl_fft)$")
         message(FATAL_ERROR "Disabled wake word rejected recognition dependency: ${brookesia_component}")

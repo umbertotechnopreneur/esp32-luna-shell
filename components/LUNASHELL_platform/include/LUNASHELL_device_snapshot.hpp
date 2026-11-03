@@ -928,6 +928,13 @@ struct ConnectivityObservation {
     DeviceOperatingState operating_state = DeviceOperatingState::Active;
 };
 
+struct PairingObservation {
+    ProvisioningSnapshot provisioning;
+    DeviceOperatingState operating_state = DeviceOperatingState::Active;
+    bool wifi_online = false;
+};
+static_assert(sizeof(PairingObservation) <= 96, "Pairing shares its stack with BLE controller startup");
+
 // Scalar link/setup state only: PC absence must not copy chat text onto the power stack.
 struct CodexStandbyObservation {
     ComponentSnapshot link;
@@ -1077,6 +1084,9 @@ public:
 #endif
     // observation: Canonical radio/session state and power state under one lock.
     esp_err_t readConnectivityObservation(ConnectivityObservation &observation) const;
+    // observation: Provisioning and verified Wi-Fi state for the pairing worker.
+    // Exception: Returns the original snapshot lock or release error.
+    esp_err_t readPairingObservation(PairingObservation &observation) const;
     // observation: Bounded canonical link/setup state; never reads radios or sensors.
     // Exception: Returns the original snapshot lock/release error.
     esp_err_t readCodexStandbyObservation(CodexStandbyObservation &observation) const;

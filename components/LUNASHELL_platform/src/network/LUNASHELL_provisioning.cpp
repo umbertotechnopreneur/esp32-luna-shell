@@ -871,8 +871,9 @@ void ProvisioningService::onEvent(void *user_data, network_prov_cb_event_t event
     }
 }
 
-// event: Manager lifecycle event, delivered outside its control mutex.
+// event: Manager lifecycle event delivered by the SDK.
 // event_data: Credential bytes are passed only to the Wi-Fi owner.
+// Exception: A failed Wi-Fi handoff keeps its original error in the session snapshot.
 void ProvisioningService::handleEvent(network_prov_cb_event_t event, void *event_data)
 {
     esp_err_t credential_error = ESP_OK;
@@ -977,11 +978,6 @@ void ProvisioningService::handleEvent(network_prov_cb_event_t event, void *event
         }
         case NETWORK_PROV_END:
             ended_after_success = _credentials_succeeded;
-            _running = false;
-            if (!ended_after_success && _state != ProvisioningState::Failed &&
-                _state != ProvisioningState::Deinitializing) {
-                _state = ProvisioningState::Stopped;
-            }
             publish_stopped = true;
             break;
         case NETWORK_PROV_DEINIT:
@@ -995,18 +991,7 @@ void ProvisioningService::handleEvent(network_prov_cb_event_t event, void *event
         default:
             break;
         }
-        publishSnapshotLocked();
-    }
-
-    if (event == NETWORK_PROV_END) {
-        const esp_err_t handoff_error = wifi_provisioning::end(ended_after_success);
-        if (handoff_error != ESP_OK) {
-            ESP_LOGE(kTag, "Provisioning Wi-Fi handoff failed (%s)",
-                     esp_err_to_name(handoff_error));
-            std::lock_guard<std::mutex> guard(_mutex);
-            _wifi_handoff_error = handoff_error;
-            _last_error = handoff_error;
-            _state = ProvisioningState::Failed;
+        if (event != NETWORK_PROV_END) {
             publishSnapshotLocked();
         }
     }
@@ -1037,12 +1022,29 @@ void ProvisioningService::handleEvent(network_prov_cb_event_t event, void *event
             false
         );
     }
-    if (event == NETWORK_PROV_END && ended_after_success) {
-        ESP_LOGI(
-            kTag,
-            "provisioning completed; telemetry stays off until the explicit "
-            "radio handoff deinitializes the provisioning manager"
-        );
+    if (event == NETWORK_PROV_END) {
+        const esp_err_t handoff_error = wifi_provisioning::end(ended_after_success);
+        if (handoff_error != ESP_OK) {
+            ESP_LOGE(kTag, "Provisioning Wi-Fi handoff failed (%s)",
+                     esp_err_to_name(handoff_error));
+        } else if (ended_after_success) {
+            ESP_LOGI(kTag, "Provisioning completed. Releasing the manager permits BLE telemetry.");
+        }
+        std::lock_guard<std::mutex> guard(_mutex);
+        // Success with running=false admits telemetry. Publish it only after
+        // releasing Wi-Fi ownership and reporting the provisioning transport stopped.
+        _running = false;
+        if (handoff_error != ESP_OK) {
+            _wifi_handoff_error = handoff_error;
+            if (!_poisoned) {
+                _last_error = handoff_error;
+                _state = ProvisioningState::Failed;
+            }
+        } else if (!_poisoned && !ended_after_success && _state != ProvisioningState::Failed &&
+                   _state != ProvisioningState::Deinitializing) {
+            _state = ProvisioningState::Stopped;
+        }
+        publishSnapshotLocked();
     }
 }
 
