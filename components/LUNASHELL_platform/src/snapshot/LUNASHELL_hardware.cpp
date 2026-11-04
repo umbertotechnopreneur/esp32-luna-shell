@@ -2002,7 +2002,7 @@ void copy_orientation_snapshot(LUNASHELL::OrientationSnapshot &snapshot)
     snapshot.changed_at_us = s_orientation.changed_at_us;
 }
 
-// data: Same normalized raw IMU acquisition; no hardware is read here.
+// data: Same normalized raw IMU acquisition; board mounting is applied to display orientation only.
 // sampled_at_us: Original hardware attempt timestamp.
 void process_orientation_sample(
     const ImuRawSample &data,
@@ -2085,6 +2085,11 @@ void process_orientation_sample(
     } else {
         physical_degrees = accel_y < 0.0F ? 90 : 270;
     }
+    physical_degrees = static_cast<uint16_t>(
+        (physical_degrees + LUNASHELL::board::kImuDisplayOrientationOffsetDegrees) % 360U
+    );
+    // A fixed in-plane mounting offset preserves gyro Z direction. Gravity
+    // anchors the corrected angle; flat-table integration keeps that same frame.
     s_orientation.gravity_valid = true;
     process_gyro_cardinal_sample(data, sampled_at_us, true);
 

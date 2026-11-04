@@ -23,6 +23,8 @@ inline constexpr PhysicalBoard kPhysicalBoard = PhysicalBoard::WaveshareAmoled17
 inline constexpr char kName[] = "Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS";
 #endif
 inline constexpr bool kIs175C = kPhysicalBoard == PhysicalBoard::WaveshareAmoled175C;
+// Mounting correction for IMU-derived display orientation, independent of user rotation.
+inline constexpr uint16_t kImuDisplayOrientationOffsetDegrees = kIs175C ? 180U : 0U;
 inline constexpr ImuWakeOutput kImuWakeOutput =
     static_cast<ImuWakeOutput>(CONFIG_LUNASHELL_BOARD_IMU_WAKE_OUTPUT);
 static_assert(kImuWakeOutput == ImuWakeOutput::Int1 || kImuWakeOutput == ImuWakeOutput::Int2);

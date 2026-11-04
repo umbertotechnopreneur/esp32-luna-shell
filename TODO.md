@@ -9,6 +9,10 @@ The operating and authorization rules are in [AGENTS.md](AGENTS.md).
   obtained a Wi-Fi lease.
 - Check alignment and touch at all four rotations, speaker and microphones,
   measured battery telemetry, PWR controls, standby and IMU INT1 wake.
+- Verify the 1.75C's 180-degree IMU-to-display mounting correction at all four
+  upright orientations and during flat-table turns. Confirm that automatic
+  rotation keeps content upright and touch aligned, including transitions
+  between gravity-based and gyro-based orientation.
 - Confirm the fitted RTC before enabling an external one. Keep SD and GNSS
   unavailable on this board.
 
