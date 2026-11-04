@@ -1,5 +1,15 @@
 # Active work
 
+## HARDWARE-PORT-01 - Waveshare 1.43C
+
+- Integrate the single-factory-slot 8 MB layout in the board selector and
+  validate the actual application size. USB is the firmware update path.
+- Add the CO5300 panel initialization, CST820 touch, 1.43C audio wiring,
+  battery ADC/charger status and board-specific power lifecycle. Exclude the
+  absent IMU, GNSS, RTC, SD and expander without synthesizing readings.
+- Build from source and flash the connected board on COM13. Physical display,
+  touch, power, audio and Wi-Fi behavior remain acceptance gates.
+
 The operating and authorization rules are in [AGENTS.md](AGENTS.md).
 
 ## Waveshare 1.75C physical acceptance

@@ -1,0 +1,7 @@
+# Name, Type, SubType, Offset, Size, Flags
+# Preserve the vendor NVS and PHY locations. The gap at 0xd000 is unallocated.
+nvs,data,nvs,0x9000,0x4000,
+phy_init,data,phy,0xf000,0x1000,
+# Single factory image: updates use USB and no OTA rollback slot is available.
+factory,app,factory,0x10000,0x6f0000,
+littlefs_data,data,littlefs,0x700000,0x100000,

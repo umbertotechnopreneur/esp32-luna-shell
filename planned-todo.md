@@ -27,13 +27,6 @@ Activate a stable ID in [TODO.md](TODO.md) before starting deferred work.
   starting with storage formatting. Budget the nested stack before removing the
   API. Keep the v1 scene-font reader until its assets migrate and continue
   rejecting invalid calibration records.
-- [ ] **HARDWARE-PORT-01 - Waveshare 1.43C support.**
-  Porting is deferred. Before enabling a profile, resolve the CO5300/SH8601
-  panel identity, CST820 touch, audio wiring and ADC/charger acquisition.
-  Budget the application, speech assets, internal storage and any OTA slots
-  against 8 MB of flash. Model the missing IMU, SD, GNSS and I/O expander
-  explicitly. [Board
-  comparison](docs/bsp/boards/purchased-amoled-comparison.md).
 - [ ] **OTA-01 - Upload, boot selection and rollback.**
   Implement authenticated Wi-Fi upload, boot selection and rollback on boards
   with two supported OTA slots. Define shared storage policy and observe
