@@ -1,15 +1,19 @@
 # Cody manga personality symbols
 
-Fourteen standalone symbols share one fixed catalog across Pearl Mist, Aurora
+Fifteen standalone bitmap symbols share one fixed catalog across Pearl Mist, Aurora
 Veil, Cosmic Stardust, Enchanted Mosaic and Dreamwave. They contain no cloud,
 character, skin paint, embedded caption or sensor value. Only one symbol is
 active at a time; `None` is the default session request.
 
 Four additional typed cues use native 64 x 64 compile-time alpha coverage rather
 than bitmap masters: Wi-Fi connected, animated search, battery ready and battery
-low. Their stable IDs are 15 through 18. Four subpixel samples provide edge
-coverage; the four planes occupy 16 KiB of flash. These silent symbols use
-semantic cyan, green and red, while the original fourteen masters remain intact.
+low. Their stable IDs are 15 through 18. NoCodex has stable ID 19; CodexConnected
+has ID 20 and shares the existing Joy artwork. Four subpixel samples provide edge
+coverage; the four planes occupy 16 KiB of flash. These symbols use
+semantic cyan, green and red. WifiConnected has its own transition sound;
+Search, BatteryReady and BatteryLow remain silent. NoCodex uses a transparent
+ImageGen terminal/monitor with a disconnected-plug badge, distinct from NoWifi.
+The exact built-in ImageGen prompt is retained in `source/imagegen-masters-v2.json`.
 
 ![Quantized symbol masters](generated/preview.png)
 
@@ -50,10 +54,9 @@ channels; alpha compositing can produce displayed colors outside the palette.
 The compiled source retains the logical 256 x 256 coordinates and stores each
 plane only inside its exact nonzero-alpha rectangle. Omitted pixels have zero
 coverage; palette indices never imply transparency. The full reference planes
-and PNGs remain byte-identical. Current flash payload is 1,475,720 bytes,
+and PNGs remain byte-identical. Current flash payload is 1,580,552 bytes,
 including the exact 512-byte RGB565 palette, plus descriptors and alignment.
-This saves 359,800 bytes against full planes and 302,904 against the earlier
-fixed two-pixel border. Native row compositing uses the immutable rectangle
+This saves 386,040 bytes against fifteen full pairs of planes. Native row compositing uses the immutable rectangle
 without a decoded buffer. No per-skin or
 per-size texture copies, SD assets, runtime PNG decoding, sensor reads or
 per-frame heap allocations are introduced by the native cue renderer.

@@ -26,6 +26,10 @@ void age_measured_sample(ComponentSnapshot &component, int64_t now_us, int64_t t
 
 // snapshot: Canonical cadence and validity used by full and bounded projections.
 int64_t measured_sample_ttl_us(const DeviceSnapshot &snapshot);
+// wifi: Original acquired signal and connectivity facts; timestamp stays unchanged.
+// now_us: Current monotonic observation time.
+// ttl_us: Canonical cadence-derived freshness window.
+void age_wifi_signal(WifiSnapshot &wifi, int64_t now_us, int64_t ttl_us);
 
 // snapshot: Owner-provided observations; original sample timestamps remain unchanged.
 // now_us: Explicit monotonic observation time; no clock or hardware access occurs here.

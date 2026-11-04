@@ -43,6 +43,9 @@ CATALOG = (
     ("confusion", "Confusion", 12, 280, "wobble", "A small elastic pitch wobble."),
     ("affection", "Affection", 13, 300, "heart", "A warm soft two-note heart chime."),
     ("frustration", "Frustration", 14, 200, "huff", "A brief rounded puff and low elastic grumble."),
+    ("wifi-connected", "WifiConnected", 15, 220, "wifi-online", "Two clean rising radio-link tones."),
+    ("no-codex", "NoCodex", 19, 280, "codex-offline", "Three falling terminal-link tones with a broken final pulse."),
+    ("codex-connected", "CodexConnected", 20, 300, "codex-online", "Three rising terminal-link tones resolving into a soft chord."),
 )
 
 # Set a named cue to False and regenerate to silence that symbol without removing its asset.
@@ -50,6 +53,7 @@ ENABLED_CUES = {
     "Sleep": True, "Fear": True, "Joy": True, "Hunger": True, "Thirst": True,
     "Heat": True, "Cold": True, "LowBattery": True, "Charging": True, "NoWifi": True,
     "Curiosity": True, "Confusion": True, "Affection": True, "Frustration": True,
+    "WifiConnected": True, "NoCodex": True, "CodexConnected": True,
 }
 
 
@@ -71,6 +75,7 @@ def note(time, duration, frequency, glide=0.0, brightness=0.15):
 # kind: Named synthesis recipe, independent of catalog ordering.
 # duration_ms: Exact authored mono duration.
 # seed: Stable cue identity used only for original deterministic noise.
+# Raises ValueError for an unknown named synthesis recipe.
 def synthesize(kind, duration_ms, seed):
     count = RATE * duration_ms // 1000
     duration = count / RATE
@@ -106,6 +111,14 @@ def synthesize(kind, duration_ms, seed):
             value = note(time, duration, 510, 610, .18) * .7 + note(time - .10, .13, 1190, 25, .05) * .25
         elif kind == "offline":
             value = note(time, .085, 680, -80, .12) * .7 + note(time - .145, .095, 480, -60, .12) * .65
+        elif kind == "wifi-online":
+            value = note(time, .11, 620, 60, .08) * .7 + note(time - .105, .115, 930, 40, .08) * .65
+        elif kind == "codex-offline":
+            value = sum(note(time - start, .075, frequency, -35, .18) * .65
+                        for start, frequency in ((0, 840), (.09, 630), (.205, 390)))
+        elif kind == "codex-online":
+            value = sum(note(time - start, duration - start, frequency, 15, .12) * .5
+                        for start, frequency in ((0, 520), (.075, 780), (.15, 1040)))
         elif kind == "plip":
             value = note(time, duration, 540, 590, .09)
         elif kind == "wobble":
@@ -128,6 +141,7 @@ def synthesize(kind, duration_ms, seed):
 
 
 # No parameters: writes the reproducible WAV, raw PCM and typed flash catalog.
+# Raises OSError for source/output failures and ValueError for an unknown synthesis recipe.
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
     entries = []
@@ -170,16 +184,16 @@ struct Clip {
     uint32_t sample_rate_hz;
     bool enabled;
 };
-inline constexpr size_t clip_count = 14;
+inline constexpr size_t clip_count = @CLIP_COUNT@;
 extern const Clip clips[clip_count];
 } // namespace CODY::PersonalityAudioAssets
 '''
     source = '#include "personality_audio.hpp"\nnamespace CODY::PersonalityAudioAssets {\nnamespace {\n'
     source += "\n".join(arrays) + "\n} // namespace\nconst Clip clips[clip_count] = {\n"
     source += "\n".join(views) + "\n};\n} // namespace CODY::PersonalityAudioAssets\n"
-    (OUTPUT / "personality_audio.hpp").write_text(header, encoding="utf-8")
+    (OUTPUT / "personality_audio.hpp").write_text(header.replace("@CLIP_COUNT@", str(len(CATALOG))), encoding="utf-8")
     (OUTPUT / "personality_audio.cpp").write_text(source, encoding="utf-8")
-    with wave.open(str(OUTPUT / "audition-all-14.wav"), "wb") as output:
+    with wave.open(str(OUTPUT / "audition-all.wav"), "wb") as output:
         output.setparams((1, 2, RATE, 0, "NONE", "not compressed"))
         output.writeframes(audition)
     manifest = {"version": 1, "provenance": "Original analytic synthesis; no external recordings, models or samples.",
@@ -188,7 +202,7 @@ extern const Clip clips[clip_count];
                 "generator_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                 "listening_review": "Not performed; first authored pass for later listening and refinement.",
                 "total_pcm_bytes": sum(entry["pcm_bytes"] for entry in entries), "clips": entries,
-                "audition": {"file": "audition-all-14.wav", "gap_ms": 700,
+                "audition": {"file": "audition-all.wav", "gap_ms": 700,
                              "duration_ms": len(audition) * 1000 // (RATE * 2), "offsets": audition_offsets}}
     (OUTPUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(f"Generated {len(entries)} original PCM16/WAV symbol cues; {manifest['total_pcm_bytes']} bytes at {RATE} Hz.")

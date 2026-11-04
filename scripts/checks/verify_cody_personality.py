@@ -50,7 +50,7 @@ def check_asset_contracts(root):
     assert (directory / "generated/palette.rgb565.bin").read_bytes() == expected_palette, "Flash RGB565 palette differs"
     source_data = (root / icons["source"]).read_text(encoding="utf-8").encode("utf-8")
     assert hashlib.sha256(source_data).hexdigest() == icons["source_sha256"], "Image source differs"
-    assert len(icons["icons"]) == 14, "Exactly14 icon identities are required"
+    assert len(icons["icons"]) == 15, "Exactly 15 bitmap icon identities are required"
     assert icons["master_extent"] == 256, "Native masters must cover the maximum 231-pixel display extent"
     identities = {}
     slugs = set()
@@ -84,10 +84,10 @@ def check_asset_contracts(root):
         assert icon["data_bytes"] == 256 * 256 * 2, "Logical plane sizes differ"
         assert icon["flash_data_bytes"] == (right - left) * (bottom - top) * 2, "Stored plane sizes differ"
         flash_payload_bytes += icon["flash_data_bytes"]
-    assert set(identities) == set(range(1, 15)), "The14 stable cue IDs are incomplete"
-    assert len(set(identities.values())) == 14, "Typed icon names must be unique"
+    assert set(identities) == set(range(1, 15)) | {19}, "Bitmap cue IDs are incomplete"
+    assert len(set(identities.values())) == 15, "Typed icon names must be unique"
     assert icons["flash_payload_bytes"] == flash_payload_bytes, "Packed flash payload differs"
-    assert flash_payload_bytes <= 1500000, "Sprite storage exceeds the reviewed flash budget"
+    assert flash_payload_bytes <= 1631072, "Sprite storage exceeds the reviewed flash budget"
     from scripts.generators.generate_cody_personality_icons import crop_transparent_bounds
     # A nonzero palette index outside coverage must not enlarge the rectangle;
     # alpha=1 at any edge must remain, including a sprite touching logical zero.
@@ -107,12 +107,13 @@ def check_asset_contracts(root):
             raise AssertionError("Generator accepted an empty or malformed sprite")
     sounds = json.loads((directory / "audio/manifest.json").read_text(encoding="utf-8"))
     assert (sounds["sample_rate_hz"], sounds["channels"], sounds["bits_per_sample"]) == (16000, 1, 16), "PCM format differs"
-    assert len(sounds["clips"]) == 14, "Exactly14 sound identities are required"
+    assert len(sounds["clips"]) == 17, "Exactly 17 sound identities are required"
+    sound_identities = identities | {15: "WifiConnected", 20: "CodexConnected"}
     seen = set()
     total_bytes = 0
     audition = bytearray()
     for index, clip in enumerate(sounds["clips"]):
-        assert clip["id"] not in seen and identities.get(clip["id"]) == clip["cue"], "Audio cue identity differs"
+        assert clip["id"] not in seen and sound_identities.get(clip["id"]) == clip["cue"], "Audio cue identity differs"
         seen.add(clip["id"])
         wav_path = directory / "audio" / clip["file"]
         pcm = wav_path.with_suffix(".pcm16le").read_bytes()
@@ -132,7 +133,7 @@ def check_asset_contracts(root):
         if index + 1 < len(sounds["clips"]):
             audition.extend(bytes(sounds["audition"]["gap_ms"] * 32))
         total_bytes += len(pcm)
-    assert seen == set(identities) and total_bytes == sounds["total_pcm_bytes"], "Audio catalog is incomplete"
+    assert seen == set(sound_identities) and total_bytes == sounds["total_pcm_bytes"], "Audio catalog is incomplete"
     with wave.open(str(directory / "audio" / sounds["audition"]["file"]), "rb") as source:
         assert (source.getnchannels(), source.getsampwidth(), source.getframerate()) == (1, 2, 16000), "Audition format differs"
         assert source.readframes(source.getnframes()) == audition, "Audition sequence differs"
@@ -198,7 +199,7 @@ def main(argv=None):
             "dormant pure wellbeing session lifecycle, independent reminders, snooze and fatigue acknowledgment",
             "independent host happiness, monotonic clock, strict authoring and generated provenance scenarios",
             "native/Python controller, transform, alpha and admission parity",
-            "14 fixed-palette icon hashes/identity and14 PCM/WAV formats/hashes/audition offsets"]
+            "15 fixed-palette icon hashes/identities and 17 PCM/WAV formats/hashes/audition offsets"]
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"
         raise

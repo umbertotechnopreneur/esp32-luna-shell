@@ -1,7 +1,7 @@
 {
   "schema": "cody.personality.generated.v2",
   "source": "assets/cody/personality.yaml",
-  "source_sha256": "34bbc5299fe607e840d9be5b3421f970656a627008c1fe66b85882b164154843",
+  "source_sha256": "a3cca2cf241116fd7a713353b8d9cc3a2bd68f42951238fa9c2b388e1df9951a",
   "headers": [
     "assets/cody/personality/generated/personality_rules.hpp",
     "assets/cody/personality/generated/personality_catalog.hpp",
@@ -204,7 +204,7 @@
           "priority": 100,
           "interrupts": false,
           "repeat_cooldown_seconds": 0,
-          "sfx_enabled": false
+          "sfx_enabled": true
         },
         {
           "id": 16,
@@ -229,6 +229,22 @@
           "interrupts": false,
           "repeat_cooldown_seconds": 0,
           "sfx_enabled": false
+        },
+        {
+          "id": 19,
+          "name": "no_codex",
+          "priority": 100,
+          "interrupts": false,
+          "repeat_cooldown_seconds": 0,
+          "sfx_enabled": true
+        },
+        {
+          "id": 20,
+          "name": "codex_connected",
+          "priority": 100,
+          "interrupts": false,
+          "repeat_cooldown_seconds": 0,
+          "sfx_enabled": true
         }
       ]
     },

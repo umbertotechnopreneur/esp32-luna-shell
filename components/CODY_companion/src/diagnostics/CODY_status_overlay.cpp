@@ -85,14 +85,15 @@ constexpr IconGlyph kChargeGlyph = {
      0x0FF, 0x078, 0x03C, 0x01C, 0x00C, 0x004},
 };
 
+// Four fixed glyphs share one footprint: unavailable dot, then one/two/three arcs.
 constexpr IconGlyph kWifiGlyphs[] = {
-    {21, 17, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    {21, 17, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xE00, 0x1F00, 0x1F00, 0xE00}},
+    {21, 17, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0x1F00, 0x71C0, 0xC060, 0,
               0xE00, 0x1F00, 0x1F00, 0xE00}},
-    {21, 17, {0, 0, 0, 0, 0, 0, 0, 0x3F80, 0xFFE0,
-              0x1C070, 0x38038, 0x18030, 0, 0xE00, 0x1F00, 0x1F00, 0xE00}},
-    {21, 17, {0xFFE0, 0x3FFF8, 0x7803C, 0xE000E, 0x1C0007, 0xC0006, 0,
-              0x3F80, 0xFFE0, 0x1C070, 0x38038, 0x18030, 0,
+    {21, 17, {0, 0, 0, 0, 0, 0x1FFF0, 0x38038, 0x6000C, 0, 0x1F00, 0x71C0, 0xC060, 0,
               0xE00, 0x1F00, 0x1F00, 0xE00}},
+    {21, 17, {0x1FFF0, 0x7FFFC, 0xE000E, 0x1C0007, 0, 0x1FFF0, 0x38038, 0x6000C, 0,
+              0x1F00, 0x71C0, 0xC060, 0, 0xE00, 0x1F00, 0x1F00, 0xE00}},
 };
 
 constexpr IconGlyph kBluetoothGlyph = {
@@ -347,19 +348,27 @@ void draw_battery(const StatusOverlay &overlay, CODY2D::Surface strip,
     }
 }
 
-// bars: Number of truthful signal bands to render, from zero through three.
+// bars: Zero selects unavailable/offline artwork; one through three are measured levels.
+// disconnected: Confirmed lack of network connection uses a crossed red full glyph.
 // strip: Validated compact RGB565 target.
 // first_row: Logical y origin of the compact target.
 // first_column: Logical x origin of the compact target.
 // stored_color: Semantic Wi-Fi color encoded for the target byte order.
-void draw_wifi(uint8_t bars, CODY2D::Surface strip, uint16_t first_row,
+void draw_wifi(uint8_t bars, bool disconnected, CODY2D::Surface strip, uint16_t first_row,
                uint16_t first_column, uint16_t stored_color)
 {
-    const uint8_t visible_bars = bars == 0 ? 3 : std::min<uint8_t>(bars, 3);
+    const uint8_t visible_bars = disconnected ? 3 : std::min<uint8_t>(bars, 3);
     draw_icon_glyph(
-        kWifiGlyphs[visible_bars - 1], kWifiLeft, kWifiTop,
+        kWifiGlyphs[visible_bars], kWifiLeft, kWifiTop,
         strip, first_row, first_column, stored_color
     );
+    if (disconnected) {
+        for (int y = 0; y < 17; ++y) {
+            const int x = 18 - y;
+            put_pixel(strip, first_row, first_column, kWifiLeft + x, kWifiTop + y, stored_color);
+            put_pixel(strip, first_row, first_column, kWifiLeft + x - 1, kWifiTop + y, stored_color);
+        }
+    }
 }
 
 // strip: Validated compact RGB565 target.
@@ -490,22 +499,23 @@ esp_err_t prepare_status_overlay(const LUNASHELL::DeviceStatusObservation &obser
 
     const auto &wifi = observation.wifi;
     next.wifi_tone = component_tone(wifi);
-    if (wifi.health == LUNASHELL::DeviceHealth::Ready && wifi.last_error == ESP_OK &&
+    if (wifi.connection_state_valid && !wifi.data_stale && wifi.last_attempt_at_us > 0 &&
+        (!wifi.connected || !wifi.ip_acquired)) {
+        next.wifi_tone = StatusTone::Missing;
+    } else if (wifi.health == LUNASHELL::DeviceHealth::Ready && wifi.last_error == ESP_OK &&
         wifi.data_valid && !wifi.data_stale) {
-        if (!wifi.started || !wifi.credentials_configured) {
-            next.wifi_tone = StatusTone::Muted;
-        } else if (wifi.connected && wifi.ip_acquired) {
-            next.wifi_tone = wifi.rssi < 0 && wifi.rssi <= -80
-                ? StatusTone::Warning : StatusTone::Ready;
+        if (!wifi.connected || !wifi.ip_acquired) {
+            next.wifi_tone = StatusTone::Missing;
+        } else if (wifi.rssi_valid && wifi.rssi_error == ESP_OK && wifi.rssi < 0) {
+            next.wifi_tone = wifi.rssi <= -80 ? StatusTone::Warning : StatusTone::Ready;
             next.wifi_bars = wifi.rssi >= -60 ? 3 : wifi.rssi >= -72 ? 2 : 1;
-        } else if (wifi.connect_requested || wifi.reconnect_pending || wifi.connected) {
-            next.wifi_tone = StatusTone::Warning;
         } else {
-            next.wifi_tone = StatusTone::Muted;
+            // An associated link without a fresh measurement has unknown strength.
+            next.wifi_tone = wifi.rssi_error == ESP_OK || wifi.rssi_error == ESP_ERR_TIMEOUT
+                ? StatusTone::Warning : StatusTone::Fault;
         }
-    } else if (wifi.health == LUNASHELL::DeviceHealth::Missing ||
-               next.wifi_tone == StatusTone::Muted) {
-        next.wifi_tone = StatusTone::Muted;
+    } else if (wifi.health == LUNASHELL::DeviceHealth::Missing) {
+        next.wifi_tone = StatusTone::Missing;
     }
 
     const auto &bluetooth = observation.ble;
@@ -618,7 +628,7 @@ esp_err_t draw_status_overlay_rows(const StatusOverlay &overlay, uint8_t opacity
             return result;
         }
     }
-    draw_wifi(overlay.wifi_bars, strip, first_row, first_column, wifi_color);
+    draw_wifi(overlay.wifi_bars, overlay.wifi_tone == StatusTone::Missing, strip, first_row, first_column, wifi_color);
     draw_bluetooth(strip, first_row, first_column, bluetooth_color);
     return ESP_OK;
 }

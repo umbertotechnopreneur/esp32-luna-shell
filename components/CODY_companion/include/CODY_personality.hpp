@@ -185,6 +185,8 @@ bool personality_cue_valid(PersonalityCue cue);
 // cue: Typed visible identity; only an explicit authored sound opt-out is silent.
 // Unknown identities return false so the audio owner still rejects invalid requests.
 bool personality_cue_is_silent(PersonalityCue cue);
+// cue: Stable semantic identity; these sounds belong to real connectivity edges only.
+bool personality_cue_is_connection(PersonalityCue cue);
 
 // cue: Typed identity to classify as a device observation rather than narrative.
 bool personality_cue_is_device(PersonalityCue cue);
@@ -209,7 +211,7 @@ esp_err_t cody_size_for_scale(float nominal_scale, CodySize &size);
 // Exception: Returns invalid argument or the real display lock/consumer-state error.
 esp_err_t set_personality_cue(PersonalityCue cue);
 
-// cue: None, LowBattery, Charging or NoWifi; paint is gated by fresh canonical state.
+// cue: None or a typed battery/Wi-Fi/Codex device cue; fresh canonical facts gate paint.
 // Exception: Returns invalid argument or the real display lock/consumer-state error.
 esp_err_t set_personality_device_cue(PersonalityCue cue);
 

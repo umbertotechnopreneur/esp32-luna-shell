@@ -43,10 +43,10 @@ static_assert(PersonalityConfig::history_bucket_count ==
     PersonalityConfig::history_bucket_count <= UINT8_MAX,
     "History needs the full scale window and one partial bucket with a bounded index");
 static_assert(sizeof(PersonalityFollowBucket) == 24, "Each fixed geometry history bucket uses 24 bytes");
-static_assert(PersonalityConfig::cue_rule_count == 18, "Repeat storage follows the eighteen stable cue IDs");
+static_assert(PersonalityConfig::cue_rule_count == 20, "Repeat storage follows the twenty stable cue IDs");
 static_assert(sizeof(PersonalityLag) <= 768, "Controller, geometry and repeat timestamps stay bounded");
 
-// cue: Typed native artwork identity, separate from the fourteen bitmap masters.
+// cue: Typed native artwork identity, separate from the bitmap masters.
 // x: Quarter-pixel horizontal position on the immutable 64-pixel source canvas.
 // y: Quarter-pixel vertical position on that same canvas.
 constexpr bool connection_symbol_ink(PersonalityCue cue, int x, int y)
@@ -432,8 +432,10 @@ const PersonalityAssets::Sprite *find_sprite(PersonalityCue cue)
     if (cue == PersonalityCue::BatteryLow) {
         return &kBatteryLowSprite;
     }
+    // The frame retains CodexConnected's semantic identity while reusing Joy pixels.
+    const PersonalityCue artwork = cue == PersonalityCue::CodexConnected ? PersonalityCue::Joy : cue;
     for (const auto &sprite : PersonalityAssets::sprites) {
-        if (sprite.cue == cue) {
+        if (sprite.cue == artwork) {
             return &sprite;
         }
     }
@@ -494,6 +496,13 @@ bool personality_cue_is_silent(PersonalityCue cue)
     return rule != nullptr && !rule->sfx_enabled;
 }
 
+// cue: Stable semantic identity, independent of scene appearance or animation.
+bool personality_cue_is_connection(PersonalityCue cue)
+{
+    return cue == PersonalityCue::NoWifi || cue == PersonalityCue::WifiConnected ||
+        cue == PersonalityCue::NoCodex || cue == PersonalityCue::CodexConnected;
+}
+
 // cue: Stable enum whose catalog membership is requested.
 bool personality_cue_valid(PersonalityCue cue)
 {
@@ -505,6 +514,7 @@ bool personality_cue_is_device(PersonalityCue cue)
 {
     return cue == PersonalityCue::LowBattery || cue == PersonalityCue::Charging ||
         cue == PersonalityCue::NoWifi || cue == PersonalityCue::WifiConnected ||
+        cue == PersonalityCue::NoCodex || cue == PersonalityCue::CodexConnected ||
         cue == PersonalityCue::BatteryReady || cue == PersonalityCue::BatteryLow;
 }
 

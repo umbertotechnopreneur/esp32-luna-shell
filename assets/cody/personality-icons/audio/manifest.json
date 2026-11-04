@@ -5,9 +5,9 @@
   "channels": 1,
   "bits_per_sample": 16,
   "generator": "scripts/device.ps1 generate -Generator cody-personality-audio",
-  "generator_sha256": "3ee2cc18c51d2acc06017f85b8f667e1004d41dc1cce5b65c9254b2f8df06431",
+  "generator_sha256": "34178a9c9f5b75fdd19d00039f4d1cbf12930a8974c5dac4554baaa5cb1f0b66",
   "listening_review": "Not performed; first authored pass for later listening and refinement.",
-  "total_pcm_bytes": 103360,
+  "total_pcm_bytes": 128960,
   "clips": [
     {
       "id": 1,
@@ -204,12 +204,54 @@
       "enabled": true,
       "sha256_pcm": "3e71567c908f9f6af9e2f1232d762b3b319f474c5281d4be8b5d2df8148d5272",
       "sha256_wav": "bb5beb6d31550381af012625c07a8a44390594d5589b610d8505c60663d536c1"
+    },
+    {
+      "id": 15,
+      "cue": "WifiConnected",
+      "file": "wifi-connected.wav",
+      "recipe": "wifi-online",
+      "description": "Two clean rising radio-link tones.",
+      "duration_ms": 220,
+      "samples": 3520,
+      "pcm_bytes": 7040,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "18f3d6432747779d0139206ee1794dc864ecfe260b2757e239261dfbdc23a4eb",
+      "sha256_wav": "a8746c8f9462762f0654f74d8525544b05df0e507eff0c172fda913818e945c6"
+    },
+    {
+      "id": 19,
+      "cue": "NoCodex",
+      "file": "no-codex.wav",
+      "recipe": "codex-offline",
+      "description": "Three falling terminal-link tones with a broken final pulse.",
+      "duration_ms": 280,
+      "samples": 4480,
+      "pcm_bytes": 8960,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "014143b1184f8e0f9f89f58dbf63fc29c4ce42bfe81636fb1ba8ecbd019ae85f",
+      "sha256_wav": "14d94dfb1606639a43aece46cf1825f954d4fb68e44ea179a9f03791032bfd93"
+    },
+    {
+      "id": 20,
+      "cue": "CodexConnected",
+      "file": "codex-connected.wav",
+      "recipe": "codex-online",
+      "description": "Three rising terminal-link tones resolving into a soft chord.",
+      "duration_ms": 300,
+      "samples": 4800,
+      "pcm_bytes": 9600,
+      "peak_dbfs": -18,
+      "enabled": true,
+      "sha256_pcm": "bb60a65c9b8c484d1f3970ed10641ee7a70dd497e66446e4619472534efe9d2c",
+      "sha256_wav": "d3ffcad211178800d15b7566cc5d261d27e411533851ff148f9db67439a4d951"
     }
   ],
   "audition": {
-    "file": "audition-all-14.wav",
+    "file": "audition-all.wav",
     "gap_ms": 700,
-    "duration_ms": 12330,
+    "duration_ms": 15230,
     "offsets": [
       {
         "cue": "Sleep",
@@ -280,6 +322,21 @@
         "cue": "Frustration",
         "start_ms": 12130,
         "duration_ms": 200
+      },
+      {
+        "cue": "WifiConnected",
+        "start_ms": 13030,
+        "duration_ms": 220
+      },
+      {
+        "cue": "NoCodex",
+        "start_ms": 13950,
+        "duration_ms": 280
+      },
+      {
+        "cue": "CodexConnected",
+        "start_ms": 14930,
+        "duration_ms": 300
       }
     ]
   }

@@ -743,10 +743,14 @@ typedef struct {
     bool started;
     bool scanning;
     bool credentials_configured;
+    bool connection_state_valid;
     bool connect_requested;
     bool connected;
     bool ip_acquired;
     bool reconnect_pending;
+    bool rssi_valid;
+    esp_err_t rssi_error;
+    int64_t rssi_sampled_at_us;
     int8_t rssi;
     uint8_t channel;
     uint16_t last_disconnect_reason;
@@ -797,6 +801,9 @@ esp_err_t LUNASHELL_wifi_start_scan(void);
  */
 size_t LUNASHELL_wifi_get_networks(LUNASHELL_wifi_network_t *networks, size_t capacity);
 void LUNASHELL_wifi_get_status(LUNASHELL_wifi_status_t *status);
+// No parameters: acquisition cadence requests a fresh measurement from the Wi-Fi owner.
+// Exception: Returns original driver, locking, read or publication errors; an inactive link has no sample.
+esp_err_t LUNASHELL_wifi_refresh_signal(void);
 
 /** Start/stop secure stock ESP-IDF BLE Wi-Fi provisioning. */
 typedef enum {

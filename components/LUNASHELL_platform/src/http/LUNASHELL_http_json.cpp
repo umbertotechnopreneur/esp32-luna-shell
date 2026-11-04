@@ -516,6 +516,9 @@ void writeVoice(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::VoiceSnapshot 
                       static_cast<long long>(voice.detected_at_us));
 }
 
+// json: Bounded writer retaining any serialization failure for its caller.
+// wifi: Canonical connectivity and measured signal validity/error/timestamp.
+// include_sensitive: Explicit permission to include SSID and address fields.
 void writeWifi(
     LUNASHELL::HttpJsonWriter &json,
     const LUNASHELL::WifiSnapshot &wifi,
@@ -525,6 +528,8 @@ void writeWifi(
     writeComponentStart(json, wifi);
     (void)json.raw(",\"started\":");
     (void)json.boolean(wifi.started);
+    (void)json.raw(",\"connection_state_valid\":");
+    (void)json.boolean(wifi.connection_state_valid);
     (void)json.raw(",\"credentials_configured\":");
     (void)json.boolean(wifi.credentials_configured);
     (void)json.raw(",\"connect_requested\":");
@@ -535,9 +540,17 @@ void writeWifi(
     (void)json.boolean(wifi.ip_acquired);
     (void)json.raw(",\"reconnect_pending\":");
     (void)json.boolean(wifi.reconnect_pending);
+    (void)json.raw(",\"rssi\":");
+    if (wifi.rssi_valid && wifi.rssi_error == ESP_OK && wifi.connected && wifi.ip_acquired) {
+        (void)json.format("%d", static_cast<int>(wifi.rssi));
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw(",\"rssi_valid\":");
+    (void)json.boolean(wifi.rssi_valid);
     (void)json.format(
-        ",\"rssi\":%d,\"channel\":%u,\"last_disconnect_reason\":%u,\"event_sequence\":%lu,\"connect_attempt_count\":%lu,\"reconnect_attempt_count\":%lu,\"disconnect_count\":%lu",
-        static_cast<int>(wifi.rssi),
+        ",\"rssi_error\":%d,\"rssi_sampled_at_us\":%lld,\"channel\":%u,\"last_disconnect_reason\":%u,\"event_sequence\":%lu,\"connect_attempt_count\":%lu,\"reconnect_attempt_count\":%lu,\"disconnect_count\":%lu",
+        static_cast<int>(wifi.rssi_error), static_cast<long long>(wifi.rssi_sampled_at_us),
         static_cast<unsigned>(wifi.channel),
         static_cast<unsigned>(wifi.last_disconnect_reason),
         static_cast<unsigned long>(wifi.event_sequence),

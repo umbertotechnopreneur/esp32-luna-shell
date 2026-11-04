@@ -1091,7 +1091,8 @@ void DeviceSnapshotService::reportSpeaker(bool ready, esp_err_t error)
 }
 
 // wifi: Wi-Fi owner result, including connectivity and the real error.
-void DeviceSnapshotService::reportWifi(const WifiSnapshot &wifi)
+// Exception: Returns and logs the original canonical publication error.
+esp_err_t DeviceSnapshotService::reportWifi(const WifiSnapshot &wifi)
 {
     const int64_t attempted_at_us = esp_timer_get_time();
     const esp_err_t publication_error = update_snapshot(
@@ -1117,6 +1118,7 @@ void DeviceSnapshotService::reportWifi(const WifiSnapshot &wifi)
         }
     );
     log_snapshot_publication_failure("Wi-Fi report", publication_error);
+    return publication_error;
 }
 
 // provisioning: Original lifecycle state and timestamp, including observed failures.

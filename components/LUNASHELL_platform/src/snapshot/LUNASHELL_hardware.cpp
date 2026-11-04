@@ -2525,6 +2525,14 @@ esp_err_t DeviceSnapshotService::refresh(
             &aggregate
         );
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
+    // The network owner samples RSSI on the existing full-refresh cadence, after
+    // stage merge so its asynchronous radio publication cannot be overwritten.
+    const esp_err_t signal_error = LUNASHELL_wifi_refresh_signal();
+    if (signal_error != ESP_OK) {
+        ESP_LOGW(TAG, "Optional Wi-Fi signal acquisition failed (%s)", esp_err_to_name(signal_error));
+    }
+#endif
     // The time owner observes the system clock only after the staged hardware
     // commit. It must not race the stage merge or create a second sensor sampler.
     if (LUNASHELL_time_is_initialized()) {
@@ -2937,8 +2945,9 @@ esp_err_t DeviceSnapshotService::readDisplayPolicyObservation(
     return ESP_OK;
 }
 
-// observation: Receives coherent battery, clock, Wi-Fi and BLE for informational chrome.
+// observation: Receives coherent battery, clock, Wi-Fi, BLE and scalar Codex state.
 // The renderer never samples the PMU, system clock, Wi-Fi or BLE driver through this path.
+// Exception: Returns the original canonical lock/release failure.
 esp_err_t DeviceSnapshotService::readDeviceStatusObservation(
     DeviceStatusObservation &observation
 ) const
@@ -2954,6 +2963,8 @@ esp_err_t DeviceSnapshotService::readDeviceStatusObservation(
     copy.clock = s_snapshot.clock;
     copy.wifi = s_snapshot.radios.wifi;
     copy.ble = s_snapshot.radios.ble;
+    copy.codex_link = s_snapshot.radios.codex_link;
+    copy.codex_link_state = s_snapshot.radios.codex_link.state;
     const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
     const esp_err_t release_error = give_snapshot_mutex("device status read");
     if (release_error != ESP_OK) {
@@ -2963,6 +2974,7 @@ esp_err_t DeviceSnapshotService::readDeviceStatusObservation(
     const int64_t now_us = esp_timer_get_time();
     age_measured_sample(copy.battery, now_us, ttl_us);
     age_measured_sample(copy.clock, now_us, ttl_us);
+    age_wifi_signal(copy.wifi, now_us, ttl_us);
     observation = copy;
     return ESP_OK;
 }

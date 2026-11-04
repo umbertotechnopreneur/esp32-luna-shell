@@ -216,6 +216,7 @@ class PersonalityPainter:
                     raise ValueError(f"Reserved palette slot in personality cue: {cue.name}")
                 rgba.extend((*colors[slot], alpha))
             self.images[cue] = Image.frombytes("RGBA", (extent, extent), bytes(rgba))
+        self.images[PersonalityCue.CODEX_CONNECTED] = self.images[PersonalityCue.JOY]
         native_only = {PersonalityCue.WIFI_CONNECTED, PersonalityCue.SEARCH,
                        PersonalityCue.BATTERY_READY, PersonalityCue.BATTERY_LOW}
         if set(self.images) != set(PersonalityCue) - {PersonalityCue.NONE} - native_only:

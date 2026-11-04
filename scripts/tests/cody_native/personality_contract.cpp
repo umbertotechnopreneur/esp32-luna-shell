@@ -456,6 +456,7 @@ void check_lossless_sprite_bounds()
         {PersonalityCue::Charging, "charging"}, {PersonalityCue::NoWifi, "no-wifi"},
         {PersonalityCue::Curiosity, "curiosity"}, {PersonalityCue::Confusion, "confusion"},
         {PersonalityCue::Affection, "affection"}, {PersonalityCue::Frustration, "frustration"},
+        {PersonalityCue::NoCodex, "no-codex"},
     };
     std::vector<uint8_t> indices(256 * 256), coverage(256 * 256);
     for (const auto &sprite : PersonalityAssets::sprites) {
@@ -1327,8 +1328,7 @@ void check_wellbeing()
 // No parameters: exercise the production authored-silence gate without playing audio.
 void check_authored_silent_cues()
 {
-    for (auto cue : {PersonalityCue::WifiConnected, PersonalityCue::Search,
-                     PersonalityCue::BatteryReady, PersonalityCue::BatteryLow}) {
+    for (auto cue : {PersonalityCue::Search, PersonalityCue::BatteryReady, PersonalityCue::BatteryLow}) {
         require(personality_cue_is_silent(cue), "visual-only cue must not request a missing PCM asset");
     }
     for (const auto &rule : PersonalityConfig::cue_rules) {

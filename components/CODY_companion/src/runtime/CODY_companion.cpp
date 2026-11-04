@@ -471,8 +471,21 @@ esp_err_t admit_personality_device_cue(const LUNASHELL::DeviceStatusObservation 
         return ESP_OK;
     }
     if (requested == CODY::PersonalityCue::NoWifi) {
-        if (personality_sample_current(observation.wifi) && observation.wifi.started &&
-            observation.wifi.credentials_configured && !observation.wifi.connected) {
+        if (observation.wifi.connection_state_valid && !observation.wifi.data_stale &&
+            observation.wifi.last_attempt_at_us > 0 &&
+            (!observation.wifi.connected || !observation.wifi.ip_acquired)) {
+            cue = requested;
+        }
+        return ESP_OK;
+    }
+    if (requested == CODY::PersonalityCue::NoCodex || requested == CODY::PersonalityCue::CodexConnected) {
+        const auto &pc = observation.codex_link;
+        const bool connected = observation.codex_link_state == LUNASHELL::CodexLinkState::Connected;
+        const bool current = pc.data_valid && !pc.data_stale && pc.last_attempt_at_us > 0 &&
+            (personality_sample_current(pc) || !connected);
+        const bool wifi_online = personality_sample_current(observation.wifi) &&
+            observation.wifi.connected && observation.wifi.ip_acquired;
+        if (current && wifi_online && (connected == (requested == CODY::PersonalityCue::CodexConnected))) {
             cue = requested;
         }
         return ESP_OK;
@@ -1151,6 +1164,78 @@ void suspend_optional_personality_audio(bool suspended)
     }
 }
 
+// Display-owned transition latches hold at most one fresh event for each link.
+// Hidden frames and unavailable observations cancel pending admission; no replay on return.
+struct ConnectionSoundLane {
+    bool observed = false;
+    bool continuous = false;
+    bool connected = false;
+    CODY::PersonalityCue pending = CODY::PersonalityCue::None;
+    int64_t expires_at_us = 0;
+};
+ConnectionSoundLane s_wifi_sound;
+ConnectionSoundLane s_pc_sound;
+
+// current: The canonical connection state is available in this completed frame.
+// connected: Current connection fact, admitted independently of the icon.
+// audible: The character view is active; hidden transitions are consumed silently.
+// online: Dedicated sound identity for a connection edge.
+// offline: Dedicated sound identity for disconnection or first observed absence.
+// now_us: Current monotonic time used only for bounded busy admission.
+// lane: Display-owned history and the latest unplayed transition for this link.
+void observe_connection_sound(bool current, bool connected, bool audible,
+    CODY::PersonalityCue online, CODY::PersonalityCue offline,
+    int64_t now_us, ConnectionSoundLane &lane)
+{
+    if (current) {
+        const bool changed = !lane.observed || (lane.continuous && lane.connected != connected);
+        if (changed && audible) {
+            lane.pending = connected ? online : offline;
+            lane.expires_at_us = now_us + 800000;
+        }
+        lane.observed = true;
+        lane.connected = connected;
+    }
+    lane.continuous = current;
+    if (!current || !audible || now_us >= lane.expires_at_us) {
+        lane.pending = CODY::PersonalityCue::None;
+    }
+}
+
+// lane: Latest real transition; successful dispatch consumes it exactly once.
+// Exception: Logs original optional-owner failure; only a busy outcome retries within its expiry.
+void dispatch_connection_sound(ConnectionSoundLane &lane)
+{
+    if (!s_personality_audio_prepared || lane.pending == CODY::PersonalityCue::None) {
+        return;
+    }
+    CODY::PersonalityAudioStatus status{};
+    const esp_err_t error = CODY::notify_personality_audio(lane.pending, status);
+    if (error != ESP_OK) {
+        log_optional_personality_error(error);
+    }
+    if (error != ESP_OK || status.state != CODY::PersonalityAudioState::DroppedBusy) {
+        ESP_LOGI(kTag, "Connectivity sound: cue=%u disposition=%u error=%s",
+            static_cast<unsigned>(lane.pending), static_cast<unsigned>(status.state), esp_err_to_name(error));
+        lane.pending = CODY::PersonalityCue::None;
+    }
+}
+
+// audible: True only for a completed active character view, never a hidden route or standby.
+void notify_completed_connectivity(bool audible)
+{
+    const auto &connection = s_state.connection_personality;
+    const int64_t now_us = esp_timer_get_time();
+    observe_connection_sound(connection.wifi_observation_continuous, connection.wifi_was_connected,
+        audible, CODY::PersonalityCue::WifiConnected, CODY::PersonalityCue::NoWifi, now_us, s_wifi_sound);
+    // Wi-Fi loss is the primary audible cause; the dependent PC loss stays silent.
+    observe_connection_sound(connection.pc_observation_continuous, connection.pc_was_connected,
+        audible && connection.wifi_observation_continuous && connection.wifi_was_connected,
+        CODY::PersonalityCue::CodexConnected, CODY::PersonalityCue::NoCodex, now_us, s_pc_sound);
+    dispatch_connection_sound(s_wifi_sound);
+    dispatch_connection_sound(s_pc_sound);
+}
+
 // previous: Last fully retired visual cue before this frame.
 // current: Newly retired visual cue; busy admission can retry during its 400-ms fade.
 // idle_view_visible: The completed frame actually rendered the character in Main.
@@ -1161,8 +1246,13 @@ void notify_completed_personality(const CODY::PersonalityFrame &previous,
         current.opacity != 0;
     const bool idle_whistle_visible = !s_state.animation_paused &&
         s_state.response.idle_scene == CODY::IdleSceneId::Whistle && idle_view_visible;
+    const bool connection_audible = !s_state.animation_paused &&
+        s_power_presentation.load(std::memory_order_acquire) == PowerPresentation::None &&
+        CODY::lifecycle_is_resting(s_state.lifecycle) &&
+        (visible || idle_view_visible || home_dashboard_view_active());
     suspend_optional_personality_audio(s_power_presentation.load(std::memory_order_acquire) !=
-        PowerPresentation::None || (!visible && !idle_whistle_visible));
+        PowerPresentation::None || (!visible && !idle_whistle_visible && !connection_audible));
+    notify_completed_connectivity(connection_audible);
     const auto &actor = s_state.character_direction;
     const bool compaction_owner = actor.enabled && actor.current && actor.compacting && !actor.attention;
     const bool compaction_visible = compaction_owner && visible &&
@@ -1179,9 +1269,9 @@ void notify_completed_personality(const CODY::PersonalityFrame &previous,
         s_pending_personality_sound = CODY::PersonalityCue::None;
         s_pending_compaction_sound = false;
     }
-    if (CODY::personality_cue_is_silent(current.cue)) {
-        // Authored visual-only cues have no PCM asset. Cancel any old retry;
-        // unknown identities still reach the audio owner's explicit rejection.
+    if (CODY::personality_cue_is_connection(current.cue) || CODY::personality_cue_is_silent(current.cue)) {
+        // Connection sounds belong to observed edges, never repeated icon appearances.
+        // Authored visual-only cues have no PCM asset; both cancel decorative retries.
         s_pending_personality_sound = CODY::PersonalityCue::None;
         return;
     }
@@ -2193,22 +2283,27 @@ esp_err_t update_routine_greeting(const LUNASHELL::ClockSnapshot &clock,
 esp_err_t observe_connection_personality(int64_t active_delta_us,
     CODY::ConnectionPersonalityState &state, CODY::PersonalityCue &cue)
 {
-    LUNASHELL::ConnectivityObservation connectivity;
+    // Reuse the display-owned bounded projection; do not put the full radio/link
+    // snapshot on the nested render stack after Wi-Fi schema growth.
+    auto &connectivity = s_state.personality_observation;
     const esp_err_t error =
-        LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(connectivity);
+        LUNASHELL::DeviceSnapshotService::instance().readDeviceStatusObservation(connectivity);
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Connection expression observation failed (%s)", esp_err_to_name(error));
         return error;
     }
-    const auto &wifi = connectivity.radios.wifi;
-    const auto &pc = connectivity.radios.codex_link;
+    const auto &wifi = connectivity.wifi;
+    const auto &pc = connectivity.codex_link;
     CODY::ConnectionPersonalityInputs inputs{};
-    inputs.wifi_current = personality_sample_current(wifi);
+    inputs.wifi_current = wifi.connection_state_valid && !wifi.data_stale && wifi.last_attempt_at_us > 0;
     inputs.wifi_searching = inputs.wifi_current && wifi.started && wifi.credentials_configured &&
         !wifi.connected && (wifi.connect_requested || wifi.reconnect_pending);
-    inputs.pc_current = personality_sample_current(pc);
-    inputs.pc_connected = inputs.pc_current && pc.state == LUNASHELL::CodexLinkState::Connected;
-    inputs.pc_searching = inputs.pc_current && pc.state == LUNASHELL::CodexLinkState::Discovering;
+    // A published failed/discovering state is a known service state, not a
+    // successful transport sample. Keep its error and admit only actual absence.
+    inputs.pc_current = pc.data_valid && !pc.data_stale && pc.last_attempt_at_us > 0 &&
+        (personality_sample_current(pc) || connectivity.codex_link_state != LUNASHELL::CodexLinkState::Connected);
+    inputs.pc_connected = inputs.pc_current && connectivity.codex_link_state == LUNASHELL::CodexLinkState::Connected;
+    inputs.pc_searching = inputs.pc_current && connectivity.codex_link_state == LUNASHELL::CodexLinkState::Discovering;
     inputs.wifi_connected = inputs.wifi_current && wifi.connected && wifi.ip_acquired;
     inputs.search_view_visible = s_state.scene.valid &&
         s_state.scene.definition->id == CODY::SceneId::LookingForPc &&
@@ -2478,7 +2573,8 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
             const CODY::ExpressionId reaction = next_connection.search_active
                 ? CODY::connection_search_presentation(next_connection).expression
                 : next_connection_cue == CODY::PersonalityCue::Joy ||
-                    next_connection_cue == CODY::PersonalityCue::WifiConnected
+                    next_connection_cue == CODY::PersonalityCue::WifiConnected ||
+                    next_connection_cue == CODY::PersonalityCue::CodexConnected
                 ? CODY::ExpressionId::Happy
                 : next_connection_cue == CODY::PersonalityCue::Curiosity
                     ? CODY::ExpressionId::Curious

@@ -61,6 +61,20 @@ int64_t measured_sample_ttl_us(const LUNASHELL::DeviceSnapshot &snapshot)
     return std::max(kMinimumMeasuredSampleTtlUs, cadence_ttl_us);
 }
 
+// wifi: Acquired signal projection; numeric values and original timestamps are retained.
+// now_us: Monotonic observation time, never a substitute measurement timestamp.
+// ttl_us: Canonical cadence-derived freshness window.
+void age_wifi_signal(WifiSnapshot &wifi, int64_t now_us, int64_t ttl_us)
+{
+    if (!wifi.connected || !wifi.ip_acquired) {
+        wifi.rssi_valid = false;
+    } else if (wifi.rssi_valid && (wifi.rssi_sampled_at_us <= 0 ||
+        now_us < wifi.rssi_sampled_at_us || now_us - wifi.rssi_sampled_at_us > ttl_us)) {
+        wifi.rssi_valid = false;
+        wifi.rssi_error = ESP_ERR_TIMEOUT;
+    }
+}
+
 // snapshot: Canonical observations whose original timestamps must remain untouched.
 // now_us: Actual monotonic observation time used to mark, never refresh, stale data.
 void apply_measured_sample_aging(
@@ -80,6 +94,7 @@ void apply_measured_sample_aging(
     age_codex_technical(snapshot.codex_technical, now_us);
     codex_presence::age(snapshot.radios.codex_link.app_presence, now_us);
     const int64_t ttl_us = measured_sample_ttl_us(snapshot);
+    age_wifi_signal(snapshot.radios.wifi, now_us, ttl_us);
     age_measured_sample(snapshot.battery, now_us, ttl_us);
     age_measured_sample(snapshot.rtc, now_us, ttl_us);
     age_measured_sample(snapshot.clock, now_us, ttl_us);

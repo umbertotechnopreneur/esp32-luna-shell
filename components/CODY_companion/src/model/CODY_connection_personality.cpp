@@ -101,10 +101,10 @@ esp_err_t advance_connection_personality(const ConnectionPersonalityInputs &inpu
     } else if (inputs.pc_current) {
         if (inputs.pc_connected && (!next.pc_observed ||
             (next.pc_observation_continuous && !next.pc_was_connected))) {
-            next.event = PersonalityCue::Joy;
+            next.event = PersonalityCue::CodexConnected;
             next.event_remaining_us = 4000000;
         } else if (next.pc_observation_continuous && next.pc_was_connected && !inputs.pc_connected) {
-            next.event = PersonalityCue::Fear;
+            next.event = PersonalityCue::NoCodex;
             next.event_remaining_us = 4000000;
         }
         next.pc_observed = true;
@@ -118,7 +118,7 @@ esp_err_t advance_connection_personality(const ConnectionPersonalityInputs &inpu
         ? static_cast<int64_t>((static_cast<uint64_t>(next.search_elapsed_us) +
             static_cast<uint64_t>(active_delta_us)) % 96000000ULL) : 0;
     // Loss of network truth cancels the PC celebration; it never waits to play later.
-    if (inputs.wifi_searching) {
+    if (inputs.wifi_current && !inputs.wifi_connected) {
         next.event = PersonalityCue::None;
         next.event_remaining_us = 0;
         cue = PersonalityCue::NoWifi;
@@ -126,6 +126,8 @@ esp_err_t advance_connection_personality(const ConnectionPersonalityInputs &inpu
         cue = PersonalityCue::WifiConnected;
     } else if (next.event_remaining_us > 0 && inputs.pc_current) {
         cue = next.event;
+    } else if (inputs.pc_current && !inputs.pc_connected && inputs.wifi_connected) {
+        cue = PersonalityCue::NoCodex;
     } else if (next.search_active) {
         cue = connection_search_presentation(next).cue;
     } else {
@@ -141,9 +143,10 @@ PersonalityCue scene_personality_cue(SceneId scene)
 {
     switch (scene) {
     case SceneId::PairingFailed:
-    case SceneId::ConnectionLost:
     case SceneId::ChecksFailed:
         return PersonalityCue::Fear;
+    case SceneId::ConnectionLost:
+        return PersonalityCue::NoCodex;
     case SceneId::CheckFailures:
         return PersonalityCue::Frustration;
     case SceneId::Pairing:
@@ -187,6 +190,7 @@ PersonalityCue resolve_scene_personality_cue(SceneId scene, PersonalityCue conne
         return authored;
     }
     if (connection == PersonalityCue::NoWifi || connection == PersonalityCue::WifiConnected ||
+        connection == PersonalityCue::NoCodex || connection == PersonalityCue::CodexConnected ||
         authored == PersonalityCue::None) {
         return connection;
     }

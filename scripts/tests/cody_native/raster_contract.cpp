@@ -732,49 +732,56 @@ bool connection_states_equal(const CODY::ConnectionPersonalityState &first,
 void check_connection_personality_contract()
 {
     CODY::ConnectionPersonalityState state;
+    state.wifi_observed = true;
+    state.wifi_observation_continuous = true;
+    state.wifi_was_connected = true;
     CODY::PersonalityCue cue = CODY::PersonalityCue::None;
-    CODY::ConnectionPersonalityInputs searching{true, false, true, false, true};
-    const CODY::ConnectionPersonalityInputs connected{true, false, true, true, false};
-    const CODY::ConnectionPersonalityInputs unavailable{true, false, false, false, false};
+    CODY::ConnectionPersonalityInputs searching{true, false, true, false, true, true, false};
+    const CODY::ConnectionPersonalityInputs connected{true, false, true, true, false, true, false};
+    const CODY::ConnectionPersonalityInputs unavailable{true, false, false, false, false, true, false};
     require(CODY::advance_connection_personality(searching, 0, state, cue) == ESP_OK &&
-            cue == CODY::PersonalityCue::Curiosity, "PC discovery waits with curiosity");
+            cue == CODY::PersonalityCue::NoCodex, "PC absence has a distinct terminal-link icon");
     require(CODY::advance_connection_personality(connected, 0, state, cue) == ESP_OK &&
-            cue == CODY::PersonalityCue::Joy && state.event_remaining_us == 4000000,
+            cue == CODY::PersonalityCue::CodexConnected && state.event_remaining_us == 4000000,
             "a real connection edge starts four seconds of joy");
     const auto paused = state;
     require(CODY::advance_connection_personality(connected, 0, state, cue) == ESP_OK &&
             connection_states_equal(paused, state), "paused frames neither expire nor retrigger connection joy");
     require(CODY::advance_connection_personality(connected, 3999999, state, cue) == ESP_OK &&
-            cue == CODY::PersonalityCue::Joy && state.event_remaining_us == 1,
+            cue == CODY::PersonalityCue::CodexConnected && state.event_remaining_us == 1,
             "joy remains active until the final active microsecond");
     require(CODY::advance_connection_personality(connected, 1, state, cue) == ESP_OK &&
             cue == CODY::PersonalityCue::None, "four-second joy expires at the exact active-time boundary");
     require(CODY::advance_connection_personality(connected, 4000000, state, cue) == ESP_OK &&
             cue == CODY::PersonalityCue::None, "repeated connected snapshots cannot retrigger joy");
     require(CODY::advance_connection_personality(searching, 0, state, cue) == ESP_OK &&
-            cue == CODY::PersonalityCue::Fear, "a confirmed disconnect reacts with the atlas fear expression");
+            cue == CODY::PersonalityCue::NoCodex, "a confirmed PC disconnect never implies missing Wi-Fi");
     require(CODY::advance_connection_personality(searching, 4000000, state, cue) == ESP_OK &&
-            cue == CODY::PersonalityCue::Curiosity, "disconnect reaction settles back into discovery waiting");
+            cue == CODY::PersonalityCue::NoCodex, "PC absence remains explicit while discovery waits");
     require(CODY::advance_connection_personality(connected, 0, state, cue) == ESP_OK &&
-            cue == CODY::PersonalityCue::Joy, "a new observed reconnect can start a fresh reaction");
+            cue == CODY::PersonalityCue::CodexConnected, "a new observed reconnect can start a fresh reaction");
     require(CODY::advance_connection_personality(unavailable, 0, state, cue) == ESP_OK &&
             cue == CODY::PersonalityCue::None && !state.pc_observation_continuous &&
             state.event_remaining_us == 0, "stale connectivity cancels a reaction without inventing a disconnect");
     require(CODY::advance_connection_personality(searching, 0, state, cue) == ESP_OK &&
-            cue == CODY::PersonalityCue::Curiosity, "re-observation after stale data does not invent a lost-connection edge");
+            cue == CODY::PersonalityCue::NoCodex, "re-observed PC absence has no invented transient event");
     require(CODY::advance_connection_personality(connected, 0, state, cue) == ESP_OK &&
-            cue == CODY::PersonalityCue::Joy, "continuous re-observation restores admission of future real edges");
+            cue == CODY::PersonalityCue::CodexConnected, "continuous re-observation restores admission of future real edges");
     auto wifi_search = connected;
     wifi_search.wifi_searching = true;
+    wifi_search.wifi_connected = false;
     require(CODY::advance_connection_personality(wifi_search, 0, state, cue) == ESP_OK &&
             cue == CODY::PersonalityCue::NoWifi && state.event_remaining_us == 0,
             "Wi-Fi search overrides and cancels PC celebration");
     require(CODY::advance_connection_personality(connected, 0, state, cue) == ESP_OK &&
-            cue == CODY::PersonalityCue::None, "Wi-Fi recovery cannot replay a cancelled celebration");
+            cue == CODY::PersonalityCue::WifiConnected, "Wi-Fi recovery has its own semantic identity");
 
     state = {};
+    state.wifi_observed = true;
+    state.wifi_observation_continuous = true;
+    state.wifi_was_connected = true;
     require(CODY::advance_connection_personality(connected, 0, state, cue) == ESP_OK &&
-            cue == CODY::PersonalityCue::Joy, "an initial verified connected snapshot admits startup joy");
+            cue == CODY::PersonalityCue::CodexConnected, "an initial verified connected snapshot admits startup joy");
     require(CODY::advance_connection_personality(unavailable, 0, state, cue) == ESP_OK &&
             cue == CODY::PersonalityCue::None, "stale initial connection drops startup joy");
     require(CODY::advance_connection_personality(connected, 0, state, cue) == ESP_OK &&
@@ -795,11 +802,12 @@ void check_connection_personality_contract()
             connection_states_equal(before, state) && cue == original_cue,
             "negative active time preserves the previous reaction state and output");
 
-    for (const auto scene : {CODY::SceneId::PairingFailed, CODY::SceneId::ConnectionLost,
-                            CODY::SceneId::ChecksFailed}) {
+    for (const auto scene : {CODY::SceneId::PairingFailed, CODY::SceneId::ChecksFailed}) {
         require(CODY::scene_personality_cue(scene) == CODY::PersonalityCue::Fear,
                 "actual failed routes use atlas fear");
     }
+    require(CODY::scene_personality_cue(CODY::SceneId::ConnectionLost) == CODY::PersonalityCue::NoCodex,
+            "lost PC link uses the dedicated Codex icon");
     for (const auto scene : {CODY::SceneId::Pairing, CODY::SceneId::LookingForPc,
                             CODY::SceneId::ChecksRunning, CODY::SceneId::DecisionWaiting,
                             CODY::SceneId::ApprovalOnPc, CODY::SceneId::PrPending}) {
@@ -812,22 +820,22 @@ void check_connection_personality_contract()
             "neutral settings route does not invent a runtime reaction");
     require(CODY::resolve_scene_personality_cue(CODY::SceneId::PairingFailed, CODY::PersonalityCue::NoWifi) ==
             CODY::PersonalityCue::Fear, "confirmed failed route retains fear over Wi-Fi search");
-    require(CODY::resolve_scene_personality_cue(CODY::SceneId::CheckFailures, CODY::PersonalityCue::Joy) ==
+    require(CODY::resolve_scene_personality_cue(CODY::SceneId::CheckFailures, CODY::PersonalityCue::CodexConnected) ==
             CODY::PersonalityCue::Frustration, "confirmed check failures retain frustration over connection joy");
     require(CODY::resolve_scene_personality_cue(CODY::SceneId::Connected, CODY::PersonalityCue::NoWifi) ==
             CODY::PersonalityCue::NoWifi, "live Wi-Fi search overrides a retained connected scene");
     require(CODY::resolve_scene_personality_cue(CODY::SceneId::DecisionWaiting, CODY::PersonalityCue::NoWifi) ==
             CODY::PersonalityCue::NoWifi, "live Wi-Fi search identifies the cause of a waiting scene");
-    require(CODY::resolve_scene_personality_cue(CODY::SceneId::LookingForPc, CODY::PersonalityCue::Joy) ==
-            CODY::PersonalityCue::Joy, "observed connection joy reaches a discovery scene before route replacement");
+    require(CODY::resolve_scene_personality_cue(CODY::SceneId::LookingForPc, CODY::PersonalityCue::CodexConnected) ==
+            CODY::PersonalityCue::CodexConnected, "observed connection joy reaches a discovery scene before route replacement");
     require(CODY::resolve_scene_personality_cue(CODY::SceneId::Connected, CODY::PersonalityCue::Fear) ==
             CODY::PersonalityCue::Fear, "observed disconnect fear reaches a retained connected scene");
     require(CODY::resolve_scene_personality_cue(CODY::SceneId::Connected, CODY::PersonalityCue::Curiosity) ==
             CODY::PersonalityCue::Curiosity, "rediscovery waiting reaches a retained connected scene");
-    require(CODY::resolve_scene_personality_cue(CODY::SceneId::CompanionIdle, CODY::PersonalityCue::Joy) ==
-            CODY::PersonalityCue::Joy, "ordinary companion view admits observed connection reactions");
-    require(CODY::resolve_scene_personality_cue(CODY::SceneId::Pairing, CODY::PersonalityCue::Joy) ==
-            CODY::PersonalityCue::Curiosity, "unrelated pending pairing does not borrow a PC connection celebration");
+    require(CODY::resolve_scene_personality_cue(CODY::SceneId::CompanionIdle, CODY::PersonalityCue::CodexConnected) ==
+            CODY::PersonalityCue::CodexConnected, "ordinary companion view admits observed connection reactions");
+    require(CODY::resolve_scene_personality_cue(CODY::SceneId::Pairing, CODY::PersonalityCue::CodexConnected) ==
+            CODY::PersonalityCue::CodexConnected, "current connection success remains distinguishable from pairing waiting");
 }
 
 // scene: Completed native geometry emitted for the independent host evaluator.

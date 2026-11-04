@@ -15,5 +15,5 @@ struct Sprite {
     uint16_t stored_height;
 };
 extern const uint16_t palette[256];
-extern const Sprite sprites[14];
+extern const Sprite sprites[15];
 }

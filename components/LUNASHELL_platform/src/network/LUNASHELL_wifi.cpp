@@ -37,6 +37,7 @@
 #include "esp_mac.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
+#include "esp_timer.h"
 #include "esp_wifi_default.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -269,7 +270,9 @@ void copy_ssid(char *destination, size_t destination_size, const uint8_t *source
     destination[length] = '\0';
 }
 
-void publish_snapshot()
+// No parameters: copy the network owner under its state lock, then publish without it.
+// Exception: Returns and logs the original canonical publication error.
+esp_err_t publish_snapshot()
 {
     LUNASHELL_wifi_status_t status = {};
     wifi_lock();
@@ -284,12 +287,16 @@ void publish_snapshot()
                                  : LUNASHELL::DeviceHealth::Degraded);
     snapshot.last_error = status.last_error;
     snapshot.started = status.started;
+    snapshot.connection_state_valid = status.connection_state_valid;
     snapshot.credentials_configured = status.credentials_configured;
     snapshot.connect_requested = status.connect_requested;
     snapshot.connected = status.connected;
     snapshot.ip_acquired = status.ip_acquired;
     snapshot.reconnect_pending = status.reconnect_pending;
     snapshot.rssi = status.rssi;
+    snapshot.rssi_valid = status.rssi_valid && status.connected && status.ip_acquired;
+    snapshot.rssi_error = status.rssi_error;
+    snapshot.rssi_sampled_at_us = status.rssi_sampled_at_us;
     snapshot.channel = status.channel;
     snapshot.last_disconnect_reason = status.last_disconnect_reason;
     snapshot.event_sequence = status.event_sequence;
@@ -299,7 +306,7 @@ void publish_snapshot()
     strlcpy(snapshot.ssid, status.ssid, sizeof(snapshot.ssid));
     strlcpy(snapshot.ip_address, status.ip_address, sizeof(snapshot.ip_address));
     strlcpy(snapshot.mac_address, status.mac_address, sizeof(snapshot.mac_address));
-    LUNASHELL::DeviceSnapshotService::instance().reportWifi(snapshot);
+    return LUNASHELL::DeviceSnapshotService::instance().reportWifi(snapshot);
 }
 
 void record_error(esp_err_t error)
@@ -669,6 +676,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             if (event_id == WIFI_EVENT_STA_STOP) {
                 s_status.started = false;
             }
+            s_status.connection_state_valid = true;
             s_status.connected = false;
             s_status.ip_acquired = false;
             s_status.ip_address[0] = '\0';
@@ -690,6 +698,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
                 return;
             }
             s_status.started = true;
+            s_status.connection_state_valid = true;
             s_status.last_error = ESP_OK;
             ++s_status.event_sequence;
             wifi_unlock();
@@ -709,6 +718,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             s_status.connected = true;
             s_status.ip_acquired = false;
             s_status.channel = connected != nullptr ? connected->channel : 0;
+            s_status.connection_state_valid = connected != nullptr;
             s_status.last_error = event_error;
             ++s_status.event_sequence;
             wifi_unlock();
@@ -729,12 +739,14 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             s_status.connected = false;
             s_status.ip_acquired = false;
             s_status.rssi = 0;
+            s_status.rssi_valid = false;
             s_status.channel = 0;
             s_status.ip_address[0] = '\0';
             s_status.netmask[0] = '\0';
             s_status.gateway[0] = '\0';
             ++s_status.disconnect_count;
             s_status.last_disconnect_reason = disconnected != nullptr ? disconnected->reason : 0;
+            s_status.connection_state_valid = disconnected != nullptr;
             // The provisioning manager owns its five credential retries. A
             // second timer here would race that state machine and retry twice.
             const bool sealed = s_factory_reset_sealed.load(std::memory_order_acquire);
@@ -780,6 +792,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             const esp_err_t cancel_error = cancel_reconnect(true, false);
             wifi_lock();
             s_status.started = false;
+            s_status.connection_state_valid = true;
             s_status.connected = false;
             s_status.ip_acquired = false;
             if (!s_factory_reset_sealed.load(std::memory_order_acquire)) {
@@ -816,6 +829,12 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
         wifi_ap_record_t access_point = {};
         const esp_err_t access_point_error =
             esp_wifi_sta_get_ap_info(&access_point);
+        const esp_err_t signal_error = access_point_error == ESP_OK && access_point.rssi >= 0
+            ? ESP_ERR_INVALID_RESPONSE : access_point_error;
+        if (signal_error != ESP_OK) {
+            ESP_LOGE(TAG, "Wi-Fi initial signal acquisition rejected: rssi=%d (%s)",
+                static_cast<int>(access_point.rssi), esp_err_to_name(signal_error));
+        }
         esp_err_t event_error =
             got_ip == nullptr || got_ip->ip_info.ip.addr == 0
                 ? ESP_ERR_INVALID_RESPONSE
@@ -837,8 +856,14 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
         }
         s_status.connected = true;
         s_status.ip_acquired = got_ip != nullptr && got_ip->ip_info.ip.addr != 0;
+        s_status.connection_state_valid = got_ip != nullptr;
         s_status.credentials_configured = true;
         s_status.connect_requested = true;
+        s_status.rssi_valid = signal_error == ESP_OK;
+        s_status.rssi_error = signal_error;
+        if (signal_error == ESP_OK) {
+            s_status.rssi_sampled_at_us = esp_timer_get_time();
+        }
         if (access_point_error == ESP_OK) {
             s_status.rssi = access_point.rssi;
             s_status.channel = access_point.primary;
@@ -1089,6 +1114,7 @@ static esp_err_t wifi_init_impl(void)
         wifi_lock();
         s_initialized = true;
         s_status.initialized = true;
+        s_status.connection_state_valid = true;
         s_status.started = true;
         s_status.credentials_configured = has_profile;
         s_status.connect_requested = has_profile;
@@ -1387,6 +1413,7 @@ static esp_err_t wifi_disconnect_owned_impl(void)
     s_status.connected = false;
     s_status.ip_acquired = false;
     s_status.rssi = 0;
+    s_status.rssi_valid = false;
     s_status.channel = 0;
     s_status.ip_address[0] = '\0';
     s_status.netmask[0] = '\0';
@@ -1472,6 +1499,61 @@ extern "C" size_t LUNASHELL_wifi_get_networks(LUNASHELL_wifi_network_t *networks
     return count;
 }
 
+// No parameters: only this network owner reads the SDK's associated access point.
+// Exception: Returns original lifecycle/read/publication errors; a changed event retires this attempt.
+extern "C" esp_err_t LUNASHELL_wifi_refresh_signal(void)
+{
+    const esp_err_t lock_error = wifi_lifecycle_lock("signal refresh");
+    if (lock_error != ESP_OK) {
+        wifi_lock();
+        s_status.rssi_valid = false;
+        s_status.rssi_error = lock_error;
+        wifi_unlock();
+        // Publication logs any secondary error; the original admission cause wins.
+        (void)publish_snapshot();
+        return lock_error;
+    }
+    WifiLifecycleGuard lifecycle_guard;
+    wifi_lock();
+    const bool online = s_initialized && s_status.started && s_status.connected &&
+        s_status.ip_acquired && !s_factory_reset_sealed.load(std::memory_order_acquire);
+    const uint32_t observed_sequence = s_status.event_sequence;
+    wifi_unlock();
+    if (!online) {
+        // Connectivity remains event-owned; no synthetic signal sample is published.
+        return ESP_OK;
+    }
+    wifi_ap_record_t access_point{};
+    esp_err_t error = esp_wifi_sta_get_ap_info(&access_point);
+    const int64_t sampled_at_us = esp_timer_get_time();
+    if (error == ESP_OK && access_point.rssi >= 0) {
+        error = ESP_ERR_INVALID_RESPONSE;
+        ESP_LOGE(TAG, "Wi-Fi signal RSSI=%d rejected (%s)",
+            static_cast<int>(access_point.rssi), esp_err_to_name(error));
+    }
+    wifi_lock();
+    if (s_status.event_sequence != observed_sequence || !s_status.connected ||
+        !s_status.ip_acquired) {
+        // A concurrent disconnect/reassociation owns newer truth than this SDK read.
+        wifi_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_status.rssi_valid = error == ESP_OK;
+    s_status.rssi_error = error;
+    if (error == ESP_OK) {
+        s_status.rssi = access_point.rssi;
+        s_status.channel = access_point.primary;
+        s_status.rssi_sampled_at_us = sampled_at_us;
+    }
+    wifi_unlock();
+    const esp_err_t publication_error = publish_snapshot();
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Wi-Fi signal refresh failed (%s)", esp_err_to_name(error));
+    }
+    return error != ESP_OK ? error : publication_error;
+}
+
+// status: Receives the retained network-owner state; this accessor does not read hardware.
 extern "C" void LUNASHELL_wifi_get_status(LUNASHELL_wifi_status_t *status)
 {
     if (status == nullptr) {
@@ -1479,6 +1561,7 @@ extern "C" void LUNASHELL_wifi_get_status(LUNASHELL_wifi_status_t *status)
     }
     wifi_lock();
     *status = s_status;
+    status->rssi_valid = status->rssi_valid && status->connected && status->ip_acquired;
     wifi_unlock();
 }
 

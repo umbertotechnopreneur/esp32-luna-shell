@@ -97,6 +97,13 @@ extern "C" size_t LUNASHELL_wifi_get_networks(
     return 0;
 }
 
+// No parameters: a disabled radio cannot acquire signal measurements.
+// Exception: Returns NOT_SUPPORTED without publishing a fabricated sample.
+extern "C" esp_err_t LUNASHELL_wifi_refresh_signal(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 extern "C" void LUNASHELL_wifi_get_status(LUNASHELL_wifi_status_t *status)
 {
     fill_disabled_status(status);

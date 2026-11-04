@@ -16,6 +16,23 @@ The operating and authorization rules are in [AGENTS.md](AGENTS.md).
 - Confirm the fitted RTC before enabling an external one. Keep SD and GNSS
   unavailable on this board.
 
+## Cody connectivity indicators and sounds
+
+- Verify that Codex absence uses the terminal/disconnected-plug icon while a real
+  Wi-Fi loss uses NoWifi and a red crossed status glyph. Check reconnects and
+  unavailable observations without stale artwork or repeated sounds.
+- Verify measured RSSI updates on the canonical full-snapshot cadence, all three
+  signal levels, and unavailable/stale/read-error handling. Connectivity validity
+  must remain independent of signal measurement and reconnect-operation errors.
+- Listen to the four dedicated Wi-Fi/Codex transition effects on the speaker.
+  Check overlapping edges, volume, Sounds, quiet hours, busy admission, route
+  changes and standby cancellation. Audio dispatch is not audible completion.
+- Final compilation, firmware size, host contracts and physical checks are
+  pending authorization. Review compiled frames and device stack headroom after
+  the bounded Wi-Fi/status schema growth; no task stack was enlarged. The new
+  bitmap and three additional PCM clips add 130,432 source payload bytes before
+  descriptors/alignment; existing bitmap planes remain unchanged.
+
 ## Standby wake on the SD-equipped prototype
 
 - Observe touch and PWR wake, including a touch interrupt with rejected

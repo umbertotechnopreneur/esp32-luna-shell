@@ -35,7 +35,7 @@ CATALOG = {
         1: "sleep", 2: "fear", 3: "joy", 4: "hunger", 5: "thirst", 6: "heat", 7: "cold",
         8: "low_battery", 9: "charging", 10: "no_wifi", 11: "curiosity", 12: "confusion",
         13: "affection", 14: "frustration", 15: "wifi_connected", 16: "search",
-        17: "battery_ready", 18: "battery_low",
+        17: "battery_ready", 18: "battery_low", 19: "no_codex", 20: "codex_connected",
     },
 }
 

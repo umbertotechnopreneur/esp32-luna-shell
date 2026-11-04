@@ -82,6 +82,10 @@ LUNASHELL::DeviceStatusObservation measured_observation()
     observation.wifi.connected = true;
     observation.wifi.ip_acquired = true;
     observation.wifi.rssi = -51;
+    observation.wifi.connection_state_valid = true;
+    observation.wifi.rssi_valid = true;
+    observation.wifi.rssi_error = ESP_OK;
+    observation.wifi.rssi_sampled_at_us = 1000000;
     current(observation.ble);
     observation.ble.connected = true;
     return observation;
@@ -164,6 +168,34 @@ int check_status_overlay_contract()
     require(std::strcmp(overlay.time, "09:07") == 0 &&
         std::strcmp(overlay.date, "MON 05 OCT 2026") == 0,
         "local clock uses HH:MM while retaining the complete English date");
+    require(overlay.wifi_bars == 3 && overlay.wifi_tone == CODY::StatusTone::Ready,
+        "strong measured RSSI renders three arcs");
+    auto signal = observation;
+    CODY::StatusOverlay medium_signal;
+    signal.wifi.rssi = -65;
+    require(CODY::prepare_status_overlay(signal, medium_signal) == ESP_OK && medium_signal.wifi_bars == 2 &&
+        !CODY::status_overlay_equal(overlay, medium_signal), "medium RSSI changes the retired status presentation");
+    CODY::StatusOverlay weak_signal;
+    signal.wifi.rssi = -85;
+    require(CODY::prepare_status_overlay(signal, weak_signal) == ESP_OK && weak_signal.wifi_bars == 1 &&
+        weak_signal.wifi_tone == CODY::StatusTone::Warning, "weak RSSI renders one warning arc");
+    CODY::StatusOverlay offline;
+    signal.wifi.connected = false;
+    signal.wifi.ip_acquired = false;
+    signal.wifi.last_error = ESP_FAIL;
+    signal.wifi.data_valid = false;
+    require(CODY::prepare_status_overlay(signal, offline) == ESP_OK && offline.wifi_bars == 0 &&
+        offline.wifi_tone == CODY::StatusTone::Missing, "confirmed offline remains red despite reconnect error");
+    render(offline, 0, 255);
+    compact_tile_parity(offline, render(offline, 0, 128));
+    signal = observation;
+    signal.wifi.rssi_valid = false;
+    CODY::StatusOverlay unknown_signal;
+    require(CODY::prepare_status_overlay(signal, unknown_signal) == ESP_OK && unknown_signal.wifi_bars == 0,
+        "missing signal measurement never fabricates full bars");
+    require(render(overlay, 0, 255) != render(medium_signal, 0, 255) &&
+        render(medium_signal, 0, 255) != render(weak_signal, 0, 255),
+        "three measured levels have distinct actual rasters");
     observation.clock.local_second = 59;
     CODY::StatusOverlay second_changed;
     require(CODY::prepare_status_overlay(observation, second_changed) == ESP_OK &&

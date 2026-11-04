@@ -229,6 +229,8 @@ struct VoiceSnapshot : ComponentSnapshot {
 };
 
 struct WifiSnapshot : ComponentSnapshot {
+    // Connectivity is an event-owned fact even when a reconnect operation fails.
+    bool connection_state_valid = false;
     bool started = false;
     bool credentials_configured = false;
     bool connect_requested = false;
@@ -237,6 +239,10 @@ struct WifiSnapshot : ComponentSnapshot {
     bool reconnect_pending = false;
     int8_t rssi = 0;
     uint8_t channel = 0;
+    bool rssi_valid = false;
+    esp_err_t rssi_error = ESP_ERR_INVALID_STATE;
+    int64_t rssi_sampled_at_us = 0;
+
     uint16_t last_disconnect_reason = 0;
     uint32_t event_sequence = 0;
     uint32_t connect_attempt_count = 0;
@@ -978,6 +984,8 @@ struct DeviceStatusObservation {
     ClockSnapshot clock;
     WifiSnapshot wifi;
     BleSnapshot ble;
+    ComponentSnapshot codex_link;
+    CodexLinkState codex_link_state = CodexLinkState::Idle;
 };
 
 // One coherent projection for the native diagnostics HUD, without spectra or routes.
@@ -1233,7 +1241,9 @@ public:
     // operation: Actual admitted write or its terminal result, including the original error.
     // Exception: Returns publication/ordering errors; the write result remains in operation.error.
     esp_err_t reportCharacterLookSave(const CharacterLookSaveSnapshot &operation);
-    void reportWifi(const WifiSnapshot &wifi);
+    // wifi: Original owner-produced connectivity and signal observation.
+    // Exception: Returns the original canonical publication error.
+    esp_err_t reportWifi(const WifiSnapshot &wifi);
     // provisioning: Coherent lifecycle observation published by its sole owner.
     void reportProvisioning(const ProvisioningSnapshot &provisioning);
     // pairing: Coherent async controller observation, without any secret payload.

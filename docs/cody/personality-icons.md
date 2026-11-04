@@ -6,13 +6,13 @@ companion view and permits symbols and carezze. Explicit onboarding/greeting
 routes, settings, QR, boot and small-header scenes disable the channel.
 Scene permission is independent of `CodySize`: the ten
 stable size identities and scalable masters remain available, while Micro still
-suppresses symbols. All skins use the same fourteen fixed-palette masters.
+suppresses symbols. All skins use the same fifteen fixed-palette masters.
 
 ## Selection and ownership
 
 `set_personality_cue()` selects a narrative target. `set_personality_device_cue()`
-selects None, LowBattery, Charging, NoWifi, WifiConnected, BatteryReady or
-BatteryLow. Repeating the same request does not
+selects None, LowBattery, Charging, NoWifi, WifiConnected, NoCodex,
+CodexConnected, BatteryReady or BatteryLow. Repeating the same request does not
 restart its fade, stability period or hold. Only the latest desired identity is
 retained; there is no queue of previous requests and no per-symbol animation task.
 
@@ -27,8 +27,11 @@ cues use one coherent `DeviceSnapshotService` projection for both the desired
 and current channel identities, including a just-started, zero-opacity fade.
 The component must be Ready, valid, fresh, error-free and timestamped. LowBattery
 requires a measured percentage at or below the 20-percent threshold;
-Charging follows the actual charging state; NoWifi requires a started/configured
-radio with no connected link. Stale or disproven facts immediately invalidate
+Charging follows the actual charging state; NoWifi requires an owner-validated
+disconnected Wi-Fi/IP state. Connectivity validity is independent of a failed
+reconnect operation; the original operation error remains published. NoCodex
+requires a current unavailable PC link while Wi-Fi is online. CodexConnected
+uses the existing Joy artwork with a distinct stable identity and sound. Stale or disproven facts immediately invalidate
 their current symbol, so artistic hold never preserves a false device status.
 Canonical read/contract failures retain their real errors.
 
@@ -40,9 +43,9 @@ battery data skips this prelude. No USB connection is inferred from absence.
 Backend processing continues; route changes or unavailable layout cancel the
 prelude. Its timer starts only after a visible frame retires.
 
-Four native compile-time 64 x 64 alpha planes complement the fourteen bitmap
-masters: WifiConnected, Search, BatteryReady and BatteryLow. These new cues are
-silent; Search animates eight small lens poses without per-frame trigonometry or
+Four native compile-time 64 x 64 alpha planes complement the fifteen bitmap
+masters: WifiConnected, Search, BatteryReady and BatteryLow. WifiConnected has
+a dedicated sound; the other three remain silent. Search animates eight small lens poses without per-frame trigonometry or
 a separate task. Runtime rendering and stack headroom remain unverified.
 
 The firmware admits short battery notices after ten uninterrupted seconds on
@@ -175,9 +178,9 @@ participate in dirty comparison; both old and new footprints are erased/redrawn.
 Rasterization multiplies stored alpha8 coverage by the channel's opacity with
 integer rounding and composites directly into the existing RGB565 tile.
 
-The fourteen logical 256 x 256 index/coverage pairs retain their complete
+The fifteen logical 256 x 256 index/coverage pairs retain their complete
 reference binaries and PNGs. Immutable flash storage uses the minimal rectangle
-containing every nonzero-alpha pixel: 1,475,720 bytes including the exact
+containing every nonzero-alpha pixel: 1,580,552 bytes including the exact
 512-byte RGB565 palette, before descriptors/alignment. Omitted pixels remain
 transparent in logical coordinates. Rendering reads the stored rectangle
 directly without decompression or allocation.
@@ -191,13 +194,22 @@ raster timing distinct while including it in total artwork time.
 
 ## Optional symbol sound
 
-Fourteen original analytically synthesized sounds accompany the cue identities.
+Seventeen original analytically synthesized sounds accompany the cue identities.
 The versioned WAV/PCM catalog, recipes and audition reel live in
 `assets/cody/personality-icons/audio/`. Clips are mono PCM16 at 16 kHz, 170-300 ms,
-with -18 dBFS authored peaks. Native sample payload is 103,360 bytes before
+with -18 dBFS authored peaks. Native sample payload is 128,960 bytes before
 descriptors/code. The listening reel and WAV wrappers are not firmware inputs.
 
-Only a newly visible symbol in a successfully retired frame requests playback.
+Four dedicated connectivity sounds describe Wi-Fi online/offline and Codex PC
+online/offline. Real observed edges, including first observed connection/absence,
+request them after a completed active character frame. Returning icons and
+repeated observations stay silent. Wi-Fi loss suppresses the dependent PC-loss
+sound. Only the latest event per link can retry busy admission, for at most
+800 ms; hiding, standby or unavailable input cancels it. Existing volume, quiet,
+Sounds and audio-owner failure policies still apply. NoCodex is a generated
+terminal/monitor and disconnected-plug badge; it never uses Wi-Fi artwork.
+
+Other sounds require a newly visible symbol in a successfully retired frame.
 Evaluating a pose or failing a frame cannot trigger its sound. The existing
 platform audio owner handles codec access through a dormant 4-KiB worker stack,
 reusing its existing resampling scratch under the codec mutex. Render-side
