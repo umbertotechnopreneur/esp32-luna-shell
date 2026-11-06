@@ -497,6 +497,18 @@ class ActivityStore:
                      "followed": item.session_id == self._followed_session_id}
                     for item in self._sessions.values()]
 
+    # self: Genuine native hook owner; companion status never performs another journal read.
+    # Returns only bounded source identity, phase and original observation age.
+    def source_observation(self) -> dict[str, Any]:
+        with self._lock:
+            session = self._sessions.get(self._followed_session_id)
+            if session is None:
+                return {"identity": None, "phase": Phase.NONE.value, "age_ms": None}
+            age_ms = int((time.monotonic() - session.observed_at) * 1000)
+            return {"identity": hashlib.sha256(session.session_id.encode("ascii")).hexdigest()[:32],
+                    "phase": self._effective_phase(session).value,
+                    "age_ms": age_ms if 0 <= age_ms <= 0xffffffff else None}
+
     # session_id: Hook-observed chat identity; only the currently followed chat may report progress.
     # turn_id: Exact current hook turn identity, rejecting delayed and background reports.
     # description: Agent-authored actual purpose in bounded printable English ASCII, without commands or logs.

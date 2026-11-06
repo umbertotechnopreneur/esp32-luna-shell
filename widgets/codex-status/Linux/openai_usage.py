@@ -30,6 +30,7 @@ gi.require_version("Adw", "1")
 gi.require_version("Graphene", "1.0")
 from gi.repository import Adw, Gdk, GLib, Gtk, Pango, PangoCairo, Graphene, Gio
 from tray import StatusTray
+from cody_control import CodyControlWindow
 import cairo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,6 +40,9 @@ if not DEFAULT_BACKEND.is_file():
 BACKEND = Path(os.environ.get("OPENAI_USAGE_BACKEND", str(DEFAULT_BACKEND)))
 
 
+# command: One documented shared-backend operation, independent of any shell.
+# value: Optional JSON request, sent through stdin.
+# Raises RuntimeError for bounded transport or backend failures without retrying changes.
 def invoke(command="snapshot", value=None):
     if not BACKEND.is_file():
         raise RuntimeError("Shared backend is missing. Build Backend/OpenAIUsage.Backend.csproj or set OPENAI_USAGE_BACKEND.")
@@ -50,9 +54,14 @@ def invoke(command="snapshot", value=None):
     try:
         output, _ = process.communicate(json.dumps(value) if value is not None else "", timeout=45)
     except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
+        if command.startswith("cody-"):
+            # A timed-out control write may have reached the separate companion owner.
+            # Do not terminate that owner through the short-lived backend's process group.
+            process.kill()
+        else:
+            os.killpg(process.pid, signal.SIGKILL)
         process.communicate()
-        raise RuntimeError("Account reader timed out. Check Codex and your connection.") from None
+        raise RuntimeError("Backend request timed out. Refresh before repeating a change; its result is unconfirmed.") from None
     try:
         result = json.loads(output)
     except ValueError:
@@ -267,6 +276,8 @@ class FlipTile(Gtk.Box):
 
 
 class UsageWindow(Adw.ApplicationWindow):
+    # app: Native application owning account and companion utility windows.
+    # Raises native initialization errors; companion operations remain separately bounded.
     def __init__(self, app):
         super().__init__(application=app, title="OpenAI Usage", default_width=600, default_height=66,
                          icon_name="biz.umbertogiacobbi.OpenAIUsage")
@@ -278,6 +289,7 @@ class UsageWindow(Adw.ApplicationWindow):
         self.allow_close = False
         self.close_dialog = None
         self.tray = None
+        self.cody_window = None
         self.labels = {}
         self.add_css_class("micro")
         self.set_decorated(False)
@@ -325,6 +337,7 @@ class UsageWindow(Adw.ApplicationWindow):
         self.problem.set_visible(False)
         actions.append(self.problem)
         for icon,title,callback in [("emblem-system-symbolic","Settings",self.show_settings),
+                                    ("computer-symbolic","Cody companion",self.show_cody),
                                     ("help-about-symbolic","About OpenAI Usage",self.show_about),
                                     ("window-close-symbolic","Close",self.close)]:
             button=Gtk.Button(icon_name=icon,tooltip_text=title)
@@ -342,6 +355,7 @@ class UsageWindow(Adw.ApplicationWindow):
         log_event("window.compact","Compact-only native widget; no full-mode or caption sizing controls.")
         try:
             self.tray=StatusTray({"open":self.present,"about":self.show_about,"settings":self.show_settings,
+                                 "cody":self.show_cody,
                                  "website":lambda:Gio.AppInfo.launch_default_for_uri("https://umbertogiacobbi.biz",None),
                                  "manifesto":lambda:Gio.AppInfo.launch_default_for_uri("https://umbertogiacobbi.biz/vibeware/manifesto",None),
                                  "exit":self.exit_application})
@@ -453,6 +467,14 @@ class UsageWindow(Adw.ApplicationWindow):
             GLib.idle_add(done)
         threading.Thread(target=worker, daemon=True).start()
 
+    # arguments: Native button/menu signal metadata.
+    # No exceptions: Service errors are presented by the independent companion panel.
+    def show_cody(self, *arguments):
+        self.present()
+        if self.cody_window is None or self.cody_window.closed:
+            self.cody_window = CodyControlWindow(self, invoke, self.refresh)
+        self.cody_window.present()
+
     def show_settings(self, *_):
         self.present()
         dialog = Gtk.Window(title="Settings", transient_for=self, modal=True, default_width=460, icon_name="biz.umbertogiacobbi.OpenAIUsage")
@@ -525,7 +547,9 @@ class UsageWindow(Adw.ApplicationWindow):
         self.allow_close = True
         self.close()
 
-    def on_close(self, *_):
+    # arguments: Native close callback metadata.
+    # No exceptions: Closing the widget also closes its owned companion control panel.
+    def on_close(self, *arguments):
         if not self.allow_close:
             if self.close_dialog is not None:
                 return True
@@ -549,6 +573,8 @@ class UsageWindow(Adw.ApplicationWindow):
             dialog.present()
             return True
         self.closed = True
+        if self.cody_window is not None and not self.cody_window.closed:
+            self.cody_window.close()
         if self.tray:
             self.tray.close()
         GLib.source_remove(self.clock_id)

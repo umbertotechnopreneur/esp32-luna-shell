@@ -23,12 +23,17 @@ public sealed class WidgetSettings
     public string TimeZoneId { get; set; } = TimeZoneInfo.Local.Id;
     public bool ReduceMotion { get; set; }
     public bool AlwaysOnTop { get; set; }
+    public CodyBridgeSettings CodyBridge { get; set; } = new();
+    // No parameters: validates stored account and companion configuration without contacting either service.
+    // Exception: Throws ArgumentException or time-zone exceptions for invalid persisted values.
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(CodexPath)) throw new ArgumentException("Choose a Codex executable.");
         if (CreditUnitPrice is < 0) throw new ArgumentException("Purchase price cannot be negative.");
         if (Currency.Length != 3 || !Currency.All(char.IsAsciiLetter)) throw new ArgumentException("Use a three-letter currency code.");
         _ = TimeZoneInfo.FindSystemTimeZoneById(TimeZoneId);
+        if (CodyBridge is null) throw new ArgumentException("Cody companion settings are invalid.");
+        CodyBridge.Validate();
     }
 }
 

@@ -14,15 +14,19 @@
 #
 # VBWR E
 
-"""Windows credential and per-user storage boundary; no plaintext substitute."""
+"""Windows DPAPI and Linux Secret Service boundary; no plaintext substitute."""
 from __future__ import annotations
 
 import base64
 import errno
 import ctypes
 from ctypes import wintypes
+from functools import lru_cache
 import os
 from pathlib import Path
+import re
+import secrets
+import shutil
 from typing import Any
 import socket
 import subprocess
@@ -31,19 +35,54 @@ import sys
 CONTROL_PORT = 42119
 
 
-# listener: Windows socket whose port must have one exclusive runtime owner.
-# Raises OSError when Winsock cannot apply exclusive ownership.
+# listener: Socket whose port must have one exclusive runtime owner.
+# Raises OSError when the operating system cannot apply exclusive ownership.
 def configure_exclusive_socket(listener: socket.socket) -> None:
-    listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    if os.name == "nt":
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    else:
+        # Linux exclusive bind is the default; never enable SO_REUSEPORT or SO_REUSEADDR.
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
 
 
 # No parameters: uses the established per-user CCP storage owner.
-# Raises RuntimeError when Windows local application storage is unavailable.
+# Raises RuntimeError when supported per-user storage is unavailable or unsafe.
 def runtime_directory() -> Path:
-    location = os.environ.get("LOCALAPPDATA")
-    if not location:
-        raise RuntimeError("CCP requires LOCALAPPDATA for protected runtime state")
-    return Path(location) / "CodyCodexPlugin"
+    if os.name == "nt":
+        location = os.environ.get("LOCALAPPDATA")
+        if not location:
+            raise RuntimeError("CCP requires LOCALAPPDATA for protected runtime state")
+        return Path(location) / "CodyCodexPlugin"
+    if not sys.platform.startswith("linux"):
+        raise RuntimeError("CCP supports Windows and Linux")
+    base = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state")))
+    if not base.is_absolute():
+        raise RuntimeError("CCP XDG_STATE_HOME must be absolute")
+    directory = base / "cody-companion"
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    metadata = directory.stat()
+    if directory.is_symlink() or metadata.st_uid != os.getuid() or metadata.st_mode & 0o077:
+        raise RuntimeError("CCP Linux state directory must be owned by this user with mode 0700")
+    return directory
+
+
+# arguments: Fixed libsecret CLI operation and non-secret item attributes.
+# secret: Optional secret bytes passed through stdin only, never arguments or logs.
+# Raises RuntimeError for absent, locked, unavailable or failed Secret Service access.
+def secret_service(arguments: list[str], secret: bytes | None = None) -> bytes:
+    executable = shutil.which("secret-tool")
+    if executable is None:
+        raise RuntimeError("CCP requires libsecret secret-tool and an unlocked Secret Service on Linux")
+    try:
+        result = subprocess.run([executable, *arguments], input=secret, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, timeout=8.0, check=False)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("CCP Secret Service timed out; unlock the user keyring explicitly") from error
+    if result.returncode != 0:
+        raise RuntimeError(f"CCP Secret Service operation failed with status {result.returncode}")
+    if len(result.stdout) > 4096:
+        raise RuntimeError("CCP Secret Service returned an oversized value")
+    return result.stdout
 
 
 class DataBlob(ctypes.Structure):
@@ -91,10 +130,19 @@ def release_windows_buffer(kernel32: Any, pointer: Any, label: str) -> None:
         raise RuntimeError(f"Windows DPAPI {label} release failed: {ctypes.get_last_error()}")
 
 
-# value: Secret bytes protected for the current Windows user.
-# description: Non-secret label shown only by Windows credential diagnostics.
-# Raises RuntimeError when DPAPI cannot protect or release the value.
+# value: Secret bytes protected by the current user's native credential service.
+# description: Non-secret label shown only by the credential manager.
+# Raises RuntimeError when the service cannot protect or release the value.
 def protect_secret(value: bytes, description: str) -> str:
+    if len(value) != 32:
+        raise RuntimeError("CCP credentials must contain exactly 32 bytes")
+    if os.name != "nt":
+        if not sys.platform.startswith("linux"):
+            raise RuntimeError("CCP credential protection supports Windows and Linux")
+        identity = secrets.token_hex(16)
+        secret_service(["store", "--label=" + description, "application", "cody-companion",
+                        "credential", identity], base64.b64encode(value))
+        return "secret-service:v1:" + identity
     source_buffer = ctypes.create_string_buffer(value)
     source = DataBlob(len(value), ctypes.cast(source_buffer, ctypes.POINTER(ctypes.c_ubyte)))
     protected = DataBlob()
@@ -110,9 +158,25 @@ def protect_secret(value: bytes, description: str) -> str:
         release_windows_buffer(kernel32, protected.pbData, "protected buffer")
 
 
-# encoded: Base64 DPAPI blob previously created for the current Windows user.
-# Raises RuntimeError when the blob is malformed, belongs to another user, or cannot be released.
+# encoded: Existing DPAPI blob or Secret Service item reference for this user.
+# A bounded process-only cache avoids spawning a keyring lookup on every UDP heartbeat.
+# Raises RuntimeError when the credential is malformed, inaccessible or cannot be released.
+@lru_cache(maxsize=260)
 def unprotect_secret(encoded: str) -> bytes:
+    if os.name != "nt":
+        if not sys.platform.startswith("linux") or re.fullmatch(r"secret-service:v1:[0-9a-f]{32}", encoded) is None:
+            raise RuntimeError("CCP credential does not identify a supported Linux Secret Service item")
+        payload = secret_service(["lookup", "application", "cody-companion", "credential", encoded.rsplit(":", 1)[1]])
+        # Accept the CLI's optional one-line terminator; all other bytes remain strictly validated.
+        if payload.endswith(b"\n"):
+            payload = payload[:-1]
+        try:
+            value = base64.b64decode(payload, validate=True)
+        except ValueError as error:
+            raise RuntimeError("CCP Secret Service item is malformed") from error
+        if len(value) != 32:
+            raise RuntimeError("CCP Secret Service item has an invalid length")
+        return value
     try:
         payload = base64.b64decode(encoded, validate=True)
     except (ValueError, TypeError) as error:
@@ -163,14 +227,17 @@ def control_port_available() -> bool:
 # server_script: Canonical installed broker entrypoint, never user command text.
 # Raises OSError or RuntimeError for unsupported platform, log ownership or launch failure.
 def launch_runtime(server_script: Path) -> None:
-    if os.name != "nt":
-        raise RuntimeError("CCP requires Windows for its hidden protected runtime")
     log_directory = runtime_directory() / "artifacts" / "logs"
     log_directory.mkdir(parents=True, exist_ok=True)
     with (log_directory / "runtime.log").open("ab", buffering=0) as output:
+        options: dict[str, Any] = {}
+        if os.name == "nt":
+            options["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
+        elif not sys.platform.startswith("linux"):
+            raise RuntimeError("CCP runtime supports Windows and Linux")
+        # The widget's existing guardian retains process ownership on both platforms.
         subprocess.Popen(
             [sys.executable, "-B", str(server_script), "--broker"],
             stdin=subprocess.DEVNULL, stdout=output, stderr=output,
-            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
-            close_fds=True,
+            close_fds=True, **options,
         )

@@ -14,7 +14,7 @@
 #
 # VBWR E
 
-"""One Windows CCP owner shared by MCP transports and trusted, metadata-only hooks."""
+"""One Windows/Linux CCP owner shared by native MCP and the explicit companion bridge."""
 
 from __future__ import annotations
 
@@ -35,6 +35,8 @@ from ccp_pricing import PriceCache
 from ccp_activity import EVENTS
 from ccp_repository import read_branch
 from ccp_security import RejectionReporter, configure_runtime_logging
+from ccp_presence import AppState
+from ccp_source import current_source
 from ccp_windows import (CONTROL_PORT, configure_exclusive_socket, control_port_available,
                          launch_runtime, runtime_directory)
 
@@ -53,7 +55,7 @@ class BrokerTransportError(RuntimeError):
 # create: Only the process owning the exclusive control listener may create a missing key.
 # Raises OSError or RuntimeError for every read, protection or atomic-write failure.
 def control_secret(create: bool = False) -> str:
-    path = runtime_directory() / "control-key.dpapi"
+    path = runtime_directory() / ("control-key.dpapi" if os.name == "nt" else "control-key.credential")
     try:
         protected = path.read_text(encoding="ascii")
     except FileNotFoundError:
@@ -104,8 +106,6 @@ def exchange(operation: str, payload: dict[str, Any], secret: str, timeout: floa
 # No parameters: starts a hidden owner only if the loopback control port is unoccupied.
 # Raises OSError or RuntimeError for identity, launch, conflicting-version or startup failure.
 def ensure_runtime() -> str:
-    if os.name != "nt":
-        raise RuntimeError("CCP requires Windows for its protected local runtime")
     if control_port_available():
         # The child re-acquires the exclusive bind before reading any state. If
         # another launcher wins this race, both clients authenticate that owner.
@@ -307,6 +307,22 @@ def dispatch(server: ControlServer, operation: str, payload: dict[str, Any]) -> 
     server.service.responder.require_running()
     if operation == "health":
         return {"version": ccp.SERVER_VERSION}
+    if operation in {"bridge/status", "bridge/start", "bridge/stop"} and payload:
+        raise ValueError("This companion control operation requires an empty object")
+    if operation == "bridge/start":
+        with server.lease_lock:
+            server.persistent = True
+        return bridge_status(server)
+    if operation == "bridge/stop":
+        with server.lease_lock:
+            if server.service.responder.app_presence.snapshot().state == AppState.OPEN:
+                raise ValueError("Close the active native MCP clients before stopping their shared CCP owner")
+            server.stopping = True
+        return {"status": "stopping"}
+    if operation == "bridge/status":
+        return bridge_status(server)
+    if operation.startswith("device/"):
+        return device_control(server, operation, payload)
     if operation in {"lease", "release"}:
         identity = payload.get("id")
         allowed_fields = ({"id"},) if operation == "lease" else ({"id"}, {"id", "normal"})
@@ -360,11 +376,9 @@ def dispatch(server: ControlServer, operation: str, payload: dict[str, Any]) -> 
     raise ValueError("Unknown CCP local operation")
 
 
-# No parameters: serves until no MCP lease or hook remains within the shutdown grace.
+# No parameters: serves until shutdown or idle grace without an explicit companion lifetime.
 # Raises OSError or RuntimeError for ownership, persistence or responder failures.
 def run_broker() -> int:
-    if os.name != "nt":
-        raise RuntimeError("CCP requires Windows for its protected local runtime")
     with ControlServer(("127.0.0.1", CONTROL_PORT), ControlHandler) as server:
         # Only the exclusive runtime owner may rotate the shared broker diagnostic files.
         configure_runtime_logging(runtime_directory())
@@ -376,6 +390,8 @@ def run_broker() -> int:
         server.tool_lock = threading.Lock()
         server.last_hook = time.monotonic()
         server.last_transport_activity = server.last_hook
+        server.persistent = False
+        server.stopping = False
         server.timeout = 1.0
         try:
             # Pricing is optional metadata. Its real error remains in PriceCache and the log;
@@ -392,7 +408,7 @@ def run_broker() -> int:
                 server.service.responder.publish_app_presence()
                 with server.lease_lock:
                     latest = max(server.last_hook, server.last_transport_activity)
-                    if time.monotonic() - latest > IDLE_GRACE_SECONDS:
+                    if server.stopping or (not server.persistent and time.monotonic() - latest > IDLE_GRACE_SECONDS):
                         break
         finally:
             try:
@@ -400,6 +416,81 @@ def run_broker() -> int:
             finally:
                 pricing.close()
     return 0
+
+
+# server: Authenticated exclusive owner; widget presence never becomes a native MCP lease.
+def bridge_status(server: ControlServer) -> dict[str, Any]:
+    activity = server.service.activity
+    presence = server.service.responder.app_presence
+    pc_id = server.service.state.pc_id
+    devices = [{**record, "simulated": record["source"] == "SIMULATED",
+                "provider_source": current_source(activity, presence, pc_id,
+                    record["connected"] and record["retained_pairing"] and not record["pairing_pending"])}
+               for record in server.service.state.public_status()]
+    return {"bridge": {"running": True, "version": ccp.SERVER_VERSION, "persistent": server.persistent},
+            "source": current_source(activity, presence, pc_id), "devices": devices}
+
+
+# server: Single device/pairing owner retaining original ACK and ambiguity semantics.
+# operation: Fixed public local companion operation; arbitrary MCP passthrough is forbidden.
+# payload: Explicit target and settings forwarded to the existing validated owner.
+# Raises ValueError, RuntimeError or OSError for rejected or failed operations.
+def device_control(server: ControlServer, operation: str, payload: dict[str, Any]) -> Any:
+    tools = {"device/discover": "ccp_discover_devices", "device/pair": "ccp_pair_device",
+             "device/read-name": "ccp_read_name", "device/set-name": "ccp_set_name",
+             "device/read-clock": "ccp_read_clock", "device/configure-clock": "ccp_configure_clock",
+             "device/normal": "ccp_debug_screen"}
+    name = tools.get(operation)
+    if name is None:
+        raise ValueError("Unknown companion device operation")
+    arguments = dict(payload)
+    if operation == "device/normal":
+        if set(arguments) != {"device_id"}:
+            raise ValueError("Normal display requires only the explicit device identity")
+        arguments["mode"] = "normal"
+    if arguments.get("include_simulator") is True:
+        raise ValueError("Companion control panel supports physical devices only")
+    if operation in {"device/discover", "device/pair"}:
+        with server.tool_lock:
+            result = ccp.call_tool(server.service, name, arguments)
+    else:
+        result = ccp.call_tool(server.service, name, arguments)
+    if result.get("isError"):
+        return {"operation": operation, "result": result.get("structuredContent"), "isError": True}
+    return result.get("structuredContent", result)
+
+
+# operation: Fixed documented local operation chosen by the control-panel user.
+# Reads at most one bounded JSON object from stdin; secrets never appear in argv.
+# Returns one JSON envelope and a nonzero exit code for every rejected/failed operation.
+def run_control(operation: str) -> int:
+    try:
+        raw = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1)
+        if len(raw) > MAX_REQUEST_BYTES:
+            raise ValueError("Companion control input exceeds its bound")
+        payload = json.loads(raw or b"{}", object_pairs_hook=ccp.unique_state_object)
+        if not isinstance(payload, dict):
+            raise ValueError("Companion control input must be an object")
+        allowed = {"bridge/status", "bridge/start", "bridge/stop",
+                   "device/discover", "device/pair", "device/read-name", "device/set-name",
+                   "device/read-clock", "device/configure-clock", "device/normal"}
+        if operation not in allowed:
+            raise ValueError("Unknown companion control operation")
+        if operation == "bridge/status" and control_port_available():
+            if payload:
+                raise ValueError("Read-only companion status requires an empty object")
+            result = {
+                "bridge": {"running": False, "version": ccp.SERVER_VERSION, "persistent": False},
+                "source": {"provider": "local", "identity": "-", "state": "unavailable", "age_ms": None,
+                           "label": "Cody", "detail": "Bridge stopped"}, "devices": []}
+        else:
+            secret = ensure_runtime() if operation == "bridge/start" else control_secret()
+            result = exchange(operation, payload, secret, timeout=20.0)
+        sys.stdout.write(json.dumps({"result": result}, separators=(",", ":")) + "\n")
+        return 0
+    except (OSError, RuntimeError, ValueError, KeyError, TypeError) as failure:
+        sys.stdout.write(json.dumps({"error": {"code": type(failure).__name__, "message": str(failure)}}, separators=(",", ":")) + "\n")
+        return 1
 
 
 QUESTION_ROUTING_CONTEXT = (

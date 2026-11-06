@@ -1,5 +1,18 @@
 # Active work
 
+## Companion source selection, typography and desktop controls
+
+- Review the Codex and local companion states and native proportional
+  Home typography on the round display at all rotations. Exercise source changes,
+  pending questions, finite footer pause/resume, local touch and offline startup.
+- Validate Windows and Linux widget controls against the shared CCP broker,
+  including explicit pairing, source age, protected credentials, process lifetime
+  and rejected or unconfirmed settings writes. No macOS implementation is claimed.
+- The 1.75C source tables assign the upper 16 MiB to files/resources, preserving
+  OTA. The owner selected a clean layout without old-filesystem compatibility;
+  later installation needs the new table and filesystem initialization. No device
+  repartitioning or formatting has occurred.
+
 ## HARDWARE-PORT-01 - Waveshare 1.43C
 
 - Integrate the single-factory-slot 8 MB layout in the board selector and

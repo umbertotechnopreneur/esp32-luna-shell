@@ -159,7 +159,7 @@ audio availability or erases a pairing. The bounded canonical firmware owner is
 [`CodexAppPresenceSnapshot`](../../../components/LUNASHELL_platform/include/LUNASHELL_codex_presence.hpp),
 appended as `CodexLinkSnapshot.app_presence`.
 
-Plugin 0.6.9 includes this EOF contract and the complete approval-title body.
+The current plugin includes this EOF contract and the complete approval-title body.
 New clients send local `release` with `id` and explicit boolean `normal`.
 An already-loaded client's earlier `release` containing only `id` retires that
 lease as abnormal and logs the missing EOF evidence; it can never establish

@@ -1,13 +1,13 @@
 # CCP - Cody's Codex Plugin
 
-**CCP** connects Cody to Codex over the local LAN. The Windows Python service
+**CCP** connects Cody to Codex over the local LAN. The Windows/Linux Python service
 uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
 for pairing; public Internet availability is a separate condition.
 
-CCP 0.6.9 adds complete originating-chat approval titles and the redesigned PC
-notice to semantic question routing and other-chat reply notices to followed-chat token metadata and the optional one-way audio channel with native readiness,
-recording correlation and explicit uncertain-delivery handling. Source changes
-do not activate it.
+CCP **0.6.11** provides one local owner for Codex and the Windows/Linux companion
+control panel. Codex activity and semantic questions retain their own identities.
+The panel reads genuine native MCP presence and original activity freshness.
+These changes are source-only; installation and device validation are pending.
 Its signed READY handshake retains the 0.6.4 endpoint-binding contract. Signed READY binds a fresh
 broker challenge to the observed device endpoint. Cody validates the endpoint
 and returns matching COMMITTED before the broker admits presence, events or
@@ -21,6 +21,52 @@ directory or arguments. A real MCP transport renews its own ten-second lease.
 Without it, a broker started by a hook exits after 60 seconds without another
 hook; a running Codex window alone is not that transport. Inspect the native
 resolved MCP configuration and startup result when diagnosing idle disconnects.
+The companion panel can explicitly retain the same owner while the widget is
+open or in its tray, including with Codex closed. That lifetime request is not
+an MCP lease and cannot establish Codex presence. The existing widget guardian
+remains responsible for its child processes; no OS startup service is installed.
+
+## Local companion control
+
+The native Windows/Linux panel calls `mcp/ccp_server.py --control <operation>`
+with a bounded JSON object on stdin. Output is one `{ "result": ... }` or
+`{ "error": { "code": ..., "message": ... } }` envelope. Secrets are never
+command-line arguments or returned by status reads.
+
+| Operation | Purpose |
+| --- | --- |
+| `bridge/status` | Read actual owner, authenticated devices and per-device provider state without starting it |
+| `bridge/start` / `bridge/stop` | Explicitly retain or stop the owner; stop rejects while a native MCP client is live |
+| `device/discover` / `device/pair` | Use existing discovery and the physical display's six-character code |
+| `device/read-name` / `device/set-name` | Read or change the actual preferred name through the existing ACK flow |
+| `device/read-clock` / `device/configure-clock` | Read or change supported timezone and quiet hours |
+| `device/normal` | Restore the retained route through the existing authenticated display control |
+
+`bridge/status` returns `bridge`, global `source`, and `devices`. Each device
+also carries `provider_source`; source identity is `codex` or `local`. A genuine
+open native MCP transport selects Codex even without an active chat. Activity
+freshness remains independent; stale work becomes unavailable. Device status
+additionally requires a retained authenticated connection without pending pairing.
+A disconnected device reports unavailable instead of claiming what its physical
+display currently shows. Polling and widget lifetime cannot create native presence.
+
+Without Codex, the device keeps its local companion mode. The computer-side
+control panel still needs the PC running. Existing name and clock operations use
+the original authenticated acknowledgement flow; an applied ACK confirms settings
+handling, not physical rendering.
+
+Windows retains per-user DPAPI. Linux uses `secret-tool` and an unlocked Secret
+Service, with private state under `$XDG_STATE_HOME/cody-companion` or
+`~/.local/state/cody-companion`. Missing/locked keyrings fail explicitly; there is
+no plaintext credential fallback. Automatic host timezone adoption remains
+Windows-specific; Linux users can select a supported zone explicitly. Optional
+audio uses the existing `cryptography` dependency; absence remains an explicit
+operation failure.
+
+Before introducing any new downloaded dependency archive or extracted package,
+perform one targeted on-demand Windows Defender scan of that first import and
+wait for a clean completion. Reuse the result only for unchanged staged inputs.
+Do not retain scan reports or claim that existing imports were scanned here.
 
 App presence now has an independent authenticated APPCAP/APPSTATE extension.
 An actual MCP transport starts **Open**; normal EOF of the last live transport
@@ -38,7 +84,7 @@ does not imply Codex is Open. The read-only connection-status result exposes
 `app_presence.source=mcp_transport`, source age and any original publication
 failure. Source changes require a coordinated future plugin/firmware update;
 they do not install or activate it. See the [presence wire contract](protocol/CCP1.md#authenticated-codex-client-presence).
-Version 0.6.9 includes the earlier EOF reporting update. An already-loaded
+The current version includes explicit normal-EOF reporting. An already-loaded
 client's id-only release is explicitly treated as abnormal, with no Closed
 claim. A real Codex reopen that starts the updated broker/client loads the new
 EOF reporting; changing files on disk does not hot-reload a running broker.
@@ -253,7 +299,8 @@ record. A new PC candidate remains explicitly pending; proof from an old key
 cannot silently delete it. A persisted candidate may resume confirmation after
 restart, and storage errors remain visible.
 
-Windows user DPAPI protects `%LOCALAPPDATA%\CodyCodexPlugin\state.json`.
+Windows user DPAPI protects keys referenced by `%LOCALAPPDATA%\CodyCodexPlugin\state.json`;
+Linux stores protected Secret Service references in the corresponding private state.
 Before PAIR, CCP persists a separate candidate in `pending-pairings.json` and
 replaces the active record only after authenticated ACTIVE or COMMITTED.
 After Cancel/Forget, replacing a remaining PC candidate requires a new visible
@@ -288,7 +335,9 @@ One hidden broker serves the PC's chats. MCP clients renew independent leases;
 closing one chat does not stop the others. Transport retries wait 1, 3, 10 and
 at most 30 s, retaining errors until authenticated recovery. Ambiguous tool/pairing
 results are not retried automatically. Identity/version mismatch requires explicit
-action. The broker exits after 60 s without leases or hooks.
+action. The broker exits after 60 s without leases or hooks unless the companion
+panel has explicitly retained its lifetime. A bridge lifetime never changes the
+native transport's Open/Closed/Unavailable evidence.
 
 ## Tools and result meaning
 

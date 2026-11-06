@@ -1,18 +1,22 @@
 # OpenAI Usage
 
-Standalone Codex account-usage widget in `widgets/codex-status` within the
+Codex account-usage widget and Cody companion control panel in `widgets/codex-status` within the
 ESP32 Luna Shell / Cody Companion repository. The application keeps its
 **OpenAI Usage** name, executable identities and private settings locations.
-It runs independently of the firmware and Cody plugin; no physical device is
-required.
+Account metrics work independently of the firmware and Cody plugin; no physical
+device is required for them. The separate companion panel controls an existing
+CCP service and explicitly selected physical Cody devices.
 
 Two native desktop clients share the same backend:
 
 - **Windows:** C# / WinUI 3, a single compact desktop-acrylic strip and optional always-on-top.
 - **Linux:** Python / GTK 4 / libadwaita, one compact native window surface. Follows the GNOME 50 design, with compatible theme colors for libadwaita 1.5+ on Ubuntu 24.04 and newer.
-- **Shared:** C# / .NET 10 account reader and analytics. Both clients use the same calculations and settings schema.
+- **Shared:** C# / .NET 10 account reader, analytics and bounded companion control client. Both clients use the same calculations and settings schema.
 
-The UI is compact-only: allowance percentage, today's tokens, remaining credits and a four-unit mechanical countdown. There is no full dashboard, mode switch, minimize button or maximize button. Preferences and About open in separate native windows. Windows Preferences is titled **OpenAI Usage · Preferences** and presents its form directly on a flat acrylic surface. Its owned window stays above the widget and is hidden from the taskbar and Alt+Tab. Both clients follow the system theme; Windows uses a transparent XAML surface over native desktop acrylic with a system-policy fallback, while GTK uses its native opaque background.
+The supported source targets are Windows and Linux. There is no macOS client or
+macOS runtime claim.
+
+The account UI is compact-only: allowance percentage, today's tokens, remaining credits and a four-unit mechanical countdown. There is no full account dashboard, mode switch, minimize button or maximize button. Preferences, About and Cody companion controls open in separate native windows. Windows Preferences is titled **OpenAI Usage · Preferences** and presents its form directly on a flat acrylic surface. Its owned window stays above the widget and is hidden from the taskbar and Alt+Tab. Both clients follow the system theme; Windows uses a transparent XAML surface over native desktop acrylic with a system-policy fallback, while GTK uses its native opaque background.
 
 The shared generated icon is used by the executable, window/header, About, Start/app-menu entries and packages. Metrics use monospace typography. Text gradients use the system accent and adjust their lightness to the system theme: native WinUI gradient brushes on Windows and native Pango/Cairo snapshots on GTK. Toolbar controls show only their icons at rest.
 
@@ -33,10 +37,59 @@ Token quantities use decimal prefixes **K, M, G, T, P, E** (powers of 1,000). Th
 ## Tray and compact widget
 
 - The close button asks whether to exit, minimize to the notification area or cancel. Polling and memory protection continue while hidden.
-- Left-click the tray icon to reopen. Right-click offers Open, About, Settings, the owner's website, the VibeWare manifesto and Exit. Website actions open the browser only when explicitly clicked.
+- Left-click the tray icon to reopen. Right-click offers Open, About, Settings, Cody companion, the owner's website, the VibeWare manifesto and Exit. Website actions open the browser only when explicitly clicked.
 - The widget opens directly as a compact horizontal strip with visible metric labels and inline actions. Drag the logo, values, countdown or empty data area to move it; buttons remain interactive. Windows uses native caption regions that follow layout and DPI. GTK uses a compositor move gesture that excludes buttons. There is no larger layout to switch to.
 - Windows uses a native Shell notification icon and menu; no Windows Forms or browser UI is added. Toolbar glyphs retain theme-aware foregrounds even when pressed/selected. The taskbar/shortcut use an explicit app identity.
 - Ubuntu uses the native StatusNotifierItem/DBusMenu protocol. The desktop must provide a compatible tray host (as supplied by Ubuntu's indicator integration). If absent, the app leaves its window accessible and disables the hide-to-tray option. No desktop extension is installed automatically. Native GNOME tray execution is not verified in this environment.
+
+## Cody companion control
+
+Open **Cody companion** from the toolbar or tray menu. In **Companion service
+setup**, choose an existing Python executable and the full path to the matching
+CCP `mcp/ccp_server.py`, then save. The widget does not install Python, the plugin,
+its optional dependencies, firmware or an operating-system service.
+
+The shared client invokes the documented `--control` entrypoint with bounded
+JSON on stdin. The existing CCP owner retains pairing, credential protection,
+authenticated device transport and acknowledgement handling. The widget does
+not implement another CCP socket or inspect credentials. See the
+[CCP service](../../plugins/cody-codex-plugin/README.md) and
+[protocol](../../plugins/cody-codex-plugin/protocol/CCP1.md).
+
+**Start companion** keeps that owner available without a live Codex Desktop
+client. Keep the widget running or hidden to tray for this LAN bridge: exiting
+the widget can terminate the child owner through the existing watchdog. There
+is no autostart, service installation, process breakaway or watchdog exemption.
+**Stop companion** refuses to stop an owner still serving live native MCP
+clients. Opening or refreshing this panel never establishes a native Codex
+presence lease.
+
+The service shows **Codex** while a native MCP client is open, even without an
+active chat. A selected Cody also needs its own authenticated link to show that
+source. When Codex is unavailable, Cody works as a local companion. The panel
+preserves observation ages and reports missing, stale or failed evidence.
+Account usage comes from its own source and stays separate from device status.
+
+The panel polls service status every five seconds while open and exposes these
+explicit actions:
+
+- Find physical pairing offers and pair using the current six-character code
+  on the intended device. No simulator or implicit pairing replacement is used.
+- Select a retained physical identity, read its preferred name and clock
+  preferences, and apply edits through the existing authenticated controls.
+  Names accept up to 24 printable ASCII characters. Supported time zones are
+  `UTC`, `Europe/Rome` and `Asia/Ho_Chi_Minh`.
+- Change quiet hours after reading the selected device's existing preferences,
+  or return its display to the retained normal screen. No reset or erase action
+  is exposed.
+
+An applied acknowledgement confirms the device worker's result. Rejected and
+unconfirmed results retain their errors. Read status or preferences before
+repeating an ambiguous change.
+
+The current companion controls and Windows/Linux transport integration require
+authorized build and runtime validation for native layout, pairing and
+transitions between Codex and the local companion.
 
 ## Installers
 
@@ -45,7 +98,7 @@ Installer targets for **0.4.1**, generated on demand from the current source. Th
 - `artifacts/installers/OpenAIUsage-0.4.1-windows-x64.msi`: per-user Windows x64 installation under `%LOCALAPPDATA%/Programs/OpenAI Usage`, Start menu shortcut and standard Windows uninstall/upgrade support. Includes .NET and Windows App SDK runtime files. No background service or autostart entry.
 - `artifacts/installers/openai-usage_0.4.1-1_amd64.deb`: Ubuntu amd64 package with a self-contained Linux .NET backend, launcher and desktop entry. GTK/Python/system-library prerequisites are declared as APT dependencies. Targets Ubuntu 24.04+; runtime execution on Ubuntu is not verified here.
 
-Both require a separately installed Codex CLI and your own ChatGPT sign-in. The installers contain no credentials and do not install or sign in to Codex. Local packages are unsigned. Package validation, Windows installation/startup and native GTK runtime validation are separate checks; report their results in the current task rather than retaining a historical report.
+Account metrics require a separately installed Codex CLI and your own ChatGPT sign-in. Companion controls instead require the configured existing Python/CCP launcher and can be opened when account metrics are unavailable. The installers contain no credentials and do not install or sign in to Codex. Local packages are unsigned. Package validation, Windows installation/startup and native GTK runtime validation are separate checks; report their results in the current task rather than retaining a historical report.
 
 ```sh
 sudo apt install ./openai-usage_0.4.1-1_amd64.deb
@@ -55,7 +108,7 @@ On Windows, open the MSI to install, then launch **OpenAI Usage** from Start. Us
 
 ## Real data
 
-The widget starts a private stdio `codex app-server`, initializes it and issues only account reads using the existing Codex ChatGPT sign-in. It does not read credential files, invoke models, start agent turns, send messages, redeem resets or purchase credits.
+The account reader starts a private stdio `codex app-server`, initializes it and issues only account reads using the existing Codex ChatGPT sign-in. It does not read credential files, invoke models, start agent turns, send messages, redeem resets or purchase credits. Its short-lived process is separate from the companion owner and never supplies Cody's source status.
 
 | Shared data | Source and behavior |
 | --- | --- |
@@ -81,7 +134,7 @@ Source-built Debug output, available only before cleanup:
 & 'E:\ESP32 Luna Shell\widgets\codex-status\artifacts\windows-x64\OpenAIUsage.Windows.exe'
 ```
 
-Requires Windows x64, .NET 10 runtime and an installed Codex CLI signed in with ChatGPT. Windows App SDK components are included. Keep the output folder intact; this is an unpackaged app, not an installer. Run `codex login` yourself when needed, or set the native Codex executable path in Settings.
+Requires Windows x64 and .NET 10 runtime; account metrics additionally require an installed Codex CLI signed in with ChatGPT. Windows App SDK components are included. Keep the output folder intact; this is an unpackaged app, not an installer. Run `codex login` yourself when needed, or set the native Codex executable path in Settings. Companion controls use their separately configured Python/CCP launcher.
 
 Settings include Codex path, optional credit purchase price/currency, reporting timezone and reduced motion. The pin button controls always-on-top. System animation preferences are respected; there is no mechanical sound.
 
@@ -138,7 +191,7 @@ No build/release history or antivirus evidence files are retained. The dependenc
 
 - Windows: `%LOCALAPPDATA%/OpenAIUsage`.
 - Linux: `$XDG_STATE_HOME/openai-usage`, otherwise `~/.local/state/openai-usage`.
-- Settings and up to 16 days of quota observations stay outside the repository. Account identities are hashed. Emails, credentials and conversation contents are not persisted by the widget. Remote token buckets stay in memory.
+- Settings, companion launcher paths and up to 16 days of quota observations stay outside the repository. Account identities are hashed. Emails, credentials and conversation contents are not persisted by the widget. Remote token buckets and observed companion status stay in memory.
 - A locked or corrupt history file is reported as unavailable rather than silently overwritten or treated as zero usage.
 - Windows records unexpected application exceptions in a local `startup-error.log` for troubleshooting. It is not uploaded or placed in the repository.
 
@@ -156,3 +209,32 @@ Before first introducing an external library or prebuilt binary, run one explici
 - [Adwaita appearance and system preferences](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/styles-and-appearance.html)
 
 Mockups and ImageGen prompts are design source assets. Their numbers are illustrative, not account telemetry.
+
+## This is VibeWare · [Manifesto](https://umbertogiacobbi.biz/vibeware/manifesto?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=widget-readme-manifesto)
+
+OpenAI Usage is part of ESP32 Luna Shell / Cody Companion, which participates
+in the **VibeWare initiative**: an open movement for developers who build useful
+software with AI under human direction. VibeWare describes participation; it is
+not the project's author or publisher.
+
+I am [Umberto Giacobbi](https://umbertogiacobbi.biz/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=widget-readme-author).
+I guide this project's development and remain responsible for checking the
+result. The project keeps its own identity, license and release status.
+Read the manifesto above to learn what VibeWare means and why I started it.
+
+[ESP32 Luna Shell on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) ·
+[VibeWare on GitHub](https://github.com/umbertotechnopreneur/VibeWare) ·
+[umbertogiacobbi.biz](https://umbertogiacobbi.biz/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=widget-readme-website)
+
+Explore, adapt and reuse the materials under their applicable licenses;
+root and third-party license boundaries remain separate.
+
+[Terms](https://umbertogiacobbi.biz/terms/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=widget-readme-terms) ·
+[Privacy](https://umbertogiacobbi.biz/privacy/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=widget-readme-privacy)
+
+<p align="right">
+  <a href="https://umbertogiacobbi.biz/vibeware/manifesto?utm_source=github&amp;utm_medium=referral&amp;utm_campaign=esp32-luna-shell&amp;utm_content=widget-readme-logo">
+    <img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="160">
+  </a><br>
+  <em>Human Intent, AI Execution, Plenty of Token</em>
+</p>

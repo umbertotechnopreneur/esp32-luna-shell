@@ -55,7 +55,7 @@ MAX_ACTIVITY_DATAGRAM_BYTES = 2048
 MAX_TECHNICAL_DATAGRAM_BYTES = 1024
 TECHNICAL_FIELDS = technical_metadata.FIELDS
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.10"
+SERVER_VERSION = "0.6.11"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CHALLENGE_TIMEOUT_SECONDS = 2.0
 MAX_DISCOVERY_OFFERS = 16
@@ -537,10 +537,8 @@ class StateStore:
 def open_companion_listener() -> socket.socket:
     listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-            # One PC identity has one liveness owner. Ambiguous same-host CCP
-            # processes must fail visibly instead of sharing the fixed port.
-            configure_exclusive_socket(listener)
+        # One PC identity has one liveness owner on both supported platforms.
+        configure_exclusive_socket(listener)
         listener.bind(("", PLUGIN_PORT))
         listener.settimeout(0.25)
     except BaseException:
@@ -1149,8 +1147,6 @@ class CcpService:
     # pricing: Optional portable catalog owned and started by the exclusive runtime broker.
     # Raises RuntimeError or OSError when state or the fixed UDP listener is unavailable.
     def __init__(self, pricing: PriceCache | None = None) -> None:
-        if os.name != "nt":
-            raise RuntimeError("CCP requires Windows for protected pairing persistence")
         # Acquire ownership first: a second process must fail without creating,
         # reading or overwriting the first process's PC identity and records.
         listener = open_companion_listener()
@@ -1966,10 +1962,13 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--stdio", action="store_true", help="run the MCP STDIO transport")
     mode.add_argument("--broker", action="store_true", help="own the local CCP runtime")
     mode.add_argument("--hook", action="store_true", help="ingest one trusted Codex hook from stdin")
+    mode.add_argument("--control", metavar="OPERATION", help="run one bounded local companion control operation")
     arguments = parser.parse_args(argv)
     if arguments.stdio:
         return run_stdio()
-    from ccp_runtime import run_broker, run_hook
+    from ccp_runtime import run_broker, run_hook, run_control
+    if arguments.control:
+        return run_control(arguments.control)
     return run_broker() if arguments.broker else run_hook()
 
 

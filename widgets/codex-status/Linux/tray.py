@@ -66,8 +66,9 @@ class StatusTray:
         return GLib.Variant(signature, value)
 
     @staticmethod
+    # No parameters: return the native menu's stable command identities.
     def items():
-        return {1: "Open", 3: "About OpenAI Usage", 4: "Settings", 5: "Website", 6: "VibeWare manifesto", 7: "Exit"}
+        return {1: "Open", 3: "About OpenAI Usage", 4: "Settings", 8: "Cody companion", 5: "Website", 6: "VibeWare manifesto", 7: "Exit"}
 
     @property
     def available(self):
@@ -78,8 +79,9 @@ class StatusTray:
             return {"children-display": GLib.Variant("s", "submenu")}
         return {"label": GLib.Variant("s", self.items()[item]), "enabled": GLib.Variant("b", True), "visible": GLib.Variant("b", True)}
 
+    # item: Stable native menu identity selected by the user.
     def activate(self, item):
-        key = {1: "open", 3: "about", 4: "settings", 5: "website", 6: "manifesto", 7: "exit"}.get(item)
+        key = {1: "open", 3: "about", 4: "settings", 8: "cody", 5: "website", 6: "manifesto", 7: "exit"}.get(item)
         if key:
             GLib.idle_add(lambda: (self.callbacks[key](), False)[1])
 

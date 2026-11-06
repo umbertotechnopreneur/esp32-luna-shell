@@ -36,6 +36,8 @@ public sealed class MainWindow : Window
     private bool busy, closed, allowClose, closingPrompt;
     private DateTimeOffset lastResetRefresh=DateTimeOffset.MinValue;
 
+    // No parameters: construct the account strip and an independent companion control entrypoint.
+    // Exception: Propagates native window initialization failures to the application owner.
     public MainWindow()
     {
         try { settings=storage.LoadSettings(); }
@@ -74,6 +76,7 @@ public sealed class MainWindow : Window
         ToolTipService.SetToolTip(pin,"Always on top"); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(pin,"Always on top");
         pin.IsChecked=settings.AlwaysOnTop; pin.Click+=(_,_)=>{settings.AlwaysOnTop=pin.IsChecked==true;ApplyTopmost();SaveSettings();UpdatePinVisual();}; actions.Children.Add(pin);
         var preferences=Button("\uE713","Settings"); preferences.Click+=async(_,_)=>await ShowSettingsAsync(); actions.Children.Add(preferences);
+        var cody=Button("\uE950","Cody companion"); cody.Click+=async(_,_)=>await ShowCodyAsync(); actions.Children.Add(cody);
         var about=Button("\uE946","About OpenAI Usage"); about.Click+=async(_,_)=>await ShowAboutAsync(); actions.Children.Add(about);
         var close=Button("\uE8BB","Close"); close.Click+=(_,_)=>Close(); actions.Children.Add(close);
         Grid.SetColumn(actions,2); strip.Children.Add(actions);
@@ -87,7 +90,8 @@ public sealed class MainWindow : Window
             double dpi=root.XamlRoot.RasterizationScale; AppWindow.Resize(new((int)(604*dpi),(int)(66*dpi)));
             try { tray=new TrayIcon(Path.Combine(AppContext.BaseDirectory,"Branding","app-icon.ico"),ShowWindow,
                 ()=>{ShowWindow();_=ShowAboutAsync();},()=>{ShowWindow();_=ShowSettingsAsync();},
-                ()=>OpenLink("https://umbertogiacobbi.biz"),()=>OpenLink("https://umbertogiacobbi.biz/vibeware/manifesto"),ExitApplication);
+                ()=>OpenLink("https://umbertogiacobbi.biz"),()=>OpenLink("https://umbertogiacobbi.biz/vibeware/manifesto"),ExitApplication,
+                ()=>{ShowWindow();_=ShowCodyAsync();});
                 Diagnostics.Record("tray.ready","Native notification icon registered."); }
             catch(Exception error) { Diagnostics.Record("tray.unavailable",error.Message); }
             clock.Start(); refresh.Start(); await RefreshAsync();
@@ -268,6 +272,17 @@ public sealed class MainWindow : Window
     }
     private void SaveSettings(){try{storage.SaveSettings(settings);}catch(Exception error){Diagnostics.Record("settings.failed",error.Message);tray?.NotifyError("Could not save settings.");}}
 
+    // No parameters: open device controls without treating an account refresh as connection evidence.
+    // Exception: Propagates native dialog failures; the panel presents its own service errors.
+    private async Task ShowCodyAsync()
+    {
+        ShowWindow();
+        var panel = new CodyControlPanel(storage, settings, lifetime.Token);
+        await ShowDialogAsync("Cody companion", panel, width:600, height:760);
+    }
+
+    // No parameters: edit account preferences while preserving companion launcher configuration.
+    // Exception: Presents validation and persistence failures in the native form.
     private async Task ShowSettingsAsync()
     {
         ShowWindow();
@@ -279,12 +294,14 @@ public sealed class MainWindow : Window
         var content = new StackPanel { Spacing = 12, MinWidth = 380 }; content.Children.Add(executable); content.Children.Add(rate); content.Children.Add(currency); content.Children.Add(timezone); content.Children.Add(motion);
         content.Children.Add(Text("Uses your existing Codex ChatGPT sign-in. Credit value uses your purchase rate only; it is not an official price or cash balance.", 12));
         var error = Text("", 12); error.Foreground = new SolidColorBrush(Colors.Orange); content.Children.Add(error);
+        // No parameters: persist this form while retaining the separate companion configuration.
+        // No exceptions: Original persistence/validation errors stay visible in the form.
         bool Save()
         {
             try
             {
                 decimal? price = string.IsNullOrWhiteSpace(rate.Text) ? null : decimal.Parse(rate.Text, CultureInfo.InvariantCulture);
-                var next = new WidgetSettings { CodexPath = executable.Text.Trim(), CreditUnitPrice = price, Currency = currency.Text.Trim().ToUpperInvariant(), TimeZoneId = timezone.Text.Trim(), ReduceMotion = motion.IsChecked == true, AlwaysOnTop = settings.AlwaysOnTop, SelectedWindow = settings.SelectedWindow };
+                var next = new WidgetSettings { CodexPath = executable.Text.Trim(), CreditUnitPrice = price, Currency = currency.Text.Trim().ToUpperInvariant(), TimeZoneId = timezone.Text.Trim(), ReduceMotion = motion.IsChecked == true, AlwaysOnTop = settings.AlwaysOnTop, SelectedWindow = settings.SelectedWindow, CodyBridge = settings.CodyBridge };
                 storage.SaveSettings(next); settings = next;return true;
             }
             catch (Exception ex) { error.Text = ex.Message;return false; }
