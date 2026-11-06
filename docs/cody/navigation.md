@@ -93,9 +93,9 @@ and Deep-sleep reconstruct admission from saved data and current observations.
 | Wi-Fi/IP healthy and Online | Persist and read back `cody_firstboot=false` |
 | Completed handoff, Debug | 39 / Wi-Fi and BLE connection details. Tap to open Online. |
 | Completed handoff, Release | 09 / Online |
-| 09, Continue | 10 / Make it yours |
-| 10, Cody's Look | Skin 11 |
-| 11, Done | Return to Make it yours |
+| 09, Continue | 10 / Options |
+| 10, Cody's Look | 11 / Make it yours |
+| 11, Done | Return to Options |
 | 10, Done | First setup continues to Codex or Setup Complete |
 | 40, Yes with no pairing | 12 / code preparation |
 | 12, confirmed two-sided handshake | 13 / You're all set |
@@ -142,10 +142,10 @@ record is not remotely revoked by this local action.
 
 ## Options and Skin
 
-Options opens Make it yours with Cody's Look, Display and Behavior. Cody's Look
-opens the skin selector directly. Display groups Brightness, Auto-rotate and
+Options shows Cody's Look, Display and Behavior. Cody's Look opens the skin
+selector titled Make it yours. Display groups Brightness, Auto-rotate and
 Orientation. Behavior groups Shake to wake, Sounds and Usage. Back or Done
-returns from a category or Skin to Make it yours. Done there returns to Setup
+returns from a category or Skin to Options. Done there returns to Setup
 when opened from Setup.
 
 | Preference | Contract |

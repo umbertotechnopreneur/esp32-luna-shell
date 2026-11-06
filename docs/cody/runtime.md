@@ -499,11 +499,9 @@ long-compaction scenario exercises presentation, not actual hook reachability.
 
 ### Desk and Away
 
-The existing Make it yours screen includes a `Usage` row, toggling `Desk` and
-`Away` through the settings owner. Its five 34-pixel rows begin at y=190 with a
-38-pixel step; the last ends at y=376, before the compact footer at y=390. The
-40-pixel title begins at y=146 and ends before the controls. These rectangles
-remain inside the central square; the separate lateral Back target is intact.
+The Behavior screen under Options includes a `Usage` row, toggling `Desk` and
+`Away` through the settings owner. It shares the three-row Options layout
+described in [layout](layout.md#setup-qr-and-skin).
 
 `cody_usage` is a strict persisted uint32 boundary value (Desk=0, Away=1).
 Only an absent key receives a logged Desk default followed by exact readback.

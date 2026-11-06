@@ -1598,7 +1598,7 @@ esp_err_t prepare_options_content(SceneFrame &scene)
     s_view.preference_count = 0;
     const char *title = s_preference_error != ESP_OK ? "Save failed" :
         s_options_page == OptionsPage::Display ? "Display" :
-        s_options_page == OptionsPage::Behavior ? "Behavior" : "Make it yours";
+        s_options_page == OptionsPage::Behavior ? "Behavior" : "Options";
     const uint16_t title_length = static_cast<uint16_t>(std::strlen(title));
     esp_err_t error = ESP_OK;
     if (scene.title.text.length != title_length ||

@@ -550,7 +550,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Cody's look",
+        "text": "Make it yours",
         "top": 78,
         "color_rgb565": 65535,
         "character_interval_ms": 45,
@@ -688,7 +688,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Make it yours",
+        "text": "Options",
         "top": 146,
         "color_rgb565": 65535,
         "character_interval_ms": 45,
