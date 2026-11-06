@@ -1225,6 +1225,19 @@ function Initialize-WorkingDependencyLock(
     }
 }
 
+# LockPath: Canonical or resolved dependency lock to compare.
+# Throws if the file is unreadable or lacks exactly one valid resolver fingerprint.
+function Get-ComparableDependencyLock([string]$LockPath) {
+    $lockText = [IO.File]::ReadAllText($LockPath).Replace("`r`n", "`n")
+    $manifestHashLine = [regex]'(?m)^manifest_hash: [0-9a-f]{64}$'
+    if ($manifestHashLine.Matches($lockText).Count -ne 1) {
+        throw "Invalid manifest hash in dependency lock '$LockPath'."
+    }
+    # The resolver uses this fingerprint to detect manifest edits, even if the
+    # resolved graph is unchanged. Compare every other lock field verbatim.
+    return $manifestHashLine.Replace($lockText, 'manifest_hash:')
+}
+
 # RequestedBuildDir owns the selected working dependency closure.
 # Throws on missing, leaked or changed dependencies; never repairs a lock implicitly.
 function Assert-WorkingDependencyLock([string]$RequestedBuildDir) {
@@ -1241,18 +1254,9 @@ function Assert-WorkingDependencyLock([string]$RequestedBuildDir) {
         }
     }
     Assert-WakeWordDependencyLock -LockText (Get-Content -Raw -LiteralPath $workingLock) -Feature $Feature
-    $canonicalHash = (
-        Get-FileHash -LiteralPath $ProfileCanonicalDependencyLockPath `
-            -Algorithm SHA256
-    ).Hash
-    $workingHash = (
-        Get-FileHash -LiteralPath $workingLock -Algorithm SHA256
-    ).Hash
-    if (-not [string]::Equals(
-            $canonicalHash,
-            $workingHash,
-            [StringComparison]::OrdinalIgnoreCase
-        )) {
+    $canonicalGraph = Get-ComparableDependencyLock $ProfileCanonicalDependencyLockPath
+    $workingGraph = Get-ComparableDependencyLock $workingLock
+    if (-not [string]::Equals($canonicalGraph, $workingGraph, [StringComparison]::Ordinal)) {
         throw (
             "Resolved dependencies changed for profile $ProfileBuildKey. " +
             "Review and run '" +
