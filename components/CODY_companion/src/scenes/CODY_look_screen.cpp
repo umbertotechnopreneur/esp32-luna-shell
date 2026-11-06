@@ -49,7 +49,7 @@ constexpr uint16_t kLookScrollBarLeft = 343;
 constexpr uint16_t kLookScrollBarWidth = 4;
 constexpr uint16_t kLookDragThreshold = 5;
 constexpr size_t kLookItemCapacity = 8;
-constexpr CODY2D::Rect kDoneBounds{123, 390, 220, 44};
+constexpr CODY2D::Rect kDoneBounds{123, 386, 220, 48};
 
 struct LookItem {
     const char *id = nullptr;
@@ -462,16 +462,16 @@ esp_err_t attach_look_content(SceneFrame &scene, uint32_t control_revision)
     s_view.hint_visible_characters = prefixes.hint_characters;
     SceneContent content;
     content.bounds = {113, 226, 353, 386};
-    content.bottom_action_bounds = {123, 390, 343, 434};
+    content.bottom_action_bounds = {kDoneBounds.x, kDoneBounds.y,
+        static_cast<uint16_t>(kDoneBounds.x + kDoneBounds.width),
+        static_cast<uint16_t>(kDoneBounds.y + kDoneBounds.height)};
     content.state = &s_view;
     content.revision = ++s_revision;
     content.control_revision = control_revision;
     content.bottom_action_visible = true;
     content.visible_characters = prefixes.visible_characters;
     content.text_generation = s_view.text_generation;
-    content.control_bounds[1] = {kDoneBounds.x, kDoneBounds.y,
-        static_cast<uint16_t>(kDoneBounds.x + kDoneBounds.width),
-        static_cast<uint16_t>(kDoneBounds.y + kDoneBounds.height)};
+    content.control_bounds[1] = content.bottom_action_bounds;
     content.draw_rows = draw_content;
     return set_scene_content(scene, content);
 }
@@ -547,7 +547,7 @@ esp_err_t open_look_screen(SceneFrame &scene, const LookNavigationContext &navig
         return error;
     }
     static constexpr char done_label[] = "Done";
-    error = prepare_done_control(done_label, false);
+    error = prepare_done_control(done_label, true);
     if (error != ESP_OK) {
         return error;
     }

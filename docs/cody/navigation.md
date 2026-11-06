@@ -141,8 +141,10 @@ record is not remotely revoked by this local action.
 
 ## Options and Skin
 
-Options opens Make it yours. Done returns to Setup; Back from 10 returns to 41,
-and Back from 36 returns to 10. Visiting preferences does not commission radios.
+Options opens Make it yours. The first page shows Brightness, Auto-rotate and
+Orientation. More options opens Shake to wake, Sounds and Usage. Back returns
+through the pages to Setup. Next on the second page opens screen 36, whose
+Back action from Setup returns to the second page. Done in Skin returns to Setup.
 
 | Preference | Contract |
 | --- | --- |
@@ -161,7 +163,8 @@ late results cannot reopen retired navigation.
 
 Skin 11 has eight-row capacity, whole-row scrolling without inertia, and stable
 IDs for Pearl Mist, Aurora Veil, Cosmic Stardust, Enchanted Mosaic and Dreamwave.
-First setup requires an explicit choice, including selecting the shown default.
+Once the controls appear, Done confirms the displayed look. A new selection
+must finish saving before Done becomes available again.
 `DeviceSnapshot.character_look_save` publishes request identity, Saving/Saved/
 Failed, original error and timestamps. Coordinates are in [layout](layout.md).
 

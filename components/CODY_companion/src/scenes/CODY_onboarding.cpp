@@ -72,10 +72,11 @@ constexpr CODY2D::Rect kSingleActionBounds{113, 352, 240, 72};
 constexpr CODY2D::Rect kLeftCardBounds{73, 260, 154, 104};
 constexpr CODY2D::Rect kRightCardBounds{239, 260, 154, 104};
 constexpr CODY2D::Rect kOptionsBounds{153, 376, 160, 52};
-// The title ends at 186. Six 30-pixel rows end at 385, before the footer at 390.
-constexpr uint16_t kPreferenceTop = 190;
-constexpr uint16_t kPreferenceHeight = 30;
-constexpr uint16_t kPreferenceStep = 33;
+// Three rows fit between the title ending at 186 and the footer starting at 390.
+constexpr uint16_t kPreferenceTop = 194;
+constexpr uint16_t kPreferenceHeight = 50;
+constexpr uint16_t kPreferenceStep = 60;
+constexpr uint8_t kPreferencesPerPage = 3;
 constexpr uint16_t kEventCaptionWidth = 300;
 constexpr uint16_t kCaptionWidth = 232;
 // The invitation fits the 232-pixel body slot without implying a selected chat.
@@ -122,7 +123,7 @@ enum class CodexCleanup : uint8_t { None, Cancel, Forget };
 enum class OnboardingAction : uint8_t {
     None, ShowQr, PairCody, Cancel, Retry, Continue, Next, Done, LetsGo,
     AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later, Options, KeepPairing, ReplacePairing,
-    ForgetPairing, ConfirmForget, KeepSaved,
+    ForgetPairing, ConfirmForget, KeepSaved, MoreOptions,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
@@ -214,7 +215,7 @@ struct ContentView {
     CODY2D::CapsuleControl options{};
     OnboardingAction options_id = OnboardingAction::None;
     uint16_t options_visible_characters = 0;
-    PreferenceControl preferences[6]{};
+    PreferenceControl preferences[kPreferencesPerPage]{};
     uint8_t preference_count = 0;
     EventChoiceControl event_choices[3]{};
     uint8_t event_choice_count = 0;
@@ -255,6 +256,7 @@ LUNASHELL::CodexCompactionState s_presented_compaction = LUNASHELL::CodexCompact
 bool s_presented_compaction_feedback = false;
 Route s_route = Route::None;
 bool s_options_from_setup = false;
+bool s_options_second_page = false;
 esp_err_t s_preference_error = ESP_OK;
 PreferenceId s_requested_preference = PreferenceId::ShakeWake;
 uint32_t s_requested_preference_value = 0;
@@ -889,13 +891,20 @@ bool uses_footer_action()
         is_codex_event_route(s_route);
 }
 
-// No parameters: QR pages and dense options retain clearance above their compact action.
+// No parameters: QR and Options pages retain clearance above their compact action.
 CODY2D::Rect single_action_bounds()
 {
     return s_route == Route::Install06 || s_route == Route::Pairing07 ||
         s_route == Route::MakeItYours10 ||
         (s_route == Route::ConnectCodex12 && !s_codex_error_visible) ?
         kFooterBounds : kSingleActionBounds;
+}
+
+// No parameters: Options exposes Back to its first page or to its Setup caller.
+bool options_back_available()
+{
+    return (s_route == Route::MakeItYours10 && (s_options_second_page || s_options_from_setup)) ||
+        (s_route == Route::Settings36 && s_options_from_setup);
 }
 
 // action: Stable action identity; the returned English label has flash lifetime.
@@ -924,6 +933,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         break;
     case OnboardingAction::Next:
         label = "Next";
+        break;
+    case OnboardingAction::MoreOptions:
+        label = "More options";
         break;
     case OnboardingAction::Done:
         label = "Done";
@@ -1355,8 +1367,7 @@ esp_err_t attach_content(SceneFrame &scene)
             content.control_bounds[0] = {73, 260, 227, 364};
         }
         if (s_route == Route::SetupMenu || s_route == Route::CodexReplace || s_route == Route::CodexForget ||
-            (s_options_from_setup &&
-            (s_route == Route::MakeItYours10 || s_route == Route::Settings36))) {
+            options_back_available()) {
             content.control_bounds[0] = {10, 203, 70, 263};
         }
         content.control_bounds[1] = choice ? DamageRect{239, 260, 393, 364} : content.bottom_action_bounds;
@@ -1604,20 +1615,23 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         PreferenceId identity;
         const char *label;
     };
-    constexpr Row rows[] = {
-        {PreferenceId::ShakeWake, "Shake to wake"},
-        {PreferenceId::AutoRotate, "Auto-rotate"},
-        {PreferenceId::Sounds, "Sounds"},
-        {PreferenceId::Orientation, "Orientation"},
-        {PreferenceId::UsageMode, "Usage"},
-        {PreferenceId::Brightness, "Brightness"},
+    static constexpr Row pages[][kPreferencesPerPage] = {
+        {
+            {PreferenceId::Brightness, "Brightness"},
+            {PreferenceId::AutoRotate, "Auto-rotate"},
+            {PreferenceId::Orientation, "Orientation"},
+        },
+        {
+            {PreferenceId::ShakeWake, "Shake to wake"},
+            {PreferenceId::Sounds, "Sounds"},
+            {PreferenceId::UsageMode, "Usage"},
+        },
     };
-    static_assert(std::size(rows) <= std::size(s_view.preferences), "Options rows exceed their persistent control owner");
     const auto &font = SceneData::body_font;
     const auto &preferences = observation.preferences;
     const auto &orientation = observation.orientation;
     s_presented_options = observation;
-    for (const auto &row : rows) {
+    for (const auto &row : pages[s_options_second_page ? 1 : 0]) {
         auto &target = s_view.preferences[s_view.preference_count];
         target = {};
         target.identity = row.identity;
@@ -1700,7 +1714,8 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         }
         ++s_view.preference_count;
     }
-    return prepare_action(OnboardingAction::Next, !s_command_pending);
+    const auto next = s_options_second_page ? OnboardingAction::Next : OnboardingAction::MoreOptions;
+    return prepare_action(next, !s_command_pending);
 }
 
 // line: Fully wrapped shared-plan line, copied into presentation-owned storage before drawing.
@@ -1936,6 +1951,9 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     s_swipe_active = false;
     ++s_navigation_revision;
     ++s_text_generation;
+    if (route == Route::MakeItYours10 && s_route != Route::Settings36) {
+        s_options_second_page = false;
+    }
     s_route = route;
     if (route == Route::SetupMenu) {
         s_options_from_setup = false;
@@ -3303,6 +3321,7 @@ void reset_onboarding()
     set_companion_audio_visible(false);
     reset_event_presentation();
     s_options_from_setup = false;
+    s_options_second_page = false;
     s_preference_error = ESP_OK;
     s_setup_returns_to_companion = false;
     s_companion_seen_selection = false;
@@ -4159,7 +4178,7 @@ bool previous_navigation_available()
     }
     return s_route == Route::SetupMenu || s_route == Route::CodexReplace || s_route == Route::CodexForget ||
         s_route == Route::Install06 ||
-        (s_options_from_setup && (s_route == Route::MakeItYours10 || s_route == Route::Settings36)) ||
+        options_back_available() ||
         (s_view.action_visible && s_view.action_id == OnboardingAction::Cancel);
 }
 
@@ -4183,7 +4202,7 @@ bool previous_control_visible()
         return s_view.actions_visible && previous_navigation_available();
     }
     return s_route == Route::SetupMenu || s_route == Route::CodexReplace || s_route == Route::CodexForget ||
-        (s_options_from_setup && (s_route == Route::MakeItYours10 || s_route == Route::Settings36)) ||
+        options_back_available() ||
         (previous_navigation_available() && s_route != Route::Install06 && !uses_footer_action());
 }
 
@@ -4252,8 +4271,12 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     if (action_hit && s_route == Route::CodexForgotten) {
         return enter_route(Route::SetupMenu, scene);
     }
-    if (back_hit && s_options_from_setup && s_route == Route::MakeItYours10) {
-        s_options_from_setup = false;
+    if (back_hit && s_route == Route::MakeItYours10) {
+        if (s_options_second_page) {
+            s_options_second_page = false;
+            const esp_err_t error = prepare_options_content(scene);
+            return error == ESP_OK ? attach_content(scene) : error;
+        }
         return enter_route(Route::SetupMenu, scene);
     }
     if (back_hit && s_options_from_setup && s_route == Route::Settings36) {
@@ -4282,6 +4305,11 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
                 s_preference_error = ESP_OK;
                 error = prepare_options_content(scene);
             }
+            return error == ESP_OK ? attach_content(scene) : error;
+        }
+        if (s_view.action_id == OnboardingAction::MoreOptions) {
+            s_options_second_page = true;
+            const esp_err_t error = prepare_options_content(scene);
             return error == ESP_OK ? attach_content(scene) : error;
         }
         return enter_route(Route::Settings36, scene);
