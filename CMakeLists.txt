@@ -290,6 +290,15 @@ endif()
 # Keep the Brookesia C++ runtime compact under the firmware's -O2 build,
 # matching the upstream System Super example integration.
 idf_build_get_property(brookesia_build_components BUILD_COMPONENTS)
+if("espressif__esp-dsp" IN_LIST brookesia_build_components AND
+   IDF_TARGET STREQUAL "esp32s3" AND CMAKE_C_COMPILER_ID STREQUAL "GNU" AND
+   CMAKE_C_COMPILER_VERSION VERSION_EQUAL "15.2.0")
+    # Xtensa GCC 15.2.0 crashes in register allocation for this file at -O2.
+    idf_component_get_property(esp_dsp_library espressif__esp-dsp COMPONENT_LIB)
+    idf_component_get_property(esp_dsp_directory espressif__esp-dsp COMPONENT_DIR)
+    set_property(SOURCE "${esp_dsp_directory}/modules/conv/float/dspi_conv_f32_ansi.c"
+        TARGET_DIRECTORY ${esp_dsp_library} APPEND PROPERTY COMPILE_OPTIONS -O1)
+endif()
 if("espressif__qrcode" IN_LIST brookesia_build_components)
     # The encoder logs its entire input at INFO, including the session proof.
     idf_component_get_property(qrcode_library espressif__qrcode COMPONENT_LIB)
