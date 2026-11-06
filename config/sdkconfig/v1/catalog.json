@@ -358,6 +358,7 @@
         "espressif__esp_lcd_panel_io_additions",
         "espressif__network_provisioning",
         "esp_wifi",
+        "esp-tls",
         "bt",
         "esp_pm",
         "esp_driver_i2s",

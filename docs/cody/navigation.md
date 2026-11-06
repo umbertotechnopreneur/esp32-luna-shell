@@ -33,8 +33,10 @@ packet fields and budgets belong to [CCP1](../../plugins/cody-codex-plugin/proto
 Open the Device panel to read the IMU label. A short released tap advances one
 panel. Automatic rotation allows at least eight visible seconds per panel and
 extends Device and Chat until scrolling text can be read. Hidden views, standby
-and compaction pause rotation. A double tap starts voice input. A deliberate
-shake returns to Tokens, so running or jumping may also change the panel.
+and compaction pause rotation. A double tap on the character starts voice input
+after Cody verifies that it can reach OpenAI. An offline double tap leaves the
+current panel visible. A deliberate shake returns to Tokens, so running or
+jumping may also change the panel.
 
 Keep the device in the same position and orientation on your body for each trial.
 Observe sitting, standing, walking and jogging for 20-30 seconds each, allowing
@@ -120,9 +122,10 @@ sample. The opening contact must end before another action is admitted.
 Stable routes, Looking for PC and recoverable local CCP errors retain this entry;
 active provisioning/cleanup keeps ownership until confirmed closure.
 
-Setup places **Connect Codex** and **Network setup** side by side, with
-**Options** below. Network setup reopens 04-09. Back restores the calling route
-without restarting a valid discovery or connection.
+The Setup menu shows **Connect Codex** above **Set up Wi-Fi**. A link glyph and a
+Wi-Fi glyph mark their respective rows. **Options** sits below, and the menu has
+no heading. Set up Wi-Fi reopens 04-09. Back restores the calling route while
+preserving any valid discovery or connection.
 
 | Retained state/action | Behavior |
 | --- | --- |

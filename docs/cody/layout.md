@@ -21,23 +21,26 @@ Show it with a valid previous route. Retain the complete circular touch target
 and keep it separate from central content and primary/footer actions.
 The native style is subdued graphite with a light chevron.
 
-Actions use semantic colors and restrained gradients
-with text-only captions on every Cody button. Setup actions keep their rounded
-side-by-side cards or centered single capsule; captions are centered in the
-complete control. Back retains its separate chevron. Complete controls appear after the title and main body line, with
-touch admitted at the same time. Captions have no typewriter timing or character audio.
+Actions use semantic colors and restrained gradients. Standard buttons center a
+text-only caption in the complete control. On the Setup menu, Connect Codex and
+Set up Wi-Fi appear as two vertical rows with a link and Wi-Fi glyph on the left,
+respectively. The menu omits its heading and keeps Options below the two rows.
+Back retains its separate chevron. Complete controls appear after any title and
+main body line, with touch admitted at the same time. Captions have no typewriter
+timing or character audio.
 
 | Control | Logical rectangle |
 | --- | --- |
 | Two cards | (73,260,154,104) and (239,260,154,104), 28-pixel corners |
-| Third action / Options | (153,376,160,52) |
+| Third action for PC management | (153,376,160,52) |
+| Setup menu rows | (93,230,280,56) and (93,298,280,56), 16-pixel corners |
+| Setup menu Options | (153,382,160,52) |
 | Ordinary single action | (113,352,240,72) |
 | Compact QR/skin footer | (123,390,220,44) |
 | Numbered reply / pending-question rows | (73,256,320,60) and (73,328,320,60) |
 | Question-list hint | (99,394,268,25), separate from the wide content slot |
 
-The corresponding extreme squared distances are 42,500, 44,036 and 52,100,
-within radius squared 54,289. These are static calculations, not touch evidence.
+The outer corners of each control fit within the circular chord at its row.
 Coverage is clipped to the rounded control; complete hit bounds remain admitted.
 
 Reply rows contain one numbered line, with at most two visible rows. A vertical

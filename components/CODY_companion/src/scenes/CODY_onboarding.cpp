@@ -72,6 +72,9 @@ constexpr CODY2D::Rect kSingleActionBounds{113, 352, 240, 72};
 constexpr CODY2D::Rect kLeftCardBounds{73, 260, 154, 104};
 constexpr CODY2D::Rect kRightCardBounds{239, 260, 154, 104};
 constexpr CODY2D::Rect kOptionsBounds{153, 376, 160, 52};
+constexpr CODY2D::Rect kSetupCodexBounds{93, 230, 280, 56};
+constexpr CODY2D::Rect kSetupWifiBounds{93, 298, 280, 56};
+constexpr CODY2D::Rect kSetupOptionsBounds{153, 382, 160, 52};
 // Three rows fit between the title ending at 186 and the footer starting at 390.
 constexpr uint16_t kPreferenceTop = 194;
 constexpr uint16_t kPreferenceHeight = 50;
@@ -1009,7 +1012,7 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
 }
 
 // action: Typed semantic purpose, independent of caption and storage order.
-// control: Receives native dark gradients, border and text-only captions.
+// control: Receives native dark gradients, border and the default iconless style.
 void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
 {
     control.top_color = 0x1147;
@@ -1072,10 +1075,11 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
 // card: True for the two-column rounded card layout.
 // control: Receives the rounded gradient button and first caption line.
 // second: Receives a second line only for a two-word card caption.
+// icon: Optional left-aligned glyph for a one-line Setup row.
 // Exception: Returns the real caption layout failure.
 esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rect bounds,
                          bool enabled, bool card, CODY2D::CapsuleControl &control,
-                         CODY2D::TextLine &second)
+                         CODY2D::TextLine &second, CODY2D::ActionIcon icon = CODY2D::ActionIcon::None)
 {
     control = {bounds, {}, 0, 0, enabled};
     second = {};
@@ -1085,22 +1089,30 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
         control.icon = CODY2D::ActionIcon::None;
         return ESP_OK;
     }
+    const bool setup_row = icon != CODY2D::ActionIcon::None;
+    if (setup_row) {
+        control.corner_radius = 16;
+        control.icon = icon;
+        control.icon_center = {static_cast<int16_t>(bounds.x + 28U),
+            static_cast<int16_t>(bounds.y + bounds.height / 2U)};
+    }
     const auto &font = SceneData::body_font;
     const char *space = card ? std::strchr(label, ' ') : nullptr;
     if (space == label || (space != nullptr && space[1] == '\0')) {
         space = nullptr;
     }
     const uint16_t length = static_cast<uint16_t>(space != nullptr ? space - label : std::strlen(label));
-    const uint16_t text_width = bounds.width - 20U;
+    const uint16_t caption_inset = setup_row ? 56U : 10U;
+    const uint16_t reserved_width = caption_inset + 10U;
     const uint16_t width = (length - 1U) * font.advance + font.width;
-    if (length == 0 || width > text_width || font.height > bounds.height) {
+    if (length == 0 || width + reserved_width > bounds.width || font.height > bounds.height) {
         ESP_LOGE(kTag, "Action caption does not fit: %s (%s)", label, esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
     const uint16_t caption_height = space != nullptr ? font.height * 2U + 2U : font.height;
     if (caption_height > bounds.height) { return ESP_ERR_INVALID_SIZE; }
     const uint16_t top = bounds.y + (bounds.height - caption_height) / 2U;
-    const uint16_t caption_left = bounds.x + (bounds.width - width) / 2U;
+    const uint16_t caption_left = bounds.x + (setup_row ? caption_inset : (bounds.width - width) / 2U);
     esp_err_t error = CODY2D::prepare_text_line(font, {label, length},
         {static_cast<int16_t>(caption_left), static_cast<int16_t>(top)},
         0xFFFF, control.caption);
@@ -1137,7 +1149,11 @@ esp_err_t prepare_action(OnboardingAction action, bool enabled)
     }
     s_view.action_id = action;
     s_view.action_visible = action != OnboardingAction::None;
-    const bool card = s_route == Route::CodexChoice || s_route == Route::SetupMenu ||
+    if (s_route == Route::SetupMenu) {
+        return prepare_button(action, label, kSetupWifiBounds, enabled, false,
+            s_view.action, s_view.action_second_line, CODY2D::ActionIcon::Wifi);
+    }
+    const bool card = s_route == Route::CodexChoice ||
         s_route == Route::NetworkWait || s_route == Route::CodexReplace || s_route == Route::CodexForget;
     const auto bounds = card ? kRightCardBounds : uses_footer_action() ? single_action_bounds() :
         action == OnboardingAction::Cancel ? kBackBounds : kForwardBounds;
@@ -1160,6 +1176,10 @@ esp_err_t prepare_alternative(OnboardingAction action, bool enabled)
         return error;
     }
     s_view.alternative_id = action;
+    if (s_route == Route::SetupMenu) {
+        return prepare_button(action, label, kSetupCodexBounds, enabled, false,
+            s_view.alternative, s_view.alternative_second_line, CODY2D::ActionIcon::Link);
+    }
     return prepare_button(action, label, kLeftCardBounds, enabled, true,
         s_view.alternative, s_view.alternative_second_line);
 }
@@ -1366,7 +1386,14 @@ esp_err_t attach_content(SceneFrame &scene)
     capture_scene_activity_identity(scene,
         s_view.activity_identity.project_line.valid ? &s_view.activity_identity : nullptr,
         s_activity_identity_revision);
-    if (s_route == Route::SetupMenu || s_route == Route::CodexReplace) {
+    if (s_route == Route::SetupMenu) {
+        content.bounds = {kSetupCodexBounds.x, kSetupCodexBounds.y,
+            static_cast<uint16_t>(kSetupWifiBounds.x + kSetupWifiBounds.width),
+            static_cast<uint16_t>(kSetupWifiBounds.y + kSetupWifiBounds.height)};
+        content.bottom_action_bounds = {kSetupOptionsBounds.x, kSetupOptionsBounds.y,
+            static_cast<uint16_t>(kSetupOptionsBounds.x + kSetupOptionsBounds.width),
+            static_cast<uint16_t>(kSetupOptionsBounds.y + kSetupOptionsBounds.height)};
+    } else if (s_route == Route::CodexReplace) {
         content.bottom_action_bounds = {153, 376, 313, 428};
     } else if (s_route == Route::CodexForget) {
         // Narrative below the two cards uses its narrower circular chord.
@@ -1392,7 +1419,8 @@ esp_err_t attach_content(SceneFrame &scene)
             options_back_available()) {
             content.control_bounds[0] = {10, 203, 70, 263};
         }
-        content.control_bounds[1] = choice ? DamageRect{239, 260, 393, 364} : content.bottom_action_bounds;
+        content.control_bounds[1] = choice && s_route != Route::SetupMenu
+            ? DamageRect{239, 260, 393, 364} : content.bottom_action_bounds;
     } else {
         content.control_bounds[0] = {10, 203, 70, 263};
         content.control_bounds[1] = {396, 203, 456, 263};
@@ -2115,7 +2143,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         if (error == ESP_OK && route == Route::SetupMenu) {
             CODY2D::TextLine unused;
             s_view.options_id = OnboardingAction::Options;
-            error = prepare_button(OnboardingAction::Options, "Options", kOptionsBounds,
+            error = prepare_button(OnboardingAction::Options, "Options", kSetupOptionsBounds,
                 true, false, s_view.options, unused);
         }
     } else if (route == Route::ConnectCodex12) {
@@ -4752,11 +4780,11 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                 if (primary_hit) {
                     control = &s_view.action;
                     action = s_view.action_id;
-                    slot = "right";
+                    slot = "primary";
                 } else if (alternative_hit) {
                     control = &s_view.alternative;
                     action = s_view.alternative_id;
-                    slot = "left";
+                    slot = "alternative";
                 }
                 ESP_LOGI(kTag, "Setup capsule pressed: x=%d y=%d slot=%s", point.x, point.y,
                     slot);

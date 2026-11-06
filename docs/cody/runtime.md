@@ -699,7 +699,12 @@ The firmware uses an explicit voice-input event for **Sophia**
 and an acquired double tap on the visible character. A single character tap waits
 420 ms before changing the selected Home lower panel.
 Movement, stale/broken touch, rotation and explicit controls disqualify a double
-tap. The existing power owner handles standby wake; speech inference and enhanced
+tap. A double tap waits on Home for up to 3.5 seconds for a fresh, certificate-verified
+TLS connection from Cody to `api.openai.com:443`. Wi-Fi association and an IP
+address are prerequisites. This one-shot check runs off the display thread and
+sends no HTTP request, credentials or audio. Failure, expiry, a superseding
+touch, a deliberate shake or a route change leaves voice input unopened.
+The existing power owner handles standby wake; speech inference and enhanced
 mono PCM remain owned by the sole existing ESP-SR AFE.
 Preparing is admitted for wake-word, character double tap,
 and a completed physical standby wake from a short power press, touch or motion.

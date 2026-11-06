@@ -5,6 +5,10 @@
 - Review the Codex and local companion states and native proportional
   Home typography on the round display at all rotations. Exercise source changes,
   pending questions, finite footer pause/resume, local touch and offline startup.
+- Verify the two Setup rows, their left icons and the Options footer on the
+  display. Exercise double-tap voice admission with Wi-Fi down, with a LAN
+  connection and no Internet, and with OpenAI reachable. Check superseding
+  touches and route changes, and measure the one-shot TLS worker headroom.
 - Validate Windows and Linux widget controls against the shared CCP broker,
   including explicit pairing, source age, protected credentials, process lifetime
   and rejected or unconfirmed settings writes. No macOS implementation is claimed.

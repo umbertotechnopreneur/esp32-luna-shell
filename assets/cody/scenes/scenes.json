@@ -1175,7 +1175,7 @@
         "top": 210,
         "color_rgb565": 65535,
         "character_interval_ms": 45,
-        "visible": true
+        "visible": false
       },
       "navigation_visible": false,
       "readout_visible": true

@@ -108,7 +108,10 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD)
 endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT)
-    list(APPEND LUNASHELL_platform_srcs "src/audio/LUNASHELL_voice_input.cpp")
+    list(APPEND LUNASHELL_platform_srcs
+        "src/audio/LUNASHELL_voice_input.cpp"
+        "src/network/LUNASHELL_voice_connectivity.cpp"
+    )
     list(APPEND LUNASHELL_platform_requires mbedtls lwip)
 endif()
 
@@ -248,6 +251,9 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO)
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD)
     idf_component_optional_requires(PUBLIC esp-sr)
+endif()
+if(CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT)
+    idf_component_optional_requires(PRIVATE esp-tls)
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_IMU AND CONFIG_LUNASHELL_BUILD_IMU_DRIVER_QMI8658)
     idf_component_optional_requires(PUBLIC qmi8658)
