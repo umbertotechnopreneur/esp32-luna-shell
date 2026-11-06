@@ -31,6 +31,19 @@ Cody does more than sit there looking round:
 ESP-Brookesia and sharing the hardware layer. Both are works in progress.
 Cody already has opinions about your token budget; polishing the rest is my job.
 
+## Why I built Cody
+
+I wanted a little desk companion I could make my own. Much larger companies
+are exploring similar ideas. I built Cody so that the person who owns the
+device gets to decide what software it runs, what it connects to, and what
+else the hardware can be used for.
+
+When a single vendor controls the firmware and integrations, it can set the
+limits on what you do with hardware you already own. I keep Cody open source
+so those decisions stay with the people who use it. You can inspect and change
+the firmware and plugin, flash your own build onto the ESP32, adapt the
+integrations to your tools, or reuse the board for a project of your own.
+
 ## The little round thing
 
 The default target is the **Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS** with
