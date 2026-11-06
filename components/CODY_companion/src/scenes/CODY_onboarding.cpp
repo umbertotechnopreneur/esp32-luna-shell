@@ -123,10 +123,11 @@ enum class CodexCleanup : uint8_t { None, Cancel, Forget };
 enum class OnboardingAction : uint8_t {
     None, ShowQr, PairCody, Cancel, Retry, Continue, Next, Done, LetsGo,
     AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later, Options, KeepPairing, ReplacePairing,
-    ForgetPairing, ConfirmForget, KeepSaved, MoreOptions,
+    ForgetPairing, ConfirmForget, KeepSaved, CodyLook, DisplayOptions, BehaviorOptions,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
+enum class OptionsPage : uint8_t { Menu, Display, Behavior };
 
 struct ScreenInactivityPolicy {
     Route route;
@@ -180,6 +181,7 @@ struct Result {
     char codex_code[7]{};
 };
 struct PreferenceControl {
+    OnboardingAction action = OnboardingAction::None;
     PreferenceId identity = PreferenceId::ShakeWake;
     CODY2D::CapsuleControl control{};
     CODY2D::TextLine value{};
@@ -256,7 +258,7 @@ LUNASHELL::CodexCompactionState s_presented_compaction = LUNASHELL::CodexCompact
 bool s_presented_compaction_feedback = false;
 Route s_route = Route::None;
 bool s_options_from_setup = false;
-bool s_options_second_page = false;
+OptionsPage s_options_page = OptionsPage::Menu;
 esp_err_t s_preference_error = ESP_OK;
 PreferenceId s_requested_preference = PreferenceId::ShakeWake;
 uint32_t s_requested_preference_value = 0;
@@ -342,7 +344,8 @@ esp_err_t s_visible_error = ESP_OK;
 Work s_failed_work = Work::Start;
 bool s_local_failure = false;
 bool s_swipe_active = false;
-bool s_event_touch_moved = false;
+bool s_swipe_moved = false;
+bool s_options_tap_admitted = false;
 CODY2D::Point s_swipe_start{};
 CODY2D::Point s_swipe_last{};
 Route s_swipe_route = Route::None;
@@ -737,6 +740,8 @@ esp_err_t enqueue(Work work, uint32_t attempt, uint32_t session = 0)
 // Exception: Returns mailbox admission failure without starting a write.
 esp_err_t enqueue_preference(PreferenceId preference, uint32_t value)
 {
+    s_requested_preference = preference;
+    s_requested_preference_value = value;
     if (s_worker == nullptr || s_work_busy.load(std::memory_order_acquire)) {
         ESP_LOGE(kTag, "Preference mailbox unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
@@ -746,8 +751,6 @@ esp_err_t enqueue_preference(PreferenceId preference, uint32_t value)
     s_command.generation = s_generation;
     s_command.preference = preference;
     s_command.preference_value = value;
-    s_requested_preference = preference;
-    s_requested_preference_value = value;
     s_command_pending = true;
     ++s_navigation_revision;
     s_work_busy.store(true, std::memory_order_release);
@@ -884,7 +887,7 @@ bool uses_footer_action()
 {
     return s_route == Route::Invitation05 || s_route == Route::Install06 ||
         s_route == Route::Pairing07 || s_route == Route::Failed08 || s_route == Route::Online09 ||
-        s_route == Route::MakeItYours10 || s_route == Route::Settings36 ||
+        s_route == Route::MakeItYours10 ||
         s_route == Route::ConnectCodex12 || s_route == Route::SetupComplete13 ||
         s_route == Route::CodexChoice || s_route == Route::SetupMenu || s_route == Route::NetworkWait ||
         s_route == Route::CodexReplace || s_route == Route::CodexForget || s_route == Route::CodexForgotten ||
@@ -900,11 +903,10 @@ CODY2D::Rect single_action_bounds()
         kFooterBounds : kSingleActionBounds;
 }
 
-// No parameters: Options exposes Back to its first page or to its Setup caller.
+// No parameters: Back returns from a category to Options, or from Options to Setup.
 bool options_back_available()
 {
-    return (s_route == Route::MakeItYours10 && (s_options_second_page || s_options_from_setup)) ||
-        (s_route == Route::Settings36 && s_options_from_setup);
+    return s_route == Route::MakeItYours10 && (s_options_page != OptionsPage::Menu || s_options_from_setup);
 }
 
 // action: Stable action identity; the returned English label has flash lifetime.
@@ -934,8 +936,14 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
     case OnboardingAction::Next:
         label = "Next";
         break;
-    case OnboardingAction::MoreOptions:
-        label = "More options";
+    case OnboardingAction::CodyLook:
+        label = "Cody's Look";
+        break;
+    case OnboardingAction::DisplayOptions:
+        label = "Display";
+        break;
+    case OnboardingAction::BehaviorOptions:
+        label = "Behavior";
         break;
     case OnboardingAction::Done:
         label = "Done";
@@ -1241,7 +1249,7 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
     for (uint8_t index = 0; error == ESP_OK && view.actions_visible && index < view.preference_count; ++index) {
         const auto &preference = view.preferences[index];
         error = CODY2D::draw_capsule_rows(preference.control, strip, first_row, first_column);
-        if (error == ESP_OK) {
+        if (error == ESP_OK && preference.value.valid) {
             error = CODY2D::draw_text_rows(preference.value, preference.value.text.length,
                 strip, first_row, first_column);
         }
@@ -1327,7 +1335,7 @@ esp_err_t attach_content(SceneFrame &scene)
     // Button captions never contribute to typewriter cadence or its audio counts.
     const bool choice = s_view.alternative_id != OnboardingAction::None;
     const uint16_t top = s_route == Route::DebugText ? 130 :
-        s_route == Route::MakeItYours10 ? kPreferenceTop : s_route == Route::Settings36 ? 204 :
+        s_route == Route::MakeItYours10 ? kPreferenceTop :
         s_route == Route::Install06 ? kInstallQrBounds.y :
         s_route == Route::Pairing07 ? kSessionCaptionTop :
         s_route == Route::Invitation05 ? 230 : 300;
@@ -1588,7 +1596,9 @@ esp_err_t prepare_options_content(SceneFrame &scene)
 {
     s_view.line_count = 0;
     s_view.preference_count = 0;
-    const char *title = s_preference_error == ESP_OK ? "Make it yours" : "Save failed";
+    const char *title = s_preference_error != ESP_OK ? "Save failed" :
+        s_options_page == OptionsPage::Display ? "Display" :
+        s_options_page == OptionsPage::Behavior ? "Behavior" : "Make it yours";
     const uint16_t title_length = static_cast<uint16_t>(std::strlen(title));
     esp_err_t error = ESP_OK;
     if (scene.title.text.length != title_length ||
@@ -1605,6 +1615,30 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         error = prepare_caption(s_view.error_text, 260, s_view.lines[0]);
         s_view.line_count = 1;
         return error == ESP_OK ? prepare_action(OnboardingAction::Retry, !s_command_pending) : error;
+    }
+    if (s_options_page == OptionsPage::Menu) {
+        constexpr OnboardingAction actions[] = {
+            OnboardingAction::CodyLook, OnboardingAction::DisplayOptions, OnboardingAction::BehaviorOptions,
+        };
+        static_assert(std::size(actions) == kPreferencesPerPage);
+        for (const auto action : actions) {
+            auto &target = s_view.preferences[s_view.preference_count];
+            target = {};
+            target.action = action;
+            const uint16_t top = kPreferenceTop + s_view.preference_count * kPreferenceStep;
+            const char *label = nullptr;
+            error = action_label(action, label);
+            if (error == ESP_OK) {
+                CODY2D::TextLine unused;
+                error = prepare_button(action, label, {113, top, 240, kPreferenceHeight},
+                    true, false, target.control, unused);
+            }
+            if (error != ESP_OK) {
+                return error;
+            }
+            ++s_view.preference_count;
+        }
+        return prepare_action(OnboardingAction::Done, true);
     }
     LUNASHELL::CodyOptionsObservation observation;
     error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(observation);
@@ -1631,7 +1665,7 @@ esp_err_t prepare_options_content(SceneFrame &scene)
     const auto &preferences = observation.preferences;
     const auto &orientation = observation.orientation;
     s_presented_options = observation;
-    for (const auto &row : pages[s_options_second_page ? 1 : 0]) {
+    for (const auto &row : pages[s_options_page == OptionsPage::Display ? 0 : 1]) {
         auto &target = s_view.preferences[s_view.preference_count];
         target = {};
         target.identity = row.identity;
@@ -1714,8 +1748,18 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         }
         ++s_view.preference_count;
     }
-    const auto next = s_options_second_page ? OnboardingAction::Next : OnboardingAction::MoreOptions;
-    return prepare_action(next, !s_command_pending);
+    return prepare_action(OnboardingAction::Done, !s_command_pending);
+}
+
+// scene: Active Options frame, with the existing intro and shared control bounds.
+// page: Explicit options menu or settings category to present.
+// Exception: Returns the original settings, layout or scene-content error.
+esp_err_t show_options_page(SceneFrame &scene, OptionsPage page)
+{
+    s_options_page = page;
+    ++s_navigation_revision;
+    const esp_err_t error = prepare_options_content(scene);
+    return error == ESP_OK ? attach_content(scene) : error;
 }
 
 // line: Fully wrapped shared-plan line, copied into presentation-owned storage before drawing.
@@ -1881,9 +1925,6 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     case Route::MakeItYours10:
         identity = SceneId::MakeItYours;
         break;
-    case Route::Settings36:
-        identity = SceneId::Settings;
-        break;
     case Route::ConnectCodex12:
     case Route::CodexCleanup:
         identity = SceneId::ConnectCodex;
@@ -1951,8 +1992,8 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     s_swipe_active = false;
     ++s_navigation_revision;
     ++s_text_generation;
-    if (route == Route::MakeItYours10 && s_route != Route::Settings36) {
-        s_options_second_page = false;
+    if (route == Route::MakeItYours10) {
+        s_options_page = OptionsPage::Menu;
     }
     s_route = route;
     if (route == Route::SetupMenu) {
@@ -2010,17 +2051,6 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     } else if (route == Route::MakeItYours10) {
         s_preference_error = ESP_OK;
         error = prepare_options_content(prepared);
-    } else if (route == Route::Settings36) {
-        constexpr const char *captions[] = {"A little more you", "Choose Cody's look"};
-        for (const char *text : captions) {
-            error = prepare_caption(text, 238 + s_view.line_count * 30U,
-                                    s_view.lines[s_view.line_count]);
-            if (error != ESP_OK) {
-                return error;
-            }
-            ++s_view.line_count;
-        }
-        error = prepare_action(OnboardingAction::Continue, true);
     } else if (route == Route::CodexReplace) {
         const char *title = s_codex_manage_repair ? "Pairing error" :
             s_codex_manage_pending ? "Pairing pending" : "PC remembered";
@@ -3076,9 +3106,6 @@ esp_err_t enter_host_destination(SceneId destination, SceneFrame &scene)
     case SceneId::MakeItYours:
         route = Route::MakeItYours10;
         break;
-    case SceneId::Settings:
-        route = Route::Settings36;
-        break;
     case SceneId::ConnectCodex:
         route = Route::ConnectCodex12;
         break;
@@ -3321,7 +3348,7 @@ void reset_onboarding()
     set_companion_audio_visible(false);
     reset_event_presentation();
     s_options_from_setup = false;
-    s_options_second_page = false;
+    s_options_page = OptionsPage::Menu;
     s_preference_error = ESP_OK;
     s_setup_returns_to_companion = false;
     s_companion_seen_selection = false;
@@ -3685,7 +3712,8 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         }
         changed = true;
     }
-    if (s_route == Route::MakeItYours10 && !s_command_pending && !have_result && s_preference_error == ESP_OK) {
+    if (s_route == Route::MakeItYours10 && s_options_page != OptionsPage::Menu &&
+        !s_command_pending && !have_result && s_preference_error == ESP_OK) {
         LUNASHELL::CodyOptionsObservation options;
         const esp_err_t options_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(options);
         if (options_error != ESP_OK) {
@@ -4177,6 +4205,7 @@ bool previous_navigation_available()
         return s_event_plan.back;
     }
     return s_route == Route::SetupMenu || s_route == Route::CodexReplace || s_route == Route::CodexForget ||
+        s_route == Route::Look11 ||
         s_route == Route::Install06 ||
         options_back_available() ||
         (s_view.action_visible && s_view.action_id == OnboardingAction::Cancel);
@@ -4250,6 +4279,11 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     if (back_hit && s_route == Route::Install06) {
         return enter_route(Route::Invitation05, scene);
     }
+    if (back_hit && s_route == Route::Look11) {
+        SceneId destination;
+        const esp_err_t error = look_exit_destination(LookExit::Back, destination);
+        return error == ESP_OK ? enter_host_destination(destination, scene) : error;
+    }
     if (back_hit && s_route == Route::SetupMenu) {
         const bool return_to_companion = s_setup_returns_to_companion;
         scene = {};
@@ -4272,15 +4306,11 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return enter_route(Route::SetupMenu, scene);
     }
     if (back_hit && s_route == Route::MakeItYours10) {
-        if (s_options_second_page) {
-            s_options_second_page = false;
-            const esp_err_t error = prepare_options_content(scene);
-            return error == ESP_OK ? attach_content(scene) : error;
+        if (s_options_page != OptionsPage::Menu) {
+            s_preference_error = ESP_OK;
+            return show_options_page(scene, OptionsPage::Menu);
         }
         return enter_route(Route::SetupMenu, scene);
-    }
-    if (back_hit && s_options_from_setup && s_route == Route::Settings36) {
-        return enter_route(Route::MakeItYours10, scene);
     }
     if (action_hit && s_route == Route::Invitation05) {
         esp_err_t error = enter_route(Route::Install06, scene);
@@ -4307,21 +4337,13 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
             }
             return error == ESP_OK ? attach_content(scene) : error;
         }
-        if (s_view.action_id == OnboardingAction::MoreOptions) {
-            s_options_second_page = true;
-            const esp_err_t error = prepare_options_content(scene);
-            return error == ESP_OK ? attach_content(scene) : error;
+        if (s_options_page != OptionsPage::Menu) {
+            return show_options_page(scene, OptionsPage::Menu);
         }
-        return enter_route(Route::Settings36, scene);
-    }
-    if (action_hit && s_route == Route::Settings36) {
-        SceneId done = SceneId::SetupComplete;
         if (s_options_from_setup) {
-            done = SceneId::SetupMenu;
-        } else if (kCodexIntegrationEnabled) {
-            done = SceneId::CodexChoice;
+            return enter_route(Route::SetupMenu, scene);
         }
-        return enter_look_route(scene, {SceneId::Settings, done});
+        return enter_route(kCodexIntegrationEnabled ? Route::CodexChoice : Route::SetupComplete13, scene);
     }
     if (action_hit && s_route == Route::ConnectCodex12) {
         if (s_view.action_id != OnboardingAction::Retry) {
@@ -4580,6 +4602,8 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
     const CODY2D::CapsuleControl back{kBackBounds, {}, NavigationData::top, NavigationData::bottom, true};
     const CODY2D::CapsuleControl next{kForwardBounds, {}, NavigationData::top, NavigationData::bottom, true};
     if (pressed_edge) {
+        s_swipe_moved = false;
+        s_options_tap_admitted = false;
         if (is_codex_event_route(s_route)) {
             ScenePresentation presentation;
             const esp_err_t presentation_error = prepare_scene_presentation(scene, presentation);
@@ -4596,23 +4620,15 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
             s_swipe_route = s_route;
             s_swipe_rotation = rotation_degrees;
             s_swipe_axis = GestureAxis::Undecided;
-            s_event_touch_moved = false;
             consumed = s_swipe_active;
             return ESP_OK;
         }
         if (s_route == Route::MakeItYours10 && s_view.actions_visible && !s_command_pending) {
             for (uint8_t index = 0; index < s_view.preference_count; ++index) {
-                const auto &preference = s_view.preferences[index];
-                if (!CODY2D::capsule_contains(preference.control, point)) {
-                    continue;
+                if (CODY2D::capsule_contains(s_view.preferences[index].control, point)) {
+                    s_options_tap_admitted = true;
+                    break;
                 }
-                consumed = true;
-                esp_err_t error = enqueue_preference(preference.identity, preference.requested_value);
-                if (error != ESP_OK) {
-                    s_preference_error = error;
-                }
-                error = prepare_options_content(scene);
-                return error == ESP_OK ? attach_content(scene) : error;
             }
         }
         const bool choice_route = s_route == Route::CodexChoice || s_route == Route::SetupMenu ||
@@ -4643,7 +4659,9 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         }
         const bool footer_hit = uses_footer_action() && s_view.actions_visible && s_view.action_visible &&
             CODY2D::capsule_contains(s_view.action, point);
-        if (footer_hit) {
+        if (footer_hit && s_route == Route::MakeItYours10 && s_view.action_id == OnboardingAction::Retry) {
+            s_options_tap_admitted = true;
+        } else if (footer_hit) {
             consumed = true;
             return activate_onboarding_navigation(scene, s_view.action_id == OnboardingAction::Cancel ?
                 NavigationDirection::Previous : NavigationDirection::Next);
@@ -4657,7 +4675,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         }
         // A candidate does not steal Cody's drag. Only an unmistakable horizontal
         // release navigates; vertical drags retain the look-list's scroll behavior.
-        s_swipe_active = point_in_rect({73, 73, 320, 320}, point);
+        s_swipe_active = s_options_tap_admitted || point_in_rect({73, 73, 320, 320}, point);
         s_swipe_start = point;
         s_swipe_last = point;
         s_swipe_route = s_route;
@@ -4665,10 +4683,11 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         s_swipe_axis = GestureAxis::Undecided;
     }
     if (pressed && s_swipe_active) {
+        consumed = s_options_tap_admitted;
         s_swipe_last = point;
         const int dx = std::abs(point.x - s_swipe_start.x);
         const int dy = std::abs(point.y - s_swipe_start.y);
-        if (is_codex_event_route(s_route) && std::max(dx, dy) >= 12) { s_event_touch_moved = true; }
+        if (std::max(dx, dy) >= 12) { s_swipe_moved = true; }
         if (s_swipe_axis == GestureAxis::Undecided && std::max(dx, dy) >= 12) {
             if (dx * 2 > dy * 3) {
                 s_swipe_axis = GestureAxis::Horizontal;
@@ -4688,7 +4707,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
             const auto effect = event_presentation::release(s_event_plan, navigation, s_view.actions_visible,
                 s_swipe_start.x, s_swipe_start.y, s_swipe_last.x, s_swipe_last.y, action);
             // An excursion followed by a return to the origin is still a drag.
-            if (s_event_touch_moved && std::abs(dx) < 12 && std::abs(dy) < 12) {
+            if (s_swipe_moved && std::abs(dx) < 12 && std::abs(dy) < 12) {
                 return ESP_OK;
             }
             if (effect == event_presentation::Effect::Render) {
@@ -4703,6 +4722,41 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
             consumed = true;
             return activate_onboarding_navigation(scene,
                 dx < 0 ? NavigationDirection::Next : NavigationDirection::Previous);
+        }
+        if (s_route == Route::MakeItYours10 && s_options_tap_admitted) {
+            consumed = true;
+            if (s_swipe_moved || !s_view.actions_visible || s_command_pending) {
+                return ESP_OK;
+            }
+            // The BSP must observe the release before the worker may rotate panel and touch.
+            if (s_view.action_id == OnboardingAction::Retry &&
+                CODY2D::capsule_contains(s_view.action, s_swipe_start) &&
+                CODY2D::capsule_contains(s_view.action, s_swipe_last)) {
+                return activate_onboarding_navigation(scene, NavigationDirection::Next);
+            }
+            for (uint8_t index = 0; index < s_view.preference_count; ++index) {
+                const auto &row = s_view.preferences[index];
+                if (!CODY2D::capsule_contains(row.control, s_swipe_start) ||
+                    !CODY2D::capsule_contains(row.control, s_swipe_last)) {
+                    continue;
+                }
+                switch (row.action) {
+                case OnboardingAction::CodyLook:
+                    return enter_look_route(scene, {SceneId::MakeItYours, SceneId::MakeItYours});
+                case OnboardingAction::DisplayOptions:
+                    return show_options_page(scene, OptionsPage::Display);
+                case OnboardingAction::BehaviorOptions:
+                    return show_options_page(scene, OptionsPage::Behavior);
+                default:
+                    break;
+                }
+                esp_err_t error = enqueue_preference(row.identity, row.requested_value);
+                if (error != ESP_OK) {
+                    s_preference_error = error;
+                }
+                error = prepare_options_content(scene);
+                return error == ESP_OK ? attach_content(scene) : error;
+            }
         }
     }
     if (s_route == Route::Look11) {

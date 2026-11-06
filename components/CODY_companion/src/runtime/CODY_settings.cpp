@@ -359,6 +359,12 @@ esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
     if (preference == PreferenceId::Brightness) {
         return LUNASHELL_display_set_brightness_percent(value);
     }
+    if (preference == PreferenceId::AutoRotate && value <= 1U) {
+        return LUNASHELL_display_set_auto_rotation_enabled(value == 1U);
+    }
+    if (preference == PreferenceId::Orientation && (value == 0U || value == 180U)) {
+        return LUNASHELL_display_set_rotation_degrees(value);
+    }
     if (preference == PreferenceId::UsageMode) {
         if (value > 1U) {
             ESP_LOGE(kTag, "Companion usage mode input rejected: value=%lu (%s)",
@@ -369,8 +375,7 @@ esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
             LUNASHELL::CodyUsageMode::Desk);
     }
     std::lock_guard<std::mutex> guard(s_preferences_mutex);
-    const bool valid = preference == PreferenceId::Orientation ? value == 0U || value == 180U : value <= 1U;
-    if (!valid) {
+    if ((preference != PreferenceId::ShakeWake && preference != PreferenceId::Sounds) || value > 1U) {
         ESP_LOGE(kTag, "Preference %u rejected value=%lu (%s)", static_cast<unsigned>(preference),
             static_cast<unsigned long>(value), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
@@ -391,39 +396,29 @@ esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
         error = ESP_ERR_NOT_SUPPORTED;
 #endif
         break;
-    case PreferenceId::AutoRotate:
-        error = LUNASHELL_display_set_auto_rotation_enabled(value == 1U);
-        break;
-    case PreferenceId::Orientation:
-        error = LUNASHELL_display_set_rotation_degrees(value);
-        break;
-    case PreferenceId::UsageMode:
-    case PreferenceId::Brightness:
-        // These choices are handled by their own settings owners above.
+    default:
         return ESP_ERR_INVALID_STATE;
     }
     if (error == ESP_OK) {
-        // Re-read both keys before publishing values, also recovering a prior failed explicit save.
-        error = load_companion_preferences_locked();
+        return load_companion_preferences_locked();
     }
-    if (error != ESP_OK) {
-        ESP_LOGE(kTag, "Preference %u save/apply=%lu failed (%s)", static_cast<unsigned>(preference),
-            static_cast<unsigned long>(value), esp_err_to_name(error));
-        LUNASHELL::CodyOptionsObservation observation;
-        const esp_err_t read_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(observation);
-        if (read_error == ESP_OK) {
-            observation.preferences.last_attempt_at_us = esp_timer_get_time();
-            observation.preferences.last_error = error;
-            observation.preferences.data_valid = false;
-            observation.preferences.health = LUNASHELL::DeviceHealth::Degraded;
-            const esp_err_t publication_error =
-                LUNASHELL::DeviceSnapshotService::instance().reportCodyPreferences(observation.preferences);
-            if (publication_error != ESP_OK) {
-                ESP_LOGE(kTag, "Preference failure publication failed (%s)", esp_err_to_name(publication_error));
-            }
-        } else {
-            ESP_LOGE(kTag, "Preference failure projection failed (%s)", esp_err_to_name(read_error));
+    ESP_LOGE(kTag, "Preference %u save=%lu failed (%s)", static_cast<unsigned>(preference),
+        static_cast<unsigned long>(value), esp_err_to_name(error));
+    LUNASHELL::CodyOptionsObservation observation;
+    auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    const esp_err_t read_error = snapshots.readCodyOptionsObservation(observation);
+    if (read_error == ESP_OK) {
+        // A rejected write does not change either applied runtime gate.
+        // Report the failed attempt while retaining their confirmed values.
+        observation.preferences.last_attempt_at_us = esp_timer_get_time();
+        observation.preferences.last_error = error;
+        observation.preferences.health = LUNASHELL::DeviceHealth::Degraded;
+        const esp_err_t publication_error = snapshots.reportCodyPreferences(observation.preferences);
+        if (publication_error != ESP_OK) {
+            ESP_LOGE(kTag, "Preference failure publication failed (%s)", esp_err_to_name(publication_error));
         }
+    } else {
+        ESP_LOGE(kTag, "Preference failure projection failed (%s)", esp_err_to_name(read_error));
     }
     return error;
 }

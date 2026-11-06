@@ -471,6 +471,7 @@ esp_err_t attach_look_content(SceneFrame &scene, uint32_t control_revision)
     content.bottom_action_visible = true;
     content.visible_characters = prefixes.visible_characters;
     content.text_generation = s_view.text_generation;
+    content.control_bounds[0] = {10, 203, 70, 263};
     content.control_bounds[1] = content.bottom_action_bounds;
     content.draw_rows = draw_content;
     return set_scene_content(scene, content);

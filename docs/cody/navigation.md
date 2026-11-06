@@ -94,8 +94,9 @@ and Deep-sleep reconstruct admission from saved data and current observations.
 | Completed handoff, Debug | 39 / Wi-Fi and BLE connection details. Tap to open Online. |
 | Completed handoff, Release | 09 / Online |
 | 09, Continue | 10 / Make it yours |
-| 10, Next; 36, Continue | Settings 36, then Skin 11 |
-| 11, explicit choice and Done | Return to caller; first setup then evaluates the saved Codex link |
+| 10, Cody's Look | Skin 11 |
+| 11, Done | Return to Make it yours |
+| 10, Done | First setup continues to Codex or Setup Complete |
 | 40, Yes with no pairing | 12 / code preparation |
 | 12, confirmed two-sided handshake | 13 / You're all set |
 | 13, Let's go | Immediately search on 14 or reuse a current authenticated presence on 15 |
@@ -141,10 +142,11 @@ record is not remotely revoked by this local action.
 
 ## Options and Skin
 
-Options opens Make it yours. The first page shows Brightness, Auto-rotate and
-Orientation. More options opens Shake to wake, Sounds and Usage. Back returns
-through the pages to Setup. Next on the second page opens screen 36, whose
-Back action from Setup returns to the second page. Done in Skin returns to Setup.
+Options opens Make it yours with Cody's Look, Display and Behavior. Cody's Look
+opens the skin selector directly. Display groups Brightness, Auto-rotate and
+Orientation. Behavior groups Shake to wake, Sounds and Usage. Back or Done
+returns from a category or Skin to Make it yours. Done there returns to Setup
+when opened from Setup.
 
 | Preference | Contract |
 | --- | --- |
@@ -155,9 +157,11 @@ Back action from Setup returns to the second page. Done in Skin returns to Setup
 | Brightness | Tap to reduce by ten points down to 10%, then return to 100%. The selected level is saved. |
 | Usage | Strict Desk / Away; see [runtime](runtime.md#desk-and-away) |
 
-Saving is separate from admission. Apply a value only after successful write and
-readback; retain real errors and retry the same request. Invalid persisted values
-are never silently repaired. The settings executor owns flash operations on an
+Preference rows and Retry act on touch release so the display can rotate with
+panel and touch in sync. Apply values after successful persistence and readback.
+A rejected write shows its error and Retry preserves the original request.
+Independent applied preferences retain their confirmed values. Invalid persisted
+values are never silently repaired. The settings executor owns flash operations on an
 internal stack. Skin retains the old preview until the new request succeeds;
 late results cannot reopen retired navigation.
 
