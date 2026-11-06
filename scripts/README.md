@@ -1,9 +1,52 @@
 # Development console
 
 Use `scripts/device.ps1` from PowerShell at the repository root for firmware,
-simulators, generators and checks. Menu, `help` and `list` are inert: they do
-not load ESP-IDF, start a simulator or access serial hardware until an operation
-is selected. Execution authorization is defined in [AGENTS.md](../AGENTS.md).
+simulators, generators and checks. The menu, `help` and `list` do not load
+ESP-IDF, start a simulator or access serial hardware. Execution authorization is
+defined in [AGENTS.md](../AGENTS.md).
+
+## Firmware prerequisites on Windows and Ubuntu
+
+Install a current PowerShell 7 (`pwsh`) release using Microsoft's instructions for [Windows](https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell-on-windows)
+or [Ubuntu](https://learn.microsoft.com/en-us/powershell/scripting/install/install-ubuntu).
+PowerShell is the prerequisite for starting the console itself.
+
+Run the preflight from the checkout on either host.
+
+```powershell
+pwsh -NoProfile -File ./scripts/device.ps1 preflight
+```
+
+Preflight checks installed prerequisites and installs the missing ones in
+sequence, including the pinned **ESP-IDF 6.0.2** toolchain for ESP32-S3 and its
+**Python 3.13.x** environment. Installing missing tools requires Internet access.
+Preflight stops at the first failed step and reports the step and cause. Earlier
+successful steps stay installed, so rerun the same command after fixing the
+failure. Preflight prepares the host outside the checkout. First-time imports
+into the repository still require the targeted Defender scan in [AGENTS.md](../AGENTS.md).
+Firmware configuration, build and serial operations are separate console commands.
+
+On Windows, preflight keeps an existing `E:\Espressif` installation. For a
+new setup, it uses the system drive's `Espressif` directory, usually
+`C:\Espressif`. It uses WinGet for missing Git and Python 3.13, then installs
+the pinned SDK from Espressif's repository with its official tools utility.
+Open a new terminal after WinGet changes the Windows PATH.
+
+On Ubuntu booted from USB, keep the checkout and tools on writable Linux storage
+with space-free paths, such as `~/src/esp32-luna-shell`. Preflight can prompt
+for `sudo` to install missing Ubuntu packages. It keeps the default SDK and
+tools under `~/.local/share/luna-shell/esp-idf/`. Subsequent console commands
+can use that installation directly. If Ubuntu has no usable Python 3.13 package,
+preflight can compile the verified CPython 3.13.18 source into the user's home
+directory. It adds the current account to `dialout` when needed and reports
+when a new login is required for USB access. If you already have an ESP-IDF 6.0.2 EIM
+installation, you can activate it in Bash before starting `pwsh`. See
+[Espressif's activation instructions](https://docs.espressif.com/projects/esp-idf/en/v6.0.2/esp32s3/get-started/linux-macos-start-project.html#activate-the-environment).
+
+For a custom installation on either host, pass `-IdfPath`, `-ToolsPath` and
+`-PythonExe` or set the corresponding `LUNASHELL_IDF_*` overrides. The
+[toolchain guide](../docs/bsp/toolchain-and-profiles.md#selected-toolchain-and-framework)
+lists the exact names.
 
 ## Choose an operation
 
@@ -43,10 +86,29 @@ command. Its generated configuration and build directory are isolated by the
 .\scripts\device.ps1 flash -Board waveshare-esp32s3-touch-amoled-1.75c -Profile cody-companion -Feature wake-word -BuildMode Debug -Port COM8 -Jobs 8
 ```
 
+On Ubuntu, use the same selectors after preflight. Plug in Cody and
+use `ports` to identify its path. Prefer the device's `/dev/serial/by-id/` alias
+when available and replace `/dev/ttyACM0` below with the selected path. A USB
+serial bridge may appear as `/dev/ttyUSB0`. Sign out and back in if preflight
+reports that the current session lacks `dialout`. Close any monitor using the
+port before flashing. See the
+[ESP-IDF serial permissions guide](https://docs.espressif.com/projects/esp-idf/en/v6.0.2/esp32s3/get-started/linux-macos-start-project.html#permission-denied-issue).
+
+```bash
+pwsh -NoProfile -File ./scripts/device.ps1 ports
+pwsh -NoProfile -File ./scripts/device.ps1 set-target -Board waveshare-esp32s3-touch-amoled-1.75c -Profile cody-companion -Feature wake-word -BuildMode Debug
+pwsh -NoProfile -File ./scripts/device.ps1 build -Board waveshare-esp32s3-touch-amoled-1.75c -Profile cody-companion -Feature wake-word -BuildMode Debug -Jobs 8
+pwsh -NoProfile -File ./scripts/device.ps1 flash -Board waveshare-esp32s3-touch-amoled-1.75c -Profile cody-companion -Feature wake-word -BuildMode Debug -Port /dev/ttyACM0 -Jobs 8
+```
+
+Use `build` when you want binaries alone. `flash` includes the build step.
+Linux uses a `-linux` suffix for default build and generated configuration
+paths, keeping Windows CMake state separate. Use separate custom `-BuildDir`
+paths for each host too.
+
 Both 1.75C OTA slots and the optional Sophia model fit entirely below `0x1000000`
-(16 MiB), within the firmware's 24-bit flash cache mapping range. LittleFS
-occupies the final 1 MiB at `0x1f00000`. The space from `0x1000000` up to
-LittleFS is unallocated.
+(16 MiB), within the firmware's 24-bit flash cache mapping range. The upper
+16 MiB, starting at `0x1000000`, are reserved for LittleFS files and resources.
 
 The 1.75C uses its own reset/MCLK wiring and IMU INT1 wake output.
 Its PMU owner verifies the DCDC1/ALDO1 rails and uses the vendor's 4.10 V
@@ -58,7 +120,10 @@ Physical acceptance is tracked in [TODO.md](../TODO.md); a build or flash does
 not establish display, touch, audio, battery or wake behavior.
 
 To preserve Cody's Sophia wake word and experimental activity observer in Release,
-use the same explicit feature selection for configuration, build, flash and size:
+use the same explicit feature selection for configuration, build, flash and size.
+`-ActivityClassifier` requires a local model produced by the `activity-model`
+generator. See the [activity observer guide](../docs/cody/activity-observer.md#public-commands)
+for preparing the model before configuring this variant.
 
 ```powershell
 .\scripts\device.ps1 set-target -Profile cody-companion -Feature wake-word -ActivityClassifier -BuildMode Release

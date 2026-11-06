@@ -95,7 +95,8 @@ function Edit-DeviceMenuSettings([hashtable]$Settings) {
         return
     }
     $prompt = if ($key -eq 'Port') {
-        '  Port (COM10 or 10; ask restores port selection; blank keeps the current value)'
+        $example = if ($IsLinux) { '/dev/ttyACM0 or /dev/serial/by-id/<name>' } else { 'COM10 or 10' }
+        "  Port ($example; ask restores port selection; blank keeps the current value)"
     } else {
         "  $key (blank keeps the current value)"
     }

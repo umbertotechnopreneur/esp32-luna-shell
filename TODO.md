@@ -32,6 +32,9 @@ The operating and authorization rules are in [AGENTS.md](AGENTS.md).
 
 ## Waveshare 1.75C physical acceptance
 
+- Verify prerequisite installation, rerun and first-failure reporting on Windows
+  and Ubuntu, then build and flash Cody from Ubuntu booted from USB. Verify that
+  Windows still builds and flashes through the same console and `COM` selection.
 - Confirm that the post-pairing Debug screen displays the connection details and
   accepts a tap to continue. The phone has confirmed provisioning and Cody has
   obtained a Wi-Fi lease.

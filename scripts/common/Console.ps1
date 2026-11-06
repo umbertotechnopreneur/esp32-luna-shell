@@ -19,6 +19,7 @@
 # No parameters: describe firmware/device actions by their public command identity.
 function Get-DeviceFirmwarePresentation {
     return [ordered]@{
+        preflight = @{ Emoji = '🧰'; Description = 'Install missing host firmware prerequisites and verify ESP-IDF 6.0.2 and Python 3.13.' }
         build = @{ Emoji = '🔨'; Description = 'Compile the selected firmware; use -Jobs 8 to limit parallel work.' }
         'set-target' = @{ Emoji = '🎯'; Description = 'Configure the selected ESP32-S3 profile from SDKCONFIG defaults; clear its existing build.' }
         reconfigure = @{ Emoji = '⚙️'; Description = 'Regenerate CMake for an already configured profile; enforce defaults and lock gates.' }
@@ -26,9 +27,9 @@ function Get-DeviceFirmwarePresentation {
         size = @{ Emoji = '📊'; Description = 'Report firmware memory usage and save artifacts/reports/size.<format>.' }
         clean = @{ Emoji = '🧹'; Description = 'Remove compiled output from the selected firmware build; retain its configuration.' }
         fullclean = @{ Emoji = '🗑️'; Description = 'Fully clean the selected firmware build; configure it again with set-target before building.' }
-        discovery = @{ Emoji = '🔎'; Description = 'List Windows serial devices and USB identities without loading ESP-IDF.' }
-        ports = @{ Emoji = '🔌'; Description = 'List serial ports through the configured ESP-IDF toolchain.' }
-        'port-status' = @{ Emoji = '🩺'; Description = 'Probe the selected port and report availability and candidate owner processes.' }
+        discovery = @{ Emoji = '🔎'; Description = 'List USB serial devices without loading ESP-IDF.' }
+        ports = @{ Emoji = '🔌'; Description = 'List detected serial ports.' }
+        'port-status' = @{ Emoji = '🩺'; Description = 'Report port presence on Linux or check availability and possible owners on Windows.' }
         monitor = @{ Emoji = '📟'; Description = 'Attach the live ESP-IDF monitor without a startup reset; exit with Ctrl+].' }
         capture = @{ Emoji = '📝'; Description = 'Save serial output for a bounded duration; reset first only with -ResetBeforeCapture.' }
         'sd-log' = @{ Emoji = '📥'; Description = 'Download a stored SD log over USB with checked blocks; close the monitor first.' }

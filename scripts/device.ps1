@@ -25,7 +25,7 @@ Use 'help' or 'list' to discover the CLI. Runtime output belongs in artifacts/.
 param(
     [Parameter(Position = 0)]
     [ValidateSet('menu','help','list','simulator','simulator-luna','boot-screens',
-        'check','generate','banner','package-simulator','clean-artifacts','codex-audio',
+        'check','generate','banner','package-simulator','clean-artifacts','codex-audio','preflight',
         'build','clean','fullclean','flash','reset','monitor','capture','sd-log','endurance-read','erase',
         'reconfigure','set-target','update-lock','size','combo','ports','discovery','port-status','recover')]
     [string]$Action = 'menu',
@@ -183,13 +183,20 @@ try {
                 $null = New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force
             }
         }
-        $temporaryRoot = Resolve-ArtifactPath '' 'artifacts/tmp'
-        $null = New-Item -ItemType Directory -Path $temporaryRoot -Force
         $failureStage = 'preparing host environment'
         $environment = @{
             PYTHONDONTWRITEBYTECODE = '1'; PYTHONUTF8 = '1'; PYTHONIOENCODING = 'utf-8'
-            TEMP = $temporaryRoot; TMP = $temporaryRoot
-            PIP_CACHE_DIR = (Join-Path $ProjectRoot 'artifacts/python/pip-cache')
+        }
+        if ($Action -eq 'preflight') {
+            # Host installers use their own SDK/system locations and must not import packages into the checkout.
+            $environment.PIP_NO_CACHE_DIR = '1'
+        } else {
+            $temporaryRoot = Resolve-ArtifactPath '' 'artifacts/tmp'
+            $null = New-Item -ItemType Directory -Path $temporaryRoot -Force
+            $environment.TEMP = $temporaryRoot
+            $environment.TMP = $temporaryRoot
+            if ($IsLinux) { $environment.TMPDIR = $temporaryRoot }
+            $environment.PIP_CACHE_DIR = Join-Path $ProjectRoot 'artifacts/python/pip-cache'
         }
         foreach ($name in $environment.Keys) {
             $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name,'Process')

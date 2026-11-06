@@ -18,7 +18,7 @@
 # Internal firmware engine. Public workflows enter through ../device.ps1.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("build", "clean", "fullclean", "flash", "reset", "monitor", "capture", "erase", "reconfigure", "set-target", "update-lock", "size", "combo", "ports", "discovery", "port-status", "recover")]
+    [ValidateSet("build", "clean", "fullclean", "flash", "reset", "monitor", "capture", "erase", "reconfigure", "set-target", "update-lock", "size", "combo", "ports", "discovery", "port-status", "recover", "preflight")]
     [string]$Action = "build",
 
     [string]$Port,
@@ -77,7 +77,7 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot '../common/SerialPorts.ps1')
 
-# Resolve the user's COM choice before toolchain output, builds or process cleanup.
+# Resolve the serial choice before toolchain output, builds or process cleanup.
 if ($Action -in @('flash','reset','monitor','capture','erase','combo','port-status','recover')) {
     if ($PSBoundParameters.ContainsKey('Port')) {
         $Port = Normalize-PortName $Port
@@ -101,7 +101,20 @@ $ProfileBuildKey = if ($Feature -eq "none") {
 
 # Serial discovery does not need ESP-IDF. Run it before initializing the
 # toolchain so a missing device is not obscured by unrelated environment output.
+# No parameters.
+# Throws when the host cannot enumerate USB serial devices.
 function Show-SerialDiscovery {
+    if ($IsLinux) {
+        $ports = @(Get-PresentSerialPorts)
+        if ($ports.Count -eq 0) {
+            Write-Host 'No present USB serial candidates found.'
+            return
+        }
+        Write-Host 'Present USB serial paths (prefer a /dev/serial/by-id alias when available):'
+        $ports | Format-Table DeviceID, DevicePath -AutoSize
+        return
+    }
+
     try {
         $presentPorts = @(
             Get-PnpDevice -PresentOnly -Class Ports -ErrorAction Stop |
@@ -190,12 +203,26 @@ function Show-SerialDiscovery {
     }
 }
 
-if ($Action -eq "discovery") {
+if ($Action -eq "discovery" -or ($IsLinux -and $Action -eq "ports")) {
     Show-SerialDiscovery
     return
 }
 
+if ($IsLinux -and $Action -eq 'port-status') {
+    $device = Get-LinuxSerialPortDevice -RequestedPort $Port
+    if ($null -eq $device) { throw "Serial port '$Port' is not present." }
+    Write-Host "Present serial port: $($device.DeviceID) -> $($device.DevicePath)"
+    Write-Host 'Access and exclusive use are checked when the flashing tool opens the port.'
+    return
+}
+
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+. (Join-Path $PSScriptRoot '../common/FirmwareToolchain.ps1')
+if ($Action -eq 'preflight') {
+    Invoke-FirmwarePreflight -ProjectRoot $ProjectRoot -IdfPath $IdfPath -ToolsPath $ToolsPath -PythonExe $PythonExe
+    return
+}
+$toolchain = $null
 
 $BoardConfigPath = $null
 $BoardModules = $null
@@ -214,24 +241,8 @@ if (-not [string]::IsNullOrWhiteSpace($BoardConfig)) {
     if (-not (Test-Path -LiteralPath $BoardConfigPath -PathType Leaf)) {
         throw "Board configuration not found: $BoardConfigPath"
     }
-    $boardPython = if ($PythonExe) {
-        $PythonExe
-    } elseif ($env:LUNASHELL_IDF_PYTHON) {
-        $env:LUNASHELL_IDF_PYTHON
-    } else {
-        $earlyIdfPath = if ($IdfPath) { $IdfPath } elseif ($env:LUNASHELL_IDF_PATH) {
-            $env:LUNASHELL_IDF_PATH
-        } else { "E:\Espressif\.espressif\v6.0.2\esp-idf" }
-        $earlyToolsPath = if ($ToolsPath) { $ToolsPath } elseif ($env:LUNASHELL_IDF_TOOLS_PATH) {
-            $env:LUNASHELL_IDF_TOOLS_PATH
-        } else { "E:\Espressif" }
-        $idfInstallName = Split-Path -Leaf (Split-Path -Parent $earlyIdfPath)
-        Join-Path $earlyToolsPath "tools\python\$idfInstallName\venv\Scripts\python.exe"
-    }
-    if (-not (Test-Path -LiteralPath $boardPython -PathType Leaf)) {
-        throw "ESP-IDF Python required for board YAML not found: $boardPython"
-    }
-    $boardSelectionOutput = @(& $boardPython `
+    $toolchain = Resolve-FirmwareToolchainPaths -IdfPath $IdfPath -ToolsPath $ToolsPath -PythonExe $PythonExe
+    $boardSelectionOutput = @(& $toolchain.PythonExe `
         (Join-Path $ProjectRoot "scripts/common/board_config.py") $BoardConfigPath 2>&1)
     if ($LASTEXITCODE -ne 0) {
         throw "Board configuration rejected (exit code $LASTEXITCODE): $($boardSelectionOutput -join ' | ')"
@@ -369,6 +380,8 @@ if ($Board -ceq 'waveshare-esp32s3-touch-amoled-1.75c') {
     $SelectedProfileVariant.generated_sdkconfig += '-1.75c'
     $SelectedProfileVariant.default_build_dir += '-1.75c'
 }
+$hostArtifactSuffix = if ($IsLinux) { '-linux' } else { '' }
+$profileArtifactKey = "$ProfileBuildKey$hostArtifactSuffix"
 $FeaturePartitionPath = Get-FirmwareFeaturePartitionPath -ProjectRoot $ProjectRoot -Feature $Feature -Board $Board
 $SelectedSdkconfigDefaults = @(
     $SelectedProfileVariant.defaults |
@@ -382,7 +395,7 @@ if ($null -ne $BoardModules -and $Profile -eq "ui-minimal" -and
     }
     $overlayDirectory = Resolve-ArtifactPath '' "artifacts/board-config"
     $null = New-Item -ItemType Directory -Path $overlayDirectory -Force
-    $overlayPath = Resolve-ArtifactPath (Join-Path $overlayDirectory "$ProfileBuildKey.defaults") ''
+    $overlayPath = Resolve-ArtifactPath (Join-Path $overlayDirectory "$profileArtifactKey.defaults") ''
     $overlay = @(
         (Get-BoardSdkconfigFlag "LUNASHELL_BUILD_ENABLE_POWER_INPUTS" ($BoardModules.pmu -eq "service"))
         (Get-BoardSdkconfigFlag "LUNASHELL_BUILD_ENABLE_BATTERY" ($BoardModules.battery -eq "service"))
@@ -417,7 +430,7 @@ if ($null -ne $BoardModules -and $Profile -eq "ui-minimal" -and
 # partition/model generators run. Feature-off commands never visit model assets.
 $featureOverlayDirectory = Resolve-ArtifactPath '' 'artifacts/feature-config'
 $null = New-Item -ItemType Directory -Path $featureOverlayDirectory -Force
-$featureOverlayPath = Join-Path $featureOverlayDirectory "$ProfileBuildKey.defaults"
+$featureOverlayPath = Join-Path $featureOverlayDirectory "$profileArtifactKey.defaults"
 $featurePartitionRelativePath = [IO.Path]::GetRelativePath($ProjectRoot, $FeaturePartitionPath).Replace('\', '/')
 $featureOverlay = @(
     "CONFIG_LUNASHELL_ACTIVITY_MODEL=$(if ($ActivityClassifier) { 'y' } else { 'n' })"
@@ -483,7 +496,7 @@ $ProfileCanonicalDependencyLockPath = Resolve-ProfileCatalogPath(
     "$($SelectedProfileVariant.dependency_lock)"
 )
 $ProfileSdkconfigPath = Resolve-ArtifactPath(
-    "$($SelectedProfileVariant.generated_sdkconfig)-$($modeSelection.ArtifactSuffix)"
+    "$($SelectedProfileVariant.generated_sdkconfig)-$($modeSelection.ArtifactSuffix)$hostArtifactSuffix"
 )
 # No parameters: selected generated configuration must match its explicit feature and board.
 # Throws before build/size/flash if the selected graph or generated settings disagree.
@@ -551,7 +564,7 @@ if (-not (Test-Path -LiteralPath $profileSdkconfigDirectory -PathType Container)
     $null = New-Item -ItemType Directory -Path $profileSdkconfigDirectory
 }
 if ([string]::IsNullOrWhiteSpace($BuildDir)) {
-    $BuildDir = "$($SelectedProfileVariant.default_build_dir)-$($modeSelection.ArtifactSuffix)"
+    $BuildDir = "$($SelectedProfileVariant.default_build_dir)-$($modeSelection.ArtifactSuffix)$hostArtifactSuffix"
 }
 if ([string]::IsNullOrWhiteSpace($BuildDir)) {
     throw "Firmware profile variant has no default build directory: $ProfileBuildKey"
@@ -575,72 +588,22 @@ if ($BuildMode -eq 'Release') {
 }
 Write-Host "Build directory: $BuildDir"
 
-if (-not $IdfPath) {
-    $IdfPath = if ($env:LUNASHELL_IDF_PATH) {
-        $env:LUNASHELL_IDF_PATH
-    } else {
-        "E:\Espressif\.espressif\v6.0.2\esp-idf"
-    }
+if ($null -eq $toolchain) {
+    $toolchain = Resolve-FirmwareToolchainPaths -IdfPath $IdfPath -ToolsPath $ToolsPath -PythonExe $PythonExe
 }
-if (-not $ToolsPath) {
-    $ToolsPath = if ($env:LUNASHELL_IDF_TOOLS_PATH) {
-        $env:LUNASHELL_IDF_TOOLS_PATH
-    } else {
-        "E:\Espressif"
-    }
-}
-
-if (-not (Test-Path -LiteralPath $IdfPath -PathType Container)) {
-    throw "ESP-IDF non trovato in $IdfPath"
-}
-if (-not (Test-Path -LiteralPath $ToolsPath -PathType Container)) {
-    throw "Root degli strumenti Espressif non trovata in $ToolsPath"
-}
-
-$IdfPath = (Resolve-Path -LiteralPath $IdfPath).Path
-$ToolsPath = (Resolve-Path -LiteralPath $ToolsPath).Path
-$IdfPy = Join-Path $IdfPath "tools\idf.py"
-$IdfToolsPy = Join-Path $IdfPath "tools\idf_tools.py"
+Assert-LinuxFirmwarePaths -ProjectRoot $ProjectRoot -Toolchain $toolchain
+$IdfPath = $toolchain.IdfPath
+$ToolsPath = $toolchain.ToolsPath
+$PythonExe = $toolchain.PythonExe
+$IdfPy = Join-Path $IdfPath 'tools/idf.py'
+$IdfToolsPy = Join-Path $IdfPath 'tools/idf_tools.py'
 foreach ($requiredIdfFile in @($IdfPy, $IdfToolsPy)) {
     if (-not (Test-Path -LiteralPath $requiredIdfFile -PathType Leaf)) {
         throw "Installazione ESP-IDF incompleta: file non trovato $requiredIdfFile"
     }
 }
 
-if (-not $PythonExe) {
-    $idfInstallName = Split-Path -Leaf (Split-Path -Parent $IdfPath)
-    $PythonExe = Join-Path $ToolsPath "tools\python\$idfInstallName\venv\Scripts\python.exe"
-    if ($env:LUNASHELL_IDF_PYTHON) {
-        $PythonExe = $env:LUNASHELL_IDF_PYTHON
-    }
-}
-if (-not (Test-Path -LiteralPath $PythonExe -PathType Leaf)) {
-    throw "Python ESP-IDF non trovato in $PythonExe"
-}
-$PythonExe = (Resolve-Path -LiteralPath $PythonExe).Path
-$PythonEnvPath = Split-Path -Parent (Split-Path -Parent $PythonExe)
-
-$env:IDF_PATH = $IdfPath
-$env:IDF_TOOLS_PATH = $ToolsPath
-$env:IDF_PYTHON_ENV_PATH = $PythonEnvPath
-
-# Ask the selected ESP-IDF checkout for its exact supported tool paths instead
-# of duplicating CMake, Ninja, debugger, and compiler versions in this script.
-$toolExports = & $PythonExe $IdfToolsPy export --format key-value
-if ($LASTEXITCODE -ne 0) {
-    throw "Impossibile esportare la toolchain ESP-IDF da $IdfPath (exit code $LASTEXITCODE)"
-}
-foreach ($line in $toolExports) {
-    if ($line -notmatch '^([A-Z][A-Z0-9_]*)=(.*)$') {
-        continue
-    }
-    $name = $Matches[1]
-    $value = $Matches[2]
-    if ($name -eq "PATH") {
-        $value = $value.Replace("%PATH%", $env:PATH)
-    }
-    [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
-}
+Import-FirmwareToolchainEnvironment -Toolchain $toolchain -IdfToolsPy $IdfToolsPy
 
 # Parallel ccache processes intermittently exit without diagnostics on this
 # Windows workstation; deterministic firmware builds are more valuable here.
@@ -946,18 +909,21 @@ function Show-PortStatus([string]$RequestedPort) {
     }
 }
 
-# RequestedPort is the COM identity that must return after a device reconnect.
-# TimeoutSeconds bounds the Windows inventory wait before the exclusive-open probe.
+# RequestedPort is the exact serial identity that must return after a device reconnect.
+# TimeoutSeconds bounds the inventory wait.
 # Throws for failed discovery or when the requested healthy device does not return.
 function Wait-ForPort([string]$RequestedPort, [int]$TimeoutSeconds) {
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $elapsed = [Diagnostics.Stopwatch]::StartNew()
     $normalizedRequestedPort = Normalize-PortName $RequestedPort
 
     Write-Host "Waiting for serial port $normalizedRequestedPort for up to $TimeoutSeconds seconds..."
 
-    while ((Get-Date) -lt $deadline) {
-        $ports = Get-SerialPorts
-        $requested = @($ports | Where-Object { $_.DeviceID -eq $normalizedRequestedPort -and $_.Status -eq 'OK' })
+    while ($elapsed.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        $requested = @(if ($IsLinux) {
+            Get-LinuxSerialPortDevice -RequestedPort $normalizedRequestedPort
+        } else {
+            Get-SerialPorts | Where-Object { $_.DeviceID -eq $normalizedRequestedPort -and $_.Status -eq 'OK' }
+        })
         if ($requested.Count -gt 0) {
             Write-Host "Using requested port $normalizedRequestedPort."
             return $normalizedRequestedPort
@@ -971,8 +937,11 @@ function Wait-ForPort([string]$RequestedPort, [int]$TimeoutSeconds) {
     throw "Timed out after $TimeoutSeconds seconds waiting for serial port $normalizedRequestedPort."
 }
 
-# Stop only known stale monitor processes, never this script or its callers.
+# RequestedPort: Windows COM port used to identify known stale monitors.
+# Throws when cleanup of an identified process fails.
 function Stop-StaleMonitorProcesses([string]$RequestedPort) {
+    if ($IsLinux) { return }
+
     $normalizedRequestedPort = $RequestedPort.ToUpperInvariant()
     $patterns = @(
         [regex]::new([regex]::Escape("idf.py -B $BuildDir -p $normalizedRequestedPort monitor")),
@@ -1038,11 +1007,19 @@ function Stop-SerialPortOwnerProcesses([string]$RequestedPort) {
 
 # Wait for an exclusive handle. Busy ports are cleared decisively instead of
 # burning the full timeout on a known owner.
-# RequestedPort is the normalized COM identity to open exclusively.
-# TimeoutSeconds bounds the short release wait after known owner cleanup.
+# RequestedPort is the normalized identity that the operation will open.
+# TimeoutSeconds bounds the Windows release wait after known owner cleanup.
 # Throws for a missing or busy port and preserves the real serial probe error.
 function Wait-ForExclusiveSerialPort([string]$RequestedPort, [int]$TimeoutSeconds) {
     $RequestedPort = Normalize-PortName $RequestedPort
+    if ($IsLinux) {
+        # Leave the actual open to the operation so a preflight cannot change DTR/RTS.
+        if ($null -eq (Get-LinuxSerialPortDevice -RequestedPort $RequestedPort)) {
+            throw "Serial port '$RequestedPort' is not present. Reconnect the device and retry."
+        }
+        return
+    }
+
     $probe = Test-ExclusiveSerialPort $RequestedPort
     if ($probe.IsAvailable) {
         Start-Sleep -Milliseconds 250
@@ -1203,7 +1180,7 @@ function Get-DependencyLockUpdateCommand([string]$RequestedBuildDir) {
     if ($ActivityClassifier) { $selector += ' -ActivityClassifier' }
     if ($ActivityCapture) { $selector += ' -ActivityCapture' }
     return (
-        "pwsh -NoProfile -File .\scripts\device.ps1 update-lock " +
+        "pwsh -NoProfile -File ./scripts/device.ps1 update-lock " +
         $selector +
         " -BuildMode $BuildMode -BuildDir '" + $RequestedBuildDir.Replace("'", "''") + "'"
     )
@@ -1489,7 +1466,7 @@ function Get-SetTargetRecoveryCommand([string]$RequestedBuildDir) {
     if ($ActivityClassifier) { $selector += ' -ActivityClassifier' }
     if ($ActivityCapture) { $selector += ' -ActivityCapture' }
     return (
-        "pwsh -NoProfile -File .\scripts\device.ps1 set-target " +
+        "pwsh -NoProfile -File ./scripts/device.ps1 set-target " +
         "$selector -BuildMode $BuildMode -BuildDir '" + $RequestedBuildDir.Replace("'", "''") + "'"
     )
 }
@@ -1567,7 +1544,7 @@ function Invoke-ProjectBuild([string]$RequestedBuildDir) {
         [Math]::Max(1, [Math]::Min(8, [Environment]::ProcessorCount))
     }
     Write-Host "Building with Ninja parallelism: -j $parallelJobs"
-    & ninja -C $RequestedBuildDir -j $parallelJobs all
+    & $NinjaCommand.Source -C $RequestedBuildDir -j $parallelJobs all
     if ($LASTEXITCODE -ne 0) {
         throw "Build failed (Ninja exit code $LASTEXITCODE)"
     }
@@ -1579,12 +1556,24 @@ function Invoke-ProjectBuild([string]$RequestedBuildDir) {
 # WaitForReconnect enables the existing bounded USB recovery wait before opening the port.
 # Throws on build, port, flash, lock or SDKCONFIG errors; restores the serial target environment.
 function Invoke-ProjectFlash([string]$RequestedBuildDir, [bool]$WaitForReconnect = $false) {
+    $flashPort = Normalize-PortName $Port
+    $selectedDevice = if ($IsLinux -and -not $WaitForReconnect) {
+        $device = Get-LinuxSerialPortDevice -RequestedPort $flashPort
+        if ($null -eq $device) { throw "Serial port '$flashPort' is not present. Reconnect the device and retry." }
+        $device
+    }
     Invoke-ProjectBuild $RequestedBuildDir
     Assert-WakeWordFlashImages -BuildDirectory $RequestedBuildDir -Feature $Feature
-    $flashPort = Normalize-PortName $Port
     Stop-StaleMonitorProcesses $flashPort
     if ($WaitForReconnect) { $flashPort = Wait-ForPort $flashPort $WaitSeconds }
-    Wait-ForExclusiveSerialPort $flashPort $WaitSeconds
+    if ($null -ne $selectedDevice) {
+        $currentDevice = Get-LinuxSerialPortDevice -RequestedPort $flashPort
+        if ($null -eq $currentDevice -or $currentDevice.InstanceId -cne $selectedDevice.InstanceId) {
+            throw "Serial port '$flashPort' disappeared or changed during the build. Confirm the device and retry."
+        }
+    } else {
+        Wait-ForExclusiveSerialPort $flashPort $WaitSeconds
+    }
     $parallelJobs = if ($Jobs -gt 0) { $Jobs } else { [Math]::Max(1, [Math]::Min(8, [Environment]::ProcessorCount)) }
     $environmentBeforeFlash = @{}
     $flashEnvironment = @{ ESPPORT = $flashPort; ESPBAUD = [string]$Baud }
@@ -1594,7 +1583,7 @@ function Invoke-ProjectFlash([string]$RequestedBuildDir, [bool]$WaitForReconnect
             [Environment]::SetEnvironmentVariable($name, $flashEnvironment[$name], 'Process')
         }
         # IDF 6.0.2 dispatches this same target. An explicit -j also bounds an implicit rebuild.
-        & ninja -C $RequestedBuildDir -j $parallelJobs flash
+        & $NinjaCommand.Source -C $RequestedBuildDir -j $parallelJobs flash
         if ($LASTEXITCODE -ne 0) { throw "Flash failed (exit code $LASTEXITCODE)" }
     } finally {
         foreach ($name in $environmentBeforeFlash.Keys) {
@@ -1605,14 +1594,14 @@ function Invoke-ProjectFlash([string]$RequestedBuildDir, [bool]$WaitForReconnect
     Save-SdkconfigDefaultsState $RequestedBuildDir
 }
 
-# RequestedPort is the selected COM identity; ESP-IDF owns its single serial open.
+# RequestedPort is the selected serial identity; ESP-IDF owns its single serial open.
 # RequestedBaud is the explicit monitor baud rate, independent of flash or environment defaults.
 # TimeoutSeconds bounds the wait for Windows to report the selected port present and healthy.
 # ResetOnAttach allows ESP-IDF's startup reset only after the caller explicitly requests it.
 # Throws the real ESP-IDF monitor failure with its native exit code; existing owners are never stopped here.
 function Invoke-ProjectMonitor([string]$RequestedPort, [int]$RequestedBaud, [int]$TimeoutSeconds, [bool]$ResetOnAttach = $false) {
     $normalizedPort = Normalize-PortName $RequestedPort
-    # Windows inventory is safe to wait for here; it never opens or probes the serial handle.
+    # Inventory is safe to wait for here; it never opens the serial handle.
     $normalizedPort = Wait-ForPort -RequestedPort $normalizedPort -TimeoutSeconds $TimeoutSeconds
     $monitorArguments = @('-p', $normalizedPort, 'monitor', '--monitor-baud', [string]$RequestedBaud)
     if ($ResetOnAttach) {

@@ -13,9 +13,12 @@ path is part of this checkout.
 | `config/boards/` | Current board YAML and supported service/driver choices |
 | `config/dependency-locks/v1/` | Reviewed dependency graph for each legal variant |
 | `scripts/common/board_config.py` | Validated module-to-component roots before Kconfig |
-| `scripts/device.ps1` | Public configuration, build, size, generators, checks and hardware operations |
+| `scripts/device.ps1` | Public preflight, configuration, build, size, generators, checks and hardware operations |
 
 Each variant has isolated generated sdkconfig and build state under `artifacts/`.
+Default Linux artifact paths carry a `-linux` suffix to keep host-specific CMake
+state and generated configuration separate from Windows. Use a dedicated
+`-BuildDir` per host when overriding the default.
 Normal dependency resolution must agree with the reviewed canonical lock.
 Changing board or service composition requires explicit configuration; an absent
 lock requires the public update-lock workflow, review and a focused checkpoint.
@@ -47,7 +50,15 @@ capabilities; they do not define the physical-device identity.
 
 The wrapper owns `-IdfPath`, `-ToolsPath`, `-PythonExe` and the corresponding
 `LUNASHELL_IDF_PATH`, `LUNASHELL_IDF_TOOLS_PATH`, `LUNASHELL_IDF_PYTHON` overrides.
-It prints the selected tool versions before an operation.
+Windows prefers the existing `E:\Espressif` installation and otherwise uses
+the system drive's `Espressif` directory. Ubuntu can use an activated ESP-IDF
+environment or the preflight installation under `~/.local/share/luna-shell/esp-idf/`.
+The ESP-IDF virtual environment must use Python 3.13.x.
+`scripts/device.ps1 preflight` checks the prerequisites,
+installs missing ones and stops at the first failure. It prepares the host
+outside the checkout, separate from configuration, build and serial commands.
+The wrapper prints selected tool versions before a firmware operation. See the
+[console setup guide](../../scripts/README.md#firmware-prerequisites-on-windows-and-ubuntu).
 
 The official upstream framework is the `third_party/esp-brookesia` Git submodule.
 Project manifests use local `override_path` entries into its official layout;

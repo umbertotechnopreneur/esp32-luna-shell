@@ -22,6 +22,7 @@ function Show-DeviceHelp {
     Import-Module (Join-Path $PSScriptRoot 'MenuManager/MenuManager.psd1') -ErrorAction Stop
     $width = Resolve-MenuConsoleWidth -Minimum 48 -Maximum 120 -Fallback 100
     $firmware = Get-DeviceFirmwarePresentation
+    $examplePort = if ($IsLinux) { '/dev/ttyACM0' } else { 'COM8' }
 
     Write-Host ''
     Write-Host ('  ' + ('═' * ($width - 4))) -ForegroundColor DarkCyan
@@ -29,7 +30,7 @@ function Show-DeviceHelp {
     Write-DeviceHelpText -Text 'Simulators · Firmware · Device · Checks · Assets' -Width $width
     Write-Host ('  ' + ('═' * ($width - 4))) -ForegroundColor DarkCyan
     Write-DeviceHelpText -Text 'Usage: Device.ps1 <command> [options]' -Width $width -Indent '  '
-    Write-DeviceHelpText -Text 'Examples use the script name only. Run it from the scripts folder; in PowerShell use .\Device.ps1.' -Width $width -Indent '  '
+    Write-DeviceHelpText -Text 'Examples use the script name only. From the scripts folder in PowerShell, run ./device.ps1.' -Width $width -Indent '  '
 
     Write-DeviceHelpSection -Title 'START HERE' -Icon '🧭' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1' -Description 'Open the interactive menu; select an operation or edit session settings.' -Width $width
@@ -57,6 +58,7 @@ function Show-DeviceHelp {
     Write-DeviceHelpEntry -Syntax 'Device.ps1 package-simulator' -Description 'Prepare local Python dependencies and package the Luna simulator EXE.' -Detail 'This packages Luna; the Cody simulator remains source-based.' -Width $width
 
     Write-DeviceHelpSection -Title 'FIRMWARE' -Icon '🔨' -Width $width -Color Cyan
+    Write-DeviceHelpEntry -Syntax 'device.ps1 preflight' -Description $firmware.preflight.Description -Detail 'Runs the host setup steps in order. A failure stops setup at that step and retains completed installations.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 codex-audio -EnableAudioQueue [-CodexExecutable <path>]' -Description 'Opt in to public experimental WAV queue delivery in the genuine followed chat. Uses the installed native CLI; no listener, API key or transcription service.' -Detail 'Without EnableAudioQueue, inspect the executable only. InstallAudioDependencies is explicit. The queue client never starts or resumes a model session. Queue admission is not transcription or understanding. Reload CCP after successful setup.' -Width $width
     Write-DeviceHelpSection -Title 'Build and configuration' -Icon '🎯' -Width $width -Subsection
     foreach ($name in @('set-target','build','reconfigure','update-lock','size')) {
@@ -83,7 +85,7 @@ function Show-DeviceHelp {
             monitor { 'Device.ps1 monitor' }
             capture { 'Device.ps1 capture -Port COM8 -DurationSeconds 30' }
             'sd-log' { 'Device.ps1 sd-log -Port COM10 -StoredLog current' }
-            default { "Device.ps1 $name -Port COM8" }
+            default { "Device.ps1 $name -Port $examplePort" }
         }
         Write-DeviceHelpEntry -Syntax $syntax -Description $firmware[$name].Description -Width $width
     }
@@ -92,7 +94,7 @@ function Show-DeviceHelp {
     Write-DeviceHelpEntry -Syntax 'Device.ps1 endurance-read -Port COM10' -Description 'Read canonical current and previous endurance records into artifacts/serial/endurance.json plus the checked .wire frame.' -Detail 'Works at Release WARN logging. Close the monitor first; requires matching firmware. No reset, sensor refresh or device write. An unavailable recorder saves its verified failure state and returns a failing command result; USB transfer success is separate. USB connection itself may end a battery-only session; elapsed time remains a lower bound, never a measured death time.' -Width $width
     Write-DeviceHelpSection -Title 'Programming and recovery' -Icon '⚡' -Width $width -Color Yellow -Subsection
     foreach ($name in @('flash','reset','combo','recover','erase')) {
-        Write-DeviceHelpEntry -Syntax "Device.ps1 $name -Port COM8" -Description $firmware[$name].Description -Width $width
+        Write-DeviceHelpEntry -Syntax "Device.ps1 $name -Port $examplePort" -Description $firmware[$name].Description -Width $width
     }
 
     Write-DeviceHelpSection -Title 'CHECKS' -Icon '🧪' -Width $width -Color Green
@@ -126,7 +128,7 @@ function Show-DeviceHelp {
 
     Write-DeviceHelpSection -Title 'Preview and connection options' -Icon '📐' -Width $width -Subsection
     Write-DeviceHelpEntry -Syntax '-Screen / -Rotation / -AtMs / -SafeGuide' -Description 'Screens: rig, greeting, boot-vibeware, boot-sleep, boot-waking, boot-ready. Rotation: 0/90/180/270; AtMs: 1000 by default; SafeGuide shows the circular layout guide.' -Width $width
-    Write-DeviceHelpEntry -Syntax '-Port / -Baud / -WaitSeconds' -Description 'Without Port, device actions ask you to choose a detected COM port. COM10 and 10 select the same port; explicit Port skips the prompt. Non-interactive calls require Port. Defaults: 115200 baud and a 30-second port wait.' -Width $width
+    Write-DeviceHelpEntry -Syntax '-Port / -Baud / -WaitSeconds' -Description 'Supply a COM name or number on Windows. On Linux, use /dev/ttyACM*, /dev/ttyUSB* or /dev/serial/by-id/<name>. Without Port, device actions ask you to select a detected port. Defaults are 115200 baud and a 30-second wait.' -Width $width
     Write-DeviceHelpEntry -Syntax '-ResetBeforeMonitor' -Description 'For monitor and combo only: opt in to the monitor startup reset. By default, monitor attachment uses --no-reset; Baud is passed explicitly through --monitor-baud.' -Width $width
     Write-DeviceHelpEntry -Syntax '-DurationSeconds / -ResetBeforeCapture' -Description 'Capture defaults to 30 seconds; opt in to a reset before capture.' -Width $width
     Write-DeviceHelpEntry -Syntax '-StoredLog current|previous' -Description 'sd-log defaults to current; OutputPath overrides artifacts/serial/sd-log-<name>.log and WaitSeconds bounds each USB response.' -Width $width

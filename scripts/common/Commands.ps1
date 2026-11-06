@@ -19,17 +19,19 @@
 # No parameters: return the explicitly supported firmware/device operations.
 function Get-FirmwareActions {
     return @('build','clean','fullclean','flash','reset','monitor','capture','erase',
-        'reconfigure','set-target','update-lock','size','combo','ports','discovery','port-status','recover')
+        'reconfigure','set-target','update-lock','size','combo','ports','discovery','port-status','recover','preflight')
 }
 
 # No parameters: describe public options once for CLI rejection and menu forwarding.
 function Get-DeviceActionParameters {
     $idf = @('Board','Profile','Feature','BoardConfig','BuildMode','BuildDir','IdfPath','ToolsPath','PythonExe','ActivityClassifier','ActivityCapture')
     $serial = @('Port','Baud','WaitSeconds')
+    $inventory = @(if (-not $IsLinux) { $idf })
     $preview = @('Screen','Rotation','AtMs','SafeGuide','CloudMaterialStudy','CloudPngMeshStudy','CloudJellyStudy','MeshOverlay','PythonExecutable','Skin')
     return @{
         menu = $idf + $serial + @('Jobs','PythonExecutable','Rotation')
         help = @(); list = @(); 'clean-artifacts' = @('BuildDir')
+        preflight = @('IdfPath','ToolsPath','PythonExe')
         simulator = $preview + @('OutputPath','Ccp','ActivityPreview')
         'boot-screens' = @('Rotation','AtMs','SafeGuide','PythonExecutable')
         'simulator-luna' = @('PythonExecutable','ToolArguments')
@@ -46,7 +48,7 @@ function Get-DeviceActionParameters {
         erase = $idf + $serial; reconfigure = $idf; 'set-target' = $idf; 'update-lock' = $idf
         size = $idf + @('SizeOutputFormat','SizeOutputFile')
         combo = $idf + $serial + @('Jobs','ResetBeforeMonitor'); recover = $idf + $serial + @('Jobs')
-        ports = $idf; discovery = @(); 'port-status' = $idf + @('Port')
+        ports = $inventory; discovery = @(); 'port-status' = $inventory + @('Port')
     }
 }
 
