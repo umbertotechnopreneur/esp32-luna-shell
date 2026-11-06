@@ -81,7 +81,8 @@ function Get-LinuxSerialPortDevice([string]$RequestedPort) {
 
     # stat reads the node metadata without opening it or changing DTR/RTS. Match
     # the character node's major/minor to the same current kernel tty identity.
-    $stat = Get-Command stat -CommandType Application -ErrorAction Stop
+    $stat = Get-Command stat -CommandType Application -ErrorAction Stop |
+        Select-Object -First 1
     $PSNativeCommandUseErrorActionPreference = $false
     $metadata = & $stat.Path -c '%f %t %T' -- $devicePath 2>&1
     $statExitCode = $LASTEXITCODE
