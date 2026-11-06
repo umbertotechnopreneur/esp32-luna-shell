@@ -1064,7 +1064,7 @@ class SimulatorEndpoint:
             raise RuntimeError("SIMULATED CCP endpoint already started")
         transport = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            transport.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            protocol.configure_exclusive_socket(transport)
             transport.bind((LOOPBACK, protocol.DEVICE_PORT))
             transport.settimeout(0.1)
             # Acquire the listener before reading/creating an identity, just like CCP.
