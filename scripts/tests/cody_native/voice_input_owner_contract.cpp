@@ -34,6 +34,11 @@ VoiceSnapshot fixture_voice{};
 struct DeviceSnapshotService {
     // No parameters: one deterministic canonical fake.
     static DeviceSnapshotService &instance() { static DeviceSnapshotService service; return service; }
+    // admission: The existing owner scenarios start with dictation enabled and the authenticated LAN ready.
+    esp_err_t readVoiceInputAdmissionObservation(VoiceInputAdmissionObservation &admission) {
+        admission = {ESP_OK, true, true, true};
+        return ESP_OK;
+    }
     // voice: Current valid AFE observation, without sensor acquisition.
     esp_err_t readVoiceObservation(VoiceSnapshot &voice) { voice = fixture_voice; return injected_read_error; }
     // voice: Real owner transition, retained only after successful transport.

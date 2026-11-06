@@ -259,18 +259,38 @@ esp_err_t prepare(const char *device_id, uint8_t flags)
 }
 }
 
-// trigger: Explicit event identity; both inputs enter the same capture owner.
-// Exception: Returns original acquisition/admission/allocation error and logs rejection.
-esp_err_t LUNASHELL::requestVoiceInput(VoiceInputTrigger trigger)
+// trigger: Explicit event identity; all triggers enter the same capture owner.
+// started: Optional output confirming this request published a Preparing session.
+// Exception: Returns original errors. An intentionally suppressed request is ESP_OK with started=false.
+esp_err_t LUNASHELL::requestVoiceInput(VoiceInputTrigger trigger, bool *started)
 {
+    if (started != nullptr) {
+        *started = false;
+    }
     std::lock_guard<std::mutex> guard(s_mutex);
     if (trigger != VoiceInputTrigger::WakeWord && trigger != VoiceInputTrigger::DoubleTap &&
         trigger != VoiceInputTrigger::StandbyWake) {
         ESP_LOGE(kTag, "Voice input rejected unknown trigger=%u (%s)", unsigned(trigger), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
+    VoiceInputAdmissionObservation admission{};
+    auto &snapshots = DeviceSnapshotService::instance();
+    const esp_err_t admission_error = snapshots.readVoiceInputAdmissionObservation(admission);
+    if (admission_error != ESP_OK) {
+        ESP_LOGE(kTag, "Voice admission observation failed (%s)", esp_err_to_name(admission_error));
+        return admission_error;
+    }
+    if (!admission.dictation_valid || admission.dictation_error != ESP_OK) {
+        const esp_err_t error = admission.dictation_error != ESP_OK
+            ? admission.dictation_error : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Dictation preference unavailable (%s)", esp_err_to_name(error));
+        return error;
+    }
+    if (!admission.dictation_enabled || (trigger == VoiceInputTrigger::DoubleTap && !admission.lan_ready)) {
+        return ESP_OK;
+    }
     VoiceSnapshot voice{};
-    const esp_err_t read_error = DeviceSnapshotService::instance().readVoiceObservation(voice);
+    const esp_err_t read_error = snapshots.readVoiceObservation(voice);
     // A completed standby wake can precede the AFE's first resumed publication.
     // Preparing admits no PCM; the countdown boundary requires a fresh Listening sample.
     const bool resumed_pause = trigger == VoiceInputTrigger::StandbyWake && voice.state == VoiceState::Paused &&
@@ -304,6 +324,9 @@ esp_err_t LUNASHELL::requestVoiceInput(VoiceInputTrigger trigger)
     esp_fill_random(s_session, sizeof(s_session));
     const esp_err_t publication_error = publish(VoiceInputPhase::Preparing);
     if (publication_error != ESP_OK) return publication_error;
+    if (started != nullptr) {
+        *started = true;
+    }
     LUNASHELL_power_manager_note_activity();
     return ESP_OK;
 }

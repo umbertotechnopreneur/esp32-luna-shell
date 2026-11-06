@@ -33,6 +33,9 @@ constexpr char kShakeKey[] = "cody_shake";
 constexpr char kSoundsKey[] = "cody_sounds";
 constexpr char kUserNameKey[] = "cody_user_name";
 constexpr char kUsageModeKey[] = "cody_usage";
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+constexpr char kDictationKey[] = "cody_dictation";
+#endif
 std::mutex s_preferences_mutex;
 
 // name: Exact user-provided printable ASCII, including empty explicit clear.
@@ -226,6 +229,34 @@ esp_err_t load_usage_mode(LUNASHELL::CodyPreferencesSnapshot &preferences)
     }
     return error;
 }
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+// value: Exact 0/1 choice validated by the preference dispatcher.
+// Exception: Returns original snapshot, write, readback or publication errors.
+esp_err_t persist_dictation(uint32_t value)
+{
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    LUNASHELL::CodyOptionsObservation observation;
+    auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    const esp_err_t projection_error = snapshots.readCodyOptionsObservation(observation);
+    if (projection_error != ESP_OK) {
+        ESP_LOGE(kTag, "Dictation preference projection failed (%s)", esp_err_to_name(projection_error));
+        return projection_error;
+    }
+    const esp_err_t error = save_switch(kDictationKey, value);
+    auto &preferences = observation.preferences;
+    preferences.dictation_valid = error == ESP_OK;
+    preferences.dictation_error = error;
+    if (error == ESP_OK) {
+        preferences.dictation_enabled = value == 1U;
+    }
+    const esp_err_t publication_error = snapshots.reportCodyPreferences(preferences);
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(kTag, "Dictation preference publication failed (%s)", esp_err_to_name(publication_error));
+    }
+    return error != ESP_OK ? error : publication_error;
+}
+#endif
 }
 
 // No parameters: exact persisted settings are applied before Cody/audio workers start.
@@ -233,7 +264,8 @@ esp_err_t load_usage_mode(LUNASHELL::CodyPreferencesSnapshot &preferences)
 static esp_err_t load_companion_preferences_locked()
 {
     auto &store = LUNASHELL::UserSettingsService::instance();
-    esp_err_t error = store.isInitialized() ? ESP_OK : store.initialize();
+    const esp_err_t storage_error = store.isInitialized() ? ESP_OK : store.initialize();
+    esp_err_t error = storage_error;
     LUNASHELL::CodyPreferencesSnapshot preferences;
     preferences.last_attempt_at_us = esp_timer_get_time();
     LUNASHELL::CodyOptionsObservation previous;
@@ -245,6 +277,9 @@ static esp_err_t load_companion_preferences_locked()
         preferences.usage_mode = previous.preferences.usage_mode;
         preferences.usage_mode_valid = previous.preferences.usage_mode_valid;
         preferences.usage_mode_error = previous.preferences.usage_mode_error;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        preferences.dictation_enabled = previous.preferences.dictation_enabled;
+#endif
     } else {
         preferences.user_name.last_error = projection_error;
         preferences.user_name.health = LUNASHELL::DeviceHealth::Degraded;
@@ -252,6 +287,14 @@ static esp_err_t load_companion_preferences_locked()
         ESP_LOGE(kTag, "Optional preferred-name prior projection unavailable (%s)", esp_err_to_name(projection_error));
         ESP_LOGE(kTag, "Optional companion usage mode prior projection unavailable (%s)", esp_err_to_name(projection_error));
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    // An optional preference failure cannot stop the companion or admit capture.
+    preferences.dictation_error = storage_error == ESP_OK
+        ? load_switch(kDictationKey, true, preferences.dictation_enabled) : storage_error;
+    preferences.dictation_valid = preferences.dictation_error == ESP_OK;
+#else
+    preferences.dictation_error = ESP_ERR_NOT_SUPPORTED;
+#endif
     if (error == ESP_OK) {
         error = load_switch(kShakeKey, kDefaultShake, preferences.shake_to_wake);
     }
@@ -373,6 +416,19 @@ esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
         }
         return persist_companion_usage_mode(value == 1U ? LUNASHELL::CodyUsageMode::Away :
             LUNASHELL::CodyUsageMode::Desk);
+    }
+    if (preference == PreferenceId::Dictation) {
+        if (value > 1U) {
+            ESP_LOGE(kTag, "Dictation preference rejected value=%lu (%s)",
+                static_cast<unsigned long>(value), esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        return persist_dictation(value);
+#else
+        ESP_LOGE(kTag, "Dictation preference unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+        return ESP_ERR_NOT_SUPPORTED;
+#endif
     }
     std::lock_guard<std::mutex> guard(s_preferences_mutex);
     if ((preference != PreferenceId::ShakeWake && preference != PreferenceId::Sounds) || value > 1U) {

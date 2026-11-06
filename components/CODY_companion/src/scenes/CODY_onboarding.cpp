@@ -127,11 +127,11 @@ enum class CodexCleanup : uint8_t { None, Cancel, Forget };
 enum class OnboardingAction : uint8_t {
     None, ShowQr, PairCody, Cancel, Retry, Continue, Next, Done, LetsGo,
     AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later, Options, KeepPairing, ReplacePairing,
-    ForgetPairing, ConfirmForget, KeepSaved, CodyLook, DisplayOptions, BehaviorOptions,
+    ForgetPairing, ConfirmForget, KeepSaved, CodyLook, DisplayOptions, BehaviorOptions, MoreBehavior,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
-enum class OptionsPage : uint8_t { Menu, Display, Behavior };
+enum class OptionsPage : uint8_t { Menu, Display, Behavior, BehaviorMore };
 
 struct ScreenInactivityPolicy {
     Route route;
@@ -962,6 +962,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
     case OnboardingAction::BehaviorOptions:
         label = "Behavior";
         break;
+    case OnboardingAction::MoreBehavior:
+        label = "More options";
+        break;
     case OnboardingAction::Done:
         label = "Done";
         break;
@@ -1640,6 +1643,7 @@ esp_err_t prepare_options_content(SceneFrame &scene)
     s_view.preference_count = 0;
     const char *title = s_preference_error != ESP_OK ? "Save failed" :
         s_options_page == OptionsPage::Display ? "Display" :
+        s_options_page == OptionsPage::BehaviorMore ? "More behavior" :
         s_options_page == OptionsPage::Behavior ? "Behavior" : "Options";
     const uint16_t title_length = static_cast<uint16_t>(std::strlen(title));
     esp_err_t error = ESP_OK;
@@ -1691,23 +1695,39 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         PreferenceId identity;
         const char *label;
     };
-    static constexpr Row pages[][kPreferencesPerPage] = {
-        {
-            {PreferenceId::Brightness, "Brightness"},
-            {PreferenceId::AutoRotate, "Auto-rotate"},
-            {PreferenceId::Orientation, "Orientation"},
-        },
-        {
-            {PreferenceId::ShakeWake, "Shake to wake"},
-            {PreferenceId::Sounds, "Sounds"},
-            {PreferenceId::UsageMode, "Usage"},
-        },
+    static constexpr Row display_rows[] = {
+        {PreferenceId::Brightness, "Brightness"},
+        {PreferenceId::AutoRotate, "Auto-rotate"},
+        {PreferenceId::Orientation, "Orientation"},
     };
+    static constexpr Row usage_row{PreferenceId::UsageMode, "Usage"};
+    static constexpr Row behavior_rows[] = {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        {PreferenceId::Dictation, "Dictation"},
+#endif
+        {PreferenceId::ShakeWake, "Shake to wake"},
+        {PreferenceId::Sounds, "Sounds"},
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        usage_row,
+#endif
+    };
+    static_assert(std::size(display_rows) <= kPreferencesPerPage);
+    static_assert(std::size(behavior_rows) <= kPreferencesPerPage);
+    const Row *rows = behavior_rows;
+    size_t row_count = std::size(behavior_rows);
+    if (s_options_page == OptionsPage::Display) {
+        rows = display_rows;
+        row_count = std::size(display_rows);
+    } else if (s_options_page == OptionsPage::BehaviorMore) {
+        rows = &usage_row;
+        row_count = 1;
+    }
     const auto &font = SceneData::body_font;
     const auto &preferences = observation.preferences;
     const auto &orientation = observation.orientation;
     s_presented_options = observation;
-    for (const auto &row : pages[s_options_page == OptionsPage::Display ? 0 : 1]) {
+    for (size_t index = 0; index < row_count; ++index) {
+        const auto &row = rows[index];
         auto &target = s_view.preferences[s_view.preference_count];
         target = {};
         target.identity = row.identity;
@@ -1716,6 +1736,10 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         bool active = false;
         const char *value = "N/A";
         switch (row.identity) {
+        case PreferenceId::Dictation:
+            available = preferences.dictation_valid && preferences.dictation_error == ESP_OK;
+            active = preferences.dictation_enabled;
+            break;
         case PreferenceId::ShakeWake:
             active = preferences.shake_to_wake;
 #if !CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
@@ -1790,6 +1814,11 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         }
         ++s_view.preference_count;
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    if (s_options_page == OptionsPage::Behavior) {
+        return prepare_action(OnboardingAction::MoreBehavior, !s_command_pending);
+    }
+#endif
     return prepare_action(OnboardingAction::Done, !s_command_pending);
 }
 
@@ -3858,7 +3887,10 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             s_presented_options.preferences.last_attempt_at_us ||
             options.preferences.usage_mode != s_presented_options.preferences.usage_mode ||
             options.preferences.usage_mode_valid != s_presented_options.preferences.usage_mode_valid ||
-            options.preferences.usage_mode_error != s_presented_options.preferences.usage_mode_error;
+            options.preferences.usage_mode_error != s_presented_options.preferences.usage_mode_error ||
+            options.preferences.dictation_enabled != s_presented_options.preferences.dictation_enabled ||
+            options.preferences.dictation_valid != s_presented_options.preferences.dictation_valid ||
+            options.preferences.dictation_error != s_presented_options.preferences.dictation_error;
         const bool brightness_changed = options.brightness_percent != s_presented_options.brightness_percent ||
             options.brightness_valid != s_presented_options.brightness_valid;
         if (preference_changed || brightness_changed || current.auto_rotation_enabled != previous.auto_rotation_enabled ||
@@ -4443,7 +4475,8 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     if (back_hit && s_route == Route::MakeItYours10) {
         if (s_options_page != OptionsPage::Menu) {
             s_preference_error = ESP_OK;
-            return show_options_page(scene, OptionsPage::Menu);
+            return show_options_page(scene, s_options_page == OptionsPage::BehaviorMore
+                ? OptionsPage::Behavior : OptionsPage::Menu);
         }
         return enter_route(Route::SetupMenu, scene);
     }
@@ -4471,6 +4504,9 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
                 error = prepare_options_content(scene);
             }
             return error == ESP_OK ? attach_content(scene) : error;
+        }
+        if (s_options_page == OptionsPage::Behavior && s_view.action_id == OnboardingAction::MoreBehavior) {
+            return show_options_page(scene, OptionsPage::BehaviorMore);
         }
         if (s_options_page != OptionsPage::Menu) {
             return show_options_page(scene, OptionsPage::Menu);

@@ -25,9 +25,20 @@ struct VoiceInputObservation {
 };
 static_assert(sizeof(VoiceInputObservation) <= 48, "Voice projection must stay within its bounded caller budget");
 
+// Admission uses a single current policy/route snapshot without copying radio or audio history.
+struct VoiceInputAdmissionObservation {
+    esp_err_t dictation_error = ESP_ERR_INVALID_STATE;
+    bool dictation_valid = false;
+    bool dictation_enabled = false;
+    bool lan_ready = false;
+};
+static_assert(sizeof(VoiceInputAdmissionObservation) <= 8, "Voice admission must remain a scalar projection");
+
 // trigger: Explicit recognition or acquired double-tap event.
-// Returns the original admission/allocation/publication error; duplicate capture is rejected.
-esp_err_t requestVoiceInput(VoiceInputTrigger trigger);
+// started: Optional result, true only after this request successfully publishes Preparing.
+// Exception: Returns original errors. Dictation Off or a double tap without the LAN route
+// is an intentional ESP_OK no-op with started=false.
+esp_err_t requestVoiceInput(VoiceInputTrigger trigger, bool *started = nullptr);
 // expected_started_at_us: Original session identity from the completely retired Preparing screen.
 // accepted: True only when that still-current session enters the three-second start countdown.
 // Exception: Stale/terminal requests return ESP_OK with accepted=false; publication errors stay real.

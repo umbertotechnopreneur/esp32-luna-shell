@@ -2857,6 +2857,13 @@ esp_err_t DeviceSnapshotService::readConnectivityObservation(ConnectivityObserva
     return ESP_OK;
 }
 
+// wifi: Current event-owned radio snapshot, without driver access.
+static bool wifi_has_current_ip(const WifiSnapshot &wifi)
+{
+    return wifi.health == DeviceHealth::Ready && wifi.data_valid && !wifi.data_stale &&
+        wifi.last_error == ESP_OK && wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0';
+}
+
 // observation: Caller-owned provisioning state and lease validity from one snapshot.
 // Exception: Returns the original mutex error. The caller discards output on failure.
 esp_err_t DeviceSnapshotService::readPairingObservation(PairingObservation &observation) const
@@ -2868,9 +2875,7 @@ esp_err_t DeviceSnapshotService::readPairingObservation(PairingObservation &obse
     observation.provisioning = s_snapshot.radios.provisioning;
     observation.operating_state = s_snapshot.power.state;
     const auto &wifi = s_snapshot.radios.wifi;
-    observation.wifi_online = wifi.health == DeviceHealth::Ready && wifi.data_valid &&
-        !wifi.data_stale && wifi.last_error == ESP_OK && wifi.connected &&
-        wifi.ip_acquired && wifi.ip_address[0] != '\0';
+    observation.wifi_online = wifi_has_current_ip(wifi);
     return give_snapshot_mutex("pairing read");
 }
 
@@ -3186,6 +3191,35 @@ esp_err_t DeviceSnapshotService::readClockObservation(ClockSnapshot &clock) cons
     clock = copy;
     return ESP_OK;
 }
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+// admission: Receives independent preference validity and the retained authenticated LAN route.
+// Exception: Returns the original snapshot lock or release failure without changing the output.
+esp_err_t DeviceSnapshotService::readVoiceInputAdmissionObservation(VoiceInputAdmissionObservation &admission) const
+{
+    const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "voice admission read");
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    const auto &preferences = s_snapshot.cody_preferences;
+    const auto &wifi = s_snapshot.radios.wifi;
+    const auto &link = s_snapshot.radios.codex_link;
+    const bool lan_ready = wifi.started && wifi.connection_state_valid && wifi_has_current_ip(wifi) &&
+        link.retained_link_present && !link.pending_pairing_present && !link.command_pending &&
+        codex_presence::ready_current(link, esp_timer_get_time());
+    const VoiceInputAdmissionObservation copy{
+        .dictation_error = preferences.dictation_error,
+        .dictation_valid = preferences.dictation_valid,
+        .dictation_enabled = preferences.dictation_enabled,
+        .lan_ready = lan_ready,
+    };
+    const esp_err_t release_error = give_snapshot_mutex("voice admission read");
+    if (release_error == ESP_OK) {
+        admission = copy;
+    }
+    return release_error;
+}
+#endif
 
 // voice: Receives the canonical AFE state; this method never acquires audio.
 esp_err_t DeviceSnapshotService::readVoiceObservation(VoiceSnapshot &voice) const

@@ -80,7 +80,6 @@
 #include "cody_waking_pearl.hpp"
 #include "cody_ready_pearl.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
-#include "LUNASHELL_voice_connectivity.hpp"
 #include "LUNASHELL_voice_input.hpp"
 #include "LUNASHELL_codex_debug.hpp"
 #include "LUNASHELL_build_mode.hpp"
@@ -879,8 +878,6 @@ esp_err_t advance_local_companion_panel()
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
 // No parameters: only a retired input view owns its shake gesture.
 bool voice_input_view_active();
-// No parameters: a newer interaction retires any pending double-tap intent.
-void cancel_pending_voice_tap();
 #endif
 
 // now_us: Monotonic frame time used to exclude wake-causing movement.
@@ -908,9 +905,6 @@ esp_err_t observe_paused_companion_navigation(int64_t now_us, bool resumed)
     }
     if (CODY::observe_companion_shake(s_state.companion_shake, inputs.navigation_motion,
             esp_timer_get_time(), eligible)) {
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-        cancel_pending_voice_tap();
-#endif
         select_companion_panel(CODY::CompanionPanel::Home);
     }
     return ESP_OK;
@@ -2517,9 +2511,6 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     if (CODY::observe_companion_shake(s_state.companion_shake, inputs.navigation_motion,
             esp_timer_get_time(), gesture_eligible)) {
         // Home consumes a deliberate shake without changing chats or remote state.
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-        cancel_pending_voice_tap();
-#endif
         select_companion_panel(CODY::CompanionPanel::Home);
     }
     const bool routine_current = LUNASHELL::clock_observation_current(clock) && clock.routines_enabled;
@@ -3129,15 +3120,6 @@ int64_t s_voice_view_started_at_us = 0;
 int64_t s_voice_tap_due_us = 0;
 uint16_t s_voice_tap_rotation = 0;
 int16_t s_voice_tap_x = 0, s_voice_tap_y = 0;
-constexpr int64_t kVoiceInternetCheckTimeoutUs = 3500000;
-uint32_t s_voice_internet_check_id = 0;
-
-// No parameters: retire the display-owned tap and ignore any later probe result.
-void cancel_pending_voice_tap()
-{
-    s_voice_tap_due_us = 0;
-    s_voice_internet_check_id = 0;
-}
 
 // No parameters: only the fully retired voice view can own shake cancellation.
 bool voice_input_view_active()
@@ -3151,33 +3133,6 @@ bool voice_input_phase_active(LUNASHELL::VoiceInputPhase phase)
     using Phase = LUNASHELL::VoiceInputPhase;
     return phase == Phase::Preparing || phase == Phase::StartCountdown || phase == Phase::SendCountdown ||
         phase == Phase::Listening || phase == Phase::Sending || phase == Phase::Cancelling || phase == Phase::Received;
-}
-
-// display_available: The current display owner still admits Home interactions.
-// voice_attention: A separately admitted voice session or recent result owns the view.
-void service_voice_internet_check(bool display_available, bool voice_attention)
-{
-    if (s_voice_internet_check_id == 0) return;
-    if (!display_available || voice_attention || !companion_home_route_active() ||
-        s_state.touch_pressed || s_voice_tap_rotation != s_state.rendered_rotation_degrees ||
-        s_power_presentation.load(std::memory_order_acquire) != PowerPresentation::None) {
-        s_voice_internet_check_id = 0;
-        return;
-    }
-    bool complete = false;
-    const esp_err_t result = LUNASHELL::pollVoiceInternetCheck(s_voice_internet_check_id, complete);
-    if (!complete) return;
-    s_voice_internet_check_id = 0;
-    if (result != ESP_OK) {
-        // The check may fail without changing the scene or the voice owner.
-        ESP_LOGI(kTag, "Double-tap voice input not admitted (%s)", esp_err_to_name(result));
-        return;
-    }
-    const esp_err_t request_error = LUNASHELL::requestVoiceInput(LUNASHELL::VoiceInputTrigger::DoubleTap);
-    if (request_error != ESP_OK) {
-        ESP_LOGW(kTag, "Double-tap voice input request failed (%s)", esp_err_to_name(request_error));
-    }
-    s_state.frame_dirty.store(true, std::memory_order_release);
 }
 
 // phase: Canonical or completely retired phase whose gesture meaning must never cross a transition.
@@ -3487,7 +3442,7 @@ bool home_panel_rotation_interaction_active()
         s_state.companion_tap.candidate || s_state.petting.contact_active ||
         s_state.setup_hold_candidate || s_state.setup_hold_opened || s_state.body_drag_active;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-    pending = pending || s_voice_tap_due_us != 0 || s_voice_internet_check_id != 0;
+    pending = pending || s_voice_tap_due_us != 0;
 #endif
     return pending;
 }
@@ -3603,7 +3558,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 if (accepted) { s_state.frame_dirty.store(true, std::memory_order_release); }
             }
         }
-        cancel_pending_voice_tap();
+        s_voice_tap_due_us = 0;
         s_state.animation_sampled_us = 0;
         s_state.onboarding_sampled_us = 0;
         s_resources.previous_frame_valid = false;
@@ -5095,9 +5050,6 @@ esp_err_t apply_lifecycle_requests()
     }
     s_state.lifecycle_request = request;
     CODY::cancel_companion_tap(s_state.companion_tap);
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-    cancel_pending_voice_tap();
-#endif
     CODY::suspend_companion_shake(s_state.companion_shake, esp_timer_get_time());
     // A retained contact must start a fresh visible hold after the wake handoff.
     s_state.setup_hold_candidate = false;
@@ -5514,10 +5466,6 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
     }
     const bool pressed_edge = point.pressed && !s_state.touch_pressed;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-    if (pressed_edge) {
-        // A new contact supersedes the completed double tap that started the check.
-        s_voice_internet_check_id = 0;
-    }
     if (s_voice_view_visible) {
         CODY::cancel_companion_tap(s_state.companion_tap);
         const auto action = CODY::observe_voice_recording_touch(s_voice_recording_gesture,
@@ -5736,14 +5684,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
             if (s_voice_tap_due_us != 0 && point.sample_timestamp_us <= s_voice_tap_due_us &&
                 s_voice_tap_rotation == s_state.rendered_rotation_degrees && dx * dx + dy * dy <= 1600) {
                 s_voice_tap_due_us = 0;
-                const int64_t deadline_us = esp_timer_get_time() + kVoiceInternetCheckTimeoutUs;
-                const esp_err_t check_error =
-                    LUNASHELL::startVoiceInternetCheck(deadline_us, s_voice_internet_check_id);
-                if (check_error != ESP_OK) {
-                    ESP_LOGI(kTag, "Double-tap voice connectivity check not started (%s)",
-                        esp_err_to_name(check_error));
-                }
-                return ESP_OK;
+                return LUNASHELL::requestVoiceInput(LUNASHELL::VoiceInputTrigger::DoubleTap);
             }
             s_voice_tap_due_us = point.sample_timestamp_us + 420000;
             s_voice_tap_rotation = s_state.rendered_rotation_degrees;
@@ -5815,7 +5756,7 @@ bool optional_runtime_touch_failure(const TouchPollResult &sample)
 void interrupt_touch_gestures(esp_err_t error)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-    cancel_pending_voice_tap();
+    s_voice_tap_due_us = 0;
     CODY::reset_voice_recording_gesture(s_voice_recording_gesture);
 #endif
     CODY::cancel_companion_tap(s_state.companion_tap);
@@ -5986,7 +5927,6 @@ void companion_worker(void *context)
             input_phase == LUNASHELL::VoiceInputPhase::Failed) && s_voice_input_view.input.changed_at_us > 0 &&
             esp_timer_get_time() - s_voice_input_view.input.changed_at_us < 3000000;
         const bool voice_attention = voice_input_phase_active(input_phase) || s_voice_view_visible || recent_terminal;
-        service_voice_internet_check(display_available, voice_attention);
         if ((voice_attention && (input_phase != s_voice_view_phase ||
             s_voice_view_started_at_us != s_voice_input_view.input.started_at_us ||
             s_voice_view_countdown_seconds != s_voice_input_view.input.countdown_seconds ||

@@ -500,8 +500,9 @@ long-compaction scenario exercises presentation, not actual hook reachability.
 ### Desk and Away
 
 The Behavior screen under Options includes a `Usage` row, toggling `Desk` and
-`Away` through the settings owner. It shares the three-row Options layout
-described in [layout](layout.md#setup-qr-and-skin).
+`Away` through the settings owner. In voice-enabled builds, More options opens
+that row on its own page. Both pages use the same Options layout described in
+[layout](layout.md#setup-qr-and-skin).
 
 `cody_usage` is a strict persisted uint32 boundary value (Desk=0, Away=1).
 Only an absent key receives a logged Desk default followed by exact readback.
@@ -695,15 +696,18 @@ operations still require approval. The intermittent mandatory display/touch stop
 has not been resolved by short successful captures.
 ## One-way voice input source increment
 
-The firmware uses an explicit voice-input event for **Sophia**
-and an acquired double tap on the visible character. A single character tap waits
-420 ms before changing the selected Home lower panel.
+**Options → Behavior → Dictation** controls whether Cody admits a new voice
+recording. The device stores the choice. The default is On for a voice-enabled
+Cody build. Off prevents voice input from opening after Sophia, a character
+double tap or a physical standby wake. Wake behavior has its own controls.
+
+When dictation is enabled, the firmware accepts an explicit voice-input event
+for **Sophia** and an acquired double tap on the visible character. A single
+character tap waits 420 ms before changing the selected Home lower panel.
 Movement, stale/broken touch, rotation and explicit controls disqualify a double
-tap. A double tap waits on Home for up to 3.5 seconds for a fresh, certificate-verified
-TLS connection from Cody to `api.openai.com:443`. Wi-Fi association and an IP
-address are prerequisites. This one-shot check runs off the display thread and
-sends no HTTP request, credentials or audio. Failure, expiry, a superseding
-touch, a deliberate shake or a route change leaves voice input unopened.
+tap. Before publishing Preparing for a double tap, the voice owner requires
+current Wi-Fi with an IP address and a fresh authenticated CCP READY from the
+paired PC. The audio path uses that local network connection.
 The existing power owner handles standby wake; speech inference and enhanced
 mono PCM remain owned by the sole existing ESP-SR AFE.
 Preparing is admitted for wake-word, character double tap,

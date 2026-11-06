@@ -880,6 +880,9 @@ struct CodyPreferencesSnapshot : ComponentSnapshot {
     CodyUsageMode usage_mode = CodyUsageMode::Desk;
     bool usage_mode_valid = false;
     esp_err_t usage_mode_error = ESP_ERR_INVALID_STATE;
+    bool dictation_enabled = false;
+    bool dictation_valid = false;
+    esp_err_t dictation_error = ESP_ERR_INVALID_STATE;
     CodyUserNameSnapshot user_name;
 };
 
@@ -1168,6 +1171,11 @@ public:
 
     // voice: Receives canonical recognition state and the last historical event.
     esp_err_t readVoiceObservation(VoiceSnapshot &voice) const;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    // admission: Receives the persisted preference and current LAN route in one canonical read.
+    // Exception: Returns the original lock or release failure without assigning a partial result.
+    esp_err_t readVoiceInputAdmissionObservation(VoiceInputAdmissionObservation &admission) const;
+#endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     // input: Real capture/transport state from the sole voice-input owner.
     // Returns the original snapshot publication failure.

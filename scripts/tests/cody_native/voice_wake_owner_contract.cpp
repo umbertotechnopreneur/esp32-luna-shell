@@ -23,10 +23,14 @@ struct DeviceSnapshotService {
 };
 
 // trigger: Must preserve the real completed standby-wake identity.
+// started: Optional output indicating that the fixture admitted this capture.
 // Exception: Returns the injected real admission error.
-esp_err_t requestVoiceInput(VoiceInputTrigger trigger)
+esp_err_t requestVoiceInput(VoiceInputTrigger trigger, bool *started)
 {
     assert(trigger == VoiceInputTrigger::StandbyWake);
+    if (started != nullptr) {
+        *started = admission_error == ESP_OK;
+    }
     ++admission_count;
     return admission_error;
 }

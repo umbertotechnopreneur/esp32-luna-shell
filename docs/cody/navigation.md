@@ -34,9 +34,9 @@ Open the Device panel to read the IMU label. A short released tap advances one
 panel. Automatic rotation allows at least eight visible seconds per panel and
 extends Device and Chat until scrolling text can be read. Hidden views, standby
 and compaction pause rotation. A double tap on the character starts voice input
-after Cody verifies that it can reach OpenAI. An offline double tap leaves the
-current panel visible. A deliberate shake returns to Tokens, so running or
-jumping may also change the panel.
+when Dictation is On and Cody has a current authenticated LAN link to the
+paired PC. Otherwise the current panel stays visible. A deliberate shake
+returns to Tokens, so running or jumping may also change the panel.
 
 Keep the device in the same position and orientation on your body for each trial.
 Observe sitting, standing, walking and jogging for 20-30 seconds each, allowing
@@ -147,8 +147,10 @@ record is not remotely revoked by this local action.
 
 Options shows Cody's Look, Display and Behavior. Cody's Look opens the skin
 selector titled Make it yours. Display groups Brightness, Auto-rotate and
-Orientation. Behavior groups Shake to wake, Sounds and Usage. Back or Done
-returns from a category or Skin to Options. Done there returns to Setup
+Orientation. With voice input available, Behavior shows Dictation, Shake to
+wake and Sounds. More options opens Usage. Without voice input, Behavior
+shows Shake to wake, Sounds and Usage on one page. Back from Usage returns
+to Behavior. Done returns from a category or Skin to Options, then to Setup
 when opened from Setup.
 
 | Preference | Contract |
@@ -156,6 +158,7 @@ when opened from Setup.
 | Shake to wake | Persisted On / Off |
 | Auto-rotate | Persisted On / Off |
 | Sounds | Persisted master playback gate; Off preserves microphone/wake word |
+| Dictation | Persisted On / Off. Off blocks new voice recordings from every trigger. |
 | Orientation | 0 / 180 when Auto-rotate is Off; otherwise show Auto |
 | Brightness | Tap to reduce by ten points down to 10%, then return to 100%. The selected level is saved. |
 | Usage | Strict Desk / Away; see [runtime](runtime.md#desk-and-away) |
