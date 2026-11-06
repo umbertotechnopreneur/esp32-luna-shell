@@ -1669,7 +1669,7 @@ esp_err_t prepare_options_content(SceneFrame &scene)
                 std::snprintf(target.value_text, sizeof(target.value_text), "%lu%%",
                     static_cast<unsigned long>(percent));
                 value = target.value_text;
-                target.requested_value = percent == 10U ? 100U : std::max(10U, percent - 10U);
+                target.requested_value = percent == 10U ? 100U : std::max<uint32_t>(10U, percent - 10U);
             }
         }
         const bool manual_locked = row.identity == PreferenceId::Orientation && orientation.auto_rotation_enabled;
