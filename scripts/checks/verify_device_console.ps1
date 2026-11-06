@@ -117,7 +117,7 @@ try {
     Invoke-ConsoleCheck 'Cleanup retains build/config/Python caches, simulator identity and protected outputs' {
         $persistentDirectories = @(
             'build-cody-companion', 'sdkconfig', 'board-config', 'feature-config',
-            'python', 'models', 'managed_components', 'cody-simulator-state', 'custom-build'
+            'python', 'models', 'managed_components', 'cody-simulator-state', 'cody-simulator-state-linux', 'custom-build'
         )
         foreach ($directory in $persistentDirectories) {
             New-ConsoleFixtureFile (Join-Path $fixtureArtifacts "$directory/keep.txt")
@@ -287,10 +287,11 @@ try {
     Invoke-ConsoleCheck 'Boot screenshots dispatch four host captures in fixed stage order' {
         $script:hostCalls.Clear()
         Invoke-DeviceCommand 'boot-screens' @{ SafeGuide = $false; PythonExecutable = 'host-python' }
-        Assert-ConsoleCondition ($script:hostCalls.Count -eq 4) 'Boot capture did not dispatch four host jobs.'
+        Assert-ConsoleCondition ($script:hostCalls.Count -eq 5) 'Boot capture must prepare graphics and dispatch four host jobs.'
+        Assert-ConsoleCondition ($script:hostCalls[0].Path -eq (Join-Path $ProjectRoot 'scripts/generators/generate_cody_simulator_graphics.py')) 'Boot capture did not prepare native graphics first.'
         $screens = @('boot-vibeware','boot-sleep','boot-waking','boot-ready')
         for ($index = 0; $index -lt $screens.Count; $index += 1) {
-            $call = $script:hostCalls[$index]
+            $call = $script:hostCalls[$index + 1]
             Assert-ConsoleCondition ($call.Arguments[1] -eq $screens[$index]) 'Boot stage order changed.'
             Assert-ConsoleCondition ($call.Arguments[2] -eq '--capture') 'Boot stage capture flag missing.'
             Assert-ConsoleCondition ($call.Arguments[3] -eq (Join-Path $fixtureArtifacts "simulator/$($screens[$index]).png")) 'Boot capture escaped the simulator artifact directory.'

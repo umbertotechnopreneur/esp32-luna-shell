@@ -114,7 +114,7 @@ function Clear-DeviceArtifacts {
     # The isolated simulator identity is durable user state, not a disposable capture.
     $persistentDirectories = @(
         'sdkconfig', 'board-config', 'feature-config', 'python', 'models',
-        'managed_components', 'cody-simulator-state', '.device.lock'
+        'managed_components', 'cody-simulator-state', 'cody-simulator-state-linux', '.device.lock'
     )
     foreach ($name in $persistentDirectories) {
         $null = $preserved.Add($name)

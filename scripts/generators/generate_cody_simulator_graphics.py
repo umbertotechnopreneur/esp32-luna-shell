@@ -18,18 +18,15 @@
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
-from scripts.common.cody_host_compiler import prepare_host_compiler
+from scripts.common.cody_host_compiler import prepare_host_compiler, simulator_library_flags
+from simulator.windows.runtime_paths import simulator_library_path
 
-OUTPUT = ROOT / "artifacts/build-cody-simulator-graphics"
-LIBRARY = OUTPUT / "cody_host_graphics.dll"
-MANIFEST = OUTPUT / "manifest.json"
 SOURCES = (
     "simulator/native/CODY_host_graphics.cpp",
     "simulator/native/CODY_host_personality_behavior.cpp",
@@ -115,6 +112,7 @@ def source_provenance():
         "assets/branding/VibeWare/generated/vibeware_boot_data.c",
         "scripts/common/cody_native_checks.py",
         "scripts/common/cody_host_compiler.py",
+        "simulator/windows/runtime_paths.py",
     ))
     return {path.relative_to(ROOT).as_posix(): digest(path) for path in sorted(paths)}
 
@@ -126,31 +124,29 @@ def main(argv=None):
     parser.add_argument("--compiler")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
-    if os.name != "nt":
-        raise RuntimeError("Cody Studio's Windows driver requires a Windows host toolchain.")
+    library = simulator_library_path(ROOT, "graphics")
+    output = library.parent
+    manifest_path = output / "manifest.json"
     compiler = resolve_compiler(args.compiler) if args.compiler else prepare_host_compiler()
     inputs = source_provenance()
-    OUTPUT.mkdir(parents=True, exist_ok=True)
-    command = compile_command(compiler, INCLUDES, SOURCES, LIBRARY, DEFINITIONS, cxx_standard=20)
-    if Path(compiler).stem.lower() == "cl":
-        command += ["/LD", "/link", f"/IMPLIB:{OUTPUT / 'cody_host_graphics.lib'}"]
-    else:
-        command += ["-shared"]
+    output.mkdir(parents=True, exist_ok=True)
+    command = compile_command(compiler, INCLUDES, SOURCES, library, DEFINITIONS, cxx_standard=20)
+    command += simulator_library_flags(compiler, library)
     # A cached library is usable only when both its sources and its binary agree.
-    if not args.force and MANIFEST.is_file() and LIBRARY.is_file():
-        previous = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    if not args.force and manifest_path.is_file() and library.is_file():
+        previous = json.loads(manifest_path.read_text(encoding="utf-8"))
         if (previous.get("schema") == "cody.host-graphics.v1" and
                 previous.get("inputs") == inputs and previous.get("command") == command and
-                previous.get("library_sha256") == digest(LIBRARY)):
-            print(f"Cody C++ graphics driver already current: {LIBRARY}")
+                previous.get("library_sha256") == digest(library)):
+            print(f"Cody C++ graphics driver already current: {library}")
             return
     # Retire provenance before rebuilding so a failed compiler cannot expose old output.
-    MANIFEST.unlink(missing_ok=True)
-    run_stage(command, OUTPUT, "compile")
+    manifest_path.unlink(missing_ok=True)
+    run_stage(command, output, "compile")
     manifest = {"schema": "cody.host-graphics.v1", "inputs": inputs,
-                "command": command, "library_sha256": digest(LIBRARY)}
-    MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    print(f"Cody C++ graphics driver compiled: {LIBRARY}")
+                "command": command, "library_sha256": digest(library)}
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    print(f"Cody C++ graphics driver compiled: {library}")
 
 
 if __name__ == "__main__":

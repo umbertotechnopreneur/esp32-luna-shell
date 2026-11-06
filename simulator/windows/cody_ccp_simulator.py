@@ -150,7 +150,7 @@ class SimulatorStore:
 
     # self: Simulator state owner; validation does not repair any field.
     # document: Exact decoded persisted document.
-    # Raises ValueError or RuntimeError for invalid state or failed DPAPI authentication.
+    # Raises ValueError or RuntimeError for invalid state or failed host credential authentication.
     def _validate(self, document: object) -> None:
         required = {"version", "source", "device_id", "active", "pending"}
         if not isinstance(document, dict) or not required <= set(document) or set(document) - required - {"network_configured"}:
@@ -1068,7 +1068,9 @@ class SimulatorEndpoint:
             transport.bind((LOOPBACK, protocol.DEVICE_PORT))
             transport.settimeout(0.1)
             # Acquire the listener before reading/creating an identity, just like CCP.
-            store = SimulatorStore(simulator_artifacts_root() / "cody-simulator-state" / "device.json")
+            # The two host credential services cannot open each other's records.
+            state_directory = "cody-simulator-state-linux" if sys.platform == "linux" else "cody-simulator-state"
+            store = SimulatorStore(simulator_artifacts_root() / state_directory / "device.json")
             self._link = SimulatorLink(store)
             self._socket = transport
             self._thread = threading.Thread(target=self._run, name="SIMULATED-Cody-CCP", daemon=True)

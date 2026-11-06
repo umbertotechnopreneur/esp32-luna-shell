@@ -14,7 +14,7 @@
  *
  * VBWR E */
 
-// Windows-only audio output owner. The real Cody cue modules are linked unchanged.
+// Host audio output owner. The real Cody cue modules are linked unchanged.
 #include "CODY_personality_audio.hpp"
 #include "CODY_typewriter_audio.hpp"
 #include "LUNASHELL_platform.h"
@@ -22,6 +22,12 @@
 
 #include <cstddef>
 #include <cstdint>
+
+#if defined(_WIN32)
+#define CODY_AUDIO_EXPORT extern "C" __declspec(dllexport)
+#else
+#define CODY_AUDIO_EXPORT extern "C" __attribute__((visibility("default")))
+#endif
 
 namespace {
 using Playback = esp_err_t (*)(const int16_t *, size_t, uint32_t, int);
@@ -134,7 +140,7 @@ extern "C" esp_err_t LUNASHELL_audio_get_personality_status(lunashell_audio_cue_
 
 // playback: Windows callback; copies PCM immediately and queues PC playback.
 // Exception: Returns the original real-module preparation failure.
-extern "C" __declspec(dllexport) esp_err_t CodySimAudio_prepare(Playback playback)
+CODY_AUDIO_EXPORT esp_err_t CodySimAudio_prepare(Playback playback)
 {
     if (!playback) {
         ESP_LOGE("CodyFakeAudio", "prepare rejected: missing Windows playback callback");
@@ -147,7 +153,7 @@ extern "C" __declspec(dllexport) esp_err_t CodySimAudio_prepare(Playback playbac
 
 // cue: Stable personality identity selected by the existing visual controller.
 // Exception: Returns the unchanged Cody selector's original error.
-extern "C" __declspec(dllexport) esp_err_t CodySimAudio_personality(uint32_t cue)
+CODY_AUDIO_EXPORT esp_err_t CodySimAudio_personality(uint32_t cue)
 {
     CODY::PersonalityAudioStatus status{};
     return CODY::notify_personality_audio(static_cast<CODY::PersonalityCue>(cue), status);
@@ -155,7 +161,7 @@ extern "C" __declspec(dllexport) esp_err_t CodySimAudio_personality(uint32_t cue
 
 // No parameters: executes Cody's actual authored whistle request.
 // Exception: Returns the original Cody/Windows admission failure.
-extern "C" __declspec(dllexport) esp_err_t CodySimAudio_whistle()
+CODY_AUDIO_EXPORT esp_err_t CodySimAudio_whistle()
 {
     CODY::PersonalityAudioStatus status{};
     return CODY::notify_idle_whistle_audio(status);
@@ -163,14 +169,14 @@ extern "C" __declspec(dllexport) esp_err_t CodySimAudio_whistle()
 
 // No parameters: requests one physical-touch feedback click from the fake owner.
 // Exception: Returns the original owner admission failure.
-extern "C" __declspec(dllexport) esp_err_t CodySimAudio_touch()
+CODY_AUDIO_EXPORT esp_err_t CodySimAudio_touch()
 {
     return LUNASHELL_audio_notify_touch();
 }
 
 // count: Newly visible glyph count from a completed preview frame.
 // Exception: Returns the unchanged Cody module's original admission failure.
-extern "C" __declspec(dllexport) esp_err_t CodySimAudio_typewriter(uint32_t count)
+CODY_AUDIO_EXPORT esp_err_t CodySimAudio_typewriter(uint32_t count)
 {
     return CODY::notify_typewriter_audio(count);
 }

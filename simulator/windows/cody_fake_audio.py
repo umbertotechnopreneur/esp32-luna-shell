@@ -14,16 +14,20 @@
 #
 # VBWR E
 
-"""Windows fake output driver for the unchanged native Cody audio modules."""
+"""Desktop output driver for the unchanged native Cody audio modules."""
 import array
 import ctypes
 import io
 import logging
 from pathlib import Path
 import queue
+import subprocess
+import sys
 import threading
 import time
 import wave
+
+from runtime_paths import simulator_library_path
 
 LOG = logging.getLogger("CodyFakeAudio")
 
@@ -31,7 +35,7 @@ LOG = logging.getLogger("CodyFakeAudio")
 class FakeAudioDriver:
     # self: Host-only output owner with one bounded playback worker.
     # root: Repository containing the compiled host-only output driver.
-    # Raises OSError or RuntimeError for a missing DLL or native preparation failure.
+    # Raises OSError or RuntimeError for a missing native library or native preparation failure.
     def __init__(self, root):
         self.enabled = True
         self.last_error = None
@@ -39,7 +43,9 @@ class FakeAudioDriver:
         self._generation = 0
         self._queue = queue.Queue(maxsize=8)
         self._last_glyph_at = 0.0
-        library = Path(root) / "artifacts/build-cody-simulator-audio/cody_fake_audio.dll"
+        self._player_lock = threading.Lock()
+        self._player = None
+        library = simulator_library_path(root, "audio")
         self._native = ctypes.CDLL(str(library))
         callback_type = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.POINTER(ctypes.c_int16),
                                         ctypes.c_size_t, ctypes.c_uint32, ctypes.c_int)
@@ -59,12 +65,7 @@ class FakeAudioDriver:
         self.enabled = enabled
         self._generation += 1
         if not enabled:
-            import winsound
-            try:
-                winsound.PlaySound(None, 0)
-            except (OSError, RuntimeError) as error:
-                self.last_error = error
-                LOG.error("Synthetic PC audio cancellation failed: %r", error)
+            self._stop_playback()
 
     # self: PC output owner retaining optional failures without stopping Tk or touch.
     # operation: Export of the unchanged native Cody audio module.
@@ -85,7 +86,7 @@ class FakeAudioDriver:
         if error != 0:
             raise RuntimeError(f"Synthetic PC audio driver rejected operation: error={error}")
 
-    # self: Windows fake codec; copies immutable PCM before the callback returns.
+    # self: Host fake codec; copies immutable PCM before the callback returns.
     # samples: Native pointer valid for the real Cody module's lifetime.
     # count: Exact mono sample count from that module.
     # rate: Authored sample rate; no oscillator or recipe is reimplemented.
@@ -111,9 +112,8 @@ class FakeAudioDriver:
             return -1
 
     # self: One PC output voice; blocking playback lives only on this worker.
-    # Asynchronous Windows failures remain visible in last_error and the host log.
+    # Asynchronous playback failures remain visible in last_error and the host log.
     def _playback_worker(self):
-        import winsound
         while not self._closed.is_set():
             try:
                 payload, memory, requested_at, generation = self._queue.get(timeout=0.1)
@@ -125,12 +125,63 @@ class FakeAudioDriver:
                 LOG.info("Synthetic PC audio request expired before playback")
                 continue
             try:
-                flags = winsound.SND_MEMORY if memory else winsound.SND_FILENAME
-                # SND_MEMORY cannot be asynchronous; the owner thread keeps Tk responsive.
-                winsound.PlaySound(payload, flags | winsound.SND_NODEFAULT)
+                if sys.platform == "win32":
+                    import winsound
+
+                    flags = winsound.SND_MEMORY if memory else winsound.SND_FILENAME
+                    # SND_MEMORY is blocking; the owner thread keeps Tk responsive.
+                    winsound.PlaySound(payload, flags | winsound.SND_NODEFAULT)
+                else:
+                    self._play_alsa(payload, memory, generation)
             except (OSError, RuntimeError) as error:
                 self.last_error = error
                 LOG.error("Synthetic PC audio playback failed: %r", error)
+
+    # self: Worker that starts and reaps one ALSA player at a time.
+    # payload: Complete WAV bytes or an existing WAV filename.
+    # memory: True for bytes streamed on stdin.
+    # generation: Playback admission token invalidated by mute or shutdown.
+    # Raises OSError or RuntimeError for launch, timeout or playback failure.
+    def _play_alsa(self, payload, memory, generation):
+        command = ["aplay", "-q", "-t", "wav"]
+        if not memory:
+            command += ["--", payload]
+        with self._player_lock:
+            # Close the gap between the queue check and child creation. Mute can
+            # then retire the exact child without racing a subsequent clip.
+            if self._closed.is_set() or generation != self._generation:
+                return
+            player = subprocess.Popen(command, stdin=subprocess.PIPE if memory else subprocess.DEVNULL,
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            self._player = player
+        try:
+            _, errors = player.communicate(input=payload if memory else None, timeout=15)
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError("ALSA playback timed out after 15 seconds") from error
+        finally:
+            if player.poll() is None:
+                player.kill()
+                player.communicate()
+            with self._player_lock:
+                self._player = None
+        if player.returncode and not self._closed.is_set() and generation == self._generation:
+            raise RuntimeError(f"ALSA playback failed (exit {player.returncode}): {errors.decode(errors='replace').strip()}")
+
+    # self: UI owner invalidating or closing the current playback generation.
+    # Stop failures are retained without interrupting Tk shutdown or mute.
+    def _stop_playback(self):
+        try:
+            if sys.platform == "win32":
+                import winsound
+
+                winsound.PlaySound(None, 0)
+            else:
+                with self._player_lock:
+                    if self._player is not None:
+                        self._player.kill()
+        except (OSError, RuntimeError) as error:
+            self.last_error = error
+            LOG.error("Synthetic PC audio cancellation failed: %r", error)
 
     # self: Host driver sharing the same sound selector and immutable PCM as firmware.
     # cue: Stable manga cue ID from the successfully displayed frame.
@@ -200,10 +251,7 @@ class FakeAudioDriver:
 
     # self: Host output owner; queued cues cannot survive window destruction.
     def close(self):
-        import winsound
         self._closed.set()
-        try:
-            winsound.PlaySound(None, 0)
-        except (OSError, RuntimeError) as error:
-            self.last_error = error
-            LOG.error("Synthetic PC audio shutdown failed: %r", error)
+        self._stop_playback()
+        if sys.platform == "linux":
+            self._worker.join(timeout=1)

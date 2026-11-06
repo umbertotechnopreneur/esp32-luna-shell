@@ -27,6 +27,7 @@ from enum import IntEnum
 import weakref
 
 from PIL import Image
+from runtime_paths import simulator_library_path
 from cody_personality import PersonalityCue, PersonalityFrame, PersonalityPresentation, PersonalityPresentationStatus
 from scripts.common.cody_response import ResponseState, ResponseFrame, SampleStamp, SampleHealth, InputOrigin, EyeId, IdleSceneId
 
@@ -219,7 +220,8 @@ class NativeRig:
     # rig: Loaded authoring schema for inspector labels and named bounds only.
     # Raises OSError or ValueError for missing/stale native output or incompatible catalogs.
     def __init__(self, root, rig):
-        directory = Path(root) / "artifacts/build-cody-simulator-graphics"
+        library = simulator_library_path(root, "graphics")
+        directory = library.parent
         manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
         if manifest.get("schema") != "cody.host-graphics.v1":
             raise ValueError("Unsupported native graphics manifest; use device.ps1 generate -Generator cody-simulator-graphics")
@@ -231,7 +233,6 @@ class NativeRig:
             raise ValueError(f"Native Cody library was generated for {generated_rig['source_path']}, selected {rig['source_path']}; regenerate the selected rig and native library")
         if hashlib.sha256((Path(root) / rig['source_path']).read_text(encoding='utf-8').encode('utf-8')).hexdigest() != generated_rig['source_sha256']:
             raise ValueError('Native Cody rig tables are stale; generate cody-rig before compiling the PC driver')
-        library = directory / "cody_host_graphics.dll"
         if hashlib.sha256(library.read_bytes()).hexdigest() != manifest["library_sha256"]:
             raise ValueError("Cody C++ simulator library hash mismatch")
         self.api = C.CDLL(str(library))

@@ -784,7 +784,7 @@ class CodyWindow:
     # Raises tk.TclError for failed widget construction or lost Tk ownership.
     # Raises OSError or AttributeError if required Windows monitor APIs are unavailable.
     # Raises RuntimeError if the window DPI context or work-area bounds are invalid.
-    # Raises OSError or RuntimeError if the fake audio DLL cannot be loaded/prepared.
+    # Raises OSError or RuntimeError if the native audio library cannot be loaded/prepared.
     # Raises ValueError or RuntimeError when the required native graphics/behavior owner cannot initialize.
     def __init__(self, root, renderer, args):
         self.root, self.renderer = root, renderer
@@ -945,6 +945,9 @@ class CodyWindow:
         self.root.bind("<Escape>",self.back)
         self.root.bind("<Configure>",self.resize_window)
         self.root.bind("<MouseWheel>",self.scroll_controls)
+        if self.root.tk.call("tk", "windowingsystem") == "x11":
+            self.root.bind("<Button-4>", self.scroll_controls)
+            self.root.bind("<Button-5>", self.scroll_controls)
         self.root.protocol("WM_DELETE_WINDOW",self.close)
         work_left, work_top, work_right, work_bottom = window_work_area(root)
         self.available_ui_width = max(1, work_right - work_left - self.ui_pixels(40))
@@ -1534,15 +1537,16 @@ class CodyWindow:
         self.pending_canvas_size = (max(1,event.width),max(1,event.height))
 
     # self: Desktop controller routing wheel input to the tab under the pointer.
-    # event supplies a wheel delta; only descendants of the controls pane are scrolled.
+    # event supplies a wheel delta or X11 wheel button; only the hovered controls pane scrolls.
     # Raises tk.TclError if Tk cannot locate the hovered widget or update the viewport.
     def scroll_controls(self, event):
         widget = self.root.winfo_containing(event.x_root, event.y_root)
         if isinstance(widget, (ttk.Scale, ttk.Combobox)):
             return
+        delta = {4: 120, 5: -120}.get(event.num, event.delta)
         for tab in self.inspector_tabs:
-            if tab.contains(widget) and event.delta:
-                tab.scroll(event.delta)
+            if tab.contains(widget) and delta:
+                tab.scroll(delta)
                 return "break"
 
     # self: Host controller; stop callbacks, optional CCP and playback before destroying Tk.

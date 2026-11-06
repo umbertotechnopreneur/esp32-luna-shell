@@ -14,7 +14,7 @@
 #
 # VBWR E
 
-"""Shared output ownership for source and packaged Windows simulator entrypoints."""
+"""Shared output ownership and native driver paths for desktop simulators."""
 
 from __future__ import annotations
 
@@ -32,6 +32,22 @@ def simulator_artifacts_root() -> Path:
         # A distributed executable owns artifacts beside itself, never inside extraction temp.
         return (executable.parent / "artifacts").resolve()
     return (Path(__file__).resolve().parents[2] / "artifacts").resolve()
+
+
+# root: Checkout that owns the simulator's artifacts.
+# driver: Host library identity, either graphics or audio.
+# Raises RuntimeError for an unsupported host and ValueError for an unknown driver.
+def simulator_library_path(root, driver):
+    if driver not in ("graphics", "audio"):
+        raise ValueError(f"Unknown Cody Studio driver: {driver}")
+    if sys.platform == "win32":
+        build_suffix, extension = "", ".dll"
+    elif sys.platform == "linux":
+        build_suffix, extension = "-linux", ".so"
+    else:
+        raise RuntimeError(f"Cody Studio native drivers support Windows and Linux, found {sys.platform}.")
+    stem = "cody_host_graphics" if driver == "graphics" else "cody_fake_audio"
+    return Path(root) / "artifacts" / f"build-cody-simulator-{driver}{build_suffix}" / (stem + extension)
 
 
 # requested is an output name, explicit artifacts-relative path, or absolute path within artifacts.

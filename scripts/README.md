@@ -157,8 +157,9 @@ the failed result before offering another operation.
 at `127.0.0.1:42117`. Discovery includes it only through explicit
 `include_simulator:true`; the default targets physical devices. Host network,
 pairing and activity remain labelled `SIMULATED` and do not reproduce every
-native onboarding gesture. Protected state in `artifacts/cody-simulator-state/`
-survives transient cleanup.
+native onboarding gesture. Protected state survives transient cleanup in
+`artifacts/cody-simulator-state/` on Windows and
+`artifacts/cody-simulator-state-linux/` on Linux.
 
 See the [simulator guide](../simulator/windows/README.md) for controls and limits
 and the [CCP guide](../plugins/cody-codex-plugin/README.md) for installation/trust.

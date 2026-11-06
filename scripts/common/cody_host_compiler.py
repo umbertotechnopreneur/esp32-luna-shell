@@ -14,11 +14,22 @@
 #
 # VBWR E
 
-"""Host-only compiler discovery shared by Cody driver generators."""
+"""Host compiler and library layout shared by Cody Studio drivers."""
 import os
 from pathlib import Path
 import subprocess
+import sys
 from scripts.common.cody_native_checks import resolve_compiler
+
+
+# compiler: Resolved native C++ driver.
+# library: Owned simulator library path returned by simulator_library_path.
+def simulator_library_flags(compiler, library):
+    if Path(compiler).stem.lower() == "cl":
+        return ["/LD", "/link", f"/IMPLIB:{library.with_suffix('.lib')}"]
+    if sys.platform == "linux":
+        return ["-fPIC", "-shared", "-Wl,--no-undefined"]
+    return ["-shared"]
 
 
 # No parameters: loads an installed MSVC toolchain into this generator process only.

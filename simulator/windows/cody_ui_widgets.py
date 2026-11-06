@@ -89,7 +89,7 @@ class InspectorTab(ttk.Frame):
         return False
 
     # self: Tab whose content is explicitly scrolled by the desktop wheel.
-    # delta: Signed Windows wheel delta, including small precision-wheel movements.
+    # delta: Signed wheel delta, including small precision-wheel movements.
     # Raises tk.TclError if the viewport no longer exists.
     def scroll(self, delta):
         if delta:

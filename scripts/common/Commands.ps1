@@ -161,8 +161,8 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
         }
         { $_ -in @('simulator','boot-screens') } {
             $nativeStudy = $Options.CloudMaterialStudy -or $Options.CloudPngMeshStudy -or $Options.CloudJellyStudy
-            if ($RequestedAction -eq 'simulator' -and -not $nativeStudy) {
-                # The ordinary simulator executes production C++; preparation never launches it.
+            if ($RequestedAction -eq 'boot-screens' -or -not $nativeStudy) {
+                # The native preview and VibeWare capture both need the current host graphics driver.
                 $graphicsTool = Find-DeviceTool 'generators' 'cody-simulator-graphics'
                 Invoke-HostTool $graphicsTool.Path @() $Options.PythonExecutable
             }

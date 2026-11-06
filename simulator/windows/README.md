@@ -1,4 +1,4 @@
-# Windows simulators
+# Desktop simulators
 
 I use these previews to explore the 466 × 466 circular UI and the behavior described
 by the assets. **SYNTHETIC** and **SIMULATED** remain clearly visible: values
@@ -17,8 +17,20 @@ I always use the public console from the repository root:
 .\scripts\device.ps1 boot-screens
 ```
 
-Python, Pillow and PyYAML are required. The console prepares the host audio driver
-before an interactive session; a static capture does not start audio.
+Cody Studio runs from source on Windows and Linux with PowerShell 7, a native C++20
+compiler, Python with Tk and Pillow ImageTk, and PyYAML. On Ubuntu, the host packages
+include `g++`, `python3-tk`, `python3-pil.imagetk` and `python3-yaml`. Use a graphical
+session for the interactive window. Host audio uses ALSA `aplay` from `alsa-utils`.
+The console builds the host audio driver before interactive launch. Static captures
+use the graphics driver and do not start audio.
+
+```bash
+pwsh -NoProfile -File ./scripts/device.ps1 simulator
+pwsh -NoProfile -File ./scripts/device.ps1 simulator -Ccp
+pwsh -NoProfile -File ./scripts/device.ps1 simulator -Screen rig -OutputPath artifacts/simulator/cody.png
+```
+
+The separate Luna desktop simulator and its packaging workflow use Windows.
 The preview starts without a rig overlay. The **Face**, **Shape**, **Inputs** and
 **Inspect** panels control expressions, outlines, synthetic stimuli and diagnostics.
 Each tab retains its own scroll position; in narrow windows, the inspector moves
@@ -70,9 +82,12 @@ proven; it does not promise an atomic transaction between PC and device.
 After Cancel, the old link can resume, but the PC candidate remains explicit:
 replacing it requires a new code and `replace_pending: true`.
 
-The simulated identity starts with `02` and resides, alongside DPAPI-protected
-associations, in `artifacts/cody-simulator-state/device.json`.
-Build cleanup preserves this directory. A second endpoint cannot take the same
+The simulated identity starts with `02`. Windows keeps DPAPI-protected
+associations in `artifacts/cody-simulator-state/device.json`. Linux stores its own
+identity and references to the user's Secret Service in
+`artifacts/cody-simulator-state-linux/device.json`. Pairing on Linux requires
+`secret-tool` from `libsecret-tools` and an unlocked keyring. Build cleanup
+preserves both directories. A second endpoint cannot take the same
 port; a read error remains an error instead of inventing a new device.
 The code appears only in the UI, never in logs or the public snapshot.
 
@@ -221,7 +236,8 @@ dimmed, off and standby states.
 
 ## Fixtures and checks
 
-The `cody_host_graphics.dll` driver also includes logic modules shared with firmware.
+The native graphics driver (`cody_host_graphics.dll` on Windows and
+`cody_host_graphics.so` on Linux) includes logic modules shared with firmware.
 Python retains the window, transport, authentication and synthetic inputs; it does
 not replace a missing or outdated library with a second implementation.
 Loading verifies the manifest, source hashes and ABI.
@@ -320,23 +336,22 @@ the library require an up-to-date driver before they start.
 
 ## Host audio and inspection ownership
 
-The Windows interactive preview has a host-only fake output owner. The public
-`device.ps1 simulator` route first compiles `cody_fake_audio.dll` below
-`artifacts/build-cody-simulator-audio/`; the explicit generator is
-`device.ps1 generate -Generator cody-simulator-audio`. An installed Windows C++
-toolchain is required. No toolchain is installed automatically.
+The interactive preview uses a host-only output owner. The public
+`device.ps1 simulator` route compiles `cody_fake_audio.dll` on Windows or
+`cody_fake_audio.so` on Linux. The explicit generator is
+`device.ps1 generate -Generator cody-simulator-audio`. Linux driver build
+directories end in `-linux` to separate their outputs from Windows.
 
-The DLL links the unchanged Cody personality selector, whistle and typewriter
-modules to fake `LUNASHELL_audio_*` output functions. Python copies their actual
-PCM into WAV memory and uses the existing Windows `winsound` playback backend
-on one bounded worker. Presented symbols, the visible whistle generation,
+The library links the unchanged Cody personality selector, whistle and typewriter
+modules to fake `LUNASHELL_audio_*` output functions. One bounded worker plays
+their PCM with Windows `winsound` or streams WAV to ALSA `aplay` on Linux. Presented symbols, the visible whistle generation,
 new greeting glyphs and pointer presses request sounds automatically. Boot
 artwork routes and manual previews use the existing generated boot WAVs.
 The PC sound toggle cancels pending clips; optional admission/playback failures
 remain visible in the simulator status and host log without stopping the UI.
 This is one output voice, with no mixer. PC playback is labelled synthetic and
 never published into firmware snapshots. Capture-only routes do not initialize
-the audio owner or play sound. DLL compilation does not establish audible output;
+the audio owner or play sound. Driver compilation does not establish audible output;
 interactive playback remains a separate authorized observation.
 
 Cody Studio uses Consolas for host controls and inspection labels. The four
