@@ -987,8 +987,13 @@ bool observe_auto_rotation_state(bool enabled)
     s_orientation.gyro_sampled_at_us = 0;
     const int64_t changed_at_us = esp_timer_get_time();
     if (!enabled) {
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+        // Freeze the visible orientation when the user switches to manual control.
+        s_orientation.desired_rendering_degrees = s_orientation.applied_rendering_degrees;
+#else
         s_orientation.desired_rendering_degrees =
             s_leg_flip_enabled.load(std::memory_order_relaxed) ? 180 : 0;
+#endif
         s_orientation.sampled_at_us = changed_at_us;
         if (!s_rotation_retry_blocked.load(std::memory_order_acquire) &&
             s_rotation_retry_after_us.load(std::memory_order_acquire) != 0 &&
@@ -4053,7 +4058,11 @@ extern "C" esp_err_t LUNASHELL_display_apply_saved_auto_rotation(void)
         settings,
         kAutoRotationSetting,
         "Cardinal display auto-rotation",
+#if CONFIG_LUNASHELL_CODY_START_AUTO_ROTATION
+        true,
+#else
         false,
+#endif
         &enabled
     );
     if (error != ESP_OK) {

@@ -363,8 +363,12 @@ Command s_command{};
 #ifdef ESP_PLATFORM
 alignas(Result) EXT_RAM_BSS_ATTR uint8_t s_result_storage[sizeof(Result)]{};
 Result &s_result = *new (s_result_storage) Result{};
+alignas(LUNASHELL::ConnectivityObservation) EXT_RAM_BSS_ATTR
+    uint8_t s_action_connectivity_storage[sizeof(LUNASHELL::ConnectivityObservation)]{};
+auto &s_action_connectivity = *new (s_action_connectivity_storage) LUNASHELL::ConnectivityObservation{};
 #else
 Result s_result{};
+LUNASHELL::ConnectivityObservation s_action_connectivity{};
 #endif
 QrModules *s_encoding_target = nullptr; // Only the action worker calls the QR library.
 
@@ -561,7 +565,7 @@ void execute_command(const Command &command, Result &result)
 {
     result.command = command;
     if (command.work == Work::CompleteFirstBoot) {
-        LUNASHELL::ConnectivityObservation observation;
+        auto &observation = s_action_connectivity;
         result.error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
         if (result.error != ESP_OK) {
             return;
@@ -625,7 +629,7 @@ void execute_command(const Command &command, Result &result)
         return;
     }
     if (command.work == Work::SessionQr) {
-        LUNASHELL::ConnectivityObservation observation;
+        auto &observation = s_action_connectivity;
         result.error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
         if (result.error != ESP_OK) {
             return;
@@ -695,7 +699,9 @@ void action_worker(void *context)
         if (!s_work_busy.load(std::memory_order_acquire)) {
             continue;
         }
-        Result completed{};
+        // The worker owns the mailbox until ready is published. The consumer
+        // copies and clears the result before releasing the next command.
+        Result &completed = *new (&s_result) Result{};
         execute_command(s_command, completed);
         if (completed.error != ESP_OK || completed.publication_error != ESP_OK) {
             ESP_LOGE(kTag, "Action %u attempt=%lu session=%lu failed: operation=%s publication=%s",
@@ -703,8 +709,6 @@ void action_worker(void *context)
                 static_cast<unsigned long>(completed.command.session), esp_err_to_name(completed.error),
                 esp_err_to_name(completed.publication_error));
         }
-        s_result = completed;
-        wipe(&completed, sizeof(completed));
         s_result_ready.store(true, std::memory_order_release);
     }
 }

@@ -685,10 +685,9 @@ fabricated release.
 Rotation waits for outstanding frame/contact ownership; drawing and touch share
 one cardinal basis without mirroring or a second transform.
 
-`CONFIG_LUNASHELL_CODY_START_AUTO_ROTATION=y` explicitly enables the shared policy
-after strict saved-setting restoration and persists `auto_rotate` only if off.
-This is a requested startup policy, not an absent-key default or corruption repair;
-disable it to honor a saved off preference. Cody adds no second IMU acquisition loop.
+`CONFIG_LUNASHELL_CODY_START_AUTO_ROTATION=y` defaults `auto_rotate` to on when
+the key is absent. Cody restores existing values as saved. Turning auto-rotation
+off holds the current panel orientation until an explicit manual change.
 
 Debug disables automatic light sleep to preserve native USB Serial/JTAG diagnosis;
 Release/wake-on-word follow canonical platform policy. SD diagnostics observe the
