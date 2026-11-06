@@ -53,7 +53,7 @@ public:
 
 constexpr const char *kTag = "startup-host";
 constexpr bool kCodexIntegrationEnabled = true;
-enum class Route { None, Hello04, NetworkWait, CodexChoice, LookingForPc14, SetupMenu };
+enum class Route { None, Hello04, NetworkWait, CodexChoice, LookingForPc14, SetupMenu, CompanionIdle16 };
 struct SceneFrame { unsigned marker = 73; };
 Route s_route = Route::None;
 bool s_startup_pending = false;
@@ -186,11 +186,11 @@ int main()
             "repeated evaluation neither extends grace nor rebuilds unchanged view");
     ++fake_now_us;
     require(evaluate_saved_setup(scene, changed) == ESP_OK && changed && !s_startup_network_passive &&
-            primary_visible && alternative_visible && s_route == Route::NetworkWait,
-            "exact 15-second expiry restores existing recovery choices");
+            !s_startup_pending && !primary_visible && !alternative_visible && s_route == Route::CompanionIdle16,
+            "exact 15-second expiry enters the autonomous companion without recovery controls");
     fake_now_us += 1000000; changed = false;
-    require(evaluate_saved_setup(scene, changed) == ESP_OK && !changed && !s_startup_network_passive,
-            "expired grace stays expired across later frames");
+    require(!s_startup_pending && s_route == Route::CompanionIdle16 && !s_startup_network_passive,
+            "completed startup no longer requests network evaluations on later frames");
     request_saved_setup_startup();
     require(s_startup_wifi_wait_started_us == -1 && !s_startup_network_passive && !s_startup_network_presented,
             "new request clears old grace rather than inheriting expired deadline");
@@ -200,19 +200,20 @@ int main()
 
     reset(); evaluate_saved_setup(scene, changed); fake_now_us = 1; make_online();
     require(evaluate_saved_setup(scene, changed) == ESP_OK && !s_startup_pending &&
-            s_route == Route::LookingForPc14, "healthy connection advances immediately inside grace");
+            s_route == Route::CompanionIdle16, "healthy network reaches Home immediately inside grace");
     reset(); make_online();
-    require(evaluate_saved_setup(scene, changed) == ESP_OK && s_route == Route::LookingForPc14 &&
+    require(evaluate_saved_setup(scene, changed) == ESP_OK && s_route == Route::CompanionIdle16 &&
             s_startup_wifi_wait_started_us == -1, "already online never starts grace");
 
     reset(); LUNASHELL::canonical.radios.wifi.credentials_configured = false;
-    require(evaluate_saved_setup(scene, changed) == ESP_OK && s_route == Route::Hello04 &&
+    require(evaluate_saved_setup(scene, changed) == ESP_OK && s_route == Route::CompanionIdle16 &&
             !s_startup_pending && s_startup_wifi_wait_started_us == -1,
-            "absent credentials enter first setup immediately");
+            "returning device without credentials keeps its autonomous companion");
     reset(); LUNASHELL::canonical.radios.wifi.credentials_configured = false;
     LUNASHELL::canonical.radios.wifi.last_error = ESP_FAIL;
-    require(evaluate_saved_setup(scene, changed) == ESP_FAIL && presentation_calls == 0,
-            "credential storage failure cannot become absent profile");
+    require(evaluate_saved_setup(scene, changed) == ESP_OK && s_route == Route::CompanionIdle16 &&
+            s_startup_wifi_error == ESP_FAIL && LUNASHELL::canonical.radios.wifi.last_error == ESP_FAIL,
+            "optional credential failure remains canonical while Home stays available");
 
     reset(); LUNASHELL::canonical.radios.wifi.data_stale = true;
     LUNASHELL::canonical.radios.wifi.last_error = ESP_ERR_TIMEOUT;
@@ -220,8 +221,9 @@ int main()
             s_startup_wifi_error == ESP_ERR_TIMEOUT, "stale saved sample retains real error during grace");
     fake_now_us = 15000000;
     require(evaluate_saved_setup(scene, changed) == ESP_OK && !s_startup_network_passive &&
-            s_startup_wifi_error == ESP_ERR_TIMEOUT && primary_visible && alternative_visible,
-            "expired stale sample exposes recovery with original failure");
+            s_startup_wifi_error == ESP_ERR_TIMEOUT && !s_startup_pending && s_route == Route::CompanionIdle16 &&
+            !primary_visible && !alternative_visible,
+            "expired stale sample enters Home while retaining its original failure");
     reset(); make_online(); LUNASHELL::canonical.radios.wifi.health = LUNASHELL::DeviceHealth::Degraded;
     require(evaluate_saved_setup(scene, changed) == ESP_OK && s_startup_network_passive,
             "connected booleans do not bypass canonical health");
@@ -245,7 +247,7 @@ int main()
             presentation_calls == 3, "successful attachment commits stable passive presentation");
     fake_now_us = 15000000; attachment_error = ESP_ERR_NO_MEM;
     require(evaluate_saved_setup(scene, changed) == ESP_ERR_NO_MEM && !s_startup_network_presented &&
-            !s_view.actions_visible, "failed recovery attachment cannot admit newly prepared controls");
+            !s_view.actions_visible, "failed Home attachment cannot admit hidden recovery controls");
     std::puts("Production startup network grace contracts passed");
     return 0;
 }

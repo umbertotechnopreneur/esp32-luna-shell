@@ -170,6 +170,13 @@ struct HostPanelObservation {
     const char *simulated_build_computer;
     uint8_t simulated_build_clock_state;
     uint8_t simulated_build_computer_state;
+    bool ready_age_valid;
+    uint64_t ready_age_us;
+    uint8_t app_presence_state;
+    bool app_presence_valid;
+    int32_t app_presence_error;
+    uint64_t app_presence_source_age_us;
+    uint64_t app_presence_receipt_age_us;
 };
 
 // source: Borrowed NUL-terminated printable ASCII producer string.
@@ -500,13 +507,23 @@ CODY_HOST_EXPORT int cody_host_panel_prepare(void *handle, uint8_t panel,
 }
 
 // source: Original PC-observed metadata and source-relative ages, without synthetic counters.
+// Returns a nonnegative host-only offset that preserves every independent packet receipt age.
+static uint64_t host_panel_receipt_origin(const HostPanelObservation &source)
+{
+    return std::max({source.receipt_age_us, source.ready_age_us, source.app_presence_receipt_age_us});
+}
+
+// source: Original PC-observed metadata and source-relative ages, without synthetic counters.
 // observation: Component-owned host scratch; never published into DeviceSnapshotService.
 // Exception: Returns original metadata/clock errors; the shared canonical owner ages the projection.
 static esp_err_t project_host_panel_observation(const HostPanelObservation *source,
     LUNASHELL::CodexTechnicalObservation &observation)
 {
     if (!source || source->phase > 9 || source->compaction > 5 || source->cost_band > 3 || source->chat_title_state > 3 ||
-        source->receipt_age_us > static_cast<uint64_t>(INT64_MAX - 1) ||
+        host_panel_receipt_origin(*source) > static_cast<uint64_t>(INT64_MAX - 1) ||
+        source->app_presence_state > static_cast<uint8_t>(LUNASHELL::CodexAppPresenceState::Closed) ||
+        source->app_presence_source_age_us > UINT32_MAX * uint64_t{1000} ||
+        (source->app_presence_valid && (source->app_presence_state == 0 || source->app_presence_error != ESP_OK)) ||
         (source->capacity_valid && source->capacity == 0)) {
         return host_result("panel_observation", ESP_ERR_INVALID_ARG);
     }
@@ -534,16 +551,26 @@ static esp_err_t project_host_panel_observation(const HostPanelObservation *sour
     link.activity.data_stale = source->activity_stale;
     technical.data_valid = source->technical_valid;
     // Validity, age and same-chat admission are independent from owner-operation failures.
-    // This DTO carries no failed-operation error: disconnect or stale input cannot invent one.
+    // Legacy link/activity/technical fields carry no operation error; source extensions below do.
+    // Disconnect or stale input cannot invent a failed legacy operation.
     link.health = source->link_valid ? LUNASHELL::DeviceHealth::Ready : LUNASHELL::DeviceHealth::Missing;
     link.last_error = ESP_OK;
     link.activity.health = source->activity_valid ? LUNASHELL::DeviceHealth::Ready : LUNASHELL::DeviceHealth::Missing;
     link.activity.last_error = ESP_OK;
     technical.health = source->technical_valid ? LUNASHELL::DeviceHealth::Ready : LUNASHELL::DeviceHealth::Missing;
     technical.last_error = ESP_OK;
+    const int64_t observation_time = static_cast<int64_t>(host_panel_receipt_origin(*source)) + 1;
+    link.ready_at_us = source->ready_age_valid ? observation_time - static_cast<int64_t>(source->ready_age_us) : 0;
+    link.app_presence.state = static_cast<LUNASHELL::CodexAppPresenceState>(source->app_presence_state);
+    link.app_presence.data_valid = source->app_presence_valid;
+    link.app_presence.last_error = source->app_presence_error;
+    link.app_presence.received_at_us = source->app_presence_valid ?
+        observation_time - static_cast<int64_t>(source->app_presence_receipt_age_us) : 0;
+    link.app_presence.source_age_at_receive_us = source->app_presence_source_age_us;
+    link.app_presence.sequence = 0; // Wire replay admission belongs to the simulator endpoint, never this renderer.
     // A positive arbitrary receipt origin plus a duration recreates the same aging semantics.
     // This scratch never enters DeviceSnapshotService or a physical firmware snapshot.
-    technical.received_at_us = 1;
+    technical.received_at_us = observation_time - static_cast<int64_t>(source->receipt_age_us);
     technical.model_valid = source->model_valid;
     technical.model_source = source->model_valid ? LUNASHELL::CodexModelSource::HookMetadata : LUNASHELL::CodexModelSource::Unavailable;
     technical.model_age_at_receive_us = source->model_age_us;
@@ -575,7 +602,6 @@ static esp_err_t project_host_panel_observation(const HostPanelObservation *sour
     technical.output = source->output;
     technical.threshold = source->threshold;
     technical.usage_age_at_receive_us = source->usage_age_us;
-    const int64_t observation_time = static_cast<int64_t>(source->receipt_age_us) + 1;
     // The host supplies the title's original source age plus its ACTIVITY receipt
     // age. Anchor that already-aged duration at this projection's current origin;
     // TECH receipt age must not be counted a second time for an independent field.
@@ -583,6 +609,7 @@ static esp_err_t project_host_panel_observation(const HostPanelObservation *sour
     link.activity.title_age_at_receive_us = source->chat_title_age_us;
     link.activity.title_error = source->chat_title_error;
     link.activity.last_attempt_at_us = observation_time;
+    LUNASHELL::codex_presence::age(link.app_presence, observation_time);
     LUNASHELL::age_codex_technical(technical, observation_time);
     return ESP_OK;
 }
@@ -601,7 +628,7 @@ CODY_HOST_EXPORT int cody_host_panel_observation(void *handle, uint8_t panel,
     esp_err_t error = project_host_panel_observation(source, observation);
     if (error != ESP_OK) { return error; }
     if (panel == 0) { owner.companion_panel.valid = false; return ESP_OK; }
-    const int64_t observation_time = static_cast<int64_t>(source->receipt_age_us) + 1;
+    const int64_t observation_time = static_cast<int64_t>(host_panel_receipt_origin(*source)) + 1;
     CODY::SceneContent content{};
     error = CODY::prepare_companion_panel_from_observation(static_cast<CODY::CompanionPanel>(panel),
         observation.link, observation.technical, CODY::SceneData::body_font, observation_time, active_time_us, owner.companion_panel, content);
@@ -648,14 +675,18 @@ CODY_HOST_EXPORT int cody_host_home_dashboard(void *handle, void *state, uint8_t
     // No stationary threshold, hold rule or classifier runs in the host driver.
     LUNASHELL::ActivitySnapshot motion{};
     const uint64_t origin = std::max(source->simulated_motion_age_us, source->simulated_stillness_age_us);
-    if (source->receipt_age_us > static_cast<uint64_t>(INT64_MAX) - origin - 1U) {
+    const uint64_t receipt_origin = host_panel_receipt_origin(*source);
+    if (receipt_origin > static_cast<uint64_t>(INT64_MAX) - origin - 1U) {
         return host_result("home_dashboard_source_clock", ESP_ERR_INVALID_ARG);
     }
-    const int64_t source_time = static_cast<int64_t>(source->receipt_age_us + origin) + 1;
+    const int64_t source_time = static_cast<int64_t>(receipt_origin + origin) + 1;
     // Translate every timestamp used by this frame by the same origin. This keeps
     // original source ages positive and independent of an unrelated TECH receipt.
     frame.panel_observation.technical.received_at_us += static_cast<int64_t>(origin);
     frame.panel_observation.link.activity.last_attempt_at_us += static_cast<int64_t>(origin);
+    auto &link = frame.panel_observation.link;
+    if (link.ready_at_us > 0) { link.ready_at_us += static_cast<int64_t>(origin); }
+    if (link.app_presence.received_at_us > 0) { link.app_presence.received_at_us += static_cast<int64_t>(origin); }
     motion.rejection = static_cast<LUNASHELL::ActivityRejection>(source->simulated_motion_rejection);
     motion.error = source->simulated_motion_error;
     if (source->simulated_motion_valid) {
@@ -673,7 +704,7 @@ CODY_HOST_EXPORT int cody_host_home_dashboard(void *handle, void *state, uint8_t
     const CODY::HomeDeviceDetails device_details{&build};
     error = CODY::prepare_home_dashboard(static_cast<CODY::CompanionPanel>(panel),
         frame.panel_observation.link, frame.panel_observation.technical,
-        CODY::HomeFonts::value_font, CODY::SceneData::body_font,
+        CODY::HomeFonts::value_font, CODY::HomeFonts::heading_font,
         source_time, active_time_us, owner, content,
         &motion, &CODY::HomeFonts::small_font, source->device_ip,
         source->device_ip_valid ? CODY::PanelValueState::Current : CODY::PanelValueState::Unavailable,
@@ -733,7 +764,7 @@ CODY_HOST_EXPORT int cody_host_home_identity(void *handle, void *state,
     frame.home_frame.visible_characters = visible_characters;
     CODY::SceneContent content{};
     error = CODY::prepare_home_identity(frame.home_frame, frame.panel_observation.link,
-        frame.panel_observation.technical, static_cast<int64_t>(source->receipt_age_us) + 1,
+        frame.panel_observation.technical, static_cast<int64_t>(host_panel_receipt_origin(*source)) + 1,
         active_time_us, owner, content);
     if (error == ESP_OK) {
         auto &commands = static_cast<HostState *>(state)->home_commands;
@@ -741,11 +772,11 @@ CODY_HOST_EXPORT int cody_host_home_identity(void *handle, void *state,
         const auto &technical = frame.panel_observation.technical;
         CODY::PanelInputs inputs{};
         error = CODY::project_companion_panel_inputs(link, technical,
-            static_cast<int64_t>(source->receipt_age_us) + 1, "", inputs);
+            static_cast<int64_t>(host_panel_receipt_origin(*source)) + 1, "", inputs);
         if (error != ESP_OK) { return host_result("home_command_source", error); }
-        const bool connected = link.data_valid && !link.data_stale &&
-            link.health == LUNASHELL::DeviceHealth::Ready && link.last_error == ESP_OK &&
-            link.state == LUNASHELL::CodexLinkState::Connected;
+        const int64_t now_us = static_cast<int64_t>(host_panel_receipt_origin(*source)) + 1;
+        const bool connected = LUNASHELL::codex_presence::ready_current(link, now_us) &&
+            LUNASHELL::codex_presence::is_open(link.app_presence, now_us);
         const bool urgent = inputs.phase == LUNASHELL::CodexActivityState::Paused ||
             inputs.phase == LUNASHELL::CodexActivityState::Interrupted ||
             inputs.compaction == LUNASHELL::CodexCompactionState::Active;

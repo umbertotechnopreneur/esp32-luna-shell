@@ -39,6 +39,9 @@ esp_err_t open_setup_menu(SceneFrame &scene);
 // No parameters: retire route identities and wipe the displayed session QR.
 void reset_onboarding();
 
+// No parameters: display-owner-only evidence of successful first-boot persistence in this journey.
+bool onboarding_first_boot_completed();
+
 // No parameters: cancel gesture recognition after an invalid acquired report.
 void cancel_onboarding_touch();
 

@@ -2893,6 +2893,13 @@ esp_err_t DeviceSnapshotService::readCodexStandbyObservation(CodexStandbyObserva
     observation.retained_link_present = link.retained_link_present;
     observation.pairing_repair_required = link.pairing_repair_required;
     observation.wifi_started = s_snapshot.radios.wifi.started;
+    const auto &battery = s_snapshot.battery;
+    const int64_t now_us = esp_timer_get_time();
+    const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
+    observation.usb_power_known = battery.data_valid && !battery.data_stale &&
+        battery.last_error == ESP_OK && battery.last_success_at_us > 0 && now_us >= battery.last_success_at_us &&
+        now_us - battery.last_success_at_us < ttl_us;
+    observation.usb_power_present = observation.usb_power_known && (battery.usb_present || battery.vbus_good);
     return give_snapshot_mutex("Codex standby read");
 }
 
@@ -2976,6 +2983,10 @@ esp_err_t DeviceSnapshotService::readDeviceStatusObservation(
     copy.ble = s_snapshot.radios.ble;
     copy.codex_link = s_snapshot.radios.codex_link;
     copy.codex_link_state = s_snapshot.radios.codex_link.state;
+    const auto &link = s_snapshot.radios.codex_link;
+    const int64_t presence_now_us = esp_timer_get_time();
+    copy.codex_app_open = codex_presence::ready_current(link, presence_now_us) &&
+        codex_presence::is_open(link.app_presence, presence_now_us);
     const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
     const esp_err_t release_error = give_snapshot_mutex("device status read");
     if (release_error != ESP_OK) {

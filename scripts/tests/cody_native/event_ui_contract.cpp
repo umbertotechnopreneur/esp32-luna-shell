@@ -604,6 +604,10 @@ void check_home_lifecycle()
     link.last_error = activity.last_error = technical.last_error = ESP_OK;
     link.data_valid = activity.data_valid = technical.data_valid = true;
     link.retained_link_present = true;
+    // This explicit synthetic source represents a native MCP client, not merely a LAN bridge.
+    link.app_presence.state = LUNASHELL::CodexAppPresenceState::Open;
+    link.app_presence.data_valid = true;
+    link.app_presence.last_error = ESP_OK;
     activity.state = LUNASHELL::CodexActivityState::Working;
     activity.revision = technical.revision = 1;
     copy_field(activity.chat_id, std::string(64, 'a'));
@@ -616,6 +620,8 @@ void check_home_lifecycle()
     technical.received_at_us = 1000000;
     s_view = {};
     s_presented_activity = {};
+    s_home_codex = false;
+    s_local_presentation_valid = false;
     s_presented_compaction = LUNASHELL::CodexCompactionState::None;
     s_home_reply_dwell = {};
     s_home_ready_dwell = {};
@@ -630,6 +636,11 @@ void check_home_lifecycle()
     // Exception: Stops on any unexpected presenter failure.
     const auto present = [&](int64_t now_us) {
         HomeFixture::now_us = now_us;
+        if (link.state == LUNASHELL::CodexLinkState::Connected) {
+            // Each authored current fixture includes fresh READY and native lease evidence.
+            link.ready_at_us = now_us;
+            link.app_presence.received_at_us = now_us;
+        }
         const auto prior_route = s_route;
         const unsigned prior_resets = HomeFixture::inactive_look_resets;
         bool changed = false;
@@ -678,8 +689,8 @@ void check_home_lifecycle()
     link.last_error = ESP_ERR_TIMEOUT;
     link.health = LUNASHELL::DeviceHealth::Degraded;
     present(34000000);
-    require(s_route == Route::LookingForPc14 && title_is("Connecting") && scene.activity_identity == nullptr,
-        "retained discovery immediately presents real Connecting without stale metrics");
+    require(s_route == Route::CompanionIdle16 && title_is("Here with you") && scene.activity_identity == nullptr,
+        "retained discovery keeps the local companion without stale Codex metrics");
     HomeFixture::read_error = ESP_FAIL;
     bool changed = false;
     require(present_companion_activity(35000000, scene, changed) == ESP_FAIL,

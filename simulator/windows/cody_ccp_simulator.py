@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 import hashlib
 import hmac
@@ -44,6 +44,7 @@ import ccp_server as protocol  # noqa: E402
 import ccp_interactions as interactions  # noqa: E402
 import ccp_reset as reset  # noqa: E402
 import ccp_technical as technical_metadata  # noqa: E402
+from ccp_presence import AppState  # noqa: E402
 
 LOOPBACK = "127.0.0.1"
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -65,6 +66,15 @@ class LinkState(str, Enum):
     CONNECTED = "Connected"
     NETWORK_DOWN = "No connection"
     TIMED_OUT = "Pairing expired"
+
+
+@dataclass(frozen=True)
+class SimulatorAppPresence:
+    state: AppState = AppState.UNAVAILABLE
+    valid: bool = False
+    error: int = 0x105
+    source_age_ms: int = 0
+    receipt_age_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -99,6 +109,8 @@ class SimulatorSnapshot:
     event_error: int = 0
     selection_request_id: str = ""
     reset_count: int = 0
+    ready_age_ms: int | None = None
+    app_presence: SimulatorAppPresence = SimulatorAppPresence()
 
 
 # values: Required hexadecimal values, keyed by their protocol field identity.
@@ -261,6 +273,11 @@ class SimulatorLink:
         self._debug_ready_nonce = ""
         self._debug_used_nonce = ""
         self.debug_capability = False
+        self._source_nonce = ""
+        self._source_peer: tuple[str, int] | None = None
+        self._app_sequence = 0
+        self._app_presence = SimulatorAppPresence()
+        self._app_presence_at: float | None = None
 
     @property
     # self: Owner whose active record changes only after durable CONFIRM/READY commit.
@@ -305,13 +322,22 @@ class SimulatorLink:
             self._selection_request_id = ""
         self._reply_choice, self._event_error = "", 0
         self._ready_nonce, self._reply_nonce = "", ""
+        self._source_nonce, self._source_peer = "", None
+        self._app_sequence = 0
+        self._app_presence = SimulatorAppPresence()
+        self._app_presence_at = None
 
     # self: Current owner; the result is consumed only by the visible simulator display.
     def display_code(self) -> str:
         return self._code if not self.pending and self.clock() < self._deadline else ""
 
     # self: Current simulator state without code, salt, verifier or protected values.
+    # Raises ValueError if the original monotonic clock moves before an admitted source.
     def snapshot(self) -> SimulatorSnapshot:
+        now = self.clock()
+        source_times = (self._ready_at, self._app_presence_at)
+        if any(instant is not None and now < instant for instant in source_times):
+            raise ValueError("SIMULATED source receipt clock moved backwards")
         valid = self._activity_at is not None and self.clock() - self._activity_at < PRESENCE_SECONDS
         event_fresh = (self._event_at is not None and self.clock() - self._event_at < PRESENCE_SECONDS
                        and self.state == LinkState.CONNECTED and self.network_ready)
@@ -334,7 +360,10 @@ class SimulatorLink:
             last_error=self._reset_error or self.last_error, request_id=self._request_id, event_state=self._event_state,
             event_payload=self._event_payload, event_fresh=event_fresh,
             event_remaining_seconds=max(0, int(self._event_expires - self.clock())), event_error=self._event_error,
-            selection_request_id=self._selection_request_id, reset_count=self.reset_count)
+            selection_request_id=self._selection_request_id, reset_count=self.reset_count,
+            ready_age_ms=int((now - self._ready_at) * 1000) if self._ready_at is not None else None,
+            app_presence=replace(self._app_presence, receipt_age_ms=int((now - self._app_presence_at) * 1000))
+                if self._app_presence_at is not None else SimulatorAppPresence())
 
     # self: Explicit user commissioning target; never called by discovery.
     # replace_confirmed: User confirmation for an existing saved association.
@@ -499,10 +528,12 @@ class SimulatorLink:
             self._accept_pair(fields, source, send)
         elif kind == "CONFIRM":
             self._accept_confirm(fields, source, send)
-        elif kind in ("READY", "ACTIVITY", "TECH", "EVENT", "REPLYACK", "RESET", "FACTORYRESET", "DEBUG"):
+        elif kind in ("READY", "ACTIVITY", "TECH", "EVENT", "REPLYACK", "RESET", "FACTORYRESET", "DEBUG", "APPSTATE"):
             if source[1] != protocol.PLUGIN_PORT:
                 raise ValueError("CCP presence sender port is invalid")
-            if kind == "DEBUG":
+            if kind == "APPSTATE":
+                self._accept_app_state(fields, source)
+            elif kind == "DEBUG":
                 self._accept_debug(fields, source)
             elif kind == "TECH":
                 self._accept_technical(fields)
@@ -521,6 +552,47 @@ class SimulatorLink:
         else:
             raise ValueError("Unsupported CCP datagram kind")
         self.accepted_packets += 1
+
+    # self: SIMULATED source receiver sharing the authenticated READY owner and exact loopback peer.
+    # fields: Original bounded envelope, validated fully before replacing source evidence.
+    # source: Actual sender endpoint bound by READY and COMMITTED.
+    # Raises ValueError or RuntimeError for malformed, stale, replayed or unauthenticated evidence.
+    def _accept_app_state(self, fields: dict[str, str], source: tuple[str, int]) -> None:
+        names = ("device", "pc", "nonce", "sequence", "state", "reason", "age")
+        if set(fields) != {*names, "proof"}:
+            raise ValueError("SIMULATED source fields are invalid")
+        require_hex({name: fields[name] for name in ("device", "pc", "nonce", "proof")})
+        now = self.clock()
+        if (self.active is None or self.pending or self.state != LinkState.CONNECTED
+                or not self.network_ready or source != self._source_peer or self._ready_at is None
+                or not 0 <= now - self._ready_at < PRESENCE_SECONDS
+                or fields["device"] != self.device_id or fields["pc"] != self.active["pc_id"]
+                or fields["nonce"] != self._ready_nonce or fields["nonce"] != self._source_nonce):
+            raise ValueError("SIMULATED source requires the current authenticated READY")
+        key = protocol.unprotect_secret(self.active["protected_link_key"])
+        if not hmac.compare_digest(protocol.make_proof(key, "app-state-v1", *(fields[name] for name in names)), fields["proof"]):
+            raise ValueError("SIMULATED source authentication failed")
+        sequence_text = fields["sequence"]
+        if re.fullmatch(r"[0-9a-f]{16}", sequence_text) is None:
+            raise ValueError("SIMULATED source sequence is invalid")
+        sequence = int(sequence_text, 16)
+        if sequence <= self._app_sequence:
+            raise ValueError("SIMULATED source sequence was replayed")
+        age_text = fields["age"]
+        age_ms = None
+        if age_text != "-":
+            if (re.fullmatch(r"(?:0|[1-9][0-9]{0,9})", age_text) is None or int(age_text) > 0xffffffff):
+                raise ValueError("SIMULATED source age is invalid")
+            age_ms = int(age_text)
+        state = AppState(fields["state"])
+        error = {"unobserved": 0x105, "expired": 0x107, "transport": -1}.get(fields["reason"])
+        unavailable = state == AppState.UNAVAILABLE
+        if ((unavailable and (error is None or age_ms is not None))
+                or (not unavailable and (fields["reason"] != "none" or age_ms is None))
+                or (state == AppState.OPEN and age_ms >= 60000)):
+            raise ValueError("SIMULATED app presence state/age is incoherent")
+        self._app_presence = SimulatorAppPresence(state, not unavailable, error if unavailable else 0, age_ms or 0)
+        self._app_presence_at, self._app_sequence = now, sequence
 
     # self: Loopback protocol owner admitting only bounded transient Debug views.
     # fields: Exact DEBUG envelope; the reserved scroll field must be zero.
@@ -751,12 +823,19 @@ class SimulatorLink:
                 self._clear_code()
             self.state, self._ready_at, self.last_error = LinkState.CONNECTED, self.clock(), ""
             self._ready_nonce = fields["nonce"]
+            if self._source_nonce != fields["nonce"]:
+                self._source_nonce = fields["nonce"]
+                self._app_sequence = 0
+            self._source_peer = source
             values = [fields[name] for name in names]
             proof = protocol.make_proof(key, "committed-v2", *values)
             # Resend even after prior activation: lost COMMITTED must not strand
             # the host candidate or require another commissioning code.
             send(protocol.encode_datagram("COMMITTED", list(zip(names, values))
                                           + [("proof", proof)]), source)
+            capability_values = [fields[name] for name in ("device", "pc", "nonce")] + ["1"]
+            send(protocol.encode_datagram("APPCAP", list(zip(("device", "pc", "nonce", "app"), capability_values))
+                + [("proof", protocol.make_proof(key, "app-cap-v1", *capability_values))]), source)
             if self.debug_capability:
                 self._debug_ready_nonce = fields["nonce"]
                 values = [fields[name] for name in ("device", "pc", "nonce")] + ["1"]

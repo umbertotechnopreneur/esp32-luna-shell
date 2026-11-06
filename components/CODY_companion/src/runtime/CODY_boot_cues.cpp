@@ -188,14 +188,14 @@ void deferred_boot_worker(void *context)
             s_boot_cue_state.store(BootCueState::WaitingClock, std::memory_order_release);
             continue;
         }
-        LUNASHELL::ConnectivityObservation connectivity;
+        LUNASHELL::PowerManagementSnapshot power;
         const esp_err_t power_error =
-            LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(connectivity);
+            LUNASHELL::DeviceSnapshotService::instance().readPowerState(power);
         if (power_error != ESP_OK) {
             publish_deferred_failure("power observation", power_error);
             break;
         }
-        if (connectivity.operating_state != LUNASHELL::DeviceOperatingState::Active) {
+        if (power.state != LUNASHELL::DeviceOperatingState::Active) {
             // An unfulfilled boot request survives standby without creating a wake cue.
             s_boot_cue_state.store(BootCueState::WaitingClock, std::memory_order_release);
             continue;

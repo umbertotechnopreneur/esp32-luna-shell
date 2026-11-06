@@ -73,6 +73,12 @@ class NativeFirmwareBuildFieldState(IntEnum):
     ERROR = 3
 
 
+class NativeAppPresenceState(IntEnum):
+    UNAVAILABLE = 0
+    OPEN = 1
+    CLOSED = 2
+
+
 class NativeActivityRejection(IntEnum):
     DISABLED = 0
     COLLECTING = 1
@@ -166,7 +172,11 @@ class NativePanelObservation(C.Structure):
         ("simulated_motion_rejection", C.c_uint8), ("simulated_motion_error", C.c_int32),
         ("device_id", C.c_char_p), ("simulated_build_local_date_time", C.c_char_p),
         ("simulated_build_time_zone", C.c_char_p), ("simulated_build_computer", C.c_char_p),
-        ("simulated_build_clock_state", C.c_uint8), ("simulated_build_computer_state", C.c_uint8)]
+        ("simulated_build_clock_state", C.c_uint8), ("simulated_build_computer_state", C.c_uint8),
+        ("ready_age_valid", C.c_bool), ("ready_age_us", C.c_uint64),
+        ("app_presence_state", C.c_uint8), ("app_presence_valid", C.c_bool),
+        ("app_presence_error", C.c_int32), ("app_presence_source_age_us", C.c_uint64),
+        ("app_presence_receipt_age_us", C.c_uint64)]
 
     # self: Raw source projection consumed synchronously by the native scratch owner.
     # Raises no exceptions; absent fields retain unavailable flags rather than numeric claims.
@@ -180,6 +190,7 @@ class NativePanelObservation(C.Structure):
         self.simulated_motion_rejection = NativeActivityRejection.NONE
         self.simulated_build_clock_state = NativeFirmwareBuildFieldState.UNAVAILABLE
         self.simulated_build_computer_state = NativeFirmwareBuildFieldState.UNAVAILABLE
+        self.app_presence_error = 0x105
 
 
 # operation: Native call being checked.

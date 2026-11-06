@@ -32,6 +32,7 @@ struct ConnectionPersonalityInputs {
     bool pc_searching = false;
     bool wifi_connected = false;
     bool search_view_visible = false;
+    bool companion_fallback = false; // Local companion mode makes PC absence an ordinary state.
 };
 
 struct ConnectionPersonalityState {

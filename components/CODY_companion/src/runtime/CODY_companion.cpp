@@ -617,8 +617,11 @@ bool main_companion_view_active(bool rig_visible)
     // onboarding route. Its retained SceneFrame must not disable interactions.
     const bool routine_main = s_state.routine_scene && s_state.scene.valid &&
         s_state.scene.definition != nullptr && s_state.scene.definition->id == CODY::SceneId::Greeting;
+    const bool calm_home = s_state.scene.valid && s_state.scene.definition != nullptr &&
+        s_state.scene.definition->id == CODY::SceneId::CompanionIdle &&
+        s_state.scene.activity_overlay.state == CODY::ActivityOverlayState::Hidden;
     return rig_visible && CODY::lifecycle_is_resting(s_state.lifecycle) &&
-        (!s_state.scene.valid || routine_main) && !s_state.resume_scene_pending;
+        (!s_state.scene.valid || routine_main || calm_home) && !s_state.resume_scene_pending;
 }
 
 // No parameters: admit only ordinary companion routes, never setup or remote controls.
@@ -679,6 +682,15 @@ esp_err_t suspend_home_panel_rotation()
 esp_err_t advance_home_panel_rotation(const LUNASHELL::CodexLinkSnapshot &link,
     const LUNASHELL::CodexTechnicalSnapshot &technical, int64_t now_us)
 {
+    if (!LUNASHELL::codex_presence::ready_current(link, now_us) ||
+        !LUNASHELL::codex_presence::is_open(link.app_presence, now_us)) {
+        // The fallback has one useful status panel; keep explicit Connection navigation.
+        if (s_state.companion_panel != CODY::CompanionPanel::Home &&
+            s_state.companion_panel != CODY::CompanionPanel::SessionLink) {
+            select_companion_panel(CODY::CompanionPanel::Home);
+        }
+        return suspend_home_panel_rotation();
+    }
     CODY::PanelInputs projected{};
     esp_err_t error = CODY::project_companion_panel_inputs(link, technical, now_us, "", projected);
     if (error != ESP_OK) {
@@ -772,7 +784,10 @@ esp_err_t prepare_home_dashboard_frame(int64_t now_us)
         (static_cast<uint32_t>(stillness.state) << 19) |
         (static_cast<uint32_t>(stillness.data_valid) << 21) |
         (static_cast<uint32_t>(stillness.error != ESP_OK) << 22) |
-        (static_cast<uint32_t>(CODY::is_current_imu_stillness(stillness, now_us)) << 23);
+        (static_cast<uint32_t>(CODY::is_current_imu_stillness(stillness, now_us)) << 23) |
+        (static_cast<uint32_t>(link.app_presence.state) << 24) |
+        (static_cast<uint32_t>(LUNASHELL::codex_presence::is_open(link.app_presence, now_us)) << 26) |
+        (static_cast<uint32_t>(LUNASHELL::codex_presence::ready_current(link, now_us)) << 27);
     if (s_state.home_dashboard.valid && s_state.home_dashboard.panel == s_state.companion_panel &&
         s_state.panel_activity_revision == link.activity.revision &&
         s_state.panel_technical_revision == technical.revision && s_state.panel_source_status == status &&
@@ -806,7 +821,7 @@ esp_err_t prepare_home_dashboard_frame(int64_t now_us)
     }
     const CODY::HomeDeviceDetails device_details{&LUNASHELL::firmware_build_metadata()};
     error = CODY::prepare_home_dashboard(s_state.companion_panel, link, technical,
-        CODY::HomeFonts::value_font, CODY::SceneData::body_font, now_us, s_state.home_active_us,
+        CODY::HomeFonts::value_font, CODY::HomeFonts::heading_font, now_us, s_state.home_active_us,
         s_state.home_dashboard, content, motion, &CODY::HomeFonts::small_font, device_ip, ip_state,
         s_state.home_rotation.elapsed_us, &device_details);
     if (error != ESP_OK) {
@@ -843,6 +858,14 @@ void select_companion_panel(CODY::CompanionPanel panel)
 // Exception: Returns an invalid typed panel identity without changing the route.
 esp_err_t advance_local_companion_panel()
 {
+    const auto &link = s_state.technical_observation.link;
+    const int64_t now_us = esp_timer_get_time();
+    if (!LUNASHELL::codex_presence::ready_current(link, now_us) ||
+        !LUNASHELL::codex_presence::is_open(link.app_presence, now_us)) {
+        select_companion_panel(s_state.companion_panel == CODY::CompanionPanel::SessionLink
+            ? CODY::CompanionPanel::Home : CODY::CompanionPanel::SessionLink);
+        return ESP_OK;
+    }
     CODY::CompanionPanel next = CODY::CompanionPanel::Home;
     const esp_err_t error = CODY::next_home_dashboard_panel(s_state.companion_panel, next);
     if (error != ESP_OK) {
@@ -2305,6 +2328,7 @@ esp_err_t observe_connection_personality(int64_t active_delta_us,
     inputs.pc_connected = inputs.pc_current && connectivity.codex_link_state == LUNASHELL::CodexLinkState::Connected;
     inputs.pc_searching = inputs.pc_current && connectivity.codex_link_state == LUNASHELL::CodexLinkState::Discovering;
     inputs.wifi_connected = inputs.wifi_current && wifi.connected && wifi.ip_acquired;
+    inputs.companion_fallback = !connectivity.codex_app_open && companion_home_route_active();
     inputs.search_view_visible = s_state.scene.valid &&
         s_state.scene.definition->id == CODY::SceneId::LookingForPc &&
         !debug_view_active();
@@ -2613,8 +2637,11 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
         CODY::rebase_response_motion(previous_response);
     }
     CODY::ResponseState next_response{};
+    const bool calm_home = next_scene.valid && next_scene.definition != nullptr &&
+        next_scene.definition->id == CODY::SceneId::CompanionIdle &&
+        next_scene.activity_overlay.state == CODY::ActivityOverlayState::Hidden;
     const bool ordinary_idle = next_lifecycle.phase == CODY::LifecyclePhase::Idle &&
-        (!next_scene.valid || s_state.routine_scene) && !s_state.resume_scene_pending;
+        (!next_scene.valid || s_state.routine_scene || calm_home) && !s_state.resume_scene_pending;
     const bool resting_expression = !s_state.expression_override ||
         s_state.requested_expression == CODY::ExpressionId::Calm ||
         s_state.requested_expression == CODY::ExpressionId::Happy ||
@@ -3562,7 +3589,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             s_state.animation_sampled_us = 0;
             s_state.onboarding_sampled_us = 0;
             s_resources.previous_frame_valid = false;
-            if (s_state.onboarding.force_first_boot) {
+            if (s_state.onboarding.effective_first_boot) {
                 s_greeting_due_us = now_us + CODY::SceneData::boot_delay_ms * 1000LL;
                 s_greeting_scheduled.store(true, std::memory_order_release);
             }
@@ -4519,7 +4546,7 @@ esp_err_t advance_boot_phase(BootPhase requested_phase, const char *operation)
     }
     s_rendered_revision.store(draw.completed_revision, std::memory_order_release);
     if (requested_phase == BootPhase::Ready && s_state.branding_complete && !s_state.deep_sleep_wake &&
-        s_state.onboarding.force_first_boot) {
+        s_state.onboarding.effective_first_boot) {
         s_greeting_due_us = esp_timer_get_time() + CODY::SceneData::boot_delay_ms * 1000LL;
         s_greeting_scheduled.store(true, std::memory_order_release);
         ESP_LOGI(kTag, "First-boot greeting scheduled %lu ms after completed ready frame",
@@ -4759,6 +4786,13 @@ esp_err_t apply_scene_requests()
             // A failed route cannot consume the finite footer's hidden recovery interval.
             CODY::suspend_onboarding_command_hints();
             return route_error;
+        }
+        if (s_state.onboarding.persisted_first_boot && CODY::onboarding_first_boot_completed()) {
+            // The internal settings worker already confirmed persistence/readback.
+            // Keep the explicit development override without reading NVS on the UI stack.
+            s_state.onboarding.persisted_first_boot = false;
+            s_state.onboarding.effective_first_boot = s_state.onboarding.force_first_boot;
+            route_changed = true;
         }
         if (!home_dashboard_view_active()) {
             // A Debug overlay keeps this route alive; prevent its hidden clock from accumulating.
@@ -6263,7 +6297,7 @@ extern "C" esp_err_t CODY_companion_start(void)
     if (action_worker_error != ESP_OK) {
         return fail_consumer("Onboarding action worker", action_worker_error, false);
     }
-    if (!s_state.onboarding.force_first_boot || esp_reset_reason() == ESP_RST_DEEPSLEEP) {
+    if (!s_state.onboarding.effective_first_boot || esp_reset_reason() == ESP_RST_DEEPSLEEP) {
         CODY::request_saved_setup_startup();
         s_state.routine_greeting_pending = false;
     }

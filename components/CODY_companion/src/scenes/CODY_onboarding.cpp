@@ -109,6 +109,7 @@ enum class Work : uint8_t {
     Cancel,
     SaveLook,
     CompleteFirstBoot,
+    UseCompanion,
     CodexStart,
     CodexReplace,
     CodexCopyCode,
@@ -267,6 +268,8 @@ bool s_setup_returns_to_companion = false;
 bool s_companion_seen_selection = false;
 int64_t s_session_ended_at_us = -1;
 LUNASHELL::CodexActivitySnapshot s_presented_activity{};
+bool s_home_codex = false;
+bool s_local_presentation_valid = false;
 CommandHintsState s_command_hints{};
 HomeReadyDwell s_home_ready_dwell{};
 HomeReplyDwell s_home_reply_dwell{};
@@ -569,6 +572,17 @@ esp_err_t encode_qr(const char *payload, QrModules &qr)
 void execute_command(const Command &command, Result &result)
 {
     result.command = command;
+    if (command.work == Work::UseCompanion) {
+        // An explicit local choice uses the same internal-stack persistence owner
+        // as commissioning; connectivity is not a requirement for a companion.
+        if (command.generation != s_presentation_generation.load(std::memory_order_acquire)) {
+            result.error = ESP_ERR_INVALID_STATE;
+            ESP_LOGE(kTag, "Local companion choice retired before persistence (%s)", esp_err_to_name(result.error));
+            return;
+        }
+        result.error = persist_first_boot(false);
+        return;
+    }
     if (command.work == Work::CompleteFirstBoot) {
         auto &observation = s_action_connectivity;
         result.error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
@@ -2517,6 +2531,46 @@ esp_err_t advance_activity_description(int64_t active_time_us, SceneFrame &scene
     return ESP_OK;
 }
 
+// active_time_us: Pausable UI clock used solely for description scrolling.
+// scene: Persistent companion frame with no invented Codex activity or model.
+// changed: Receives whether visible content or marquee position changed.
+// Exception: Returns original native title, overlay and content preparation failures.
+esp_err_t present_local_companion(int64_t active_time_us, SceneFrame &scene, bool &changed)
+{
+    if (s_local_presentation_valid && !s_home_codex && s_route == Route::CompanionIdle16) {
+        return advance_activity_description(active_time_us, scene, changed);
+    }
+    s_local_presentation_valid = false;
+    const char *title = "Here with you";
+    esp_err_t error = enter_route(Route::CompanionIdle16, scene);
+    if (error == ESP_OK) {
+        const size_t title_length = std::strlen(title);
+        if (scene.title.text.length != title_length ||
+            std::strncmp(scene.title.text.characters, title, title_length) != 0) {
+            ++s_text_generation;
+            error = set_scene_title(scene, {title, static_cast<uint16_t>(title_length)});
+        }
+    }
+    if (error == ESP_OK) {
+        error = set_scene_activity_overlay(scene, ActivityOverlayState::Hidden);
+    }
+    if (error == ESP_OK) {
+        error = prepare_activity_detail("Cody", "Keeping you company", active_time_us);
+    }
+    if (error == ESP_OK) {
+        error = attach_content(scene);
+    }
+    if (error != ESP_OK) {
+        return error;
+    }
+    // Transport heartbeats never restart the local companion route.
+    s_home_codex = false;
+    s_local_presentation_valid = true;
+    set_companion_audio_visible(false);
+    changed = true;
+    return ESP_OK;
+}
+
 // active_time_us: Pausable UI clock used only for session dwell and description scrolling.
 // scene: Current frame replaced only when visible state or selected identity changes.
 // changed: Receives whether scene content needs a new native render.
@@ -2535,6 +2589,24 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
     // Both activity and lifecycle now come from the same canonical mutex acquisition.
     const auto &link = s_technical_observation.link;
     const auto &technical = s_technical_observation.technical;
+    const int64_t now_us = esp_timer_get_time();
+    if (!LUNASHELL::codex_presence::ready_current(link, now_us) ||
+        !LUNASHELL::codex_presence::is_open(link.app_presence, now_us)) {
+        return present_local_companion(active_time_us, scene, changed);
+    }
+    const bool restoring_codex = !s_home_codex || s_local_presentation_valid;
+    if (restoring_codex) {
+        // Source restoration is a visible transition even before the first ACTIVITY.
+        s_local_presentation_valid = false;
+        s_presented_activity = {};
+        s_presented_compaction = LUNASHELL::CodexCompactionState::None;
+        s_presented_compaction_feedback = false;
+        s_home_ready_dwell = {};
+        s_home_reply_dwell = {};
+        s_activity_observation = {};
+        s_companion_seen_selection = false;
+        s_home_codex = true;
+    }
     using Activity = LUNASHELL::CodexActivityState;
     using Compaction = LUNASHELL::CodexCompactionState;
     const auto &activity = link.activity;
@@ -2549,7 +2621,6 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
     Compaction compaction = technical_owner ? technical.compaction : Compaction::None;
     if ((!current_link || technical.data_stale || !coherent_technical) && compaction == Compaction::Active) { compaction = Compaction::Stale; }
     const bool compacting = compaction == Compaction::Active && current_link && !technical.data_stale;
-    const int64_t now_us = esp_timer_get_time();
     const uint64_t receipt_age_us = technical.received_at_us > 0 && now_us >= technical.received_at_us ?
         static_cast<uint64_t>(now_us - technical.received_at_us) : 0;
     const bool refreshed_feedback = current_link && coherent_technical && compaction == Compaction::Refreshed && !technical.data_stale &&
@@ -2618,6 +2689,10 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
         // The initial READY can precede ACTIVITY. Until the first activity reply,
         // screen 15 claims PC presence only and never invents a chat state.
         if (activity.last_attempt_at_us == 0 && !s_companion_seen_selection) {
+            if (restoring_codex) {
+                changed = true;
+                return enter_route(Route::Connected15, scene);
+            }
             return ESP_OK;
         }
         destination = Route::ActivityUnavailable;
@@ -2842,6 +2917,13 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
     if (error != ESP_OK) {
         s_command_hints.sampled_us = -1;
         return error;
+    }
+    if (!s_home_codex) {
+        // Pause the finite footer lifetime without replaying its completed passes.
+        s_command_hints.sampled_us = -1;
+        changed = changed || scene.command_hints != nullptr;
+        scene.command_hints = nullptr;
+        return ESP_OK;
     }
     const auto &link = s_technical_observation.link;
     const auto &technical = s_technical_observation.technical;
@@ -3156,6 +3238,33 @@ esp_err_t show_error(SceneFrame &scene, esp_err_t error)
     return enter_route(Route::Failed08, scene);
 }
 
+// scene: Current choice or retry frame, replaced by the persistent companion Home.
+// Exception: Returns native presentation failures; write/admission failures stay visible with Retry.
+esp_err_t choose_local_companion(SceneFrame &scene)
+{
+    reset_onboarding();
+    esp_err_t error = enter_route(Route::CompanionIdle16, scene);
+    if (error == ESP_OK) {
+        bool changed = false;
+        error = present_companion_activity(0, scene, changed);
+    }
+    if (error == ESP_OK) {
+        error = enqueue(Work::UseCompanion, 0);
+    }
+    if (error == ESP_OK) {
+        return ESP_OK;
+    }
+    s_failed_work = Work::UseCompanion;
+    s_local_failure = true;
+    ESP_LOGE(kTag, "Local companion choice failed (%s)", esp_err_to_name(error));
+    const esp_err_t presentation_error = show_error(scene, error);
+    if (presentation_error != ESP_OK) {
+        return presentation_error;
+    }
+    const esp_err_t action_error = prepare_action(OnboardingAction::Retry, true);
+    return action_error == ESP_OK ? attach_content(scene) : action_error;
+}
+
 // scene: Screen 07 remains active while its real backend state changes.
 // message: Flash-owned status text, retained through complete frame retirement.
 // Exception: Returns the original title, caption or content preparation error.
@@ -3354,6 +3463,8 @@ void reset_onboarding()
     s_companion_seen_selection = false;
     s_session_ended_at_us = -1;
     s_presented_activity = {};
+    s_home_codex = false;
+    s_local_presentation_valid = false;
     // This owner survives setup, route and connection restarts until the display-owner boot ends.
     s_command_hints.sampled_us = -1;
     s_home_ready_dwell = {};
@@ -3412,6 +3523,12 @@ void begin_onboarding()
 {
     reset_onboarding();
     s_route = Route::Hello04;
+}
+
+// No parameters: the display owner reads only a consumed successful worker result, never NVS.
+bool onboarding_first_boot_completed()
+{
+    return s_first_boot_persisted;
 }
 
 // No parameters: returning devices still need a saved-link decision after startup.
@@ -3488,7 +3605,7 @@ esp_err_t present_network_wait(SceneFrame &scene, esp_err_t error, bool &changed
     changed = true;
     esp_err_t presentation_error = enter_route(Route::NetworkWait, scene);
     if (presentation_error == ESP_OK && !passive && error != ESP_OK) {
-        static constexpr char title[] = "UNAVAILABLE";
+        static constexpr char title[] = "Wi-Fi needed";
         presentation_error = set_scene_title(scene, {title, sizeof(title) - 1U});
         if (presentation_error == ESP_OK) {
             presentation_error = attach_content(scene);
@@ -3503,7 +3620,7 @@ esp_err_t present_network_wait(SceneFrame &scene, esp_err_t error, bool &changed
 
 // scene: Startup destination, chosen only from the coherent canonical radio snapshot.
 // changed: Receives whether a new route requires rendering.
-// Exception: Returns read/presentation failures; optional CCP faults stay visible, never absence.
+// Exception: Returns read/presentation failures; optional radio faults remain in canonical diagnostics.
 esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
 {
     LUNASHELL::ConnectivityObservation observation{};
@@ -3512,52 +3629,39 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
         return error;
     }
     const auto &wifi = observation.radios.wifi;
-    if (!wifi.data_valid || wifi.data_stale) {
-        error = wifi.last_error != ESP_OK ? wifi.last_error : ESP_ERR_INVALID_STATE;
-        return present_network_wait(scene, error, changed,
-            saved_wifi_startup_grace(wifi, esp_timer_get_time()));
-    }
-    if (!wifi.credentials_configured) {
-        if (wifi.last_error != ESP_OK && wifi.last_error != ESP_ERR_NOT_FOUND) {
-            ESP_LOGE(kTag, "Startup Wi-Fi profile failed (%s)", esp_err_to_name(wifi.last_error));
-            return wifi.last_error;
+    const bool wifi_ready = wifi.data_valid && !wifi.data_stale && wifi.credentials_configured &&
+        wifi.health == LUNASHELL::DeviceHealth::Ready && wifi.last_error == ESP_OK &&
+        wifi.started && wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0';
+    if (!wifi_ready) {
+        error = wifi.last_error != ESP_OK ? wifi.last_error :
+            !wifi.data_valid || wifi.data_stale ? ESP_ERR_INVALID_STATE : ESP_OK;
+        if (saved_wifi_startup_grace(wifi, esp_timer_get_time())) {
+            return present_network_wait(scene, error, changed, true);
         }
-        s_startup_pending = false;
-        changed = true;
-        return enter_route(Route::Hello04, scene);
+        if (error != ESP_OK) {
+            ESP_LOGE(kTag, "Companion startup retains Wi-Fi failure (%s)", esp_err_to_name(error));
+        }
+        // Returning devices remain usable while the existing radio owners retry.
+        // Missing or failed credentials are never repaired or rewritten here.
+        s_startup_wifi_error = error;
     }
-    // A saved profile does not prove connectivity; only the current successful
-    // owner observation may leave the passive wait early.
-    if (wifi.health != LUNASHELL::DeviceHealth::Ready || wifi.last_error != ESP_OK ||
-        !wifi.started || !wifi.connected || !wifi.ip_acquired || wifi.ip_address[0] == '\0') {
-        return present_network_wait(scene, wifi.last_error, changed,
-            saved_wifi_startup_grace(wifi, esp_timer_get_time()));
-    }
-    if (!kCodexIntegrationEnabled) {
-        s_startup_pending = false;
-        scene = {};
-        s_route = Route::None;
-        changed = true;
-        return ESP_OK;
+    s_startup_pending = false;
+    s_startup_network_passive = false;
+    s_startup_network_presented = false;
+    changed = true;
+    if (!wifi_ready || !kCodexIntegrationEnabled) {
+        return enter_route(Route::CompanionIdle16, scene);
     }
     const auto &link = observation.radios.codex_link;
     if (!link.data_valid || link.data_stale || link.pairing_repair_required ||
         (!link.retained_link_present && !link.pending_pairing_present && link.last_error != ESP_OK)) {
         error = link.last_error != ESP_OK ? link.last_error : ESP_ERR_INVALID_STATE;
-        ESP_LOGE(kTag, "Startup CCP snapshot unavailable (%s)", esp_err_to_name(error));
-        s_startup_pending = false;
-        changed = true;
-        // CCP is optional at startup. Its canonical fault must remain visible
-        // without taking the display/touch owner down with it.
-        return show_codex_error(scene, error);
+        ESP_LOGE(kTag, "Companion startup retains CCP failure (%s)", esp_err_to_name(error));
+        return enter_route(Route::CompanionIdle16, scene);
     }
-    s_startup_pending = false;
-    changed = true;
-    if (!link.retained_link_present && !link.pending_pairing_present) {
-        return enter_route(Route::CodexChoice, scene);
-    }
-    // A retained pairing is an identity, not evidence that the PC is currently ready.
-    return resume_codex_connection(scene, link);
+    // The retained-link acquisition owner resumes discovery independently of UI
+    // ownership. Startup never opens pairing or admits a second discovery request.
+    return enter_route(Route::CompanionIdle16, scene);
 }
 
 // scene: Current first-setup scene, always owned by the existing display worker.
@@ -3856,7 +3960,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             s_attempt = result.command.attempt + 1U; // Backend admission increments exactly once.
             s_pairing_owned = true;
             s_last_pairing_change_us = -1;
-        } else if (result.command.work == Work::CompleteFirstBoot) {
+        } else if (result.command.work == Work::CompleteFirstBoot || result.command.work == Work::UseCompanion) {
             s_local_failure = false;
             s_first_boot_persisted = true;
         } else if (result.command.work == Work::CodexStart || result.command.work == Work::CodexReplace) {
@@ -3913,6 +4017,9 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         if (event_error != ESP_OK || event_handled) {
             return event_error;
         }
+        // Home keeps its companion route even when no onboarding flow owns CCP.
+        // Pending native questions and approvals above retain their own presentation.
+        return present_companion_activity(active_time_us, scene, changed);
     }
     if (s_codex_owned) {
         if (s_command_pending && codex_link.data_valid &&
@@ -4353,9 +4460,7 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     }
     if (action_hit && s_route == Route::SetupComplete13) {
         if (!kCodexIntegrationEnabled) {
-            scene = {};
-            reset_onboarding();
-            return ESP_OK;
+            return choose_local_companion(scene);
         }
         return begin_codex_connection(scene, CodexConnectionIntent::Retry);
     }
@@ -4363,6 +4468,10 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         // The installation QR is local; no pairing session was started by this work.
         s_local_failure = false;
         return enter_route(Route::Invitation05, scene);
+    }
+    if (s_route == Route::Failed08 && s_local_failure && s_failed_work == Work::UseCompanion) {
+        // A failed local write needs no BLE/Wi-Fi state and must never restart pairing.
+        return choose_local_companion(scene);
     }
     LUNASHELL::ConnectivityObservation observation;
     const esp_err_t observation_error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
@@ -4509,10 +4618,7 @@ esp_err_t activate_setup_choice(SceneFrame &scene, OnboardingAction action)
         return enter_route(Route::MakeItYours10, scene);
     }
     if (action == OnboardingAction::DeclineCodex || action == OnboardingAction::Later) {
-        // No persistent refusal and no backend request. Next cold boot may ask again.
-        scene = {};
-        reset_onboarding();
-        return ESP_OK;
+        return choose_local_companion(scene);
     }
     if (action == OnboardingAction::NetworkSetup) {
         s_startup_pending = false;

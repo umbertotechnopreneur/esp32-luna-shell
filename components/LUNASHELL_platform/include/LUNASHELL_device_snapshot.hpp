@@ -385,6 +385,17 @@ struct CodexLinkSnapshot : ComponentSnapshot {
     // The displayed code, verifier, salt and link key never enter the snapshot.
 };
 
+namespace codex_presence {
+// link: Canonical CCP snapshot. READY describes the bridge independently of the app.
+// now_us: Current monotonic time in the same clock domain as READY.
+inline bool ready_current(const CodexLinkSnapshot &link, int64_t now_us)
+{
+    return link.data_valid && !link.data_stale && link.state == CodexLinkState::Connected &&
+        link.ready_at_us > 0 && now_us >= link.ready_at_us &&
+        static_cast<uint64_t>(now_us - link.ready_at_us) < kTransportTtlUs;
+}
+} // namespace codex_presence
+
 struct RadioSnapshot {
     WifiSnapshot wifi;
     BleSnapshot ble;
@@ -955,6 +966,8 @@ struct CodexStandbyObservation {
     bool retained_link_present = false;
     bool pairing_repair_required = false;
     bool wifi_started = false;
+    bool usb_power_known = false;
+    bool usb_power_present = false;
 };
 static_assert(sizeof(CodexStandbyObservation) <= 64,
     "Standby PC policy must remain a scalar projection on the internal power stack");
@@ -988,6 +1001,7 @@ struct DeviceStatusObservation {
     BleSnapshot ble;
     ComponentSnapshot codex_link;
     CodexLinkState codex_link_state = CodexLinkState::Idle;
+    bool codex_app_open = false;
 };
 
 // One coherent projection for the native diagnostics HUD, without spectra or routes.

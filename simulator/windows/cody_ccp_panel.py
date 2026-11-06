@@ -27,9 +27,11 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
+from cody_ccp_simulator import (AppState, LinkState,
+    SimulatorAppPresence, SimulatorEndpoint, SimulatorSnapshot)
 from cody_ccp_event_view import EventView
 from cody_native import NativePersonalityPainter, NativePanelInputs, NativePanelMetric, NativePanelObservation, NativeImuStillnessState, NativeFirmwareBuildFieldState
+from cody_native import NativeAppPresenceState, bounded_integer
 from cody_native_behavior import CharacterActivity, CharacterWorkKind
 from cody_native_debug import DiagnosticPage, debug_memory_button_contains, render_debug_controls
 from cody_personality import PersonalityCue, PersonalityPresentation
@@ -440,7 +442,8 @@ class CcpPanel:
         # it in SimulatorEndpoint, its authenticated packets or firmware snapshots.
         self._preview_snapshot = SimulatorSnapshot(source="SIMULATED PREVIEW", state=LinkState.CONNECTED,
             network_ready=True, retained_pairing=True, phase=phase, project=self.preview_project.get(), branch=self.preview_branch.get(),
-            description=self.preview_description.get(), chat="f" * 64, activity_valid=True)
+            description=self.preview_description.get(), chat="f" * 64, activity_valid=True,
+            ready_age_ms=0, app_presence=SimulatorAppPresence(AppState.OPEN, True, 0))
         if self.preview_scenario.get() == "Link lost":
             self._preview_snapshot = replace(self._preview_snapshot, state=LinkState.DISCOVERING, activity_valid=False)
         if self.preview_scenario.get() == "Long compaction":
@@ -565,8 +568,10 @@ class CcpPanel:
     # self: Live Studio projection owner using the firmware's canonical age and panel mapper.
     # snapshot: Authenticated endpoint observation with separate transport/source ages.
     # Returns raw facts only; source aging and presentation validity belong to shared C++.
+    # Raises ValueError for invalid source enums, integers or ASCII before ctypes can narrow them.
     def panel_observation(self, snapshot):
         observation = NativePanelObservation()
+        self.project_source_observations(snapshot, observation)
         observation.device_id = snapshot.device_id.encode("ascii")
         # This is the simulator device's bound address, never the broker/peer IP.
         # Isolated source fixtures without an endpoint truthfully leave it unavailable.
@@ -625,6 +630,31 @@ class CcpPanel:
                 setattr(observation, field, value if value is not None else 0)
             observation.usage_age_us = (technical.usage_age_ms or 0) * 1000
         return observation
+
+    # self: Host transport owner; app presence is independent of activity and link flags.
+    # snapshot: Authenticated simulator observation or explicitly isolated SIMULATED preview fixture.
+    # observation: Borrowed native DTO receiving original source/receipt durations.
+    # Raises ValueError for invalid typed source data before any ctypes narrowing.
+    def project_source_observations(self, snapshot, observation):
+        observation.ready_age_valid = snapshot.ready_age_ms is not None
+        if snapshot.ready_age_ms is not None:
+            observation.ready_age_us = bounded_integer(snapshot.ready_age_ms, 0, 0x7ffffffffffffffe // 1000,
+                                                       "ready.age_ms") * 1000
+        presence = snapshot.app_presence
+        if not isinstance(presence, SimulatorAppPresence):
+            raise ValueError("SIMULATED source observations must use their typed DTOs")
+        if not isinstance(presence.state, AppState):
+            raise ValueError("SIMULATED source identities must use their typed enums")
+        if type(presence.valid) is not bool:
+            raise ValueError("SIMULATED source validity must be boolean")
+        observation.app_presence_state = {AppState.UNAVAILABLE: NativeAppPresenceState.UNAVAILABLE,
+            AppState.OPEN: NativeAppPresenceState.OPEN, AppState.CLOSED: NativeAppPresenceState.CLOSED}[presence.state]
+        observation.app_presence_valid = presence.valid
+        observation.app_presence_error = bounded_integer(presence.error, -0x80000000, 0x7fffffff, "app_presence.error")
+        observation.app_presence_source_age_us = bounded_integer(presence.source_age_ms, 0, 0xffffffff,
+            "app_presence.source_age_ms") * 1000
+        observation.app_presence_receipt_age_us = bounded_integer(presence.receipt_age_ms, 0,
+            0x7ffffffffffffffe // 1000, "app_presence.receipt_age_ms") * 1000
 
     # self: Explicit CLI preview owner; the visible simulator remains open after its one native capture.
     # delay_ms: Real host animation time requested through the public simulator AtMs option.

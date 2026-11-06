@@ -1,5 +1,6 @@
 #include "CODY_home_identity.hpp"
 #include "home_dashboard_fonts.hpp"
+#include "LUNASHELL_codex_presence.hpp"
 #include "esp_log.h"
 #include <algorithm>
 #include <cstring>
@@ -43,27 +44,40 @@ esp_err_t prepare_home_identity(SceneFrame &scene, const LUNASHELL::CodexLinkSna
     if (active_time_us < 0 || !scene.title.text.characters || scene.title.text.length == 0) {
         return identity_result("identity_input", ESP_ERR_INVALID_ARG);
     }
+    const bool codex = LUNASHELL::codex_presence::ready_current(link, now_us) &&
+        LUNASHELL::codex_presence::is_open(link.app_presence, now_us);
     PanelInputs inputs{};
-    esp_err_t error = project_companion_panel_inputs(link, technical, now_us, "", inputs);
-    if (error != ESP_OK) { return identity_result("identity_source", error); }
+    esp_err_t error = ESP_OK;
+    if (codex) {
+        error = project_companion_panel_inputs(link, technical, now_us, "", inputs);
+        if (error != ESP_OK) { return identity_result("identity_source", error); }
+    }
     const auto &heading = HomeFonts::heading_font;
-    const uint32_t title_width = (scene.title.text.length - 1U) * heading.advance + heading.width;
+    uint32_t title_width = 0;
+    error = CODY2D::measure_text_width(heading, scene.title.text, title_width);
+    if (error != ESP_OK) { return identity_result("heading_measure", error); }
     // The complete heading uses its actual circular chord, with no lateral Home navigation.
     if (title_width > 400 || 190U + heading.height > 236U) {
         return identity_result("heading_extent", ESP_ERR_INVALID_SIZE);
     }
-    const bool attention = inputs.phase == LUNASHELL::CodexActivityState::Paused ||
-        inputs.phase == LUNASHELL::CodexActivityState::Interrupted;
-    const bool compacting = inputs.compaction == LUNASHELL::CodexCompactionState::Active;
+    const bool attention = codex && (inputs.phase == LUNASHELL::CodexActivityState::Paused ||
+        inputs.phase == LUNASHELL::CodexActivityState::Interrupted);
+    const bool compacting = codex && inputs.compaction == LUNASHELL::CodexCompactionState::Active;
     const uint16_t title_color = compacting ? 0xFD20 : attention ? scene.title.color : 0x5FF9;
     error = CODY2D::prepare_text_line(heading, scene.title.text,
         {static_cast<int16_t>((466U - title_width) / 2U), 190}, title_color, scene.title);
     if (error != ESP_OK) { return identity_result("heading_prepare", error); }
-    const char *model = inputs.model_state == PanelValueState::Current ? inputs.model :
-        inputs.model_state == PanelValueState::Stale ? "Model stale" :
-        inputs.model_state == PanelValueState::Invalid ? "Model invalid" : "Model unavailable";
+    const char *model = "Local companion";
+    const char *identity = "";
+    if (codex) {
+        identity = inputs.chat_id;
+        model = inputs.model_state == PanelValueState::Current ? inputs.model :
+            inputs.chat_id[0] == '\0' ? "Codex connected" :
+            inputs.model_state == PanelValueState::Stale ? "Model stale" :
+            inputs.model_state == PanelValueState::Invalid ? "Model invalid" : "Model unavailable";
+    }
     const size_t length = std::strlen(model);
-    if (length == 0 || length >= sizeof(owner.model) || std::strlen(inputs.chat_id) >= sizeof(owner.chat)) {
+    if (length == 0 || length >= sizeof(owner.model) || std::strlen(identity) >= sizeof(owner.chat)) {
         return identity_result("model_extent", ESP_ERR_INVALID_SIZE);
     }
     const auto &font = HomeFonts::small_font;
@@ -72,16 +86,19 @@ esp_err_t prepare_home_identity(SceneFrame &scene, const LUNASHELL::CodexLinkSna
             return identity_result("model_ascii", ESP_ERR_INVALID_ARG);
         }
     }
-    bool changed = !owner.valid || std::strcmp(owner.model, model) != 0 || std::strcmp(owner.chat, inputs.chat_id) != 0;
+    bool changed = !owner.valid || std::strcmp(owner.model, model) != 0 || std::strcmp(owner.chat, identity) != 0;
     if (changed) {
         std::strcpy(owner.model, model);
-        std::strcpy(owner.chat, inputs.chat_id);
+        std::strcpy(owner.chat, identity);
         owner.started_us = active_time_us;
     }
-    const uint16_t width = static_cast<uint16_t>((length - 1U) * font.advance + font.width);
+    uint32_t width = 0;
+    error = CODY2D::measure_text_width(font, {owner.model, static_cast<uint16_t>(length)}, width);
+    if (error != ESP_OK) { return identity_result("model_measure", error); }
+    if (width > UINT16_MAX) { return identity_result("model_width", ESP_ERR_INVALID_SIZE); }
     uint16_t offset = 0;
     if (width > 320) {
-        const uint16_t travel = width - 320;
+        const uint16_t travel = static_cast<uint16_t>(width - 320U);
         // A measured 25 px/s sweep holds both complete ends for 1.5 seconds.
         const int64_t sweep_us = static_cast<int64_t>(travel) * 40000;
         const int64_t elapsed = std::max<int64_t>(0, active_time_us - owner.started_us);
@@ -94,12 +111,14 @@ esp_err_t prepare_home_identity(SceneFrame &scene, const LUNASHELL::CodexLinkSna
             offset = static_cast<uint16_t>(travel - (cycle - 3000000 - sweep_us) / 40000);
         }
     }
-    const uint16_t first = offset / font.advance;
-    const uint16_t count = std::min<uint16_t>(static_cast<uint16_t>(length) - first,
-        static_cast<uint16_t>((320 + font.advance - 1U) / font.advance + 1U));
+    CODY2D::TextSpan window{};
+    int16_t origin_offset = 0;
+    error = CODY2D::select_text_window(font, {owner.model, static_cast<uint16_t>(length)},
+        offset, 320, window, origin_offset);
+    if (error != ESP_OK) { return identity_result("model_window", error); }
     const int16_t left = width <= 320 ? static_cast<int16_t>((466U - width) / 2U) :
-        static_cast<int16_t>(73 - offset % font.advance);
-    error = CODY2D::prepare_text_line(font, {owner.model + first, count}, {left, 236}, 0x9CD3, owner.model_line);
+        static_cast<int16_t>(73 + origin_offset);
+    error = CODY2D::prepare_text_line(font, window, {left, 236}, 0x9CD3, owner.model_line);
     if (error != ESP_OK) { return identity_result("model_prepare", error); }
     changed = changed || owner.offset != offset;
     owner.offset = offset;

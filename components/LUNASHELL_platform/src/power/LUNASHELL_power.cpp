@@ -2775,6 +2775,11 @@ esp_err_t apply_codex_offline_policy(bool &owns_inactivity)
     }
     const int64_t now_us = esp_timer_get_time();
     const bool known = codex_standby_link_known(observation, now_us);
+    // Keep the local companion available on confirmed desk power while Codex is offline.
+    if (observation.usb_power_present) {
+        s_codex_offline_timer = {};
+        return ESP_OK;
+    }
     const bool connected = observation.link_state == LUNASHELL::CodexLinkState::Connected;
     const bool pairing = codex_standby_pairing_active(observation);
     owns_inactivity = known && !connected && !pairing;

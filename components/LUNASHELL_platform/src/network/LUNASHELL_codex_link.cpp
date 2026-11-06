@@ -136,7 +136,8 @@ bool s_activity_received_for_nonce = false;
 bool s_technical_received_for_nonce = false;
 // Serialized network-owner projection; large metadata never enters nested task frames.
 LUNASHELL::CodexTechnicalSnapshot s_technical_snapshot{};
-// READY endpoint checks borrow only the canonical projection owned by acquisition.
+// The single CCP worker reuses this projection for pairing, READY admission and
+// maintenance. Public command admissions only enqueue work; references never escape.
 LUNASHELL::ConnectivityObservation s_ready_connectivity{};
 bool s_event_received_for_nonce = false;
 uint64_t s_app_sequence = 0;
@@ -1027,7 +1028,7 @@ void startPairing()
             }
         }
     }
-    LUNASHELL::ConnectivityObservation observation{};
+    auto &observation = s_ready_connectivity;
     if (error == ESP_OK) {
         error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
     }
@@ -3723,7 +3724,7 @@ void maintainState()
             // Schedule failed attempts too. A radio transition must not create a hot loop.
             s_next_find_at_us = now_us + kFindIntervalUs;
         }
-        LUNASHELL::ConnectivityObservation observation{};
+        auto &observation = s_ready_connectivity;
         esp_err_t error = LUNASHELL::DeviceSnapshotService::instance()
             .readConnectivityObservation(observation);
         if (error == ESP_OK && !wifiOnline(observation)) {
@@ -4034,8 +4035,9 @@ extern "C" esp_err_t LUNASHELL_codex_link_service_init(void)
         publishLocked(State::Failed, ESP_ERR_NO_MEM);
         return ESP_ERR_NO_MEM;
     }
-    const State restored = s_candidate_present ? State::AwaitingConfirmation :
-        s_link_present ? State::Paired : State::Idle;
+    // Retained identities reconnect under the acquisition owner even when Home
+    // chooses a local companion and no setup screen requests discovery.
+    const State restored = s_candidate_present || s_link_present ? State::Discovering : State::Idle;
     publishLocked(s_storage_error == ESP_OK ? restored : State::Failed, s_storage_error);
     return s_storage_error;
 }

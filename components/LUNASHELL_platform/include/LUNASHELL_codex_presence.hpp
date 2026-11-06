@@ -56,6 +56,18 @@ inline bool age(CodexAppPresenceSnapshot &presence, int64_t now_us)
     return false;
 }
 
+// presence: Authenticated app observation, independent of chat and LAN state.
+// now_us: Current monotonic clock on the device that admitted the packet.
+inline bool is_open(const CodexAppPresenceSnapshot &presence, int64_t now_us)
+{
+    if (!presence.data_valid || presence.state != CodexAppPresenceState::Open ||
+        presence.last_error != ESP_OK) {
+        return false;
+    }
+    auto current = presence;
+    return !age(current, now_us);
+}
+
 // presence: Existing canonical owner; rejected candidates never mutate it.
 // state: Parsed authenticated app state, independent of chat and LAN status.
 // source_error: Explicit unavailable reason; successful Open/Closed use ESP_OK.

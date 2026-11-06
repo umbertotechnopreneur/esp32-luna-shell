@@ -7,7 +7,7 @@
 # Copyright (c) 2026 Umberto Giacobbi
 # VBWR E
 
-"""Bake the vendored OFL sans face into independent fixed-cell Home fonts."""
+"""Bake immutable Home coverage with proportional labels and tabular value cells."""
 
 import hashlib
 import json
@@ -79,13 +79,24 @@ extern const CODY2D::MonoFont value_font;
         source_family="Telex", license="SIL-OFL-1.1",
         source_sha256=hashlib.sha256(SOURCE.read_bytes()).hexdigest(), fonts={})
     for name, coverage, metrics in fonts:
-        lines.append(f'alignas(4) static const uint8_t {name}_coverage[] = {{')
+        proportional = name != 'value_font'
+        storage = 'constexpr' if proportional else 'const'
+        lines.append(f'alignas(4) static {storage} uint8_t {name}_coverage[] = {{')
         for offset in range(0, len(coverage), 24):
             lines.append('    ' + ', '.join(f'0x{value:02x}' for value in coverage[offset:offset + 24]) + ',')
         lines.append('};')
         values = ', '.join(str(metrics[key]) for key in (
             'first_character', 'character_count', 'width', 'height', 'advance', 'row_bytes', 'coverage_bits'))
-        lines.append(f'const CODY2D::MonoFont {name}{{{name}_coverage, sizeof({name}_coverage), {values}}};')
+        suffix = ''
+        if proportional:
+            space_advance = 6 if name == 'small_font' else 8
+            dimensions = ', '.join(str(metrics[key]) for key in (
+                'first_character', 'width', 'height', 'row_bytes', 'coverage_bits'))
+            lines.append(f'static constexpr auto {name}_metrics = '
+                f'CODY2D::make_proportional_glyph_metrics<{metrics["character_count"]}>('
+                f'{name}_coverage, {dimensions}, {space_advance});')
+            suffix = f', {name}_metrics.data(), {metrics["character_count"]}'
+        lines.append(f'const CODY2D::MonoFont {name}{{{name}_coverage, sizeof({name}_coverage), {values}{suffix}}};')
         manifest['fonts'][name] = {**metrics, 'coverage_bytes': len(coverage),
             'coverage_sha256': hashlib.sha256(coverage).hexdigest()}
     lines.append('} // namespace CODY::HomeFonts')

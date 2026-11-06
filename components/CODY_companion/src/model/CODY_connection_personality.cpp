@@ -118,7 +118,7 @@ esp_err_t advance_connection_personality(const ConnectionPersonalityInputs &inpu
         ? static_cast<int64_t>((static_cast<uint64_t>(next.search_elapsed_us) +
             static_cast<uint64_t>(active_delta_us)) % 96000000ULL) : 0;
     // Loss of network truth cancels the PC celebration; it never waits to play later.
-    if (inputs.wifi_current && !inputs.wifi_connected) {
+    if (inputs.wifi_current && !inputs.wifi_connected && !inputs.companion_fallback) {
         next.event = PersonalityCue::None;
         next.event_remaining_us = 0;
         cue = PersonalityCue::NoWifi;
@@ -126,7 +126,7 @@ esp_err_t advance_connection_personality(const ConnectionPersonalityInputs &inpu
         cue = PersonalityCue::WifiConnected;
     } else if (next.event_remaining_us > 0 && inputs.pc_current) {
         cue = next.event;
-    } else if (inputs.pc_current && !inputs.pc_connected && inputs.wifi_connected) {
+    } else if (inputs.pc_current && !inputs.pc_connected && inputs.wifi_connected && !inputs.companion_fallback) {
         cue = PersonalityCue::NoCodex;
     } else if (next.search_active) {
         cue = connection_search_presentation(next).cue;

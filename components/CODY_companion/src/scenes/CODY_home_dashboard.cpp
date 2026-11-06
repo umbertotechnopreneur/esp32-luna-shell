@@ -1,5 +1,6 @@
 #include "CODY_home_dashboard.hpp"
 #include "CODY_command_hints.hpp"
+#include "LUNASHELL_codex_presence.hpp"
 #include "esp_log.h"
 #include <algorithm>
 #include <cstdio>
@@ -144,10 +145,13 @@ const char *metric_status(PanelValueState state)
 
 // font: Previously validated immutable glyph metrics.
 // text: NUL-terminated bounded owner caption.
-uint32_t text_width(const CODY2D::MonoFont &font, const char *text)
+// width: Receives the measured native width, shared with clipping and rasterization.
+// Exception: Preserves unsupported-character and font metric errors.
+esp_err_t text_width(const CODY2D::MonoFont &font, const char *text, uint32_t &width)
 {
     const size_t length = std::strlen(text);
-    return length == 0 ? 0 : static_cast<uint32_t>((length - 1) * font.advance + font.width);
+    if (length > UINT16_MAX) { return dashboard_result("caption_length", ESP_ERR_INVALID_SIZE); }
+    return CODY2D::measure_text_width(font, {text, static_cast<uint16_t>(length)}, width);
 }
 
 // owner: Stable text owner with at most six retained lines.
@@ -161,7 +165,9 @@ esp_err_t add_line(HomeDashboardPresentation &owner, const CODY2D::MonoFont &fon
     const char *text, uint16_t top, uint16_t color, int16_t left = -1)
 {
     const size_t length = std::strlen(text);
-    const uint32_t width = text_width(font, text);
+    uint32_t width = 0;
+    const esp_err_t measurement_error = text_width(font, text, width);
+    if (measurement_error != ESP_OK) { return dashboard_result("caption_measure", measurement_error); }
     if (length >= sizeof(owner.captions[0]) || owner.line_count >= std::size(owner.lines) || width > 320) {
         return dashboard_result("caption_capacity", ESP_ERR_INVALID_SIZE);
     }
@@ -242,6 +248,28 @@ ArcColor occupancy_arc_color(uint64_t used, uint64_t capacity)
     return ArcColor::White;
 }
 
+// owner: Prepared metric state whose paths remain owned until frame retirement.
+// compacting: Current authenticated compaction; only this state admits indeterminate motion.
+// color: Semantic measured occupancy color.
+// active_time_us: Existing pausable presentation clock.
+// Exception: Preserves native path preparation failures.
+esp_err_t prepare_arc_visual(HomeDashboardPresentation &owner, bool compacting, ArcColor color, int64_t active_time_us)
+{
+    if (!compacting && owner.arc_state != HomeDashboardArcState::Measured) { return ESP_OK; }
+    owner.animation_step = compacting ? static_cast<uint16_t>(active_time_us / 100000 % kHomeDashboardSegments) : 0;
+    esp_err_t error = prepare_arc_ribbon(owner, 0, 2000, ArcColor::Track);
+    if (error != ESP_OK) { return error; }
+    if (compacting) {
+        const uint16_t first = owner.animation_step * 100;
+        error = prepare_arc_ribbon(owner, first, std::min<uint16_t>(first + 300, 2000), ArcColor::Orange);
+        if (error == ESP_OK && first + 300 > 2000) {
+            error = prepare_arc_ribbon(owner, 0, first + 300 - 2000, ArcColor::Orange);
+        }
+        return error;
+    }
+    return prepare_arc_ribbon(owner, 0, owner.arc_units, color);
+}
+
 // owner: Stable serialized line/ribbon buffers, invalid until preparation completes.
 // inputs: Borrowed canonical projection shared with the technical-panel owner.
 // title_font: Actual large numeric glyphs.
@@ -282,14 +310,25 @@ esp_err_t prepare_arc(HomeDashboardPresentation &owner, const PanelInputs &input
     const uint16_t accent = kArcPalette[static_cast<uint8_t>(color)];
     char caption[48]{};
     esp_err_t error = ESP_OK;
+    if (available.state != PanelValueState::Current) {
+        const char *status = measured && inputs.used.value > inputs.capacity.value ? "OVERLIMIT" : metric_status(available.state);
+        std::snprintf(caption, sizeof(caption), "Context %s", status);
+        error = add_line(owner, body_font, caption, 294, kAmber);
+        if (error != ESP_OK) { return error; }
+        return prepare_arc_visual(owner, compacting, color, active_time_us);
+    }
     bool stacked = false;
-    if (available.state == PanelValueState::Current) {
+    {
         char number[24]{};
         error = format_home_token_value(available.value, number, sizeof(number));
         if (error != ESP_OK) { return error; }
-        const uint32_t prefix_width = text_width(body_font, "Free");
-        const uint32_t suffix_width = text_width(body_font, "TT");
-        const uint32_t value_width = text_width(title_font, number);
+        uint32_t prefix_width = 0;
+        uint32_t suffix_width = 0;
+        uint32_t value_width = 0;
+        error = text_width(body_font, "Free", prefix_width);
+        if (error == ESP_OK) { error = text_width(body_font, "TT", suffix_width); }
+        if (error == ESP_OK) { error = text_width(title_font, number, value_width); }
+        if (error != ESP_OK) { return error; }
         const uint32_t total_width = prefix_width + value_width + suffix_width + 20;
         if (total_width <= 320) {
             const int16_t left = static_cast<int16_t>((466 - total_width) / 2);
@@ -304,10 +343,6 @@ esp_err_t prepare_arc(HomeDashboardPresentation &owner, const PanelInputs &input
             if (count < 0 || count >= static_cast<int>(sizeof(caption))) { return dashboard_result("primary_format", ESP_ERR_INVALID_SIZE); }
             if (error == ESP_OK) { error = add_line(owner, body_font, caption, 294, accent); }
         }
-    } else {
-        const char *status = measured && inputs.used.value > inputs.capacity.value ? "OVERLIMIT" : metric_status(available.state);
-        std::snprintf(caption, sizeof(caption), "Free %s", status);
-        error = add_line(owner, body_font, caption, 279, kAmber);
     }
     if (error != ESP_OK) { return error; }
     char last[48]{};
@@ -318,44 +353,43 @@ esp_err_t prepare_arc(HomeDashboardPresentation &owner, const PanelInputs &input
     const size_t last_length = std::strlen(last);
     const size_t window_length = std::strlen(window);
     const size_t labels_length = last_length + window_length;
-    const uint32_t paired_width = static_cast<uint32_t>((labels_length + 2) * small_font.advance + small_font.width);
     const uint16_t secondary_top = stacked ? 322 : 315;
-    if (paired_width <= 320 && labels_length + 3 < sizeof(caption)) {
+    uint32_t paired_width = UINT32_MAX;
+    if (labels_length + 3 < sizeof(caption)) {
         // The complete pair and terminator fit; copy exact labels without formatter truncation.
         std::memcpy(caption, last, last_length);
         std::memcpy(caption + last_length, " | ", 3);
         std::memcpy(caption + last_length + 3, window, window_length + 1);
+        error = text_width(small_font, caption, paired_width);
+        if (error != ESP_OK) { return error; }
+    }
+    if (paired_width <= 320) {
         error = add_line(owner, small_font, caption, secondary_top, kMuted);
     } else {
         error = metric_caption(window, sizeof(window), "Win", inputs.capacity);
         if (error != ESP_OK) { return error; }
         const int count = std::snprintf(caption, sizeof(caption), "%s | %s", last, window);
-        if (count > 0 && count < static_cast<int>(sizeof(caption)) && text_width(small_font, caption) <= 320) {
+        uint32_t compact_width = UINT32_MAX;
+        if (count > 0 && count < static_cast<int>(sizeof(caption))) {
+            error = text_width(small_font, caption, compact_width);
+            if (error != ESP_OK) { return error; }
+        }
+        if (compact_width <= 320) {
             // Keep both ordinary counters visible using the compact window label and the hero's TT unit.
             error = add_line(owner, small_font, caption, secondary_top, kMuted);
         } else {
             // Exceptional full-width counts alternate without truncation; the narrower body face keeps all digits.
             const char *selected = (active_time_us / 5000000) % 2 == 0 ? last : window;
-            const auto &metric_font = text_width(small_font, selected) <= 320 ? small_font : body_font;
+            uint32_t selected_width = 0;
+            error = text_width(small_font, selected, selected_width);
+            if (error != ESP_OK) { return error; }
+            const auto &metric_font = selected_width <= 320 ? small_font : body_font;
             error = add_line(owner, metric_font, selected, secondary_top, kMuted);
         }
     }
     if (error != ESP_OK) { return error; }
-    owner.arc_units = available.state == PanelValueState::Current
-        ? occupancy_arc_units(inputs.used.value, inputs.capacity.value) : 0;
-    owner.animation_step = compacting ? static_cast<uint16_t>(active_time_us / 100000 % kHomeDashboardSegments) : 0;
-    error = prepare_arc_ribbon(owner, 0, 2000, ArcColor::Track);
-    if (error != ESP_OK) { return error; }
-    if (compacting) {
-        const uint16_t first = owner.animation_step * 100;
-        error = prepare_arc_ribbon(owner, first, std::min<uint16_t>(first + 300, 2000), ArcColor::Orange);
-        if (error == ESP_OK && first + 300 > 2000) {
-            error = prepare_arc_ribbon(owner, 0, first + 300 - 2000, ArcColor::Orange);
-        }
-    } else if (owner.arc_state == HomeDashboardArcState::Measured) {
-        error = prepare_arc_ribbon(owner, 0, owner.arc_units, color);
-    }
-    return error;
+    owner.arc_units = occupancy_arc_units(inputs.used.value, inputs.capacity.value);
+    return prepare_arc_visual(owner, compacting, color, active_time_us);
 }
 
 // state: Prepared serialized dashboard borrowed until frame retirement.
@@ -450,12 +484,15 @@ esp_err_t prepare_text_marquee(HomeDashboardPresentation &owner, HomeTextMarquee
         if (character < 32 || character > 126) { return dashboard_result("marquee_ascii", ESP_ERR_INVALID_ARG); }
         replaced = replaced || row.text[index] != character;
     }
-    const uint32_t width = static_cast<uint32_t>((length - 1U) * font.advance + font.width);
-    if (width > UINT16_MAX) { return dashboard_result("marquee_width", ESP_ERR_INVALID_SIZE); }
+    uint32_t width = row.width;
     if (restart || row.font == nullptr || elapsed_us < row.entered_elapsed_us) { row.entered_elapsed_us = elapsed_us; }
     if (replaced) {
         std::memcpy(row.text, prefix, prefix_length);
         std::memcpy(row.text + prefix_length, text, source_length + 1U);
+        const esp_err_t measurement_error = CODY2D::measure_text_width(font,
+            {row.text, static_cast<uint16_t>(length)}, width);
+        if (measurement_error != ESP_OK) { return dashboard_result("marquee_measure", measurement_error); }
+        if (width > UINT16_MAX) { return dashboard_result("marquee_width", ESP_ERR_INVALID_SIZE); }
         std::memcpy(row.chat_id, identity, identity_length + 1U);
         row.font = &font;
         row.length = static_cast<uint16_t>(length);
@@ -483,13 +520,14 @@ esp_err_t prepare_text_marquee(HomeDashboardPresentation &owner, HomeTextMarquee
     const uint16_t offset = elapsed < start_hold_us ? 0 : static_cast<uint16_t>(std::min<int64_t>(overflow,
         ((elapsed - start_hold_us) / step_us) * pixels_per_step));
     if (offset != row.offset) { row.offset = offset; ++row.revision; }
-    const uint16_t first = row.offset / font.advance;
-    const uint16_t fraction = row.offset % font.advance;
-    const uint16_t capacity = (bounds.width + font.advance - 1U) / font.advance + 1U;
-    const uint16_t count = std::min<uint16_t>(row.length - first, capacity);
-    const int16_t left = overflow != 0 ? static_cast<int16_t>(bounds.x - fraction) :
+    CODY2D::TextSpan window{};
+    int16_t origin_offset = 0;
+    const esp_err_t window_error = CODY2D::select_text_window(font, {row.text, row.length},
+        row.offset, bounds.width, window, origin_offset);
+    if (window_error != ESP_OK) { return dashboard_result("marquee_window", window_error); }
+    const int16_t left = overflow != 0 ? static_cast<int16_t>(bounds.x + origin_offset) :
         static_cast<int16_t>(bounds.x + (bounds.width - row.width) / 2U);
-    return CODY2D::prepare_text_line(font, {row.text + first, count},
+    return CODY2D::prepare_text_line(font, window,
         {left, static_cast<int16_t>(bounds.y)}, color, row.window);
 }
 
@@ -705,12 +743,23 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
     if (error == ESP_OK) { error = CODY2D::validate_mono_font(body_font); }
     if (error == ESP_OK) { error = CODY2D::validate_mono_font(secondary_font); }
     if (error != ESP_OK) { return dashboard_result("prepare_font", error); }
-    PanelInputs inputs{};
-    error = project_companion_panel_inputs(link, technical, now_us, "", inputs);
-    if (error != ESP_OK) { return error; }
     const int64_t elapsed_us = panel_elapsed_us < 0 ? active_time_us : panel_elapsed_us;
     const bool restart = !previously_valid || previous_panel != panel;
-    if (panel == CompanionPanel::Home) {
+    const bool bridge_current = LUNASHELL::codex_presence::ready_current(link, now_us);
+    const bool codex = bridge_current && LUNASHELL::codex_presence::is_open(link.app_presence, now_us);
+    PanelInputs inputs{};
+    if (codex) {
+        error = project_companion_panel_inputs(link, technical, now_us, "", inputs);
+        if (error != ESP_OK) { return error; }
+    }
+    const bool no_chat = codex && inputs.activity == PanelValueState::Current &&
+        inputs.phase == LUNASHELL::CodexActivityState::None &&
+        inputs.compaction != LUNASHELL::CodexCompactionState::Active;
+    if (!codex && panel != CompanionPanel::SessionLink) {
+        error = add_line(presentation, body_font, "Tap for device details", 304, kMuted);
+    } else if (no_chat && panel != CompanionPanel::SessionLink) {
+        error = add_line(presentation, body_font, "No active chat", 304, kMuted);
+    } else if (panel == CompanionPanel::Home) {
         error = prepare_arc(presentation, inputs, title_font, body_font, secondary_font, active_time_us);
     } else if (panel == CompanionPanel::ModelContext) {
         char caption[48]{};
@@ -736,26 +785,34 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
             const char *effort = inputs.effort_state == PanelValueState::Current ? inputs.effort : metric_status(inputs.effort_state);
             const int count = std::snprintf(caption, sizeof(caption), "Thinking %s", effort);
             if (count < 0 || count >= static_cast<int>(sizeof(caption))) { return dashboard_result("effort_format", ESP_ERR_INVALID_SIZE); }
-            const auto &effort_font = text_width(secondary_font, caption) <= 320 ? secondary_font : body_font;
+            uint32_t effort_width = 0;
+            error = text_width(secondary_font, caption, effort_width);
+            if (error != ESP_OK) { return error; }
+            const auto &effort_font = effort_width <= 320 ? secondary_font : body_font;
             error = add_line(presentation, effort_font, caption, 350, kMuted);
         }
     } else if (panel == CompanionPanel::SessionLink) {
         char caption[48]{};
-        const char *status = inputs.link != PanelValueState::Current ? metric_status(inputs.link) :
-            inputs.connected ? "PC connected" : link.retained_link_present && link.state == LUNASHELL::CodexLinkState::Discovering
-                ? "Reconnecting" : "PC disconnected";
-        const auto &app = link.app_presence;
-        const bool app_current = inputs.link == PanelValueState::Current && inputs.connected &&
-            app.data_valid && app.last_error == ESP_OK;
-        if (app_current && app.state == LUNASHELL::CodexAppPresenceState::Open) status = "Codex open";
-        if (app_current && app.state == LUNASHELL::CodexAppPresenceState::Closed) status = "Codex closed";
+        const char *status = "Codex unavailable";
+        uint16_t status_color = kWhite;
+        auto app = link.app_presence;
+        LUNASHELL::codex_presence::age(app, now_us);
+        if (codex) {
+            status = "Codex open";
+            status_color = kMint;
+        } else if (bridge_current && app.data_valid && app.last_error == ESP_OK &&
+                   app.state == LUNASHELL::CodexAppPresenceState::Closed) {
+            status = "Codex closed";
+            status_color = kAmber;
+        } else if (link.retained_link_present && link.state == LUNASHELL::CodexLinkState::Discovering) {
+            status = "Reconnecting";
+        }
         if (link.last_error != ESP_OK && link.state != LUNASHELL::CodexLinkState::Discovering) {
             std::snprintf(caption, sizeof(caption), "Link 0x%X", static_cast<unsigned>(link.last_error));
             status = caption;
+            status_color = kAmber;
         }
         if (secondary_font.height > 18) { return dashboard_result("device_font_height", ESP_ERR_INVALID_SIZE); }
-        const uint16_t status_color = app_current && app.state == LUNASHELL::CodexAppPresenceState::Closed ? kAmber :
-            inputs.link == PanelValueState::Current && inputs.connected && link.last_error == ESP_OK ? kMint : kWhite;
         error = add_line(presentation, secondary_font, status, 268, status_color);
         if (error == ESP_OK) {
             if (device_ip_state == PanelValueState::Current && (device_ip[0] == '\0' || std::strlen(device_ip) > 15)) {
@@ -806,7 +863,10 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
             if (date_length == 0 || date_length > 16) { return dashboard_result("build_clock_length", ESP_ERR_INVALID_SIZE); }
             std::snprintf(caption, sizeof(caption), "Built %s", date_time);
             // A full captured date keeps every digit if its authored label would exceed the fixed row.
-            error = add_line(presentation, secondary_font, text_width(secondary_font, caption) <= 320 ? caption : date_time, 335, kMuted);
+            uint32_t date_width = 0;
+            error = text_width(secondary_font, caption, date_width);
+            if (error != ESP_OK) { return error; }
+            error = add_line(presentation, secondary_font, date_width <= 320 ? caption : date_time, 335, kMuted);
         }
         if (error == ESP_OK) {
             error = prepare_text_marquee(presentation, presentation.detail_marquees[1], time_zone, 63,

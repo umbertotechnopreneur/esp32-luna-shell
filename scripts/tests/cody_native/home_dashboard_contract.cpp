@@ -409,6 +409,12 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
     link.data_valid = link.activity.data_valid = technical.data_valid = true;
     link.last_error = link.activity.last_error = technical.last_error = ESP_OK;
     link.state = LUNASHELL::CodexLinkState::Connected;
+    // Explicit synthetic native MCP presence is independent from the link fixture.
+    link.ready_at_us = 1000000;
+    link.app_presence.state = LUNASHELL::CodexAppPresenceState::Open;
+    link.app_presence.data_valid = true;
+    link.app_presence.last_error = ESP_OK;
+    link.app_presence.received_at_us = 1000000;
     link.health = link.activity.health = technical.health = LUNASHELL::DeviceHealth::Ready;
     link.activity.state = LUNASHELL::CodexActivityState::Working;
     link.activity.revision = technical.revision = 7;
@@ -557,7 +563,7 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
     technical.used = technical.capacity + 1;
     prepare(CODY::CompanionPanel::Home, 0);
     dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::OverLimit &&
-        dashboard_has_caption(owner, "Free OVERLIMIT") && owner.arc_path_count == 1,
+        dashboard_has_caption(owner, "Context OVERLIMIT") && owner.arc_path_count == 0,
         "overlimit cannot underflow free space or draw invented progress");
     technical.used = technical.capacity = std::numeric_limits<uint64_t>::max();
     prepare(CODY::CompanionPanel::Home, 0);
@@ -570,13 +576,13 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
         "largest genuine free count retains every compact digit using the bounded stacked native layout");
     technical.context_stale = true;
     prepare(CODY::CompanionPanel::Home, 0);
-    dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Stale && owner.arc_path_count == 1 && owner.arc_units == 0 &&
-        dashboard_has_caption(owner, "Free STALE"), "expired counters never retain a measured arc");
+    dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Stale && owner.arc_path_count == 0 && owner.arc_units == 0 &&
+        dashboard_has_caption(owner, "Context STALE"), "expired counters never retain a measured arc");
     technical.context_stale = false;
     technical.data_valid = false;
     prepare(CODY::CompanionPanel::Home, 0);
     dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Unavailable &&
-        owner.arc_path_count == 1 && owner.arc_units == 0 && dashboard_has_caption(owner, "Free UNAVAILABLE"),
+        owner.arc_path_count == 0 && owner.arc_units == 0 && dashboard_has_caption(owner, "Context UNAVAILABLE"),
         "an unavailable owner cannot reuse its historical valid flags as fabricated current progress");
     technical.data_valid = true;
     technical.used = 155000;
@@ -604,8 +610,8 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
         "existing active scene clock advances the real compaction accent");
     technical.last_error = ESP_FAIL;
     prepare(CODY::CompanionPanel::Home, 0);
-    dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Invalid && owner.arc_path_count == 1 && owner.arc_units == 0 &&
-        dashboard_has_caption(owner, "Free INVALID"), "canonical owner error retires historical numeric validity");
+    dashboard_require(owner.arc_state == CODY::HomeDashboardArcState::Invalid && owner.arc_path_count == 0 && owner.arc_units == 0 &&
+        dashboard_has_caption(owner, "Context INVALID"), "canonical owner error retires historical numeric validity");
     technical.last_error = ESP_OK;
     technical.compaction = LUNASHELL::CodexCompactionState::None;
     technical.model_valid = technical.effort_valid = true;
@@ -620,7 +626,7 @@ void verify_home_dashboard_contract(const CODY2D::MonoFont &value_font,
         dashboard_has_caption(owner, "Price Expensive") && dashboard_has_caption(owner, "Thinking high") && owner.line_count == 2,
         "lower model panel complements the shared identity header with only price and thinking effort");
     prepare(CODY::CompanionPanel::SessionLink, 0);
-    dashboard_require(dashboard_has_caption(owner, "PC connected") && !dashboard_has_caption(owner, "SIMULATED title") &&
+    dashboard_require(dashboard_has_caption(owner, "Codex open") && !dashboard_has_caption(owner, "SIMULATED title") &&
         dashboard_has_caption(owner, "IP 192.0.2.17") && !dashboard_has_caption(owner, "IP 192.0.2.99") &&
         dashboard_has_caption(owner, "ID 010203040506 | Standing") && dashboard_has_caption(owner, "Built 14/10/26 12:34") &&
         dashboard_has_caption(owner, "Zone SIMULATED/Asia/Long/Build/Time/Zone/Identity") &&

@@ -101,7 +101,8 @@ needs reconciliation with the repository's lateral-Back contract in [TODO.md](..
 
 ## Companion panels, status and Debug
 
-Home uses four lower panels: Tokens, Model & Context, Device, and Chat & Activity.
+When Codex is the current source, Home uses four lower panels: Tokens,
+Model & Context, Device, and Chat & Activity.
 Their typed identities are Home (0), ModelContext (2), SessionLink (3), and
 ChatActivity (4); the retired Activity identity (1) remains unavailable.
 Panels rotate after at least eight visible seconds. Device and Chat extend their
@@ -113,6 +114,19 @@ the state title at y=190 and the model row in (73,236), 320 x 28. Only the lower
 panel changes; there is no full-screen Activity page, page counter or Back control.
 Setup and questions retain their existing routes and action controls. Hidden
 views, standby and current compaction pause automatic panel rotation.
+
+Source selection requires fresh authenticated Codex MCP presence and a current
+READY connection, even without an active chat. Otherwise Cody presents the local
+companion. Account usage, LAN connectivity and app presence are independent
+observations. The local MCP stops when its PC stops.
+
+Local Home says `Here with you`. It keeps one calm panel
+instead of rotating empty Codex measurements. A tap toggles that panel and Device;
+a deliberate shake returns Home. Genuine source gaps remain explicit once, and
+Device retains connection diagnostics. Local mode never replays the finite
+Codex command footer. Returning devices resume Home during optional connection
+failure, and an explicit Later choice completes first setup through the settings
+owner. Setup and pending remote questions retain their routes.
 
 The selected [context-arc proposal](ui-proposals/20261014/02-context-arc.png)
 is implemented with native text and antialiased strokes. The dashboard damage
@@ -126,6 +140,9 @@ occupancy: white below 25%, cyan from 25% to below 65%, orange from 65% to below
 Free value. Active compaction retains its orange indeterminate
 accent regardless of occupancy. Missing, stale, invalid and over-limit data
 retain explicit states and never produce an invented percentage.
+Unavailable context uses one descriptive row and no empty decorative arc.
+A connected Codex without a selected chat shows `No active chat` instead of
+repeating missing title, elapsed-time and activity fields.
 
 The Device panel's IMU label prefers `Still` only when the acquisition owner's independent
 stillness result is valid, successful and no older than 200 ms at its original
@@ -253,7 +270,10 @@ inset; gradients use eight-bit row weights. Masks are flash data, with no per-fr
 supersampling/cache. Other supported primitive radii compute the same sampling
 rule when requested. Hit testing preserves pixel-center geometry.
 
-Committed fonts remain 2bpp. The updated generator supports 4bpp with 4x
-supersampling, subject to explicit licensed-source regeneration and unchanged
-metrics. Source preparation does not establish physical quality. Rendering and
-retired-frame damage include old/new content and action bounds.
+Home's committed Telex coverage uses 4bpp. Its small and heading faces now derive
+immutable per-glyph advances from the existing coverage; numbers retain tabular
+spacing. Measurement, clipping, reveal and marquees share these metrics. Existing
+scene fonts keep their fixed advances. No bitmap regeneration or new font import
+is required for this spacing change. Source preparation does not establish
+physical quality. Rendering and retired-frame damage include old/new content
+and action bounds.
