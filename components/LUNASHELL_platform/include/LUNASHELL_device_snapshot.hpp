@@ -875,6 +875,8 @@ struct CodyPreferencesSnapshot : ComponentSnapshot {
 struct CodyOptionsObservation {
     CodyPreferencesSnapshot preferences;
     OrientationSnapshot orientation;
+    uint32_t brightness_percent = 0;
+    bool brightness_valid = false;
 };
 
 struct DeviceSnapshot {

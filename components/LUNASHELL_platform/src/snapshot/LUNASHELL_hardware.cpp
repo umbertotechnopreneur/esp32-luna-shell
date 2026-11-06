@@ -2739,7 +2739,7 @@ esp_err_t DeviceSnapshotService::readTouchHealthObservation(ComponentSnapshot &o
     return ESP_OK;
 }
 
-// observation: Bounded canonical settings and orientation; no settings or sensor reads.
+// observation: Bounded canonical settings, orientation and configured brightness.
 // Exception: Returns the original lock/release error without assigning a partial result.
 esp_err_t DeviceSnapshotService::readCodyOptionsObservation(CodyOptionsObservation &observation) const
 {
@@ -2747,7 +2747,13 @@ esp_err_t DeviceSnapshotService::readCodyOptionsObservation(CodyOptionsObservati
     if (error != ESP_OK) {
         return error;
     }
-    const CodyOptionsObservation copy{s_snapshot.cody_preferences, s_snapshot.ui.orientation};
+    const auto &ui = s_snapshot.ui;
+    const CodyOptionsObservation copy{
+        s_snapshot.cody_preferences,
+        ui.orientation,
+        ui.configured_brightness_percent,
+        ui.brightness.data_valid && !ui.brightness.data_stale
+    };
     const esp_err_t release_error = give_snapshot_mutex("Cody options read");
     if (release_error != ESP_OK) {
         return release_error;

@@ -150,6 +150,7 @@ and Back from 36 returns to 10. Visiting preferences does not commission radios.
 | Auto-rotate | Persisted On / Off |
 | Sounds | Persisted master playback gate; Off preserves microphone/wake word |
 | Orientation | 0 / 180 when Auto-rotate is Off; otherwise show Auto |
+| Brightness | Tap to reduce by ten points down to 10%, then return to 100%. The selected level is saved. |
 | Usage | Strict Desk / Away; see [runtime](runtime.md#desk-and-away) |
 
 Saving is separate from admission. Apply a value only after successful write and

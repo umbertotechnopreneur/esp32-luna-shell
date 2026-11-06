@@ -85,7 +85,7 @@ retain their own expired, cancelled or rejected captions.
 | 05 | Cody moves from (233,225,130) to (233,105,65) over 1000 ms; wait 300 ms before text and action admission |
 | 06 | White background, Cody (233,94,58), installation QR 240 x 240 at (113,140) |
 | 07 | Cody (233,80,46), title y=131, session QR 204 x 204 at (131,182), only while ReadyToScan |
-| 10 / Make it yours | 34-pixel option rows at y=202/240/278/316; separate compact footer at y=390 |
+| 10 / Make it yours | Six 30-pixel option rows at y=190/223/256/289/322/355. Compact footer at y=390. |
 | 11 / Skin | Preview (233,172,44), title y=78, viewport (117,226,232,146) |
 
 Skin rows are 220 x 38 with 44-pixel steps. Only complete rows are drawn and

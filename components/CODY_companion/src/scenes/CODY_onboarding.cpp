@@ -72,10 +72,10 @@ constexpr CODY2D::Rect kSingleActionBounds{113, 352, 240, 72};
 constexpr CODY2D::Rect kLeftCardBounds{73, 260, 154, 104};
 constexpr CODY2D::Rect kRightCardBounds{239, 260, 154, 104};
 constexpr CODY2D::Rect kOptionsBounds{153, 376, 160, 52};
-// The 40-pixel title ends at 186; five rows end at 376 before the 390 footer.
+// The title ends at 186. Six 30-pixel rows end at 385, before the footer at 390.
 constexpr uint16_t kPreferenceTop = 190;
-constexpr uint16_t kPreferenceHeight = 34;
-constexpr uint16_t kPreferenceStep = 38;
+constexpr uint16_t kPreferenceHeight = 30;
+constexpr uint16_t kPreferenceStep = 33;
 constexpr uint16_t kEventCaptionWidth = 300;
 constexpr uint16_t kCaptionWidth = 232;
 // The invitation fits the 232-pixel body slot without implying a selected chat.
@@ -214,7 +214,7 @@ struct ContentView {
     CODY2D::CapsuleControl options{};
     OnboardingAction options_id = OnboardingAction::None;
     uint16_t options_visible_characters = 0;
-    PreferenceControl preferences[5]{};
+    PreferenceControl preferences[6]{};
     uint8_t preference_count = 0;
     EventChoiceControl event_choices[3]{};
     uint8_t event_choice_count = 0;
@@ -1606,6 +1606,7 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         {PreferenceId::Sounds, "Sounds"},
         {PreferenceId::Orientation, "Orientation"},
         {PreferenceId::UsageMode, "Usage"},
+        {PreferenceId::Brightness, "Brightness"},
     };
     static_assert(std::size(rows) <= std::size(s_view.preferences), "Options rows exceed their persistent control owner");
     const auto &font = SceneData::body_font;
@@ -1642,6 +1643,10 @@ esp_err_t prepare_options_content(SceneFrame &scene)
             available = preferences.usage_mode_valid && preferences.usage_mode_error == ESP_OK;
             active = preferences.usage_mode == LUNASHELL::CodyUsageMode::Away;
             break;
+        case PreferenceId::Brightness:
+            available = observation.brightness_valid && observation.brightness_percent >= 10U &&
+                observation.brightness_percent <= 100U;
+            break;
         }
         target.requested_value = active ? 0U : 1U;
         if (available) {
@@ -1658,6 +1663,13 @@ esp_err_t prepare_options_content(SceneFrame &scene)
                     value = target.value_text;
                 }
                 target.requested_value = orientation.rendering_rotation_degrees == 0U ? 180U : 0U;
+            }
+            if (row.identity == PreferenceId::Brightness) {
+                const uint32_t percent = observation.brightness_percent;
+                std::snprintf(target.value_text, sizeof(target.value_text), "%lu%%",
+                    static_cast<unsigned long>(percent));
+                value = target.value_text;
+                target.requested_value = percent == 10U ? 100U : std::max(10U, percent - 10U);
             }
         }
         const bool manual_locked = row.identity == PreferenceId::Orientation && orientation.auto_rotation_enabled;
@@ -3664,7 +3676,9 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             options.preferences.usage_mode != s_presented_options.preferences.usage_mode ||
             options.preferences.usage_mode_valid != s_presented_options.preferences.usage_mode_valid ||
             options.preferences.usage_mode_error != s_presented_options.preferences.usage_mode_error;
-        if (preference_changed || current.auto_rotation_enabled != previous.auto_rotation_enabled ||
+        const bool brightness_changed = options.brightness_percent != s_presented_options.brightness_percent ||
+            options.brightness_valid != s_presented_options.brightness_valid;
+        if (preference_changed || brightness_changed || current.auto_rotation_enabled != previous.auto_rotation_enabled ||
             current.rotation_pending != previous.rotation_pending || current.data_valid != previous.data_valid ||
             current.data_stale != previous.data_stale ||
             current.rendering_rotation_degrees != previous.rendering_rotation_degrees) {

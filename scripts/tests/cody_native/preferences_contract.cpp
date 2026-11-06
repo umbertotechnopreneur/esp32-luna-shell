@@ -569,6 +569,15 @@ extern "C" esp_err_t LUNASHELL_display_set_rotation_degrees(uint32_t rotation_de
     return fixture.display_error;
 }
 
+// percent: Exact brightness request from the firmware settings dispatcher.
+// Exception: Returns the injected display-owner result.
+extern "C" esp_err_t LUNASHELL_display_set_brightness_percent(uint32_t percent)
+{
+    (void)percent;
+    ++fixture.display_calls;
+    return fixture.display_error;
+}
+
 // No parameters: exercise real firmware preference code against explicit host failure injection.
 int main()
 {

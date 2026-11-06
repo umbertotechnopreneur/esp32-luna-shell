@@ -352,10 +352,13 @@ esp_err_t persist_companion_usage_mode(LUNASHELL::CodyUsageMode mode)
 }
 
 // preference: Stable identity of the choice pressed on screen 10.
-// value: Boolean/mode 0/1 or a manual half-turn 0/180; invalid input is never clamped.
+// value: Boolean/mode 0/1, manual angle 0/180, or brightness percent 10 through 100.
 // Exception: Returns the original validation, persistence, policy or publication error.
 esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
 {
+    if (preference == PreferenceId::Brightness) {
+        return LUNASHELL_display_set_brightness_percent(value);
+    }
     if (preference == PreferenceId::UsageMode) {
         if (value > 1U) {
             ESP_LOGE(kTag, "Companion usage mode input rejected: value=%lu (%s)",
@@ -395,7 +398,8 @@ esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
         error = LUNASHELL_display_set_rotation_degrees(value);
         break;
     case PreferenceId::UsageMode:
-        // The typed mode branch above owns its separate mutation/publication path.
+    case PreferenceId::Brightness:
+        // These choices are handled by their own settings owners above.
         return ESP_ERR_INVALID_STATE;
     }
     if (error == ESP_OK) {
