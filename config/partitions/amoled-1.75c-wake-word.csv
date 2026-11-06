@@ -6,4 +6,5 @@ otadata,data,ota,0x10000,0x2000,
 ota_0,app,ota_0,0x20000,0x770000,
 ota_1,app,ota_1,0x790000,0x770000,
 model,data,,0xf00000,1024K,
-littlefs_data,data,littlefs,0x1f00000,1024K,
+# Upper 16 MiB are raw file/resource storage, outside the executable cache window.
+littlefs_data,data,littlefs,0x1000000,0x1000000,

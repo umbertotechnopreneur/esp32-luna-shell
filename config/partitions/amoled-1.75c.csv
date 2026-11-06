@@ -5,4 +5,5 @@ otadata,data,ota,0x10000,0x2000,
 # Both executable slots must fit wholly in the 24-bit cache window.
 ota_0,app,ota_0,0x20000,0x7f0000,
 ota_1,app,ota_1,0x810000,0x7f0000,
-littlefs_data,data,littlefs,0x1f00000,1024K,
+# Upper 16 MiB are raw file/resource storage, outside the executable cache window.
+littlefs_data,data,littlefs,0x1000000,0x1000000,

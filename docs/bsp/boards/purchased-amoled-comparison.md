@@ -88,8 +88,12 @@ selection owns the reset/MCLK pins, PMU rails, PWR handling, IMU interrupt and
 peripheral exclusions. Both OTA slots fit entirely in the lower 16 MiB of the
 1.75C flash. The wake-word layout also places the complete 1 MiB Sophia model
 partition in that range so ESP-SR can map it through the 24-bit flash cache.
-LittleFS occupies 1 MiB at `0x1f00000`. The 15 MiB between `0x1000000` and
-`0x1f00000` are unallocated. See the [base layout](../../../config/partitions/amoled-1.75c.csv)
+LittleFS reserves the complete upper 16 MiB at `0x1000000` for files and resources,
+including the previously unallocated 15 MiB. Both OTA slots remain unchanged.
+This is a clean layout with no compatibility or migration path for the old
+1 MiB filesystem at `0x1f00000`. Installing it requires the new partition table
+and a filesystem initialized for the new extent. Changing the source table alone
+changes no device data. See the [base layout](../../../config/partitions/amoled-1.75c.csv)
 and [wake-word layout](../../../config/partitions/amoled-1.75c-wake-word.csv).
 
 The official [1.75C repository](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C)
