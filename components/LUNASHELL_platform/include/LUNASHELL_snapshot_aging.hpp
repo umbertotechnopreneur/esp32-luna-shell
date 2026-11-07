@@ -38,4 +38,10 @@ void apply_measured_sample_aging(DeviceSnapshot &snapshot, int64_t now_us);
 // technical: Owner projection retaining original source ages and receipt timestamp.
 // now_us: Device observation clock, used only for elapsed time since receipt.
 void age_codex_technical(CodexTechnicalSnapshot &technical, int64_t now_us);
+
+// sample: Account or weekly allowance projection retaining its original receipt.
+// source_age_ms: Host observation age at authenticated receipt.
+// link_ready: True only for a current authenticated CCP READY.
+// now_us: Current device monotonic time, independent of the account source.
+void age_codex_account_sample(ComponentSnapshot &sample, uint32_t source_age_ms, bool link_ready, int64_t now_us);
 }

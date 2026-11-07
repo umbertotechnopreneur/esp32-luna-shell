@@ -109,6 +109,7 @@ TaskHandle_t s_task;
 LUNASHELL::InputSnapshot s_inputs;
 std::atomic_bool s_initialized{false};
 std::atomic<LUNASHELL_display_lifecycle_callback_t> s_display_lifecycle_callback{nullptr};
+std::atomic<void (*)(void)> s_boot_options_request{nullptr};
 using ShutdownPrepare = esp_err_t (*)(void);
 using ShutdownFailure = esp_err_t (*)(esp_err_t);
 std::atomic<ShutdownPrepare> s_shutdown_prepare{nullptr};
@@ -1633,6 +1634,8 @@ esp_err_t restore_active_policy(
     return ESP_OK;
 }
 
+// No parameters: active BOOT presses dispatch to Cody Options or the Luna fullscreen owner.
+// Exception: Returns the original display policy transition error.
 esp_err_t handle_boot_short_press()
 {
     if (s_state != LUNASHELL::DeviceOperatingState::Active) {
@@ -1645,6 +1648,15 @@ esp_err_t handle_boot_short_press()
 
     const bool display_snapshot_diverged =
         active_display_snapshot_diverged();
+    const auto request_options = s_boot_options_request.load(std::memory_order_acquire);
+    if (request_options != nullptr) {
+        const esp_err_t error = restore_active_policy(
+            LUNASHELL::DeviceStateReason::BootButton, display_snapshot_diverged, true);
+        if (error == ESP_OK) {
+            request_options();
+        }
+        return error;
+    }
     if (s_display_stage !=
             LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active ||
         display_snapshot_diverged) {
@@ -2984,13 +2996,12 @@ void power_task(void *argument)
             publish_inputs();
         }
         if (boot_event == ButtonEvent::ShortPress) {
-            const esp_err_t fullscreen_error =
-                handle_boot_short_press();
-            if (fullscreen_error != ESP_OK) {
+            const esp_err_t button_error = handle_boot_short_press();
+            if (button_error != ESP_OK) {
                 ESP_LOGE(
                     kTag,
-                    "BOOT fullscreen transition failed (%s)",
-                    esp_err_to_name(fullscreen_error)
+                    "BOOT short press handling failed (%s)",
+                    esp_err_to_name(button_error)
                 );
             }
         }
@@ -3379,6 +3390,24 @@ extern "C" esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
             std::memory_order_release, std::memory_order_acquire)) {
         ESP_LOGE(kTag, "Duplicate display lifecycle owner rejected (%s)",
             esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
+}
+
+// request: Single display owner that queues Options without taking the power lock.
+// Exception: Rejects null, duplicate or late registration.
+extern "C" esp_err_t LUNASHELL_power_manager_register_boot_options(void (*request)(void))
+{
+    if (request == nullptr || s_initialized.load(std::memory_order_acquire)) {
+        const esp_err_t error = request == nullptr ? ESP_ERR_INVALID_ARG : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "BOOT Options registration rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    void (*expected)(void) = nullptr;
+    if (!s_boot_options_request.compare_exchange_strong(expected, request,
+            std::memory_order_release, std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "Duplicate BOOT Options owner (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
     return ESP_OK;

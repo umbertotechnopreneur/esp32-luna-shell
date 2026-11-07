@@ -75,11 +75,14 @@ constexpr CODY2D::Rect kOptionsBounds{153, 376, 160, 52};
 constexpr CODY2D::Rect kSetupCodexBounds{93, 230, 280, 56};
 constexpr CODY2D::Rect kSetupWifiBounds{93, 298, 280, 56};
 constexpr CODY2D::Rect kSetupOptionsBounds{153, 382, 160, 52};
-// Three rows fit between the title ending at 186 and the footer starting at 390.
+// Category rows and the compact Options menu fit before the footer at 390.
 constexpr uint16_t kPreferenceTop = 194;
 constexpr uint16_t kPreferenceHeight = 50;
 constexpr uint16_t kPreferenceStep = 60;
 constexpr uint8_t kPreferencesPerPage = 3;
+constexpr uint8_t kOptionsMenuRows = 4;
+constexpr uint16_t kOptionsMenuRowHeight = 42;
+constexpr uint16_t kOptionsMenuRowStep = 47;
 constexpr uint16_t kEventCaptionWidth = 300;
 constexpr uint16_t kCaptionWidth = 232;
 // The invitation fits the 232-pixel body slot without implying a selected chat.
@@ -128,6 +131,7 @@ enum class OnboardingAction : uint8_t {
     None, ShowQr, PairCody, Cancel, Retry, Continue, Next, Done, LetsGo,
     AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later, Options, KeepPairing, ReplacePairing,
     ForgetPairing, ConfirmForget, KeepSaved, CodyLook, DisplayOptions, BehaviorOptions, MoreBehavior,
+    CodexStatistics,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
@@ -221,7 +225,7 @@ struct ContentView {
     CODY2D::CapsuleControl options{};
     OnboardingAction options_id = OnboardingAction::None;
     uint16_t options_visible_characters = 0;
-    PreferenceControl preferences[kPreferencesPerPage]{};
+    PreferenceControl preferences[kOptionsMenuRows]{};
     uint8_t preference_count = 0;
     EventChoiceControl event_choices[3]{};
     uint8_t event_choice_count = 0;
@@ -262,6 +266,7 @@ LUNASHELL::CodexCompactionState s_presented_compaction = LUNASHELL::CodexCompact
 bool s_presented_compaction_feedback = false;
 Route s_route = Route::None;
 bool s_options_from_setup = false;
+bool s_codex_statistics_requested = false;
 OptionsPage s_options_page = OptionsPage::Menu;
 esp_err_t s_preference_error = ESP_OK;
 PreferenceId s_requested_preference = PreferenceId::ShakeWake;
@@ -965,6 +970,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
     case OnboardingAction::MoreBehavior:
         label = "More options";
         break;
+    case OnboardingAction::CodexStatistics:
+        label = "Codex stats";
+        break;
     case OnboardingAction::Done:
         label = "Done";
         break;
@@ -1665,18 +1673,19 @@ esp_err_t prepare_options_content(SceneFrame &scene)
     if (s_options_page == OptionsPage::Menu) {
         constexpr OnboardingAction actions[] = {
             OnboardingAction::CodyLook, OnboardingAction::DisplayOptions, OnboardingAction::BehaviorOptions,
+            OnboardingAction::CodexStatistics,
         };
-        static_assert(std::size(actions) == kPreferencesPerPage);
+        static_assert(std::size(actions) == kOptionsMenuRows);
         for (const auto action : actions) {
             auto &target = s_view.preferences[s_view.preference_count];
             target = {};
             target.action = action;
-            const uint16_t top = kPreferenceTop + s_view.preference_count * kPreferenceStep;
+            const uint16_t top = kPreferenceTop + s_view.preference_count * kOptionsMenuRowStep;
             const char *label = nullptr;
             error = action_label(action, label);
             if (error == ESP_OK) {
                 CODY2D::TextLine unused;
-                error = prepare_button(action, label, {113, top, 240, kPreferenceHeight},
+                error = prepare_button(action, label, {113, top, 240, kOptionsMenuRowHeight},
                     true, false, target.control, unused);
             }
             if (error != ESP_OK) {
@@ -3514,6 +3523,7 @@ void reset_onboarding()
     set_companion_audio_visible(false);
     reset_event_presentation();
     s_options_from_setup = false;
+    s_codex_statistics_requested = false;
     s_options_page = OptionsPage::Menu;
     s_preference_error = ESP_OK;
     s_setup_returns_to_companion = false;
@@ -3638,6 +3648,37 @@ esp_err_t open_setup_menu(SceneFrame &scene)
     s_codex_owned = false;
     wipe(s_codex_code, sizeof(s_codex_code));
     return enter_route(Route::SetupMenu, scene);
+}
+
+// scene: Worker-owned scene receiving Options from the physical button.
+// Exception: Returns the original preparation failure from the existing routes.
+esp_err_t open_companion_options(SceneFrame &scene)
+{
+    if (s_command_pending || s_work_busy.load(std::memory_order_acquire)) {
+        return ESP_OK;
+    }
+    if (s_route == Route::MakeItYours10) {
+        return s_options_page == OptionsPage::Menu ? ESP_OK : show_options_page(scene, OptionsPage::Menu);
+    }
+    if (s_route != Route::SetupMenu) {
+        if (!can_open_setup_menu()) {
+            return ESP_OK;
+        }
+        const esp_err_t error = open_setup_menu(scene);
+        if (error != ESP_OK) {
+            return error;
+        }
+    }
+    s_options_from_setup = true;
+    return enter_route(Route::MakeItYours10, scene);
+}
+
+// No parameters: consume only a released touch admitted by the Options route.
+bool take_codex_statistics_request()
+{
+    const bool requested = s_codex_statistics_requested;
+    s_codex_statistics_requested = false;
+    return requested;
 }
 
 // scene: Visible reconnect page, without interpreting unavailable data as missing credentials.
@@ -4917,6 +4958,9 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                     return show_options_page(scene, OptionsPage::Display);
                 case OnboardingAction::BehaviorOptions:
                     return show_options_page(scene, OptionsPage::Behavior);
+                case OnboardingAction::CodexStatistics:
+                    s_codex_statistics_requested = true;
+                    return ESP_OK;
                 default:
                     break;
                 }
@@ -5002,6 +5046,30 @@ esp_err_t draw_onboarding_navigation(CODY2D::Surface strip, uint16_t first_row,
             strip, first_row, first_column);
     }
     return error;
+}
+
+// point: Acquired logical coordinates within the same full targets we render.
+LateralNavigation lateral_navigation_at(CODY2D::Point point)
+{
+    const CODY2D::CapsuleControl back{kBackBounds, {}, NavigationData::top, NavigationData::bottom, true};
+    const CODY2D::CapsuleControl next{kForwardBounds, {}, NavigationData::top, NavigationData::bottom, true};
+    if (CODY2D::capsule_contains(back, point)) {
+        return LateralNavigation::Previous;
+    }
+    return CODY2D::capsule_contains(next, point) ? LateralNavigation::Next : LateralNavigation::None;
+}
+
+// next: Whether a forward page exists.
+// strip: Borrowed logical display tile.
+// first_row: Logical tile y origin.
+// first_column: Logical tile x origin.
+// Exception: Returns the original capsule or stroke drawing error.
+esp_err_t draw_lateral_navigation(bool next, CODY2D::Surface strip,
+                                  uint16_t first_row, uint16_t first_column)
+{
+    const esp_err_t error = draw_navigation_chevron(NavigationDirection::Previous, true, strip, first_row, first_column);
+    return error == ESP_OK && next
+        ? draw_navigation_chevron(NavigationDirection::Next, true, strip, first_row, first_column) : error;
 }
 
 } // namespace CODY

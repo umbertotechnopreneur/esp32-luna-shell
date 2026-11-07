@@ -34,6 +34,7 @@ import threading
 import time
 from typing import Any
 
+from ccp_account_limits import AccountDetails, AccountObservation, AccountUsageReader
 from ccp_activity import ActivityStore, HookObservation, Phase
 import ccp_interactions as interactions
 import ccp_reset as reset
@@ -41,7 +42,7 @@ import ccp_clock as clock
 import ccp_name as preferred_name
 import ccp_technical as technical_metadata
 import ccp_voice_input as voice_input
-from ccp_presence import AppPresence
+from ccp_presence import AppPresence, AppState
 from ccp_pricing import PriceCache
 from ccp_security import DatagramAdmission, RejectionReporter
 from ccp_windows import configure_exclusive_socket, protect_secret, unprotect_secret, runtime_directory
@@ -53,7 +54,11 @@ PLUGIN_PORT = 42118
 MAX_DATAGRAM_BYTES = 512
 MAX_ACTIVITY_DATAGRAM_BYTES = 2048
 MAX_TECHNICAL_DATAGRAM_BYTES = 1024
+MAX_ACCOUNT_DATAGRAM_BYTES = 640
 TECHNICAL_FIELDS = technical_metadata.FIELDS
+ACCOUNT_DETAILS_FIELDS = ("short_reset", "short_remaining", "short_minutes", "anchor", "days",
+                          "streak", "best", "credits", "vouchers", "plan", "messages",
+                          "series", "quarter", "tokens15", "age")
 PBKDF2_ITERATIONS = 50_000
 SERVER_VERSION = "0.6.11"
 LIVENESS_TIMEOUT_SECONDS = 10.0
@@ -155,12 +160,13 @@ def derive_verifier(code: str, salt_hex: str) -> bytes:
     )
 
 
-# message: Printable ASCII CCP1 datagram; EVENT, ACTIVITY and TECH have explicit extension bounds.
+# message: Printable ASCII CCP1 datagram; named extensions have explicit bounds.
 # Raises ValueError for malformed, ambiguous, oversized, or duplicate fields.
 def parse_datagram(message: bytes) -> tuple[str, dict[str, str]]:
     limit = (interactions.MAX_EVENT_DATAGRAM_BYTES if message.startswith(b"CCP1|EVENT|") else
              MAX_ACTIVITY_DATAGRAM_BYTES if message.startswith(b"CCP1|ACTIVITY|") else
-             MAX_TECHNICAL_DATAGRAM_BYTES if message.startswith(b"CCP1|TECH|") else MAX_DATAGRAM_BYTES)
+             MAX_TECHNICAL_DATAGRAM_BYTES if message.startswith(b"CCP1|TECH|") else
+             MAX_ACCOUNT_DATAGRAM_BYTES if message.startswith(b"CCP1|ACCOUNT|") else MAX_DATAGRAM_BYTES)
     if not message or len(message) > limit:
         raise ValueError("CCP datagram size rejected")
     try:
@@ -181,7 +187,7 @@ def parse_datagram(message: bytes) -> tuple[str, dict[str, str]]:
     return parts[1], fields
 
 
-# kind: Uppercase CCP1 message identity; EVENT, ACTIVITY and TECH use separately bounded extensions.
+# kind: Uppercase CCP1 message identity; named extensions have explicit bounds.
 # fields: Ordered field names and already validated printable ASCII values.
 # Raises ValueError when the encoded datagram exceeds the protocol bound.
 def encode_datagram(kind: str, fields: list[tuple[str, str]]) -> bytes:
@@ -189,10 +195,39 @@ def encode_datagram(kind: str, fields: list[tuple[str, str]]) -> bytes:
     payload = text.encode("ascii")
     limit = (interactions.MAX_EVENT_DATAGRAM_BYTES if kind == "EVENT" else
              MAX_ACTIVITY_DATAGRAM_BYTES if kind == "ACTIVITY" else
-             MAX_TECHNICAL_DATAGRAM_BYTES if kind == "TECH" else MAX_DATAGRAM_BYTES)
+             MAX_TECHNICAL_DATAGRAM_BYTES if kind == "TECH" else
+             MAX_ACCOUNT_DATAGRAM_BYTES if kind == "ACCOUNT" else MAX_DATAGRAM_BYTES)
     if len(payload) > limit:
         raise ValueError("CCP datagram exceeds its fixed bound")
     return payload
+
+
+# details: A verified optional account projection, or None when it is unavailable.
+# now: Current monotonic time for the age of the current projection.
+def account_details_values(details: AccountDetails | None, now: float) -> list[str]:
+    if details is None:
+        return ["-"] * len(ACCOUNT_DETAILS_FIELDS)
+    short = details.short_window
+    quarter = details.quarter_tokens
+    values = [
+        short.reset_unix_seconds if short is not None else None,
+        short.remaining_bps if short is not None else None,
+        details.short_minutes,
+        details.usage_anchor,
+        ",".join("-" if value is None else str(value) for value in details.daily_tokens)
+        if details.usage_anchor is not None else None,
+        details.streak,
+        details.best_streak,
+        details.credits,
+        details.vouchers,
+        details.plan,
+        details.messages,
+        quarter.series if quarter is not None else None,
+        quarter.quarter if quarter is not None else None,
+        quarter.tokens if quarter is not None else None,
+        int((now - details.observed_at) * 1000),
+    ]
+    return ["-" if value is None else str(value) for value in values]
 
 
 # fields: Parsed offer fields.
@@ -570,6 +605,7 @@ class CompanionResponder:
         self._event_peers: dict[str, EventPeer] = {}
         self._event_lock = threading.Lock()
         self.app_presence = AppPresence()
+        self._account_usage = AccountUsageReader()
         self._app_peers: dict[str, EventPeer] = {}
         self._app_sequence = 0
         self._last_app_presence: tuple[str, str] | None = None
@@ -595,12 +631,15 @@ class CompanionResponder:
         try:
             self.audio.close()
         finally:
-            # Optional audio failure must still retire the metadata owner.
-            self._stop.set()
-            self._thread.join(timeout=1.0)
-            if self._thread.is_alive():
-                raise RuntimeError("CCP responder did not stop before the shutdown deadline")
-            self._socket.close()
+            try:
+                self._account_usage.close()
+            finally:
+                # Optional metadata failures must still retire the socket owner.
+                self._stop.set()
+                self._thread.join(timeout=1.0)
+                if self._thread.is_alive():
+                    raise RuntimeError("CCP responder did not stop before the shutdown deadline")
+                self._socket.close()
 
     # No parameters: requires the lifetime listener to remain alive for every tool operation.
     # Raises the original receive OSError or RuntimeError for an unexpectedly stopped worker.
@@ -680,6 +719,9 @@ class CompanionResponder:
             return
         if kind == "APPCAP":
             self._accept_app_capability(fields, source)
+            return
+        if kind == "ALLOWANCECAP":
+            self._accept_allowance_capability(fields, source)
             return
         if kind != "FIND":
             return
@@ -858,6 +900,54 @@ class CompanionResponder:
                 self.app_presence_error = error
                 raise
 
+    # self: Existing responder supplying account metadata to authenticated physical Cody devices.
+    # fields: Exact signed ALLOWANCECAP envelope after COMMITTED for the same heartbeat.
+    # source: Observed UDP endpoint, required to match the active authenticated peer.
+    # Raises ValueError for rejected identity or proof, or RuntimeError/OSError for optional delivery failure.
+    def _accept_allowance_capability(self, fields: dict[str, str], source: tuple[str, int]) -> None:
+        if set(fields) != {"device", "pc", "nonce", "allowance", "proof"} or fields["allowance"] != "1":
+            raise ValueError("Weekly allowance capability fields malformed")
+        if observation_source(source[0]) != "LAN":
+            raise ValueError("Weekly allowance capability requires a physical device")
+        for name in ("device", "pc", "nonce", "proof"):
+            if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
+                raise ValueError("Weekly allowance capability identity or proof malformed")
+        with self._event_lock:
+            peer = self._event_peers.get(fields["device"])
+            active = self._state.retained_keys(fields["device"]).active
+            now = time.monotonic()
+            if (peer is None or active is None or source != peer.source or fields["nonce"] != peer.nonce
+                    or fields["pc"] != self._state.pc_id or not hmac.compare_digest(active, peer.key)
+                    or not 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS
+                    or not hmac.compare_digest(make_proof(peer.key, "allowance-cap-v1", fields["device"],
+                        fields["pc"], fields["nonce"], "1"), fields["proof"])):
+                raise ValueError("Weekly allowance capability authentication failed")
+
+            account = AccountObservation()
+            if self.app_presence.snapshot().state == AppState.OPEN:
+                # A refresh runs off the liveness socket. The next authenticated
+                # heartbeat can receive the completed observation.
+                account = self._account_usage.request()
+            else:
+                self._account_usage.invalidate()
+            now = time.monotonic()
+            identity = [fields["device"], fields["pc"], fields["nonce"]]
+            values = identity.copy()
+            weekly = account.weekly
+            if weekly is None:
+                values.extend(("-", "-", "-"))
+            else:
+                values.extend((str(weekly.reset_unix_seconds), str(weekly.remaining_bps),
+                               str(int((now - weekly.observed_at) * 1000))))
+            payload = encode_datagram("ALLOWANCE", list(zip(
+                ("device", "pc", "nonce", "reset", "remaining", "age"), values))
+                + [("proof", make_proof(peer.key, "allowance-v1", *values))])
+            self._socket.sendto(payload, source)
+            values = identity + account_details_values(account.details, now)
+            payload = encode_datagram("ACCOUNT", list(zip(("device", "pc", "nonce", *ACCOUNT_DETAILS_FIELDS), values))
+                                      + [("proof", make_proof(peer.key, "account-v1", *values))])
+            self._socket.sendto(payload, source)
+
     # self: Responder holding _event_lock; callers already admitted this active capable peer.
     # device_id: Retained device identity from the authenticated challenge.
     # peer: Current nonce, key and socket endpoint; never supplied by a hook.
@@ -881,6 +971,8 @@ class CompanionResponder:
         try:
             with self._event_lock:
                 observation = self.app_presence.snapshot()
+                if observation.state != AppState.OPEN:
+                    self._account_usage.invalidate()
                 identity = (observation.state.value, observation.reason)
                 if identity == self._last_app_presence and self.app_presence_error is None:
                     return

@@ -36,6 +36,26 @@ bool can_open_setup_menu();
 // Exception: Returns the original scene/content preparation error.
 esp_err_t open_setup_menu(SceneFrame &scene);
 
+// scene: Stable route receiving Options after a physical BOOT short press.
+// Exception: Returns the original route preparation error.
+esp_err_t open_companion_options(SceneFrame &scene);
+
+// No parameters: consumes the display owner's one Codex statistics selection.
+bool take_codex_statistics_request();
+
+enum class LateralNavigation : uint8_t { None, Previous, Next };
+
+// point: Acquired logical position on the existing circular lateral targets.
+LateralNavigation lateral_navigation_at(CODY2D::Point point);
+
+// next: True when a forward destination exists. Back is always available here.
+// strip: Borrowed RGB565 tile including the lateral regions.
+// first_row: Logical y origin of the tile.
+// first_column: Logical x origin of the tile.
+// Exception: Returns the first native drawing failure.
+esp_err_t draw_lateral_navigation(bool next, CODY2D::Surface strip,
+                                  uint16_t first_row, uint16_t first_column);
+
 // No parameters: retire route identities and wipe the displayed session QR.
 void reset_onboarding();
 

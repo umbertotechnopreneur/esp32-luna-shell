@@ -186,6 +186,12 @@ OrientationState s_orientation;
 alignas(LUNASHELL::DeviceSnapshot) EXT_RAM_BSS_ATTR
 uint8_t s_snapshot_storage[sizeof(LUNASHELL::DeviceSnapshot)]{};
 LUNASHELL::DeviceSnapshot &s_snapshot = *new (s_snapshot_storage) LUNASHELL::DeviceSnapshot{};
+// The same snapshot mutex owns these personal, display-only projections. They
+// never enlarge full hardware copies or enter generic diagnostics.
+LUNASHELL::CodexWeeklyLimitSnapshot s_codex_weekly_limit{};
+LUNASHELL::CodexAccountSnapshot s_codex_account{};
+LUNASHELL::CodexTokenIntervalsSnapshot s_codex_token_intervals{};
+uint64_t s_codex_token_series = 0;
 // Full acquisition owns both buffers under s_refresh_mutex, including summary logging.
 // Their size follows the canonical schema without consuming the caller's internal stack.
 struct FullRefreshScratch {
@@ -2835,6 +2841,234 @@ esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObs
         }
     }
     return ESP_OK;
+}
+
+namespace {
+// stored: Canonical account projection, read only while the snapshot mutex is held.
+// output: Receives the bounded, independently aged observation.
+// operation: Diagnostic description for snapshot lock errors.
+// Exception: Returns the original lock/release error before replacing output.
+template <typename Observation>
+esp_err_t read_codex_account_sample(const Observation &stored, Observation &output, const char *operation)
+{
+    const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, operation);
+    if (error != ESP_OK) {
+        return error;
+    }
+    Observation current = stored;
+    const int64_t now_us = esp_timer_get_time();
+    const bool link_ready = codex_presence::ready_current(s_snapshot.radios.codex_link, now_us);
+    const esp_err_t release_error = give_snapshot_mutex(operation);
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    age_codex_account_sample(current, current.source_age_at_receive_ms, link_ready, now_us);
+    output = current;
+    return ESP_OK;
+}
+
+// No parameters: retire the account generation and all bins under the snapshot mutex.
+void clear_codex_token_intervals_locked()
+{
+    auto &history = s_codex_token_intervals;
+    static_cast<ComponentSnapshot &>(history) = {};
+    std::memset(history.tokens, 0, sizeof(history.tokens));
+    std::memset(history.valid_mask, 0, sizeof(history.valid_mask));
+    history.anchor_quarter = 0;
+    history.source_age_at_receive_ms = 0;
+    history.initialized = false;
+    s_codex_token_series = 0;
+}
+
+// quarter: Newly admitted ring slot or skipped slot. Caller holds the snapshot mutex.
+void clear_codex_token_slot_locked(uint32_t quarter)
+{
+    auto &history = s_codex_token_intervals;
+    const uint32_t slot = quarter % CodexTokenIntervalsSnapshot::kCapacity;
+    history.valid_mask[slot / 32] &= ~(uint32_t{1} << (slot % 32));
+    history.tokens[slot] = 0;
+}
+
+// account: Original authenticated receipt, lease and source error.
+// interval: Completed UTC quarter with an immutable delta or an explicit gap.
+// Exception: Rejects regressions or different data for the same quarter without changing the ring.
+esp_err_t accept_codex_token_interval_locked(const CodexAccountSnapshot &account,
+                                            const CodexTokenIntervalObservation &interval)
+{
+    auto &history = s_codex_token_intervals;
+    if (interval.series == 0) {
+        history.last_attempt_at_us = account.last_attempt_at_us;
+        history.data_valid = false;
+        history.data_stale = history.initialized;
+        history.health = history.initialized ? DeviceHealth::Degraded : DeviceHealth::Unknown;
+        history.last_error = account.last_error == ESP_OK ? ESP_ERR_NOT_FOUND : account.last_error;
+        return ESP_OK;
+    }
+    if (interval.series != s_codex_token_series) {
+        clear_codex_token_intervals_locked();
+        s_codex_token_series = interval.series;
+    }
+    if (history.initialized && interval.quarter < history.anchor_quarter) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (history.initialized && interval.quarter == history.anchor_quarter) {
+        uint64_t previous_tokens = 0;
+        const bool previous_valid = history.read_token_delta(interval.quarter, previous_tokens);
+        if (previous_valid != interval.tokens_valid ||
+            (previous_valid && previous_tokens != interval.tokens)) {
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+        // A heartbeat can refresh transport liveness, never the interval evidence.
+    } else {
+        if (history.initialized) {
+            const uint32_t distance = interval.quarter - history.anchor_quarter;
+            if (distance >= CodexTokenIntervalsSnapshot::kCapacity) {
+                std::memset(history.tokens, 0, sizeof(history.tokens));
+                std::memset(history.valid_mask, 0, sizeof(history.valid_mask));
+            } else {
+                for (uint32_t step = 1; step <= distance; ++step) {
+                    clear_codex_token_slot_locked(history.anchor_quarter + step);
+                }
+            }
+        }
+        if (interval.tokens_valid) {
+            const uint32_t slot = interval.quarter % CodexTokenIntervalsSnapshot::kCapacity;
+            history.tokens[slot] = interval.tokens;
+            history.valid_mask[slot / 32] |= uint32_t{1} << (slot % 32);
+        }
+        history.anchor_quarter = interval.quarter;
+        history.initialized = true;
+        history.last_success_at_us = account.last_attempt_at_us;
+    }
+    history.last_attempt_at_us = account.last_attempt_at_us;
+    history.source_age_at_receive_ms = account.source_age_at_receive_ms;
+    history.last_error = account.last_error;
+    history.health = account.health;
+    history.data_valid = account.data_valid;
+    history.data_stale = account.data_stale;
+    return ESP_OK;
+}
+} // namespace
+
+// codex_link: Authenticated CCP result, excluding code and cryptographic material.
+// Exception: Returns and logs the original canonical publication failure.
+esp_err_t DeviceSnapshotService::reportCodexLink(const CodexLinkSnapshot &codex_link)
+{
+    // Only the CCP worker reports this link, outside staged hardware acquisition.
+    const esp_err_t error = ::update_snapshot([&codex_link](DeviceSnapshot &snapshot) {
+        const auto &previous = snapshot.radios.codex_link;
+        const bool peer_changed = std::strcmp(codex_link.paired_pc_id, previous.paired_pc_id) != 0;
+        if (peer_changed || !codex_link.retained_link_present) {
+            clear_codex_token_intervals_locked();
+        }
+        if (codex_link.state != CodexLinkState::Connected || codex_link.command_pending ||
+            !codex_link.data_valid || codex_link.attempt_id != previous.attempt_id || peer_changed) {
+            ComponentSnapshot *const observations[] = {
+                &s_codex_weekly_limit, &s_codex_account, &s_codex_token_intervals,
+            };
+            for (auto *observation : observations) {
+                if (observation->data_valid) {
+                    // A later READY may make the link current. It cannot revive an old account sample.
+                    observation->data_valid = false;
+                    observation->data_stale = true;
+                    observation->health = DeviceHealth::Degraded;
+                    observation->last_error = codex_link.last_error == ESP_OK
+                        ? ESP_ERR_INVALID_STATE : codex_link.last_error;
+                }
+            }
+        }
+        snapshot.radios.codex_link = codex_link;
+    });
+    log_snapshot_publication_failure("Codex link report", error);
+    return error;
+}
+
+// limit: Receives the bounded weekly allowance after both lock operations succeed.
+// Exception: Returns the original canonical mutex error.
+esp_err_t DeviceSnapshotService::readCodexWeeklyLimit(CodexWeeklyLimitSnapshot &limit) const
+{
+    return read_codex_account_sample(s_codex_weekly_limit, limit, "Codex weekly allowance read");
+}
+
+// limit: Synchronously borrowed observation from the authenticated CCP worker.
+// Exception: Returns the original publication error.
+esp_err_t DeviceSnapshotService::reportCodexWeeklyLimit(const CodexWeeklyLimitSnapshot &limit)
+{
+    return ::update_snapshot([&limit](DeviceSnapshot &) {
+        s_codex_weekly_limit = limit;
+    }, SnapshotPublicationPolicy::Optional);
+}
+
+// account: Receives the bounded account projection after both lock operations succeed.
+// Exception: Returns the original canonical mutex error.
+esp_err_t DeviceSnapshotService::readCodexAccount(CodexAccountSnapshot &account) const
+{
+    return read_codex_account_sample(s_codex_account, account, "Codex account read");
+}
+
+// history: Persistent caller storage; the canonical 96-slot buffer is copied directly.
+// Exception: Returns the original lock/release error; output is unusable on failure.
+esp_err_t DeviceSnapshotService::readCodexTokenIntervals(CodexTokenIntervalsSnapshot &history) const
+{
+    constexpr char operation[] = "Codex token intervals read";
+    const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, operation);
+    if (error != ESP_OK) {
+        return error;
+    }
+    history = s_codex_token_intervals;
+    const int64_t now_us = esp_timer_get_time();
+    const bool link_ready = codex_presence::ready_current(s_snapshot.radios.codex_link, now_us);
+    ClockSnapshot clock = s_snapshot.clock;
+    const int64_t clock_ttl_us = measured_sample_ttl_us(s_snapshot);
+    const esp_err_t release_error = give_snapshot_mutex(operation);
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    if (!history.data_valid) {
+        return ESP_OK;
+    }
+
+    ComponentSnapshot lease = history;
+    lease.last_success_at_us = history.last_attempt_at_us;
+    age_codex_account_sample(lease, history.source_age_at_receive_ms, link_ready, now_us);
+    age_measured_sample(clock, now_us, clock_ttl_us);
+    const bool clock_current = clock.health == DeviceHealth::Ready && clock.data_valid &&
+        !clock.data_stale && clock.last_error == ESP_OK && clock.utc_epoch_seconds >= 900;
+    if (lease.data_valid && (!clock_current || clock.utc_epoch_seconds / 900 - 1 != history.anchor_quarter)) {
+        lease.data_valid = false;
+        lease.data_stale = true;
+        lease.health = DeviceHealth::Degraded;
+        lease.last_error = clock_current ? ESP_ERR_TIMEOUT : ESP_ERR_INVALID_STATE;
+    }
+    history.data_valid = lease.data_valid;
+    history.data_stale = lease.data_stale;
+    history.health = lease.health;
+    history.last_error = lease.last_error;
+    return ESP_OK;
+}
+
+// account: Synchronously borrowed observation from the authenticated CCP worker.
+// interval: Matching completed quarter, gap or explicit unavailable observation.
+// Exception: Returns the original lock/release or interval ordering error.
+esp_err_t DeviceSnapshotService::reportCodexAccount(const CodexAccountSnapshot &account,
+                                                  const CodexTokenIntervalObservation &interval)
+{
+    constexpr char operation[] = "Codex account report";
+    const esp_err_t lock_error = take_snapshot_mutex(0, operation);
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    const esp_err_t interval_error = accept_codex_token_interval_locked(account, interval);
+    if (interval_error == ESP_OK) {
+        s_codex_account = account;
+        advance_snapshot_sequence();
+    }
+    const esp_err_t release_error = give_snapshot_mutex(operation);
+    if (interval_error != ESP_OK) {
+        ESP_LOGE(TAG, "Rejected Codex token quarter %lu (%s)",
+            static_cast<unsigned long>(interval.quarter), esp_err_to_name(interval_error));
+    }
+    return release_error != ESP_OK ? release_error : interval_error;
 }
 
 // observation: Coherent projection for the connectivity worker; no driver reads.

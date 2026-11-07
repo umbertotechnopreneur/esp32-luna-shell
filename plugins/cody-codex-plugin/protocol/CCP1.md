@@ -168,6 +168,56 @@ An already-running broker does not hot-reload installed Python source. A real
 Codex reopen that starts the updated broker/client is required for the new
 presence and EOF reporting; cache installation alone does not prove activation.
 
+## Codex account observations
+
+After the current READY and COMMITTED exchange, a capable physical Cody can
+request read-only account observations over the existing authenticated link.
+The active key, current nonce and observed endpoint must match. Loopback
+simulators are excluded. The optional capability leaves FIND unchanged.
+
+```text
+CCP1|ALLOWANCECAP|device=<12hex>|pc=<32hex>|nonce=<32hex>|allowance=1|proof=<64hex>
+HMAC input: allowance-cap-v1|<device>|<pc>|<nonce>|1
+
+CCP1|ALLOWANCE|device=<12hex>|pc=<32hex>|nonce=<32hex>|reset=<seconds>|remaining=<basis points>|age=<ms>|proof=<64hex>
+HMAC input: allowance-v1|<device>|<pc>|<nonce>|<reset>|<remaining>|<age>
+
+CCP1|ACCOUNT|device=<12hex>|pc=<32hex>|nonce=<32hex>|short_reset=<seconds>|short_remaining=<basis points>|short_minutes=<minutes>|anchor=<Unix day>|days=<seven comma-separated counts>|streak=<days>|best=<days>|credits=<milli-credits or unlimited>|vouchers=<count>|plan=<token>|messages=<count>|series=<16hex>|quarter=<UTC interval index>|tokens15=<count>|age=<ms>|proof=<64hex>
+HMAC input: account-v1|<device>|<pc>|<nonce>|<short_reset>|<short_remaining>|<short_minutes>|<anchor>|<days>|<streak>|<best>|<credits>|<vouchers>|<plan>|<messages>|<series>|<quarter>|<tokens15>|<age>
+```
+
+The current paired device accepts at most one ALLOWANCE and one ACCOUNT per
+nonce. ALLOWANCE contains only the verified `codex` 10,080-minute window.
+Reset instants are Unix seconds in 1–253402300799, and remaining values are
+0–10000 basis points. An unavailable weekly window uses `-` for all three
+fields. ACCOUNT independently uses `-` for each unavailable field. Its short
+window fields are all present or all absent, with a duration below 10,080
+minutes. `anchor` and `days` appear together. The Unix-day anchor is 6–2932896
+and identifies the newest returned date. The seven counts run oldest to newest,
+with `-` for each missing day and unsigned 64-bit totals. The streaks,
+voucher count and workspace message count are unsigned 32-bit integers.
+Finite credits are unsigned 64-bit milli-credits. The plan is a bounded
+lowercase ASCII token, up to 24 characters. When no account details are
+available, age is also `-`.
+
+The graph fields use a nonzero opaque random `series` and its most recent
+completed UTC `quarter`, or `-` for all three fields when no series record is
+available. A sample received in slot `floor(Unix seconds / 900)` can report
+the preceding interval. `tokens15` is the observed change between the first
+verified daily totals in adjacent slots on the same UTC date, using only the
+service bucket whose date label matches that date. A first sample, a missing
+or decreasing counter, a skipped slot or a date change yields `-`. Zero is
+a measured unchanged counter. Repeated reads in the same slot resend the same
+record. No missed interval is backfilled. A broker restart or a detected
+account change starts an independent in-memory series.
+
+Age is monotonic milliseconds since the oldest current projection source
+read. The graph interval retains its own UTC index and cannot be refreshed
+or rewritten by a heartbeat. The projection expires after 90 seconds. The
+existing broker checks the native MCP lease and refreshes on authenticated
+demand at most once every 60 seconds. No account credentials, identifying
+account fields, chat contents or workspace message text are sent.
+
 ## Identity and ports
 
 - Cody listens on UDP port `42117` while pairing.
@@ -181,7 +231,7 @@ Discovery requires explicit inclusion; this identity is never represented as a
 measured physical-device MAC.
 
 Every datagram is printable ASCII and uses `|` separators. Ordinary packets
-admit 512 bytes; ACTIVITY admits 2048, TECH 1024 and EVENT 4096.
+admit 512 bytes; ACTIVITY admits 2048, TECH 1024, EVENT 4096 and ACCOUNT 640.
 Unknown, duplicated or missing fields are rejected. Senders use the canonical
 field order shown below for reproducible proofs and diagnostics.
 

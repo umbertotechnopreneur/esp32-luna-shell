@@ -357,6 +357,79 @@ struct CodexTechnicalSnapshot : ComponentSnapshot {
 static_assert(sizeof(CodexTechnicalSnapshot) <= 512,
     "Technical telemetry projection must remain bounded to a 512-byte caller frame");
 
+// App Server weekly allowance, separate from the tokens used by a particular chat.
+// The sample timestamp is the authenticated receipt. The source age retains
+// the host observation age independently of the device clock.
+struct CodexWeeklyLimitSnapshot : ComponentSnapshot {
+    int64_t reset_unix_seconds = 0;
+    uint32_t source_age_at_receive_ms = 0;
+    uint16_t remaining_basis_points = 0;
+};
+static_assert(sizeof(CodexWeeklyLimitSnapshot) <= 48,
+    "Weekly allowance reads must remain a bounded scalar projection");
+
+enum class CodexCreditKind : uint8_t { Unavailable, Finite, Unlimited };
+
+// Account-level App Server observations. The seven dates end at anchor_unix_day;
+// the mask distinguishes missing observations from a measured zero.
+struct CodexAccountSnapshot : ComponentSnapshot {
+    uint64_t daily_tokens[7]{};
+    uint64_t credit_milliunits = 0;
+    int64_t short_reset_unix_seconds = 0;
+    uint32_t anchor_unix_day = 0;
+    uint32_t current_streak_days = 0;
+    uint32_t longest_streak_days = 0;
+    uint32_t reset_vouchers = 0;
+    uint32_t workspace_messages = 0;
+    uint32_t source_age_at_receive_ms = 0;
+    uint16_t short_remaining_basis_points = 0;
+    uint16_t short_window_minutes = 0; // Zero means unavailable.
+    uint8_t daily_valid_mask = 0;
+    CodexCreditKind credits_kind = CodexCreditKind::Unavailable;
+    bool current_streak_valid = false;
+    bool longest_streak_valid = false;
+    bool reset_vouchers_valid = false;
+    bool workspace_messages_valid = false;
+    char plan[25]{};
+};
+static_assert(sizeof(CodexAccountSnapshot) <= 168,
+    "Account reads must remain bounded independently of the full hardware snapshot");
+
+// History is memory-only. UTC quarter numbers identify slots, even when no
+// delta was observed. The component flags describe the latest source lease.
+struct CodexTokenIntervalsSnapshot : ComponentSnapshot {
+    static constexpr uint32_t kCapacity = 96;
+    uint64_t tokens[kCapacity]{};
+    uint32_t valid_mask[kCapacity / 32]{};
+    uint32_t anchor_quarter = 0;
+    uint32_t source_age_at_receive_ms = 0;
+    bool initialized = false;
+
+    // quarter: UTC interval start, represented as Unix seconds divided by 900.
+    // delta: Receives an observed token count only when the slot is present.
+    bool read_token_delta(uint32_t quarter, uint64_t &delta) const
+    {
+        if (!initialized || quarter > anchor_quarter || anchor_quarter - quarter >= kCapacity) {
+            return false;
+        }
+        const uint32_t slot = quarter % kCapacity;
+        if ((valid_mask[slot / 32] & (uint32_t{1} << (slot % 32))) == 0) {
+            return false;
+        }
+        delta = tokens[slot];
+        return true;
+    }
+};
+static_assert(sizeof(CodexTokenIntervalsSnapshot) <= 832,
+    "The caller retains the fixed 96-slot history outside full snapshot copies");
+
+struct CodexTokenIntervalObservation {
+    uint64_t series = 0; // Zero means no current account interval.
+    uint64_t tokens = 0;
+    uint32_t quarter = 0;
+    bool tokens_valid = false;
+};
+
 struct CodexEventSnapshot : ComponentSnapshot, CodexEventPayload {
     CodexEventState state = CodexEventState::None;
     uint64_t revision = 0;
@@ -1131,6 +1204,23 @@ public:
     // technical: Authenticated owner-produced projection; no prompts or transcript content.
     // Exception: Returns the original canonical publication error.
     esp_err_t reportCodexTechnical(const CodexTechnicalSnapshot &technical);
+    // limit: Current authenticated allowance, aged against source and LAN freshness.
+    // Exception: Returns the original canonical lock or release error.
+    esp_err_t readCodexWeeklyLimit(CodexWeeklyLimitSnapshot &limit) const;
+    // limit: Authenticated owner projection, including unavailable source results.
+    // Exception: Returns the original canonical publication error.
+    esp_err_t reportCodexWeeklyLimit(const CodexWeeklyLimitSnapshot &limit);
+    // account: Current authenticated App Server projection, with missing fields explicit.
+    // Exception: Returns the original canonical lock or release error.
+    esp_err_t readCodexAccount(CodexAccountSnapshot &account) const;
+    // history: Persistent caller-owned history; unavailable bins have unset mask bits.
+    // Exception: Returns the original lock or release error; output is unusable on failure.
+    esp_err_t readCodexTokenIntervals(CodexTokenIntervalsSnapshot &history) const;
+    // account: Authenticated owner projection, including unavailable source results.
+    // interval: Completed UTC quarter, missing measurement or absent account series.
+    // Exception: Returns the original publication or interval ordering error.
+    esp_err_t reportCodexAccount(const CodexAccountSnapshot &account,
+                                const CodexTokenIntervalObservation &interval);
     // event: Authenticated controller state, including real delivery and expiry outcomes.
     // Exception: Returns the original publication failure and logs its cause.
     esp_err_t reportCodexEvent(const CodexEventSnapshot &event);

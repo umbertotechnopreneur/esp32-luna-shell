@@ -226,6 +226,24 @@ still pending or was approved. Broker diagnostics record accepted permission
 boundaries and queued/suppressed/retired outcomes using hashed chat/turn identities;
 commands, tool inputs and chat text are never included in this trace.
 
+## Account dashboard on Cody
+
+On a paired physical Cody, open **Codex Usage** to view the account allowance
+and reset countdown, service-reported daily tokens, streaks, credits, reset
+vouchers and the current ChatGPT plan when available. Cody uses the existing
+authenticated pairing. The plugin resolves the installed native Codex
+executable from its search path and uses its existing ChatGPT sign-in. The
+five-hour graph shows observed changes in today's reported daily token total
+between adjacent 15-minute UTC sampling slots. Missing intervals remain gaps.
+
+The existing CCP broker makes bounded reads through a private
+`codex app-server` stdio child only when a native MCP lease is open and an
+authenticated device asks for account data. It attempts at most one refresh per
+minute and forwards only the numeric metrics and plan label. Closing Codex,
+losing the link, an unsupported account field or an expired sample produces
+the corresponding unavailable or stale state on Cody. Account reads use the
+[public App Server methods](https://learn.chatgpt.com/docs/app-server#auth-endpoints).
+
 ## Install and review hooks
 
 1. Make `python` available to the desktop application's environment.

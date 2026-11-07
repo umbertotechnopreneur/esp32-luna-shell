@@ -1,5 +1,14 @@
 # Active work
 
+## Codex reset countdown
+
+- Verify PWR standby and wake, BOOT Options, and Options to Codex stats on
+  the physical board. Exercise the seven pages, lateral controls at all
+  rotations, countdown flips and quota ring, reconnect, and stale data.
+- Observe consecutive 15-minute samples with a live account. Verify zero,
+  missing, interrupted, and account-change intervals at all three zooms.
+- Review the screen visibility carousel proposals before implementing settings.
+
 ## Companion source selection, typography and desktop controls
 
 - Review the Codex and local companion states and native proportional

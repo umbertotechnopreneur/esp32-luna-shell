@@ -75,6 +75,28 @@ void age_wifi_signal(WifiSnapshot &wifi, int64_t now_us, int64_t ttl_us)
     }
 }
 
+// sample: Owner projection with original transport receipt.
+// source_age_ms: Original host age independent of the device clock.
+// link_ready: Whether the associated authenticated CCP READY is current.
+// now_us: Monotonic observation time in the device clock domain.
+void age_codex_account_sample(ComponentSnapshot &sample, uint32_t source_age_ms, bool link_ready, int64_t now_us)
+{
+    if (!sample.data_valid) {
+        return;
+    }
+    constexpr uint64_t source_ttl_us = 90'000'000;
+    const bool timestamp_valid = sample.last_success_at_us > 0 && now_us >= sample.last_success_at_us;
+    const auto elapsed_us = timestamp_valid ? static_cast<uint64_t>(now_us - sample.last_success_at_us) : 0;
+    const uint64_t source_age_us = static_cast<uint64_t>(source_age_ms) * 1000U;
+    if (!timestamp_valid || !link_ready || elapsed_us >= codex_presence::kTransportTtlUs ||
+        source_age_us >= source_ttl_us || elapsed_us >= source_ttl_us - source_age_us) {
+        sample.data_valid = false;
+        sample.data_stale = true;
+        sample.health = DeviceHealth::Degraded;
+        sample.last_error = timestamp_valid ? ESP_ERR_TIMEOUT : ESP_ERR_INVALID_STATE;
+    }
+}
+
 // snapshot: Canonical observations whose original timestamps must remain untouched.
 // now_us: Actual monotonic observation time used to mark, never refresh, stale data.
 void apply_measured_sample_aging(

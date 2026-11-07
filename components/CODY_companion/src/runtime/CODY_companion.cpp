@@ -52,6 +52,9 @@
 #include "CODY_companion_gestures.hpp"
 #include "CODY_home_dashboard.hpp"
 #include "CODY_home_identity.hpp"
+#include "CODY_account_dashboard.hpp"
+#include "CODY_reset_countdown_screen.hpp"
+#include "CODY_token_history.hpp"
 #include "home_dashboard_fonts.hpp"
 #include "CODY_demo.hpp"
 #include "CODY_scene.hpp"
@@ -415,6 +418,170 @@ bool debug_memory_page_active()
 #else
     return false;
 #endif
+}
+
+enum class StatisticsPage : uint8_t { Reset, Windows, Today, Week, TokenHistory, Credits, Account };
+enum class StatisticsTouch : uint8_t { None, Previous, Next, Interval };
+enum class StatisticsVisibility : uint8_t { Closed, AwaitingFrame, Presented };
+
+struct StatisticsFrame {
+    CODY::ResetCountdownScreen reset;
+    CODY::AccountDashboardPresentation account;
+    CODY::TokenHistoryPresentation history;
+    LUNASHELL::CodexWeeklyLimitSnapshot weekly{};
+    LUNASHELL::CodexAccountSnapshot details{};
+    LUNASHELL::CodexTokenIntervalsSnapshot intervals{};
+    LUNASHELL::ClockSnapshot clock{};
+    CODY::SceneContent content{};
+};
+
+struct StatisticsRoute {
+    StatisticsPage page = StatisticsPage::Reset;
+    CODY::TokenHistoryInterval interval = CODY::TokenHistoryInterval::FiveHours;
+    StatisticsVisibility visibility = StatisticsVisibility::Closed;
+    StatisticsFrame *frame = nullptr;
+    struct Contact {
+        StatisticsTouch target = StatisticsTouch::None;
+        uint32_t display_revision = 0;
+    } contact;
+    struct PresentedFrame {
+        uint32_t display_revision = 0;
+        uint32_t content_revision = 0;
+        uint16_t ring_allowance = 0;
+        bool has_ring = false;
+    } presented;
+};
+
+// Large, bounded render state stays off the worker stack and the internal DMA pool.
+alignas(StatisticsFrame) EXT_RAM_BSS_ATTR uint8_t s_statistics_storage[sizeof(StatisticsFrame)]{};
+StatisticsRoute s_statistics;
+std::atomic<bool> s_boot_options_pending{false};
+
+// No parameters: the power owner only queues the edge. The display owner navigates.
+void queue_boot_options()
+{
+    s_boot_options_pending.store(true, std::memory_order_release);
+    s_state.frame_dirty.store(true, std::memory_order_release);
+}
+
+// No parameters: overlay admission follows Cody's existing visible lifecycle.
+bool statistics_route_visible()
+{
+    return s_statistics.visibility != StatisticsVisibility::Closed &&
+        s_state.rig_visible && s_state.boot_phase == BootPhase::Ready &&
+        CODY::lifecycle_is_resting(s_state.lifecycle) && !s_state.resume_scene_pending &&
+        !debug_view_active() && s_power_presentation.load(std::memory_order_acquire) == PowerPresentation::None;
+}
+
+// No parameters: touch is readmitted only after the entire new frame retires.
+void invalidate_statistics_frame()
+{
+    if (s_statistics.visibility != StatisticsVisibility::Closed) {
+        s_statistics.visibility = StatisticsVisibility::AwaitingFrame;
+    }
+    s_statistics.contact = {};
+    if (s_statistics.frame != nullptr) {
+        s_statistics.frame->reset.reset_animation();
+    }
+}
+
+// No parameters: return to the retained Options route and force its complete repaint.
+void close_statistics()
+{
+    s_statistics.visibility = StatisticsVisibility::Closed;
+    invalidate_statistics_frame();
+    s_resources.previous_frame_valid = false;
+    s_state.frame_dirty.store(true, std::memory_order_release);
+}
+
+// No parameters: Options owns the entry and remains the previous route.
+void open_statistics()
+{
+    if (s_statistics.frame == nullptr) {
+        s_statistics.frame = new (s_statistics_storage) StatisticsFrame{};
+    }
+    s_statistics.page = StatisticsPage::Reset;
+    s_statistics.visibility = StatisticsVisibility::AwaitingFrame;
+    invalidate_statistics_frame();
+    s_resources.previous_frame_valid = false;
+    s_state.frame_dirty.store(true, std::memory_order_release);
+}
+
+// page: Current statistics screen.
+// direction: Released press on one lateral target.
+StatisticsPage adjacent_statistics_page(StatisticsPage page, StatisticsTouch direction)
+{
+    static constexpr StatisticsPage order[] = {StatisticsPage::Reset, StatisticsPage::Windows,
+        StatisticsPage::Today, StatisticsPage::Week, StatisticsPage::TokenHistory,
+        StatisticsPage::Credits, StatisticsPage::Account};
+    const auto *position = std::find(std::begin(order), std::end(order), page);
+    if (position == std::end(order)) {
+        return StatisticsPage::Reset;
+    }
+    if (direction == StatisticsTouch::Next) {
+        return position + 1 == std::end(order) ? order[0] : position[1];
+    }
+    return position == std::begin(order) ? order[0] : position[-1];
+}
+
+// point: Acquired logical point on the fully retired statistics view.
+StatisticsTouch statistics_target_at(CODY2D::Point point)
+{
+    switch (CODY::lateral_navigation_at(point)) {
+    case CODY::LateralNavigation::Previous: return StatisticsTouch::Previous;
+    case CODY::LateralNavigation::Next: return StatisticsTouch::Next;
+    case CODY::LateralNavigation::None: break;
+    }
+    return s_statistics.page == StatisticsPage::TokenHistory &&
+        CODY::hit_token_history_interval(s_statistics.frame->history, point)
+        ? StatisticsTouch::Interval : StatisticsTouch::None;
+}
+
+// point: Current acquired contact in the logical coordinate system.
+// pressed_edge: True only on a new acquired press.
+void handle_statistics_touch(const LUNASHELL_touch_point_t &point, bool pressed_edge)
+{
+    s_state.touch_pressed = point.pressed;
+    const uint32_t revision = LUNASHELL_display_runtime_content_revision();
+    if (!LUNASHELL_display_runtime_writes_allowed() ||
+        s_statistics.visibility != StatisticsVisibility::Presented ||
+        revision != s_statistics.presented.display_revision) {
+        s_statistics.contact = {};
+        return;
+    }
+    if (point.pressed) {
+        const auto target = statistics_target_at(
+            {static_cast<int16_t>(point.x), static_cast<int16_t>(point.y)});
+        if (pressed_edge) {
+            s_statistics.contact = {target, revision};
+            LUNASHELL_power_manager_note_activity();
+        } else if (target != s_statistics.contact.target) {
+            s_statistics.contact = {};
+        }
+        return;
+    }
+    const auto contact = s_statistics.contact;
+    s_statistics.contact = {};
+    if (contact.target == StatisticsTouch::None || contact.display_revision != revision) {
+        return;
+    }
+    if (contact.target == StatisticsTouch::Interval) {
+        using Interval = CODY::TokenHistoryInterval;
+        switch (s_statistics.interval) {
+        case Interval::OneHour: s_statistics.interval = Interval::FiveHours; break;
+        case Interval::FiveHours: s_statistics.interval = Interval::TwentyFourHours; break;
+        case Interval::TwentyFourHours: s_statistics.interval = Interval::OneHour; break;
+        }
+        s_state.frame_dirty.store(true, std::memory_order_release);
+        return;
+    }
+    if (contact.target == StatisticsTouch::Previous && s_statistics.page == StatisticsPage::Reset) {
+        close_statistics();
+        return;
+    }
+    s_statistics.page = adjacent_statistics_page(s_statistics.page, contact.target);
+    invalidate_statistics_frame();
+    s_state.frame_dirty.store(true, std::memory_order_release);
 }
 
 // preserve_visible_handoff: Keep the current auto heart only for a visible semantic Sleep fade.
@@ -3447,6 +3614,131 @@ bool home_panel_rotation_interaction_active()
     return pending;
 }
 
+// now_us: Display-owner monotonic clock. It advances tile geometry only.
+// Exception: Returns the original snapshot read or native layout error.
+esp_err_t prepare_statistics_content(int64_t now_us)
+{
+    auto &view = *s_statistics.frame;
+    const auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    if (s_statistics.page == StatisticsPage::TokenHistory) {
+        const esp_err_t error = snapshots.readCodexTokenIntervals(view.intervals);
+        if (error != ESP_OK) {
+            return error;
+        }
+        return CODY::prepare_token_history(s_statistics.interval, view.intervals,
+            CODY::SceneData::title_font, CODY::SceneData::body_font, view.history, view.content);
+    }
+    esp_err_t error = snapshots.readCodexWeeklyLimit(view.weekly);
+    if (error == ESP_OK) {
+        error = snapshots.readClockObservation(view.clock);
+    }
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (s_statistics.page == StatisticsPage::Reset) {
+        return view.reset.prepare(view.weekly, view.clock, now_us, CODY::SceneData::title_font,
+            CODY::SceneData::body_font, view.content);
+    }
+    error = snapshots.readCodexAccount(view.details);
+    if (error != ESP_OK) {
+        return error;
+    }
+    using Page = CODY::AccountDashboardPage;
+    Page page = Page::QuotaWindows;
+    switch (s_statistics.page) {
+    case StatisticsPage::Reset:
+    case StatisticsPage::TokenHistory:
+    case StatisticsPage::Windows: break;
+    case StatisticsPage::Today: page = Page::Today; break;
+    case StatisticsPage::Week: page = Page::LastSevenDays; break;
+    case StatisticsPage::Credits: page = Page::Credits; break;
+    case StatisticsPage::Account: page = Page::Account; break;
+    }
+    return CODY::prepare_account_dashboard(page, view.details, view.weekly, view.clock,
+        CODY::SceneData::title_font, CODY::SceneData::body_font, view.account, view.content);
+}
+
+// revision: Display/touch mapping generation held by the frame lock.
+// now_us: Display-owner monotonic clock for the flip animation.
+// force_full: Waking and preempted frames need their perimeter and arrows restored.
+// candidate: Receives the frame identity to publish only after DMA retirement.
+// Exception: Returns the original native raster, frame deadline or DMA error.
+esp_err_t draw_statistics_rows(uint32_t revision, int64_t now_us, bool force_full,
+                              StatisticsRoute::PresentedFrame &candidate)
+{
+    esp_err_t error = prepare_statistics_content(now_us);
+    if (error != ESP_OK) {
+        return error;
+    }
+    const auto &view = *s_statistics.frame;
+    const bool ring = s_statistics.page == StatisticsPage::Reset &&
+        CODY::reset_countdown_ring_visible(view.reset.presentation());
+    const uint16_t allowance = ring ? view.weekly.remaining_basis_points : 0;
+    const auto &previous = s_statistics.presented;
+    candidate = previous;
+    const bool full = force_full || s_statistics.visibility != StatisticsVisibility::Presented ||
+        revision != previous.display_revision || ring != previous.has_ring ||
+        allowance != previous.ring_allowance;
+    if (!full && view.content.revision == previous.content_revision) {
+        return ESP_OK;
+    }
+    auto bounds = full ? CODY::DamageRect{0, 0, kPanelWidth, kPanelHeight} : view.content.bounds;
+    const auto action = view.content.bottom_action_bounds;
+    if (!full && !action.empty()) {
+        bounds.left = std::min(bounds.left, action.left);
+        bounds.top = std::min(bounds.top, action.top);
+        bounds.right = std::max(bounds.right, action.right);
+        bounds.bottom = std::max(bounds.bottom, action.bottom);
+    }
+    const uint16_t left = bounds.left & ~1U;
+    const uint16_t right = (bounds.right + 1U) & ~1U;
+    const uint16_t top = bounds.top & ~1U;
+    const uint16_t bottom = (bounds.bottom + 1U) & ~1U;
+    const uint16_t width = right - left;
+    if (width == 0 || top >= bottom || view.content.draw_rows == nullptr) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    for (uint16_t row = top; row < bottom;) {
+        error = LUNASHELL_display_frame_check_deadline();
+        if (error != ESP_OK) {
+            return error;
+        }
+        void *storage = nullptr;
+        size_t capacity = 0;
+        error = LUNASHELL_display_frame_buffer(&storage, &capacity);
+        if (error != ESP_OK) {
+            return error;
+        }
+        const size_t max_rows = (capacity / (width * sizeof(uint16_t))) & ~size_t{1};
+        if (storage == nullptr || max_rows == 0 ||
+            reinterpret_cast<uintptr_t>(storage) % alignof(uint16_t) != 0) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        const auto rows = static_cast<uint16_t>(std::min<size_t>(max_rows, bottom - row));
+        const CODY2D::Surface strip{static_cast<uint16_t *>(storage), width, rows, width,
+            static_cast<uint32_t>(capacity / sizeof(uint16_t)), CODY2D::Rgb565ByteOrder::ByteSwapped};
+        error = CODY2D::clear(strip, 0);
+        if (error == ESP_OK) {
+            error = view.content.draw_rows(view.content.state, strip, row, left);
+        }
+        if (error == ESP_OK && ring) {
+            error = CODY::draw_reset_countdown_ring_rows(view.reset.presentation(), strip, row, left);
+        }
+        if (error == ESP_OK && full) {
+            error = CODY::draw_lateral_navigation(true, strip, row, left);
+        }
+        if (error == ESP_OK) {
+            error = LUNASHELL_display_frame_submit_rgb565(left, row, right, row + rows, storage);
+        }
+        if (error != ESP_OK) {
+            return error;
+        }
+        row += rows;
+    }
+    candidate = {revision, view.content.revision, allowance, ring};
+    return ESP_OK;
+}
+
 // Hold the shared recursive panel lock across every strip so rotation and standby
 // cannot alter the panel/touch mapping in the middle of one complete redraw.
 // resume_animation: Skip parked time when restarting the animation clocks after standby.
@@ -3513,6 +3805,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const bool voice_visible = voice_active || (voice_terminal && s_voice_input_view.input.changed_at_us > 0 &&
         esp_timer_get_time() - s_voice_input_view.input.changed_at_us < 3000000);
     if (voice_visible && s_power_presentation.load(std::memory_order_acquire) == PowerPresentation::None) {
+        if (s_statistics.visibility != StatisticsVisibility::Closed) {
+            invalidate_statistics_frame();
+        }
         s_voice_force_full = resume_animation;
         s_state.home_sampled_us = -1;
         esp_err_t error = suspend_home_panel_rotation();
@@ -3617,6 +3912,53 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
     }
 
+    if (s_boot_options_pending.exchange(false, std::memory_order_acq_rel) &&
+        s_state.rig_visible && s_state.boot_phase == BootPhase::Ready &&
+        CODY::lifecycle_is_resting(s_state.lifecycle) && !s_state.resume_scene_pending &&
+        !debug_view_active() && s_power_presentation.load(std::memory_order_acquire) == PowerPresentation::None) {
+        if (s_statistics.visibility != StatisticsVisibility::Closed) {
+            close_statistics();
+        }
+        const esp_err_t error = CODY::open_companion_options(s_state.scene);
+        if (error != ESP_OK) {
+            return frame.finish({error, false, 0});
+        }
+        const esp_err_t policy_error = apply_scene_standby_policy(s_state.scene);
+        if (policy_error != ESP_OK) {
+            return frame.finish({policy_error, false, 0});
+        }
+        CODY::cancel_companion_tap(s_state.companion_tap);
+        CODY::cancel_onboarding_touch();
+        cancel_transient_affection();
+        s_resources.previous_frame_valid = false;
+    }
+    if (statistics_route_visible()) {
+        const uint32_t revision = LUNASHELL_display_runtime_content_revision();
+        const int64_t now_us = esp_timer_get_time();
+        esp_err_t error = suspend_home_panel_rotation();
+        if (error == ESP_OK) error = set_companion_typewriter_suspended(true);
+        suspend_optional_personality_audio(true);
+        StatisticsRoute::PresentedFrame candidate;
+        if (error == ESP_OK) {
+            error = draw_statistics_rows(revision, now_us, resume_animation, candidate);
+        }
+        const DrawResult completed = frame.finish({error, false, revision});
+        s_statistics.visibility = completed.error == ESP_OK
+            ? StatisticsVisibility::Presented : StatisticsVisibility::AwaitingFrame;
+        s_resources.previous_frame_valid = false;
+        s_state.animation_sampled_us = 0;
+        s_state.onboarding_sampled_us = 0;
+        if (completed.error == ESP_OK) {
+            s_statistics.presented = candidate;
+            s_state.frame_dirty.store(s_boot_options_pending.load(std::memory_order_acquire),
+                std::memory_order_release);
+            s_state.next_frame_us = now_us + (s_statistics.frame->reset.animating() ? 33333 : 150000);
+        }
+        return completed;
+    }
+    if (s_statistics.visibility == StatisticsVisibility::Presented) {
+        invalidate_statistics_frame();
+    }
     const esp_err_t audio_resume_error = set_companion_typewriter_suspended(
         s_state.lifecycle.phase == CODY::LifecyclePhase::Sleep || debug_view_active());
     if (audio_resume_error != ESP_OK) {
@@ -5477,6 +5819,11 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         return apply_voice_recording_action(action, s_voice_view_started_at_us);
     }
 #endif
+    if (statistics_route_visible()) {
+        CODY::cancel_companion_tap(s_state.companion_tap);
+        handle_statistics_touch(point, pressed_edge);
+        return ESP_OK;
+    }
     const bool companion_eligible = LUNASHELL_display_runtime_writes_allowed() &&
         companion_home_route_active();
     const bool passive_tap = CODY::observe_companion_tap(s_state.companion_tap,
@@ -5556,6 +5903,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         return setup_error;
     }
     if (!debug_control_contact && !home_dashboard_view_active() && !s_state.resume_scene_pending &&
+        s_resources.previous_frame_valid &&
         s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed() &&
         CODY::lifecycle_is_resting(s_state.lifecycle)) {
         bool consumed = false;
@@ -5565,6 +5913,9 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
             s_state.rendered_rotation_degrees, consumed);
         if (route_error != ESP_OK) {
             return route_error;
+        }
+        if (CODY::take_codex_statistics_request()) {
+            open_statistics();
         }
         const esp_err_t policy_error = apply_scene_standby_policy(s_state.scene);
         if (policy_error != ESP_OK) {
@@ -5760,6 +6111,7 @@ void interrupt_touch_gestures(esp_err_t error)
     CODY::reset_voice_recording_gesture(s_voice_recording_gesture);
 #endif
     CODY::cancel_companion_tap(s_state.companion_tap);
+    s_statistics.contact = {};
     s_touch_contact_interrupted = true;
     s_state.setup_hold_candidate = false;
     s_state.setup_hold_eligible = false;
@@ -5850,7 +6202,7 @@ void companion_worker(void *context)
             wait_ms = remaining_us > 0 ? static_cast<uint32_t>((remaining_us + 999) / 1000) : 1;
 #endif
         } else if (s_state.animation_paused && !kRenderDiagnosticsEnabled && !companion_home_route_active() &&
-                   !debug_view_active()) {
+                   !debug_view_active() && s_statistics.visibility == StatisticsVisibility::Closed) {
             wait_ms = kSamplePeriodMs;
         } else if (s_state.rig_visible) {
             wait_ms = remaining_us > 0 ?
@@ -5951,6 +6303,9 @@ void companion_worker(void *context)
 #endif
             suspend_optional_personality_audio(true);
             cancel_transient_affection();
+            if (s_statistics.visibility != StatisticsVisibility::Closed) {
+                invalidate_statistics_frame();
+            }
         }
         const esp_err_t audio_error = display_parked
             ? set_companion_typewriter_suspended(true) : ESP_OK;
@@ -5972,10 +6327,12 @@ void companion_worker(void *context)
         CODY_boot_cues_observe_pending();
         const uint32_t revision = LUNASHELL_display_runtime_content_revision();
         const bool paused_release_frame = s_state.animation_paused && !kRenderDiagnosticsEnabled &&
-            !companion_home_route_active() && !debug_view_active();
+            !companion_home_route_active() && !debug_view_active() &&
+            s_statistics.visibility == StatisticsVisibility::Closed;
         if (!parked && s_state.rig_visible &&
             (paused_release_frame || esp_timer_get_time() < s_state.next_frame_us) &&
             !s_state.frame_dirty.load(std::memory_order_acquire) &&
+            !s_boot_options_pending.load(std::memory_order_acquire) &&
             revision == s_rendered_revision.load(std::memory_order_acquire)) {
             continue;
         }
@@ -6364,6 +6721,11 @@ extern "C" esp_err_t CODY_companion_start(void)
     if (lifecycle_error != ESP_OK) {
         release_companion_resources();
         return fail_consumer("Display lifecycle owner registration", lifecycle_error, false);
+    }
+    const esp_err_t boot_options_error = LUNASHELL_power_manager_register_boot_options(queue_boot_options);
+    if (boot_options_error != ESP_OK) {
+        release_companion_resources();
+        return fail_consumer("BOOT Options owner registration", boot_options_error, false);
     }
     const esp_err_t shutdown_error = LUNASHELL_power_manager_register_shutdown_callbacks(
         CODY_companion_prepare_shutdown, CODY_companion_report_shutdown_error);

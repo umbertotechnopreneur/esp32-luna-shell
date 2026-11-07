@@ -221,6 +221,35 @@ Debug diagnostic rows occupy y=390-445: measured FPS/CPU, IPv4, free internal RA
 PSRAM, SD presence/access and measured free space. Invalid samples show their
 actual unavailable state; without card detect, SD probe failure is UNCONFIRMED.
 
+## Reset countdown
+
+The reset screen opens first from Options > Codex stats. Four large split
+tiles show days, hours, minutes and seconds. A tile that changes
+folds its old upper half toward the hinge for 100 ms, then unfolds its new
+lower half for 100 ms, matching the timing of the Windows widget. The reset
+date in monospaced UTC and the remaining percentage sit below the tiles.
+A five-pixel perimeter arc uses a gradient to show the available portion of
+the weekly allowance. A full allowance fills the circumference.
+
+The reset instant and percentage come from the Codex App Server through the
+paired companion link. The countdown uses valid clock observations from
+Cody. Clock corrections and skipped seconds update the tiles directly. An
+expired window or stale source clears the quota arc and its numeric value.
+
+## Codex statistics
+
+The two graphite lateral chevrons reuse the Settings targets at (10,203) and
+(396,203). Back steps to the previous screen and returns to Options from Reset.
+Forward visits Limits, Today, Last 7 Days, Token History, Credits and Account,
+then returns to Reset. The active view uses the same logical rotation for
+rasterization and touches.
+
+Token History uses an ECG-style grid and connects only adjacent measured
+15-minute intervals. Its central control cycles through 1, 5 and 24 hours.
+It starts at 5 hours. Missing intervals are gaps and measured zero is a real
+point at the baseline. Account observations are separate from the Home context
+token measurements.
+
 ## Voice recording
 
 The dedicated recording route begins with `Preparing audio` and `Please wait`.

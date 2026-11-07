@@ -145,13 +145,22 @@ record is not remotely revoked by this local action.
 
 ## Options and Skin
 
-Options shows Cody's Look, Display and Behavior. Cody's Look opens the skin
+In Cody, a short BOOT press while active opens Options. A short PWR press
+enters or leaves software standby. Holding Cody still opens Setup, where
+Options remains available. The double tap on the character retains voice input.
+
+Options shows Cody's Look, Display, Behavior and Codex stats. Cody's Look opens the skin
 selector titled Make it yours. Display groups Brightness, Auto-rotate and
 Orientation. With voice input available, Behavior shows Dictation, Shake to
 wake and Sounds. More options opens Usage. Without voice input, Behavior
 shows Shake to wake, Sounds and Usage on one page. Back from Usage returns
 to Behavior. Done returns from a category or Skin to Options, then to Setup
 when opened from Setup.
+
+Codex stats opens the weekly reset countdown. The lateral arrows move through
+Limits, Today, Last 7 Days, Token History, Credits and Account. Forward wraps
+from Account to Reset. Back from Reset returns to Options. Tap the interval
+control on Token History to switch among 1, 5 and 24 hours.
 
 | Preference | Contract |
 | --- | --- |

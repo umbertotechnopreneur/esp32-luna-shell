@@ -39,6 +39,14 @@ extern "C" esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+// request: Excluded profile cannot dispatch physical BOOT short presses.
+// Exception: Always returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t LUNASHELL_power_manager_register_boot_options(void (*request)(void))
+{
+    (void)request;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 // prepare: Excluded profile cannot register an offline farewell owner.
 // Exception: Always returns ESP_ERR_NOT_SUPPORTED.
 extern "C" esp_err_t LUNASHELL_power_manager_register_offline_farewell(esp_err_t (*prepare)(void))
