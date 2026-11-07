@@ -35,7 +35,8 @@ if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION)
         "src/scenes/CODY_account_dashboard.cpp"
         "src/scenes/CODY_reset_countdown.cpp"
         "src/scenes/CODY_reset_countdown_screen.cpp"
-        "src/scenes/CODY_token_history.cpp")
+        "src/scenes/CODY_token_history.cpp"
+        "src/scenes/CODY_widget_visibility_view.cpp")
 endif()
 
 idf_component_register(

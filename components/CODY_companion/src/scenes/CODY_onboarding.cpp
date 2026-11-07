@@ -39,6 +39,7 @@
 #include "CODY_jelly.hpp"
 #include "CODY_look_screen.hpp"
 #include "CODY_settings.hpp"
+#include "CODY_widget_state.hpp"
 #include "CODY_codex_audio.hpp"
 #include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
@@ -80,9 +81,11 @@ constexpr uint16_t kPreferenceTop = 194;
 constexpr uint16_t kPreferenceHeight = 50;
 constexpr uint16_t kPreferenceStep = 60;
 constexpr uint8_t kPreferencesPerPage = 3;
-constexpr uint8_t kOptionsMenuRows = 4;
-constexpr uint16_t kOptionsMenuRowHeight = 42;
-constexpr uint16_t kOptionsMenuRowStep = 47;
+constexpr uint8_t kOptionsMenuRows = 5;
+constexpr uint16_t kOptionsMenuRowHeight = 34;
+constexpr uint16_t kOptionsMenuRowStep = 39;
+static_assert(kPreferenceTop + (kOptionsMenuRows - 1U) * kOptionsMenuRowStep +
+    kOptionsMenuRowHeight < kFooterBounds.y);
 constexpr uint16_t kEventCaptionWidth = 300;
 constexpr uint16_t kCaptionWidth = 232;
 // The invitation fits the 232-pixel body slot without implying a selected chat.
@@ -123,6 +126,7 @@ enum class Work : uint8_t {
     CodexCancel,
     CodexForget,
     SavePreference,
+    SaveWidgetVisibility,
 };
 enum class NavigationDirection : uint8_t { Previous, Next };
 enum class CodexConnectionIntent : uint8_t { Setup, Retry, ConfirmReplacement };
@@ -131,7 +135,7 @@ enum class OnboardingAction : uint8_t {
     None, ShowQr, PairCody, Cancel, Retry, Continue, Next, Done, LetsGo,
     AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later, Options, KeepPairing, ReplacePairing,
     ForgetPairing, ConfirmForget, KeepSaved, CodyLook, DisplayOptions, BehaviorOptions, MoreBehavior,
-    CodexStatistics,
+    CodexStatistics, VisibleScreens,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
@@ -180,6 +184,7 @@ struct Command {
     LUNASHELL::CharacterLookSaveSnapshot look_save{};
     PreferenceId preference = PreferenceId::ShakeWake;
     uint32_t preference_value = 0;
+    WidgetVisibility widget_visibility{};
 };
 struct Result {
     Command command{};
@@ -266,7 +271,7 @@ LUNASHELL::CodexCompactionState s_presented_compaction = LUNASHELL::CodexCompact
 bool s_presented_compaction_feedback = false;
 Route s_route = Route::None;
 bool s_options_from_setup = false;
-bool s_codex_statistics_requested = false;
+WidgetOpenRequest s_widget_open_request = WidgetOpenRequest::None;
 OptionsPage s_options_page = OptionsPage::Menu;
 esp_err_t s_preference_error = ESP_OK;
 PreferenceId s_requested_preference = PreferenceId::ShakeWake;
@@ -635,6 +640,15 @@ void execute_command(const Command &command, Result &result)
         result.error = persist_companion_preference(command.preference, command.preference_value);
         return;
     }
+    if (command.work == Work::SaveWidgetVisibility) {
+        if (command.generation != s_presentation_generation.load(std::memory_order_acquire)) {
+            result.error = ESP_ERR_INVALID_STATE;
+            ESP_LOGE(kTag, "Widget visibility write retired before persistence (%s)", esp_err_to_name(result.error));
+            return;
+        }
+        result.error = persist_widget_visibility(command.widget_visibility);
+        return;
+    }
     if (command.work == Work::SaveLook) {
 #if CODY_ENABLE_PEARL_JELLY
         result.error = persist_jelly_skin(command.look_save.requested_id);
@@ -972,6 +986,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         break;
     case OnboardingAction::CodexStatistics:
         label = "Codex stats";
+        break;
+    case OnboardingAction::VisibleScreens:
+        label = "Visible screens";
         break;
     case OnboardingAction::Done:
         label = "Done";
@@ -1673,7 +1690,7 @@ esp_err_t prepare_options_content(SceneFrame &scene)
     if (s_options_page == OptionsPage::Menu) {
         constexpr OnboardingAction actions[] = {
             OnboardingAction::CodyLook, OnboardingAction::DisplayOptions, OnboardingAction::BehaviorOptions,
-            OnboardingAction::CodexStatistics,
+            OnboardingAction::CodexStatistics, OnboardingAction::VisibleScreens,
         };
         static_assert(std::size(actions) == kOptionsMenuRows);
         for (const auto action : actions) {
@@ -3523,7 +3540,7 @@ void reset_onboarding()
     set_companion_audio_visible(false);
     reset_event_presentation();
     s_options_from_setup = false;
-    s_codex_statistics_requested = false;
+    s_widget_open_request = WidgetOpenRequest::None;
     s_options_page = OptionsPage::Menu;
     s_preference_error = ESP_OK;
     s_setup_returns_to_companion = false;
@@ -3673,12 +3690,55 @@ esp_err_t open_companion_options(SceneFrame &scene)
     return enter_route(Route::MakeItYours10, scene);
 }
 
-// No parameters: consume only a released touch admitted by the Options route.
-bool take_codex_statistics_request()
+// No parameters: consume only a released widget selection admitted by Options.
+WidgetOpenRequest take_widget_open_request()
 {
-    const bool requested = s_codex_statistics_requested;
-    s_codex_statistics_requested = false;
-    return requested;
+    const auto request = s_widget_open_request;
+    s_widget_open_request = WidgetOpenRequest::None;
+    return request;
+}
+
+// visibility: Exact local draft copied before waking the existing action worker.
+// Exception: Returns the original admission error without starting a write.
+esp_err_t request_widget_visibility_save(const WidgetVisibility &visibility)
+{
+    if (!valid_widget_visibility(visibility)) {
+        ESP_LOGE(kTag, "Widget visibility rejected: version=%u screens=0x%02x panels=0x%02x (%s)",
+            unsigned(visibility.version), unsigned(visibility.screen_mask), unsigned(visibility.panel_mask),
+            esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_route != Route::MakeItYours10 || s_options_page != OptionsPage::Menu || s_command_pending ||
+        s_worker == nullptr || s_work_busy.load(std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "Widget visibility save admission rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_command = {};
+    s_command.work = Work::SaveWidgetVisibility;
+    s_command.generation = s_generation;
+    s_command.widget_visibility = visibility;
+    s_command_pending = true;
+    ++s_navigation_revision;
+    s_work_busy.store(true, std::memory_order_release);
+    xTaskNotifyGive(s_worker);
+    return ESP_OK;
+}
+
+// error: Receives the actual settings result, even if the route changed during the write.
+bool take_widget_visibility_save_result(esp_err_t &error)
+{
+    if (!s_result_ready.load(std::memory_order_acquire) || s_result.command.work != Work::SaveWidgetVisibility) {
+        return false;
+    }
+    if (s_result.command.generation == s_generation) {
+        s_command_pending = false;
+        ++s_navigation_revision;
+    }
+    error = s_result.error;
+    wipe(&s_result, sizeof(s_result));
+    s_result_ready.store(false, std::memory_order_release);
+    s_work_busy.store(false, std::memory_order_release);
+    return true;
 }
 
 // scene: Visible reconnect page, without interpreting unavailable data as missing credentials.
@@ -3778,7 +3838,8 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         return activity_error;
     }
     Result result;
-    bool have_result = s_result_ready.load(std::memory_order_acquire);
+    bool have_result = s_result_ready.load(std::memory_order_acquire) &&
+        s_result.command.work != Work::SaveWidgetVisibility;
     if (have_result) {
         result = s_result;
         wipe(&s_result, sizeof(s_result));
@@ -4959,7 +5020,10 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                 case OnboardingAction::BehaviorOptions:
                     return show_options_page(scene, OptionsPage::Behavior);
                 case OnboardingAction::CodexStatistics:
-                    s_codex_statistics_requested = true;
+                    s_widget_open_request = WidgetOpenRequest::Statistics;
+                    return ESP_OK;
+                case OnboardingAction::VisibleScreens:
+                    s_widget_open_request = WidgetOpenRequest::Visibility;
                     return ESP_OK;
                 default:
                     break;

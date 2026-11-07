@@ -127,6 +127,13 @@ esp_err_t persist_companion_preference(PreferenceId, uint32_t)
     unexpected_owner(__func__);
 }
 
+// Unnamed visibility: Widget preferences stay outside event layout coverage.
+// Exception: Aborts on an unexpected settings write.
+esp_err_t persist_widget_visibility(const WidgetVisibility &)
+{
+    unexpected_owner(__func__);
+}
+
 // Unnamed first_boot: No first-boot preference is saved.
 // Exception: Aborts instead of claiming a settings write.
 esp_err_t persist_first_boot(bool)

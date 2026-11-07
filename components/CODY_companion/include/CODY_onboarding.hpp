@@ -20,6 +20,8 @@
 
 namespace CODY {
 
+struct WidgetVisibility;
+
 // No parameters: create one bounded action worker before the renderer starts.
 esp_err_t onboarding_service_init();
 
@@ -40,8 +42,18 @@ esp_err_t open_setup_menu(SceneFrame &scene);
 // Exception: Returns the original route preparation error.
 esp_err_t open_companion_options(SceneFrame &scene);
 
-// No parameters: consumes the display owner's one Codex statistics selection.
-bool take_codex_statistics_request();
+enum class WidgetOpenRequest : uint8_t { None, Statistics, Visibility };
+
+// No parameters: consumes one released Options selection owned by the display task.
+WidgetOpenRequest take_widget_open_request();
+
+// visibility: Exact validated draft selected by the local visibility editor.
+// Exception: Returns invalid values or mailbox/route admission errors before persistence starts.
+esp_err_t request_widget_visibility_save(const WidgetVisibility &visibility);
+
+// error: Receives the original persistence result only for the current presentation generation.
+// Unrelated mailbox results remain available to the onboarding route owner.
+bool take_widget_visibility_save_result(esp_err_t &error);
 
 enum class LateralNavigation : uint8_t { None, Previous, Next };
 

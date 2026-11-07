@@ -15,6 +15,7 @@
  * VBWR E */
 
 #include "CODY_settings.hpp"
+#include "CODY_widget_state.hpp"
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_codex_name.hpp"
@@ -33,6 +34,7 @@ constexpr char kShakeKey[] = "cody_shake";
 constexpr char kSoundsKey[] = "cody_sounds";
 constexpr char kUserNameKey[] = "cody_user_name";
 constexpr char kUsageModeKey[] = "cody_usage";
+constexpr char kWidgetVisibilityKey[] = "cody_widgets";
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
 constexpr char kDictationKey[] = "cody_dictation";
 #endif
@@ -195,13 +197,13 @@ esp_err_t load_switch(const char *key, bool default_value, bool &value)
 }
 
 // key: Exact owner-specific key selected from a typed preference.
-// value: Previously validated 0/1, persisted before any runtime policy changes.
+// value: Previously validated value, persisted before any runtime policy changes.
 // Exception: Returns the original write/readback error or a readback mismatch.
-esp_err_t save_switch(const char *key, uint32_t value)
+esp_err_t save_preference_uint32(const char *key, uint32_t value)
 {
     auto &store = LUNASHELL::UserSettingsService::instance();
     esp_err_t error = store.setUInt32(key, value);
-    uint32_t stored = 2;
+    uint32_t stored = ~value;
     if (error == ESP_OK) {
         error = store.getUInt32(key, &stored);
     }
@@ -211,6 +213,50 @@ esp_err_t save_switch(const char *key, uint32_t value)
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Preference '%s' save/readback=%lu failed (%s)", key,
             static_cast<unsigned long>(value), esp_err_to_name(error));
+    }
+    return error;
+}
+
+// visibility: Validated, independent screen and Cody child visibility masks.
+uint32_t encode_widget_visibility(const WidgetVisibility &visibility)
+{
+    // High to low: version, reserved zero, Cody panels, top-level screens.
+    return (static_cast<uint32_t>(visibility.version) << 24U) |
+        (static_cast<uint32_t>(visibility.panel_mask) << 8U) | visibility.screen_mask;
+}
+
+// stored: Exact owner record from the U32 key.
+// visibility: Receives only supported, validated bits.
+// Exception: Returns ESP_ERR_INVALID_RESPONSE for unsupported version or invalid masks.
+esp_err_t decode_widget_visibility(uint32_t stored, WidgetVisibility &visibility)
+{
+    WidgetVisibility candidate;
+    candidate.version = static_cast<uint8_t>(stored >> 24U);
+    candidate.screen_mask = static_cast<uint8_t>(stored & 0xffU);
+    candidate.panel_mask = static_cast<uint8_t>((stored >> 8U) & 0xffU);
+    if ((stored & 0x00ff0000U) != 0 || !valid_widget_visibility(candidate)) {
+        ESP_LOGE(kTag, "Widget visibility '%s' rejected record=0x%08lx (%s)", kWidgetVisibilityKey,
+            static_cast<unsigned long>(stored), esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    visibility = candidate;
+    return ESP_OK;
+}
+
+// stored: Receives the exact U32 record from the initialized settings owner.
+// Exception: Returns original initialization or read errors, including genuine absence.
+esp_err_t read_widget_visibility(uint32_t &stored)
+{
+    auto &store = LUNASHELL::UserSettingsService::instance();
+    const esp_err_t initialization = store.isInitialized() ? ESP_OK : store.initialize();
+    if (initialization != ESP_OK) {
+        ESP_LOGE(kTag, "Widget visibility '%s' storage initialization failed (%s)",
+            kWidgetVisibilityKey, esp_err_to_name(initialization));
+        return initialization;
+    }
+    const esp_err_t error = store.getUInt32(kWidgetVisibilityKey, &stored);
+    if (error != ESP_OK && error != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGE(kTag, "Widget visibility '%s' read failed (%s)", kWidgetVisibilityKey, esp_err_to_name(error));
     }
     return error;
 }
@@ -243,7 +289,7 @@ esp_err_t persist_dictation(uint32_t value)
         ESP_LOGE(kTag, "Dictation preference projection failed (%s)", esp_err_to_name(projection_error));
         return projection_error;
     }
-    const esp_err_t error = save_switch(kDictationKey, value);
+    const esp_err_t error = save_preference_uint32(kDictationKey, value);
     auto &preferences = observation.preferences;
     preferences.dictation_valid = error == ESP_OK;
     preferences.dictation_error = error;
@@ -379,7 +425,7 @@ esp_err_t persist_companion_usage_mode(LUNASHELL::CodyUsageMode mode)
         ESP_LOGE(kTag, "Companion usage mode canonical projection failed (%s)", esp_err_to_name(error));
         return error;
     }
-    error = save_switch(kUsageModeKey, mode == LUNASHELL::CodyUsageMode::Away ? 1U : 0U);
+    error = save_preference_uint32(kUsageModeKey, mode == LUNASHELL::CodyUsageMode::Away ? 1U : 0U);
     observation.preferences.usage_mode_valid = error == ESP_OK;
     observation.preferences.usage_mode_error = error;
     if (error == ESP_OK) {
@@ -440,14 +486,14 @@ esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
     switch (preference) {
     case PreferenceId::ShakeWake:
 #if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
-        error = save_switch(kShakeKey, value);
+        error = save_preference_uint32(kShakeKey, value);
 #else
         error = ESP_ERR_NOT_SUPPORTED;
 #endif
         break;
     case PreferenceId::Sounds:
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
-        error = save_switch(kSoundsKey, value);
+        error = save_preference_uint32(kSoundsKey, value);
 #else
         error = ESP_ERR_NOT_SUPPORTED;
 #endif
@@ -477,6 +523,60 @@ esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
         ESP_LOGE(kTag, "Preference failure projection failed (%s)", esp_err_to_name(read_error));
     }
     return error;
+}
+
+// visibility: Receives the current readback-confirmed version and masks.
+// Exception: Returns the original initialization/read/write error or invalid-record error.
+esp_err_t load_widget_visibility(WidgetVisibility &visibility)
+{
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    uint32_t stored = 0;
+    const esp_err_t read_error = read_widget_visibility(stored);
+    if (read_error == ESP_OK) {
+        return decode_widget_visibility(stored, visibility);
+    }
+    if (read_error != ESP_ERR_NVS_NOT_FOUND) {
+        return read_error;
+    }
+
+    const WidgetVisibility defaults{};
+    const uint32_t encoded = encode_widget_visibility(defaults);
+    ESP_LOGI(kTag, "First boot: key '%s' absent; persisting default record=0x%08lx",
+        kWidgetVisibilityKey, static_cast<unsigned long>(encoded));
+    const esp_err_t error = save_preference_uint32(kWidgetVisibilityKey, encoded);
+    if (error == ESP_OK) {
+        visibility = defaults;
+    }
+    return error;
+}
+
+// visibility: Explicit owner choice, preserving independently configured Cody panels.
+// Exception: Returns the original failed read/write/readback or invalid record/argument error.
+esp_err_t persist_widget_visibility(const WidgetVisibility &visibility)
+{
+    const uint32_t encoded = encode_widget_visibility(visibility);
+    if (!valid_widget_visibility(visibility)) {
+        ESP_LOGE(kTag, "Widget visibility '%s' rejected input=0x%08lx (%s)", kWidgetVisibilityKey,
+            static_cast<unsigned long>(encoded), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    uint32_t stored = 0;
+    const esp_err_t read_error = read_widget_visibility(stored);
+    if (read_error == ESP_OK) {
+        WidgetVisibility current;
+        const esp_err_t decode_error = decode_widget_visibility(stored, current);
+        if (decode_error != ESP_OK) {
+            return decode_error;
+        }
+        if (stored == encoded) {
+            return ESP_OK;
+        }
+    } else if (read_error != ESP_ERR_NVS_NOT_FOUND) {
+        return read_error;
+    }
+    return save_preference_uint32(kWidgetVisibilityKey, encoded);
 }
 
 // settings: Receives persisted/default/explicit-development decisions on success only.

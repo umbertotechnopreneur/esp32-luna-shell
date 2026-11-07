@@ -21,6 +21,8 @@
 namespace LUNASHELL { enum class CodyUsageMode : uint8_t; }
 
 namespace CODY {
+struct WidgetVisibility;
+
 enum class PreferenceId : uint8_t {
     ShakeWake = 0, AutoRotate = 1, Sounds = 2, Orientation = 3, UsageMode = 4, Brightness = 5,
     Dictation = 6,
@@ -38,6 +40,16 @@ esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value);
 // mode: Explicit Desk or Away choice; changes only this durable presentation preference.
 // Exception: Returns original validation, projection, persistence, readback or publication errors.
 esp_err_t persist_companion_usage_mode(LUNASHELL::CodyUsageMode mode);
+
+// visibility: Receives the validated preference after a confirmed read or first initialization.
+// Exception: Returns the original storage error or ESP_ERR_INVALID_RESPONSE for an invalid record.
+// Call from the settings worker or startup owner.
+esp_err_t load_widget_visibility(WidgetVisibility &visibility);
+
+// visibility: Explicit visibility choice with stable screen and child masks.
+// Exception: Returns validation, storage or readback failure without repairing a rejected record.
+// Call from the settings worker or startup owner.
+esp_err_t persist_widget_visibility(const WidgetVisibility &visibility);
 
 struct OnboardingSettings {
     bool persisted_first_boot = false;
