@@ -60,7 +60,7 @@ ACCOUNT_DETAILS_FIELDS = ("short_reset", "short_remaining", "short_minutes", "an
                           "streak", "best", "credits", "vouchers", "plan", "messages",
                           "series", "quarter", "tokens15", "age")
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.13"
+SERVER_VERSION = "0.6.14"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CHALLENGE_TIMEOUT_SECONDS = 2.0
 MAX_DISCOVERY_OFFERS = 16

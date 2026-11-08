@@ -297,6 +297,51 @@ constexpr bool icon_contains(ActionIcon icon, float x, float y)
             stroke_contains(x, y, 16.f, 7.5f, 12.f, 3.5f) ||
             stroke_contains(x, y, 8.f, 16.5f, 12.f, 20.5f) ||
             stroke_contains(x, y, 16.f, 16.5f, 12.f, 20.5f);
+    case ActionIcon::PlanFree:
+        return ring_contains(x, y, 12.f, 12.f, 7.5f);
+    case ActionIcon::PlanPlus:
+        return stroke_contains(x, y, 5.5f, 12.f, 18.5f, 12.f) ||
+            stroke_contains(x, y, 12.f, 5.5f, 12.f, 18.5f);
+    case ActionIcon::PlanPro:
+        return stroke_contains(x, y, 7.f, 5.5f, 17.f, 5.5f) ||
+            stroke_contains(x, y, 7.f, 5.5f, 3.5f, 10.f) ||
+            stroke_contains(x, y, 17.f, 5.5f, 20.5f, 10.f) ||
+            stroke_contains(x, y, 3.5f, 10.f, 12.f, 19.5f) ||
+            stroke_contains(x, y, 20.5f, 10.f, 12.f, 19.5f) ||
+            stroke_contains(x, y, 3.5f, 10.f, 20.5f, 10.f, .8f) ||
+            stroke_contains(x, y, 9.f, 10.f, 12.f, 19.5f, .8f) ||
+            stroke_contains(x, y, 15.f, 10.f, 12.f, 19.5f, .8f);
+    case ActionIcon::PlanBusiness:
+        return stroke_contains(x, y, 4.f, 8.5f, 20.f, 8.5f) ||
+            stroke_contains(x, y, 4.f, 19.f, 20.f, 19.f) ||
+            stroke_contains(x, y, 4.f, 8.5f, 4.f, 19.f) ||
+            stroke_contains(x, y, 20.f, 8.5f, 20.f, 19.f) ||
+            stroke_contains(x, y, 9.f, 8.5f, 9.f, 5.5f) ||
+            stroke_contains(x, y, 15.f, 8.5f, 15.f, 5.5f) ||
+            stroke_contains(x, y, 9.f, 5.5f, 15.f, 5.5f) ||
+            stroke_contains(x, y, 4.f, 13.5f, 20.f, 13.5f, .8f) ||
+            stroke_contains(x, y, 12.f, 12.5f, 12.f, 14.5f);
+    case ActionIcon::PlanEnterprise:
+        return stroke_contains(x, y, 6.5f, 4.f, 17.5f, 4.f) ||
+            stroke_contains(x, y, 6.5f, 4.f, 6.5f, 20.f) ||
+            stroke_contains(x, y, 17.5f, 4.f, 17.5f, 20.f) ||
+            stroke_contains(x, y, 3.5f, 20.f, 20.5f, 20.f) ||
+            stroke_contains(x, y, 10.f, 8.f, 14.f, 8.f, .8f) ||
+            stroke_contains(x, y, 10.f, 12.f, 14.f, 12.f, .8f) ||
+            stroke_contains(x, y, 12.f, 16.f, 12.f, 20.f);
+    case ActionIcon::PlanEducation:
+        return stroke_contains(x, y, 3.5f, 9.5f, 12.f, 5.5f) ||
+            stroke_contains(x, y, 12.f, 5.5f, 20.5f, 9.5f) ||
+            stroke_contains(x, y, 20.5f, 9.5f, 12.f, 13.5f) ||
+            stroke_contains(x, y, 12.f, 13.5f, 3.5f, 9.5f) ||
+            stroke_contains(x, y, 7.f, 11.f, 7.f, 15.5f) ||
+            stroke_contains(x, y, 17.f, 11.f, 17.f, 15.5f) ||
+            stroke_contains(x, y, 7.f, 15.5f, 12.f, 18.5f) ||
+            stroke_contains(x, y, 17.f, 15.5f, 12.f, 18.5f) ||
+            stroke_contains(x, y, 20.5f, 9.5f, 20.5f, 16.f, .8f);
+    case ActionIcon::PlanAccount:
+        return ring_contains(x, y, 12.f, 8.f, 3.5f) ||
+            (y < 21.f && ring_contains(x, y, 12.f, 22.f, 7.f));
     case ActionIcon::None:
         return false;
     }
@@ -372,6 +417,13 @@ const uint8_t *icon_coverage(ActionIcon icon)
     case ActionIcon::Bluetooth: return cached_icon_coverage<ActionIcon::Bluetooth>();
     case ActionIcon::ChevronRight: return cached_icon_coverage<ActionIcon::ChevronRight>();
     case ActionIcon::Home: return cached_icon_coverage<ActionIcon::Home>();
+    case ActionIcon::PlanFree: return cached_icon_coverage<ActionIcon::PlanFree>();
+    case ActionIcon::PlanPlus: return cached_icon_coverage<ActionIcon::PlanPlus>();
+    case ActionIcon::PlanPro: return cached_icon_coverage<ActionIcon::PlanPro>();
+    case ActionIcon::PlanBusiness: return cached_icon_coverage<ActionIcon::PlanBusiness>();
+    case ActionIcon::PlanEnterprise: return cached_icon_coverage<ActionIcon::PlanEnterprise>();
+    case ActionIcon::PlanEducation: return cached_icon_coverage<ActionIcon::PlanEducation>();
+    case ActionIcon::PlanAccount: return cached_icon_coverage<ActionIcon::PlanAccount>();
     case ActionIcon::None: return nullptr;
     }
     return nullptr;
@@ -415,7 +467,7 @@ esp_err_t draw_action_icon_rows(ActionIcon icon, Rect bounds, uint16_t color,
         bounds.x + bounds.width > 466 || bounds.y + bounds.height > 466 ||
         static_cast<uint32_t>(first_row) + strip.height > 466 ||
         static_cast<uint32_t>(first_column) + strip.width > 466 ||
-        static_cast<uint8_t>(icon) > static_cast<uint8_t>(ActionIcon::Home)) {
+        static_cast<uint8_t>(icon) > static_cast<uint8_t>(ActionIcon::PlanAccount)) {
         ESP_LOGE(kTag, "Action icon geometry or tile origin rejected (%s)",
             esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
@@ -503,7 +555,7 @@ esp_err_t draw_capsule_rows(const CapsuleControl &control, Surface strip,
         static_cast<uint32_t>(first_row) + strip.height > 466 ||
         static_cast<uint32_t>(first_column) + strip.width > 466 ||
         control.corner_radius > bounds.height / 2U ||
-        static_cast<uint8_t>(control.icon) > static_cast<uint8_t>(ActionIcon::Home)) {
+        static_cast<uint8_t>(control.icon) > static_cast<uint8_t>(ActionIcon::PlanAccount)) {
         ESP_LOGE(kTag, "Capsule geometry or tile origin rejected (%s)",
             esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;

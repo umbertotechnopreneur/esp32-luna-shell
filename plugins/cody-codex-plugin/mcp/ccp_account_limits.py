@@ -29,6 +29,13 @@ DAY_SECONDS = 24 * 60 * 60
 QUARTER_SECONDS = 15 * 60
 QUARTERS_PER_DAY = DAY_SECONDS // QUARTER_SECONDS
 READ_FAILURES = (EOFError, OSError, RuntimeError, ValueError, subprocess.SubprocessError)
+# These App Server plan types exceed the CCP1 plan field's 24-character bound.
+PLAN_WIRE_ALIASES = {
+    "self_serve_business_prolite": "business",
+    "self_serve_business_usage_based": "business",
+    "enterprise_cbp_automation": "enterprise",
+    "enterprise_cbp_usage_based": "enterprise",
+}
 
 
 @dataclass(frozen=True)
@@ -136,6 +143,14 @@ def read_allowance_windows(bucket: dict | None, observed_at: float) -> tuple[
 # maximum: Wire-domain upper bound.
 def unsigned_field(value, maximum: int) -> int | None:
     return value if type(value) is int and 0 <= value <= maximum else None
+
+
+# value: App Server planType from the verified ChatGPT account.
+def read_plan_token(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    plan = PLAN_WIRE_ALIASES.get(value, value)
+    return plan if re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,23}", plan) is not None else None
 
 
 # bucket: Verified Codex metered bucket containing optional workspace credits.
@@ -273,9 +288,7 @@ class AccountLimitClient(NativeAppServer):
         weekly, short, short_minutes = read_allowance_windows(bucket, limits_at)
         vouchers = limits.get("rateLimitResetCredits") if limits is not None else None
         voucher_count = unsigned_field(vouchers.get("availableCount"), MAX_UINT32) if isinstance(vouchers, dict) else None
-        plan = account.get("planType")
-        if not isinstance(plan, str) or re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,23}", plan) is None:
-            plan = None
+        plan = read_plan_token(account.get("planType"))
         credits = read_credits(bucket)
         details_at = None
         if plan is not None:

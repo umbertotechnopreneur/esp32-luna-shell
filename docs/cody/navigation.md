@@ -79,8 +79,12 @@ and open Codex questions.
 **Last 7 Days** covers the seven calendar days before the current UTC date.
 This is the Windows widget's complete-day cutoff in the time zones Cody
 supports. The date range advances at UTC midnight. Missing daily counts appear
-as gaps, and the total requires all seven counts. CCP 0.6.13 can deliver the
+as gaps, and the total requires all seven counts. CCP 0.6.13 or later can deliver the
 additional date needed when the service already includes today's partial count.
+
+**Codex account** shows the current ChatGPT plan with a standalone icon and
+label. **Workspace messages** appears only when the current account observation
+contains a count, including a measured zero.
 
 After ten seconds without touch, the lateral arrows fade. Touch or shake
 reveals them. A hidden arrow requires a new touch once it is visible. Token

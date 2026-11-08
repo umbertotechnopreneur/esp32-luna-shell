@@ -23,7 +23,8 @@ namespace CODY2D {
 enum class ActionIcon : uint8_t {
     None, Link, Wifi, Gear, Check, Close, Arrow, Qr, Retry,
     Motion, Rotate, Sound, Orientation,
-    WifiOff, DownloadPhone, Bluetooth, ChevronRight, Home
+    WifiOff, DownloadPhone, Bluetooth, ChevronRight, Home,
+    PlanFree, PlanPlus, PlanPro, PlanBusiness, PlanEnterprise, PlanEducation, PlanAccount
 };
 
 struct CapsuleControl {

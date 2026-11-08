@@ -5,6 +5,7 @@
 #include <cstring>
 #include <ctime>
 #include <limits>
+#include <string_view>
 
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_build_metadata.hpp"
@@ -21,6 +22,7 @@ using Page = AccountDashboardPage;
 constexpr char kTag[] = "CODY_account_dashboard";
 constexpr DamageRect kContentBounds{73, 73, 393, 393};
 constexpr CODY2D::Rect kHeadline{73, 79, 320, 46};
+constexpr CODY2D::Rect kPlanIconBounds{205, 134, 56, 56};
 constexpr uint16_t kWhite = 0xF7BE;
 constexpr uint16_t kMuted = 0x9CF3;
 constexpr uint16_t kCyan = 0x6F9E;
@@ -513,55 +515,90 @@ esp_err_t prepare_credits(AccountDashboardPresentation &presentation, const LUNA
         vouchers ? kGold : kMuted);
 }
 
+struct PlanAppearance {
+    const char *label = nullptr;
+    CODY2D::ActionIcon icon = CODY2D::ActionIcon::None;
+    uint16_t color = kMuted;
+};
+
+// account: Current authenticated account snapshot with a bounded optional plan token.
+// fallback: Receives a readable label for a newly reported plan.
+PlanAppearance account_plan_appearance(const LUNASHELL::CodexAccountSnapshot &account,
+    char (&fallback)[sizeof(LUNASHELL::CodexAccountSnapshot::plan)])
+{
+    using Icon = CODY2D::ActionIcon;
+    struct PlanEntry {
+        std::string_view token;
+        PlanAppearance appearance;
+    };
+    static constexpr PlanEntry plans[] = {
+        {"free", {"Free", Icon::PlanFree, kCyan}},
+        {"go", {"Go", Icon::Arrow, kCyan}},
+        {"plus", {"Plus", Icon::PlanPlus, kCyan}},
+        {"pro", {"ChatGPT Pro", Icon::PlanPro, kIndigo}},
+        {"prolite", {"ChatGPT Pro", Icon::PlanPro, kIndigo}},
+        {"promax", {"ChatGPT Pro", Icon::PlanPro, kIndigo}},
+        {"team", {"Business", Icon::PlanBusiness, kCyan}},
+        {"business", {"Business", Icon::PlanBusiness, kCyan}},
+        {"ent26", {"Enterprise", Icon::PlanEnterprise, kCyan}},
+        {"enterprise", {"Enterprise", Icon::PlanEnterprise, kCyan}},
+        {"edu", {"Edu", Icon::PlanEducation, kCyan}},
+        {"edu_plus", {"Edu Plus", Icon::PlanEducation, kCyan}},
+        {"edu_pro", {"Edu Pro", Icon::PlanEducation, kCyan}},
+    };
+    const char *const end = account.plan + sizeof(account.plan);
+    const char *const terminator = std::find(account.plan, end, '\0');
+    if (terminator == account.plan || terminator == end ||
+        !std::all_of(account.plan, terminator, [](char letter) { return letter >= 32 && letter <= 126; })) {
+        return {};
+    }
+    const std::string_view token{account.plan, static_cast<size_t>(terminator - account.plan)};
+    if (token == "unknown") { return {}; }
+    for (const auto &plan : plans) {
+        if (plan.token == token) { return plan.appearance; }
+    }
+    for (size_t index = 0; index < token.size(); ++index) {
+        const char letter = token[index];
+        fallback[index] = letter >= 'a' && letter <= 'z' ? static_cast<char>(letter - 'a' + 'A') : letter;
+        if (letter == '_') { fallback[index] = ' '; }
+    }
+    fallback[token.size()] = '\0';
+    return {fallback, Icon::PlanAccount, kMuted};
+}
+
 // presentation: Fixed account page owner.
 // account: Authenticated ChatGPT account metadata without an email or account identifier.
 // Exception: Returns the original native text or geometry error.
 esp_err_t prepare_account(AccountDashboardPresentation &presentation, const LUNASHELL::CodexAccountSnapshot &account)
 {
-    const bool current = presentation.account_state == SourceState::Current;
-    const char *const end = account.plan + sizeof(account.plan);
-    const char *const terminator = std::find(account.plan, end, '\0');
-    const bool have_plan = current && terminator != account.plan && terminator != end &&
-        std::all_of(account.plan, terminator, [](char letter) { return letter >= 32 && letter <= 126; });
-    const char *missing = status_text(presentation.account_state);
-    char plan[sizeof(account.plan)]{};
-    if (have_plan) {
-        const size_t length = static_cast<size_t>(terminator - account.plan);
-        for (size_t index = 0; index < length; ++index) {
-            const char letter = account.plan[index];
-            plan[index] = letter >= 'a' && letter <= 'z' ? static_cast<char>(letter - 'a' + 'A') : letter;
-        }
-        auto &badge = presentation.badges[presentation.badge_count++];
-        badge = {};
-        badge.bounds = {91, 144, 284, 66};
-        badge.corner_radius = 22;
-        badge.border_color = kIndigo;
-        badge.top_color = 0x0023;
-        badge.bottom_color = 0x0022;
+    if (presentation.account_state != SourceState::Current) {
+        return add_detail(presentation, presentation.account_state == SourceState::Stale ?
+            "Account data stale" : "Account data unavailable", 213);
     }
-    esp_err_t error = add_hero(presentation, have_plan ? plan : missing, {97, 147, 272, 60}, 1,
-        have_plan ? kWhite : kMuted);
-    if (error != ESP_OK) { return error; }
-    if (current) {
-        auto &dot = presentation.badges[presentation.badge_count++];
-        dot = {};
-        dot.bounds = {117, 228, 10, 10};
-        dot.top_color = kGreen;
-        dot.bottom_color = kGreen;
+    char fallback[sizeof(account.plan)]{};
+    const PlanAppearance plan = account_plan_appearance(account, fallback);
+    uint16_t status_top = 171;
+    if (plan.label != nullptr) {
+        presentation.plan_icon = plan.icon;
+        presentation.plan_icon_color = plan.color;
+        const esp_err_t error = add_value(presentation, plan.label, 192);
+        if (error != ESP_OK) { return error; }
+        status_top = 247;
     }
-    error = add_detail(presentation, current ? "CHATGPT CONNECTED" : missing, 220, current ? kWhite : kMuted);
+    presentation.account_status_dot.bounds = {117, static_cast<uint16_t>(status_top + 8), 10, 10};
+    presentation.account_status_dot.top_color = kGreen;
+    presentation.account_status_dot.bottom_color = kGreen;
+    esp_err_t error = add_detail(presentation, "CHATGPT CONNECTED", status_top, kWhite);
     if (error != ESP_OK) { return error; }
-    error = add_rule(presentation, 260);
+    if (!account.workspace_messages_valid) { return ESP_OK; }
+    error = add_rule(presentation, status_top + 36);
     if (error != ESP_OK) { return error; }
-    error = add_detail(presentation, "WORKSPACE MESSAGES", 279, kCyan);
+    error = add_detail(presentation, "WORKSPACE MESSAGES", status_top + 48, kCyan);
     if (error != ESP_OK) { return error; }
-    const bool messages = current && account.workspace_messages_valid;
     char count[32]{};
-    if (messages) { format_count(account.workspace_messages, count); }
-    const char *label = messages ? (account.workspace_messages == 0 ? "NO ACTIVE MESSAGES" : count) : missing;
-    error = add_value(presentation, label, 311, messages ? kWhite : kMuted);
-    if (error != ESP_OK) { return error; }
-    return add_rule(presentation, 365);
+    format_count(account.workspace_messages, count);
+    const char *label = account.workspace_messages == 0 ? "NO ACTIVE MESSAGES" : count;
+    return add_value(presentation, label, status_top + 74);
 }
 
 // bar: Prepared logical chart or allowance bar.
@@ -651,8 +688,12 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     for (uint8_t index = 0; index < presentation.bar_count; ++index) {
         draw_bar(presentation.bars[index], strip, first_row, first_column);
     }
-    for (uint8_t index = 0; error == ESP_OK && index < presentation.badge_count; ++index) {
-        error = CODY2D::draw_capsule_rows(presentation.badges[index], strip, first_row, first_column);
+    if (presentation.plan_icon != CODY2D::ActionIcon::None) {
+        error = CODY2D::draw_action_icon_rows(presentation.plan_icon, kPlanIconBounds,
+            presentation.plan_icon_color, strip, first_row, first_column);
+    }
+    if (error == ESP_OK && presentation.account_status_dot.bounds.width != 0) {
+        error = CODY2D::draw_capsule_rows(presentation.account_status_dot, strip, first_row, first_column);
     }
     for (uint8_t index = 0; error == ESP_OK && index < presentation.caption_count; ++index) {
         const auto &caption = presentation.captions[index];
@@ -826,7 +867,8 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     presentation.about_page = false;
     presentation.caption_count = 0;
     presentation.bar_count = 0;
-    presentation.badge_count = 0;
+    presentation.account_status_dot = {};
+    presentation.plan_icon = CODY2D::ActionIcon::None;
     presentation.page = page;
     presentation.account_state = account_state;
     presentation.weekly_state = weekly_state;
@@ -908,7 +950,8 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
     presentation.about_page = false;
     presentation.caption_count = 0;
     presentation.bar_count = 0;
-    presentation.badge_count = 0;
+    presentation.account_status_dot = {};
+    presentation.plan_icon = CODY2D::ActionIcon::None;
     presentation.title_font = &title_font;
     presentation.body_font = &body_font;
     presentation.account_state = remaining_state;
@@ -982,7 +1025,8 @@ esp_err_t prepare_about_dashboard(uint64_t uptime_seconds, uint64_t previous_upt
     presentation.about_page = true;
     presentation.caption_count = 0;
     presentation.bar_count = 0;
-    presentation.badge_count = 0;
+    presentation.account_status_dot = {};
+    presentation.plan_icon = CODY2D::ActionIcon::None;
     presentation.title_font = &title_font;
     presentation.body_font = &body_font;
     presentation.image_version = image_version;

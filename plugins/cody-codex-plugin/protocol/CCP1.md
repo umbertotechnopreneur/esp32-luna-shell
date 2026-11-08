@@ -206,6 +206,8 @@ voucher count and workspace message count are unsigned 32-bit integers.
 Finite credits are unsigned 64-bit milli-credits. The plan is a bounded
 lowercase ASCII token, up to 24 characters. When no account details are
 available, age is also `-`.
+Recognized App Server Business and Enterprise plan types that exceed the field
+bound are sent as their bounded plan family.
 
 The graph fields use a nonzero opaque random `series` and its most recent
 completed UTC `quarter`, or `-` for all three fields when no series record is

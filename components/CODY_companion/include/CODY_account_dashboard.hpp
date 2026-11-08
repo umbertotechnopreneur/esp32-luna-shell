@@ -33,7 +33,7 @@ struct AccountDashboardPresentation {
 
     std::array<Caption, 20> captions{};
     std::array<Bar, 12> bars{};
-    std::array<CODY2D::CapsuleControl, 2> badges{};
+    CODY2D::CapsuleControl account_status_dot{};
     const CODY2D::MonoFont *title_font = nullptr;
     const CODY2D::MonoFont *body_font = nullptr;
     int64_t account_at_us = 0;
@@ -47,13 +47,14 @@ struct AccountDashboardPresentation {
     uint64_t uptime_seconds = 0;
     uint64_t previous_uptime_seconds = 0;
     uint32_t revision = 0;
+    CODY2D::ActionIcon plan_icon = CODY2D::ActionIcon::None;
+    uint16_t plan_icon_color = 0;
     AccountDashboardPage page = AccountDashboardPage::QuotaWindows;
     SourceState account_state = SourceState::Unavailable;
     SourceState weekly_state = SourceState::Unavailable;
     SourceState short_state = SourceState::Unavailable;
     uint8_t caption_count = 0;
     uint8_t bar_count = 0;
-    uint8_t badge_count = 0;
     bool context_page = false;
     bool about_page = false;
     bool previous_uptime_valid = false;

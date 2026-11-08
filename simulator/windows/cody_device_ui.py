@@ -123,7 +123,6 @@ UNAVAILABLE_ROWS = {
     "Today": ("Total tokens", "Current and best streak"),
     "Last 7 days": ("Daily tokens",),
     "Credits": ("Credit balance", "Reset vouchers"),
-    "Codex account": ("Plan", "ChatGPT account", "Workspace messages"),
 }
 LEFT = (40, CENTER)
 RIGHT = (SIZE - 40, CENTER)
@@ -715,6 +714,8 @@ class DeviceStudioWindow:
         elif page == "Token history":
             label(draw, "No measured intervals", 201, 20, MUTED)
             self.button(draw, HISTORY_WINDOWS[self.history_window], 299, self.change_interval)
+        elif page == "Codex account":
+            label(draw, "Account data unavailable", 211, 20, MUTED)
         else:
             for index, name in enumerate(UNAVAILABLE_ROWS[page]):
                 y = 159 + index * 57
