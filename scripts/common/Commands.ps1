@@ -33,6 +33,7 @@ function Get-DeviceActionParameters {
         menu = $idf + $serial + @('Jobs','PythonExecutable','Rotation')
         help = @(); list = @(); 'clean-artifacts' = @('BuildDir')
         preflight = @('IdfPath','ToolsPath','PythonExe')
+        relay = @('RelayRoot','RelayOperation','RelayConfig','RelayRevision','BuildMode','Jobs','WaitSeconds')
         simulator = $preview + @('OutputPath','Ccp','ActivityPreview')
         'boot-screens' = @('Rotation','AtMs','SafeGuide','PythonExecutable')
         'simulator-luna' = @('PythonExecutable','ToolArguments')
@@ -61,7 +62,7 @@ function Get-DeviceActionParameters {
 function Assert-DeviceActionParameters($RequestedAction, $BoundParameters, $Contract) {
     $common = @('Action','Verbose','Debug','ErrorAction','WarningAction','InformationAction',
         'ProgressAction','ErrorVariable','WarningVariable','InformationVariable','OutVariable','OutBuffer','PipelineVariable')
-    if ($RequestedAction -notin @('menu','help','list')) { $common += 'LogPath' }
+    if ($RequestedAction -notin @('menu','help','list','relay')) { $common += 'LogPath' }
     foreach ($key in $BoundParameters.Keys) {
         if ($key -notin ($common + $Contract[$RequestedAction])) {
             throw "-$key is not valid for '$RequestedAction'. Use device.ps1 help."
@@ -155,6 +156,13 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
         return
     }
     switch ($RequestedAction) {
+        'relay' {
+            $relayOptions = @{}
+            foreach ($key in (Get-DeviceActionParameters).relay) {
+                if ($Options.ContainsKey($key)) { $relayOptions[$key] = $Options[$key] }
+            }
+            & (Join-Path $ProjectRoot 'scripts/commands/relay.ps1') @relayOptions
+        }
         'endurance-read' {
             . (Join-Path $ProjectRoot 'scripts/common/StoredLogs.ps1')
             . (Join-Path $ProjectRoot 'scripts/common/EnduranceReadback.ps1')

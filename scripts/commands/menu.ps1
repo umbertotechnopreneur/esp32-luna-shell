@@ -160,6 +160,7 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
             '8' = @{ Emoji = '🌙'; Label = 'Luna reference simulator'; Description = 'Existing reference UI'; Value = 'simulator-luna' }
             '9' = @{ Emoji = '📖'; Label = 'Command help'; Description = 'Categorized CLI guide, examples and tool descriptions'; Value = 'help' }
             'm' = @{ Emoji = '🧰'; Label = 'Maintenance'; Description = 'Package the Luna EXE or preview source banners'; Value = 'maintenance' }
+            'r' = @{ Emoji = '☁️'; Label = 'Private relay'; Description = 'Build, publish and operate the private cloud relay'; Value = 'relay' }
         }
         $menuStage = 'selecting an operation'
         try {
@@ -174,6 +175,22 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
             }
             $menuStage = "preparing $selected"
             $extra = @{}
+            if ($selected -eq 'relay') {
+                $relayChoices = [ordered]@{}
+                $index = 0
+                foreach ($operation in @('configure','status','build','provision','publish','deploy','expose','close','recover','check')) {
+                    $index++
+                    $relayChoices[[string]$index] = @{ Emoji = '☁️'; Label = $operation; Description = 'Explicit private relay operation'; Value = $operation }
+                }
+                $operation = Select-DeviceMenuItem 'PRIVATE RELAY' $relayChoices
+                if (-not $operation) { continue }
+                $extra.RelayOperation = $operation
+                $extra.BuildMode = 'Release'
+                $extra.RelayConfig = Read-Host 'Private deployment JSON path'
+                $root = Read-Host 'Private checkout path (Enter for sibling cody-cloud)'
+                if ($root) { $extra.RelayRoot = $root }
+                if ($operation -eq 'recover') { $extra.RelayRevision = Read-Host 'Exact existing revision name' }
+            }
             if ($selected -eq 'maintenance') {
                 $maintenance = [ordered]@{
                     '1' = @{ Emoji = '📦'; Label = 'Package Luna simulator'; Description = 'Prepare Python dependencies and build the reference EXE'; Value = 'package-simulator' }

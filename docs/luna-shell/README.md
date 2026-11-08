@@ -44,3 +44,7 @@ The current round-screen coordinates belong to the
 Source ownership is in the [application README](../../cody-device/components/LUNASHELL_app/README.md).
 Use the [console](../../scripts/README.md) for operations and the root
 [work records](../README.md#current-work) for current gates and evidence.
+
+The remote relay probe belongs to the Cody Companion profile. See
+[Cody remote integration](../cody/remote-integration.md) for the shared hardware
+boundary and the separate local and remote paths.

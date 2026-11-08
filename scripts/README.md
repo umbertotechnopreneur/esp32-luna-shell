@@ -217,6 +217,47 @@ for another artifact destination and `-WaitSeconds` for the response deadline.
 The firmware must include the explicit reader; see
 [battery runtime recording](../docs/bsp/services/power-management.md#battery-only-runtime-recording).
 
+## Private relay through Aspire and azd
+
+The `relay` command delegates to the separate private `cody-cloud` checkout.
+Its `azure.yaml` selects the Aspire AppHost. Aspire owns Azure resource
+definitions, and azd performs packaging, provisioning and image publication.
+Select **Private relay** in the menu or use the same public CLI.
+
+```powershell
+./scripts/device.ps1 relay -RelayOperation status -RelayConfig '<private deployment JSON>'
+./scripts/device.ps1 relay -RelayOperation configure -RelayConfig '<private deployment JSON>'
+./scripts/device.ps1 relay -RelayOperation build -RelayConfig '<private deployment JSON>' -BuildMode Release -Jobs 8
+./scripts/device.ps1 relay -RelayOperation deploy -RelayConfig '<private deployment JSON>' -BuildMode Release -Jobs 8
+./scripts/device.ps1 relay -RelayOperation expose -RelayConfig '<private deployment JSON>'
+./scripts/device.ps1 relay -RelayOperation check -RelayConfig '<private deployment JSON>'
+```
+
+Use `-RelayRoot` if the private checkout is not a sibling directory. The private
+example config supplies the target fields. `configure` prepares the local azd
+environment. `build` packages current source through azd. `provision` and
+`publish` expose those individual azd stages. `deploy` provisions the Aspire
+model and calls `azd deploy` to package, publish and deploy current source.
+Build operations use Release through the standard Windows .NET, Aspire and azd tools.
+
+Every Azure transition runs on one configured deployment host under a named
+mutex. The command closes ingress, deactivates old revisions and waits until
+their replica lists are empty before starting a replacement. azd lifecycle
+hooks enforce this precondition. Provisioning may start an infrastructure
+revision, which is stopped before application deployment. Successful deploys
+leave ingress closed. `expose` selects the healthy revision and enables the
+approved HTTPS hostname. `close` disables ingress. An explicit
+`recover -RelayRevision <existing-name>` stops current writers before activating
+the selected revision and keeps external ingress closed.
+
+The relay command writes console output without a persistent operation log in
+this public repository. Tool failures retain their nonzero status. Generated
+build files use a private per-operation directory and are removed at exit.
+New external build inputs require the existing targeted first-import scan
+before use. The release workflow and actual Azure runtime and SMB behavior still need
+acceptance. An HTTP check requires separate authorization and reports its
+execution host. [Remote integration](../docs/cody/remote-integration.md)
+
 ## PDF authoring
 
 The documentation index links published PDF artifacts; authoring operations

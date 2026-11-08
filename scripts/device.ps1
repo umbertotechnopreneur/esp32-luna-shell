@@ -25,7 +25,7 @@ Use 'help' or 'list' to discover the CLI. Runtime output belongs in artifacts/.
 param(
     [Parameter(Position = 0)]
     [ValidateSet('menu','help','list','simulator','simulator-luna','boot-screens',
-        'check','generate','banner','package-simulator','clean-artifacts','codex-audio','preflight',
+        'check','generate','banner','package-simulator','clean-artifacts','codex-audio','preflight','relay',
         'build','clean','fullclean','flash','reset','monitor','capture','sd-log','endurance-read','erase',
         'reconfigure','set-target','update-lock','size','combo','ports','discovery','port-status','recover')]
     [string]$Action = 'menu',
@@ -43,6 +43,11 @@ param(
     [switch]$ActivityCapture,
     [string]$BoardConfig,
     [string]$RelayHost,
+    [string]$RelayRoot,
+    [ValidateSet('configure','status','build','provision','publish','deploy','expose','close','recover','check')]
+    [string]$RelayOperation = 'status',
+    [string]$RelayConfig,
+    [string]$RelayRevision,
     [ValidateRange(1,86400)][int]$WaitSeconds = 30,
     [ValidateRange(1,86400)][int]$DurationSeconds = 30,
     [string]$OutputPath,
@@ -106,6 +111,12 @@ try {
         $failureStage = 'running interactive menu'
         . (Join-Path $PSScriptRoot 'commands/menu.ps1')
         Show-DeviceMenu -InitialSettings $PSBoundParameters
+    } elseif ($Action -eq 'relay') {
+        # Private hosting output stays outside the public repository's persistent logger.
+        $failureStage = 'running private relay operation'
+        $relayOptions = @{}
+        foreach ($key in $PSBoundParameters.Keys) { $relayOptions[$key] = $PSBoundParameters[$key] }
+        Invoke-DeviceCommand -RequestedAction 'relay' -Options $relayOptions
     } else {
         # Resolve every public output before cleanup, toolchain initialization or device I/O.
         $failureStage = 'resolving output paths'
@@ -221,8 +232,8 @@ try {
     }
 } catch {
     $operationFailure = $_
-    $loggingUnavailable = ''
-    if ($null -eq $operationLock -and $failureStage -ne 'acquiring artifact operation lock') {
+    $loggingUnavailable = if ($Action -eq 'relay') { 'Private relay diagnostics remain in the console.' } else { '' }
+    if ($Action -ne 'relay' -and $null -eq $operationLock -and $failureStage -ne 'acquiring artifact operation lock') {
         try {
             # Preflight can fail before the command logger. Acquire ownership solely for diagnostics.
             $operationLock = Open-DeviceArtifactLock
