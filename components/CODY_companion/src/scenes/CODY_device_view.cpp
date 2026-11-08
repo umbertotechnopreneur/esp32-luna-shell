@@ -225,7 +225,7 @@ esp_err_t draw_device_chrome(const DeviceChrome &chrome, CODY2D::Surface strip,
     if (chrome.connection.valid) {
         error = CODY2D::draw_text_rows(chrome.connection, chrome.connection.text.length, strip, first_row, first_column);
     }
-    if (error == ESP_OK && chrome.battery.enabled) {
+    if (error == ESP_OK && chrome.battery_sequence != 0) {
         error = CODY2D::draw_capsule_rows(chrome.battery, strip, first_row, first_column);
     }
     return error;
