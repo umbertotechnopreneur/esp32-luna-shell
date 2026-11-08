@@ -81,8 +81,12 @@ constexpr CODY2D::Rect kSingleActionBounds{113, 352, 240, 72};
 constexpr CODY2D::Rect kLeftCardBounds{73, 260, 154, 104};
 constexpr CODY2D::Rect kRightCardBounds{239, 260, 154, 104};
 constexpr CODY2D::Rect kOptionsBounds{153, 376, 160, 52};
-constexpr CODY2D::Rect kSetupCodexBounds{93, 230, 280, 56};
-constexpr CODY2D::Rect kSetupWifiBounds{93, 298, 280, 56};
+constexpr CODY2D::Rect kSetupCodexBounds = kDeviceFirstSetup
+    ? CODY2D::Rect{78, 170, 140, 168} : CODY2D::Rect{93, 230, 280, 56};
+constexpr CODY2D::Rect kSetupWifiBounds = kDeviceFirstSetup
+    ? CODY2D::Rect{248, 170, 140, 168} : CODY2D::Rect{93, 298, 280, 56};
+constexpr uint16_t kConnectionIconSize = 54;
+constexpr int16_t kConnectionIconY = 219;
 constexpr CODY2D::Rect kSetupOptionsBounds{153, 382, 160, 52};
 constexpr uint16_t kPairingBackground = 0x0842;
 constexpr uint16_t kPairingAccent = 0x953F;
@@ -252,6 +256,7 @@ struct ContentView {
     CODY2D::CapsuleControl action{};
     bool action_visible = false;
     bool actions_visible = false;
+    uint16_t action_icon_size = 0; // A nonzero size draws the two action glyphs on the page background.
     uint16_t action_visible_characters = 0;
     OnboardingAction action_id = OnboardingAction::None;
     CODY2D::CapsuleControl alternative{};
@@ -307,6 +312,7 @@ LUNASHELL::CodexCompactionState s_presented_compaction = LUNASHELL::CodexCompact
 bool s_presented_compaction_feedback = false;
 Route s_route = Route::None;
 bool s_options_from_setup = false;
+bool s_connections_from_options = false;
 WidgetOpenRequest s_widget_open_request = WidgetOpenRequest::None;
 OptionsPage s_options_page = OptionsPage::Menu;
 esp_err_t s_preference_error = ESP_OK;
@@ -1241,6 +1247,52 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
     return error;
 }
 
+// action: Codex pairing or Wi-Fi setup identity.
+// label: Action caption, split at its final space.
+// enabled: True when the corresponding connection action is available.
+// control: Receives the glyph, first caption line and full touch rectangle.
+// second: Receives the second centered caption line.
+// Exception: Returns the original caption error or rejects an unknown action.
+esp_err_t prepare_connection_action(OnboardingAction action, const char *label, bool enabled,
+    CODY2D::CapsuleControl &control, CODY2D::TextLine &second)
+{
+    const bool codex = action == OnboardingAction::ConnectCodex;
+    if (!codex && action != OnboardingAction::NetworkSetup) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const char *separator = std::strrchr(label, ' ');
+    if (separator == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const auto bounds = codex ? kSetupCodexBounds : kSetupWifiBounds;
+    const auto center_x = static_cast<int16_t>(bounds.x + bounds.width / 2);
+    control = {};
+    control.bounds = bounds;
+    control.enabled = enabled;
+    control.icon = codex ? CODY2D::ActionIcon::Link : CODY2D::ActionIcon::Wifi;
+    control.icon_color = enabled ? (codex ? 0xBD9F : 0x7759) : kPairingCaption;
+    control.icon_center = {center_x, kConnectionIconY};
+
+    const auto &font = SceneData::body_font;
+    const uint16_t color = enabled ? kPairingTitle : kPairingCaption;
+    const auto prepare_line = [&](CODY2D::TextSpan text, int16_t top, CODY2D::TextLine &line) {
+        uint32_t width = 0;
+        const auto error = CODY2D::measure_text_width(font, text, width);
+        if (error != ESP_OK) {
+            return error;
+        }
+        if (width == 0 || width > bounds.width) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        return CODY2D::prepare_text_line(font, text,
+            {static_cast<int16_t>(center_x - static_cast<int16_t>(width / 2)), top}, color, line);
+    };
+    const auto error = prepare_line({label, static_cast<uint16_t>(separator - label)}, 264, control.caption);
+    return error == ESP_OK
+        ? prepare_line({separator + 1, static_cast<uint16_t>(std::strlen(separator + 1))}, 296, second)
+        : error;
+}
+
 // action: Semantic pairing command or Options home navigation.
 // label: Prepared single-line English caption.
 // bounds: Capsule rectangle used for both drawing and touch.
@@ -1307,6 +1359,9 @@ esp_err_t prepare_action(OnboardingAction action, bool enabled)
         }
     }
     if (s_route == Route::SetupMenu) {
+        if (kDeviceFirstSetup) {
+            return prepare_connection_action(action, label, enabled, s_view.action, s_view.action_second_line);
+        }
         return prepare_button(action, label, kSetupWifiBounds, enabled, false,
             s_view.action, s_view.action_second_line, CODY2D::ActionIcon::Wifi);
     }
@@ -1342,6 +1397,9 @@ esp_err_t prepare_alternative(OnboardingAction action, bool enabled)
             s_view.alternative, s_view.alternative_second_line);
     }
     if (s_route == Route::SetupMenu) {
+        if (kDeviceFirstSetup) {
+            return prepare_connection_action(action, label, enabled, s_view.alternative, s_view.alternative_second_line);
+        }
         return prepare_button(action, label, kSetupCodexBounds, enabled, false,
             s_view.alternative, s_view.alternative_second_line, CODY2D::ActionIcon::Link);
     }
@@ -1407,6 +1465,26 @@ esp_err_t draw_about_project_rows(const void *state, CODY2D::Surface strip,
 }
 #endif
 
+// control: Prepared action geometry and glyph.
+// icon_size: Standalone glyph size, or zero for a capsule.
+// strip: Caller-owned content tile and logical row and column origin.
+esp_err_t draw_action_visual(const CODY2D::CapsuleControl &control, uint16_t icon_size,
+    CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+{
+    if (icon_size != 0) {
+        const CODY2D::Rect icon_bounds{
+            static_cast<uint16_t>(control.icon_center.x - icon_size / 2),
+            static_cast<uint16_t>(control.icon_center.y - icon_size / 2),
+            icon_size, icon_size,
+        };
+        return CODY2D::draw_action_icon_rows(control.icon, icon_bounds, control.icon_color,
+            strip, first_row, first_column);
+    }
+    auto capsule = control;
+    capsule.caption = {};
+    return CODY2D::draw_capsule_rows(capsule, strip, first_row, first_column);
+}
+
 // state: Immutable content owned by this route through frame retirement.
 // strip: Valid content-clipped tile with its original stride and byte order.
 // first_row: Logical tile y origin.
@@ -1439,9 +1517,7 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
     }
     if (error == ESP_OK && view.actions_visible && view.action_visible && view.action.caption.valid) {
         // Reveal the complete action atomically after the main line finishes.
-        CODY2D::CapsuleControl capsule = view.action;
-        capsule.caption = {};
-        error = CODY2D::draw_capsule_rows(capsule, strip, first_row, first_column);
+        error = draw_action_visual(view.action, view.action_icon_size, strip, first_row, first_column);
         if (error == ESP_OK) {
             error = CODY2D::draw_text_rows(view.action.caption, view.action_visible_characters,
                 strip, first_row, first_column);
@@ -1452,9 +1528,7 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
         }
     }
     if (error == ESP_OK && view.actions_visible && view.alternative_id != OnboardingAction::None) {
-        CODY2D::CapsuleControl capsule = view.alternative;
-        capsule.caption = {};
-        error = CODY2D::draw_capsule_rows(capsule, strip, first_row, first_column);
+        error = draw_action_visual(view.alternative, view.action_icon_size, strip, first_row, first_column);
         if (error == ESP_OK) {
             error = CODY2D::draw_text_rows(view.alternative.caption, view.alternative_visible_characters,
                 strip, first_row, first_column);
@@ -1587,9 +1661,13 @@ esp_err_t attach_content(SceneFrame &scene)
         content.bounds = {kSetupCodexBounds.x, kSetupCodexBounds.y,
             static_cast<uint16_t>(kSetupWifiBounds.x + kSetupWifiBounds.width),
             static_cast<uint16_t>(kSetupWifiBounds.y + kSetupWifiBounds.height)};
-        content.bottom_action_bounds = {kSetupOptionsBounds.x, kSetupOptionsBounds.y,
-            static_cast<uint16_t>(kSetupOptionsBounds.x + kSetupOptionsBounds.width),
-            static_cast<uint16_t>(kSetupOptionsBounds.y + kSetupOptionsBounds.height)};
+        if (kDeviceFirstSetup) {
+            content.bottom_action_visible = false;
+        } else {
+            content.bottom_action_bounds = {kSetupOptionsBounds.x, kSetupOptionsBounds.y,
+                static_cast<uint16_t>(kSetupOptionsBounds.x + kSetupOptionsBounds.width),
+                static_cast<uint16_t>(kSetupOptionsBounds.y + kSetupOptionsBounds.height)};
+        }
     } else if (s_route == Route::CodexReplace) {
         content.bottom_action_bounds = {153, 376, 313, 428};
     } else if (s_route == Route::CodexForget) {
@@ -2491,6 +2569,15 @@ SceneDefinition with_pairing_theme(SceneDefinition base, uint16_t title_top)
 const SceneDefinition &device_scene_definition(Route route, const SceneDefinition &base)
 {
     switch (route) {
+    case Route::SetupMenu: {
+        static const auto definition = [&base] {
+            auto connections = with_pairing_theme(base, kOptionsTitleTop);
+            connections.title = {"Connections", 11};
+            connections.title_visible = true;
+            return connections;
+        }();
+        return definition;
+    }
     case Route::Hello04: {
         static const auto definition = with_pairing_theme(base, 180);
         return definition;
@@ -2631,10 +2718,16 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     ++s_text_generation;
     if (route == Route::MakeItYours10) {
         s_options_page = OptionsPage::Menu;
+        s_connections_from_options = false;
     }
     s_route = route;
     if (route == Route::SetupMenu) {
-        s_options_from_setup = false;
+        if (kDeviceFirstSetup) {
+            s_view.action_icon_size = kConnectionIconSize;
+        }
+        if (!s_connections_from_options) {
+            s_options_from_setup = false;
+        }
     }
     if (route == Route::Hello04 && !kDeviceFirstSetup) {
         s_hello_completed_at_us = -1;
@@ -2797,7 +2890,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
             error = prepare_alternative(alternative,
                 alternative != OnboardingAction::ConnectCodex || kCodexIntegrationEnabled);
         }
-        if (error == ESP_OK && route == Route::SetupMenu) {
+        if (error == ESP_OK && route == Route::SetupMenu && !kDeviceFirstSetup) {
             CODY2D::TextLine unused;
             s_view.options_id = OnboardingAction::Options;
             error = prepare_button(OnboardingAction::Options, "Options", kSetupOptionsBounds,
@@ -4140,6 +4233,7 @@ void reset_onboarding()
     set_companion_audio_visible(false);
     reset_event_presentation();
     s_options_from_setup = false;
+    s_connections_from_options = false;
     s_widget_open_request = WidgetOpenRequest::None;
     s_options_page = OptionsPage::Menu;
     s_preference_error = ESP_OK;
@@ -4361,6 +4455,7 @@ esp_err_t open_setup_menu(SceneFrame &scene)
     }
     // The backend keeps its retained association; opening this view starts no radio work.
     s_setup_return = s_route;
+    s_connections_from_options = false;
     s_startup_pending = false;
     s_startup_pair_missing = false;
     set_companion_audio_visible(false);
@@ -5278,6 +5373,9 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return enter_route(s_pairing_guide_return, scene);
     }
     if (back_hit && s_route == Route::SetupMenu) {
+        if (s_connections_from_options) {
+            return enter_route(Route::MakeItYours10, scene);
+        }
         if (kDeviceFirstSetup && (s_setup_return == Route::Hello04 || s_setup_return == Route::Invitation05)) {
             return enter_route(s_setup_return, scene);
         }
@@ -5710,9 +5808,14 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
             s_route == Route::NetworkWait || s_route == Route::CodexReplace || s_route == Route::CodexForget ||
             (kDeviceFirstSetup && s_route == Route::Invitation05);
         if (choice_route && s_view.actions_visible) {
-            const bool primary_hit = s_view.action_visible && CODY2D::capsule_contains(s_view.action, point);
+            const auto action_hit = [&](const CODY2D::CapsuleControl &control) {
+                return s_view.action_icon_size != 0
+                    ? control.enabled && point_in_rect(control.bounds, point)
+                    : CODY2D::capsule_contains(control, point);
+            };
+            const bool primary_hit = s_view.action_visible && action_hit(s_view.action);
             const bool alternative_hit = s_view.alternative_id != OnboardingAction::None &&
-                CODY2D::capsule_contains(s_view.alternative, point);
+                action_hit(s_view.alternative);
             const bool options_hit = s_view.options.caption.valid && CODY2D::capsule_contains(s_view.options, point);
             if (primary_hit || alternative_hit || options_hit) {
                 consumed = true;
@@ -5728,7 +5831,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                     action = s_view.alternative_id;
                     slot = "alternative";
                 }
-                ESP_LOGI(kTag, "Setup capsule pressed: x=%d y=%d slot=%s", point.x, point.y,
+                ESP_LOGI(kTag, "Setup action pressed: x=%d y=%d slot=%s", point.x, point.y,
                     slot);
                 return control->enabled ? activate_setup_choice(scene, action) : ESP_OK;
             }
@@ -5816,6 +5919,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                 }
                 switch (row.action) {
                 case OnboardingAction::Connections:
+                    s_connections_from_options = kDeviceFirstSetup;
                     return enter_route(Route::SetupMenu, scene);
                 case OnboardingAction::DisplayOptions:
                     return show_options_page(scene, OptionsPage::Display);

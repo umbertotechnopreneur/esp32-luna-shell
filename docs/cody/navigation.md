@@ -24,11 +24,11 @@ On the **Wi-Fi offline** recovery screen, **Later** opens **Not connected**.
 The saved network can still reconnect in the background. **Set up Wi-Fi** opens
 **Wi-Fi setup** directly.
 
-In Options, Connections opens the vertical Connect Codex and Set up Wi-Fi
-entries. Back preserves an already valid discovery or connection. Wi-Fi and
-authenticated Codex presence are separate. Device shows Wi-Fi status, measured
-battery and the title of the currently followed chat when fresh. Statistics
-show a compact Codex status at the top. PC linked
+In Options, Connections opens two side-by-side icons, Connect Codex and Set up
+Wi-Fi. The lateral Back chevron returns to Options and preserves an already
+valid discovery or connection. Wi-Fi and authenticated Codex presence are
+separate. Device shows Wi-Fi status, measured battery and the current chat
+title when fresh. Statistics show a compact Codex status at the top. PC linked
 means the device authenticated the bridge and is waiting for app presence.
 
 ## Manage the retained PC

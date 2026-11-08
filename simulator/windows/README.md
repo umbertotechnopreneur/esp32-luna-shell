@@ -123,11 +123,12 @@ preserves both directories. A second endpoint cannot take the same
 port; a read error remains an error instead of inventing a new device.
 The code appears only in the UI, never in logs or the public snapshot.
 
-The device-facing **Connections** screen supports replacing a retained link,
-cancelling the current code or candidate, forgetting simulator associations
-after confirmation, and switching simulated Wi-Fi off and back on. Context
-uses fresh authenticated activity. Chat selection follows the actual Codex
-prompt.
+The device-facing **Connections** screen offers **Connect Codex** and **Set up
+Wi-Fi** as two side-by-side icons. The Codex flow supports replacing a retained
+link and cancelling the current code or candidate. Use the host **Simulated link**
+menu to toggle simulated Wi-Fi or forget simulator associations after
+confirmation. Context uses fresh authenticated activity. Chat selection follows
+the actual Codex prompt.
 
 CCP can explicitly request a restart or factory reset of this **SIMULATED** target,
 using the distinct phrases and code described in the
@@ -135,8 +136,8 @@ using the distinct phrases and code described in the
 A restart preserves the store. **Options > Factory reset** in Cody Studio also
 offers an explicit on-screen confirmation. A factory reset clears simulator
 settings and associations and leaves simulated Wi-Fi unconfigured.
-To resume, enable **Wi-Fi** in **Connections** and pair again. The old PC
-record remains separate.
+To resume, select **Toggle simulated Wi-Fi** from the host **Simulated link**
+menu and pair again. The old PC record remains separate.
 
 `-Ccp -ActivityPreview` opens the legacy artwork inspector and its **CCP** panel.
 The panel's explicitly synthetic activity, model prices, character and lower

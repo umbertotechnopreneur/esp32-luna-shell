@@ -21,19 +21,18 @@ The native style is subdued graphite with a light chevron.
 
 Actions use semantic colors and restrained gradients. Standard buttons center a
 text-only caption in the complete control. Device-first pairing adds outline
-glyphs to identify the Wi-Fi, QR and Bluetooth actions. On the Setup menu, Connect Codex and
-Set up Wi-Fi appear as two vertical rows with a link and Wi-Fi glyph on the left,
-respectively. The menu omits its heading and keeps Options below the two rows.
-Back retains its separate chevron. Complete controls appear after any title and
-main body line, with touch admitted at the same time. Captions have no typewriter
-timing or character audio.
+glyphs to identify the Wi-Fi, QR and Bluetooth actions. The Connections page
+uses the Options heading position and two standalone glyphs side by side.
+Connect Codex has a violet link and Set up Wi-Fi has a mint Wi-Fi symbol. Each
+label sits below its icon in the same touch area. The lateral chevron handles
+Back. Complete controls appear after any title and main body line, with touch
+admitted at the same time. Captions have no typewriter timing or character audio.
 
 | Control | Logical rectangle |
 | --- | --- |
 | Two cards | (73,260,154,104) and (239,260,154,104), 28-pixel corners |
 | Third action for PC management | (153,376,160,52) |
-| Setup menu rows | (93,230,280,56) and (93,298,280,56), 16-pixel corners |
-| Setup menu Options | (153,382,160,52) |
+| Connections actions | 54-pixel glyphs at (148,219) and (318,219), with 140 × 168 touch areas |
 | Options and category rows | Up to three at x=93, width 280, height 72, y=130/210/290 |
 | Options footer | (123,382,220,52), with an outline home glyph next to Go home |
 | Restart / factory reset confirmation | Cancel at (93,270,280,64), confirmation at (123,382,220,52) |

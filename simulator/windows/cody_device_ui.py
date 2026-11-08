@@ -37,6 +37,8 @@ SETUP_AMBER_FIELD = (54, 36, 14)
 CONTROL_PALETTE = ((16, 40, 58), (8, 24, 33), (41, 105, 123), (140, 226, 239))
 SECONDARY_CONTROL_PALETTE = ((25, 28, 41), (16, 20, 25), (74, 81, 99), (189, 190, 189))
 DESTRUCTIVE_CONTROL_PALETTE = ((41, 20, 33), (24, 16, 24), (123, 45, 90), (239, 170, 156))
+CODEX_CONNECTION_COLOR = (186, 178, 255)
+WIFI_CONNECTION_COLOR = (119, 233, 202)
 OPTIONS_TITLE_TOP = 82
 OPTIONS_ROW_TOP = 130
 OPTIONS_ROW_STEP = 80
@@ -240,6 +242,15 @@ def setup_icon(draw, icon, center, size, color):
             slash = ((x - half + stroke, y + half), (x + half - stroke, y - half))
             draw.line(slash, fill=SETUP_AMBER_FIELD, width=stroke * 3)
             draw.line(slash, fill=color, width=stroke)
+    elif icon == "link":
+        scale = size / 24
+        loop = ((-9, 4), (-5, 0), (-3, -1), (-1, 0), (0, 2), (-1, 4),
+                (-5, 8), (-7, 9), (-9, 8), (-10, 6), (-9, 4))
+        for direction in (-1, 1):
+            draw.line([(x + direction * dx * scale, y + direction * dy * scale) for dx, dy in loop],
+                      fill=color, width=stroke, joint="curve")
+        draw.line((x - 3 * scale, y + 3 * scale, x + 3 * scale, y - 3 * scale),
+                  fill=color, width=stroke)
     elif icon == "phone":
         side = half * 2 // 3
         draw.rounded_rectangle((x - side, y - half, x + side, y + half),
@@ -295,6 +306,7 @@ class DeviceStudioWindow:
         self.events = None
         self.source_error = ""
         self.route = WifiSetupRoute.OFFLINE
+        self.connections_return = "widgets"
         self.guide_return = WifiSetupRoute.NOT_CONNECTED
         self.pairing_return = WifiSetupRoute.PHONE_GUIDE
         self.pairing_attempted = False
@@ -342,8 +354,17 @@ class DeviceStudioWindow:
         ttk.Button(controls, text="BOOT / Options", command=self.options).pack(side="left", padx=4)
         ttk.Button(controls, text="PWR / Standby", command=self.toggle_standby).pack(side="left", padx=4)
         ttk.Button(controls, text="Simulate shake", command=self.shake).pack(side="left", padx=4)
-        self.status = ttk.Label(root, style="Status.TLabel")
-        self.status.pack(pady=(0, 12))
+        status_bar = ttk.Frame(root, style="Studio.TFrame")
+        status_bar.pack(pady=(0, 12))
+        self.status = ttk.Label(status_bar, style="Status.TLabel")
+        self.status.pack(side="left", padx=4)
+        if self.endpoint is not None:
+            link_controls = ttk.Menubutton(status_bar, text="Simulated link")
+            link_menu = tk.Menu(link_controls, tearoff=False)
+            link_menu.add_command(label="Toggle simulated Wi-Fi", command=lambda: self.manage_simulated_link("network"))
+            link_menu.add_command(label="Forget pairing...", command=lambda: self.manage_simulated_link("forget"))
+            link_controls.configure(menu=link_menu)
+            link_controls.pack(side="left", padx=4)
         root.minsize(SIZE + 48, SIZE + 104)
         self.canvas.bind("<ButtonPress-1>", self.press)
         self.canvas.bind("<B1-Motion>", self.drag)
@@ -386,6 +407,11 @@ class DeviceStudioWindow:
         self.route = route
         self.screensaver.active = False
         self.last_navigation = time.monotonic()
+
+    # self: Studio navigation owner preserving the menu that opened Connections.
+    def open_connections(self):
+        self.connections_return = self.route
+        self.open("connections")
 
     # self: Studio navigation owner.
     # previous: Actual caller when leaving the phone guide with Back.
@@ -486,7 +512,12 @@ class DeviceStudioWindow:
                 self.targets.clear()
                 self.acknowledged = ()
                 self.open("widgets")
-            elif self.route in ("visibility", "connections", "display", "behavior", "restart", "factory_reset", "timer"):
+            elif self.route == "connections":
+                if self.connections_return == "options":
+                    self.show_options_page(self.options_page)
+                else:
+                    self.open(self.connections_return)
+            elif self.route in ("visibility", "display", "behavior", "restart", "factory_reset", "timer"):
                 self.show_options_page(self.options_page)
             elif self.route == "quick_guide":
                 self.move_quick_guide(-1)
@@ -520,9 +551,23 @@ class DeviceStudioWindow:
         self.endpoint.act("cancel")
         self.pairing_attempted = False
 
-    def forget(self):
-        if messagebox.askyesno("Forget SIMULATED pairing", "Forget the saved link?", parent=self.root):
-            self.endpoint.act("forget", True)
+    # self: Preview host controlling only its isolated loopback endpoint.
+    # action: Host-only simulated network toggle or confirmed pairing removal.
+    def manage_simulated_link(self, action):
+        if self.endpoint is None:
+            return
+        try:
+            snapshot, code = self.observe()
+            if code or snapshot.pending_pairing:
+                return
+            if action == "network":
+                self.endpoint.act("network", not snapshot.network_ready)
+            elif action == "forget" and snapshot.retained_pairing and messagebox.askyesno(
+                "Forget SIMULATED pairing", "Forget the saved link?", parent=self.root
+            ):
+                self.endpoint.act("forget", True)
+        except (OSError, RuntimeError, ValueError) as error:
+            messagebox.showerror("SIMULATED Cody", str(error), parent=self.root)
 
     # self: Confirmed restart owner for this Studio window and its isolated loopback link.
     # Raises the original endpoint failure before restarting the preview.
@@ -562,6 +607,7 @@ class DeviceStudioWindow:
         self.settings_page = self.options_page = 0
         self.pairing_attempted = pending_pairing
         self.event_visible = self.standby = False
+        self.connections_return = "widgets"
         self.guide_return = WifiSetupRoute.NOT_CONNECTED
         self.pairing_return = WifiSetupRoute.PHONE_GUIDE
         self.touch = None
@@ -651,6 +697,21 @@ class DeviceStudioWindow:
         remaining = NAVIGATION_IDLE_SECONDS + NAVIGATION_FADE_SECONDS - (now - self.last_navigation)
         return max(0, min(1, remaining / NAVIGATION_FADE_SECONDS))
 
+    # self: Studio frame owner registering one complete icon-and-label touch target.
+    # draw: Logical canvas before rotation.
+    # x: Logical column center for the icon, caption and hit rectangle.
+    # lines: Two centered lines of the action caption.
+    # icon: Outline glyph above the caption.
+    # color: Accent color for the icon.
+    # action: Callback when the action is available.
+    def draw_connection_action(self, draw, x, lines, icon, color, action):
+        setup_icon(draw, icon, (x, 219), 54, color if action else MUTED)
+        caption_color = FOREGROUND if action else MUTED
+        label(draw, lines[0], 264, 26, caption_color, x=x, width=140)
+        label(draw, lines[1], 296, 26, caption_color, x=x, width=140)
+        if action is not None:
+            self.targets[" ".join(lines)] = ((x - 70, 170, x + 70, 338), action)
+
     # self: Studio preview owning CCP and the local pairing guide.
     # draw: Logical canvas before rotation.
     # snapshot: Current authenticated loopback projection, if available.
@@ -662,22 +723,12 @@ class DeviceStudioWindow:
             label(draw, "Share this SIMULATED code in Codex", 224, 15)
             self.button(draw, "Cancel", 301, self.cancel_pairing)
             return
-        label(draw, "Connections", 104, 34)
-        status = snapshot.state.value if self.endpoint else "Loopback is off"
-        label(draw, status, 155, 20, ACCENT)
-        if self.endpoint and not snapshot.network_ready:
-            label(draw, "SIMULATED Wi-Fi offline", 184, 16, MUTED)
-        self.button(draw, "Connect Codex", 213,
-                    (lambda: self.pair(snapshot)) if self.endpoint and snapshot.network_ready else None)
-        self.button(draw, "Wi-Fi", 263, None if self.endpoint is None else
-                    lambda: self.endpoint.act("network", not snapshot.network_ready))
-        if snapshot.retained_pairing:
-            self.button(draw, "Forget pairing", 313, self.forget)
-        else:
-            destination = "widgets" if self.endpoint and snapshot.network_ready else WifiSetupRoute.NOT_CONNECTED
-            self.button(draw, "Later", 313, lambda: self.open(destination))
-        self.button(draw, "Set up Wi-Fi", 370, lambda: self.open_phone_guide("connections"),
-                    width=190, height=38, icon="wifi")
+        label(draw, "Connections", OPTIONS_TITLE_TOP, 34)
+        connect = (lambda: self.pair(snapshot)) if self.endpoint and snapshot.network_ready else None
+        self.draw_connection_action(draw, 148, ("Connect", "Codex"), "link",
+                                    CODEX_CONNECTION_COLOR, connect)
+        self.draw_connection_action(draw, 318, ("Set up", "Wi-Fi"), "wifi",
+                                    WIFI_CONNECTION_COLOR, lambda: self.open_phone_guide("connections"))
         self.sidebar(draw, -1, self.back)
 
     # self: Studio preview owning the current Wi-Fi setup route and its touch targets.
@@ -742,7 +793,7 @@ class DeviceStudioWindow:
         label(draw, f"Options {self.options_page + 1}/{OPTIONS_PAGE_COUNT}", OPTIONS_TITLE_TOP, 34)
         if self.options_page == 0:
             rows = (
-                ("Connections", lambda: self.open("connections")),
+                ("Connections", self.open_connections),
                 ("Codex stats", self.open_statistics),
                 ("Timer", self.open_local_timer),
             )
@@ -1083,9 +1134,13 @@ class DeviceStudioWindow:
                 self.pairing_attempted = False
                 self.page = 0
                 self.open("widgets")
-            status = self.source_error or self.boot_error or snapshot.last_error or (
-                "Authenticated loopback" if self.endpoint else "Offline preview / use -Ccp to pair Codex"
-            )
+            status = self.source_error or self.boot_error or snapshot.last_error
+            if not status:
+                if self.endpoint:
+                    wifi_state = "on" if snapshot.network_ready else "off"
+                    status = f"Loopback Wi-Fi {wifi_state} / {snapshot.state.value}"
+                else:
+                    status = "Offline preview / use -Ccp to pair Codex"
             self.status.configure(text="SIMULATED / " + status)
             image = self.boot_image(now) if self.boot else None
             if image is None:
