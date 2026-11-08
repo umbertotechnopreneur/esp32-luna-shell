@@ -1,5 +1,6 @@
 #include "CODY_device_view.hpp"
 #include "CODY_home_dashboard.hpp"
+#include "CODY_voice_waveform.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -19,6 +20,11 @@ constexpr DamageRect kMessageBounds{73, 84, 393, 382};
 constexpr CODY2D::Rect kHeading{73, 88, 320, 58};
 constexpr CODY2D::Rect kStatus{73, 155, 320, 40};
 constexpr CODY2D::Rect kDetail{73, 202, 320, 28};
+constexpr CODY2D::Rect kVoiceHeading{73, 84, 320, 42};
+constexpr CODY2D::Rect kVoiceStatus{73, 127, 320, 25};
+constexpr CODY2D::Rect kVoiceDetail{73, 152, 320, 25};
+static_assert(kVoiceDetail.y + kVoiceDetail.height <= kVoiceRibbonDamageTop,
+    "Dictation captions must stay above the animation band");
 constexpr CODY2D::Rect kSingleAction{103, 269, 260, 50};
 constexpr CODY2D::Rect kFirstAction{103, 255, 260, 50};
 constexpr CODY2D::Rect kSecondAction{103, 322, 260, 50};
@@ -453,11 +459,11 @@ esp_err_t draw_device_chrome(const DeviceChrome &chrome, CODY2D::Surface strip,
 // first: Optional primary action.
 // second: Optional secondary action.
 // extra: Optional third status line.
-// action_layout: Dashboard uses the approved paired cards or one wide centered capsule.
+// layout: Dashboard uses the approved cards; Voice keeps captions above its animation.
 // Exception: Returns the original bounded text or preparation error.
 esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     const char *heading, const char *status, const char *detail, const char *first, const char *second,
-    const char *extra, DeviceMessageActions action_layout)
+    const char *extra, DeviceMessageLayout layout)
 {
     frame = {};
     view.overview.valid = false;
@@ -474,7 +480,7 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
             return ESP_ERR_INVALID_SIZE;
         }
     }
-    if (plain.valid && plain.text == text && plain.action_layout == action_layout) {
+    if (plain.valid && plain.text == text && plain.layout == layout) {
         attach_message(plain, frame);
         return ESP_OK;
     }
@@ -483,23 +489,27 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     }
     plain.valid = false;
     plain.text = text;
-    plain.action_layout = action_layout;
+    plain.layout = layout;
     plain.captions = {};
     plain.actions = {};
 
-    esp_err_t error = prepare_line(plain.text[0].data(), SceneData::title_font, kHeading, kWhite, plain.captions[0]);
+    const bool voice_layout = layout == DeviceMessageLayout::Voice;
+    esp_err_t error = prepare_line(plain.text[0].data(), SceneData::title_font,
+        voice_layout ? kVoiceHeading : kHeading, kWhite, plain.captions[0]);
     if (error == ESP_OK) {
-        error = prepare_line(plain.text[1].data(), SceneData::body_font, kStatus, kAccent, plain.captions[1]);
+        error = prepare_line(plain.text[1].data(), SceneData::body_font,
+            voice_layout ? kVoiceStatus : kStatus, kAccent, plain.captions[1]);
     }
     if (error == ESP_OK) {
-        error = prepare_line(plain.text[2].data(), SceneData::body_font, kDetail, kMuted, plain.captions[2]);
+        error = prepare_line(plain.text[2].data(), SceneData::body_font,
+            voice_layout ? kVoiceDetail : kDetail, kMuted, plain.captions[2]);
     }
     if (error == ESP_OK) {
-        const uint16_t top = action_layout == DeviceMessageActions::Dashboard ? 230 : 234;
+        const uint16_t top = layout == DeviceMessageLayout::Dashboard ? 230 : 234;
         error = prepare_line(plain.text[5].data(), SceneData::body_font, {73, top, 320, 27}, kWhite, plain.captions[3]);
     }
     const bool two_actions = plain.text[3][0] != '\0' && plain.text[4][0] != '\0';
-    const bool dashboard_actions = action_layout == DeviceMessageActions::Dashboard;
+    const bool dashboard_actions = layout == DeviceMessageLayout::Dashboard;
     const auto single_bounds = dashboard_actions ? kDashboardSingleAction : kSingleAction;
     const auto first_bounds = dashboard_actions ? kDashboardFirstAction : kFirstAction;
     const auto second_bounds = dashboard_actions ? kDashboardSecondAction : kSecondAction;
@@ -536,13 +546,13 @@ esp_err_t prepare_device_vouchers(DeviceView &view, DeviceFrameContent &frame, c
     if (!device_voucher_expiries_current(data)) {
         const char *status = data.vouchers.data_stale ? "Voucher data is stale" : "Expiry data unavailable";
         return prepare_device_message(view, frame, "Reset vouchers", status, "Live Codex data required",
-            "Done", nullptr, "", DeviceMessageActions::Dashboard);
+            "Done", nullptr, "", DeviceMessageLayout::Dashboard);
     }
     if (vouchers.expiry_count == 0) {
         const char *status = data.vouchers.available_valid && data.vouchers.available == 0
             ? "No reset vouchers" : "No expiry dates reported";
         return prepare_device_message(view, frame, "Reset vouchers", status, "", "Done", nullptr, "",
-            DeviceMessageActions::Dashboard);
+            DeviceMessageLayout::Dashboard);
     }
 
     const auto expiry = warning ? vouchers.warning_expiry : vouchers.selected_expiry;
@@ -581,7 +591,7 @@ esp_err_t prepare_device_vouchers(DeviceView &view, DeviceFrameContent &frame, c
     const bool paging = !warning && vouchers.expiry_count > 1;
     return prepare_device_message(view, frame, heading, status, detail,
         warning ? "Dismiss" : paging ? "Prev" : "Done", paging ? "Next" : nullptr, extra,
-        DeviceMessageActions::Dashboard);
+        DeviceMessageLayout::Dashboard);
 }
 
 // view: Presentation matching the last retired frame.
@@ -674,38 +684,47 @@ esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
     const LUNASHELL::VoiceInputObservation &voice)
 {
     using Phase = LUNASHELL::VoiceInputPhase;
-    constexpr char kHeadingText[] = "Dictation";
+    // status: Current voice phase caption.
+    // detail: Optional instruction or original error.
+    // first: Optional Send action.
+    // second: Optional Cancel action.
+    // Exception: Preserves the native layout error.
+    const auto prepare = [&](const char *status, const char *detail = "", const char *first = nullptr,
+                             const char *second = nullptr) {
+        return prepare_device_message(view, frame, "Dictation", status, detail, first, second, "",
+            DeviceMessageLayout::Voice);
+    };
     char detail[32]{};
     switch (voice.phase) {
     case Phase::Idle:
-        return prepare_device_message(view, frame, kHeadingText, "Recording unavailable");
+        return prepare("Recording unavailable");
     case Phase::Preparing:
-        return prepare_device_message(view, frame, kHeadingText, "Preparing", "Please wait", nullptr, "Cancel");
+        return prepare("Preparing", "Please wait", nullptr, "Cancel");
     case Phase::StartCountdown:
     case Phase::SendCountdown:
         std::snprintf(detail, sizeof(detail), "%s in %u s",
             voice.phase == Phase::StartCountdown ? "Recording starts" : "Sending",
             static_cast<unsigned>(voice.countdown_seconds));
-        return prepare_device_message(view, frame, kHeadingText, detail, "", nullptr, "Cancel");
+        return prepare(detail, "", nullptr, "Cancel");
     case Phase::Listening:
         // The capture owner checks for PCM on release. Its public observation
         // does not publish the private buffer size for every incoming block.
-        return prepare_device_message(view, frame, kHeadingText, "Listening", "Speak now", "Send", "Cancel");
+        return prepare("Listening", "Speak now", "Send", "Cancel");
     case Phase::Sending:
-        return prepare_device_message(view, frame, kHeadingText, "Sending audio");
+        return prepare("Sending audio");
     case Phase::Cancelling:
-        return prepare_device_message(view, frame, kHeadingText, "Cancelling");
+        return prepare("Cancelling");
     case Phase::Received:
-        return prepare_device_message(view, frame, kHeadingText, "On your PC", "Waiting for Codex");
+        return prepare("On your PC", "Waiting for Codex");
     case Phase::Delivered:
-        return prepare_device_message(view, frame, kHeadingText, "Sent to Codex");
+        return prepare("Sent to Codex");
     case Phase::Cancelled:
-        return prepare_device_message(view, frame, kHeadingText, "Discarded");
+        return prepare("Discarded");
     case Phase::Unconfirmed:
-        return prepare_device_message(view, frame, kHeadingText, "Delivery unconfirmed", "Check on your PC");
+        return prepare("Delivery unconfirmed", "Check on your PC");
     case Phase::Failed:
         std::snprintf(detail, sizeof(detail), "Error 0x%lx", static_cast<unsigned long>(voice.error));
-        return prepare_device_message(view, frame, kHeadingText, "Audio failed", detail);
+        return prepare("Audio failed", detail);
     }
     return ESP_ERR_INVALID_ARG;
 }

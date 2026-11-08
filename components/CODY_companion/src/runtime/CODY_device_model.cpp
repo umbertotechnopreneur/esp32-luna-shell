@@ -343,15 +343,18 @@ void update_device_uptime(DeviceDashboardData &data, int64_t now_us)
     }
 }
 
-// model: Gesture recognition and arrow timeout state, independent of the current view.
+// model: Receives the canonical projection and owns gesture and arrow timeout state.
 // now_us: Monotonic time shared by touch, gesture recognition and the frame owner.
-bool update_device_navigation(DeviceModel &model, int64_t now_us)
+DeviceNavigationUpdate update_device_navigation(DeviceModel &model, int64_t now_us)
 {
-    bool shaken = false;
-#if CONFIG_LUNASHELL_BUILD_ENABLE_IMU
+    DeviceNavigationUpdate update{};
+#if CONFIG_LUNASHELL_BUILD_ENABLE_IMU || CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     const auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    update.motion_error = snapshots.readMotionPowerObservation(model.motion);
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_IMU
     MotionSample sample{};
-    if (snapshots.readMotionPowerObservation(model.motion) == ESP_OK) {
+    if (update.motion_error == ESP_OK) {
         const auto &imu = model.motion.imu;
         if (imu.health == LUNASHELL::DeviceHealth::Ready && imu.data_valid && !imu.data_stale &&
             imu.last_error == ESP_OK && imu.gesture_acceleration_valid &&
@@ -362,11 +365,11 @@ bool update_device_navigation(DeviceModel &model, int64_t now_us)
             sample.acceleration_mps2[Axis::Z] = imu.gesture_acceleration_mps2[2];
         }
     }
-    shaken = observe_companion_shake(model.shake, sample, now_us, true);
-    if (shaken) model.navigation.interact(now_us);
+    update.shaken = observe_companion_shake(model.shake, sample, now_us, true);
+    if (update.shaken) model.navigation.interact(now_us);
 #endif
     model.navigation.update(now_us, kNavigationTimeoutUs);
-    return shaken;
+    return update;
 }
 
 } // namespace CODY

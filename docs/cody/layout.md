@@ -340,9 +340,12 @@ remain owned by the existing power policy.
 The native recording route uses centered captions and explicit Send and Cancel
 controls. Only a completely retired Preparing frame admits the owner's start
 countdown. The display uses the recorded phase and countdown supplied by the
-audio owner. Cancel is available during preparation and both countdowns. Send
-and Cancel are available while listening. The transport determines whether the
-recipient has confirmed the recording.
+audio owner. The colored ribbon animates through preparation, both countdowns,
+listening and sending. Each countdown tick starts a visible pulse. While
+listening, the ribbon responds to current microphone levels. Cancel is available
+during preparation and both countdowns. Send and Cancel are available while
+listening. The transport determines whether the recipient has confirmed the
+recording.
 
 ## Boot
 

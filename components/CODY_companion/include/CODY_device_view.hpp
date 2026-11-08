@@ -10,7 +10,7 @@
 
 namespace CODY {
 
-enum class DeviceMessageActions : uint8_t { Compact, Dashboard };
+enum class DeviceMessageLayout : uint8_t { Compact, Dashboard, Voice };
 
 // The display owner retains prepared text and controls until its frame retires.
 struct PlainView {
@@ -18,7 +18,7 @@ struct PlainView {
     std::array<CODY2D::TextLine, 4> captions{};
     std::array<CODY2D::CapsuleControl, 2> actions{};
     uint32_t revision = 0;
-    DeviceMessageActions action_layout = DeviceMessageActions::Compact;
+    DeviceMessageLayout layout = DeviceMessageLayout::Compact;
     bool valid = false;
 };
 
@@ -78,7 +78,7 @@ esp_err_t draw_device_chrome(const DeviceChrome &chrome, CODY2D::Surface strip,
 esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     const char *heading, const char *status, const char *detail = "",
     const char *first = nullptr, const char *second = nullptr, const char *extra = "",
-    DeviceMessageActions action_layout = DeviceMessageActions::Compact);
+    DeviceMessageLayout layout = DeviceMessageLayout::Compact);
 
 // view: Persistent captions and visible controls for live voucher details or a warning.
 // frame: Receives the bounded child page with its original date and exact UTC time.

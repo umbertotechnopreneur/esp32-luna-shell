@@ -793,20 +793,15 @@ Its real owner deadline and a fresh successful AFE Listening observation then
 admit PCM. No wake-word cache is prepended; physical timing still needs observation.
 
 Voice input has presentation priority while retaining the interrupted route and
-its real question deadlines. The character, geometry evaluation and normal scene
-animation are suspended behind a procedural ribbon with a 30-FPS scheduling
-target in a 384 x 58 logical-pixel band at (41,179), retaining its y208 center.
-Partial DMA refresh covers even rows [178,238), while artwork clips to [179,237).
-Four filled colored layers use fixed-point
-interpolation and native RGB565 alpha composition. A display-owned 784-byte knot
-buffer avoids per-frame allocation, video assets, SD access and runtime trigonometry.
-The visual gain follows valid, fresh microphone levels already published by the
-AFE owner; unavailable levels decay the artwork without inventing measurements.
-After the first full retirement, only the ribbon transfers at animation cadence;
-the identity and timer bands refresh at 5 Hz, and instructions remain static.
-Actual frame rate and energy cost require target measurements. One measured,
-fading/scrolling row cycles model, catalog cost band, thinking effort, branch,
-then project; unavailable fields disappear. No numeric price or bill is invented.
+its real question deadlines. The native device UI draws the four-color procedural
+ribbon in a 384 x 58 logical-pixel band at (41,179), centered at y208. Partial
+DMA refresh aligns the damage to even rows [178,238), while artwork clips to
+[179,237). Fixed-point interpolation and native RGB565 alpha composition reuse
+a display-owned 784-byte knot buffer. Each owner-published countdown tick pulses
+the ribbon independently of microphone gain. While listening, gain follows
+valid, fresh microphone levels. Unavailable samples decay the visual response.
+Between caption or control changes, animation refreshes only the ribbon band.
+Actual frame rate and energy cost require target measurements.
 The bottom timer shows elapsed and remaining seconds within the sixty-second
 budget, starting at `00s elapsed / 60s left`. Recording keeps all instructions
 visible: `Tap once to send`, `5s of silence to finish`, and

@@ -14,6 +14,7 @@
 #include "CODY_screensaver.hpp"
 #include "CODY_onboarding.hpp"
 #include "CODY_settings.hpp"
+#include "CODY_voice_waveform.hpp"
 #include "CODY_widget_visibility_view.hpp"
 #include "LUNASHELL_codex_debug.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
@@ -62,6 +63,7 @@ constexpr std::array<Target, CODY::kVisibilityRowsPerPage> kVisibilityTargets{
 
 struct FrameView {
     CODY::DeviceFrameContent presentation{};
+    int64_t voice_ribbon_at_us = 0;
     Layer layer = Layer::Blank;
     uint8_t navigation_opacity = 0;
     uint8_t connection_activity_phase = 0;
@@ -84,6 +86,7 @@ struct RetiredFrame {
     bool valid = false;
     CODY2D::Rect voucher_bounds{};
     bool voucher_paging = false;
+    int64_t voice_ribbon_at_us = 0;
 };
 
 struct DeviceUi {
@@ -102,6 +105,8 @@ struct DeviceUi {
     RetiredFrame retired{};
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     int64_t presented_voice_session = 0;
+    CODY::VoiceRibbonFrame voice_ribbon{};
+    uint16_t voice_ribbon_energy = 0;
 #endif
     int64_t last_active_us = 0;
     int64_t awake_us = 0;
@@ -171,12 +176,71 @@ bool voice_visible(int64_t now_us)
     default: return true;
     }
 }
+
+// ui: Display-owned artwork and the latest canonical motion and voice projections.
+// frame: Receives the ribbon timestamp used by the damage renderer.
+// motion_error: Result of this tick's snapshot read. Failed reads never supply microphone gain.
+void prepare_device_voice_ribbon(DeviceUi &ui, FrameView &frame, esp_err_t motion_error)
+{
+    const auto &input = ui.model.voice.input;
+    const bool countdown = input.phase == VoicePhase::StartCountdown || input.phase == VoicePhase::SendCountdown;
+    const bool listening = input.phase == VoicePhase::Listening;
+    if (!countdown && !listening && input.phase != VoicePhase::Preparing && input.phase != VoicePhase::Sending) {
+        ui.voice_ribbon_energy = 0;
+        return;
+    }
+
+    const int64_t now_us = esp_timer_get_time();
+    const auto &retired = ui.retired;
+    const int64_t previous_us = retired.valid && retired.layer == Layer::Voice ? retired.voice_ribbon_at_us : 0;
+    const int64_t elapsed_us = previous_us == 0 ? CODY::kVoiceRibbonFrameUs : now_us - previous_us;
+    if (elapsed_us < CODY::kVoiceRibbonFrameUs && retired.content_revision == frame.presentation.content.revision) {
+        frame.voice_ribbon_at_us = previous_us;
+        return;
+    }
+
+    if (listening) {
+        const auto &audio = ui.model.motion.audio;
+        const auto &microphone = audio.microphone;
+        const bool current = motion_error == ESP_OK && microphone.health == LUNASHELL::DeviceHealth::Ready &&
+            microphone.last_error == ESP_OK && microphone.data_valid && !microphone.data_stale &&
+            microphone.last_success_at_us >= input.capturing_started_at_us &&
+            now_us >= microphone.last_success_at_us && now_us - microphone.last_success_at_us <= 250000 &&
+            audio.channel_count > 0 && audio.channel_count <= 2;
+        uint32_t mean = 0;
+        if (current) {
+            for (uint8_t channel = 0; channel < audio.channel_count; ++channel) {
+                mean = std::max(mean, audio.channel_mean_level[channel]);
+            }
+        }
+        const int target = static_cast<int>(static_cast<uint64_t>(mean) * 255U / (uint64_t(mean) + 800U));
+        const int energy = ui.voice_ribbon_energy;
+        const int64_t response_us = target > energy ? 60000 : 220000;
+        // Smoothing changes artwork gain only. Unavailable input is never published as a sample.
+        const auto weight = static_cast<int>(std::clamp(elapsed_us, int64_t{0}, response_us) * 256 / response_us);
+        ui.voice_ribbon_energy = static_cast<uint16_t>(energy + (target - energy) * weight / 256);
+    } else {
+        ui.voice_ribbon_energy = 0;
+    }
+
+    uint8_t emphasis = 0;
+    constexpr int64_t kPulseUs = 240000;
+    if (countdown && input.countdown_seconds != 0 && input.changed_at_us > 0) {
+        const int64_t tick_age_us = now_us - input.changed_at_us;
+        if (tick_age_us >= 0 && tick_age_us < kPulseUs) {
+            emphasis = static_cast<uint8_t>((kPulseUs - tick_age_us) * 255 / kPulseUs);
+        }
+    }
+    CODY::prepare_voice_ribbon(now_us, static_cast<uint8_t>(ui.voice_ribbon_energy), ui.voice_ribbon, emphasis);
+    frame.voice_ribbon_at_us = now_us;
+}
 #endif
 
 // frame: Receives one visible surface and its native content.
 // now_us: Monotonic time for the reset and recording views.
+// motion_error: Result of the canonical motion/audio read in this update, if any.
 // Exception: Returns original native preparation failures.
-esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
+esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motion_error = ESP_ERR_NOT_SUPPORTED)
 {
     auto &ui = *s_ui;
     CODY::update_device_observations(ui.model.dashboard);
@@ -187,6 +251,8 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     voice = &ui.model.voice;
     voice_busy = voice_visible(now_us);
+#else
+    (void)motion_error;
 #endif
     // Read an admitted alarm's result before another effect can reuse the audio mailbox.
     auto &timer = ui.model.timer;
@@ -225,7 +291,9 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     if (voice_visible(now_us)) {
         frame.layer = Layer::Voice;
-        return CODY::prepare_device_voice(ui.view, frame.presentation, ui.model.voice.input);
+        const auto error = CODY::prepare_device_voice(ui.view, frame.presentation, ui.model.voice.input);
+        if (error == ESP_OK) prepare_device_voice_ribbon(ui, frame, motion_error);
+        return error;
     }
 #endif
     if (ui.diagnostics) {
@@ -331,8 +399,9 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const bool battery_changed = old.battery_sequence != chrome.battery_sequence;
     const bool connection_changed = old.connection_revision != chrome.connection_revision;
     const bool connection_activity_changed = old.connection_activity_phase != frame.connection_activity_phase;
+    const bool voice_ribbon_changed = old.voice_ribbon_at_us != frame.voice_ribbon_at_us;
     if (!full && !content_changed && !navigation_changed && !battery_changed && !connection_changed &&
-        !connection_activity_changed) return ESP_OK;
+        !connection_activity_changed && !voice_ribbon_changed) return ESP_OK;
 
     bool parked = false;
     esp_err_t error = LUNASHELL_display_frame_begin(kFrameBudgetMs, &parked);
@@ -360,6 +429,10 @@ esp_err_t render(const FrameView &frame, bool force = false)
         if (battery_changed) include_damage({105, 397, 361, 427});
         if (connection_changed) include_damage({105, 37, 361, 64});
         if (connection_activity_changed) include_damage(CODY::kConnectionActivityBounds);
+        if (voice_ribbon_changed) {
+            include_damage({CODY::kVoiceRibbonLeft, CODY::kVoiceRibbonDamageTop,
+                CODY::kVoiceRibbonLeft + CODY::kVoiceRibbonWidth, CODY::kVoiceRibbonDamageBottom});
+        }
     }
     const uint16_t left = bounds.left & ~1U;
     const uint16_t right = (bounds.right + 1U) & ~1U;
@@ -394,6 +467,11 @@ esp_err_t render(const FrameView &frame, bool force = false)
         } else if (error == ESP_OK && view.content.draw_rows != nullptr) {
             error = view.content.draw_rows(view.content.state, strip, row, left);
         }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        if (error == ESP_OK && frame.voice_ribbon_at_us != 0) {
+            error = CODY::draw_voice_ribbon_rows(strip, row, left, ui.voice_ribbon);
+        }
+#endif
         if (error == ESP_OK && frame.arrows && row < navigation_bounds.bottom &&
             row + rows > navigation_bounds.top) {
             error = CODY::draw_lateral_navigation(next_navigation, strip, row, left, opacity);
@@ -433,6 +511,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     old.voucher_bounds = frame.layer == Layer::Dashboard && screen == WidgetScreen::Credits &&
         !frame.statistics_unavailable ? ui.view.account.voucher_bounds : CODY2D::Rect{};
     old.voucher_paging = frame.layer == Layer::VoucherDetails && ui.view.plain.actions[1].enabled;
+    old.voice_ribbon_at_us = frame.voice_ribbon_at_us;
     if (frame.layer == Layer::Scene) {
         ui.completed_scene = ui.scene;
         ui.scene_dirty = false;
@@ -900,10 +979,10 @@ esp_err_t update_and_draw(int64_t now_us)
     if (error == ESP_OK) error = DeviceSnapshotService::instance().readVoiceObservation(ui.model.voice);
 #endif
     if (error != ESP_OK) return error;
-    const bool shaken = CODY::update_device_navigation(ui.model, now_us);
+    const auto navigation = CODY::update_device_navigation(ui.model, now_us);
     const bool safe_options = ui.scene.valid && ui.scene.definition->id == CODY::SceneId::MakeItYours &&
         ui.model.save != Save::Pending;
-    bool may_return_home = shaken && (safe_options || CODY::onboarding_dashboard_active());
+    bool may_return_home = navigation.shaken && (safe_options || CODY::onboarding_dashboard_active());
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     may_return_home = may_return_home && !voice_visible(now_us);
 #endif
@@ -934,7 +1013,7 @@ esp_err_t update_and_draw(int64_t now_us)
     }
 #endif
     FrameView frame{};
-    error = prepare_current_view(frame, now_us);
+    error = prepare_current_view(frame, now_us, navigation.motion_error);
     if (error == ESP_OK) error = render(frame);
 #if CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
     if (debug_result == ESP_OK) {
@@ -1038,7 +1117,7 @@ void device_ui_worker(void *context)
         }
         const uint32_t wait_ms = ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible
             ? static_cast<uint32_t>(CODY::kScreensaverFrameUs / 1000)
-            : ui.view.countdown.animating() ? 33 : kPollMs;
+            : ui.retired.voice_ribbon_at_us != 0 || ui.view.countdown.animating() ? 33 : kPollMs;
         const auto wait = LUNASHELL_touch_wait_for_report(wait_ms);
         if (wait != ESP_OK && wait != ESP_ERR_NOT_FOUND) {
             error = wait;

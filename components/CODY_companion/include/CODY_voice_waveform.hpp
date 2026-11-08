@@ -44,7 +44,9 @@ inline int voice_ribbon_sine(uint32_t phase)
 // now_us: Monotonic presentation time; periodic shape is artwork, not sampled PCM.
 // energy: Visual gain derived from a fresh canonical microphone level, zero when unavailable.
 // frame: Display-owned knots, prepared once and reused by every DMA strip of this frame.
-inline void prepare_voice_ribbon(int64_t now_us, uint8_t energy, VoiceRibbonFrame &frame)
+// countdown_emphasis: Artwork pulse from a published countdown tick, independent of microphone gain.
+inline void prepare_voice_ribbon(int64_t now_us, uint8_t energy, VoiceRibbonFrame &frame,
+                                 uint8_t countdown_emphasis = 0)
 {
     const uint32_t time = static_cast<uint32_t>((std::max<int64_t>(0, now_us) % 12000000) * 65536 / 3000000);
     for (unsigned layer = 0; layer < kVoiceRibbonLayers; ++layer) {
@@ -59,7 +61,7 @@ inline void prepare_voice_ribbon(int64_t now_us, uint8_t energy, VoiceRibbonFram
             // Their bounded envelope needs no frame-sized scratch, blur or runtime trig.
             auto &knot = frame.nodes[layer][node];
             const int center_q8 = carrier * envelope / 32768 * (3 + energy / 48);
-            const int radius_q8 = envelope * (180 + lobe * (2 + energy / 64)) / 128;
+            const int radius_q8 = envelope * (180 + lobe * (2 + energy / 64) + countdown_emphasis) / 128;
             // Scale the original 48-pixel artwork with its canvas, keeping the same bounded knots.
             knot.center_q8 = static_cast<int16_t>(center_q8 * kVoiceRibbonHeight / 48);
             knot.radius_q8 = static_cast<uint16_t>(radius_q8 * kVoiceRibbonHeight / 48);
@@ -69,22 +71,28 @@ inline void prepare_voice_ribbon(int64_t now_us, uint8_t energy, VoiceRibbonFram
 
 // strip: Borrowed writable native RGB565 tile, with its declared byte order.
 // first_row: Logical display row represented by the first tile row.
+// first_column: Logical display column represented by the first tile column.
 // frame: Immutable prepared knots shared across the complete retired frame.
 // Exception: Returns surface/bounds failures; never writes outside the 466-pixel canvas.
 inline esp_err_t draw_voice_ribbon_rows(CODY2D::Surface strip, uint16_t first_row,
-                                      const VoiceRibbonFrame &frame)
+                                      uint16_t first_column, const VoiceRibbonFrame &frame)
 {
     const esp_err_t error = CODY2D::validate_surface(strip);
     if (error != ESP_OK) return error;
-    if (strip.width != 466 || uint32_t(first_row) + strip.height > 466) return ESP_ERR_INVALID_ARG;
+    if (uint32_t(first_column) + strip.width > 466 || uint32_t(first_row) + strip.height > 466) {
+        return ESP_ERR_INVALID_ARG;
+    }
     const int top = std::max<int>(first_row, kVoiceRibbonTop);
     const int bottom = std::min<int>(first_row + strip.height, kVoiceRibbonTop + kVoiceRibbonHeight);
-    if (top >= bottom) return ESP_OK;
+    const int left = std::max<int>(first_column, kVoiceRibbonLeft);
+    const int right = std::min<int>(first_column + strip.width, kVoiceRibbonLeft + kVoiceRibbonWidth);
+    if (top >= bottom || left >= right) return ESP_OK;
     constexpr uint16_t colors[] = {0x16FF, 0x4A9F, 0xF2B8, 0xAB1F};
     constexpr uint8_t opacities[] = {170, 155, 180, 145};
-    for (int x = 0; x < kVoiceRibbonWidth; ++x) {
-        const unsigned node = unsigned(x) / 8;
-        const int fraction = x % 8;
+    for (int x = left; x < right; ++x) {
+        const int ribbon_x = x - kVoiceRibbonLeft;
+        const unsigned node = unsigned(ribbon_x) / 8;
+        const int fraction = ribbon_x % 8;
         for (unsigned layer = 0; layer < kVoiceRibbonLayers; ++layer) {
             const auto &a = frame.nodes[layer][node];
             const auto &b = frame.nodes[layer][node + 1];
@@ -100,12 +108,25 @@ inline esp_err_t draw_voice_ribbon_rows(CODY2D::Surface strip, uint16_t first_ro
                 const uint8_t alpha = static_cast<uint8_t>(coverage * opacities[layer] / 512);
                 const uint8_t light = static_cast<uint8_t>(std::clamp((radius - distance) * 70 / std::max(1, radius), 0, 70));
                 const uint16_t color = CODY2D::blend_rgb565(0xFFFF, colors[layer], light);
-                auto &pixel = strip.pixels[(y - first_row) * strip.stride + kVoiceRibbonLeft + x];
+                auto &pixel = strip.pixels[(y - first_row) * strip.stride + x - first_column];
                 const uint16_t background = CODY2D::rgb565_stored_to_native(pixel, strip.byte_order);
                 pixel = CODY2D::rgb565_native_to_stored(CODY2D::blend_rgb565(color, background, alpha), strip.byte_order);
             }
         }
     }
     return ESP_OK;
+}
+
+// strip: Legacy full-width native RGB565 strip.
+// first_row: Logical display row represented by the first strip row.
+// frame: Immutable prepared knots shared across the complete retired frame.
+// Exception: Returns the original surface or full-width canvas bounds error.
+inline esp_err_t draw_voice_ribbon_rows(CODY2D::Surface strip, uint16_t first_row,
+                                      const VoiceRibbonFrame &frame)
+{
+    const esp_err_t error = CODY2D::validate_surface(strip);
+    if (error != ESP_OK) return error;
+    if (strip.width != 466) return ESP_ERR_INVALID_ARG;
+    return draw_voice_ribbon_rows(strip, first_row, 0, frame);
 }
 }

@@ -127,7 +127,13 @@ void initialize_device_uptime(DeviceDashboardData &data);
 // Worker updates the current projection once per second, with no flash write.
 void update_device_uptime(DeviceDashboardData &data, int64_t now_us);
 
-// Consume the raw, timestamp-matched gesture projection without reading the IMU directly.
-bool update_device_navigation(DeviceModel &model, int64_t now_us);
+struct DeviceNavigationUpdate {
+    esp_err_t motion_error = ESP_ERR_NOT_SUPPORTED;
+    bool shaken = false;
+};
+
+// model: Receives the canonical projection shared by gestures and dictation artwork.
+// now_us: Monotonic time shared by touch, gesture recognition and the frame owner.
+DeviceNavigationUpdate update_device_navigation(DeviceModel &model, int64_t now_us);
 
 } // namespace CODY
