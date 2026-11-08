@@ -18,11 +18,14 @@ struct AudioCueSequenceLayout {
 // gap_ms: Silence between clips, at most 200 ms; no trailing silence is appended.
 // layout: Receives validated transport lengths; unchanged on rejection.
 // Returns false for unsupported format or a sequence exceeding 2500 ms.
+// boot_clip: Allows the authored 22.05 kHz boot PCM as a single bounded clip.
 inline bool prepare_audio_cue_sequence(size_t source_samples, uint32_t source_rate_hz,
-    uint32_t transport_rate_hz, uint8_t repetitions, uint16_t gap_ms, AudioCueSequenceLayout &layout)
+    uint32_t transport_rate_hz, uint8_t repetitions, uint16_t gap_ms, AudioCueSequenceLayout &layout,
+    bool boot_clip = false)
 {
-    const size_t source_limit = repetitions == 1 ? 32000 : 5600;
-    if (source_samples == 0 || source_samples > source_limit || source_rate_hz != 16000 ||
+    const bool valid_source = boot_clip ? source_rate_hz == 22050 && repetitions == 1 : source_rate_hz == 16000;
+    const size_t source_limit = boot_clip ? 44100 : (repetitions == 1 ? 32000 : 5600);
+    if (source_samples == 0 || source_samples > source_limit || !valid_source ||
         transport_rate_hz < 8000 || transport_rate_hz > 48000 || repetitions == 0 || repetitions > 5 ||
         gap_ms > 200 || (repetitions == 1 && gap_ms != 0)) { return false; }
     const uint64_t duration_units = source_samples * uint64_t{1000} * repetitions +

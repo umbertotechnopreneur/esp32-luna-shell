@@ -1835,7 +1835,7 @@ namespace {
 // Transport resource limits are independent of product authoring policy.
 constexpr uint32_t PERSONALITY_STACK_BYTES = 4096;
 constexpr int64_t CODEX_ACTIVITY_COOLDOWN_US = 1500000;
-enum class ApplicationAudioChannel : uint8_t { Personality = 0, Codex = 1 };
+enum class ApplicationAudioChannel : uint8_t { Personality = 0, Codex = 1, Boot = 2 };
 struct PersonalityAudioEvent {
     const int16_t *samples = nullptr;
     size_t sample_count = 0;
@@ -1932,7 +1932,8 @@ esp_err_t play_personality_locked(const PersonalityAudioEvent &event,
     }
     LUNASHELL::AudioCueSequenceLayout sequence{};
     if (!LUNASHELL::prepare_audio_cue_sequence(event.sample_count, event.sample_rate_hz,
-            sample_rate_hz, event.repetitions, event.gap_ms, sequence)) {
+            sample_rate_hz, event.repetitions, event.gap_ms, sequence,
+            event.channel == ApplicationAudioChannel::Boot)) {
         ESP_LOGE(TAG, "Admitted audio sequence geometry rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
@@ -2112,6 +2113,10 @@ void personality_audio_worker(void *context)
         }
         s_personality_mailbox.in_flight = false;
         portEXIT_CRITICAL(&s_personality_mux);
+        if (event.channel == ApplicationAudioChannel::Boot) {
+            ESP_LOGI(TAG, "Boot audio playback ended: state=%u result=%s",
+                static_cast<unsigned>(error == ESP_OK ? outcome : LUNASHELL_CUE_FAILED), esp_err_to_name(error));
+        }
     }
 }
 #endif
@@ -2171,8 +2176,8 @@ extern "C" esp_err_t LUNASHELL_audio_prepare_personality(const lunashell_persona
 }
 
 // samples: Immutable flash-owned original PCM, retained through dispatch and playback.
-// sample_count: Exact PCM length; single Codex notices allow two seconds, other clips 350 ms.
-// sample_rate_hz: Exact authored format, 16000 Hz.
+// sample_count: Exact PCM length; boot and single Codex notices allow two seconds.
+// sample_rate_hz: Exact authored format, 22050 Hz for boot and 16000 Hz otherwise.
 // cue_id: Stable application identity preserved through the worker.
 // channel: Typed owner channel with independent presentation cancellation.
 // kind: Codex activity is throttled; notices keep the same nonpreemptive shared admission.
@@ -2186,16 +2191,17 @@ static esp_err_t notify_application_audio(const int16_t *samples, size_t sample_
     lunashell_audio_cue_status_t *status)
 {
     const bool codex = channel == ApplicationAudioChannel::Codex;
+    const bool boot = channel == ApplicationAudioChannel::Boot;
     const bool invalid_kind = codex && kind != LUNASHELL_CODEX_CUE_ACTIVITY && kind != LUNASHELL_CODEX_CUE_NOTICE;
     const bool invalid_identity = codex && (cue_id & 0xFFFF0000U) != 0x43430000U;
     const bool sustained_notice = codex && kind == LUNASHELL_CODEX_CUE_NOTICE && repetitions == 1;
-    const size_t sample_limit = sustained_notice ? 32000 : 5600;
+    const size_t sample_limit = boot ? 44100 : (sustained_notice ? 32000 : 5600);
     LUNASHELL::AudioCueSequenceLayout sequence{};
     const bool invalid_sequence = !LUNASHELL::prepare_audio_cue_sequence(sample_count, sample_rate_hz,
-        sample_rate_hz, repetitions, gap_ms, sequence) ||
+        sample_rate_hz, repetitions, gap_ms, sequence, boot) ||
         (repetitions != 1 && (!codex || kind != LUNASHELL_CODEX_CUE_NOTICE));
     if (status == nullptr || samples == nullptr || sample_count == 0 || sample_count > sample_limit ||
-        sample_rate_hz != 16000 || cue_id == 0 || invalid_kind || invalid_identity || invalid_sequence) {
+        cue_id == 0 || invalid_kind || invalid_identity || invalid_sequence) {
         ESP_LOGE(TAG, "Application cue rejected: channel=%u cue=%lu samples=%u rate=%lu kind=%u repeat=%u gap_ms=%u status=%u",
             static_cast<unsigned>(channel), static_cast<unsigned long>(cue_id),
             static_cast<unsigned>(sample_count), static_cast<unsigned long>(sample_rate_hz),
@@ -2290,6 +2296,18 @@ extern "C" esp_err_t LUNASHELL_audio_notify_personality(const int16_t *samples, 
 {
     return notify_application_audio(samples, sample_count, sample_rate_hz, cue_id,
         ApplicationAudioChannel::Personality, LUNASHELL_CODEX_CUE_ACTIVITY, 1, 0, status);
+}
+
+// samples: Immutable mono PCM at the boot cue's authored rate.
+// sample_count: Exact mono length for one clip, at most two seconds.
+// cue_id: Stable boot identity retained through playback.
+// status: Receives the existing nonpreemptive worker's disposition.
+// Exception: Returns the original format, preparation or shared-owner failure.
+extern "C" esp_err_t LUNASHELL_audio_notify_boot(const int16_t *samples, size_t sample_count,
+    uint32_t cue_id, lunashell_audio_cue_status_t *status)
+{
+    return notify_application_audio(samples, sample_count, 22050, cue_id,
+        ApplicationAudioChannel::Boot, LUNASHELL_CODEX_CUE_NOTICE, 1, 0, status);
 }
 
 // samples: Immutable flash-owned PCM for one actual Codex transition.

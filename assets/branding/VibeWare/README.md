@@ -19,11 +19,10 @@ Identical images share immutable palette/RLE storage. Current pixel resource dat
 occupies 630,600 bytes; frame metadata, linked section alignment and runtime costs
 need an authorized firmware build/size and physical review.
 
-Cody uses its existing complete-frame DMA owner and original GIF dwell after
-retirement. The animation repeats until the real Ready checkpoint, finishing the
-current cycle before Sleeping 01 / Waking 02 / Ready 03. Those character clocks
-remain frozen while the logo is visible. Deep-sleep and software standby Wake
-retain their existing lifecycle without restarting this introduction.
+Cody holds the first frame while services start. The Ready checkpoint then
+replays the complete cycle from frame zero through the native DMA owner, with
+the original GIF dwell after each frame retires. The first interactive route
+opens after the cycle. Deep-sleep and software standby wake omit the introduction.
 
 Luna uses its existing LVGL owner with the same flash data and a 149,504-byte
 PSRAM image buffer. It loops while services initialize and hands off to System

@@ -255,6 +255,17 @@ extern "C" esp_err_t LUNASHELL_audio_notify_personality(const int16_t *samples, 
     return error;
 }
 
+// samples: Boot PCM requested on a build without audio output.
+// sample_count: Exact mono sample count.
+// cue_id: Stable boot identity preserved in the rejected operation.
+// status: Receives selected-route unavailability.
+// Exception: Returns invalid status storage or the original selected-route error.
+extern "C" esp_err_t LUNASHELL_audio_notify_boot(const int16_t *samples, size_t sample_count,
+    uint32_t cue_id, lunashell_audio_cue_status_t *status)
+{
+    return LUNASHELL_audio_notify_personality(samples, sample_count, 22050, cue_id, status);
+}
+
 // suspended: Requested gate for a route absent from this build.
 // Exception: Returns the selected-route error without claiming a worker exists.
 extern "C" esp_err_t LUNASHELL_audio_set_personality_suspended(bool suspended)

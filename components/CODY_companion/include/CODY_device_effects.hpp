@@ -9,6 +9,8 @@
 
 namespace CODY {
 
+enum class DeviceFeedback : uint8_t { None, OptionsOpened, TimerStarted };
+
 // Recent request identities prevent navigation, refresh and reconnect from replaying notices.
 struct DeviceEventSoundRecord {
     char request_id[33]{};
@@ -24,6 +26,8 @@ struct DeviceEffectsModel {
     LUNASHELL::PairingObservation pairing{};
     std::array<DeviceEventSoundRecord, 16> recent_events{};
     CodexAudioStatus playback{};
+    DeviceFeedback feedback = DeviceFeedback::None;
+    esp_err_t boot_audio_error = ESP_ERR_INVALID_STATE;
     esp_err_t preparation_error = ESP_ERR_INVALID_STATE;
     esp_err_t event_error = ESP_ERR_INVALID_STATE;
     esp_err_t pairing_error = ESP_ERR_INVALID_STATE;
@@ -35,6 +39,7 @@ struct DeviceEffectsModel {
     uint32_t pairing_session = 0;
     uint8_t next_event_slot = 0;
     bool prepared = false;
+    bool boot_cue_requested = false;
     bool connection_known = false;
     bool connected = false;
     bool event_online = false;
@@ -48,6 +53,10 @@ static_assert(sizeof(DeviceEffectsModel) <= 4096,
 // model: Persistent effects state, initialized after the audio driver and sound preference.
 // Exception: Returns the original shared audio-worker preparation error; no silent fallback.
 esp_err_t prepare_device_effects(DeviceEffectsModel &model);
+
+// model: Records the one startup cue admitted with the first visible animation frame.
+// Exception: Retains original asset or shared audio-owner errors as optional feedback.
+esp_err_t play_device_boot_cue(DeviceEffectsModel &model);
 
 // model: Sole owner of consumed event identities and observed playback disposition.
 // status: Already-aged connection snapshot shared with the device model.

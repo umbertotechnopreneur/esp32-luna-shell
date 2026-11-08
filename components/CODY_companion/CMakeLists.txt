@@ -83,3 +83,21 @@ target_compile_definitions(${COMPONENT_LIB} PUBLIC
     CODY_ENABLE_PEARL_JELLY=0
     CODY_JELLY_SIMD_AVAILABLE=0
 )
+
+if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+    # The shared PCM owner reads int16_t samples in place. IDF's binary embed
+    # helper omits section alignment, so keep the authored bytes in an aligned section.
+    set(cody_boot_pcm "${PROJECT_DIR}/assets/cody/audio/codex-actions/generated/boot-rise.pcm16le")
+    set(cody_boot_assembly "${CMAKE_CURRENT_BINARY_DIR}/cody_device_boot_rise.S")
+    file(GENERATE OUTPUT "${cody_boot_assembly}" CONTENT
+".section .rodata.cody_device_boot_rise,\"a\",@progbits
+.balign 4
+.global _binary_cody_device_boot_rise_start
+_binary_cody_device_boot_rise_start:
+.incbin \"${cody_boot_pcm}\"
+.global _binary_cody_device_boot_rise_end
+_binary_cody_device_boot_rise_end:
+")
+    set_source_files_properties("${cody_boot_assembly}" PROPERTIES OBJECT_DEPENDS "${cody_boot_pcm}")
+    target_sources(${COMPONENT_LIB} PRIVATE "${cody_boot_assembly}")
+endif()

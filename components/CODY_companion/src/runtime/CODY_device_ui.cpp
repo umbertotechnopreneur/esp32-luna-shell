@@ -37,7 +37,7 @@ constexpr uint16_t kCanvas = 466;
 constexpr uint32_t kFrameBudgetMs = 500;
 constexpr uint32_t kPollMs = 100;
 constexpr uint32_t kPowerTimeoutMs = 2500;
-// Ready also covers any remaining startup art while the radio owners release the display.
+// Ready includes one complete branding cycle after the radio owners release the display.
 constexpr uint32_t kReadyTimeoutMs = kPowerTimeoutMs + VIBEWARE_BOOT_DURATION_MS +
     VIBEWARE_BOOT_FRAME_COUNT * (kFrameBudgetMs + kPollMs);
 // The onboarding and CCP projections still use the existing display task stack budget.
@@ -47,6 +47,7 @@ enum class Layer : uint8_t {
     Branding, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics, Screensaver, Blank
 };
 enum class Command : uint8_t { Ready = 1, Sleep, Wake, Shutdown, ShutdownFailed };
+enum class BrandingPhase : uint8_t { Inactive, AwaitingReady, Playing };
 using Save = CODY::VisibilitySave;
 enum class Target : uint8_t {
     None, Previous, Next, Toggle, Interval, FirstAction, SecondAction, VoiceGesture,
@@ -84,7 +85,7 @@ struct DeviceUi {
     CODY::BootBranding::Scratch branding_scratch{};
     int64_t branding_due_us = 0;
     uint16_t branding_frame = 0;
-    bool branding_active = false;
+    BrandingPhase branding_phase = BrandingPhase::Inactive;
 
     CODY::DeviceView view{};
     RetiredFrame retired{};
@@ -481,6 +482,7 @@ esp_err_t activate(Target target)
             const auto error = CODY::start_local_timer(ui.model.timer, esp_timer_get_time());
             // Expiry or a route change can retire a previously admitted action.
             if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) return error;
+            if (error == ESP_OK) ui.model.effects.feedback = CODY::DeviceFeedback::TimerStarted;
             break;
         }
         case Target::TimerCancel: CODY::cancel_local_timer(ui.model.timer); break;
@@ -636,6 +638,8 @@ esp_err_t update_navigation()
         // The cached editor detects Pending -> Idle/Failed and redraws its own bounds.
     }
     if (ui.model.save != Save::Pending && s_options_requested.exchange(false, std::memory_order_acq_rel)) {
+        const bool already_open = ui.scene.valid && ui.scene.definition->id == CODY::SceneId::MakeItYours &&
+            !ui.model.editing && !ui.timer_open && !ui.diagnostics;
         ui.model.editing = false;
         ui.timer_open = false;
         ui.model.info_page = CODY::InfoPage::System;
@@ -643,6 +647,9 @@ esp_err_t update_navigation()
         ui.diagnostics = false;
         const esp_err_t error = CODY::open_companion_options(ui.scene);
         if (error != ESP_OK) return error;
+        if (!already_open && ui.scene.valid && ui.scene.definition->id == CODY::SceneId::MakeItYours) {
+            ui.model.effects.feedback = CODY::DeviceFeedback::OptionsOpened;
+        }
         invalidate();
     }
     switch (CODY::take_widget_open_request()) {
@@ -862,23 +869,36 @@ esp_err_t update_and_draw(int64_t now_us)
 // Exception: Returns the real display frame error; a parked panel can be retried.
 esp_err_t advance_branding(DeviceUi &ui)
 {
-    if (esp_timer_get_time() < ui.branding_due_us || !LUNASHELL_display_runtime_writes_allowed()) {
+    if (!LUNASHELL_display_runtime_writes_allowed()) return ESP_OK;
+    const bool starting = ui.branding_phase == BrandingPhase::AwaitingReady;
+    if (starting) {
+        // The startup owner posts Ready after radio DMA parking and final log archival.
+        // Until then, the first retired frame stays visible without consuming animation time.
+        const auto request = s_command.load(std::memory_order_acquire);
+        if (static_cast<Command>(request & 0xffU) != Command::Ready) return ESP_OK;
+    } else if (esp_timer_get_time() < ui.branding_due_us) {
         return ESP_OK;
     }
-    const auto next = static_cast<uint16_t>(ui.branding_frame + 1U);
+    const uint16_t next = starting ? 0 : static_cast<uint16_t>(ui.branding_frame + 1U);
     if (next == VIBEWARE_BOOT_FRAME_COUNT) {
-        ui.branding_active = false;
+        ui.branding_phase = BrandingPhase::Inactive;
         ESP_LOGI(kTag, "Boot disk animation completed: %u frames retired", VIBEWARE_BOOT_FRAME_COUNT);
         return ESP_OK;
     }
+    const auto previous = ui.branding_frame;
     ui.branding_frame = next;
     FrameView frame{};
     frame.layer = Layer::Branding;
     const auto error = render(frame, true);
     if (error == ESP_OK) {
         ui.branding_due_us = esp_timer_get_time() + VIBEWARE_boot_frames[next].duration_ms * 1000LL;
+        if (starting) {
+            ui.branding_phase = BrandingPhase::Playing;
+            ESP_LOGI(kTag, "Boot disk visible cycle started after service readiness");
+            (void)CODY::play_device_boot_cue(ui.model.effects);
+        }
     } else if (error == ESP_ERR_NOT_FINISHED) {
-        --ui.branding_frame;
+        ui.branding_frame = previous;
     }
     return error;
 }
@@ -903,10 +923,13 @@ void device_ui_worker(void *context)
     esp_err_t error = ESP_OK;
     while (error == ESP_OK) {
         CODY::update_device_uptime(ui.model.dashboard, esp_timer_get_time());
-        if (ui.branding_active) {
+        if (ui.branding_phase != BrandingPhase::Inactive) {
             error = advance_branding(ui);
             if (error == ESP_ERR_NOT_FINISHED) error = ESP_OK;
-            if (error == ESP_OK && ui.branding_active) vTaskDelay(std::max<TickType_t>(1, pdMS_TO_TICKS(10)));
+            if (error == ESP_OK && ui.branding_phase != BrandingPhase::Inactive) {
+                const uint32_t wait_ms = ui.branding_phase == BrandingPhase::AwaitingReady ? kPollMs : 10U;
+                vTaskDelay(std::max<TickType_t>(1, pdMS_TO_TICKS(wait_ms)));
+            }
             continue;
         }
         const uint32_t request = s_command.exchange(0, std::memory_order_acq_rel);
@@ -962,10 +985,11 @@ extern "C" esp_err_t CODY_companion_start(void)
     s_ui->model.settings_error = CODY::load_widget_visibility(visibility);
     if (s_ui->model.settings_error == ESP_OK) CODY::apply_widget_visibility(s_ui->model.widgets, visibility);
     FrameView frame{};
-    s_ui->branding_active = esp_reset_reason() != ESP_RST_DEEPSLEEP;
+    const bool show_branding = esp_reset_reason() != ESP_RST_DEEPSLEEP;
+    if (show_branding) s_ui->branding_phase = BrandingPhase::AwaitingReady;
     ESP_LOGI(kTag, "Boot disk animation: reset_reason=%u requested=%u frames=%u",
-        static_cast<unsigned>(esp_reset_reason()), s_ui->branding_active, VIBEWARE_BOOT_FRAME_COUNT);
-    if (s_ui->branding_active) {
+        static_cast<unsigned>(esp_reset_reason()), static_cast<unsigned>(show_branding), VIBEWARE_BOOT_FRAME_COUNT);
+    if (show_branding) {
         frame.layer = Layer::Branding;
         error = VIBEWARE_boot_validate();
         if (error == ESP_OK) error = CODY::BootBranding::prepare(
@@ -975,9 +999,8 @@ extern "C" esp_err_t CODY_companion_start(void)
         error = CODY::prepare_device_message(s_ui->view, frame.presentation, "Device", "Starting services");
     }
     if (error == ESP_OK) error = render(frame, true);
-    if (error == ESP_OK && s_ui->branding_active) {
-        s_ui->branding_due_us = esp_timer_get_time() + VIBEWARE_boot_frames[0].duration_ms * 1000LL;
-        ESP_LOGI(kTag, "Boot disk first frame retired; starting the complete animation cycle");
+    if (error == ESP_OK && show_branding) {
+        ESP_LOGI(kTag, "Boot disk first frame retired; awaiting service readiness");
     }
     if (error == ESP_OK) error = LUNASHELL_power_manager_register_display_lifecycle(prepare_lifecycle);
     if (error == ESP_OK) error = LUNASHELL_power_manager_register_boot_options(queue_options);

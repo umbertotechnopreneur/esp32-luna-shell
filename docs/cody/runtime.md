@@ -85,22 +85,18 @@ work is tracked in [TODO.md](../../TODO.md).
 
 ## Startup and expression sequencing
 
-Cold boot or software reset first shows the approved VibeWare floppy insertion
-animation on black: 42 original frames with 3.5 seconds of authored visible dwell
-per cycle. Each native frame retires before its 80/90-ms dwell begins; transfers
-and intentional startup DMA parking can add wall time. The current cycle finishes
-only after the real Ready service checkpoint. The original Sleeping/Waking/Ready
-clocks remain frozen under the introduction, including first-run greeting timers.
-The unchanged GIF and shared flash RLE package live in
-`assets/branding/VibeWare/`; the native path adds no LVGL or GIF-decoder dependency.
+Cold boot or software reset displays the first VibeWare frame while services
+initialize. The Ready checkpoint starts the floppy insertion again from frame
+zero, after startup DMA parking ends. Each of the 42 original frames retires
+before its 80/90-ms dwell begins. The full 3.5 seconds of authored dwell precedes
+the first interactive route. The unchanged GIF and shared flash RLE package live
+in `assets/branding/VibeWare/`. Deep-sleep and ordinary standby wake omit the
+introduction.
 
-After the introduction, startup follows Sleeping 01 → Waking 02 → Ready 03. The animated
-character fades in over 2 seconds, then Waking receives 1.5 seconds and Ready
-receives 2 seconds (5.5 active seconds altogether, excluding real service waits).
-Real startup checkpoints gate advancement: a service wait does not consume the
-next phase's active duration. The VibeWare introduction precedes Cody, with no
-Debug HUD or numeric progress invented from animation time. Actual deep-sleep
-and ordinary standby wake keep their existing lifecycle and omit the logo.
+The first retired frame of the active cycle requests BootRise through the shared
+audio worker. A short confirmation also accompanies opening Options with BOOT
+and starting a timer. These cues use the saved Sounds setting, the current
+volume and quiet hours. Audio failure leaves the visible boot sequence usable.
 
 The device-first firmware enters **Not connected** on screen 04 when a saved
 Wi-Fi profile is absent. **Tap to pair** opens **Wi-Fi setup**. **App download

@@ -24,8 +24,9 @@
 - Verify Options/Visible screens responsiveness during held touches and actual
   settings writes; compare display work and CPU with the screen resting.
 - Reload the updated plugin and verify context across tool working directories
-  plus consecutive quarter-hour account-counter observations. Confirm
-  the boot disk on a real restart; source inspection has not explained its absence.
+  plus consecutive quarter-hour account-counter observations.
+- Verify the Ready-gated floppy cycle and boot audio on a cold boot and software
+  restart. Check quiet hours and ordinary standby wake.
 
 ## Codex reset countdown
 

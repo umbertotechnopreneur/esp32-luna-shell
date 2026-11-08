@@ -601,6 +601,13 @@ esp_err_t LUNASHELL_audio_prepare_personality(const lunashell_personality_audio_
 // Exception: Returns rejected arguments or retained asynchronous errors.
 esp_err_t LUNASHELL_audio_notify_personality(const int16_t *samples, size_t sample_count,
     uint32_t sample_rate_hz, uint32_t cue_id, lunashell_audio_cue_status_t *status);
+// samples: Immutable mono PCM for the visible boot sequence, retained until playback ends.
+// sample_count: Exact 22.05 kHz mono length, at most 44100 samples.
+// cue_id: Stable boot cue identity for admission and playback telemetry.
+// status: Receives the shared worker's disposition, subject to Sounds and quiet hours.
+// Exception: Returns the original format, preparation or worker error.
+esp_err_t LUNASHELL_audio_notify_boot(const int16_t *samples, size_t sample_count,
+    uint32_t cue_id, lunashell_audio_cue_status_t *status);
 // suspended: Invalidates an outstanding dispatch; resumed requests never replay old sounds.
 // Exception: Returns a retained preparation/playback failure.
 esp_err_t LUNASHELL_audio_set_personality_suspended(bool suspended);

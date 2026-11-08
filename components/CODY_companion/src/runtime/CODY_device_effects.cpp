@@ -5,14 +5,21 @@
 #include "LUNASHELL_platform.h"
 #include "esp_log.h"
 
+extern "C" {
+extern const uint8_t boot_rise_start[] asm("_binary_cody_device_boot_rise_start");
+extern const uint8_t boot_rise_end[] asm("_binary_cody_device_boot_rise_end");
+}
+
 namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_effects";
+constexpr uint32_t kBootRiseCue = 0x43430000U;
+constexpr size_t kBootRiseSamples = 39690; // 1.8 seconds at the asset's authored 22.05 kHz.
 constexpr int64_t kDisconnectDwellUs = 3000000;
 constexpr int64_t kQuestionReminderUs = 60000000;
 constexpr int64_t kVoiceStartFreshnessUs = 200000;
 
-enum class SoundPriority : uint8_t { None, Connection, Battery, Confirmation, Attention, CriticalBattery };
+enum class SoundPriority : uint8_t { None, Feedback, Connection, Battery, Confirmation, Attention, CriticalBattery };
 
 struct SoundRequest {
     CodexAudioCue cue = CodexAudioCue::None;
@@ -292,6 +299,34 @@ esp_err_t prepare_device_effects(DeviceEffectsModel &model)
     return model.preparation_error;
 }
 
+// model: Retains the one boot attempt and its genuine admission result.
+// Exception: Returns original invalid asset or audio-owner failure without blocking animation.
+esp_err_t play_device_boot_cue(DeviceEffectsModel &model)
+{
+    if (model.boot_cue_requested) return model.boot_audio_error;
+    model.boot_cue_requested = true;
+    const auto begin = reinterpret_cast<uintptr_t>(boot_rise_start);
+    const auto end = reinterpret_cast<uintptr_t>(boot_rise_end);
+    lunashell_audio_cue_status_t status{LUNASHELL_CUE_UNAVAILABLE, ESP_OK, 0, kBootRiseCue};
+    auto error = model.preparation_error;
+    if (error == ESP_OK) {
+        if (end <= begin || begin % alignof(int16_t) != 0 ||
+            end - begin != kBootRiseSamples * sizeof(int16_t)) {
+            error = ESP_ERR_INVALID_SIZE;
+        } else {
+            error = LUNASHELL_audio_notify_boot(reinterpret_cast<const int16_t *>(boot_rise_start),
+                kBootRiseSamples, kBootRiseCue, &status);
+        }
+    }
+    model.boot_audio_error = error;
+    if (error != ESP_OK) {
+        ESP_LOGW(kTag, "BootRise cue admission failed (%s)", esp_err_to_name(error));
+    } else {
+        ESP_LOGI(kTag, "BootRise cue admission: state=%u", static_cast<unsigned>(status.state));
+    }
+    return error;
+}
+
 // model: Retained effect identities and canonical projection scratch, never a scene-owned cache.
 // status: Existing canonical status used for source admission and connection edges.
 // status_valid: Read success for status; false never manufactures a disconnection event.
@@ -304,6 +339,16 @@ esp_err_t update_device_effects(DeviceEffectsModel &model,
     const BatteryAlertNotice &battery, const LUNASHELL::VoiceSnapshot *voice, int64_t now_us)
 {
     SoundRequest request{};
+    switch (model.feedback) {
+    case DeviceFeedback::OptionsOpened:
+        choose(request, CodexAudioCue::ConnectionRestored, SoundPriority::Feedback);
+        break;
+    case DeviceFeedback::TimerStarted:
+        choose(request, CodexAudioCue::AnswerReceived, SoundPriority::Feedback);
+        break;
+    case DeviceFeedback::None: break;
+    }
+    model.feedback = DeviceFeedback::None;
     auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
     model.event_error = snapshots.readCodexEventObservation(model.event);
     model.pairing_error = snapshots.readPairingObservation(model.pairing);
