@@ -7,8 +7,10 @@
 
 namespace CODY {
 namespace {
-constexpr int16_t kOrigin = 105;
-constexpr uint16_t kExtent = 256;
+constexpr int16_t kOrigin = 73;
+constexpr uint16_t kExtent = 320;
+constexpr int kSubpixel = 16;
+constexpr unsigned kScale = 5;
 constexpr std::array<int8_t, 32> kWave{
     0, 25, 49, 71, 90, 106, 117, 125, 127, 125, 117, 106, 90, 71, 49, 25,
     0, -25, -49, -71, -90, -106, -117, -125, -127, -125, -117, -106, -90, -71, -49, -25};
@@ -19,19 +21,19 @@ constexpr std::array<uint8_t, 256> make_falloff()
     std::array<uint8_t, 256> values{};
     for (uint32_t index = 0; index < values.size(); ++index) {
         const uint32_t remaining = 255U - index;
-        values[index] = static_cast<uint8_t>((remaining * remaining * remaining + 32512U) / 65025U);
+        values[index] = static_cast<uint8_t>((remaining * remaining + 127U) / 255U);
     }
     return values;
 }
 constexpr auto kFalloff = make_falloff();
 
-// phase: Wrapping 8-bit orbital phase; interpolation keeps motion smooth at eight frames per second.
+// phase: Orbital phase in twenty-fifths of an 8-bit step, wrapping every cycle.
 int wave(uint32_t phase)
 {
-    phase &= 255U;
-    const auto index = phase >> 3U;
-    const int fraction = static_cast<int>(phase & 7U);
-    return (kWave[index] * (8 - fraction) + kWave[(index + 1U) & 31U] * fraction) / 8;
+    phase %= 256U * 25U;
+    const auto index = phase / 200U;
+    const int fraction = static_cast<int>(phase % 200U);
+    return (kWave[index] * (200 - fraction) + kWave[(index + 1U) & 31U] * fraction) / 200;
 }
 
 struct Lobe { int x; int y; int radius; uint8_t red; uint8_t green; uint8_t blue; };
@@ -40,19 +42,24 @@ struct Lobe { int x; int y; int radius; uint8_t red; uint8_t green; uint8_t blue
 // pixels: Receives the small RGB565 field, later enlarged with bilinear interpolation.
 void paint_grid(uint32_t frame, std::array<uint16_t, ScreensaverPresentation::kGrid * ScreensaverPresentation::kGrid> &pixels)
 {
-    const int drift_x = wave(frame) * 3 / 127;
-    const int drift_y = wave(frame + 64U) * 3 / 127;
+    const uint32_t phase = (frame % 800U) * 8U;
+    const int drift_x = wave(phase) * (2 * kSubpixel) / 127;
+    const int drift_y = wave(phase + 64U * 25U) * (2 * kSubpixel) / 127;
+    const uint32_t orbit = phase * 2U;
     const Lobe lobes[] = {
-        {32 + drift_x + wave(frame * 2U) * 6 / 127, 32 + drift_y + wave(frame * 2U + 64U) * 5 / 127, 23, 35, 145, 220},
-        {32 + drift_x + wave(frame * 2U + 85U) * 6 / 127, 32 + drift_y + wave(frame * 2U + 149U) * 5 / 127, 21, 160, 45, 180},
-        {32 + drift_x + wave(frame * 2U + 170U) * 6 / 127, 32 + drift_y + wave(frame * 2U + 234U) * 5 / 127, 20, 30, 155, 120},
+        {32 * kSubpixel + drift_x + wave(orbit) * (5 * kSubpixel) / 127,
+         32 * kSubpixel + drift_y + wave(orbit + 64U * 25U) * (5 * kSubpixel) / 127, 25 * kSubpixel, 35, 145, 220},
+        {32 * kSubpixel + drift_x + wave(orbit + 85U * 25U) * (5 * kSubpixel) / 127,
+         32 * kSubpixel + drift_y + wave(orbit + 149U * 25U) * (5 * kSubpixel) / 127, 24 * kSubpixel, 160, 45, 180},
+        {32 * kSubpixel + drift_x + wave(orbit + 170U * 25U) * (5 * kSubpixel) / 127,
+         32 * kSubpixel + drift_y + wave(orbit + 234U * 25U) * (5 * kSubpixel) / 127, 23 * kSubpixel, 30, 155, 120},
     };
     for (int y = 0; y < ScreensaverPresentation::kGrid; ++y) {
         for (int x = 0; x < ScreensaverPresentation::kGrid; ++x) {
             uint32_t red = 0, green = 0, blue = 0;
             for (const auto &lobe : lobes) {
-                const int dx = x - lobe.x;
-                const int dy = y - lobe.y;
+                const int dx = x * kSubpixel - lobe.x;
+                const int dy = y * kSubpixel - lobe.y;
                 const int radius_squared = lobe.radius * lobe.radius;
                 const int distance = dx * dx + dy * dy;
                 if (distance >= radius_squared) continue;
@@ -74,16 +81,16 @@ void paint_grid(uint32_t frame, std::array<uint16_t, ScreensaverPresentation::kG
 // b: Upper-right packed RGB565 sample.
 // c: Lower-left packed RGB565 sample.
 // d: Lower-right packed RGB565 sample.
-// x: Horizontal subpixel fraction from zero through three.
-// y: Vertical subpixel fraction from zero through three.
+// x: Horizontal subpixel fraction from zero through four.
+// y: Vertical subpixel fraction from zero through four.
 uint16_t interpolate(uint16_t a, uint16_t b, uint16_t c, uint16_t d, unsigned x, unsigned y)
 {
-    const unsigned wa = (4U - x) * (4U - y), wb = x * (4U - y);
-    const unsigned wc = (4U - x) * y, wd = x * y;
-    const unsigned red = (((a >> 11U) * wa + (b >> 11U) * wb + (c >> 11U) * wc + (d >> 11U) * wd + 8U) >> 4U);
+    const unsigned wa = (kScale - x) * (kScale - y), wb = x * (kScale - y);
+    const unsigned wc = (kScale - x) * y, wd = x * y;
+    const unsigned red = (((a >> 11U) * wa + (b >> 11U) * wb + (c >> 11U) * wc + (d >> 11U) * wd + 12U) / 25U);
     const unsigned green = ((((a >> 5U) & 63U) * wa + ((b >> 5U) & 63U) * wb +
-        ((c >> 5U) & 63U) * wc + ((d >> 5U) & 63U) * wd + 8U) >> 4U);
-    const unsigned blue = (((a & 31U) * wa + (b & 31U) * wb + (c & 31U) * wc + (d & 31U) * wd + 8U) >> 4U);
+        ((c >> 5U) & 63U) * wc + ((d >> 5U) & 63U) * wd + 12U) / 25U);
+    const unsigned blue = (((a & 31U) * wa + (b & 31U) * wb + (c & 31U) * wc + (d & 31U) * wd + 12U) / 25U);
     return static_cast<uint16_t>((red << 11U) | (green << 5U) | blue);
 }
 
@@ -104,14 +111,14 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     const int right = std::min<int>(first_column + strip.width, kOrigin + kExtent);
     for (int y = top; y < bottom; ++y) {
         const unsigned dy = static_cast<unsigned>(y - kOrigin);
-        const size_t source_row = (dy >> 2U) * ScreensaverPresentation::kGrid;
+        const size_t source_row = (dy / kScale) * ScreensaverPresentation::kGrid;
         auto *destination = strip.pixels + static_cast<size_t>(y - first_row) * strip.stride;
         for (int x = left; x < right; ++x) {
             const unsigned dx = static_cast<unsigned>(x - kOrigin);
-            const auto index = source_row + (dx >> 2U);
+            const auto index = source_row + (dx / kScale);
             const auto color = interpolate(pixels[index], pixels[index + 1U],
                 pixels[index + ScreensaverPresentation::kGrid], pixels[index + ScreensaverPresentation::kGrid + 1U],
-                dx & 3U, dy & 3U);
+                dx % kScale, dy % kScale);
             destination[x - first_column] = CODY2D::rgb565_native_to_stored(color, strip.byte_order);
         }
     }

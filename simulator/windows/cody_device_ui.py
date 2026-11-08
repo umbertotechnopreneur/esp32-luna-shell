@@ -1192,7 +1192,7 @@ class DeviceStudioWindow:
             self.last_navigation = now
             self.events.render_device(image, snapshot, label, arrow)
         elif self.screensaver.active:
-            image = render_screensaver(int((now - self.last_navigation - 15.0) * 8)).copy()
+            image = render_screensaver(int((now - self.last_navigation - 15.0) * 25)).copy()
         else:
             label(draw, "SIMULATED", 28 if wifi_setup else 46, 14, MUTED)
             if wifi_setup:
@@ -1304,7 +1304,7 @@ class DeviceStudioWindow:
             self.canvas.coords(self.image, self.layout.left, self.layout.top)
             self.canvas.itemconfigure(self.image, image=self.photo)
             self.acknowledged = tuple(self.targets)
-        self.timer = self.root.after(40 if self.boot else 125 if self.screensaver.active else 100, self.tick)
+        self.timer = self.root.after(40 if self.boot or self.screensaver.active else 100, self.tick)
 
     def point(self, event):
         point = self.layout.to_device_pixel(event.x, event.y, self.rotation)

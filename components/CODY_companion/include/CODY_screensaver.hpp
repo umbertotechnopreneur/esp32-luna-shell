@@ -18,7 +18,7 @@ struct ScreensaverModel {
 };
 
 inline constexpr int64_t kScreensaverDelayUs = 15000000;
-inline constexpr int64_t kScreensaverFrameUs = 125000;
+inline constexpr int64_t kScreensaverFrameUs = 40000;
 
 // Small persistent raster cache, owned by the display worker in PSRAM.
 struct ScreensaverPresentation {

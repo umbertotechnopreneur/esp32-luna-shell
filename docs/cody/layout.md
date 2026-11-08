@@ -327,7 +327,7 @@ Options > Behavior > More behavior uses an outline motion glyph and a short
 idle animation hint above the Screensaver setting, initially Off. After
 fifteen idle seconds on an unobstructed dashboard, a softly colored globe
 fills the otherwise black display. There is no text, quota perimeter or
-navigation chrome while it is active. The animation runs at eight frames per
+navigation chrome while it is active. The animation targets 25 frames per
 second and does not renew the power owner's inactivity time.
 
 The first touch is consumed to restore the retained dashboard. Shake returns

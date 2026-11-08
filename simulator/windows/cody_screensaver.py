@@ -7,37 +7,40 @@ from cody_preview_layout import SIZE
 
 
 GRID = 65
-EXTENT = 256
+EXTENT = 320
 ORIGIN = (SIZE - EXTENT) // 2
 WAVE = (0, 25, 49, 71, 90, 106, 117, 125, 127, 125, 117, 106, 90, 71, 49, 25,
         0, -25, -49, -71, -90, -106, -117, -125, -127, -125, -117, -106, -90, -71, -49, -25)
-FALLOFF = tuple(((255 - index) ** 3 + 32512) // 65025 for index in range(256))
+FALLOFF = tuple(((255 - index) ** 2 + 127) // 255 for index in range(256))
 
 
-# phase: Wrapping eight-bit orbital phase shared with the firmware's authored shape.
+# phase: Orbital phase in twenty-fifths of an eight-bit step, shared with firmware.
 def wave(phase: int) -> int:
-    phase &= 255
-    index, fraction = divmod(phase, 8)
-    return int((WAVE[index] * (8 - fraction) + WAVE[(index + 1) & 31] * fraction) / 8)
+    phase %= 256 * 25
+    index, fraction = divmod(phase, 200)
+    return int((WAVE[index] * (200 - fraction) + WAVE[(index + 1) & 31] * fraction) / 200)
 
 
-# tick: Quantized eight-frame-per-second animation time from the preview owner.
+# tick: Quantized 25-frame-per-second animation time from the preview owner.
 # Returns an RGB image borrowed by the current frame; no route or device data is mutated.
 @lru_cache(maxsize=1)
 def render_screensaver(tick: int) -> Image.Image:
-    drift_x = int(wave(tick) * 3 / 127)
-    drift_y = int(wave(tick + 64) * 3 / 127)
-    lobes = tuple((32 + drift_x + int(wave(tick * 2 + phase) * 6 / 127),
-                   32 + drift_y + int(wave(tick * 2 + phase + 64) * 5 / 127), radius, color)
-                  for phase, radius, color in ((0, 23, (35, 145, 220)),
-                                               (85, 21, (160, 45, 180)),
-                                               (170, 20, (30, 155, 120))))
+    subpixel = 16
+    phase_time = (tick % 800) * 8
+    drift_x = int(wave(phase_time) * (2 * subpixel) / 127)
+    drift_y = int(wave(phase_time + 64 * 25) * (2 * subpixel) / 127)
+    lobes = tuple((32 * subpixel + drift_x + int(wave(phase_time * 2 + phase * 25) * (5 * subpixel) / 127),
+                   32 * subpixel + drift_y + int(wave(phase_time * 2 + (phase + 64) * 25) * (5 * subpixel) / 127),
+                   radius * subpixel, color)
+                  for phase, radius, color in ((0, 25, (35, 145, 220)),
+                                               (85, 24, (160, 45, 180)),
+                                               (170, 23, (30, 155, 120))))
     pixels = []
     for y in range(GRID):
         for x in range(GRID):
             channels = [0, 0, 0]
             for cx, cy, radius, color in lobes:
-                distance = (x - cx) ** 2 + (y - cy) ** 2
+                distance = (x * subpixel - cx) ** 2 + (y * subpixel - cy) ** 2
                 if distance >= radius * radius:
                     continue
                 weight = FALLOFF[distance * 255 // (radius * radius)]
