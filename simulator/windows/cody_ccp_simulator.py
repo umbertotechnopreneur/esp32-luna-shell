@@ -463,7 +463,8 @@ class SimulatorLink:
     def tick(self, send: Send) -> None:
         now = self.clock()
         if self._reset_due is not None and now >= self._reset_due:
-            self._apply_reset()
+            self._reset_due, self._reset_attempted = None, True
+            self._apply_reset(self._reset_request[1])
             return
         if self._transaction is not None:
             self._transaction.tick(now)
@@ -690,11 +691,10 @@ class SimulatorLink:
              list(zip(("device", "pc", "nonce", "id", "status"), values))
              + [("proof", protocol.make_proof(key, ack_domain, *values))]), source)
 
-    # self: Simulator-only delayed executor; failed storage leaves the original model and error observable.
+    # self: Simulator-only reset owner; failed storage leaves the original model and error observable.
+    # operation: Reset selected after authenticated remote or confirmed local admission.
     # Raises the original storage failure without rebooting or retrying the factory reset automatically.
-    def _apply_reset(self) -> None:
-        self._reset_due, self._reset_attempted = None, True
-        operation = self._reset_request[1]
+    def _apply_reset(self, operation: reset.ResetOperation) -> None:
         if operation == reset.ResetOperation.FACTORY_RESET:
             try:
                 self.store.save(None, None, network_configured=False)
@@ -704,6 +704,16 @@ class SimulatorLink:
         count = self.reset_count + 1
         self.__init__(self.store, self.clock, self.wall_clock)
         self.reset_count = count
+
+    # self: Simulator state owner under the endpoint lock.
+    # confirmed: Explicit action from the local factory-reset confirmation screen.
+    # Raises on missing confirmation, a queued remote reset or a failed store write.
+    def factory_reset(self, confirmed: bool) -> None:
+        if confirmed is not True:
+            raise ValueError("SIMULATED factory reset requires explicit confirmation")
+        if self._reset_due is not None:
+            raise ValueError("A reset is already queued")
+        self._apply_reset(reset.ResetOperation.FACTORY_RESET)
 
     # self: Owner of the currently displayed commissioning code.
     # fields: Exact PAIR field set from the socket parser.
@@ -1159,7 +1169,7 @@ class SimulatorEndpoint:
 
     # self: Socket lifetime owner accepting explicit simulator UI operations only.
     # action: Fixed action name; this is never a hook or chat-selection endpoint.
-    # confirmed: Explicit replacement/forget confirmation, or synthetic network readiness.
+    # confirmed: Explicit replacement, forget or reset confirmation, or synthetic network readiness.
     # Raises ValueError or the original state/storage failure; caller displays it visibly.
     def act(self, action: str, confirmed: bool = False) -> None:
         with self._lock:
@@ -1172,6 +1182,8 @@ class SimulatorEndpoint:
                     self._link.cancel_pairing()
                 elif action == "forget":
                     self._link.forget_pairing(confirmed)
+                elif action == "factory_reset":
+                    self._link.factory_reset(confirmed)
                 elif action == "network":
                     self._link.set_network_ready(confirmed)
                 else:

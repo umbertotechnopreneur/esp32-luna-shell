@@ -36,6 +36,7 @@ timing or character audio.
 | Setup menu Options | (153,382,160,52) |
 | Options and category rows | Up to three at x=93, width 280, height 72, y=130/210/290 |
 | Options footer | (123,382,220,52), with an outline home glyph next to Go home |
+| Factory reset confirmation | Cancel at (93,270,280,64), Reset device at (123,382,220,52) |
 | Visibility toggle | (113,226,240,52) |
 | Ordinary single action | (113,352,240,72) |
 | Compact QR/skin footer | (123,390,220,44) |

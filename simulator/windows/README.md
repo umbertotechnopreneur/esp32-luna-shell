@@ -114,8 +114,9 @@ prompt.
 CCP can explicitly request a restart or factory reset of this **SIMULATED** target,
 using the distinct phrases and code described in the
 [plugin README](../../plugins/cody-codex-plugin/README.md#explicit-restart-or-settings-reset).
-A restart preserves the store. A factory reset deletes simulator settings and
-associations and leaves simulated Wi-Fi unconfigured after reopening.
+A restart preserves the store. **Options > Factory reset** in Cody Studio also
+offers an explicit on-screen confirmation. A factory reset clears simulator
+settings and associations and leaves simulated Wi-Fi unconfigured.
 To resume, enable **Wi-Fi** in **Connections** and pair again. The old PC
 record remains separate.
 

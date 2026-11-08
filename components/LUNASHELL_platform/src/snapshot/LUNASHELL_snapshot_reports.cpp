@@ -1306,7 +1306,9 @@ void DeviceSnapshotService::reportInputs(const InputSnapshot &inputs)
 // transition_sequence: Monotonic power-transition identity.
 // last_activity_at_us: Real timestamp of the latest accepted user activity.
 // error: Original operation or publication failure.
-void DeviceSnapshotService::reportPowerManagement(
+// factory_reset: Most recent explicit local request and its canonical outcome.
+// Exception: Returns the original snapshot publication error.
+esp_err_t DeviceSnapshotService::reportPowerManagement(
     DeviceOperatingState state,
     DeviceStateReason reason,
     bool audio_suspended,
@@ -1321,7 +1323,8 @@ void DeviceSnapshotService::reportPowerManagement(
     uint32_t screen_idle_timeout_seconds,
     uint32_t transition_sequence,
     int64_t last_activity_at_us,
-    esp_err_t error
+    esp_err_t error,
+    FactoryResetObservation factory_reset
 )
 {
     const int64_t attempted_at_us = esp_timer_get_time();
@@ -1347,6 +1350,7 @@ void DeviceSnapshotService::reportPowerManagement(
             snapshot.power.transition_sequence = transition_sequence;
             snapshot.power.last_activity_at_us = last_activity_at_us;
             snapshot.power.changed_at_us = attempted_at_us;
+            snapshot.power.factory_reset = factory_reset;
             if (error == ESP_OK) {
                 mark_sample_success(snapshot.power, attempted_at_us);
             } else {
@@ -1362,6 +1366,7 @@ void DeviceSnapshotService::reportPowerManagement(
         "Power-management report",
         publication_error
     );
+    return publication_error;
 }
 
 

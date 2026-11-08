@@ -259,6 +259,10 @@ esp_err_t LUNASHELL_power_manager_request_codex_restart(void);
 // Exception: Admission errors never clear settings; accepted is not proof of completed erasure.
 esp_err_t LUNASHELL_power_manager_request_codex_factory_reset(void);
 
+// request_id: Receives the identity of a factory reset confirmed on the device.
+// Exception: Admission errors never erase settings. A later failure is published in the power snapshot.
+esp_err_t LUNASHELL_power_manager_request_factory_reset(uint32_t *request_id);
+
 // No parameters: Wi-Fi owner forgets driver-managed credentials for an explicit factory reset.
 // Exception: Returns the real stop, restore or empty-config verification failure.
 esp_err_t LUNASHELL_wifi_reset_for_factory(void);

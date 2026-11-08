@@ -56,13 +56,18 @@ record is not remotely revoked by this local action.
 ## Dashboard and Options
 
 PWR toggles software standby. BOOT opens Options. Page 1 has Connections,
-Codex stats and Visible screens. The right arrow opens page 2 with Display and
-Behavior. The left arrow returns to page 1. Both pages offer **Go home** to
+Codex stats and Visible screens. The right arrow opens page 2 with Display,
+Behavior and Factory reset. The left arrow returns to page 1. Both pages offer **Go home** to
 return to the first enabled statistics screen, or Device if all are hidden.
 The title sits above a grid of up to three 72-pixel-high rows. A house glyph
 identifies the larger **Go home** footer.
 Display holds brightness, rotation and orientation. Behavior holds sound,
 shake-to-wake and, in the voice-enabled profile, Dictation.
+
+**Factory reset** opens a confirmation with **Cancel** and **Reset device**.
+Confirming clears the device's Wi-Fi credentials, Codex pairing and preferences.
+Cody restarts into first setup after the platform verifies the reset and loads
+the running firmware's defaults. The action is available offline.
 
 The carousel order is Device, Codex reset, Codex limits, Today, Last 7 days,
 Token history, Credits, Codex account, Context and About. The arrows move

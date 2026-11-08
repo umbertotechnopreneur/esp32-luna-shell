@@ -842,6 +842,13 @@ enum class DeviceStateReason : uint8_t {
     CodexOffline,
 };
 
+// A local reset request stays pending until reboot or a terminal failure.
+struct FactoryResetObservation {
+    uint32_t request_id = 0;
+    esp_err_t error = ESP_OK;
+    bool pending = false;
+};
+
 struct PowerManagementSnapshot : ComponentSnapshot {
     DeviceOperatingState state = DeviceOperatingState::Active;
     DeviceStateReason reason = DeviceStateReason::Startup;
@@ -864,6 +871,7 @@ struct PowerManagementSnapshot : ComponentSnapshot {
     uint32_t transition_sequence = 0;
     int64_t last_activity_at_us = 0;
     int64_t changed_at_us = 0;
+    FactoryResetObservation factory_reset{};
 };
 
 struct MemorySnapshot : ComponentSnapshot {
@@ -1390,7 +1398,7 @@ public:
     // drift: Historical measurement made before correcting RTC against trusted UTC.
     esp_err_t reportRtcDrift(const RtcDriftSnapshot &drift);
     void reportInputs(const InputSnapshot &inputs);
-    void reportPowerManagement(
+    esp_err_t reportPowerManagement(
         DeviceOperatingState state,
         DeviceStateReason reason,
         bool audio_suspended,
@@ -1405,7 +1413,8 @@ public:
         uint32_t screen_idle_timeout_seconds,
         uint32_t transition_sequence,
         int64_t last_activity_at_us,
-        esp_err_t error
+        esp_err_t error,
+        FactoryResetObservation factory_reset
     );
 
 private:

@@ -31,6 +31,7 @@ SETUP_AMBER = (255, 183, 74)
 SETUP_AMBER_FIELD = (54, 36, 14)
 CONTROL_PALETTE = ((16, 40, 58), (8, 24, 33), (41, 105, 123), (140, 226, 239))
 SECONDARY_CONTROL_PALETTE = ((25, 28, 41), (16, 20, 25), (74, 81, 99), (189, 190, 189))
+DESTRUCTIVE_CONTROL_PALETTE = ((41, 20, 33), (24, 16, 24), (123, 45, 90), (239, 170, 156))
 OPTIONS_TITLE_TOP = 82
 OPTIONS_ROW_TOP = 130
 OPTIONS_ROW_STEP = 80
@@ -273,14 +274,12 @@ class DeviceStudioWindow:
 
     def __init__(self, root, args):
         self.root = root
+        self.restore_preview_defaults()
         self.rotation = args.rotation
         self.safe_guide = args.safe_guide
         self.endpoint = None
         self.events = None
         self.source_error = ""
-        self.boot_error = ""
-        self.boot = None
-        self.boot_frame = None
         self.route = WifiSetupRoute.OFFLINE
         self.guide_return = WifiSetupRoute.NOT_CONNECTED
         self.pairing_return = WifiSetupRoute.PHONE_GUIDE
@@ -288,11 +287,7 @@ class DeviceStudioWindow:
         self.page = 0
         self.options_page = 0
         self.settings_page = 0
-        self.history_window = 1
-        self.visible = set(PAGES)
         self.standby = False
-        self.brightness = 100
-        self.shake_to_wake = False
         self.touch = None
         self.event_visible = False
         self.targets = {}
@@ -317,14 +312,7 @@ class DeviceStudioWindow:
                 endpoint.close()
                 self.source_error = str(error)
 
-        project = Path(__file__).resolve().parents[2]
-        try:
-            manifest = project / "assets/branding/VibeWare/generated/manifest.json"
-            self.boot_cycle_ms = json.loads(manifest.read_text(encoding="utf-8"))["cycle_duration_ms"]
-            self.boot = VibeWareBoot(project, cody_companion=True)
-            self.boot_started_at = time.monotonic()
-        except (OSError, RuntimeError, ValueError, AttributeError, KeyError) as error:
-            self.boot_error = f"VibeWare boot unavailable: {error}"
+        self.start_boot()
 
         colors = install_theme(root)
         root.title("Cody Studio / SIMULATED device")
@@ -348,6 +336,27 @@ class DeviceStudioWindow:
         root.bind("<Escape>", lambda _: self.back())
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.tick()
+
+    # self: Preview window loading the same visible defaults at startup and after reset.
+    def restore_preview_defaults(self):
+        self.rotation = 0
+        self.history_window = 1
+        self.visible = set(PAGES)
+        self.brightness = 100
+        self.shake_to_wake = False
+
+    # self: Preview window playing the standard startup animation.
+    def start_boot(self):
+        self.boot = self.boot_frame = None
+        self.boot_error = ""
+        project = Path(__file__).resolve().parents[2]
+        try:
+            manifest = project / "assets/branding/VibeWare/generated/manifest.json"
+            self.boot_cycle_ms = json.loads(manifest.read_text(encoding="utf-8"))["cycle_duration_ms"]
+            self.boot = VibeWareBoot(project, cody_companion=True)
+            self.boot_started_at = time.monotonic()
+        except (OSError, RuntimeError, ValueError, AttributeError, KeyError) as error:
+            self.boot_error = f"VibeWare boot unavailable: {error}"
 
     def observe(self):
         return self.endpoint.observe() if self.endpoint else (SimulatorSnapshot(), "")
@@ -410,7 +419,7 @@ class DeviceStudioWindow:
     # self: Active Studio preview returning to the calling route or menu page.
     def back(self):
         if self.boot is None and not self.standby and not self.event_visible:
-            if self.route in ("visibility", "connections", "display", "behavior"):
+            if self.route in ("visibility", "connections", "display", "behavior", "factory_reset"):
                 self.show_options_page(self.options_page)
             elif self.route is WifiSetupRoute.PHONE_GUIDE:
                 self.open(self.guide_return)
@@ -441,6 +450,23 @@ class DeviceStudioWindow:
     def forget(self):
         if messagebox.askyesno("Forget SIMULATED pairing", "Forget the saved link?", parent=self.root):
             self.endpoint.act("forget", True)
+
+    # self: The confirmed reset owns only this Studio window and its isolated store.
+    # Raises the original endpoint or storage failure before resetting the preview.
+    def reset_device(self):
+        if self.endpoint is not None:
+            events = EventView()
+            self.endpoint.act("factory_reset", True)
+            self.events = events
+        self.restore_preview_defaults()
+        self.page = self.settings_page = self.options_page = 0
+        self.pairing_attempted = self.event_visible = False
+        self.guide_return = WifiSetupRoute.NOT_CONNECTED
+        self.pairing_return = WifiSetupRoute.PHONE_GUIDE
+        self.acknowledged = ()
+        self.started_at = time.monotonic()
+        self.open(WifiSetupRoute.NOT_CONNECTED)
+        self.start_boot()
 
     def open_statistics(self):
         self.page = next((index for index, page in enumerate(PAGES) if index and page in self.visible), 0)
@@ -476,12 +502,14 @@ class DeviceStudioWindow:
     # width: Complete hit width in logical pixels.
     # height: Complete hit height in logical pixels.
     # secondary: Use the neutral gradient for a dismiss or postpone action.
+    # destructive: Use the confirmation palette for an irreversible local action.
     # icon: Optional outline icon next to the caption.
     # caption_size: Font size chosen for the complete target.
     def button(self, draw, name, top, action, *, width=246, height=38, secondary=False,
-               icon=None, caption_size=17):
+               destructive=False, icon=None, caption_size=17):
         box = (CENTER - width // 2, top, CENTER + width // 2, top + height)
-        palette = SECONDARY_CONTROL_PALETTE if secondary else CONTROL_PALETTE
+        palette = DESTRUCTIVE_CONTROL_PALETTE if destructive else (
+            SECONDARY_CONTROL_PALETTE if secondary else CONTROL_PALETTE)
         color = FOREGROUND if action else MUTED
         draw_control_pill(draw, box, palette)
         caption_x = CENTER
@@ -612,6 +640,7 @@ class DeviceStudioWindow:
             rows = (
                 ("Display", lambda: self.open("display")),
                 ("Behavior", lambda: self.open("behavior")),
+                ("Factory reset", lambda: self.open("factory_reset")),
             )
         self.draw_option_rows(draw, rows)
         self.button(draw, "Go home", 382, self.open_statistics, width=220, height=52,
@@ -622,6 +651,18 @@ class DeviceStudioWindow:
             if self.options_page == 0:
                 next_page = (lambda: self.show_options_page(1)) if opacity == 1 else None
                 self.sidebar(draw, 1, next_page, opacity)
+
+    # self: Studio preview routing cancellation or an explicit reset to its owner.
+    # draw: Logical canvas before rotation.
+    def draw_factory_reset(self, draw):
+        label(draw, "Factory reset", OPTIONS_TITLE_TOP, 34)
+        label(draw, "Clear Wi-Fi, Codex", 155, 17, MUTED)
+        label(draw, "link and preferences.", 184, 17, MUTED)
+        label(draw, "Restart with defaults", 213, 17, MUTED)
+        self.button(draw, "Cancel", 270, self.back, width=280, height=64, secondary=True, caption_size=20)
+        self.button(draw, "Reset device", 382, self.reset_device, width=220, height=52,
+                    destructive=True, caption_size=20)
+        self.sidebar(draw, -1, self.back)
 
     def open_about_url(self):
         if not webbrowser.open_new_tab(ABOUT_URL):
@@ -708,6 +749,8 @@ class DeviceStudioWindow:
                 self.draw_connections(draw, snapshot, code)
             elif self.route == "options":
                 self.draw_options(draw, now)
+            elif self.route == "factory_reset":
+                self.draw_factory_reset(draw)
             elif self.route == "visibility":
                 label(draw, "Visible screens", 103, 32)
                 name = PAGES[self.settings_page]

@@ -211,6 +211,13 @@ esp_err_t DeviceSnapshotService::readCodyOptionsObservation(CodyOptionsObservati
     unexpected_owner(__func__);
 }
 
+// Unnamed power: The event fixture cannot observe a physical reset.
+// Exception: Aborts on a cross-feature read.
+esp_err_t DeviceSnapshotService::readPowerState(PowerManagementSnapshot &) const
+{
+    unexpected_owner(__func__);
+}
+
 // Unnamed observation: Questions are supplied explicitly to the presenter under test.
 // Exception: Aborts instead of reading or replacing the canonical snapshot.
 esp_err_t DeviceSnapshotService::readCodexEventObservation(CodexEventSnapshot &) const
@@ -241,6 +248,13 @@ esp_err_t DeviceSnapshotService::reportCharacterLookSave(const CharacterLookSave
 // Unnamed seconds: No physical device standby policy is changed.
 // Exception: Aborts instead of reporting hardware success.
 extern "C" esp_err_t LUNASHELL_power_manager_set_scene_standby_override(uint32_t)
+{
+    unexpected_owner(__func__);
+}
+
+// Unnamed request ID: The event fixture cannot admit a factory reset.
+// Exception: Aborts on a cross-feature action.
+extern "C" esp_err_t LUNASHELL_power_manager_request_factory_reset(uint32_t *)
 {
     unexpected_owner(__func__);
 }

@@ -115,6 +115,14 @@ extern "C" esp_err_t LUNASHELL_power_manager_request_codex_factory_reset(void)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+// request_id: Untouched because this profile excludes the power owner.
+// Exception: Always returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t LUNASHELL_power_manager_request_factory_reset(uint32_t *request_id)
+{
+    (void)request_id;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 // seconds: Unsupported transient override in a profile without the power owner.
 // Exception: Always returns ESP_ERR_NOT_SUPPORTED for this excluded feature.
 extern "C" esp_err_t LUNASHELL_power_manager_set_scene_standby_override(uint32_t seconds)
