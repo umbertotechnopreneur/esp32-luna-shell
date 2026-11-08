@@ -736,6 +736,11 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             bool reconnect = false;
             uint32_t delay_ms = 0;
             wifi_lock();
+            const bool was_associated = s_status.connected;
+            const bool had_ip = s_status.ip_acquired;
+            const auto previous_channel = s_status.channel;
+            const bool connection_requested = s_connect_requested;
+            const bool provisioning = s_provisioning_owns_connection;
             s_status.connected = false;
             s_status.ip_acquired = false;
             s_status.rssi = 0;
@@ -750,7 +755,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             // The provisioning manager owns its five credential retries. A
             // second timer here would race that state machine and retry twice.
             const bool sealed = s_factory_reset_sealed.load(std::memory_order_acquire);
-            reconnect = s_connect_requested && !s_provisioning_owns_connection && !sealed;
+            reconnect = connection_requested && !provisioning && !sealed;
             if (!sealed) {
                 s_status.last_error = disconnected == nullptr
                     ? ESP_ERR_INVALID_RESPONSE : (reconnect ? ESP_ERR_WIFI_CONN : ESP_OK);
@@ -765,10 +770,22 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             }
             wifi_unlock();
             publish_snapshot();
-            ESP_LOGW(TAG, "Disconnected from %s, reason=%u, reconnect=%s in %lu ms",
-                     s_status.ssid[0] != '\0' ? s_status.ssid : "<unset>",
-                     disconnected != nullptr ? static_cast<unsigned>(disconnected->reason) : 0,
-                     reconnect ? "yes" : "no",
+            char reason[12] = "unavailable";
+            char signal[16] = "unavailable";
+            char channel[12] = "unavailable";
+            if (was_associated && previous_channel != 0) {
+                std::snprintf(channel, sizeof(channel), "%u", static_cast<unsigned>(previous_channel));
+            }
+            if (disconnected != nullptr) {
+                std::snprintf(reason, sizeof(reason), "%u", static_cast<unsigned>(disconnected->reason));
+                if (was_associated && disconnected->rssi < 0 && disconnected->rssi > -127) {
+                    std::snprintf(signal, sizeof(signal), "%d dBm", static_cast<int>(disconnected->rssi));
+                }
+            }
+            ESP_LOGW(TAG, "Station disconnected: reason=%s rssi=%s previous_channel=%s "
+                     "was_associated=%u had_ip=%u connect_requested=%u provisioning=%u reconnect=%s delay_ms=%lu",
+                     reason, signal, channel,
+                     was_associated, had_ip, connection_requested, provisioning, reconnect ? "yes" : "no",
                      static_cast<unsigned long>(delay_ms));
             if (reconnect) {
                 const esp_err_t schedule_error =

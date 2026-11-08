@@ -73,6 +73,7 @@ constexpr int64_t kDerivationSliceUs = 10000;
 constexpr int64_t kPairingWindowUs = 5LL * 60LL * 1000000LL;
 constexpr int64_t kFindIntervalUs = 2LL * 1000000LL;
 constexpr int64_t kReadyExpiryUs = 8LL * 1000000LL;
+constexpr uint32_t kUnansweredFindReportCount = 4;
 constexpr int64_t kActivationReplayUs = 10LL * 1000000LL;
 constexpr uint32_t kWorkerPollMs = LUNASHELL::voice_poll::kIdleMs;
 constexpr uint32_t kMaximumPacketsPerPass = 8;
@@ -139,6 +140,8 @@ int64_t s_activation_replay_until_us = 0;
 uint8_t s_find_nonce[16]{};
 int64_t s_next_find_at_us = 0;
 int64_t s_last_ready_at_us = 0;
+// Diagnostic count under s_mutex; a successful send only means the local socket accepted FIND.
+uint32_t s_finds_since_ready = 0;
 bool s_activity_received_for_nonce = false;
 bool s_technical_received_for_nonce = false;
 enum class WeeklyLimitExchange : uint8_t { Idle, Requested, Received };
@@ -582,6 +585,7 @@ void publishLocked(State state, esp_err_t error)
             error != ESP_OK ? error : ESP_ERR_INVALID_STATE);
     }
     if (state != State::Connected && state != State::Discovering) {
+        s_finds_since_ready = 0;
         s_link_snapshot.activity.data_valid = false;
         s_link_snapshot.activity.data_stale = s_link_snapshot.activity.last_success_at_us > 0;
         s_link_snapshot.activity.last_error = error != ESP_OK ? error : ESP_ERR_INVALID_STATE;
@@ -1705,6 +1709,13 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
             s_event_received_for_nonce = false;
             wipe(s_ready_nonce, sizeof(s_ready_nonce));
             s_next_find_at_us = esp_timer_get_time() + kFindIntervalUs;
+            if (s_finds_since_ready < UINT32_MAX) {
+                ++s_finds_since_ready;
+            }
+            if (s_last_ready_at_us == 0 && s_finds_since_ready == kUnansweredFindReportCount) {
+                ESP_LOGW(kTag, "CCP discovery awaiting authenticated READY: find_sent=%lu",
+                         static_cast<unsigned long>(s_finds_since_ready));
+            }
         } else {
             error = ESP_ERR_INVALID_STATE;
             ESP_LOGW(kTag, "CCP FIND completion retired by a newer command (%s)", esp_err_to_name(error));
@@ -1732,6 +1743,7 @@ void startDiscovery()
         return;
     }
     s_last_ready_at_us = 0;
+    s_finds_since_ready = 0;
     s_next_find_at_us = 0;
     s_link_snapshot.ready_at_us = 0;
     s_link_snapshot.peer_ip_address[0] = '\0';
@@ -2065,6 +2077,8 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                 }
                 if (error == ESP_OK) {
                     const bool newly_connected = s_link_snapshot.state != State::Connected;
+                    const uint32_t find_count = s_finds_since_ready;
+                    s_finds_since_ready = 0;
                     s_last_ready_at_us = esp_timer_get_time();
                     if (std::strcmp(s_ready_nonce, response.nonce) != 0) {
                         s_app_sequence = 0;
@@ -2120,7 +2134,8 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                         }
                     }
                     if (newly_connected) {
-                        ESP_LOGI(kTag, "CCP peer authenticated");
+                        ESP_LOGI(kTag, "CCP peer authenticated: find_sent=%lu",
+                                 static_cast<unsigned long>(find_count));
                     }
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
                     const esp_err_t debug_error = sendDebugCapabilityLocked(response, source);
@@ -4314,7 +4329,10 @@ void maintainState()
         if (s_pending == Command::None && s_link_snapshot.state == State::Connected &&
             s_last_ready_at_us == last_ready_at_us) {
             s_link_snapshot.peer_ip_address[0] = '\0';
-            ESP_LOGW(kTag, "CCP presence expired; retained pairing will reconnect (%s)",
+            ESP_LOGW(kTag, "CCP presence expired: last_ready_age_ms=%lld find_sent=%lu; "
+                     "retained pairing will reconnect (%s)",
+                     static_cast<long long>((now_us - last_ready_at_us) / 1000),
+                     static_cast<unsigned long>(s_finds_since_ready),
                      esp_err_to_name(ESP_ERR_TIMEOUT));
             publishLocked(State::Discovering, ESP_ERR_TIMEOUT);
         }
