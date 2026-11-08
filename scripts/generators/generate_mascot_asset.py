@@ -22,8 +22,8 @@ from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "assets/mascot/source/luna-idle-head.png"
-OUTPUT = ROOT / "assets/mascot/generated"
+SOURCE = ROOT / "cody-device/assets/mascot/source/luna-idle-head.png"
+OUTPUT = ROOT / "cody-device/assets/mascot/generated"
 SIZE = (170, 198)
 
 

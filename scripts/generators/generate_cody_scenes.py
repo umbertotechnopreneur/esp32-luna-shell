@@ -30,7 +30,7 @@ from scripts.common.cody_scene_contract import (SCENE_IDENTITIES, load_generated
                                                load_scenes, scene_source_hash)
 from scripts.common.cody_rig_types import FaceChannel
 
-OUTPUT = ROOT / "assets/cody/scenes/generated"
+OUTPUT = ROOT / "cody-device/assets/cody/scenes/generated"
 
 
 # value: Authored finite number emitted without losing a C++ float suffix.

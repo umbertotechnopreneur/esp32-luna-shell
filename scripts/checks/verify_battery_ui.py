@@ -27,12 +27,12 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CANONICAL_GUI = ROOT / "components/LUNASHELL_app/gui/root.json"
+CANONICAL_GUI = ROOT / "cody-device/components/LUNASHELL_app/gui/root.json"
 GENERATED_BATTERY = (
-    ROOT / "components/LUNASHELL_app/package/res/screen_battery.json"
+    ROOT / "cody-device/components/LUNASHELL_app/package/res/screen_battery.json"
 )
 POWER_METRIC_TEMPLATE = (
-    ROOT / "components/LUNASHELL_app/package/res/templates/LUNASHELL_power_metric.json"
+    ROOT / "cody-device/components/LUNASHELL_app/package/res/templates/LUNASHELL_power_metric.json"
 )
 
 
@@ -341,16 +341,16 @@ def verify_documents() -> None:
 # No parameters: inspect the current Battery route and bounded canonical BLE projection.
 # Raises OSError or AssertionError for missing sources or rejected Battery contracts.
 def verify_firmware_contract() -> None:
-    app = read("components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
-    app_header = read("components/LUNASHELL_app/include/LUNASHELL_app.hpp")
+    app = read("cody-device/components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
+    app_header = read("cody-device/components/LUNASHELL_app/include/LUNASHELL_app.hpp")
     app_documents = read(
-        "components/LUNASHELL_app/src/documents/LUNASHELL_app_documents.cpp"
+        "cody-device/components/LUNASHELL_app/src/documents/LUNASHELL_app_documents.cpp"
     )
     navigation = read(
-        "components/LUNASHELL_app/include/LUNASHELL_navigation_service.hpp"
+        "cody-device/components/LUNASHELL_app/include/LUNASHELL_navigation_service.hpp"
     )
-    status_bar = read("components/LUNASHELL_app/src/chrome/LUNASHELL_status_bar.cpp")
-    radios = read("components/LUNASHELL_platform/src/network/LUNASHELL_radios.cpp")
+    status_bar = read("cody-device/components/LUNASHELL_app/src/chrome/LUNASHELL_status_bar.cpp")
+    radios = read("cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_radios.cpp")
 
     require_regex(
         navigation,
@@ -770,7 +770,7 @@ def verify_firmware_contract() -> None:
 
 
 def verify_simulator_contract() -> None:
-    simulator = read("simulator/windows/LUNASHELL_simulator.py")
+    simulator = read("cody-device/simulator/windows/LUNASHELL_simulator.py")
     battery_demo = python_function_text(
         simulator,
         "    def show_battery_demo(",

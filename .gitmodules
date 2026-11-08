@@ -1,4 +1,4 @@
 [submodule "esp-brookesia"]
-	path = third_party/esp-brookesia
+	path = cody-device/third_party/esp-brookesia
 	url = https://github.com/umbertotechnopreneur/esp-brookesia.git
 	branch = master

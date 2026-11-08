@@ -1,6 +1,6 @@
 # Hardware API contract
 
-`components/LUNASHELL_platform` defines the shared consumer boundary without
+`cody-device/components/LUNASHELL_platform` defines the shared consumer boundary without
 depending on an application screen or route. Its implemented physical adapter
 is the Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS variant. The minimal graphical
 baseline admits display/touch and their required buses; the optional services

@@ -22,7 +22,7 @@ vehicle travel, or the desired future Cody context classes. No training is perfo
 - Runtime dependency is the official September 30, 2026 `v3.3.13` release,
   commit `6d3c4da1087d35916858dd0f9b3e9d6a85186e11`. Its supported
   [compile registration API](https://github.com/espressif/esp-dl/blob/v3.3.13/esp-dl/cmake/compile_register.cmake)
-  receives `components/LUNASHELL_platform/activity.compile_req.yml`: seven graph operators
+  receives `cody-device/components/LUNASHELL_platform/activity.compile_req.yml`: seven graph operators
   plus `RequantizeLinear` required by the application's `TensorBase::assign` calls,
   and four ESP32-S3 W8A16 convolution kernels. Both aligned and unaligned
   2x2 bias+ReLU convolutions and packed-MatMul 1x1 linear kernels are retained.

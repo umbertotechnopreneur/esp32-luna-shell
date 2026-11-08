@@ -300,14 +300,14 @@ def rate_limited_warning_emissions(
 # No parameters: verify distance geometry against the current acquisition and publication owners.
 # Raises the original source, fixture or semantic contract failure.
 def main() -> int:
-    driver = ROOT / "components/LUNASHELL_tof400f/include/LUNASHELL_tof400f.h"
-    driver_cmake = ROOT / "components/LUNASHELL_tof400f/CMakeLists.txt"
-    build_kconfig = ROOT / "main/Kconfig.projbuild"
-    service = ROOT / "components/LUNASHELL_platform/src/distance/LUNASHELL_distance_service.cpp"
-    snapshot = ROOT / "components/LUNASHELL_platform/include/LUNASHELL_device_snapshot.hpp"
-    hardware = ROOT / "components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp"
+    driver = ROOT / "cody-device/components/LUNASHELL_tof400f/include/LUNASHELL_tof400f.h"
+    driver_cmake = ROOT / "cody-device/components/LUNASHELL_tof400f/CMakeLists.txt"
+    build_kconfig = ROOT / "cody-device/main/Kconfig.projbuild"
+    service = ROOT / "cody-device/components/LUNASHELL_platform/src/distance/LUNASHELL_distance_service.cpp"
+    snapshot = ROOT / "cody-device/components/LUNASHELL_platform/include/LUNASHELL_device_snapshot.hpp"
+    hardware = ROOT / "cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp"
     sdkconfig_defaults = read_profile_defaults()
-    gui_root = ROOT / "components/LUNASHELL_app/gui/root.json"
+    gui_root = ROOT / "cody-device/components/LUNASHELL_app/gui/root.json"
 
     for fragment in (
         "#define LUNASHELL_TOF400F_SHARED_TX_GPIO 16",

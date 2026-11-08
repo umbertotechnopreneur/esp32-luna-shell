@@ -27,7 +27,7 @@ import sys
 # Raises OSError or ValueError when the canonical authoring/assets cannot be loaded.
 def compare_personality_fixture(root, fixture):
     repository = Path(root).resolve()
-    for directory in (repository, repository / "simulator/windows"):
+    for directory in (repository, repository / "cody-device/simulator/windows"):
         path = str(directory)
         if path not in sys.path:
             sys.path.insert(0, path)

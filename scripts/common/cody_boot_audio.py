@@ -31,7 +31,7 @@ from scripts.common.asset_provenance import text_source_hash
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SELECTION = ROOT / "assets/cody/audio/boot-hello/source-selection.json"
+SELECTION = ROOT / "cody-device/assets/cody/audio/boot-hello/source-selection.json"
 SAMPLE_RATE = 22050
 
 

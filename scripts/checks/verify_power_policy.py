@@ -44,54 +44,54 @@ from scripts.common.cody_native_checks import compile_command, resolve_compiler,
 
 
 ROOT = Path(__file__).resolve().parents[2]
-POWER_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "src" / "power" / "LUNASHELL_power.cpp"
-HARDWARE_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "src" / "snapshot" / "LUNASHELL_hardware.cpp"
+POWER_SOURCE = ROOT / "cody-device/components" / "LUNASHELL_platform" / "src" / "power" / "LUNASHELL_power.cpp"
+HARDWARE_SOURCE = ROOT / "cody-device/components" / "LUNASHELL_platform" / "src" / "snapshot" / "LUNASHELL_hardware.cpp"
 PLATFORM_HEADER = (
-    ROOT / "components" / "LUNASHELL_platform" / "include" / "LUNASHELL_platform.h"
+    ROOT / "cody-device/components" / "LUNASHELL_platform" / "include" / "LUNASHELL_platform.h"
 )
 DEVICE_SNAPSHOT_HEADER = (
     ROOT
-    / "components"
+    / "cody-device/components"
     / "LUNASHELL_platform"
     / "include"
     / "LUNASHELL_device_snapshot.hpp"
 )
-HTTP_JSON_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "src" / "http" / "LUNASHELL_http_json.cpp"
+HTTP_JSON_SOURCE = ROOT / "cody-device/components" / "LUNASHELL_platform" / "src" / "http" / "LUNASHELL_http_json.cpp"
 DISPLAY_SOURCE = (
-    ROOT / "components" / "LUNASHELL_platform" / "src" / "display" / "LUNASHELL_display_settings.cpp"
+    ROOT / "cody-device/components" / "LUNASHELL_platform" / "src" / "display" / "LUNASHELL_display_settings.cpp"
 )
 BSP_DISPLAY_SOURCE = (
     ROOT
-    / "components"
+    / "cody-device/components"
     / "esp32_s3_touch_amoled_1_75"
     / "esp32_s3_touch_amoled_1_75.c"
 )
 BSP_DISPLAY_HEADER = (
     ROOT
-    / "components"
+    / "cody-device/components"
     / "esp32_s3_touch_amoled_1_75"
     / "include"
     / "bsp"
     / "display.h"
 )
 BSP_DISPLAY_CMAKE = (
-    ROOT / "components" / "esp32_s3_touch_amoled_1_75" / "CMakeLists.txt"
+    ROOT / "cody-device/components" / "esp32_s3_touch_amoled_1_75" / "CMakeLists.txt"
 )
 ADAPTER_PAUSE_PATCH = (
     ROOT
-    / "components"
+    / "cody-device/components"
     / "esp32_s3_touch_amoled_1_75"
     / "patches"
     / "esp_lvgl_adapter_pause_recovery.patch"
 )
-APP_SOURCE = ROOT / "components" / "LUNASHELL_app" / "src" / "runtime" / "LUNASHELL_app.cpp"
-APP_HEADER = ROOT / "components" / "LUNASHELL_app" / "include" / "LUNASHELL_app.hpp"
+APP_SOURCE = ROOT / "cody-device/components" / "LUNASHELL_app" / "src" / "runtime" / "LUNASHELL_app.cpp"
+APP_HEADER = ROOT / "cody-device/components" / "LUNASHELL_app" / "include" / "LUNASHELL_app.hpp"
 SETTINGS_SCREEN = (
-    ROOT / "components" / "LUNASHELL_app" / "package" / "res" / "screen_settings.json"
+    ROOT / "cody-device/components" / "LUNASHELL_app" / "package" / "res" / "screen_settings.json"
 )
 SETTINGS_SWITCH = (
     ROOT
-    / "components"
+    / "cody-device/components"
     / "LUNASHELL_app"
     / "package"
     / "res"
@@ -99,14 +99,14 @@ SETTINGS_SWITCH = (
     / "LUNASHELL_settings_switch.json"
 )
 ADAPTIVE_CHROME_SOURCE = (
-    ROOT / "components" / "LUNASHELL_app" / "src" / "chrome" / "LUNASHELL_adaptive_chrome.cpp"
+    ROOT / "cody-device/components" / "LUNASHELL_app" / "src" / "chrome" / "LUNASHELL_adaptive_chrome.cpp"
 )
 ADAPTIVE_COMMAND_SOURCE = (
-    ROOT / "components" / "LUNASHELL_app" / "src" / "chrome" / "LUNASHELL_adaptive_command_bar.cpp"
+    ROOT / "cody-device/components" / "LUNASHELL_app" / "src" / "chrome" / "LUNASHELL_adaptive_command_bar.cpp"
 )
 BROOKESIA_GUI_SOURCE = (
     ROOT
-    / "third_party"
+    / "cody-device/third_party"
     / "esp-brookesia"
     / "system"
     / "brookesia_system_core"
@@ -116,7 +116,7 @@ BROOKESIA_GUI_SOURCE = (
 )
 BROOKESIA_GUI_RUNTIME_HEADER = (
     ROOT
-    / "third_party"
+    / "cody-device/third_party"
     / "esp-brookesia"
     / "system"
     / "brookesia_system_core"
@@ -128,7 +128,7 @@ BROOKESIA_GUI_RUNTIME_HEADER = (
 )
 BROOKESIA_APP_MANAGER_SOURCE = (
     ROOT
-    / "third_party"
+    / "cody-device/third_party"
     / "esp-brookesia"
     / "system"
     / "brookesia_system_core"
@@ -138,7 +138,7 @@ BROOKESIA_APP_MANAGER_SOURCE = (
 )
 BROOKESIA_TASK_SOURCE = (
     ROOT
-    / "third_party"
+    / "cody-device/third_party"
     / "esp-brookesia"
     / "system"
     / "brookesia_system_core"
@@ -148,7 +148,7 @@ BROOKESIA_TASK_SOURCE = (
 )
 BROOKESIA_IMPL_HEADER = (
     ROOT
-    / "third_party"
+    / "cody-device/third_party"
     / "esp-brookesia"
     / "system"
     / "brookesia_system_core"
@@ -157,22 +157,22 @@ BROOKESIA_IMPL_HEADER = (
     / "system"
     / "impl.hpp"
 )
-AUDIO_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "src" / "audio" / "LUNASHELL_audio.cpp"
+AUDIO_SOURCE = ROOT / "cody-device/components" / "LUNASHELL_platform" / "src" / "audio" / "LUNASHELL_audio.cpp"
 VOICE_AFE_SOURCE = (
-    ROOT / "components" / "LUNASHELL_platform" / "src" / "audio" / "LUNASHELL_voice_afe.cpp"
+    ROOT / "cody-device/components" / "LUNASHELL_platform" / "src" / "audio" / "LUNASHELL_voice_afe.cpp"
 )
-LOGGER_SOURCE = ROOT / "components" / "LUNASHELL_logger" / "src" / "LUNASHELL_logger.c"
+LOGGER_SOURCE = ROOT / "cody-device/components" / "LUNASHELL_logger" / "src" / "LUNASHELL_logger.c"
 SNAPSHOT_SOURCE = (
-    ROOT / "components" / "LUNASHELL_platform" / "src" / "snapshot" / "LUNASHELL_snapshot_scheduler.cpp"
+    ROOT / "cody-device/components" / "LUNASHELL_platform" / "src" / "snapshot" / "LUNASHELL_snapshot_scheduler.cpp"
 )
 DISTANCE_SOURCE = (
-    ROOT / "components" / "LUNASHELL_platform" / "src" / "distance" / "LUNASHELL_distance_service.cpp"
+    ROOT / "cody-device/components" / "LUNASHELL_platform" / "src" / "distance" / "LUNASHELL_distance_service.cpp"
 )
 DISTANCE_STUB_SOURCE = (
-    ROOT / "components" / "LUNASHELL_platform" / "src" / "distance" / "LUNASHELL_distance_service_stub.cpp"
+    ROOT / "cody-device/components" / "LUNASHELL_platform" / "src" / "distance" / "LUNASHELL_distance_service_stub.cpp"
 )
-STORAGE_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "src" / "storage" / "LUNASHELL_storage.cpp"
-PLATFORM_CMAKE = ROOT / "components" / "LUNASHELL_platform" / "CMakeLists.txt"
+STORAGE_SOURCE = ROOT / "cody-device/components" / "LUNASHELL_platform" / "src" / "storage" / "LUNASHELL_storage.cpp"
+PLATFORM_CMAKE = ROOT / "cody-device/components" / "LUNASHELL_platform" / "CMakeLists.txt"
 
 PKEY_SHORT_IRQ = 1 << 0
 PKEY_LONG_IRQ = 1 << 1
@@ -1006,7 +1006,7 @@ def verify_transaction_fault_injection() -> None:
 # Exception: Raises AssertionError or the original source-read error on a broken contract.
 def verify_source_contracts() -> None:
     power = read(POWER_SOURCE)
-    shared_standby = read(ROOT / "components/LUNASHELL_platform/include/LUNASHELL_standby_transition.hpp")
+    shared_standby = read(ROOT / "cody-device/components/LUNASHELL_platform/include/LUNASHELL_standby_transition.hpp")
     hardware = read(HARDWARE_SOURCE)
     pmu_owner = read(HARDWARE_SOURCE.parent / "LUNASHELL_acquisition_pmu.cpp")
     rtc_owner = read(HARDWARE_SOURCE.parent / "LUNASHELL_acquisition_rtc.cpp")
@@ -2678,7 +2678,7 @@ def verify_source_contracts() -> None:
         r"MALLOC_CAP_SPIRAM\s*\|\s*MALLOC_CAP_8BIT",
         "only activity-enabled acquisition pins the PSRAM-stack monitor to its declared core",
     )
-    affinity = read(ROOT / "components/LUNASHELL_platform/include/LUNASHELL_task_affinity.hpp")
+    affinity = read(ROOT / "cody-device/components/LUNASHELL_platform/include/LUNASHELL_task_affinity.hpp")
     require_contains(affinity, "kActivityAcquisitionCoreId != kVoiceCoreId",
                      "activity acquisition must retain its compile-time voice-core isolation")
     require_contains(affinity, '#error "Activity acquisition requires dual cores"',
@@ -2798,8 +2798,8 @@ def verify_native_owner(compiler: str | None) -> None:
         (output / filename).write_text(declaration + ";\n", encoding="utf-8")
     executable = output / "power-owner-contract.exe"
     command = compile_command(resolve_compiler(compiler),
-        ("scripts/tests/cody_native", "components/LUNASHELL_platform/include",
-         "components/LUNASHELL_logger/include", str(output)),
+        ("scripts/tests/cody_native", "cody-device/components/LUNASHELL_platform/include",
+         "cody-device/components/LUNASHELL_logger/include", str(output)),
         ("scripts/tests/cody_native/power_owner_contract.cpp",), executable,
         definitions=("CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION=1",
                      "CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX=1",

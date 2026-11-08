@@ -126,18 +126,18 @@ def decode_retained_point(
 # No parameters: review storage ownership and optional, best-effort logging contracts.
 # Raises AssertionError or OSError when a required contract/source is unavailable.
 def main() -> int:
-    logger = read("components/LUNASHELL_logger/src/LUNASHELL_logger.c")
+    logger = read("cody-device/components/LUNASHELL_logger/src/LUNASHELL_logger.c")
     logger_header = read(
-        "components/LUNASHELL_logger/include/LUNASHELL_logger.h"
+        "cody-device/components/LUNASHELL_logger/include/LUNASHELL_logger.h"
     )
-    storage = read("components/LUNASHELL_platform/src/storage/LUNASHELL_storage.cpp")
+    storage = read("cody-device/components/LUNASHELL_platform/src/storage/LUNASHELL_storage.cpp")
     platform_header = read(
-        "components/LUNASHELL_platform/include/LUNASHELL_platform.h"
+        "cody-device/components/LUNASHELL_platform/include/LUNASHELL_platform.h"
     )
-    app = read("components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
-    liveness = read("components/LUNASHELL_platform/src/runtime/LUNASHELL_liveness.cpp")
+    app = read("cody-device/components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
+    liveness = read("cody-device/components/LUNASHELL_platform/src/runtime/LUNASHELL_liveness.cpp")
     liveness_header = read(
-        "components/LUNASHELL_platform/include/LUNASHELL_liveness.h"
+        "cody-device/components/LUNASHELL_platform/include/LUNASHELL_liveness.h"
     )
 
     for point, name in (
@@ -287,13 +287,13 @@ def main() -> int:
     for signature in ("esp_err_t logger_watch_begin(", "esp_err_t logger_watch_end("):
         watch = function_text(storage, signature, "optional logger I/O")
         require("LUNASHELL_liveness_" not in watch, "logger I/O must not reset the device through TWDT")
-    for entry in ("main/main.cpp", "main/main_headless.cpp"):
+    for entry in ("cody-device/main/main.cpp", "cody-device/main/main_headless.cpp"):
         startup = read(entry)
         require("ESP_ERROR_CHECK(LUNASHELL_logger_init())" not in startup,
                 f"optional logger startup must not abort {entry}")
         require_contains(startup, "LUNASHELL_logger_finish_boot_capture()", entry)
-    snapshot_source = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp")
-    snapshot_reports = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_reports.cpp")
+    snapshot_source = read("cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp")
+    snapshot_reports = read("cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_reports.cpp")
     capture_report = function_text(
         snapshot_reports, "esp_err_t DeviceSnapshotService::reportLoggerCapture(", "optional capture report"
     )

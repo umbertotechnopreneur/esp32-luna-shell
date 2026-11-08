@@ -34,8 +34,8 @@ from scripts.common.firmware_profile import read_profile_defaults
 
 
 ROOT = Path(__file__).resolve().parents[2]
-BROOKESIA = ROOT / "third_party" / "esp-brookesia"
-APP_COMPONENT = ROOT / "components" / "LUNASHELL_app"
+BROOKESIA = ROOT / "cody-device/third_party" / "esp-brookesia"
+APP_COMPONENT = ROOT / "cody-device/components" / "LUNASHELL_app"
 RUNTIME_PACKAGE = APP_COMPONENT / "package"
 PROFILE_DEFAULTS_LABEL = "full profile defaults"
 
@@ -254,7 +254,7 @@ def main() -> int:
         / "gui"
         / "brookesia_gui_interface"
         / "test_apps"
-        / "main"
+        / "cody-device/main"
         / "test_gui_interface.cpp"
     )
     props = read(
@@ -663,7 +663,7 @@ def main() -> int:
     ):
         require_contains(app_documents, fragment, "Leg native monospace font")
     leg_defaults = read(
-        ROOT / "config/sdkconfig/v1/profiles/leg-edition.defaults"
+        ROOT / "cody-device/config/sdkconfig/v1/profiles/leg-edition.defaults"
     )
     require(
         "CONFIG_LV_FONT_UNSCII_16=y" in leg_defaults.splitlines(),

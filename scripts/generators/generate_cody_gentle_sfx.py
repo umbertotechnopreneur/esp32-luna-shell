@@ -31,7 +31,7 @@ import wave
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SELECTION_PATH = ROOT / "assets/cody/audio/gentle-sfx/source-selection.json"
+SELECTION_PATH = ROOT / "cody-device/assets/cody/audio/gentle-sfx/source-selection.json"
 OUTPUT_ROOT = ROOT / "artifacts/audio/cody-gentle-sfx"
 SAMPLE_RATE = 16000
 

@@ -32,7 +32,7 @@ from reportlab.pdfgen import canvas
 ROOT = Path(__file__).resolve().parents[2]
 ATLAS = Path(r"C:/Users/umber/OneDrive/Obsidian/30_Engineering/Products/Cody Companion/atlas")
 OUTPUT = ROOT / "artifacts/pdf-review/cody-idle-2026-10-05"
-SKIN = ROOT / "assets/cody/appearance/jelly-scanline/skins/cody_skin_azure_lilac_gradient_v1.png"
+SKIN = ROOT / "cody-device/assets/cody/appearance/jelly-scanline/skins/cody_skin_azure_lilac_gradient_v1.png"
 W, H = landscape(A4)
 INK = "#142737"
 MUTED = "#536776"

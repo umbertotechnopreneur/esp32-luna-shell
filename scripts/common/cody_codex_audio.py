@@ -25,7 +25,7 @@ import re
 from scripts.common.asset_provenance import text_source_hash
 
 ROOT = Path(__file__).resolve().parents[2]
-SELECTION = ROOT / "assets/cody/audio/codex-actions/source-selection.json"
+SELECTION = ROOT / "cody-device/assets/cody/audio/codex-actions/source-selection.json"
 GENERATED = SELECTION.parent / "generated"
 BOOT_IDENTITY = "boot-rise"
 

@@ -23,7 +23,7 @@ $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $ProjectRoot 'scripts/common/BuildMode.ps1')
 . (Join-Path $ProjectRoot 'scripts/common/Artifacts.ps1')
 . (Join-Path $ProjectRoot 'scripts/common/FirmwareBuildMetadata.ps1')
-$catalog = Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot 'config/sdkconfig/v1/catalog.json') |
+$catalog = Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot 'cody-device/config/sdkconfig/v1/catalog.json') |
     ConvertFrom-Json -Depth 20
 
 # Operation is the actual selection/configuration action expected to fail.

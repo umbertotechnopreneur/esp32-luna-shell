@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / "scripts/common"))
 DOCS = ROOT / "docs/cody"
 STAGING = ROOT / "artifacts/docs/frontmatter"
 MIRROR = Path("C:/Users/umber/OneDrive/Obsidian/30_Engineering/Products/Cody Companion/atlas")
-LOGO = ROOT / "simulator/windows/assets/branding/vibeware-logo.png"
+LOGO = ROOT / "cody-device/simulator/windows/assets/branding/vibeware-logo.png"
 PREFIX = "CodyFrontmatter/"
 CATALOG = {
     "cody-ccp-connection-atlas-v1.pdf": ("CCP Communication Atlas", "A visual guide to pairing, replies and voice", [(1,"System map"),(2,"Setup"),(3,"Pairing"),(4,"Everyday work"),(5,"Questions"),(6,"Recording"),(7,"Audio delivery"),(8,"Available operations"),(9,"Diagnosis"),(10,"Sources and evidence")]),

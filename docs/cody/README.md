@@ -15,9 +15,9 @@ persistence, power and authenticated transport.
 | Power and standby | [Power management](../bsp/services/power-management.md) |
 | Native display transfers | [Display and touch runtime](../bsp/core/display-touch-runtime.md) |
 
-Installation and PC operation belong to the [CCP guide](../../plugins/cody-codex-plugin/README.md).
-Packet formats and authentication belong to [CCP1](../../plugins/cody-codex-plugin/protocol/CCP1.md).
-Windows controls and synthetic scenarios belong to the [simulator guide](../../simulator/windows/README.md).
+Installation and PC operation belong to the [CCP guide](../../cody-desktop/plugins/cody-codex-plugin/README.md).
+Packet formats and authentication belong to [CCP1](../../cody-desktop/plugins/cody-codex-plugin/protocol/CCP1.md).
+Windows controls and synthetic scenarios belong to the [simulator guide](../../cody-device/simulator/windows/README.md).
 Use the [A4 navigation map](device-navigation-map-a4.pdf) for the device-first
 firmware. The [illustrated atlases](../README.md) also include character design
 material used in Studio.
@@ -48,7 +48,7 @@ prototype; they are not an internal-flash logging fallback on 1.75C.
 Consumers read canonical projections with validity, original timestamps and real
 errors. Only acquisition owners read hardware. Shared contracts are in
 [BSP](../bsp/README.md); source ownership is in the
-[component README](../../components/CODY_companion/README.md).
+[component README](../../cody-device/components/CODY_companion/README.md).
 
 ## Independence and trademarks
 

@@ -69,7 +69,7 @@ def load_json(relative_path: str) -> Any:
 
 
 def main() -> int:
-    kconfig = read("main/Kconfig.projbuild")
+    kconfig = read("cody-device/main/Kconfig.projbuild")
     enable_match = re.search(
         r"(?ms)^config LUNASHELL_BUILD_ENABLE_DISTANCE\n"
         r"(?P<body>.*?)(?=^(?:choice|config|menu|endmenu)\b)",
@@ -122,7 +122,7 @@ def main() -> int:
         "distance overlay must select the dual-UART TOF400F driver",
     )
 
-    platform_cmake = read("components/LUNASHELL_platform/CMakeLists.txt")
+    platform_cmake = read("cody-device/components/LUNASHELL_platform/CMakeLists.txt")
     require(
         '"src/distance/LUNASHELL_distance_service.cpp"' in platform_cmake
         and '"src/distance/LUNASHELL_distance_service_stub.cpp"' in platform_cmake,
@@ -139,7 +139,7 @@ def main() -> int:
         "the full distance service must use a private LUNASHELL_tof400f dependency",
     )
 
-    hardware = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp")
+    hardware = read("cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp")
     require(
         "#if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && "
         "CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART"
@@ -152,7 +152,7 @@ def main() -> int:
         "disabled or driverless distance must be explicitly unavailable",
     )
 
-    app_cmake = read("components/LUNASHELL_app/CMakeLists.txt")
+    app_cmake = read("cody-device/components/LUNASHELL_app/CMakeLists.txt")
     for required in (
         "CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART",
         "screen_tof.json",
@@ -208,7 +208,7 @@ def main() -> int:
             "staged JSON must be minified only after profile variants are filtered",
         )
 
-    project_cmake = read("CMakeLists.txt")
+    project_cmake = read("cody-device/CMakeLists.txt")
     require(
         re.search(
             r"add_dependencies\(\s*"
@@ -235,10 +235,10 @@ def main() -> int:
     )
 
     canonical_hardware = load_json(
-        "components/LUNASHELL_app/package/res/screen_hardware.json"
+        "cody-device/components/LUNASHELL_app/package/res/screen_hardware.json"
     )
     disabled_hardware = load_json(
-        "components/LUNASHELL_app/package/res/.variants/"
+        "cody-device/components/LUNASHELL_app/package/res/.variants/"
         "distance_disabled/screen_hardware.json"
     )
     require(
@@ -251,9 +251,9 @@ def main() -> int:
     )
 
     for relative_path in (
-        "components/LUNASHELL_app/package/res/screen_tof.json",
-        "components/LUNASHELL_app/package/res/screen_tof_settings.json",
-        "components/LUNASHELL_app/package/res/templates/LUNASHELL_settings_slider.json",
+        "cody-device/components/LUNASHELL_app/package/res/screen_tof.json",
+        "cody-device/components/LUNASHELL_app/package/res/screen_tof_settings.json",
+        "cody-device/components/LUNASHELL_app/package/res/templates/LUNASHELL_settings_slider.json",
     ):
         require(
             (REPO_ROOT / relative_path).is_file(),

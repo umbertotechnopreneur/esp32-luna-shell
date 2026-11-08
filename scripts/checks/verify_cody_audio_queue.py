@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "plugins/cody-codex-plugin/mcp"))
+sys.path.insert(0, str(ROOT / "cody-desktop/plugins/cody-codex-plugin/mcp"))
 from ccp_audio_queue import NativeInputRejected, NativeInputUnconfirmed, PublicAudioQueue, MAX_RESPONSE_BYTES
 import ccp_voice_input as audio
 

@@ -37,7 +37,7 @@ from scripts.common.cody_native_checks import compile_command, resolve_compiler,
 # No parameters: inspect only versioned model-notice inputs and outputs, without audio playback or regeneration.
 # Raises original read/format errors or AssertionError for stale provenance, payload divergence or unsafe audio.
 def check_model_cost_audio() -> dict:
-    assets = ROOT / "assets/cody/audio/model-cost"
+    assets = ROOT / "cody-device/assets/cody/audio/model-cost"
     generated = assets / "generated"
     selection = json.loads((assets / "source-selection.json").read_text(encoding="utf-8"))
     manifest = json.loads((generated / "manifest.json").read_text(encoding="utf-8"))
@@ -152,39 +152,39 @@ def main(argv=None) -> None:
         report["model_cost_audio"] = check_model_cost_audio()
         compiler = resolve_compiler(args.compiler)
         executable = output / "raster-contract.exe"
-        include_dirs = ("scripts/tests/cody_native", "components/CODY2D/include",
-                        "components/LUNASHELL_platform/include", "assets/cody/scenes/generated",
-                        "components/CODY_companion/include", "assets/cody/rig/generated",
-                        "assets/cody/appearance/jelly-scanline/generated",
-                        "assets/cody/personality-icons/generated")
-        include_dirs += ("assets/cody/personality/generated",)
-        include_dirs += ("assets/cody/home-dashboard-fonts/generated",)
+        include_dirs = ("scripts/tests/cody_native", "cody-device/components/CODY2D/include",
+                        "cody-device/components/LUNASHELL_platform/include", "cody-device/assets/cody/scenes/generated",
+                        "cody-device/components/CODY_companion/include", "cody-device/assets/cody/rig/generated",
+                        "cody-device/assets/cody/appearance/jelly-scanline/generated",
+                        "cody-device/assets/cody/personality-icons/generated")
+        include_dirs += ("cody-device/assets/cody/personality/generated",)
+        include_dirs += ("cody-device/assets/cody/home-dashboard-fonts/generated",)
         sources = ("scripts/tests/cody_native/raster_contract.cpp", "scripts/tests/scene_standby_policy.cpp",
-                   "components/CODY2D/src/CODY2D.cpp",
+                   "cody-device/components/CODY2D/src/CODY2D.cpp",
                    "scripts/tests/cody_native/host_settings.cpp",
-                   "components/CODY2D/src/CODY2D_paths.cpp", "components/CODY2D/src/CODY2D_text.cpp",
-                   "components/CODY2D/src/CODY2D_controls.cpp", "components/CODY_companion/src/model/CODY_rig.cpp",
-                   "components/CODY_companion/src/rendering/CODY_dirty_plan.cpp",
-                   "components/CODY_companion/src/rendering/CODY_personality.cpp",
-                   "assets/cody/personality-icons/generated/personality_icons.cpp",
-                   "components/CODY_companion/src/rendering/CODY_jelly.cpp",
-                   "components/CODY_companion/src/runtime/CODY_lifecycle.cpp",
-                   "components/CODY_companion/src/scenes/CODY_scene.cpp",
-                   "components/CODY_companion/src/scenes/CODY_technical_panels.cpp",
-                   "components/CODY_companion/src/scenes/CODY_home_dashboard.cpp",
-                   "components/CODY_companion/src/scenes/CODY_home_identity.cpp",
-                   "assets/cody/home-dashboard-fonts/generated/home_dashboard_fonts.cpp",
+                   "cody-device/components/CODY2D/src/CODY2D_paths.cpp", "cody-device/components/CODY2D/src/CODY2D_text.cpp",
+                   "cody-device/components/CODY2D/src/CODY2D_controls.cpp", "cody-device/components/CODY_companion/src/model/CODY_rig.cpp",
+                   "cody-device/components/CODY_companion/src/rendering/CODY_dirty_plan.cpp",
+                   "cody-device/components/CODY_companion/src/rendering/CODY_personality.cpp",
+                   "cody-device/assets/cody/personality-icons/generated/personality_icons.cpp",
+                   "cody-device/components/CODY_companion/src/rendering/CODY_jelly.cpp",
+                   "cody-device/components/CODY_companion/src/runtime/CODY_lifecycle.cpp",
+                   "cody-device/components/CODY_companion/src/scenes/CODY_scene.cpp",
+                   "cody-device/components/CODY_companion/src/scenes/CODY_technical_panels.cpp",
+                   "cody-device/components/CODY_companion/src/scenes/CODY_home_dashboard.cpp",
+                   "cody-device/components/CODY_companion/src/scenes/CODY_home_identity.cpp",
+                   "cody-device/assets/cody/home-dashboard-fonts/generated/home_dashboard_fonts.cpp",
                    "scripts/tests/cody_native/home_dashboard_contract.cpp",
-                   "components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_aging.cpp",
-                   "components/CODY_companion/src/model/CODY_expression_catalog.cpp",
-                   "components/CODY_companion/src/model/CODY_connection_personality.cpp",
-                   "assets/cody/scenes/generated/scene_font.cpp",
-                   "assets/cody/scenes/generated/scene_body_font.cpp",
-                   "assets/cody/appearance/jelly-scanline/generated/cody_jelly_data.cpp")
+                   "cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_aging.cpp",
+                   "cody-device/components/CODY_companion/src/model/CODY_expression_catalog.cpp",
+                   "cody-device/components/CODY_companion/src/model/CODY_connection_personality.cpp",
+                   "cody-device/assets/cody/scenes/generated/scene_font.cpp",
+                   "cody-device/assets/cody/scenes/generated/scene_body_font.cpp",
+                   "cody-device/assets/cody/appearance/jelly-scanline/generated/cody_jelly_data.cpp")
         definitions = ("CODY_ENABLE_PEARL_JELLY=1",)
         if args.simd_model:
             sources += ("scripts/tests/cody_native/jelly_simd_model.cpp",
-                        "components/CODY_companion/src/diagnostics/CODY_jelly_simd_validation.cpp")
+                        "cody-device/components/CODY_companion/src/diagnostics/CODY_jelly_simd_validation.cpp")
             definitions += ("CODY_JELLY_SIMD_AVAILABLE=1",)
             report["scope"] = "portable renderer and SIMD packing/model; actual S3 instructions unverified"
         command = compile_command(compiler, include_dirs, sources, executable,

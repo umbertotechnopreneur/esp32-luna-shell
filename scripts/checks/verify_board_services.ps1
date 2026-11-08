@@ -40,7 +40,7 @@ if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
 foreach ($pmu in @(0, 1)) {
     $executable = Join-Path $outputRoot "shell-pmu-$pmu.exe"
     & cl.exe /nologo /std:c++latest /EHsc /W4 "/DCONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS=$pmu" `
-        "/I$testRoot" "/I$repoRoot/components/LUNASHELL_app/include" `
+        "/I$testRoot" "/I$repoRoot/cody-device/components/LUNASHELL_app/include" `
         "/Fo$outputRoot/shell-pmu-$pmu.obj" "/Fe$executable" "$testRoot/shell_power_test.cpp"
     if ($LASTEXITCODE -ne 0) { throw "Shell test compile failed (PMU=$pmu)" }
     & $executable

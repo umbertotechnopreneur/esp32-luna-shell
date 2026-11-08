@@ -189,7 +189,7 @@ def screen(surface, item, x, width, artwork):
         surface.drawImage(artwork[expression], center_x - image_width / 2, center_y + 2,
                           width=image_width, height=image_height, mask="auto")
     if extra and extra[0] != "voice":
-        icon = ROOT / "assets/cody/personality-icons/generated" / (extra[0] + ".png")
+        icon = ROOT / "cody-device/assets/cody/personality-icons/generated" / (extra[0] + ".png")
         surface.drawImage(str(icon), center_x + radius * 0.36, center_y + radius * 0.34,
                           width=36, height=36, mask="auto")
     surface.restoreState()

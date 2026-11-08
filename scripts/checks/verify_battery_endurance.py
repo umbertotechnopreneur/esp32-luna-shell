@@ -51,10 +51,10 @@ def main():
         write_report(report_path, report)
         executable = output / "battery_endurance.exe"
         run_stage(compile_command(compiler,
-            ["scripts/tests/battery_endurance_stubs", "components/LUNASHELL_platform/include",
-             "components/LUNASHELL_logger/include"],
+            ["scripts/tests/battery_endurance_stubs", "cody-device/components/LUNASHELL_platform/include",
+             "cody-device/components/LUNASHELL_logger/include"],
             ["scripts/tests/battery_endurance_contract.cpp",
-             "components/LUNASHELL_platform/src/power/LUNASHELL_battery_endurance.cpp"], executable),
+             "cody-device/components/LUNASHELL_platform/src/power/LUNASHELL_battery_endurance.cpp"], executable),
             output, "compile")
         for scenario in scenarios:
             report["stage"] = scenario
@@ -71,13 +71,13 @@ def main():
         report["completed_scenarios"].append("readback-decoder")
         report["stage"] = "readback-usb-compile"
         write_report(report_path, report)
-        usb_source = (ROOT / "components/LUNASHELL_logger/src/LUNASHELL_logger_usb.c").read_text(encoding="utf-8")
+        usb_source = (ROOT / "cody-device/components/LUNASHELL_logger/src/LUNASHELL_logger_usb.c").read_text(encoding="utf-8")
         extracted = "\n\n".join(function_text(usb_source, signature, "logger_usb.c")
                                   for signature in ("static bool parse_number(", "static void process_command("))
         (output / "endurance_usb_under_test.inc").write_text(extracted + "\n", encoding="utf-8")
         usb_executable = output / "endurance-usb.exe"
         run_stage(compile_command(compiler,
-            [str(output), "scripts/tests/battery_endurance_stubs", "components/LUNASHELL_logger/include"],
+            [str(output), "scripts/tests/battery_endurance_stubs", "cody-device/components/LUNASHELL_logger/include"],
             ["scripts/tests/endurance_usb_contract.cpp"], usb_executable), output, "readback-usb-compile")
         report["stage"] = "readback-usb"
         write_report(report_path, report)

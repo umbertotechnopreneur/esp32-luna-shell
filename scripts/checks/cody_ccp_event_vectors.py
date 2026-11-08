@@ -21,7 +21,7 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "plugins/cody-codex-plugin/mcp"))
+sys.path.insert(0, str(ROOT / "cody-desktop/plugins/cody-codex-plugin/mcp"))
 from ccp_interactions import Choice, EventKind, EventPayload, PendingQuestion, Tone, encode_payload
 
 

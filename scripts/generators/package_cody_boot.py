@@ -29,7 +29,7 @@ from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[2]
-BOOT_DIRECTORY = ROOT / "assets/cody/boot"
+BOOT_DIRECTORY = ROOT / "cody-device/assets/cody/boot"
 OUTPUT = BOOT_DIRECTORY / "generated"
 WIDTH = 466
 HEIGHT = 466

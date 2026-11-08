@@ -189,10 +189,10 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                     Resolve-ArtifactPath '' "artifacts/simulator/$screenName.png"
                 } else { $Options.OutputPath }
                 if ($capture) { $arguments += @('--capture',$capture) }
-                Invoke-HostTool (Join-Path $ProjectRoot 'simulator/windows/cody_simulator.py') $arguments $Options.PythonExecutable
+                Invoke-HostTool (Join-Path $ProjectRoot 'cody-device/simulator/windows/cody_simulator.py') $arguments $Options.PythonExecutable
             }
         }
-        'simulator-luna' { Invoke-HostTool (Join-Path $ProjectRoot 'simulator/windows/lunashell_simulator.py') $Options.ToolArguments $Options.PythonExecutable }
+        'simulator-luna' { Invoke-HostTool (Join-Path $ProjectRoot 'cody-device/simulator/windows/lunashell_simulator.py') $Options.ToolArguments $Options.PythonExecutable }
         'package-simulator' { Invoke-HostTool (Join-Path $ProjectRoot 'scripts/commands/package-simulator.ps1') @() '' }
         'codex-audio' {
             $audioOptions = @{}

@@ -29,7 +29,7 @@ ESP-IDF build or a device operation.
 [CmdletBinding()]
 param(
     [string]$ConfigPath = (
-        Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'assets\sfx\sfx-config.json'
+        Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'cody-device\assets\sfx\sfx-config.json'
     ),
     [switch]$NoProgress,
     [switch]$ValidateOnly,
@@ -258,7 +258,7 @@ function Enter-AssetPackageLock {
         [Parameter(Mandatory)][string]$Owner
     )
 
-    $assetsRoot = Join-Path $ProjectRoot 'assets'
+    $assetsRoot = Join-Path $ProjectRoot 'cody-device/assets'
     $assetsItem = Get-Item -LiteralPath $assetsRoot -Force -ErrorAction Stop
     if (-not $assetsItem.PSIsContainer -or
         ($assetsItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -465,7 +465,7 @@ try {
     $assetLockEnvironmentChanged = $true
 
     & {
-$allowedSfxRootPath = Join-Path $projectRoot 'assets\sfx'
+$allowedSfxRootPath = Join-Path $projectRoot 'cody-device\assets\sfx'
 Assert-NoReparseTree -Path $allowedSfxRootPath -Label 'Canonical SFX tree'
 $pathComparison = if ($IsWindows) {
     [StringComparison]::OrdinalIgnoreCase

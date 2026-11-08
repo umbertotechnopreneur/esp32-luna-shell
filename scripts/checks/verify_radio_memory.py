@@ -45,9 +45,9 @@ def require(text: str, fragment: str, source: str) -> None:
 # No parameters: inspect the bounded radio startup contract without device access.
 # Raises AssertionError when a required source invariant is absent.
 def main() -> None:
-    memory = read("components/LUNASHELL_platform/src/network/LUNASHELL_radio_memory.hpp")
-    radios = read("components/LUNASHELL_platform/src/network/LUNASHELL_radios.cpp")
-    provisioning = read("components/LUNASHELL_platform/src/network/LUNASHELL_provisioning.cpp")
+    memory = read("cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_radio_memory.hpp")
+    radios = read("cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_radios.cpp")
+    provisioning = read("cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_provisioning.cpp")
     sdkconfig = read_profile_defaults("connected")
 
     require(

@@ -28,7 +28,7 @@ import re
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOG_PATH = ROOT / "config" / "sdkconfig" / "v1" / "catalog.json"
+CATALOG_PATH = ROOT / "cody-device/config" / "sdkconfig" / "v1" / "catalog.json"
 
 
 # relative: Requested source; split implementation families are read together.
@@ -45,9 +45,10 @@ def require(text: str, fragment: str, label: str) -> None:
 def resolve_relative(relative: object, label: str) -> Path:
     if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
         raise AssertionError(f"{label} must be a non-empty repository-relative path")
-    resolved = (ROOT / relative).resolve(strict=False)
+    path_root = ROOT if Path(relative).parts[0] == "artifacts" else ROOT / "cody-device"
+    resolved = (path_root / relative).resolve(strict=False)
     try:
-        resolved.relative_to(ROOT)
+        resolved.relative_to(path_root)
     except ValueError as error:
         raise AssertionError(f"{label} escapes the repository: {relative}") from error
     return resolved
@@ -110,7 +111,7 @@ def main(argv=None) -> None:
             raise AssertionError(f"variant {variant_name} has no complete defaults chain")
         for index, default in enumerate(defaults):
             path = resolve_relative(default, f"{variant_name}.defaults[{index}]")
-            if not path.is_file() or "config/sdkconfig/v1/" not in path.as_posix():
+            if not path.is_file() or "cody-device/config/sdkconfig/v1/" not in path.as_posix():
                 raise AssertionError(f"missing versioned defaults file: {default}")
 
         roots = variant.get("component_roots")
@@ -162,18 +163,18 @@ def main(argv=None) -> None:
         ]
         if any(not (path / "CMakeLists.txt").is_file() for path in resolved_component_dirs):
             raise AssertionError(f"variant {variant_name} has a non-component directory")
-        tts_dir = (ROOT / "components/LUNASHELL_tts").resolve()
+        tts_dir = (ROOT / "cody-device/components/LUNASHELL_tts").resolve()
         if (tts_dir in resolved_component_dirs) != tts_enabled:
             raise AssertionError(f"{variant_name} must discover the TTS component only when selected")
         expected_base_dirs = {
-            (ROOT / "main").resolve(),
-            (ROOT / "components/LUNASHELL_logger").resolve(),
-            (ROOT / "components/LUNASHELL_platform").resolve(),
+            (ROOT / "cody-device/main").resolve(),
+            (ROOT / "cody-device/components/LUNASHELL_logger").resolve(),
+            (ROOT / "cody-device/components/LUNASHELL_platform").resolve(),
         }
         if not expected_base_dirs.issubset(resolved_component_dirs):
             raise AssertionError(f"variant {variant_name} is missing a base component dir")
-        app_dir = (ROOT / "components/LUNASHELL_app").resolve()
-        bsp_dir = (ROOT / "components/esp32_s3_touch_amoled_1_75").resolve()
+        app_dir = (ROOT / "cody-device/components/LUNASHELL_app").resolve()
+        bsp_dir = (ROOT / "cody-device/components/esp32_s3_touch_amoled_1_75").resolve()
         if profile_name == "headless" and (
             app_dir in resolved_component_dirs or bsp_dir in resolved_component_dirs
         ):
@@ -255,7 +256,7 @@ def main(argv=None) -> None:
         if (ROOT / removed).exists():
             raise AssertionError(f"obsolete monolithic defaults remain: {removed}")
 
-    standalone_defaults = read("config/sdkconfig/v1/profiles/display-touch.defaults")
+    standalone_defaults = read("cody-device/config/sdkconfig/v1/profiles/display-touch.defaults")
     for flag in (
         "CONFIG_LUNASHELL_BUILD_PROFILE_DISPLAY_TOUCH=y",
         "CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY=y",
@@ -264,7 +265,7 @@ def main(argv=None) -> None:
     ):
         require(standalone_defaults, flag, "standalone mandatory display/touch contract")
 
-    cody_defaults = read("config/sdkconfig/v1/profiles/cody-companion.defaults")
+    cody_defaults = read("cody-device/config/sdkconfig/v1/profiles/cody-companion.defaults")
     for flag in (
         "CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION=y",
         "CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY=y",
@@ -283,11 +284,11 @@ def main(argv=None) -> None:
         "headless": "CONFIG_LUNASHELL_BUILD_PROFILE_HEADLESS=y",
     }
     for profile, selector in selectors.items():
-        text = read(f"config/sdkconfig/v1/profiles/{profile}.defaults")
+        text = read(f"cody-device/config/sdkconfig/v1/profiles/{profile}.defaults")
         if [line for line in text.splitlines() if line.startswith("CONFIG_")] != [selector]:
             raise AssertionError(f"profile {profile} must select exactly {selector}")
 
-    base_defaults = read("config/sdkconfig/v1/base.defaults")
+    base_defaults = read("cody-device/config/sdkconfig/v1/base.defaults")
     require(
         base_defaults,
         "CONFIG_COMPILER_CXX_EXCEPTIONS=y",
@@ -296,7 +297,7 @@ def main(argv=None) -> None:
 
     device = read("scripts/commands/firmware.ps1")
     for fragment in (
-        "config/sdkconfig/v1/catalog.json",
+        "cody-device/config/sdkconfig/v1/catalog.json",
         "$SelectedProfileVariant.defaults",
         "$SelectedProfileVariant.component_roots",
         "$SelectedProfileVariant.component_dirs",
@@ -321,7 +322,7 @@ def main(argv=None) -> None:
     if "ExtraDefaults" in device:
         raise AssertionError("free-form defaults can alias canonical profile state")
 
-    kconfig = read("main/Kconfig.projbuild")
+    kconfig = read("cody-device/main/Kconfig.projbuild")
     for symbol in (
         "LUNASHELL_BUILD_PROFILE_SCHEMA_VERSION",
         "LUNASHELL_BUILD_BOARD_PROFILE_WAVESHARE_ESP32S3_TOUCH_AMOLED_1_75",
@@ -338,7 +339,7 @@ def main(argv=None) -> None:
     ):
         require(kconfig, symbol, "Kconfig profile contract")
 
-    root_cmake = read("CMakeLists.txt")
+    root_cmake = read("cody-device/CMakeLists.txt")
     for fragment in (
         "LUNASHELL_PROFILE_COMPONENT_ROOTS",
         "LUNASHELL_PROFILE_COMPONENT_DIRS",
@@ -349,7 +350,7 @@ def main(argv=None) -> None:
     ):
         require(root_cmake, fragment, "pre-Kconfig profile roots and lock")
 
-    main_manifest = read("main/idf_component.yml")
+    main_manifest = read("cody-device/main/idf_component.yml")
     for dependency in (
         "esp_board_manager",
         "brookesia_hal_adaptor",
@@ -368,7 +369,7 @@ def main(argv=None) -> None:
         if match is None:
             raise AssertionError(f"main manifest dependency is not UI-gated: {dependency}")
 
-    platform_cmake = read("components/LUNASHELL_platform/CMakeLists.txt")
+    platform_cmake = read("cody-device/components/LUNASHELL_platform/CMakeLists.txt")
     for fragment in (
         "LUNASHELL_platform_uses_waveshare_bsp OFF",
         '"src/storage/LUNASHELL_storage_stub.cpp"',
@@ -376,26 +377,26 @@ def main(argv=None) -> None:
         "CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API",
     ):
         require(platform_cmake, fragment, "platform profile closure")
-    platform_manifest = read("components/LUNASHELL_platform/idf_component.yml")
+    platform_manifest = read("cody-device/components/LUNASHELL_platform/idf_component.yml")
     require(
         platform_manifest,
         '$CONFIG{LUNASHELL_BUILD_ENABLE_PROVISIONING} == True',
         "provisioning dependency gate",
     )
 
-    storage_stub = read("components/LUNASHELL_platform/src/storage/LUNASHELL_storage_stub.cpp")
+    storage_stub = read("cody-device/components/LUNASHELL_platform/src/storage/LUNASHELL_storage_stub.cpp")
     require(storage_stub, "reportStorage(report)", "disabled storage snapshot")
     if storage_stub.count("ESP_ERR_NOT_SUPPORTED") < 3:
         raise AssertionError("disabled storage operations must remain explicitly unsupported")
 
-    power_stub = read("components/LUNASHELL_platform/src/power/LUNASHELL_power_stub.cpp")
+    power_stub = read("cody-device/components/LUNASHELL_platform/src/power/LUNASHELL_power_stub.cpp")
     require(
         power_stub,
         "LUNASHELL_power_manager_note_ui_standby_result",
         "disabled power UI acknowledgement",
     )
     provisioning_stub = read(
-        "components/LUNASHELL_platform/src/network/LUNASHELL_provisioning_stub.cpp"
+        "cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_provisioning_stub.cpp"
     )
     require(
         provisioning_stub,
@@ -403,7 +404,7 @@ def main(argv=None) -> None:
         "disabled provisioning failure state",
     )
 
-    hardware = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp")
+    hardware = read("cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp")
     require(hardware, "Shared BSP I2C: not required by build profile", "headless I2C gate")
     require(
         hardware,
@@ -411,7 +412,7 @@ def main(argv=None) -> None:
         "disabled IMU publication scope",
     )
 
-    time_source = read("components/LUNASHELL_platform/src/runtime/LUNASHELL_time.cpp")
+    time_source = read("cody-device/components/LUNASHELL_platform/src/runtime/LUNASHELL_time.cpp")
     for fragment in (
         "#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI\n#include \"esp_netif.h\"",
         "#if !CONFIG_LUNASHELL_BUILD_ENABLE_WIFI",

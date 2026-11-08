@@ -59,10 +59,10 @@ $legacyWebsiteMarker = 'Author website: https://umbertogiacobbi' + '.biz'
 $extensions = @('.c', '.cpp', '.h', '.hpp')
 $allowedSourceRoots = @(
     'main',
-    'components/LUNASHELL_app',
-    'components/LUNASHELL_boot',
-    'components/LUNASHELL_logger',
-    'components/LUNASHELL_platform'
+    'cody-device/components/LUNASHELL_app',
+    'cody-device/components/LUNASHELL_boot',
+    'cody-device/components/LUNASHELL_logger',
+    'cody-device/components/LUNASHELL_platform'
 )
 if ($SourceRoot.Count -eq 0) {
     $SourceRoot = @($allowedSourceRoots)

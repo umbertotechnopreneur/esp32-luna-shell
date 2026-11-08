@@ -108,8 +108,8 @@ the safe square, and plays one short boot SFX.
 
 Production files:
 
-- `assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.png`
-- `assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.rgb565le.bin`
+- `cody-device/assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.png`
+- `cody-device/assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.rgb565le.bin`
 - `assets/sfx/generated/lunashell-boot.wav`
 
 The PNG is the canonical visual derivative. The raw file contains exactly

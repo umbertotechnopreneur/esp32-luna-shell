@@ -36,8 +36,8 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SOURCE_PATH = REPO_ROOT / "components" / "LUNASHELL_app" / "gui" / "root.json"
-OUTPUT_DIR = REPO_ROOT / "components" / "LUNASHELL_app" / "package" / "res"
+SOURCE_PATH = REPO_ROOT / "cody-device/components" / "LUNASHELL_app" / "gui" / "root.json"
+OUTPUT_DIR = REPO_ROOT / "cody-device/components" / "LUNASHELL_app" / "package" / "res"
 BOOTSTRAP_PATH = OUTPUT_DIR / "root.json"
 VARIANT_ROOT = OUTPUT_DIR / ".variants"
 DISTANCE_DISABLED_VARIANT_DIR = VARIANT_ROOT / "distance_disabled"
@@ -473,7 +473,7 @@ def check_documents(documents: dict[Path, str]) -> bool:
 def write_documents(documents: dict[Path, str]) -> None:
     resolved_output = OUTPUT_DIR.resolve()
     if resolved_output != (
-        REPO_ROOT / "components" / "LUNASHELL_app" / "package" / "res"
+        REPO_ROOT / "cody-device/components" / "LUNASHELL_app" / "package" / "res"
     ).resolve():
         raise GenerationError(f"refusing to write unexpected output directory {resolved_output}")
 

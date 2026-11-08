@@ -150,9 +150,9 @@ def compare_response(observed):
 def check_assets(settings):
     rig, palette = load_contract()
     sample_rate_hz = settings["audio"]["sample_rate_hz"]
-    generated = ROOT / "assets/cody/runtime/generated"
+    generated = ROOT / "cody-device/assets/cody/runtime/generated"
     manifest = json.loads((generated / "manifest.json").read_text())
-    assert manifest["source_sha256"] == text_source_hash(ROOT / "assets/cody/runtime.yaml")
+    assert manifest["source_sha256"] == text_source_hash(ROOT / "cody-device/assets/cody/runtime.yaml")
     hashes = []
     for cue in ("audio_ready", "eyes_open"):
         raw = (generated / f"cody-{cue}.pcm16le").read_bytes()
@@ -194,33 +194,33 @@ def main(argv=None):
     output.mkdir(parents=True, exist_ok=True)
     report = {"status": "failed", "hardware": "NOT ACCESSED", "firmware": "NOT BUILT"}
     try:
-        settings = load_settings(ROOT / "assets/cody/runtime.yaml")
+        settings = load_settings(ROOT / "cody-device/assets/cody/runtime.yaml")
         check_assets(settings)
         check_boundaries()
         check_typewriter_audio_source(ROOT)
         compiler = resolve_compiler(args.compiler)
-        includes = ("scripts/tests/cody_native", "components/CODY2D/include", "components/CODY_companion/include",
-                    "components/LUNASHELL_platform/include",
-                    "assets/cody/rig/generated", "assets/cody/runtime/generated",
-                    "assets/cody/appearance/jelly-scanline/generated",
-                    "assets/cody/personality-icons/generated")
-        includes += ("assets/cody/personality/generated",)
-        sources = ("scripts/tests/cody_native/runtime_contract.cpp", "components/CODY2D/src/CODY2D.cpp",
+        includes = ("scripts/tests/cody_native", "cody-device/components/CODY2D/include", "cody-device/components/CODY_companion/include",
+                    "cody-device/components/LUNASHELL_platform/include",
+                    "cody-device/assets/cody/rig/generated", "cody-device/assets/cody/runtime/generated",
+                    "cody-device/assets/cody/appearance/jelly-scanline/generated",
+                    "cody-device/assets/cody/personality-icons/generated")
+        includes += ("cody-device/assets/cody/personality/generated",)
+        sources = ("scripts/tests/cody_native/runtime_contract.cpp", "cody-device/components/CODY2D/src/CODY2D.cpp",
                        "scripts/tests/cody_native/host_settings.cpp",
                        "scripts/tests/cody_native/host_diagnostics.cpp",
-                       "components/CODY_companion/src/diagnostics/CODY_debug_hud.cpp",
+                       "cody-device/components/CODY_companion/src/diagnostics/CODY_debug_hud.cpp",
                        "scripts/tests/cody_native/status_overlay_contract.cpp",
                        "scripts/tests/cody_native/character_direction_contract.cpp",
-                       "components/CODY_companion/src/model/CODY_character_direction.cpp",
-                       "components/CODY_companion/src/model/CODY_happiness.cpp",
-                       "components/CODY_companion/src/diagnostics/CODY_status_overlay.cpp",
-                       "components/CODY2D/src/CODY2D_paths.cpp", "components/CODY_companion/src/model/CODY_rig.cpp",
-                       "components/CODY_companion/src/model/CODY_response.cpp", "components/CODY_companion/src/demos/CODY_demo.cpp",
-                       "components/CODY_companion/src/diagnostics/CODY_benchmark.cpp", "components/CODY_companion/src/rendering/CODY_damage.cpp",
-                       "components/CODY_companion/src/rendering/CODY_personality.cpp",
-                       "assets/cody/personality-icons/generated/personality_icons.cpp",
-                       "components/CODY_companion/src/rendering/CODY_jelly.cpp",
-                       "assets/cody/appearance/jelly-scanline/generated/cody_jelly_data.cpp")
+                       "cody-device/components/CODY_companion/src/model/CODY_character_direction.cpp",
+                       "cody-device/components/CODY_companion/src/model/CODY_happiness.cpp",
+                       "cody-device/components/CODY_companion/src/diagnostics/CODY_status_overlay.cpp",
+                       "cody-device/components/CODY2D/src/CODY2D_paths.cpp", "cody-device/components/CODY_companion/src/model/CODY_rig.cpp",
+                       "cody-device/components/CODY_companion/src/model/CODY_response.cpp", "cody-device/components/CODY_companion/src/demos/CODY_demo.cpp",
+                       "cody-device/components/CODY_companion/src/diagnostics/CODY_benchmark.cpp", "cody-device/components/CODY_companion/src/rendering/CODY_damage.cpp",
+                       "cody-device/components/CODY_companion/src/rendering/CODY_personality.cpp",
+                       "cody-device/assets/cody/personality-icons/generated/personality_icons.cpp",
+                       "cody-device/components/CODY_companion/src/rendering/CODY_jelly.cpp",
+                       "cody-device/assets/cody/appearance/jelly-scanline/generated/cody_jelly_data.cpp")
         executable = output / "runtime-contract.exe"
         command = compile_command(compiler, includes, sources, executable,
                                   definitions=("CODY_ENABLE_PEARL_JELLY=1",), cxx_standard=20)
@@ -229,7 +229,7 @@ def main(argv=None):
         compare_response(json.loads(native.stdout))
         preferences = output / "preferences-contract.exe"
         preferences_sources = ("scripts/tests/cody_native/preferences_contract.cpp",
-                               "components/CODY_companion/src/runtime/CODY_settings.cpp")
+                               "cody-device/components/CODY_companion/src/runtime/CODY_settings.cpp")
         preferences_definitions = ("CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS=1",
                                   "CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO=1",
                                   "CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311=1",
@@ -240,7 +240,7 @@ def main(argv=None):
         run_stage([str(preferences)], output, "preferences")
         events = output / "codex-event-contract.exe"
         event_sources = ("scripts/tests/cody_native/codex_event_contract.cpp",
-                         "components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp")
+                         "cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp")
         run_stage(compile_command(compiler, includes, event_sources, events, cxx_standard=20),
                   output, "events-compile")
         vectors = event_vectors()
@@ -250,20 +250,20 @@ def main(argv=None):
         run_stage([str(events), str(fixtures)], output, "events")
         # These host fixtures compile the same source modules used by firmware
         # and Studio. They never create a socket, sensor or canonical device owner.
-        shared_includes = ("simulator/native/platform", "simulator/native", "components/LUNASHELL_platform/include",
-                           "components/LUNASHELL_platform/src/snapshot", "components/LUNASHELL_platform/src/power")
+        shared_includes = ("cody-device/simulator/native/platform", "cody-device/simulator/native", "cody-device/components/LUNASHELL_platform/include",
+                           "cody-device/components/LUNASHELL_platform/src/snapshot", "cody-device/components/LUNASHELL_platform/src/power")
         shared_groups = {
             "shared-imu-stillness": ("scripts/tests/cody_native/imu_stillness_contract.cpp",),
-            "shared-ccp": ("scripts/tests/shared_ccp.cpp", "components/LUNASHELL_platform/src/network/LUNASHELL_codex_transaction.cpp",
-                           "components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp"),
-            "shared-snapshot": ("scripts/tests/shared_snapshot.cpp", "simulator/native/CODY_host_snapshot.cpp",
-                                "components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_aging.cpp",
-                                "components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_names.cpp",
-                                "components/LUNASHELL_platform/src/snapshot/LUNASHELL_rtc_calendar.cpp",
-                                "components/LUNASHELL_platform/src/runtime/LUNASHELL_clock_policy.cpp",
-                                "components/LUNASHELL_platform/src/http/LUNASHELL_http_json.cpp"),
-            "shared-standby": ("scripts/tests/cody_native/standby_contract.cpp", "simulator/native/CODY_host_standby.cpp",
-                               "components/LUNASHELL_platform/src/power/LUNASHELL_standby_resources.cpp"),
+            "shared-ccp": ("scripts/tests/shared_ccp.cpp", "cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_codex_transaction.cpp",
+                           "cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp"),
+            "shared-snapshot": ("scripts/tests/shared_snapshot.cpp", "cody-device/simulator/native/CODY_host_snapshot.cpp",
+                                "cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_aging.cpp",
+                                "cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_names.cpp",
+                                "cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_rtc_calendar.cpp",
+                                "cody-device/components/LUNASHELL_platform/src/runtime/LUNASHELL_clock_policy.cpp",
+                                "cody-device/components/LUNASHELL_platform/src/http/LUNASHELL_http_json.cpp"),
+            "shared-standby": ("scripts/tests/cody_native/standby_contract.cpp", "cody-device/simulator/native/CODY_host_standby.cpp",
+                               "cody-device/components/LUNASHELL_platform/src/power/LUNASHELL_standby_resources.cpp"),
         }
         for name, shared_sources in shared_groups.items():
             target = output / f"{name}.exe"

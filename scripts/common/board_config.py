@@ -92,8 +92,8 @@ UniqueKeyLoader.add_constructor(
 # Raises: ValueError for an unsupported location or invalid board/module contract.
 def load_board_config(path: Path) -> dict[str, object]:
     resolved = path.resolve(strict=True)
-    if not resolved.is_relative_to(ROOT / "config" / "boards"):
-        raise ValueError("board YAML must be under config/boards/")
+    if not resolved.is_relative_to(ROOT / "cody-device/config" / "boards"):
+        raise ValueError("board YAML must be under cody-device/config/boards/")
     data = yaml.load(resolved.read_text(encoding="utf-8"), Loader=UniqueKeyLoader)
     return validate_board_config_data(data)
 

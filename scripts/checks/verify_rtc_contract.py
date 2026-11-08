@@ -28,9 +28,9 @@ from common.source_contracts import read_component_source
 
 
 ROOT = Path(__file__).resolve().parents[2]
-HARDWARE = ROOT / "components" / "LUNASHELL_platform" / "src" / "snapshot" / "LUNASHELL_hardware.cpp"
-TIME = ROOT / "components" / "LUNASHELL_platform" / "src" / "runtime" / "LUNASHELL_time.cpp"
-WIFI = ROOT / "components" / "LUNASHELL_platform" / "src" / "network" / "LUNASHELL_wifi.cpp"
+HARDWARE = ROOT / "cody-device/components" / "LUNASHELL_platform" / "src" / "snapshot" / "LUNASHELL_hardware.cpp"
+TIME = ROOT / "cody-device/components" / "LUNASHELL_platform" / "src" / "runtime" / "LUNASHELL_time.cpp"
+WIFI = ROOT / "cody-device/components" / "LUNASHELL_platform" / "src" / "network" / "LUNASHELL_wifi.cpp"
 
 ESP_OK = 0
 ESP_ERR_INVALID_STATE = 1

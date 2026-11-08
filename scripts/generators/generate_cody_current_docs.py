@@ -23,7 +23,7 @@ from cody_pdf_revision_register import RevisionRecord, register_fonts, render_re
 import generate_cody_pairing_flyer as flyer
 
 DOCS = ROOT / "docs/cody"
-ART = ROOT / "assets/cody/docs/studio"
+ART = ROOT / "cody-device/assets/cody/docs/studio"
 REVIEW = ROOT / "artifacts/docs/current"
 MIRROR = Path("C:/Users/umber/OneDrive/Obsidian/30_Engineering/Products/Cody Companion/atlas")
 DOCUMENT_NAMES = (
@@ -45,7 +45,7 @@ CURRENT_SCOPE = (
     "Current repository source is the reference. Firmware execution, physical behavior and the private cloud service require their own verification. "
     "The device-first image presents a dashboard. Character artwork belongs to Studio/design work. Cloud firmware integration is deferred."
 )
-SOURCE_NOTE = "Sources: docs/cody/navigation.md, layout.md, runtime.md; plugins/cody-codex-plugin/README.md and protocol/CCP1.md."
+SOURCE_NOTE = "Sources: docs/cody/navigation.md, layout.md, runtime.md; cody-desktop/plugins/cody-codex-plugin/README.md and protocol/CCP1.md."
 
 
 # text: Literal prose; markup is escaped before layout.
@@ -142,7 +142,7 @@ def cover(title, subtitle):
     for radius in (130, 210, 290):
         surface.circle(W - 95, H - 120, radius, fill=0, stroke=1)
     copy(surface, "CODY / VIBEWARE", 55, 58, W - 110, 14, colors.HexColor("#65DCCE"), True)
-    logo = ROOT / "simulator/windows/assets/branding/vibeware-logo.png"
+    logo = ROOT / "cody-device/simulator/windows/assets/branding/vibeware-logo.png"
     surface.drawImage(str(logo), 55, 315, width=155, height=95, preserveAspectRatio=True, mask="auto")
     copy(surface, title, 55, 292, W - 110, 34, WHITE, True)
     copy(surface, subtitle, 55, 349, W - 150, 14, colors.HexColor("#D6E4EF"))
@@ -321,7 +321,7 @@ def cue_page(label):
     for index, name in enumerate(names):
         x = 42 + (index % 7) * 109
         top = 160 + (index // 7) * 158
-        source = ROOT / "assets/cody/personality-icons/source/masters-v2" / (name + ".png")
+        source = ROOT / "cody-device/assets/cody/personality-icons/source/masters-v2" / (name + ".png")
         surface.drawImage(str(source), x, H - top - 85, 85, 85, preserveAspectRatio=True, mask="auto")
         copy(surface, f"C{index + 1:02} / " + name.replace("-", " ").title(), x - 1, top + 94, 105, 9, TEAL, True)
     copy(surface, "Battery, charging, Wi-Fi and temperature meanings require a valid canonical observation. Artistic hunger/thirst/emotion cues are not sensor values. The device-first image omits character presentation; these assets remain Studio/design references.", 38, 495, W - 76, 10, MUTED)

@@ -5,8 +5,8 @@ For mandatory display and touch without the Luna UI, use the dedicated
 below remains the Brookesia/LVGL consumer of the same physical devices.
 
 The Waveshare board YAML is
-[`ui-bootstrap.yaml`](../../config/boards/waveshare-esp32s3-touch-amoled-1.75/ui-bootstrap.yaml).
-[`ui-services.yaml`](../../config/boards/waveshare-esp32s3-touch-amoled-1.75/ui-services.yaml)
+[`ui-bootstrap.yaml`](../../cody-device/config/boards/waveshare-esp32s3-touch-amoled-1.75/ui-bootstrap.yaml).
+[`ui-services.yaml`](../../cody-device/config/boards/waveshare-esp32s3-touch-amoled-1.75/ui-services.yaml)
 shows all supported services enabled on the same BSP.
 It selects the `ui-minimal` shell on the Waveshare ESP32-S3 Touch AMOLED 1.75.
 Display, touch, shared I2C, and internal LittleFS/NVS remain required. Set any

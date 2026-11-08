@@ -107,7 +107,7 @@ def inspect_packages(executable, catalog, names, include_runtime=False):
 # Parameter output: the artifact directory owning every isolated package.
 # Exceptions: propagate filesystem errors rather than hide incomplete fixtures.
 def prepare_packages(output):
-    source = Path(__file__).resolve().parents[2] / "plugins" / "cody-codex-plugin"
+    source = Path(__file__).resolve().parents[2] / "cody-desktop/plugins" / "cody-codex-plugin"
     authored_hooks = json.loads((source / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     legacy_manifest = json.loads(
         (source / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
@@ -209,7 +209,7 @@ def main():
     if any(case["hook_count"] is None for item in report for case in item["cases"]):
         raise RuntimeError("Some isolated packages could not be inspected; see the report.")
     if arguments.installed:
-        authored = json.loads((root / "plugins/cody-codex-plugin/hooks/hooks.json").read_text(
+        authored = json.loads((root / "cody-desktop/plugins/cody-codex-plugin/hooks/hooks.json").read_text(
             encoding="utf-8"))["hooks"]
         # Native discovery lowercases the initial event character. Keep labels
         # in the identity so a duplicate cannot substitute for a missing hook.

@@ -168,8 +168,8 @@ native onboarding gesture. Protected state survives transient cleanup in
 `artifacts/cody-simulator-state/` on Windows and
 `artifacts/cody-simulator-state-linux/` on Linux.
 
-See the [simulator guide](../simulator/windows/README.md) for controls and limits
-and the [CCP guide](../plugins/cody-codex-plugin/README.md) for installation/trust.
+See the [simulator guide](../cody-device/simulator/windows/README.md) for controls and limits
+and the [CCP guide](../cody-desktop/plugins/cody-codex-plugin/README.md) for installation/trust.
 
 ## Optional speech assets
 

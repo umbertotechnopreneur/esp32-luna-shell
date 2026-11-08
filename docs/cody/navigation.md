@@ -201,7 +201,7 @@ confirmed persistence and the matching handshake; an ACK or journal alone is
 insufficient. Retained-PC recovery requires authenticated current presence.
 FIND normally runs every two seconds; Cody expires presence after eight seconds
 and the PC reports its own ten-second threshold. Interrupted commissioning,
-Cancel and explicit pending replacement follow [CCP1](../../plugins/cody-codex-plugin/protocol/CCP1.md#pairing).
+Cancel and explicit pending replacement follow [CCP1](../../cody-desktop/plugins/cody-codex-plugin/protocol/CCP1.md#pairing).
 
 ## Followed chat, questions and PR state
 
@@ -252,6 +252,6 @@ Short PWR/BOOT, screenshot and sleep behavior follow the power owner and
 [runtime](runtime.md). HTTP remains a separately enabled service and never
 exposes CCP secrets. Remote restart and factory reset require explicit current
 intent and the exact confirmation string; syntax, ambiguous results and retained
-PC state belong to the [CCP guide](../../plugins/cody-codex-plugin/README.md#explicit-restart-or-settings-reset).
+PC state belong to the [CCP guide](../../cody-desktop/plugins/cody-codex-plugin/README.md#explicit-restart-or-settings-reset).
 
 Current gates are in [TODO.md](../../TODO.md).

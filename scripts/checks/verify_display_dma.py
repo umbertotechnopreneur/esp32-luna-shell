@@ -63,7 +63,7 @@ def struct_text(source: str, name: str) -> str:
 # output: Artifact-owned directory for extracted source and SDK boundary headers.
 # Raises OSError or ValueError for unavailable sources or changed production boundaries.
 def prepare_source(output: Path) -> dict:
-    bsp_path = ROOT / "components/esp32_s3_touch_amoled_1_75/esp32_s3_touch_amoled_1_75.c"
+    bsp_path = ROOT / "cody-device/components/esp32_s3_touch_amoled_1_75/esp32_s3_touch_amoled_1_75.c"
     bsp = bsp_path.read_text(encoding="utf-8")
     header = (bsp_path.parent / "include/bsp/display.h").read_text(encoding="utf-8")
     declarations = struct_text(bsp, "bsp_display_frame_t") + "\nstatic bsp_display_frame_t display_frame;\n"
@@ -104,11 +104,11 @@ def prepare_source(output: Path) -> dict:
     (output / "dma_owner_under_test.inc").write_text(dma, encoding="utf-8")
     for name in ("sdkconfig.h", "esp_attr.h", "esp_heap_caps.h", "esp_memory_utils.h", "esp_log.h"):
         (stub.parent / name).write_text("#pragma once\n", encoding="utf-8")
-    platform = (ROOT / "components/LUNASHELL_platform/src/display/LUNASHELL_display_runtime.cpp").read_text(encoding="utf-8")
+    platform = (ROOT / "cody-device/components/LUNASHELL_platform/src/display/LUNASHELL_display_runtime.cpp").read_text(encoding="utf-8")
     end = function_text(platform, 'extern "C" esp_err_t LUNASHELL_display_frame_end(')
     if end.index("bsp_display_frame_end(") >= end.index("LUNASHELL_liveness_watch_end("):
         raise ValueError("Display watchdog ends before the final DMA retires")
-    cody = (ROOT / "components/CODY_companion/src/runtime/CODY_companion.cpp").read_text(encoding="utf-8")
+    cody = (ROOT / "cody-device/components/CODY_companion/src/runtime/CODY_companion.cpp").read_text(encoding="utf-8")
     draw = function_text(cody, "DrawResult draw_companion_frame(")
     loop = draw[draw.index("for (uint32_t row = 0;"):]
     if loop.index("LUNASHELL_display_frame_buffer(") >= loop.index("const CODY2D::Surface strip{"):
@@ -137,7 +137,7 @@ def main(argv=None) -> None:
         report.update(prepare_source(output))
         compiler = resolve_compiler(args.compiler)
         executable = output / "display-dma-contract.exe"
-        includes = (output, output / "stubs", ROOT / "components/esp32_s3_touch_amoled_1_75")
+        includes = (output, output / "stubs", ROOT / "cody-device/components/esp32_s3_touch_amoled_1_75")
         source = ROOT / "scripts/tests/display_dma/frame_contract.c"
         if Path(compiler).stem.lower() in ("cl", "cl.exe"):
             command = [compiler, "/nologo", "/TC", "/std:c11", "/O2", "/W4"]

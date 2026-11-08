@@ -106,8 +106,9 @@ def validate_identifiers(names, category):
 # relative: Explicit YAML/palette reference, resolved inside this checkout's assets.
 # Raises ValueError or OSError for an external, missing or non-file source.
 def asset_path(root, relative):
-    assets = (Path(root) / "assets").resolve()
-    source = (Path(root) / relative).resolve()
+    device_root = Path(root) / "cody-device"
+    assets = (device_root / "assets").resolve()
+    source = (device_root / relative).resolve()
     if not source.is_relative_to(assets) or not source.is_file():
         raise ValueError(f"Skin source must be a file below {assets}: {source}")
     return source
@@ -183,7 +184,7 @@ def load_contract(root=ROOT, skin_path="assets/cody/cody.yaml"):
         raise ValueError(f"Unsupported skin document: {source}")
     if rig["subdivisions"] != 12:
         raise ValueError("Unsupported cubic subdivision count")
-    rig["source_path"] = source.relative_to(Path(root).resolve()).as_posix()
+    rig["source_path"] = source.relative_to((Path(root) / "cody-device").resolve()).as_posix()
     enum_identifier(rig["character"]["id"])
     if rig["character"]["facing"] != "front" or not isinstance(rig["character"]["name"], str) or not rig["character"]["name"].strip():
         raise ValueError("Skin requires a nonempty name, stable id and front-facing rig")

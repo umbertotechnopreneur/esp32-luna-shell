@@ -4,7 +4,7 @@ Target: GPS variant of the Waveshare ESP32-S3-Touch-AMOLED-1.75.
 
 The purchased enclosed 1.75C and 1.43C are separate hardware targets. See the
 [purchased-board comparison](../purchased-amoled-comparison.md) and
-[imported vendor references](../../../../hardware/references/waveshare/README.md).
+[imported vendor references](../../../../cody-device/hardware/references/waveshare/README.md).
 
 The board [hardware consumption and sleep-wakeup reference](power-reference.md)
 records datasheet ranges, supply conditions, source revisions and unavailable

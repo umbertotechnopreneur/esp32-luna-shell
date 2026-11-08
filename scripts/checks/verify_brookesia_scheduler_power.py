@@ -25,7 +25,7 @@ import re
 ROOT = Path(__file__).resolve().parents[2]
 SCHEDULER_SOURCE = (
     ROOT
-    / "third_party"
+    / "cody-device/third_party"
     / "esp-brookesia"
     / "utils"
     / "brookesia_lib_utils"
@@ -34,7 +34,7 @@ SCHEDULER_SOURCE = (
 )
 SCHEDULER_HEADER = (
     ROOT
-    / "third_party"
+    / "cody-device/third_party"
     / "esp-brookesia"
     / "utils"
     / "brookesia_lib_utils"
@@ -134,7 +134,7 @@ def main() -> int:
 
     # No in-tree caller may escape the scheduler's raw executor without a power review.
     raw_executor_consumers: list[Path] = []
-    for base in (ROOT / "components", ROOT / "main", ROOT / "third_party" / "esp-brookesia"):
+    for base in (ROOT / "cody-device/components", ROOT / "cody-device/main", ROOT / "cody-device/third_party" / "esp-brookesia"):
         for path in base.rglob("*"):
             if path.suffix not in {".c", ".cc", ".cpp", ".h", ".hpp"} or path in {
                 SCHEDULER_HEADER,

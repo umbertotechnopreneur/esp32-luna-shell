@@ -27,7 +27,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "simulator/windows"))
+sys.path.insert(0, str(ROOT / "cody-device/simulator/windows"))
 
 from cody_coverage import FULL_COVERAGE, coverage_mask  # noqa: E402
 from cody_simulator import CodyRenderer, rgb565  # noqa: E402
@@ -35,7 +35,7 @@ from cody_simulator import CodyRenderer, rgb565  # noqa: E402
 
 # Raises OSError or ValueError for unreadable canonical palette data.
 def make_raster_context():
-    entries = json.loads((ROOT / "assets/cody/palette/palette256.json").read_text(encoding="utf-8"))["entries"]
+    entries = json.loads((ROOT / "cody-device/assets/cody/palette/palette256.json").read_text(encoding="utf-8"))["entries"]
     # Isolate the actual compositor; this check deliberately creates no Tk root
     # and does not decode boot artwork or initialize synthetic services.
     renderer = CodyRenderer.__new__(CodyRenderer)

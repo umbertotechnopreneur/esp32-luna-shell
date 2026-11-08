@@ -11,8 +11,8 @@ formats stay in their canonical guides.
 | Work on display/touch or integrate a board | [BSP](bsp/README.md) |
 | Select a firmware profile, feature or build mode | [Toolchain and profiles](bsp/toolchain-and-profiles.md) |
 | Build, generate assets, capture logs or run an authorized check | [Public console](../scripts/README.md) |
-| Install CCP and review its hooks | [CCP installation and operation](../plugins/cody-codex-plugin/README.md) |
-| Preview the interface on Windows | [Simulator](../simulator/windows/README.md) |
+| Install CCP and review its hooks | [CCP installation and operation](../cody-desktop/plugins/cody-codex-plugin/README.md) |
+| Preview the interface on Windows | [Simulator](../cody-device/simulator/windows/README.md) |
 
 ## Three documentation areas
 
@@ -30,14 +30,14 @@ mode. The shared BSP supports the Waveshare 1.75 GPS (16 MB) and 1.75C
 
 | Area | Responsibility |
 | --- | --- |
-| [main](../main/README.md) | Profile composition and startup |
-| [CODY_companion](../components/CODY_companion/README.md) | Character, scenes, model and diagnostics |
-| [CODY2D](../components/CODY2D/README.md) | Native graphics, text and controls |
-| [LUNASHELL_platform](../components/LUNASHELL_platform/README.md) | Hardware, snapshots and services |
-| [LUNASHELL_app](../components/LUNASHELL_app/README.md) | Luna documents and navigation |
-| [LUNASHELL_boot](../components/LUNASHELL_boot/README.md) | Boot UI and audio |
-| [LUNASHELL_logger](../components/LUNASHELL_logger/README.md) | Logging and readback |
-| [LUNASHELL_tof400f](../components/LUNASHELL_tof400f/README.md) | Optional distance transport |
+| [main](../cody-device/main/README.md) | Profile composition and startup |
+| [CODY_companion](../cody-device/components/CODY_companion/README.md) | Character, scenes, model and diagnostics |
+| [CODY2D](../cody-device/components/CODY2D/README.md) | Native graphics, text and controls |
+| [LUNASHELL_platform](../cody-device/components/LUNASHELL_platform/README.md) | Hardware, snapshots and services |
+| [LUNASHELL_app](../cody-device/components/LUNASHELL_app/README.md) | Luna documents and navigation |
+| [LUNASHELL_boot](../cody-device/components/LUNASHELL_boot/README.md) | Boot UI and audio |
+| [LUNASHELL_logger](../cody-device/components/LUNASHELL_logger/README.md) | Logging and readback |
+| [LUNASHELL_tof400f](../cody-device/components/LUNASHELL_tof400f/README.md) | Optional distance transport |
 | `plugins/`, `assets/`, `config/`, `scripts/` | PC integration, resources, composition and tools |
 
 ## Illustrated Cody references

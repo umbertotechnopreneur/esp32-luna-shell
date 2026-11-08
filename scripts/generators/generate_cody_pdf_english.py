@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / "scripts/common"))
 from cody_pdf_revision_register import RevisionRecord, render_revision_register
 
 STAGING = ROOT / "artifacts/docs/cody-english-20261011"
-MAPPINGS = ROOT / "assets/cody/docs/translations"
+MAPPINGS = ROOT / "cody-device/assets/cody/docs/translations"
 DOCUMENTS = {
     "navigation": "cody-navigation-atlas-v1.pdf",
     "planning": "cody-planning-atlas-v1.pdf",

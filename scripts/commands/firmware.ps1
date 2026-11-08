@@ -217,6 +217,7 @@ if ($IsLinux -and $Action -eq 'port-status') {
 }
 
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$FirmwareRoot = Join-Path $ProjectRoot "cody-device"
 . (Join-Path $PSScriptRoot '../common/FirmwareToolchain.ps1')
 if ($Action -eq 'preflight') {
     Invoke-FirmwarePreflight -ProjectRoot $ProjectRoot -IdfPath $IdfPath -ToolsPath $ToolsPath -PythonExe $PythonExe
@@ -262,7 +263,7 @@ if (-not [string]::IsNullOrWhiteSpace($BoardConfig)) {
     $ProfileBuildKey = if ($Feature -eq "none") { $Profile } else { "$Profile-$Feature" }
 }
 
-$profileCatalogPath = Join-Path $ProjectRoot "config/sdkconfig/v1/catalog.json"
+$profileCatalogPath = Join-Path $FirmwareRoot "config/sdkconfig/v1/catalog.json"
 try {
     $profileCatalog = Get-Content -Raw -LiteralPath $profileCatalogPath |
         ConvertFrom-Json -Depth 20
@@ -343,19 +344,19 @@ if ($null -ne $BoardModules) {
 function Resolve-ProfileCatalogPath([string]$RelativePath) {
     if ([string]::IsNullOrWhiteSpace($RelativePath) -or
         [System.IO.Path]::IsPathRooted($RelativePath)) {
-        throw "Firmware profile catalog path must be repository-relative: $RelativePath"
+        throw "Firmware profile catalog path must be relative to the firmware directory: $RelativePath"
     }
     $resolvedPath = [System.IO.Path]::GetFullPath(
-        (Join-Path $ProjectRoot $RelativePath)
+        (Join-Path $FirmwareRoot $RelativePath)
     )
     $relativeToRoot = [System.IO.Path]::GetRelativePath(
-        $ProjectRoot,
+        $FirmwareRoot,
         $resolvedPath
     )
     if ($relativeToRoot -eq ".." -or
         $relativeToRoot.StartsWith("..\", [StringComparison]::Ordinal) -or
         [System.IO.Path]::IsPathRooted($relativeToRoot)) {
-        throw "Firmware profile catalog path escapes the repository: $RelativePath"
+        throw "Firmware profile catalog path escapes the firmware directory: $RelativePath"
     }
     return $resolvedPath
 }
@@ -393,7 +394,7 @@ if ($Board -ceq 'waveshare-esp32s3-touch-amoled-1.75c') {
 }
 $hostArtifactSuffix = if ($IsLinux) { '-linux' } else { '' }
 $profileArtifactKey = "$ProfileBuildKey$hostArtifactSuffix"
-$FeaturePartitionPath = Get-FirmwareFeaturePartitionPath -ProjectRoot $ProjectRoot -Feature $Feature -Board $Board
+$FeaturePartitionPath = Get-FirmwareFeaturePartitionPath -ProjectRoot $FirmwareRoot -Feature $Feature -Board $Board
 $SelectedSdkconfigDefaults = @(
     $SelectedProfileVariant.defaults |
         ForEach-Object { Resolve-ProfileCatalogPath "$_" }
@@ -442,7 +443,7 @@ if ($null -ne $BoardModules -and $Profile -eq "ui-minimal" -and
 $featureOverlayDirectory = Resolve-ArtifactPath '' 'artifacts/feature-config'
 $null = New-Item -ItemType Directory -Path $featureOverlayDirectory -Force
 $featureOverlayPath = Join-Path $featureOverlayDirectory "$profileArtifactKey.defaults"
-$featurePartitionRelativePath = [IO.Path]::GetRelativePath($ProjectRoot, $FeaturePartitionPath).Replace('\', '/')
+$featurePartitionRelativePath = [IO.Path]::GetRelativePath($FirmwareRoot, $FeaturePartitionPath).Replace('\', '/')
 $featureOverlay = @(
     "CONFIG_LUNASHELL_ACTIVITY_MODEL=$(if ($ActivityClassifier) { 'y' } else { 'n' })"
     "CONFIG_LUNASHELL_ACTIVITY_CAPTURE=$(if ($ActivityCapture) { 'y' } else { 'n' })"
@@ -453,7 +454,7 @@ $featureOverlay = @(
 if ($Feature -eq "wake-word") {
     # ESP-SR's packer resolves this string from its own working directory.
     # Generate an absolute, portable-to-this-checkout path rather than hardcode E:.
-    $wakeModelDirectory = Get-ReviewedWakeWordModelDirectory -ProjectRoot $ProjectRoot
+    $wakeModelDirectory = Get-ReviewedWakeWordModelDirectory -ProjectRoot $FirmwareRoot
     $featureOverlay += @(
         ('CONFIG_ESP_SR_EXTERNAL_MODEL_PATH="{0}"' -f $wakeModelDirectory)
     )
@@ -1374,7 +1375,7 @@ function Invoke-ProfileConfiguration(
     Assert-FirmwareBuildModeConfiguration `
         -SdkconfigText (Get-Content -Raw -LiteralPath $ProfileSdkconfigPath) -BuildMode $BuildMode
     Assert-WakeWordConfiguration -SdkconfigText (Get-Content -Raw -LiteralPath $ProfileSdkconfigPath) `
-        -ProjectRoot $ProjectRoot -Feature $Feature -Board $Board
+        -ProjectRoot $FirmwareRoot -Feature $Feature -Board $Board
 }
 
 # No parameters: fingerprint the selected profile, mode, defaults and generated configuration.
@@ -1384,7 +1385,7 @@ function Get-SdkconfigDefaultsState {
     foreach ($baseDefault in $SelectedSdkconfigDefaults) {
         $candidate = $baseDefault.Trim()
         if (-not [System.IO.Path]::IsPathRooted($candidate)) {
-            $candidate = Join-Path $ProjectRoot $candidate
+            $candidate = Join-Path $FirmwareRoot $candidate
         }
         $resolvedDefault = [System.IO.Path]::GetFullPath($candidate)
         if (-not (Test-Path -LiteralPath $resolvedDefault -PathType Leaf)) {
@@ -1415,7 +1416,7 @@ function Get-SdkconfigDefaultsState {
     Assert-FirmwareBuildModeConfiguration `
         -SdkconfigText (Get-Content -Raw -LiteralPath $generatedSdkconfig) -BuildMode $BuildMode
     Assert-WakeWordConfiguration -SdkconfigText (Get-Content -Raw -LiteralPath $generatedSdkconfig) `
-        -ProjectRoot $ProjectRoot -Feature $Feature -Board $Board
+        -ProjectRoot $FirmwareRoot -Feature $Feature -Board $Board
     $sdkconfigHash = (
         Get-FileHash -LiteralPath $generatedSdkconfig -Algorithm SHA256
     ).Hash.ToLowerInvariant()
@@ -1633,7 +1634,20 @@ function Invoke-ProjectMonitor([string]$RequestedPort, [int]$RequestedBaud, [int
     }
 }
 
-Push-Location $ProjectRoot
+# A cache created before the source move still points Ninja to the old source tree.
+$cmakeCache = Join-Path $BuildDir 'CMakeCache.txt'
+if ($Action -ne 'fullclean' -and (Test-Path -LiteralPath $cmakeCache -PathType Leaf)) {
+    $cacheSource = Select-String -LiteralPath $cmakeCache -Pattern '^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$'
+    if ($cacheSource) {
+        $cachedRoot = [IO.Path]::GetFullPath($cacheSource.Matches[0].Groups[1].Value)
+        $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+        if (-not [string]::Equals($cachedRoot, $FirmwareRoot, $comparison)) {
+            throw "Build cache '$cmakeCache' belongs to '$cachedRoot'. Use a new build directory or run fullclean for the selected build."
+        }
+    }
+}
+
+Push-Location $FirmwareRoot
 try {
     $commonArgs = @(
         "--no-hints",

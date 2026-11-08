@@ -53,8 +53,8 @@ EXCLUDED_SEGMENTS = {
 
 # Generated app resources remain excluded from this source-focused release scan.
 DEFERRED_UI_PATHS = (
-    Path("components/LUNASHELL_app"),
-    Path("components/LUNASHELL_boot/src/ui/LUNASHELL_boot_ui.c"),
+    Path("cody-device/components/LUNASHELL_app"),
+    Path("cody-device/components/LUNASHELL_boot/src/ui/LUNASHELL_boot_ui.c"),
     Path("littlefs/apps"),
 )
 # The approved creator/site identity is required repository metadata.

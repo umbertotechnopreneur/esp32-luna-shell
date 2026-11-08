@@ -30,7 +30,7 @@ from simulator.windows.cody_wellbeing import (
 # root: Checkout containing canonical dormant wellbeing authoring.
 # Raises AssertionError for lifecycle, due-state, clock, acknowledgement or identity regressions.
 def check_host_wellbeing(root):
-    rules = load_personality_rules(root / "assets/cody/personality.yaml")
+    rules = load_personality_rules(root / "cody-device/assets/cody/personality.yaml")
     assertions = 0
 
     # condition: Expected pure-engine contract without any session adapter or icon side effect.

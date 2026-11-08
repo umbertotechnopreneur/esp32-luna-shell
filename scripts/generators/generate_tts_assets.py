@@ -23,7 +23,7 @@ from pathlib import Path
 import shutil
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "assets/tts/espeak-ng"
+SOURCE = ROOT / "cody-device/assets/tts/espeak-ng"
 
 
 # backend: Explicit sd or flash storage selection.

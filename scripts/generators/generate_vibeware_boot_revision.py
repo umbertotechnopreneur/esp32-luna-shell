@@ -31,7 +31,7 @@ from reportlab.pdfgen import canvas
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "simulator/windows"))
+sys.path.insert(0, str(ROOT / "cody-device/simulator/windows"))
 from scripts.generators.generate_cody_idle_atlas import ATLAS, W, H, text, paragraph
 from scripts.generators.generate_cody_documentation_revision import register_fonts
 from vibeware_boot import VibeWareBoot
@@ -185,7 +185,7 @@ def main():
         parser.error("--pdftoppm is required for visual document review")
     OUTPUT.mkdir(parents=True, exist_ok=True)
     register_fonts()
-    artwork = VibeWareBoot(ROOT)
+    artwork = VibeWareBoot(ROOT / "cody-device")
     manifest = {"revision_date": "2026-10-06", "scope": "VibeWare boot identity", "manifesto": MANIFESTO, "documents": []}
     for index, name in enumerate(NAMES):
         source = ATLAS / name

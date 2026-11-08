@@ -36,7 +36,7 @@ def main():
               "scope": "real reconnect/startup/presentation helpers; fake RTOS and renderer boundaries; no radio, authentication, pixels or physical latency proof"}
     write_report(report_path, report)
     try:
-        network = ROOT / "components/LUNASHELL_platform/src/network"
+        network = ROOT / "cody-device/components/LUNASHELL_platform/src/network"
         groups = {
             "wifi": ("LUNASHELL_wifi.cpp", ("esp_err_t schedule_reconnect(",
                       "bool reconnect_deadline_pending_locked()",
@@ -54,7 +54,7 @@ def main():
                 if any(token in helper for token in ("vTaskDelay(", "ulTaskNotifyTake(", "while (", "for (")):
                     raise AssertionError(f"Unexpected polling in {name} wake admission helper")
             (output / f"wake_{name}_under_test.inc").write_text("\n\n".join(helpers) + "\n", encoding="utf-8")
-        onboarding_path = ROOT / "components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        onboarding_path = ROOT / "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
         onboarding = onboarding_path.read_text(encoding="utf-8")
         declarations = []
         for name in ("kStartupWifiGraceUs", "s_startup_wifi_wait_started_us",

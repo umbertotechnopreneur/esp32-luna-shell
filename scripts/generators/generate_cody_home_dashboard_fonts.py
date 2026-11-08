@@ -16,8 +16,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "third_party/esp-brookesia/system/brookesia_system_super/resource/fonts/Telex-Regular.ttf"
-OUTPUT = ROOT / "assets/cody/home-dashboard-fonts/generated"
+SOURCE = ROOT / "cody-device/third_party/esp-brookesia/system/brookesia_system_super/resource/fonts/Telex-Regular.ttf"
+OUTPUT = ROOT / "cody-device/assets/cody/home-dashboard-fonts/generated"
 
 
 # pixels: Explicit source raster size, independent of existing scene typography.

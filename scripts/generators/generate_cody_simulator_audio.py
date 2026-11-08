@@ -36,14 +36,14 @@ def main(argv=None):
     compiler = resolve_compiler(args.compiler) if args.compiler else prepare_host_compiler()
     output = library.parent
     output.mkdir(parents=True, exist_ok=True)
-    includes = ("scripts/tests/cody_native", "components/CODY_companion/include",
-        "components/CODY2D/include", "components/LUNASHELL_platform/include",
-        "assets/cody/personality/generated", "assets/cody/personality-icons/audio",
-        "assets/cody/rig/generated")
-    sources = ("simulator/native/CODY_fake_audio.cpp",
-        "components/CODY_companion/src/scenes/CODY_typewriter_audio.cpp",
-        "components/CODY_companion/src/runtime/CODY_personality_audio.cpp",
-        "assets/cody/personality-icons/audio/personality_audio.cpp")
+    includes = ("scripts/tests/cody_native", "cody-device/components/CODY_companion/include",
+        "cody-device/components/CODY2D/include", "cody-device/components/LUNASHELL_platform/include",
+        "cody-device/assets/cody/personality/generated", "cody-device/assets/cody/personality-icons/audio",
+        "cody-device/assets/cody/rig/generated")
+    sources = ("cody-device/simulator/native/CODY_fake_audio.cpp",
+        "cody-device/components/CODY_companion/src/scenes/CODY_typewriter_audio.cpp",
+        "cody-device/components/CODY_companion/src/runtime/CODY_personality_audio.cpp",
+        "cody-device/assets/cody/personality-icons/audio/personality_audio.cpp")
     command = compile_command(compiler, includes, sources, library)
     command += simulator_library_flags(compiler, library)
     run_stage(command, output, "compile")

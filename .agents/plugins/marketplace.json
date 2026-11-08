@@ -8,7 +8,7 @@
       "name": "cody-codex-plugin",
       "source": {
         "source": "local",
-        "path": "./plugins/cody-codex-plugin"
+        "path": "./cody-desktop/plugins/cody-codex-plugin"
       },
       "policy": {
         "installation": "AVAILABLE",

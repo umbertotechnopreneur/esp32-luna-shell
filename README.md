@@ -48,10 +48,10 @@ use a round 466 × 466 display. Their pin assignments and onboard peripherals
 differ. The **1.43C** has a hardware reference only. [Board comparison](docs/bsp/boards/purchased-amoled-comparison.md) · [Open hardware checks](TODO.md)
 
 <p align="center">
-  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-2.jpg" alt="Waveshare 1.75C front view with aluminum case and wrist strap" width="300">
-  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-6.jpg" alt="Waveshare 1.75C angled front view" width="300"><br>
-  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-4.jpg" alt="Waveshare 1.75C side view with USB cover and button" width="300">
-  <img src="hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-7.jpg" alt="Waveshare 1.75C aluminum case from the rear" width="300"><br>
+  <img src="cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-2.jpg" alt="Waveshare 1.75C front view with aluminum case and wrist strap" width="300">
+  <img src="cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-6.jpg" alt="Waveshare 1.75C angled front view" width="300"><br>
+  <img src="cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-4.jpg" alt="Waveshare 1.75C side view with USB cover and button" width="300">
+  <img src="cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/product-photo-7.jpg" alt="Waveshare 1.75C aluminum case from the rear" width="300"><br>
   <em>Official Waveshare product photos. Image rights belong to their respective owners.</em>
 </p>
 
@@ -61,8 +61,8 @@ Standby, wake and battery behavior are described in the
 ## Pick a door
 
 - **Use Cody:** [setup and navigation](docs/cody/navigation.md), the
-  [A4 route map](docs/cody/device-navigation-map-a4.pdf) and the [PC plugin](plugins/cody-codex-plugin/README.md).
-- **Desktop widget:** [OpenAI Usage](widgets/codex-status/README.md), a standalone
+  [A4 route map](docs/cody/device-navigation-map-a4.pdf) and the [PC plugin](cody-desktop/plugins/cody-codex-plugin/README.md).
+- **Desktop widget:** [OpenAI Usage](cody-desktop/widgets/codex-status/README.md), a standalone
   Windows/Linux widget for Codex allowance, tokens, credits and reset countdown.
 - **Build something:** [Cody's native 2D interface](docs/cody/README.md),
   [Luna's Brookesia interface](docs/luna-shell/README.md), or the [shared hardware layer](docs/bsp/README.md).
@@ -72,6 +72,13 @@ Standby, wake and battery behavior are described in the
 Development uses **ESP-IDF 6.0.2** and, for Luna, **ESP-Brookesia 0.8** with LVGL.
 Cody uses its own native 2D renderer. `scripts/device.ps1` is the command-line
 entry point; [AGENTS.md](AGENTS.md) has the working agreements.
+
+## Checkout layout
+
+- [cody-device/](cody-device/) contains the ESP32 firmware project, hardware references, assets and host simulator.
+- [cody-desktop/](cody-desktop/) contains the Cody Codex plugin and the OpenAI Usage widget.
+- [docs/](docs/) contains the public documentation. Run device operations through [scripts/device.ps1](scripts/device.ps1) from the repository root. Generated output belongs in artifacts/.
+- Cody Cloud is a separate private Git checkout. Keep it beside this repository as cody-cloud.
 
 ## The small print, kept small
 

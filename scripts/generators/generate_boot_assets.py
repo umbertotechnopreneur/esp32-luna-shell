@@ -71,7 +71,7 @@ def read_asset_lock_owner(owner_path: Path) -> dict[str, object]:
 
 
 def enter_asset_package_lock(repo_root: Path, owner: str) -> dict[str, object]:
-    assets_root = repo_root / "assets"
+    assets_root = repo_root / "cody-device/assets"
     if not assets_root.is_dir() or is_reparse_point(assets_root):
         raise RuntimeError(
             f"Canonical assets root is missing or is a reparse point: {assets_root}"
@@ -473,8 +473,8 @@ def commit_staged_files(
 
 
 def run_locked(args: argparse.Namespace, repo_root: Path) -> None:
-    source_root_path = repo_root / "assets/branding/LUNASHELL/source"
-    generated_root_path = repo_root / "assets/branding/LUNASHELL/generated"
+    source_root_path = repo_root / "cody-device/assets/branding/LUNASHELL/source"
+    generated_root_path = repo_root / "cody-device/assets/branding/LUNASHELL/generated"
     assert_no_reparse_tree(source_root_path, "Canonical boot source tree")
     assert_no_reparse_tree(generated_root_path, "Canonical boot generated tree")
     source_root = source_root_path.resolve(strict=True)
@@ -646,12 +646,12 @@ def parse_args(repo_root: Path) -> argparse.Namespace:
         "--source",
         type=Path,
         default=repo_root
-        / "assets/branding/LUNASHELL/source/LUNASHELL-ai-logo.pdf",
+        / "cody-device/assets/branding/LUNASHELL/source/LUNASHELL-ai-logo.pdf",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=repo_root / "assets/branding/LUNASHELL/generated",
+        default=repo_root / "cody-device/assets/branding/LUNASHELL/generated",
     )
     parser.add_argument(
         "--validate-only",

@@ -24,7 +24,7 @@ The root README displays the existing Waveshare manufacturer photos
 to identify the purchased aluminum-case model. These images remain third-party
 material, outside the project's MIT license.
 The original collection and provenance are retained in the
-[hardware reference index](hardware/references/waveshare/README.md).
+[hardware reference index](cody-device/hardware/references/waveshare/README.md).
 
 ## Waveshare board support package
 
@@ -52,7 +52,7 @@ Managed ESP-IDF component versions are recorded in `dependencies.lock`.
 
 ## Purchased Waveshare hardware reference snapshots
 
-- Location and provenance: [hardware reference index](hardware/references/waveshare/README.md).
+- Location and provenance: [hardware reference index](cody-device/hardware/references/waveshare/README.md).
 - Products: ESP32-S3-Touch-AMOLED-1.75C and ESP32-S3-Touch-AMOLED-1.43C.
 - Supplied folders imported on 2026-10-15; source examples, firmware, images,
   schematics, manuals and collection notes remain reference material outside
@@ -71,11 +71,11 @@ Managed ESP-IDF component versions are recorded in `dependencies.lock`.
 - Imported source: `third_party/espeak-ng`, from eSpeak NG 1.52-dev through
   `pschatzmann/arduino-espeak-ng` revision
   `93b2651d324874e1e00077af008d8ab83ab32e73`.
-- [Source provenance and local changes](third_party/espeak-ng/ORIGIN.md).
-- Preserved license files: [GPLv3](third_party/espeak-ng/COPYING),
-  [Apache](third_party/espeak-ng/COPYING.APACHE),
-  [BSD](third_party/espeak-ng/COPYING.BSD2), and
-  [Unicode data](third_party/espeak-ng/COPYING.UCD).
+- [Source provenance and local changes](cody-device/third_party/espeak-ng/ORIGIN.md).
+- Preserved license files: [GPLv3](cody-device/third_party/espeak-ng/COPYING),
+  [Apache](cody-device/third_party/espeak-ng/COPYING.APACHE),
+  [BSD](cody-device/third_party/espeak-ng/COPYING.BSD2), and
+  [Unicode data](cody-device/third_party/espeak-ng/COPYING.UCD).
 - Matched runtime data: `assets/tts/espeak-ng`.
 
 The optional speech profile includes imported sources with their own licensing
@@ -84,16 +84,16 @@ requirements. The root MIT License does not relicense them; see the
 
 ## Wake-word assets
 
-`assets/wake-word` retains its [Espressif license](assets/wake-word/LICENSE),
+`cody-device/assets/wake-word` retains its [Espressif license](cody-device/assets/wake-word/LICENSE),
 including its Espressif-products condition. The project MIT License does not
 replace those terms.
 
 ## VibeWare artwork
 
 The VibeWare artwork comes from Umberto Giacobbi's VibeWare repository. The
-simulator copy retains its [license](simulator/windows/assets/branding/LICENSE)
+simulator copy retains its [license](cody-device/simulator/windows/assets/branding/LICENSE)
 and `provenance.json`; the firmware animation's provenance is in
-[the asset guide](assets/branding/VibeWare/README.md).
+[the asset guide](cody-device/assets/branding/VibeWare/README.md).
 Use the upstream [press kit](https://github.com/umbertotechnopreneur/VibeWare/blob/main/PRESS-KIT.md)
 for identity and reuse guidance. Branding does not establish verification or
 release status for this project.

@@ -21,8 +21,8 @@ build-*/
 managed_components/
 littlefs/
 runtime-logs/
-/sdkconfig
-/sdkconfig.old
+/cody-device/sdkconfig
+/cody-device/sdkconfig.old
 .sdkconfig/
 
 # Editor and local tooling
@@ -32,6 +32,7 @@ runtime-logs/
 
 # Independently versioned proprietary cloud service; never add as a submodule.
 /server-private/
+/cody-cloud/
 
 # Windows folder metadata at any directory depth
 **/desktop.ini
@@ -46,10 +47,10 @@ tmp/
 __pycache__/
 *.pyc
 .venv-simulator/
-simulator/windows/build/
-simulator/windows/dist/
+/cody-device/simulator/windows/build/
+/cody-device/simulator/windows/dist/
 
 # The complete vendor archive remains available in the local hardware reference.
 # Its 134324048 bytes exceed GitHub's ordinary 100 MiB file limit; the extracted
 # ESP-IDF examples, documentation and upstream download link are versioned.
-/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/software/waveshare-source-main.zip
+/cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/software/waveshare-source-main.zip

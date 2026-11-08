@@ -269,7 +269,7 @@ def main(argv=None):
     rig, palette = load_contract(skin_path=args.skin)
     navigation = load_navigation(ROOT)
     content = generate_header(rig, palette)
-    output = ROOT / "assets/cody/rig/generated"
+    output = ROOT / "cody-device/assets/cody/rig/generated"
     manifest = {
         "schema": "cody.rig.generated.v2",
         "skin_id": rig["character"]["id"],
@@ -287,8 +287,8 @@ def main(argv=None):
         "response_schema": rig["response"]["schema"],
         "response_sources": [rig["response"][group]["source"] for group in ("motion", "power")],
         "source_sha256": text_source_hash(ROOT / rig["source_path"]),
-        "palette_sha256": text_source_hash(ROOT / rig["palette_file"]),
-        "navigation_sha256": text_source_hash(ROOT / "assets/cody/navigation.json"),
+        "palette_sha256": text_source_hash(ROOT / "cody-device" / rig["palette_file"]),
+        "navigation_sha256": text_source_hash(ROOT / "cody-device/assets/cody/navigation.json"),
     }
     output.mkdir(parents=True, exist_ok=True)
     (output / "cloud_rig_data.hpp").write_text(content, encoding="utf-8")

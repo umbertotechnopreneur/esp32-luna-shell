@@ -19,8 +19,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "docs/cody/ui-proposals/20261014-questions"
-FONT = ROOT / "third_party/esp-brookesia/system/brookesia_system_super/resource/fonts/Telex-Regular.ttf"
-CLOUD = ROOT / "assets/cody/boot/cody-ready-pearl.png"
+FONT = ROOT / "cody-device/third_party/esp-brookesia/system/brookesia_system_super/resource/fonts/Telex-Regular.ttf"
+CLOUD = ROOT / "cody-device/assets/cody/boot/cody-ready-pearl.png"
 SIZE = 466
 WHITE = "#eef4f6"
 GRAY = "#94a1ab"
@@ -342,7 +342,7 @@ def main():
     board(images)
     prototype(manifest)
     (OUTPUT / "flow.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    (OUTPUT / "font-license.txt").write_bytes((ROOT / "assets/cody/home-dashboard-fonts/OFL.txt").read_bytes())
+    (OUTPUT / "font-license.txt").write_bytes((ROOT / "cody-device/assets/cody/home-dashboard-fonts/OFL.txt").read_bytes())
     print(f"Eight question-flow proposals generated: {OUTPUT / 'eight-screen-flow.png'}")
     print(f"Offline mouse/touch prototype: {OUTPUT / 'prototype.html'}")
 

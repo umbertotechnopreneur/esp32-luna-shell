@@ -24,7 +24,7 @@ import struct
 import wave
 
 ROOT = Path(__file__).resolve().parents[2]
-OUTPUT = ROOT / "assets/cody/personality-icons/audio"
+OUTPUT = ROOT / "cody-device/assets/cody/personality-icons/audio"
 RATE = 16000
 
 # Explicit cue identities match CODY_personality.hpp; ordering has no semantic role.

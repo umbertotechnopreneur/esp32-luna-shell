@@ -188,7 +188,7 @@ def screen(surface, item, x):
         cody(surface, center, 365, expression)
     if identity in ("33", "34"):
         cue = "low-battery" if identity == "33" else "joy" if title == "Fully charged" else "charging"
-        path = ROOT / "assets/cody/personality-icons/generated" / (cue + ".png")
+        path = ROOT / "cody-device/assets/cody/personality-icons/generated" / (cue + ".png")
         surface.drawImage(ImageReader(str(path)), center + 36, 383, width=24, height=24, mask="auto")
     surface.setFillColor(colors.HexColor("#ADC7D5"))
     surface.setFont("CodyDoc", 10)

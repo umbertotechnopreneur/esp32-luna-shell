@@ -12,7 +12,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repository = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$plugin = Join-Path $repository 'plugins/cody-codex-plugin'
+$plugin = Join-Path $repository 'cody-desktop/plugins/cody-codex-plugin'
 
 # ExplicitPath: Optional operator selection; otherwise inspect the actual Desktop child.
 # Throws if the installed executable is missing or the running Desktop selection is ambiguous.

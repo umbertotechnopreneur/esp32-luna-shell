@@ -31,7 +31,7 @@ from scripts.common.firmware_profile import read_profile_defaults
 
 
 ROOT = Path(__file__).resolve().parents[2]
-GUI_RES = ROOT / "components/LUNASHELL_app/package/res"
+GUI_RES = ROOT / "cody-device/components/LUNASHELL_app/package/res"
 
 EXPECTED_RESIDENT_SCREENS = {
     "LUNASHELL_background_screen",
@@ -189,28 +189,28 @@ def verify_asset_references(
 # No parameters: read the app modules together so moving a handler does not hide its contract.
 # Raises OSError or AssertionError for missing sources or rejected pairing contracts.
 def main() -> None:
-    provisioning = read("components/LUNASHELL_platform/src/network/LUNASHELL_provisioning.cpp")
-    provisioning_header = read("components/LUNASHELL_platform/include/LUNASHELL_provisioning.hpp")
-    radios = read("components/LUNASHELL_platform/src/network/LUNASHELL_radios.cpp")
-    platform_header = read("components/LUNASHELL_platform/include/LUNASHELL_platform.h")
-    platform_cmake = read("components/LUNASHELL_platform/CMakeLists.txt")
-    app_header = read("components/LUNASHELL_app/include/LUNASHELL_app.hpp")
-    app = read("components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
+    provisioning = read("cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_provisioning.cpp")
+    provisioning_header = read("cody-device/components/LUNASHELL_platform/include/LUNASHELL_provisioning.hpp")
+    radios = read("cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_radios.cpp")
+    platform_header = read("cody-device/components/LUNASHELL_platform/include/LUNASHELL_platform.h")
+    platform_cmake = read("cody-device/components/LUNASHELL_platform/CMakeLists.txt")
+    app_header = read("cody-device/components/LUNASHELL_app/include/LUNASHELL_app.hpp")
+    app = read("cody-device/components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
     app_documents = read(
-        "components/LUNASHELL_app/src/documents/LUNASHELL_app_documents.cpp"
+        "cody-device/components/LUNASHELL_app/src/documents/LUNASHELL_app_documents.cpp"
     )
     app_document_actions = read(
-        "components/LUNASHELL_app/src/documents/LUNASHELL_app_document_actions.cpp"
+        "cody-device/components/LUNASHELL_app/src/documents/LUNASHELL_app_document_actions.cpp"
     )
     app_sources = f"{app}\n{app_documents}\n{app_document_actions}"
-    simulator = read("simulator/windows/LUNASHELL_simulator.py")
+    simulator = read("cody-device/simulator/windows/LUNASHELL_simulator.py")
     simulator_runner = read("scripts/device.ps1")
-    edge_navigation = read("components/LUNASHELL_app/src/chrome/LUNASHELL_edge_navigation.cpp")
+    edge_navigation = read("cody-device/components/LUNASHELL_app/src/chrome/LUNASHELL_edge_navigation.cpp")
     navigation_service = read(
-        "components/LUNASHELL_app/src/chrome/LUNASHELL_navigation_service.cpp"
+        "cody-device/components/LUNASHELL_app/src/chrome/LUNASHELL_navigation_service.cpp"
     )
     navigation_header = read(
-        "components/LUNASHELL_app/include/LUNASHELL_navigation_service.hpp"
+        "cody-device/components/LUNASHELL_app/include/LUNASHELL_navigation_service.hpp"
     )
     package_documents = load_package_json()
     app_root = package_documents.get("root.json")
@@ -241,8 +241,8 @@ def main() -> None:
     }
     verify_asset_references(runtime_documents, package_documents)
     chrome = package_documents["templates/LUNASHELL_chrome.json"]
-    status_bar_source = read("components/LUNASHELL_app/src/chrome/LUNASHELL_status_bar.cpp")
-    main_source = read("main/main.cpp")
+    status_bar_source = read("cody-device/components/LUNASHELL_app/src/chrome/LUNASHELL_status_bar.cpp")
+    main_source = read("cody-device/main/main.cpp")
     sdkconfig = read_profile_defaults("connected")
 
     require(provisioning_header, "class ProvisioningService final", "provisioning header")
@@ -663,7 +663,7 @@ def main() -> None:
         if isinstance(node, dict) and isinstance(node.get("action"), str)
     }
     settings_source = read(
-        "components/LUNASHELL_app/package/res/screen_settings.json"
+        "cody-device/components/LUNASHELL_app/package/res/screen_settings.json"
     )
     forbid(settings_source, '"id": "radio_start"', "Settings body")
     forbid(settings_source, '"id": "gps_action"', "Settings body")

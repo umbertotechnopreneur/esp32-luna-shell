@@ -12,13 +12,13 @@ The **1.43C** has an 8 MB flash and needs a separate BSP selection.
 See the [device console](../../../scripts/README.md).
 
 The original prototype is established by
-[`hardware/inventory.json`](../../../hardware/inventory.json), the
+[`hardware/inventory.json`](../../../cody-device/hardware/inventory.json), the
 [current board inventory](waveshare-esp32s3-touch-amoled-1.75/hardware.md),
-[`catalog.json`](../../../config/sdkconfig/v1/catalog.json),
-[16 MB board defaults](../../../config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75.defaults)
-and the [current BSP pin definitions](../../../components/esp32_s3_touch_amoled_1_75/include/bsp/esp32_s3_touch_amoled_1_75.h).
+[`catalog.json`](../../../cody-device/config/sdkconfig/v1/catalog.json),
+[16 MB board defaults](../../../cody-device/config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75.defaults)
+and the [current BSP pin definitions](../../../cody-device/components/esp32_s3_touch_amoled_1_75/include/bsp/esp32_s3_touch_amoled_1_75.h).
 These identify the documented prototype. The 1.75C selection adds its own
-[defaults](../../../config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75c.defaults)
+[defaults](../../../cody-device/config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75c.defaults)
 and isolated build state; neither configuration proves physical behavior.
 
 ## Hardware comparison
@@ -93,8 +93,8 @@ including the previously unallocated 15 MiB. Both OTA slots remain unchanged.
 This is a clean layout with no compatibility or migration path for the old
 1 MiB filesystem at `0x1f00000`. Installing it requires the new partition table
 and a filesystem initialized for the new extent. Changing the source table alone
-changes no device data. See the [base layout](../../../config/partitions/amoled-1.75c.csv)
-and [wake-word layout](../../../config/partitions/amoled-1.75c-wake-word.csv).
+changes no device data. See the [base layout](../../../cody-device/config/partitions/amoled-1.75c.csv)
+and [wake-word layout](../../../cody-device/config/partitions/amoled-1.75c-wake-word.csv).
 
 The official [1.75C repository](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C)
 advertises ESP-IDF 6.0.2 examples. The supplied display demo selects
@@ -108,8 +108,8 @@ System Super/Core architecture. Cody must retain its native 2D path without
 adding LVGL or its adapter dependency.
 
 **Flash is the first design gate for 1.43C.** Both current tables,
-[`partitions.csv`](../../../partitions.csv) and
-[`wake-word.csv`](../../../config/partitions/wake-word.csv), end at `0x1000000`
+[`partitions.csv`](../../../cody-device/partitions.csv) and
+[`wake-word.csv`](../../../cody-device/config/partitions/wake-word.csv), end at `0x1000000`
 (16 MiB); an 8 MiB device ends at `0x800000`. They cannot be reused. The current
 wake-word table has two `0x6f0000` application slots, a 1 MiB speech-model
 partition and a 1 MiB LittleFS partition. Two existing application slots alone
@@ -155,10 +155,10 @@ OTA/speech budget, CST820, audio wiring and ADC/charger ownership before activat
 
 ## Local primary evidence
 
-- [1.75C schematic and PCB sheets](../../../hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/hardware-docs/schematic.pdf).
-- [1.43C schematic and PCB sheets](../../../hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/hardware-docs/schematic.pdf).
-- [1.75C dimensions](../../../hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/ESP32-S3-Touch-AMOLED-1.75C-details-size.jpg).
-- [1.43C dimensions](../../../hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/images-wiki/ESP32-S3-Touch-AMOLED-1.43C-ProductSize-966473b8ae463f203b9f1b3455b82970.webp).
-- [1.43C pin definitions](../../../hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/software/esp-idf-v5.5.3/01_ADC_Test/components/port_bsp/bsp_config.h).
-- [1.43C display, touch and ADC example](../../../hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/software/esp-idf-v5.5.3/01_ADC_Test/components/port_bsp/esp32_s3_touch_amoled_1.43c.cpp).
-- [1.43C audio pins](../../../hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/software/esp-idf-v5.5.3/01_ADC_Test/components/externlib/codec_board/board_cfg.txt).
+- [1.75C schematic and PCB sheets](../../../cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/hardware-docs/schematic.pdf).
+- [1.43C schematic and PCB sheets](../../../cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/hardware-docs/schematic.pdf).
+- [1.75C dimensions](../../../cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/images-product/ESP32-S3-Touch-AMOLED-1.75C-details-size.jpg).
+- [1.43C dimensions](../../../cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/images-wiki/ESP32-S3-Touch-AMOLED-1.43C-ProductSize-966473b8ae463f203b9f1b3455b82970.webp).
+- [1.43C pin definitions](../../../cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/software/esp-idf-v5.5.3/01_ADC_Test/components/port_bsp/bsp_config.h).
+- [1.43C display, touch and ADC example](../../../cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/software/esp-idf-v5.5.3/01_ADC_Test/components/port_bsp/esp32_s3_touch_amoled_1.43c.cpp).
+- [1.43C audio pins](../../../cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/software/esp-idf-v5.5.3/01_ADC_Test/components/externlib/codec_board/board_cfg.txt).

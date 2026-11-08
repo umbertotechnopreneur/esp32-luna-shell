@@ -37,7 +37,7 @@ def main():
     try:
         report["stage"] = "extract-production-helpers"
         write_report(report_path, report)
-        source_path = ROOT / "components/LUNASHELL_platform/src/audio/LUNASHELL_voice_afe.cpp"
+        source_path = ROOT / "cody-device/components/LUNASHELL_platform/src/audio/LUNASHELL_voice_afe.cpp"
         source = source_path.read_text(encoding="utf-8")
         signatures = ("void signal_lifecycle_change()", "esp_err_t notify_workers(",
                       "void wait_lifecycle_change(", "void park_finished_worker()",
@@ -55,7 +55,7 @@ def main():
         executable = output / "voice-afe-lifecycle.exe"
         command = compile_command(compiler,
             [str(output), "scripts/tests/cody_native",
-             "components/LUNASHELL_platform/src/audio"],
+             "cody-device/components/LUNASHELL_platform/src/audio"],
             ["scripts/tests/voice_afe_lifecycle_contract.cpp"], executable)
         if Path(compiler).stem.lower() != "cl":
             command.append("-pthread")

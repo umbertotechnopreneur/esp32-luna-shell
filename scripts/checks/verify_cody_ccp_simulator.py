@@ -34,7 +34,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "simulator/windows"))
+sys.path.insert(0, str(ROOT / "cody-device/simulator/windows"))
 sys.path.insert(0, str(ROOT))
 import cody_ccp_simulator as simulated
 from cody_ccp_panel import CcpPanel, presentation
@@ -1378,7 +1378,7 @@ class SimulatorProtocolTests(unittest.TestCase):
 # pattern: unittest discovery input; this suite intentionally loads only the named batch fixture.
 # Raises original import/native errors rather than silently skipping action-raster coverage.
 def load_tests(loader, standard_tests, pattern):
-    standard_tests.addTests(loader.discover(str(ROOT / "simulator/windows/tests"),
+    standard_tests.addTests(loader.discover(str(ROOT / "cody-device/simulator/windows/tests"),
                                            pattern="test_event_action_batch.py"))
     return standard_tests
 

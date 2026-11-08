@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[2] / "cody-device"
 CATALOG_PATH = ROOT / "config" / "sdkconfig" / "v1" / "catalog.json"
 
 

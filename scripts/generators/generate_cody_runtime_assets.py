@@ -73,10 +73,10 @@ def synthesize(settings, cue):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.parse_args()
-    source = ROOT / "assets/cody/runtime.yaml"
+    source = ROOT / "cody-device/assets/cody/runtime.yaml"
     settings = load_settings(source)
     rig, _ = load_contract()
-    generated = ROOT / "assets/cody/runtime/generated"
+    generated = ROOT / "cody-device/assets/cody/runtime/generated"
     generated.mkdir(parents=True, exist_ok=True)
     names = {"breathe": "Breathe", "contour_slow": "ContourSlow", "contour_fast": "ContourFast", "sleepy": "Sleepy", "awake": "Awake"}
     lines = ['#pragma once', '#include "CODY_demo.hpp"', '#include "CODY_raster_profile.hpp"',

@@ -28,7 +28,7 @@ from common.source_contracts import read_component_source
 
 
 ROOT = Path(__file__).resolve().parents[2]
-GUI_RES = ROOT / "components/LUNASHELL_app/package/res"
+GUI_RES = ROOT / "cody-device/components/LUNASHELL_app/package/res"
 DISPLAY_SIZE = 466
 CHROME_INSET = 73
 SAFE_CONTENT_SIZE = 320
@@ -254,7 +254,7 @@ def verify_package() -> None:
 
     pairing = json.loads(
         read(
-            "components/LUNASHELL_app/package/res/templates/"
+            "cody-device/components/LUNASHELL_app/package/res/templates/"
             "LUNASHELL_pairing_stage.json"
         )
     )["node"]
@@ -272,19 +272,19 @@ def verify_package() -> None:
 
 def verify_firmware_contract() -> None:
     snapshot = read(
-        "components/LUNASHELL_platform/include/LUNASHELL_device_snapshot.hpp"
+        "cody-device/components/LUNASHELL_platform/include/LUNASHELL_device_snapshot.hpp"
     )
-    power = read("components/LUNASHELL_platform/src/power/LUNASHELL_power.cpp")
-    chrome = read("components/LUNASHELL_app/src/chrome/LUNASHELL_adaptive_chrome.cpp")
+    power = read("cody-device/components/LUNASHELL_platform/src/power/LUNASHELL_power.cpp")
+    chrome = read("cody-device/components/LUNASHELL_app/src/chrome/LUNASHELL_adaptive_chrome.cpp")
     command_bar = read(
-        "components/LUNASHELL_app/src/chrome/LUNASHELL_adaptive_command_bar.cpp"
+        "cody-device/components/LUNASHELL_app/src/chrome/LUNASHELL_adaptive_command_bar.cpp"
     )
     command_bar_header = read(
-        "components/LUNASHELL_app/include/LUNASHELL_adaptive_command_bar.hpp"
+        "cody-device/components/LUNASHELL_app/include/LUNASHELL_adaptive_command_bar.hpp"
     )
-    simulator = read("simulator/windows/LUNASHELL_simulator.py")
-    app = read("components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
-    http = read("components/LUNASHELL_platform/src/http/LUNASHELL_http_json.cpp")
+    simulator = read("cody-device/simulator/windows/LUNASHELL_simulator.py")
+    app = read("cody-device/components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
+    http = read("cody-device/components/LUNASHELL_platform/src/http/LUNASHELL_http_json.cpp")
 
     require(snapshot, "bool fullscreen_active = false;", "snapshot")
     require(power, "handle_boot_short_press()", "BOOT toggle")

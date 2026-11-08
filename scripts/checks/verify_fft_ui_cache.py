@@ -27,17 +27,17 @@ from common.source_contracts import read_component_source
 
 
 ROOT = Path(__file__).resolve().parents[2]
-APP_SOURCE = ROOT / "components" / "LUNASHELL_app" / "src" / "runtime" / "LUNASHELL_app.cpp"
+APP_SOURCE = ROOT / "cody-device/components" / "LUNASHELL_app" / "src" / "runtime" / "LUNASHELL_app.cpp"
 APP_HEADER = (
     ROOT
-    / "components"
+    / "cody-device/components"
     / "LUNASHELL_app"
     / "include"
     / "LUNASHELL_app.hpp"
 )
 RUNTIME_SOURCE = (
     ROOT
-    / "third_party"
+    / "cody-device/third_party"
     / "esp-brookesia"
     / "gui"
     / "brookesia_gui_interface"

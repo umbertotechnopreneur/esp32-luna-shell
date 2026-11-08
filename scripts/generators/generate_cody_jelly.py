@@ -25,14 +25,14 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / 'simulator/windows'))
+sys.path.insert(0, str(ROOT / 'cody-device/simulator/windows'))
 
 from scripts.common.cody_rig_contract import load_contract, enum_identifier
 from scripts.common.asset_provenance import text_source_hash
 from cody_jelly_scanline import JellyScanlineStudy, native_texture_colors
 
-OUTPUT = ROOT / 'assets/cody/appearance/jelly-scanline/generated'
-CATALOG = ROOT / 'assets/cody/appearance/jelly-scanline/skins.json'
+OUTPUT = ROOT / 'cody-device/assets/cody/appearance/jelly-scanline/generated'
+CATALOG = ROOT / 'cody-device/assets/cody/appearance/jelly-scanline/skins.json'
 
 
 # value: Finite coordinate or normalized binding weight from the loaded contract.
@@ -79,7 +79,7 @@ def load_skin_catalog():
     if not isinstance(default_id, str) or sum(skin['id'] == default_id for skin in skins) != 1:
         raise ValueError('Jelly skin default_id must reference exactly one authored skin')
     for skin in skins:
-        source = (ROOT / skin['source']).resolve()
+        source = (ROOT / 'cody-device' / skin['source']).resolve()
         try:
             source.relative_to(ROOT.resolve())
         except ValueError as error:
@@ -159,7 +159,7 @@ def main():
     if len(set(row_ids)) != len(row_ids):
         raise ValueError('Ambiguous jelly C++ row identity')
     width, height = study.texture.size
-    master_path = ROOT / 'assets/cody/appearance/jelly-scanline/jelly-body-master.png'
+    master_path = ROOT / 'cody-device/assets/cody/appearance/jelly-scanline/jelly-body-master.png'
     with Image.open(master_path) as master:
         if master.mode != 'RGBA':
             raise ValueError(f'Canonical jelly master must be RGBA: {master_path}')
@@ -168,7 +168,7 @@ def main():
     alpha_sha256 = hashlib.sha256(canonical_alpha).hexdigest()
     prepared_skins = []
     for skin in skins:
-        path = ROOT / skin['source']
+        path = ROOT / 'cody-device' / skin['source']
         texture_bytes = prepare_skin(
             path, study.source_crop, (width, height), canonical_size, canonical_alpha
         )
@@ -259,11 +259,11 @@ def main():
 
     total_texture_bytes = sum(len(source_bytes) for _, _, source_bytes in prepared_skins)
     manifest = {
-        'catalog': CATALOG.relative_to(ROOT).as_posix(),
+        'catalog': CATALOG.relative_to(ROOT / "cody-device").as_posix(),
         'catalog_sha256': text_source_hash(CATALOG),
         'default_id': catalog['default_id'],
         'alpha_sha256': alpha_sha256,
-        'skin_sha256': text_source_hash(ROOT / 'assets/cody/cody.yaml'),
+        'skin_sha256': text_source_hash(ROOT / 'cody-device/assets/cody/cody.yaml'),
         'source_crop': study.source_crop, 'width': width, 'height': height,
         'encoding': 'premultiplied RGBA8 in little-endian uint32, RGB565-quantized source',
         'texture_bytes_each': width * height * 4,
@@ -271,7 +271,7 @@ def main():
         'skins': [
             {
                 'id': skin['id'], 'enum_value': skin['enum_value'], 'cpp_id': skin['cpp_id'],
-                'display_name': skin['display_name'], 'source': path.relative_to(ROOT).as_posix(),
+                'display_name': skin['display_name'], 'source': path.relative_to(ROOT / "cody-device").as_posix(),
                 'source_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
                 'texture_sha256': hashlib.sha256(source_bytes).hexdigest(),
             }

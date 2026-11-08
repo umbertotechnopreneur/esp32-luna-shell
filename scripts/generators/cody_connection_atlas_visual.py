@@ -283,7 +283,7 @@ def page_diagnosis(surface):
 # surface: ReportLab page canvas.
 def page_sources(surface):
     frame(surface, "Source map and evidence", "10 / Where to look next", 10)
-    card(surface, 42, 257, 360, 149, "Packet and device contract", "plugins/cody-codex-plugin/protocol/CCP1.md defines fields, order, size and authentication. Firmware owns sensor reads, settings and screens.", CYAN)
+    card(surface, 42, 257, 360, 149, "Packet and device contract", "cody-desktop/plugins/cody-codex-plugin/protocol/CCP1.md defines fields, order, size and authentication. Firmware owns sensor reads, settings and screens.", CYAN)
     card(surface, 440, 257, 360, 149, "PC and Codex integration", "CCP owns pairing, hooks, question tickets and audio. The Codex App Server documents model/list and the account, rate limit, usage and workspace message read methods. The PC forwards only the required projections.", BLUE)
     card(surface, 42, 84, 360, 149, "Artwork and screen IDs", "Question and voice images here are versioned design proposals. Navigation and planning atlases hold detailed UI routes; this PDF keeps the communication journey.", PURPLE)
     card(surface, 440, 84, 360, 149, "What is actually verified", "The audio pilot verified queue admission and removal, then the chat reported omitted audio. Account dashboard behavior is documented from source. Physical display and live App Server behavior still require validation.", RED)

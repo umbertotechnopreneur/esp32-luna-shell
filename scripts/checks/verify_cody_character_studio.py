@@ -26,7 +26,7 @@ from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "simulator/windows"))
+sys.path.insert(0, str(ROOT / "cody-device/simulator/windows"))
 
 from cody_native_behavior import CharacterActivity, CharacterWorkKind, NativeBehavior
 from cody_native import NativePanelObservation, NativePersonalityPainter, NativeImuStillnessState, NativeActivityRejection, NativeCompanionPanel, NativeFirmwareBuildFieldState
@@ -259,7 +259,7 @@ class CharacterStudioTests(unittest.TestCase):
                 panel.present_home_audio(scene)
                 self.assertEqual(audio.model_cost_notice.call_count, expected)
         self.assertEqual(audio.model_cost_notice.call_args.args[0],
-                         ROOT / "assets/cody/audio/model-cost/generated/model-cost.wav")
+                         ROOT / "cody-device/assets/cody/audio/model-cost/generated/model-cost.wav")
 
     # self: Existing fake audio queue without a worker, operating only on the immutable authored PCM.
     # Raises AssertionError for altered plins/gaps, deferred muted playback or admission outside the firmware PCM contract.
@@ -271,7 +271,7 @@ class CharacterStudioTests(unittest.TestCase):
         driver = FakeAudioDriver.__new__(FakeAudioDriver)
         driver.enabled, driver.last_error, driver._generation = True, None, 7
         driver._queue = queue.Queue(maxsize=1)
-        asset = ROOT / "assets/cody/audio/model-cost/generated/model-cost.wav"
+        asset = ROOT / "cody-device/assets/cody/audio/model-cost/generated/model-cost.wav"
         driver.model_cost_notice(asset)
         self.assertIsNone(driver.last_error)
         self.assertEqual(driver._queue.qsize(), 1)
@@ -497,7 +497,7 @@ class CharacterStudioTests(unittest.TestCase):
     def test_home_commands_complete_three_passes_and_retire_for_owner_lifetime(self):
         from PIL import Image, ImageChops
         phrase = "Use @CCP in Codex and ask for the available commands"
-        body = json.loads((ROOT / "assets/cody/scenes/generated/manifest.json").read_text(encoding="utf-8"))["body_font"]
+        body = json.loads((ROOT / "cody-device/assets/cody/scenes/generated/manifest.json").read_text(encoding="utf-8"))["body_font"]
         width = (len(phrase) - 1) * body["advance"] + body["width"]
         step_us, step_pixels = 50000, 2
         pass_us = ((240 + width + step_pixels - 1) // step_pixels) * step_us

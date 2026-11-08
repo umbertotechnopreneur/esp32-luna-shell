@@ -139,9 +139,9 @@ def screen(pdf, identity, x, top, diameter, height):
     if identity == "boot":
         caption(pdf, "Cody AI Companion", 60, 25)
         caption(pdf, "A distraction-free sidekick", 110, 16)
-        with Image.open(ROOT / "assets/branding/VibeWare/source/vibeware-floppy-insert-transparent.gif") as artwork:
+        with Image.open(ROOT / "cody-device/assets/branding/VibeWare/source/vibeware-floppy-insert-transparent.gif") as artwork:
             artwork.seek(20)
-            manifest = json.loads((ROOT / "assets/branding/VibeWare/generated/manifest.json").read_text())
+            manifest = json.loads((ROOT / "cody-device/assets/branding/VibeWare/generated/manifest.json").read_text())
             frame = artwork.convert("RGBA").crop(tuple(manifest["crop_bounds"]))
             pdf.drawImage(ImageReader(frame), 137, 83, 192, 219, mask="auto")
     elif identity == "preferences":

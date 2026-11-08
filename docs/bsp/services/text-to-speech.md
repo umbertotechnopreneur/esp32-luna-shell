@@ -43,7 +43,7 @@ hashes, while disabled builds admit neither speech code nor package generation.
 
 ## Native service and ownership
 
-[Public API](../../../components/LUNASHELL_tts/include/LUNASHELL_tts.hpp):
+[Public API](../../../cody-device/components/LUNASHELL_tts/include/LUNASHELL_tts.hpp):
 `initialize_speech()`, `request_speech(request, request_id)`,
 `cancel_speech(request_id)`. Main startup creates the optional owner silently;
 engine initialization and package loading are lazy until the first request.
@@ -77,7 +77,7 @@ A single worker serializes the non-reentrant engine and is pinned to **core 0**.
 The native Cody frame owner stays on **core 1**. In TTS-enabled Luna UI builds,
 the official LVGL adapter task and LVGL FreeRTOS software draw workers are also
 pinned to core 1; pinning the adapter alone would leave raster workers unbound.
-A shared C-compatible [core contract](../../../components/esp32_s3_touch_amoled_1_75/include/bsp/runtime_cores.h)
+A shared C-compatible [core contract](../../../cody-device/components/esp32_s3_touch_amoled_1_75/include/bsp/runtime_cores.h)
 prevents different owners from assigning conflicting cores. Single-core TTS
 configurations are rejected by Kconfig, CMake, CLI configuration checks and the
 source compile guard. This is task placement, not a measured latency guarantee;
@@ -135,7 +135,7 @@ watched SD operation; instantaneous hardware interruption is not claimed.
 
 ## Data package and memory
 
-[Versioned input](../../../assets/tts/espeak-ng/manifest.json) contains matched
+[Versioned input](../../../cody-device/assets/tts/espeak-ng/manifest.json) contains matched
 phondata/phontab/phonindex/intonations, four dictionaries and four definitions.
 Each entry records exact size, SHA-256 and language. The generator rejects an
 unexpected revision/path/language assignment and verifies selected source hashes.
@@ -214,7 +214,7 @@ Imported sources and matching data are pinned to
 eSpeak NG 1.52-dev. Only explicit native synthesis/Unicode C sources are compiled;
 Arduino classes, AudioTools, POSIX emulation, desktop audio, pthread workers and
 runtime dictionary compilers are excluded. Native modifications are recorded in
-[ORIGIN.md](../../../third_party/espeak-ng/ORIGIN.md). Original license notices and
+[ORIGIN.md](../../../cody-device/third_party/espeak-ng/ORIGIN.md). Original license notices and
 GPL/Apache/BSD/UCD license files accompany the sources. Optional linked firmware
 must satisfy the imported source licenses when distributed; the repository's
 own license does not replace them.

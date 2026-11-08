@@ -38,7 +38,7 @@ import unittest
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-SIMULATOR_DIR = REPOSITORY_ROOT / "simulator" / "windows"
+SIMULATOR_DIR = REPOSITORY_ROOT / "cody-device/simulator" / "windows"
 SIMULATOR_TEST_DIR = SIMULATOR_DIR / "tests"
 sys.path.insert(0, str(SIMULATOR_DIR))
 
@@ -338,7 +338,7 @@ def check_ui_bootstrap_shell() -> str:
     require(not contract.contains_touch(72, 73) and not contract.contains_touch(393, 392),
             "shell accepts points outside the touch surface")
 
-    board_path = REPOSITORY_ROOT / "config" / "boards" / contract.board / "ui-bootstrap.yaml"
+    board_path = REPOSITORY_ROOT / "cody-device/config" / "boards" / contract.board / "ui-bootstrap.yaml"
     source = yaml.safe_load(board_path.read_text(encoding="utf-8"))
     for module in ("touch", "audio_output", "sd"):
         changed = json.loads(json.dumps(source))

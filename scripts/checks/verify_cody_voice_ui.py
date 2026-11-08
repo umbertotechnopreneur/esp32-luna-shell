@@ -40,12 +40,12 @@ def main():
         write_report(report_path, report)
         executable = output / "cody-voice-ui.exe"
         command = compile_command(compiler,
-            ["scripts/tests/cody_native", "components/CODY2D/include",
-             "components/CODY_companion/include", "assets/cody/scenes/generated",
-             "assets/cody/personality/generated", "assets/cody/personality-icons/generated"],
-            ["scripts/tests/cody_native/voice_ui_contract.cpp", "components/CODY2D/src/CODY2D.cpp",
-             "components/CODY2D/src/CODY2D_text.cpp", "assets/cody/scenes/generated/scene_body_font.cpp",
-             "assets/cody/scenes/generated/scene_font.cpp"], executable, cxx_standard=20)
+            ["scripts/tests/cody_native", "cody-device/components/CODY2D/include",
+             "cody-device/components/CODY_companion/include", "cody-device/assets/cody/scenes/generated",
+             "cody-device/assets/cody/personality/generated", "cody-device/assets/cody/personality-icons/generated"],
+            ["scripts/tests/cody_native/voice_ui_contract.cpp", "cody-device/components/CODY2D/src/CODY2D.cpp",
+             "cody-device/components/CODY2D/src/CODY2D_text.cpp", "cody-device/assets/cody/scenes/generated/scene_body_font.cpp",
+             "cody-device/assets/cody/scenes/generated/scene_font.cpp"], executable, cxx_standard=20)
         run_stage(command, output, "compile")
         report["stage"] = "raster-and-gestures"
         write_report(report_path, report)

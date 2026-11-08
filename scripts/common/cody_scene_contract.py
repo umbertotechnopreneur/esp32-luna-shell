@@ -52,7 +52,7 @@ SCENE_IDENTITIES = {
 # root: Checkout containing the current scene source.
 # Raises OSError or UnicodeError for unreadable authoring; LF/CRLF is not source drift.
 def scene_source_hash(root: Path):
-    return text_source_hash(root / "assets/cody/scenes/scenes.json")
+    return text_source_hash(root / "cody-device/assets/cody/scenes/scenes.json")
 
 
 # value: Authored JSON object for one named part of the scene.
@@ -140,7 +140,7 @@ def load_generated_scene_fonts(directory: Path):
 # rig: Optional already-loaded current rig; None loads the same canonical authoring.
 # Raises OSError for missing files and ValueError for invalid or ambiguous authoring.
 def load_scenes(root: Path, rig=None):
-    document = read_json(root / "assets/cody/scenes/scenes.json")
+    document = read_json(root / "cody-device/assets/cody/scenes/scenes.json")
     require_keys(document, {"schema", "boot_delay_ms", "font", "scenes"}, "scenes")
     if document["schema"] != "cody.scenes.v1":
         raise ValueError(f"Unsupported scene schema: {document['schema']!r}")

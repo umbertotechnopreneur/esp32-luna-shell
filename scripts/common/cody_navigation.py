@@ -31,7 +31,7 @@ CONTROL_IDENTITIES = {
 # root: Checkout containing the canonical navigation source, not runtime observations.
 # Raises ValueError for ambiguous controls, unsupported geometry or invalid timing.
 def load_navigation(root):
-    document = read_json(Path(root) / "assets/cody/navigation.json")
+    document = read_json(Path(root) / "cody-device/assets/cody/navigation.json")
     if set(document) != {"schema", "auto_hide_ms", "fade_ms", "colors_rgb565", "controls"} or document["schema"] != "cody.navigation.v1":
         raise ValueError("Invalid Cody navigation schema")
     colors = document["colors_rgb565"]

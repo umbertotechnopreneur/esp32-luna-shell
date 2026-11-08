@@ -34,7 +34,7 @@ import unittest
 from types import SimpleNamespace
 
 ROOT=Path(__file__).resolve().parents[2]
-sys.path.insert(0,str(ROOT/'simulator/windows'))
+sys.path.insert(0,str(ROOT/'cody-device/simulator/windows'))
 from scripts.common.cody_rig_contract import (
     advance_contour, advance_face, animate, compile_face_bindings, compile_geometry,
     contour_defaults, evaluate, load_contract,
@@ -157,9 +157,9 @@ class RigContractTests(unittest.TestCase):
     # self: Generated tables must match the current authoring inputs, regardless of Git line endings.
     # Raises AssertionError or source-load errors for mismatched provenance.
     def test_generated_provenance(self):
-        manifest=json.loads((ROOT/'assets/cody/rig/generated/manifest.json').read_text())
-        self.assertEqual(manifest['source_sha256'], text_source_hash(ROOT/'assets/cody/cody.yaml'))
-        self.assertEqual(manifest['palette_sha256'], text_source_hash(ROOT/'assets/cody/palette/palette256.json'))
+        manifest=json.loads((ROOT/'cody-device/assets/cody/rig/generated/manifest.json').read_text())
+        self.assertEqual(manifest['source_sha256'], text_source_hash(ROOT/'cody-device/assets/cody/cody.yaml'))
+        self.assertEqual(manifest['palette_sha256'], text_source_hash(ROOT/'cody-device/assets/cody/palette/palette256.json'))
 
     # self: LF and CRLF are equivalent, but meaningful changes must invalidate provenance.
     # Raises AssertionError or filesystem errors when the shared hash contract is incorrect.

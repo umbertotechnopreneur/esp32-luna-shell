@@ -34,9 +34,9 @@ from simulator.windows.cody_happiness import (
 def check_host_happiness(root, output):
     import json
 
-    source = root / "assets/cody/personality.yaml"
+    source = root / "cody-device/assets/cody/personality.yaml"
     rules = load_personality_rules(source)
-    generated = root / "assets/cody/personality/generated"
+    generated = root / "cody-device/assets/cody/personality/generated"
     manifest = json.loads((generated / "manifest.json").read_text(encoding="utf-8"))
     assertions = 0
 

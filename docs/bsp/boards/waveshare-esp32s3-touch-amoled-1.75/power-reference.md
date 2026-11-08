@@ -6,7 +6,7 @@ current and battery runtime require electrical measurements.
 
 This board reference owns the consumption ranges below. See the
 [pin and firmware integration inventory](hardware.md)
-and [machine-readable component inventory](../../../../hardware/inventory.json).
+and [machine-readable component inventory](../../../../cody-device/hardware/inventory.json).
 
 ## How to read the ranges
 

@@ -90,7 +90,7 @@ initialize. The Ready checkpoint starts the floppy insertion again from frame
 zero, after startup DMA parking ends. Each of the 42 original frames retires
 before its 80/90-ms dwell begins. The full 3.5 seconds of authored dwell precedes
 the first interactive route. The unchanged GIF and shared flash RLE package live
-in `assets/branding/VibeWare/`. Deep-sleep and ordinary standby wake omit the
+in `cody-device/assets/branding/VibeWare/`. Deep-sleep and ordinary standby wake omit the
 introduction.
 
 The first retired frame of the active cycle requests BootRise through the shared
@@ -390,7 +390,7 @@ gaps: 897.8 ms authored playback and 3,186 flash bytes. The existing audio worke
 resamples each bounded chunk into its existing scratch buffer and keeps its
 current duplex clock, cancellation generation and error reporting. Source,
 license and reproducible generation belong to
-[the model-cost asset](../../assets/cody/audio/model-cost/README.md).
+[the model-cost asset](../../cody-device/assets/cody/audio/model-cost/README.md).
 
 The footer shows "Use @CCP in Codex and ask for the available commands" in three
 complete right-to-left passes, then disappears for that display-owner lifetime.
@@ -629,10 +629,10 @@ sound and standby/wake behavior require their own device verification.
 ### Character authoring audio
 
 Boot cues start with original procedural `audio-ready` (0.18 s), followed by the
-explicit `audio.eyes_open_cue: boot-rise` in `assets/cody/runtime.yaml`. BootRise
+explicit `audio.eyes_open_cue: boot-rise` in `cody-device/assets/cody/runtime.yaml`. BootRise
 is a 1.8-second rising chime: 79,380 mono PCM16 bytes at 22,050 Hz.
 Source/rendered hash mismatch or stale authoring fails preparation rather than selecting another sound.
-See [boot and Codex action authoring](../../assets/cody/audio/codex-actions/README.md)
+See [boot and Codex action authoring](../../cody-device/assets/cody/audio/codex-actions/README.md)
 for transformations and owner-confirmed commercial-use licence provenance.
 Preparation validates the
 flash PCM; completed boot requires a verified canonical clock before applying
@@ -652,7 +652,7 @@ returns the real error rather than reconfiguring an open microphone unnoticed.
 
 `CODY_codex_audio.hpp` selects typed Codex action cues from immutable mono
 16 kHz PCM. The current cue set, durations and byte totals are owned by the
-[authoring manifest](../../assets/cody/audio/codex-actions/README.md), within
+[authoring manifest](../../cody-device/assets/cody/audio/codex-actions/README.md), within
 the existing audio-owner limit. The same optional personality-audio worker and one-slot mailbox own
 playback; there is no new worker, I2S owner or event replay queue. Independent
 channel generations cancel hidden Codex presentation and hidden personality
@@ -688,11 +688,11 @@ RAM. The stack and PCM scratch now use external BSS in PSRAM, as does the
 separate 4-KiB personality-audio stack; task controls/mailboxes and codec DMA
 remain internal. Speaker loudness and tone require listening on the device.
 Candidate cues for separate audition are documented in the
-[audio asset guide](../../assets/cody/audio/gentle-sfx/README.md).
+[audio asset guide](../../cody-device/assets/cody/audio/gentle-sfx/README.md).
 
 ## Windows preview
 
-The [simulator guide](../../simulator/windows/README.md#host-audio-and-inspection-ownership)
+The [simulator guide](../../cody-device/simulator/windows/README.md#host-audio-and-inspection-ownership)
 owns the host audio DLL, PC playback, inspection typography and browser links.
 These are synthetic host capabilities with separate execution evidence.
 
@@ -877,7 +877,7 @@ The audio owner loads this configuration at startup; invalid storage is an expli
 optional failure, and an intentional endpoint environment override is separately
 identified. Dependency installation is opt-in. Restart Codex after a successful
 save; read-probe readiness is distinct from genuine dictation/model acceptance.
-See the [installation instructions](../../plugins/cody-codex-plugin/README.md#install-and-review-hooks).
+See the [installation instructions](../../cody-desktop/plugins/cody-codex-plugin/README.md#install-and-review-hooks).
 
 If the running Desktop app-server exposes only stdio, the installer reports
 that it cannot attach. Dictation requires a reachable supported listener on

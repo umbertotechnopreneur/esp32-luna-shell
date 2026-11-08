@@ -42,11 +42,11 @@ def main(argv=None) -> None:
         executable = output / "raster-benchmark-contract.exe"
         command = compile_command(
             compiler,
-            ("scripts/tests/cody_native", "components/CODY2D/include",
-             "components/CODY_companion/include", "assets/cody/rig/generated",
-             "assets/cody/personality/generated"),
+            ("scripts/tests/cody_native", "cody-device/components/CODY2D/include",
+             "cody-device/components/CODY_companion/include", "cody-device/assets/cody/rig/generated",
+             "cody-device/assets/cody/personality/generated"),
             ("scripts/tests/cody_native/raster_benchmark_contract.cpp",
-             "components/CODY_companion/src/diagnostics/CODY_raster_benchmark.cpp"),
+             "cody-device/components/CODY_companion/src/diagnostics/CODY_raster_benchmark.cpp"),
             executable, definitions=("CODY_ENABLE_PEARL_JELLY=0",))
         report["compiler"] = compiler
         run_stage(command, output, "compile-session")

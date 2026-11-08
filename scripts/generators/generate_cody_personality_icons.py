@@ -24,7 +24,7 @@ import json
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
-ASSETS = ROOT / "assets/cody/personality-icons"
+ASSETS = ROOT / "cody-device/assets/cody/personality-icons"
 OUTPUT = ASSETS / "generated"
 EXTENT = 256
 
@@ -123,7 +123,7 @@ def crop_transparent_bounds(indices, coverage, extent):
 # No parameters: package preserved individual masters and palette into deterministic assets.
 # Raises OSError for source/output failures and ValueError for malformed source identities/palette.
 def main():
-    palette_path = ROOT / "assets/cody/palette/palette256.json"
+    palette_path = ROOT / "cody-device/assets/cody/palette/palette256.json"
     # Palette authoring is UTF-8 text; Windows line endings must not change provenance.
     palette_bytes = palette_path.read_text(encoding="utf-8").encode("utf-8")
     palette = json.loads(palette_bytes)
@@ -165,7 +165,7 @@ def main():
     for offset, (name, cpp_id, identity) in enumerate(CATALOG):
         column, row = offset % 5, offset // 5
         authored_source = authored["icons"][offset]
-        image_path = ROOT / authored_source["source"]
+        image_path = ROOT / "cody-device" / authored_source["source"]
         image_bytes = image_path.read_bytes()
         if digest(image_bytes) != authored_source["sha256"]:
             raise ValueError(f"ImageGen master digest differs for {name}")

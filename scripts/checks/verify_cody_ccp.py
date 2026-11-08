@@ -36,7 +36,7 @@ from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "plugins/cody-codex-plugin/mcp"))
+sys.path.insert(0, str(ROOT / "cody-desktop/plugins/cody-codex-plugin/mcp"))
 from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
 from scripts.checks.verify_power_policy import function_text
 import ccp_server as ccp
@@ -468,7 +468,7 @@ class CcpContractTests(unittest.TestCase):
     # self: Source-only plugin catalog fixture.
     # Raises AssertionError if packaging versions, local paths or MCP entrypoints diverge.
     def test_local_plugin_entrypoints_agree(self) -> None:
-        plugin_root = ROOT / "plugins/cody-codex-plugin"
+        plugin_root = ROOT / "cody-desktop/plugins/cody-codex-plugin"
         marketplace = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text(encoding="utf-8"))
         entry = marketplace["plugins"][0]
         self.assertEqual((ROOT / entry["source"]["path"]).resolve(), plugin_root.resolve())
@@ -1889,7 +1889,7 @@ class ResetTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 ccp.call_tool(service, name, {"device_id": self.device})
             service.state.public_status.assert_not_called()
-        skill = (ROOT / "plugins/cody-codex-plugin/skills/cody-codex/SKILL.md").read_text(encoding="utf-8")
+        skill = (ROOT / "cody-desktop/plugins/cody-codex-plugin/skills/cody-codex/SKILL.md").read_text(encoding="utf-8")
         self.assertIn("current user", skill)
         self.assertIn("ccp_reset_device", skill)
         self.assertIn("ccp_factory_reset_device", skill)
@@ -3267,7 +3267,7 @@ class NativeTechnicalUsageTests(unittest.TestCase):
     def test_actual_firmware_usage_parsers(self):
         output = ROOT / "artifacts/checks/cody-ccp-technical"
         output.mkdir(parents=True, exist_ok=True)
-        path = ROOT / "components/LUNASHELL_platform/src/network/LUNASHELL_codex_link.cpp"
+        path = ROOT / "cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_codex_link.cpp"
         source = path.read_text(encoding="utf-8")
         extracted = "\n\n".join(function_text(source, signature, str(path)) for signature in
                                 ("bool parseTechnicalCount(", "bool parseTechnicalDuration("))

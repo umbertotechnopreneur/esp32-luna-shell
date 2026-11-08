@@ -22,10 +22,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-HEADER = ROOT / "components/LUNASHELL_platform/include/LUNASHELL_http_server.hpp"
-JSON_HEADER = ROOT / "components/LUNASHELL_platform/include/LUNASHELL_http_json.hpp"
-SOURCE = ROOT / "components/LUNASHELL_platform/src/http/LUNASHELL_http_server.cpp"
-JSON_SOURCE = ROOT / "components/LUNASHELL_platform/src/http/LUNASHELL_http_json.cpp"
+HEADER = ROOT / "cody-device/components/LUNASHELL_platform/include/LUNASHELL_http_server.hpp"
+JSON_HEADER = ROOT / "cody-device/components/LUNASHELL_platform/include/LUNASHELL_http_json.hpp"
+SOURCE = ROOT / "cody-device/components/LUNASHELL_platform/src/http/LUNASHELL_http_server.cpp"
+JSON_SOURCE = ROOT / "cody-device/components/LUNASHELL_platform/src/http/LUNASHELL_http_json.cpp"
 DOC = ROOT / "docs/bsp/services/http-device-api.md"
 
 MEMORY_FIELDS = (
@@ -215,7 +215,7 @@ def main() -> int:
         "esp_err_t handleApiRequest(httpd_req_t *request)",
         "HTTP request lifecycle gate",
     )
-    snapshot_source = (ROOT / "components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp").read_text(encoding="utf-8")
+    snapshot_source = (ROOT / "cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp").read_text(encoding="utf-8")
     snapshot_read = function_text(snapshot_source,
         "esp_err_t DeviceSnapshotService::readSnapshot(DeviceSnapshot &destination) const",
         "fallible canonical HTTP read")

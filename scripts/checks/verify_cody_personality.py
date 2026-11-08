@@ -38,7 +38,7 @@ from scripts.tests.cody_wellbeing_contract import check_host_wellbeing
 # Raises AssertionError for identity, format, canonical palette, digest or PCM/WAV mismatch.
 # Raises the original filesystem or WAV parsing error for missing or malformed artifacts.
 def check_asset_contracts(root):
-    directory = root / "assets/cody/personality-icons"
+    directory = root / "cody-device/assets/cody/personality-icons"
     icons = json.loads((directory / "generated/manifest.json").read_text(encoding="utf-8"))
     assert icons["schema"] == "cody.personality-icons.v2", "Unsupported immutable sprite layout"
     # Normalize only text line endings; binary sprite/audio hashes remain byte exact.
@@ -153,22 +153,22 @@ def main(argv=None):
         check_asset_contracts(ROOT)
         compiler = resolve_compiler(args.compiler)
         executable = output / "personality-contract.exe"
-        includes = ("scripts/tests/cody_native", "components/CODY2D/include",
-                    "components/LUNASHELL_platform/include", "components/CODY_companion/include",
-                    "assets/cody/rig/generated", "assets/cody/scenes/generated",
-                    "assets/cody/personality-icons/generated", "assets/cody/appearance/jelly-scanline/generated")
-        includes += ("assets/cody/personality/generated",)
+        includes = ("scripts/tests/cody_native", "cody-device/components/CODY2D/include",
+                    "cody-device/components/LUNASHELL_platform/include", "cody-device/components/CODY_companion/include",
+                    "cody-device/assets/cody/rig/generated", "cody-device/assets/cody/scenes/generated",
+                    "cody-device/assets/cody/personality-icons/generated", "cody-device/assets/cody/appearance/jelly-scanline/generated")
+        includes += ("cody-device/assets/cody/personality/generated",)
         sources = ("scripts/tests/cody_native/personality_contract.cpp",
-                   "components/CODY2D/src/CODY2D.cpp", "components/CODY2D/src/CODY2D_paths.cpp",
-                   "components/CODY2D/src/CODY2D_text.cpp", "components/CODY2D/src/CODY2D_controls.cpp",
-                   "components/CODY_companion/src/model/CODY_rig.cpp",
-                   "components/CODY_companion/src/model/CODY_response.cpp",
-                   "components/CODY_companion/src/model/CODY_petting.cpp",
-                   "components/CODY_companion/src/model/CODY_happiness.cpp",
-                   "components/CODY_companion/src/model/CODY_wellbeing.cpp",
-                   "components/CODY_companion/src/rendering/CODY_dirty_plan.cpp",
-                   "components/CODY_companion/src/rendering/CODY_personality.cpp",
-                   "assets/cody/personality-icons/generated/personality_icons.cpp")
+                   "cody-device/components/CODY2D/src/CODY2D.cpp", "cody-device/components/CODY2D/src/CODY2D_paths.cpp",
+                   "cody-device/components/CODY2D/src/CODY2D_text.cpp", "cody-device/components/CODY2D/src/CODY2D_controls.cpp",
+                   "cody-device/components/CODY_companion/src/model/CODY_rig.cpp",
+                   "cody-device/components/CODY_companion/src/model/CODY_response.cpp",
+                   "cody-device/components/CODY_companion/src/model/CODY_petting.cpp",
+                   "cody-device/components/CODY_companion/src/model/CODY_happiness.cpp",
+                   "cody-device/components/CODY_companion/src/model/CODY_wellbeing.cpp",
+                   "cody-device/components/CODY_companion/src/rendering/CODY_dirty_plan.cpp",
+                   "cody-device/components/CODY_companion/src/rendering/CODY_personality.cpp",
+                   "cody-device/assets/cody/personality-icons/generated/personality_icons.cpp")
         report["compiler"] = compiler
         # The shared status contract includes canonical snapshot types using C++20 spans.
         run_stage(compile_command(compiler, includes, sources, executable,

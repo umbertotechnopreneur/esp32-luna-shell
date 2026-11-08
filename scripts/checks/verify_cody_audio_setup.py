@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "plugins/cody-codex-plugin/mcp"))
+sys.path.insert(0, str(ROOT / "cody-desktop/plugins/cody-codex-plugin/mcp"))
 import ccp_audio_config as configuration
 import ccp_voice_input as audio
 

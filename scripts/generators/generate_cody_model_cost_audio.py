@@ -19,7 +19,7 @@ import sys
 import wave
 
 ROOT = Path(__file__).resolve().parents[2]
-ASSETS = ROOT / "assets/cody/audio/model-cost"
+ASSETS = ROOT / "cody-device/assets/cody/audio/model-cost"
 
 
 # path: Exact WAV destination under the asset or artifact owner.

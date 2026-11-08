@@ -65,7 +65,7 @@ def main(argv=None) -> int:
     rows = collect(build)
     # The generated header identifies the compiled profile. Stale sidecars alone
     # must not cause an AFE requirement in a profile that excludes that source.
-    configuration = (build / "config/sdkconfig.h").read_text(encoding="utf-8")
+    configuration = (build / "cody-device/config/sdkconfig.h").read_text(encoding="utf-8")
     wake_word_enabled = bool(re.search(
         r"^#define CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD 1\s*$", configuration, re.MULTILINE))
     voice_input_enabled = bool(re.search(

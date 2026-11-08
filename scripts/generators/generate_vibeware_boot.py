@@ -29,7 +29,7 @@ from PIL import Image
 from generate_boot_assets import enter_asset_package_lock, exit_asset_package_lock
 
 ROOT = Path(__file__).resolve().parents[2]
-ASSETS = ROOT / "assets/branding/VibeWare"
+ASSETS = ROOT / "cody-device/assets/branding/VibeWare"
 SOURCE = ASSETS / "source/vibeware-floppy-insert-transparent.gif"
 OUTPUT = ASSETS / "generated"
 SCALE = 2

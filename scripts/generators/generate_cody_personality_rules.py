@@ -157,9 +157,9 @@ def generated_wellbeing_config(rules):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.parse_args(argv)
-    source = ROOT / "assets/cody/personality.yaml"
+    source = ROOT / "cody-device/assets/cody/personality.yaml"
     rules = load_personality_rules(source)
-    output = ROOT / "assets/cody/personality/generated"
+    output = ROOT / "cody-device/assets/cody/personality/generated"
     output.mkdir(parents=True, exist_ok=True)
     headers = {"personality_rules.hpp": generated_header(rules),
                "personality_catalog.hpp": generated_catalog(rules),

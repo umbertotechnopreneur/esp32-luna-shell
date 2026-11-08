@@ -84,9 +84,9 @@ def main() -> int:
     ):
         require_contains(defaults, setting, "full profile defaults")
 
-    liveness = read("components/LUNASHELL_platform/src/runtime/LUNASHELL_liveness.cpp")
+    liveness = read("cody-device/components/LUNASHELL_platform/src/runtime/LUNASHELL_liveness.cpp")
     header = read(
-        "components/LUNASHELL_platform/include/LUNASHELL_liveness.h"
+        "cody-device/components/LUNASHELL_platform/include/LUNASHELL_liveness.h"
     )
     for point in (
         "LUNASHELL_LIVENESS_GUI",
@@ -118,7 +118,7 @@ def main() -> int:
         "obsolete global liveness standby API returned",
     )
 
-    main_source = read("main/main.cpp")
+    main_source = read("cody-device/main/main.cpp")
     app_main = function_text(main_source, 'extern "C" void app_main(void)', "main.cpp")
     require_order(
         app_main,
@@ -145,7 +145,7 @@ def main() -> int:
         "main.cpp",
     )
 
-    app = read("components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
+    app = read("cody-device/components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
     on_stop = function_text(app, "App::on_stop(", "LUNASHELL_app.cpp")
     require_order(
         on_stop,
@@ -170,17 +170,17 @@ def main() -> int:
 
     for source_path, task_signature, completion_signal in (
         (
-            "components/LUNASHELL_boot/src/audio/LUNASHELL_boot_audio.c",
+            "cody-device/components/LUNASHELL_boot/src/audio/LUNASHELL_boot_audio.c",
             "static void complete_audio_task(",
             "signal_audio_complete();",
         ),
         (
-            "components/LUNASHELL_platform/src/runtime/LUNASHELL_settings.cpp",
+            "cody-device/components/LUNASHELL_platform/src/runtime/LUNASHELL_settings.cpp",
             "void settings_worker(",
             "xSemaphoreGive(s_completion)",
         ),
         (
-            "components/LUNASHELL_platform/src/network/LUNASHELL_provisioning.cpp",
+            "cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_provisioning.cpp",
             "void manager_operation_task(",
             "xSemaphoreGive(s_manager_stop_done)",
         ),
@@ -193,7 +193,7 @@ def main() -> int:
             completion_signal,
             source_path,
         )
-    boot_audio = read("components/LUNASHELL_boot/src/audio/LUNASHELL_boot_audio.c")
+    boot_audio = read("cody-device/components/LUNASHELL_boot/src/audio/LUNASHELL_boot_audio.c")
     require_contains(
         boot_audio,
         "timeout_ms_64 + BOOT_AUDIO_WDT_MARGIN_MS > watchdog_timeout_ms",
@@ -201,7 +201,7 @@ def main() -> int:
     )
 
     snapshot = read(
-        "components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_scheduler.cpp"
+        "cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_scheduler.cpp"
     )
     snapshot_task = function_text(
         snapshot,
@@ -219,7 +219,7 @@ def main() -> int:
         "full_snapshot_task inactive branch",
     )
 
-    wifi = read("components/LUNASHELL_platform/src/network/LUNASHELL_wifi.cpp")
+    wifi = read("cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_wifi.cpp")
     require("portMAX_DELAY" not in wifi, "Wi-Fi regained an unbounded wait")
     for fragment in (
         "wifi_lifecycle_lock(",
@@ -415,7 +415,7 @@ def main() -> int:
         wrapper_text = function_text(wifi, wrapper, "LUNASHELL_wifi.cpp")
         require_contains(wrapper_text, expected, wrapper)
 
-    health = read("components/LUNASHELL_platform/src/http/LUNASHELL_http_json.cpp")
+    health = read("cody-device/components/LUNASHELL_platform/src/http/LUNASHELL_http_json.cpp")
     for fragment in (
         r'\"active_mask\"',
         r'\"last_progress\"',

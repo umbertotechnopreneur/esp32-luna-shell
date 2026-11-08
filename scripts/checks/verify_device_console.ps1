@@ -266,7 +266,7 @@ try {
         Assert-ConsoleCondition ($graphicsCall.Arguments.Count -eq 0) 'Graphics preparation received capture arguments.'
         Assert-ConsoleCondition ($graphicsCall.PythonExecutable -eq 'host-python') 'Graphics preparation lost the host interpreter selection.'
         $call = $script:hostCalls[1]
-        Assert-ConsoleCondition ($call.Path -eq (Join-Path $ProjectRoot 'simulator/windows/cody_simulator.py')) 'Preview dispatched an unexpected script.'
+        Assert-ConsoleCondition ($call.Path -eq (Join-Path $ProjectRoot 'cody-device/simulator/windows/cody_simulator.py')) 'Preview dispatched an unexpected script.'
         $expected = @('--screen','boot-waking','--rotation','180','--at-ms','700','--safe-guide','--capture',$destination)
         Assert-ConsoleCondition (($call.Arguments -join "`n") -ceq ($expected -join "`n")) 'Preview altered literal argument boundaries.'
         Assert-ConsoleCondition ($call.PythonExecutable -eq 'host-python') 'Preview lost the host interpreter selection.'
@@ -277,7 +277,7 @@ try {
         Invoke-DeviceCommand 'simulator' @{ Screen = 'rig'; PythonExecutable = 'host-python' }
         Assert-ConsoleCondition ($script:hostCalls.Count -eq 3) 'Interactive preview must prepare both native owners before launch.'
         $expectedPaths = @('scripts/generators/generate_cody_simulator_graphics.py',
-            'scripts/generators/generate_cody_simulator_audio.py', 'simulator/windows/cody_simulator.py')
+            'scripts/generators/generate_cody_simulator_audio.py', 'cody-device/simulator/windows/cody_simulator.py')
         for ($index = 0; $index -lt $expectedPaths.Count; $index += 1) {
             Assert-ConsoleCondition ($script:hostCalls[$index].Path -eq (Join-Path $ProjectRoot $expectedPaths[$index])) 'Interactive native owner preparation order changed.'
             Assert-ConsoleCondition ($script:hostCalls[$index].PythonExecutable -eq 'host-python') 'Interactive route lost interpreter selection.'

@@ -379,10 +379,10 @@ foreach ($standaloneKey in @('Assets', 'Sfx', 'Banner', 'SimulatorBuild')) {
 $bannerText = Get-Content -Raw -LiteralPath $paths.Banner
 foreach ($ownedRoot in @(
     'main',
-    'components/LUNASHELL_app',
-    'components/LUNASHELL_boot',
-    'components/LUNASHELL_logger',
-    'components/LUNASHELL_platform'
+    'cody-device/components/LUNASHELL_app',
+    'cody-device/components/LUNASHELL_boot',
+    'cody-device/components/LUNASHELL_logger',
+    'cody-device/components/LUNASHELL_platform'
 )) {
     $ownedRootCount = ([regex]::Matches(
         $bannerText,
@@ -599,8 +599,8 @@ if (Test-Path -LiteralPath (Join-Path $scriptsRoot 'capture-serial.ps1')) {
     throw 'The redundant capture-serial.ps1 alias must not return.'
 }
 
-$sfxConfigPath = Join-Path $scriptsRoot '..\assets\sfx\sfx-config.json'
-$sfxManifestPath = Join-Path $scriptsRoot '..\assets\sfx\generated\sfx.manifest.json'
+$sfxConfigPath = Join-Path $scriptsRoot '..\cody-device\assets\sfx\sfx-config.json'
+$sfxManifestPath = Join-Path $scriptsRoot '..\cody-device\assets\sfx\generated\sfx.manifest.json'
 $sfxConfig = Get-Content -Raw -LiteralPath $sfxConfigPath | ConvertFrom-Json
 $sfxManifest = Get-Content -Raw -LiteralPath $sfxManifestPath | ConvertFrom-Json
 $expectedBootSound = 'generated/lunashell-boot.wav'
@@ -618,7 +618,7 @@ if ($null -eq $configBootSound -or
 }
 
 $lowercaseReferencePaths = @(
-    (Join-Path $scriptsRoot '..\components\LUNASHELL_boot\CMakeLists.txt'),
+    (Join-Path $scriptsRoot '..\cody-device\components\LUNASHELL_boot\CMakeLists.txt'),
     (Join-Path $scriptsRoot 'commands\package-simulator.ps1'),
     (Join-Path $scriptsRoot '..\simulator\windows\lunashell_simulator.py'),
     (Join-Path $scriptsRoot '..\docs\luna-shell\ui-guidelines.md')
@@ -631,7 +631,7 @@ foreach ($referencePath in $lowercaseReferencePaths) {
     }
 }
 
-$generatedSfxRoot = Join-Path $scriptsRoot '..\assets\sfx\generated'
+$generatedSfxRoot = Join-Path $scriptsRoot '..\cody-device\assets\sfx\generated'
 $actualBootSounds = @(
     Get-ChildItem -LiteralPath $generatedSfxRoot -File |
         Where-Object { $_.Name.Equals('lunashell-boot.wav', [StringComparison]::OrdinalIgnoreCase) }

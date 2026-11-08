@@ -39,7 +39,7 @@ def require(text: str, fragment: str, label: str) -> None:
 
 
 def main() -> None:
-    app_cmake = read("components/LUNASHELL_app/CMakeLists.txt")
+    app_cmake = read("cody-device/components/LUNASHELL_app/CMakeLists.txt")
     for forbidden in (
         "LUNASHELL_verify_lazy_gui_documents ALL",
         "LUNASHELL_prepare_runtime_app_package ALL",
@@ -59,8 +59,8 @@ def main() -> None:
     ):
         require(app_cmake, fragment, "incremental package graph")
 
-    root_cmake = read("CMakeLists.txt")
-    if "littlefs_create_partition_image(" in root_cmake or "littlefs_create_partition_image(" in read("main/CMakeLists.txt"):
+    root_cmake = read("cody-device/CMakeLists.txt")
+    if "littlefs_create_partition_image(" in root_cmake or "littlefs_create_partition_image(" in read("cody-device/main/CMakeLists.txt"):
         raise AssertionError("the upstream unconditional LittleFS target is still used")
     for fragment in (
         "BROOKESIA_SYSTEM_CORE_ESP_RESOURCE_STAGE_ROOT",
@@ -72,7 +72,7 @@ def main() -> None:
     ):
         require(root_cmake, fragment, "incremental LittleFS graph")
 
-    helper = read("cmake/LUNASHELLIncrementalLittleFS.cmake")
+    helper = read("cody-device/cmake/LUNASHELLIncrementalLittleFS.cmake")
     for fragment in (
         "joltwallet__littlefs",
         'OUTPUT "${littlefs_venv_stamp}"',

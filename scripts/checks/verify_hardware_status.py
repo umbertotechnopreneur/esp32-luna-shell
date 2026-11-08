@@ -148,11 +148,11 @@ def verify_refresh_error_reporting() -> None:
 # No parameters: check snapshot classification and the current status/settings consumers.
 # Raises AssertionError when unavailable measurements or deferred radios are misrepresented.
 def main() -> None:
-    hardware = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp")
-    gnss = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_acquisition_gnss.cpp")
-    rtc_calendar = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_rtc_calendar.cpp")
-    status_bar = read("components/LUNASHELL_app/src/chrome/LUNASHELL_status_bar.cpp")
-    scheduler = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_scheduler.cpp")
+    hardware = read("cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp")
+    gnss = read("cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_acquisition_gnss.cpp")
+    rtc_calendar = read("cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_rtc_calendar.cpp")
+    status_bar = read("cody-device/components/LUNASHELL_app/src/chrome/LUNASHELL_status_bar.cpp")
+    scheduler = read("cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_scheduler.cpp")
 
     gps_start = gnss.index("esp_err_t sample_gps(")
     gps_end = gnss.index("\n}\n", gps_start) + 3
@@ -240,7 +240,7 @@ def main() -> None:
         "RTC reset-state classification",
     )
 
-    app = read("components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
+    app = read("cody-device/components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
     require(
         app,
         "bool rtc_calendar_structurally_valid(",

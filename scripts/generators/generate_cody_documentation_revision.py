@@ -34,7 +34,7 @@ from reportlab.pdfgen import canvas
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "simulator/windows"))
+sys.path.insert(0, str(ROOT / "cody-device/simulator/windows"))
 from scripts.generators.generate_cody_idle_atlas import ATLAS, W, H, text, paragraph
 from scripts.common.cody_rig_contract import apply_mouth_breathing, contour_defaults
 from scripts.common.cody_rig_types import FaceChannel
@@ -169,7 +169,7 @@ def manga_pages(document, start, poses, audio):
     for index, clip in enumerate(clips):
         row, column = divmod(index, 7)
         x, y = 36 + column * 111, 125 + row * 139
-        path = ROOT / "assets/cody/personality-icons/generated" / (Path(clip["file"]).stem + ".png")
+        path = ROOT / "cody-device/assets/cody/personality-icons/generated" / (Path(clip["file"]).stem + ".png")
         document.setFillColor(HexColor("#EEF4F8"))
         document.roundRect(x, H - y - 83, 96, 83, 6, fill=1, stroke=0)
         document.drawImage(str(path), x + 16, H - y - 74, width=64, height=64, mask="auto")
@@ -229,7 +229,7 @@ def navigation_pages(document, start, poses):
     document.showPage()
 
     frame(document, "Cody Studio on Windows", "N03 / Desktop appendix: synthetic preview, audio boundary and branding assets.", start + 2, "NAVIGATION")
-    logo = ROOT / "simulator/windows/assets/branding/vibeware-logo.png"
+    logo = ROOT / "cody-device/simulator/windows/assets/branding/vibeware-logo.png"
     document.drawImage(str(logo), 40, H - 238, width=104, height=104, mask="auto")
     text(document, "VibeWare / Cody Studio", 164, 161, 18, INK, "MonoBold")
     text(document, "Face    Shape    Inputs    Inspect", 164, 193, 13, BLUE, "Mono")
@@ -338,7 +338,7 @@ def main():
         destination = OUTPUT / (name + ".png")
         image.save(destination)
         poses[name] = (destination, None)
-    audio = json.loads((ROOT / "assets/cody/personality-icons/audio/manifest.json").read_text(encoding="utf-8"))
+    audio = json.loads((ROOT / "cody-device/assets/cody/personality-icons/audio/manifest.json").read_text(encoding="utf-8"))
     for scale in (145, 105, 30, 22):
         icon_illustration(scale)
     manifest = {"revision_date": "2026-10-06", "source_checkpoint": "f5ae5e2", "documents": []}

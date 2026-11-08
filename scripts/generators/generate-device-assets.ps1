@@ -28,15 +28,15 @@ not initialize ESP-IDF, build firmware, or access the physical device.
 [CmdletBinding()]
 param(
     [string]$ConfigPath = (
-        Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'assets\sfx\sfx-config.json'
+        Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'cody-device\assets\sfx\sfx-config.json'
     ),
     [string]$BootSource = (
         Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) `
-            'assets\branding\LUNASHELL\source\LUNASHELL-ai-logo.pdf'
+            'cody-device\assets\branding\LUNASHELL\source\LUNASHELL-ai-logo.pdf'
     ),
     [string]$BootOutputDirectory = (
         Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) `
-            'assets\branding\LUNASHELL\generated'
+            'cody-device\assets\branding\LUNASHELL\generated'
     ),
     [string]$AssetPython,
     [switch]$NoProgress,
@@ -178,7 +178,7 @@ function Enter-AssetPackageLock {
         [Parameter(Mandatory)][string]$Owner
     )
 
-    $assetsRoot = Join-Path $ProjectRoot 'assets'
+    $assetsRoot = Join-Path $ProjectRoot 'cody-device/assets'
     $assetsItem = Get-Item -LiteralPath $assetsRoot -Force -ErrorAction Stop
     if (-not $assetsItem.PSIsContainer -or
         ($assetsItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -414,8 +414,8 @@ if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
     throw "SFX configuration not found: $ConfigPath"
 }
 
-$bootSourceRootPath = Join-Path $projectRoot 'assets\branding\LUNASHELL\source'
-$bootGeneratedRootPath = Join-Path $projectRoot 'assets\branding\LUNASHELL\generated'
+$bootSourceRootPath = Join-Path $projectRoot 'cody-device\assets\branding\LUNASHELL\source'
+$bootGeneratedRootPath = Join-Path $projectRoot 'cody-device\assets\branding\LUNASHELL\generated'
 Assert-NoReparseTree -Path $bootSourceRootPath -Label 'Canonical boot source tree'
 Assert-NoReparseTree -Path $bootGeneratedRootPath -Label 'Canonical boot generated tree'
 $bootSourceRoot = (
@@ -427,7 +427,7 @@ $bootGeneratedRoot = (
 $resolvedBootSource = (Resolve-Path -LiteralPath $BootSource -ErrorAction Stop).Path
 $resolvedBootOutput = [System.IO.Path]::GetFullPath($BootOutputDirectory)
 $resolvedConfig = (Resolve-Path -LiteralPath $ConfigPath -ErrorAction Stop).Path
-$sfxRootPath = Join-Path $projectRoot 'assets\sfx'
+$sfxRootPath = Join-Path $projectRoot 'cody-device\assets\sfx'
 Assert-NoReparseTree -Path $sfxRootPath -Label 'Canonical SFX tree'
 $sfxRoot = (Resolve-Path -LiteralPath $sfxRootPath -ErrorAction Stop).Path
 $sourcePrefix = $bootSourceRoot.TrimEnd(

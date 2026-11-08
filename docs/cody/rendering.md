@@ -6,7 +6,7 @@ LVGL, a runtime YAML/PNG parser or an SD dependency for core visuals.
 
 ## Authored rig and assets
 
-`assets/cody/cody.yaml` defines the versioned point/curve/path/entity/color graph,
+`cody-device/assets/cody/cody.yaml` defines the versioned point/curve/path/entity/color graph,
 face bindings and response parameters. Typed names/IDs must be unique; ambiguous
 references or colliding generated identities fail. Parents precede children,
 viewer-left/right stays consistent and face anchors are explicit. Generated
@@ -227,7 +227,7 @@ may use `--definitions-only`; font regeneration requires explicit `--font-path`,
 not installed-font substitution. Manifests bind normalized source and glyph/asset
 hashes; stale/corrupt preview data fails. Boot artwork uses its approved separate
 packager and is not recolored automatically. Title/caption coverage carries the
-JetBrains Mono [SIL Open Font License](../../assets/cody/scenes/OFL.txt).
+JetBrains Mono [SIL Open Font License](../../cody-device/assets/cody/scenes/OFL.txt).
 
 The Windows simulator binds production native geometry and presentation logic and visibly synthetic
 inputs that never enter firmware snapshots. Responsive layout/input use one current
@@ -254,7 +254,7 @@ interleaving. Source integration checks require watchdog retirement after DMA an
 geometry commit after frame end. This validates ownership control flow, not the
 physical SPI peripheral, display appearance or measured performance.
 
-`assets/cody/runtime.yaml` selects a temporary fixed raster benchmark only when
+`cody-device/assets/cody/runtime.yaml` selects a temporary fixed raster benchmark only when
 Debug execution timings and the native Pearl renderer are enabled. The worker
 enters once after boot reaches Idle, independently of ordinary demo routing.
 It draws the authored Ready pose with Pearl Mist and face deformation enabled,
