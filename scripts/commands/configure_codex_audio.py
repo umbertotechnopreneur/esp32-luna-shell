@@ -50,7 +50,7 @@ def configure(executable: str) -> Path:
     if any(key in os.environ for key in overrides):
         raise ValueError("Remove explicit Cody audio environment settings before saving installation configuration")
     selected = configuration.NativeAudioConfig(configuration.validate_executable(executable), "installation")
-    configuration.load_config(environment={})
+    configuration.validate_config_replacement()
     verify_native_host(selected.executable)
     return configuration.save_config(selected)
 

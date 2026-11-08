@@ -69,12 +69,23 @@ def load_config(directory: Path | None = None, environment=None) -> NativeAudioC
     return NativeAudioConfig(validate_executable(value["executable"]), "installation")
 
 
+# directory: Optional isolated storage owner for fixtures.
+# Raises original errors for malformed settings or an unreadable configuration.
+def validate_config_replacement(directory: Path | None = None) -> None:
+    try:
+        load_config(directory, environment={})
+    except FileNotFoundError:
+        # A Desktop update can remove the old executable after the valid file was saved.
+        # An explicit setup may replace that path after verifying the new executable.
+        return
+
+
 # configuration: Explicit native executable after the installer verifies the public queue.
 # directory: Optional isolated storage owner for fixtures.
 # Raises original persistence errors; invalid previous settings are never silently replaced.
 def save_config(configuration: NativeAudioConfig, directory: Path | None = None) -> Path:
     owner = runtime_directory() if directory is None else directory
-    load_config(owner, environment={})
+    validate_config_replacement(owner)
     value = {"version": 2, "route": "public_audio_queue", "executable": validate_executable(configuration.executable)}
     payload = json.dumps(value, ensure_ascii=True).encode("utf-8")
     if len(payload) > 4096:
