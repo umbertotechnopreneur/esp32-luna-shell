@@ -47,7 +47,10 @@ namespace {
 const char *TAG = "LUNASHELL_time";
 std::atomic<bool> s_initialized{false};
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
+std::mutex s_sntp_request_mutex;
+#if !CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 bool s_sntp_started;
+#endif
 #endif
 esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
 char s_timezone[40] = "UTC0";
@@ -824,8 +827,13 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
         return netif_result;
     }
 
-    // The target SDK is configured with one SNTP server slot.
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    static_assert(CONFIG_LWIP_SNTP_MAX_SERVERS >= 3, "Cody requires three lwIP SNTP server slots");
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(3,
+        ESP_SNTP_SERVER_LIST("pool.ntp.org", "time.cloudflare.com", "time.windows.com"));
+#else
     esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+#endif
     config.start = false;
     config.sync_cb = sntp_sync_callback;
     const esp_err_t sntp_result = esp_netif_sntp_init(&config);
@@ -871,10 +879,9 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
     return restore_result;
 }
 
-// No parameters: the first DHCP success requests NTP once; callback confirms real success.
+// No parameters: Wi-Fi has acquired an IP. The callback confirms synchronization.
 extern "C" esp_err_t LUNASHELL_time_notify_wifi_online(void)
 {
-    std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
 #if !CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
     ESP_LOGE(
         TAG,
@@ -883,20 +890,31 @@ extern "C" esp_err_t LUNASHELL_time_notify_wifi_online(void)
     );
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    if (!s_initialized) {
-        ESP_LOGE(TAG, "NTP start before time initialization (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
-        report_time_failure_preserving_valid_clock(ESP_ERR_INVALID_STATE);
-        return ESP_ERR_INVALID_STATE;
+    std::lock_guard<std::mutex> request_lock(s_sntp_request_mutex);
+    {
+        std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
+        if (!s_initialized) {
+            ESP_LOGE(TAG, "NTP start before time initialization (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+            report_time_failure_preserving_valid_clock(ESP_ERR_INVALID_STATE);
+            return ESP_ERR_INVALID_STATE;
+        }
     }
+#if !CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     if (s_sntp_started) {
         return ESP_OK;
     }
+#endif
+    // The SDK waits for the TCP/IP executor. A pending sync callback on that
+    // executor must be able to take s_sync_mutex before the restart can run.
     const esp_err_t result = esp_netif_sntp_start();
     if (result == ESP_OK) {
+#if !CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
         s_sntp_started = true;
-        ESP_LOGI(TAG, "First network connection: NTP requested after DHCP; Internet/time not yet verified");
+#endif
+        ESP_LOGI(TAG, "SNTP requested after Wi-Fi acquired an IP");
     } else {
-        ESP_LOGW(TAG, "SNTP start failed: %s", esp_err_to_name(result));
+        ESP_LOGW(TAG, "SNTP request failed: %s", esp_err_to_name(result));
+        std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
         report_time_failure_preserving_valid_clock(result);
     }
     return result;
@@ -921,6 +939,41 @@ extern "C" esp_err_t LUNASHELL_time_refresh_snapshot(void)
 }
 
 namespace LUNASHELL {
+
+esp_err_t project_clock_local_calendar(int64_t utc_epoch_seconds, ClockLocalCalendar &calendar)
+{
+    const auto epoch = static_cast<time_t>(utc_epoch_seconds);
+    if (utc_epoch_seconds <= 0 || static_cast<int64_t>(epoch) != utc_epoch_seconds || !epoch_valid(epoch)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
+    if (!s_initialized || !s_clock_preferences_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    struct tm local = {};
+    if (localtime_r(&epoch, &local) == nullptr) {
+        return timezone_errno_to_esp(errno);
+    }
+
+    ClockLocalCalendar projected{};
+    projected.utc_epoch_seconds = utc_epoch_seconds;
+    projected.timezone = s_clock_preferences.timezone;
+    projected.year = static_cast<uint16_t>(local.tm_year + 1900);
+    projected.month = static_cast<uint8_t>(local.tm_mon + 1);
+    projected.day = static_cast<uint8_t>(local.tm_mday);
+    projected.hour = static_cast<uint8_t>(local.tm_hour);
+    projected.minute = static_cast<uint8_t>(local.tm_min);
+    // Read the offset at the supplied instant, including any daylight-saving transition.
+    const auto local_as_utc = utc_epoch(projected.year, projected.month, projected.day,
+        projected.hour, projected.minute, static_cast<uint8_t>(local.tm_sec));
+    const int64_t offset_seconds = static_cast<int64_t>(local_as_utc) - utc_epoch_seconds;
+    if (offset_seconds <= -86400 || offset_seconds >= 86400 || offset_seconds % 60 != 0) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    projected.utc_offset_minutes = static_cast<int16_t>(offset_seconds / 60);
+    calendar = projected;
+    return ESP_OK;
+}
 
 // preferences: Receives only the validated active configuration.
 esp_err_t read_clock_preferences(ClockPreferences &preferences)

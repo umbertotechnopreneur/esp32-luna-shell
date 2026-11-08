@@ -23,26 +23,16 @@
 extern "C" {
 #endif
 
-// Complete the mandatory first frame and touch sample before starting the worker.
-// Real touch polling uses 50 ms while active and 200 ms while rendering is parked.
-// Startup or runtime faults are terminal; another call does not restart failed hardware.
+// No parameters: prepares the first native frame before starting the display worker.
+// Exception: Returns the original initialization or frame retirement failure.
 esp_err_t CODY_companion_start(void);
 
-// Draw the current animated face after local time, power, and storage stages finish.
-// This reports a real boot checkpoint; it is not a measured percentage of startup.
-esp_err_t CODY_companion_boot_midpoint(void);
-
-// Complete the real startup checkpoint without replacing the animated facial lifecycle.
-// Every ordinary boot uses Calm/Happy/Calm; Deep-sleep reset uses Wake/Idle instead.
-// Effective first boot schedules greeting text two seconds after this frame, excluding wake.
+// No parameters: admits setup after the services are ready and startup art has retired.
+// Exception: Returns the original route or display failure, or a bounded timeout.
 esp_err_t CODY_companion_boot_completed(void);
-// Preserve the existing startup request without replacing the active facial lifecycle.
-esp_err_t CODY_companion_demo_start(void);
 
 // No parameters: requires an awake panel and the power owner's serialized transition.
-// Returns only after the greeting/sleep frame retires and admitted screenshot work finishes.
-// Audio/recording/peripheral shutdown remains the power owner's responsibility.
-// Exception: Returns the original preparation, rendering or screenshot failure, or timeout.
+// Exception: Returns the original shutdown frame error or a bounded timeout.
 esp_err_t CODY_companion_prepare_shutdown(void);
 
 // error: Original shutdown failure; restore display writes and brightness before calling.
@@ -50,6 +40,10 @@ esp_err_t CODY_companion_prepare_shutdown(void);
 // A subsequent wake lifecycle clears the retained failure presentation.
 // Exception: Returns the real presentation error or timeout; rejects ESP_OK.
 esp_err_t CODY_companion_report_shutdown_error(esp_err_t error);
+
+#if !defined(CODY_DEVICE_UI_ONLY)
+esp_err_t CODY_companion_boot_midpoint(void);
+esp_err_t CODY_companion_demo_start(void);
 
 // expression_key: Exact implemented catalog key, such as "calm", "happy", or "embarrassed".
 // Select a base combination during Idle without resetting breathing or blinking.
@@ -78,6 +72,7 @@ esp_err_t CODY_companion_set_face_deformation(bool enabled);
 // enabled: Non-null output receiving the requested session preference on success only.
 // Returns ESP_ERR_INVALID_ARG for null, the real lock/state error, or ESP_ERR_NOT_SUPPORTED.
 esp_err_t CODY_companion_get_face_deformation(bool *enabled);
+#endif
 
 #ifdef __cplusplus
 }

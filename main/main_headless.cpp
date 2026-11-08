@@ -36,7 +36,6 @@
 #endif
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 #include "CODY_companion.h"
-#include "CODY_boot_cues.h"
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API
 #include "LUNASHELL_http_server.hpp"
@@ -100,11 +99,9 @@ public:
     }
 
     // stage: Startup stage completed before renewing the startup watchdog.
+    // Exception: Aborts startup if the liveness owner rejects progress.
     void progress(const char *stage) const
     {
-#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-        CODY_boot_cues_boot_checkpoint(stage);
-#endif
         const esp_err_t result = LUNASHELL_liveness_watch_progress(
             LUNASHELL_LIVENESS_STARTUP
         );
@@ -148,7 +145,7 @@ void report_optional_startup_failure(
 }  // namespace
 
 // No parameters: start the profile's owners in watchdog-tracked, fail-fast stages.
-// Exception: Startup-critical failures abort their stage; optional voice errors are published.
+// Exception: Startup-critical failures abort their stage; optional service errors are published.
 extern "C" void app_main(void)
 {
     ESP_ERROR_CHECK(LUNASHELL_power_prepare_boot());
@@ -174,10 +171,6 @@ extern "C" void app_main(void)
     StartupWatch startup_watch;
     ESP_LOGI(kTag, "Firmware boot");
     ESP_LOGI(kTag, "Build profile: standalone hardware runtime without the UI backend");
-#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-    ESP_ERROR_CHECK(CODY_boot_cues_prepare_boot());
-#endif
-
     ESP_ERROR_CHECK(LUNASHELL_hardware_init());
     startup_watch.progress("hardware inventory");
     // Driver startup is mandatory; sensor values (notably an unset RTC) are
@@ -214,16 +207,16 @@ extern "C" void app_main(void)
     startup_watch.progress("saved display settings");
     if (esp_reset_reason() == ESP_RST_DEEPSLEEP) {
         // The frame owner requires panel output enabled, but Wake must remain
-        // invisible until Cody has completed its first real frame.
+        // invisible until the device panel has completed its first real frame.
         ESP_ERROR_CHECK(LUNASHELL_display_prepare_dark_frame());
     }
 #endif
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     ESP_ERROR_CHECK(CODY_companion_start());
-    startup_watch.progress("Cody boot frame and touch consumer");
+    startup_watch.progress("device panel first frame and touch consumer");
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
-    // Cody start returns only after its first real Wake/Idle frame retires.
+    // The display owner returns only after its first real frame retires.
     // Keep that ordering: restoring brightness earlier would expose stale pixels.
     ESP_ERROR_CHECK(LUNASHELL_power_restore_wake_display());
 #endif
@@ -236,11 +229,6 @@ extern "C" void app_main(void)
 #if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
     ESP_ERROR_CHECK(LUNASHELL_power_manager_init());
     startup_watch.progress("power-management service");
-#endif
-#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-    report_optional_startup_failure("diagnostics SD mirror", CODY_boot_cues_configure_diagnostics());
-    ESP_ERROR_CHECK(CODY_companion_boot_midpoint());
-    startup_watch.progress("Cody local-services boot checkpoint");
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
@@ -281,7 +269,7 @@ extern "C" void app_main(void)
     report_optional_startup_failure("HTTP API", LUNASHELL::httpServerInit());
     startup_watch.progress("HTTP API service");
 #endif
-    // The OOBE renderer submits actions later; this worker never opens BLE at boot.
+    // Provisioning must be available before the device panel enters first-run pairing.
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING
     ESP_ERROR_CHECK(LUNASHELL_pairing_service_init());
     startup_watch.progress("Cody pairing controller");
@@ -317,11 +305,6 @@ extern "C" void app_main(void)
         LUNASHELL_logger_finish_boot_capture_wait(2000)
     );
     ESP_ERROR_CHECK(CODY_companion_boot_completed());
-    CODY_boot_cues_boot_checkpoint("ready frame / mandatory startup complete");
-    ESP_ERROR_CHECK(CODY_companion_demo_start());
-#if !CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
-    report_optional_startup_failure("Cody boot audio", CODY_boot_cues_play_eyes_open());
-#endif
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
     // Mandatory display, power and radio owners receive their memory first.

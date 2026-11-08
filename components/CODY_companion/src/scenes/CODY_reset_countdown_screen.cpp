@@ -8,6 +8,7 @@ namespace CODY {
 namespace {
 
 constexpr int64_t kFlipDurationUs = 200000;
+constexpr int64_t kDateDwellUs = 5000000;
 
 // sample: Aged observation from its existing snapshot owner.
 bool current(const LUNASHELL::ComponentSnapshot &sample)
@@ -57,17 +58,39 @@ ResetCountdownView project_view(const LUNASHELL::CodexWeeklyLimitSnapshot &allow
 
 // allowance: Current App Server data with validity and age.
 // clock: Current device time with validity and age.
-// animation_time_us: Monotonic display clock for interpolation of the tile geometry.
+// animation_time_us: Monotonic display clock for tile geometry and the date dwell.
 // title_font: Native font used for the digits and title.
 // body_font: Native monospaced font for the date and labels.
 // content: Receives the next borrowed draw callback and content revision.
+// reset_local: Matching configured-zone projection from the canonical time owner, if available.
 // Exception: Returns the real presentation preparation error.
 esp_err_t ResetCountdownScreen::prepare(
     const LUNASHELL::CodexWeeklyLimitSnapshot &allowance, const LUNASHELL::ClockSnapshot &clock,
     int64_t animation_time_us, const CODY2D::MonoFont &title_font,
-    const CODY2D::MonoFont &body_font, SceneContent &content)
+    const CODY2D::MonoFont &body_font, SceneContent &content, const LUNASHELL::ClockLocalCalendar *reset_local)
 {
     auto view = project_view(allowance, clock);
+    if (view.status == ResetCountdownStatus::Unavailable || view.status == ResetCountdownStatus::Stale) {
+        date_started_us_ = -1;
+        date_epoch_seconds_ = 0;
+    } else if (animation_time_us >= 0) {
+        if (date_started_us_ < 0 || animation_time_us < date_started_us_ ||
+            date_epoch_seconds_ != allowance.reset_unix_seconds) {
+            date_started_us_ = animation_time_us;
+            date_epoch_seconds_ = allowance.reset_unix_seconds;
+        }
+        const bool show_local = (animation_time_us - date_started_us_) % (2 * kDateDwellUs) >= kDateDwellUs;
+        if (show_local && reset_local != nullptr && reset_local->utc_epoch_seconds == date_epoch_seconds_ &&
+            reset_local->utc_offset_minutes > -1440 && reset_local->utc_offset_minutes < 1440) {
+            const ResetCountdownFields local_fields{reset_local->year, reset_local->month, reset_local->day,
+                reset_local->hour, reset_local->minute, view.fields.remaining_basis_points};
+            if (valid_reset_countdown_fields(local_fields)) {
+                view.fields = local_fields;
+                view.utc_offset_minutes = reset_local->utc_offset_minutes;
+                view.local_time = true;
+            }
+        }
+    }
     if (view.status != last_status_ || view.remaining_seconds != last_remaining_seconds_) {
         // Flip only on an observed one-second transition. Corrections and
         // skipped samples show the observed value immediately.
@@ -99,6 +122,8 @@ void ResetCountdownScreen::reset_animation()
     last_remaining_seconds_ = 0;
     previous_seconds_ = 0;
     flip_started_us_ = -1;
+    date_started_us_ = -1;
+    date_epoch_seconds_ = 0;
 }
 
 // No parameters. True while the presentation needs another flip frame.

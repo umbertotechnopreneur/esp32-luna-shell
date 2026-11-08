@@ -5,13 +5,18 @@
 #include <cstdint>
 #include <optional>
 
+#if !defined(CODY_DEVICE_UI_ONLY)
 #include "CODY_technical_panels.hpp"
+#endif
 
 namespace CODY {
 
 // These IDs are persisted as bit positions. Display order belongs to the catalog.
 enum class WidgetScreen : uint8_t {
-    Cody = 0,
+    Device = 0,
+#if !defined(CODY_DEVICE_UI_ONLY)
+    Cody = Device,
+#endif
     Reset = 1,
     Limits = 2,
     Today = 3,
@@ -19,6 +24,10 @@ enum class WidgetScreen : uint8_t {
     TokenHistory = 5,
     Credits = 6,
     Account = 7,
+#if defined(CODY_DEVICE_UI_ONLY)
+    Context = 8,
+    About = 9,
+#endif
 };
 
 template <typename Id>
@@ -27,8 +36,17 @@ struct WidgetDescriptor {
     const char *label;
 };
 
-inline constexpr std::array<WidgetDescriptor<WidgetScreen>, 8> kWidgetScreens{{
+#if defined(CODY_DEVICE_UI_ONLY)
+inline constexpr std::size_t kWidgetScreenCount = 10;
+#else
+inline constexpr std::size_t kWidgetScreenCount = 8;
+#endif
+inline constexpr std::array<WidgetDescriptor<WidgetScreen>, kWidgetScreenCount> kWidgetScreens{{
+#if defined(CODY_DEVICE_UI_ONLY)
+    {WidgetScreen::Device, "Device"},
+#else
     {WidgetScreen::Cody, "Cody"},
+#endif
     {WidgetScreen::Reset, "Reset countdown"},
     {WidgetScreen::Limits, "Codex limits"},
     {WidgetScreen::Today, "Today"},
@@ -36,8 +54,13 @@ inline constexpr std::array<WidgetDescriptor<WidgetScreen>, 8> kWidgetScreens{{
     {WidgetScreen::TokenHistory, "Token history"},
     {WidgetScreen::Credits, "Credits"},
     {WidgetScreen::Account, "Codex account"},
+#if defined(CODY_DEVICE_UI_ONLY)
+    {WidgetScreen::Context, "Context"},
+    {WidgetScreen::About, "About"},
+#endif
 }};
 
+#if !defined(CODY_DEVICE_UI_ONLY)
 // Activity (1) is a legacy technical panel and is outside the Cody widget catalog.
 inline constexpr std::array<WidgetDescriptor<CompanionPanel>, 4> kWidgetPanels{{
     {CompanionPanel::Home, "Tokens"},
@@ -45,6 +68,7 @@ inline constexpr std::array<WidgetDescriptor<CompanionPanel>, 4> kWidgetPanels{{
     {CompanionPanel::SessionLink, "Device"},
     {CompanionPanel::ChatActivity, "Chat & Activity"},
 }};
+#endif
 
 enum class WidgetStep : uint8_t { Previous, Next };
 enum class WidgetScope : uint8_t { All, Statistics };
@@ -54,17 +78,17 @@ namespace WidgetStateDetail {
 
 // id: Stable catalog bit position, including a potentially unknown caller value.
 template <typename Id>
-constexpr uint8_t bit(Id id)
+constexpr uint16_t bit(Id id)
 {
     const auto index = static_cast<uint8_t>(id);
-    return index < 8 ? static_cast<uint8_t>(1U << index) : 0;
+    return index < 16 ? static_cast<uint16_t>(1U << index) : 0;
 }
 
 // catalog: Ordered descriptors with IDs independent of their index.
 template <typename Id, std::size_t Size>
-constexpr uint8_t mask(const std::array<WidgetDescriptor<Id>, Size> &catalog)
+constexpr uint16_t mask(const std::array<WidgetDescriptor<Id>, Size> &catalog)
 {
-    uint8_t result = 0;
+    uint16_t result = 0;
     for (const auto &entry : catalog) {
         result |= bit(entry.id);
     }
@@ -111,15 +135,26 @@ constexpr std::optional<Id> next(const std::array<WidgetDescriptor<Id>, Size> &c
 
 } // namespace WidgetStateDetail
 
+#if defined(CODY_DEVICE_UI_ONLY)
+inline constexpr uint8_t kWidgetVisibilityVersion = 2;
+#else
 inline constexpr uint8_t kWidgetVisibilityVersion = 1;
-inline constexpr uint8_t kWidgetScreenMask = WidgetStateDetail::mask(kWidgetScreens);
+#endif
+inline constexpr uint16_t kWidgetScreenMask = WidgetStateDetail::mask(kWidgetScreens);
+#if defined(CODY_DEVICE_UI_ONLY)
+// Keep the existing settings record layout. The child mask is no longer a UI policy.
+inline constexpr uint8_t kWidgetPanelMask = 0x1d;
+#else
 inline constexpr uint8_t kWidgetPanelMask = WidgetStateDetail::mask(kWidgetPanels);
-static_assert(kWidgetScreenMask == 0xff && kWidgetPanelMask == 0x1d,
-    "The v1 catalog must cover each persisted widget ID exactly once");
+#endif
+static_assert(kWidgetScreens.front().id == WidgetScreen::Device,
+    "Device is the first page in the widget catalog");
+static_assert(kWidgetScreenMask == (1U << kWidgetScreenCount) - 1U && kWidgetPanelMask == 0x1d,
+    "The visibility record must cover every stable screen identity");
 
 struct WidgetVisibility {
     uint8_t version = kWidgetVisibilityVersion;
-    uint8_t screen_mask = kWidgetScreenMask;
+    uint16_t screen_mask = kWidgetScreenMask;
     uint8_t panel_mask = kWidgetPanelMask;
 };
 
@@ -135,9 +170,15 @@ constexpr bool valid_widget_visibility(WidgetVisibility visibility)
 // screen: Top-level widget identity.
 constexpr bool widget_visible(WidgetVisibility visibility, WidgetScreen screen)
 {
+#if defined(CODY_DEVICE_UI_ONLY)
+    if (screen == WidgetScreen::Device) {
+        return true;
+    }
+#endif
     return (visibility.screen_mask & WidgetStateDetail::bit(screen)) != 0;
 }
 
+#if !defined(CODY_DEVICE_UI_ONLY)
 // visibility: Current preference, regardless of the parent Cody flag.
 // panel: Stable child identity, excluding the legacy Activity panel.
 constexpr bool widget_panel_enabled(WidgetVisibility visibility, CompanionPanel panel)
@@ -151,24 +192,33 @@ constexpr bool widget_visible(WidgetVisibility visibility, CompanionPanel panel)
 {
     return widget_visible(visibility, WidgetScreen::Cody) && widget_panel_enabled(visibility, panel);
 }
+#endif
 
 // visibility: Editable preference. Remains unchanged if the proposal is rejected.
 // screen: Top-level identity to change.
-// enabled: Requested state; disabling the last visible root is rejected.
+// enabled: Requested state; the permanent device page cannot be disabled in firmware.
 constexpr bool set_widget_visibility(WidgetVisibility &visibility, WidgetScreen screen, bool enabled)
 {
-    const uint8_t bit = WidgetStateDetail::bit(screen) & kWidgetScreenMask;
+    const uint16_t bit = WidgetStateDetail::bit(screen) & kWidgetScreenMask;
     if (bit == 0 || !valid_widget_visibility(visibility)) {
         return false;
     }
-    const uint8_t candidate = enabled ? visibility.screen_mask | bit : visibility.screen_mask & ~bit;
+    const uint16_t candidate = enabled ? visibility.screen_mask | bit : visibility.screen_mask & ~bit;
+#if defined(CODY_DEVICE_UI_ONLY)
+    if (screen == WidgetScreen::Device && !enabled) {
+        return false;
+    }
+    visibility.screen_mask = candidate | WidgetStateDetail::bit(WidgetScreen::Device);
+#else
     if (candidate == 0) {
         return false;
     }
     visibility.screen_mask = candidate;
+#endif
     return true;
 }
 
+#if !defined(CODY_DEVICE_UI_ONLY)
 // visibility: Editable preference. The child flag can change even while Cody is hidden.
 // panel: Child identity to change.
 // enabled: Requested state; Cody can be visible with no lower panel.
@@ -181,6 +231,7 @@ constexpr bool set_widget_visibility(WidgetVisibility &visibility, CompanionPane
     visibility.panel_mask = enabled ? visibility.panel_mask | bit : visibility.panel_mask & ~bit;
     return true;
 }
+#endif
 
 // visibility: Current preference.
 // scope: All roots or the existing statistics-only entry from Options.
@@ -188,7 +239,7 @@ constexpr std::optional<WidgetScreen> first_visible_widget(WidgetVisibility visi
     WidgetScope scope = WidgetScope::All)
 {
     return WidgetStateDetail::first(kWidgetScreens, [visibility, scope](WidgetScreen screen) {
-        return (scope == WidgetScope::All || screen != WidgetScreen::Cody) && widget_visible(visibility, screen);
+        return (scope == WidgetScope::All || screen != WidgetScreen::Device) && widget_visible(visibility, screen);
     });
 }
 
@@ -200,10 +251,11 @@ constexpr std::optional<WidgetScreen> next_visible_widget(WidgetVisibility visib
     WidgetStep step = WidgetStep::Next, WidgetScope scope = WidgetScope::All)
 {
     return WidgetStateDetail::next(kWidgetScreens, current, step, [visibility, scope](WidgetScreen screen) {
-        return (scope == WidgetScope::All || screen != WidgetScreen::Cody) && widget_visible(visibility, screen);
+        return (scope == WidgetScope::All || screen != WidgetScreen::Device) && widget_visible(visibility, screen);
     });
 }
 
+#if !defined(CODY_DEVICE_UI_ONLY)
 // visibility: Current preference. Returns no panel when Cody or all its children are hidden.
 constexpr std::optional<CompanionPanel> first_visible_widget_panel(WidgetVisibility visibility)
 {
@@ -222,12 +274,15 @@ constexpr std::optional<CompanionPanel> next_visible_widget_panel(WidgetVisibili
         return widget_visible(visibility, panel);
     });
 }
+#endif
 
 // Display-worker state. Callers derive presentation and contact eligibility from this selection.
 struct WidgetRouteState {
     WidgetVisibility visibility{};
-    WidgetScreen selected_screen = WidgetScreen::Cody;
+    WidgetScreen selected_screen = WidgetScreen::Device;
+#if !defined(CODY_DEVICE_UI_ONLY)
     CompanionPanel selected_panel = CompanionPanel::Home;
+#endif
     std::optional<WidgetScreen> retained_screen;
     WidgetReturnRoute return_route = WidgetReturnRoute::None;
 };
@@ -239,7 +294,7 @@ inline bool apply_widget_visibility(WidgetRouteState &route, WidgetVisibility vi
     if (!valid_widget_visibility(visibility)) {
         return false;
     }
-    const auto fallback = first_visible_widget(visibility).value_or(WidgetScreen::Cody);
+    const auto fallback = first_visible_widget(visibility).value_or(WidgetScreen::Device);
     route.visibility = visibility;
     if (!widget_visible(visibility, route.selected_screen)) {
         route.selected_screen = fallback;
@@ -247,12 +302,14 @@ inline bool apply_widget_visibility(WidgetRouteState &route, WidgetVisibility vi
     if (route.retained_screen && !widget_visible(visibility, *route.retained_screen)) {
         route.retained_screen = fallback;
     }
+#if !defined(CODY_DEVICE_UI_ONLY)
     if (!widget_panel_enabled(visibility, route.selected_panel)) {
         const auto first_enabled = WidgetStateDetail::first(kWidgetPanels, [visibility](CompanionPanel panel) {
             return widget_panel_enabled(visibility, panel);
         });
         route.selected_panel = first_enabled.value_or(CompanionPanel::Home);
     }
+#endif
     return true;
 }
 
@@ -267,6 +324,7 @@ constexpr bool select_widget_screen(WidgetRouteState &route, WidgetScreen screen
     return true;
 }
 
+#if !defined(CODY_DEVICE_UI_ONLY)
 // route: Display-worker selection.
 // panel: Effectively visible Cody child to select. Rejection leaves the selection intact.
 constexpr bool select_widget_panel(WidgetRouteState &route, CompanionPanel panel)
@@ -277,5 +335,6 @@ constexpr bool select_widget_panel(WidgetRouteState &route, CompanionPanel panel
     route.selected_panel = panel;
     return true;
 }
+#endif
 
 } // namespace CODY

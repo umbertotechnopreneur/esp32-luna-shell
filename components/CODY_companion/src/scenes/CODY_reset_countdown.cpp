@@ -374,9 +374,17 @@ esp_err_t prepare_metadata(ResetCountdownPresentation &presentation, const Reset
 
     const auto &fields = view.fields;
     char line[32]{};
-    const int date = std::snprintf(line, sizeof(line), "UTC %04u-%02u-%02u %02u:%02u",
-        static_cast<unsigned>(fields.year), static_cast<unsigned>(fields.month), static_cast<unsigned>(fields.day),
-        static_cast<unsigned>(fields.hour), static_cast<unsigned>(fields.minute));
+    char timezone[10] = "UTC";
+    if (view.local_time) {
+        const int offset = view.utc_offset_minutes;
+        const unsigned minutes = static_cast<unsigned>(offset < 0 ? -offset : offset);
+        const int count = std::snprintf(timezone, sizeof(timezone), "UTC%c%02u:%02u",
+            offset < 0 ? '-' : '+', minutes / 60U, minutes % 60U);
+        if (count < 0 || static_cast<size_t>(count) >= sizeof(timezone)) { return ESP_ERR_INVALID_SIZE; }
+    }
+    const int date = std::snprintf(line, sizeof(line), "%s %04u-%02u-%02u %02u:%02u",
+        timezone, static_cast<unsigned>(fields.year), static_cast<unsigned>(fields.month),
+        static_cast<unsigned>(fields.day), static_cast<unsigned>(fields.hour), static_cast<unsigned>(fields.minute));
     if (date < 0 || static_cast<size_t>(date) >= sizeof(line)) { return ESP_ERR_INVALID_SIZE; }
     esp_err_t error = add_caption(presentation, font, line, {73, 314, 320, 26}, kWhite);
     if (error != ESP_OK) { return error; }
@@ -398,6 +406,7 @@ bool same_view(const ResetCountdownView &left, const ResetCountdownView &right)
     const auto &b = right.fields;
     return left.status == right.status && left.remaining_seconds == right.remaining_seconds &&
         left.previous_seconds == right.previous_seconds && left.flip_progress == right.flip_progress &&
+        left.local_time == right.local_time && left.utc_offset_minutes == right.utc_offset_minutes &&
         a.year == b.year && a.month == b.month && a.day == b.day && a.hour == b.hour &&
         a.minute == b.minute && a.remaining_basis_points == b.remaining_basis_points;
 }
@@ -413,7 +422,7 @@ uint16_t perimeter_color(float angle)
 }
 } // namespace
 
-// fields: UTC reset date/time and reported remaining allowance in basis points.
+// fields: Reset calendar fields and reported remaining allowance in basis points.
 bool valid_reset_countdown_fields(const ResetCountdownFields &fields)
 {
     return fields.year >= kMinYear && fields.year <= kMaxYear && fields.month >= 1 && fields.month <= 12 &&
@@ -435,6 +444,7 @@ esp_err_t prepare_reset_countdown(const ResetCountdownView &view,
         view.remaining_seconds > kMaxSeconds || view.previous_seconds > kMaxSeconds ||
         (view.status == ResetCountdownStatus::Active && view.remaining_seconds == 0) ||
         (view.status != ResetCountdownStatus::Active && view.remaining_seconds != 0) ||
+        (view.local_time && (view.utc_offset_minutes <= -1440 || view.utc_offset_minutes >= 1440)) ||
         (has_account_data(view.status) && !valid_reset_countdown_fields(view.fields))) {
         return countdown_result("prepare countdown", ESP_ERR_INVALID_ARG);
     }
@@ -463,15 +473,16 @@ bool reset_countdown_ring_visible(const ResetCountdownPresentation &presentation
          presentation.view.status == ResetCountdownStatus::TimeUnavailable);
 }
 
-// presentation: Immutable screen and exact remaining basis points.
+// remaining: Canonical remaining allowance in basis points.
 // strip: Borrowed RGB565 tile carrying original stride and storage byte order.
 // first_row: Logical y of the tile.
 // first_column: Logical x of the tile.
-// Exception: Returns the original surface error or rejects a tile outside the canvas.
-esp_err_t draw_reset_countdown_ring_rows(const ResetCountdownPresentation &presentation,
+// Exception: Returns the original surface or argument error.
+esp_err_t draw_reset_countdown_ring_rows(uint16_t remaining,
     CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
 {
-    if (!reset_countdown_ring_visible(presentation)) { return ESP_OK; }
+    if (remaining == 0) { return ESP_OK; }
+    if (remaining > 10000) { return ESP_ERR_INVALID_ARG; }
     const esp_err_t error = CODY2D::validate_surface(strip);
     if (error != ESP_OK) { return countdown_result("draw perimeter tile", error); }
     const int bottom = first_row + strip.height;
@@ -479,7 +490,6 @@ esp_err_t draw_reset_countdown_ring_rows(const ResetCountdownPresentation &prese
     if (bottom > kCanvasSize || right > kCanvasSize) {
         return countdown_result("draw perimeter bounds", ESP_ERR_INVALID_SIZE);
     }
-    const unsigned remaining = presentation.view.fields.remaining_basis_points;
     const float gap_end = kTau * (10000U - remaining) / 10000.f;
     for (int y = first_row; y < bottom; ++y) {
         const float dy = y + .5f - kCenter;
@@ -516,6 +526,19 @@ esp_err_t draw_reset_countdown_ring_rows(const ResetCountdownPresentation &prese
         }
     }
     return ESP_OK;
+}
+
+// presentation: Immutable legacy screen and exact remaining basis points.
+// strip: Borrowed RGB565 tile.
+// first_row: Logical y of the tile.
+// first_column: Logical x of the tile.
+// Exception: Returns the original perimeter drawing error.
+esp_err_t draw_reset_countdown_ring_rows(const ResetCountdownPresentation &presentation,
+    CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+{
+    return reset_countdown_ring_visible(presentation) ?
+        draw_reset_countdown_ring_rows(presentation.view.fields.remaining_basis_points, strip, first_row, first_column) :
+        ESP_OK;
 }
 
 } // namespace CODY

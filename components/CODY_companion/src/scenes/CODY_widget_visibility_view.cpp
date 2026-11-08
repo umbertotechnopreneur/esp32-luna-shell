@@ -15,7 +15,9 @@ constexpr CODY2D::Rect kHeadingBounds{73, 94, 320, 28};
 constexpr CODY2D::Rect kPageBounds{73, 128, 320, 26};
 constexpr CODY2D::Rect kNameBounds{73, 162, 320, 54};
 constexpr CODY2D::Rect kToggleBounds{113, 226, 240, 52};
+#if !defined(CODY_DEVICE_UI_ONLY)
 constexpr CODY2D::Rect kSubscreensBounds{113, 289, 240, 48};
+#endif
 constexpr CODY2D::Rect kStatusBounds{73, 344, 320, 30};
 constexpr uint16_t kWhite = 0xF7BE;
 constexpr uint16_t kMuted = 0x9CF3;
@@ -100,9 +102,11 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
         }
     }
     error = CODY2D::draw_capsule_rows(view.toggle, strip, first_row, first_column);
+#if !defined(CODY_DEVICE_UI_ONLY)
     if (error == ESP_OK && view.subscreens_visible) {
         error = CODY2D::draw_capsule_rows(view.subscreens, strip, first_row, first_column);
     }
+#endif
     return result("draw control", error);
 }
 
@@ -119,9 +123,9 @@ void attach_content(const WidgetVisibilityView &view, SceneContent &content)
 
 } // namespace
 
-// screen: Selected root editor entry.
-// panel: Selected Cody child editor entry.
-// children: True when editing child preferences.
+// screen: Selected configurable statistics page in firmware, or legacy root entry.
+// panel: Selected legacy Cody child entry.
+// children: True when editing legacy Cody child preferences.
 // visibility: Confirmed settings policy.
 // saving: True while a change is pending with the settings owner.
 // save_failed: True when the pending change failed.
@@ -131,7 +135,10 @@ void attach_content(const WidgetVisibilityView &view, SceneContent &content)
 // view: Persistent display-owned editor view.
 // content: Receives the bounded central renderer.
 // Exception: Preserves original validation, layout or native preparation errors.
-esp_err_t prepare_widget_visibility_view(WidgetScreen screen, CompanionPanel panel, bool children,
+esp_err_t prepare_widget_visibility_view(WidgetScreen screen,
+#if !defined(CODY_DEVICE_UI_ONLY)
+    CompanionPanel panel, bool children,
+#endif
     const WidgetVisibility &visibility, bool saving, bool save_failed, bool load_failed,
     const CODY2D::MonoFont &title_font, const CODY2D::MonoFont &body_font,
     WidgetVisibilityView &view, SceneContent &content)
@@ -139,13 +146,29 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen, CompanionPanel pan
     if (!valid_widget_visibility(visibility)) {
         return result("settings policy", ESP_ERR_INVALID_ARG);
     }
+#if defined(CODY_DEVICE_UI_ONLY)
+    const auto index = catalog_index(kWidgetScreens, screen);
+    if (index == 0 || index >= kWidgetScreens.size()) {
+        return result("catalog selection", ESP_ERR_INVALID_ARG);
+    }
+    const auto count = kWidgetScreens.size() - 1U;
+    const auto page = index;
+    const char *const heading = "Visible screens";
+    const char *const label = kWidgetScreens[index].label;
+    const bool same_selection = view.screen == screen;
+#else
     const auto count = children ? kWidgetPanels.size() : kWidgetScreens.size();
     const auto index = children ? catalog_index(kWidgetPanels, panel) : catalog_index(kWidgetScreens, screen);
     if (index >= count) {
         return result("catalog selection", ESP_ERR_INVALID_ARG);
     }
-    if (view.valid && view.screen == screen && view.panel == panel && view.children == children &&
-        view.visibility.screen_mask == visibility.screen_mask && view.visibility.panel_mask == visibility.panel_mask &&
+    const auto page = index + 1U;
+    const char *const heading = children ? "Cody subscreens" : "Widget visibility";
+    const char *const label = children ? kWidgetPanels[index].label : kWidgetScreens[index].label;
+    const bool same_selection = view.screen == screen && view.panel == panel && view.children == children &&
+        view.visibility.panel_mask == visibility.panel_mask;
+#endif
+    if (view.valid && same_selection && view.visibility.screen_mask == visibility.screen_mask &&
         view.saving == saving && view.save_failed == save_failed && view.load_failed == load_failed &&
         view.title_font == &title_font && view.body_font == &body_font) {
         attach_content(view, content);
@@ -158,13 +181,11 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen, CompanionPanel pan
     view.valid = false;
     view.captions = {};
     const int written = std::snprintf(view.page_index, sizeof(view.page_index), "%u / %u",
-        static_cast<unsigned>(index + 1U), static_cast<unsigned>(count));
+        static_cast<unsigned>(page), static_cast<unsigned>(count));
     if (written <= 0 || static_cast<std::size_t>(written) >= sizeof(view.page_index)) {
         return result("format page index", ESP_ERR_INVALID_SIZE);
     }
-    const char *const label = children ? kWidgetPanels[index].label : kWidgetScreens[index].label;
-    esp_err_t error = prepare_line(body_font, children ? "Cody subscreens" : "Widget visibility",
-        kHeadingBounds, kMuted, view.captions[0]);
+    esp_err_t error = prepare_line(body_font, heading, kHeadingBounds, kMuted, view.captions[0]);
     if (error == ESP_OK) {
         error = prepare_line(body_font, view.page_index, kPageBounds, kMuted, view.captions[1]);
     }
@@ -175,9 +196,14 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen, CompanionPanel pan
         return result("prepare heading", error);
     }
 
+#if defined(CODY_DEVICE_UI_ONLY)
+    const bool enabled = widget_visible(visibility, screen);
+    constexpr bool can_toggle = true;
+#else
     const bool enabled = children ? widget_panel_enabled(visibility, panel) : widget_visible(visibility, screen);
     WidgetVisibility candidate = visibility;
     const bool can_toggle = children || set_widget_visibility(candidate, screen, !enabled);
+#endif
     view.toggle = {};
     view.toggle.bounds = kToggleBounds;
     view.toggle.enabled = !saving && !load_failed && can_toggle;
@@ -191,6 +217,7 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen, CompanionPanel pan
         return result("prepare visibility toggle", error);
     }
 
+#if !defined(CODY_DEVICE_UI_ONLY)
     view.subscreens_visible = !children && screen == WidgetScreen::Cody;
     if (view.subscreens_visible) {
         view.subscreens = {};
@@ -204,6 +231,7 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen, CompanionPanel pan
             return result("prepare subscreens control", error);
         }
     }
+#endif
 
     const char *status = nullptr;
     if (load_failed) {
@@ -225,8 +253,10 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen, CompanionPanel pan
 
     view.visibility = visibility;
     view.screen = screen;
+#if !defined(CODY_DEVICE_UI_ONLY)
     view.panel = panel;
     view.children = children;
+#endif
     view.saving = saving;
     view.save_failed = save_failed;
     view.load_failed = load_failed;
@@ -248,9 +278,11 @@ WidgetVisibilityControl widget_visibility_control_at(const WidgetVisibilityView 
     if (CODY2D::capsule_contains(view.toggle, point)) {
         return WidgetVisibilityControl::Toggle;
     }
+#if !defined(CODY_DEVICE_UI_ONLY)
     if (view.subscreens_visible && CODY2D::capsule_contains(view.subscreens, point)) {
         return WidgetVisibilityControl::OpenChildren;
     }
+#endif
     return WidgetVisibilityControl::None;
 }
 

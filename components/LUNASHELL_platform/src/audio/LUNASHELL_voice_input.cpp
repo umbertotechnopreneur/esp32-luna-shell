@@ -269,7 +269,7 @@ esp_err_t LUNASHELL::requestVoiceInput(VoiceInputTrigger trigger, bool *started)
     }
     std::lock_guard<std::mutex> guard(s_mutex);
     if (trigger != VoiceInputTrigger::WakeWord && trigger != VoiceInputTrigger::DoubleTap &&
-        trigger != VoiceInputTrigger::StandbyWake) {
+        trigger != VoiceInputTrigger::StandbyWake && trigger != VoiceInputTrigger::DeviceButton) {
         ESP_LOGE(kTag, "Voice input rejected unknown trigger=%u (%s)", unsigned(trigger), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
@@ -286,7 +286,8 @@ esp_err_t LUNASHELL::requestVoiceInput(VoiceInputTrigger trigger, bool *started)
         ESP_LOGE(kTag, "Dictation preference unavailable (%s)", esp_err_to_name(error));
         return error;
     }
-    if (!admission.dictation_enabled || (trigger == VoiceInputTrigger::DoubleTap && !admission.lan_ready)) {
+    const bool manual = trigger == VoiceInputTrigger::DoubleTap || trigger == VoiceInputTrigger::DeviceButton;
+    if (!admission.dictation_enabled || (manual && !admission.lan_ready)) {
         return ESP_OK;
     }
     VoiceSnapshot voice{};

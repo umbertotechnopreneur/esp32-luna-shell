@@ -4280,7 +4280,7 @@ esp_err_t LUNASHELL::completeCodexDebugScreen(const CodexDebugScreenRequest &req
     std::lock_guard<std::mutex> guard(s_mutex);
     if (!s_debug_screen.pending || !s_debug_screen.taken || s_debug_screen.complete ||
         esp_timer_get_time() >= s_debug_screen.deadline_us || !s_link_present || s_candidate_present ||
-        s_pending != Command::None || s_link_snapshot.state != State::Connected || channel_count == 0 ||
+        s_pending != Command::None || s_link_snapshot.state != State::Connected ||
         s_debug_screen.pairing_attempt_id != s_link_snapshot.attempt_id ||
         std::strcmp(request.request_id, s_debug_screen.request.request_id) != 0 ||
         request.screen != s_debug_screen.request.screen || request.scroll != s_debug_screen.request.scroll) {

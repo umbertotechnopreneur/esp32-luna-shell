@@ -25,11 +25,24 @@ struct WidgetVisibility;
 // No parameters: create one bounded action worker before the renderer starts.
 esp_err_t onboarding_service_init();
 
+#if defined(CODY_DEVICE_UI_ONLY)
+// content: Receives the About link's immutable heading and project QR.
+// Exception: Returns the original optional QR preparation error.
+esp_err_t prepare_about_project_link(SceneContent &content);
+#endif
+
 // No parameters: bind the existing Hello scene to the first-setup journey.
 void begin_onboarding();
 
 // No parameters: evaluate saved setup after the existing startup sequence completes.
 void request_saved_setup_startup();
+
+// scene: Display-owned startup frame, admitted after Wi-Fi and pairing services start.
+// first_boot: Effective local setup setting from the existing persistence owner.
+esp_err_t start_device_setup(SceneFrame &scene, bool first_boot);
+
+// No parameters: true when the ordinary connection or activity route can show the dashboard.
+bool onboarding_dashboard_active();
 
 // No parameters: only stable routes without pending work admit the setup gesture.
 bool can_open_setup_menu();
@@ -41,6 +54,9 @@ esp_err_t open_setup_menu(SceneFrame &scene);
 // scene: Stable route receiving Options after a physical BOOT short press.
 // Exception: Returns the original route preparation error.
 esp_err_t open_companion_options(SceneFrame &scene);
+
+// scene: Options frame to return to ordinary dashboard and authenticated event routing.
+esp_err_t open_device_dashboard(SceneFrame &scene);
 
 enum class WidgetOpenRequest : uint8_t { None, Statistics, Visibility };
 
@@ -60,13 +76,17 @@ enum class LateralNavigation : uint8_t { None, Previous, Next };
 // point: Acquired logical position on the existing circular lateral targets.
 LateralNavigation lateral_navigation_at(CODY2D::Point point);
 
+// point: Acquired logical position; true only for a lateral control present on this route.
+bool onboarding_lateral_control_at(CODY2D::Point point);
+
 // next: True when a forward destination exists. Back is always available here.
 // strip: Borrowed RGB565 tile including the lateral regions.
 // first_row: Logical y origin of the tile.
 // first_column: Logical x origin of the tile.
+// opacity: Arrow visibility against the dashboard background.
 // Exception: Returns the first native drawing failure.
 esp_err_t draw_lateral_navigation(bool next, CODY2D::Surface strip,
-                                  uint16_t first_row, uint16_t first_column);
+                                  uint16_t first_row, uint16_t first_column, uint8_t opacity = 255);
 
 // No parameters: retire route identities and wipe the displayed session QR.
 void reset_onboarding();
@@ -110,7 +130,9 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
 // strip: Borrowed RGB565 tile; no display writes or allocations occur here.
 // first_row: Logical y origin of the tile.
 // first_column: Logical x origin of the tile.
+// opacity: Arrow visibility against the scene background.
+// background: Native RGB565 color of the currently rendered scene.
 esp_err_t draw_onboarding_navigation(CODY2D::Surface strip, uint16_t first_row,
-                                    uint16_t first_column);
+                                    uint16_t first_column, uint8_t opacity = 255, uint16_t background = 0);
 
 } // namespace CODY

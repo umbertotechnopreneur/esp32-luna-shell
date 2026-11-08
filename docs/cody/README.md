@@ -1,20 +1,19 @@
 # Cody
 
-Cody is the English ASCII character and interface rendered by `CODY2D`.
-Its `cody-companion` profile uses the shared BSP and platform services. Display,
-touch, sensor acquisition, persistence, power and network retain their owners.
+The `cody-companion` profile is a native `CODY2D` terminal for Codex. Its
+device model projects account, network, battery and build data. The display
+consumes those projections. The shared BSP and platform services own acquisition,
+persistence, power and authenticated transport.
 
 ## Find the relevant contract
 
 | Task | Guide |
 | --- | --- |
-| First boot, Setup, settings, pairing, questions or recovery | [Navigation](navigation.md) |
-| Screen placement, action cards, QR and native chrome | [Layout](layout.md) |
-| Startup, scene clocks, pause, standby and audio admission | [Runtime](runtime.md) |
-| Gaze, caress, happiness and idle gestures | [Behavior](behavior.md) |
-| Single manga cue, priority, icon resources and petting | [Personality channel](personality-icons.md) |
-| Rig, jelly skins, frame damage, DMA and resource budgets | [Rendering](rendering.md) |
-| Greetings, routines and quiet presentation | [Clock presentation](clock.md) |
+| First boot, dashboard, Options, questions and recovery | [Navigation](navigation.md) |
+| All device routes at a glance | [A4 navigation map](device-navigation-map-a4.pdf) |
+| Display coordinates, action controls and QR | [Layout](layout.md) |
+| Power and standby | [Power management](../bsp/services/power-management.md) |
+| Native display transfers | [Display and touch runtime](../bsp/core/display-touch-runtime.md) |
 
 Installation and PC operation belong to the [CCP guide](../../plugins/cody-codex-plugin/README.md).
 Packet formats and authentication belong to [CCP1](../../plugins/cody-codex-plugin/protocol/CCP1.md).
@@ -29,13 +28,14 @@ with the external RTC and removable SD services disabled. Board wiring and
 available peripherals are listed in the [hardware guide](../bsp/boards/purchased-amoled-comparison.md).
 The [project introduction](../../README.md#the-little-round-thing) explains the choice of device.
 
-Cody uses the shared power, battery, motion, audio, Wi-Fi and BLE provisioning
-owners. The profile excludes GNSS and distance. Wake word and TTS are optional.
+Cody uses the shared power, battery, IMU, speaker, Wi-Fi and BLE provisioning
+owners. The default image omits the character rig, microphone pipeline and
+activity classifier. The optional `wake-word` feature enables the microphone,
+audio front end and existing Sophia listener, including listening standby.
 
 The saved-profile startup policy is authoritative; the Cody profile sets
 `CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT=n`. Development replay requires explicit
-configuration. The compiled HTTP service defaults to disabled. Artwork/fonts
-belong in internal flash; SD has its separate user-data and logging purpose.
+configuration. The compiled HTTP service defaults to disabled. The VibeWare startup art and UI fonts belong in internal flash; SD has its separate user-data and logging purpose.
 
 Consumers read canonical projections with validity, original timestamps and real
 errors. Only acquisition owners read hardware. Shared contracts are in

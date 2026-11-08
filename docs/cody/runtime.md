@@ -1,10 +1,20 @@
 # Cody runtime and lifecycle
 
-The display worker owns scene/rig state under the shared display lock. Hardware,
-settings, radios, power and audio retain their platform owners. A frame borrows
-immutable state until every display transaction retires; partial writes never
-become the next displayed-state reference. See [rendering](rendering.md) for the
-damage/DMA contract and [onboarding](navigation.md) for route gates.
+The device-first firmware uses a single display worker and a separate device
+model. Canonical platform owners publish network, power, account and clock data.
+The model owns the selected screen, visibility policy, gestures and acquired
+projections. The renderer owns prepared glyphs, layouts and the last retired
+frame. Partial writes never become the next displayed-state reference.
+
+Cold startup retires the original VibeWare animation before entering pairing
+or reconnection. PWR hands display ownership to the power service for standby.
+An authenticated question or Reply ready event can wake software standby when
+the LAN link remains available. Optional audio follows Sounds and quiet hours.
+See [navigation](navigation.md) for current device routes.
+
+The sections below also describe the shared transport, power and audio contracts
+and the character authoring paths available in Studio. The device-first image
+excludes character presentation and its assets.
 
 ## Minimal character direction
 

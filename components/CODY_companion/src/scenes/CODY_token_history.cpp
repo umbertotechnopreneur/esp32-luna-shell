@@ -22,6 +22,7 @@ constexpr DamageRect kControlDamage{123, 359, 343, 409};
 constexpr CODY2D::Rect kChart{83, 161, 300, 126};
 constexpr uint16_t kBaseline = 279;
 constexpr uint16_t kPlotHeight = 110;
+constexpr int64_t kQuarterSeconds = 900;
 constexpr uint16_t kWhite = 0xF7BE;
 constexpr uint16_t kMuted = 0x9CF3;
 constexpr uint16_t kBright = 0x5FF1;
@@ -161,8 +162,10 @@ esp_err_t draw_plot(const TokenHistoryPresentation &presentation, CODY2D::Surfac
         const auto width = presentation.bar_width;
         const auto x = static_cast<uint16_t>(bin.x - width / 2U);
         if (!bin.valid) {
-            fill_clipped(strip, first_row, first_column,
-                {x, static_cast<uint16_t>(kBaseline + 4U), width, 2}, kGap);
+            if (bin.gap) {
+                fill_clipped(strip, first_row, first_column,
+                    {x, static_cast<uint16_t>(kBaseline + 4U), width, 2}, kGap);
+            }
         } else if (bin.y == kBaseline) {
             // A real zero is a green mark on the baseline. Missing samples are below it.
             fill_clipped(strip, first_row, first_column, {x, kBaseline, width, 2}, trace);
@@ -247,7 +250,7 @@ void format_count(uint64_t value, char (&text)[24])
 // label: Bounded UTC calendar stamp, updated only after successful conversion.
 bool format_utc(uint32_t quarter, char (&label)[16])
 {
-    const int64_t epoch = static_cast<int64_t>(quarter) * 900;
+    const int64_t epoch = static_cast<int64_t>(quarter) * kQuarterSeconds;
     const auto value = static_cast<std::time_t>(epoch);
     if (epoch <= 0 || static_cast<int64_t>(value) != epoch) { return false; }
     std::tm calendar{};
@@ -259,13 +262,31 @@ bool format_utc(uint32_t quarter, char (&label)[16])
     return std::strftime(label, sizeof(label), "%m-%d %H:%M", &calendar) != 0;
 }
 
+// calendar: Exact endpoint projected by the canonical time owner.
+bool valid_local_endpoint(const LUNASHELL::ClockLocalCalendar &calendar, int64_t epoch)
+{
+    return calendar.utc_epoch_seconds == epoch && calendar.month >= 1 && calendar.month <= 12 &&
+        calendar.day >= 1 && calendar.day <= 31 && calendar.hour <= 23 && calendar.minute <= 59 &&
+        calendar.utc_offset_minutes > -1440 && calendar.utc_offset_minutes < 1440;
+}
+
+// calendar: Admitted local endpoint for the selected history window.
+bool format_local(const LUNASHELL::ClockLocalCalendar &calendar, char (&label)[16])
+{
+    const int length = std::snprintf(label, sizeof(label), "%02u-%02u %02u:%02u",
+        static_cast<unsigned>(calendar.month), static_cast<unsigned>(calendar.day),
+        static_cast<unsigned>(calendar.hour), static_cast<unsigned>(calendar.minute));
+    return length > 0 && static_cast<size_t>(length) < sizeof(label);
+}
+
 // presentation: Persistent bounded output, with admitted interval and source state.
 // snapshot: Aged authenticated history containing genuine values and explicit gaps.
 // oldest: First Unix 15-minute index in the selected display window.
 // count: Number of consecutive slots in the selected interval.
+// local: Admitted local endpoints, or null for UTC.
 // Exception: Preserves original label/layout errors.
 esp_err_t prepare_plot(TokenHistoryPresentation &presentation, const LUNASHELL::CodexTokenIntervalsSnapshot &snapshot,
-    uint32_t oldest, uint8_t count)
+    uint32_t oldest, uint8_t count, const TokenHistoryLocalRange *local)
 {
     uint64_t peak = 0;
     bool measured = false;
@@ -276,17 +297,21 @@ esp_err_t prepare_plot(TokenHistoryPresentation &presentation, const LUNASHELL::
             peak = std::max(peak, value);
         }
     }
+    const auto first_observed = snapshot.first_observed_quarter;
+    const bool known_start = first_observed != 0 && first_observed <= snapshot.anchor_quarter;
     presentation.bar_width = static_cast<uint8_t>(std::clamp<unsigned>(kChart.width / count / 2U, 1, 18));
     for (uint8_t index = 0; index < count; ++index) {
+        const uint32_t quarter = oldest + index;
         uint64_t value = 0;
-        const bool valid = snapshot.read_token_delta(oldest + index, value);
+        const bool valid = snapshot.read_token_delta(quarter, value);
+        const bool gap = !valid && (!known_start || quarter > first_observed);
         uint16_t height = 0;
         if (valid && value > 0 && peak > 0) {
             height = std::max<uint16_t>(1,
                 static_cast<uint16_t>(static_cast<double>(value) / static_cast<double>(peak) * kPlotHeight));
         }
         const auto x = static_cast<uint16_t>(kChart.x + (2U * index + 1U) * kChart.width / (2U * count));
-        presentation.bins[index] = {x, static_cast<uint16_t>(kBaseline - height), valid};
+        presentation.bins[index] = {x, static_cast<uint16_t>(kBaseline - height), valid, gap};
     }
     presentation.bin_count = count;
 
@@ -297,14 +322,20 @@ esp_err_t prepare_plot(TokenHistoryPresentation &presentation, const LUNASHELL::
         format_count(peak, number);
         std::snprintf(message, sizeof(message), stale ? "STALE - PEAK %.16s" : "PEAK %.16s TOKENS", number);
     } else {
-        std::snprintf(message, sizeof(message), "%s", stale ? "STALE - NO SAMPLES" : "NO MEASURED INTERVALS");
+        const bool collecting = known_start && snapshot.anchor_quarter == first_observed;
+        const char *status = stale ? "STALE - NO SAMPLES" :
+            collecting ? "COLLECTING 15-MIN SAMPLES" : "NO MEASURED INTERVALS";
+        std::snprintf(message, sizeof(message), "%s", status);
     }
     const auto &font = *presentation.body_font;
     esp_err_t error = add_caption(presentation, font, message, {73, 130, 320, 25}, stale ? kAmber : kMuted);
     if (error != ESP_OK) { return error; }
     char first[16]{};
     char last[16]{};
-    if (!format_utc(oldest, first) || !format_utc(snapshot.anchor_quarter, last)) {
+    const bool dates_ready = local != nullptr
+        ? format_local(local->first, first) && format_local(local->last, last)
+        : format_utc(oldest, first) && format_utc(snapshot.anchor_quarter, last);
+    if (!dates_ready) {
         return add_caption(presentation, font, "DATES UNAVAILABLE", {73, 292, 320, 25}, kMuted);
     }
     error = add_caption(presentation, font, first, {73, 292, 155, 25}, kMuted);
@@ -314,23 +345,49 @@ esp_err_t prepare_plot(TokenHistoryPresentation &presentation, const LUNASHELL::
 
 } // namespace
 
+bool token_history_utc_range(TokenHistoryInterval interval,
+    const LUNASHELL::CodexTokenIntervalsSnapshot &snapshot, int64_t &first_epoch, int64_t &last_epoch)
+{
+    const auto bins = extent(interval).bins;
+    if (!snapshot.initialized || bins == 0 || snapshot.anchor_quarter < bins) {
+        return false;
+    }
+    const uint32_t oldest = snapshot.anchor_quarter - bins + 1U;
+    first_epoch = static_cast<int64_t>(oldest) * kQuarterSeconds;
+    last_epoch = static_cast<int64_t>(snapshot.anchor_quarter) * kQuarterSeconds;
+    return true;
+}
+
 // interval: Requested display window of consecutive 15-minute bins.
 // snapshot: Aged authenticated source, with optional retained stale history.
 // title_font: Immutable native headline font.
 // body_font: Immutable native dates, legend and action font.
 // presentation: Fixed display owner, mutated only after frame retirement.
 // content: Receives bounded chart and independent interval action slots.
+// local: Both endpoints in the same configured zone, when the model could project them.
 // Exception: Preserves original caption, layout or interval validation errors.
 esp_err_t prepare_token_history(TokenHistoryInterval interval,
     const LUNASHELL::CodexTokenIntervalsSnapshot &snapshot, const CODY2D::MonoFont &title_font,
-    const CODY2D::MonoFont &body_font, TokenHistoryPresentation &presentation, SceneContent &content)
+    const CODY2D::MonoFont &body_font, TokenHistoryPresentation &presentation, SceneContent &content,
+    const TokenHistoryLocalRange *local)
 {
     const auto selected = extent(interval);
     if (selected.bins == 0) { return result("interval identity", ESP_ERR_INVALID_ARG); }
     const SourceState source = source_state(snapshot);
+    int64_t first_epoch = 0;
+    int64_t last_epoch = 0;
+    const bool has_range = source != SourceState::Unavailable &&
+        token_history_utc_range(interval, snapshot, first_epoch, last_epoch);
+    const bool local_time = has_range && local != nullptr && local->first.timezone == local->last.timezone &&
+        valid_local_endpoint(local->first, first_epoch) && valid_local_endpoint(local->last, last_epoch);
+    const int16_t first_offset = local_time ? local->first.utc_offset_minutes : 0;
+    const int16_t last_offset = local_time ? local->last.utc_offset_minutes : 0;
     if (presentation.valid && presentation.interval == interval && presentation.source_state == source &&
         presentation.observed_at_us == snapshot.last_success_at_us &&
         presentation.anchor_quarter == snapshot.anchor_quarter &&
+        presentation.first_observed_quarter == snapshot.first_observed_quarter &&
+        presentation.local_time == local_time && presentation.first_offset_minutes == first_offset &&
+        presentation.last_offset_minutes == last_offset &&
         presentation.title_font == &title_font && presentation.body_font == &body_font) {
         attach_content(presentation, content);
         return ESP_OK;
@@ -343,20 +400,26 @@ esp_err_t prepare_token_history(TokenHistoryInterval interval,
     presentation.source_state = source;
     presentation.observed_at_us = snapshot.last_success_at_us;
     presentation.anchor_quarter = snapshot.anchor_quarter;
+    presentation.first_observed_quarter = snapshot.first_observed_quarter;
+    presentation.local_time = local_time;
+    presentation.first_offset_minutes = first_offset;
+    presentation.last_offset_minutes = last_offset;
     presentation.title_font = &title_font;
     presentation.body_font = &body_font;
     presentation.caption_count = 0;
     presentation.bin_count = 0;
     esp_err_t error = add_caption(presentation, title_font, "TOKEN ACTIVITY", {73, 78, 320, 46}, kCyan);
     if (error != ESP_OK) { return result("prepare title", error); }
-    if (source == SourceState::Unavailable || snapshot.anchor_quarter < selected.bins) {
+    if (!has_range) {
         error = add_caption(presentation, body_font, "TOKEN HISTORY UNAVAILABLE", {73, 212, 320, 28}, kMuted);
     } else {
-        const uint32_t oldest = snapshot.anchor_quarter - selected.bins + 1U;
-        error = prepare_plot(presentation, snapshot, oldest, selected.bins);
+        const auto oldest = static_cast<uint32_t>(first_epoch / kQuarterSeconds);
+        error = prepare_plot(presentation, snapshot, oldest, selected.bins, local_time ? local : nullptr);
     }
     if (error != ESP_OK) { return result("prepare chart", error); }
-    error = add_caption(presentation, body_font, "15 MIN / UTC  |  GAP: MISSING", {73, 321, 320, 25}, kMuted);
+    const char *legend = !has_range ? "15 MIN INTERVALS" :
+        local_time ? "15 MIN LOCAL | GAP: MISSING" : "15 MIN UTC | GAP: MISSING";
+    error = add_caption(presentation, body_font, legend, {73, 321, 320, 25}, kMuted);
     if (error != ESP_OK) { return result("prepare legend", error); }
 
     error = prepare_caption(presentation.interval_label, body_font, selected.caption, kControlBounds, kWhite);

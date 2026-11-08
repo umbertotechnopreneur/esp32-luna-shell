@@ -293,6 +293,17 @@ if ($SelectedProfileVariant.profile -cne $Profile -or
     throw "Firmware profile catalog identity mismatch for $ProfileBuildKey"
 }
 
+if ($Profile -eq 'cody-companion') {
+    # Reject unsupported compositions before generating defaults or importing dependencies.
+    if ($Feature -notin @('none', 'wake-word') -or $ActivityClassifier -or $ActivityCapture) {
+        throw 'The Cody device panel supports -Feature none or optional wake-word for Codex voice handoff, without TTS, activity classification or capture.'
+    }
+    if ($Feature -eq 'none' -and $null -ne $BoardModules -and
+        $BoardModules.microphones -eq 'service') {
+        throw 'The lightweight Cody device panel requires microphones mode off. Select -Feature wake-word for Codex voice handoff.'
+    }
+}
+
 if ($null -ne $BoardModules) {
     # Only the seven reviewed service switches vary. The bit string isolates
     # sdkconfig/build state; the three dependency bits select a canonical lock.

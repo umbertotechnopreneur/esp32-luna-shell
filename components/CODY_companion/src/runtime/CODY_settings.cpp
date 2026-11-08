@@ -220,9 +220,12 @@ esp_err_t save_preference_uint32(const char *key, uint32_t value)
 // visibility: Validated, independent screen and Cody child visibility masks.
 uint32_t encode_widget_visibility(const WidgetVisibility &visibility)
 {
-    // High to low: version, reserved zero, Cody panels, top-level screens.
+#if defined(CODY_DEVICE_UI_ONLY)
+    return (static_cast<uint32_t>(visibility.version) << 24U) | visibility.screen_mask;
+#else
     return (static_cast<uint32_t>(visibility.version) << 24U) |
         (static_cast<uint32_t>(visibility.panel_mask) << 8U) | visibility.screen_mask;
+#endif
 }
 
 // stored: Exact owner record from the U32 key.
@@ -232,9 +235,24 @@ esp_err_t decode_widget_visibility(uint32_t stored, WidgetVisibility &visibility
 {
     WidgetVisibility candidate;
     candidate.version = static_cast<uint8_t>(stored >> 24U);
-    candidate.screen_mask = static_cast<uint8_t>(stored & 0xffU);
-    candidate.panel_mask = static_cast<uint8_t>((stored >> 8U) & 0xffU);
-    if ((stored & 0x00ff0000U) != 0 || !valid_widget_visibility(candidate)) {
+#if defined(CODY_DEVICE_UI_ONLY)
+    bool reserved_zero = (stored & 0x00ff0000U) == 0;
+    if (candidate.version == 1) {
+        const auto legacy_screens = static_cast<uint8_t>(stored);
+        const auto legacy_panels = static_cast<uint8_t>(stored >> 8U);
+        reserved_zero = reserved_zero && legacy_screens != 0 && (legacy_panels & ~kWidgetPanelMask) == 0;
+        candidate.version = kWidgetVisibilityVersion;
+        candidate.screen_mask = legacy_screens | WidgetStateDetail::bit(WidgetScreen::Device) |
+            WidgetStateDetail::bit(WidgetScreen::Context) | WidgetStateDetail::bit(WidgetScreen::About);
+    } else {
+        candidate.screen_mask = static_cast<uint16_t>(stored);
+    }
+#else
+    const bool reserved_zero = (stored & 0x00ff0000U) == 0;
+    candidate.screen_mask = static_cast<uint8_t>(stored);
+    candidate.panel_mask = static_cast<uint8_t>(stored >> 8U);
+#endif
+    if (!reserved_zero || !valid_widget_visibility(candidate)) {
         ESP_LOGE(kTag, "Widget visibility '%s' rejected record=0x%08lx (%s)", kWidgetVisibilityKey,
             static_cast<unsigned long>(stored), esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
         return ESP_ERR_INVALID_RESPONSE;

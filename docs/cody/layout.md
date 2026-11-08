@@ -7,10 +7,8 @@ describe the current 466 x 466 adapter; they are not requirements of every futur
 
 ## Content, actions and Back
 
-The offline-standby farewell uses a character centered at (233,128), scale 100,
-above an ASCII `Bye bye` line centered at (233,233). The retained route, symbols,
-controls, status and Back are hidden for this exclusive presentation. Logical
-placement, clipping and the whole-panel fade use the selected display orientation.
+Software standby blanks the display while the device model retains the current
+route. Logical placement, clipping and wake use the selected orientation.
 
 Use the central [73,393) square as a baseline. Expand into the circle only with
 local-chord admission of artwork, controls and complete hit bounds. Keep QR
@@ -35,6 +33,8 @@ timing or character audio.
 | Third action for PC management | (153,376,160,52) |
 | Setup menu rows | (93,230,280,56) and (93,298,280,56), 16-pixel corners |
 | Setup menu Options | (153,382,160,52) |
+| Options menu rows | x=113, width 240, height 34, y=194/233/272/311/350 |
+| Visibility toggle | (113,226,240,52) |
 | Ordinary single action | (113,352,240,72) |
 | Compact QR/skin footer | (123,390,220,44) |
 | Numbered reply / pending-question rows | (73,256,320,60) and (73,328,320,60) |
@@ -227,9 +227,10 @@ The reset screen opens first from Options > Codex stats. Four large split
 tiles show days, hours, minutes and seconds. A tile that changes
 folds its old upper half toward the hinge for 100 ms, then unfolds its new
 lower half for 100 ms, matching the timing of the Windows widget. The reset
-date in monospaced UTC and the remaining percentage sit below the tiles.
-A five-pixel perimeter arc uses a gradient to show the available portion of
-the weekly allowance. A full allowance fills the circumference.
+date in monospace alternates between UTC and the configured local offset.
+The remaining percentage sits below it. Every awake page shares the five-pixel
+gradient perimeter when the weekly sample is valid. A full allowance fills the
+circumference.
 
 The reset instant and percentage come from the Codex App Server through the
 paired companion link. The countdown uses valid clock observations from
@@ -239,59 +240,35 @@ expired window or stale source clears the quota arc and its numeric value.
 ## Codex statistics
 
 The two graphite lateral chevrons reuse the Settings targets at (10,203) and
-(396,203). Back steps to the previous screen and returns to Options from Reset.
-Forward visits Limits, Today, Last 7 Days, Token History, Credits and Account,
-then returns to Reset. The active view uses the same logical rotation for
-rasterization and touches.
+(396,203). They move among enabled dashboard pages and fade after ten seconds
+without touch. Touch or a shake restores them. About uses the right arrow to
+open the project QR and the left arrow on the QR to return to About. The QR
+uses integer modules and a four-module quiet zone. A shake returns to the
+first enabled statistics screen. Rasterization and touch share the current
+logical rotation.
 
 Token History uses an ECG-style grid and connects only adjacent measured
 15-minute intervals. Its central control cycles through 1, 5 and 24 hours.
 It starts at 5 hours. Missing intervals are gaps and measured zero is a real
-point at the baseline. Account observations are separate from the Home context
-token measurements.
+point at the baseline. The labels use the configured local zone when both
+endpoints can be projected. Context measurements are separate from the account
+series.
 
 ## Voice recording
 
-The dedicated recording route begins with `Preparing audio` and `Please wait`.
-Only its first completely retired frame admits the owner's three-second start
-countdown; a failed or partially transferred frame cannot start capture. The
-title then reads `Start listening in`, followed by the canonical `3 seconds`,
-`2 seconds` and `1 second`. The display does not reconstruct time or invent
-missed seconds. PCM capture begins only when the owner enters Listening.
+The native recording route uses centered captions and explicit Send and Cancel
+controls. Only a completely retired Preparing frame admits the owner's start
+countdown. The display uses the recorded phase and countdown supplied by the
+audio owner. Cancel is available during preparation and both countdowns. Send
+and Cancel are available while listening. The transport determines whether the
+recipient has confirmed the recording.
 
-Five seconds of acquired silence, including silence before the first speech,
-or an admitted manual finish enters the three-second send countdown. Its title
-is `Sending the audio in`; transport does not send END until that countdown
-finishes. Preparing and both countdowns show `Tap to cancel` and `Or shake to
-discard`. One acquired tap cancels immediately anywhere on the visible route.
-Listening retains single-tap send with a 350-ms double-tap arbitration window,
-double-tap discard and shake discard. Every phase change retires pending contacts
-and sends. Actual Sending shows `Finishing delivery`: cancellation remains
-subject to the transport owner's pre-END admission, without promising that an
-already delivered recording can be recalled.
-
-The title remains at y=92, genuine identity metadata at y=134, and the purple
-procedural ribbon at (73,179), 320 x 58. Countdown text occupies y=260 and its
-entire [260,288) damage band is erased when the number changes, including the
-plural suffix. Cancellation hints sit at y=334 and y=362. Listening elapsed time
-uses the canonical capture-start timestamp, excluding preparation and countdown;
-an invalid timestamp shows `Timing unavailable`. The existing animation cadence,
-row buffers and canonical microphone projection are reused. Before Listening,
-the ribbon is ambient artwork and does not claim captured PCM. Native preview
-fixtures label synthetic input explicitly; they do not validate physical audio.
-
-## Boot and capture
+## Boot
 
 Cold-boot title Cody AI Companion is at y=60 and subtitle A distraction-free
 sidekick at y=110, centered using their actual fonts. The complete floppy artwork
 is (137,164), 192 x 219, with the original 42-frame/3500-ms cycle. Firmware and
 Studio share decoder, serialized source-row ownership and text composition.
-
-The Debug PWR capture countdown occupies [153,313) x [174,292) with no touch
-target. After an overlay-free frame retires, capture composes temporary 466 x 466
-RGB565 PSRAM, then transfers ownership to storage for atomic top-down 24-bit BMP
-publication under `LUNASHELL/screenshots/`. SAVING/SAVED/FAILED follows the real
-result. PWR timing and power transitions belong to the shared power owner.
 
 ## Native control rasterization
 

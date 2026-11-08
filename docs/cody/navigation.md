@@ -1,131 +1,32 @@
 # Cody navigation and recovery
 
-## Connection search and working presentation
+[One-page navigation map](device-navigation-map-a4.pdf)
 
-Looking for PC uses a ten-minute screen standby interval. A current Wi-Fi link
-with an acquired IP first requests the connected symbol, followed by a repeating
-96-second discovery presentation: question mark, calm gaps, moving search lens,
-worry, brief fear and recovery. This silent narrative does not assert Internet
-reachability or failed pairing. Real canonical link transitions take priority;
-hidden or sleeping views do not advance the narrative.
+## Start and connect
 
-Working uses a three-minute screen standby interval. The character, state title
-and model stay visible while the lower panel cycles through Tokens, Model &
-Context, Device and Chat & Activity. Tokens shows Free, Last and Window. Model &
-Context shows reasoning effort and the Standard catalog price band. Device
-shows the connection, Cody's IP, device identity, motion and build details.
-Chat & Activity shows the chat title, current turn duration and activity.
+The VibeWare floppy animation plays once after a cold boot or software reset.
+The first device route starts with the saved network and pairing state.
 
-Genuine hooks select the exact native metadata source; unavailable or expired
-counts remain explicit. Free is the observed window minus last-call tokens.
-The @CCP command hint scrolls across the footer three times per display-owner
-lifetime. Orange compaction takes precedence over ordinary
-captions and command hints. The valid-battery wake prelude is described
-in [the personality contract](personality-icons.md).
-
-This is the current source contract for device routes. Screen IDs come from the
-atlases and remain independent of physical page numbers. Installation belongs
-to the [CCP guide](../../plugins/cody-codex-plugin/README.md); authentication,
-packet fields and budgets belong to [CCP1](../../plugins/cody-codex-plugin/protocol/CCP1.md).
-
-## Observe walking, running and sitting
-
-Open the Device panel to read the IMU label. A short released tap advances one
-panel. Automatic rotation allows at least eight visible seconds per panel and
-extends Device and Chat until scrolling text can be read. Hidden views, standby
-and compaction pause rotation. A double tap on the character starts voice input
-when Dictation is On and Cody has a current authenticated LAN link to the
-paired PC. Otherwise the current panel stays visible. A deliberate shake
-returns to Tokens, so running or jumping may also change the panel.
-
-Keep the device in the same position and orientation on your body for each trial.
-Observe sitting, standing, walking and jogging for 20-30 seconds each, allowing
-about four seconds after changing activity for a new full sensor window. Compare
-several consecutive labels. Hand waving or a device left on a table is a different
-input; placement and sitting/standing separation have not been physically validated.
-
-The pretrained labels are walking, jogging, sitting, standing, upstairs and
-downstairs. There is no jump class: jumps can be observed but cannot be reported
-as correctly classified jumps by this model. No training or SD access is needed.
-COLLECTING, SUSPENDED, CADENCE GAP, BUSY, ERROR, UNAVAILABLE and STALE describe
-sample availability, not activities. Standby suspends the observer.
-
-Release and Debug can show the motion result without a PC connection. A fresh
-independent stillness measurement takes priority on Device. Accuracy for Cody's
-placement remains unverified. See the [activity observer](activity-observer.md).
-
-## Choose the startup route
-
-After branding and local checkpoints, read one canonical observation:
-
-| Saved and observed state | Route |
+| Current state | Device route |
 | --- | --- |
-| Wi-Fi profile genuinely absent | 04 / Welcome, then network setup 05-09 |
-| Credentials present, association or IP pending | Passive connection wait for up to 15 seconds; advance immediately on valid Wi-Fi/IP |
-| Saved profile still offline after that wait | 42 / No connection: Network setup or Later |
-| Wi-Fi/IP valid, Codex pairing absent | 40 / Connect Codex?: Yes or No |
-| Retained pairing valid | 14 / Looking for PC, then 15 after authenticated READY |
-| Read, type, CRC or storage failure | Visible original error; never substitute an absent profile |
+| No saved Wi-Fi | Start Bluetooth provisioning and show its QR once the session is ready |
+| Saved Wi-Fi, association or IP pending | Connecting to Wi-Fi, then a recovery menu if the attempt does not finish |
+| Wi-Fi ready, no retained pairing | Prepare the Codex pairing code |
+| Valid retained pairing | Search for the remembered PC until authenticated presence arrives |
+| Storage or service error | Show the original failure and an available recovery action |
 
-The saved-profile wait shows `Connecting to Wi-Fi` and `Please wait`, with no
-setup or Codex action while the radio owner makes its existing attempt. Repeated
-frames do not extend the deadline. The wait changes presentation only: it never
-blocks the worker, starts a scan, rewrites credentials or claims Internet access.
-An explicit startup retry starts a new bounded wait. A genuinely absent profile
-still goes directly to first setup. A saved profile's observation failure remains
-logged and canonical during grace, then appears with the recovery choices.
+In Options, Connections opens the vertical Connect Codex and Set up Wi-Fi
+entries. Back preserves an already valid discovery or connection. Wi-Fi and
+authenticated Codex presence are separate. Device shows Wi-Fi status, measured
+battery and the title of the currently followed chat when fresh. Statistics
+show a compact Codex status at the top. PC linked
+means the device authenticated the bridge and is waiting for app presence.
 
-LAN connectivity and Internet availability are separate observations. No returns
-to Idle without starting CCP or persisting a refusal. A later boot may offer
-the choice again. The Cody profile sets `CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT=n`;
-`y` is explicit development replay. Software standby retains RAM state; reset
-and Deep-sleep reconstruct admission from saved data and current observations.
+## Manage the retained PC
 
-## First setup and return routes
-
-| Screen/action | Result |
-| --- | --- |
-| 04, introduction retired | 05 / Let's pair |
-| 05, Show QR | 06 / installation QR; no radio action |
-| 06, Pair Cody admitted | 07 / Starting Bluetooth |
-| 07, current attempt ReadyToScan | Show that session's QR inside 07 |
-| 07, credentials/connection in progress | Remove QR and show real progress |
-| 07, Cancel | Remove QR, await confirmed cleanup, return to 06 |
-| 08, Retry | Resume the correct stage after successful cleanup |
-| Wi-Fi/IP healthy and Online | Persist and read back `cody_firstboot=false` |
-| Completed handoff, Debug | 39 / Wi-Fi and BLE connection details. Tap to open Online. |
-| Completed handoff, Release | 09 / Online |
-| 09, Continue | 10 / Options |
-| 10, Cody's Look | 11 / Make it yours |
-| 11, Done | Return to Options |
-| 10, Done | First setup continues to Codex or Setup Complete |
-| 40, Yes with no pairing | 12 / code preparation |
-| 12, confirmed two-sided handshake | 13 / You're all set |
-| 13, Let's go | Immediately search on 14 or reuse a current authenticated presence on 15 |
-| 15, authentic followed prompt | Show that chat's activity |
-
-The atlas uses `06-bis` for the session QR displayed on screen 07.
-Screen 39 gives the network name its own row. It displays up to 32 printable
-ASCII bytes and labels names the font cannot represent. The IP and connection
-status remain visible in either case.
-`CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX=n` skips Codex setup explicitly.
-On 09, loss of Wi-Fi/IP replaces confirmation with No connection or UNAVAILABLE.
-Wake cannot activate Continue. If only first-boot persistence fails after Online,
-Retry repeats that write rather than starting another BLE session.
-
-## Open Setup and manage the retained PC
-
-Hold the visible character for **1.5 seconds** to open 41 / Setup. Movement
-over 12 pixels, a real sample gap over 250 ms, orientation change or a power
-transition cancels the candidate. After wake, begin with the first fresh visible
-sample. The opening contact must end before another action is admitted.
-Stable routes, Looking for PC and recoverable local CCP errors retain this entry;
-active provisioning/cleanup keeps ownership until confirmed closure.
-
-The Setup menu shows **Connect Codex** above **Set up Wi-Fi**. A link glyph and a
-Wi-Fi glyph mark their respective rows. **Options** sits below, and the menu has
-no heading. Set up Wi-Fi reopens 04-09. Back restores the calling route while
-preserving any valid discovery or connection.
+Open BOOT, Options, Connections and Connect Codex. The saved link is
+reused when available. Replacing or forgetting it requires the corresponding
+explicit confirmation.
 
 | Retained state/action | Behavior |
 | --- | --- |
@@ -143,49 +44,50 @@ the Cody CCP active/pending records; Wi-Fi, preferences and logs remain.
 Display Unpaired only after the actual deletion result. The PC's protected
 record is not remotely revoked by this local action.
 
-## Options and Skin
+## Dashboard and Options
 
-In Cody, a short BOOT press while active opens Options. A short PWR press
-enters or leaves software standby. Holding Cody still opens Setup, where
-Options remains available. The double tap on the character retains voice input.
+PWR toggles software standby. BOOT opens Options, with Connections, Codex
+stats, Visible screens, Display and Behavior. Display holds brightness,
+rotation and orientation. Behavior holds sound, shake-to-wake and, in the
+voice-enabled profile, Dictation.
 
-Options shows Cody's Look, Display, Behavior and Codex stats. Cody's Look opens the skin
-selector titled Make it yours. Display groups Brightness, Auto-rotate and
-Orientation. With voice input available, Behavior shows Dictation, Shake to
-wake and Sounds. More options opens Usage. Without voice input, Behavior
-shows Shake to wake, Sounds and Usage on one page. Back from Usage returns
-to Behavior. Done returns from a category or Skin to Options, then to Setup
-when opened from Setup.
+The carousel order is Device, Codex reset, Codex limits, Today, Last 7 days,
+Token history, Credits, Codex account, Context and About. The arrows move
+between enabled pages. A shake returns to the first enabled statistics page.
+With the default settings that is Codex reset. Device is the fallback if all
+statistics pages are hidden. Shake preserves active pairing, voice capture
+and open Codex questions.
 
-Codex stats opens the weekly reset countdown. The lateral arrows move through
-Limits, Today, Last 7 Days, Token History, Credits and Account. Forward wraps
-from Account to Reset. Back from Reset returns to Options. Tap the interval
-control on Token History to switch among 1, 5 and 24 hours.
+After ten seconds without touch, the lateral arrows fade. Touch or shake
+reveals them. A hidden arrow requires a new touch once it is visible. Token
+history switches among 1, 5 and 24 hours, using fifteen-minute observations
+and identifying measurement gaps. The reset date switches between UTC and the
+configured local offset every five seconds when local time is available. The
+five-pixel gradient perimeter follows remaining weekly allowance on every
+awake screen with a current sample.
 
-| Preference | Contract |
-| --- | --- |
-| Shake to wake | Persisted On / Off |
-| Auto-rotate | Persisted On / Off |
-| Sounds | Persisted master playback gate; Off preserves microphone/wake word |
-| Dictation | Persisted On / Off. Off blocks new voice recordings from every trigger. |
-| Orientation | 0 / 180 when Auto-rotate is Off; otherwise show Auto |
-| Brightness | Tap to reduce by ten points down to 10%, then return to 100%. The selected level is saved. |
-| Usage | Strict Desk / Away; see [runtime](runtime.md#desk-and-away) |
+About shows current uptime, the last observed uptime from the previous boot
+when retained, and the firmware version, build date and build host. Use the
+right arrow for Scan for more info and the project QR. The left arrow returns
+to About.
 
-Preference rows and Retry act on touch release so the display can rotate with
-panel and touch in sync. Apply values after successful persistence and readback.
-A rejected write shows its error and Retry preserves the original request.
-Independent applied preferences retain their confirmed values. Invalid persisted
-values are never silently repaired. The settings executor owns flash operations on an
-internal stack. Skin retains the old preview until the new request succeeds;
-late results cannot reopen retired navigation.
+Visible screens browses all statistics pages, including hidden entries.
+Device remains available. A visibility change takes effect after confirmed
+storage. A failed save leaves the previous policy in effect.
 
-Skin 11 has eight-row capacity, whole-row scrolling without inertia, and stable
-IDs for Pearl Mist, Aurora Veil, Cosmic Stardust, Enchanted Mosaic and Dreamwave.
-Once the controls appear, Done confirms the displayed look. A new selection
-must finish saving before Done becomes available again.
-`DeviceSnapshot.character_look_save` publishes request identity, Saving/Saved/
-Failed, original error and timestamps. Coordinates are in [layout](layout.md).
+Double-tap open dashboard space or use Record voice on Device to start
+dictation in a voice-enabled build. Dictation must be on and the paired LAN
+link must be current. The optional wake-word build can also listen for Sophia.
+The default build omits microphone acquisition and its audio front end.
+
+When online, Cody asks its configured SNTP servers for time after Wi-Fi obtains
+an IP. Once synchronized, the clock continues to run offline. A cold boot
+without an available RTC and network reports time unavailable.
+
+Battery notices appear while the screen is awake at 50%, 20%, 10% and 5%.
+An observed 0% shows a separate prompt to connect USB. If the PMU cuts power
+before it reports 0%, the last visible warning is the one from a measured
+threshold.
 
 ## Pairing progress and reconnection
 
@@ -206,14 +108,15 @@ Cancel and explicit pending replacement follow [CCP1](../../plugins/cody-codex-p
 
 ## Followed chat, questions and PR state
 
-Screen 15 shows Connected / Ready to team up and Start a chat in Codex until
-authentic context arrives. CCP follows the latest authorized `UserPromptSubmit`
+The dashboard shows Codex connected once authenticated app presence is
+current. CCP follows the latest authorized `UserPromptSubmit`
 with exact chat/turn identity. Background tool/completion events cannot replace
 it. Opening a tab is not a focus event. Broker restart needs another real prompt;
 LAN reconnection may restore the current snapshot. Project names are labels.
 Packet state expires after eight seconds; active work becomes unavailable after
-120 seconds without another hook. Stop means response ready. SessionEnd shows
-20B for five active seconds, then Idle.
+120 seconds without another hook. A genuine Stop can publish a Reply ready
+notice for the followed chat or a background chat. If the paired LAN link
+is active, the notice can wake the screen from software standby.
 
 | Route/action | Meaning |
 | --- | --- |
@@ -242,7 +145,7 @@ More than six failures or a name over 48 characters returns detail to the PC.
 
 Local route timeouts are 30 awake seconds for 05/06 and 90 for 07. Pause does not
 stop these route clocks; standby does. Real touch or changed canonical attempt
-progress renews them. Animation, typewriter, IMU and unchanged snapshots do not.
+progress renews them. Animation and unchanged snapshots do not.
 Timeout retires the view/QR, returns to Welcome and finishes cleanup; late results
 cannot restore the old route. Backend deadlines and screen standby overrides
 remain separate. QR copying requires current ReadyToScan and attempt ID;

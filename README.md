@@ -3,37 +3,32 @@
 ![Platform: ESP32-S3](https://img.shields.io/badge/platform-ESP32--S3-0078D4)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2EA44F)](LICENSE)
 
-A small round screen, a little personality, and a surprising amount of C++.
+**Cody Companion** is a round, dedicated terminal for Codex. Keep it on your desk
+or bedside table to see when a turn is ready, answer a question sent to Cody,
+and check usage without picking up a phone. The device talks to the Codex plugin
+on the same local Wi-Fi network.
 
-**Cody Companion** is a **Codex plugin and a little device for your desk**.
-The plugin brings Codex's hooks out of the app and into the physical world:
-Cody shows what your coding assistant is doing, which model it's using and how
-much context is left. Codex can send notifications and questions to Cody, and
-you can tap an answer on Cody to send it back to the chat. It goes both ways.
+On first boot, the VibeWare floppy animation leads into pairing. Bluetooth
+provisioning supplies the Wi-Fi credentials when the device has no saved
+network. With Wi-Fi ready, enter the code shown on the device in the Codex
+plugin. You can configure the device's screens and options on the device itself.
 
-Setup starts on your phone: Bluetooth helps you configure Cody's Wi-Fi, so
-there's no password to peck out on a tiny round screen. Then you pair it with
-the Codex plugin using the code shown on Cody. From there, device and plugin
-communicate over your **local Wi-Fi network**. Remote connections are on the
-wish list; for now, they share the same neighborhood.
+- **Codex at a glance.** The dashboard distinguishes a connected app, a linked
+  PC and active discovery. Authenticated questions and turn-ready events can
+  wake the display from connected standby and play a cue when sounds are enabled.
+- **Account and device screens.** Browse reset, limits, usage, credits, context
+  and About. A five-pixel perimeter shows the current weekly allowance on every
+  awake screen with a valid sample. About includes build details and a project QR.
+- **Physical controls.** PWR toggles standby, BOOT opens Options and a shake
+  returns to the first enabled statistics page. Optional voice input uses the
+  paired local link. The standard profile keeps the microphone pipeline disabled.
 
-Cody does more than sit there looking round:
-
-- **Wake word and standby.** With wake-word listening enabled, Cody recognizes
-  **Sophia** locally and can wake from listening standby. On battery it can take
-  inactivity naps; powered over USB and connected to Codex, it stays awake for work.
-- **A bit of personality.** Touch interaction, animations and sound cues bring
-  activity and notifications to life. Yes, you can pet your coding sidekick.
-- **Make it yours.** Pick a look, switch sounds on or off, and configure rotation,
-  shake-to-wake and Desk/Away behavior.
-
-**Luna Shell** is the other interface in this repository, built on Espressif's
-ESP-Brookesia and sharing the hardware layer. Both are works in progress.
-Cody already has opinions about your token budget; polishing the rest is my job.
+**Luna Shell** is the other interface in this repository. It uses Espressif's
+ESP-Brookesia and shares the same hardware layer.
 
 ## Why I built Cody
 
-I wanted a little desk companion I could make my own. Much larger companies
+I wanted a small terminal I could make my own. Much larger companies
 are exploring similar ideas. I built Cody so that the person who owns the
 device gets to decide what software it runs, what it connects to, and what
 else the hardware can be used for.
@@ -65,8 +60,8 @@ Standby, wake and battery behavior are described in the
 
 ## Pick a door
 
-- **Use Cody:** [setup and navigation](docs/cody/navigation.md), then the
-  [PC plugin](plugins/cody-codex-plugin/README.md).
+- **Use Cody:** [setup and navigation](docs/cody/navigation.md), the
+  [A4 route map](docs/cody/device-navigation-map-a4.pdf) and the [PC plugin](plugins/cody-codex-plugin/README.md).
 - **Desktop widget:** [OpenAI Usage](widgets/codex-status/README.md), a standalone
   Windows/Linux widget for Codex allowance, tokens, credits and reset countdown.
 - **Build something:** [Cody's native 2D interface](docs/cody/README.md),

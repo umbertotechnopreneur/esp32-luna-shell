@@ -1,7 +1,10 @@
 # Cody Companion
 
-Standalone, English-only character runtime. Uses `CODY2D` and platform snapshot
-and service APIs; does not admit LVGL. Public contracts remain in `include/`.
+Native, English-only interface for Codex. The device profile uses `CODY2D`
+and platform snapshot and service APIs. `CODY_device_model` owns observations
+and route state. `CODY_device_ui` owns input, lifecycle and frame retirement.
+`CODY_device_view` prepares native presentation. Character authoring sources
+are used by explicit Studio routes and excluded from the device profile.
 
 | Folder | Responsibility |
 | --- | --- |

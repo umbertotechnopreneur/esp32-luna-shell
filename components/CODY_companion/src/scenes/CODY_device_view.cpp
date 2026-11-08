@@ -1,0 +1,437 @@
+#include "CODY_device_view.hpp"
+#include "CODY_home_dashboard.hpp"
+
+#include <cstdio>
+#include <cstring>
+#include <limits>
+
+#include "esp_log.h"
+#include "scene_data.hpp"
+#include "sdkconfig.h"
+
+namespace CODY {
+namespace {
+
+constexpr char kTag[] = "CODY_device_view";
+constexpr DamageRect kMessageBounds{73, 84, 393, 382};
+constexpr CODY2D::Rect kHeading{73, 88, 320, 58};
+constexpr CODY2D::Rect kStatus{73, 155, 320, 40};
+constexpr CODY2D::Rect kDetail{73, 202, 320, 28};
+constexpr CODY2D::Rect kSingleAction{103, 269, 260, 50};
+constexpr CODY2D::Rect kFirstAction{103, 255, 260, 50};
+constexpr CODY2D::Rect kSecondAction{103, 322, 260, 50};
+constexpr uint16_t kWhite = 0xF7BE;
+constexpr uint16_t kAccent = 0x6F9E;
+constexpr uint16_t kMuted = 0x9CF3;
+
+bool current(const LUNASHELL::ComponentSnapshot &observation)
+{
+    return observation.health == LUNASHELL::DeviceHealth::Ready && observation.last_error == ESP_OK &&
+        observation.data_valid && !observation.data_stale;
+}
+
+// text: Bounded caption stored by the presentation owner.
+// font: Preferred native font.
+// bounds: Full admitted logical text slot.
+// color: Native foreground color.
+// line: Receives prepared text backed by the caller's buffer.
+// Exception: Returns the original glyph error or a layout overflow.
+esp_err_t prepare_line(const char *text, const CODY2D::MonoFont &font, CODY2D::Rect bounds,
+    uint16_t color, CODY2D::TextLine &line)
+{
+    if (text[0] == '\0') {
+        return ESP_OK;
+    }
+    const CODY2D::TextSpan span{text, static_cast<uint16_t>(std::strlen(text))};
+    uint32_t width = 0;
+    esp_err_t error = CODY2D::measure_text_width(font, span, width);
+    if (error != ESP_OK) {
+        return error;
+    }
+    const auto *selected = &font;
+    if (width > bounds.width && selected != &SceneData::body_font) {
+        selected = &SceneData::body_font;
+        error = CODY2D::measure_text_width(*selected, span, width);
+        if (error != ESP_OK) {
+            return error;
+        }
+    }
+    if (width > bounds.width || selected->height > bounds.height) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return CODY2D::prepare_text_line(*selected, span,
+        {static_cast<int16_t>(bounds.x + (bounds.width - width) / 2U),
+         static_cast<int16_t>(bounds.y + (bounds.height - selected->height) / 2U)}, color, line);
+}
+
+// text: Bounded action caption.
+// bounds: Admitted capsule and hit bounds.
+// primary: Selects the primary visual treatment.
+// action: Receives the prepared control.
+// Exception: Returns the original caption preparation error.
+esp_err_t prepare_action(const char *text, CODY2D::Rect bounds, bool primary, CODY2D::CapsuleControl &action)
+{
+    action.enabled = text[0] != '\0';
+    if (!action.enabled) {
+        return ESP_OK;
+    }
+    action.bounds = bounds;
+    action.top_color = primary ? 0x226B : 0x2947;
+    action.bottom_color = primary ? 0x10C6 : 0x10A4;
+    action.border_color = primary ? 0x4B9B : 0x73AF;
+    action.corner_radius = bounds.height < 34 ? bounds.height / 2U : 17;
+    return prepare_line(text, SceneData::body_font, bounds, kWhite, action.caption);
+}
+
+// state: Immutable message presentation borrowed until the frame retires.
+// strip: Borrowed display tile.
+// first_row: Logical y of the tile.
+// first_column: Logical x of the tile.
+// Exception: Returns the first original glyph or control raster error.
+esp_err_t draw_message_rows(const void *state, CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+{
+    if (state == nullptr || !static_cast<const PlainView *>(state)->valid) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const auto &plain = *static_cast<const PlainView *>(state);
+    for (const auto &line : plain.captions) {
+        if (line.valid) {
+            const esp_err_t error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
+            if (error != ESP_OK) {
+                return error;
+            }
+        }
+    }
+    for (const auto &action : plain.actions) {
+        if (action.enabled) {
+            const esp_err_t error = CODY2D::draw_capsule_rows(action, strip, first_row, first_column);
+            if (error != ESP_OK) {
+                return error;
+            }
+        }
+    }
+    return ESP_OK;
+}
+
+// plain: Prepared owner storage whose lifetime covers rendering.
+// frame: Receives the borrowed message renderer and damage bounds.
+void attach_message(const PlainView &plain, DeviceFrameContent &frame)
+{
+    frame.content.bounds = kMessageBounds;
+    frame.content.revision = plain.revision;
+    frame.content.state = &plain;
+    frame.content.draw_rows = draw_message_rows;
+}
+
+// data: Canonical observation whose authenticated app presence is aged by its owner.
+const char *connection_caption(const DeviceDashboardData &data)
+{
+    if (!data.connection_valid) return "Status unavailable";
+    const auto &status = data.connection;
+    if (status.codex_app_open) return "Codex connected";
+    if (current(status.codex_link) && status.codex_link_state == LUNASHELL::CodexLinkState::Connected) {
+        return "PC linked";
+    }
+    if (status.wifi.connection_state_valid && !status.wifi.data_stale &&
+        (!status.wifi.connected || !status.wifi.ip_acquired)) {
+        return "Wi-Fi offline";
+    }
+    if (status.codex_link_state == LUNASHELL::CodexLinkState::Discovering) return "Looking for Codex";
+    return "Codex disconnected";
+}
+
+// view: Display-owned native text and button layouts.
+// frame: Receives the prepared status page.
+// data: Current canonical connection, power and voice admission.
+// now_us: Monotonic time used to expire received chat metadata.
+esp_err_t prepare_device_home(DeviceView &view, DeviceFrameContent &frame, const DeviceDashboardData &data,
+    int64_t now_us)
+{
+    const auto &status = data.connection;
+    const bool wifi = status.wifi.connection_state_valid && status.wifi.connected && status.wifi.ip_acquired;
+    char detail[32]{};
+    const char *network = !status.wifi.connection_state_valid ? "Wi-Fi unknown" :
+        wifi ? "Wi-Fi ready" : "Wi-Fi offline";
+    if (current(status.battery) && status.battery.level_percent_valid &&
+        status.battery.level_percent >= 0 && status.battery.level_percent <= 100) {
+        std::snprintf(detail, sizeof(detail), "%s / Battery %d%%", network, status.battery.level_percent);
+    } else {
+        std::snprintf(detail, sizeof(detail), "%s", network);
+    }
+    char chat[30]{};
+    const auto &activity = data.context.link.activity;
+    if (current(activity)) {
+        const char *title = codex_chat_title_caption(activity, now_us);
+        if (std::strlen(title) < sizeof(chat)) {
+            std::snprintf(chat, sizeof(chat), "%s", title);
+        } else {
+            std::snprintf(chat, sizeof(chat), "%.26s...", title);
+        }
+    }
+    return prepare_device_message(view, frame, "Device", connection_caption(data), detail,
+        data.voice_ready ? "Record voice" : nullptr, nullptr, chat);
+}
+
+} // namespace
+
+// chrome: Display-owned prepared text and badge.
+// data: Canonical connection state.
+// show_connection: Whether the current dashboard needs the status header.
+// battery: Exact notice admitted by the model, or an empty notice.
+// Exception: Returns original glyph preparation error.
+esp_err_t prepare_device_chrome(DeviceChrome &chrome, const DeviceDashboardData &data,
+    bool show_connection, const BatteryAlertNotice &battery)
+{
+    const char *connection = show_connection ? connection_caption(data) : nullptr;
+    if (connection != chrome.connection_text) {
+        chrome.connection = {};
+        if (connection != nullptr) {
+            const auto error = prepare_line(connection, SceneData::body_font, {105, 37, 256, 27},
+                data.connection.codex_app_open ? 0x67F2 : kMuted, chrome.connection);
+            if (error != ESP_OK) return error;
+        }
+        chrome.connection_text = connection;
+    }
+    if (chrome.battery_sequence == battery.sequence) return ESP_OK;
+    chrome.battery = {};
+    if (battery.sequence != 0) {
+        const bool empty = battery.kind == BatteryAlertKind::Empty;
+        const bool charge = battery.kind != BatteryAlertKind::Level50;
+        if (empty) {
+            std::snprintf(chrome.battery_text.data(), chrome.battery_text.size(), "Empty - connect USB");
+        } else {
+            std::snprintf(chrome.battery_text.data(), chrome.battery_text.size(), charge ?
+                "Battery %u%% - charge" : "Battery %u%%", static_cast<unsigned>(battery.level_percent));
+        }
+        const auto error = prepare_action(chrome.battery_text.data(), {105, 397, 256, 30}, false, chrome.battery);
+        if (error != ESP_OK) return error;
+        chrome.battery.border_color = charge ? 0xFD25 : kAccent;
+        chrome.battery.top_color = charge ? 0x3204 : 0x0926;
+        chrome.battery.bottom_color = 0x0841;
+    }
+    chrome.battery_sequence = battery.sequence;
+    return ESP_OK;
+}
+
+// chrome: Prepared text and badge whose backing strings remain live.
+// strip: Borrowed display tile.
+// first_row: Logical y of the tile.
+// first_column: Logical x of the tile.
+// Exception: Returns the first original text or capsule raster error.
+esp_err_t draw_device_chrome(const DeviceChrome &chrome, CODY2D::Surface strip,
+    uint16_t first_row, uint16_t first_column)
+{
+    esp_err_t error = ESP_OK;
+    if (chrome.connection.valid) {
+        error = CODY2D::draw_text_rows(chrome.connection, chrome.connection.text.length, strip, first_row, first_column);
+    }
+    if (error == ESP_OK && chrome.battery.enabled) {
+        error = CODY2D::draw_capsule_rows(chrome.battery, strip, first_row, first_column);
+    }
+    return error;
+}
+
+// view: Display-owned caption and action storage.
+// frame: Receives borrowed layout.
+// heading: Main heading.
+// status: Primary caption.
+// detail: Secondary caption.
+// first: Optional primary action.
+// second: Optional secondary action.
+// extra: Optional third status line.
+// Exception: Returns the original bounded text or preparation error.
+esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
+    const char *heading, const char *status, const char *detail, const char *first, const char *second,
+    const char *extra)
+{
+    frame = {};
+    auto &plain = view.plain;
+    decltype(plain.text) text{};
+    const char *const requested[]{heading, status, detail, first, second, extra};
+    for (size_t index = 0; index < text.size(); ++index) {
+        if (requested[index] == nullptr) {
+            continue;
+        }
+        const int written = std::snprintf(text[index].data(), text[index].size(), "%s", requested[index]);
+        if (written < 0 || static_cast<size_t>(written) >= text[index].size()) {
+            ESP_LOGE(kTag, "Message caption %u exceeds its storage", static_cast<unsigned>(index));
+            return ESP_ERR_INVALID_SIZE;
+        }
+    }
+    if (plain.valid && plain.text == text) {
+        attach_message(plain, frame);
+        return ESP_OK;
+    }
+    if (plain.revision == std::numeric_limits<uint32_t>::max()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    plain.valid = false;
+    plain.text = text;
+    plain.captions = {};
+    plain.actions = {};
+
+    esp_err_t error = prepare_line(plain.text[0].data(), SceneData::title_font, kHeading, kWhite, plain.captions[0]);
+    if (error == ESP_OK) {
+        error = prepare_line(plain.text[1].data(), SceneData::body_font, kStatus, kAccent, plain.captions[1]);
+    }
+    if (error == ESP_OK) {
+        error = prepare_line(plain.text[2].data(), SceneData::body_font, kDetail, kMuted, plain.captions[2]);
+    }
+    if (error == ESP_OK) {
+        error = prepare_line(plain.text[5].data(), SceneData::body_font, {73, 234, 320, 27}, kWhite, plain.captions[3]);
+    }
+    const bool two_actions = plain.text[3][0] != '\0' && plain.text[4][0] != '\0';
+    if (error == ESP_OK) {
+        error = prepare_action(plain.text[3].data(), two_actions ? kFirstAction : kSingleAction, true, plain.actions[0]);
+    }
+    if (error == ESP_OK) {
+        error = prepare_action(plain.text[4].data(), two_actions ? kSecondAction : kSingleAction, false, plain.actions[1]);
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Message layout failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    ++plain.revision;
+    plain.valid = true;
+    attach_message(plain, frame);
+    return ESP_OK;
+}
+
+// view: Presentation matching the last retired frame.
+// point: Logical input position.
+int device_action_at(const DeviceView &view, CODY2D::Point point)
+{
+    if (!view.plain.valid) {
+        return 0;
+    }
+    for (size_t index = 0; index < view.plain.actions.size(); ++index) {
+        if (CODY2D::capsule_contains(view.plain.actions[index], point)) {
+            return static_cast<int>(index + 1U);
+        }
+    }
+    return 0;
+}
+
+// view: Retained presentation state.
+// frame: Receives prepared content.
+// screen: Selected dashboard route.
+// interval: Selected token history time window.
+// data: Current read-only device model projection.
+// now_us: Monotonic time for countdown and title freshness.
+// Exception: Returns the original preparation or unsupported screen error.
+esp_err_t prepare_device_dashboard(DeviceView &view, DeviceFrameContent &frame,
+    WidgetScreen screen, TokenHistoryInterval interval, const DeviceDashboardData &data, int64_t now_us)
+{
+    frame = {};
+    if (screen == WidgetScreen::Device) {
+        return prepare_device_home(view, frame, data, now_us);
+    }
+    view.plain.valid = false;
+    const auto &title_font = SceneData::title_font;
+    const auto &body_font = SceneData::body_font;
+    if (screen == WidgetScreen::TokenHistory) {
+        return prepare_token_history(interval, data.intervals, title_font, body_font, view.history, frame.content, &data.history_local);
+    }
+    if (screen == WidgetScreen::Reset) {
+        return view.countdown.prepare(data.weekly, data.clock, now_us, title_font, body_font,
+            frame.content, &data.reset_local);
+    }
+
+    if (screen == WidgetScreen::Context) {
+        return prepare_context_dashboard(data.context, title_font, body_font, view.account, frame.content);
+    }
+    if (screen == WidgetScreen::About) {
+        return prepare_about_dashboard(data.uptime_seconds, data.previous_uptime_seconds, data.previous_uptime_valid,
+            data.build_version, *data.build, title_font, body_font, view.account, frame.content);
+    }
+
+    using Page = AccountDashboardPage;
+    Page page;
+    switch (screen) {
+    case WidgetScreen::Limits: page = Page::QuotaWindows; break;
+    case WidgetScreen::Today: page = Page::Today; break;
+    case WidgetScreen::LastSevenDays: page = Page::LastSevenDays; break;
+    case WidgetScreen::Credits: page = Page::Credits; break;
+    case WidgetScreen::Account: page = Page::Account; break;
+    default: return ESP_ERR_INVALID_ARG;
+    }
+    return prepare_account_dashboard(page, data.details, data.weekly, data.clock, title_font, body_font,
+        view.account, frame.content);
+}
+
+// view: Retained presentation state.
+// frame: Receives prepared content.
+// voice: Canonical recording state.
+// Exception: Returns the original caption or geometry error.
+esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
+    const LUNASHELL::VoiceInputObservation &voice)
+{
+    using Phase = LUNASHELL::VoiceInputPhase;
+    constexpr char kHeadingText[] = "Dictation";
+    char detail[32]{};
+    switch (voice.phase) {
+    case Phase::Idle:
+        return prepare_device_message(view, frame, kHeadingText, "Recording unavailable");
+    case Phase::Preparing:
+        return prepare_device_message(view, frame, kHeadingText, "Preparing", "Please wait", nullptr, "Cancel");
+    case Phase::StartCountdown:
+    case Phase::SendCountdown:
+        std::snprintf(detail, sizeof(detail), "%s in %u s",
+            voice.phase == Phase::StartCountdown ? "Recording starts" : "Sending",
+            static_cast<unsigned>(voice.countdown_seconds));
+        return prepare_device_message(view, frame, kHeadingText, detail, "", nullptr, "Cancel");
+    case Phase::Listening:
+        // The capture owner checks for PCM on release. Its public observation
+        // does not publish the private buffer size for every incoming block.
+        return prepare_device_message(view, frame, kHeadingText, "Listening", "Speak now", "Send", "Cancel");
+    case Phase::Sending:
+        return prepare_device_message(view, frame, kHeadingText, "Sending audio");
+    case Phase::Cancelling:
+        return prepare_device_message(view, frame, kHeadingText, "Cancelling");
+    case Phase::Received:
+        return prepare_device_message(view, frame, kHeadingText, "On your PC", "Waiting for Codex");
+    case Phase::Delivered:
+        return prepare_device_message(view, frame, kHeadingText, "Sent to Codex");
+    case Phase::Cancelled:
+        return prepare_device_message(view, frame, kHeadingText, "Discarded");
+    case Phase::Unconfirmed:
+        return prepare_device_message(view, frame, kHeadingText, "Delivery unconfirmed", "Check on your PC");
+    case Phase::Failed:
+        std::snprintf(detail, sizeof(detail), "Error 0x%lx", static_cast<unsigned long>(voice.error));
+        return prepare_device_message(view, frame, kHeadingText, "Audio failed", detail);
+    }
+    return ESP_ERR_INVALID_ARG;
+}
+
+// view: Retained presentation state.
+// frame: Receives prepared content.
+// observed: Canonical diagnostics projection.
+// available: True when the projection was read successfully.
+// Exception: Returns the original caption or geometry error.
+esp_err_t prepare_device_diagnostics(DeviceView &view, DeviceFrameContent &frame,
+    const LUNASHELL::DiagnosticsObservation &observed, bool available)
+{
+    if (!available) {
+        return prepare_device_message(view, frame, "Diagnostics", "System data unavailable", "", "Done");
+    }
+
+    char cpu[32] = "CPU unavailable";
+    const auto &processor = observed.processor;
+    if (current(processor) && processor.cores[0].utilization_available) {
+        const unsigned first = processor.cores[0].utilization_percent;
+        if (processor.core_count > 1 && processor.cores[1].utilization_available) {
+            std::snprintf(cpu, sizeof(cpu), "CPU0 %u%%  /  CPU1 %u%%", first,
+                static_cast<unsigned>(processor.cores[1].utilization_percent));
+        } else {
+            std::snprintf(cpu, sizeof(cpu), "CPU0 %u%%", first);
+        }
+    }
+    char memory[32] = "Memory unavailable";
+    if (current(observed.memory)) {
+        std::snprintf(memory, sizeof(memory), "Free heap %lu KiB",
+            static_cast<unsigned long>(observed.memory.heap_free_bytes / 1024U));
+    }
+    return prepare_device_message(view, frame, "Diagnostics", cpu, memory, "Done");
+}
+
+} // namespace CODY

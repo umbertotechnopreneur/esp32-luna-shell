@@ -17,7 +17,11 @@
 #pragma once
 
 #include "CODY2D_text.hpp"
+#if defined(CODY_DEVICE_UI_ONLY)
+#include "CODY_rig.hpp" // Authored scene pose and placement value types.
+#else
 #include "CODY_dirty_plan.hpp"
+#endif
 #include "CODY_activity_overlay.hpp"
 
 namespace LUNASHELL { enum class CodexCostBand : uint8_t; }
@@ -60,21 +64,39 @@ struct SceneEntranceDefinition {
 struct SceneDefinition {
     SceneId id;
     const char *name;
+#if !defined(CODY_DEVICE_UI_ONLY)
     Transform cloud;
     SceneIntroDefinition intro;
     Channels face;
+#endif
     const CODY2D::MonoFont *font;
     CODY2D::TextSpan title;
     uint16_t title_top;
     uint16_t title_color;
+#if !defined(CODY_DEVICE_UI_ONLY)
     uint16_t character_interval_ms;
+#endif
     bool navigation_visible;
     bool readout_visible;
     bool title_visible = true;
+#if !defined(CODY_DEVICE_UI_ONLY)
     SceneEntranceDefinition entrance{};
+#endif
     uint16_t background_rgb565 = 0;
     // Zero inherits the configured timeout; positive values live only in this scene.
     uint32_t standby_override_seconds;
+
+#if defined(CODY_DEVICE_UI_ONLY)
+    // Consume the shared constexpr authoring table without retaining pose or animation data.
+    constexpr SceneDefinition(SceneId scene_id, const char *scene_name, Transform, SceneIntroDefinition,
+        Channels, const CODY2D::MonoFont *title_font, CODY2D::TextSpan title_text, uint16_t top,
+        uint16_t color, uint16_t, bool show_navigation, bool show_readout, bool show_title,
+        SceneEntranceDefinition, uint16_t background, uint32_t standby_seconds)
+        : id(scene_id), name(scene_name), font(title_font), title(title_text), title_top(top),
+          title_color(color), navigation_visible(show_navigation), readout_visible(show_readout),
+          title_visible(show_title), background_rgb565(background), standby_override_seconds(standby_seconds)
+    {}
+#endif
 };
 
 // Optional caller-owned content, e.g. text, a button or a QR in a later scene.
@@ -172,10 +194,12 @@ void capture_scene_activity_identity(SceneFrame &frame, const ActivityIdentitySt
 // active_delta_us: Nonnegative animation time, excluding pause and standby intervals.
 esp_err_t advance_scene(SceneFrame &frame, int64_t active_delta_us);
 
+#if !defined(CODY_DEVICE_UI_ONLY)
 // frame: Prepared scene whose entrance clock excludes pause and standby.
 // transform: Receives the reusable animated placement before IMU/touch composition.
 // Exception: Returns the real scene-state error; never substitutes a placement.
 esp_err_t scene_cloud_transform(const SceneFrame &frame, Transform &transform);
+#endif
 
 // frame: Prepared scene with its authored delay and character cadence.
 // length: Counted ASCII characters in this content line.
@@ -188,10 +212,12 @@ uint16_t scene_content_characters(const SceneFrame &frame, uint16_t length,
 // Exception: Rejects invalid or overlapping regions before replacing the frame.
 esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content);
 
+#if !defined(CODY_DEVICE_UI_ONLY)
 // previous: Last completely displayed text/content state, not a partially written frame.
 // current: Next prepared scene sharing the same stable scene identity.
 // plan: Existing cloud damage; text/content changes are accumulated, never cleared.
 esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &current, DirtyPlan &plan);
+#endif
 
 // frame: Valid immutable text prefix and optional content for this frame.
 // strip: Cloud-composited caller-owned RGB565 tile; this layer does not clear it.

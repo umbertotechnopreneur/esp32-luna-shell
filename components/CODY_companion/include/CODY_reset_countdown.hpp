@@ -29,6 +29,9 @@ struct ResetCountdownView {
     uint64_t previous_seconds = 0;
     // 0..499 folds the old top. 500..999 unfolds the new bottom. 1000 is steady.
     uint16_t flip_progress = kResetCountdownFlipComplete;
+    // The selected date fields show configured local time only with a proven offset.
+    int16_t utc_offset_minutes = 0;
+    bool local_time = false;
 };
 
 // The display owner retains all borrowed text and tile faces through frame retirement.
@@ -55,7 +58,7 @@ struct ResetCountdownPresentation {
 static_assert(sizeof(ResetCountdownPresentation) <= 2048,
     "The countdown uses bounded persistent display storage");
 
-// fields: UTC reset date/time and reported remaining allowance in basis points.
+// fields: Reset calendar fields and reported remaining allowance in basis points.
 bool valid_reset_countdown_fields(const ResetCountdownFields &fields);
 
 // view: Current account observation and monotonic animation projection from the owner.
@@ -70,6 +73,14 @@ esp_err_t prepare_reset_countdown(const ResetCountdownView &view,
 
 // presentation: Prepared screen, retained until both central and perimeter draws retire.
 bool reset_countdown_ring_visible(const ResetCountdownPresentation &presentation);
+
+// remaining: Canonical remaining allowance in basis points, or zero to omit the ring.
+// strip: Borrowed RGB565 tile carrying original stride and storage byte order.
+// first_row: Logical y of the tile.
+// first_column: Logical x of the tile.
+// Exception: Returns the original surface error or rejects a tile outside the canvas.
+esp_err_t draw_reset_countdown_ring_rows(uint16_t remaining,
+    CODY2D::Surface strip, uint16_t first_row, uint16_t first_column = 0);
 
 // presentation: Immutable screen and exact remaining basis points.
 // strip: Borrowed RGB565 tile carrying original stride and storage byte order.

@@ -402,6 +402,7 @@ struct CodexTokenIntervalsSnapshot : ComponentSnapshot {
     uint64_t tokens[kCapacity]{};
     uint32_t valid_mask[kCapacity / 32]{};
     uint32_t anchor_quarter = 0;
+    uint32_t first_observed_quarter = 0; // Older slots predate this device's current series.
     uint32_t source_age_at_receive_ms = 0;
     bool initialized = false;
 

@@ -213,7 +213,7 @@ esp_err_t DeviceSnapshotService::reportVoiceInput(const VoiceInputObservation &i
         input.phase == VoiceInputPhase::Sending || input.phase == VoiceInputPhase::Received || input.phase == VoiceInputPhase::Delivered;
     const int64_t now_us = esp_timer_get_time();
     if (!known_phase || (input.trigger != VoiceInputTrigger::WakeWord && input.trigger != VoiceInputTrigger::DoubleTap &&
-        input.trigger != VoiceInputTrigger::StandbyWake) ||
+        input.trigger != VoiceInputTrigger::StandbyWake && input.trigger != VoiceInputTrigger::DeviceButton) ||
         (countdown ? input.countdown_seconds == 0 || input.countdown_seconds > 3 : input.countdown_seconds != 0) ||
         input.capturing_started_at_us < 0 || input.capturing_started_at_us > now_us ||
         (input.capturing_started_at_us != 0 && input.capturing_started_at_us < input.started_at_us) ||

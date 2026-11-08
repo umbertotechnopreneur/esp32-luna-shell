@@ -56,11 +56,12 @@ struct NavigationVisibility {
         last_touch_us = now_us;
     }
 
-    // now_us: Wall clock; hidden/paused characters do not freeze the toolbar timeout.
-    void update(int64_t now_us)
+    // now_us: Monotonic clock, independent of the content animation.
+    // hide_after_us: Active surface's inactivity threshold in microseconds.
+    void update(int64_t now_us, int64_t hide_after_us = kHideAfterUs)
     {
-        if (primed && target_opacity != 0 && now_us - last_touch_us >= kHideAfterUs) {
-            const int64_t deadline = last_touch_us + kHideAfterUs;
+        if (primed && target_opacity != 0 && now_us - last_touch_us >= hide_after_us) {
+            const int64_t deadline = last_touch_us + hide_after_us;
             start_opacity = opacity(deadline);
             fade_started_us = deadline;
             target_opacity = 0;

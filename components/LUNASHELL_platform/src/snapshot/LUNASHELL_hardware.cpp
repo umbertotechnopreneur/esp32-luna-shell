@@ -2875,6 +2875,7 @@ void clear_codex_token_intervals_locked()
     std::memset(history.tokens, 0, sizeof(history.tokens));
     std::memset(history.valid_mask, 0, sizeof(history.valid_mask));
     history.anchor_quarter = 0;
+    history.first_observed_quarter = 0;
     history.source_age_at_receive_ms = 0;
     history.initialized = false;
     s_codex_token_series = 0;
@@ -2930,6 +2931,8 @@ esp_err_t accept_codex_token_interval_locked(const CodexAccountSnapshot &account
                     clear_codex_token_slot_locked(history.anchor_quarter + step);
                 }
             }
+        } else {
+            history.first_observed_quarter = interval.quarter;
         }
         if (interval.tokens_valid) {
             const uint32_t slot = interval.quarter % CodexTokenIntervalsSnapshot::kCapacity;

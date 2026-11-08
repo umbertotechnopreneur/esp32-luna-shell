@@ -11,7 +11,7 @@ enum class VoiceInputPhase : uint8_t {
     Idle, Listening, Sending, Cancelling, Received, Delivered, Cancelled, Unconfirmed, Failed,
     Preparing, StartCountdown, SendCountdown
 };
-enum class VoiceInputTrigger : uint8_t { WakeWord, DoubleTap, StandbyWake };
+enum class VoiceInputTrigger : uint8_t { WakeWord, DoubleTap, StandbyWake, DeviceButton };
 struct VoiceInputObservation {
     VoiceInputPhase phase = VoiceInputPhase::Idle;
     VoiceInputTrigger trigger = VoiceInputTrigger::WakeWord;
@@ -34,9 +34,9 @@ struct VoiceInputAdmissionObservation {
 };
 static_assert(sizeof(VoiceInputAdmissionObservation) <= 8, "Voice admission must remain a scalar projection");
 
-// trigger: Explicit recognition or acquired double-tap event.
+// trigger: Explicit recognition or acquired local touch control.
 // started: Optional result, true only after this request successfully publishes Preparing.
-// Exception: Returns original errors. Dictation Off or a double tap without the LAN route
+// Exception: Returns original errors. Dictation Off or a local touch without the LAN route
 // is an intentional ESP_OK no-op with started=false.
 esp_err_t requestVoiceInput(VoiceInputTrigger trigger, bool *started = nullptr);
 // expected_started_at_us: Original session identity from the completely retired Preparing screen.

@@ -119,17 +119,24 @@ The shared BSP keeps Cody/display-only rendering native, without LVGL.
 Physical acceptance is tracked in [TODO.md](../TODO.md); a build or flash does
 not establish display, touch, audio, battery or wake behavior.
 
-To preserve Cody's Sophia wake word and experimental activity observer in Release,
-use the same explicit feature selection for configuration, build, flash and size.
-`-ActivityClassifier` requires a local model produced by the `activity-model`
-generator. See the [activity observer guide](../docs/cody/activity-observer.md#public-commands)
-for preparing the model before configuring this variant.
+The `cody-companion` profile now builds a native device panel with counters,
+connection/pairing controls and options. Its default `-Feature none` omits the
+character renderer, character boot audio, microphone capture, Sophia and activity
+models; speaker notifications remain enabled. IMU orientation and the existing
+power, radio and storage owners remain available.
+
+Codex voice handoff is still opt-in through `-Feature wake-word`. It restores the
+dual microphones, ESP-SR and Sophia model with their existing partition and
+dependency lock. This feature retains continuous standby listening and its
+software-standby power cost. Use the same explicit feature selection for
+configuration, build, flash and size. Cody's TTS and activity-classification
+compositions are rejected on this branch.
 
 ```powershell
-.\scripts\device.ps1 set-target -Profile cody-companion -Feature wake-word -ActivityClassifier -BuildMode Release
-.\scripts\device.ps1 build -Profile cody-companion -Feature wake-word -ActivityClassifier -BuildMode Release -Jobs 8
-.\scripts\device.ps1 flash -Profile cody-companion -Feature wake-word -ActivityClassifier -BuildMode Release -Port COM10 -Jobs 8
-.\scripts\device.ps1 size -Profile cody-companion -Feature wake-word -ActivityClassifier -BuildMode Release -SizeOutputFormat json2
+.\scripts\device.ps1 set-target -Profile cody-companion -Feature wake-word -BuildMode Release
+.\scripts\device.ps1 build -Profile cody-companion -Feature wake-word -BuildMode Release -Jobs 8
+.\scripts\device.ps1 flash -Profile cody-companion -Feature wake-word -BuildMode Release -Port COM10 -Jobs 8
+.\scripts\device.ps1 size -Profile cody-companion -Feature wake-word -BuildMode Release -SizeOutputFormat json2
 ```
 
 The first `set-target` prepares that mode's isolated build with the reviewed
@@ -168,8 +175,9 @@ and the [CCP guide](../plugins/cody-codex-plugin/README.md) for installation/tru
 
 Ordinary firmware leaves TTS disabled. `-Feature tts-sd` selects English,
 Italian, Mandarin and Cantonese on microSD; `-Feature tts-flash` embeds English.
-Both apply to `cody-companion` and `full` with isolated configuration, build
-output and dependencies. The menu exposes the same selection.
+Both remain available for `full` with isolated configuration, build output and
+dependencies. The Cody device panel rejects these speech-synthesis selections;
+its optional Codex voice input uses `-Feature wake-word` instead.
 
 `tts-sd` enables the diagnostic `CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN`: after
 mandatory startup, it queues one fixed Italian phrase dated 5 October 2026.
@@ -223,12 +231,13 @@ remain explicit generators through this console:
 
 `cody-connection-atlas` authors the single CCP Communication Atlas, including
 server/client ownership, pairing, protocol messages, native audio and its final
-dated Security/revision grid. The A5 flyer remains a separate four-page guide.
+retained Security corrections. The A5 flyer remains a separate four-page guide.
 Historical flow/setup/screen/security/translation generators retain reproduction
 safeguards and are not the current authoring path for these documents.
 
-PDF revisions preserve original dates, page/screen IDs and evidence, and use
-the shared final revision register required by [AGENTS.md](../AGENTS.md).
+Maintain the current behavior in the PDF body and keep code history in Git.
+When needed, the final register preserves the dates, page and screen IDs, and
+evidence for errata, addenda and security corrections. See [AGENTS.md](../AGENTS.md).
 The pairing flyer remains exactly four A5 pages with current instructions;
 it has no appended register or technical appendix. English conversion uses
 the mappings in `assets/cody/docs/translations/`, preserves originals under

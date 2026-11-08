@@ -8,6 +8,10 @@
 namespace CODY {
 enum class HomeDashboardArcState : uint8_t { Unavailable, Measured, Stale, Invalid, OverLimit, Compacting };
 inline constexpr DamageRect kHomeDashboardBounds{40, 268, 426, 393};
+// activity: Canonical title plus receipt timestamp and reported source age.
+// now_us: Monotonic time from the same device clock used for receipt.
+const char *codex_chat_title_caption(const LUNASHELL::CodexActivitySnapshot &activity, int64_t now_us);
+
 inline constexpr unsigned kHomeDashboardSegments = 20;
 inline constexpr unsigned kHomeDashboardArcVertices = 64;
 inline constexpr int64_t kHomeDashboardRotationUs = 8000000;

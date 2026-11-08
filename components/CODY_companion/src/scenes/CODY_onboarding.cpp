@@ -36,8 +36,6 @@
 #endif
 
 #include "CODY2D_controls.hpp"
-#include "CODY_jelly.hpp"
-#include "CODY_look_screen.hpp"
 #include "CODY_settings.hpp"
 #include "CODY_widget_state.hpp"
 #include "CODY_codex_audio.hpp"
@@ -88,8 +86,8 @@ static_assert(kPreferenceTop + (kOptionsMenuRows - 1U) * kOptionsMenuRowStep +
     kOptionsMenuRowHeight < kFooterBounds.y);
 constexpr uint16_t kEventCaptionWidth = 300;
 constexpr uint16_t kCaptionWidth = 232;
-// The invitation fits the 232-pixel body slot without implying a selected chat.
-constexpr char kCodexInvitationCaption[] = "Ready to team up";
+// Authenticated PC presence does not imply a selected chat.
+constexpr char kCodexConnectedCaption[] = "Codex connected";
 #if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
 constexpr uint16_t kDebugTextWidth = 386;
 constexpr uint16_t kDebugTextColor = 0xF7BE; // CSS whitesmoke (#F5F5F5) in native RGB565.
@@ -116,7 +114,6 @@ enum class Work : uint8_t {
     Start,
     Retry,
     Cancel,
-    SaveLook,
     CompleteFirstBoot,
     UseCompanion,
     CodexStart,
@@ -134,8 +131,8 @@ enum class CodexCleanup : uint8_t { None, Cancel, Forget };
 enum class OnboardingAction : uint8_t {
     None, ShowQr, PairCody, Cancel, Retry, Continue, Next, Done, LetsGo,
     AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later, Options, KeepPairing, ReplacePairing,
-    ForgetPairing, ConfirmForget, KeepSaved, CodyLook, DisplayOptions, BehaviorOptions, MoreBehavior,
-    CodexStatistics, VisibleScreens,
+    ForgetPairing, ConfirmForget, KeepSaved, DisplayOptions, BehaviorOptions, MoreBehavior,
+    Connections, CodexStatistics, VisibleScreens,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
@@ -181,7 +178,6 @@ struct Command {
     uint32_t generation = 0;
     uint32_t attempt = 0;
     uint32_t session = 0;
-    LUNASHELL::CharacterLookSaveSnapshot look_save{};
     PreferenceId preference = PreferenceId::ShakeWake;
     uint32_t preference_value = 0;
     WidgetVisibility widget_visibility{};
@@ -189,7 +185,6 @@ struct Command {
 struct Result {
     Command command{};
     esp_err_t error = ESP_OK;
-    esp_err_t publication_error = ESP_OK;
     QrModules qr{};
     char codex_code[7]{};
 };
@@ -316,13 +311,13 @@ QuestionAudioSchedule s_question_audio_schedule{};
 char s_last_audio_chat[65]{};
 LUNASHELL::CodexActivityState s_last_audio_phase = LUNASHELL::CodexActivityState::None;
 bool s_startup_pending = false;
+bool s_startup_pair_missing = false;
 esp_err_t s_startup_wifi_error = ESP_OK;
 int64_t s_startup_wifi_wait_started_us = -1;
 bool s_startup_network_passive = false;
 bool s_startup_network_presented = false;
 uint32_t s_generation = 1;
 std::atomic<uint32_t> s_presentation_generation{1};
-uint32_t s_look_request_id = 0; // Never reset with a route; late writes keep their identity.
 uint32_t s_revision = 0;
 uint32_t s_navigation_revision = 0;
 uint32_t s_text_generation = 0;
@@ -391,7 +386,16 @@ auto &s_action_connectivity = *new (s_action_connectivity_storage) LUNASHELL::Co
 Result s_result{};
 LUNASHELL::ConnectivityObservation s_action_connectivity{};
 #endif
-QrModules *s_encoding_target = nullptr; // Only the action worker calls the QR library.
+// Startup encodes the static About link before the action worker owns the library.
+QrModules *s_encoding_target = nullptr;
+#if defined(CODY_DEVICE_UI_ONLY)
+constexpr char kAboutProjectUrl[] = "https://umbertogiacobbi.biz/esp32-luna-shell";
+constexpr char kAboutProjectHeading[] = "Scan for more info";
+constexpr CODY2D::Rect kAboutProjectBounds{124, 132, 218, 218};
+QrModules s_about_project_qr{};
+CODY2D::TextLine s_about_project_heading{};
+esp_err_t s_about_project_error = ESP_ERR_INVALID_STATE;
+#endif
 
 // route: Stable route identity whose bounded local inactivity policy is requested.
 const ScreenInactivityPolicy *screen_inactivity_policy(Route route)
@@ -580,7 +584,7 @@ esp_err_t encode_qr(const char *payload, QrModules &qr)
 }
 
 // command: Typed action and attempt/session identities acquired by the route owner.
-// result: Original operation result, separate snapshot publication error and optional QR.
+// result: Original operation result and optional QR.
 // Exception: The result retains every persistence, snapshot and radio failure.
 void execute_command(const Command &command, Result &result)
 {
@@ -649,22 +653,6 @@ void execute_command(const Command &command, Result &result)
         result.error = persist_widget_visibility(command.widget_visibility);
         return;
     }
-    if (command.work == Work::SaveLook) {
-#if CODY_ENABLE_PEARL_JELLY
-        result.error = persist_jelly_skin(command.look_save.requested_id);
-#else
-        result.error = ESP_ERR_NOT_SUPPORTED;
-#endif
-        auto completed = command.look_save;
-        completed.state = result.error == ESP_OK
-            ? LUNASHELL::CharacterLookSaveSnapshot::State::Saved
-            : LUNASHELL::CharacterLookSaveSnapshot::State::Failed;
-        completed.error = result.error;
-        completed.completed_at_us = esp_timer_get_time();
-        result.publication_error =
-            LUNASHELL::DeviceSnapshotService::instance().reportCharacterLookSave(completed);
-        return;
-    }
     if (command.work == Work::InstallQr) {
         result.error = encode_qr(kInstallUrl, result.qr);
         return;
@@ -730,7 +718,6 @@ void execute_command(const Command &command, Result &result)
 }
 
 // context: Unused; one worker owns blocking radio, QR and preference operations.
-// Exception: Operation and publication errors remain separate in the result mailbox.
 void action_worker(void *context)
 {
     (void)context;
@@ -744,11 +731,10 @@ void action_worker(void *context)
         // copies and clears the result before releasing the next command.
         Result &completed = *new (&s_result) Result{};
         execute_command(s_command, completed);
-        if (completed.error != ESP_OK || completed.publication_error != ESP_OK) {
-            ESP_LOGE(kTag, "Action %u attempt=%lu session=%lu failed: operation=%s publication=%s",
+        if (completed.error != ESP_OK) {
+            ESP_LOGE(kTag, "Action %u attempt=%lu session=%lu failed (%s)",
                 to_index(completed.command.work), static_cast<unsigned long>(completed.command.attempt),
-                static_cast<unsigned long>(completed.command.session), esp_err_to_name(completed.error),
-                esp_err_to_name(completed.publication_error));
+                static_cast<unsigned long>(completed.command.session), esp_err_to_name(completed.error));
         }
         s_result_ready.store(true, std::memory_order_release);
     }
@@ -797,44 +783,6 @@ esp_err_t enqueue_preference(PreferenceId preference, uint32_t value)
 // scene: Active selector whose previous selection stays visible during the write.
 // id: Flash-owned catalog ID from a real tap; copied into bounded request storage.
 // Exception: Returns the real admission, preparation or snapshot publication error.
-esp_err_t enqueue_look_save(SceneFrame &scene, const char *id)
-{
-    if (s_worker == nullptr || s_work_busy.load(std::memory_order_acquire) ||
-        s_look_request_id == UINT32_MAX || id == nullptr) {
-        ESP_LOGE(kTag, "Look worker admission rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
-        return ESP_ERR_INVALID_STATE;
-    }
-    Command command;
-    command.work = Work::SaveLook;
-    command.generation = s_generation;
-    auto &operation = command.look_save;
-    const size_t length = std::strlen(id);
-    if (length == 0 || length >= sizeof(operation.requested_id)) {
-        ESP_LOGE(kTag, "Look ID length rejected: %u (%s)",
-                 static_cast<unsigned>(length), esp_err_to_name(ESP_ERR_INVALID_SIZE));
-        return ESP_ERR_INVALID_SIZE;
-    }
-    std::memcpy(operation.requested_id, id, length + 1U);
-    operation.request_id = s_look_request_id + 1U;
-    operation.state = LUNASHELL::CharacterLookSaveSnapshot::State::Saving;
-    operation.started_at_us = esp_timer_get_time();
-    esp_err_t error = begin_look_save(scene, id, operation.request_id);
-    if (error != ESP_OK) {
-        return error;
-    }
-    error = LUNASHELL::DeviceSnapshotService::instance().reportCharacterLookSave(operation);
-    if (error != ESP_OK) {
-        return error;
-    }
-    s_look_request_id = operation.request_id;
-    s_command = command;
-    s_command_pending = true;
-    scene.content.control_revision = ++s_navigation_revision;
-    s_work_busy.store(true, std::memory_order_release);
-    xTaskNotifyGive(s_worker);
-    return ESP_OK;
-}
-
 // text: Bounded immutable English text, retained through frame retirement.
 // top: Logical caption baseline container, entirely inside the shared content chord.
 // line: Receives the prepared flash-font layout.
@@ -924,7 +872,7 @@ bool uses_footer_action()
     return s_route == Route::Invitation05 || s_route == Route::Install06 ||
         s_route == Route::Pairing07 || s_route == Route::Failed08 || s_route == Route::Online09 ||
         s_route == Route::MakeItYours10 ||
-        s_route == Route::ConnectCodex12 || s_route == Route::SetupComplete13 ||
+        s_route == Route::ConnectCodex12 || s_route == Route::SetupComplete13 || s_route == Route::LookingForPc14 ||
         s_route == Route::CodexChoice || s_route == Route::SetupMenu || s_route == Route::NetworkWait ||
         s_route == Route::CodexReplace || s_route == Route::CodexForget || s_route == Route::CodexForgotten ||
         is_codex_event_route(s_route);
@@ -972,9 +920,6 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
     case OnboardingAction::Next:
         label = "Next";
         break;
-    case OnboardingAction::CodyLook:
-        label = "Cody's Look";
-        break;
     case OnboardingAction::DisplayOptions:
         label = "Display";
         break;
@@ -989,6 +934,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         break;
     case OnboardingAction::VisibleScreens:
         label = "Visible screens";
+        break;
+    case OnboardingAction::Connections:
+        label = "Connections";
         break;
     case OnboardingAction::Done:
         label = "Done";
@@ -1255,6 +1203,21 @@ esp_err_t draw_qr_rows(const QrModules &qr, CODY2D::Rect bounds, CODY2D::Surface
     return ESP_OK;
 }
 
+#if defined(CODY_DEVICE_UI_ONLY)
+// state: Immutable prepared About heading; the static QR shares its lifetime.
+// strip: Caller-owned content tile.
+// first_row: Logical y origin of the tile.
+// first_column: Logical x origin of the tile.
+// Exception: Returns the first genuine QR or heading raster error.
+esp_err_t draw_about_project_rows(const void *state, CODY2D::Surface strip,
+                                 uint16_t first_row, uint16_t first_column)
+{
+    const auto &heading = *static_cast<const CODY2D::TextLine *>(state);
+    const auto error = draw_qr_rows(s_about_project_qr, kAboutProjectBounds, strip, first_row, first_column);
+    return error == ESP_OK ? CODY2D::draw_text_rows(heading, heading.text.length, strip, first_row, first_column) : error;
+}
+#endif
+
 // state: Immutable content owned by this route through frame retirement.
 // strip: Valid content-clipped tile with its original stride and byte order.
 // first_row: Logical tile y origin.
@@ -1368,9 +1331,6 @@ uint16_t line_visible_characters(const SceneFrame &scene, uint8_t index, uint16_
 // Exception: Returns scene-content or duplicate-caption validation errors without replacing the frame.
 esp_err_t attach_content(SceneFrame &scene)
 {
-    if (s_route == Route::Look11) {
-        return attach_look_content(scene, s_navigation_revision);
-    }
     uint16_t preceding = scene.definition->title_visible ? scene.title.text.length : 0;
     for (uint8_t index = 0; index < s_view.line_count; ++index) {
         if (is_codex_event_route(s_route) && index < s_event_plan.line_count) {
@@ -1529,7 +1489,7 @@ const char *pairing_debug_ssid(const LUNASHELL::WifiSnapshot &wifi)
 }
 
 // observation: One coherent canonical Wi-Fi/BLE/pairing snapshot after successful handoff.
-// scene: Receives the reusable micro-cloud debug layout and six immutable text rows.
+// scene: Receives the pairing diagnostics and six immutable text rows.
 // Exception: Rejects missing IP/BLE identity, truncation and layout errors.
 esp_err_t enter_pairing_debug(const LUNASHELL::ConnectivityObservation &observation, SceneFrame &scene)
 {
@@ -1550,7 +1510,6 @@ esp_err_t enter_pairing_debug(const LUNASHELL::ConnectivityObservation &observat
         return error;
     }
     wipe(&s_view, sizeof(s_view));
-    reset_look_screen();
     s_swipe_active = false;
     ++s_navigation_revision;
     ++s_text_generation;
@@ -1633,12 +1592,12 @@ void notify_companion_transition(Route previous, Route destination,
         case Activity::Working: cue = CodexAudioCue::Working; break;
         case Activity::Editing: cue = CodexAudioCue::Editing; break;
         case Activity::Running: cue = CodexAudioCue::Running; break;
-        case Activity::ResponseReady: cue = CodexAudioCue::ResponseReady; break;
         case Activity::Paused: cue = CodexAudioCue::Paused; break;
         case Activity::Interrupted: cue = CodexAudioCue::Interrupted; break;
         case Activity::Ended: cue = CodexAudioCue::SessionEnded; break;
         case Activity::None:
         case Activity::Active:
+        case Activity::ResponseReady: // The authenticated ReplyReady event owns its sound.
         case Activity::Unavailable:
             break;
         }
@@ -1689,8 +1648,8 @@ esp_err_t prepare_options_content(SceneFrame &scene)
     }
     if (s_options_page == OptionsPage::Menu) {
         constexpr OnboardingAction actions[] = {
-            OnboardingAction::CodyLook, OnboardingAction::DisplayOptions, OnboardingAction::BehaviorOptions,
-            OnboardingAction::CodexStatistics, OnboardingAction::VisibleScreens,
+            OnboardingAction::Connections, OnboardingAction::CodexStatistics, OnboardingAction::VisibleScreens,
+            OnboardingAction::DisplayOptions, OnboardingAction::BehaviorOptions,
         };
         static_assert(std::size(actions) == kOptionsMenuRows);
         for (const auto action : actions) {
@@ -2066,7 +2025,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         identity = SceneId::SetupMenu;
         break;
     case Route::NetworkWait:
-        // Reuse the existing curious character geometry for passive startup,
+        // Reuse the connection scene for passive startup,
         // while logical routing and backend admission remain NetworkWait.
         identity = s_startup_network_passive ? SceneId::LookingForPc : SceneId::NetworkWait;
         break;
@@ -2085,7 +2044,6 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     }
     // QR state is retired on every departure, including cancellation and failure.
     wipe(&s_view, sizeof(s_view));
-    reset_look_screen();
     s_swipe_active = false;
     ++s_navigation_revision;
     ++s_text_generation;
@@ -2140,11 +2098,9 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         s_online_presentation_current = false;
         error = prepare_caption("Wi-Fi connected", 300, s_view.lines[0]);
         s_view.line_count = 1;
-#if CODY_ENABLE_PEARL_JELLY
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::Continue, true);
         }
-#endif
     } else if (route == Route::MakeItYours10) {
         s_preference_error = ESP_OK;
         error = prepare_options_content(prepared);
@@ -2179,10 +2135,10 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     } else if (route == Route::NetworkWait && s_startup_network_passive) {
         // The cleared view already has no action identities or touch targets.
         // Prepare only the passive content, never temporary recovery buttons.
-        static constexpr char title[] = "Please wait";
+        static constexpr char title[] = "Wi-Fi connecting";
         error = set_scene_title(prepared, {title, sizeof(title) - 1U});
         if (error == ESP_OK) {
-            error = prepare_caption("Connecting to Wi-Fi", 300, s_view.lines[0]);
+            error = prepare_caption("Joining saved network", 300, s_view.lines[0]);
             s_view.line_count = 1;
         }
     } else if (route == Route::CodexChoice || route == Route::SetupMenu || route == Route::NetworkWait) {
@@ -2202,10 +2158,14 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
                 true, false, s_view.options, unused);
         }
     } else if (route == Route::ConnectCodex12) {
+        static constexpr char title[] = "Pair Codex";
+        error = set_scene_title(prepared, {title, sizeof(title) - 1U});
         const char *message = s_codex_code[0] == '\0'
-            ? "Creating your code"
+            ? "Creating pairing code"
             : "Share code in Codex";
-        error = prepare_caption(message, 300, s_view.lines[0]);
+        if (error == ESP_OK) {
+            error = prepare_caption(message, 300, s_view.lines[0]);
+        }
         s_view.line_count = 1;
         if (error == ESP_OK && s_codex_code[0] != '\0') {
             error = prepare_codex_code(s_view.lines[1]);
@@ -2242,17 +2202,21 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
             error = prepare_action(OnboardingAction::LetsGo, true);
         }
     } else if (route == Route::LookingForPc14) {
-        error = prepare_caption("Finding your PC", 300, s_view.lines[0]);
+        static constexpr char title[] = "Waiting for PC";
+        error = set_scene_title(prepared, {title, sizeof(title) - 1U});
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption("Retrying connection", 327, s_view.lines[1]);
+            error = prepare_caption("Open Codex on your PC", 300, s_view.lines[0]);
+        }
+        if (error == ESP_OK) {
+            error = prepare_caption("Pairing stays saved", 327, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
-            error = prepare_action(OnboardingAction::None, false);
+            error = prepare_action(OnboardingAction::Later, true);
         }
     } else if (route == Route::Connected15) {
-        error = prepare_caption(kCodexInvitationCaption, 300, s_view.lines[0]);
+        error = prepare_caption(kCodexConnectedCaption, 300, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
             error = prepare_caption("Start a chat in Codex", 327, s_view.lines[1]);
@@ -2312,25 +2276,21 @@ Route codex_event_destination()
 }
 
 // scene: Display-owned frame rebuilt from the retained canonical event, never from transport I/O.
-// preserve_typing: Keeps completed narrative visible for progress/offline changes on the same route.
+// preserve_timing: Keeps the reading and scrolling clocks on the same route.
 // Exception: Returns original route/layout errors.
-esp_err_t render_codex_event(SceneFrame &scene, bool preserve_typing = false)
+esp_err_t render_codex_event(SceneFrame &scene, bool preserve_timing = false)
 {
     // A real question/notification owns this view; its dwell cannot be charged as observed work.
     pause_activity_observation(s_activity_observation);
     s_swipe_active = false;
     const Route destination = codex_event_destination();
-    const bool keep_time = preserve_typing && destination == s_route;
-    const SceneFrame previous = scene;
+    const bool keep_time = preserve_timing && destination == s_route;
+    const uint64_t previous_text_elapsed_us = scene.text_elapsed_us;
+    const uint32_t previous_text_generation = scene.content.text_generation;
     esp_err_t error = enter_route(destination, scene);
     if (error == ESP_OK && keep_time) {
-        scene.visible_characters = std::min(previous.visible_characters, scene.title.text.length);
-        scene.character_remainder_us = previous.character_remainder_us;
-        scene.text_elapsed_us = previous.text_elapsed_us;
-        scene.intro_elapsed_us = previous.intro_elapsed_us;
-        scene.entrance_elapsed_us = previous.entrance_elapsed_us;
-        scene.intro_phase = previous.intro_phase;
-        s_text_generation = previous.content.text_generation;
+        scene.text_elapsed_us = previous_text_elapsed_us;
+        s_text_generation = previous_text_generation;
         error = attach_content(scene);
     }
     if (error == ESP_OK) {
@@ -2401,11 +2361,8 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
                              int64_t active_time_us, int64_t awake_time_us, bool &changed, bool &handled)
 {
     handled = false;
-    if (!is_companion_route(s_route)) {
-        s_question_audio_schedule.last_attempt_at_us = -1;
-        return ESP_OK;
-    }
-    if (s_event_observation_error != ESP_OK) {
+    const bool in_options = s_route == Route::MakeItYours10;
+    if (!in_options && s_event_observation_error != ESP_OK) {
         s_question_audio_schedule.last_attempt_at_us = -1;
         handled = true; // Only the visible Retry requests another failed observation.
         return ESP_OK;
@@ -2415,6 +2372,10 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
         LUNASHELL::DeviceSnapshotService::instance().readCodexEventObservation(observed);
     if (read_error != ESP_OK) {
         s_question_audio_schedule.last_attempt_at_us = -1;
+        if (in_options) {
+            // A failed optional read supplies no event that may interrupt settings.
+            return ESP_OK;
+        }
         s_event_observation_error = read_error;
         s_event_online = false;
         handled = true;
@@ -2422,6 +2383,9 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
         ESP_LOGE(kTag, "Optional Codex event observation failed; explicit Retry available (%s)",
             esp_err_to_name(read_error));
         return render_codex_event(scene);
+    }
+    if (in_options) {
+        s_event_observation_error = ESP_OK;
     }
     using Kind = LUNASHELL::CodexEventKind;
     using State = LUNASHELL::CodexEventState;
@@ -2624,7 +2588,7 @@ esp_err_t present_local_companion(int64_t active_time_us, SceneFrame &scene, boo
         return advance_activity_description(active_time_us, scene, changed);
     }
     s_local_presentation_valid = false;
-    const char *title = "Here with you";
+    const char *title = "Local mode";
     esp_err_t error = enter_route(Route::CompanionIdle16, scene);
     if (error == ESP_OK) {
         const size_t title_length = std::strlen(title);
@@ -2638,7 +2602,7 @@ esp_err_t present_local_companion(int64_t active_time_us, SceneFrame &scene, boo
         error = set_scene_activity_overlay(scene, ActivityOverlayState::Hidden);
     }
     if (error == ESP_OK) {
-        error = prepare_activity_detail("Cody", "Keeping you company", active_time_us);
+        error = prepare_activity_detail("Device ready", "", active_time_us);
     }
     if (error == ESP_OK) {
         error = attach_content(scene);
@@ -2761,7 +2725,7 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
         current_work ? s_activity_observation.operation_elapsed_us : -1;
     s_view.activity_identity.compaction_timer = compacting;
     Route destination = Route::Connected15;
-    const char *message = kCodexInvitationCaption;
+    const char *message = kCodexConnectedCaption;
     if (!link.data_valid || link.data_stale || link.state != CodexState::Connected) {
         if (!s_companion_seen_selection && !reconnecting) {
             return ESP_OK;
@@ -2787,7 +2751,7 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
             break;
         case Activity::Active:
             destination = Route::Project17;
-            message = "Ready when you are";
+            message = "Codex active";
             break;
         case Activity::Working:
             destination = Route::Working18;
@@ -2803,7 +2767,7 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
             break;
         case Activity::ResponseReady:
             destination = reply_introduction ? Route::Response19 : Route::CompanionIdle16;
-            message = reply_introduction ? "Open Codex to review" : kCodexInvitationCaption;
+            message = reply_introduction ? "Open Codex to review" : kCodexConnectedCaption;
             break;
         case Activity::Paused:
             destination = Route::Paused20;
@@ -2819,7 +2783,7 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
             }
             destination = active_time_us - s_session_ended_at_us < 5LL * 1000000LL
                 ? Route::Ended20 : Route::CompanionIdle16;
-            message = kCodexInvitationCaption;
+            message = kCodexConnectedCaption;
             break;
         case Activity::Unavailable:
             destination = Route::ActivityUnavailable;
@@ -3226,99 +3190,40 @@ esp_err_t begin_codex_cleanup(SceneFrame &scene, CodexCleanup cleanup)
     return ESP_OK;
 }
 
-// scene: Active host frame, replaced only after the reusable selector is prepared.
-// navigation: Caller and Done targets chosen by this host, not by the selector.
-// Exception: Returns the original selector or navigation-control preparation error.
-esp_err_t enter_look_route(SceneFrame &scene, const LookNavigationContext &navigation)
-{
-    esp_err_t error = open_look_screen(scene, navigation);
-    if (error != ESP_OK) {
-        return error;
-    }
-    wipe(&s_view, sizeof(s_view));
-    s_route = Route::Look11;
-    s_swipe_active = false;
-    ++s_navigation_revision;
-    error = prepare_action(OnboardingAction::None, false);
-    if (error == ESP_OK) {
-        error = attach_content(scene);
-    }
-    return error;
-}
-
-// destination: Explicit scene identity returned by a child screen.
-// scene: Host-owned frame to replace through its normal route initialization.
-// Exception: Rejects destinations this host does not implement; never guesses a route.
-esp_err_t enter_host_destination(SceneId destination, SceneFrame &scene)
-{
-    Route route;
-    switch (destination) {
-    case SceneId::PairInvitation:
-        route = Route::Invitation05;
-        break;
-    case SceneId::InstallApp:
-        route = Route::Install06;
-        break;
-    case SceneId::Pairing:
-        route = Route::Pairing07;
-        break;
-    case SceneId::PairingFailed:
-        route = Route::Failed08;
-        break;
-    case SceneId::Online:
-        route = Route::Online09;
-        break;
-    case SceneId::MakeItYours:
-        route = Route::MakeItYours10;
-        break;
-    case SceneId::ConnectCodex:
-        route = Route::ConnectCodex12;
-        break;
-    case SceneId::CodexChoice:
-        route = Route::CodexChoice;
-        break;
-    case SceneId::SetupMenu:
-        route = Route::SetupMenu;
-        break;
-    case SceneId::SetupComplete:
-        route = Route::SetupComplete13;
-        break;
-    case SceneId::LookingForPc:
-        route = Route::LookingForPc14;
-        break;
-    case SceneId::Connected:
-        route = Route::Connected15;
-        break;
-    case SceneId::ProjectActive: route = Route::Project17; break;
-    case SceneId::Working: route = Route::Working18; break;
-    case SceneId::ResponseReady: route = Route::Response19; break;
-    case SceneId::SessionPaused: route = Route::Paused20; break;
-    case SceneId::SessionEnded: route = Route::Ended20; break;
-    case SceneId::ConnectionLost: route = Route::Lost32; break;
-    case SceneId::CompanionIdle: route = Route::CompanionIdle16; break;
-    case SceneId::ActivityUnavailable: route = Route::ActivityUnavailable; break;
-    default:
-        ESP_LOGE(kTag, "Unsupported host destination %u (%s)",
-                 static_cast<unsigned>(destination), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-    if (route == Route::ConnectCodex12) {
-        return begin_codex_connection(scene, CodexConnectionIntent::Setup);
-    }
-    if (route == Route::CodexChoice) {
-        request_saved_setup_startup();
-        bool changed = false;
-        return evaluate_saved_setup(scene, changed);
-    }
-    return enter_route(route, scene);
-}
-
 // scene: Current route that displays a real local action/preparation error.
 // error: Original operation error, not substituted by a successful presentation.
 esp_err_t show_error(SceneFrame &scene, esp_err_t error)
 {
     s_visible_error = error;
     return enter_route(Route::Failed08, scene);
+}
+
+// scene: Display-owned frame for a device provisioning QR.
+// pairing: Current canonical pairing attempt, including terminal failures eligible for Retry.
+esp_err_t start_wifi_pairing(SceneFrame &scene, const LUNASHELL::PairingSessionSnapshot &pairing)
+{
+    esp_err_t error;
+    if (!pairing.data_valid || pairing.data_stale) {
+        error = pairing.last_error != ESP_OK ? pairing.last_error : ESP_ERR_INVALID_STATE;
+    } else {
+        const Work work = pairing.state == PairState::Failed || pairing.state == PairState::TimedOut
+            ? Work::Retry : Work::Start;
+        s_session = 0;
+        s_cancel_to_install = false;
+        error = enter_route(Route::Pairing07, scene);
+        if (error == ESP_OK) {
+            error = enqueue(work, pairing.attempt_id);
+        }
+    }
+    if (error == ESP_OK) {
+        return ESP_OK;
+    }
+    const esp_err_t presentation_error = show_error(scene, error);
+    if (presentation_error != ESP_OK) {
+        return presentation_error;
+    }
+    const esp_err_t action_error = prepare_action(OnboardingAction::Retry, true);
+    return action_error == ESP_OK ? attach_content(scene) : action_error;
 }
 
 // scene: Current choice or retry frame, replaced by the persistent companion Home.
@@ -3511,6 +3416,23 @@ esp_err_t onboarding_service_init()
     if (s_worker != nullptr) {
         return ESP_ERR_INVALID_STATE;
     }
+#if defined(CODY_DEVICE_UI_ONLY)
+    s_about_project_error = encode_qr(kAboutProjectUrl, s_about_project_qr);
+    if (s_about_project_error == ESP_OK) {
+        const auto &font = SceneData::body_font;
+        const CODY2D::TextSpan title{kAboutProjectHeading, sizeof(kAboutProjectHeading) - 1U};
+        uint32_t width = 0;
+        s_about_project_error = CODY2D::measure_text_width(font, title, width);
+        if (s_about_project_error == ESP_OK && width > 320U) s_about_project_error = ESP_ERR_INVALID_SIZE;
+        if (s_about_project_error == ESP_OK) {
+            s_about_project_error = CODY2D::prepare_text_line(font, title,
+                {static_cast<int16_t>((466U - width) / 2U), 89}, 0xF7BE, s_about_project_heading);
+        }
+    }
+    if (s_about_project_error != ESP_OK) {
+        ESP_LOGW(kTag, "About project QR unavailable (%s)", esp_err_to_name(s_about_project_error));
+    }
+#endif
     s_worker = xTaskCreateStatic(action_worker, "CODY_actions", sizeof(s_worker_stack), nullptr,
         3, s_worker_stack, &s_worker_control);
     if (s_worker == nullptr) {
@@ -3520,12 +3442,26 @@ esp_err_t onboarding_service_init()
     return ESP_OK;
 }
 
+#if defined(CODY_DEVICE_UI_ONLY)
+// content: Borrows the immutable About heading and static project QR.
+// Exception: Returns the original optional About QR preparation error.
+esp_err_t prepare_about_project_link(SceneContent &content)
+{
+    if (s_about_project_error != ESP_OK) return s_about_project_error;
+    content = {};
+    content.bounds = {73, 89, 393, 350};
+    content.revision = 1;
+    content.state = &s_about_project_heading;
+    content.draw_rows = draw_about_project_rows;
+    return ESP_OK;
+}
+#endif
+
 // No parameters: cancel gesture recognition without synthesizing an acquired release.
 void cancel_onboarding_touch()
 {
     s_swipe_active = false;
     s_activity_touch_pressed = false;
-    cancel_look_touch();
 }
 
 // No parameters: retain scroll position without charging hidden time to its next sample.
@@ -3559,6 +3495,7 @@ void reset_onboarding()
     s_presentation_generation.store(s_generation, std::memory_order_release);
     s_route = Route::None;
     s_startup_pending = false;
+    s_startup_pair_missing = false;
     s_startup_wifi_error = ESP_OK;
     s_startup_wifi_wait_started_us = -1;
     s_startup_network_passive = false;
@@ -3595,7 +3532,6 @@ void reset_onboarding()
     s_first_boot_persisted = false;
     // Release builds never admit the temporary diagnostic route.
     s_pairing_debug_dismissed = !kPairingDebugEnabled;
-    reset_look_screen();
     s_swipe_active = false;
     s_swipe_route = Route::None;
     s_swipe_axis = GestureAxis::Undecided;
@@ -3619,11 +3555,24 @@ bool onboarding_first_boot_completed()
 void request_saved_setup_startup()
 {
     s_startup_pending = true;
-    // Boot branding runs after this request. The visible evaluation, not boot
-    // allocation/animation time, starts the bounded network grace.
+    s_startup_pair_missing = false;
+    // Begin the saved-network grace when the route reads its first observation.
     s_startup_wifi_wait_started_us = -1;
     s_startup_network_passive = false;
     s_startup_network_presented = false;
+}
+
+// scene: First network route, chosen from the already running service owners.
+// first_boot: True while Wi-Fi or an explicit local choice still owes first-boot persistence.
+esp_err_t start_device_setup(SceneFrame &scene, bool first_boot)
+{
+    reset_onboarding();
+    s_first_boot_persisted = !first_boot;
+    s_pairing_debug_dismissed = true;
+    request_saved_setup_startup();
+    s_startup_pair_missing = true;
+    bool changed = false;
+    return evaluate_saved_setup(scene, changed);
 }
 
 // wifi: Canonical retained credential knowledge; connection intent may arrive later.
@@ -3639,12 +3588,32 @@ bool saved_wifi_startup_grace(const LUNASHELL::WifiSnapshot &wifi, int64_t now_u
     return now_us - s_startup_wifi_wait_started_us < kStartupWifiGraceUs;
 }
 
+// No parameters: keep setup, connection attempts and attention screens in their own routes.
+bool onboarding_dashboard_active()
+{
+    switch (s_route) {
+    case Route::Connected15:
+    case Route::Project17:
+    case Route::Working18:
+    case Route::Response19:
+    case Route::Paused20:
+    case Route::Ended20:
+    case Route::Lost32:
+    case Route::CompanionIdle16:
+    case Route::ActivityUnavailable:
+        return true;
+    default:
+        return false;
+    }
+}
+
 // No parameters: resting setup pages may reopen choices without retiring live work.
 bool can_open_setup_menu()
 {
-    return !s_startup_pending && !s_timeout_cleanup.pending && !s_command_pending &&
+    const bool offline_recovery = s_route == Route::NetworkWait && !s_startup_network_passive;
+    return (!s_startup_pending || offline_recovery) && !s_timeout_cleanup.pending && !s_command_pending &&
         !s_work_busy.load(std::memory_order_acquire) && !s_pairing_owned &&
-        (s_route == Route::None || s_route == Route::LookingForPc14 ||
+        (offline_recovery || s_route == Route::None || s_route == Route::LookingForPc14 || s_route == Route::Failed08 ||
          (s_route == Route::Hello04 && s_hello_waits_for_touch) ||
          s_route == Route::Invitation05 || s_route == Route::Install06 ||
          is_companion_route(s_route) ||
@@ -3661,6 +3630,8 @@ esp_err_t open_setup_menu(SceneFrame &scene)
     }
     // The backend keeps its retained association; opening this view starts no radio work.
     s_setup_returns_to_companion = is_companion_route(s_route) || s_route == Route::LookingForPc14;
+    s_startup_pending = false;
+    s_startup_pair_missing = false;
     set_companion_audio_visible(false);
     s_codex_owned = false;
     wipe(s_codex_code, sizeof(s_codex_code));
@@ -3688,6 +3659,15 @@ esp_err_t open_companion_options(SceneFrame &scene)
     }
     s_options_from_setup = true;
     return enter_route(Route::MakeItYours10, scene);
+}
+
+// scene: Options has admitted a deliberate return to the dashboard.
+esp_err_t open_device_dashboard(SceneFrame &scene)
+{
+    if (s_route != Route::MakeItYours10 || s_command_pending || s_work_busy.load(std::memory_order_acquire)) {
+        return ESP_ERR_NOT_FINISHED;
+    }
+    return enter_route(Route::CompanionIdle16, scene);
 }
 
 // No parameters: consume only a released widget selection admitted by Options.
@@ -3762,8 +3742,8 @@ esp_err_t present_network_wait(SceneFrame &scene, esp_err_t error, bool &changed
     s_startup_network_passive = passive;
     changed = true;
     esp_err_t presentation_error = enter_route(Route::NetworkWait, scene);
-    if (presentation_error == ESP_OK && !passive && error != ESP_OK) {
-        static constexpr char title[] = "Wi-Fi needed";
+    if (presentation_error == ESP_OK && !passive) {
+        static constexpr char title[] = "Wi-Fi offline";
         presentation_error = set_scene_title(scene, {title, sizeof(title) - 1U});
         if (presentation_error == ESP_OK) {
             presentation_error = attach_content(scene);
@@ -3790,11 +3770,22 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
     const bool wifi_ready = wifi.data_valid && !wifi.data_stale && wifi.credentials_configured &&
         wifi.health == LUNASHELL::DeviceHealth::Ready && wifi.last_error == ESP_OK &&
         wifi.started && wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0';
+    const bool pair_missing = s_startup_pair_missing;
     if (!wifi_ready) {
         error = wifi.last_error != ESP_OK ? wifi.last_error :
             !wifi.data_valid || wifi.data_stale ? ESP_ERR_INVALID_STATE : ESP_OK;
         if (saved_wifi_startup_grace(wifi, esp_timer_get_time())) {
             return present_network_wait(scene, error, changed, true);
+        }
+        if (pair_missing) {
+            if (wifi.data_valid && !wifi.data_stale && wifi.connection_state_valid &&
+                !wifi.credentials_configured) {
+                s_startup_pending = false;
+                s_startup_pair_missing = false;
+                changed = true;
+                return start_wifi_pairing(scene, observation.radios.pairing);
+            }
+            return present_network_wait(scene, error, changed, false);
         }
         if (error != ESP_OK) {
             ESP_LOGE(kTag, "Companion startup retains Wi-Fi failure (%s)", esp_err_to_name(error));
@@ -3804,6 +3795,7 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
         s_startup_wifi_error = error;
     }
     s_startup_pending = false;
+    s_startup_pair_missing = false;
     s_startup_network_passive = false;
     s_startup_network_presented = false;
     changed = true;
@@ -3811,6 +3803,23 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
         return enter_route(Route::CompanionIdle16, scene);
     }
     const auto &link = observation.radios.codex_link;
+    if (pair_missing) {
+        if (!link.data_valid || link.data_stale || link.pairing_repair_required ||
+            (!link.retained_link_present && !link.pending_pairing_present)) {
+            return begin_codex_connection(scene, CodexConnectionIntent::Setup);
+        }
+        if (link.state == CodexState::Connected) {
+            return enter_route(Route::Connected15, scene);
+        }
+        if (link.state == CodexState::Failed || link.state == CodexState::TimedOut) {
+            return show_codex_error(scene, link.last_error != ESP_OK ? link.last_error : ESP_ERR_INVALID_STATE);
+        }
+        // The retained-link owner is already reconnecting on the new LAN.
+        s_codex_owned = true;
+        s_codex_attempt = link.attempt_id;
+        s_last_codex_change_us = -1;
+        return enter_route(Route::LookingForPc14, scene);
+    }
     if (!link.data_valid || link.data_stale || link.pairing_repair_required ||
         (!link.retained_link_present && !link.pending_pairing_present && link.last_error != ESP_OK)) {
         error = link.last_error != ESP_OK ? link.last_error : ESP_ERR_INVALID_STATE;
@@ -3822,13 +3831,21 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
     return enter_route(Route::CompanionIdle16, scene);
 }
 
+// scene: Wi-Fi is committed; the next route uses the current CCP association.
+esp_err_t finish_wifi_setup(SceneFrame &scene, bool &changed)
+{
+    s_pairing_owned = false;
+    request_saved_setup_startup();
+    s_startup_pair_missing = true;
+    return evaluate_saved_setup(scene, changed);
+}
+
 // scene: Current first-setup scene, always owned by the existing display worker.
 // completed_scene: Last fully retired text; never advance from a failed/partial frame.
 // active_time_us: Existing animation time, excluding standby and pause.
 // inactivity_active_time_us: Awake route time, including animation pause and excluding standby.
 // changed: Receives whether scene geometry or content needs a new frame.
-// Exception: Returns infrastructure/route errors; optional look-write failures remain
-// explicit operation results in the canonical snapshot and the reusable error view.
+// Exception: Returns the original infrastructure or route error.
 esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene,
                             int64_t active_time_us, int64_t inactivity_active_time_us, bool &changed)
 {
@@ -3845,45 +3862,6 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         wipe(&s_result, sizeof(s_result));
         s_result_ready.store(false, std::memory_order_release);
         s_work_busy.store(false, std::memory_order_release);
-    }
-    if (have_result && result.command.work == Work::SaveLook) {
-        if (result.publication_error != ESP_OK) {
-            return result.publication_error;
-        }
-        // Persistence is optional at this orchestrator boundary. The worker's real
-        // write result is already canonical; failed publication is still fatal.
-        if (result.error == ESP_OK) {
-#if CODY_ENABLE_PEARL_JELLY
-            const esp_err_t selection_error = select_jelly_skin(result.command.look_save.requested_id);
-            if (selection_error != ESP_OK) {
-                return selection_error;
-            }
-#else
-            ESP_LOGE(kTag, "Look completion without a renderer (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
-            return ESP_ERR_NOT_SUPPORTED;
-#endif
-            changed = true;
-        } else {
-            ESP_LOGE(kTag, "Optional look write failed; display continues: request=%lu (%s)",
-                     static_cast<unsigned long>(result.command.look_save.request_id), esp_err_to_name(result.error));
-        }
-        if (result.command.generation == s_generation && s_route == Route::Look11) {
-            s_command_pending = false;
-            scene.content.control_revision = ++s_navigation_revision;
-            const auto completion = complete_look_save(scene, result.command.look_save.request_id, result.error);
-            if (completion.presentation_error != ESP_OK) {
-                return completion.presentation_error;
-            }
-            const esp_err_t content_error = attach_look_content(scene, s_navigation_revision);
-            if (content_error != ESP_OK) {
-                return content_error;
-            }
-            changed = true;
-        }
-        // A reset may retire the view while NVS is busy. The copied request and
-        // canonical outcome survive it; never resurrect a retired screen.
-        wipe(&result, sizeof(result));
-        return ESP_OK;
     }
     if (s_timeout_cleanup.pending) {
         LUNASHELL::ConnectivityObservation observation{};
@@ -3906,7 +3884,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         if (startup_error != ESP_OK || changed || s_route == Route::None) {
             return startup_error;
         }
-        // A pending reconnect still owns a visible, normally typed decision page.
+        // A pending reconnect keeps its current decision page while the radio retries.
     }
     if (s_route == Route::None) {
         wipe(&result, sizeof(result));
@@ -3941,10 +3919,6 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
     if (scene.content.control_revision != s_navigation_revision) {
         scene.content.control_revision = s_navigation_revision;
         changed = true;
-    }
-    if (s_route == Route::Look11) {
-        wipe(&result, sizeof(result));
-        return update_look_text(scene, s_navigation_revision, changed);
     }
     uint16_t preceding = scene.definition->title_visible ? scene.title.text.length : 0;
     bool caption_changed = false;
@@ -4172,16 +4146,19 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         }
         return enter_route(cleanup == CodexCleanup::Forget ? Route::CodexForgotten : Route::SetupMenu, scene);
     }
-    if (is_companion_route(s_route)) {
+    const bool companion = is_companion_route(s_route) && !(s_route == Route::LookingForPc14 && s_codex_owned);
+    const bool idle_options = s_route == Route::MakeItYours10 && !s_command_pending &&
+        !s_work_busy.load(std::memory_order_acquire);
+    if (companion || idle_options) {
         bool event_handled = false;
         const esp_err_t event_error = present_codex_event(codex_link, scene, active_time_us,
             inactivity_active_time_us, changed, event_handled);
         if (event_error != ESP_OK || event_handled) {
             return event_error;
         }
-        // Home keeps its companion route even when no onboarding flow owns CCP.
-        // Pending native questions and approvals above retain their own presentation.
-        return present_companion_activity(active_time_us, scene, changed);
+        if (companion) {
+            return present_companion_activity(active_time_us, scene, changed);
+        }
     }
     if (s_codex_owned) {
         if (s_command_pending && codex_link.data_valid &&
@@ -4204,9 +4181,11 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             if (codex_link.state == CodexState::Paired &&
                 s_route == Route::ConnectCodex12) {
                 s_codex_error_visible = false;
-                error = enter_route(Route::SetupComplete13, scene);
+                wipe(s_codex_code, sizeof(s_codex_code));
+                error = resume_codex_connection(scene, codex_link);
             } else if (codex_link.state == CodexState::Connected &&
                        s_route == Route::LookingForPc14) {
+                s_codex_owned = false;
                 error = enter_route(Route::Connected15, scene);
             } else if (codex_link.state == CodexState::Discovering &&
                        (s_route == Route::Connected15 || s_route == Route::ConnectCodex12)) {
@@ -4242,8 +4221,8 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             const bool lan_ready = wifi.data_valid && !wifi.data_stale && wifi.last_error == ESP_OK &&
                 wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0';
             const char *caption = !lan_ready ? "Wi-Fi unavailable" :
-                codex_link.pending_pairing_present ? "Finishing pairing" : "Finding your PC";
-            const char *detail = lan_ready ? "Open Codex to rejoin" : "Your link is saved";
+                codex_link.pending_pairing_present ? "Finishing pairing" : "Open Codex on your PC";
+            const char *detail = "Pairing stays saved";
             const uint16_t length = static_cast<uint16_t>(std::strlen(caption));
             if (s_view.lines[0].text.length != length ||
                 std::memcmp(s_view.lines[0].text.characters, caption, length) != 0) {
@@ -4262,12 +4241,11 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         }
         if (s_route == Route::ConnectCodex12 ||
             s_route == Route::SetupComplete13 ||
-            s_route == Route::LookingForPc14 ||
-            is_companion_route(s_route)) {
-            if (is_companion_route(s_route)) {
-                return present_companion_activity(active_time_us, scene, changed);
-            }
+            s_route == Route::LookingForPc14) {
             return ESP_OK;
+        }
+        if (is_companion_route(s_route)) {
+            return present_companion_activity(active_time_us, scene, changed);
         }
     }
     if (!s_pairing_owned) {
@@ -4423,7 +4401,9 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                 error = enter_pairing_debug(observation, scene);
             }
 #endif
-        } else if (!online && s_route != Route::Online09) {
+        } else if (online) {
+            return finish_wifi_setup(scene, changed);
+        } else if (s_route != Route::Online09) {
             // Manager completion alone is not an online route. Keep the pending
             // presentation until the same canonical observation has a live IP.
             if (s_route != Route::Pairing07 || s_view.line_count == 0 || s_view.action_visible) {
@@ -4474,7 +4454,6 @@ bool previous_navigation_available()
         return s_event_plan.back;
     }
     return s_route == Route::SetupMenu || s_route == Route::CodexReplace || s_route == Route::CodexForget ||
-        s_route == Route::Look11 ||
         s_route == Route::Install06 ||
         options_back_available() ||
         (s_view.action_visible && s_view.action_id == OnboardingAction::Cancel);
@@ -4548,11 +4527,6 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     if (back_hit && s_route == Route::Install06) {
         return enter_route(Route::Invitation05, scene);
     }
-    if (back_hit && s_route == Route::Look11) {
-        SceneId destination;
-        const esp_err_t error = look_exit_destination(LookExit::Back, destination);
-        return error == ESP_OK ? enter_host_destination(destination, scene) : error;
-    }
     if (back_hit && s_route == Route::SetupMenu) {
         const bool return_to_companion = s_setup_returns_to_companion;
         scene = {};
@@ -4593,10 +4567,8 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return ESP_OK;
     }
     if (action_hit && s_route == Route::Online09) {
-        // Pairing ownership ends only after the persisted handoff and the user's
-        // explicit Continue; later journey screens must not be forced back to 09.
-        s_pairing_owned = false;
-        return enter_route(Route::MakeItYours10, scene);
+        bool changed = false;
+        return finish_wifi_setup(scene, changed);
     }
     if (action_hit && s_route == Route::MakeItYours10) {
         if (s_preference_error != ESP_OK) {
@@ -4629,6 +4601,9 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
             return choose_local_companion(scene);
         }
         return begin_codex_connection(scene, CodexConnectionIntent::Retry);
+    }
+    if (action_hit && s_route == Route::LookingForPc14) {
+        return choose_local_companion(scene);
     }
     if (s_route == Route::Failed08 && s_local_failure && s_failed_work == Work::InstallQr) {
         // The installation QR is local; no pairing session was started by this work.
@@ -4724,19 +4699,13 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         s_session = 0;
         return enter_route(Route::Invitation05, scene);
     }
-    Work work = Work::Cancel;
     if (s_route == Route::Install06) {
-        work = pairing.state == PairState::Failed || pairing.state == PairState::TimedOut
-            ? Work::Retry : Work::Start;
+        return start_wifi_pairing(scene, pairing);
     }
-    s_cancel_to_install = work == Work::Cancel;
-    const esp_err_t request_error = enqueue(work, pairing.attempt_id);
+    s_cancel_to_install = true;
+    const esp_err_t request_error = enqueue(Work::Cancel, pairing.attempt_id);
     if (request_error != ESP_OK) {
         return show_error(scene, request_error);
-    }
-    if (work != Work::Cancel) {
-        s_session = 0;
-        return enter_route(Route::Pairing07, scene);
     }
     if (s_route == Route::Pairing07) {
         // Retire the session's secret immediately; navigation still awaits Cancelled.
@@ -4789,7 +4758,9 @@ esp_err_t activate_setup_choice(SceneFrame &scene, OnboardingAction action)
     if (action == OnboardingAction::NetworkSetup) {
         s_startup_pending = false;
         s_codex_owned = false;
-        return enter_route(Route::Hello04, scene);
+        LUNASHELL::ConnectivityObservation observation{};
+        error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
+        return error == ESP_OK ? start_wifi_pairing(scene, observation.radios.pairing) : show_error(scene, error);
     }
     if (action == OnboardingAction::AcceptCodex || action == OnboardingAction::ConnectCodex) {
         return begin_codex_connection(scene, CodexConnectionIntent::Setup);
@@ -4839,7 +4810,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
             return ESP_OK;
         }
         // Timeout Welcome is an escape back to choices. Do not start Wi-Fi on
-        // the first pressed sample: the character hold must own its full contact.
+        // the first pressed sample: act only after a complete stationary contact.
         consumed = true;
         if (pressed_edge) {
             s_swipe_active = can_open_setup_menu();
@@ -4869,7 +4840,6 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
 #endif
     if (s_swipe_route != s_route || (s_swipe_active && s_swipe_rotation != rotation_degrees)) {
         s_swipe_active = false;
-        cancel_look_touch();
     }
     const CODY2D::CapsuleControl back{kBackBounds, {}, NavigationData::top, NavigationData::bottom, true};
     const CODY2D::CapsuleControl next{kForwardBounds, {}, NavigationData::top, NavigationData::bottom, true};
@@ -4945,8 +4915,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
             return activate_onboarding_navigation(scene,
                 back_hit ? NavigationDirection::Previous : NavigationDirection::Next);
         }
-        // A candidate does not steal Cody's drag. Only an unmistakable horizontal
-        // release navigates; vertical drags retain the look-list's scroll behavior.
+        // Only an unmistakable horizontal release navigates on an ordinary setup page.
         s_swipe_active = s_options_tap_admitted || point_in_rect({73, 73, 320, 320}, point);
         s_swipe_start = point;
         s_swipe_last = point;
@@ -4990,7 +4959,6 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         }
         if (s_swipe_axis == GestureAxis::Horizontal && std::abs(dx) >= 48 &&
             std::abs(dx) * 2 > std::abs(dy) * 3) {
-            cancel_look_touch();
             consumed = true;
             return activate_onboarding_navigation(scene,
                 dx < 0 ? NavigationDirection::Next : NavigationDirection::Previous);
@@ -5013,8 +4981,8 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                     continue;
                 }
                 switch (row.action) {
-                case OnboardingAction::CodyLook:
-                    return enter_look_route(scene, {SceneId::MakeItYours, SceneId::MakeItYours});
+                case OnboardingAction::Connections:
+                    return enter_route(Route::SetupMenu, scene);
                 case OnboardingAction::DisplayOptions:
                     return show_options_page(scene, OptionsPage::Display);
                 case OnboardingAction::BehaviorOptions:
@@ -5037,34 +5005,6 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
             }
         }
     }
-    if (s_route == Route::Look11) {
-        LookTouchResult result;
-        const esp_err_t error = handle_look_touch(scene, pressed ? point : s_swipe_last,
-            pressed, pressed_edge, s_swipe_axis == GestureAxis::Horizontal, result);
-        consumed = result.consumed;
-        if (error != ESP_OK) {
-            return error;
-        }
-        if (result.save_id != nullptr) {
-            return enqueue_look_save(scene, result.save_id);
-        }
-        if (result.selection_confirmed) {
-            const esp_err_t content_error = attach_look_content(scene, s_navigation_revision);
-            if (content_error != ESP_OK) {
-                return content_error;
-            }
-            consumed = true;
-        }
-        if (result.done_requested) {
-            SceneId destination;
-            const esp_err_t destination_error = look_exit_destination(LookExit::Done, destination);
-            if (destination_error != ESP_OK) {
-                return destination_error;
-            }
-            consumed = true;
-            return enter_host_destination(destination, scene);
-        }
-    }
     return ESP_OK;
 }
 
@@ -5073,19 +5013,34 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
 // strip: Caller-owned destination tile, including the lateral region.
 // first_row: Logical tile y origin.
 // first_column: Logical tile x origin.
+// opacity: Current visibility across the navigation fade.
+// background: Native RGB565 scene color.
 // Exception: Returns the first real capsule or stroke drawing error.
 esp_err_t draw_navigation_chevron(NavigationDirection direction, bool enabled,
-                                  CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+                                  CODY2D::Surface strip, uint16_t first_row, uint16_t first_column,
+                                  uint8_t opacity, uint16_t background)
 {
+    if (opacity == 0) {
+        return ESP_OK;
+    }
     const auto bounds = direction == NavigationDirection::Previous ? kBackBounds : kForwardBounds;
-    const CODY2D::CapsuleControl control{bounds, {}, NavigationData::top, NavigationData::bottom, enabled};
+    CODY2D::CapsuleControl control{bounds, {}, NavigationData::top, NavigationData::bottom, enabled};
+    if (opacity != 255) {
+        const uint8_t brightness = enabled ? 255 : 128;
+        control.top_color = CODY2D::blend_rgb565(
+            CODY2D::fade_rgb565_to_black(control.top_color, brightness), background, opacity);
+        control.bottom_color = CODY2D::blend_rgb565(
+            CODY2D::fade_rgb565_to_black(control.bottom_color, brightness), background, opacity);
+        control.enabled = true; // Disabled shading was applied before the background blend.
+    }
     esp_err_t error = CODY2D::draw_capsule_rows(control, strip, first_row, first_column);
     const float center_x = bounds.x + bounds.width / 2.f;
     const float center_y = bounds.y + bounds.height / 2.f;
     const float sign = direction == NavigationDirection::Previous ? -1.f : 1.f;
     const CODY2D::Vec2 points[] = {{center_x - sign * 3.f, center_y - 8.f},
         {center_x + sign * 5.f, center_y}, {center_x - sign * 3.f, center_y + 8.f}};
-    const uint16_t ink = CODY2D::fade_rgb565_to_black(NavigationData::ink, enabled ? 255 : 128);
+    const uint16_t ink = CODY2D::blend_rgb565(
+        CODY2D::fade_rgb565_to_black(NavigationData::ink, enabled ? 255 : 128), background, opacity);
     for (uint16_t index = 0; error == ESP_OK && index < 2; ++index) {
         error = CODY2D::stroke_rows(strip, first_row, points[index], points[index + 1U], 2.f, ink, first_column);
     }
@@ -5093,21 +5048,24 @@ esp_err_t draw_navigation_chevron(NavigationDirection direction, bool enabled,
 }
 
 // strip: Valid caller-owned logical tile outside the content slot as well.
-// first_row: Logical tile y origin, shared with all cloud/text rendering.
+// first_row: Logical tile y origin, shared with scene rendering.
 // first_column: Logical tile x origin, shared with hit testing.
+// opacity: Current visibility across the navigation fade.
+// background: Native RGB565 scene color.
 // Exception: Returns the real surface or primitive drawing error.
 esp_err_t draw_onboarding_navigation(CODY2D::Surface strip, uint16_t first_row,
-                                    uint16_t first_column)
+                                    uint16_t first_column, uint8_t opacity, uint16_t background)
 {
     esp_err_t error = ESP_OK;
     if (previous_control_visible()) {
         const bool enabled = !s_command_pending &&
             (s_view.action_id != OnboardingAction::Cancel || s_view.action.enabled);
-        error = draw_navigation_chevron(NavigationDirection::Previous, enabled, strip, first_row, first_column);
+        error = draw_navigation_chevron(NavigationDirection::Previous, enabled, strip, first_row, first_column,
+            opacity, background);
     }
     if (error == ESP_OK && next_control_visible()) {
         error = draw_navigation_chevron(NavigationDirection::Next, !s_command_pending && s_view.action.enabled,
-            strip, first_row, first_column);
+            strip, first_row, first_column, opacity, background);
     }
     return error;
 }
@@ -5123,17 +5081,33 @@ LateralNavigation lateral_navigation_at(CODY2D::Point point)
     return CODY2D::capsule_contains(next, point) ? LateralNavigation::Next : LateralNavigation::None;
 }
 
+// point: Logical coordinates in the current scene, with no touch side effects.
+bool onboarding_lateral_control_at(CODY2D::Point point)
+{
+    if (is_codex_event_route(s_route)) {
+        return event_presentation::hit_back(s_event_plan, s_view.actions_visible, point.x, point.y);
+    }
+    switch (lateral_navigation_at(point)) {
+    case LateralNavigation::Previous: return previous_control_visible();
+    case LateralNavigation::Next: return next_control_visible();
+    case LateralNavigation::None: return false;
+    }
+    return false;
+}
+
 // next: Whether a forward page exists.
 // strip: Borrowed logical display tile.
 // first_row: Logical tile y origin.
 // first_column: Logical tile x origin.
+// opacity: Current visibility against the black dashboard.
 // Exception: Returns the original capsule or stroke drawing error.
 esp_err_t draw_lateral_navigation(bool next, CODY2D::Surface strip,
-                                  uint16_t first_row, uint16_t first_column)
+                                  uint16_t first_row, uint16_t first_column, uint8_t opacity)
 {
-    const esp_err_t error = draw_navigation_chevron(NavigationDirection::Previous, true, strip, first_row, first_column);
+    const esp_err_t error = draw_navigation_chevron(NavigationDirection::Previous, true, strip, first_row,
+        first_column, opacity, 0);
     return error == ESP_OK && next
-        ? draw_navigation_chevron(NavigationDirection::Next, true, strip, first_row, first_column) : error;
+        ? draw_navigation_chevron(NavigationDirection::Next, true, strip, first_row, first_column, opacity, 0) : error;
 }
 
 } // namespace CODY

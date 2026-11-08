@@ -35,6 +35,23 @@ struct ClockPreferences {
     uint16_t quiet_end_minute = 7 * 60;
 };
 
+// One supplied UTC instant projected through the time owner's configured zone.
+struct ClockLocalCalendar {
+    int64_t utc_epoch_seconds = 0;
+    int16_t utc_offset_minutes = 0;
+    uint16_t year = 0;
+    uint8_t month = 0;
+    uint8_t day = 0;
+    uint8_t hour = 0;
+    uint8_t minute = 0;
+    ClockTimezone timezone = ClockTimezone::Utc;
+};
+
+// utc_epoch_seconds: Actual instant supplied by the caller, independent of the current wall clock.
+// calendar: Receives the projected date and its exact offset on success only.
+// Exception: Returns an error if the active timezone or requested date is unavailable.
+esp_err_t project_clock_local_calendar(int64_t utc_epoch_seconds, ClockLocalCalendar &calendar);
+
 // timezone: Explicit reviewed identity; unsupported values return nullptr, never UTC.
 inline const char *clock_timezone_spec(ClockTimezone timezone)
 {

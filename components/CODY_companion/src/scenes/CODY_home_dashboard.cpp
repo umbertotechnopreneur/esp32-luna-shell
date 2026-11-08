@@ -592,6 +592,13 @@ const char *build_field_text(LUNASHELL::FirmwareBuildFieldState state, const cha
 }
 } // namespace
 
+// activity: Canonical title plus its original source age.
+// now_us: Monotonic observation time.
+const char *codex_chat_title_caption(const LUNASHELL::CodexActivitySnapshot &activity, int64_t now_us)
+{
+    return chat_title_text(activity, now_us);
+}
+
 // state: Serialized display-only clock; manual input restarts a complete visible dwell.
 void reset_home_dashboard_rotation(HomeDashboardRotationState &state)
 {

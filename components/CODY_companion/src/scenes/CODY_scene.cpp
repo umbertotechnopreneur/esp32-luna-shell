@@ -33,7 +33,9 @@ constexpr int32_t kCenter = 233;
 constexpr int32_t kRadiusSquared = kCenter * kCenter;
 constexpr uint32_t kActivityCycleUs = kActivityOverlayCycleUs;
 constexpr uint32_t kResponseAccentUs = kActivityOverlayResponseUs;
+#if !defined(CODY_DEVICE_UI_ONLY)
 constexpr uint32_t kActivityPaintStepUs = 50000;
+#endif
 // state: Typed presentation identity admitted by the authenticated activity owner.
 bool valid_activity_overlay_state(ActivityOverlayState state)
 {
@@ -42,6 +44,7 @@ bool valid_activity_overlay_state(ActivityOverlayState state)
         state == ActivityOverlayState::Compacting;
 }
 
+#if !defined(CODY_DEVICE_UI_ONLY)
 // frame: Active-time overlay state; completed response accents stop producing damage.
 uint32_t activity_paint_tick(const ActivityOverlayFrame &frame)
 {
@@ -52,6 +55,7 @@ uint32_t activity_paint_tick(const ActivityOverlayFrame &frame)
         frame.state == ActivityOverlayState::ResponseReady ? kResponseAccentUs : kActivityCycleUs) /
         kActivityPaintStepUs;
 }
+#endif
 
 // bounds: Optional slot whose four zero edges explicitly mean absent.
 // Malformed nonzero rectangles remain errors rather than being treated as empty.
@@ -60,6 +64,7 @@ bool empty_bounds(const DamageRect &bounds)
     return bounds.left == 0 && bounds.top == 0 && bounds.right == 0 && bounds.bottom == 0;
 }
 
+#if !defined(CODY_DEVICE_UI_ONLY)
 // previous: Previously admitted logical rectangle; no scene or caller-owned state is copied.
 // current: Newly admitted logical rectangle whose four edges determine its damage identity.
 bool same_damage_bounds(const DamageRect &previous, const DamageRect &current)
@@ -67,6 +72,7 @@ bool same_damage_bounds(const DamageRect &previous, const DamageRect &current)
     return previous.left == current.left && previous.top == current.top &&
         previous.right == current.right && previous.bottom == current.bottom;
 }
+#endif
 
 // bounds: Nonempty half-open logical rectangle, including every visible content pixel.
 bool inside_circle(const DamageRect &bounds)
@@ -160,10 +166,13 @@ esp_err_t begin_scene(const SceneDefinition &definition, SceneFrame &frame)
 {
     if (definition.id == SceneId::AnimationDemo || definition.font == nullptr ||
         definition.name == nullptr || definition.name[0] == '\0' ||
-        definition.character_interval_ms > 1000 || definition.title_top >= 466 ||
-        definition.title.length == 0 || definition.intro.bitmap_fade_out_ms > 10000 ||
+        definition.title_top >= 466 || definition.title.length == 0
+#if !defined(CODY_DEVICE_UI_ONLY)
+        || definition.character_interval_ms > 1000 || definition.intro.bitmap_fade_out_ms > 10000 ||
         definition.intro.cloud_fade_in_ms > 10000 || definition.entrance.move_ms > 10000 ||
-        definition.entrance.text_delay_ms > 10000) {
+        definition.entrance.text_delay_ms > 10000
+#endif
+    ) {
         ESP_LOGE(kTag, "Scene definition rejected: identity=%u (%s)", to_index(definition.id),
             esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
@@ -178,6 +187,7 @@ esp_err_t begin_scene(const SceneDefinition &definition, SceneFrame &frame)
             to_index(definition.id), definition.name, esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
+#if !defined(CODY_DEVICE_UI_ONLY)
     error = validate_rig_pose(definition.face, definition.cloud);
     if (error == ESP_OK && definition.entrance.move_ms != 0) {
         error = validate_rig_pose(definition.face, definition.entrance.from);
@@ -185,6 +195,7 @@ esp_err_t begin_scene(const SceneDefinition &definition, SceneFrame &frame)
     if (error != ESP_OK) {
         return error;
     }
+#endif
     error = CODY2D::validate_mono_font(*definition.font);
     if (error != ESP_OK) {
         return error;
@@ -209,11 +220,15 @@ esp_err_t begin_scene(const SceneDefinition &definition, SceneFrame &frame)
         return ESP_ERR_INVALID_SIZE;
     }
     prepared.definition = &definition;
+#if defined(CODY_DEVICE_UI_ONLY)
+    prepared.visible_characters = prepared.title.text.length;
+#else
     prepared.intro_phase = definition.intro.bitmap_fade_out_ms != 0 ? SceneIntroPhase::BitmapFadeOut :
         definition.intro.cloud_fade_in_ms != 0 ? SceneIntroPhase::CloudFadeIn : SceneIntroPhase::Complete;
     prepared.visible_characters = prepared.intro_phase == SceneIntroPhase::Complete &&
         definition.character_interval_ms == 0 && definition.entrance.move_ms == 0 &&
         definition.entrance.text_delay_ms == 0 ? definition.title.length : 0;
+#endif
     prepared.valid = true;
     frame = prepared;
     return ESP_OK;
@@ -250,8 +265,12 @@ esp_err_t set_scene_title(SceneFrame &frame, CODY2D::TextSpan title)
         return ESP_ERR_INVALID_SIZE;
     }
     frame.title = prepared;
+#if defined(CODY_DEVICE_UI_ONLY)
+    frame.visible_characters = title.length;
+#else
     frame.visible_characters = frame.intro_phase == SceneIntroPhase::Complete &&
         definition.character_interval_ms == 0 ? title.length : 0;
+#endif
     frame.character_remainder_us = 0;
     frame.text_elapsed_us = 0;
     return ESP_OK;
@@ -265,6 +284,9 @@ esp_err_t prepare_scene_presentation(const SceneFrame &frame, ScenePresentation 
         ESP_LOGE(kTag, "Scene presentation rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
+#if defined(CODY_DEVICE_UI_ONLY)
+    presentation = {};
+#else
     ScenePresentation prepared{};
     uint32_t duration_us = 0;
     switch (frame.intro_phase) {
@@ -297,6 +319,7 @@ esp_err_t prepare_scene_presentation(const SceneFrame &frame, ScenePresentation 
     const uint32_t level = (frame.intro_elapsed_us * 255U + duration_us / 2U) / duration_us;
     prepared.opacity = static_cast<uint8_t>(prepared.boot_bitmap_visible ? 255U - level : level);
     presentation = prepared;
+#endif
     return ESP_OK;
 }
 
@@ -325,6 +348,14 @@ esp_err_t advance_scene(SceneFrame &frame, int64_t active_delta_us)
         next.activity_overlay.elapsed_us = static_cast<uint32_t>(
             (static_cast<uint64_t>(next.activity_overlay.elapsed_us) + active_delta_us) % kActivityCycleUs);
     }
+#if defined(CODY_DEVICE_UI_ONLY)
+    // Event attention and other semantic dwell still use this clock after text
+    // is presented in full. The route never runs a character entrance.
+    next.text_elapsed_us += std::min<uint64_t>(static_cast<uint64_t>(active_delta_us),
+        std::numeric_limits<uint64_t>::max() - next.text_elapsed_us);
+    frame = next;
+    return ESP_OK;
+#else
     int64_t remaining_us = active_delta_us;
     // At most two phases are consumed, even after a delayed frame. Only time
     // left after full visibility belongs to the typewriter clock.
@@ -386,8 +417,10 @@ esp_err_t advance_scene(SceneFrame &frame, int64_t active_delta_us)
     next.character_remainder_us = next.visible_characters == next.title.text.length ? 0 : elapsed_us % interval_us;
     frame = next;
     return ESP_OK;
+#endif
 }
 
+#if !defined(CODY_DEVICE_UI_ONLY)
 // frame: Valid generic scene, not a special-case screen number.
 // transform: Receives placement only after frame validation succeeds.
 // Exception: Returns ESP_ERR_INVALID_STATE for a missing scene definition.
@@ -411,6 +444,7 @@ esp_err_t scene_cloud_transform(const SceneFrame &frame, Transform &transform)
         from.scale + (definition.cloud.scale - from.scale) * eased};
     return ESP_OK;
 }
+#endif
 
 // frame: Valid prepared frame; all timing derives from its active presentation clock.
 // length: Bounded ASCII character count of this content line.
@@ -418,6 +452,11 @@ esp_err_t scene_cloud_transform(const SceneFrame &frame, Transform &transform)
 uint16_t scene_content_characters(const SceneFrame &frame, uint16_t length,
                                  uint16_t preceding_characters)
 {
+#if defined(CODY_DEVICE_UI_ONLY)
+    (void)frame;
+    (void)preceding_characters;
+    return length;
+#else
     const auto &definition = *frame.definition;
     const uint32_t start_us = (definition.entrance.move_ms + definition.entrance.text_delay_ms) * 1000U;
     if (frame.intro_phase != SceneIntroPhase::Complete || frame.entrance_elapsed_us < start_us) {
@@ -430,6 +469,7 @@ uint16_t scene_content_characters(const SceneFrame &frame, uint16_t length,
     const uint64_t total = frame.text_elapsed_us / interval_us;
     return total <= preceding_characters ? 0 :
         static_cast<uint16_t>(std::min<uint64_t>(length, total - preceding_characters));
+#endif
 }
 
 // frame: Prepared scene whose definition specifies whether its title is drawn.
@@ -472,6 +512,7 @@ esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content)
     return ESP_OK;
 }
 
+#if !defined(CODY_DEVICE_UI_ONLY)
 // previous: Last completely displayed text/content state, not a partially written frame.
 // current: Next prepared scene sharing the same stable scene identity.
 // plan: Existing cloud damage; text/content changes are accumulated, never cleared.
@@ -627,6 +668,7 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
     }
     return ESP_OK;
 }
+#endif
 
 // frame: Valid immutable text prefix and optional content for this frame.
 // strip: Cloud-composited caller-owned RGB565 tile; this layer does not clear it.
