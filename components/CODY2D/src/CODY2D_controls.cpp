@@ -177,6 +177,18 @@ constexpr bool qr_finder_contains(float x, float y, float left, float top)
         (dx >= 2.5f && dx < 4.5f && dy >= 2.5f && dy < 4.5f);
 }
 
+// x: Continuous native 24-pixel viewport column.
+// y: Continuous native viewport row.
+constexpr bool wifi_contains(float x, float y)
+{
+    const float dx = x - 12.f;
+    return (y < 20.f - (dx < 0.f ? -dx : dx) &&
+        (ring_contains(x, y, 12.f, 20.f, 14.f) ||
+         ring_contains(x, y, 12.f, 20.f, 9.5f) ||
+         ring_contains(x, y, 12.f, 20.f, 5.f))) ||
+        stroke_contains(x, y, 12.f, 20.f, 12.f, 20.f, 1.4f);
+}
+
 // icon: Stable semantic identity; shape is independent of label and list ordering.
 // x: Continuous native 24-pixel viewport column.
 // y: Continuous native viewport row.
@@ -193,11 +205,32 @@ constexpr bool icon_contains(ActionIcon icon, float x, float y)
         return lower || upper || stroke_contains(x, y, 9.f, 15.f, 15.f, 9.f);
     }
     case ActionIcon::Wifi:
-        return (y < 20.f - (dx < 0.f ? -dx : dx) &&
-            (ring_contains(x, y, 12.f, 20.f, 14.f) ||
-             ring_contains(x, y, 12.f, 20.f, 9.5f) ||
-             ring_contains(x, y, 12.f, 20.f, 5.f))) ||
-            stroke_contains(x, y, 12.f, 20.f, 12.f, 20.f, 1.4f);
+        return wifi_contains(x, y);
+    case ActionIcon::WifiOff:
+        return stroke_contains(x, y, 4.f, 20.f, 20.f, 4.f) ||
+            (wifi_contains(x, y) && !stroke_contains(x, y, 4.f, 20.f, 20.f, 4.f, 2.3f));
+    case ActionIcon::DownloadPhone: {
+        const bool outline = stroke_contains(x, y, 8.f, 2.5f, 16.f, 2.5f) ||
+            stroke_contains(x, y, 8.f, 21.5f, 16.f, 21.5f) ||
+            stroke_contains(x, y, 6.f, 4.5f, 6.f, 19.5f) ||
+            stroke_contains(x, y, 18.f, 4.5f, 18.f, 19.5f) ||
+            stroke_contains(x, y, 6.f, 4.5f, 8.f, 2.5f) ||
+            stroke_contains(x, y, 16.f, 2.5f, 18.f, 4.5f) ||
+            stroke_contains(x, y, 6.f, 19.5f, 8.f, 21.5f) ||
+            stroke_contains(x, y, 16.f, 21.5f, 18.f, 19.5f);
+        return outline || stroke_contains(x, y, 12.f, 6.f, 12.f, 15.f) ||
+            stroke_contains(x, y, 9.f, 12.f, 12.f, 15.f) ||
+            stroke_contains(x, y, 15.f, 12.f, 12.f, 15.f);
+    }
+    case ActionIcon::Bluetooth:
+        return stroke_contains(x, y, 11.5f, 3.f, 11.5f, 21.f) ||
+            stroke_contains(x, y, 11.5f, 3.f, 16.5f, 7.5f) ||
+            stroke_contains(x, y, 16.5f, 7.5f, 6.5f, 16.5f) ||
+            stroke_contains(x, y, 6.5f, 7.5f, 16.5f, 16.5f) ||
+            stroke_contains(x, y, 16.5f, 16.5f, 11.5f, 21.f);
+    case ActionIcon::ChevronRight:
+        return stroke_contains(x, y, 9.f, 6.f, 15.f, 12.f, 1.3f) ||
+            stroke_contains(x, y, 15.f, 12.f, 9.f, 18.f, 1.3f);
     case ActionIcon::Gear: {
         const float ax = dx < 0.f ? -dx : dx;
         const float ay = dy < 0.f ? -dy : dy;
@@ -324,6 +357,10 @@ const uint8_t *icon_coverage(ActionIcon icon)
     case ActionIcon::Rotate: return cached_icon_coverage<ActionIcon::Rotate>();
     case ActionIcon::Sound: return cached_icon_coverage<ActionIcon::Sound>();
     case ActionIcon::Orientation: return cached_icon_coverage<ActionIcon::Orientation>();
+    case ActionIcon::WifiOff: return cached_icon_coverage<ActionIcon::WifiOff>();
+    case ActionIcon::DownloadPhone: return cached_icon_coverage<ActionIcon::DownloadPhone>();
+    case ActionIcon::Bluetooth: return cached_icon_coverage<ActionIcon::Bluetooth>();
+    case ActionIcon::ChevronRight: return cached_icon_coverage<ActionIcon::ChevronRight>();
     case ActionIcon::None: return nullptr;
     }
     return nullptr;
@@ -348,6 +385,71 @@ uint16_t gradient_color(uint16_t top, uint16_t bottom, uint32_t level)
 }
 
 } // namespace
+
+// icon: Semantic glyph, or None for no drawing.
+// bounds: Logical square in the panel coordinate system.
+// color: Native RGB565 glyph color.
+// strip: Borrowed tile; the icon can cross tile edges in either direction.
+// first_row: Logical y origin of the tile.
+// first_column: Logical x origin of the tile.
+// Exception: Returns the original invalid surface or geometry error.
+esp_err_t draw_action_icon_rows(ActionIcon icon, Rect bounds, uint16_t color,
+                               Surface strip, uint16_t first_row, uint16_t first_column)
+{
+    const esp_err_t surface_error = validate_surface(strip);
+    if (surface_error != ESP_OK) {
+        return surface_error;
+    }
+    if (bounds.width == 0 || bounds.width != bounds.height ||
+        bounds.x + bounds.width > 466 || bounds.y + bounds.height > 466 ||
+        static_cast<uint32_t>(first_row) + strip.height > 466 ||
+        static_cast<uint32_t>(first_column) + strip.width > 466 ||
+        static_cast<uint8_t>(icon) > static_cast<uint8_t>(ActionIcon::ChevronRight)) {
+        ESP_LOGE(kTag, "Action icon geometry or tile origin rejected (%s)",
+            esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const uint8_t *glyph = icon_coverage(icon);
+    if (glyph == nullptr) {
+        return ESP_OK;
+    }
+    constexpr int source_size = 24;
+    constexpr int sample_unit = 256;
+    constexpr int source_last = source_size - 1;
+    constexpr int sample_area = sample_unit * sample_unit;
+    const uint16_t top = std::max(first_row, bounds.y);
+    const uint16_t bottom = std::min<uint16_t>(first_row + strip.height, bounds.y + bounds.height);
+    const uint16_t left = std::max(first_column, bounds.x);
+    const uint16_t right = std::min<uint16_t>(first_column + strip.width, bounds.x + bounds.width);
+    // Sample the same 24 px mask as a capsule. Pixel-center interpolation gives
+    // exact coverage at native size and smooth edges for large status icons.
+    for (uint16_t row = top; row < bottom; ++row) {
+        const int sample_y = std::clamp(((row - bounds.y) * 2 + 1) * source_size *
+            (sample_unit / 2) / bounds.height - sample_unit / 2, 0, source_last * sample_unit);
+        const int y0 = sample_y / sample_unit;
+        const int y1 = std::min(y0 + 1, source_last);
+        const int fraction_y = sample_y % sample_unit;
+        for (uint16_t column = left; column < right; ++column) {
+            const int sample_x = std::clamp(((column - bounds.x) * 2 + 1) * source_size *
+                (sample_unit / 2) / bounds.width - sample_unit / 2, 0, source_last * sample_unit);
+            const int x0 = sample_x / sample_unit;
+            const int x1 = std::min(x0 + 1, source_last);
+            const int fraction_x = sample_x % sample_unit;
+            const int upper = glyph[y0 * source_size + x0] * (sample_unit - fraction_x) +
+                glyph[y0 * source_size + x1] * fraction_x;
+            const int lower = glyph[y1 * source_size + x0] * (sample_unit - fraction_x) +
+                glyph[y1 * source_size + x1] * fraction_x;
+            const uint8_t coverage = static_cast<uint8_t>(
+                (upper * (sample_unit - fraction_y) + lower * fraction_y + sample_area / 2) / sample_area);
+            if (coverage != 0) {
+                uint16_t &destination = strip.pixels[(row - first_row) * strip.stride + column - first_column];
+                const uint16_t background = rgb565_stored_to_native(destination, strip.byte_order);
+                destination = rgb565_native_to_stored(blend_rgb565(color, background, coverage), strip.byte_order);
+            }
+        }
+    }
+    return ESP_OK;
+}
 
 // control: Immutable logical capsule, including its enabled action gate.
 // point: Acquired logical point; coordinates are never rotated independently.
@@ -390,7 +492,7 @@ esp_err_t draw_capsule_rows(const CapsuleControl &control, Surface strip,
         static_cast<uint32_t>(first_row) + strip.height > 466 ||
         static_cast<uint32_t>(first_column) + strip.width > 466 ||
         control.corner_radius > bounds.height / 2U ||
-        static_cast<uint8_t>(control.icon) > static_cast<uint8_t>(ActionIcon::Orientation)) {
+        static_cast<uint8_t>(control.icon) > static_cast<uint8_t>(ActionIcon::ChevronRight)) {
         ESP_LOGE(kTag, "Capsule geometry or tile origin rejected (%s)",
             esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;

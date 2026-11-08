@@ -76,6 +76,20 @@ constexpr CODY2D::Rect kOptionsBounds{153, 376, 160, 52};
 constexpr CODY2D::Rect kSetupCodexBounds{93, 230, 280, 56};
 constexpr CODY2D::Rect kSetupWifiBounds{93, 298, 280, 56};
 constexpr CODY2D::Rect kSetupOptionsBounds{153, 382, 160, 52};
+constexpr uint16_t kPairingBackground = 0x0842;
+constexpr uint16_t kPairingAccent = 0x953F;
+constexpr uint16_t kPairingTitle = 0xF7BF;
+constexpr uint16_t kPairingCaption = 0xADB9;
+constexpr uint16_t kOfflineAmber = 0xFDA9;
+constexpr uint16_t kOfflineDiscColor = 0x3122;
+constexpr CODY2D::Rect kOfflineDisc{191, 76, 84, 84};
+constexpr CODY2D::Rect kOfflineGlyph{203, 88, 60, 60};
+constexpr CODY2D::Rect kGuideGlyph{206, 82, 54, 54};
+constexpr CODY2D::Rect kInstallGlyph{210, 49, 46, 46};
+constexpr CODY2D::Rect kPairingGlyph{210, 55, 46, 46};
+constexpr CODY2D::Rect kInstallDarkQrBounds{137, 165, 192, 192};
+constexpr CODY2D::Rect kOfflineSetupBounds{93, 272, 280, 58};
+constexpr CODY2D::Rect kOfflineLaterBounds{153, 350, 160, 50};
 // Category rows and the compact Options menu fit before the footer at 390.
 constexpr uint16_t kPreferenceTop = 194;
 constexpr uint16_t kPreferenceHeight = 50;
@@ -235,6 +249,8 @@ struct ContentView {
     uint8_t event_choice_count = 0;
     QrModules qr{};
     CODY2D::Rect qr_bounds{};
+    CODY2D::Rect header_icon_bounds{};
+    CODY2D::ActionIcon header_icon = CODY2D::ActionIcon::None;
     char error_text[32]{};
     char debug_text[kContentLineCapacity][kDebugLineBytes]{};
     // Serialized scene-owned metadata and one bounded font window, outside the UI task stack.
@@ -1137,6 +1153,37 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
     return error;
 }
 
+// action: Semantic pairing command, including the quiet Later action.
+// label: Prepared single-line English caption.
+// bounds: Capsule rectangle used for both drawing and touch.
+// enabled: Backend admission or navigation readiness.
+// icon: Glyph paired with the caption.
+// control: Receives the complete compact pairing control.
+// second: Cleared unused second line.
+// Exception: Returns the real caption-layout error.
+esp_err_t prepare_pairing_pill(OnboardingAction action, const char *label, CODY2D::Rect bounds,
+    bool enabled, CODY2D::ActionIcon icon, CODY2D::CapsuleControl &control, CODY2D::TextLine &second)
+{
+    const auto error = prepare_button(action, label, bounds, enabled, false, control, second);
+    if (error != ESP_OK) {
+        return error;
+    }
+    const bool secondary = action == OnboardingAction::Later;
+    const uint16_t ink = secondary ? kPairingCaption : kPairingBackground;
+    control.top_color = control.bottom_color = secondary ? kPairingBackground : kPairingAccent;
+    control.border_color = 0;
+    control.icon = icon;
+    control.icon_color = ink;
+    const auto x = control.caption.origin.x;
+    const auto y = static_cast<int16_t>(bounds.y + bounds.height / 2U);
+    // Shift the centered caption half the icon-and-gap width so the pair stays centered.
+    constexpr int16_t half_glyph_and_gap = 17;
+    const auto caption_x = static_cast<int16_t>(x + (secondary ? -half_glyph_and_gap : half_glyph_and_gap));
+    control.icon_center = {static_cast<int16_t>(secondary ? x + control.caption.bounds.width + 5 : x - 5), y};
+    return CODY2D::prepare_text_line(SceneData::body_font, control.caption.text,
+        {caption_x, control.caption.origin.y}, ink, control.caption);
+}
+
 // action: Explicit route action; never inferred from an English label.
 // enabled: True only when the route has an admissible backend or navigation action.
 // Exception: Rejects an unknown action identity without changing the view.
@@ -1155,6 +1202,19 @@ esp_err_t prepare_action(OnboardingAction action, bool enabled)
     }
     s_view.action_id = action;
     s_view.action_visible = action != OnboardingAction::None;
+    if (kDeviceFirstSetup) {
+        using Icon = CODY2D::ActionIcon;
+        if (s_route == Route::NetworkWait && action == OnboardingAction::Later) {
+            return prepare_pairing_pill(action, label, kOfflineLaterBounds, enabled, Icon::ChevronRight,
+                s_view.action, s_view.action_second_line);
+        }
+        if (s_route == Route::Hello04 || s_route == Route::Invitation05 || s_route == Route::Install06) {
+            const auto icon = s_route == Route::Hello04 ? Icon::Wifi :
+                s_route == Route::Invitation05 ? Icon::Qr : Icon::Bluetooth;
+            return prepare_pairing_pill(action, label, single_action_bounds(), enabled, icon,
+                s_view.action, s_view.action_second_line);
+        }
+    }
     if (s_route == Route::SetupMenu) {
         return prepare_button(action, label, kSetupWifiBounds, enabled, false,
             s_view.action, s_view.action_second_line, CODY2D::ActionIcon::Wifi);
@@ -1182,6 +1242,10 @@ esp_err_t prepare_alternative(OnboardingAction action, bool enabled)
         return error;
     }
     s_view.alternative_id = action;
+    if (kDeviceFirstSetup && s_route == Route::NetworkWait && action == OnboardingAction::NetworkSetup) {
+        return prepare_pairing_pill(action, label, kOfflineSetupBounds, enabled, CODY2D::ActionIcon::Wifi,
+            s_view.alternative, s_view.alternative_second_line);
+    }
     if (s_route == Route::SetupMenu) {
         return prepare_button(action, label, kSetupCodexBounds, enabled, false,
             s_view.alternative, s_view.alternative_second_line, CODY2D::ActionIcon::Link);
@@ -1258,6 +1322,19 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
 {
     const auto &view = *static_cast<const ContentView *>(state);
     esp_err_t error = draw_qr_rows(view.qr, view.qr_bounds, strip, first_row, first_column);
+    const bool offline = view.header_icon == CODY2D::ActionIcon::WifiOff;
+    const auto &header = offline ? kOfflineDisc : view.header_icon_bounds;
+    if (error == ESP_OK && view.header_icon != CODY2D::ActionIcon::None &&
+        first_row < header.y + header.height && first_row + strip.height > header.y) {
+        if (offline) {
+            const CODY2D::CapsuleControl disc{kOfflineDisc, {}, kOfflineDiscColor, kOfflineDiscColor, true};
+            error = CODY2D::draw_capsule_rows(disc, strip, first_row, first_column);
+        }
+        if (error == ESP_OK) {
+            error = CODY2D::draw_action_icon_rows(view.header_icon, view.header_icon_bounds,
+                offline ? kOfflineAmber : kPairingAccent, strip, first_row, first_column);
+        }
+    }
     if (error == ESP_OK && view.approval_notice != nullptr && view.approval_notice_visible) {
         error = draw_approval_notice_rows(*view.approval_notice, strip, first_row, first_column);
     }
@@ -1443,6 +1520,28 @@ esp_err_t attach_content(SceneFrame &scene)
     } else {
         content.control_bounds[0] = {10, 203, 70, 263};
         content.control_bounds[1] = {396, 203, 456, 263};
+    }
+    if (kDeviceFirstSetup && s_view.header_icon != CODY2D::ActionIcon::None) {
+        const auto &icon = s_view.header_icon == CODY2D::ActionIcon::WifiOff ?
+            kOfflineDisc : s_view.header_icon_bounds;
+        content.leading_caption_bounds = {icon.x, icon.y, static_cast<uint16_t>(icon.x + icon.width),
+            static_cast<uint16_t>(icon.y + icon.height)};
+        if (s_route == Route::NetworkWait) {
+            content.bounds = {kOfflineSetupBounds.x, 223,
+                static_cast<uint16_t>(kOfflineSetupBounds.x + kOfflineSetupBounds.width),
+                static_cast<uint16_t>(kOfflineSetupBounds.y + kOfflineSetupBounds.height)};
+            content.bottom_action_bounds = {kOfflineLaterBounds.x, kOfflineLaterBounds.y,
+                static_cast<uint16_t>(kOfflineLaterBounds.x + kOfflineLaterBounds.width),
+                static_cast<uint16_t>(kOfflineLaterBounds.y + kOfflineLaterBounds.height)};
+            content.control_bounds[0] = {kOfflineSetupBounds.x, kOfflineSetupBounds.y,
+                content.bounds.right, content.bounds.bottom};
+            content.control_bounds[1] = content.bottom_action_bounds;
+        } else if (s_route == Route::Install06) {
+            content.bounds.top = 139;
+            content.control_bounds[0] = {10, 203, 70, 263};
+        } else if (s_route == Route::Hello04) {
+            content.bounds.top = 223;
+        }
     }
     content.draw_rows = draw_content;
     if (is_codex_event_route(s_route)) {
@@ -1988,6 +2087,48 @@ esp_err_t prepare_event_content(SceneFrame &scene)
     return error;
 }
 
+// base: Registered scene whose identity and standby policy are retained.
+// title_top: Heading position leaving clearance for the route's outline glyph.
+SceneDefinition with_pairing_theme(SceneDefinition base, uint16_t title_top)
+{
+    base.background_rgb565 = kPairingBackground;
+    base.title_color = kPairingTitle;
+    base.title_top = title_top;
+    return base;
+}
+
+// route: Device-first setup identity.
+// base: Registered definition with static lifetime.
+const SceneDefinition &device_pairing_definition(Route route, const SceneDefinition &base)
+{
+    switch (route) {
+    case Route::Hello04: {
+        static const auto definition = with_pairing_theme(base, 180);
+        return definition;
+    }
+    case Route::Invitation05: {
+        static const auto definition = with_pairing_theme(base, 185);
+        return definition;
+    }
+    case Route::Install06: {
+        static const auto definition = with_pairing_theme(base, 98);
+        return definition;
+    }
+    case Route::Pairing07: {
+        static const auto definition = with_pairing_theme(base, 115);
+        return definition;
+    }
+    case Route::NetworkWait:
+        if (base.id == SceneId::NetworkWait) {
+            static const auto definition = with_pairing_theme(base, 180);
+            return definition;
+        }
+        return base;
+    default:
+        return base;
+    }
+}
+
 // route: Explicit atlas identity; no navigation is inferred from array position.
 // scene: Receives a fully validated immutable layout and caller-owned content.
 // Exception: Returns the real scene, catalog, text or content preparation error.
@@ -2072,6 +2213,9 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     esp_err_t error = find_scene(identity, definition);
     SceneFrame prepared;
     if (error == ESP_OK) {
+        if (kDeviceFirstSetup) {
+            definition = &device_pairing_definition(route, *definition);
+        }
         error = begin_scene(*definition, prepared);
     }
     if (error != ESP_OK) {
@@ -2099,6 +2243,13 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     if (route == Route::Hello04) {
         static constexpr char title[] = "Not connected";
         error = set_scene_title(prepared, {title, sizeof(title) - 1U});
+        if (error == ESP_OK && kDeviceFirstSetup) {
+            s_view.header_icon = CODY2D::ActionIcon::WifiOff;
+            s_view.header_icon_bounds = kOfflineGlyph;
+            error = prepare_caption("Connect Cody to Wi-Fi", 223, s_view.lines[0]);
+            s_view.lines[0].color = kPairingCaption;
+            s_view.line_count = 1;
+        }
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::OpenPairingGuide, true);
         }
@@ -2110,31 +2261,48 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         if (error != ESP_OK) {
             return error;
         }
+        if (kDeviceFirstSetup) {
+            s_view.header_icon = CODY2D::ActionIcon::DownloadPhone;
+            s_view.header_icon_bounds = kGuideGlyph;
+        }
         constexpr const char *captions[] = {"Scan next QR for app.", "Then scan pairing QR", "in the Espressif app."};
         for (const char *text : captions) {
             error = prepare_caption(text, 242 + s_view.line_count * 26U, s_view.lines[s_view.line_count]);
             if (error != ESP_OK) {
                 return error;
             }
+            if (kDeviceFirstSetup) {
+                s_view.lines[s_view.line_count].color = kPairingCaption;
+            }
             ++s_view.line_count;
         }
         error = prepare_action(OnboardingAction::ShowQr, true);
     } else if (route == Route::Install06) {
-        s_view.qr_bounds = kInstallQrBounds;
-        error = prepare_caption("ESP BLE Provisioning", kInstallAppCaptionTop, s_view.lines[0]);
+        if (kDeviceFirstSetup) {
+            s_view.header_icon = CODY2D::ActionIcon::DownloadPhone;
+            s_view.header_icon_bounds = kInstallGlyph;
+        }
+        s_view.qr_bounds = kDeviceFirstSetup ? kInstallDarkQrBounds : kInstallQrBounds;
+        error = prepare_caption("ESP BLE Provisioning",
+            kDeviceFirstSetup ? 139 : kInstallAppCaptionTop, s_view.lines[0]);
         if (error == ESP_OK) {
-            error = prepare_caption("Find on the App Store", kInstallStoreCaptionTop, s_view.lines[1]);
+            error = prepare_caption("Find on the App Store",
+                kDeviceFirstSetup ? 360 : kInstallStoreCaptionTop, s_view.lines[1]);
         }
         if (error == ESP_OK) {
             s_view.line_count = 2;
             for (uint8_t index = 0; index < s_view.line_count; ++index) {
-                s_view.lines[index].color = prepared.definition->title_color;
+                s_view.lines[index].color = kDeviceFirstSetup ? kPairingCaption : prepared.definition->title_color;
                 s_view.instant_lines[index] = true;
             }
             // The action worker enables Pair Cody after the installation QR is ready.
             error = prepare_action(OnboardingAction::PairCody, false);
         }
     } else if (route == Route::Pairing07) {
+        if (kDeviceFirstSetup) {
+            s_view.header_icon = CODY2D::ActionIcon::Bluetooth;
+            s_view.header_icon_bounds = kPairingGlyph;
+        }
         s_view.qr_bounds = kSessionQrBounds;
         error = prepare_caption("Starting Bluetooth", 222, s_view.lines[0]);
         s_view.lines[0].color = prepared.definition->title_color;
@@ -2204,7 +2372,16 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
             route == Route::SetupMenu ? OnboardingAction::NetworkSetup : OnboardingAction::Later;
         const auto alternative = route == Route::CodexChoice ? OnboardingAction::AcceptCodex :
             route == Route::SetupMenu ? OnboardingAction::ConnectCodex : OnboardingAction::NetworkSetup;
-        error = prepare_action(primary, true);
+        if (kDeviceFirstSetup && route == Route::NetworkWait) {
+            s_view.header_icon = CODY2D::ActionIcon::WifiOff;
+            s_view.header_icon_bounds = kOfflineGlyph;
+            error = prepare_caption("Connect Cody to Wi-Fi", 223, s_view.lines[0]);
+            s_view.lines[0].color = kPairingCaption;
+            s_view.line_count = 1;
+        }
+        if (error == ESP_OK) {
+            error = prepare_action(primary, true);
+        }
         if (error == ESP_OK) {
             error = prepare_alternative(alternative,
                 alternative != OnboardingAction::ConnectCodex || kCodexIntegrationEnabled);
@@ -3678,7 +3855,9 @@ bool onboarding_dashboard_active()
 bool can_open_setup_menu()
 {
     const bool offline_recovery = s_route == Route::NetworkWait && !s_startup_network_passive;
-    return (!s_startup_pending || offline_recovery) && !s_timeout_cleanup.pending && !s_command_pending &&
+    const bool offline_home = kDeviceFirstSetup && s_route == Route::Hello04;
+    return (!s_startup_pending || offline_recovery || offline_home) &&
+        !s_timeout_cleanup.pending && !s_command_pending &&
         !s_work_busy.load(std::memory_order_acquire) && !s_pairing_owned &&
         (offline_recovery || s_route == Route::None || s_route == Route::LookingForPc14 || s_route == Route::Failed08 ||
          (s_route == Route::Hello04 && (kDeviceFirstSetup || s_hello_waits_for_touch)) ||
@@ -3839,6 +4018,10 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
         wifi.started && wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0';
     const bool pair_missing = s_startup_pair_missing;
     if (!wifi_ready) {
+        if (kDeviceFirstSetup && s_route == Route::Hello04) {
+            // Later keeps the offline home on screen while the saved network retries.
+            return ESP_OK;
+        }
         error = wifi.last_error != ESP_OK ? wifi.last_error :
             !wifi.data_valid || wifi.data_stale ? ESP_ERR_INVALID_STATE : ESP_OK;
         if (saved_wifi_startup_grace(wifi, esp_timer_get_time())) {
@@ -4153,8 +4336,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                 s_local_failure = false;
                 s_view.qr = result.qr;
                 s_view.qr_bounds = kSessionQrBounds;
-                // The session caption shares the QR route's black-on-white theme.
-                s_view.lines[0].color = scene.definition->title_color;
+                s_view.lines[0].color = kDeviceFirstSetup ? kPairingCaption : scene.definition->title_color;
                 s_view.line_count = 1;
                 s_session = result.command.session;
                 error = attach_content(scene);
@@ -4542,7 +4724,7 @@ bool previous_control_visible()
         return s_view.actions_visible && previous_navigation_available();
     }
     return s_route == Route::SetupMenu || s_route == Route::CodexReplace || s_route == Route::CodexForget ||
-        (kDeviceFirstSetup && s_route == Route::Invitation05) ||
+        (kDeviceFirstSetup && (s_route == Route::Invitation05 || s_route == Route::Install06)) ||
         options_back_available() ||
         (previous_navigation_available() && s_route != Route::Install06 && !uses_footer_action());
 }
@@ -4636,7 +4818,12 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     }
     if (action_hit && kDeviceFirstSetup && s_route == Route::Hello04) {
         s_pairing_guide_return = Route::Hello04;
-        return enter_route(Route::Invitation05, scene);
+        const auto error = enter_route(Route::Invitation05, scene);
+        if (error == ESP_OK) {
+            s_startup_pending = false;
+            s_startup_pair_missing = false;
+        }
+        return error;
     }
     if (action_hit && s_route == Route::Invitation05) {
         const auto error = open_installation_qr(scene);
@@ -4838,6 +5025,19 @@ esp_err_t activate_setup_choice(SceneFrame &scene, OnboardingAction action)
         s_options_from_setup = true;
         return enter_route(Route::MakeItYours10, scene);
     }
+    if (kDeviceFirstSetup && s_route == Route::NetworkWait &&
+        (action == OnboardingAction::Later || action == OnboardingAction::NetworkSetup)) {
+        const auto destination = action == OnboardingAction::Later ? Route::Hello04 : Route::Invitation05;
+        error = enter_route(destination, scene);
+        if (error == ESP_OK && destination == Route::Invitation05) {
+            s_startup_pending = false;
+            s_startup_pair_missing = false;
+            s_startup_network_presented = false;
+            s_codex_owned = false;
+            s_pairing_guide_return = Route::Hello04;
+        }
+        return error;
+    }
     if (action == OnboardingAction::DeclineCodex || action == OnboardingAction::Later) {
         return choose_local_companion(scene);
     }
@@ -4845,9 +5045,6 @@ esp_err_t activate_setup_choice(SceneFrame &scene, OnboardingAction action)
         s_startup_pending = false;
         s_codex_owned = false;
         if (kDeviceFirstSetup) {
-            if (s_route == Route::NetworkWait) {
-                return enter_route(Route::Hello04, scene);
-            }
             s_pairing_guide_return = Route::SetupMenu;
             return enter_route(Route::Invitation05, scene);
         }

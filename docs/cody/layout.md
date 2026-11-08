@@ -20,7 +20,8 @@ and keep it separate from central content and primary/footer actions.
 The native style is subdued graphite with a light chevron.
 
 Actions use semantic colors and restrained gradients. Standard buttons center a
-text-only caption in the complete control. On the Setup menu, Connect Codex and
+text-only caption in the complete control. Device-first pairing adds outline
+glyphs to identify the Wi-Fi, QR and Bluetooth actions. On the Setup menu, Connect Codex and
 Set up Wi-Fi appear as two vertical rows with a link and Wi-Fi glyph on the left,
 respectively. The menu omits its heading and keeps Options below the two rows.
 Back retains its separate chevron. Complete controls appear after any title and
@@ -83,14 +84,20 @@ retain their own expired, cancelled or rejected captions.
 
 ## Setup, QR and Skin
 
+Device-first pairing uses the same title and body fonts, left chevron, and
+capsule geometry as the dashboard and Options. The dark canvas, amber offline
+glyph and periwinkle primary controls carry across the Wi-Fi setup journey.
+Both QR screens keep their white area within the square code tile.
+
 | Screen | Artwork/content |
 | --- | --- |
-| 04 | Amber Not connected title at y=210 and blue Tap to pair action at (113,352,240,72) |
-| 05 | Get your phone title, two-QR instructions at y=242/268/294, and Show QR action |
-| 06 | White background, installation QR 192 x 192 at (137,140), App Store captions at y=338 and y=364, Pair Cody footer |
-| 07 | Title y=131, session QR 204 x 204 at (131,182), only while ReadyToScan |
+| 04 | Amber offline glyph above Not connected at y=180, Wi-Fi caption, and Tap to pair at (113,352,240,72) |
+| 05 | Phone download glyph, Get your phone title, instructions at y=242/268/294, and Show QR |
+| 06 | Phone download glyph, app name at y=139, installation QR 192 x 192 at (137,165), App Store caption at y=360, and Bluetooth Pair Cody footer |
+| 07 | Bluetooth glyph, title at y=115, and session QR 204 x 204 at (131,182) while ReadyToScan |
 | 10 / Options | Up to three 240 x 50 rows at y=194/254/314. Lateral arrows page the menu. Go home footer at y=390. |
 | 11 / Skin | Preview (233,172,44), title y=78, viewport (117,226,232,126), Done (123,386,220,48) |
+| 42 / Wi-Fi offline | Amber offline glyph, title at y=180, Set up Wi-Fi at (93,272,280,58), and Later at (153,350,160,50) |
 
 Skin rows are 220 x 38 with 44-pixel steps. Only complete rows are drawn and
 interactive; scrolling admits three visible rows. Stable look IDs and save gates
@@ -99,9 +106,8 @@ are described in [navigation](navigation.md).
 Session QR storage supports version 10: at most 57 x 57 modules, 407 bytes.
 Use integer modules and four white quiet modules. Payload/modules belong to the
 current attempt; stale data cannot authorize presentation.
-The QR journey uses captioned forward actions. Screen 05 exposes lateral Back
-and 06 retains previous-route swipe. The previous-route Back behavior on 06 still
-needs reconciliation with the repository's lateral-Back contract in [TODO.md](../../TODO.md).
+The QR journey uses captioned forward actions. Screens 05 and 06 expose lateral
+Back. Screen 06 also accepts a previous-route swipe.
 
 ## Companion panels, status and Debug
 

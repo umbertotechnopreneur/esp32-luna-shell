@@ -22,7 +22,8 @@ namespace CODY2D {
 
 enum class ActionIcon : uint8_t {
     None, Link, Wifi, Gear, Check, Close, Arrow, Qr, Retry,
-    Motion, Rotate, Sound, Orientation
+    Motion, Rotate, Sound, Orientation,
+    WifiOff, DownloadPhone, Bluetooth, ChevronRight
 };
 
 struct CapsuleControl {
@@ -41,6 +42,16 @@ struct CapsuleControl {
 // control: Immutable logical bounds, palette role and optional prepared caption.
 // point: Logical touch position already mapped by the display rotation owner.
 bool capsule_contains(const CapsuleControl &control, Point point);
+
+// icon: Semantic glyph, or None for no drawing.
+// bounds: Logical square for the glyph, scaled from the native 24 px artwork.
+// color: Native RGB565 glyph color.
+// strip: Borrowed RGB565 tile, retaining stride and storage byte order.
+// first_row: Logical y origin of the tile.
+// first_column: Logical x origin of the tile.
+// Exception: Returns the original invalid surface or geometry error.
+esp_err_t draw_action_icon_rows(ActionIcon icon, Rect bounds, uint16_t color,
+                               Surface strip, uint16_t first_row, uint16_t first_column);
 
 // control: Immutable capsule; the same bounds also define its full touch target.
 // strip: Borrowed RGB565 tile, retaining stride and storage byte order.

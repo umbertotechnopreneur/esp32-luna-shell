@@ -21,6 +21,10 @@ names **ESP BLE Provisioning** for users of the App Store. **Pair Cody** starts
 Bluetooth provisioning. Scan the session QR from inside the Espressif app on
 the phone once Cody displays **Scan to pair**.
 
+On the **Wi-Fi offline** recovery screen, **Later** opens **Not connected**.
+The saved network can still reconnect in the background. **Set up Wi-Fi** opens
+**Get your phone** directly.
+
 In Options, Connections opens the vertical Connect Codex and Set up Wi-Fi
 entries. Back preserves an already valid discovery or connection. Wi-Fi and
 authenticated Codex presence are separate. Device shows Wi-Fi status, measured
@@ -71,8 +75,8 @@ reveals them. A hidden arrow requires a new touch once it is visible. Token
 history switches among 1, 5 and 24 hours, using fifteen-minute observations
 and identifying measurement gaps. The reset date switches between UTC and the
 configured local offset every five seconds when local time is available. The
-five-pixel gradient perimeter follows remaining weekly allowance on every
-awake screen with a current sample.
+five-pixel gradient perimeter follows remaining weekly allowance across the
+awake interface while Codex is connected and the weekly sample is current.
 
 About shows current uptime, the last observed uptime from the previous boot
 when retained, and the firmware version, build date and build host. Use the

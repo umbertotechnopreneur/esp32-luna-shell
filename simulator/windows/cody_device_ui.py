@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import Enum, auto
 from functools import lru_cache
 import json
 from pathlib import Path
@@ -20,10 +21,13 @@ from vibeware_boot import VibeWareBoot
 
 
 CENTER = SIZE // 2
-BACKGROUND = (11, 15, 24)
+BACKGROUND = (8, 11, 22)
 FOREGROUND = (239, 236, 224)
 MUTED = (153, 168, 186)
 ACCENT = (122, 218, 222)
+SETUP_ACCENT = (144, 167, 255)
+SETUP_AMBER = (255, 183, 74)
+SETUP_AMBER_FIELD = (54, 36, 14)
 NAVIGATION_IDLE_SECONDS = 10
 NAVIGATION_FADE_SECONDS = 0.35
 PAGES = (
@@ -68,6 +72,42 @@ ABOUT_QR = (
     "100000100111001010111110001011100",
     "111111101110110001010011100100010",
 )
+# QR Model 2 for the same ESP BLE Provisioning Play Store URL as the firmware.
+INSTALL_APP_QR = (
+    "111111100010110001111111001111111",
+    "100000101010011100101000001000001",
+    "101110100000100010011101001011101",
+    "101110101110111101011011101011101",
+    "101110100100001010110101001011101",
+    "100000101101100110001110101000001",
+    "111111101010101010101010101111111",
+    "000000000111000100110110000000000",
+    "111110111101011001101000010101010",
+    "111101000010101011011001001000111",
+    "001000101010010110000010011011010",
+    "000100001000100000001111111010100",
+    "010111101110111111010010010111000",
+    "010100011100010010111101001000011",
+    "100111111101111111101100010010010",
+    "001010011111001000000111011000100",
+    "011111101001011111010011110110010",
+    "010001010010101011111111101001011",
+    "101011111000011111001100011111010",
+    "010000001110100110000100000010100",
+    "111100111100111101000011110110010",
+    "101101011100000011111111001101011",
+    "101111110001110100000100010001010",
+    "101001011001000000001101010111100",
+    "100011110101011111101011111111001",
+    "000000001110110011111110100010101",
+    "111111101010001101001001101010110",
+    "100000100010100100101111100011111",
+    "101110101000111111000000111110000",
+    "101110101100000010111001000011000",
+    "101110101111101110000010101000110",
+    "100000101111001000001110011001100",
+    "111111101011100111000011101100010",
+)
 HISTORY_WINDOWS = ("1 hour", "5 hours", "24 hours")
 UNAVAILABLE_ROWS = {
     "Codex limits": ("Short window", "Weekly window"),
@@ -78,6 +118,14 @@ UNAVAILABLE_ROWS = {
 }
 LEFT = (40, CENTER)
 RIGHT = (SIZE - 40, CENTER)
+
+
+class WifiSetupRoute(Enum):
+    OFFLINE = auto()
+    NOT_CONNECTED = auto()
+    PHONE_GUIDE = auto()
+    INSTALL_APP = auto()
+    SCAN_TO_PAIR = auto()
 
 
 @lru_cache(maxsize=8)
@@ -114,6 +162,69 @@ def arrow(draw, center, step, opacity=1):
               fill=blend(FOREGROUND, opacity), width=3, joint="curve")
 
 
+# draw: Logical framebuffer receiving the white tile and exact square modules.
+# matrix: Square tuple of binary module rows.
+# top: Logical y coordinate of the tile.
+# size: White tile side including a quiet zone of at least four modules.
+def qr_tile(draw, matrix, top, size):
+    module = size // (len(matrix) + 8)
+    left = CENTER - size // 2
+    quiet = (size - len(matrix) * module) // 2
+    draw.rectangle((left, top, left + size - 1, top + size - 1), fill=(255, 255, 255))
+    for row, modules in enumerate(matrix):
+        y = top + quiet + row * module
+        for column, value in enumerate(modules):
+            if value == "1":
+                x = left + quiet + column * module
+                draw.rectangle((x, y, x + module - 1, y + module - 1), fill=(0, 0, 0))
+
+
+# draw: Logical framebuffer receiving one outline symbol.
+# icon: Semantic outline icon used by the setup screens.
+# center: Logical icon center.
+# size: Nominal square icon envelope.
+# color: RGB stroke color.
+def setup_icon(draw, icon, center, size, color):
+    x, y = center
+    half = size // 2
+    stroke = max(2, size // 11)
+    if icon in ("wifi", "offline"):
+        for radius in (half, half * 2 // 3, half // 3):
+            cy = y + half // 2
+            draw.arc((x - radius, cy - radius, x + radius, cy + radius),
+                     220, 320, fill=color, width=stroke)
+        cy = y + half // 2 + stroke
+        draw.ellipse((x - stroke // 2, cy - stroke // 2, x + stroke // 2, cy + stroke // 2), fill=color)
+        if icon == "offline":
+            slash = ((x - half + stroke, y + half), (x + half - stroke, y - half))
+            draw.line(slash, fill=SETUP_AMBER_FIELD, width=stroke * 3)
+            draw.line(slash, fill=color, width=stroke)
+    elif icon == "phone":
+        side = half * 2 // 3
+        draw.rounded_rectangle((x - side, y - half, x + side, y + half),
+                               radius=stroke * 2, outline=color, width=stroke)
+        tip = y + half // 2
+        arrow_side = half // 3
+        draw.line((x, y - half // 2, x, tip), fill=color, width=stroke)
+        draw.line(((x - arrow_side, tip - arrow_side), (x, tip), (x + arrow_side, tip - arrow_side)),
+                  fill=color, width=stroke, joint="curve")
+    elif icon == "bluetooth":
+        side = half * 2 // 3
+        draw.line(((x, y - half), (x, y + half), (x + side, y + half // 2), (x - side, y - half // 2)),
+                  fill=color, width=stroke, joint="curve")
+        draw.line(((x, y - half), (x + side, y - half // 2), (x - side, y + half // 2)),
+                  fill=color, width=stroke, joint="curve")
+    elif icon == "qr":
+        cell = size // 3
+        for left, top in ((x - half, y - half), (x + half - cell, y - half), (x - half, y + half - cell)):
+            draw.rectangle((left, top, left + cell, top + cell), outline=color, width=stroke)
+        draw.rectangle((x + half - stroke * 2, y + half - stroke * 2, x + half, y + half), fill=color)
+    elif icon == "chevron":
+        span = size // 4
+        draw.line(((x - span, y - span), (x + span, y), (x - span, y + span)),
+                  fill=color, width=stroke, joint="curve")
+
+
 def rotate(image, rotation):
     if rotation:
         return image.transpose({
@@ -137,7 +248,8 @@ class DeviceStudioWindow:
         self.boot_error = ""
         self.boot = None
         self.boot_frame = None
-        self.route = "connections"
+        self.route = WifiSetupRoute.OFFLINE
+        self.guide_return = WifiSetupRoute.NOT_CONNECTED
         self.pairing_attempted = False
         self.page = 0
         self.options_page = 0
@@ -156,6 +268,7 @@ class DeviceStudioWindow:
         self.started_at = self.last_navigation = time.monotonic()
         if args.ccp:
             endpoint = SimulatorEndpoint()
+            self.route = "connections"
             try:
                 endpoint.start()
                 self.events = EventView()
@@ -164,6 +277,8 @@ class DeviceStudioWindow:
                 self.pairing_attempted = snapshot.pending_pairing
                 if snapshot.retained_pairing and not self.pairing_attempted:
                     self.route = "widgets"
+                elif not snapshot.network_ready and not self.pairing_attempted:
+                    self.route = WifiSetupRoute.OFFLINE
             except (OSError, RuntimeError, ValueError) as error:
                 endpoint.close()
                 self.source_error = str(error)
@@ -206,6 +321,12 @@ class DeviceStudioWindow:
     def open(self, route):
         self.route = route
         self.last_navigation = time.monotonic()
+
+    # self: Studio navigation owner.
+    # previous: Actual caller when leaving the phone guide with Back.
+    def open_phone_guide(self, previous):
+        self.guide_return = previous
+        self.open(WifiSetupRoute.PHONE_GUIDE)
 
     # self: Active Studio preview receiving the BOOT shortcut.
     def options(self):
@@ -252,6 +373,12 @@ class DeviceStudioWindow:
         if self.boot is None and not self.standby and not self.event_visible:
             if self.route in ("visibility", "connections", "display", "behavior"):
                 self.show_options_page(self.options_page)
+            elif self.route is WifiSetupRoute.PHONE_GUIDE:
+                self.open(self.guide_return)
+            elif self.route is WifiSetupRoute.INSTALL_APP:
+                self.open(WifiSetupRoute.PHONE_GUIDE)
+            elif self.route is WifiSetupRoute.SCAN_TO_PAIR:
+                self.open(WifiSetupRoute.INSTALL_APP)
             elif self.route == "options":
                 if self.options_page:
                     self.show_options_page(0)
@@ -302,10 +429,32 @@ class DeviceStudioWindow:
     def change_shake_to_wake(self):
         self.shake_to_wake = not self.shake_to_wake
 
-    def button(self, draw, name, top, action, *, width=246, height=38):
+    # self: Studio frame owner registering touch targets.
+    # draw: Logical framebuffer before rotation.
+    # name: Caption and identity of the touch target.
+    # top: Logical y coordinate of the target.
+    # action: Callback when the button is enabled.
+    # width: Complete hit width in logical pixels.
+    # height: Complete hit height in logical pixels.
+    # primary: Use the filled Wi-Fi setup style.
+    # flat: Render only the secondary caption inside the complete target.
+    # icon: Optional outline icon next to the caption.
+    def button(self, draw, name, top, action, *, width=246, height=38, primary=False, flat=False, icon=None):
         box = (CENTER - width // 2, top, CENTER + width // 2, top + height)
-        draw.rounded_rectangle(box, radius=height // 2, fill=(32, 43, 58), outline=(64, 80, 101))
-        label(draw, name, top + (height - 17) // 2, 17, FOREGROUND if action else MUTED, width=width - 20)
+        color = FOREGROUND if action else MUTED
+        if primary:
+            color = BACKGROUND
+            draw.rounded_rectangle(box, radius=height // 2, fill=SETUP_ACCENT)
+        elif not flat:
+            draw.rounded_rectangle(box, radius=height // 2, fill=(32, 43, 58), outline=(64, 80, 101))
+        caption_x = CENTER
+        if icon:
+            text_width = round(draw.textlength(name, font=font(17)))
+            group_left = CENTER - (text_width + 32) // 2
+            icon_x = group_left + (text_width + 21 if flat else 11)
+            setup_icon(draw, icon, (icon_x, top + height // 2), 22, color)
+            caption_x += -16 if flat else 16
+        label(draw, name, top + (height - 17) // 2, 17, color, x=caption_x, width=width - 20)
         if action is not None:
             self.targets[name] = (box, action)
 
@@ -326,6 +475,10 @@ class DeviceStudioWindow:
         remaining = NAVIGATION_IDLE_SECONDS + NAVIGATION_FADE_SECONDS - (now - self.last_navigation)
         return max(0, min(1, remaining / NAVIGATION_FADE_SECONDS))
 
+    # self: Studio preview owning CCP and the local pairing guide.
+    # draw: Logical canvas before rotation.
+    # snapshot: Current authenticated loopback projection, if available.
+    # code: Active simulated Codex pairing code, if any.
     def draw_connections(self, draw, snapshot, code):
         if code or snapshot.pending_pairing:
             label(draw, "Pair Codex", 109, 32)
@@ -345,8 +498,54 @@ class DeviceStudioWindow:
         if snapshot.retained_pairing:
             self.button(draw, "Forget pairing", 313, self.forget)
         else:
-            self.button(draw, "Later", 313, lambda: self.open("widgets"))
-        self.button(draw, "Options", 370, self.options, width=150, height=33)
+            destination = "widgets" if self.endpoint and snapshot.network_ready else WifiSetupRoute.NOT_CONNECTED
+            self.button(draw, "Later", 313, lambda: self.open(destination))
+        self.button(draw, "Set up Wi-Fi", 370, lambda: self.open_phone_guide("connections"),
+                    width=190, height=38, icon="wifi")
+        self.sidebar(draw, -1, self.back)
+
+    # self: Studio preview owning the current Wi-Fi setup route and its touch targets.
+    # draw: Logical canvas before rotation.
+    # now: Monotonic frame time for the shared Back fade.
+    def draw_wifi_setup(self, draw, now):
+        if self.route in (WifiSetupRoute.OFFLINE, WifiSetupRoute.NOT_CONNECTED):
+            recovering = self.route is WifiSetupRoute.OFFLINE
+            draw.ellipse((191, 76, 274, 159), fill=SETUP_AMBER_FIELD)
+            setup_icon(draw, "offline", (CENTER, 118), 60, SETUP_AMBER)
+            label(draw, "Wi-Fi offline" if recovering else "Not connected", 180, 34)
+            label(draw, "Connect Cody to Wi-Fi", 223, 17, MUTED)
+            self.button(draw, "Set up Wi-Fi" if recovering else "Tap to pair", 272 if recovering else 352,
+                        lambda: self.open_phone_guide(WifiSetupRoute.NOT_CONNECTED),
+                        width=280 if recovering else 240, height=58 if recovering else 72,
+                        primary=True, icon="wifi")
+            if recovering:
+                self.button(draw, "Later", 350, lambda: self.open(WifiSetupRoute.NOT_CONNECTED),
+                            width=160, height=50, flat=True, icon="chevron")
+            return
+        if self.route is WifiSetupRoute.PHONE_GUIDE:
+            setup_icon(draw, "phone", (CENTER, 109), 54, SETUP_ACCENT)
+            label(draw, "Get your phone", 185, 32)
+            label(draw, "Scan next QR for app.", 242, 17, MUTED)
+            label(draw, "Then scan pairing QR", 268, 17, MUTED)
+            label(draw, "in the Espressif app.", 294, 17, MUTED)
+            self.button(draw, "Show QR", 352, lambda: self.open(WifiSetupRoute.INSTALL_APP),
+                        width=240, height=72, primary=True, icon="qr")
+        elif self.route is WifiSetupRoute.INSTALL_APP:
+            setup_icon(draw, "phone", (CENTER, 72), 46, SETUP_ACCENT)
+            label(draw, "Scan to install", 98, 28)
+            label(draw, "ESP BLE Provisioning", 139, 16, MUTED)
+            qr_tile(draw, INSTALL_APP_QR, 165, 192)
+            label(draw, "Find on the App Store", 360, 16, MUTED)
+            self.button(draw, "Pair Cody", 390, lambda: self.open(WifiSetupRoute.SCAN_TO_PAIR),
+                        width=220, height=44, primary=True, icon="bluetooth")
+        elif self.route is WifiSetupRoute.SCAN_TO_PAIR:
+            setup_icon(draw, "bluetooth", (CENTER, 121), 54, SETUP_ACCENT)
+            label(draw, "Scan to pair", 180, 32)
+            label(draw, "Bluetooth setup runs", 230, 17, MUTED)
+            label(draw, "on the physical device.", 256, 17, MUTED)
+        opacity = self.navigation_opacity(now)
+        if opacity > 0:
+            self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
 
     # self: Studio preview owning the active menu page and touch targets.
     # draw: Logical canvas before rotation.
@@ -378,19 +577,10 @@ class DeviceStudioWindow:
         if not webbrowser.open_new_tab(ABOUT_URL):
             raise RuntimeError("Could not open the Cody project page")
 
+    # self: Studio preview registering the project link action.
+    # draw: Logical canvas before rotation.
     def draw_about_qr(self, draw):
-        module = 5
-        quiet = 4 * module
-        width = len(ABOUT_QR) * module + quiet * 2
-        left = CENTER - width // 2
-        top = 147
-        draw.rectangle((left, top, left + width - 1, top + width - 1), fill=(255, 255, 255))
-        for row, modules in enumerate(ABOUT_QR):
-            y = top + quiet + row * module
-            for column, value in enumerate(modules):
-                if value == "1":
-                    x = left + quiet + column * module
-                    draw.rectangle((x, y, x + module - 1, y + module - 1), fill=(0, 0, 0))
+        qr_tile(draw, ABOUT_QR, 147, 205)
         self.button(draw, "Open link", 370, self.open_about_url, width=155, height=33)
 
     # self: Studio preview owning the selected dashboard page.
@@ -450,6 +640,7 @@ class DeviceStudioWindow:
     # now: Monotonic frame time.
     # Exception: Propagates drawing failures to the preview tick.
     def frame(self, snapshot, code, now):
+        wifi_setup = isinstance(self.route, WifiSetupRoute)
         image = Image.new("RGB", (SIZE, SIZE), BACKGROUND)
         draw = ImageDraw.Draw(image)
         self.targets = {}
@@ -460,8 +651,10 @@ class DeviceStudioWindow:
             self.event_visible = True
             self.events.render_device(image, snapshot, label, arrow)
         else:
-            label(draw, "SIMULATED", 46, 14, MUTED)
-            if self.route == "connections":
+            label(draw, "SIMULATED", 28 if wifi_setup else 46, 14, MUTED)
+            if wifi_setup:
+                self.draw_wifi_setup(draw, now)
+            elif self.route == "connections":
                 self.draw_connections(draw, snapshot, code)
             elif self.route == "options":
                 self.draw_options(draw, now)
@@ -522,7 +715,7 @@ class DeviceStudioWindow:
                 self.page = 0
                 self.open("widgets")
             status = self.source_error or self.boot_error or snapshot.last_error or (
-                "Authenticated loopback" if self.endpoint else "Offline preview / use -Ccp to pair"
+                "Authenticated loopback" if self.endpoint else "Offline preview / use -Ccp to pair Codex"
             )
             self.status.configure(text="SIMULATED / " + status)
             image = self.boot_image(now) if self.boot else None

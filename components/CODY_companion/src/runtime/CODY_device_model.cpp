@@ -92,9 +92,12 @@ void update_device_battery(DeviceModel &model, int64_t now_us)
     }
 }
 
-// data: Current observed allowance and clock. An elapsed sample retires the ring.
+// data: Authenticated app presence, current allowance and clock for the shared perimeter.
 uint16_t device_allowance_ring(const DeviceDashboardData &data)
 {
+    if (!data.connection_valid || !data.connection.codex_app_open) {
+        return 0;
+    }
     const auto &weekly = data.weekly;
     if (weekly.health != LUNASHELL::DeviceHealth::Ready || !weekly.data_valid ||
         weekly.data_stale || weekly.last_error != ESP_OK || weekly.reset_unix_seconds <= 0 ||
