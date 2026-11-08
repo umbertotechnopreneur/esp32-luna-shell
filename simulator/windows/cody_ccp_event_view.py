@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import time
 
+from PIL import ImageDraw
+
 from cody_native_debug import render_debug_controls
 from cody_native_behavior import CharacterActivity
 
@@ -231,6 +233,24 @@ class EventView:
         self._actions, self._back = actions, back
         self._rendered_event = self.rendered_identity(snapshot)
         return image, scene, key
+
+    def render_device(self, image, snapshot, label, arrow):
+        """Retire the shared event plan on the flat device-first preview."""
+        identity, lines, actions, back = self.plan(snapshot)
+        draw = ImageDraw.Draw(image)
+        title = self.native.output.title.decode("ascii") or identity.replace("-", " ").capitalize()
+        label(draw, "SIMULATED", 22, 14, (153, 168, 186))
+        label(draw, title, 75, 24)
+        for text, top in lines:
+            label(draw, text, top, 17)
+        if identity == "approval-on-pc":
+            paint_native_approval(image, snapshot.request_id, snapshot.event_payload.body, 0, True, self.native.api)
+        paint_native_actions(image, actions, self.native.api)
+        if back:
+            arrow(draw, (40, 233), -1)
+        self._controls_visible = True
+        self._actions, self._back = actions, back
+        self._rendered_event = self.rendered_identity(snapshot)
 
     # self: Pointer owner retaining the exact fully drawn observation until release.
     # point: Logical coordinates using the same rotation as the rendered framebuffer.

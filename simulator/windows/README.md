@@ -30,24 +30,35 @@ pwsh -NoProfile -File ./scripts/device.ps1 simulator -Ccp
 pwsh -NoProfile -File ./scripts/device.ps1 simulator -Screen rig -OutputPath artifacts/simulator/cody.png
 ```
 
-The separate Luna desktop simulator and its packaging workflow use Windows.
-The preview starts without a rig overlay. The **Face**, **Shape**, **Inputs** and
-**Inspect** panels control expressions, outlines, synthetic stimuli and diagnostics.
-Each tab retains its own scroll position; in narrow windows, the inspector moves
-below the preview when vertical space permits.
+The default Cody Studio opens the device preview. The existing VibeWare floppy
+plays once, then first run opens **Connections**. A retained simulator association
+opens **Device**. **BOOT / Options** opens the device menu. **PWR / Standby** toggles
+the simulated display, and **Simulate shake** returns the carousel to Device.
+The lateral arrows fade after ten seconds. A touch reveals them again.
+Options includes **Connections**, **Codex stats**, **Visible screens**, **Display**
+and **Behavior**. Brightness, orientation and visibility choices affect this
+preview session. **About** shows Studio uptime and the next page has a scannable
+project QR code and an explicit **Open link** action.
 
-The preview displays the native 466 x 466 framebuffer at integer pixel scales.
-Each device pixel becomes a sharp 2 x 2, 3 x 3 or larger square as the window
-allows. Nearest-neighbor enlargement preserves the original pixel colors; it
-does not add smoothing. The default preview requests a 2x canvas when the
-monitor has room. Smaller windows retain at least 1x and center the image.
-Resizing affects presentation only: geometry, rotation and pointer input stay in
-the display's logical coordinates. Per Monitor v2 is enabled before Tk, using the
-monitor's initial DPI scale. Moving between monitors with different DPI still
-requires a dedicated Tk transition. The default limit is 30 Hz, or 25 Hz in the
-jelly study; the inspector offers 15, 25, 30 or 60 Hz. The footer distinguishes
-observed FPS from the requested limit. Text readouts update at 10 Hz and status
-at 5 Hz; model clocks follow elapsed time.
+The ten-page carousel has Device, Reset countdown, Codex limits, Today,
+Last 7 days, Token history, Credits, Codex account, Context and About, plus the
+About QR page. The loopback endpoint supplies authenticated link and Context
+observations. Account usage is physical-device-only, so the usage pages show
+unavailable values and never draw a fabricated countdown, allowance ring or
+history. Firmware version, build date, battery readings and dictation have no
+source in this preview.
+
+Cody Studio uses the 466 × 466 display at integer pixel scales. Resizing affects
+presentation only. Rendering and touch share the same logical rotation.
+Per Monitor v2 is enabled before Tk. Moving between monitors with different DPI
+still requires a dedicated Tk transition.
+
+The separate Luna desktop simulator and its packaging workflow use Windows.
+Explicit Cody artwork and material views, such as `-Screen greeting`, retain the
+legacy **Face**, **Shape**, **Inputs** and **Inspect** panels. Each tab retains
+its own scroll position. In narrow windows the inspector moves below the preview
+when vertical space permits. The artwork editor requests a 2x canvas when there
+is room and supports its own timing controls and host FPS display.
 
 The VibeWare floppy uses 42 frames and the approved GIF's 3.5-second timeline.
 Cody's native compositor centers `Cody AI Companion` above
@@ -64,8 +75,8 @@ The Manifesto link opens only after an explicit click.
 .\scripts\device.ps1 simulator -Ccp
 ```
 
-`-Ccp` also opens the **CCP** panel and a real UDP endpoint restricted to
-`127.0.0.1:42117`. Select **Connect Codex** in the panel and read the code.
+`-Ccp` opens a real UDP endpoint restricted to `127.0.0.1:42117`.
+Select **Connect Codex** on the simulated display and read the code.
 In Codex, explicitly request a connection to **Cody Studio SIMULATED**; discovery
 adds `include_simulator: true`, then pairing uses the visible code.
 For installation and trust, follow the [canonical CCP README](../../plugins/cody-codex-plugin/README.md).
@@ -91,45 +102,31 @@ preserves both directories. A second endpoint cannot take the same
 port; a read error remains an error instead of inventing a new device.
 The code appears only in the UI, never in logs or the public snapshot.
 
-The panel supports:
-
-- confirming **Replace pairing** while preserving the old record until the new confirmation;
-- using **Cancel code** to discard the current window or candidate;
-- confirming **Forget pairing** to delete only simulator associations;
-- disabling **SIMULATED LAN available** and restoring it without losing the identity;
-- disabling **Show CCP on the display** to return to the rig while the link remains active.
+The device-facing **Connections** screen supports replacing a retained link,
+cancelling the current code or candidate, forgetting simulator associations
+after confirmation, and switching simulated Wi-Fi off and back on. Context
+uses fresh authenticated activity. Chat selection follows the actual Codex
+prompt.
 
 CCP can explicitly request a restart or factory reset of this **SIMULATED** target,
 using the distinct phrases and code described in the
 [plugin README](../../plugins/cody-codex-plugin/README.md#explicit-restart-or-settings-reset).
-A restart preserves the store; a factory reset deletes only simulator settings
-and associations and leaves the simulated LAN unconfigured even after reopening.
-To resume, enable **SIMULATED LAN available** and start new pairing.
-The old PC record remains separate; nothing is deleted on the physical device,
-in firmware or on the SD card.
+A restart preserves the store. A factory reset deletes simulator settings and
+associations and leaves simulated Wi-Fi unconfigured after reopening.
+To resume, enable **Wi-Fi** in **Connections** and pair again. The old PC
+record remains separate.
 
-The preview uses the same native Home fonts, character transform and three lower
-panels as firmware. They rotate every eight visible seconds; a short tap advances
-immediately and restarts the interval. Hidden views and current compaction pause
-the automatic rotation. Tokens includes Free, Last, Window, elapsed time and IMU;
-Model contains the price capsule and thinking effort; Session contains link,
-chat and the simulator endpoint's own address. State/model stay above the panels
-and commands scroll below. The real authenticated cost band and source lease
-are aged and drawn by the same C++ used in firmware. Explicit **Cheap model**, **Reasonable model**
-and **Expensive model** preview scenarios supply labeled SIMULATED fixtures only;
-they never download prices or change the live endpoint or firmware snapshot.
-Activity appears only after fresh packets arrive.
-After eight seconds without updates, activity is
-treated as **UNAVAILABLE**. Chat changes follow the actual prompt sent to Codex;
-there is no local selector or fabricated hook producer.
+`-Ccp -ActivityPreview` opens the legacy artwork inspector and its **CCP** panel.
+The panel's explicitly synthetic activity, model prices, character and lower
+technical panels are artwork study inputs. They stay separate from the active
+endpoint and physical firmware.
 
 CCP 0.6 also supports authentic EVENT messages. A question follows 26 → 27 → 31:
 open it, select a card, review its description and press **Send**.
 The selection stays local and reversible until Send; Back preserves the path.
 A UDP ACK alone leaves **Confirming delivery**: **Reply sent** requires the second
-recipient-confirmation poll within the 180-second TTL. Disabling LAN in the panel
-keeps the same question visible, with sending disabled until a new authenticated
-snapshot arrives.
+recipient-confirmation poll within the 180-second TTL. A lost loopback link keeps the same question visible, with sending disabled
+until a new authenticated snapshot arrives.
 
 PR views display data only. **View failures** opens up to six complete names,
 three per page, with vertical scrolling and Back navigation. Rows are not buttons;
@@ -139,10 +136,9 @@ ones without interrupting a question. Sending tools require
 presenting the preview as firmware.
 
 This mode exercises the protocol path and its host presentation.
-Commissioning is controlled from the desktop panel: it does not run ESP-IDF
-firmware here or reproduce every gesture and screen of native onboarding.
-To avoid ambiguous captures, `-Ccp` is supported only in interactive `rig` mode,
-without material studies. Physical Cody remains an independent identity.
+The device preview models pairing and navigation without running ESP-IDF.
+`-Ccp` is interactive and uses the default screen. Physical Cody remains an
+independent identity.
 
 ## Expressions, symbols and materials
 
@@ -216,7 +212,8 @@ Leg retains accelerometer, gyro, combined, motion and settings views, all synthe
 
 The EXE package remains Luna under `artifacts/simulator/windows/dist/`.
 Packaging explicitly prepares the host environment; opening a preview does not
-silently install dependencies.
+silently install dependencies. The first import of an external dependency
+requires one targeted Windows Defender scan of the archive and extracted files.
 
 | Luna control | Synthetic action |
 | --- | --- |
@@ -361,11 +358,11 @@ are explicitly overridden. Character scene typography retains its authored
 device assets. Palette text provenance is normalized both by the generator
 and the Windows painter; indexed coverage and PCM binary hashes remain exact.
 
-The Cody Studio and Luna simulator desktop headers show the approved VibeWare
+The Cody Studio artwork editor and Luna simulator desktop headers show the approved VibeWare
 floppy at the top right, outside the simulated device canvas. The clickable,
 keyboard-accessible badge opens `https://umbertogiacobbi.biz/vibeware/manifesto`
 only on user activation. It indicates participation in the initiative, not
-application authorship. Both windows use the Luna Shell project artwork for
+application authorship. Those windows use the Luna Shell project artwork for
 their window icon, separately from the initiative badge.
 
 The unchanged floppy source, original MIT notice and provenance are under

@@ -2336,6 +2336,19 @@ def main(argv=None):
             args.capture = resolve_runtime_output(args.capture)
         except (OSError, RuntimeError, ValueError) as error:
             parser.error(str(error))
+    artwork_view = (args.screen != Screen.RIG or args.skin != "assets/cody/cody.yaml"
+                    or args.activity_preview or args.cloud_material_study or sprite_study)
+    if not artwork_view and args.capture is None:
+        from cody_device_ui import DeviceStudioWindow
+
+        prepare_display()
+        root = tk.Tk()
+        root.withdraw()
+        configure_tk_scaling(root)
+        DeviceStudioWindow(root, args)
+        root.deiconify()
+        root.mainloop()
+        return
     renderer = CodyRenderer(skin_path=args.skin, jelly_study=args.cloud_jelly_study,
         offline_study=args.cloud_material_study or args.cloud_png_mesh_study or args.cloud_jelly_study)
     if args.capture:
