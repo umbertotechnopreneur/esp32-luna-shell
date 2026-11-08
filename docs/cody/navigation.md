@@ -15,15 +15,14 @@ The first device route starts with the saved network and pairing state.
 | Valid retained pairing | Search for the remembered PC until authenticated presence arrives |
 | Storage or service error | Show the original failure and an available recovery action |
 
-Tap to pair opens **Get your phone**, which explains the two QR codes. **Show
-QR** opens the installation screen. Its QR links to Google Play and the caption
-names **ESP BLE Provisioning** for users of the App Store. **Pair Cody** starts
-Bluetooth provisioning. Scan the session QR from inside the Espressif app on
-the phone once Cody displays **Scan to pair**.
+**Tap to pair** opens **Wi-Fi setup**. **App download QR** opens the installation
+screen. Its QR links to Google Play and the caption names **ESP BLE Provisioning**
+for users of the App Store. **Show pairing QR** starts Bluetooth provisioning
+from either page. Scan the QR on **Scan to pair** from inside the Espressif app.
 
 On the **Wi-Fi offline** recovery screen, **Later** opens **Not connected**.
 The saved network can still reconnect in the background. **Set up Wi-Fi** opens
-**Get your phone** directly.
+**Wi-Fi setup** directly.
 
 In Options, Connections opens the vertical Connect Codex and Set up Wi-Fi
 entries. Back preserves an already valid discovery or connection. Wi-Fi and
@@ -163,12 +162,12 @@ More than six failures or a name over 48 characters returns detail to the PC.
 
 ## Timeouts, network owner and maintenance
 
-Local route timeouts are 30 awake seconds for 05/06 and 90 for 07. Pause does not
-stop these route clocks; standby does. Real touch or changed canonical attempt
-progress renews them. Animation and unchanged snapshots do not.
-Timeout retires the view/QR, returns to Not connected and finishes cleanup. Late
-results cannot restore the old route. Backend deadlines and screen standby overrides
-remain separate. QR copying requires current ReadyToScan and attempt ID;
+The guide and installation pages return to Not connected after 30 awake seconds
+of inactivity. Once **Show pairing QR** starts a session, the pairing service owns
+the five-minute deadline. The device remains awake through the session and its
+cleanup window. **Cancel** still closes the attempt explicitly. A service timeout
+shows the pairing error and its retry action. QR copying requires current
+ReadyToScan and attempt ID;
 ownership and DMA handoff are in [provisioning](../bsp/services/connectivity-pairing.md).
 
 Short PWR/BOOT, screenshot and sleep behavior follow the power owner and

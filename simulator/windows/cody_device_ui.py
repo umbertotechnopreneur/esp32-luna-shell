@@ -5,6 +5,7 @@ from __future__ import annotations
 from enum import Enum, auto
 from functools import lru_cache
 import json
+from math import isqrt
 from pathlib import Path
 import time
 import tkinter as tk
@@ -28,6 +29,8 @@ ACCENT = (122, 218, 222)
 SETUP_ACCENT = (144, 167, 255)
 SETUP_AMBER = (255, 183, 74)
 SETUP_AMBER_FIELD = (54, 36, 14)
+CONTROL_PALETTE = ((16, 40, 58), (8, 24, 33), (41, 105, 123), (140, 226, 239))
+SECONDARY_CONTROL_PALETTE = ((25, 28, 41), (16, 20, 25), (74, 81, 99), (189, 190, 189))
 OPTIONS_TITLE_TOP = 82
 OPTIONS_ROW_TOP = 130
 OPTIONS_ROW_STEP = 80
@@ -167,6 +170,24 @@ def arrow(draw, center, step, opacity=1):
               fill=blend(FOREGROUND, opacity), width=3, joint="curve")
 
 
+# draw: Logical frame receiving the native-style capsule.
+# bounds: Inclusive control rectangle.
+# palette: Top fill, bottom fill, outline and icon RGB colors.
+def draw_control_pill(draw, bounds, palette):
+    left, top, right, bottom = bounds
+    top_color, bottom_color, outline, _ = palette
+    radius = (bottom - top) // 2
+    draw.rounded_rectangle(bounds, radius=radius, fill=outline)
+    inner_radius = radius - 1
+    for y in range(top + 1, bottom):
+        dy = max(top + radius - y, y - (bottom - radius), 0)
+        inset = inner_radius - isqrt(inner_radius * inner_radius - dy * dy)
+        fraction = (y - top) / (bottom - top)
+        color = tuple(round(start + (end - start) * fraction)
+                      for start, end in zip(top_color, bottom_color))
+        draw.line((left + 1 + inset, y, right - 1 - inset, y), fill=color)
+
+
 # draw: Logical framebuffer receiving the white tile and exact square modules.
 # matrix: Square tuple of binary module rows.
 # top: Logical y coordinate of the tile.
@@ -262,6 +283,7 @@ class DeviceStudioWindow:
         self.boot_frame = None
         self.route = WifiSetupRoute.OFFLINE
         self.guide_return = WifiSetupRoute.NOT_CONNECTED
+        self.pairing_return = WifiSetupRoute.PHONE_GUIDE
         self.pairing_attempted = False
         self.page = 0
         self.options_page = 0
@@ -340,6 +362,11 @@ class DeviceStudioWindow:
         self.guide_return = previous
         self.open(WifiSetupRoute.PHONE_GUIDE)
 
+    # self: Studio navigation owner opening the physical-only pairing preview.
+    def open_pairing_preview(self):
+        self.pairing_return = self.route
+        self.open(WifiSetupRoute.SCAN_TO_PAIR)
+
     # self: Active Studio preview receiving the BOOT shortcut.
     def options(self):
         if self.boot is None and not self.standby and not self.event_visible:
@@ -390,7 +417,7 @@ class DeviceStudioWindow:
             elif self.route is WifiSetupRoute.INSTALL_APP:
                 self.open(WifiSetupRoute.PHONE_GUIDE)
             elif self.route is WifiSetupRoute.SCAN_TO_PAIR:
-                self.open(WifiSetupRoute.INSTALL_APP)
+                self.open(self.pairing_return)
             elif self.route == "options":
                 if self.options_page:
                     self.show_options_page(0)
@@ -448,26 +475,23 @@ class DeviceStudioWindow:
     # action: Callback when the button is enabled.
     # width: Complete hit width in logical pixels.
     # height: Complete hit height in logical pixels.
-    # primary: Use the filled Wi-Fi setup style.
-    # flat: Render only the secondary caption inside the complete target.
+    # secondary: Use the neutral gradient for a dismiss or postpone action.
     # icon: Optional outline icon next to the caption.
     # caption_size: Font size chosen for the complete target.
-    def button(self, draw, name, top, action, *, width=246, height=38, primary=False, flat=False,
+    def button(self, draw, name, top, action, *, width=246, height=38, secondary=False,
                icon=None, caption_size=17):
         box = (CENTER - width // 2, top, CENTER + width // 2, top + height)
+        palette = SECONDARY_CONTROL_PALETTE if secondary else CONTROL_PALETTE
         color = FOREGROUND if action else MUTED
-        if primary:
-            color = BACKGROUND
-            draw.rounded_rectangle(box, radius=height // 2, fill=SETUP_ACCENT)
-        elif not flat:
-            draw.rounded_rectangle(box, radius=height // 2, fill=(32, 43, 58), outline=(64, 80, 101))
+        draw_control_pill(draw, box, palette)
         caption_x = CENTER
         if icon:
             text_width = round(draw.textlength(name, font=font(caption_size)))
             group_left = CENTER - (text_width + 32) // 2
-            icon_x = group_left + (text_width + 21 if flat else 11)
-            setup_icon(draw, icon, (icon_x, top + height // 2), 22, color)
-            caption_x += -16 if flat else 16
+            trailing = icon == "chevron"
+            icon_x = group_left + (text_width + 21 if trailing else 11)
+            setup_icon(draw, icon, (icon_x, top + height // 2), 22, palette[3] if action else MUTED)
+            caption_x += -16 if trailing else 16
         label(draw, name, top + (height - caption_size) // 2, caption_size, color, x=caption_x, width=width - 20)
         if action is not None:
             self.targets[name] = (box, action)
@@ -531,32 +555,36 @@ class DeviceStudioWindow:
             self.button(draw, "Set up Wi-Fi" if recovering else "Tap to pair", 272 if recovering else 352,
                         lambda: self.open_phone_guide(WifiSetupRoute.NOT_CONNECTED),
                         width=280 if recovering else 240, height=58 if recovering else 72,
-                        primary=True, icon="wifi")
+                        icon="wifi")
             if recovering:
                 self.button(draw, "Later", 350, lambda: self.open(WifiSetupRoute.NOT_CONNECTED),
-                            width=160, height=50, flat=True, icon="chevron")
+                            width=160, height=50, secondary=True, icon="chevron")
             return
         if self.route is WifiSetupRoute.PHONE_GUIDE:
-            setup_icon(draw, "phone", (CENTER, 109), 54, SETUP_ACCENT)
-            label(draw, "Get your phone", 185, 32)
-            label(draw, "Scan next QR for app.", 242, 17, MUTED)
-            label(draw, "Then scan pairing QR", 268, 17, MUTED)
-            label(draw, "in the Espressif app.", 294, 17, MUTED)
-            self.button(draw, "Show QR", 352, lambda: self.open(WifiSetupRoute.INSTALL_APP),
-                        width=240, height=72, primary=True, icon="qr")
+            setup_icon(draw, "phone", (CENTER, 89), 54, SETUP_ACCENT)
+            label(draw, "Wi-Fi setup", 130, 32)
+            label(draw, "Get the Espressif app", 186, 17, MUTED)
+            label(draw, "Then open it and scan", 212, 17, MUTED)
+            label(draw, "the pairing QR.", 238, 17, MUTED)
+            self.button(draw, "App download QR", 274, lambda: self.open(WifiSetupRoute.INSTALL_APP),
+                        width=280, height=62, icon="qr")
+            self.button(draw, "Show pairing QR", 348, self.open_pairing_preview,
+                        width=280, height=64, icon="bluetooth")
         elif self.route is WifiSetupRoute.INSTALL_APP:
             setup_icon(draw, "phone", (CENTER, 72), 46, SETUP_ACCENT)
             label(draw, "Scan to install", 98, 28)
             label(draw, "ESP BLE Provisioning", 139, 16, MUTED)
             qr_tile(draw, INSTALL_APP_QR, 165, 192)
             label(draw, "Find on the App Store", 360, 16, MUTED)
-            self.button(draw, "Pair Cody", 390, lambda: self.open(WifiSetupRoute.SCAN_TO_PAIR),
-                        width=220, height=44, primary=True, icon="bluetooth")
+            self.button(draw, "Show pairing QR", 390, self.open_pairing_preview,
+                        width=220, height=44, icon="bluetooth")
         elif self.route is WifiSetupRoute.SCAN_TO_PAIR:
             setup_icon(draw, "bluetooth", (CENTER, 121), 54, SETUP_ACCENT)
             label(draw, "Scan to pair", 180, 32)
             label(draw, "Bluetooth setup runs", 230, 17, MUTED)
             label(draw, "on the physical device.", 256, 17, MUTED)
+            self.button(draw, "Cancel", 390, self.back, width=220, height=44, secondary=True)
+            return
         opacity = self.navigation_opacity(now)
         if opacity > 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)

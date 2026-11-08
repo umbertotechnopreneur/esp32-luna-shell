@@ -29,7 +29,7 @@
 
 namespace {
 constexpr char kTag[] = "LUNASHELL_pairing";
-constexpr int64_t kSessionTimeoutUs = 5LL * 60LL * 1000000LL;
+constexpr int64_t kSessionTimeoutUs = LUNASHELL_PAIRING_SESSION_TIMEOUT_SECONDS * 1000000LL;
 constexpr uint32_t kPollMs = 250;
 constexpr size_t kWorkerStackSize = 4096;
 using State = LUNASHELL::PairingSessionState;

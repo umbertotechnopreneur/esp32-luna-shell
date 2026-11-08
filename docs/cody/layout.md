@@ -87,14 +87,15 @@ retain their own expired, cancelled or rejected captions.
 
 Device-first pairing uses the same title and body fonts, left chevron, and
 capsule geometry as the dashboard and Options. The dark canvas, amber offline
-glyph and periwinkle primary controls carry across the Wi-Fi setup journey.
+glyph and restrained Options-style button gradients carry across the Wi-Fi
+setup journey.
 Both QR screens keep their white area within the square code tile.
 
 | Screen | Artwork/content |
 | --- | --- |
 | 04 | Amber offline glyph above Not connected at y=180, Wi-Fi caption, and Tap to pair at (113,352,240,72) |
-| 05 | Phone download glyph, Get your phone title, instructions at y=242/268/294, and Show QR |
-| 06 | Phone download glyph, app name at y=139, installation QR 192 x 192 at (137,165), App Store caption at y=360, and Bluetooth Pair Cody footer |
+| 05 | Phone download glyph, Wi-Fi setup title, and two instructions with App download QR at (93,274,280,62) and Show pairing QR at (93,348,280,64) |
+| 06 | Phone download glyph, app name at y=139, installation QR 192 x 192 at (137,165), App Store caption at y=360, and Show pairing QR footer |
 | 07 | Bluetooth glyph, title at y=115, and session QR 204 x 204 at (131,182) while ReadyToScan |
 | 10 / Options | Title at y=82, up to three enlarged rows, lateral paging arrows, and the Go home footer at y=382 |
 | 11 / Skin | Preview (233,172,44), title y=78, viewport (117,226,232,126), Done (123,386,220,48) |

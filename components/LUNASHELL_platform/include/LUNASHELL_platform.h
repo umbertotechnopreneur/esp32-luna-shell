@@ -854,6 +854,9 @@ typedef enum {
     LUNASHELL_PAIRING_ACTION_CANCEL,
 } LUNASHELL_pairing_action_t;
 
+/** The service owns the active Wi-Fi provisioning deadline. */
+enum { LUNASHELL_PAIRING_SESSION_TIMEOUT_SECONDS = 5 * 60 };
+
 /** Initialize the internal-stack async pairing controller; never opens BLE. */
 esp_err_t LUNASHELL_pairing_service_init(void);
 /** Submit one explicit action against the currently observed attempt identity. */

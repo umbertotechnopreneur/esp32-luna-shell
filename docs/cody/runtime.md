@@ -103,10 +103,10 @@ Debug HUD or numeric progress invented from animation time. Actual deep-sleep
 and ordinary standby wake keep their existing lifecycle and omit the logo.
 
 The device-first firmware enters **Not connected** on screen 04 when a saved
-Wi-Fi profile is absent. **Tap to pair** opens the phone instructions. The
-installation QR opens on screen 06 and **Pair Cody** admits the Bluetooth
-session. The retained-profile startup choices come from the canonical network
-and link state. See [navigation](navigation.md).
+Wi-Fi profile is absent. **Tap to pair** opens **Wi-Fi setup**. **App download
+QR** opens screen 06. **Show pairing QR** admits the Bluetooth session directly
+from either page. The retained-profile startup choices come from the canonical
+network and link state. See [navigation](navigation.md).
 An existing saved Wi-Fi profile receives a passive `Connecting to Wi-Fi` /
 `Please wait` presentation for up to 15 seconds before recovery choices appear.
 Valid association and IP advance immediately; the interval adds no polling task
@@ -176,17 +176,17 @@ profile-specific silicon-sleep policy remain in
 Every authored scene supplies `standby_override_seconds`: zero inherits the saved
 user timeout, a positive value replaces it only for the active scene. The separate
 confirmed-PC-absence policy below replaces ordinary inactivity during its grace interval.
-Invitation 05 and installation 06 use 60 seconds; real pairing 07 uses 90 seconds. The unused
-scan definition, Online 09, Debug-only 39, 10, 36 and 13-15 use 60 seconds.
+Invitation 05 and installation 06 use a 60-second standby override. In the
+device-first interface, pairing 07 uses a 330-second standby override to cover
+the pairing service's five-minute deadline and radio startup and cleanup.
+The unused scan definition, Online 09, Debug-only 39, 10, 36 and 13-15 use 60 seconds.
 Connect Codex 12 uses 180 seconds; successful canonical code delivery refreshes
 its anchor once, so preparation time does not consume the code-reading interval.
 Hello 04, error 08
 and look 11 inherit. Scene entry supplies a fresh
-inactivity baseline and touch refreshes it. Genuine canonical progress in the
-current pairing attempt also refreshes its 90-second anchor without fabricating
-a touch event. Repeated unchanged snapshots do not refresh it.
-Departure/parking clears the override.
-This never writes NVS or extends the backend's five-minute pairing deadline.
+inactivity baseline and touch refreshes it. Departure or parking clears the
+override. The pairing service owns the active Bluetooth deadline and reports
+its result through the canonical session snapshot.
 
 Standby retains the active route. In particular, wake from screen 09 returns to
 09; the wake contact does not invoke its Continue action. Screen 39 is available
