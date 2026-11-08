@@ -231,6 +231,16 @@ constexpr bool icon_contains(ActionIcon icon, float x, float y)
     case ActionIcon::ChevronRight:
         return stroke_contains(x, y, 9.f, 6.f, 15.f, 12.f, 1.3f) ||
             stroke_contains(x, y, 15.f, 12.f, 9.f, 18.f, 1.3f);
+    case ActionIcon::Home:
+        return stroke_contains(x, y, 3.5f, 11.f, 12.f, 3.5f) ||
+            stroke_contains(x, y, 12.f, 3.5f, 20.5f, 11.f) ||
+            stroke_contains(x, y, 6.f, 9.f, 6.f, 20.f) ||
+            stroke_contains(x, y, 18.f, 9.f, 18.f, 20.f) ||
+            stroke_contains(x, y, 6.f, 20.f, 10.f, 20.f) ||
+            stroke_contains(x, y, 14.f, 20.f, 18.f, 20.f) ||
+            stroke_contains(x, y, 10.f, 20.f, 10.f, 15.f) ||
+            stroke_contains(x, y, 14.f, 20.f, 14.f, 15.f) ||
+            stroke_contains(x, y, 10.f, 15.f, 14.f, 15.f);
     case ActionIcon::Gear: {
         const float ax = dx < 0.f ? -dx : dx;
         const float ay = dy < 0.f ? -dy : dy;
@@ -361,6 +371,7 @@ const uint8_t *icon_coverage(ActionIcon icon)
     case ActionIcon::DownloadPhone: return cached_icon_coverage<ActionIcon::DownloadPhone>();
     case ActionIcon::Bluetooth: return cached_icon_coverage<ActionIcon::Bluetooth>();
     case ActionIcon::ChevronRight: return cached_icon_coverage<ActionIcon::ChevronRight>();
+    case ActionIcon::Home: return cached_icon_coverage<ActionIcon::Home>();
     case ActionIcon::None: return nullptr;
     }
     return nullptr;
@@ -404,7 +415,7 @@ esp_err_t draw_action_icon_rows(ActionIcon icon, Rect bounds, uint16_t color,
         bounds.x + bounds.width > 466 || bounds.y + bounds.height > 466 ||
         static_cast<uint32_t>(first_row) + strip.height > 466 ||
         static_cast<uint32_t>(first_column) + strip.width > 466 ||
-        static_cast<uint8_t>(icon) > static_cast<uint8_t>(ActionIcon::ChevronRight)) {
+        static_cast<uint8_t>(icon) > static_cast<uint8_t>(ActionIcon::Home)) {
         ESP_LOGE(kTag, "Action icon geometry or tile origin rejected (%s)",
             esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
@@ -492,7 +503,7 @@ esp_err_t draw_capsule_rows(const CapsuleControl &control, Surface strip,
         static_cast<uint32_t>(first_row) + strip.height > 466 ||
         static_cast<uint32_t>(first_column) + strip.width > 466 ||
         control.corner_radius > bounds.height / 2U ||
-        static_cast<uint8_t>(control.icon) > static_cast<uint8_t>(ActionIcon::ChevronRight)) {
+        static_cast<uint8_t>(control.icon) > static_cast<uint8_t>(ActionIcon::Home)) {
         ESP_LOGE(kTag, "Capsule geometry or tile origin rejected (%s)",
             esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;

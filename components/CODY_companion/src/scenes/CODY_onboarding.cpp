@@ -59,6 +59,11 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed);
 
 namespace {
 constexpr char kTag[] = "CODY_onboarding";
+#if defined(CODY_DEVICE_UI_ONLY)
+constexpr bool kDeviceFirstSetup = true;
+#else
+constexpr bool kDeviceFirstSetup = false;
+#endif
 constexpr char kInstallUrl[] = "https://play.google.com/store/apps/details?id=com.espressif.provble";
 constexpr uint16_t kQrModulesMax = 57; // Version 10; bounded independently of the framebuffer.
 constexpr uint16_t kQrBytes = (kQrModulesMax * kQrModulesMax + 7U) / 8U;
@@ -69,6 +74,8 @@ constexpr uint16_t kInstallStoreCaptionTop = 364;
 constexpr CODY2D::Rect kSessionQrBounds{131, 182, 204, 204};
 constexpr uint16_t kSessionCaptionTop = 156;
 constexpr CODY2D::Rect kFooterBounds{123, 390, 220, 44};
+constexpr CODY2D::Rect kOptionsFooterBounds = kDeviceFirstSetup
+    ? CODY2D::Rect{123, 382, 220, 52} : kFooterBounds;
 constexpr CODY2D::Rect kSingleActionBounds{113, 352, 240, 72};
 constexpr CODY2D::Rect kLeftCardBounds{73, 260, 154, 104};
 constexpr CODY2D::Rect kRightCardBounds{239, 260, 154, 104};
@@ -90,13 +97,16 @@ constexpr CODY2D::Rect kPairingGlyph{210, 55, 46, 46};
 constexpr CODY2D::Rect kInstallDarkQrBounds{137, 165, 192, 192};
 constexpr CODY2D::Rect kOfflineSetupBounds{93, 272, 280, 58};
 constexpr CODY2D::Rect kOfflineLaterBounds{153, 350, 160, 50};
-// Category rows and the compact Options menu fit before the footer at 390.
-constexpr uint16_t kPreferenceTop = 194;
-constexpr uint16_t kPreferenceHeight = 50;
-constexpr uint16_t kPreferenceStep = 60;
+// One grid keeps the category rows aligned with the Options menu.
+constexpr uint16_t kOptionsTitleTop = 82;
+constexpr uint16_t kPreferenceLeft = kDeviceFirstSetup ? 93 : 113;
+constexpr uint16_t kPreferenceWidth = kDeviceFirstSetup ? 280 : 240;
+constexpr uint16_t kPreferenceTop = kDeviceFirstSetup ? 130 : 194;
+constexpr uint16_t kPreferenceHeight = kDeviceFirstSetup ? 72 : 50;
+constexpr uint16_t kPreferenceStep = kDeviceFirstSetup ? 80 : 60;
 constexpr uint8_t kPreferencesPerPage = 3;
 static_assert(kPreferenceTop + (kPreferencesPerPage - 1U) * kPreferenceStep +
-    kPreferenceHeight < kFooterBounds.y);
+    kPreferenceHeight < kOptionsFooterBounds.y);
 constexpr uint16_t kEventCaptionWidth = 300;
 constexpr uint16_t kCaptionWidth = 232;
 // Authenticated PC presence does not imply a selected chat.
@@ -114,11 +124,6 @@ constexpr int64_t kHelloReadableHoldUs = 1000000;
 constexpr int64_t kStartupWifiGraceUs = 15LL * 1000000LL;
 constexpr bool kPairingDebugEnabled = LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled;
 constexpr bool kCodexIntegrationEnabled = CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX;
-#if defined(CODY_DEVICE_UI_ONLY)
-constexpr bool kDeviceFirstSetup = true;
-#else
-constexpr bool kDeviceFirstSetup = false;
-#endif
 using PairState = LUNASHELL::PairingSessionState;
 using CodexState = LUNASHELL::CodexLinkState;
 
@@ -903,8 +908,10 @@ bool uses_footer_action()
 // No parameters: QR and Options pages retain clearance above their compact action.
 CODY2D::Rect single_action_bounds()
 {
+    if (s_route == Route::MakeItYours10) {
+        return kOptionsFooterBounds;
+    }
     return s_route == Route::Install06 || s_route == Route::Pairing07 ||
-        s_route == Route::MakeItYours10 ||
         (s_route == Route::ConnectCodex12 && !s_codex_error_visible) ?
         kFooterBounds : kSingleActionBounds;
 }
@@ -1153,15 +1160,15 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
     return error;
 }
 
-// action: Semantic pairing command, including the quiet Later action.
+// action: Semantic pairing command or Options home navigation.
 // label: Prepared single-line English caption.
 // bounds: Capsule rectangle used for both drawing and touch.
 // enabled: Backend admission or navigation readiness.
 // icon: Glyph paired with the caption.
-// control: Receives the complete compact pairing control.
+// control: Receives the complete capsule with a centered glyph and caption.
 // second: Cleared unused second line.
 // Exception: Returns the real caption-layout error.
-esp_err_t prepare_pairing_pill(OnboardingAction action, const char *label, CODY2D::Rect bounds,
+esp_err_t prepare_icon_pill(OnboardingAction action, const char *label, CODY2D::Rect bounds,
     bool enabled, CODY2D::ActionIcon icon, CODY2D::CapsuleControl &control, CODY2D::TextLine &second)
 {
     const auto error = prepare_button(action, label, bounds, enabled, false, control, second);
@@ -1169,11 +1176,14 @@ esp_err_t prepare_pairing_pill(OnboardingAction action, const char *label, CODY2
         return error;
     }
     const bool secondary = action == OnboardingAction::Later;
-    const uint16_t ink = secondary ? kPairingCaption : kPairingBackground;
-    control.top_color = control.bottom_color = secondary ? kPairingBackground : kPairingAccent;
-    control.border_color = 0;
+    uint16_t ink = control.caption.color;
+    if (action != OnboardingAction::GoHome) {
+        ink = secondary ? kPairingCaption : kPairingBackground;
+        control.top_color = control.bottom_color = secondary ? kPairingBackground : kPairingAccent;
+        control.border_color = 0;
+        control.icon_color = ink;
+    }
     control.icon = icon;
-    control.icon_color = ink;
     const auto x = control.caption.origin.x;
     const auto y = static_cast<int16_t>(bounds.y + bounds.height / 2U);
     // Shift the centered caption half the icon-and-gap width so the pair stays centered.
@@ -1204,14 +1214,18 @@ esp_err_t prepare_action(OnboardingAction action, bool enabled)
     s_view.action_visible = action != OnboardingAction::None;
     if (kDeviceFirstSetup) {
         using Icon = CODY2D::ActionIcon;
+        if (s_route == Route::MakeItYours10 && action == OnboardingAction::GoHome) {
+            return prepare_icon_pill(action, label, kOptionsFooterBounds, enabled, Icon::Home,
+                s_view.action, s_view.action_second_line);
+        }
         if (s_route == Route::NetworkWait && action == OnboardingAction::Later) {
-            return prepare_pairing_pill(action, label, kOfflineLaterBounds, enabled, Icon::ChevronRight,
+            return prepare_icon_pill(action, label, kOfflineLaterBounds, enabled, Icon::ChevronRight,
                 s_view.action, s_view.action_second_line);
         }
         if (s_route == Route::Hello04 || s_route == Route::Invitation05 || s_route == Route::Install06) {
             const auto icon = s_route == Route::Hello04 ? Icon::Wifi :
                 s_route == Route::Invitation05 ? Icon::Qr : Icon::Bluetooth;
-            return prepare_pairing_pill(action, label, single_action_bounds(), enabled, icon,
+            return prepare_icon_pill(action, label, single_action_bounds(), enabled, icon,
                 s_view.action, s_view.action_second_line);
         }
     }
@@ -1243,7 +1257,7 @@ esp_err_t prepare_alternative(OnboardingAction action, bool enabled)
     }
     s_view.alternative_id = action;
     if (kDeviceFirstSetup && s_route == Route::NetworkWait && action == OnboardingAction::NetworkSetup) {
-        return prepare_pairing_pill(action, label, kOfflineSetupBounds, enabled, CODY2D::ActionIcon::Wifi,
+        return prepare_icon_pill(action, label, kOfflineSetupBounds, enabled, CODY2D::ActionIcon::Wifi,
             s_view.alternative, s_view.alternative_second_line);
     }
     if (s_route == Route::SetupMenu) {
@@ -1481,6 +1495,10 @@ esp_err_t attach_content(SceneFrame &scene)
     capture_scene_activity_identity(scene,
         s_view.activity_identity.project_line.valid ? &s_view.activity_identity : nullptr,
         s_activity_identity_revision);
+    if (s_route == Route::MakeItYours10) {
+        content.bounds.left = kPreferenceLeft;
+        content.bounds.right = kPreferenceLeft + kPreferenceWidth;
+    }
     if (s_route == Route::SetupMenu) {
         content.bounds = {kSetupCodexBounds.x, kSetupCodexBounds.y,
             static_cast<uint16_t>(kSetupWifiBounds.x + kSetupWifiBounds.width),
@@ -1795,7 +1813,7 @@ esp_err_t prepare_options_content(SceneFrame &scene)
             error = action_label(action, label);
             if (error == ESP_OK) {
                 CODY2D::TextLine unused;
-                error = prepare_button(action, label, {113, top, 240, kPreferenceHeight},
+                error = prepare_button(action, label, {kPreferenceLeft, top, kPreferenceWidth, kPreferenceHeight},
                     true, false, target.control, unused);
             }
             if (error != ESP_OK) {
@@ -1910,7 +1928,7 @@ esp_err_t prepare_options_content(SceneFrame &scene)
             }
         }
         const bool manual_locked = row.identity == PreferenceId::Orientation && orientation.auto_rotation_enabled;
-        target.control = {{113, top, 240, kPreferenceHeight}, {},
+        target.control = {{kPreferenceLeft, top, kPreferenceWidth, kPreferenceHeight}, {},
             static_cast<uint16_t>(active && available ? 0x1147 : 0x18E5),
             static_cast<uint16_t>(active && available ? 0x08C4 : 0x10A3),
             available && !manual_locked && !s_command_pending};
@@ -1920,12 +1938,12 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         target.control.icon_color = active && available ? 0x8F1D : 0xBDF7;
         const int16_t text_top = static_cast<int16_t>(top + (kPreferenceHeight - font.height) / 2U);
         error = CODY2D::prepare_text_line(font, {row.label, static_cast<uint16_t>(std::strlen(row.label))},
-            {125, text_top}, 0xFFFF, target.control.caption);
+            {static_cast<int16_t>(kPreferenceLeft + 12U), text_top}, 0xFFFF, target.control.caption);
         const uint16_t count = static_cast<uint16_t>(std::strlen(value));
         const uint16_t value_width = (count - 1U) * font.advance + font.width;
         if (error == ESP_OK) {
             error = CODY2D::prepare_text_line(font, {value, count},
-                {static_cast<int16_t>(345U - value_width), text_top},
+                {static_cast<int16_t>(kPreferenceLeft + kPreferenceWidth - 8U - value_width), text_top},
                 available ? 0xFFFF : 0xBDF7, target.value);
         }
         if (error != ESP_OK) {
@@ -2097,9 +2115,9 @@ SceneDefinition with_pairing_theme(SceneDefinition base, uint16_t title_top)
     return base;
 }
 
-// route: Device-first setup identity.
+// route: Device-first setup or Options identity.
 // base: Registered definition with static lifetime.
-const SceneDefinition &device_pairing_definition(Route route, const SceneDefinition &base)
+const SceneDefinition &device_scene_definition(Route route, const SceneDefinition &base)
 {
     switch (route) {
     case Route::Hello04: {
@@ -2116,6 +2134,14 @@ const SceneDefinition &device_pairing_definition(Route route, const SceneDefinit
     }
     case Route::Pairing07: {
         static const auto definition = with_pairing_theme(base, 115);
+        return definition;
+    }
+    case Route::MakeItYours10: {
+        static const auto definition = [&base] {
+            auto options = base;
+            options.title_top = kOptionsTitleTop;
+            return options;
+        }();
         return definition;
     }
     case Route::NetworkWait:
@@ -2214,7 +2240,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     SceneFrame prepared;
     if (error == ESP_OK) {
         if (kDeviceFirstSetup) {
-            definition = &device_pairing_definition(route, *definition);
+            definition = &device_scene_definition(route, *definition);
         }
         error = begin_scene(*definition, prepared);
     }

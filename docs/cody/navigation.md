@@ -60,6 +60,8 @@ PWR toggles software standby. BOOT opens Options. Page 1 has Connections,
 Codex stats and Visible screens. The right arrow opens page 2 with Display and
 Behavior. The left arrow returns to page 1. Both pages offer **Go home** to
 return to the first enabled statistics screen, or Device if all are hidden.
+The title sits above a grid of up to three 72-pixel-high rows. A house glyph
+identifies the larger **Go home** footer.
 Display holds brightness, rotation and orientation. Behavior holds sound,
 shake-to-wake and, in the voice-enabled profile, Dictation.
 

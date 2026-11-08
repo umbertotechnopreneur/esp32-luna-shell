@@ -28,6 +28,11 @@ ACCENT = (122, 218, 222)
 SETUP_ACCENT = (144, 167, 255)
 SETUP_AMBER = (255, 183, 74)
 SETUP_AMBER_FIELD = (54, 36, 14)
+OPTIONS_TITLE_TOP = 82
+OPTIONS_ROW_TOP = 130
+OPTIONS_ROW_STEP = 80
+OPTIONS_ROW_WIDTH = 280
+OPTIONS_ROW_HEIGHT = 72
 NAVIGATION_IDLE_SECONDS = 10
 NAVIGATION_FADE_SECONDS = 0.35
 PAGES = (
@@ -222,6 +227,13 @@ def setup_icon(draw, icon, center, size, color):
     elif icon == "chevron":
         span = size // 4
         draw.line(((x - span, y - span), (x + span, y), (x - span, y + span)),
+                  fill=color, width=stroke, joint="curve")
+    elif icon == "home":
+        side = half - 2
+        draw.line(((x - side, y), (x, y - side), (x + side, y)),
+                  fill=color, width=stroke, joint="curve")
+        draw.line(((x - side + 2, y - 2), (x - side + 2, y + side),
+                   (x + side - 2, y + side), (x + side - 2, y - 2)),
                   fill=color, width=stroke, joint="curve")
 
 
@@ -439,7 +451,9 @@ class DeviceStudioWindow:
     # primary: Use the filled Wi-Fi setup style.
     # flat: Render only the secondary caption inside the complete target.
     # icon: Optional outline icon next to the caption.
-    def button(self, draw, name, top, action, *, width=246, height=38, primary=False, flat=False, icon=None):
+    # caption_size: Font size chosen for the complete target.
+    def button(self, draw, name, top, action, *, width=246, height=38, primary=False, flat=False,
+               icon=None, caption_size=17):
         box = (CENTER - width // 2, top, CENTER + width // 2, top + height)
         color = FOREGROUND if action else MUTED
         if primary:
@@ -449,12 +463,12 @@ class DeviceStudioWindow:
             draw.rounded_rectangle(box, radius=height // 2, fill=(32, 43, 58), outline=(64, 80, 101))
         caption_x = CENTER
         if icon:
-            text_width = round(draw.textlength(name, font=font(17)))
+            text_width = round(draw.textlength(name, font=font(caption_size)))
             group_left = CENTER - (text_width + 32) // 2
             icon_x = group_left + (text_width + 21 if flat else 11)
             setup_icon(draw, icon, (icon_x, top + height // 2), 22, color)
             caption_x += -16 if flat else 16
-        label(draw, name, top + (height - 17) // 2, 17, color, x=caption_x, width=width - 20)
+        label(draw, name, top + (height - caption_size) // 2, caption_size, color, x=caption_x, width=width - 20)
         if action is not None:
             self.targets[name] = (box, action)
 
@@ -547,11 +561,19 @@ class DeviceStudioWindow:
         if opacity > 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
 
+    # self: Studio preview owning Options and its categories.
+    # draw: Logical canvas before rotation.
+    # rows: Visible captions and actions, with at most three entries per page.
+    def draw_option_rows(self, draw, rows):
+        for index, (name, action) in enumerate(rows):
+            self.button(draw, name, OPTIONS_ROW_TOP + index * OPTIONS_ROW_STEP, action,
+                        width=OPTIONS_ROW_WIDTH, height=OPTIONS_ROW_HEIGHT, caption_size=20)
+
     # self: Studio preview owning the active menu page and touch targets.
     # draw: Logical canvas before rotation.
     # now: Monotonic frame time for the lateral arrow fade.
     def draw_options(self, draw, now):
-        label(draw, f"Options {self.options_page + 1}/2", 103, 34)
+        label(draw, f"Options {self.options_page + 1}/2", OPTIONS_TITLE_TOP, 34)
         if self.options_page == 0:
             rows = (
                 ("Connections", lambda: self.open("connections")),
@@ -563,9 +585,9 @@ class DeviceStudioWindow:
                 ("Display", lambda: self.open("display")),
                 ("Behavior", lambda: self.open("behavior")),
             )
-        for index, (name, action) in enumerate(rows):
-            self.button(draw, name, 194 + index * 60, action, width=240, height=50)
-        self.button(draw, "Go home", 390, self.open_statistics, width=220, height=44)
+        self.draw_option_rows(draw, rows)
+        self.button(draw, "Go home", 382, self.open_statistics, width=220, height=52,
+                    icon="home", caption_size=20)
         opacity = self.navigation_opacity(now)
         if opacity > 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
@@ -670,15 +692,18 @@ class DeviceStudioWindow:
                 self.sidebar(draw, 1, lambda: self.move(1))
                 self.button(draw, "Done", 340, self.back)
             elif self.route == "display":
-                label(draw, "Display", 110, 34)
-                self.button(draw, f"Brightness  {self.brightness}%", 170, self.change_brightness)
-                self.button(draw, f"Orientation  {self.rotation} deg", 222, self.change_orientation)
+                label(draw, "Display", OPTIONS_TITLE_TOP, 34)
+                self.draw_option_rows(draw, (
+                    (f"Brightness  {self.brightness}%", self.change_brightness),
+                    (f"Orientation  {self.rotation} deg", self.change_orientation),
+                ))
                 self.sidebar(draw, -1, self.back)
             elif self.route == "behavior":
-                label(draw, "Behavior", 110, 34)
-                self.button(draw, "Dictation  N/A", 170, None)
-                self.button(draw, "Shake to wake  " + ("On" if self.shake_to_wake else "Off"),
-                            222, self.change_shake_to_wake)
+                label(draw, "Behavior", OPTIONS_TITLE_TOP, 34)
+                self.draw_option_rows(draw, (
+                    ("Dictation  N/A", None),
+                    ("Shake to wake  " + ("On" if self.shake_to_wake else "Off"), self.change_shake_to_wake),
+                ))
                 self.sidebar(draw, -1, self.back)
             else:
                 self.draw_widget(draw, snapshot, now)

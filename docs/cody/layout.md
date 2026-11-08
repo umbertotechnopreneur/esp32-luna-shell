@@ -34,7 +34,8 @@ timing or character audio.
 | Third action for PC management | (153,376,160,52) |
 | Setup menu rows | (93,230,280,56) and (93,298,280,56), 16-pixel corners |
 | Setup menu Options | (153,382,160,52) |
-| Options menu rows | Up to three at x=113, width 240, height 50, y=194/254/314 |
+| Options and category rows | Up to three at x=93, width 280, height 72, y=130/210/290 |
+| Options footer | (123,382,220,52), with an outline home glyph next to Go home |
 | Visibility toggle | (113,226,240,52) |
 | Ordinary single action | (113,352,240,72) |
 | Compact QR/skin footer | (123,390,220,44) |
@@ -95,7 +96,7 @@ Both QR screens keep their white area within the square code tile.
 | 05 | Phone download glyph, Get your phone title, instructions at y=242/268/294, and Show QR |
 | 06 | Phone download glyph, app name at y=139, installation QR 192 x 192 at (137,165), App Store caption at y=360, and Bluetooth Pair Cody footer |
 | 07 | Bluetooth glyph, title at y=115, and session QR 204 x 204 at (131,182) while ReadyToScan |
-| 10 / Options | Up to three 240 x 50 rows at y=194/254/314. Lateral arrows page the menu. Go home footer at y=390. |
+| 10 / Options | Title at y=82, up to three enlarged rows, lateral paging arrows, and the Go home footer at y=382 |
 | 11 / Skin | Preview (233,172,44), title y=78, viewport (117,226,232,126), Done (123,386,220,48) |
 | 42 / Wi-Fi offline | Amber offline glyph, title at y=180, Set up Wi-Fi at (93,272,280,58), and Later at (153,350,160,50) |
 
