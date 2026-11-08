@@ -399,6 +399,36 @@ struct CodexAccountSnapshot : ComponentSnapshot {
     char plan_label[25]{};
     uint8_t plan_icon[kPlanIconBytes]{}; // Two bytes per row, high bit first.
     char plan_price[25]{}; // Public monthly list price caption; empty when unavailable.
+
+    // unix_day: Calendar label as UTC days since the Unix epoch.
+    const uint64_t *tokens_for_unix_day(int64_t unix_day) const
+    {
+        if (unix_day <= 0 || unix_day > anchor_unix_day) {
+            return nullptr;
+        }
+        const int64_t offset = static_cast<int64_t>(anchor_unix_day) - unix_day;
+        if (offset >= static_cast<int64_t>(kDailyBucketCount)) {
+            return nullptr;
+        }
+        const size_t slot = kDailyBucketCount - 1U - static_cast<size_t>(offset);
+        return (daily_valid_mask & (1U << slot)) ? &daily_tokens[slot] : nullptr;
+    }
+
+    // before_day: Exclusive UTC date cutoff for the latest observed bucket.
+    // unix_day: Receives the original date label when a bucket is found.
+    const uint64_t *latest_tokens_before(int64_t before_day, int64_t &unix_day) const
+    {
+        for (size_t offset = 0; offset < kDailyBucketCount; ++offset) {
+            const int64_t day = static_cast<int64_t>(anchor_unix_day) - static_cast<int64_t>(offset);
+            if (day > 0 && day < before_day) {
+                if (const auto *tokens = tokens_for_unix_day(day)) {
+                    unix_day = day;
+                    return tokens;
+                }
+            }
+        }
+        return nullptr;
+    }
 };
 static_assert(sizeof(CodexAccountSnapshot) <= 256,
     "Account reads must remain bounded independently of the full hardware snapshot");
@@ -413,6 +443,7 @@ struct CodexTokenIntervalsSnapshot : ComponentSnapshot {
     uint32_t first_observed_quarter = 0; // Older slots predate this device's current series.
     uint32_t source_age_at_receive_ms = 0;
     bool initialized = false;
+    bool today_total_not_reported = false; // Derived with a current account sample and clock.
 
     // quarter: UTC interval start, represented as Unix seconds divided by 900.
     // delta: Receives an observed token count only when the slot is present.

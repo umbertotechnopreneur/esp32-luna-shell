@@ -4,7 +4,7 @@
 uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
 for pairing; public Internet availability is a separate condition.
 
-CCP **0.6.15** provides one local owner for Codex and the Windows/Linux companion
+CCP **0.6.16** provides one local owner for Codex and the Windows/Linux companion
 control panel. Codex activity and semantic questions retain their own identities.
 The panel reads genuine native MCP presence and original activity freshness.
 These changes are source-only; installation and device validation are pending.
@@ -234,7 +234,9 @@ vouchers and the current ChatGPT plan when available. Cody uses the existing
 authenticated pairing. The plugin resolves the installed native Codex
 executable from its search path and uses its existing ChatGPT sign-in. The
 five-hour graph shows observed changes in today's reported daily token total
-between adjacent 15-minute UTC sampling slots. Missing intervals remain gaps.
+between adjacent 15-minute UTC sampling slots. A missing total can start a
+baseline later in the same slot if the service supplies it. Already published
+intervals are immutable. Missing intervals remain gaps.
 
 The existing CCP broker makes bounded reads through a private
 `codex app-server` stdio child only when a native MCP lease is open and an

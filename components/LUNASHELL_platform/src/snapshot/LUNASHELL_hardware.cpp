@@ -3023,10 +3023,20 @@ esp_err_t DeviceSnapshotService::readCodexTokenIntervals(CodexTokenIntervalsSnap
     const bool link_ready = codex_presence::ready_current(s_snapshot.radios.codex_link, now_us);
     ClockSnapshot clock = s_snapshot.clock;
     const int64_t clock_ttl_us = measured_sample_ttl_us(s_snapshot);
+    constexpr int64_t seconds_per_day = 86400;
+    ComponentSnapshot account_lease = s_codex_account;
+    const uint32_t account_age_ms = s_codex_account.source_age_at_receive_ms;
+    const bool has_today_total = s_codex_account.tokens_for_unix_day(clock.utc_epoch_seconds / seconds_per_day) != nullptr;
     const esp_err_t release_error = give_snapshot_mutex(operation);
     if (release_error != ESP_OK) {
         return release_error;
     }
+    age_measured_sample(clock, now_us, clock_ttl_us);
+    const bool clock_current = clock.health == DeviceHealth::Ready && clock.data_valid &&
+        !clock.data_stale && clock.last_error == ESP_OK && clock.utc_epoch_seconds >= 900;
+    age_codex_account_sample(account_lease, account_age_ms, link_ready, now_us);
+    history.today_total_not_reported = clock_current && account_lease.health == DeviceHealth::Ready &&
+        account_lease.data_valid && !account_lease.data_stale && account_lease.last_error == ESP_OK && !has_today_total;
     if (!history.data_valid) {
         return ESP_OK;
     }
@@ -3034,9 +3044,6 @@ esp_err_t DeviceSnapshotService::readCodexTokenIntervals(CodexTokenIntervalsSnap
     ComponentSnapshot lease = history;
     lease.last_success_at_us = history.last_attempt_at_us;
     age_codex_account_sample(lease, history.source_age_at_receive_ms, link_ready, now_us);
-    age_measured_sample(clock, now_us, clock_ttl_us);
-    const bool clock_current = clock.health == DeviceHealth::Ready && clock.data_valid &&
-        !clock.data_stale && clock.last_error == ESP_OK && clock.utc_epoch_seconds >= 900;
     if (lease.data_valid && (!clock_current || clock.utc_epoch_seconds / 900 - 1 != history.anchor_quarter)) {
         lease.data_valid = false;
         lease.data_stale = true;

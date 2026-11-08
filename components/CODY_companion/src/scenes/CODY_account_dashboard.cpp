@@ -274,34 +274,18 @@ esp_err_t prepare_quota(AccountDashboardPresentation &presentation,
 
 // presentation: Fixed dashboard owner.
 // label: Full English streak caption.
-// valid: True only when the provider reported this independent count.
-// days: Original provider streak length.
+// days: Original, independently available provider streak length.
 // top: Logical y of the label box.
 // color: Distinguishes the current and historical streak.
 // Exception: Preserves original native text and layout errors.
 esp_err_t add_streak(AccountDashboardPresentation &presentation, const char *label,
-    bool valid, uint32_t days, uint16_t top, uint16_t color)
+    uint32_t days, uint16_t top, uint16_t color)
 {
-    char value[32]{};
-    if (valid) { std::snprintf(value, sizeof(value), "%lu DAY %s", static_cast<unsigned long>(days), label); }
-    else { std::snprintf(value, sizeof(value), "%s %s", label, status_text(presentation.account_state)); }
-    return add_detail(presentation, value, top, valid ? color : kMuted);
-}
-
-// account: Canonical source with independently valid dated counts.
-// unix_day: Requested calendar label expressed as days since the Unix epoch.
-const uint64_t *daily_tokens_for_day(const LUNASHELL::CodexAccountSnapshot &account, int64_t unix_day)
-{
-    if (unix_day <= 0 || unix_day > account.anchor_unix_day) {
-        return nullptr;
-    }
-    const int64_t offset = static_cast<int64_t>(account.anchor_unix_day) - unix_day;
-    constexpr auto count = LUNASHELL::CodexAccountSnapshot::kDailyBucketCount;
-    if (offset >= static_cast<int64_t>(count)) {
-        return nullptr;
-    }
-    const size_t slot = count - 1U - static_cast<size_t>(offset);
-    return (account.daily_valid_mask & (1U << slot)) ? &account.daily_tokens[slot] : nullptr;
+    const esp_err_t error = add_detail(presentation, label, top);
+    if (error != ESP_OK) { return error; }
+    char value[16]{};
+    std::snprintf(value, sizeof(value), "%lu %s", static_cast<unsigned long>(days), days == 1 ? "DAY" : "DAYS");
+    return add_detail(presentation, value, top + 25U, color);
 }
 
 // presentation: Fixed current-day page owner.
@@ -310,25 +294,53 @@ const uint64_t *daily_tokens_for_day(const LUNASHELL::CodexAccountSnapshot &acco
 esp_err_t prepare_today(AccountDashboardPresentation &presentation, const LUNASHELL::CodexAccountSnapshot &account)
 {
     const bool current = presentation.account_state == SourceState::Current;
-    const auto *today = current ? daily_tokens_for_day(account, presentation.utc_day) : nullptr;
-    char count[32]{};
-    if (today) { format_count(*today, count); }
-    const char *missing = current && presentation.utc_day <= 0
-        ? "Device time unavailable" : status_text(presentation.account_state);
     esp_err_t error = add_rule(presentation, 128);
     if (error != ESP_OK) { return error; }
-    error = add_hero(presentation, today ? count : missing, {73, 133, 320, 120}, today ? 3 : 1,
-        today ? kWhite : kMuted);
-    if (error != ESP_OK) { return error; }
-    error = add_detail(presentation, "TOKENS", 254, kWhite);
-    if (error != ESP_OK) { return error; }
+
+    const auto *today = current ? account.tokens_for_unix_day(presentation.utc_day) : nullptr;
+    if (today != nullptr) {
+        char count[32]{};
+        format_count(*today, count);
+        error = add_hero(presentation, count, {73, 133, 320, 120}, 3, kWhite);
+        if (error != ESP_OK) { return error; }
+        error = add_detail(presentation, "TOKENS TODAY (UTC)", 254, kWhite);
+    } else if (!current || presentation.utc_day <= 0) {
+        const char *status = current ? "Device time unavailable" : status_text(presentation.account_state);
+        error = add_hero(presentation, status, {73, 133, 320, 120}, 1, kMuted);
+    } else {
+        error = add_detail(presentation, "TODAY TOTAL NOT REPORTED", 144);
+        if (error != ESP_OK) { return error; }
+        int64_t day = 0;
+        if (const auto *latest = account.latest_tokens_before(presentation.utc_day, day)) {
+            std::tm calendar{};
+            char date[12]{};
+            if (!utc_calendar(day * kDaySeconds, calendar) ||
+                std::strftime(date, sizeof(date), "%Y-%m-%d", &calendar) == 0) {
+                return ESP_ERR_INVALID_SIZE;
+            }
+            char count[32]{};
+            format_count(*latest, count);
+            error = add_hero(presentation, count, {73, 171, 320, 80}, 2, kWhite);
+            if (error != ESP_OK) { return error; }
+            char label[32]{};
+            std::snprintf(label, sizeof(label), "TOKENS ON %s", date);
+            error = add_detail(presentation, label, 254, kWhite);
+        }
+    }
+    if (error != ESP_OK || !current || (!account.current_streak_valid && !account.longest_streak_valid)) {
+        return error;
+    }
     error = add_rule(presentation, 287);
     if (error != ESP_OK) { return error; }
-    error = add_streak(presentation, "STREAK", current && account.current_streak_valid,
-        account.current_streak_days, 303, kCyan);
-    if (error != ESP_OK) { return error; }
-    return add_streak(presentation, "BEST", current && account.longest_streak_valid,
-        account.longest_streak_days, 344, kIndigo);
+    if (account.current_streak_valid) {
+        error = add_streak(presentation, "CURRENT STREAK", account.current_streak_days, 292, kCyan);
+        if (error != ESP_OK) { return error; }
+    }
+    if (account.longest_streak_valid) {
+        error = add_streak(presentation, "RECORD", account.longest_streak_days,
+            account.current_streak_valid ? 342 : 292, kIndigo);
+    }
+    return error;
 }
 
 // value: Original count for this observed day.
@@ -354,7 +366,7 @@ esp_err_t prepare_chart(AccountDashboardPresentation &presentation, const LUNASH
     for (int64_t index = 0; index < kHistoryDayCount; ++index) {
         const auto x = static_cast<uint16_t>(kChartLeft + index * kChartStep);
         const int64_t day = first_day + index;
-        if (const auto *tokens = daily_tokens_for_day(account, day)) {
+        if (const auto *tokens = account.tokens_for_unix_day(day)) {
             const uint16_t height = chart_height(*tokens, maximum);
             if (height > 0) {
                 const bool newest = index == kHistoryDayCount - 1;
@@ -408,7 +420,7 @@ esp_err_t prepare_history(AccountDashboardPresentation &presentation, const LUNA
     uint64_t maximum = 0;
     bool complete = true;
     for (int64_t day = first_day; day < presentation.utc_day; ++day) {
-        const auto *tokens = daily_tokens_for_day(account, day);
+        const auto *tokens = account.tokens_for_unix_day(day);
         if (tokens == nullptr) {
             complete = false;
             continue;

@@ -410,7 +410,7 @@ class AccountUsageReader:
             self._account = account
 
     # self: Sole interval owner, called with its lock held after account verification.
-    # sample: First available service observation for a UTC slot, including an observed gap.
+    # sample: One service observation for a UTC slot, including an observed gap.
     def _observe_quarter(self, sample: DailyTokenSample) -> QuarterTokens | None:
         previous = self._sample
         if previous is not None and sample.utc_slot < previous.utc_slot:
@@ -419,10 +419,16 @@ class AccountUsageReader:
             return None
         floor = self._continuity_floor
         if previous is not None and sample.utc_slot == previous.utc_slot:
-            # Intermediate reads cannot replace the slot sample. A detected
-            # reset still invalidates its continuity for the following slot.
-            if floor is not None and sample.daily_total is not None:
-                self._continuity_floor = sample.daily_total if sample.daily_total >= floor else None
+            if previous.daily_total is None and sample.daily_total is not None:
+                # Establish this slot's first baseline without rewriting the preceding interval.
+                self._sample = sample
+                self._continuity_floor = sample.daily_total
+            elif floor is not None:
+                # Missing or corrected totals break an established baseline for this slot.
+                if sample.daily_total is None or sample.daily_total < floor:
+                    self._continuity_floor = None
+                else:
+                    self._continuity_floor = sample.daily_total
             return self._quarter_tokens
         tokens = None
         if (previous is not None and sample.utc_slot == previous.utc_slot + 1

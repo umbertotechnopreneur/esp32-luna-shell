@@ -323,7 +323,8 @@ esp_err_t prepare_plot(TokenHistoryPresentation &presentation, const LUNASHELL::
         std::snprintf(message, sizeof(message), stale ? "STALE - PEAK %.16s" : "PEAK %.16s TOKENS", number);
     } else {
         const bool collecting = known_start && snapshot.anchor_quarter == first_observed;
-        const char *status = stale ? "STALE - NO SAMPLES" :
+        const char *status = snapshot.today_total_not_reported ? "TODAY TOTAL NOT REPORTED" :
+            stale ? "STALE - NO SAMPLES" :
             collecting ? "COLLECTING 15-MIN SAMPLES" : "NO MEASURED INTERVALS";
         std::snprintf(message, sizeof(message), "%s", status);
     }
@@ -386,6 +387,7 @@ esp_err_t prepare_token_history(TokenHistoryInterval interval,
         presentation.observed_at_us == snapshot.last_success_at_us &&
         presentation.anchor_quarter == snapshot.anchor_quarter &&
         presentation.first_observed_quarter == snapshot.first_observed_quarter &&
+        presentation.today_total_not_reported == snapshot.today_total_not_reported &&
         presentation.local_time == local_time && presentation.first_offset_minutes == first_offset &&
         presentation.last_offset_minutes == last_offset &&
         presentation.title_font == &title_font && presentation.body_font == &body_font) {
@@ -401,6 +403,7 @@ esp_err_t prepare_token_history(TokenHistoryInterval interval,
     presentation.observed_at_us = snapshot.last_success_at_us;
     presentation.anchor_quarter = snapshot.anchor_quarter;
     presentation.first_observed_quarter = snapshot.first_observed_quarter;
+    presentation.today_total_not_reported = snapshot.today_total_not_reported;
     presentation.local_time = local_time;
     presentation.first_offset_minutes = first_offset;
     presentation.last_offset_minutes = last_offset;
@@ -411,7 +414,8 @@ esp_err_t prepare_token_history(TokenHistoryInterval interval,
     esp_err_t error = add_caption(presentation, title_font, "TOKEN ACTIVITY", {73, 78, 320, 46}, kCyan);
     if (error != ESP_OK) { return result("prepare title", error); }
     if (!has_range) {
-        error = add_caption(presentation, body_font, "TOKEN HISTORY UNAVAILABLE", {73, 212, 320, 28}, kMuted);
+        const char *status = snapshot.today_total_not_reported ? "TODAY TOTAL NOT REPORTED" : "TOKEN HISTORY UNAVAILABLE";
+        error = add_caption(presentation, body_font, status, {73, 212, 320, 28}, kMuted);
     } else {
         const auto oldest = static_cast<uint32_t>(first_epoch / kQuarterSeconds);
         error = prepare_plot(presentation, snapshot, oldest, selected.bins, local_time ? local : nullptr);

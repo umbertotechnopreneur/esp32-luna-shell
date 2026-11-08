@@ -63,7 +63,7 @@ ACCOUNT_DETAILS_FIELDS = ("short_reset", "short_remaining", "short_minutes", "an
                           "series", "quarter", "tokens15", "age")
 SUBSCRIPTION_FIELDS = ("plan_label", "plan_icon", "plan_price")
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.15"
+SERVER_VERSION = "0.6.16"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CHALLENGE_TIMEOUT_SECONDS = 2.0
 MAX_DISCOVERY_OFFERS = 16

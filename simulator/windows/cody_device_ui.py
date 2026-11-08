@@ -120,7 +120,6 @@ INSTALL_APP_QR = (
 HISTORY_WINDOWS = ("1 hour", "5 hours", "24 hours")
 UNAVAILABLE_ROWS = {
     "Codex limits": ("Short window", "Weekly window"),
-    "Today": ("Total tokens", "Current and best streak"),
     "Last 7 days": ("Daily tokens",),
     "Credits": ("Credit balance", "Reset vouchers"),
 }
@@ -717,7 +716,7 @@ class DeviceStudioWindow:
         elif page == "Token history":
             label(draw, "No measured intervals", 201, 20, MUTED)
             self.button(draw, HISTORY_WINDOWS[self.history_window], 299, self.change_interval)
-        elif page == "Codex account":
+        elif page in ("Today", "Codex account"):
             label(draw, "Account data unavailable", 213, 20, MUTED)
         else:
             for index, name in enumerate(UNAVAILABLE_ROWS[page]):

@@ -82,6 +82,12 @@ supports. The date range advances at UTC midnight. Missing daily counts appear
 as gaps, and the total requires all seven counts. CCP 0.6.13 or later can deliver the
 additional date needed when the service already includes today's partial count.
 
+**Today** uses the current UTC date. When Codex omits today's total, the page
+identifies the latest earlier reported total by its actual date, if available.
+Current streak and record are independent counts of consecutive activity days
+from Codex. **Token Activity** explains when today's total is missing and
+preserves any intervals already measured in the selected window.
+
 **Codex account** shows the current ChatGPT plan with a standalone icon and
 label. The public US monthly list price appears when available. CCP 0.6.15 or
 later refreshes the public catalog on the computer and supplies the icon, label
