@@ -179,22 +179,29 @@ simulators are excluded. The optional capability leaves FIND unchanged.
 CCP1|ALLOWANCECAP|device=<12hex>|pc=<32hex>|nonce=<32hex>|allowance=1|proof=<64hex>
 HMAC input: allowance-cap-v1|<device>|<pc>|<nonce>|1
 
+CCP1|ALLOWANCECAP2|device=<12hex>|pc=<32hex>|nonce=<32hex>|allowance=2|proof=<64hex>
+HMAC input: allowance-cap-v1|<device>|<pc>|<nonce>|2
+
 CCP1|ALLOWANCE|device=<12hex>|pc=<32hex>|nonce=<32hex>|reset=<seconds>|remaining=<basis points>|age=<ms>|proof=<64hex>
 HMAC input: allowance-v1|<device>|<pc>|<nonce>|<reset>|<remaining>|<age>
 
-CCP1|ACCOUNT|device=<12hex>|pc=<32hex>|nonce=<32hex>|short_reset=<seconds>|short_remaining=<basis points>|short_minutes=<minutes>|anchor=<Unix day>|days=<seven comma-separated counts>|streak=<days>|best=<days>|credits=<milli-credits or unlimited>|vouchers=<count>|plan=<token>|messages=<count>|series=<16hex>|quarter=<UTC interval index>|tokens15=<count>|age=<ms>|proof=<64hex>
+CCP1|ACCOUNT|device=<12hex>|pc=<32hex>|nonce=<32hex>|short_reset=<seconds>|short_remaining=<basis points>|short_minutes=<minutes>|anchor=<Unix day>|days=<seven or eight comma-separated counts>|streak=<days>|best=<days>|credits=<milli-credits or unlimited>|vouchers=<count>|plan=<token>|messages=<count>|series=<16hex>|quarter=<UTC interval index>|tokens15=<count>|age=<ms>|proof=<64hex>
 HMAC input: account-v1|<device>|<pc>|<nonce>|<short_reset>|<short_remaining>|<short_minutes>|<anchor>|<days>|<streak>|<best>|<credits>|<vouchers>|<plan>|<messages>|<series>|<quarter>|<tokens15>|<age>
 ```
 
 The current paired device accepts at most one ALLOWANCE and one ACCOUNT per
-nonce. ALLOWANCE contains only the verified `codex` 10,080-minute window.
+nonce. ALLOWANCECAP2 requests eight days so the same response can carry today's
+bucket and the seven complete days before it. A device that gets no ALLOWANCE
+for that request uses ALLOWANCECAP on the next authenticated heartbeat.
+ALLOWANCE contains only the verified `codex` 10,080-minute window.
 Reset instants are Unix seconds in 1–253402300799, and remaining values are
 0–10000 basis points. An unavailable weekly window uses `-` for all three
 fields. ACCOUNT independently uses `-` for each unavailable field. Its short
 window fields are all present or all absent, with a duration below 10,080
-minutes. `anchor` and `days` appear together. The Unix-day anchor is 6–2932896
-and identifies the newest returned date. The seven counts run oldest to newest,
-with `-` for each missing day and unsigned 64-bit totals. The streaks,
+minutes. `anchor` and `days` appear together. The Unix-day anchor identifies the
+newest returned date through the UTC date of the App Server read. It ranges from
+6 to 2932896 for seven buckets and from 7 to 2932896 for eight. Counts run oldest
+to newest, with `-` for each missing day and unsigned 64-bit totals. The streaks,
 voucher count and workspace message count are unsigned 32-bit integers.
 Finite credits are unsigned 64-bit milli-credits. The plan is a bounded
 lowercase ASCII token, up to 24 characters. When no account details are
@@ -231,7 +238,7 @@ Discovery requires explicit inclusion; this identity is never represented as a
 measured physical-device MAC.
 
 Every datagram is printable ASCII and uses `|` separators. Ordinary packets
-admit 512 bytes; ACTIVITY admits 2048, TECH 1024, EVENT 4096 and ACCOUNT 640.
+admit 512 bytes; ACTIVITY admits 2048, TECH 1024, EVENT 4096 and ACCOUNT 672.
 Unknown, duplicated or missing fields are rejected. Senders use the canonical
 field order shown below for reproducible proofs and diagnostics.
 

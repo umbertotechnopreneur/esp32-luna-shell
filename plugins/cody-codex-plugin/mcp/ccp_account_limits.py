@@ -24,8 +24,10 @@ FRESH_SECONDS = 90
 MAX_UINT32 = (1 << 32) - 1
 MAX_UINT64 = (1 << 64) - 1
 EPOCH_DAY = date(1970, 1, 1)
+DAILY_BUCKET_COUNT = 8
+DAY_SECONDS = 24 * 60 * 60
 QUARTER_SECONDS = 15 * 60
-QUARTERS_PER_DAY = 24 * 60 // 15
+QUARTERS_PER_DAY = DAY_SECONDS // QUARTER_SECONDS
 READ_FAILURES = (EOFError, OSError, RuntimeError, ValueError, subprocess.SubprocessError)
 
 
@@ -182,14 +184,19 @@ def read_daily_totals(usage: dict | None) -> dict[date, int | None]:
 
 
 # observed: Service-provided daily totals. Missing or conflicting days stay unavailable.
-def read_daily_usage(observed: dict[date, int | None]) -> tuple[int | None, tuple[int | None, ...]]:
-    if not observed:
+# received_at: UTC Unix seconds when the service response arrived.
+def read_daily_usage(observed: dict[date, int | None], received_at: int) -> tuple[int | None, tuple[int | None, ...]]:
+    if not 0 <= received_at <= MAX_RESET_UNIX_SECONDS:
         return None, ()
-    latest = max(observed)
+    today = EPOCH_DAY + timedelta(days=received_at // DAY_SECONDS)
+    latest = max((day for day in observed if day <= today), default=None)
+    if latest is None:
+        return None, ()
     anchor = (latest - EPOCH_DAY).days
-    if anchor < 6:
+    if anchor < DAILY_BUCKET_COUNT - 1:
         return None, ()
-    tokens = tuple(observed.get(latest - timedelta(days=offset)) for offset in range(6, -1, -1))
+    tokens = tuple(observed.get(latest - timedelta(days=offset))
+                   for offset in range(DAILY_BUCKET_COUNT - 1, -1, -1))
     return (anchor, tokens) if any(value is not None for value in tokens) else (None, ())
 
 
@@ -296,7 +303,7 @@ class AccountLimitClient(NativeAppServer):
             raise ValueError("Native Codex account changed during the account details read")
 
         totals = read_daily_totals(usage)
-        anchor, tokens = read_daily_usage(totals)
+        anchor, tokens = read_daily_usage(totals, usage_received_at)
         sample = read_daily_token_sample(totals, usage_received_at) if usage is not None else None
         summary = usage.get("summary") if usage is not None else None
         streak = unsigned_field(summary.get("currentStreakDays"), MAX_UINT32) if isinstance(summary, dict) else None

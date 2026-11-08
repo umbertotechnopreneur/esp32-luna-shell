@@ -60,7 +60,7 @@ constexpr char kCodeAlphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 constexpr uint16_t kDevicePort = 42117;
 constexpr uint16_t kPluginPort = 42118;
 constexpr size_t kMaximumDatagramBytes = 512;
-constexpr size_t kMaximumAccountDatagramBytes = 640;
+constexpr size_t kMaximumAccountDatagramBytes = 672;
 constexpr size_t kMaximumActivityDatagramBytes = 2048;
 constexpr size_t kMaximumEventDatagramBytes = 4096;
 constexpr uint32_t kPbkdf2Iterations = 50000;
@@ -138,6 +138,7 @@ bool s_activity_received_for_nonce = false;
 bool s_technical_received_for_nonce = false;
 enum class WeeklyLimitExchange : uint8_t { Idle, Requested, Received };
 WeeklyLimitExchange s_weekly_limit_exchange = WeeklyLimitExchange::Idle;
+bool s_request_extended_account = true;
 bool s_account_received_for_nonce = false;
 LUNASHELL::CodexAccountSnapshot s_account_candidate{};
 // Serialized network-owner projection; large metadata never enters nested task frames.
@@ -1670,6 +1671,12 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
             std::memcpy(s_find_nonce, nonce, sizeof(nonce));
             s_activity_received_for_nonce = false;
             s_technical_received_for_nonce = false;
+            // Fall back for one heartbeat when the extended capability went unanswered.
+            // A missing READY leaves the same version selected until it can be sent.
+            if (s_weekly_limit_exchange != WeeklyLimitExchange::Idle) {
+                s_request_extended_account = !s_request_extended_account ||
+                    s_weekly_limit_exchange == WeeklyLimitExchange::Received;
+            }
             s_weekly_limit_exchange = WeeklyLimitExchange::Idle;
             s_account_received_for_nonce = false;
             s_event_received_for_nonce = false;
@@ -1709,6 +1716,7 @@ void startDiscovery()
     s_activity_received_for_nonce = false;
     s_technical_received_for_nonce = false;
     s_weekly_limit_exchange = WeeklyLimitExchange::Idle;
+    s_request_extended_account = true;
     s_account_received_for_nonce = false;
     publishLocked(State::Discovering, ESP_OK);
     ESP_LOGI(kTag, "CCP reconnect admitted with retained pairing; code window stays closed");
@@ -1883,11 +1891,14 @@ esp_err_t sendObservationCapabilityLocked(const ReadyResponse &response, const s
     if (weekly && s_weekly_limit_exchange != WeeklyLimitExchange::Idle) {
         return ESP_OK;
     }
+    const bool extended = weekly && s_request_extended_account;
+    const unsigned version = extended ? 2U : 1U;
     auto &input = s_event_proof_input;
     uint8_t proof[32]{};
     char proof_hex[65]{};
-    const int length = std::snprintf(input, sizeof(input), "%s|%s|%s|%s|1",
-        weekly ? "allowance-cap-v1" : "app-cap-v1", response.device_id, response.pc_id, response.nonce);
+    const int length = std::snprintf(input, sizeof(input), "%s|%s|%s|%s|%u",
+        weekly ? "allowance-cap-v1" : "app-cap-v1", response.device_id, response.pc_id, response.nonce,
+        version);
     esp_err_t error = length > 0 && static_cast<size_t>(length) < sizeof(input)
         ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), input, proof)
         : ESP_ERR_INVALID_SIZE;
@@ -1895,14 +1906,14 @@ esp_err_t sendObservationCapabilityLocked(const ReadyResponse &response, const s
         error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
     }
     auto &packet = s_event_ack_packet;
-    const char *kind = weekly ? "ALLOWANCECAP" : "APPCAP";
+    const char *kind = weekly ? (extended ? "ALLOWANCECAP2" : "ALLOWANCECAP") : "APPCAP";
     const int packet_length = std::snprintf(packet, sizeof(packet),
-        "CCP1|%s|device=%s|pc=%s|nonce=%s|%s=1|proof=%s",
-        kind, response.device_id, response.pc_id, response.nonce, weekly ? "allowance" : "app", proof_hex);
+        "CCP1|%s|device=%s|pc=%s|nonce=%s|%s=%u|proof=%s",
+        kind, response.device_id, response.pc_id, response.nonce, weekly ? "allowance" : "app", version, proof_hex);
     if (error == ESP_OK) {
         error = packet_length > 0 && static_cast<size_t>(packet_length) < sizeof(packet)
             ? sendDatagram(packet, source.sin_addr, ntohs(source.sin_port),
-                weekly ? "CCP ALLOWANCECAP" : "CCP APPCAP") : ESP_ERR_INVALID_SIZE;
+                kind) : ESP_ERR_INVALID_SIZE;
     }
     if (error == ESP_OK && weekly) {
         s_weekly_limit_exchange = WeeklyLimitExchange::Requested;
@@ -2656,7 +2667,7 @@ bool parseAccountShortWindow(const char *reset_text, const char *remaining_text,
 }
 
 // anchor_text: Unix day of the newest projected slot, or the missing sentinel.
-// days_text: Seven comma-separated optional native token counts, oldest first.
+// days_text: Eight optional native token counts or seven from a legacy bridge, oldest first.
 // account: Scratch projection whose mask records actual data independently of zero.
 bool parseAccountDaily(const char *anchor_text, const char *days_text, LUNASHELL::CodexAccountSnapshot &account)
 {
@@ -2668,14 +2679,19 @@ bool parseAccountDaily(const char *anchor_text, const char *days_text, LUNASHELL
     if (!anchor_present) {
         return std::strcmp(days_text, "-") == 0;
     }
-    if (anchor < 6 || anchor > kLastAccountEpoch / 86400) {
+    constexpr size_t bucket_count = LUNASHELL::CodexAccountSnapshot::kDailyBucketCount;
+    constexpr size_t legacy_bucket_count = 7;
+    const size_t count = 1U + std::count(days_text, days_text + std::strlen(days_text), ',');
+    if ((count != bucket_count && count != legacy_bucket_count) ||
+        anchor < count - 1U || anchor > kLastAccountEpoch / 86400) {
         return false;
     }
 
+    // The final slot always matches the anchor, even when an older bridge sends seven.
     const char *cursor = days_text;
-    for (size_t index = 0; index < 7; ++index) {
+    for (size_t index = bucket_count - count; index < bucket_count; ++index) {
         const char *separator = std::strchr(cursor, ',');
-        const bool last = index == 6;
+        const bool last = index + 1U == bucket_count;
         if (last == (separator != nullptr)) {
             return false;
         }
@@ -4025,6 +4041,7 @@ void maintainState()
                 s_activity_received_for_nonce = false;
                 s_technical_received_for_nonce = false;
                 s_weekly_limit_exchange = WeeklyLimitExchange::Idle;
+                s_request_extended_account = true;
                 s_account_received_for_nonce = false;
                 publishLocked(State::Discovering, ESP_ERR_TIMEOUT);
                 ESP_LOGW(kTag, "CCP code expired with a saved candidate; authenticated recovery continues");

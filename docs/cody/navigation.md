@@ -70,6 +70,12 @@ With the default settings that is Codex reset. Device is the fallback if all
 statistics pages are hidden. Shake preserves active pairing, voice capture
 and open Codex questions.
 
+**Last 7 Days** covers the seven calendar days before the current UTC date.
+This is the Windows widget's complete-day cutoff in the time zones Cody
+supports. The date range advances at UTC midnight. Missing daily counts appear
+as gaps, and the total requires all seven counts. CCP 0.6.13 can deliver the
+additional date needed when the service already includes today's partial count.
+
 After ten seconds without touch, the lateral arrows fade. Touch or shake
 reveals them. A hidden arrow requires a new touch once it is visible. Token
 history switches among 1, 5 and 24 hours, using fifteen-minute observations

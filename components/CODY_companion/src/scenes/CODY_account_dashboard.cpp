@@ -33,7 +33,7 @@ constexpr uint16_t kChartBaseline = 318;
 constexpr uint16_t kChartHeight = 100;
 constexpr uint16_t kChartLeft = 79;
 constexpr uint16_t kChartStep = 44;
-constexpr size_t kDayCount = 7;
+constexpr int64_t kHistoryDayCount = 7;
 constexpr int64_t kDaySeconds = 86400;
 
 struct QuotaWindow {
@@ -284,16 +284,31 @@ esp_err_t add_streak(AccountDashboardPresentation &presentation, const char *lab
     return add_detail(presentation, value, top, valid ? color : kMuted);
 }
 
+// account: Canonical source with independently valid dated counts.
+// unix_day: Requested calendar label expressed as days since the Unix epoch.
+const uint64_t *daily_tokens_for_day(const LUNASHELL::CodexAccountSnapshot &account, int64_t unix_day)
+{
+    if (unix_day <= 0 || unix_day > account.anchor_unix_day) {
+        return nullptr;
+    }
+    const int64_t offset = static_cast<int64_t>(account.anchor_unix_day) - unix_day;
+    constexpr auto count = LUNASHELL::CodexAccountSnapshot::kDailyBucketCount;
+    if (offset >= static_cast<int64_t>(count)) {
+        return nullptr;
+    }
+    const size_t slot = count - 1U - static_cast<size_t>(offset);
+    return (account.daily_valid_mask & (1U << slot)) ? &account.daily_tokens[slot] : nullptr;
+}
+
 // presentation: Fixed current-day page owner.
 // account: Provider's literal dated buckets and independent streak fields.
 // Exception: Preserves original native glyph and layout errors.
 esp_err_t prepare_today(AccountDashboardPresentation &presentation, const LUNASHELL::CodexAccountSnapshot &account)
 {
     const bool current = presentation.account_state == SourceState::Current;
-    const bool today = current && presentation.utc_day > 0 &&
-        static_cast<int64_t>(account.anchor_unix_day) == presentation.utc_day && (account.daily_valid_mask & 0x40U);
+    const auto *today = current ? daily_tokens_for_day(account, presentation.utc_day) : nullptr;
     char count[32]{};
-    if (today) { format_count(account.daily_tokens[kDayCount - 1U], count); }
+    if (today) { format_count(*today, count); }
     const char *missing = current && presentation.utc_day <= 0
         ? "Device time unavailable" : status_text(presentation.account_state);
     esp_err_t error = add_rule(presentation, 128);
@@ -322,23 +337,23 @@ uint16_t chart_height(uint64_t value, uint64_t maximum)
 }
 
 // presentation: Fixed chart owner.
-// account: Seven consecutive provider date slots, including any unavailable days.
+// account: Canonical dated counts, which may have gaps in the chart interval.
+// first_day: Oldest of the seven complete calendar days.
 // maximum: Maximum actually observed daily count.
 // Exception: Returns original chart geometry or glyph preparation errors.
 esp_err_t prepare_chart(AccountDashboardPresentation &presentation, const LUNASHELL::CodexAccountSnapshot &account,
-    uint64_t maximum)
+    int64_t first_day, uint64_t maximum)
 {
     constexpr const char *weekday[]{"Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"};
-    const uint32_t first_day = account.anchor_unix_day - (kDayCount - 1U);
     esp_err_t error = add_bar(presentation, {kChartLeft, kChartBaseline, 308, 2}, kDarkTrack, kDarkTrack);
     if (error != ESP_OK) { return error; }
-    for (size_t index = 0; index < kDayCount; ++index) {
+    for (int64_t index = 0; index < kHistoryDayCount; ++index) {
         const auto x = static_cast<uint16_t>(kChartLeft + index * kChartStep);
-        const bool valid = account.daily_valid_mask & (1U << index);
-        if (valid) {
-            const uint16_t height = chart_height(account.daily_tokens[index], maximum);
+        const int64_t day = first_day + index;
+        if (const auto *tokens = daily_tokens_for_day(account, day)) {
+            const uint16_t height = chart_height(*tokens, maximum);
             if (height > 0) {
-                const bool newest = index == kDayCount - 1U;
+                const bool newest = index == kHistoryDayCount - 1;
                 error = add_bar(presentation,
                     {static_cast<uint16_t>(x + 8U), static_cast<uint16_t>(kChartBaseline - height), 28, height},
                     newest ? kCyan : kIndigo, newest ? 0x4DF9 : 0x4435);
@@ -347,13 +362,14 @@ esp_err_t prepare_chart(AccountDashboardPresentation &presentation, const LUNASH
             error = add_caption(presentation, *presentation.body_font, "--", {x, 282, kChartStep, 30}, kMuted);
         }
         if (error != ESP_OK) { return error; }
-        const char *label = weekday[(first_day + index) % kDayCount];
+        const char *label = weekday[day % kHistoryDayCount];
         error = add_caption(presentation, *presentation.body_font, label, {x, 323, kChartStep, 26}, kMuted);
         if (error != ESP_OK) { return error; }
     }
     std::tm first{};
     std::tm last{};
-    if (!utc_calendar(first_day * kDaySeconds, first) || !utc_calendar(account.anchor_unix_day * kDaySeconds, last)) {
+    const int64_t last_day = first_day + kHistoryDayCount - 1;
+    if (!utc_calendar(first_day * kDaySeconds, first) || !utc_calendar(last_day * kDaySeconds, last)) {
         return add_detail(presentation, "Bucket dates unavailable", 352);
     }
     char start[12]{};
@@ -379,18 +395,23 @@ esp_err_t prepare_history(AccountDashboardPresentation &presentation, const LUNA
     if (presentation.account_state != SourceState::Current) {
         return add_value(presentation, status_text(presentation.account_state), 185, kMuted);
     }
-    if (account.anchor_unix_day <= kDayCount - 1U || account.daily_valid_mask == 0) {
-        return add_value(presentation, "No daily buckets", 185, kMuted);
+    if (presentation.utc_day <= kHistoryDayCount) {
+        return add_value(presentation, "Device time unavailable", 185, kMuted);
     }
+    // UTC is the earlier or equal calendar day in every supported device time zone.
+    const int64_t first_day = presentation.utc_day - kHistoryDayCount;
     uint64_t total = 0;
     uint64_t maximum = 0;
-    bool complete = account.daily_valid_mask == 0x7FU;
-    for (size_t index = 0; index < kDayCount; ++index) {
-        if (!(account.daily_valid_mask & (1U << index))) { continue; }
-        const uint64_t value = account.daily_tokens[index];
-        maximum = std::max(maximum, value);
-        if (std::numeric_limits<uint64_t>::max() - total < value) { complete = false; }
-        if (complete) { total += value; }
+    bool complete = true;
+    for (int64_t day = first_day; day < presentation.utc_day; ++day) {
+        const auto *tokens = daily_tokens_for_day(account, day);
+        if (tokens == nullptr) {
+            complete = false;
+            continue;
+        }
+        maximum = std::max(maximum, *tokens);
+        if (std::numeric_limits<uint64_t>::max() - total < *tokens) { complete = false; }
+        if (complete) { total += *tokens; }
     }
     char count[32]{};
     if (complete) { format_count(total, count); }
@@ -404,7 +425,7 @@ esp_err_t prepare_history(AccountDashboardPresentation &presentation, const LUNA
         error = add_detail(presentation, "Seven-day total", 181);
     }
     if (error != ESP_OK) { return error; }
-    return prepare_chart(presentation, account, maximum);
+    return prepare_chart(presentation, account, first_day, maximum);
 }
 
 // value: Exact nonnegative whole count, without abbreviated units.
@@ -758,7 +779,7 @@ esp_err_t format_metadata(const char *source, size_t capacity, const CODY2D::Mon
 // page: Explicit account page independent of device navigation.
 // account: Aged account-level App Server observation with independent optional fields.
 // weekly: Aged weekly allowance, separate from the other observations.
-// clock: Aged device clock used for the Today bucket and elapsed limits.
+// clock: Aged device clock used for calendar day boundaries and elapsed limits.
 // title_font: Immutable headline and numeric glyphs.
 // body_font: Immutable date and detail glyphs.
 // presentation: Persistent owner, mutated only after the prior frame retires.
@@ -773,7 +794,8 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     const SourceState account_state = source_state(account);
     const int64_t now = source_state(clock) == SourceState::Current && clock.utc_epoch_seconds > 0
         ? clock.utc_epoch_seconds : 0;
-    const int64_t utc_day = page == Page::Today && now > 0 ? now / kDaySeconds : -1;
+    const bool dated_page = page == Page::Today || page == Page::LastSevenDays;
+    const int64_t utc_day = dated_page && now > 0 ? now / kDaySeconds : -1;
     SourceState weekly_state = SourceState::Unavailable;
     SourceState short_state = SourceState::Unavailable;
     if (page == Page::QuotaWindows) {

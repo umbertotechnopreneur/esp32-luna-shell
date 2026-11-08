@@ -370,10 +370,11 @@ static_assert(sizeof(CodexWeeklyLimitSnapshot) <= 48,
 
 enum class CodexCreditKind : uint8_t { Unavailable, Finite, Unlimited };
 
-// Account-level App Server observations. The seven dates end at anchor_unix_day;
+// Account-level App Server observations. The eight dates end at anchor_unix_day;
 // the mask distinguishes missing observations from a measured zero.
 struct CodexAccountSnapshot : ComponentSnapshot {
-    uint64_t daily_tokens[7]{};
+    static constexpr size_t kDailyBucketCount = 8;
+    uint64_t daily_tokens[kDailyBucketCount]{};
     uint64_t credit_milliunits = 0;
     int64_t short_reset_unix_seconds = 0;
     uint32_t anchor_unix_day = 0;
@@ -392,7 +393,7 @@ struct CodexAccountSnapshot : ComponentSnapshot {
     bool workspace_messages_valid = false;
     char plan[25]{};
 };
-static_assert(sizeof(CodexAccountSnapshot) <= 168,
+static_assert(sizeof(CodexAccountSnapshot) <= 176,
     "Account reads must remain bounded independently of the full hardware snapshot");
 
 // History is memory-only. UTC quarter numbers identify slots, even when no

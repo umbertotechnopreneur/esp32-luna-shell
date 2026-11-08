@@ -54,13 +54,13 @@ PLUGIN_PORT = 42118
 MAX_DATAGRAM_BYTES = 512
 MAX_ACTIVITY_DATAGRAM_BYTES = 2048
 MAX_TECHNICAL_DATAGRAM_BYTES = 1024
-MAX_ACCOUNT_DATAGRAM_BYTES = 640
+MAX_ACCOUNT_DATAGRAM_BYTES = 672
 TECHNICAL_FIELDS = technical_metadata.FIELDS
 ACCOUNT_DETAILS_FIELDS = ("short_reset", "short_remaining", "short_minutes", "anchor", "days",
                           "streak", "best", "credits", "vouchers", "plan", "messages",
                           "series", "quarter", "tokens15", "age")
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.12"
+SERVER_VERSION = "0.6.13"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CHALLENGE_TIMEOUT_SECONDS = 2.0
 MAX_DISCOVERY_OFFERS = 16
@@ -204,18 +204,20 @@ def encode_datagram(kind: str, fields: list[tuple[str, str]]) -> bytes:
 
 # details: A verified optional account projection, or None when it is unavailable.
 # now: Current monotonic time for the age of the current projection.
-def account_details_values(details: AccountDetails | None, now: float) -> list[str]:
+# extended_days: True only for a device requesting the eighth calendar bucket.
+def account_details_values(details: AccountDetails | None, now: float, *, extended_days: bool = False) -> list[str]:
     if details is None:
         return ["-"] * len(ACCOUNT_DETAILS_FIELDS)
     short = details.short_window
     quarter = details.quarter_tokens
+    days = details.daily_tokens if extended_days else details.daily_tokens[-7:]
+    anchor = details.usage_anchor if any(value is not None for value in days) else None
     values = [
         short.reset_unix_seconds if short is not None else None,
         short.remaining_bps if short is not None else None,
         details.short_minutes,
-        details.usage_anchor,
-        ",".join("-" if value is None else str(value) for value in details.daily_tokens)
-        if details.usage_anchor is not None else None,
+        anchor,
+        ",".join("-" if value is None else str(value) for value in days) if anchor is not None else None,
         details.streak,
         details.best_streak,
         details.credits,
@@ -225,8 +227,8 @@ def account_details_values(details: AccountDetails | None, now: float) -> list[s
         quarter.series if quarter is not None else None,
         quarter.quarter if quarter is not None else None,
         quarter.tokens if quarter is not None else None,
-        int((now - details.observed_at) * 1000),
     ]
+    values.append(int((now - details.observed_at) * 1000) if any(value is not None for value in values) else None)
     return ["-" if value is None else str(value) for value in values]
 
 
@@ -720,8 +722,8 @@ class CompanionResponder:
         if kind == "APPCAP":
             self._accept_app_capability(fields, source)
             return
-        if kind == "ALLOWANCECAP":
-            self._accept_allowance_capability(fields, source)
+        if kind in {"ALLOWANCECAP", "ALLOWANCECAP2"}:
+            self._accept_allowance_capability(fields, source, extended_days=kind == "ALLOWANCECAP2")
             return
         if kind != "FIND":
             return
@@ -901,11 +903,14 @@ class CompanionResponder:
                 raise
 
     # self: Existing responder supplying account metadata to authenticated physical Cody devices.
-    # fields: Exact signed ALLOWANCECAP envelope after COMMITTED for the same heartbeat.
+    # fields: Exact signed allowance capability envelope after COMMITTED for the same heartbeat.
     # source: Observed UDP endpoint, required to match the active authenticated peer.
+    # extended_days: True when the capability's message kind selects eight calendar buckets.
     # Raises ValueError for rejected identity or proof, or RuntimeError/OSError for optional delivery failure.
-    def _accept_allowance_capability(self, fields: dict[str, str], source: tuple[str, int]) -> None:
-        if set(fields) != {"device", "pc", "nonce", "allowance", "proof"} or fields["allowance"] != "1":
+    def _accept_allowance_capability(self, fields: dict[str, str], source: tuple[str, int],
+                                     *, extended_days: bool = False) -> None:
+        version = "2" if extended_days else "1"
+        if set(fields) != {"device", "pc", "nonce", "allowance", "proof"} or fields["allowance"] != version:
             raise ValueError("Weekly allowance capability fields malformed")
         if observation_source(source[0]) != "LAN":
             raise ValueError("Weekly allowance capability requires a physical device")
@@ -920,7 +925,7 @@ class CompanionResponder:
                     or fields["pc"] != self._state.pc_id or not hmac.compare_digest(active, peer.key)
                     or not 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS
                     or not hmac.compare_digest(make_proof(peer.key, "allowance-cap-v1", fields["device"],
-                        fields["pc"], fields["nonce"], "1"), fields["proof"])):
+                        fields["pc"], fields["nonce"], version), fields["proof"])):
                 raise ValueError("Weekly allowance capability authentication failed")
 
             account = AccountObservation()
@@ -943,7 +948,7 @@ class CompanionResponder:
                 ("device", "pc", "nonce", "reset", "remaining", "age"), values))
                 + [("proof", make_proof(peer.key, "allowance-v1", *values))])
             self._socket.sendto(payload, source)
-            values = identity + account_details_values(account.details, now)
+            values = identity + account_details_values(account.details, now, extended_days=extended_days)
             payload = encode_datagram("ACCOUNT", list(zip(("device", "pc", "nonce", *ACCOUNT_DETAILS_FIELDS), values))
                                       + [("proof", make_proof(peer.key, "account-v1", *values))])
             self._socket.sendto(payload, source)

@@ -65,7 +65,7 @@ static_assert(sizeof(AccountDashboardPresentation) <= 2048,
 // page: Explicit account page, independent of Cody Home and display navigation.
 // account: Aged account-level App Server observation, with independent optional fields.
 // weekly: Aged weekly limit observation, independently valid from account history.
-// clock: Aged device-clock observation used only for the Today date and elapsed limits.
+// clock: Aged device-clock observation used for calendar day boundaries and elapsed limits.
 // title_font: Immutable native headline and hero-value glyphs.
 // body_font: Immutable native text for chart dates and detail labels.
 // presentation: Persistent display-owned storage, updated after the prior frame retires.
