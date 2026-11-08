@@ -27,11 +27,6 @@ def latest_records(name):
     pages = "2, 3, 4, 12" if name == DOCUMENTS[0] else "4, 5, 6, 7, 8"
     date = "10 October 2026"
     return (
-        RevisionRecord(date, "Change", "A single final revision register", (
-            "The 10 October screen supplements previously on pages 47-50 are reorganized into this grid. Their dates, decisions, screen IDs and evidence limits remain explicit. All preceding 46 pages, including historical artwork and earlier corrections, remain intact.",
-            "Earlier decisions are historical: 03 October A01 separates installation and provisioning; 04 October A02 preserves the skin selector's caller, A03 keeps PR status read-only, and A04 gates pairing handoff. The 05-06 October idle and branding records, and the 09-10 October setup, retained pairing, activity and notification revisions remain in their preserved pages.",
-        ), affected="Previous pages 47-50; earlier history on pages 13-46 (Navigation) or 23-46 (Planning).",
-            evidence="Document reorganization only. Original physical page numbers remain valid through page 46; later references use stable screen IDs."),
         RevisionRecord(date, "Addendum", "Boot and Wi-Fi", (
             "Cody AI Companion and A distraction-free sidekick appear together above the complete floppy artwork. Its 42 frames retain the 3.5-second cycle; startup work can extend wall time. Title y=60, subtitle y=110, artwork (137,164), 192 x 219.",
             "After local startup, absent Wi-Fi opens Welcome 04, missing association/IP opens 42, a valid LAN without pairing opens 40, and retained pairing searches its PC on 14. Screen 05 opens the installation QR on 06 without starting radios; Pair Cody starts Bluetooth on 07. The session QR exists only at ReadyToScan and retires when credentials or connection are in progress. Cancel waits for confirmed cleanup.",

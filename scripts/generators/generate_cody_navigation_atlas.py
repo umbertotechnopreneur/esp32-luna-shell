@@ -20,7 +20,7 @@ from reportlab.graphics import renderPDF
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts/common"))
-from cody_pdf_revision_register import RevisionRecord, register_fonts, plain_paragraph, ACCENTS
+from cody_pdf_revision_register import RevisionRecord, register_fonts, plain_paragraph, render_current_reference, ACCENTS
 from generate_cody_security_atlases import latest_records, security_records
 
 DESTINATION = ROOT / "docs/cody/cody-navigation-atlas-v1.pdf"
@@ -32,12 +32,30 @@ MUTED = colors.HexColor("#536C7B")
 LINE = colors.HexColor("#CBDCE6")
 SPRITES = []
 
+VISIBLE_SCREENS_TOPICS = (
+    ("Visible screens",
+     "Open Options > Visible screens. This page stores your preferences on Cody. Keep at least one of the eight main screens enabled."),
+    ("Cody and its panels",
+     "Cody is the main companion screen. Tokens, Model & Context, Device and Chat & Activity have their own switches. Hiding Cody also hides its panels and preserves their switches for when Cody is shown again."),
+    ("Navigation",
+     "The account carousel skips hidden screens. If Cody is hidden, navigation opens the first enabled statistics screen. Previous on that screen returns to Options. If all statistics screens are hidden, Codex stats opens Visible screens."),
+    ("Physical controls and dictation",
+     "Short PWR toggles standby and wake. Short BOOT while active opens Options. Home double tap starts dictation when Dictation is on and Cody has the authenticated LAN link to its paired PC."),
+)
+
+
+def visible_screens_reference():
+    return render_current_reference((WIDTH, HEIGHT), "Cody / Navigation Atlas", "Visible screens on Cody",
+                                    "Source reference for Options and on-device preferences. Physical verification is pending.",
+                                    VISIBLE_SCREENS_TOPICS)
+
+
 # Route IDs remain stable, independently of the document's physical pages.
 PAGES = [
     ("Cody / Navigation atlas", "A continuous journey, with current routes and clearly marked future voice input.",
      [("04", "Welcome", "Let's begin", "Setup"), ("16", "Home", "Here with you", ""), ("26", "Codex needs you", "Read before replying", "Open")],
      "First setup -> connected companion -> an explicit question. Screen IDs identify routes; page numbers identify this printout.",
-     "Cyan Cody is the common visual reference. Schematics are editorial illustrations, not device captures. Current contracts: docs/cody/navigation.md and runtime.md. Historical decisions are retained only in the final revision register."),
+     "Cyan Cody is the common visual reference. Schematics are editorial illustrations, not device captures. Current contracts: docs/cody/navigation.md and runtime.md. The final register keeps errata and addenda."),
     ("Boot selects the right journey", "Branding precedes screens 01-03; persisted state and real network observations select the route.",
      [("04-09", "First setup", "No Wi-Fi profile", "Network setup"), ("42", "No connection", "Profile saved; no IP", "Network setup"), ("14", "Looking for PC", "PC remembered", "")],
      "Absent Wi-Fi -> 04; association/IP unavailable -> 42; LAN valid and unpaired -> 40; retained pairing -> 14.",
@@ -215,13 +233,15 @@ def screen(surface, item, x):
 
 
 # original: Original committed navigation PDF, before this re-authoring.
-# Returns all historical records with original dates, page IDs and substantive text.
+# Returns errata and addenda with their original page and screen references.
 def history_records(original):
     records = []
     for index in range(12, 46):
         text = ascii_text(original[index].get_text())
         date = "03 October 2026" if index == 12 else "04 October 2026" if index <= 15 else "05 October 2026" if index <= 18 else "06 October 2026" if index <= 25 else "09 October 2026" if index <= 33 else "10 October 2026"
-        kind = "Errata" if "Errata and corrections" in text else "Addendum" if "Addendum" in text or "ADDENDUM" in text else "Change"
+        kind = "Errata" if "Errata and corrections" in text else "Addendum" if "Addendum" in text or "ADDENDUM" in text else None
+        if kind is None:
+            continue
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         # Strip running furniture only; route labels and diagram text remain evidence.
         content = [line for line in lines if not line.startswith(("CODY /", "Copyright ", "Umberto Giacobbi |")) and line != str(index + 1)]
@@ -240,7 +260,6 @@ def history_records(original):
         records.append(RevisionRecord(date, kind, title, grouped, affected=f"Original navigation page {index + 1}; original screen IDs retained below.", evidence="Historical decision; later current-flow corrections supersede earlier routes. Original diagram labels retained as text."))
     records.extend(latest_records(DESTINATION.name))
     records.append(RevisionRecord("11 October 2026", "Errata", "English throughout the document", ("Historical Italian text, headings, diagram captions and footers translated into English; original dates, screen IDs, technical values, evidence limits and artwork retained at that revision.", "That language review also covered the English consolidated connection atlas, the four-page A5 pairing flyer and the manga status atlas; those documents required no language correction."), affected="Original pages 1, 5-10, 29, 31, 34, 36, 38-46; previous final page 53.", evidence="Document language and visual review only; no firmware build, simulator or physical-device verification."))
-    records.append(RevisionRecord("11 October 2026", "Change", "Continuous illustrated navigation and consolidated history", ("Main routes are rebuilt as illustrated flows with the common cyan Cody and writable NOTES. Restore planned audio screens 28-30, distinguish ordinary PR activity from a separate application, and integrate quiet battery notices after ten eligible Home seconds.", "All previous Addendum, Change and Errata pages are consolidated here with their original dates, page references and substantive text. Security remains a clearly labelled subsection of this final register."), affected="Original main pages 1-12; historical pages 13-53; screens 01-42, 28-30, 33-35.", evidence="Editorial schematics and source review. No test, build, simulator or physical verification."))
     return records
 
 
@@ -301,7 +320,7 @@ def compact_register(records, start_page, section_title="Revision register"):
         surface.drawString(42, HEIGHT - 59, section_title)
         surface.setFillColor(MUTED)
         surface.setFont("CodyDoc", 8)
-        surface.drawString(42, HEIGHT - 75, "Historical dates, original IDs and scope retained. Current illustrated flow precedes this register.")
+        surface.drawString(42, HEIGHT - 75, "Errata, addenda and security retain their original scope.")
         surface.setStrokeColor(LINE)
         surface.line(42, 33, WIDTH - 42, 33)
         surface.drawString(42, 21, "Cody / confidential / document review does not verify firmware or physical behavior")
@@ -387,6 +406,8 @@ def main():
         surface.showPage()
     surface.save()
     document = pymupdf.open(stream=output.getvalue(), filetype="pdf")
+    with pymupdf.open(stream=visible_screens_reference(), filetype="pdf") as reference:
+        document.insert_pdf(reference)
     history = compact_register(history_records(original), start_page=len(document) + 1)
     with pymupdf.open(stream=history, filetype="pdf") as register:
         document.insert_pdf(register)

@@ -9,6 +9,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
@@ -48,6 +49,42 @@ def register_fonts():
 # style: Typography used for the paragraph.
 def plain_paragraph(text, style):
     return Paragraph(escape(text).replace("\n", "<br/>"), style)
+
+
+def render_current_reference(page_size, document_title, title, subtitle, topics):
+    """Render a reference page for the current device behavior."""
+    register_fonts()
+    width, height = page_size
+    stream = BytesIO()
+    page = canvas.Canvas(stream, pagesize=page_size)
+    page.setFillColor(colors.HexColor("#1877A9"))
+    page.setFont("CodyDocBold", 9)
+    page.drawString(42, height - 35, document_title.upper() + " / CURRENT REFERENCE")
+    page.setFillColor(INK)
+    page.setFont("CodyDocBold", 26)
+    page.drawString(42, height - 69, title)
+    style = ParagraphStyle("ReferenceCopy", fontName="CodyDoc", fontSize=11,
+                           leading=15, textColor=MUTED)
+    intro = plain_paragraph(subtitle, style)
+    _, block_height = intro.wrap(width - 84, height)
+    intro.drawOn(page, 42, height - 85 - block_height)
+    y = height - 111 - block_height
+    for label, text in topics:
+        page.setStrokeColor(LINE)
+        page.line(42, y + 16, width - 42, y + 16)
+        page.setFillColor(INK)
+        page.setFont("CodyDocBold", 12)
+        page.drawString(42, y, label)
+        paragraph = plain_paragraph(text, style)
+        _, block_height = paragraph.wrap(width - 84, height)
+        y -= block_height + 9
+        paragraph.drawOn(page, 42, y)
+        y -= 35
+    if y < 36:
+        raise ValueError("Current reference text exceeds its page")
+    page.showPage()
+    page.save()
+    return stream.getvalue()
 
 
 # records: Ordered dated entries; types must match the four canonical categories.

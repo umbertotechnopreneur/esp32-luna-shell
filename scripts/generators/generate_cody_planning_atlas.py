@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 STAGING = ROOT / "artifacts/docs/cody-planning-restoration-20261011"
 OUTPUT = ROOT / "docs/cody/cody-planning-atlas-v1.pdf"
 sys.path.insert(0, str(ROOT / "scripts/common"))
-from cody_pdf_revision_register import RevisionRecord, register_fonts
+from cody_pdf_revision_register import RevisionRecord, register_fonts, render_current_reference
 from generate_cody_security_atlases import latest_records, security_records
 
 CYAN = colors.HexColor("#279EFF")
@@ -32,6 +32,32 @@ INK = colors.HexColor("#152A3B")
 MUTED = colors.HexColor("#547080")
 LINE = colors.HexColor("#D9E7EE")
 SIZE = (841.89, 595.28)
+
+CURRENT_SECURITY_REVISIONS = (
+    RevisionRecord("07 November 2026", "Security", "Account telemetry follows the authenticated association", (
+        "The paired physical device requests observations after the current authenticated heartbeat. The existing CCP owner uses a bounded read-only Codex App Server child while the native MCP lease is open.",
+        "The wire projection contains bounded counters, reset instants, a plan token and an opaque in-memory graph series. Credentials, account identities and workspace message contents stay on the host. A new account starts a separate graph series, and samples retain their source age.",
+    ), affected="Planning page 24 and the Options screen 36 dashboard route; CCP1 ALLOWANCECAP, ALLOWANCE and ACCOUNT.",
+        evidence="Static review of the protocol and source ownership. Account login, physical pairing and end-to-end delivery still require authorized validation."),
+)
+
+CURRENT_DEVICE_TOPICS = (
+    ("Physical controls",
+     "In Debug and Release, a short PWR press toggles software standby and wake. A continuous three-second PWR hold opens Good night and Release Power before coordinated PMU shutdown. Short BOOT while active opens Options. A three-second BOOT hold retains the Debug restart path."),
+    ("Dictation",
+     "Double-tap Cody on Home with Dictation enabled and a current authenticated link to the paired PC on the local network."),
+    ("Codex statistics",
+     "Options > Codex stats opens the first enabled statistics screen, Reset by default. The weekly reset and remaining allowance come from Codex. The carousel also has Limits, Today, Last 7 Days, Token History, Credits and Account. Short-window duration and allowance describe the same native quota window."),
+    ("Token History",
+     "Select 5 hours (default), 24 hours or 1 hour. The graph uses measured changes between daily totals in adjacent 15-minute UTC slots. Missing observations, counter decreases and UTC date changes leave gaps. An unchanged observed counter can show zero."),
+)
+
+
+def current_reference():
+    return render_current_reference(SIZE, "Cody / Planning Atlas", "Current controls and Codex statistics",
+                                    "Source reference for Setup 41, Options 36 and the account views. Physical verification is pending.",
+                                    CURRENT_DEVICE_TOPICS)
+
 
 # text: Printable document copy; newline boundaries are preserved.
 # width: Maximum line width in PDF points.
@@ -246,7 +272,9 @@ def history_records(current):
         body = [block[4].strip() for block in blocks if block[1] > 115 and block[3] < page.rect.height - 44]
         full_text = page.get_text()
         date = "03 October 2026" if index == 22 else "04 October 2026" if index < 26 else "09 October 2026" if index < 34 else "10 October 2026"
-        kind = "Errata" if "Errata and corrections" in full_text else "Addendum" if "ADDENDUM" in full_text or "Addendum" in full_text else "Change"
+        kind = "Errata" if "Errata and corrections" in full_text else "Addendum" if "ADDENDUM" in full_text or "Addendum" in full_text else None
+        if kind is None:
+            continue
         # Historical body may contain Unicode typographic dashes and one former
         # Italian aside. Preserve its meaning with English printable characters.
         paragraphs = tuple(" ".join(text.split()).replace("\u2010", "-").replace("\u2011", "-")
@@ -274,11 +302,6 @@ def history_records(current):
     records.append(RevisionRecord("11 October 2026", "Errata", "English throughout the document", (
         "Historical Italian headings, captions and body copy were translated into English while preserving dates, original page and screen IDs, technical values and evidence limits.",
         "The original English correction on former page53 is consolidated here. The connection atlas, four-page A5 flyer and manga status atlas required no language correction in that revision.",), affected="Original pages1,2,9-14,16,21,22,39-46; former revision-register page53.", evidence="Document language and visual review only; no firmware or physical verification."))
-    records.append(RevisionRecord("11 October 2026", "Change", "Restore the illustrated review workbook", (
-        "Restore the cyan Cody artwork and separate writable NOTES areas from the02 October source027498aa. Preserve layout geometry, expression studies, debug and all256 palette slots. Replace white placeholder screens with coherent illustrated current routes.",
-        "Standalone appendices from original pages23-46 and the47-53 revision pages are consolidated into this single final grid. Historical dates, decision substance, original page/screen references and evidence are retained. Security remains a clearly identified subsection of this register.",
-        "Screens28-30 restore the one-way voice design: wake word, double tap or button starts a dedicated audio route; suspend character rendering, use a precomputed animation, stream over authenticated encrypted Wi-Fi and retain up to ten seconds of unacknowledged audio in PSRAM. Native Codex audio input remains research, not implemented firmware. No OTA or audio implementation is claimed.",
-        "Screens33/34 now use short manga notices without percentages: low at20 and10 percent, charging entered once, full only on fresh measured100 percent. Admit after ten seconds of uninterrupted free Home; never interrupt a request or prolong standby. Continuing charging remains silent.",), affected="Original main pages1,2,5-16,21,22; screens21-35B and39-42; restored voice pages23-24.", evidence="PDF authoring and visual review. Source-based battery changes are tracked separately; no build, simulator or physical validation."))
     # Authoring copy uses normal spaces around numeric references, while dates,
     # stable IDs and compact technical units remain unchanged.
     from dataclasses import replace
@@ -382,7 +405,7 @@ def compact_register(records,start_page,security=(),security_only=False):
         surface.drawString(42,height-59,"Revision register / Security" if security_only else "Revision register")
         surface.setFillColor(MUTED)
         surface.setFont("CodyDoc",9)
-        surface.drawString(42,height-77,"Historical dates, original screen references and evidence are retained in this final grid.")
+        surface.drawString(42,height-77,"Errata, addenda and security retain their original scope.")
         surface.setStrokeColor(LINE)
         surface.line(42,35,width-42,35)
         surface.setFont("CodyDoc",8)
@@ -516,13 +539,16 @@ def main(argv=None):
             illustrated = screen_page(number, title, subtitle, items, artwork)
             result.insert_pdf(illustrated)
             illustrated.close()
+    with pymupdf.open(stream=current_reference(), filetype="pdf") as reference:
+        result.insert_pdf(reference)
     records = history_records(current)
     register = pymupdf.open(stream=compact_register(records,len(result)+1),filetype="pdf")
     result.insert_pdf(register)
-    security = pymupdf.open(stream=compact_register(security_records(),len(result)+1,security_only=True),filetype="pdf")
+    security_entries = (*security_records(), *CURRENT_SECURITY_REVISIONS)
+    security = pymupdf.open(stream=compact_register(security_entries,len(result)+1,security_only=True),filetype="pdf")
     result.insert_pdf(security)
     result.set_metadata({"title": "Cody / Planning Atlas", "author": "Umberto Giacobbi",
-                         "subject": "Illustrated current routes and consolidated dated revision register"})
+                         "subject": "Illustrated current routes, errata and security"})
     temporary = STAGING / "revised.pdf"
     result.save(temporary, garbage=4, deflate=True)
     result.close()
@@ -548,7 +574,7 @@ def main(argv=None):
             sheet.paste(thumb, ((offset % 3) * 421,(offset // 3) * 298))
         sheet.save(rendered / f"contact-{group + 1:02}.png")
     (STAGING / "receipt.json").write_text(json.dumps({"historical_commit": "027498aa", "main_pages":24,
-        "total_pages":len(final), "records":len(records), "security_records":len(security_records()),
+        "total_pages":len(final), "records":len(records), "security_records":len(security_entries),
         "evidence":"PDF authoring only; firmware validation deferred"}, indent=2), encoding="utf-8")
     print(f"Restored {OUTPUT}: 24 illustrated/source main pages; {len(final)} total. Full render: {rendered}")
 

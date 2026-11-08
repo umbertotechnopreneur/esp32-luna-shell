@@ -94,8 +94,8 @@ before layout changes and [Cody layout](docs/cody/layout.md) for control details
 ## Code and data
 
 - Write repository docs, code comments, UI text, logs and commits in English.
-  Revised PDFs include English titles, diagrams, captions, footers and historical
-  text while retaining dates, screen IDs and evidence. Chat may remain Italian.
+  Revised PDFs include English titles, diagrams, captions, footers and retained
+  corrections. Keep original screen IDs and evidence. Chat may remain Italian.
   Cody text is bounded printable ASCII; no Unicode/localization layer.
 - Prefer readable steps, descriptive names and helpers with one responsibility.
   Avoid dense branches, unrelated one-liners and speculative abstractions.
@@ -164,11 +164,12 @@ before layout changes and [Cody layout](docs/cody/layout.md) for control details
   Preserve root and third-party license boundaries.
 - Copy every created/revised documentation PDF byte for byte, same filename, to
   `C:\Users\umber\OneDrive\Obsidian\30_Engineering\Products\Cody Companion\atlas`.
-- Each requested PDF revision keeps a final revision register: date and type
-  (Security, Errata, Addendum or Change) left; description, original page/screen
-  IDs and optional images right. Preserve earlier corrections/dates and unrelated
-  content, consolidating errata/addenda there. Security has its own labeled section.
-  This layout also applies to PDFs in scope outside the repository.
+- Keep maintained PDFs focused on the current development state. Code history
+  belongs in Git. If a document needs errata, an addendum or a security
+  correction, keep a final register with date and type left and description,
+  original page/screen IDs and optional images right. Preserve the evidence
+  and dates of retained corrections. Security has its own labeled section.
+  Apply the same rule to in-scope PDFs outside the repository.
 - Exception: `docs/cody/cody-ccp-pairing-quickstart-a5-v1.pdf` keeps four A5
   instructional pages for nontechnical users, updated in place; never append
   a revision register, errata, addenda or technical security appendix.

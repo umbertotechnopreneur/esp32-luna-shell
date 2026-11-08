@@ -150,7 +150,7 @@ def page_system(surface):
     frame(surface, "One device, one PC, one chat", "01 / The whole system", 1)
     flow(surface, ("Cody<br/>screen + microphone", "Paired PC<br/>CCP broker", "Codex plugin<br/>genuine hooks", "Current<br/>Codex chat"),
          397, (CYAN, BLUE, PURPLE, NAVY))
-    copy(surface, "The network link carries device state and authenticated commands. The plugin adds real chat events. These are different sources of truth.",
+    copy(surface, "The LAN link carries authenticated device state and commands. Genuine hooks report the followed chat. A separate local Codex App Server reads account usage for Cody.",
          42, 330, W - 84, 14, INK, True, 58)
     card(surface, 42, 83, 228, 170, "Pairing", "Both sides remember one intended PC. A saved identity alone says nothing about whether it is online.", CYAN)
     card(surface, 307, 83, 228, 170, "Presence", "Fresh authenticated LAN replies show that the paired PC is reachable now. Internet availability is separate.", BLUE)
@@ -177,7 +177,7 @@ def page_pairing(surface):
     flow(surface, ("Fresh six-character<br/>code on Cody", "PC selects one<br/>matching offer", "Both save pending<br/>then commit", "Fresh READY /<br/>COMMITTED proof"),
          407, (CYAN, BLUE, PURPLE, CYAN))
     card(surface, 42, 185, 360, 148, "The old link survives a failed replacement", "PC candidate: DPAPI. Cody candidate: separate NVS pending record. Promotion follows authenticated proof and durable readback.", BLUE)
-    card(surface, 440, 185, 360, 148, "Discovery is not connection", "FIND alone cannot show the PC as present, redirect notifications or reveal current activity. READY binds a fresh challenge to the observed endpoint.", CYAN)
+    card(surface, 440, 185, 360, 148, "Discovery is not connection", "FIND alone cannot establish presence, redirect notifications or expose metadata. READY binds a fresh challenge to the observed endpoint. COMMITTED and the signed capability gate account reads.", CYAN)
     surface.setFillColor(colors.HexColor("#FFF3DF"))
     surface.roundRect(42, 78, W - 84, 83, 15, fill=1, stroke=0)
     copy(surface, "If there are zero or multiple matching offers, stop with an error. Never pick the first PC; never reuse a code from a screenshot.",
@@ -191,13 +191,14 @@ def page_activity(surface):
     card(surface, 307, 282, 228, 111, "Working", "Actual prompt and tool hooks name the followed chat and observed phase.", BLUE)
     card(surface, 572, 282, 228, 111, "Reply ready", "A Stop hook says the response is available; it does not certify task success.", PURPLE)
     surface.setFillColor(NAVY)
-    surface.roundRect(170, 89, 502, 166, 24, fill=1, stroke=0)
-    copy(surface, "Working", 204, 229, 424, 25, colors.HexColor("#66E1D2"), True, 39)
-    copy(surface, "Example chat title: Improve audio flow", 204, 188, 424, 16, WHITE, True, 28)
-    copy(surface, "Tokens  •  Model  •  Connection  •  Chat", 204, 147, 424, 13,
+    surface.roundRect(42, 89, 360, 166, 24, fill=1, stroke=0)
+    copy(surface, "Working", 58, 229, 328, 25, colors.HexColor("#66E1D2"), True, 39)
+    copy(surface, "Example chat title: Improve audio flow", 58, 188, 328, 16, WHITE, True, 28)
+    copy(surface, "Tokens  •  Model  •  Connection  •  Chat", 58, 147, 328, 13,
          colors.HexColor("#BDCBD9"), max_height=24)
+    card(surface, 440, 89, 360, 166, "Codex stats on Cody", "Open Options, then Codex stats for reset, quota windows, daily tokens, streaks, credits, vouchers, plan and workspace message count. Token History shows observed 15-minute changes over 1, 5 or 24 hours. Missing intervals stay blank.", CYAN)
     copy(surface, "Illustrative Home panel, not a device capture. Activity expires after 120 s; PC presence after 8 s without current replies.",
-         170, 76, 502, 9, MUTED, max_height=31)
+         42, 76, W - 84, 9, MUTED, max_height=31)
 
 
 # surface: ReportLab page canvas.
@@ -262,7 +263,7 @@ def page_capabilities(surface):
     card(surface, 440, 260, 360, 146, "Inform", "Report actual progress; publish a known notice; ask a bounded question; poll and acknowledge its answer.", BLUE)
     card(surface, 42, 91, 360, 146, "Personalize", "Read or set preferred name, timezone and quiet hours. Readback confirms a durable change; unsupported values fail.", PURPLE)
     card(surface, 440, 91, 360, 146, "Inspect or power", "Read audio status; show diagnostics in Debug and Release. Tap Memory on Cody for heap details. Restart and factory reset require explicit current intent and confirmation.", AMBER)
-    copy(surface, "Native Codex approvals remain on the computer. CCP has no arbitrary shell, mount browser, firmware updater, transcript reader or PR action tool.",
+    copy(surface, "The read-only Codex stats dashboard uses the existing pairing and Codex sign-in without extra PC setup. Native approvals remain on the computer. CCP has no arbitrary shell, mount browser, firmware updater, transcript reader or PR action tool.",
          42, 77, W - 84, 9, MUTED, max_height=32)
 
 
@@ -271,11 +272,11 @@ def page_diagnosis(surface):
     frame(surface, "Diagnose the right layer", "09 / A short decision tree", 9)
     flow(surface, ("No device IP?<br/>Fix Wi-Fi", "No authenticated PC?<br/>Check LAN + broker", "No real chat?<br/>Check hooks", "No audio reply?<br/>Check model support"),
          400, (BLUE, CYAN, PURPLE, RED))
-    card(surface, 42, 183, 360, 151, "Do not erase to fix a disconnect", "A missing PC or Internet does not remove saved pairing. Keep the same PC identity and retry discovery. A failed write or invalid saved record remains a real error.", BLUE)
+    card(surface, 42, 183, 360, 151, "Do not erase to fix a disconnect", "A missing PC or Internet does not remove saved pairing. Keep the same PC identity and retry discovery. If Codex closes or samples expire, account values become unavailable or stale. The countdown needs a valid device clock.", BLUE)
     card(surface, 440, 183, 360, 151, "Keep the evidence levels separate", "Queued ≠ consumed; consumed ≠ model-supported; sent ≠ understood. For questions, received ≠ recipient-delivered. A worker ACK ≠ visible pixels.", RED)
     surface.setFillColor(NAVY)
     surface.roundRect(42, 81, W - 84, 77, 15, fill=1, stroke=0)
-    copy(surface, "Security boundary: CCP is authenticated but ordinary LAN metadata is not encrypted. The six-character pairing transcript remains offline-guessable; a standard PAKE/AEAD redesign is deferred.",
+    copy(surface, "CCP authenticates ordinary LAN metadata, which is not encrypted. Signed account replies carry bounded metrics and a plan label. Credentials and message bodies stay on the PC. Six-character pairing transcripts remain offline-guessable and PAKE/AEAD is deferred.",
          58, 142, W - 116, 11.5, WHITE, max_height=58)
 
 
@@ -283,9 +284,9 @@ def page_diagnosis(surface):
 def page_sources(surface):
     frame(surface, "Source map and evidence", "10 / Where to look next", 10)
     card(surface, 42, 257, 360, 149, "Packet and device contract", "plugins/cody-codex-plugin/protocol/CCP1.md defines fields, order, size and authentication. Firmware owns sensor reads, settings and screens.", CYAN)
-    card(surface, 440, 257, 360, 149, "PC and Codex integration", "The installed CCP plugin owns pairing journals, hooks, private question tickets and audio receipt. The Codex App Server documents model/list and its model modalities.", BLUE)
+    card(surface, 440, 257, 360, 149, "PC and Codex integration", "CCP owns pairing, hooks, question tickets and audio. The Codex App Server documents model/list and the account, rate limit, usage and workspace message read methods. The PC forwards only the required projections.", BLUE)
     card(surface, 42, 84, 360, 149, "Artwork and screen IDs", "Question and voice images here are versioned design proposals. Navigation and planning atlases hold detailed UI routes; this PDF keeps the communication journey.", PURPLE)
-    card(surface, 440, 84, 360, 149, "What is actually verified", "The pilot verified queue admission and removal, then this chat reported omitted audio. It did not verify speech recognition or physical audio delivery. The revision register preserves older evidence limits.", RED)
+    card(surface, 440, 84, 360, 149, "What is actually verified", "The audio pilot verified queue admission and removal, then the chat reported omitted audio. Account dashboard behavior is documented from source. Physical display and live App Server behavior still require validation.", RED)
 
 
 # No parameters; returns rendered body bytes and stable page headings.
@@ -317,31 +318,18 @@ def visual_pdf():
 # Each entry retains the dated decision, its meaningful correction and its
 # original page/screen crosswalk without replaying the former full narrative.
 REVISION_DIGEST = {
-    "One intended PC on a busy LAN": "Retain exactly one PC identity. Commissioning, saved pairing and fresh presence are distinct; the original worksheet remains in Git.",
-    "A03: PRs remain read-only": "Watch the supplied PR head and real check names. PR action and native approval stay on the PC; screen 25 was retired.",
     "Startup decisions and reversible Setup": "Saved Wi-Fi without pairing offers a real Yes/No. Setup can reopen. No/Later writes nothing; saved pairing searches the same PC.",
     "Setup recovery after standby": "The old timeout hid Setup. A fresh, stationary hold can reopen it; movement, wake time and busy work cancel. Earlier capture did not test Connect Codex.",
-    "Approved action layout and Options entry": "Two semantic cards sit side by side, a third below; Back remains lateral. Options returns to its caller. The approved artwork is a design reference, not a device capture.",
     "Malformed touch report interrupted rendering": "Captured: Yes 16497 ms, Connect Codex 16498 ms, then fifteen FF bytes and ACK=FF at 17112 ms (expected AB). Preserve ESP_ERR_INVALID_RESPONSE; runtime gesture interruption does not prove hardware cause.",
-    "Earlier CCP 0.3 activity proposal": "Historical metadata hooks and manual selection were later superseded by the latest genuine prompt. Presence, hook freshness and user-reported earlier connection were different evidence.",
-    "Retained pairing and two-sided commit": "PC DPAPI candidate and Cody ccp_pending preserve old active links. Fresh READY/COMMITTED proves the candidate; Cancel, Keep, Pair again and Forget have different effects.",
     "Notifications, choices and recipient delivery": "Question tickets expire within 180 s. Received is not delivered until answer_id ACK; no timeout selects a reply. Historical wire limits remain dated facts.",
     "Acknowledgement is admission, not reset completion": "Restart preserves settings; factory reset verifies erasure of Wi-Fi, pairing and preferences before reboot. A signed ACK alone proves neither reboot nor wipe.",
-    "Current boot, setup and complete controls": "Boot artwork, QR timing, local-IP gate and immediate saved-PC search replaced older detours. Persist/read back preferences before claiming success; historical route sketches are not current behavior.",
-    "Consolidated service and connection atlas": "Earlier Service and Connection atlases were unified, with original page/screen references and dated errata retained. Old source PDFs remain recoverable in Git.",
     "English correction retained from both earlier atlases": "Earlier Italian headings, captions, copy and footers were translated to English; dates, IDs, artwork meaning and evidence limits were preserved.",
-    "One canonical CCP communication reference": "Unify commissioning, protocol, operator and voice material; keep the separate A5 quickstart. Source-only audio design, packet fields and resource bounds are not physical delivery proof.",
-    "Audio review: bounded window, readiness and honest uncertainty": "Four 480-sample DATA packets, cumulative ACK and identical-ciphertext retry supersede one-packet send. Readiness is not localAudio support; uncertain native submission is retained without replay.",
     "Operator capabilities, customer tools and Debug boundaries": "Inventory customer and Debug operations. Applied ACK is not pixel evidence. No mount browser, arbitrary shell, face override or remote first-boot setter exists.",
-    "Plain-language pairing and voice handoff": "Explain the PC/device/chat roles. A changed followed chat rejects the recording before submission; Cody stores no SD/internal-flash audio archive.",
-    "Coordinated cover and navigable contents": "VibeWare cover, copyright and clickable section contents were added. Historical page numbers remain original-edition references.",
-    "Voice countdowns, public audio API and integration policy": "Three-second listening and sending countdowns plus five acquired silent seconds. Public localAudio queue admission was a pilot, not transcription. Unsupported private bridges were removed.",
-    "Visual journey replaces the table-heavy atlas": "Replace the 49-page text-heavy edition with a short visual journey, source-labelled UI proposals and diagrams. Preserve dated corrections and crosswalks in this final grid.",
     "Public audio pilot outcome": "The synthetic WAV left the queue, but the Desktop chat displayed that audio content was omitted because audio input is unsupported. Physical voice submission stays disabled.",
-    "Current diagnostics and visual-guide content contract": "Diagnostics work in Debug and Release; Memory is opened locally on Cody. Validate the current visual journey and its source/proof boundaries; obsolete listener/turn RPC text is not a current requirement. Original dates, IDs and Security history remain.",
     "Fresh endpoint-bound proof before current data": "A recorded FIND cannot establish presence or obtain current data. READY binds a fresh one-time challenge to observed IP/port; matching COMMITTED gates current metadata and recovery.",
     "Bound unauthenticated work and retained logs": "Device/PC ingress, discovery, verifier work and broker logs have explicit limits. Startup runtime.log growth and real flood/pairing measurements remain separate open evidence.",
     "Remaining protocol risks are explicit": "Six-character transcripts permit offline guessing and ordinary CCP metadata is not confidential. Standard PAKE or high-entropy pairing plus authenticated encryption needs a coordinated redesign.",
+    "Authenticate bounded account projections": "The current paired endpoint, nonce and HMAC gate ALLOWANCECAP, ALLOWANCE and ACCOUNT. Only bounded metrics and plan labels reach Cody. Read-only access, freshness limits, and generation changes prevent stale or cross-account history from appearing current.",
 }
 
 
@@ -392,7 +380,7 @@ def visual_register(records, start_page, section="Revision register"):
         surface.line(42, 36, W - 42, 36)
         surface.setFont("CodyDoc", 8)
         surface.setFillColor(MUTED)
-        surface.drawString(42, 22, "Historical corrections and original screen IDs / runtime evidence remains separate")
+        surface.drawString(42, 22, "Corrections, original screen IDs and evidence limits")
         surface.drawRightString(W - 42, 22, str(start_page + state.page - 1))
 
     document = SimpleDocTemplate(stream, pagesize=SIZE, leftMargin=42,

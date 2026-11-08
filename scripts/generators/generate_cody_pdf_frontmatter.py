@@ -14,7 +14,6 @@ from reportlab.pdfgen import canvas
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts/common"))
-from cody_pdf_revision_register import RevisionRecord, render_revision_register
 
 DOCS = ROOT / "docs/cody"
 STAGING = ROOT / "artifacts/docs/frontmatter"
@@ -127,7 +126,7 @@ def front_pages(title, subtitle, size, entries, edition_date="12 October 2026",
         surface.setStrokeColor(colors.HexColor("#DDE6EF"))
         surface.line(margin, y - 9, width - margin, y - 9)
     surface.setFillColor(colors.HexColor("#64748B"))
-    wrapped(surface, "Page numbers refer to this PDF. Earlier page references in historical notes retain their original edition numbering.", margin, 67, width - 2 * margin, 8)
+    wrapped(surface, "Page numbers refer to this PDF. Original screen IDs identify the illustrated routes.", margin, 67, width - 2 * margin, 8)
     surface.showPage()
     surface.save()
     return stream.getvalue(), step
@@ -152,20 +151,14 @@ def publish(path):
     count = len(content)
     size = tuple(content[0].rect)[2:]
     sections = resolve_sections(content, path.name)
-    for label in ("Revision register", "Security"):
+    for label in ("Buttons and Codex statistics", "Visible screens on Cody",
+                  "Current controls and Codex statistics", "Revision register", "Security"):
         for index, page in enumerate(content):
             if any(line == label or line.endswith(" / " + label) for line in page.get_text().splitlines()[:5]):
                 sections = sections + [(index + 1, label)]
                 break
     if quick and count != 4:
         raise ValueError("The A5 quickstart requires exactly four instructional pages")
-    # The communication atlas owns this dated entry in its canonical final
-    # register. Other existing documents retain their publisher-owned record.
-    if not quick and path.name != "cody-ccp-connection-atlas-v1.pdf":
-        record = RevisionRecord("2026-10-12", "Change", "Coordinated cover and navigable contents", ("Add VibeWare cover artwork, author copyright and Draft / Confidential / Internal use only classification. Contents and bookmarks point to the final document pages; historical page and screen references retain their original identities.",), "All original pages; existing correction and Security sections preserved", "PDF authoring and visual review; no firmware execution.")
-        register = pymupdf.open(stream=render_revision_register((record,), size, title, start_page=count + 3), filetype="pdf")
-        content.insert_pdf(register)
-        sections = sections + [(count + 1, "This edition / revision record")]
     if quick:
         # This four-page flyer owns its introduction. A cover or contents page
         # would change the nontechnical journey and violate its fixed format.
