@@ -246,15 +246,14 @@ overview describes one ASP.NET Core service instance with bounded JSON state,
 cookie protection keys and bounded operational logs on an OS-mounted SMB/Samba
 share. The OS handles mount authentication outside the repository; storage uses
 no Azure SDK or provider API. Local `.env.local` is configuration only; relay
-persistence has no local fallback. Aspire's default dashboard is disabled because
-it writes temporary SQLite files locally, but Aspire/DCP orchestration still has
-separate OS temporary-file and IPC requirements. The choice between Aspire for
-development only and Aspire also for hosting remains pending. OpenTelemetry
-remains active with bounded relay logs on the share and an optional remote OTLP
-endpoint, without a local telemetry database. Locking, flush, atomic replacement,
-disconnect behavior and absence of local relay persistence on actual Windows and
-Linux hosts remain acceptance gates. This overview does not establish deployment,
-Dot integration or firmware support, or absence of local tooling files.
+persistence has no local fallback. Normal Aspire AppHost orchestration and its
+dashboard remain enabled. Ordinary local tooling, temporary files and dashboard
+telemetry storage are permitted. OpenTelemetry feeds the dashboard or a
+configured OTLP endpoint; bounded service logs persist on the share. Mount locking,
+durable flush, atomic replacement and disconnect/crash recovery require native
+Windows and Linux validation. Mount, TLS and owner identity-provider configuration
+remain pending. This overview does not establish builds, deployment, Dot
+integration or firmware support.
 
 ## Host tools and output ownership
 

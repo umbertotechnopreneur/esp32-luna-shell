@@ -17,6 +17,9 @@
   mount credentials, share identity, cookie keys, bounded logs and explicit
   initialization. Keep runtime persistence on the share. Verify server
   locks, flush and atomic replacement before deployment; no Azure APIs are used.
+- Verify the normal Aspire dashboard, HTTPS, operator-only console access and
+  authenticated OTLP. Aspire's own local working files are allowed; service
+  state and durable logs remain on SMB. No VM or deployment is created here.
 - Firmware integration is a later explicitly requested phase. No device cloud
   pairing or delivery behavior is established by the server implementation.
 
