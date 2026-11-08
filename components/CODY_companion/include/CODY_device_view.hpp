@@ -28,11 +28,13 @@ struct DeviceChrome {
 };
 
 struct DeviceView {
+    ScreensaverPresentation screensaver{};
     PlainView plain{};
     DeviceChrome chrome{};
     ResetCountdownScreen countdown{};
     AccountDashboardPresentation account{};
     TokenHistoryPresentation history{};
+    SystemInfoPresentation info{};
 };
 
 struct DeviceFrameContent {
@@ -56,6 +58,12 @@ int device_action_at(const DeviceView &view, CODY2D::Point point);
 // Prepares the selected page from its read-only model projection.
 esp_err_t prepare_device_dashboard(DeviceView &view, DeviceFrameContent &frame,
     WidgetScreen screen, TokenHistoryInterval interval, const DeviceDashboardData &data, int64_t now_us);
+
+// view: Persistent glyph and geometry owner for System, Memory and Firmware.
+// frame: Receives the native central content without controls or the shared perimeter.
+// model: Read-only selected Info page, canonical diagnostics and immutable build identity.
+// Exception: Preserves original bounded-caption or native preparation errors.
+esp_err_t prepare_device_info(DeviceView &view, DeviceFrameContent &frame, const DeviceModel &model);
 
 // Presents the owner-published voice phase. Session admission remains with the runtime.
 esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,

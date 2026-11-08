@@ -163,6 +163,17 @@ esp_err_t read_device_dashboard(DeviceDashboardData &data, WidgetScreen screen, 
     return first_error;
 }
 
+// model: Retained child page and the diagnostics projection also used by the diagnostic overlay.
+// Exception: Returns the original read error and clears rejected data instead of retaining it as current.
+esp_err_t read_device_info(DeviceModel &model)
+{
+    if (model.info_page > InfoPage::ProjectLink) { return ESP_ERR_INVALID_ARG; }
+    if (model.info_page != InfoPage::System && model.info_page != InfoPage::Memory) { return ESP_OK; }
+    model.diagnostics_error = LUNASHELL::DeviceSnapshotService::instance().readDiagnosticsObservation(model.diagnostics);
+    if (model.diagnostics_error != ESP_OK) { model.diagnostics = {}; }
+    return model.diagnostics_error;
+}
+
 // data: System identity and the last sampled previous boot, when RTC was retained.
 void initialize_device_uptime(DeviceDashboardData &data)
 {

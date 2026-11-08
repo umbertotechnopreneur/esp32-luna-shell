@@ -16,7 +16,9 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageTk
 
 from cody_ccp_event_view import EventView
 from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
+from cody_device_state import InfoPage, ScreensaverModel, SystemInfoModel, SystemInfoObservation
 from cody_preview_layout import PreviewLayout, SIZE, enlarge_framebuffer
+from cody_screensaver import render_screensaver
 from cody_ui_theme import install_theme
 from vibeware_boot import VibeWareBoot
 
@@ -40,8 +42,8 @@ OPTIONS_ROW_HEIGHT = 72
 NAVIGATION_IDLE_SECONDS = 10
 NAVIGATION_FADE_SECONDS = 0.35
 PAGES = (
-    "Device", "Reset countdown", "Codex limits", "Today", "Last 7 days",
-    "Token history", "Credits", "Codex account", "Context", "About",
+    "Device", "Reset countdown", "Context", "Codex limits", "Today", "Last 7 days",
+    "Token history", "Credits", "Codex account", "About",
 )
 ABOUT_INFO = "Scan for more info"
 ABOUT_URL = "https://umbertogiacobbi.biz/esp32-luna-shell"
@@ -121,7 +123,6 @@ HISTORY_WINDOWS = ("1 hour", "5 hours", "24 hours")
 UNAVAILABLE_ROWS = {
     "Codex limits": ("Short window", "Weekly window"),
     "Last 7 days": ("Daily tokens",),
-    "Credits": ("Credit balance", "Reset vouchers"),
 }
 LEFT = (40, CENTER)
 RIGHT = (SIZE - 40, CENTER)
@@ -342,6 +343,8 @@ class DeviceStudioWindow:
         self.visible = set(PAGES)
         self.brightness = 100
         self.shake_to_wake = False
+        self.info = SystemInfoModel()
+        self.screensaver = ScreensaverModel()
 
     # self: Preview window playing the standard startup animation.
     def start_boot(self):
@@ -359,8 +362,11 @@ class DeviceStudioWindow:
     def observe(self):
         return self.endpoint.observe() if self.endpoint else (SimulatorSnapshot(), "")
 
+    # self: Local route owner cancelling screensaver presentation on user navigation.
+    # route: Requested setup, options or dashboard route.
     def open(self, route):
         self.route = route
+        self.screensaver.active = False
         self.last_navigation = time.monotonic()
 
     # self: Studio navigation owner.
@@ -388,30 +394,41 @@ class DeviceStudioWindow:
         self.acknowledged = ()
         self.open("options")
 
+    # self: Preview power owner; standby cancels screensaver without changing its preference.
     def toggle_standby(self):
         if self.boot is not None:
             return
         self.standby = not self.standby
+        self.screensaver.active = False
         self.touch = None
         self.last_navigation = time.monotonic()
 
+    # self: Preview owner applying the same first-visible-statistics shortcut as firmware.
     def shake(self):
         if self.boot is not None:
             return
         if self.standby and self.shake_to_wake:
             self.toggle_standby()
         if not self.standby and not self.event_visible and self.route == "widgets":
-            self.page = 0
-            self.last_navigation = time.monotonic()
+            self.open_statistics()
 
+    # self: Local navigation owner retaining the typed Info subpage.
+    # step: Previous (-1) or next (1) action admitted by a visible arrow.
     def move(self, step):
         if self.route == "visibility":
             self.settings_page = (self.settings_page + step) % len(PAGES)
         else:
+            if PAGES[self.page] == "About":
+                if self.info.move(step):
+                    self.touch = None
+                    self.last_navigation = time.monotonic()
+                    return
+                if step > 0:
+                    return
             choices = [index for index, page in enumerate(PAGES) if page in self.visible]
-            if "About" in self.visible:
-                choices.append(len(PAGES))
             self.page = choices[(choices.index(self.page) + step) % len(choices)]
+            self.info.page = InfoPage.SYSTEM
+            self.touch = None
         self.last_navigation = time.monotonic()
 
     # self: Active Studio preview returning to the calling route or menu page.
@@ -419,6 +436,8 @@ class DeviceStudioWindow:
         if self.boot is None and not self.standby and not self.event_visible:
             if self.route in ("visibility", "connections", "display", "behavior", "factory_reset"):
                 self.show_options_page(self.options_page)
+            elif self.route == "more_behavior":
+                self.open("behavior")
             elif self.route is WifiSetupRoute.PHONE_GUIDE:
                 self.open(self.guide_return)
             elif self.route is WifiSetupRoute.INSTALL_APP:
@@ -430,6 +449,8 @@ class DeviceStudioWindow:
                     self.show_options_page(0)
                 else:
                     self.open("widgets")
+            elif self.route == "widgets" and PAGES[self.page] == "About":
+                self.move(-1)
 
     def pair(self, snapshot):
         if self.endpoint is None:
@@ -466,17 +487,23 @@ class DeviceStudioWindow:
         self.open(WifiSetupRoute.NOT_CONNECTED)
         self.start_boot()
 
+    # self: Preview owner returning to the first enabled statistics page.
     def open_statistics(self):
         self.page = next((index for index, page in enumerate(PAGES) if index and page in self.visible), 0)
+        self.info.page = InfoPage.SYSTEM
+        self.screensaver.active = False
+        self.touch = None
         self.open("widgets")
 
+    # self: Preview owner applying visibility while retaining valid top-level and child routes.
     def change_visibility(self):
         page = PAGES[self.settings_page]
         if self.settings_page:
             if page in self.visible:
                 self.visible.remove(page)
-                if self.page == self.settings_page or (page == "About" and self.page == len(PAGES)):
+                if self.page == self.settings_page:
                     self.page = 0
+                    self.info.page = InfoPage.SYSTEM
             else:
                 self.visible.add(page)
 
@@ -669,19 +696,78 @@ class DeviceStudioWindow:
     # self: Studio preview registering the project link action.
     # draw: Logical canvas before rotation.
     def draw_about_qr(self, draw):
+        label(draw, ABOUT_INFO, 105, 27)
         qr_tile(draw, ABOUT_QR, 147, 205)
         self.button(draw, "Open link", 370, self.open_about_url, width=155, height=33)
+
+    # self: Preview renderer borrowing the typed Info state and observation.
+    # draw: Logical canvas before rotation, with central content clear of both arrows.
+    def draw_system_info(self, draw):
+        page = self.info.page
+        if page is InfoPage.PROJECT_LINK:
+            self.draw_about_qr(draw)
+            return
+        title, position = {
+            InfoPage.SYSTEM: ("SYSTEM", "1/3"),
+            InfoPage.MEMORY: ("MEMORY", "2/3"),
+            InfoPage.FIRMWARE: ("FIRMWARE", "3/3"),
+        }[page]
+        label(draw, title, 82, 30, ACCENT, width=230)
+        label(draw, position, 89, 16, MUTED, x=371, width=44)
+        self.draw_info_icon(draw, page)
+        draw.line((73, 125, 392, 125), fill=(62, 91, 113))
+        if page is InfoPage.SYSTEM:
+            for index, top in enumerate((137, 199), 1):
+                draw.text((93, top), f"CPU {index}", font=font(17), fill=MUTED)
+                draw.text((240, top), "Unavailable", font=font(17), fill=MUTED)
+            hours, seconds = divmod(self.info.observation.studio_uptime_seconds, 3600)
+            minutes, seconds = divmod(seconds, 60)
+            label(draw, "STUDIO UPTIME", 263, 17, MUTED)
+            label(draw, f"{hours:02d}:{minutes:02d}:{seconds:02d}", 288, 23, ACCENT)
+            label(draw, "PREVIOUS: LAST OBSERVED", 328, 17, MUTED)
+            label(draw, "Unavailable", 353, 17, MUTED)
+        elif page is InfoPage.MEMORY:
+            for caption, top in (("INTERNAL RAM", 134), ("PSRAM", 268)):
+                label(draw, caption, top, 21, ACCENT)
+                label(draw, "Unavailable", top + 27, 17, MUTED)
+            label(draw, "Device telemetry is not simulated", 376, 14, MUTED)
+        else:
+            label(draw, "Firmware metadata unavailable", 206, 17, MUTED)
+            label(draw, "This is a Studio preview", 240, 17, MUTED)
+
+    # self: Preview renderer using small semantic outlines rather than action decorations.
+    # draw: Logical canvas receiving the 24-pixel title icon.
+    # page: One of the three informational pages.
+    def draw_info_icon(self, draw, page):
+        if page is InfoPage.SYSTEM:
+            draw.rectangle((82, 91, 102, 111), outline=ACCENT, width=2)
+            for offset in (86, 92, 98):
+                draw.line((offset, 87, offset, 90), fill=ACCENT, width=2)
+                draw.line((offset, 112, offset, 115), fill=ACCENT, width=2)
+                draw.line((78, offset + 5, 81, offset + 5), fill=ACCENT, width=2)
+                draw.line((103, offset + 5, 106, offset + 5), fill=ACCENT, width=2)
+        elif page is InfoPage.MEMORY:
+            draw.rectangle((79, 94, 105, 109), outline=ACCENT, width=2)
+            for left in (83, 91, 99):
+                draw.rectangle((left, 98, left + 3, 104), fill=ACCENT)
+                draw.line((left, 110, left, 114), fill=ACCENT, width=2)
+        else:
+            draw.ellipse((80, 89, 104, 113), outline=ACCENT, width=2)
+            draw.ellipse((88, 97, 96, 105), outline=ACCENT, width=2)
+            for left, top, right, bottom in ((90, 85, 94, 90), (90, 112, 94, 117),
+                                            (76, 99, 81, 103), (103, 99, 108, 103)):
+                draw.rectangle((left, top, right, bottom), fill=ACCENT)
 
     # self: Studio preview owning the selected dashboard page.
     # draw: Logical canvas before rotation.
     # snapshot: Current loopback projection, if available.
     # now: Monotonic frame time for uptime and arrow fading.
     def draw_widget(self, draw, snapshot, now):
-        page = PAGES[self.page] if self.page < len(PAGES) else ABOUT_INFO
-        if page == "Codex account":
-            label(draw, "CODEX ACCOUNT", 82, 33, ACCENT)
-        else:
-            label(draw, page, 105, 27 if page == ABOUT_INFO else 33)
+        page = PAGES[self.page]
+        if page in ("Codex account", "Credits"):
+            label(draw, page.upper(), 82, 33, ACCENT)
+        elif page != "About":
+            label(draw, page, 105, 33)
         if page == "Device":
             label(draw, snapshot.state.value if self.endpoint else "Local mode", 170, 24, ACCENT)
             label(draw, "SIMULATED Wi-Fi " + ("on" if snapshot.network_ready else "off")
@@ -696,15 +782,7 @@ class DeviceStudioWindow:
             if activity and snapshot.description:
                 label(draw, snapshot.description, 273, 16, MUTED)
         elif page == "About":
-            hours, seconds = divmod(int(now - self.started_at), 3600)
-            minutes, seconds = divmod(seconds, 60)
-            label(draw, "Studio uptime", 159, 17, MUTED)
-            label(draw, f"{hours:02d}:{minutes:02d}:{seconds:02d}", 185, 23, ACCENT)
-            label(draw, "Firmware version unavailable", 232, 17, MUTED)
-            label(draw, "Firmware build date unavailable", 269, 17, MUTED)
-            label(draw, f"ID {snapshot.device_id}" if snapshot.device_id else "Device ID unavailable", 307, 16)
-        elif page == ABOUT_INFO:
-            self.draw_about_qr(draw)
+            self.draw_system_info(draw)
         elif page == "Reset countdown":
             for index, unit in enumerate(("DAYS", "HRS", "MIN", "SEC")):
                 x = 113 + index * 80
@@ -714,8 +792,23 @@ class DeviceStudioWindow:
                 label(draw, unit, 261, 14, MUTED, x=x, width=70)
             label(draw, "Reset time unavailable", 306, 17, MUTED)
         elif page == "Token history":
-            label(draw, "No measured intervals", 201, 20, MUTED)
+            label(draw, "No account samples yet", 201, 20, MUTED)
+            label(draw, "15 MIN ACCOUNT OBSERVATIONS", 239, 16, MUTED)
             self.button(draw, HISTORY_WINDOWS[self.history_window], 299, self.change_interval)
+        elif page == "Credits":
+            label(draw, "BALANCE", 139, 18)
+            label(draw, "Unavailable", 190, 28, MUTED)
+            draw.line((93, 264, 373, 264), fill=(41, 105, 123))
+            caption = "RESET VOUCHERS"
+            caption_width = draw.textlength(caption, font=font(33))
+            left = CENTER - (caption_width + 32) / 2
+            draw.rectangle((left, 289, left + 23, 304), outline=MUTED, width=2)
+            for top in (292, 299):
+                draw.line((left + 16, top, left + 16, top + 3), fill=MUTED)
+            for x in (left, left + 23):
+                draw.ellipse((x - 2, 295, x + 2, 299), fill=BACKGROUND)
+            label(draw, caption, 274, 33, x=left + 32 + caption_width / 2, width=288)
+            label(draw, "Unavailable", 328, 22, MUTED)
         elif page in ("Today", "Codex account"):
             label(draw, "Account data unavailable", 213, 20, MUTED)
         else:
@@ -724,9 +817,10 @@ class DeviceStudioWindow:
                 label(draw, name, y, 18)
                 label(draw, "Unavailable", y + 24, 16, MUTED)
         opacity = self.navigation_opacity(now)
-        if opacity > 0 and len(self.visible) > 1:
-            self.sidebar(draw, -1, lambda: self.move(-1), opacity)
-            self.sidebar(draw, 1, lambda: self.move(1), opacity)
+        if opacity > 0 and (len(self.visible) > 1 or page == "About"):
+            self.sidebar(draw, -1, (lambda: self.move(-1)) if opacity == 1 else None, opacity)
+            if page != "About" or self.info.page is not InfoPage.PROJECT_LINK:
+                self.sidebar(draw, 1, (lambda: self.move(1)) if opacity == 1 else None, opacity)
 
     # self: Studio preview owning the rendered route and touch targets.
     # snapshot: Current loopback projection, if available.
@@ -739,11 +833,18 @@ class DeviceStudioWindow:
         draw = ImageDraw.Draw(image)
         self.targets = {}
         self.event_visible = False
+        event_active = not self.standby and self.events and self.events.visible(snapshot, self.endpoint)
+        project_link = PAGES[self.page] == "About" and self.info.page is InfoPage.PROJECT_LINK
+        self.screensaver.observe(not self.standby and not event_active and self.route == "widgets" and not project_link,
+                                 now - self.last_navigation)
         if self.standby:
             image.paste((0, 0, 0), (0, 0, SIZE, SIZE))
-        elif self.events and self.events.visible(snapshot, self.endpoint):
+        elif event_active:
             self.event_visible = True
+            self.last_navigation = now
             self.events.render_device(image, snapshot, label, arrow)
+        elif self.screensaver.active:
+            image = render_screensaver(int((now - self.last_navigation - 15.0) * 8)).copy()
         else:
             label(draw, "SIMULATED", 28 if wifi_setup else 46, 14, MUTED)
             if wifi_setup:
@@ -777,6 +878,13 @@ class DeviceStudioWindow:
                 self.draw_option_rows(draw, (
                     ("Dictation  N/A", None),
                     ("Shake to wake  " + ("On" if self.shake_to_wake else "Off"), self.change_shake_to_wake),
+                    ("More behavior", lambda: self.open("more_behavior")),
+                ))
+                self.sidebar(draw, -1, self.back)
+            elif self.route == "more_behavior":
+                label(draw, "More behavior", OPTIONS_TITLE_TOP, 34)
+                self.draw_option_rows(draw, (
+                    ("Screensaver  " + ("On" if self.screensaver.enabled else "Off"), self.screensaver.toggle),
                 ))
                 self.sidebar(draw, -1, self.back)
             else:
@@ -805,8 +913,11 @@ class DeviceStudioWindow:
             self.boot_frame = (index, self.display_image(self.boot.image(elapsed_ms)))
         return self.boot_frame[1]
 
+    # self: Preview scheduler publishing only observations actually supported by Studio.
+    # Original source and drawing failures remain visible in the existing status surface.
     def tick(self):
         now = time.monotonic()
+        self.info.observation = SystemInfoObservation(studio_uptime_seconds=int(now - self.started_at))
         try:
             snapshot, code = self.observe()
             if self.pairing_attempted and snapshot.state == LinkState.CONNECTED:
@@ -835,7 +946,7 @@ class DeviceStudioWindow:
             self.canvas.coords(self.image, self.layout.left, self.layout.top)
             self.canvas.itemconfigure(self.image, image=self.photo)
             self.acknowledged = tuple(self.targets)
-        self.timer = self.root.after(40 if self.boot else 100, self.tick)
+        self.timer = self.root.after(40 if self.boot else 125 if self.screensaver.active else 100, self.tick)
 
     def point(self, event):
         point = self.layout.to_device_pixel(event.x, event.y, self.rotation)
@@ -852,9 +963,18 @@ class DeviceStudioWindow:
                 return name, action
         return None, None
 
+    # self: Preview input owner; a screensaver-dismiss touch cannot trigger hidden controls.
+    # event: Tk pointer event transformed into the logical device coordinate system.
     def press(self, event):
         point = self.point(event)
         if self.boot is not None or self.standby:
+            return
+        if point is not None and self.screensaver.active:
+            self.screensaver.active = False
+            self.last_navigation = time.monotonic()
+            self.touch = None
+            self.targets.clear()
+            self.acknowledged = ()
             return
         if self.event_visible:
             self.events.press(point, self.observe()[0], self.endpoint)

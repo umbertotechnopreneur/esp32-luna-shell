@@ -4,10 +4,9 @@
 uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
 for pairing; public Internet availability is a separate condition.
 
-CCP **0.6.16** provides one local owner for Codex and the Windows/Linux companion
+CCP **0.6.17** provides one local owner for Codex and the Windows/Linux companion
 control panel. Codex activity and semantic questions retain their own identities.
 The panel reads genuine native MCP presence and original activity freshness.
-These changes are source-only; installation and device validation are pending.
 Its signed READY handshake retains the 0.6.4 endpoint-binding contract. Signed READY binds a fresh
 broker challenge to the observed device endpoint. Cody validates the endpoint
 and returns matching COMMITTED before the broker admits presence, events or
@@ -162,7 +161,8 @@ setup/native errors remain visible instead of switching to a private integration
 
 Home's connection panel uses the actual native chat title, without a `Chat`
 prefix or an opaque ID. A metadata-only reader queries the exact followed hook
-session and verifies its checkout in `state_5.sqlite`, opened read-only. The
+session in `state_5.sqlite`, opened read-only. The working directory is mutable
+metadata, not chat identity. The
 current native contract selects `name` for paginated threads and `title` for
 legacy threads; see the official [thread metadata owner](https://github.com/openai/codex/blob/main/codex-rs/state/src/runtime/threads.rs).
 No transcript, preview or first-user-message field supplies a title. Successful
@@ -175,7 +175,7 @@ current for at most 45 seconds after source observation.
 
 Genuine hooks select the chat and turn. The existing broker reads only allowlisted
 metadata from that chat's local native session journal; the exact transcript locator
-or a read-only state-index lookup must match the hook identity and checkout.
+or a read-only state-index lookup must match the exact session and turn identity.
 Conversation messages, prompts and tool output are not interpreted as telemetry.
 No extra App Server, resumed chat or artificial activity hook is created.
 Windows extended drive/UNC paths are normalized before resolved-path confinement.
@@ -233,10 +233,19 @@ and reset countdown, service-reported daily tokens, credits, reset
 vouchers and the current ChatGPT plan when available. Cody uses the existing
 authenticated pairing. The plugin resolves the installed native Codex
 executable from its search path and uses its existing ChatGPT sign-in. The
-five-hour graph shows observed changes in today's reported daily token total
-between adjacent 15-minute UTC sampling slots. A missing total can start a
-baseline later in the same slot if the service supplies it. Already published
-intervals are immutable. Missing intervals remain gaps.
+five-hour graph shows observed changes in the account's reported
+`summary.lifetimeTokens` between adjacent 15-minute UTC sampling slots, using
+the documented [token usage response](https://learn.chatgpt.com/docs/app-server#7-token-usage-chatgpt).
+It can collect while today's daily bucket is absent. If the lifetime counter
+is unavailable, the sampler can use today's reported daily total within the
+same UTC date. It never combines counters or substitutes chat context tokens.
+A counter/source change, decreasing counter or account change starts a new
+baseline. Failed observations and skipped slots leave gaps; daily rollover
+also leaves a gap when sampling a daily counter. Already published intervals
+are immutable and history starts when monitoring starts, without backfilling.
+The page labels these as ACCOUNT observations. The provider may update late,
+so a point describes when the plugin observed a change, not the exact time
+the underlying requests consumed tokens.
 
 The existing CCP broker makes bounded reads through a private
 `codex app-server` stdio child only when a native MCP lease is open and an

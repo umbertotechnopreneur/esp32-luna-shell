@@ -52,7 +52,6 @@ struct TokenHistoryPresentation {
     uint8_t bin_count = 0;
     uint8_t caption_count = 0;
     uint8_t bar_width = 0;
-    bool today_total_not_reported = false;
     bool local_time = false;
     bool valid = false;
 };

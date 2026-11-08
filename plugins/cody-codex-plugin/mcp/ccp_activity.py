@@ -380,7 +380,6 @@ class ActivityStore:
             if session.cwd != cwd:
                 session.project = project_label(cwd)
                 session.cwd = cwd
-                session.chat_title = ChatTitleObservation()
             session.last_event_ns = emitted_ns
             if locator:
                 session.transcript_path = locator
@@ -409,13 +408,12 @@ class ActivityStore:
     # self: Lifecycle owner; the caller must hold _lock for this identity check.
     # observation: Immutable accepted native event and its exact originating turn.
     # session: Original session object retained across the source IO boundary.
-    # cwd: Original canonical checkout identity, retained before releasing _lock.
     # Returns false when replacement, lifecycle or selection invalidates the notice.
-    def _notice_origin_is_current(self, observation: HookObservation, session: Session, cwd: str) -> bool:
+    def _notice_origin_is_current(self, observation: HookObservation, session: Session) -> bool:
         current = self._sessions.get(observation.session_id)
         if current is not session:
             return False
-        if current.turn_id != observation.turn_id or current.cwd != cwd:
+        if current.turn_id != observation.turn_id:
             return False
 
         is_followed = current.session_id == self._followed_session_id
@@ -442,7 +440,7 @@ class ActivityStore:
             if session is None:
                 return withdrawn
             cwd = session.cwd
-            if not self._notice_origin_is_current(observation, session, cwd):
+            if not self._notice_origin_is_current(observation, session):
                 return withdrawn
 
         # The exact native metadata owner performs IO without blocking hook acceptance.
@@ -450,7 +448,7 @@ class ActivityStore:
             source_title = self._titles.read_once(observation.session_id, cwd)
 
         with self._lock:
-            if not self._notice_origin_is_current(observation, session, cwd):
+            if not self._notice_origin_is_current(observation, session):
                 return withdrawn
 
             session.chat_title = source_title
@@ -470,7 +468,7 @@ class ActivityStore:
     def unnotified_approval_targets(self, observation: HookObservation, candidates: list[str]) -> list[str]:
         with self._lock:
             session = self._sessions.get(observation.session_id)
-            if session is None or not self._notice_origin_is_current(observation, session, session.cwd):
+            if session is None or not self._notice_origin_is_current(observation, session):
                 return []
             return [device for device in candidates if device not in session.approval_notice_devices]
 
@@ -546,15 +544,16 @@ class ActivityStore:
         # File IO has its own owner lock and never holds the activity/hook lock.
         with self._lock:
             followed = self._sessions.get(self._followed_session_id)
-            source = ((followed.session_id, followed.cwd, followed.turn_id, followed.transcript_path)
+            source = ((followed.session_id, followed.turn_id, followed.transcript_path)
                       if followed and followed.turn_id and followed.phase != Phase.ENDED else None)
+            cwd = followed.cwd if followed else ""
         usage, context = None, None
         title = ChatTitleObservation()
         if source is not None:
             with self._usage_lock:
-                title = self._titles.poll(source[0], source[1])
+                title = self._titles.poll(source[0], cwd)
                 try:
-                    usage, context = self._usage.poll(*source)
+                    usage, context = self._usage.poll(source[0], cwd, source[1], source[2])
                     self._usage_error = ""
                 except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as error:
                     # Do not echo native file paths, JSON lines or chat content.
@@ -564,7 +563,7 @@ class ActivityStore:
                         self._usage_error = cause
         with self._lock:
             session = self._sessions.get(self._followed_session_id)
-            if (session is None or source != (session.session_id, session.cwd, session.turn_id, session.transcript_path)
+            if (session is None or source != (session.session_id, session.turn_id, session.transcript_path)
                     or session.phase == Phase.ENDED):
                 usage, context = None, None
                 title = ChatTitleObservation()

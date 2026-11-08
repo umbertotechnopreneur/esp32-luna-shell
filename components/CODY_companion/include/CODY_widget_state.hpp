@@ -48,6 +48,9 @@ inline constexpr std::array<WidgetDescriptor<WidgetScreen>, kWidgetScreenCount> 
     {WidgetScreen::Cody, "Cody"},
 #endif
     {WidgetScreen::Reset, "Reset countdown"},
+#if defined(CODY_DEVICE_UI_ONLY)
+    {WidgetScreen::Context, "Context"},
+#endif
     {WidgetScreen::Limits, "Codex limits"},
     {WidgetScreen::Today, "Today"},
     {WidgetScreen::LastSevenDays, "Last 7 days"},
@@ -55,7 +58,6 @@ inline constexpr std::array<WidgetDescriptor<WidgetScreen>, kWidgetScreenCount> 
     {WidgetScreen::Credits, "Credits"},
     {WidgetScreen::Account, "Codex account"},
 #if defined(CODY_DEVICE_UI_ONLY)
-    {WidgetScreen::Context, "Context"},
     {WidgetScreen::About, "About"},
 #endif
 }};

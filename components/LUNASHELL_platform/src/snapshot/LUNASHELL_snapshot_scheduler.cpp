@@ -31,6 +31,7 @@
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_snapshot_cadence.hpp"
+#include "LUNASHELL_acquisition_system.hpp"
 
 namespace {
 
@@ -421,11 +422,16 @@ extern "C" esp_err_t LUNASHELL_hardware_stop_full_snapshot_monitor(void)
     return ESP_OK;
 }
 
+// suspended: Requested acquisition gate; resumed CPU measurements need a fresh interval.
+// Exception: Retains the existing monitor lifecycle result.
 extern "C" esp_err_t LUNASHELL_hardware_set_full_snapshot_performance_suspended(
     bool suspended
 )
 {
     std::lock_guard<std::mutex> lock(s_settings_mutex);
+    if (s_performance_suspended.load(std::memory_order_relaxed) != suspended) {
+        LUNASHELL::snapshot_detail::system_acquisition::request_processor_baseline();
+    }
     s_performance_suspended.store(suspended, std::memory_order_relaxed);
     apply_effective_monitor_state_locked();
     ESP_LOGI(
@@ -436,7 +442,8 @@ extern "C" esp_err_t LUNASHELL_hardware_set_full_snapshot_performance_suspended(
     return ESP_OK;
 }
 
-// Quiesce the worker synchronously while preserving its requested lifecycle.
+// suspended: Quiesce the worker synchronously while preserving its requested lifecycle.
+// Exception: Returns the original quiescence timeout; no fabricated CPU interval is published.
 extern "C" esp_err_t LUNASHELL_hardware_set_full_snapshot_power_suspended(
     bool suspended
 )
@@ -445,6 +452,9 @@ extern "C" esp_err_t LUNASHELL_hardware_set_full_snapshot_power_suspended(
     bool wait_for_quiescence = false;
     {
         std::lock_guard<std::mutex> lock(s_settings_mutex);
+        if (s_power_suspended.load(std::memory_order_relaxed) != suspended) {
+            LUNASHELL::snapshot_detail::system_acquisition::request_processor_baseline();
+        }
         s_power_suspended.store(suspended, std::memory_order_relaxed);
         apply_effective_monitor_state_locked();
         wait_for_quiescence = suspended && s_task_started;

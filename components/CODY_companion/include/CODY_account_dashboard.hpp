@@ -10,7 +10,6 @@ struct ClockSnapshot;
 struct CodexAccountSnapshot;
 struct CodexTechnicalObservation;
 struct CodexWeeklyLimitSnapshot;
-struct FirmwareBuildMetadata;
 }
 
 namespace CODY {
@@ -43,10 +42,6 @@ struct AccountDashboardPresentation {
     uint64_t context_remaining = 0;
     uint64_t context_capacity = 0;
     const char *compaction_label = nullptr;
-    const char *image_version = nullptr;
-    const LUNASHELL::FirmwareBuildMetadata *build_metadata = nullptr;
-    uint64_t uptime_seconds = 0;
-    uint64_t previous_uptime_seconds = 0;
     uint32_t revision = 0;
     CODY2D::ActionIcon plan_icon = CODY2D::ActionIcon::None;
     uint16_t plan_icon_color = 0;
@@ -57,8 +52,6 @@ struct AccountDashboardPresentation {
     uint8_t caption_count = 0;
     uint8_t bar_count = 0;
     bool context_page = false;
-    bool about_page = false;
-    bool previous_uptime_valid = false;
     bool plan_mask_valid = false;
     bool valid = false;
 };
@@ -86,21 +79,6 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
 // content: Receives the central account-style context page without navigation controls.
 // Exception: Preserves original projection, clock and native preparation failures.
 esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &observation,
-    const CODY2D::MonoFont &title_font, const CODY2D::MonoFont &body_font,
-    AccountDashboardPresentation &presentation, SceneContent &content);
-
-// uptime_seconds: Current monotonic device uptime, provided by its owner.
-// previous_uptime_seconds: Last observed uptime from the preceding boot, never an inferred final duration.
-// previous_uptime_valid: True only when the retained preceding-boot observation was validated.
-// image_version: Immutable running-image version, bounded to the ESP app descriptor's 32-byte field.
-// build: Immutable running-image build timestamp and hostname, with their original field states.
-// title_font: Immutable native headline glyphs.
-// body_font: Immutable native detail glyphs.
-// presentation: Persistent display-owned storage, updated after the prior frame retires.
-// content: Receives the central native About page without navigation controls.
-// Exception: Preserves native glyph, layout and bounded-text failures.
-esp_err_t prepare_about_dashboard(uint64_t uptime_seconds, uint64_t previous_uptime_seconds,
-    bool previous_uptime_valid, const char *image_version, const LUNASHELL::FirmwareBuildMetadata &build,
     const CODY2D::MonoFont &title_font, const CODY2D::MonoFont &body_font,
     AccountDashboardPresentation &presentation, SceneContent &content);
 

@@ -8,6 +8,8 @@
 #include "CODY_boot_branding.hpp"
 #include "CODY_codex_audio.hpp"
 #include "CODY_device_view.hpp"
+#include "CODY_device_effects.hpp"
+#include "CODY_screensaver.hpp"
 #include "CODY_onboarding.hpp"
 #include "CODY_settings.hpp"
 #include "CODY_widget_visibility_view.hpp"
@@ -40,7 +42,7 @@ constexpr uint32_t kReadyTimeoutMs = kPowerTimeoutMs + VIBEWARE_BOOT_DURATION_MS
 // The onboarding and CCP projections still use the existing display task stack budget.
 constexpr uint32_t kWorkerStackBytes = 12288;
 
-enum class Layer : uint8_t { Branding, Message, Scene, Dashboard, AboutLink, Visibility, Voice, Diagnostics, Blank };
+enum class Layer : uint8_t { Branding, Message, Scene, Dashboard, AboutLink, Visibility, Voice, Diagnostics, Screensaver, Blank };
 enum class Command : uint8_t { Ready = 1, Sleep, Wake, Shutdown, ShutdownFailed };
 using Save = CODY::VisibilitySave;
 enum class Target : uint8_t { None, Previous, Next, Toggle, Interval, FirstAction, SecondAction, VoiceGesture };
@@ -120,7 +122,7 @@ void invalidate()
 // No parameters: choose the first enabled statistics page, with Device always available.
 void select_statistics()
 {
-    s_ui->model.about_link = false;
+    s_ui->model.info_page = CODY::InfoPage::System;
     const auto page = CODY::first_visible_widget(s_ui->model.widgets.visibility, CODY::WidgetScope::Statistics);
     CODY::select_widget_screen(s_ui->model.widgets, page.value_or(WidgetScreen::Device));
     invalidate();
@@ -158,6 +160,25 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
     auto &ui = *s_ui;
     CODY::update_device_observations(ui.model.dashboard);
     CODY::update_device_battery(ui.model, now_us);
+    const LUNASHELL::VoiceSnapshot *voice = nullptr;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    voice = &ui.model.voice;
+#endif
+    // Optional sound failures remain in the effects model; visual controls keep working.
+    (void)CODY::update_device_effects(ui.model.effects, ui.model.dashboard.connection,
+        ui.model.dashboard.connection_valid, ui.model.battery_banner, voice, now_us);
+    bool saver_eligible = CODY::onboarding_dashboard_active() && !ui.model.editing && !ui.diagnostics &&
+        !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0 &&
+        !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    saver_eligible = saver_eligible && !voice_visible(now_us);
+#endif
+    CODY::update_screensaver(ui.model.screensaver, saver_eligible,
+        ui.model.navigation.last_touch_us, now_us);
+    if (ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible) {
+        frame.layer = Layer::Screensaver;
+        return CODY::prepare_screensaver(ui.model.screensaver, ui.view.screensaver, frame.presentation.content);
+    }
     frame.navigation_opacity = ui.model.navigation.opacity(now_us);
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     if (voice_visible(now_us)) {
@@ -178,7 +199,8 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
             CODY::SceneData::title_font, CODY::SceneData::body_font, ui.editor, frame.presentation.content);
     }
     if (CODY::onboarding_dashboard_active()) {
-        if (ui.model.about_link) {
+        if (ui.model.widgets.selected_screen == WidgetScreen::About &&
+            ui.model.info_page == CODY::InfoPage::ProjectLink) {
             frame.layer = Layer::AboutLink;
             frame.arrows = true;
             const auto error = CODY::prepare_about_project_link(frame.presentation.content);
@@ -189,6 +211,11 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
         frame.arrows = true;
         auto &model = ui.model;
         const auto screen = model.widgets.selected_screen;
+        if (screen == WidgetScreen::About) {
+            // Per-field source errors are rendered locally; uptime and navigation remain usable.
+            (void)CODY::read_device_info(model);
+            return CODY::prepare_device_info(ui.view, frame.presentation, model);
+        }
         const auto read_error = CODY::read_device_dashboard(model.dashboard, screen, model.interval);
         const auto error = read_error == ESP_OK ? CODY::prepare_device_dashboard(ui.view, frame.presentation,
             screen, model.interval, model.dashboard, now_us) : read_error;
@@ -221,12 +248,14 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const auto screen = ui.model.widgets.selected_screen;
     const bool show_connection = (frame.layer == Layer::Dashboard && screen != WidgetScreen::Device) ||
         frame.layer == Layer::AboutLink;
-    const bool show_battery = frame.layer != Layer::Blank && frame.layer != Layer::Branding;
+    const bool show_battery = frame.layer != Layer::Blank && frame.layer != Layer::Branding &&
+        frame.layer != Layer::Screensaver;
     const auto chrome_error = CODY::prepare_device_chrome(ui.view.chrome, ui.model.dashboard, show_connection,
         show_battery ? ui.model.battery_banner : CODY::BatteryAlertNotice{});
     if (chrome_error != ESP_OK) return chrome_error;
     const auto &chrome = ui.view.chrome;
-    const uint16_t allowance = frame.layer == Layer::Blank || frame.layer == Layer::Branding
+    const uint16_t allowance = frame.layer == Layer::Blank || frame.layer == Layer::Branding ||
+        frame.layer == Layer::Screensaver
         ? 0 : CODY::device_allowance_ring(ui.model.dashboard);
     const bool full = force || !old.valid || old.display_revision != revision ||
         old.layer != frame.layer || old.screen != screen ||
@@ -392,7 +421,8 @@ void edit_visibility(Target target)
             CODY::WidgetScope::Statistics).value_or(ui.model.editor_screen);
         ui.model.save = Save::Idle;
     }
-    invalidate();
+    // The visibility presenter revisions its central content; layer changes already
+    // trigger a full repaint. A local edit must not invalidate the whole panel.
 }
 
 // target: Released control admitted on the same complete frame.
@@ -404,15 +434,18 @@ esp_err_t activate(Target target)
     if (layer == Layer::Visibility) {
         edit_visibility(target);
     } else if (layer == Layer::AboutLink) {
-        ui.model.about_link = false;
+        ui.model.info_page = CODY::InfoPage::Firmware;
         invalidate();
     } else if (target == Target::Previous || target == Target::Next) {
-        if (ui.model.widgets.selected_screen == WidgetScreen::About && target == Target::Next) {
-            ui.model.about_link = true;
-        } else {
-            const auto step = target == Target::Previous ? WidgetStep::Previous : WidgetStep::Next;
+        const auto step = target == Target::Previous ? WidgetStep::Previous : WidgetStep::Next;
+        const bool info_changed = ui.model.widgets.selected_screen == WidgetScreen::About &&
+            CODY::step_info_page(ui.model.info_page, step);
+        if (!info_changed) {
             const auto page = CODY::next_visible_widget(ui.model.widgets.visibility, ui.model.widgets.selected_screen, step);
-            if (page) CODY::select_widget_screen(ui.model.widgets, *page);
+            if (page) {
+                CODY::select_widget_screen(ui.model.widgets, *page);
+                ui.model.info_page = CODY::InfoPage::System;
+            }
         }
         invalidate();
     } else if (target == Target::Interval) {
@@ -482,18 +515,36 @@ esp_err_t sample_touch()
     const CODY2D::Point point{static_cast<int16_t>(sample.x), static_cast<int16_t>(sample.y)};
     if (sample.pressed || pressed_edge) ui.model.navigation.interact(esp_timer_get_time());
     if (pressed_edge) LUNASHELL_power_manager_note_activity();
+    if (ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible || ui.retired.layer == Layer::Screensaver) {
+        CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
+        // The wake touch owns no underlying target, including its eventual release.
+        ui.contact = Target::None;
+        invalidate();
+        return ESP_OK;
+    }
     if (ui.retired.layer == Layer::Scene) {
         if (ui.retired.navigation_opacity != 255 && CODY::onboarding_lateral_control_at(point)) {
             CODY::cancel_onboarding_touch();
             return ESP_OK;
         }
         bool consumed = false;
+        const auto *previous_definition = ui.scene.definition;
+        const auto previous_content = ui.scene.content.revision;
+        const auto previous_controls = ui.scene.content.control_revision;
+        const auto previous_text = ui.scene.content.text_generation;
+        const auto previous_visible = ui.scene.visible_characters;
+        const auto previous_body = ui.scene.content.visible_characters;
         auto error = CODY::observe_onboarding_touch_activity(point, sample.pressed, pressed_edge, ui.awake_us);
         if (error == ESP_OK) {
             error = CODY::handle_onboarding_touch(ui.scene, point, sample.pressed, pressed_edge,
                 ui.model.motion.rendering_rotation_degrees, consumed);
         }
-        ui.scene_dirty = ui.scene_dirty || consumed;
+        // Consumed means the route owns the touch, not that pixels changed.
+        // A held settings row must not force a full redraw on every touch report.
+        ui.scene_dirty = ui.scene_dirty || ui.scene.definition != previous_definition ||
+            ui.scene.content.revision != previous_content || ui.scene.content.control_revision != previous_controls ||
+            ui.scene.content.text_generation != previous_text || ui.scene.visible_characters != previous_visible ||
+            ui.scene.content.visible_characters != previous_body;
         return error;
     }
     if (sample.pressed) {
@@ -528,11 +579,12 @@ esp_err_t update_navigation()
     if (CODY::take_widget_visibility_save_result(saved)) {
         ui.model.save = saved == ESP_OK && CODY::apply_widget_visibility(ui.model.widgets, ui.model.draft)
             ? Save::Idle : Save::Failed;
-        invalidate();
+        // The cached editor detects Pending -> Idle/Failed and redraws its own bounds.
     }
     if (ui.model.save != Save::Pending && s_options_requested.exchange(false, std::memory_order_acq_rel)) {
         ui.model.editing = false;
-        ui.model.about_link = false;
+        ui.model.info_page = CODY::InfoPage::System;
+        CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
         ui.diagnostics = false;
         const esp_err_t error = CODY::open_companion_options(ui.scene);
         if (error != ESP_OK) return error;
@@ -587,6 +639,7 @@ esp_err_t apply_command(Command command)
     ui.last_active_us = 0;
     ui.pressed = false;
     const int64_t now_us = esp_timer_get_time();
+    CODY::dismiss_screensaver(ui.model.screensaver, now_us);
     CODY::suspend_companion_shake(ui.model.shake, now_us);
     if (command == Command::Ready || command == Command::Wake) ui.model.navigation.interact(now_us);
     FrameView frame{};
@@ -616,7 +669,12 @@ esp_err_t apply_command(Command command)
         frame.layer = Layer::Message;
         error = CODY::prepare_device_message(ui.view, frame.presentation, "Device", "Power off failed");
     } else {
-        error = prepare_current_view(frame, esp_timer_get_time());
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        // Ready has no sampled voice state yet; Wake may retain a pre-standby
+        // session. Refresh before effects consume one-shot event identities.
+        error = DeviceSnapshotService::instance().readVoiceObservation(ui.model.voice);
+#endif
+        if (error == ESP_OK) error = prepare_current_view(frame, esp_timer_get_time());
     }
     return error == ESP_OK ? render(frame, true) : error;
 }
@@ -696,6 +754,7 @@ esp_err_t update_and_draw(int64_t now_us)
         ui.model.editing = false;
         ui.diagnostics = false;
         LUNASHELL_power_manager_note_activity();
+        CODY::dismiss_screensaver(ui.model.screensaver, now_us);
         select_statistics();
     }
 
@@ -743,6 +802,7 @@ esp_err_t advance_branding(DeviceUi &ui)
     const auto next = static_cast<uint16_t>(ui.branding_frame + 1U);
     if (next == VIBEWARE_BOOT_FRAME_COUNT) {
         ui.branding_active = false;
+        ESP_LOGI(kTag, "Boot disk animation completed: %u frames retired", VIBEWARE_BOOT_FRAME_COUNT);
         return ESP_OK;
     }
     ui.branding_frame = next;
@@ -782,7 +842,9 @@ void device_ui_worker(void *context)
             vTaskDelay(pdMS_TO_TICKS(kPollMs));
             continue;
         }
-        const uint32_t wait_ms = ui.view.countdown.animating() ? 33 : kPollMs;
+        const uint32_t wait_ms = ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible
+            ? static_cast<uint32_t>(CODY::kScreensaverFrameUs / 1000)
+            : ui.view.countdown.animating() ? 33 : kPollMs;
         const auto wait = LUNASHELL_touch_wait_for_report(wait_ms);
         if (wait != ESP_OK && wait != ESP_ERR_NOT_FOUND) {
             error = wait;
@@ -800,6 +862,8 @@ void device_ui_worker(void *context)
 }
 } // namespace
 
+// No parameters: initialize the device model and retire the first native boot frame.
+// Exception: Returns original mandatory settings/display/worker failures; optional audio retains its own error.
 extern "C" esp_err_t CODY_companion_start(void)
 {
     if (s_ui != nullptr) return ESP_ERR_INVALID_STATE;
@@ -810,12 +874,17 @@ extern "C" esp_err_t CODY_companion_start(void)
     if (error == ESP_OK) error = CODY::load_companion_preferences();
     if (error == ESP_OK) error = CODY::onboarding_service_init();
     if (error != ESP_OK) return error;
+    // The acquisition owner has initialized the codec; prepare its shared notification worker.
+    // A failed optional sound worker does not remove pairing or power controls.
+    (void)CODY::prepare_device_effects(s_ui->model.effects);
     s_ui->first_boot = settings.effective_first_boot;
     CODY::WidgetVisibility visibility{};
     s_ui->model.settings_error = CODY::load_widget_visibility(visibility);
     if (s_ui->model.settings_error == ESP_OK) CODY::apply_widget_visibility(s_ui->model.widgets, visibility);
     FrameView frame{};
     s_ui->branding_active = esp_reset_reason() != ESP_RST_DEEPSLEEP;
+    ESP_LOGI(kTag, "Boot disk animation: reset_reason=%u requested=%u frames=%u",
+        static_cast<unsigned>(esp_reset_reason()), s_ui->branding_active, VIBEWARE_BOOT_FRAME_COUNT);
     if (s_ui->branding_active) {
         frame.layer = Layer::Branding;
         error = VIBEWARE_boot_validate();
@@ -828,6 +897,7 @@ extern "C" esp_err_t CODY_companion_start(void)
     if (error == ESP_OK) error = render(frame, true);
     if (error == ESP_OK && s_ui->branding_active) {
         s_ui->branding_due_us = esp_timer_get_time() + VIBEWARE_boot_frames[0].duration_ms * 1000LL;
+        ESP_LOGI(kTag, "Boot disk first frame retired; starting the complete animation cycle");
     }
     if (error == ESP_OK) error = LUNASHELL_power_manager_register_display_lifecycle(prepare_lifecycle);
     if (error == ESP_OK) error = LUNASHELL_power_manager_register_boot_options(queue_options);

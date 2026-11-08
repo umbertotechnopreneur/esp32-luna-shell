@@ -95,6 +95,40 @@ esp_err_t notify_codex_audio(CodexAudioCue cue, CodexAudioStatus &status)
     copy_status(owner, status);
     return error;
 }
+
+// cue: Existing authored clip; no temporary PCM or second audio worker is created.
+// repetitions: One through five short repeats admitted as a single notice.
+// gap_ms: Silence between repeats, validated by the existing audio owner.
+// status: Receives the true shared-owner disposition, never inferred completion.
+// Exception: Returns invalid identity or the original sequence/playback failure.
+esp_err_t notify_codex_audio_sequence(CodexAudioCue cue, uint8_t repetitions,
+    uint16_t gap_ms, CodexAudioStatus &status)
+{
+    const CodexAudioAssets::Clip *selected = nullptr;
+    for (const auto &clip : CodexAudioAssets::clips) {
+        if (clip.cue == cue) {
+            selected = &clip;
+            break;
+        }
+    }
+    if (selected == nullptr) {
+        status = {CodexAudioState::Failed, ESP_ERR_INVALID_ARG, 0, cue};
+        ESP_LOGE(kTag, "Unknown notice sequence cue=%lu rejected (%s)",
+            static_cast<unsigned long>(cue), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        const auto publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
+            false, 0, 16000, 0, ESP_ERR_INVALID_ARG, static_cast<uint32_t>(cue));
+        if (publication_error != ESP_OK) {
+            ESP_LOGE(kTag, "Rejected notice publication failed (%s)", esp_err_to_name(publication_error));
+        }
+        return ESP_ERR_INVALID_ARG;
+    }
+    lunashell_audio_cue_status_t owner{};
+    const auto error = LUNASHELL_audio_notify_codex_repeated_notice(selected->samples,
+        selected->sample_count, selected->sample_rate_hz, static_cast<uint32_t>(cue),
+        repetitions, gap_ms, &owner);
+    copy_status(owner, status);
+    return error;
+}
 // alert: One sustained initial bell or one shorter, quieter reminder.
 // status: Receives the existing owner's actual result; no beep sequence is queued.
 // Exception: Returns an invalid alert identity or the original shared-owner failure.

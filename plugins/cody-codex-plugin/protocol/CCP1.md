@@ -232,12 +232,16 @@ The graph fields use a nonzero opaque random `series` and its most recent
 completed UTC `quarter`, or `-` for all three fields when no series record is
 available. A sample received in slot `floor(Unix seconds / 900)` can report
 the preceding interval. `tokens15` is the observed change between the first
-verified daily totals in adjacent slots on the same UTC date, using only the
-service bucket whose date label matches that date. A first sample, a missing
-or decreasing counter, a skipped slot or a date change yields `-`. Zero is
-a measured unchanged counter. Repeated reads in the same slot resend the same
-record. No missed interval is backfilled. A broker restart or a detected
-account change starts an independent in-memory series.
+verified account counters in adjacent slots. The sampler prefers the documented
+`summary.lifetimeTokens`; when unavailable it can use the daily service bucket
+whose date matches the observation, only within that same UTC date. The
+counters are never combined. A first sample, missing observation, skipped slot
+or daily rollover yields `-`. Zero is a measured unchanged counter. Repeated
+reads in the same slot resend the same record. No missed interval is backfilled.
+A broker restart, detected account change, counter source change or decreasing
+counter starts an independent in-memory series and a new baseline. Provider
+lag can affect when changes are observed: these are account observations,
+not event-time usage buckets or chat context measurements.
 
 Age is monotonic milliseconds since the oldest current projection source
 read. The graph interval retains its own UTC index and cannot be refreshed

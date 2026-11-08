@@ -39,6 +39,13 @@ struct CodexAudioStatus {
 // status: Receives admitted/dropped/suppressed disposition; Dispatched is not completed playback.
 // Exception: Returns rejected identities or the original shared audio owner error.
 esp_err_t notify_codex_audio(CodexAudioCue cue, CodexAudioStatus &status);
+// cue: Existing short notice clip reused without storing another PCM asset.
+// repetitions: One through five plays in one nonpreemptive admitted notice.
+// gap_ms: Bounded silence between plays, zero through 200 ms.
+// status: Receives the shared owner's actual admission or failure.
+// Exception: Returns an unknown identity or the original sequence/admission failure.
+esp_err_t notify_codex_audio_sequence(CodexAudioCue cue, uint8_t repetitions,
+    uint16_t gap_ms, CodexAudioStatus &status);
 // alert: One sustained soft bell or shorter reminder for a currently pending question.
 // status: Receives the shared owner's actual admission result; dropped cues are not queued.
 // Exception: Returns an invalid alert identity or the original audio-owner failure.

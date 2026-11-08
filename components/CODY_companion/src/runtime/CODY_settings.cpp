@@ -32,6 +32,7 @@ constexpr char kTag[] = "CODY_settings";
 constexpr char kFirstBootKey[] = "cody_firstboot";
 constexpr char kShakeKey[] = "cody_shake";
 constexpr char kSoundsKey[] = "cody_sounds";
+constexpr char kScreensaverKey[] = "cody_saver";
 constexpr char kUserNameKey[] = "cody_user_name";
 constexpr char kUsageModeKey[] = "cody_usage";
 constexpr char kWidgetVisibilityKey[] = "cody_widgets";
@@ -294,6 +295,26 @@ esp_err_t load_usage_mode(LUNASHELL::CodyPreferencesSnapshot &preferences)
     return error;
 }
 
+// value: Explicit zero/one choice; the dispatcher rejects other values.
+// Exception: Preserves real snapshot, persistence/readback and publication failures.
+esp_err_t persist_screensaver(uint32_t value)
+{
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    LUNASHELL::CodyOptionsObservation observed{};
+    auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    const auto read_error = snapshots.readCodyOptionsObservation(observed);
+    if (read_error != ESP_OK) return read_error;
+    const auto error = save_preference_uint32(kScreensaverKey, value);
+    observed.preferences.screensaver_valid = error == ESP_OK;
+    observed.preferences.screensaver_error = error;
+    if (error == ESP_OK) observed.preferences.screensaver_enabled = value == 1U;
+    const auto publication_error = snapshots.reportCodyPreferences(observed.preferences);
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(kTag, "Screensaver preference publication failed (%s)", esp_err_to_name(publication_error));
+    }
+    return error != ESP_OK ? error : publication_error;
+}
+
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
 // value: Exact 0/1 choice validated by the preference dispatcher.
 // Exception: Returns original snapshot, write, readback or publication errors.
@@ -332,6 +353,13 @@ static esp_err_t load_companion_preferences_locked()
     esp_err_t error = storage_error;
     LUNASHELL::CodyPreferencesSnapshot preferences;
     preferences.last_attempt_at_us = esp_timer_get_time();
+    preferences.screensaver_error = storage_error == ESP_OK
+        ? load_switch(kScreensaverKey, false, preferences.screensaver_enabled) : storage_error;
+    preferences.screensaver_valid = preferences.screensaver_error == ESP_OK;
+    if (!preferences.screensaver_valid) {
+        ESP_LOGE(kTag, "Optional screensaver preference unavailable (%s)",
+            esp_err_to_name(preferences.screensaver_error));
+    }
     LUNASHELL::CodyOptionsObservation previous;
     const esp_err_t projection_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(previous);
     if (projection_error == ESP_OK) {
@@ -463,6 +491,14 @@ esp_err_t persist_companion_usage_mode(LUNASHELL::CodyUsageMode mode)
 // Exception: Returns the original validation, persistence, policy or publication error.
 esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
 {
+    if (preference == PreferenceId::Screensaver) {
+        if (value > 1U) {
+            ESP_LOGE(kTag, "Screensaver preference rejected value=%lu (%s)",
+                static_cast<unsigned long>(value), esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
+        return persist_screensaver(value);
+    }
     if (preference == PreferenceId::Brightness) {
         return LUNASHELL_display_set_brightness_percent(value);
     }

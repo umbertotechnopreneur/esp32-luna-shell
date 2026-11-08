@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from enum import Enum
 import os
 from pathlib import Path
 import re
@@ -45,10 +46,26 @@ class AllowanceWindow:
     observed_at: float
 
 
+class TokenCounterSource(Enum):
+    DAILY = "daily"
+    LIFETIME = "lifetime"
+
+
 @dataclass(frozen=True)
-class DailyTokenSample:
+class AccountTokenSample:
     utc_slot: int
     daily_total: int | None
+    lifetime_total: int | None = None
+
+    @property
+    # self: One authenticated account observation; counters are never combined.
+    def total(self) -> int | None:
+        return self.lifetime_total if self.lifetime_total is not None else self.daily_total
+
+    @property
+    # self: One observation selecting the documented account-wide cumulative counter first.
+    def source(self) -> TokenCounterSource:
+        return TokenCounterSource.LIFETIME if self.lifetime_total is not None else TokenCounterSource.DAILY
 
 
 @dataclass(frozen=True)
@@ -218,12 +235,14 @@ def read_daily_usage(observed: dict[date, int | None], received_at: int) -> tupl
 
 # observed: Confirmed service date labels and token totals from one successful response.
 # received_at: Actual UTC Unix seconds when the read completed.
-def read_daily_token_sample(observed: dict[date, int | None], received_at: int) -> DailyTokenSample | None:
+# lifetime_total: Optional documented summary.lifetimeTokens from that same account response.
+def read_account_token_sample(observed: dict[date, int | None], received_at: int,
+                              lifetime_total: int | None = None) -> AccountTokenSample | None:
     if not QUARTER_SECONDS <= received_at <= MAX_RESET_UNIX_SECONDS:
         return None
     utc_slot = received_at // QUARTER_SECONDS
     day = EPOCH_DAY + timedelta(days=utc_slot // QUARTERS_PER_DAY)
-    return DailyTokenSample(utc_slot, observed.get(day))
+    return AccountTokenSample(utc_slot, observed.get(day), unsigned_field(lifetime_total, MAX_UINT64))
 
 
 # result: Optional account/workspaceMessages/read response. Only its count is retained.
@@ -274,7 +293,7 @@ class AccountLimitClient(NativeAppServer):
     # self: Publishes account data only after verifying the same account surrounds the reads.
     # observe_account: Owner callback that retires the old in-memory series on an observed account change.
     # Raises original transport, authentication or schema errors.
-    def read_observation(self, observe_account) -> tuple[AccountObservation, DailyTokenSample | None]:
+    def read_observation(self, observe_account) -> tuple[AccountObservation, AccountTokenSample | None]:
         account = self.read_account()
         observe_account(account)
         account_at = time.monotonic()
@@ -321,8 +340,9 @@ class AccountLimitClient(NativeAppServer):
 
         totals = read_daily_totals(usage)
         anchor, tokens = read_daily_usage(totals, usage_received_at)
-        sample = read_daily_token_sample(totals, usage_received_at) if usage is not None else None
         summary = usage.get("summary") if usage is not None else None
+        lifetime = unsigned_field(summary.get("lifetimeTokens"), MAX_UINT64) if isinstance(summary, dict) else None
+        sample = read_account_token_sample(totals, usage_received_at, lifetime) if usage is not None else None
         streak = unsigned_field(summary.get("currentStreakDays"), MAX_UINT32) if isinstance(summary, dict) else None
         best = unsigned_field(summary.get("longestStreakDays"), MAX_UINT32) if isinstance(summary, dict) else None
         messages = read_workspace_count(workspace)
@@ -347,9 +367,10 @@ class AccountUsageReader:
         self._observation = AccountObservation()
         self._account: dict | None = None
         self._series = secrets.randbelow(MAX_UINT64) + 1
-        self._sample: DailyTokenSample | None = None
+        self._sample: AccountTokenSample | None = None
         self._quarter_tokens: QuarterTokens | None = None
         self._continuity_floor: int | None = None
+        self._counter_source: TokenCounterSource | None = None
 
     # self: Called only after admission of a physical device's authenticated request.
     # Raises RuntimeError if the optional refresh worker cannot start.
@@ -378,6 +399,7 @@ class AccountUsageReader:
     def invalidate(self) -> None:
         with self._lock:
             self._observation = AccountObservation()
+            self._continuity_floor = None
             if self._cancel is not None:
                 self._cancel.set()
 
@@ -393,6 +415,15 @@ class AccountUsageReader:
             if worker.is_alive():
                 raise RuntimeError("CCP account usage worker did not stop")
 
+    # self: Sole interval owner, called with its lock held when continuity has a new identity.
+    def _reset_series(self) -> None:
+        series = secrets.randbelow(MAX_UINT64) + 1
+        self._series = series if series != self._series else series % MAX_UINT64 + 1
+        self._sample = None
+        self._quarter_tokens = None
+        self._continuity_floor = None
+        self._counter_source = None
+
     # self: Sole in-memory account and interval series owner.
     # account: Native account object used only for exact private comparison.
     # cancel: Current read's cancellation, which invalidates its authority to change the series.
@@ -401,43 +432,58 @@ class AccountUsageReader:
             if self._closed or cancel.is_set():
                 return
             if self._account is not None and account != self._account:
-                series = secrets.randbelow(MAX_UINT64) + 1
-                self._series = series if series != self._series else series % MAX_UINT64 + 1
-                self._sample = None
-                self._quarter_tokens = None
-                self._continuity_floor = None
+                self._reset_series()
                 self._observation = AccountObservation()
             self._account = account
 
     # self: Sole interval owner, called with its lock held after account verification.
     # sample: One service observation for a UTC slot, including an observed gap.
-    def _observe_quarter(self, sample: DailyTokenSample) -> QuarterTokens | None:
+    # Lifetime and daily counters retain the same account scope but never share a baseline.
+    def _observe_quarter(self, sample: AccountTokenSample) -> QuarterTokens | None:
         previous = self._sample
         if previous is not None and sample.utc_slot < previous.utc_slot:
             # A backwards host clock cannot rewrite an earlier interval or move the current one.
             self._continuity_floor = None
             return None
+        value = sample.total
+        source_changed = value is not None and self._counter_source is not None and sample.source != self._counter_source
         floor = self._continuity_floor
+        previous_value = previous.total if previous is not None else None
+        same_day = previous is not None and sample.utc_slot // QUARTERS_PER_DAY == previous.utc_slot // QUARTERS_PER_DAY
+        same_counter = self._counter_source is TokenCounterSource.LIFETIME or same_day
+        counter_decreased = (same_counter and value is not None and
+                             ((previous_value is not None and value < previous_value) or
+                              (floor is not None and value < floor)))
+        if source_changed or counter_decreased:
+            self._reset_series()
+            previous = None
+            floor = None
+            previous_value = None
+        if value is not None:
+            self._counter_source = sample.source
+        if previous is None and value is None:
+            # An account response without either counter cannot prime a fabricated history.
+            return None
         if previous is not None and sample.utc_slot == previous.utc_slot:
-            if previous.daily_total is None and sample.daily_total is not None:
+            if previous_value is None and value is not None:
                 # Establish this slot's first baseline without rewriting the preceding interval.
                 self._sample = sample
-                self._continuity_floor = sample.daily_total
+                self._continuity_floor = value
             elif floor is not None:
                 # Missing or corrected totals break an established baseline for this slot.
-                if sample.daily_total is None or sample.daily_total < floor:
+                if value is None or value < floor:
                     self._continuity_floor = None
                 else:
-                    self._continuity_floor = sample.daily_total
+                    self._continuity_floor = value
             return self._quarter_tokens
         tokens = None
         if (previous is not None and sample.utc_slot == previous.utc_slot + 1
-                and sample.utc_slot // QUARTERS_PER_DAY == previous.utc_slot // QUARTERS_PER_DAY
-                and previous.daily_total is not None and sample.daily_total is not None
-                and floor is not None and sample.daily_total >= floor):
-            tokens = sample.daily_total - previous.daily_total
+                and (self._counter_source is TokenCounterSource.LIFETIME or same_day)
+                and previous_value is not None and value is not None
+                and floor is not None and value >= floor):
+            tokens = value - previous_value
         self._sample = sample
-        self._continuity_floor = sample.daily_total
+        self._continuity_floor = value
         self._quarter_tokens = QuarterTokens(f"{self._series:016x}", sample.utc_slot - 1, tokens)
         return self._quarter_tokens
 
@@ -468,6 +514,9 @@ class AccountUsageReader:
                     print(f"CCP account usage read failed: {error}", file=sys.stderr, flush=True)
         with self._lock:
             if not self._closed and not cancel.is_set():
+                if sample is None:
+                    # A failed account read breaks continuity; an old sample is not live evidence.
+                    self._continuity_floor = None
                 quarter_tokens = self._observe_quarter(sample) if sample is not None else self._quarter_tokens
                 if observation.details is not None:
                     observation = replace(observation, details=replace(

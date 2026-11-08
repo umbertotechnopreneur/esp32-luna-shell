@@ -299,6 +299,17 @@ esp_err_t prepare_plot(TokenHistoryPresentation &presentation, const LUNASHELL::
     }
     const auto first_observed = snapshot.first_observed_quarter;
     const bool known_start = first_observed != 0 && first_observed <= snapshot.anchor_quarter;
+    const auto &font = *presentation.body_font;
+    const bool stale = presentation.source_state == SourceState::Stale;
+    if (!measured) {
+        // Without a genuine observation there is no plot, including no synthetic zero line.
+        const bool collecting = known_start && snapshot.anchor_quarter == first_observed;
+        const char *status = stale ? "ACCOUNT SAMPLES ARE STALE" :
+            collecting ? "COLLECTING ACCOUNT USAGE" : "NO ACCOUNT SAMPLES IN RANGE";
+        esp_err_t error = add_caption(presentation, font, status, {73, 195, 320, 28}, stale ? kAmber : kMuted);
+        if (error != ESP_OK) { return error; }
+        return add_caption(presentation, font, "ONE POINT EVERY 15 MIN", {73, 235, 320, 28}, kMuted);
+    }
     presentation.bar_width = static_cast<uint8_t>(std::clamp<unsigned>(kChart.width / count / 2U, 1, 18));
     for (uint8_t index = 0; index < count; ++index) {
         const uint32_t quarter = oldest + index;
@@ -316,19 +327,9 @@ esp_err_t prepare_plot(TokenHistoryPresentation &presentation, const LUNASHELL::
     presentation.bin_count = count;
 
     char message[32]{};
-    const bool stale = presentation.source_state == SourceState::Stale;
-    if (measured) {
-        char number[24]{};
-        format_count(peak, number);
-        std::snprintf(message, sizeof(message), stale ? "STALE - PEAK %.16s" : "PEAK %.16s TOKENS", number);
-    } else {
-        const bool collecting = known_start && snapshot.anchor_quarter == first_observed;
-        const char *status = snapshot.today_total_not_reported ? "TODAY TOTAL NOT REPORTED" :
-            stale ? "STALE - NO SAMPLES" :
-            collecting ? "COLLECTING 15-MIN SAMPLES" : "NO MEASURED INTERVALS";
-        std::snprintf(message, sizeof(message), "%s", status);
-    }
-    const auto &font = *presentation.body_font;
+    char number[24]{};
+    format_count(peak, number);
+    std::snprintf(message, sizeof(message), stale ? "STALE ACCOUNT PEAK %.8s" : "ACCOUNT PEAK %.8s TOKENS", number);
     esp_err_t error = add_caption(presentation, font, message, {73, 130, 320, 25}, stale ? kAmber : kMuted);
     if (error != ESP_OK) { return error; }
     char first[16]{};
@@ -387,7 +388,6 @@ esp_err_t prepare_token_history(TokenHistoryInterval interval,
         presentation.observed_at_us == snapshot.last_success_at_us &&
         presentation.anchor_quarter == snapshot.anchor_quarter &&
         presentation.first_observed_quarter == snapshot.first_observed_quarter &&
-        presentation.today_total_not_reported == snapshot.today_total_not_reported &&
         presentation.local_time == local_time && presentation.first_offset_minutes == first_offset &&
         presentation.last_offset_minutes == last_offset &&
         presentation.title_font == &title_font && presentation.body_font == &body_font) {
@@ -403,7 +403,6 @@ esp_err_t prepare_token_history(TokenHistoryInterval interval,
     presentation.observed_at_us = snapshot.last_success_at_us;
     presentation.anchor_quarter = snapshot.anchor_quarter;
     presentation.first_observed_quarter = snapshot.first_observed_quarter;
-    presentation.today_total_not_reported = snapshot.today_total_not_reported;
     presentation.local_time = local_time;
     presentation.first_offset_minutes = first_offset;
     presentation.last_offset_minutes = last_offset;
@@ -414,14 +413,13 @@ esp_err_t prepare_token_history(TokenHistoryInterval interval,
     esp_err_t error = add_caption(presentation, title_font, "TOKEN ACTIVITY", {73, 78, 320, 46}, kCyan);
     if (error != ESP_OK) { return result("prepare title", error); }
     if (!has_range) {
-        const char *status = snapshot.today_total_not_reported ? "TODAY TOTAL NOT REPORTED" : "TOKEN HISTORY UNAVAILABLE";
-        error = add_caption(presentation, body_font, status, {73, 212, 320, 28}, kMuted);
+        error = add_caption(presentation, body_font, "NO ACCOUNT SAMPLES YET", {73, 212, 320, 28}, kMuted);
     } else {
         const auto oldest = static_cast<uint32_t>(first_epoch / kQuarterSeconds);
         error = prepare_plot(presentation, snapshot, oldest, selected.bins, local_time ? local : nullptr);
     }
     if (error != ESP_OK) { return result("prepare chart", error); }
-    const char *legend = !has_range ? "15 MIN INTERVALS" :
+    const char *legend = presentation.bin_count == 0 ? "15 MIN ACCOUNT OBSERVATIONS" :
         local_time ? "15 MIN LOCAL | GAP: MISSING" : "15 MIN UTC | GAP: MISSING";
     error = add_caption(presentation, body_font, legend, {73, 321, 320, 25}, kMuted);
     if (error != ESP_OK) { return result("prepare legend", error); }

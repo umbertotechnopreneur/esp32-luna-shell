@@ -443,7 +443,6 @@ struct CodexTokenIntervalsSnapshot : ComponentSnapshot {
     uint32_t first_observed_quarter = 0; // Older slots predate this device's current series.
     uint32_t source_age_at_receive_ms = 0;
     bool initialized = false;
-    bool today_total_not_reported = false; // Derived with a current account sample and clock.
 
     // quarter: UTC interval start, represented as Unix seconds divided by 900.
     // delta: Receives an observed token count only when the slot is present.
@@ -998,6 +997,9 @@ enum class CodyUsageMode : uint8_t { Desk = 0, Away = 1 };
 struct CodyPreferencesSnapshot : ComponentSnapshot {
     bool shake_to_wake = false;
     bool sounds_enabled = false;
+    bool screensaver_enabled = false;
+    bool screensaver_valid = false;
+    esp_err_t screensaver_error = ESP_ERR_INVALID_STATE;
     CodyUsageMode usage_mode = CodyUsageMode::Desk;
     bool usage_mode_valid = false;
     esp_err_t usage_mode_error = ESP_ERR_INVALID_STATE;

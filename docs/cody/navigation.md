@@ -62,15 +62,16 @@ return to the first enabled statistics screen, or Device if all are hidden.
 The title sits above a grid of up to three 72-pixel-high rows. A house glyph
 identifies the larger **Go home** footer.
 Display holds brightness, rotation and orientation. Behavior holds sound,
-shake-to-wake and, in the voice-enabled profile, Dictation.
+shake-to-wake and, in the voice-enabled profile, Dictation. **More behavior**
+contains **Screensaver**, disabled by default.
 
 **Factory reset** opens a confirmation with **Cancel** and **Reset device**.
 Confirming clears the device's Wi-Fi credentials, Codex pairing and preferences.
 Cody restarts into first setup after the platform verifies the reset and loads
 the running firmware's defaults. The action is available offline.
 
-The carousel order is Device, Codex reset, Codex limits, Today, Last 7 days,
-Token history, Credits, Codex account, Context and About. The arrows move
+The carousel order is Device, Codex reset, Context, Codex limits, Today, Last 7 days,
+Token history, Credits, Codex account and About. The arrows move
 between enabled pages. A shake returns to the first enabled statistics page.
 With the default settings that is Codex reset. Device is the fallback if all
 statistics pages are hidden. Shake preserves active pairing, voice capture
@@ -84,8 +85,12 @@ additional date needed when the service already includes today's partial count.
 
 **Today** uses the current UTC date. When Codex omits today's total, the page
 identifies the latest earlier reported total by its actual date, if available.
-**Token Activity** explains when today's total is missing and
-preserves any intervals already measured in the selected window.
+**Token Activity** samples the account's reported lifetime token counter even
+when today's daily bucket is absent. It falls back to today's counter only
+when the lifetime counter is unavailable. The page labels the source ACCOUNT,
+shows collection status until there is a measured point, and preserves gaps.
+Provider updates can arrive late: the graph describes changes observed by the
+plugin, not the exact time of each request. It does not backfill earlier hours.
 
 **Codex account** shows the current ChatGPT plan with a standalone icon and
 label. The public US monthly list price appears when available. CCP 0.6.15 or
@@ -100,11 +105,28 @@ and identifying measurement gaps. The reset date switches between UTC and the
 configured local offset every five seconds when local time is available. The
 five-pixel gradient perimeter follows remaining weekly allowance across the
 awake interface while Codex is connected and the weekly sample is current.
+Only the optional globe screensaver hides this informational chrome.
 
-About shows current uptime, the last observed uptime from the previous boot
-when retained, and the firmware version, build date and build host. Use the
-right arrow for Scan for more info and the project QR. The left arrow returns
-to About.
+About contains three Info pages followed by the existing project QR:
+
+| Page | Content |
+| --- | --- |
+| System 1/3 | Measured CPU 1/core 0 and CPU 2/core 1, current uptime and last observed uptime from the previous boot when retained |
+| Memory 2/3 | Internal RAM and PSRAM as separate allocatable heaps: used, free and largest free block |
+| Firmware 3/3 | Firmware version, compilation date/time, build timezone and build host |
+| Scan for more info | The project QR; Back returns to Firmware and there is no Next action |
+
+The same lateral arrows move through these pages. Back from System returns to
+the previous enabled widget. The child page belongs to the device model; the QR
+is not a separate item in the top-level carousel. Invalid or stale measurements
+retain their status and never display an invented percentage or empty bar.
+
+When enabled, the screensaver replaces an idle dashboard after fifteen seconds
+without interaction. It shows only a soft colored globe on black. It does not
+reset dimming or standby timers. A touch dismisses it without activating the
+underlying control; shake returns to the first enabled statistics page. Options,
+pairing, the project QR, voice, questions and battery notices keep their own presentation.
+The allowance perimeter returns with the dashboard after dismissal.
 
 Visible screens browses all statistics pages, including hidden entries.
 Device remains available. A visibility change takes effect after confirmed
@@ -119,10 +141,19 @@ When online, Cody asks its configured SNTP servers for time after Wi-Fi obtains
 an IP. Once synchronized, the clock continues to run offline. A cold boot
 without an available RTC and network reports time unavailable.
 
-Battery notices appear while the screen is awake at 50%, 20%, 10% and 5%.
+Battery notices appear while the screen is awake at 50%, 20%, 10% and 5%, with
+one threshold-specific sound request under Sounds and quiet-hours policy.
 An observed 0% shows a separate prompt to connect USB. If the PMU cuts power
 before it reports 0%, the last visible warning is the one from a measured
 threshold.
+
+Question, reply-ready, answer-delivered and connection effects belong to the
+device effects model, independently of the currently selected screen. Only
+confirmed semantic outcomes request their corresponding sounds. The initial
+connection observation is silent, and loss must last three seconds before its
+single cue. Pending questions can remind after sixty awake seconds; ongoing
+work and navigation remain silent. See [audio policy](runtime.md#device-first-notifications)
+for the exact event mapping and capture/standby admission.
 
 ## Pairing progress and reconnection
 

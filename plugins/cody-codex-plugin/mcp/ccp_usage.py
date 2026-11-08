@@ -145,10 +145,11 @@ class NativeUsageReader:
         self.bootstrap_metadata_bytes = 0
 
     # session: Genuine followed hook session identity.
-    # cwd: Genuine hook checkout identity.
+    # cwd: Bounded hook working directory; tools may change it within the same turn.
     # locator: Optional native transcript path; never transmitted to the device.
     # Raises OSError, ValueError or sqlite3.Error for rejected source ownership.
     def locate(self, session, cwd, locator):
+        checkout_identity(cwd)
         if locator:
             path = Path(locator)
         else:
@@ -156,11 +157,9 @@ class NativeUsageReader:
             if not database.is_relative_to(self.home):
                 raise UsageSourceError("Native usage state index escapes its owner")
             with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.05)) as connection:
-                row = connection.execute("SELECT rollout_path, cwd FROM threads WHERE id = ?", (session,)).fetchone()
+                row = connection.execute("SELECT rollout_path FROM threads WHERE id = ?", (session,)).fetchone()
             if row is None:
                 raise UsageSourceError("Native usage session is absent from the state index")
-            if checkout_identity(row[1]) != checkout_identity(cwd):
-                raise UsageSourceError("Native usage index checkout mismatch")
             path = Path(row[0])
         resolved = resolved_native_path(path)
         approved = resolved_native_path(self.home / "sessions")
@@ -171,7 +170,7 @@ class NativeUsageReader:
 
     # event: Parsed native metadata record; prompt/item contents are never retained.
     # session: Exact hook identity required in every session metadata record.
-    # cwd: Exact hook checkout required in session and turn metadata.
+    # cwd: Mutable hook working directory, independent of the journal's original checkout.
     # turn: Current genuine hook turn; other native turns cannot populate its projection.
     # Raises ValueError for identity, clock or counter inconsistencies.
     def consume(self, event, session, cwd, turn):
@@ -180,9 +179,13 @@ class NativeUsageReader:
         if not isinstance(payload, dict):
             return
         if kind == "session_meta":
-            if (payload.get("id") != session or payload.get("session_id", session) != session
-                    or checkout_identity(payload.get("cwd", "")) != checkout_identity(cwd)):
-                raise UsageSourceError("Native usage session metadata mismatch")
+            if payload.get("id") != session:
+                raise UsageSourceError("Native usage journal session ID mismatch")
+            if payload.get("session_id", session) != session:
+                raise UsageSourceError("Native usage journal session alias mismatch")
+            # Session metadata records the original checkout. A real tool hook
+            # can carry another workdir without creating a new chat or turn.
+            checkout_identity(payload.get("cwd", ""))
             self.verified = True
             self.native_turn = ""
             self.sample = None
@@ -200,8 +203,7 @@ class NativeUsageReader:
             self.sample = None
             self.context = None
             if kind == "turn_context" and self.native_turn == turn:
-                if checkout_identity(payload.get("cwd", "")) != checkout_identity(cwd):
-                    raise UsageSourceError("Native usage turn checkout mismatch")
+                checkout_identity(payload.get("cwd", ""))
                 model, effort = payload.get("model"), payload.get("effort")
                 if (isinstance(model, str) and 0 < len(model) <= 128 and model.isascii()
                         and all(33 <= ord(char) <= 126 for char in model)):
@@ -256,7 +258,7 @@ class NativeUsageReader:
     # stream: Open verified file positioned independently of the forward reader.
     # size: Fixed file-size observation; later appends are handled by the forward reader.
     # session: Exact hook identity verified against the first metadata record.
-    # cwd: Exact checkout identity.
+    # cwd: Mutable working directory from the genuine hook.
     # turn: Genuine current hook turn identity, never inferred from record proximity alone.
     # Raises UsageSourceError for missing/ambiguous headers or excessive metadata backlog.
     def bootstrap(self, stream, size, session, cwd, turn):
@@ -340,7 +342,7 @@ class NativeUsageReader:
 
     # chunk: Small forward IO fragment; only allowlisted metadata reaches the JSON parser.
     # session: Exact hook session identity.
-    # cwd: Exact hook checkout identity.
+    # cwd: Mutable working directory from the genuine hook.
     # turn: Exact current native turn identity.
     # Raises UsageSourceError for oversized metadata; oversized response items are ignored.
     def feed(self, chunk, session, cwd, turn):
@@ -372,7 +374,7 @@ class NativeUsageReader:
                 self.discarding = False
 
     # session: Exact followed chat, admitted by genuine hooks.
-    # cwd: Hook checkout identity.
+    # cwd: Mutable hook working directory, validated but never used as chat identity.
     # turn: Exact current native hook turn identity.
     # locator: Optional original transcript path; otherwise resolve exact SQLite identity.
     # Raises OSError, ValueError or sqlite3.Error; caller publishes unavailable metadata.
@@ -380,7 +382,8 @@ class NativeUsageReader:
         # A native turn can be appended before its hook is delivered. Rebootstrap
         # on the actual selected hook turn so previously withheld metadata is
         # recovered without inventing a new observation timestamp.
-        identity = (session, checkout_identity(cwd), turn, locator)
+        checkout_identity(cwd)
+        identity = (session, turn, locator)
         if identity != self.identity:
             self.__init__()
             self.identity = identity

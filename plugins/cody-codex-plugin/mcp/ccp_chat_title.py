@@ -71,14 +71,14 @@ class NativeChatTitleReader:
         self.home = Path(checkout_identity(str(Path(os.environ.get(
             "CODEX_HOME", str(Path.home() / ".codex"))).resolve())))
         self._clock = clock if clock is not None else time.monotonic
-        self._identity: tuple[str, str] | None = None
+        self._identity: str | None = None
         self._retry_at = 0.0
         self._observation = ChatTitleObservation()
         self.error = ""
 
     # self: Metadata-only source; one exact primary-key query cannot scan or import conversations.
     # session: Genuine hook-owned session identifier, bound as a SQL parameter.
-    # cwd: Canonical expected checkout identity from that same hook.
+    # cwd: Validated mutable workdir from that hook, not a thread identity.
     # Raises original filesystem/SQLite errors or TitleSourceError for rejected source metadata.
     def _read(self, session: str, cwd: str) -> ChatTitleObservation:
         database = resolved_native_path(self.home / "state_5.sqlite")
@@ -103,8 +103,12 @@ class NativeChatTitleReader:
         if len(rows) != 1:
             raise TitleSourceError("state index has an ambiguous thread identity")
         indexed_cwd, history_mode, kind, length, title = rows[0]
-        if indexed_cwd is None or checkout_identity(indexed_cwd) != cwd:
-            raise TitleSourceError("state index checkout mismatch")
+        if indexed_cwd is None:
+            raise TitleSourceError("state index checkout metadata is invalid")
+        # An accepted tool hook may use a different working directory from the
+        # thread's original checkout. The exact primary-key row owns its title.
+        checkout_identity(indexed_cwd)
+        checkout_identity(cwd)
         if history_mode is None:
             raise TitleSourceError("thread history mode is unsupported")
         if kind == "null" or kind == "text" and length == 0:
@@ -117,7 +121,7 @@ class NativeChatTitleReader:
 
     # self: Existing metadata owner; a completion read must not evict the followed-chat cache.
     # session: Exact accepted hook notice identity, never inferred from a workspace or title.
-    # cwd: Checkout identity from that same canonical hook-owned session.
+    # cwd: Mutable working directory from that canonical hook-owned session.
     # Returns explicit unavailable/unsupported/error state; logs the original safe source cause.
     def read_once(self, session: str, cwd: str) -> ChatTitleObservation:
         try:
@@ -129,12 +133,13 @@ class NativeChatTitleReader:
 
     # self: Bounded cache; a successful index read is the only event that refreshes title age.
     # session: Exact followed hook session identifier, never inferred from a workspace or title.
-    # cwd: Hook checkout identity used to reject an unrelated native row.
+    # cwd: Bounded hook workdir; only the exact session ID selects the native row.
     # Returns explicit unavailable/unsupported/error state; failures clear previously valid text immediately.
     def poll(self, session: str, cwd: str) -> ChatTitleObservation:
         now = self._clock()
         try:
-            identity = (session, checkout_identity(cwd))
+            checkout_identity(cwd)
+            identity = session
             if identity != self._identity:
                 self._identity = identity
                 self._retry_at = 0.0
@@ -142,7 +147,7 @@ class NativeChatTitleReader:
             if now < self._retry_at:
                 return self._observation
             self._retry_at = now + TITLE_REFRESH_SECONDS
-            self._observation = self._read(*identity)
+            self._observation = self._read(session, cwd)
             self.error = ""
         except (OSError, ValueError, sqlite3.Error) as error:
             state = TitleState.UNSUPPORTED if isinstance(error, TitleSourceError) else TitleState.ERROR

@@ -340,12 +340,16 @@ uint8_t s_event_detail_page = 0;
 // Display-owner buffer avoids putting the complete presentation plan on its task stack.
 event_presentation::Plan s_event_plan{};
 int64_t s_checks_passed_readable_at_us = -1;
+#if !defined(CODY_DEVICE_UI_ONLY)
 char s_last_event_audio_request[33]{};
 char s_last_delivered_audio_request[33]{};
+#endif
 QuestionAudioSchedule s_question_audio_schedule{};
 // Cue history survives Setup re-entry; hidden status is never replayed as a new action.
+#if !defined(CODY_DEVICE_UI_ONLY)
 char s_last_audio_chat[65]{};
 LUNASHELL::CodexActivityState s_last_audio_phase = LUNASHELL::CodexActivityState::None;
+#endif
 bool s_startup_pending = false;
 bool s_startup_pair_missing = false;
 esp_err_t s_startup_wifi_error = ESP_OK;
@@ -1755,6 +1759,10 @@ esp_err_t enter_pairing_debug(const LUNASHELL::ConnectivityObservation &observat
 // Exception: Logs optional owner failures without replacing their canonical result.
 void set_companion_audio_visible(bool visible)
 {
+#if defined(CODY_DEVICE_UI_ONLY)
+    // Device effects belong to the model. Opening Options must not mute notifications.
+    (void)visible;
+#else
     if (!visible) {
         s_question_audio_schedule.last_attempt_at_us = -1;
     }
@@ -1764,6 +1772,7 @@ void set_companion_audio_visible(bool visible)
         // owner retains the real failure in the canonical playback snapshot.
         ESP_LOGE(kTag, "Optional CCP audio visibility failed (%s)", esp_err_to_name(error));
     }
+#endif
 }
 
 // previous: Previously presented route, used to recognize real connection recovery.
@@ -1773,6 +1782,13 @@ void set_companion_audio_visible(bool visible)
 void notify_companion_transition(Route previous, Route destination,
                                  LUNASHELL::CodexActivityState phase, const char *chat_id)
 {
+#if defined(CODY_DEVICE_UI_ONLY)
+    // The model consumes connection events once, independently of navigation.
+    (void)previous;
+    (void)destination;
+    (void)phase;
+    (void)chat_id;
+#else
     using Activity = LUNASHELL::CodexActivityState;
     CodexAudioCue cue = CodexAudioCue::None;
     if (destination == Route::Lost32) {
@@ -1812,6 +1828,7 @@ void notify_companion_transition(Route previous, Route destination,
         ESP_LOGE(kTag, "Optional CCP transition audio failed: cue=%u (%s)",
             static_cast<unsigned>(cue), esp_err_to_name(error));
     }
+#endif
 }
 
 // No parameters: resolve the active Options page title from its presentation state.
@@ -1883,9 +1900,88 @@ esp_err_t prepare_factory_reset_content()
     return prepare_action(pending ? OnboardingAction::None : OnboardingAction::Retry, !pending);
 }
 
+struct PreferencePresentation {
+    bool available = false;
+    bool active = false;
+    uint32_t value = 0;
+};
+
+// identity: One row actually displayed by the current options page.
+// observation: Canonical settings/orientation projection, never a hardware read.
+// Only visible values participate; source timestamps and hidden settings do not repaint a page.
+PreferencePresentation project_preference(PreferenceId identity,
+                                         const LUNASHELL::CodyOptionsObservation &observation)
+{
+    const auto &preferences = observation.preferences;
+    const auto &orientation = observation.orientation;
+    PreferencePresentation result{preferences.data_valid && !preferences.data_stale, false, 0};
+    switch (identity) {
+    case PreferenceId::Screensaver:
+        result.available = preferences.screensaver_valid && preferences.screensaver_error == ESP_OK;
+        result.active = preferences.screensaver_enabled;
+        break;
+    case PreferenceId::Dictation:
+        result.available = preferences.dictation_valid && preferences.dictation_error == ESP_OK;
+        result.active = preferences.dictation_enabled;
+        break;
+    case PreferenceId::ShakeWake:
+        result.active = preferences.shake_to_wake;
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
+        result.available = false;
+#endif
+        break;
+    case PreferenceId::Sounds:
+        result.active = preferences.sounds_enabled;
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO || !CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+        result.available = false;
+#endif
+        break;
+    case PreferenceId::AutoRotate:
+    case PreferenceId::Orientation:
+        result.available = orientation.data_valid && !orientation.data_stale && !orientation.rotation_pending;
+        result.active = orientation.auto_rotation_enabled;
+        // Auto displays no numeric angle and disables the manual action.
+        if (identity == PreferenceId::Orientation && !result.active) {
+            result.value = orientation.rendering_rotation_degrees;
+        }
+        break;
+    case PreferenceId::UsageMode:
+        result.available = preferences.usage_mode_valid && preferences.usage_mode_error == ESP_OK;
+        result.active = preferences.usage_mode == LUNASHELL::CodyUsageMode::Away;
+        break;
+    case PreferenceId::Brightness:
+        result.available = observation.brightness_valid && observation.brightness_percent >= 10U &&
+            observation.brightness_percent <= 100U;
+        result.value = observation.brightness_percent;
+        break;
+    }
+    if (!result.available) {
+        result.active = false;
+        result.value = 0;
+    }
+    return result;
+}
+
+// observation: Latest canonical projection; compare only rows the user can currently see.
+bool options_presentation_changed(const LUNASHELL::CodyOptionsObservation &observation)
+{
+    for (uint8_t index = 0; index < s_view.preference_count; ++index) {
+        const auto identity = s_view.preferences[index].identity;
+        const auto current = project_preference(identity, observation);
+        const auto previous = project_preference(identity, s_presented_options);
+        if (current.available != previous.available || current.active != previous.active ||
+            current.value != previous.value) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // scene: Screen 10 receiving actual canonical values or a visible write failure.
+// captured: Optional observation already read by this update; avoids a second snapshot lock/copy.
 // Exception: Returns the original snapshot or text preparation failure.
-esp_err_t prepare_options_content(SceneFrame &scene)
+esp_err_t prepare_options_content(SceneFrame &scene,
+                                  const LUNASHELL::CodyOptionsObservation *captured = nullptr)
 {
     s_view.line_count = 0;
     s_view.preference_count = 0;
@@ -1941,11 +2037,15 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         }
         return prepare_action(kDeviceFirstSetup ? OnboardingAction::GoHome : OnboardingAction::Done, true);
     }
-    LUNASHELL::CodyOptionsObservation observation;
-    error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(observation);
-    if (error != ESP_OK) {
-        return error;
+    LUNASHELL::CodyOptionsObservation loaded;
+    if (captured == nullptr) {
+        error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(loaded);
+        if (error != ESP_OK) {
+            return error;
+        }
+        captured = &loaded;
     }
+    const auto &observation = *captured;
     struct Row {
         PreferenceId identity;
         const char *label;
@@ -1956,6 +2056,12 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         {PreferenceId::Orientation, "Orientation"},
     };
     static constexpr Row usage_row{PreferenceId::UsageMode, "Usage"};
+    static constexpr Row more_behavior_rows[] = {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        usage_row,
+#endif
+        {PreferenceId::Screensaver, "Screensaver"},
+    };
     static constexpr Row behavior_rows[] = {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
         {PreferenceId::Dictation, "Dictation"},
@@ -1968,18 +2074,17 @@ esp_err_t prepare_options_content(SceneFrame &scene)
     };
     static_assert(std::size(display_rows) <= kPreferencesPerPage);
     static_assert(std::size(behavior_rows) <= kPreferencesPerPage);
+    static_assert(std::size(more_behavior_rows) <= kPreferencesPerPage);
     const Row *rows = behavior_rows;
     size_t row_count = std::size(behavior_rows);
     if (s_options_page == OptionsPage::Display) {
         rows = display_rows;
         row_count = std::size(display_rows);
     } else if (s_options_page == OptionsPage::BehaviorMore) {
-        rows = &usage_row;
-        row_count = 1;
+        rows = more_behavior_rows;
+        row_count = std::size(more_behavior_rows);
     }
     const auto &font = SceneData::body_font;
-    const auto &preferences = observation.preferences;
-    const auto &orientation = observation.orientation;
     s_presented_options = observation;
     for (size_t index = 0; index < row_count; ++index) {
         const auto &row = rows[index];
@@ -1987,40 +2092,10 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         target = {};
         target.identity = row.identity;
         const uint16_t top = kPreferenceTop + s_view.preference_count * kPreferenceStep;
-        bool available = preferences.data_valid && !preferences.data_stale;
-        bool active = false;
+        const auto projected = project_preference(row.identity, observation);
+        const bool available = projected.available;
+        const bool active = projected.active;
         const char *value = "N/A";
-        switch (row.identity) {
-        case PreferenceId::Dictation:
-            available = preferences.dictation_valid && preferences.dictation_error == ESP_OK;
-            active = preferences.dictation_enabled;
-            break;
-        case PreferenceId::ShakeWake:
-            active = preferences.shake_to_wake;
-#if !CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
-            available = false;
-#endif
-            break;
-        case PreferenceId::Sounds:
-            active = preferences.sounds_enabled;
-#if !CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO || !CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
-            available = false;
-#endif
-            break;
-        case PreferenceId::AutoRotate:
-        case PreferenceId::Orientation:
-            available = orientation.data_valid && !orientation.data_stale && !orientation.rotation_pending;
-            active = orientation.auto_rotation_enabled;
-            break;
-        case PreferenceId::UsageMode:
-            available = preferences.usage_mode_valid && preferences.usage_mode_error == ESP_OK;
-            active = preferences.usage_mode == LUNASHELL::CodyUsageMode::Away;
-            break;
-        case PreferenceId::Brightness:
-            available = observation.brightness_valid && observation.brightness_percent >= 10U &&
-                observation.brightness_percent <= 100U;
-            break;
-        }
         target.requested_value = active ? 0U : 1U;
         if (available) {
             value = active ? "On" : "Off";
@@ -2028,24 +2103,24 @@ esp_err_t prepare_options_content(SceneFrame &scene)
                 value = active ? "Away" : "Desk";
             }
             if (row.identity == PreferenceId::Orientation) {
-                if (orientation.auto_rotation_enabled) {
+                if (active) {
                     value = "Auto";
                 } else {
                     std::snprintf(target.value_text, sizeof(target.value_text), "%u",
-                        static_cast<unsigned>(orientation.rendering_rotation_degrees));
+                        static_cast<unsigned>(projected.value));
                     value = target.value_text;
                 }
-                target.requested_value = orientation.rendering_rotation_degrees == 0U ? 180U : 0U;
+                target.requested_value = projected.value == 0U ? 180U : 0U;
             }
             if (row.identity == PreferenceId::Brightness) {
-                const uint32_t percent = observation.brightness_percent;
+                const uint32_t percent = projected.value;
                 std::snprintf(target.value_text, sizeof(target.value_text), "%lu%%",
                     static_cast<unsigned long>(percent));
                 value = target.value_text;
                 target.requested_value = percent == 10U ? 100U : std::max<uint32_t>(10U, percent - 10U);
             }
         }
-        const bool manual_locked = row.identity == PreferenceId::Orientation && orientation.auto_rotation_enabled;
+        const bool manual_locked = row.identity == PreferenceId::Orientation && active;
         target.control = {{kPreferenceLeft, top, kPreferenceWidth, kPreferenceHeight}, {},
             static_cast<uint16_t>(active && available ? 0x1147 : 0x18E5),
             static_cast<uint16_t>(active && available ? 0x08C4 : 0x10A3),
@@ -2069,11 +2144,9 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         }
         ++s_view.preference_count;
     }
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     if (s_options_page == OptionsPage::Behavior) {
         return prepare_action(OnboardingAction::MoreBehavior, !s_command_pending);
     }
-#endif
     return prepare_action(OnboardingAction::Done, !s_command_pending);
 }
 
@@ -2741,6 +2814,7 @@ esp_err_t render_codex_event(SceneFrame &scene, bool preserve_timing = false)
     return error;
 }
 
+#if !defined(CODY_DEVICE_UI_ONLY)
 // cue: Existing semantic sound governed by the shared master/quiet/standby audio owner.
 // Exception: Logs optional audio failures; the owner retains their canonical playback result.
 void notify_event_audio(CodexAudioCue cue)
@@ -2751,11 +2825,16 @@ void notify_event_audio(CodexAudioCue cue)
         ESP_LOGE(kTag, "Optional Codex event cue failed (%s)", esp_err_to_name(error));
     }
 }
+#endif
 
 // awake_time_us: Existing awake clock; standby cannot accumulate overdue reminders.
 // Exception: Logs optional playback failures; their real outcome remains owned by shared audio.
 void advance_question_audio(int64_t awake_time_us)
 {
+#if defined(CODY_DEVICE_UI_ONLY)
+    // The effects controller owns reminders even while another page is visible.
+    (void)awake_time_us;
+#else
     const auto alert = question_audio_due(s_presented_event,
         s_event_online && s_event_observation_error == ESP_OK && is_codex_event_route(s_route),
         s_event_reply_admitted || s_event_dismiss_admitted, awake_time_us, s_question_audio_schedule);
@@ -2768,6 +2847,7 @@ void advance_question_audio(int64_t awake_time_us)
         ESP_LOGE(kTag, "Optional question alert failed: kind=%u (%s)",
             static_cast<unsigned>(alert), esp_err_to_name(error));
     }
+#endif
 }
 
 // scene: Readonly checks result; the retained question path never calls this helper.
@@ -2898,6 +2978,7 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
     if (error != ESP_OK) {
         return error;
     }
+#if !defined(CODY_DEVICE_UI_ONLY)
     if (s_route == Route::ReplySent31) {
         if (std::strcmp(s_last_delivered_audio_request, observed.request_id) != 0) {
             std::memcpy(s_last_delivered_audio_request, observed.request_id, sizeof(s_last_delivered_audio_request));
@@ -2920,6 +3001,7 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
         case Kind::None: break;
         }
     }
+#endif
     advance_question_audio(awake_time_us);
     return advance_checks_passed_dwell(scene, active_time_us, changed);
 }
@@ -4416,23 +4498,8 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             wipe(&result, sizeof(result));
             return options_error;
         }
-        const auto &current = options.orientation;
-        const auto &previous = s_presented_options.orientation;
-        const bool preference_changed = options.preferences.last_attempt_at_us !=
-            s_presented_options.preferences.last_attempt_at_us ||
-            options.preferences.usage_mode != s_presented_options.preferences.usage_mode ||
-            options.preferences.usage_mode_valid != s_presented_options.preferences.usage_mode_valid ||
-            options.preferences.usage_mode_error != s_presented_options.preferences.usage_mode_error ||
-            options.preferences.dictation_enabled != s_presented_options.preferences.dictation_enabled ||
-            options.preferences.dictation_valid != s_presented_options.preferences.dictation_valid ||
-            options.preferences.dictation_error != s_presented_options.preferences.dictation_error;
-        const bool brightness_changed = options.brightness_percent != s_presented_options.brightness_percent ||
-            options.brightness_valid != s_presented_options.brightness_valid;
-        if (preference_changed || brightness_changed || current.auto_rotation_enabled != previous.auto_rotation_enabled ||
-            current.rotation_pending != previous.rotation_pending || current.data_valid != previous.data_valid ||
-            current.data_stale != previous.data_stale ||
-            current.rendering_rotation_degrees != previous.rendering_rotation_degrees) {
-            esp_err_t refresh_error = prepare_options_content(scene);
+        if (options_presentation_changed(options)) {
+            esp_err_t refresh_error = prepare_options_content(scene, &options);
             if (refresh_error == ESP_OK) {
                 refresh_error = attach_content(scene);
             }

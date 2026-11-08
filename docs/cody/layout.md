@@ -238,9 +238,10 @@ tiles show days, hours, minutes and seconds. A tile that changes
 folds its old upper half toward the hinge for 100 ms, then unfolds its new
 lower half for 100 ms, matching the timing of the Windows widget. The reset
 date in monospace alternates between UTC and the configured local offset.
-The remaining percentage sits below it. Every awake page shares the five-pixel
-gradient perimeter when the weekly sample is valid. A full allowance fills the
-circumference.
+The remaining percentage sits below it. Awake informational and action pages
+share the five-pixel gradient perimeter when the weekly sample is valid. The
+optional globe screensaver temporarily hides this chrome. A full allowance
+fills the circumference.
 
 The reset instant and percentage come from the Codex App Server through the
 paired companion link. The countdown uses valid clock observations from
@@ -251,18 +252,59 @@ expired window or stale source clears the quota arc and its numeric value.
 
 The two graphite lateral chevrons reuse the Settings targets at (10,203) and
 (396,203). They move among enabled dashboard pages and fade after ten seconds
-without touch. Touch or a shake restores them. About uses the right arrow to
-open the project QR and the left arrow on the QR to return to About. The QR
-uses integer modules and a four-module quiet zone. A shake returns to the
-first enabled statistics screen. Rasterization and touch share the current
-logical rotation.
+without touch. Touch or a shake restores them. About traverses System, Memory
+and Firmware, then the project QR. Back from System returns to the preceding
+widget; Back from the terminal QR returns to Firmware. The QR has no Next
+control and uses integer modules with a four-module quiet zone. A shake returns
+to the first enabled statistics screen. Rasterization and touch share the
+current logical rotation.
 
 Token History uses an ECG-style grid and connects only adjacent measured
 15-minute intervals. Its central control cycles through 1, 5 and 24 hours.
 It starts at 5 hours. Missing intervals are gaps and measured zero is a real
 point at the baseline. The labels use the configured local zone when both
-endpoints can be projected. Context measurements are separate from the account
-series.
+endpoints can be projected. ACCOUNT identifies changes in the service-reported
+account counter, preferring lifetime tokens to a daily bucket. Provider lag
+can shift when these changes are observed. The grid appears only when the
+selected range contains a real point; otherwise a collection, stale or missing
+state replaces it. Context measurements are separate from the account series.
+
+## System information
+
+The three Info pages use a small outline icon and the same title baseline,
+with a `1/3`, `2/3` or `3/3` indicator at the right of the title and a divider
+at y=125. Their subpage identity belongs to the device model.
+
+System labels CPU 1 and CPU 2 at y=137/199, with independent 0-100 percent
+values and 280 x 10 bars at (93,176)/(93,238). These correspond to processor
+cores 0 and 1. Current uptime uses label/value rows at y=263/288, with previous
+uptime at y=328/353. The previous value is the last retained observation, not
+an inferred complete session duration.
+
+Memory separates INTERNAL RAM and PSRAM. Each block shows used/total in KiB,
+then a bar segmented into occupied, largest free block and remaining free
+space. Free and largest-free captions retain exact measured heap values.
+The totals describe allocatable heaps, not physical RAM or attribution to
+Wi-Fi, graphics or audio. Flash is not included in the RAM total. Unavailable
+or stale sections omit their numerical bars.
+
+Firmware uses four label/value pairs: version at y=135/160, compilation
+timestamp at y=197/222, timezone at y=259/284 and build host at y=321/346.
+All CPU and memory fields come from the existing canonical diagnostics
+observation. Presentation does not sample hardware or create another collector.
+
+## Optional screensaver
+
+Options > Behavior > More behavior exposes Screensaver, initially Off. After
+fifteen idle seconds on an unobstructed dashboard, a softly colored globe
+fills the otherwise black display. There is no text, quota perimeter or
+navigation chrome while it is active. The animation runs at eight frames per
+second and does not renew the power owner's inactivity time.
+
+The first touch is consumed to restore the retained dashboard. Shake returns
+to the first enabled statistics page. Pairing, the project QR, options, voice,
+Codex questions and battery notices preempt the screensaver. Dimming and standby
+remain owned by the existing power policy.
 
 ## Voice recording
 

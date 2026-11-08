@@ -25,6 +25,7 @@ namespace LUNASHELL::snapshot_detail::system_acquisition {
 namespace {
 constexpr char TAG[] = "LUNASHELL_system_acquisition";
 std::mutex s_processor_usage_mutex;
+std::atomic_bool s_processor_baseline_requested{false};
 static_assert(sizeof(size_t) == sizeof(uint32_t));
 DRAM_ATTR volatile uint32_t s_allocation_failure_count = 0;
 DRAM_ATTR volatile uint32_t s_largest_failed_allocation_bytes = 0;
@@ -99,6 +100,7 @@ void IRAM_ATTR allocation_failed_hook(
 
 struct ProcessorUsageState {
     bool initialized = false;
+    int64_t observed_at_us = 0;
     configRUN_TIME_COUNTER_TYPE sampled_at[2] = {};
     configRUN_TIME_COUNTER_TYPE idle_runtime[2] = {};
 };
@@ -144,6 +146,12 @@ struct StaticProcessorMetadata {
 StaticMemoryMetadata s_static_memory_metadata;
 StaticProcessorMetadata s_static_processor_metadata;
 }  // namespace
+
+// No parameters: defer interval reset to the serialized acquisition owner.
+void request_processor_baseline()
+{
+    s_processor_baseline_requested.store(true, std::memory_order_release);
+}
 
 // No parameters: acquire memory and per-core counters through their existing owners.
 // Exception: Returns the first genuine acquisition or canonical publication failure.
@@ -322,6 +330,13 @@ esp_err_t sample()
 
     if (processor_error == ESP_OK) {
         std::lock_guard<std::mutex> lock(s_processor_usage_mutex);
+        // The 32-bit microsecond counters cannot describe an arbitrarily long
+        // sampling gap. Power/performance resume and long gaps prime a new baseline.
+        if (s_processor_baseline_requested.exchange(false, std::memory_order_acq_rel) ||
+            attempted_at_us <= s_processor_usage.observed_at_us ||
+            attempted_at_us - s_processor_usage.observed_at_us > 30000000) {
+            s_processor_usage.initialized = false;
+        }
         ProcessorRuntimeSample runtime_samples[2];
         for (int core = 0; core < core_count; ++core) {
             ProcessorRuntimeSample &sample = runtime_samples[core];
@@ -379,10 +394,14 @@ esp_err_t sample()
         }
         if (processor_error == ESP_OK) {
             s_processor_usage.initialized = true;
+            s_processor_usage.observed_at_us = attempted_at_us;
             for (int core = 0; core < core_count; ++core) {
                 s_processor_usage.sampled_at[core] = runtime_samples[core].sampled_at;
                 s_processor_usage.idle_runtime[core] = runtime_samples[core].idle_runtime;
             }
+        } else {
+            // A rejected interval must not poison every later sample.
+            s_processor_usage.initialized = false;
         }
     }
 

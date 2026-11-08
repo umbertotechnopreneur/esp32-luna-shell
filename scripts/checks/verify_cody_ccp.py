@@ -41,6 +41,7 @@ from scripts.common.cody_native_checks import compile_command, resolve_compiler,
 from scripts.checks.verify_power_policy import function_text
 import ccp_server as ccp
 import ccp_activity as activity
+import ccp_account_limits as account_limits
 import ccp_runtime as runtime
 import ccp_windows as windows
 import ccp_interactions as interactions
@@ -2381,6 +2382,122 @@ class DebugScreenContractTests(unittest.TestCase):
         self.listener.sendto.assert_not_called()
 
 
+class AccountTokenSamplerTests(unittest.TestCase):
+    # self: In-memory counter fixture; no worker, App Server process or network is started.
+    def setUp(self) -> None:
+        self.reader = account_limits.AccountUsageReader()
+        self.slot = 20_000 * account_limits.QUARTERS_PER_DAY + 20
+
+    # self: One synthetic account observation source.
+    # offset: Slot distance from the fixture's first quarter.
+    # lifetime: Optional observed account cumulative total.
+    # daily: Optional observed current UTC day's total.
+    def observe(self, offset: int, lifetime: int | None, daily: int | None = None):
+        with self.reader._lock:
+            return self.reader._observe_quarter(account_limits.AccountTokenSample(self.slot + offset, daily, lifetime))
+
+    # self: A public usage response with lifetime tokens and no daily buckets.
+    # Raises AssertionError if summary extraction cannot start the sampler without today's total.
+    def test_documented_lifetime_counter_is_read_without_today(self) -> None:
+        client = object.__new__(account_limits.AccountLimitClient)
+        client.stop_event = threading.Event()
+        client.read_account = Mock(return_value={"type": "chatgpt", "planType": "pro"})
+        client.read_optional = Mock(side_effect=[None, {"summary": {"lifetimeTokens": 123456}}, None])
+        verify_account = Mock()
+        with patch.object(account_limits.time, "time_ns", return_value=self.slot * 900 * 1_000_000_000):
+            observation, sample = client.read_observation(verify_account)
+        self.assertIsNotNone(observation.details)
+        self.assertEqual((sample.total, sample.daily_total, sample.source),
+                         (123456, None, account_limits.TokenCounterSource.LIFETIME))
+        self.assertEqual(verify_account.call_count, 3)
+
+    # self: Adjacent observations whose unrelated daily counters must not affect the result.
+    # Raises AssertionError if a repeated slot rewrites history or daily/context totals are combined.
+    def test_lifetime_precedes_daily_and_published_intervals_are_immutable(self) -> None:
+        baseline = self.observe(0, 1000, 100)
+        self.assertIsNone(baseline.tokens)
+        self.assertEqual(self.observe(0, 1050, 999), baseline)
+        point = self.observe(1, 1100, 101)
+        self.assertEqual((point.quarter, point.tokens, point.series), (self.slot, 100, baseline.series))
+        self.assertEqual(self.observe(1, 1120, 999), point)
+        self.assertEqual(self.observe(2, 1120, 999).tokens, 20)
+
+    # self: An account cumulative counter observed on both sides of UTC midnight.
+    # Raises AssertionError if the missing or reset daily bucket interrupts the lifetime series.
+    def test_lifetime_survives_utc_midnight_and_observed_zero_is_valid(self) -> None:
+        self.slot = 20_001 * account_limits.QUARTERS_PER_DAY - 1
+        baseline = self.observe(0, 1000, 100)
+        self.assertEqual(self.observe(1, 1250).tokens, 250)
+        zero = self.observe(2, 1250, 0)
+        self.assertEqual((zero.tokens, zero.series), (0, baseline.series))
+
+    # self: A source without either counter, followed by its first genuine baseline.
+    # Raises AssertionError if missing data fabricates zero or startup history.
+    def test_missing_counters_do_not_create_a_series_or_backfill(self) -> None:
+        self.assertIsNone(self.observe(0, None))
+        self.assertIsNone(self.observe(3, None))
+        self.assertIsNone(self.observe(3, 700).tokens)
+        self.assertEqual(self.observe(4, 750).tokens, 50)
+
+    # self: Established observations interrupted by missing data, skipped slots and lost native lease.
+    # Raises AssertionError if unobserved token changes are assigned to one valid interval.
+    def test_gaps_and_invalidated_lease_require_a_new_baseline(self) -> None:
+        self.observe(0, 1000)
+        self.observe(0, None)
+        self.observe(0, 1100)
+        self.assertIsNone(self.observe(1, 1200).tokens)
+        self.assertEqual(self.observe(2, 1300).tokens, 100)
+        self.assertIsNone(self.observe(4, 5000).tokens)
+        self.assertEqual(self.observe(5, 5100).tokens, 100)
+        self.reader.invalidate()
+        self.assertIsNone(self.observe(6, 8000).tokens)
+        self.assertEqual(self.observe(7, 8050).tokens, 50)
+
+    # self: Account counter corrections and fallback source changes.
+    # Raises AssertionError if different baselines share a series or corrections invent a negative delta.
+    def test_counter_decrease_and_source_changes_retire_the_old_series(self) -> None:
+        first = self.observe(0, 1000)
+        lower = self.observe(1, 900)
+        self.assertNotEqual(first.series, lower.series)
+        self.assertIsNone(lower.tokens)
+        daily = self.observe(2, None, 50)
+        self.assertNotEqual(lower.series, daily.series)
+        self.assertIsNone(daily.tokens)
+        self.assertEqual(self.observe(3, None, 75).tokens, 25)
+        lifetime = self.observe(4, 1200, 100)
+        self.assertNotEqual(daily.series, lifetime.series)
+        self.assertIsNone(lifetime.tokens)
+
+    # self: Daily-only fallback crossing midnight with genuine counters on each date.
+    # Raises AssertionError if a daily reset becomes usage or prevents the next valid interval.
+    def test_daily_fallback_never_spans_utc_dates(self) -> None:
+        self.slot = 20_001 * account_limits.QUARTERS_PER_DAY - 1
+        baseline = self.observe(0, None, 1000)
+        midnight = self.observe(1, None, 20)
+        self.assertEqual(midnight.series, baseline.series)
+        self.assertIsNone(midnight.tokens)
+        self.assertEqual(self.observe(2, None, 50).tokens, 30)
+
+    # self: One reader observing a change between two synthetic account identities.
+    # Raises AssertionError if the next account inherits the previous account's token history.
+    def test_account_change_retires_history(self) -> None:
+        cancel = threading.Event()
+        self.reader._observe_account({"id": "account-a"}, cancel)
+        old = self.observe(0, 1000)
+        self.reader._observe_account({"id": "account-b"}, cancel)
+        fresh = self.observe(1, 99999)
+        self.assertNotEqual(old.series, fresh.series)
+        self.assertIsNone(fresh.tokens)
+
+    # self: Untrusted public counter fields, including bools and oversized integers.
+    # Raises AssertionError if invalid lifetime fields are admitted as token observations.
+    def test_invalid_lifetime_values_remain_unavailable(self) -> None:
+        for value in (True, -1, 1.25, "100", account_limits.MAX_UINT64 + 1):
+            with self.subTest(value=value):
+                sample = account_limits.read_account_token_sample({}, self.slot * 900, value)
+                self.assertIsNone(sample.total)
+
+
 # Isolated public-document fixture. Values are reference data, not a real account or chat bill.
 PRICING_HTML = """<table><tr><th>Credits per 1M tokens</th><th>Input Tokens</th>
 <th>Cached input tokens</th><th>Output Tokens</th></tr>
@@ -2653,17 +2770,52 @@ class NativeUsageReaderTests(unittest.TestCase):
         self.assertEqual(sample[0]["used"], 120)
         self.assertEqual(context[:2], ("gpt-6-astra", "high"))
 
-    # self: Exact-session reader; foreign parent metadata, cwd and native turn cannot populate it.
-    def test_session_checkout_fork_and_turn_rejections(self):
-        for changed in ({"id": "other"}, {"session_id": "parent"}, {"cwd": self.cwd + "-other"}):
+    # self: Exact-session reader; foreign session/parent IDs and native turns cannot populate it.
+    def test_session_fork_and_turn_rejections(self):
+        for changed in ({"id": "other"}, {"session_id": "parent"}):
             self.reader = native_usage.NativeUsageReader()
             self.path.write_bytes(self.record("session_meta", {"id": "chat-a", "session_id": "chat-a", "cwd": self.cwd, **changed}) + self.usage())
             with self.assertRaises(native_usage.UsageSourceError):
                 self.poll()
         self.reader = native_usage.NativeUsageReader()
-        self.path.write_bytes(self.prefix() + self.record("turn_context", {"turn_id": "turn-a", "cwd": self.cwd + "-other", "model": "gpt-6-astra"}) + self.usage())
-        with self.assertRaises(native_usage.UsageSourceError):
-            self.poll()
+        self.path.write_bytes(self.prefix() + self.record("turn_context", {
+            "turn_id": "another-turn", "cwd": self.cwd, "model": "gpt-6-astra"}) + self.usage())
+        self.assertEqual(self.poll(), (None, None))
+
+    # self: A real tool hook may change workdir without changing the selected native chat or turn.
+    def test_mutable_hook_workdir_preserves_usage_identity_and_original_age(self):
+        self.path.write_bytes(self.prefix() + self.usage())
+        first = self.poll()
+        changed_cwd = str(self.home / "another-tool-workdir")
+        with patch.object(self.reader, "locate", side_effect=AssertionError("Workdir must not rebootstrap usage")):
+            self.assertEqual(self.reader.poll("chat-a", changed_cwd, "turn-a", str(self.path)), first)
+        reader = native_usage.NativeUsageReader()
+        self.assertEqual(reader.poll("chat-a", changed_cwd, "turn-a", str(self.path)), first)
+        self.assertEqual(first[0][1], 995.0)
+
+    # self: Real hook, journal and projection owners racing a tool-workdir change with metadata IO.
+    def test_tool_workdir_change_during_source_read_keeps_followed_context(self):
+        self.path.write_bytes(self.prefix() + self.usage())
+        owner = activity.ActivityStore()
+        base = {"session_id": "chat-a", "turn_id": "turn-a", "cwd": self.cwd,
+                "transcript_path": str(self.path)}
+
+        # session: Original genuine selected identity observed before the tool hook.
+        # cwd: Original workdir, which the accepted tool hook is allowed to change.
+        def tool_changes_workdir(session, cwd):
+            owner.observe({**base, "hook_event_name": "PreToolUse", "cwd": self.cwd + "-tool-workdir",
+                           "tool_name": "functions.exec_command", "tool_use_id": "tool-a",
+                           "emitted_ns": 999000000001})
+            return native_title.ChatTitleObservation("Same followed chat", native_title.TitleState.CURRENT, 999.0)
+
+        with patch.object(activity.time, "monotonic_ns", return_value=1000000000000):
+            owner.observe({**base, "hook_event_name": "UserPromptSubmit", "emitted_ns": 999000000000})
+            with patch.object(owner._titles, "poll", side_effect=tool_changes_workdir):
+                current, technical = owner.snapshot_bundle()
+        self.assertEqual((technical["used"], technical["capacity"], technical["usageage"]),
+                         ("120", "475000", "5000"))
+        self.assertEqual(bytes.fromhex(current["title"]).decode("ascii"), "Same followed chat")
+        self.assertEqual([item["session_id"] for item in owner.list_sessions() if item["followed"]], ["chat-a"])
 
     # self: Incremental parser must not publish incomplete metadata or lose correlation on big items.
     def test_partial_record_and_large_irrelevant_item(self):
@@ -2764,6 +2916,8 @@ class NativeUsageReaderTests(unittest.TestCase):
             database.execute("INSERT INTO threads VALUES(?,?,?)", ("chat-a", str(self.path), self.cwd))
             database.commit()
         self.assertEqual(self.reader.poll("chat-a", self.cwd, "turn-a")[0][0]["used"], 120)
+        reader = native_usage.NativeUsageReader()
+        self.assertEqual(reader.poll("chat-a", self.cwd + "-tool-workdir", "turn-a")[0][0]["used"], 120)
         outsider = self.home / "outside.jsonl"
         outsider.write_bytes(self.prefix() + self.usage())
         with self.assertRaises(native_usage.UsageSourceError):
@@ -2912,7 +3066,7 @@ class NativeChatTitleTests(unittest.TestCase):
     # title: Stored legacy title, deliberately distinct from an explicit name.
     # name: Optional native user-facing name for paginated threads.
     # mode: Real native history discriminator or an intentionally unsupported fixture.
-    # cwd: Optional contradictory checkout identity.
+    # cwd: Optional original checkout distinct from a later tool working directory.
     # Raises sqlite3.Error if fixture construction fails.
     def put(self, session="chat-a", title="Original title", name=None, mode="legacy", cwd=None) -> None:
         with contextlib.closing(sqlite3.connect(self.database)) as connection:
@@ -3000,23 +3154,20 @@ class NativeChatTitleTests(unittest.TestCase):
             self.assertEqual(self.database.read_bytes(), before)
             self.assertEqual([item["session_id"] for item in owner.list_sessions() if item["followed"]], ["chat-b"])
 
-    # self: Several chats in one checkout, absent identities and a contradictory native checkout.
+    # self: Several chats, absent identities and a mutable tool workdir distinct from native metadata.
     # Raises AssertionError if any other chat supplies a title or stale cache survives a follow switch.
-    def test_title_requires_exact_followed_identity_and_checkout(self) -> None:
+    def test_title_requires_exact_followed_identity_independent_of_workdir(self) -> None:
         self.put(title="First real title")
         self.put("chat-b", title="Second real title")
         self.assertEqual(self.reader.poll("chat-a", self.cwd).title, "First real title")
         self.assertEqual(self.reader.poll("chat-b", self.cwd).title, "Second real title")
         self.assertEqual(self.reader.poll("unknown", self.cwd), native_title.ChatTitleObservation())
-        self.put("chat-wrong", title="PRIVATE mismatched title", cwd=str(self.home / "other-checkout"))
-        diagnostics = io.StringIO()
-        with contextlib.redirect_stderr(diagnostics):
-            rejected = self.reader.poll("chat-wrong", self.cwd)
-        self.assertEqual(rejected.state, native_title.TitleState.UNSUPPORTED)
-        self.assertEqual(rejected.title, "")
-        self.assertIn("checkout mismatch", self.reader.error)
-        self.assertNotIn("PRIVATE", diagnostics.getvalue())
-        self.assertNotIn(self.cwd, diagnostics.getvalue())
+        self.put("chat-moved", title="Same chat across tool workdirs", cwd=str(self.home / "original-checkout"))
+        moved = self.reader.poll("chat-moved", self.cwd)
+        self.assertEqual(moved.state, native_title.TitleState.CURRENT)
+        self.assertEqual(moved.title, "Same chat across tool workdirs")
+        with patch.object(self.reader, "_read", side_effect=AssertionError("Workdir must not expire title cache")):
+            self.assertIs(self.reader.poll("chat-moved", str(self.home / "another-tool-workdir")), moved)
 
     # self: Invalid text, oversized native metadata and unsupported history modes.
     # Raises AssertionError if invalid data is truncated, transliterated, logged or replaced by another field.

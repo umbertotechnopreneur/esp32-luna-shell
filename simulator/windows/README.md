@@ -33,23 +33,39 @@ pwsh -NoProfile -File ./scripts/device.ps1 simulator -Screen rig -OutputPath art
 The default Cody Studio opens the device preview. The existing VibeWare floppy
 plays once, then first run opens **Connections**. A retained simulator association
 opens **Device**. **BOOT / Options** opens the device menu. **PWR / Standby** toggles
-the simulated display, and **Simulate shake** returns the carousel to Device.
+the simulated display, and **Simulate shake** returns to the first enabled
+statistics page, with Device as the fallback.
 The dashboard and Options page arrows fade after ten seconds. A touch reveals
 them again. **Options 1/2** contains **Connections**, **Codex stats** and
-**Visible screens**. The right arrow opens **Options 2/2** with **Display** and
-**Behavior**. Back from either category returns to the second Options page.
+**Visible screens**. The right arrow opens **Options 2/2** with **Display**,
+**Behavior** and **Factory reset**. Back from either category returns to the
+second Options page.
 **Go home** on either page opens Reset countdown or the first enabled statistics
 screen, with Device as the fallback. Brightness, orientation and visibility
-choices affect this preview session. **About** shows Studio uptime and the next
-page has a scannable project QR code and an explicit **Open link** action.
+choices affect this preview session. **About** contains **System**, **Memory**
+and **Firmware**, followed by a scannable project QR code and an explicit
+**Open link** action. System identifies its uptime as **Studio uptime**.
+The current loopback source has no physical CPU/RAM or firmware metadata:
+those sections show unavailable states, without host measurements or invented
+numeric bars. The typed child-page model makes Back from the QR return to
+Firmware; the QR has no Next control.
 
-The ten-page carousel has Device, Reset countdown, Codex limits, Today,
-Last 7 days, Token history, Credits, Codex account, Context and About, plus the
-About QR page. The loopback endpoint supplies authenticated link and Context
+The ten-page carousel has Device, Reset countdown, Context, Codex limits, Today,
+Last 7 days, Token history, Credits, Codex account and About. Info and its QR
+are child pages, not additional items in that cycle. The loopback endpoint supplies authenticated link and Context
 observations. Account usage is physical-device-only, so the usage pages show
 unavailable values and never draw a fabricated countdown, allowance ring or
 history. Firmware version, build date, battery readings and dictation have no
-source in this preview.
+source in this preview. The device-first window does not duplicate the firmware
+effects controller in Python or establish audible output on the physical device.
+
+**Behavior > More behavior > Screensaver** enables the optional globe after
+fifteen idle seconds on the dashboard. It is Off by default. This is a small
+procedural preview at eight frames per second, not a firmware performance
+measurement. A touch only dismisses it; shake returns Home. Options, pairing
+and active Codex events remain visible. The preview's standalone window and
+status still identify it as SIMULATED while the device area contains only the
+globe on black.
 
 Cody Studio uses the 466 × 466 display at integer pixel scales. Resizing affects
 presentation only. Rendering and touch share the same logical rotation.

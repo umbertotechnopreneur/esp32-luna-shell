@@ -176,13 +176,14 @@ esp_err_t prepare_device_home(DeviceView &view, DeviceFrameContent &frame, const
 
 // chrome: Display-owned prepared text and badge.
 // data: Canonical connection state.
-// show_connection: Whether the current dashboard needs the status header.
+// show_connection: Show connection problems; a healthy connected badge is omitted.
 // battery: Exact notice admitted by the model, or an empty notice.
 // Exception: Returns original glyph preparation error.
 esp_err_t prepare_device_chrome(DeviceChrome &chrome, const DeviceDashboardData &data,
     bool show_connection, const BatteryAlertNotice &battery)
 {
-    const char *connection = show_connection ? connection_caption(data) : nullptr;
+    const bool show_problem = show_connection && (!data.connection_valid || !data.connection.codex_app_open);
+    const char *connection = show_problem ? connection_caption(data) : nullptr;
     if (connection != chrome.connection_text) {
         chrome.connection = {};
         if (connection != nullptr) {
@@ -340,10 +341,6 @@ esp_err_t prepare_device_dashboard(DeviceView &view, DeviceFrameContent &frame,
     if (screen == WidgetScreen::Context) {
         return prepare_context_dashboard(data.context, title_font, body_font, view.account, frame.content);
     }
-    if (screen == WidgetScreen::About) {
-        return prepare_about_dashboard(data.uptime_seconds, data.previous_uptime_seconds, data.previous_uptime_valid,
-            data.build_version, *data.build, title_font, body_font, view.account, frame.content);
-    }
 
     using Page = AccountDashboardPage;
     Page page;
@@ -357,6 +354,26 @@ esp_err_t prepare_device_dashboard(DeviceView &view, DeviceFrameContent &frame,
     }
     return prepare_account_dashboard(page, data.details, data.weekly, data.clock, title_font, body_font,
         view.account, frame.content);
+}
+
+// view: Persistent information presentation, changed after the previous frame retires.
+// frame: Receives native content only; navigation belongs to the retained model.
+// model: Canonical diagnostics, selected child and build identity supplied by the device owner.
+// Exception: Preserves original formatting and native geometry failures.
+esp_err_t prepare_device_info(DeviceView &view, DeviceFrameContent &frame, const DeviceModel &model)
+{
+    frame = {};
+    view.plain.valid = false;
+    SystemInfoInput input{};
+    input.page = model.info_page;
+    input.diagnostics = &model.diagnostics;
+    input.diagnostics_error = model.diagnostics_error;
+    input.build = model.dashboard.build;
+    input.image_version = model.dashboard.build_version;
+    input.uptime_seconds = model.dashboard.uptime_seconds;
+    input.previous_uptime_seconds = model.dashboard.previous_uptime_seconds;
+    input.previous_uptime_valid = model.dashboard.previous_uptime_valid;
+    return prepare_system_info(input, SceneData::title_font, SceneData::body_font, view.info, frame.content);
 }
 
 // view: Retained presentation state.
@@ -420,10 +437,10 @@ esp_err_t prepare_device_diagnostics(DeviceView &view, DeviceFrameContent &frame
     if (current(processor) && processor.cores[0].utilization_available) {
         const unsigned first = processor.cores[0].utilization_percent;
         if (processor.core_count > 1 && processor.cores[1].utilization_available) {
-            std::snprintf(cpu, sizeof(cpu), "CPU0 %u%%  /  CPU1 %u%%", first,
+            std::snprintf(cpu, sizeof(cpu), "CPU1 %u%%  /  CPU2 %u%%", first,
                 static_cast<unsigned>(processor.cores[1].utilization_percent));
         } else {
-            std::snprintf(cpu, sizeof(cpu), "CPU0 %u%%", first);
+            std::snprintf(cpu, sizeof(cpu), "CPU1 %u%%", first);
         }
     }
     char memory[32] = "Memory unavailable";

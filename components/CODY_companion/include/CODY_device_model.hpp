@@ -1,8 +1,11 @@
 #pragma once
 
 #include "CODY_battery_alerts.hpp"
+#include "CODY_device_effects.hpp"
+#include "CODY_screensaver.hpp"
 #include "CODY_companion_gestures.hpp"
 #include "CODY_navigation_visibility.hpp"
+#include "CODY_system_info.hpp"
 #include "CODY_token_history.hpp"
 #include "CODY_widget_state.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
@@ -32,10 +35,14 @@ struct DeviceDashboardData {
 enum class VisibilitySave : uint8_t { Idle, Pending, Failed };
 
 struct DeviceModel {
+    DeviceEffectsModel effects{};
+    ScreensaverModel screensaver{};
     WidgetRouteState widgets{};
     WidgetVisibility draft{};
     DeviceDashboardData dashboard{};
     LUNASHELL::DiagnosticsObservation diagnostics{};
+    InfoPage info_page = InfoPage::System;
+    esp_err_t diagnostics_error = ESP_ERR_INVALID_STATE;
     BatteryAlertModel battery{};
     BatteryAlertNotice battery_banner{};
     int64_t battery_banner_until_us = 0;
@@ -53,7 +60,6 @@ struct DeviceModel {
     int64_t voice_tapped_us = 0;
 #endif
     bool editing = false;
-    bool about_link = false;
 };
 
 // Refreshes the canonical weekly limit and clock shared by all awake screens.
@@ -68,6 +74,10 @@ uint16_t device_allowance_ring(const DeviceDashboardData &data);
 // Reads only the canonical observations needed for the selected screen.
 // Failed projections are cleared, and the first original read error is returned.
 esp_err_t read_device_dashboard(DeviceDashboardData &data, WidgetScreen screen, TokenHistoryInterval interval);
+
+// model: Retains the selected Info page and its one canonical diagnostics projection.
+// Exception: Preserves snapshot read failures; immutable Firmware/ProjectLink pages need no acquisition.
+esp_err_t read_device_info(DeviceModel &model);
 
 // Boot owner captures the previous RTC sample before the worker overwrites it.
 void initialize_device_uptime(DeviceDashboardData &data);

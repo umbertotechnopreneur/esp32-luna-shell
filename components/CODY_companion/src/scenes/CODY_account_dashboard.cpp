@@ -8,7 +8,6 @@
 #include <string_view>
 
 #include "LUNASHELL_device_snapshot.hpp"
-#include "LUNASHELL_build_metadata.hpp"
 #include "CODY_technical_panels.hpp"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -446,7 +445,7 @@ esp_err_t add_voucher_label(AccountDashboardPresentation &presentation, uint16_t
 {
     constexpr char label[] = "RESET VOUCHERS";
     uint32_t width = 0;
-    esp_err_t error = CODY2D::measure_text_width(*presentation.body_font,
+    esp_err_t error = CODY2D::measure_text_width(*presentation.title_font,
         {label, static_cast<uint16_t>(sizeof(label) - 1U)}, width);
     if (error != ESP_OK) { return error; }
     if (width + 32U > 320U) { return ESP_ERR_INVALID_SIZE; }
@@ -464,8 +463,8 @@ esp_err_t add_voucher_label(AccountDashboardPresentation &presentation, uint16_t
         error = add_bar(presentation, bounds, color, color);
         if (error != ESP_OK) { return error; }
     }
-    return add_caption(presentation, *presentation.body_font, label,
-        {static_cast<uint16_t>(left + 32U), 284, static_cast<uint16_t>(width), 25}, kWhite);
+    return add_caption(presentation, *presentation.title_font, label,
+        {static_cast<uint16_t>(left + 32U), 274, static_cast<uint16_t>(width), 40}, kWhite);
 }
 
 // presentation: Fixed credits page owner.
@@ -796,63 +795,6 @@ const char *compaction_text(const LUNASHELL::CodexTechnicalObservation &observat
     return "Not compacting";
 }
 
-// seconds: Actual current or retained last-observed monotonic duration.
-// text: Receives a compact day/hour/minute/second display without rounding the observation.
-void format_uptime(uint64_t seconds, char (&text)[32])
-{
-    const auto days = static_cast<unsigned long long>(seconds / 86400U);
-    const unsigned hours = static_cast<unsigned>(seconds % 86400U / 3600U);
-    const unsigned minutes = static_cast<unsigned>(seconds % 3600U / 60U);
-    const unsigned remainder = static_cast<unsigned>(seconds % 60U);
-    if (days != 0) { std::snprintf(text, sizeof(text), "%llud %02u:%02u:%02u", days, hours, minutes, remainder); }
-    else { std::snprintf(text, sizeof(text), "%02u:%02u:%02u", hours, minutes, remainder); }
-}
-
-// state: Captured build-field availability, independent of live device time.
-const char *build_status(LUNASHELL::FirmwareBuildFieldState state)
-{
-    using State = LUNASHELL::FirmwareBuildFieldState;
-    switch (state) {
-    case State::Error: return "Error";
-    case State::Unsupported: return "Unsupported";
-    default: return "Unavailable";
-    }
-}
-
-// source: Bounded immutable ASCII metadata, or null when unavailable.
-// capacity: Maximum readable bytes in its owning artifact field.
-// font: Actual native detail glyphs used to fit the 320-pixel row.
-// text: Receives a complete label or a visible ellipsis for long valid metadata.
-// Exception: Preserves glyph errors; invalid metadata is displayed explicitly.
-esp_err_t format_metadata(const char *source, size_t capacity, const CODY2D::MonoFont &font, char (&text)[32])
-{
-    if (source == nullptr || capacity == 0 || source[0] == '\0') {
-        std::strcpy(text, "Unavailable");
-        return ESP_OK;
-    }
-    const auto *end = static_cast<const char *>(std::memchr(source, '\0', capacity));
-    if (end == nullptr || !std::all_of(source, end, [](char value) { return value >= 32 && value <= 126; })) {
-        std::strcpy(text, "Invalid data");
-        return ESP_OK;
-    }
-    const size_t length = static_cast<size_t>(end - source);
-    size_t visible = std::min(length, sizeof(text) - 1U);
-    bool shortened = visible < length;
-    for (;;) {
-        const size_t prefix = shortened ? visible - 3U : visible;
-        std::memcpy(text, source, prefix);
-        if (shortened) { std::memcpy(text + prefix, "...", 3U); }
-        text[visible] = '\0';
-        uint32_t width = 0;
-        const auto error = CODY2D::measure_text_width(font, {text, static_cast<uint16_t>(visible)}, width);
-        if (error != ESP_OK) { return error; }
-        if (width <= 320U) { return ESP_OK; }
-        if (visible <= 3U) { return ESP_ERR_INVALID_SIZE; }
-        --visible;
-        shortened = true;
-    }
-}
-
 } // namespace
 
 // page: Explicit account page independent of device navigation.
@@ -890,7 +832,7 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     }
     const int64_t account_at_us = account_state == SourceState::Current ? account.last_success_at_us : 0;
     const int64_t weekly_at_us = page == Page::QuotaWindows ? weekly.last_success_at_us : 0;
-    if (presentation.valid && !presentation.context_page && !presentation.about_page && presentation.page == page && presentation.account_state == account_state &&
+    if (presentation.valid && !presentation.context_page && presentation.page == page && presentation.account_state == account_state &&
         presentation.weekly_state == weekly_state && presentation.short_state == short_state &&
         presentation.account_at_us == account_at_us && presentation.weekly_at_us == weekly_at_us &&
         presentation.utc_day == utc_day && presentation.title_font == &title_font && presentation.body_font == &body_font) {
@@ -902,7 +844,6 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     }
     presentation.valid = false;
     presentation.context_page = false;
-    presentation.about_page = false;
     presentation.caption_count = 0;
     presentation.bar_count = 0;
     presentation.account_status_dot = {};
@@ -986,7 +927,6 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
     }
     presentation.valid = false;
     presentation.context_page = true;
-    presentation.about_page = false;
     presentation.caption_count = 0;
     presentation.bar_count = 0;
     presentation.account_status_dot = {};
@@ -1004,23 +944,26 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
     if (remaining_state == SourceState::Current) { format_grouped_count(remaining, count); }
     error = add_caption(presentation, title_font, "CONTEXT", kHeadline, kCyan);
     if (error == ESP_OK) { error = add_rule(presentation, 125); }
-    if (error == ESP_OK) { error = add_detail(presentation, "TOKENS REMAINING", 133, kWhite); }
-    if (error == ESP_OK) {
-        error = add_hero(presentation, remaining_state == SourceState::Current ? count : status_text(remaining_state),
-            {73, 159, 320, 80}, remaining_state == SourceState::Current ? 2 : 1,
-            remaining_state == SourceState::Current ? kCyan : kMuted);
-    }
-    if (error == ESP_OK && remaining_state == SourceState::Current) {
-        error = add_bar(presentation, {93, 244, 280, 7}, kDarkTrack, kDarkTrack);
+    if (remaining_state == SourceState::Current) {
+        if (error == ESP_OK) { error = add_detail(presentation, "TOKENS REMAINING", 133, kWhite); }
+        if (error == ESP_OK) { error = add_hero(presentation, count, {73, 159, 320, 80}, 2, kCyan); }
+        if (error == ESP_OK) { error = add_bar(presentation, {93, 244, 280, 7}, kDarkTrack, kDarkTrack); }
         const auto width = static_cast<uint16_t>(static_cast<double>(remaining) / static_cast<double>(capacity) * 280.0);
         if (error == ESP_OK && width != 0) { error = add_bar(presentation, {93, 244, width, 7}, kCyan, kCyan); }
+    } else {
+        // Missing metrics do not create empty counters. Compaction below has
+        // its own hook provenance and remains visible when independently known.
+        const char *message = remaining_state == SourceState::Stale ? "Context data is stale" :
+            remaining_state == SourceState::Invalid ? "Invalid context data" :
+            remaining_state == SourceState::OverLimit ? "Context over limit" : "Context data unavailable";
+        if (error == ESP_OK) { error = add_detail(presentation, message, 178, kWhite); }
+        if (error == ESP_OK) { error = add_detail(presentation, "For the followed chat", 209, kMuted); }
     }
-    if (error == ESP_OK) { error = add_rule(presentation, 259); }
-    if (error == ESP_OK) { error = add_detail(presentation, "CONTEXT WINDOW", 266, kWhite); }
-    if (capacity_state == SourceState::Current) { format_grouped_count(capacity, count); }
-    if (error == ESP_OK) {
-        error = add_value(presentation, capacity_state == SourceState::Current ? count : status_text(capacity_state),
-            291, capacity_state == SourceState::Current ? kWhite : kMuted);
+    if (capacity_state == SourceState::Current) {
+        if (error == ESP_OK) { error = add_rule(presentation, 259); }
+        if (error == ESP_OK) { error = add_detail(presentation, "CONTEXT WINDOW", 266, kWhite); }
+        format_grouped_count(capacity, count);
+        if (error == ESP_OK) { error = add_value(presentation, count, 291, kWhite); }
     }
     if (error == ESP_OK) { error = add_rule(presentation, 335); }
     if (error == ESP_OK) { error = add_detail(presentation, "COMPACTION", 338, kMuted); }
@@ -1029,81 +972,6 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
             inputs.compaction == LUNASHELL::CodexCompactionState::Active ? kGold : kCyan);
     }
     if (error != ESP_OK) { return result("prepare context", error); }
-    ++presentation.revision;
-    presentation.valid = true;
-    attach_content(presentation, content);
-    return ESP_OK;
-}
-
-// uptime_seconds: Current monotonic duration supplied by the device owner.
-// previous_uptime_seconds: Last observed duration retained from the preceding boot.
-// previous_uptime_valid: True only for a validated retained observation.
-// image_version: Immutable running-image version in a bounded 32-byte app descriptor field.
-// build: Immutable build timestamp/hostname and original field availability.
-// title_font: Immutable native headline glyphs.
-// body_font: Immutable native detail glyphs.
-// presentation: Persistent owner, mutated only after the prior frame retires.
-// content: Receives the central About page without navigation controls.
-// Exception: Preserves original native glyph, bounded-caption or layout errors.
-esp_err_t prepare_about_dashboard(uint64_t uptime_seconds, uint64_t previous_uptime_seconds,
-    bool previous_uptime_valid, const char *image_version, const LUNASHELL::FirmwareBuildMetadata &build,
-    const CODY2D::MonoFont &title_font, const CODY2D::MonoFont &body_font,
-    AccountDashboardPresentation &presentation, SceneContent &content)
-{
-    if (presentation.valid && presentation.about_page && presentation.uptime_seconds == uptime_seconds &&
-        presentation.previous_uptime_seconds == previous_uptime_seconds &&
-        presentation.previous_uptime_valid == previous_uptime_valid && presentation.image_version == image_version &&
-        presentation.build_metadata == &build && presentation.title_font == &title_font && presentation.body_font == &body_font) {
-        attach_content(presentation, content);
-        return ESP_OK;
-    }
-    if (presentation.revision == std::numeric_limits<uint32_t>::max()) {
-        return result("about revision", ESP_ERR_INVALID_STATE);
-    }
-    presentation.valid = false;
-    presentation.context_page = false;
-    presentation.about_page = true;
-    presentation.caption_count = 0;
-    presentation.bar_count = 0;
-    presentation.account_status_dot = {};
-    presentation.plan_icon = CODY2D::ActionIcon::None;
-    presentation.plan_mask_valid = false;
-    presentation.title_font = &title_font;
-    presentation.body_font = &body_font;
-    presentation.image_version = image_version;
-    presentation.build_metadata = &build;
-    presentation.uptime_seconds = uptime_seconds;
-    presentation.previous_uptime_seconds = previous_uptime_seconds;
-    presentation.previous_uptime_valid = previous_uptime_valid;
-
-    auto error = add_caption(presentation, title_font, "ABOUT", kHeadline, kCyan);
-    if (error == ESP_OK) { error = add_rule(presentation, 125); }
-    char value[32]{};
-    format_uptime(uptime_seconds, value);
-    if (error == ESP_OK) { error = add_detail(presentation, "UPTIME", 128, kMuted); }
-    if (error == ESP_OK) { error = add_detail(presentation, value, 153, kWhite); }
-    if (error == ESP_OK) { error = add_detail(presentation, "PREVIOUS: LAST OBSERVED", 178, kMuted); }
-    if (previous_uptime_valid) { format_uptime(previous_uptime_seconds, value); }
-    if (error == ESP_OK) { error = add_detail(presentation, previous_uptime_valid ? value : "Unavailable", 203, kWhite); }
-    if (error == ESP_OK) { error = add_detail(presentation, "VERSION", 228, kMuted); }
-    if (error == ESP_OK) { error = format_metadata(image_version, 32, body_font, value); }
-    if (error == ESP_OK) { error = add_detail(presentation, value, 253, kWhite); }
-    if (error == ESP_OK) { error = add_detail(presentation, "BUILT", 278, kMuted); }
-    using BuildState = LUNASHELL::FirmwareBuildFieldState;
-    if (error == ESP_OK && build.clock_state == BuildState::Available) {
-        error = format_metadata(build.local_date_time, sizeof(build.local_date_time), body_font, value);
-    } else {
-        std::snprintf(value, sizeof(value), "%s", build_status(build.clock_state));
-    }
-    if (error == ESP_OK) { error = add_detail(presentation, value, 303, kWhite); }
-    if (error == ESP_OK) { error = add_detail(presentation, "BUILD HOST", 328, kMuted); }
-    if (error == ESP_OK && build.computer_state == BuildState::Available) {
-        error = format_metadata(build.computer, sizeof(build.computer), body_font, value);
-    } else {
-        std::snprintf(value, sizeof(value), "%s", build_status(build.computer_state));
-    }
-    if (error == ESP_OK) { error = add_detail(presentation, value, 353, kWhite); }
-    if (error != ESP_OK) { return result("prepare about", error); }
     ++presentation.revision;
     presentation.valid = true;
     attach_content(presentation, content);

@@ -1,9 +1,25 @@
 # Active work
 
+## Device information, effects and idle presentation
+
+- Compile the current firmware and execute the focused host checks when authorized.
+- Verify System, Memory and Firmware pages, the terminal project QR, CPU baselines
+  after standby, and unavailable/failed observations on the physical round display.
+- Verify event sounds with Sounds off/on, quiet hours, microphone failure, voice
+  capture, standby, battery thresholds and concurrent notifications. Measure stack
+  headroom and confirm no duplicate or overdue playback after navigation/reconnect.
+- Verify the optional 15-second globe screensaver, first-touch consumption, event
+  interruption, eight-frame-per-second limit and unchanged dim/standby deadlines.
+- Verify Options/Visible screens responsiveness during held touches and actual
+  settings writes; compare display work and CPU with the screen resting.
+- Install the updated plugin when authorized and verify context across tool working
+  directories plus consecutive quarter-hour account-counter observations. Confirm
+  the boot disk on a real restart; source inspection has not explained its absence.
+
 ## Codex reset countdown
 
 - Verify PWR standby and wake, BOOT Options, and Options to Codex stats on
-  the physical board. Exercise the seven pages, lateral controls at all
+  the physical board. Exercise the enabled pages and Info children, lateral controls at all
   rotations, countdown flips and quota ring, reconnect, and stale data.
 - Observe consecutive 15-minute samples with a live account. Verify zero,
   missing, interrupted, and account-change intervals at all three zooms.

@@ -226,20 +226,19 @@ and wake latency require device measurements.
 
 ### Pending-question sound cadence
 
-The initial pending-question alert plays one soft 1.8-second Question bell with
-a long fading tail. While the fresh canonical question remains Pending and
-visible, one quieter 300-ms QuestionReminder plays
-every ten awake seconds, including animation pause and excluding standby.
-Choice browsing and detail review retain this cadence. Admitted Send, terminal
-outcomes or unavailable/stale/offline source evidence stop future attempts.
-Hidden/offline intervals renew the reminder interval without replaying the initial
-alert. Each attempt uses the shared bounded audio mailbox and existing Sounds,
-volume, quiet-hours and standby gates. Busy or suppressed cues never accumulate.
+The device-first pending-question alert plays one soft 1.8-second Question bell
+with a long fading tail. While the canonical question remains fresh, Pending
+and online, one quieter 300-ms QuestionReminder is eligible every sixty awake
+seconds. The effects model owns this cadence independently of the selected
+Info, statistics or Options page. Sending, terminal outcomes or unavailable,
+stale or offline evidence stop future attempts. Each attempt uses the shared
+bounded audio mailbox and existing Sounds, volume, quiet-hours and standby
+gates. Busy or suppressed cues never accumulate for later playback.
 Both samples derive from the purchased Soft Chime recording at -24/-27 dBFS.
 The shared owner streams their flash PCM in its existing 320-sample scratch;
 single Codex notices admit up to two seconds, while activity/personality and
-repeated clips retain their 350-ms bounds. No buffer, worker or clock is added. Native cadence
-coverage is prepared but unexecuted; actual speaker playback remains unverified.
+repeated clips retain their 350-ms bounds. The shared audio worker plays the
+existing immutable PCM; UI redraws do not request or restart sounds.
 
 ### Device diagnostics
 
@@ -459,9 +458,10 @@ available to the event and sound owners while its superseded footer is hidden.
 
 Official App Server exposes `thread/tokenUsage/updated`, but the installed desktop
 App Server uses its own stdio channel; the plugin does not subscribe through a
-second server. Instead, the existing broker verifies the genuine hook-selected
-session and checkout against local native journal metadata, using the original
-locator or a read-only state-index lookup. Only allowlisted session, turn-context
+second server. Instead, the existing broker verifies the exact genuine hook-selected
+session and turn against local native journal metadata, using the original
+locator or a read-only state-index lookup. The working directory is mutable
+metadata, not session identity. Only allowlisted session, turn-context
 and token-count metadata contributes. Prompt, message and tool-output bodies do
 not provide measurements. Reads, paths, line sizes and source identities are
 bounded; partial, replaced, truncated or contradictory sources fail closed.
@@ -568,6 +568,45 @@ after scene advancement, then captures content before drawing; it preserves an
 already-true `changed` flag and does not attach mutable state on every tile.
 
 ## Optional audio
+
+### Device-first notifications
+
+The device runtime prepares the shared effects output explicitly. Its
+`DeviceEffectsModel` consumes canonical observations and owns deduplication,
+connection continuity and reminder deadlines. The renderer neither selects
+effects nor initializes the playback worker. The existing Sounds preference,
+volume, quiet hours and power admission remain authoritative.
+
+| Observed event | Existing effect |
+| --- | --- |
+| New pending question | Question; quieter QuestionReminder after sixty awake seconds |
+| Authenticated ReplyReady | ResponseReady |
+| Selected answer confirmed Delivered | AnswerReceived |
+| Approval required on the PC | ApprovalRequired |
+| Completed checks passed or failed | ChecksPassed or ChecksFailed |
+| Codex connection lost for three continuous seconds | ConnectionLost, once |
+| Confirmed recovery after the observed loss | ConnectionRestored |
+| Observed Wi-Fi provisioning attempt succeeds and Wi-Fi is online | ConnectionRestored |
+| Observed provisioning attempt fails | Interrupted |
+| Battery 50%, 20%, 10% | QuestionReminder, Paused, ConnectionLost respectively |
+| Battery 5% or measured empty | Two or three ConnectionLost clips with short gaps |
+| Voice input enters its start countdown | Short ConnectionRestored, before microphone capture |
+| Voice delivery confirmed by the recipient | AnswerReceived |
+
+The first connection observation establishes a silent baseline. Generic notices,
+ongoing work, running checks, navigation and statistic refreshes are silent.
+The bounded recent-event ledger prevents repeated frames or brief reconnection
+from replaying the same event. One priority-selected request is admitted per
+update; rejected, muted or busy requests are consumed rather than queued.
+The recording and delivery path suppresses ordinary effects so they cannot be
+captured by the microphone. Sounds are neither an acknowledgement of a user
+choice nor evidence that a build or task succeeded.
+
+Studio's device-first preview shows the corresponding routes but does not
+reimplement this controller in Python or provide speaker validation. Hardware
+sound and standby/wake behavior require their own device verification.
+
+### Character authoring audio
 
 Boot cues start with original procedural `audio-ready` (0.18 s), followed by the
 explicit `audio.eyes_open_cue: boot-rise` in `assets/cody/runtime.yaml`. BootRise
