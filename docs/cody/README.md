@@ -18,7 +18,9 @@ persistence, power and authenticated transport.
 Installation and PC operation belong to the [CCP guide](../../plugins/cody-codex-plugin/README.md).
 Packet formats and authentication belong to [CCP1](../../plugins/cody-codex-plugin/protocol/CCP1.md).
 Windows controls and synthetic scenarios belong to the [simulator guide](../../simulator/windows/README.md).
-The [documentation index](../README.md) lists the current illustrated atlases.
+Use the [A4 navigation map](device-navigation-map-a4.pdf) for the device-first
+firmware. The [illustrated atlases](../README.md) also include character design
+material used in Studio.
 
 ## Profile and services
 

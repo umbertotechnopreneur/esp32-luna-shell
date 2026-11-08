@@ -7,7 +7,17 @@
   rotations, countdown flips and quota ring, reconnect, and stale data.
 - Observe consecutive 15-minute samples with a live account. Verify zero,
   missing, interrupted, and account-change intervals at all three zooms.
-- Review the screen visibility carousel proposals before implementing settings.
+## WIDGET-STATE-01 - Widget state acceptance
+
+- Verify Visible screens saves and reloads on the board. Exercise skipping hidden
+  statistics pages, keeping Device available when all statistics pages are hidden,
+  and recovery from storage read and write failures.
+- Verify the selected statistics page resumes after standby and remote attention
+  events. Check arrow fade and touch cancellation across rotation and wake.
+- Shake to return to Reset or the first enabled statistics page. Verify the Device
+  fallback when all statistics pages are hidden.
+- Disconnect and reconnect Codex while a statistics page is selected. Verify that
+  canonical freshness changes independently of the saved visibility policy.
 
 ## Companion source selection, typography and desktop controls
 
