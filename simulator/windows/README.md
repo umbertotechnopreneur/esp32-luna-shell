@@ -34,11 +34,14 @@ The default Cody Studio opens the device preview. The existing VibeWare floppy
 plays once, then first run opens **Connections**. A retained simulator association
 opens **Device**. **BOOT / Options** opens the device menu. **PWR / Standby** toggles
 the simulated display, and **Simulate shake** returns the carousel to Device.
-The lateral arrows fade after ten seconds. A touch reveals them again.
-Options includes **Connections**, **Codex stats**, **Visible screens**, **Display**
-and **Behavior**. Brightness, orientation and visibility choices affect this
-preview session. **About** shows Studio uptime and the next page has a scannable
-project QR code and an explicit **Open link** action.
+The dashboard and Options page arrows fade after ten seconds. A touch reveals
+them again. **Options 1/2** contains **Connections**, **Codex stats** and
+**Visible screens**. The right arrow opens **Options 2/2** with **Display** and
+**Behavior**. Back from either category returns to the second Options page.
+**Go home** on either page opens Reset countdown or the first enabled statistics
+screen, with Device as the fallback. Brightness, orientation and visibility
+choices affect this preview session. **About** shows Studio uptime and the next
+page has a scannable project QR code and an explicit **Open link** action.
 
 The ten-page carousel has Device, Reset countdown, Codex limits, Today,
 Last 7 days, Token history, Credits, Codex account, Context and About, plus the

@@ -140,6 +140,7 @@ class DeviceStudioWindow:
         self.route = "connections"
         self.pairing_attempted = False
         self.page = 0
+        self.options_page = 0
         self.settings_page = 0
         self.history_window = 1
         self.visible = set(PAGES)
@@ -206,9 +207,19 @@ class DeviceStudioWindow:
         self.route = route
         self.last_navigation = time.monotonic()
 
+    # self: Active Studio preview receiving the BOOT shortcut.
     def options(self):
         if self.boot is None and not self.standby and not self.event_visible:
-            self.open("options")
+            self.show_options_page(0)
+
+    # self: Studio navigation owner.
+    # page: Options menu page reached by the lateral arrows or BOOT.
+    def show_options_page(self, page):
+        self.options_page = page
+        self.touch = None
+        self.targets.clear()
+        self.acknowledged = ()
+        self.open("options")
 
     def toggle_standby(self):
         if self.boot is not None:
@@ -236,12 +247,16 @@ class DeviceStudioWindow:
             self.page = choices[(choices.index(self.page) + step) % len(choices)]
         self.last_navigation = time.monotonic()
 
+    # self: Active Studio preview returning to the calling route or menu page.
     def back(self):
         if self.boot is None and not self.standby and not self.event_visible:
             if self.route in ("visibility", "connections", "display", "behavior"):
-                self.open("options")
+                self.show_options_page(self.options_page)
             elif self.route == "options":
-                self.open("widgets")
+                if self.options_page:
+                    self.show_options_page(0)
+                else:
+                    self.open("widgets")
 
     def pair(self, snapshot):
         if self.endpoint is None:
@@ -294,10 +309,22 @@ class DeviceStudioWindow:
         if action is not None:
             self.targets[name] = (box, action)
 
+    # self: Studio frame owner registering touch targets.
+    # draw: Logical canvas before rotation.
+    # side: Negative for Back and positive for Next.
+    # action: Callback while the control admits touch.
+    # opacity: Arrow fade fraction.
     def sidebar(self, draw, side, action, opacity=1):
         x, y = LEFT if side < 0 else RIGHT
         arrow(draw, (x, y), side, opacity)
-        self.targets[side] = ((x - 30, y - 30, x + 30, y + 30), action)
+        if action is not None:
+            self.targets[side] = ((x - 30, y - 30, x + 30, y + 30), action)
+
+    # self: Studio preview retaining the last navigation interaction.
+    # now: Monotonic frame time.
+    def navigation_opacity(self, now):
+        remaining = NAVIGATION_IDLE_SECONDS + NAVIGATION_FADE_SECONDS - (now - self.last_navigation)
+        return max(0, min(1, remaining / NAVIGATION_FADE_SECONDS))
 
     def draw_connections(self, draw, snapshot, code):
         if code or snapshot.pending_pairing:
@@ -321,18 +348,31 @@ class DeviceStudioWindow:
             self.button(draw, "Later", 313, lambda: self.open("widgets"))
         self.button(draw, "Options", 370, self.options, width=150, height=33)
 
-    def draw_options(self, draw):
-        label(draw, "Options", 103, 34)
-        rows = (
-            ("Connections", lambda: self.open("connections")),
-            ("Codex stats", self.open_statistics),
-            ("Visible screens", lambda: self.open("visibility")),
-            ("Display", lambda: self.open("display")),
-            ("Behavior", lambda: self.open("behavior")),
-        )
+    # self: Studio preview owning the active menu page and touch targets.
+    # draw: Logical canvas before rotation.
+    # now: Monotonic frame time for the lateral arrow fade.
+    def draw_options(self, draw, now):
+        label(draw, f"Options {self.options_page + 1}/2", 103, 34)
+        if self.options_page == 0:
+            rows = (
+                ("Connections", lambda: self.open("connections")),
+                ("Codex stats", self.open_statistics),
+                ("Visible screens", lambda: self.open("visibility")),
+            )
+        else:
+            rows = (
+                ("Display", lambda: self.open("display")),
+                ("Behavior", lambda: self.open("behavior")),
+            )
         for index, (name, action) in enumerate(rows):
-            self.button(draw, name, 151 + index * 44, action, height=35)
-        self.sidebar(draw, -1, self.back)
+            self.button(draw, name, 194 + index * 60, action, width=240, height=50)
+        self.button(draw, "Go home", 390, self.open_statistics, width=220, height=44)
+        opacity = self.navigation_opacity(now)
+        if opacity > 0:
+            self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
+            if self.options_page == 0:
+                next_page = (lambda: self.show_options_page(1)) if opacity == 1 else None
+                self.sidebar(draw, 1, next_page, opacity)
 
     def open_about_url(self):
         if not webbrowser.open_new_tab(ABOUT_URL):
@@ -353,6 +393,10 @@ class DeviceStudioWindow:
                     draw.rectangle((x, y, x + module - 1, y + module - 1), fill=(0, 0, 0))
         self.button(draw, "Open link", 370, self.open_about_url, width=155, height=33)
 
+    # self: Studio preview owning the selected dashboard page.
+    # draw: Logical canvas before rotation.
+    # snapshot: Current loopback projection, if available.
+    # now: Monotonic frame time for uptime and arrow fading.
     def draw_widget(self, draw, snapshot, now):
         page = PAGES[self.page] if self.page < len(PAGES) else ABOUT_INFO
         label(draw, page, 105, 27 if page == ABOUT_INFO else 33)
@@ -395,13 +439,16 @@ class DeviceStudioWindow:
                 y = 159 + index * 57
                 label(draw, name, y, 18)
                 label(draw, "Unavailable", y + 24, 16, MUTED)
-        elapsed = now - self.last_navigation
-        opacity = min(1, (NAVIGATION_IDLE_SECONDS + NAVIGATION_FADE_SECONDS - elapsed)
-                      / NAVIGATION_FADE_SECONDS)
+        opacity = self.navigation_opacity(now)
         if opacity > 0 and len(self.visible) > 1:
             self.sidebar(draw, -1, lambda: self.move(-1), opacity)
             self.sidebar(draw, 1, lambda: self.move(1), opacity)
 
+    # self: Studio preview owning the rendered route and touch targets.
+    # snapshot: Current loopback projection, if available.
+    # code: Current SIMULATED CCP code, if a pairing attempt is active.
+    # now: Monotonic frame time.
+    # Exception: Propagates drawing failures to the preview tick.
     def frame(self, snapshot, code, now):
         image = Image.new("RGB", (SIZE, SIZE), BACKGROUND)
         draw = ImageDraw.Draw(image)
@@ -417,7 +464,7 @@ class DeviceStudioWindow:
             if self.route == "connections":
                 self.draw_connections(draw, snapshot, code)
             elif self.route == "options":
-                self.draw_options(draw)
+                self.draw_options(draw, now)
             elif self.route == "visibility":
                 label(draw, "Visible screens", 103, 32)
                 name = PAGES[self.settings_page]
