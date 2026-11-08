@@ -280,8 +280,8 @@ def cloud_map(label):
     surface.roundRect(38, H - 322 - 80, W - 76, 80, 10, fill=1, stroke=0)
     copy(surface, "Private relay / identity + explicit grants + bounded delivery", 55, 337, W - 110, 16, WHITE, True)
     copy(surface, "A device ID is an address, not permission. Every send, poll and acknowledgement checks the authenticated principal and its live grant.", 55, 365, W - 110, 11, WHITE)
-    copy(surface, "Single service instance / JSON snapshots on an OS-mounted SMB/Samba share / no application database", 38, 430, W - 76, 12, TEAL, True)
-    copy(surface, "ASP.NET Core + Aspire + OpenTelemetry. Windows and Linux targets; HTTPS polling first. Storage uses standard filesystem operations, with no Azure SDK or provider API. Mount behavior, firmware, Dot integration, builds and deployment remain unverified.", 38, 466, W - 76, 11, MUTED)
+    copy(surface, "One relay instance / state, cookie protection keys and bounded logs on an OS-mounted SMB/Samba share", 38, 430, W - 76, 12, TEAL, True)
+    copy(surface, "ASP.NET Core + Aspire + OpenTelemetry; HTTPS polling first. Aspire/DCP has separate OS temporary-file and IPC requirements. Relay storage needs no Azure SDK or provider API. Hosting mode, Windows/Linux mount behavior and integration remain pending; no deployment is claimed.", 38, 466, W - 76, 11, MUTED)
     return page_finish(output, surface)
 
 
@@ -478,10 +478,10 @@ def connection_chapters(label="Communication Atlas"):
             ("4 / Grant Dot access", "The owner selects the already owned device and authorizes a particular client and scope. The server issues a separate connection credential or accepts the configured OAuth client grant. Other clients need their own grant."),
         ], label, "The server proves control of enrolled credentials and a confirmed ceremony; it cannot continuously prove who physically holds the device.")),
         ("Cloud operation and limits", cards_page("A private service using a standard mounted share", "Implementation target: ASP.NET Core .NET 10, Aspire and OpenTelemetry. Deployment is not part of this edition.", [
-            ("SMB/Samba, no application database", "One service instance owns bounded JSON snapshots on an OS-mounted SMB/Samba share. The OS handles mount authentication outside the repository. Storage uses ordinary filesystem calls, with no Azure SDK, provider API, Redis or cloud queue."),
+            ("Relay persistence on SMB/Samba", "One relay instance stores bounded JSON state, cookie protection keys and bounded operational logs on the OS-mounted share, with no local persistence fallback. The OS handles mount credentials. Local .env.local is configuration only. The relay uses no application database, Azure SDK or provider storage API."),
             ("HTTPS polling first", "Cody initiates outbound HTTPS polling and acknowledges admitted events. The relay bounds queued content, expiry and duplicate identities. No inbound device port or WebSocket transport is required for the first version."),
             ("Windows and Linux mount gates", "Verify exclusive locking, durable flush, atomic replacement and disconnect/crash handling on the actual mount for each host. No durable-write or failover guarantee follows from the design alone. A small VM on Azure or another host is an option; multiple writers are not supported."),
-            ("Observability and privacy", "Aspire composes the application and OpenTelemetry carries operational signals. Keep credentials, pairing secrets and message bodies out of telemetry. Dot's public integration, device firmware and runtime verification remain pending."),
+            ("Aspire and OpenTelemetry", "Aspire/DCP has separate OS temporary-file and IPC requirements even with the dashboard disabled. OpenTelemetry keeps bounded relay logs on the share and supports optional remote OTLP, without a local telemetry database. Exclude secrets and message bodies. Aspire for development only or also for hosting remains undecided. Runtime verification is pending."),
         ], label)),
         ("Voice and operator boundaries", cards_page("Use the operation that the current source supports", "Local customer controls, optional voice and engineering access have separate admission.", [
             ("Voice is optional", "The default device-first profile omits microphone acquisition. A voice-enabled build requires Dictation on and a current paired LAN link. Record voice or a dashboard double tap starts the documented route."),
@@ -555,7 +555,7 @@ def planning_chapters():
         ("Service operation", connection_chapters(label)[5][1]),
         ("Acceptance boundaries", cards_page("Remaining work is explicit", "No test, build, device operation or deployment is implied by document authoring.", [
             ("Host service", "Review identity-provider configuration, client/grant boundaries, token expiry/revocation, DPoP replay controls and the bounded queue. Build and runtime checks require their own authorized execution."),
-            ("Mounted SMB/Samba storage", "Verify exclusive locking, durable flush, atomic rename, disconnect/crash recovery and failure propagation on real Windows and Linux SMB mounts. Keep mount credentials in OS configuration. Bound JSON growth; use one instance and no provider-specific storage APIs."),
+            ("Mounted SMB/Samba storage", "Verify locks, durable flush, atomic rename and disconnect/crash recovery on real Windows and Linux mounts. Relay state, cookie protection keys and bounded logs must stay on the share without a local fallback. Assess Aspire/DCP temporary-file and IPC needs separately for the selected hosting mode."),
             ("Firmware", "Integrate outbound TLS, certificate/time handling, key protection, bounded polling and canonical event ownership. Budget buffers and nested stack use. Physical pairing confirmation and recovery need device evidence."),
             ("Dot and hosting", "Use only documented public integration points. Configure the agent's independently authorized connection and verify real event delivery. Azure is an optional host, not a storage API dependency. Hosting and mount configuration require separate verification; Aspire composition is not deployment evidence."),
         ], label)),

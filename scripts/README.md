@@ -242,12 +242,19 @@ The pairing flyer remains exactly four A5 pages with current instructions;
 it has no appended register or technical appendix. Current source references,
 retained correction evidence and design artwork have separate roles. Private
 cloud implementation belongs in a separate private service repository. Its PDF
-overview describes one ASP.NET Core service instance with Aspire/OpenTelemetry
-and bounded JSON snapshots on an OS-mounted SMB/Samba share. The OS handles mount
-authentication outside the repository; storage uses no Azure SDK or provider API.
-Locking, flush, atomic replacement and disconnect behavior on actual Windows and
-Linux mounts remain acceptance gates. This overview does not establish deployment,
-Dot integration or firmware support.
+overview describes one ASP.NET Core service instance with bounded JSON state,
+cookie protection keys and bounded operational logs on an OS-mounted SMB/Samba
+share. The OS handles mount authentication outside the repository; storage uses
+no Azure SDK or provider API. Local `.env.local` is configuration only; relay
+persistence has no local fallback. Aspire's default dashboard is disabled because
+it writes temporary SQLite files locally, but Aspire/DCP orchestration still has
+separate OS temporary-file and IPC requirements. The choice between Aspire for
+development only and Aspire also for hosting remains pending. OpenTelemetry
+remains active with bounded relay logs on the share and an optional remote OTLP
+endpoint, without a local telemetry database. Locking, flush, atomic replacement,
+disconnect behavior and absence of local relay persistence on actual Windows and
+Linux hosts remain acceptance gates. This overview does not establish deployment,
+Dot integration or firmware support, or absence of local tooling files.
 
 ## Host tools and output ownership
 

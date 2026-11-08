@@ -14,7 +14,8 @@
   Verify actual notification calls and acknowledgements; do not infer a complete
   internal Dot event stream.
 - Provision standard OS-mounted SMB storage with one relay instance, private
-  mount credentials, share identity and explicit initialization. Verify server
+  mount credentials, share identity, cookie keys, bounded logs and explicit
+  initialization. Keep runtime persistence on the share. Verify server
   locks, flush and atomic replacement before deployment; no Azure APIs are used.
 - Firmware integration is a later explicitly requested phase. No device cloud
   pairing or delivery behavior is established by the server implementation.
