@@ -4,7 +4,7 @@
 uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
 for pairing; public Internet availability is a separate condition.
 
-CCP **0.6.11** provides one local owner for Codex and the Windows/Linux companion
+CCP **0.6.12** provides one local owner for Codex and the Windows/Linux companion
 control panel. Codex activity and semantic questions retain their own identities.
 The panel reads genuine native MCP presence and original activity freshness.
 These changes are source-only; installation and device validation are pending.
@@ -403,13 +403,14 @@ expiry, cancellation and disconnection never invent a choice. A poll waits at mo
 Several callers may queue questions, each retaining its private capability.
 Cody browses the actual pending tickets without changing the followed PC chat;
 a reply in flight or awaiting recipient acknowledgement cannot be displaced.
-Informational notices never displace a question. A genuine `Stop` from another
-chat queues the typed **Reply ready** event once per native turn, with a bounded
-project label. Before delivery to an eligible physical Cody, the existing title
+Informational notices never displace a question. A genuine `Stop` from the
+followed chat or a background chat queues the typed **Reply ready** event once per
+native turn, with a bounded project label. An authenticated delivery can wake
+Cody from connected software standby and play the existing cue when sounds are enabled. Before delivery to an eligible physical Cody, the existing title
 owner performs one read-only lookup of that exact chat and checkout in the native
 index, without reading a transcript or changing the followed chat or its cache.
 The complete current title is used when it fits 63 printable ASCII characters;
-otherwise the body says **Open the other chat in Codex**. No GUID or guessed title
+otherwise the body says **Open Codex to read the reply**. No GUID or guessed title
 is displayed. This reports a ready response, never task success. A new prompt
 in that chat retires its old native notices; activity in another chat does not.
 Check reports need complete current data for the exact PR

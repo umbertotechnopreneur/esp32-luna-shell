@@ -60,7 +60,7 @@ ACCOUNT_DETAILS_FIELDS = ("short_reset", "short_remaining", "short_minutes", "an
                           "streak", "best", "credits", "vouchers", "plan", "messages",
                           "series", "quarter", "tokens15", "age")
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.11"
+SERVER_VERSION = "0.6.12"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CHALLENGE_TIMEOUT_SECONDS = 2.0
 MAX_DISCOVERY_OFFERS = 16
@@ -1092,7 +1092,7 @@ class CompanionResponder:
                 or re.fullmatch(r"-?[0-9]{1,10}", fields["error"]) is None
                 or not -(2 ** 31) <= int(fields["error"]) < 2 ** 31
                 or re.fullmatch(r"[0-9]{1,3}", fields["count"]) is None
-                or not 1 <= int(fields["count"]) <= 255
+                or not 0 <= int(fields["count"]) <= 255
                 or (fields["status"] == "applied") != (int(fields["error"]) == 0)):
             raise ValueError("Debug ACK result malformed")
         with self._event_lock:
@@ -1358,7 +1358,7 @@ class CcpService:
             self.interactions.retire_native(observation.session_id, interactions.EventKind.APPROVAL_ON_PC)
         approval = (observation.event == "PermissionRequest" and observation.followed
                     and observation.phase == Phase.PAUSED)
-        reply_ready = observation.reply_ready and not observation.followed
+        reply_ready = observation.event == "Stop" and observation.reply_ready
         if not approval and not reply_ready:
             if observation.event == "PermissionRequest":
                 self.trace_approval_notice(observation, "suppressed", "background_chat")
@@ -1386,7 +1386,7 @@ class CcpService:
         context = project
         kind = interactions.EventKind.APPROVAL_ON_PC if approval else interactions.EventKind.REPLY_READY
         title = "Approval needed" if approval else "Reply ready"
-        fallback_body = "Open the other chat in Codex"
+        fallback_body = "Open Codex to read the reply"
         if approval:
             fallback_body = "Chat title unavailable"
         body = observation.title or fallback_body

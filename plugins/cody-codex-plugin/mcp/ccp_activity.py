@@ -401,7 +401,7 @@ class ActivityStore:
                       f"phase={session.phase.value} compaction={session.compaction.value} "
                       f"compactseq={session.compact_sequence:016x}", file=sys.stderr, flush=True)
             # Event acceptance performs no source IO. The delivery owner may
-            # refresh this exact background completion through the title owner.
+            # refresh this exact completion through the title owner.
             notice_title = displayable_notice_title(session.chat_title, time.monotonic(), 63)
             return HookObservation(name, session_id, session.turn_id, session.project,
                                    session_id == self._followed_session_id, session.phase, reply_ready, notice_title)
@@ -422,18 +422,17 @@ class ActivityStore:
         if observation.event == "PermissionRequest":
             return current.phase == Phase.PAUSED and is_followed
         if observation.event == "Stop":
-            return current.phase == Phase.READY and not is_followed
+            return current.phase == Phase.READY
         return False
 
     # self: Canonical lifecycle owner; source reads retain their original timestamps and errors.
-    # observation: Eligible genuine approval or background reply event, never inferred from UI focus.
+    # observation: Eligible genuine approval or reply event, never inferred from UI focus.
     # Returns refreshed immutable metadata or withdraws both eligibility flags after a race.
     # Source failures remain explicit in session.chat_title and are logged by the acquisition owner.
     def refresh_notice_title(self, observation: HookObservation) -> HookObservation:
         approval = (observation.event == "PermissionRequest" and observation.followed
                     and observation.phase == Phase.PAUSED)
-        reply_ready = (observation.event == "Stop" and observation.reply_ready
-                       and not observation.followed)
+        reply_ready = observation.event == "Stop" and observation.reply_ready
         if not approval and not reply_ready:
             return observation
 
