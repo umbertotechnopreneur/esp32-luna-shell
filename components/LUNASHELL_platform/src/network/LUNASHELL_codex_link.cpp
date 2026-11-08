@@ -65,6 +65,7 @@ constexpr size_t kMaximumAccountDatagramBytes = 672;
 constexpr size_t kMaximumAccountSubscriptionDatagramBytes = 800;
 constexpr char kAccountPrefix[] = "CCP1|ACCOUNT|";
 constexpr char kAccountSubscriptionPrefix[] = "CCP1|ACCOUNT2|";
+constexpr char kVoucherPrefix[] = "CCP1|VOUCHERS|";
 constexpr size_t kMaximumActivityDatagramBytes = 2048;
 constexpr size_t kMaximumEventDatagramBytes = 4096;
 constexpr uint32_t kPbkdf2Iterations = 50000;
@@ -141,11 +142,14 @@ int64_t s_last_ready_at_us = 0;
 bool s_activity_received_for_nonce = false;
 bool s_technical_received_for_nonce = false;
 enum class WeeklyLimitExchange : uint8_t { Idle, Requested, Received };
+enum class VoucherExchange : uint8_t { Idle, Requested, Received };
 enum class AllowanceCapability : uint8_t { Legacy = 1, ExtendedDays = 2, Subscription = 3 };
 WeeklyLimitExchange s_weekly_limit_exchange = WeeklyLimitExchange::Idle;
+VoucherExchange s_voucher_exchange = VoucherExchange::Idle;
 AllowanceCapability s_allowance_capability = AllowanceCapability::Subscription;
 bool s_account_received_for_nonce = false;
 LUNASHELL::CodexAccountSnapshot s_account_candidate{};
+LUNASHELL::CodexVoucherSnapshot s_voucher_candidate{};
 // Serialized network-owner projection; large metadata never enters nested task frames.
 LUNASHELL::CodexTechnicalSnapshot s_technical_snapshot{};
 // The single CCP worker reuses this projection for pairing, READY admission and
@@ -1696,6 +1700,7 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
                 }
             }
             s_weekly_limit_exchange = WeeklyLimitExchange::Idle;
+            s_voucher_exchange = VoucherExchange::Idle;
             s_account_received_for_nonce = false;
             s_event_received_for_nonce = false;
             wipe(s_ready_nonce, sizeof(s_ready_nonce));
@@ -1734,6 +1739,7 @@ void startDiscovery()
     s_activity_received_for_nonce = false;
     s_technical_received_for_nonce = false;
     s_weekly_limit_exchange = WeeklyLimitExchange::Idle;
+    s_voucher_exchange = VoucherExchange::Idle;
     s_allowance_capability = AllowanceCapability::Subscription;
     s_account_received_for_nonce = false;
     publishLocked(State::Discovering, ESP_OK);
@@ -1892,7 +1898,7 @@ esp_err_t sendNameCapability(const ReadyResponse &response, const sockaddr_in &s
     return error;
 }
 
-enum class ObservationCapability : uint8_t { AppPresence, WeeklyLimit };
+enum class ObservationCapability : uint8_t { AppPresence, WeeklyLimit, Vouchers };
 
 // response: Authenticated current READY after the device sends COMMITTED.
 // source: Observed PC endpoint; the fixed plugin port is checked during READY admission.
@@ -1906,15 +1912,23 @@ esp_err_t sendObservationCapabilityLocked(const ReadyResponse &response, const s
         return ESP_ERR_INVALID_STATE;
     }
     const bool weekly = capability == ObservationCapability::WeeklyLimit;
-    if (weekly && s_weekly_limit_exchange != WeeklyLimitExchange::Idle) {
+    const bool vouchers = capability == ObservationCapability::Vouchers;
+    const bool allowance = weekly || vouchers;
+    if ((weekly && s_weekly_limit_exchange != WeeklyLimitExchange::Idle) ||
+        (vouchers && s_voucher_exchange != VoucherExchange::Idle)) {
         return ESP_OK;
     }
-    const unsigned version = weekly ? static_cast<unsigned>(s_allowance_capability) : 1U;
+    unsigned version = 1U;
+    if (vouchers) {
+        version = 4U;
+    } else if (weekly) {
+        version = static_cast<unsigned>(s_allowance_capability);
+    }
     auto &input = s_event_proof_input;
     uint8_t proof[32]{};
     char proof_hex[65]{};
     const int length = std::snprintf(input, sizeof(input), "%s|%s|%s|%s|%u",
-        weekly ? "allowance-cap-v1" : "app-cap-v1", response.device_id, response.pc_id, response.nonce,
+        allowance ? "allowance-cap-v1" : "app-cap-v1", response.device_id, response.pc_id, response.nonce,
         version);
     esp_err_t error = length > 0 && static_cast<size_t>(length) < sizeof(input)
         ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), input, proof)
@@ -1923,7 +1937,7 @@ esp_err_t sendObservationCapabilityLocked(const ReadyResponse &response, const s
         error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
     }
     auto &packet = s_event_ack_packet;
-    const char *kind = "APPCAP";
+    const char *kind = vouchers ? "VOUCHERCAP" : "APPCAP";
     if (weekly) {
         switch (s_allowance_capability) {
         case AllowanceCapability::Legacy: kind = "ALLOWANCECAP"; break;
@@ -1933,7 +1947,7 @@ esp_err_t sendObservationCapabilityLocked(const ReadyResponse &response, const s
     }
     const int packet_length = std::snprintf(packet, sizeof(packet),
         "CCP1|%s|device=%s|pc=%s|nonce=%s|%s=%u|proof=%s",
-        kind, response.device_id, response.pc_id, response.nonce, weekly ? "allowance" : "app", version, proof_hex);
+        kind, response.device_id, response.pc_id, response.nonce, allowance ? "allowance" : "app", version, proof_hex);
     if (error == ESP_OK) {
         error = packet_length > 0 && static_cast<size_t>(packet_length) < sizeof(packet)
             ? sendDatagram(packet, source.sin_addr, ntohs(source.sin_port),
@@ -1941,6 +1955,9 @@ esp_err_t sendObservationCapabilityLocked(const ReadyResponse &response, const s
     }
     if (error == ESP_OK && weekly) {
         s_weekly_limit_exchange = WeeklyLimitExchange::Requested;
+    }
+    if (error == ESP_OK && vouchers) {
+        s_voucher_exchange = VoucherExchange::Requested;
     }
     wipe(input, sizeof(input));
     wipe(proof, sizeof(proof));
@@ -1956,6 +1973,7 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
 {
     esp_err_t optional_app_error = ESP_OK;
     esp_err_t optional_weekly_limit_error = ESP_OK;
+    esp_err_t optional_voucher_error = ESP_OK;
     if (ntohs(source.sin_port) != kPluginPort) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -2087,6 +2105,19 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                             optional_weekly_limit_error = publication_error != ESP_OK ? publication_error :
                                 account_error != ESP_OK ? account_error : allowance_error;
                         }
+                        const esp_err_t voucher_error = sendObservationCapabilityLocked(response, source,
+                            ObservationCapability::Vouchers);
+                        if (voucher_error != ESP_OK) {
+                            s_voucher_candidate = {};
+                            s_voucher_candidate.last_attempt_at_us = esp_timer_get_time();
+                            s_voucher_candidate.last_error = voucher_error;
+                            s_voucher_candidate.health = LUNASHELL::DeviceHealth::Degraded;
+                            const esp_err_t publication_error =
+                                LUNASHELL::DeviceSnapshotService::instance().reportCodexVouchers(s_voucher_candidate);
+                            ESP_LOGE(kTag, "Optional CCP voucher capability failed (%s)",
+                                esp_err_to_name(voucher_error));
+                            optional_voucher_error = publication_error != ESP_OK ? publication_error : voucher_error;
+                        }
                     }
                     if (newly_connected) {
                         ESP_LOGI(kTag, "CCP peer authenticated");
@@ -2123,6 +2154,9 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
         error = optional_app_error;
         if (error == ESP_OK) {
             error = optional_weekly_limit_error;
+        }
+        if (error == ESP_OK) {
+            error = optional_voucher_error;
         }
         if (error == ESP_OK) {
             error = clock_error != ESP_OK ? clock_error : name_error;
@@ -2571,7 +2605,7 @@ bool parseTechnicalCount(const char *value, bool &present, uint64_t &output)
     return true;
 }
 
-enum class AccountPacket : uint8_t { WeeklyLimit, Summary, Subscription };
+enum class AccountPacket : uint8_t { WeeklyLimit, Summary, Subscription, Vouchers };
 constexpr uint64_t kLastAccountEpoch = 253402300799; // 9999-12-31 23:59:59 UTC
 
 // source: Exact UDP source, checked against the current authenticated READY endpoint.
@@ -2589,12 +2623,19 @@ esp_err_t admitAccountPacketLocked(const sockaddr_in &source, char *const *value
         return error;
     }
     const bool weekly = kind == AccountPacket::WeeklyLimit;
-    if (s_weekly_limit_exchange == WeeklyLimitExchange::Idle ||
-        (weekly ? s_weekly_limit_exchange == WeeklyLimitExchange::Received : s_account_received_for_nonce)) {
-        return ESP_ERR_INVALID_STATE;
+    const bool vouchers = kind == AccountPacket::Vouchers;
+    if (vouchers) {
+        if (s_voucher_exchange != VoucherExchange::Requested) {
+            return ESP_ERR_INVALID_STATE;
+        }
+    } else {
+        if (s_weekly_limit_exchange == WeeklyLimitExchange::Idle ||
+            (weekly ? s_weekly_limit_exchange == WeeklyLimitExchange::Received : s_account_received_for_nonce)) {
+            return ESP_ERR_INVALID_STATE;
+        }
     }
     const bool subscription = kind == AccountPacket::Subscription;
-    if (!weekly && subscription != (s_allowance_capability == AllowanceCapability::Subscription)) {
+    if (!weekly && !vouchers && subscription != (s_allowance_capability == AllowanceCapability::Subscription)) {
         return ESP_ERR_INVALID_STATE;
     }
     if (s_last_ready_at_us <= 0 || received_at_us < s_last_ready_at_us ||
@@ -2602,7 +2643,9 @@ esp_err_t admitAccountPacketLocked(const sockaddr_in &source, char *const *value
         return ESP_ERR_TIMEOUT;
     }
     const char *domain = "account-v1";
-    if (weekly) {
+    if (vouchers) {
+        domain = "vouchers-v1";
+    } else if (weekly) {
         domain = "allowance-v1";
     } else if (subscription) {
         domain = "account-v2";
@@ -2763,6 +2806,42 @@ bool parseAccountCount(const char *text, bool &present, uint32_t &value)
     return true;
 }
 
+// text: Up to eight canonical uint32 UTC values, known-empty "none", or unavailable "-".
+// vouchers: Worker-owned candidate; zero dates explicitly mean no expiry.
+// Exception: Rejects partial, overflowing or oversized lists without publishing the candidate.
+bool parseVoucherExpiries(const char *text, LUNASHELL::CodexVoucherSnapshot &vouchers)
+{
+    if (std::strcmp(text, "-") == 0) {
+        return true;
+    }
+    vouchers.expiries_valid = true;
+    if (std::strcmp(text, "none") == 0) {
+        return true;
+    }
+    const char *cursor = text;
+    while (vouchers.expiry_count < LUNASHELL::CodexVoucherSnapshot::kMaximumExpiries) {
+        const char *separator = std::strchr(cursor, ',');
+        const size_t length = separator == nullptr ? std::strlen(cursor) :
+            static_cast<size_t>(separator - cursor);
+        char field[11]{};
+        if (length == 0 || length >= sizeof(field)) {
+            return false;
+        }
+        std::memcpy(field, cursor, length);
+        bool present = false;
+        uint32_t expiry = 0;
+        if (!parseAccountCount(field, present, expiry) || !present) {
+            return false;
+        }
+        vouchers.expiries_unix_seconds[vouchers.expiry_count++] = expiry;
+        if (separator == nullptr) {
+            return true;
+        }
+        cursor = separator + 1;
+    }
+    return false;
+}
+
 // text: A native balance as milli-credits, unlimited or the unavailable sentinel.
 // account: Scratch projection retaining independent credit availability.
 bool parseAccountCredits(const char *text, LUNASHELL::CodexAccountSnapshot &account)
@@ -2920,6 +2999,62 @@ esp_err_t acceptAccount(const char *payload, const sockaddr_in &source, AccountP
     if (error == ESP_OK) {
         s_account_received_for_nonce = true;
         LUNASHELL::codex_saved::remember_account(s_link_snapshot.paired_pc_id, account);
+    }
+    return error;
+}
+
+// payload: Self-contained signed voucher generation, count, expiry list and original source age.
+// source: Current authenticated physical READY endpoint; never a payload-supplied address.
+// Exception: Returns original schema, replay, authentication or canonical publication errors.
+esp_err_t acceptVouchers(const char *payload, const sockaddr_in &source)
+{
+    constexpr const char *names[] = {
+        "device", "pc", "nonce", "series", "available", "expiries", "age", "proof",
+    };
+    char *values[8]{};
+    if (std::strlen(payload) > kMaximumDatagramBytes) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    if (!parseEventFields(payload, kVoucherPrefix, names, 8, values)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const int64_t received_at_us = esp_timer_get_time();
+    std::lock_guard<std::mutex> guard(s_mutex);
+    esp_err_t error = admitAccountPacketLocked(source, values, 7, AccountPacket::Vouchers, received_at_us);
+    if (error != ESP_OK) {
+        return error;
+    }
+
+    // The serialized owner replaces all fields together; old-account details never fill gaps.
+    s_voucher_candidate = {};
+    auto &vouchers = s_voucher_candidate;
+    const bool series_present = std::strcmp(values[3], "-") != 0;
+    bool age_present = false;
+    uint64_t age_us = 0;
+    if ((series_present && (!parseTechnicalSequence(values[3], vouchers.series) || vouchers.series == 0)) ||
+        !parseAccountCount(values[4], vouchers.available_valid, vouchers.available) ||
+        !parseVoucherExpiries(values[5], vouchers) ||
+        !parseTechnicalDuration(values[6], age_present, age_us)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const bool has_data = vouchers.available_valid || vouchers.expiries_valid;
+    if (has_data != age_present || has_data != series_present ||
+        (vouchers.available_valid && vouchers.expiry_count > vouchers.available)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    vouchers.last_attempt_at_us = received_at_us;
+    vouchers.last_error = ESP_ERR_NOT_FOUND;
+    if (has_data) {
+        vouchers.source_age_at_receive_ms = static_cast<uint32_t>(age_us / 1000U);
+        vouchers.last_success_at_us = received_at_us;
+        vouchers.last_error = ESP_OK;
+        vouchers.health = LUNASHELL::DeviceHealth::Ready;
+        vouchers.data_valid = true;
+        LUNASHELL::age_codex_account_sample(vouchers, vouchers.source_age_at_receive_ms, true, received_at_us);
+    }
+    error = LUNASHELL::DeviceSnapshotService::instance().reportCodexVouchers(vouchers);
+    if (error == ESP_OK) {
+        s_voucher_exchange = VoucherExchange::Received;
     }
     return error;
 }
@@ -3926,6 +4061,13 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
             }
             return;
         }
+        if (std::strncmp(payload, kVoucherPrefix, sizeof(kVoucherPrefix) - 1) == 0) {
+            const esp_err_t error = acceptVouchers(payload, source);
+            if (error != ESP_OK) {
+                reportDatagramRejection("VOUCHERS", error);
+            }
+            return;
+        }
         if (std::strncmp(payload, "CCP1|CLOCK|", 11) == 0) {
             const esp_err_t error = acceptClock(payload, source);
             if (error != ESP_OK) {
@@ -4129,6 +4271,7 @@ void maintainState()
                 s_activity_received_for_nonce = false;
                 s_technical_received_for_nonce = false;
                 s_weekly_limit_exchange = WeeklyLimitExchange::Idle;
+                s_voucher_exchange = VoucherExchange::Idle;
                 s_allowance_capability = AllowanceCapability::Subscription;
                 s_account_received_for_nonce = false;
                 publishLocked(State::Discovering, ESP_ERR_TIMEOUT);

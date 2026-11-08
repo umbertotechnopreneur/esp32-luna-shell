@@ -22,6 +22,10 @@ constexpr CODY2D::Rect kDetail{73, 202, 320, 28};
 constexpr CODY2D::Rect kSingleAction{103, 269, 260, 50};
 constexpr CODY2D::Rect kFirstAction{103, 255, 260, 50};
 constexpr CODY2D::Rect kSecondAction{103, 322, 260, 50};
+// Keep the complete action clear of the shared battery banner at y=397.
+constexpr CODY2D::Rect kDashboardSingleAction{113, 288, 240, 72};
+constexpr CODY2D::Rect kDashboardFirstAction{73, 260, 154, 104};
+constexpr CODY2D::Rect kDashboardSecondAction{239, 260, 154, 104};
 constexpr uint16_t kWhite = 0xF7BE;
 constexpr uint16_t kAccent = 0x6F9E;
 constexpr uint16_t kMuted = 0x9CF3;
@@ -449,10 +453,11 @@ esp_err_t draw_device_chrome(const DeviceChrome &chrome, CODY2D::Surface strip,
 // first: Optional primary action.
 // second: Optional secondary action.
 // extra: Optional third status line.
+// action_layout: Dashboard uses the approved paired cards or one wide centered capsule.
 // Exception: Returns the original bounded text or preparation error.
 esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     const char *heading, const char *status, const char *detail, const char *first, const char *second,
-    const char *extra)
+    const char *extra, DeviceMessageActions action_layout)
 {
     frame = {};
     view.overview.valid = false;
@@ -469,7 +474,7 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
             return ESP_ERR_INVALID_SIZE;
         }
     }
-    if (plain.valid && plain.text == text) {
+    if (plain.valid && plain.text == text && plain.action_layout == action_layout) {
         attach_message(plain, frame);
         return ESP_OK;
     }
@@ -478,6 +483,7 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     }
     plain.valid = false;
     plain.text = text;
+    plain.action_layout = action_layout;
     plain.captions = {};
     plain.actions = {};
 
@@ -489,14 +495,24 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
         error = prepare_line(plain.text[2].data(), SceneData::body_font, kDetail, kMuted, plain.captions[2]);
     }
     if (error == ESP_OK) {
-        error = prepare_line(plain.text[5].data(), SceneData::body_font, {73, 234, 320, 27}, kWhite, plain.captions[3]);
+        const uint16_t top = action_layout == DeviceMessageActions::Dashboard ? 230 : 234;
+        error = prepare_line(plain.text[5].data(), SceneData::body_font, {73, top, 320, 27}, kWhite, plain.captions[3]);
     }
     const bool two_actions = plain.text[3][0] != '\0' && plain.text[4][0] != '\0';
+    const bool dashboard_actions = action_layout == DeviceMessageActions::Dashboard;
+    const auto single_bounds = dashboard_actions ? kDashboardSingleAction : kSingleAction;
+    const auto first_bounds = dashboard_actions ? kDashboardFirstAction : kFirstAction;
+    const auto second_bounds = dashboard_actions ? kDashboardSecondAction : kSecondAction;
     if (error == ESP_OK) {
-        error = prepare_action(plain.text[3].data(), two_actions ? kFirstAction : kSingleAction, true, plain.actions[0]);
+        error = prepare_action(plain.text[3].data(), two_actions ? first_bounds : single_bounds, true, plain.actions[0]);
     }
     if (error == ESP_OK) {
-        error = prepare_action(plain.text[4].data(), two_actions ? kSecondAction : kSingleAction, false, plain.actions[1]);
+        error = prepare_action(plain.text[4].data(), two_actions ? second_bounds : single_bounds, false, plain.actions[1]);
+    }
+    if (dashboard_actions && !two_actions) {
+        for (auto &action : plain.actions) {
+            if (action.enabled) action.corner_radius = action.bounds.height / 2U;
+        }
     }
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Message layout failed (%s)", esp_err_to_name(error));
@@ -506,6 +522,66 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     plain.valid = true;
     attach_message(plain, frame);
     return ESP_OK;
+}
+
+// view: Stable glyph and action buffers whose lifetime covers native frame retirement.
+// frame: Receives a live-only detail or warning page with bounded native controls.
+// model: Current voucher identities and canonical clock; no saved snapshot is consulted.
+// Exception: Preserves UTC conversion, bounded formatting and native preparation errors.
+esp_err_t prepare_device_vouchers(DeviceView &view, DeviceFrameContent &frame, const DeviceModel &model)
+{
+    const auto &data = model.dashboard;
+    const auto &vouchers = model.vouchers;
+    const bool warning = vouchers.page == VoucherPage::Warning;
+    if (!device_voucher_expiries_current(data)) {
+        const char *status = data.vouchers.data_stale ? "Voucher data is stale" : "Expiry data unavailable";
+        return prepare_device_message(view, frame, "Reset vouchers", status, "Live Codex data required",
+            "Done", nullptr, "", DeviceMessageActions::Dashboard);
+    }
+    if (vouchers.expiry_count == 0) {
+        const char *status = data.vouchers.available_valid && data.vouchers.available == 0
+            ? "No reset vouchers" : "No expiry dates reported";
+        return prepare_device_message(view, frame, "Reset vouchers", status, "", "Done", nullptr, "",
+            DeviceMessageActions::Dashboard);
+    }
+
+    const auto expiry = warning ? vouchers.warning_expiry : vouchers.selected_expiry;
+    const auto end = vouchers.expiries.begin() + vouchers.expiry_count;
+    const auto selected = std::find(vouchers.expiries.begin(), end, expiry);
+    if (selected == end) return ESP_ERR_INVALID_STATE;
+    char heading[32]{};
+    const int written = warning ? std::snprintf(heading, sizeof(heading), "Reset voucher expiring") :
+        std::snprintf(heading, sizeof(heading), "Voucher expiry %u of %u",
+            static_cast<unsigned>(selected - vouchers.expiries.begin() + 1),
+            static_cast<unsigned>(vouchers.expiry_count));
+    if (written < 0 || static_cast<size_t>(written) >= sizeof(heading)) return ESP_ERR_INVALID_SIZE;
+    char date[32]{};
+    char time[32]{};
+    const char *status = "No expiry";
+    const char *detail = "Reported by Codex";
+    const char *extra = "";
+    if (expiry != 0) {
+        const auto instant = static_cast<time_t>(expiry);
+        std::tm calendar{};
+        if (static_cast<uint64_t>(instant) != expiry || gmtime_r(&instant, &calendar) == nullptr) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (std::strftime(date, sizeof(date), "%Y-%m-%d", &calendar) == 0 ||
+            std::strftime(time, sizeof(time), "%H:%M:%S UTC", &calendar) == 0) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        status = date;
+        detail = time;
+        if (warning) extra = "Expires within 24 hours";
+        else if (data.clock.data_stale) extra = "Clock data is stale";
+        else if (!current(data.clock) || data.clock.utc_epoch_seconds <= 0) extra = "Clock unavailable";
+        else if (data.clock.utc_epoch_seconds >= expiry) extra = "Expired";
+        else extra = "Exact UTC time";
+    }
+    const bool paging = !warning && vouchers.expiry_count > 1;
+    return prepare_device_message(view, frame, heading, status, detail,
+        warning ? "Dismiss" : paging ? "Prev" : "Done", paging ? "Next" : nullptr, extra,
+        DeviceMessageActions::Dashboard);
 }
 
 // view: Presentation matching the last retired frame.

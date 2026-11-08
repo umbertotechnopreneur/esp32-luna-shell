@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include "CODY_battery_alerts.hpp"
 #include "CODY_device_effects.hpp"
 #include "CODY_local_timer.hpp"
@@ -18,6 +20,7 @@ namespace CODY {
 struct DeviceDashboardData {
     LUNASHELL::CodexWeeklyLimitSnapshot weekly{};
     LUNASHELL::CodexAccountSnapshot details{};
+    LUNASHELL::CodexVoucherSnapshot vouchers{};
     LUNASHELL::CodexSavedSnapshot saved{};
     LUNASHELL::CodexTokenIntervalsSnapshot intervals{};
     LUNASHELL::ClockSnapshot clock{};
@@ -36,6 +39,22 @@ struct DeviceDashboardData {
 
 enum class VisibilitySave : uint8_t { Idle, Pending, Failed };
 
+enum class VoucherPage : uint8_t { Closed, Details, Warning };
+
+// Expiry instants identify cards and dismissals; source order never identifies a voucher.
+// This bounded, volatile state is deliberately absent from the saved account schema.
+struct VoucherModel {
+    std::array<uint32_t, LUNASHELL::CodexVoucherSnapshot::kMaximumExpiries> expiries{};
+    std::array<uint32_t, LUNASHELL::CodexVoucherSnapshot::kMaximumExpiries> dismissed{};
+    uint64_t series = 0;
+    uint32_t selected_expiry = 0;
+    uint32_t warning_expiry = 0;
+    uint8_t expiry_count = 0;
+    uint8_t dismissed_count = 0;
+    VoucherPage page = VoucherPage::Closed;
+};
+static_assert(sizeof(VoucherModel) <= 96, "Voucher cards and dismissal identities stay bounded in RAM");
+
 struct DeviceModel {
     DeviceEffectsModel effects{};
     LocalTimerModel timer{};
@@ -43,6 +62,7 @@ struct DeviceModel {
     WidgetRouteState widgets{};
     WidgetVisibility draft{};
     DeviceDashboardData dashboard{};
+    VoucherModel vouchers{};
     LUNASHELL::DiagnosticsObservation diagnostics{};
     InfoPage info_page = InfoPage::System;
     esp_err_t diagnostics_error = ESP_ERR_INVALID_STATE;
@@ -65,8 +85,24 @@ struct DeviceModel {
     bool editing = false;
 };
 
-// Refreshes the canonical weekly limit and clock shared by all awake screens.
+// data: Receives canonical weekly, voucher and clock observations shared by awake screens.
 void update_device_observations(DeviceDashboardData &data);
+
+// data: Canonical live voucher projection and authenticated app presence.
+bool device_voucher_expiries_current(const DeviceDashboardData &data);
+
+// model: Refreshes exact expiry identities without retaining stale dates for presentation.
+void update_device_vouchers(DeviceModel &model);
+
+// model: Current live dates, trusted clock and per-account dismissal identities.
+uint32_t pending_device_voucher_warning(const DeviceModel &model);
+
+// model: Receives a once-per-expiry dismissal for the current account and uptime.
+void dismiss_device_voucher_warning(DeviceModel &model);
+
+// model: Current unique expiry cards and selected exact instant.
+// step: Explicit previous or next card direction; navigation wraps the bounded list.
+void step_device_voucher(VoucherModel &model, WidgetStep step);
 
 // data: Historical data admitted for the retained pairing while Codex is unavailable.
 // screen: Current dashboard page, used to select its independent saved source.

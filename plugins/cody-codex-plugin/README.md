@@ -4,7 +4,7 @@
 uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
 for pairing; public Internet availability is a separate condition.
 
-CCP **0.6.17** provides one local owner for Codex and the Windows/Linux companion
+CCP **0.6.18** provides one local owner for Codex and the Windows/Linux companion
 control panel. Codex activity and semantic questions retain their own identities.
 The panel reads genuine native MCP presence and original activity freshness.
 Its signed READY handshake retains the 0.6.4 endpoint-binding contract. Signed READY binds a fresh
@@ -230,7 +230,8 @@ commands, tool inputs and chat text are never included in this trace.
 
 On a paired physical Cody, open **Codex Usage** to view the account allowance
 and reset countdown, service-reported daily tokens, credits, reset
-vouchers and the current ChatGPT plan when available. Cody uses the existing
+vouchers and the current ChatGPT plan when available. CCP 0.6.18 also carries
+the earliest reported expiry dates for available reset vouchers. Cody uses the existing
 authenticated pairing. The plugin resolves the installed native Codex
 executable from its search path and uses its existing ChatGPT sign-in. The
 five-hour graph shows observed changes in the account's reported
@@ -294,8 +295,10 @@ Dependency installation runs only with `-InstallAudioDependencies`.
 
 The read-only setup probe checks the exact hook-observed chat and public queue,
 then checks that the followed chat did not change. It saves no API keys or tokens
-and submits no audio. Invalid previous settings require explicit review; the old
-endpoint configuration is not migrated or silently replaced. An intentional
+and submits no audio. Run setup again after a Desktop update removes the
+previously configured executable. Setup replaces that path after the new
+executable passes the probe. Malformed settings and old endpoint configuration
+require explicit review. An intentional
 `CODY_CODEX_AUDIO_EXECUTABLE` environment override is supported; remove it before
 saving installation settings. Obsolete endpoint/token environment settings fail
 explicitly instead of activating a fallback.

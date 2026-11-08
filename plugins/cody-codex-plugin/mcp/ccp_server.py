@@ -34,7 +34,7 @@ import threading
 import time
 from typing import Any
 
-from ccp_account_limits import AccountDetails, AccountObservation, AccountUsageReader
+from ccp_account_limits import AccountDetails, AccountObservation, AccountUsageReader, FRESH_SECONDS
 from ccp_activity import ActivityStore, HookObservation, Phase
 import ccp_interactions as interactions
 import ccp_reset as reset
@@ -62,8 +62,9 @@ ACCOUNT_DETAILS_FIELDS = ("short_reset", "short_remaining", "short_minutes", "an
                           "streak", "best", "credits", "vouchers", "plan", "messages",
                           "series", "quarter", "tokens15", "age")
 SUBSCRIPTION_FIELDS = ("plan_label", "plan_icon", "plan_price")
+VOUCHER_FIELDS = ("series", "available", "expiries", "age")
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.17"
+SERVER_VERSION = "0.6.18"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CHALLENGE_TIMEOUT_SECONDS = 2.0
 MAX_DISCOVERY_OFFERS = 16
@@ -237,6 +238,24 @@ def account_details_values(details: AccountDetails | None, now: float, *, extend
     ]
     values.append(int((now - details.observed_at) * 1000) if any(value is not None for value in values) else None)
     return ["-" if value is None else str(value) for value in values]
+
+
+# details: Immutable cached account projection owned by the existing limits reader.
+# now: Current monotonic time, compared only with the original rate-limit receipt.
+def voucher_values(details: AccountDetails | None, now: float) -> list[str]:
+    if (details is None or details.voucher_observed_at is None or details.voucher_series is None
+            or not 0 <= now - details.voucher_observed_at < FRESH_SECONDS
+            or (details.vouchers is None and details.voucher_expiries is None)):
+        return ["-"] * len(VOUCHER_FIELDS)
+    expiries = details.voucher_expiries
+    if expiries is None:
+        expiry_value = "-"
+    elif expiries:
+        expiry_value = ",".join(str(expiry) for expiry in expiries)
+    else:
+        expiry_value = "none"
+    return [details.voucher_series, "-" if details.vouchers is None else str(details.vouchers),
+            expiry_value, str(int((now - details.voucher_observed_at) * 1000))]
 
 
 # fields: Parsed offer fields.
@@ -735,6 +754,9 @@ class CompanionResponder:
         if kind in {"ALLOWANCECAP", "ALLOWANCECAP2", "ALLOWANCECAP3"}:
             self._accept_allowance_capability(fields, source, version=kind[-1] if kind != "ALLOWANCECAP" else "1")
             return
+        if kind == "VOUCHERCAP":
+            self._accept_allowance_capability(fields, source, version="4")
+            return
         if kind != "FIND":
             return
         field_names = set(fields)
@@ -936,6 +958,20 @@ class CompanionResponder:
                     or not hmac.compare_digest(make_proof(peer.key, "allowance-cap-v1", fields["device"],
                         fields["pc"], fields["nonce"], version), fields["proof"])):
                 raise ValueError("Weekly allowance capability authentication failed")
+
+            if version == "4":
+                details = None
+                if self.app_presence.snapshot().state == AppState.OPEN:
+                    details = self._account_usage.voucher_details()
+                else:
+                    self._account_usage.invalidate()
+                values = [fields["device"], fields["pc"], fields["nonce"]]
+                values.extend(voucher_values(details, time.monotonic()))
+                payload = encode_datagram("VOUCHERS", list(zip(
+                    ("device", "pc", "nonce", *VOUCHER_FIELDS), values))
+                    + [("proof", make_proof(peer.key, "vouchers-v1", *values))])
+                self._socket.sendto(payload, source)
+                return
 
             account = AccountObservation()
             if self.app_presence.snapshot().state == AppState.OPEN:

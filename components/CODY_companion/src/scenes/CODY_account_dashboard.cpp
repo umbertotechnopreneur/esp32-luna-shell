@@ -467,7 +467,7 @@ void format_credits(uint64_t value, char (&text)[32])
     format_grouped_count(whole, text);
 }
 
-// presentation: Fixed owner of the label and its noninteractive ticket outline.
+// presentation: Fixed owner of the label and its ticket outline inside the voucher hit area.
 // top: Upper edge of the ticket caption's 40-pixel slot.
 // Exception: Preserves original native glyph, geometry or bounded-capacity errors.
 esp_err_t add_voucher_label(AccountDashboardPresentation &presentation, uint16_t top)
@@ -535,6 +535,8 @@ esp_err_t prepare_credits(AccountDashboardPresentation &presentation, const LUNA
     format_grouped_count(account.reset_vouchers, count);
     error = add_voucher_label(presentation, balance ? 274 : 170);
     if (error != ESP_OK) { return error; }
+    // The complete label/value area stays inside the safe square and clear of navigation.
+    presentation.voucher_bounds = balance ? CODY2D::Rect{73, 274, 320, 82} : CODY2D::Rect{73, 170, 320, 122};
     return balance ? add_value(presentation, count, 314, kGold) :
         add_hero(presentation, count, {73, 212, 320, 80}, 2, kGold);
 }
@@ -900,6 +902,7 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     presentation.caption_count = 0;
     presentation.bar_count = 0;
     presentation.account_status_dot = {};
+    presentation.voucher_bounds = {};
     presentation.plan_icon = CODY2D::ActionIcon::None;
     presentation.plan_mask_valid = false;
     presentation.page = page;
@@ -986,6 +989,7 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
     presentation.caption_count = 0;
     presentation.bar_count = 0;
     presentation.account_status_dot = {};
+    presentation.voucher_bounds = {};
     presentation.plan_icon = CODY2D::ActionIcon::None;
     presentation.plan_mask_valid = false;
     presentation.title_font = &title_font;

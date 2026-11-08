@@ -26,6 +26,7 @@ MAX_UINT32 = (1 << 32) - 1
 MAX_UINT64 = (1 << 64) - 1
 EPOCH_DAY = date(1970, 1, 1)
 DAILY_BUCKET_COUNT = 8
+VOUCHER_EXPIRY_COUNT = 8
 DAY_SECONDS = 24 * 60 * 60
 QUARTER_SECONDS = 15 * 60
 QUARTERS_PER_DAY = DAY_SECONDS // QUARTER_SECONDS
@@ -90,6 +91,9 @@ class AccountDetails:
     messages: int | None = None
     quarter_tokens: QuarterTokens | None = None
     raw_plan: str | None = None
+    voucher_expiries: tuple[int, ...] | None = None
+    voucher_observed_at: float | None = None
+    voucher_series: str | None = None
 
 
 @dataclass(frozen=True)
@@ -161,6 +165,44 @@ def read_allowance_windows(bucket: dict | None, observed_at: float) -> tuple[
 # maximum: Wire-domain upper bound.
 def unsigned_field(value, maximum: int) -> int | None:
     return value if type(value) is int and 0 <= value <= maximum else None
+
+
+# vouchers: Optional rateLimitResetCredits object from the original limits read.
+# available_count: Independent authoritative count from that same response, if reported.
+def read_voucher_expiries(vouchers: object, available_count: int | None) -> tuple[int, ...] | None:
+    rows = vouchers.get("credits") if isinstance(vouchers, dict) else None
+    if not isinstance(rows, list):
+        return None
+    identities: set[str] = set()
+    earliest: list[int] = []
+    reported_available = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            return None
+        identity = row.get("id")
+        status = row.get("status")
+        if (not isinstance(identity, str) or not identity or identity in identities
+                or not isinstance(status, str) or not status):
+            return None
+        identities.add(identity)
+        if status != "available":
+            continue
+        reported_available += 1
+        if available_count is not None and reported_available > available_count:
+            return None
+        # Only an explicit null means no expiry. Missing or malformed dates
+        # make details unavailable without discarding the independent count.
+        if "expiresAt" not in row:
+            return None
+        expiry = row["expiresAt"]
+        if expiry is None:
+            expiry = 0
+        elif type(expiry) is not int or not 1 <= expiry <= MAX_UINT32:
+            return None
+        earliest.append(expiry)
+        earliest.sort(key=lambda value: (value == 0, value))
+        del earliest[VOUCHER_EXPIRY_COUNT:]
+    return tuple(earliest)
 
 
 # value: App Server planType from the verified ChatGPT account.
@@ -308,6 +350,8 @@ class AccountLimitClient(NativeAppServer):
         weekly, short, short_minutes = read_allowance_windows(bucket, limits_at)
         vouchers = limits.get("rateLimitResetCredits") if limits is not None else None
         voucher_count = unsigned_field(vouchers.get("availableCount"), MAX_UINT32) if isinstance(vouchers, dict) else None
+        voucher_expiries = read_voucher_expiries(vouchers, voucher_count)
+        voucher_observed_at = limits_at if voucher_count is not None or voucher_expiries is not None else None
         plan_type = account.get("planType")
         raw_plan = (plan_type if isinstance(plan_type, str) and
                     re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,47}", plan_type) is not None else None)
@@ -316,11 +360,12 @@ class AccountLimitClient(NativeAppServer):
         details_at = None
         if raw_plan is not None:
             details_at = account_at
-        elif short is not None or credits is not None or voucher_count is not None:
+        elif short is not None or credits is not None or voucher_observed_at is not None:
             details_at = limits_at
         details = AccountDetails(details_at if details_at is not None else limits_at,
                                  short_window=short, short_minutes=short_minutes,
-                                 credits=credits, vouchers=voucher_count, plan=plan, raw_plan=raw_plan)
+                                 credits=credits, vouchers=voucher_count, plan=plan, raw_plan=raw_plan,
+                                 voucher_expiries=voucher_expiries, voucher_observed_at=voucher_observed_at)
         baseline = AccountObservation(weekly, details if details_at is not None else None)
 
         try:
@@ -367,6 +412,7 @@ class AccountUsageReader:
         self._observation = AccountObservation()
         self._account: dict | None = None
         self._series = secrets.randbelow(MAX_UINT64) + 1
+        self._voucher_series = 0
         self._sample: AccountTokenSample | None = None
         self._quarter_tokens: QuarterTokens | None = None
         self._continuity_floor: int | None = None
@@ -394,6 +440,11 @@ class AccountUsageReader:
             return AccountObservation(
                 weekly if weekly is not None and 0 <= now - weekly.observed_at < FRESH_SECONDS else None,
                 details if details is not None and 0 <= now - details.observed_at < FRESH_SECONDS else None)
+
+    # self: Existing account owner; returns immutable cached details without a remote read.
+    def voucher_details(self) -> AccountDetails | None:
+        with self._lock:
+            return None if self._closed else self._observation.details
 
     # self: Existing native-lease owner has lost evidence of an open Codex transport.
     def invalidate(self) -> None:
@@ -434,6 +485,10 @@ class AccountUsageReader:
             if self._account is not None and account != self._account:
                 self._reset_series()
                 self._observation = AccountObservation()
+            if account != self._account:
+                generation = secrets.randbelow(MAX_UINT64) + 1
+                self._voucher_series = (generation if generation != self._voucher_series
+                                        else generation % MAX_UINT64 + 1)
             self._account = account
 
     # self: Sole interval owner, called with its lock held after account verification.
@@ -520,5 +575,7 @@ class AccountUsageReader:
                 quarter_tokens = self._observe_quarter(sample) if sample is not None else self._quarter_tokens
                 if observation.details is not None:
                     observation = replace(observation, details=replace(
-                        observation.details, quarter_tokens=quarter_tokens))
+                        observation.details, quarter_tokens=quarter_tokens,
+                        voucher_series=(f"{self._voucher_series:016x}"
+                                        if observation.details.voucher_observed_at is not None else None)))
                 self._observation = observation

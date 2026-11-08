@@ -433,6 +433,21 @@ struct CodexAccountSnapshot : ComponentSnapshot {
 static_assert(sizeof(CodexAccountSnapshot) <= 256,
     "Account reads must remain bounded independently of the full hardware snapshot");
 
+// Live reset-voucher observations stay separate from saved account summaries.
+// A zero expiry explicitly means no expiry; absent details never imply no expiry.
+struct CodexVoucherSnapshot : ComponentSnapshot {
+    static constexpr size_t kMaximumExpiries = 8;
+    uint64_t series = 0;
+    uint32_t expiries_unix_seconds[kMaximumExpiries]{};
+    uint32_t available = 0;
+    uint32_t source_age_at_receive_ms = 0;
+    uint8_t expiry_count = 0;
+    bool available_valid = false;
+    bool expiries_valid = false;
+};
+static_assert(sizeof(CodexVoucherSnapshot) <= 88,
+    "Voucher reads must remain a bounded projection outside account and hardware copies");
+
 // Explicit historical projection. Neither saved sample carries a live transport lease.
 struct CodexSavedSnapshot {
     CodexWeeklyLimitSnapshot weekly{};
@@ -1274,6 +1289,12 @@ public:
     // account: Current authenticated App Server projection, with missing fields explicit.
     // Exception: Returns the original canonical lock or release error.
     esp_err_t readCodexAccount(CodexAccountSnapshot &account) const;
+    // vouchers: Live voucher projection with independent count and expiry availability.
+    // Exception: Returns the original canonical lock or release error.
+    esp_err_t readCodexVouchers(CodexVoucherSnapshot &vouchers) const;
+    // vouchers: Authenticated self-contained account generation and source observation.
+    // Exception: Returns the original canonical publication error.
+    esp_err_t reportCodexVouchers(const CodexVoucherSnapshot &vouchers);
 
     // saved: Receives only historical data admitted for the retained PC pairing.
     // Exception: Returns the original snapshot lock or release error.

@@ -191,6 +191,7 @@ LUNASHELL::DeviceSnapshot &s_snapshot = *new (s_snapshot_storage) LUNASHELL::Dev
 // never enlarge full hardware copies or enter generic diagnostics.
 LUNASHELL::CodexWeeklyLimitSnapshot s_codex_weekly_limit{};
 LUNASHELL::CodexAccountSnapshot s_codex_account{};
+LUNASHELL::CodexVoucherSnapshot s_codex_vouchers{};
 LUNASHELL::CodexTokenIntervalsSnapshot s_codex_token_intervals{};
 uint64_t s_codex_token_series = 0;
 // Full acquisition owns both buffers under s_refresh_mutex, including summary logging.
@@ -2964,11 +2965,12 @@ esp_err_t DeviceSnapshotService::reportCodexLink(const CodexLinkSnapshot &codex_
         const bool peer_changed = std::strcmp(codex_link.paired_pc_id, previous.paired_pc_id) != 0;
         if (peer_changed || !codex_link.retained_link_present) {
             clear_codex_token_intervals_locked();
+            s_codex_vouchers = {};
         }
         if (codex_link.state != CodexLinkState::Connected || codex_link.command_pending ||
             !codex_link.data_valid || codex_link.attempt_id != previous.attempt_id || peer_changed) {
             ComponentSnapshot *const observations[] = {
-                &s_codex_weekly_limit, &s_codex_account, &s_codex_token_intervals,
+                &s_codex_weekly_limit, &s_codex_account, &s_codex_token_intervals, &s_codex_vouchers,
             };
             for (auto *observation : observations) {
                 if (observation->data_valid) {
@@ -3008,6 +3010,22 @@ esp_err_t DeviceSnapshotService::reportCodexWeeklyLimit(const CodexWeeklyLimitSn
 esp_err_t DeviceSnapshotService::readCodexAccount(CodexAccountSnapshot &account) const
 {
     return read_codex_account_sample(s_codex_account, account, "Codex account read");
+}
+
+// vouchers: Receives the complete bounded projection after both lock operations succeed.
+// Exception: Returns the original canonical mutex error.
+esp_err_t DeviceSnapshotService::readCodexVouchers(CodexVoucherSnapshot &vouchers) const
+{
+    return read_codex_account_sample(s_codex_vouchers, vouchers, "Codex vouchers read");
+}
+
+// vouchers: Synchronously borrowed authenticated observation; no previous account fields survive.
+// Exception: Returns the original canonical publication error.
+esp_err_t DeviceSnapshotService::reportCodexVouchers(const CodexVoucherSnapshot &vouchers)
+{
+    return ::update_snapshot([&vouchers](DeviceSnapshot &) {
+        s_codex_vouchers = vouchers;
+    }, SnapshotPublicationPolicy::Optional);
 }
 
 // saved: Caller-owned historical telemetry, scoped to the currently retained pairing.

@@ -114,6 +114,14 @@ later refreshes the public catalog on the computer and supplies the icon, label
 and price through the authenticated link. **Workspace messages** appears only
 when the current account observation contains a count, including a measured zero.
 
+In **Credits**, tap **Reset vouchers** to open the expiry details. Cody shows the
+UTC date and time reported by Codex and groups identical dates. The plugin sends
+up to eight available vouchers, with the earliest dates first. The count remains
+available independently of expiry details. A current expiry within 24 hours can
+open a dismissible visual notice on the awake dashboard. Setup, questions and
+recording take priority. Details and notices use current observations from CCP
+0.6.18 or later and a valid device clock for the 24-hour check.
+
 After ten seconds without touch, the lateral arrows fade. Touch or shake
 reveals them. A hidden arrow requires a new touch once it is visible. Token
 history switches among 1, 5 and 24 hours, using fifteen-minute observations

@@ -35,6 +35,7 @@ struct AccountDashboardPresentation {
     std::array<Bar, 12> bars{};
     std::array<uint8_t, 32> plan_mask{};
     CODY2D::CapsuleControl account_status_dot{};
+    CODY2D::Rect voucher_bounds{};
     const CODY2D::MonoFont *title_font = nullptr;
     const CODY2D::MonoFont *body_font = nullptr;
     int64_t account_at_us = 0;

@@ -45,14 +45,15 @@ constexpr uint32_t kReadyTimeoutMs = kPowerTimeoutMs + VIBEWARE_BOOT_DURATION_MS
 constexpr uint32_t kWorkerStackBytes = 12288;
 
 enum class Layer : uint8_t {
-    Branding, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics, Screensaver, Blank
+    Branding, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics,
+    VoucherDetails, VoucherWarning, Screensaver, Blank
 };
 enum class Command : uint8_t { Ready = 1, Sleep, Wake, Shutdown, ShutdownFailed };
 enum class BrandingPhase : uint8_t { Inactive, AwaitingReady, Playing };
 using Save = CODY::VisibilitySave;
 enum class Target : uint8_t {
     None, Previous, Next, VisibilityFirst, VisibilitySecond, VisibilityThird,
-    Interval, FirstAction, SecondAction, VoiceGesture,
+    Interval, FirstAction, SecondAction, VoiceGesture, OpenVouchers, VoucherPrevious, VoucherNext, VoucherDismiss,
     TimerDecrease, TimerIncrease, TimerSound, TimerStart, TimerCancel, TimerDismiss
 };
 constexpr std::array<Target, CODY::kVisibilityRowsPerPage> kVisibilityTargets{
@@ -81,6 +82,8 @@ struct RetiredFrame {
     bool statistics_unavailable = false;
     bool next_navigation = false;
     bool valid = false;
+    CODY2D::Rect voucher_bounds{};
+    bool voucher_paging = false;
 };
 
 struct DeviceUi {
@@ -139,6 +142,7 @@ void invalidate()
 // No parameters: choose the first enabled statistics page, with Device always available.
 void select_statistics()
 {
+    s_ui->model.vouchers.page = CODY::VoucherPage::Closed;
     s_ui->model.info_page = CODY::InfoPage::System;
     const auto page = CODY::first_visible_widget(s_ui->model.widgets.visibility, CODY::WidgetScope::Statistics);
     CODY::select_widget_screen(s_ui->model.widgets, page.value_or(WidgetScreen::Device));
@@ -176,6 +180,7 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
 {
     auto &ui = *s_ui;
     CODY::update_device_observations(ui.model.dashboard);
+    CODY::update_device_vouchers(ui.model);
     CODY::update_device_battery(ui.model, now_us);
     const LUNASHELL::VoiceSnapshot *voice = nullptr;
     bool voice_busy = false;
@@ -192,8 +197,22 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
         ui.model.dashboard.connection_valid, ui.model.battery_banner, voice, now_us,
         CODY::onboarding_saved_wifi_startup_offline(now_us));
     if (!tracking_alarm) CODY::update_local_timer_alarm(timer, now_us, voice_busy);
+    const bool voucher_attention_allowed = CODY::onboarding_dashboard_active() &&
+        !ui.model.editing && !ui.diagnostics && !ui.timer_open && !voice_busy &&
+        !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0 &&
+        !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink);
+    if (voucher_attention_allowed && !ui.asleep && !ui.pressed &&
+        ui.model.vouchers.page == CODY::VoucherPage::Closed) {
+        const auto expiry = CODY::pending_device_voucher_warning(ui.model);
+        if (expiry != 0) {
+            // A visible-only notice never wakes the panel, plays audio or changes the retained dashboard route.
+            ui.model.vouchers.warning_expiry = expiry;
+            ui.model.vouchers.page = CODY::VoucherPage::Warning;
+        }
+    }
     const bool saver_eligible = CODY::onboarding_dashboard_active() && !ui.model.editing && !ui.diagnostics &&
         !ui.timer_open && !voice_busy &&
+        ui.model.vouchers.page == CODY::VoucherPage::Closed &&
         !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0 &&
         !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink);
     CODY::update_screensaver(ui.model.screensaver, saver_eligible,
@@ -228,6 +247,14 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
             CODY::SceneData::title_font, CODY::SceneData::body_font, ui.editor, frame.presentation.content);
     }
     if (CODY::onboarding_dashboard_active()) {
+        const auto voucher_page = ui.model.vouchers.page;
+        if (voucher_page == CODY::VoucherPage::Details ||
+            (voucher_page == CODY::VoucherPage::Warning && voucher_attention_allowed)) {
+            frame.layer = voucher_page == CODY::VoucherPage::Warning ? Layer::VoucherWarning : Layer::VoucherDetails;
+            frame.arrows = true;
+            frame.navigation_opacity = 255;
+            return CODY::prepare_device_vouchers(ui.view, frame.presentation, ui.model);
+        }
         if (ui.model.widgets.selected_screen == WidgetScreen::About &&
             ui.model.info_page == CODY::InfoPage::ProjectLink) {
             frame.layer = Layer::AboutLink;
@@ -278,7 +305,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const auto revision = LUNASHELL_display_runtime_content_revision();
     const auto screen = ui.model.widgets.selected_screen;
     const bool show_connection = (frame.layer == Layer::Dashboard && screen != WidgetScreen::Device) ||
-        frame.layer == Layer::AboutLink;
+        frame.layer == Layer::AboutLink || frame.layer == Layer::VoucherDetails || frame.layer == Layer::VoucherWarning;
     const bool show_battery = frame.layer != Layer::Blank && frame.layer != Layer::Branding &&
         frame.layer != Layer::Screensaver;
     const auto saved_epoch = frame.layer == Layer::Dashboard && !frame.statistics_unavailable
@@ -297,6 +324,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const bool draws_navigation = frame.arrows || frame.layer == Layer::Scene;
     const uint8_t opacity = draws_navigation ? frame.navigation_opacity : 0;
     const bool next_navigation = frame.arrows && frame.layer != Layer::AboutLink && frame.layer != Layer::Timer &&
+        frame.layer != Layer::VoucherDetails && frame.layer != Layer::VoucherWarning &&
         (frame.layer != Layer::Visibility || ui.editor.page + 1U < CODY::kVisibilityPageCount);
     const bool navigation_changed = old.navigation_opacity != opacity || old.next_navigation != next_navigation;
     const bool content_changed = old.content_revision != view.content.revision;
@@ -387,7 +415,9 @@ esp_err_t render(const FrameView &frame, bool force = false)
     }
     if (!old.valid || old.display_revision != frame_revision || old.layer != frame.layer || old.screen != screen ||
         (old.content_revision != view.content.revision &&
-         (frame.layer == Layer::Visibility || ui.contact == Target::FirstAction || ui.contact == Target::SecondAction))) {
+         (frame.layer == Layer::Visibility || ui.contact == Target::FirstAction || ui.contact == Target::SecondAction ||
+          ui.contact == Target::OpenVouchers || ui.contact == Target::VoucherPrevious ||
+          ui.contact == Target::VoucherNext || ui.contact == Target::VoucherDismiss))) {
         ui.contact = Target::None;
     }
     if (old.navigation_opacity == 255 && opacity < 255) {
@@ -399,7 +429,10 @@ esp_err_t render(const FrameView &frame, bool force = false)
     }
     old = {frame.layer, screen, frame_revision, view.content.revision, chrome.battery_sequence,
         chrome.connection_revision, allowance, opacity, frame.connection_activity_phase,
-        frame.statistics_unavailable, next_navigation, true};
+        frame.statistics_unavailable, next_navigation, true, {}, false};
+    old.voucher_bounds = frame.layer == Layer::Dashboard && screen == WidgetScreen::Credits &&
+        !frame.statistics_unavailable ? ui.view.account.voucher_bounds : CODY2D::Rect{};
+    old.voucher_paging = frame.layer == Layer::VoucherDetails && ui.view.plain.actions[1].enabled;
     if (frame.layer == Layer::Scene) {
         ui.completed_scene = ui.scene;
         ui.scene_dirty = false;
@@ -412,6 +445,13 @@ Target target_at(CODY2D::Point point)
 {
     const auto &ui = *s_ui;
     const auto layer = ui.retired.layer;
+    if (layer == Layer::VoucherDetails || layer == Layer::VoucherWarning) {
+        if (CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::VoucherDismiss;
+        const auto action = CODY::device_action_at(ui.view, point);
+        if (action == 0) return Target::None;
+        if (!ui.retired.voucher_paging) return Target::VoucherDismiss;
+        return action == 1 ? Target::VoucherPrevious : Target::VoucherNext;
+    }
     if (layer == Layer::Timer) {
         if (ui.retired.navigation_opacity == 255 &&
             CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::Previous;
@@ -438,6 +478,11 @@ Target target_at(CODY2D::Point point)
         return row ? kVisibilityTargets[*row] : Target::None;
     }
     if (layer == Layer::Dashboard && ui.retired.statistics_unavailable) return Target::None;
+    if (layer == Layer::Dashboard && ui.retired.screen == WidgetScreen::Credits) {
+        const auto &bounds = ui.retired.voucher_bounds;
+        if (point.x >= bounds.x && point.x < bounds.x + bounds.width &&
+            point.y >= bounds.y && point.y < bounds.y + bounds.height) return Target::OpenVouchers;
+    }
     if (layer == Layer::Dashboard && ui.retired.screen == WidgetScreen::TokenHistory &&
         CODY::hit_token_history_interval(ui.view.history, point)) return Target::Interval;
     if (layer == Layer::Voice || layer == Layer::Diagnostics ||
@@ -488,7 +533,22 @@ esp_err_t activate(Target target)
 {
     auto &ui = *s_ui;
     const auto layer = ui.retired.layer;
-    if (layer == Layer::Visibility) {
+    if (layer == Layer::VoucherDetails || layer == Layer::VoucherWarning) {
+        if (target == Target::VoucherDismiss) {
+            if (layer == Layer::VoucherWarning) CODY::dismiss_device_voucher_warning(ui.model);
+            else ui.model.vouchers.page = CODY::VoucherPage::Closed;
+            invalidate();
+        } else if (layer == Layer::VoucherDetails &&
+            (target == Target::VoucherPrevious || target == Target::VoucherNext)) {
+            CODY::step_device_voucher(ui.model.vouchers,
+                target == Target::VoucherPrevious ? WidgetStep::Previous : WidgetStep::Next);
+        }
+    } else if (target == Target::OpenVouchers) {
+        auto &vouchers = ui.model.vouchers;
+        vouchers.page = CODY::VoucherPage::Details;
+        if (vouchers.expiry_count != 0) vouchers.selected_expiry = vouchers.expiries.front();
+        invalidate();
+    } else if (layer == Layer::Visibility) {
         edit_visibility(target);
     } else if (layer == Layer::Timer) {
         switch (target) {
@@ -673,6 +733,7 @@ esp_err_t update_navigation()
             !ui.model.editing && !ui.timer_open && !ui.diagnostics;
         ui.model.editing = false;
         ui.timer_open = false;
+        ui.model.vouchers.page = CODY::VoucherPage::Closed;
         ui.model.info_page = CODY::InfoPage::System;
         CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
         ui.diagnostics = false;

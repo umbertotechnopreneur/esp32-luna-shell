@@ -61,11 +61,20 @@ bool record_voice_available(const LUNASHELL::DeviceSnapshotService &snapshots)
 
 } // namespace
 
-// data: Canonical weekly allowance and device observations shared by all awake screens.
+// data: Canonical weekly allowance, live vouchers and device observations shared by awake screens.
 void update_device_observations(DeviceDashboardData &data)
 {
     const auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
     if (snapshots.readCodexWeeklyLimit(data.weekly) != ESP_OK) data.weekly = {};
+    const auto previous_voucher_error = data.vouchers.last_error;
+    const auto voucher_error = snapshots.readCodexVouchers(data.vouchers);
+    if (voucher_error != ESP_OK) {
+        if (voucher_error != previous_voucher_error) {
+            ESP_LOGW("CODY_device_model", "Voucher snapshot read failed (%s)", esp_err_to_name(voucher_error));
+        }
+        data.vouchers = {};
+        data.vouchers.last_error = voucher_error;
+    }
     data.connection_valid = snapshots.readDeviceStatusObservation(data.connection) == ESP_OK;
     if (!data.connection_valid) data.connection = {};
     data.clock = data.connection.clock;
@@ -82,6 +91,108 @@ void update_device_observations(DeviceDashboardData &data)
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     data.voice_ready = data.connection_valid && record_voice_available(snapshots);
 #endif
+}
+
+// data: Canonical live voucher projection and independently aged authenticated connection.
+bool device_voucher_expiries_current(const DeviceDashboardData &data)
+{
+    const auto &vouchers = data.vouchers;
+    return data.connection_valid && data.connection.codex_app_open &&
+        vouchers.health == LUNASHELL::DeviceHealth::Ready && vouchers.last_error == ESP_OK &&
+        vouchers.data_valid && !vouchers.data_stale && vouchers.series != 0 && vouchers.expiries_valid &&
+        vouchers.expiry_count <= vouchers.kMaximumExpiries;
+}
+
+// model: Current exact dates, trusted UTC clock and bounded per-account dismissal state.
+uint32_t pending_device_voucher_warning(const DeviceModel &model)
+{
+    const auto &data = model.dashboard;
+    const auto &clock = data.clock;
+    if (!device_voucher_expiries_current(data) || clock.health != LUNASHELL::DeviceHealth::Ready ||
+        !clock.data_valid || clock.data_stale || clock.last_error != ESP_OK || clock.utc_epoch_seconds <= 0 ||
+        !clock.preferences_valid || clock.quiet) {
+        return 0;
+    }
+    const auto &vouchers = model.vouchers;
+    for (uint8_t index = 0; index < vouchers.expiry_count; ++index) {
+        const auto expiry = vouchers.expiries[index];
+        const int64_t remaining = static_cast<int64_t>(expiry) - clock.utc_epoch_seconds;
+        if (expiry == 0 || remaining <= 0 || remaining > 86400) {
+            continue;
+        }
+        const auto end = vouchers.dismissed.begin() + vouchers.dismissed_count;
+        if (std::find(vouchers.dismissed.begin(), end, expiry) == end) return expiry;
+    }
+    return 0;
+}
+
+// model: Display-owned source projection and live-only child page state.
+void update_device_vouchers(DeviceModel &model)
+{
+    auto &vouchers = model.vouchers;
+    const auto &source = model.dashboard.vouchers;
+    // A source gap must not forget dismissals. Only a valid new account identity resets them.
+    if (source.health == LUNASHELL::DeviceHealth::Ready && source.data_valid &&
+        !source.data_stale && source.last_error == ESP_OK &&
+        source.series != 0 && source.series != vouchers.series) {
+        const auto retained_page = vouchers.page == VoucherPage::Details ? VoucherPage::Details : VoucherPage::Closed;
+        vouchers = {};
+        vouchers.series = source.series;
+        vouchers.page = retained_page;
+    }
+    vouchers.expiry_count = 0;
+    if (device_voucher_expiries_current(model.dashboard)) {
+        std::copy_n(source.expiries_unix_seconds, source.expiry_count, vouchers.expiries.begin());
+        const auto end = vouchers.expiries.begin() + source.expiry_count;
+        // Positive dates sort chronologically; explicit non-expiring vouchers follow them.
+        std::sort(vouchers.expiries.begin(), end, [](uint32_t left, uint32_t right) {
+            return right == 0 ? left != 0 : left != 0 && left < right;
+        });
+        const auto unique_end = std::unique(vouchers.expiries.begin(), end);
+        vouchers.expiry_count = static_cast<uint8_t>(unique_end - vouchers.expiries.begin());
+        const auto kept = std::remove_if(vouchers.dismissed.begin(),
+            vouchers.dismissed.begin() + vouchers.dismissed_count, [&](uint32_t expiry) {
+                return std::find(vouchers.expiries.begin(), unique_end, expiry) == unique_end;
+            });
+        vouchers.dismissed_count = static_cast<uint8_t>(kept - vouchers.dismissed.begin());
+        if (std::find(vouchers.expiries.begin(), unique_end, vouchers.selected_expiry) == unique_end &&
+            vouchers.expiry_count != 0) {
+            vouchers.selected_expiry = vouchers.expiries.front();
+        }
+    }
+    // A warning can never outlive its current source, trusted clock or admission window.
+    if (vouchers.page == VoucherPage::Warning && pending_device_voucher_warning(model) != vouchers.warning_expiry) {
+        vouchers.page = VoucherPage::Closed;
+        vouchers.warning_expiry = 0;
+    }
+}
+
+// model: Records the visible warning's exact date without any flash writes.
+void dismiss_device_voucher_warning(DeviceModel &model)
+{
+    auto &vouchers = model.vouchers;
+    const auto expiry = vouchers.warning_expiry;
+    if (expiry != 0 && vouchers.dismissed_count < vouchers.dismissed.size()) {
+        const auto end = vouchers.dismissed.begin() + vouchers.dismissed_count;
+        if (std::find(vouchers.dismissed.begin(), end, expiry) == end) {
+            vouchers.dismissed[vouchers.dismissed_count++] = expiry;
+        }
+    }
+    vouchers.warning_expiry = 0;
+    vouchers.page = VoucherPage::Closed;
+}
+
+// model: Bounded distinct expiry cards identified by their exact UTC instant.
+// step: Direction through those cards, independently of dashboard navigation.
+void step_device_voucher(VoucherModel &model, WidgetStep step)
+{
+    if (model.expiry_count < 2) return;
+    const auto end = model.expiries.begin() + model.expiry_count;
+    const auto selected = std::find(model.expiries.begin(), end, model.selected_expiry);
+    const size_t index = selected == end ? 0 : static_cast<size_t>(selected - model.expiries.begin());
+    const size_t next = step == WidgetStep::Previous
+        ? (index + model.expiry_count - 1U) % model.expiry_count : (index + 1U) % model.expiry_count;
+    model.selected_expiry = model.expiries[next];
 }
 
 // data: Historical telemetry scoped to the retained pairing and current connection.
