@@ -2,14 +2,20 @@
 
 The canonical logger captures diagnostics before best-effort native USB output.
 The removable-storage owner alone mounts and protects the SD lifetime; the
-logger never formats or mounts a card. Cody's profile admits this existing
-owner with FAT long filenames. The common firmware defaults select native USB
+logger never formats or mounts a card. Cody admits this owner with FAT long
+filenames only on SD-capable board configurations, including the 1.75 GPS
+prototype. The 1.75C has 32 MB flash and no removable-card slot; its board
+configuration disables removable storage. Use native USB for live logs on
+1.75C, not SD download or formatting. Internal flash retains firmware, assets
+and settings; it is not an automatic substitute for the SD log files below.
+The common firmware defaults select native USB
 Serial/JTAG as the console so every supported profile has the explicit VFS
 dependency required by the logger's USB driver owner.
 
 ## SD startup clocks
 
-SD startup/reset behavior is an accepted PCB limitation. A standby/wake cycle
+This section applies to the SD-capable 1.75 GPS prototype. Its SD startup/reset
+behavior is an accepted PCB limitation. A standby/wake cycle
 is the accepted recovery workaround; further SD investigation remains deferred.
 Real mount/read/write failures stay visible through the storage owner and
 canonical health reporting.
@@ -150,7 +156,9 @@ resets, or reads sensors to satisfy a request.
 
 ## Host command
 
-`scripts/device.ps1 sd-log` is a host-only route and does not load ESP-IDF. It
+`scripts/device.ps1 sd-log` applies to SD-capable firmware with a mounted card;
+it is not a log-retrieval path for Cody 1.75C. This host-only route does not load
+ESP-IDF. It
 uses normal COM selection, opens one serial handle with DTR/RTS disabled, and
 never kills an existing monitor or probes the port using another handle.
 The user must close the monitor and wake a sleeping device before download.
@@ -163,7 +171,10 @@ Only after the transfer, flush and resource close succeed does it replace the
 destination. Failures remove only that command's partial file and preserve
 the previous destination; cleanup failures retain their own real diagnostics.
 
-The ordinary monitor now uses `--no-reset` and forwards its baud explicitly.
+For live native USB logs, including Cody 1.75C, use `scripts/device.ps1 monitor`
+or a bounded `scripts/device.ps1 capture`. Capture performs an explicit reset
+only with `-ResetBeforeCapture`. The ordinary monitor uses `--no-reset` and
+forwards its baud explicitly.
 `-ResetBeforeMonitor` requests ESP-IDF's startup reset when intentionally needed.
 Its inventory wait never opens a probe handle or stops an existing monitor.
 

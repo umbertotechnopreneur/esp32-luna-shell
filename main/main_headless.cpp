@@ -184,10 +184,12 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(LUNASHELL_radios_reserve_startup_dma());
     startup_watch.progress("BLE controller DMA reservation");
 #endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
     // Start the optional SD owner before display/Cody startup can fail. Its
     // worker mounts asynchronously and replays the logger's bounded boot buffer.
     report_optional_startup_failure("removable storage", LUNASHELL_storage_init());
     startup_watch.progress("removable storage");
+#endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY || CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
     ESP_ERROR_CHECK(LUNASHELL_display_runtime_init());
     startup_watch.progress("standalone display and touch");

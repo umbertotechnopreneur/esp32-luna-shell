@@ -233,9 +233,10 @@ retain authored IDs but are hidden and noninteractive by default. Raster and hit
 testing share visibility. Setup Back/Cancel is a separate control. Release keeps
 the informational layer while omitting Debug controls.
 
-Debug diagnostic rows occupy y=390-445: measured FPS/CPU, IPv4, free internal RAM/
-PSRAM, SD presence/access and measured free space. Invalid samples show their
-actual unavailable state; without card detect, SD probe failure is UNCONFIRMED.
+The Cody Device diagnostics card displays measured CPU utilization and free
+heap. The character HUD uses the lower arc for FPS/CPU, IPv4 and free internal
+RAM/PSRAM. For the GPS prototype, the character HUD also has card access and
+free-space rows. Its SD probe failure is UNCONFIRMED without a card-detect pin.
 
 ## Reset countdown
 

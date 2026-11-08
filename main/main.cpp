@@ -530,8 +530,10 @@ extern "C" void app_main(void)
     report_optional_startup_failure("boot audio", LUNASHELL_boot_audio_play());
     startup_watch.progress("boot audio");
 #endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
     report_optional_startup_failure("removable storage", LUNASHELL_storage_init());
     startup_watch.progress("removable storage");
+#endif
     // Wi-Fi and BLE reserve a large part of internal SRAM on this S3. The
     // Settings action starts them explicitly after the UI is already usable.
     ESP_LOGI(kTag, "Wi-Fi/BLE startup deferred until Settings");

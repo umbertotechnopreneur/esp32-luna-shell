@@ -264,10 +264,9 @@ existing immutable PCM; UI redraws do not request or restart sounds.
 ### Device diagnostics
 
 Both customer and development builds expose the same authenticated CCP device
-diagnostic view: `character` shows the live character and canonical snapshot
-readout for measured CPU utilization on each core, free RAM/PSRAM, FPS, IP and
-SD status/free space. Memory values are free amounts, not used percentages.
-Unmeasured or stale fields remain explicitly unavailable/stale.
+diagnostics. The `character` selector opens the Cody Device diagnostics card,
+which shows measured CPU utilization and free heap from the canonical snapshot.
+Unavailable or stale observations appear as unavailable.
 `normal` restores the retained route. Build mode is not a required user choice.
 The owner removed the facial-channel list, its PSRAM buffer and scroll handling
 to save device space. Internal channels still drive character animation.
@@ -712,11 +711,12 @@ stale data shows unavailable, never an estimated/clamped value. Measurement
 windows begin after startup at 04 or in the ordinary main companion view when
 retained pairing skips that first-run greeting. The automatic Idle clock greeting
 and a manually selected sleeping face in the main view remain eligible. The
-five compact rows below the routine title show FPS/CPU, IPv4, free internal
-RAM/PSRAM, SD presence/access and free space. The upper overlay uses a quieter
+compact rows below the routine title show FPS/CPU, IPv4 and free internal
+RAM/PSRAM. SD-capable boards add card presence/access and free-space rows;
+the 1.75C omits them. The upper overlay uses a quieter
 date, larger `HH:MM` without seconds and consistent battery, Wi-Fi and Bluetooth
-icons. Because this board has no card-detect pin, the SD row distinguishes a
-verified card response from `SD UNCONFIRMED`. Personality icons keep their
+icons. On the GPS prototype, which has no card-detect pin, the SD row distinguishes
+a verified card response from `SD UNCONFIRMED`. Personality icons keep their
 independent anchor above the cloud. The CPU values
 represent total busy time per core, including tasks other than Cody. No extra
 sensor polling is introduced. The HUD preference is session-scoped under the
@@ -730,7 +730,9 @@ Sleep presentation, and requests the
 power owner's gradual fade and coordinated PMU shutdown. BOOT retains its
 diagnostics. The Power-screenshot setter returns `ESP_ERR_NOT_SUPPORTED` and
 its getter reports disabled.
-Other screenshot diagnostics retain the existing SD owner and real failures.
+SD-backed screenshot diagnostics apply only to removable-storage profiles and
+retain the existing storage owner and real failures. They do not establish an
+internal-flash screenshot destination on 1.75C.
 
 The shutdown presentation blocks competing touch/scene/voice overlays, suspends
 character/typewriter audio, and waits for any existing screenshot operation with
@@ -758,10 +760,12 @@ the key is absent. Cody restores existing values as saved. Turning auto-rotation
 off holds the current panel orientation until an explicit manual change.
 
 Debug disables automatic light sleep to preserve native USB Serial/JTAG diagnosis;
-Release/wake-on-word follow canonical platform policy. SD diagnostics observe the
-storage owner and never alter saved logging preferences. For log capture, rotation
-and readback use [offline USB/SD logging](../bsp/services/storage-and-logging.md); those device
-operations still require approval. The intermittent mandatory display/touch stop
+Release/wake-on-word follow canonical platform policy. Cody on 1.75C uses native
+USB for live firmware logs; its 32 MB flash does not imply a retained log file.
+On SD-capable boards, diagnostics observe the storage owner and never alter
+saved logging preferences. See [USB logging and optional removable-card readback](../bsp/services/storage-and-logging.md)
+for capture and, where supported, log rotation/readback. Those device operations
+still require approval. The intermittent mandatory display/touch stop
 has not been resolved by short successful captures.
 ## One-way voice input source increment
 

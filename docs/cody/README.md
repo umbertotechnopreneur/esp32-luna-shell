@@ -25,9 +25,12 @@ material used in Studio.
 ## Profile and services
 
 Select the physical board independently of the Cody profile. The Waveshare
-1.75 GPS prototype uses 16 MB flash. The aluminum-cased 1.75C uses 32 MB flash,
-with the external RTC and removable SD services disabled. Board wiring and
-available peripherals are listed in the [hardware guide](../bsp/boards/purchased-amoled-comparison.md).
+1.75 GPS prototype uses 16 MB flash and supports removable microSD storage.
+The aluminum-cased 1.75C uses 32 MB flash and has no removable-card slot;
+its external RTC and removable-storage services are disabled. Cody on 1.75C
+shows no SD status or free-space rows. Use native USB for live firmware logs.
+Board wiring and available peripherals are listed in the
+[hardware guide](../bsp/boards/purchased-amoled-comparison.md).
 The [project introduction](../../README.md#the-little-round-thing) explains the choice of device.
 
 Cody uses the shared power, battery, IMU, speaker, Wi-Fi and BLE provisioning
@@ -37,7 +40,10 @@ audio front end and existing Sophia listener, including listening standby.
 
 The saved-profile startup policy is authoritative; the Cody profile sets
 `CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT=n`. Development replay requires explicit
-configuration. The compiled HTTP service defaults to disabled. The VibeWare startup art and UI fonts belong in internal flash; SD has its separate user-data and logging purpose.
+configuration. The compiled HTTP service defaults to disabled. The VibeWare
+startup art, UI fonts and saved settings use internal flash. Removable-card
+user data and mirrored logs apply only to SD-capable boards such as the GPS
+prototype; they are not an internal-flash logging fallback on 1.75C.
 
 Consumers read canonical projections with validity, original timestamps and real
 errors. Only acquisition owners read hardware. Shared contracts are in

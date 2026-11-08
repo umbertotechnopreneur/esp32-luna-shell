@@ -77,8 +77,9 @@ before layout changes and [Cody layout](docs/cody/layout.md) for control details
 - The @CCP footer makes three full passes per display-owner lifetime, then hides.
   Source gaps, standby and chat/panel changes pause it without replay.
 - Diagnostics use one entry in Debug and Release, with measured CPU,
-  free RAM/PSRAM, FPS, IP and SD. Memory shows heap capacity/fragmentation: used,
-  largest free block and other free space, not addresses. Back returns to overview,
+  free RAM/PSRAM, FPS and IP. Show SD only on supported hardware. Memory shows
+  heap capacity/fragmentation: used, largest free block and other free space,
+  not addresses. Back returns to overview,
   then retained route; authenticated Normal restores that route. No build-mode
   choice or facial-channel UI/storage; retain internal animation channels.
 - Cody actions use text-only captions. Use two rounded gradient cards side
