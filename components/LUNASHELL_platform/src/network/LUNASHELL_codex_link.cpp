@@ -26,6 +26,7 @@
     CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
 
 #include "LUNASHELL_settings.hpp"
+#include "LUNASHELL_codex_saved.hpp"
 #include "LUNASHELL_snapshot_aging.hpp"
 #include "LUNASHELL_task_affinity.hpp"
 
@@ -753,7 +754,7 @@ esp_err_t persistLink(const char *key, const PersistedLink &record)
     return error;
 }
 
-// key: One CCP record removed by confirmation, cancellation or explicit Forget.
+// key: One CCP or saved-telemetry record removed by confirmation, cancellation or explicit Forget.
 // Exception: Latches erase/commit/readback failures; absence must be independently verified.
 esp_err_t eraseLinkRecord(const char *key)
 {
@@ -787,7 +788,13 @@ esp_err_t commitCandidateLocked()
     }
     // PC possession is now proven. A reset between this write and pending-record
     // removal can safely repeat the same authenticated completion after reboot.
-    esp_err_t error = persistLink(kPairingSetting, s_candidate_link);
+    esp_err_t error = ESP_OK;
+    if (s_link_present) {
+        // Retire the old pairing's saved telemetry before a replacement can be published.
+        error = eraseLinkRecord(LUNASHELL::codex_saved::kCheckpointKey);
+        if (error == ESP_OK) LUNASHELL::codex_saved::reset_after_erase();
+    }
+    if (error == ESP_OK) error = persistLink(kPairingSetting, s_candidate_link);
     if (error == ESP_OK) {
         s_persisted_link = s_candidate_link;
         s_link_present = true;
@@ -2661,6 +2668,7 @@ esp_err_t acceptWeeklyLimit(const char *payload, const sockaddr_in &source)
     error = LUNASHELL::DeviceSnapshotService::instance().reportCodexWeeklyLimit(limit);
     if (error == ESP_OK) {
         s_weekly_limit_exchange = WeeklyLimitExchange::Received;
+        LUNASHELL::codex_saved::remember_weekly(s_link_snapshot.paired_pc_id, limit);
     }
     return error;
 }
@@ -2911,6 +2919,7 @@ esp_err_t acceptAccount(const char *payload, const sockaddr_in &source, AccountP
     error = LUNASHELL::DeviceSnapshotService::instance().reportCodexAccount(account, interval);
     if (error == ESP_OK) {
         s_account_received_for_nonce = true;
+        LUNASHELL::codex_saved::remember_account(s_link_snapshot.paired_pc_id, account);
     }
     return error;
 }
@@ -4250,7 +4259,11 @@ void processCommand()
     case Command::ForgetPairing: {
         std::lock_guard<std::mutex> guard(s_mutex);
         s_pending = Command::None;
-        esp_err_t error = eraseLinkRecord(kPendingPairingSetting);
+        esp_err_t error = eraseLinkRecord(LUNASHELL::codex_saved::kCheckpointKey);
+        if (error == ESP_OK) {
+            LUNASHELL::codex_saved::reset_after_erase();
+            error = eraseLinkRecord(kPendingPairingSetting);
+        }
         if (error == ESP_OK) {
             error = eraseLinkRecord(kPairingSetting);
         }
@@ -4280,7 +4293,7 @@ void processCommand()
             }
         }
         publishLocked(State::Idle, ESP_OK);
-        ESP_LOGI(kTag, "CCP Forget pairing completed; only the two CCP records were removed");
+        ESP_LOGI(kTag, "CCP Forget pairing completed; link records and saved Codex data removed");
         break;
     }
     case Command::None:
@@ -4312,8 +4325,10 @@ void codexLinkWorker(void *context)
         maintainDebugScreen();
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        if (!voice_busy) LUNASHELL::codex_saved::checkpoint(esp_timer_get_time());
         ulTaskNotifyTake(pdTRUE, voice_busy ? std::max<TickType_t>(1, pdMS_TO_TICKS(LUNASHELL::voice_poll::kActiveMs)) : pdMS_TO_TICKS(kWorkerPollMs));
 #else
+        LUNASHELL::codex_saved::checkpoint(esp_timer_get_time());
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kWorkerPollMs));
 #endif
     }
@@ -4439,6 +4454,7 @@ extern "C" esp_err_t LUNASHELL_codex_link_service_init(void)
         return error;
     }
     esp_err_t error = loadPersistedLink();
+    LUNASHELL::codex_saved::load();
     // An optional CCP storage fault keeps a repair-only command owner alive.
     // Initialization still returns the original error and the snapshot remains failed.
     s_storage_error = error;

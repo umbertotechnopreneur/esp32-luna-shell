@@ -21,9 +21,12 @@ struct PlainView {
 
 struct DeviceChrome {
     std::array<char, 32> battery_text{};
+    std::array<char, 32> saved_text{};
     CODY2D::CapsuleControl battery{};
     CODY2D::TextLine connection{};
     const char *connection_text = nullptr;
+    int64_t saved_epoch = 0;
+    uint32_t connection_revision = 0;
     uint32_t battery_sequence = 0;
 };
 
@@ -43,7 +46,7 @@ struct DeviceFrameContent {
 
 // Model values are projected to stable glyph buffers; chrome has no interaction state.
 esp_err_t prepare_device_chrome(DeviceChrome &chrome, const DeviceDashboardData &data,
-    bool show_connection, const BatteryAlertNotice &battery);
+    bool show_connection, const BatteryAlertNotice &battery, int64_t saved_epoch = 0);
 esp_err_t draw_device_chrome(const DeviceChrome &chrome, CODY2D::Surface strip,
     uint16_t first_row, uint16_t first_column);
 

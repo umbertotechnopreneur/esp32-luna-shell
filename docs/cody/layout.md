@@ -36,7 +36,7 @@ timing or character audio.
 | Setup menu Options | (153,382,160,52) |
 | Options and category rows | Up to three at x=93, width 280, height 72, y=130/210/290 |
 | Options footer | (123,382,220,52), with an outline home glyph next to Go home |
-| Factory reset confirmation | Cancel at (93,270,280,64), Reset device at (123,382,220,52) |
+| Restart / factory reset confirmation | Cancel at (93,270,280,64), confirmation at (123,382,220,52) |
 | Visibility toggle | (113,226,240,52) |
 | Ordinary single action | (113,352,240,72) |
 | Compact QR/skin footer | (123,390,220,44) |
@@ -246,7 +246,18 @@ fills the circumference.
 The reset instant and percentage come from the Codex App Server through the
 paired companion link. The countdown uses valid clock observations from
 Cody. Clock corrections and skipped seconds update the tiles directly. An
-expired window or stale source clears the quota arc and its numeric value.
+admitted saved observation keeps the countdown available while the PC is off.
+The amber `Saved` timestamp uses UTC. The saved percentage remains a historical
+value, and the live perimeter requires a current weekly observation. An expired
+window requires a fresh reset observation before showing a new countdown.
+
+## Local timer
+
+Options opens Timer with a large minutes and seconds readout. The duration
+controls occupy a pair of 154 x 60 cards at y=247. Sound and Start use the same
+pair at y=321. Running and finished timers use a centered 240 x 60 capsule for
+Cancel or Done. The lateral Back target returns to the previous view. The
+finished page distinguishes a pending, muted or unavailable alarm.
 
 ## Codex statistics
 

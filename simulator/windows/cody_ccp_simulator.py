@@ -706,6 +706,16 @@ class SimulatorLink:
         self.reset_count = count
 
     # self: Simulator state owner under the endpoint lock.
+    # confirmed: Explicit action from the local restart confirmation screen.
+    # Raises ValueError when confirmation is absent or a remote reset is queued.
+    def restart(self, confirmed: bool) -> None:
+        if confirmed is not True:
+            raise ValueError("SIMULATED restart requires explicit confirmation")
+        if self._reset_due is not None:
+            raise ValueError("A reset is already queued")
+        self._apply_reset(reset.ResetOperation.RESTART)
+
+    # self: Simulator state owner under the endpoint lock.
     # confirmed: Explicit action from the local factory-reset confirmation screen.
     # Raises on missing confirmation, a queued remote reset or a failed store write.
     def factory_reset(self, confirmed: bool) -> None:
@@ -1182,6 +1192,8 @@ class SimulatorEndpoint:
                     self._link.cancel_pairing()
                 elif action == "forget":
                     self._link.forget_pairing(confirmed)
+                elif action == "restart":
+                    self._link.restart(confirmed)
                 elif action == "factory_reset":
                     self._link.factory_reset(confirmed)
                 elif action == "network":

@@ -9,6 +9,7 @@
 #include "CODY_codex_audio.hpp"
 #include "CODY_device_view.hpp"
 #include "CODY_device_effects.hpp"
+#include "CODY_local_timer_view.hpp"
 #include "CODY_screensaver.hpp"
 #include "CODY_onboarding.hpp"
 #include "CODY_settings.hpp"
@@ -42,10 +43,15 @@ constexpr uint32_t kReadyTimeoutMs = kPowerTimeoutMs + VIBEWARE_BOOT_DURATION_MS
 // The onboarding and CCP projections still use the existing display task stack budget.
 constexpr uint32_t kWorkerStackBytes = 12288;
 
-enum class Layer : uint8_t { Branding, Message, Scene, Dashboard, AboutLink, Visibility, Voice, Diagnostics, Screensaver, Blank };
+enum class Layer : uint8_t {
+    Branding, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics, Screensaver, Blank
+};
 enum class Command : uint8_t { Ready = 1, Sleep, Wake, Shutdown, ShutdownFailed };
 using Save = CODY::VisibilitySave;
-enum class Target : uint8_t { None, Previous, Next, Toggle, Interval, FirstAction, SecondAction, VoiceGesture };
+enum class Target : uint8_t {
+    None, Previous, Next, Toggle, Interval, FirstAction, SecondAction, VoiceGesture,
+    TimerDecrease, TimerIncrease, TimerSound, TimerStart, TimerCancel, TimerDismiss
+};
 
 struct FrameView {
     CODY::DeviceFrameContent presentation{};
@@ -61,7 +67,7 @@ struct RetiredFrame {
     uint32_t display_revision = 0;
     uint32_t content_revision = 0;
     uint32_t battery_sequence = 0;
-    const char *connection_text = nullptr;
+    uint32_t connection_revision = 0;
     uint16_t allowance = 0;
     uint8_t navigation_opacity = 0;
     bool statistics_unavailable = false;
@@ -73,6 +79,7 @@ struct DeviceUi {
     CODY::SceneFrame scene{};
     CODY::SceneFrame completed_scene{};
     CODY::WidgetVisibilityView editor{};
+    CODY::LocalTimerView timer_view{};
     CODY::BootBranding::Presentation branding{};
     CODY::BootBranding::Scratch branding_scratch{};
     int64_t branding_due_us = 0;
@@ -92,6 +99,7 @@ struct DeviceUi {
     bool scene_dirty = true;
     bool asleep = false;
     bool diagnostics = false;
+    bool timer_open = false;
     bool first_boot = false;
 };
 
@@ -161,18 +169,23 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
     CODY::update_device_observations(ui.model.dashboard);
     CODY::update_device_battery(ui.model, now_us);
     const LUNASHELL::VoiceSnapshot *voice = nullptr;
+    bool voice_busy = false;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     voice = &ui.model.voice;
+    voice_busy = voice_visible(now_us);
 #endif
+    // Read an admitted alarm's result before another effect can reuse the audio mailbox.
+    auto &timer = ui.model.timer;
+    const bool tracking_alarm = timer.alarm_request_sequence != 0;
+    if (tracking_alarm) CODY::update_local_timer_alarm(timer, now_us, voice_busy);
     // Optional sound failures remain in the effects model; visual controls keep working.
     (void)CODY::update_device_effects(ui.model.effects, ui.model.dashboard.connection,
         ui.model.dashboard.connection_valid, ui.model.battery_banner, voice, now_us);
-    bool saver_eligible = CODY::onboarding_dashboard_active() && !ui.model.editing && !ui.diagnostics &&
+    if (!tracking_alarm) CODY::update_local_timer_alarm(timer, now_us, voice_busy);
+    const bool saver_eligible = CODY::onboarding_dashboard_active() && !ui.model.editing && !ui.diagnostics &&
+        !ui.timer_open && !voice_busy &&
         !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0 &&
         !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink);
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-    saver_eligible = saver_eligible && !voice_visible(now_us);
-#endif
     CODY::update_screensaver(ui.model.screensaver, saver_eligible,
         ui.model.navigation.last_touch_us, now_us);
     if (ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible) {
@@ -190,6 +203,12 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
         frame.layer = Layer::Diagnostics;
         const auto error = DeviceSnapshotService::instance().readDiagnosticsObservation(ui.model.diagnostics);
         return CODY::prepare_device_diagnostics(ui.view, frame.presentation, ui.model.diagnostics, error == ESP_OK);
+    }
+    if (ui.timer_open) {
+        frame.layer = Layer::Timer;
+        frame.arrows = true;
+        return CODY::prepare_local_timer_view(timer, now_us, CODY::SceneData::title_font,
+            CODY::SceneData::body_font, ui.timer_view, frame.presentation.content);
     }
     if (ui.model.editing) {
         frame.layer = Layer::Visibility;
@@ -250,8 +269,10 @@ esp_err_t render(const FrameView &frame, bool force = false)
         frame.layer == Layer::AboutLink;
     const bool show_battery = frame.layer != Layer::Blank && frame.layer != Layer::Branding &&
         frame.layer != Layer::Screensaver;
+    const auto saved_epoch = frame.layer == Layer::Dashboard && !frame.statistics_unavailable
+        ? CODY::device_saved_page_epoch(ui.model.dashboard, screen) : 0;
     const auto chrome_error = CODY::prepare_device_chrome(ui.view.chrome, ui.model.dashboard, show_connection,
-        show_battery ? ui.model.battery_banner : CODY::BatteryAlertNotice{});
+        show_battery ? ui.model.battery_banner : CODY::BatteryAlertNotice{}, saved_epoch);
     if (chrome_error != ESP_OK) return chrome_error;
     const auto &chrome = ui.view.chrome;
     const uint16_t allowance = frame.layer == Layer::Blank || frame.layer == Layer::Branding ||
@@ -266,7 +287,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const bool navigation_changed = old.navigation_opacity != opacity;
     const bool content_changed = old.content_revision != view.content.revision;
     const bool battery_changed = old.battery_sequence != chrome.battery_sequence;
-    const bool connection_changed = old.connection_text != chrome.connection_text;
+    const bool connection_changed = old.connection_revision != chrome.connection_revision;
     if (!full && !content_changed && !navigation_changed && !battery_changed && !connection_changed) return ESP_OK;
 
     bool parked = false;
@@ -327,7 +348,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
         }
         if (error == ESP_OK && frame.arrows && row < navigation_bounds.bottom &&
             row + rows > navigation_bounds.top) {
-            error = CODY::draw_lateral_navigation(frame.layer != Layer::AboutLink, strip, row, left, opacity);
+            const bool next = frame.layer != Layer::AboutLink && frame.layer != Layer::Timer;
+            error = CODY::draw_lateral_navigation(next, strip, row, left, opacity);
         }
         if (error == ESP_OK) error = CODY::draw_device_chrome(chrome, strip, row, left);
         if (error == ESP_OK && allowance != 0) {
@@ -357,7 +379,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
         (void)CODY::acknowledge_battery_alert(ui.model.battery, ui.model.battery_banner);
     }
     old = {frame.layer, screen, frame_revision, view.content.revision, chrome.battery_sequence,
-        chrome.connection_text, allowance, opacity, frame.statistics_unavailable, true};
+        chrome.connection_revision, allowance, opacity, frame.statistics_unavailable, true};
     if (frame.layer == Layer::Scene) {
         ui.completed_scene = ui.scene;
         ui.scene_dirty = false;
@@ -370,6 +392,19 @@ Target target_at(CODY2D::Point point)
 {
     const auto &ui = *s_ui;
     const auto layer = ui.retired.layer;
+    if (layer == Layer::Timer) {
+        if (ui.retired.navigation_opacity == 255 &&
+            CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::Previous;
+        switch (CODY::local_timer_control_at(ui.timer_view, point)) {
+        case CODY::LocalTimerControl::Decrease: return Target::TimerDecrease;
+        case CODY::LocalTimerControl::Increase: return Target::TimerIncrease;
+        case CODY::LocalTimerControl::CycleSound: return Target::TimerSound;
+        case CODY::LocalTimerControl::Start: return Target::TimerStart;
+        case CODY::LocalTimerControl::Cancel: return Target::TimerCancel;
+        case CODY::LocalTimerControl::Dismiss: return Target::TimerDismiss;
+        default: return Target::None;
+        }
+    }
     if (ui.retired.navigation_opacity == 255 &&
         (layer == Layer::Visibility || layer == Layer::Dashboard || layer == Layer::AboutLink)) {
         switch (CODY::lateral_navigation_at(point)) {
@@ -433,6 +468,25 @@ esp_err_t activate(Target target)
     const auto layer = ui.retired.layer;
     if (layer == Layer::Visibility) {
         edit_visibility(target);
+    } else if (layer == Layer::Timer) {
+        switch (target) {
+        case Target::Previous:
+            ui.timer_open = false;
+            invalidate();
+            break;
+        case Target::TimerDecrease: CODY::adjust_local_timer(ui.model.timer, -1); break;
+        case Target::TimerIncrease: CODY::adjust_local_timer(ui.model.timer, 1); break;
+        case Target::TimerSound: CODY::cycle_local_timer_sound(ui.model.timer); break;
+        case Target::TimerStart: {
+            const auto error = CODY::start_local_timer(ui.model.timer, esp_timer_get_time());
+            // Expiry or a route change can retire a previously admitted action.
+            if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) return error;
+            break;
+        }
+        case Target::TimerCancel: CODY::cancel_local_timer(ui.model.timer); break;
+        case Target::TimerDismiss: CODY::dismiss_local_timer(ui.model.timer); break;
+        default: break;
+        }
     } else if (layer == Layer::AboutLink) {
         ui.model.info_page = CODY::InfoPage::Firmware;
         invalidate();
@@ -583,6 +637,7 @@ esp_err_t update_navigation()
     }
     if (ui.model.save != Save::Pending && s_options_requested.exchange(false, std::memory_order_acq_rel)) {
         ui.model.editing = false;
+        ui.timer_open = false;
         ui.model.info_page = CODY::InfoPage::System;
         CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
         ui.diagnostics = false;
@@ -604,6 +659,10 @@ esp_err_t update_navigation()
         ui.model.editing = true;
         invalidate();
         break;
+    case CODY::WidgetOpenRequest::Timer:
+        ui.timer_open = true;
+        invalidate();
+        break;
     default: break;
     }
     bool changed = false;
@@ -612,6 +671,12 @@ esp_err_t update_navigation()
         ui.scene_dirty = true;
         if (ui.model.editing && ui.scene.valid && ui.scene.definition->id != CODY::SceneId::MakeItYours) {
             ui.model.editing = false;
+            invalidate();
+        }
+        if (ui.timer_open && !CODY::onboarding_dashboard_active() &&
+            (!ui.scene.valid || ui.scene.definition->id != CODY::SceneId::MakeItYours)) {
+            // Remote attention or setup can replace the view without stopping the timer.
+            ui.timer_open = false;
             invalidate();
         }
     }
@@ -752,6 +817,7 @@ esp_err_t update_and_draw(int64_t now_us)
     }
     if (may_return_home) {
         ui.model.editing = false;
+        ui.timer_open = false;
         ui.diagnostics = false;
         LUNASHELL_power_manager_note_activity();
         CODY::dismiss_screensaver(ui.model.screensaver, now_us);
@@ -817,6 +883,18 @@ esp_err_t advance_branding(DeviceUi &ui)
     return error;
 }
 
+// ui: Worker-owned timer and retained navigation state.
+// now_us: Monotonic time before processing any potentially overdue touch release.
+void advance_local_timer(DeviceUi &ui, int64_t now_us)
+{
+    if (CODY::update_local_timer(ui.model.timer, now_us) && CODY::onboarding_dashboard_active() &&
+        !ui.model.editing && !ui.diagnostics) {
+        ui.timer_open = true;
+        ui.model.navigation.interact(now_us);
+        invalidate();
+    }
+}
+
 // context: Unused; the task exclusively owns native navigation and presentation.
 void device_ui_worker(void *context)
 {
@@ -837,6 +915,7 @@ void device_ui_worker(void *context)
             s_command_result.store(result, std::memory_order_relaxed);
             s_ack.store(request, std::memory_order_release);
         }
+        advance_local_timer(ui, esp_timer_get_time());
         if (!s_ready.load(std::memory_order_acquire) || ui.asleep ||
             !LUNASHELL_display_runtime_writes_allowed()) {
             vTaskDelay(pdMS_TO_TICKS(kPollMs));
@@ -851,6 +930,7 @@ void device_ui_worker(void *context)
             break;
         }
         if (s_command.load(std::memory_order_acquire) != 0) continue;
+        advance_local_timer(ui, esp_timer_get_time());
         if (wait == ESP_OK || ui.pressed) error = sample_touch();
         if (error == ESP_OK) error = update_and_draw(esp_timer_get_time());
         if (error == ESP_ERR_NOT_FINISHED) error = ESP_OK;

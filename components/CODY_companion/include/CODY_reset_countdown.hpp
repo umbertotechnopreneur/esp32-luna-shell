@@ -32,6 +32,7 @@ struct ResetCountdownView {
     // The selected date fields show configured local time only with a proven offset.
     int16_t utc_offset_minutes = 0;
     bool local_time = false;
+    bool saved = false;
 };
 
 // The display owner retains all borrowed text and tile faces through frame retirement.

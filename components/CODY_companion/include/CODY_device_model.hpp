@@ -2,6 +2,7 @@
 
 #include "CODY_battery_alerts.hpp"
 #include "CODY_device_effects.hpp"
+#include "CODY_local_timer.hpp"
 #include "CODY_screensaver.hpp"
 #include "CODY_companion_gestures.hpp"
 #include "CODY_navigation_visibility.hpp"
@@ -17,6 +18,7 @@ namespace CODY {
 struct DeviceDashboardData {
     LUNASHELL::CodexWeeklyLimitSnapshot weekly{};
     LUNASHELL::CodexAccountSnapshot details{};
+    LUNASHELL::CodexSavedSnapshot saved{};
     LUNASHELL::CodexTokenIntervalsSnapshot intervals{};
     LUNASHELL::ClockSnapshot clock{};
     LUNASHELL::DeviceStatusObservation connection{};
@@ -36,6 +38,7 @@ enum class VisibilitySave : uint8_t { Idle, Pending, Failed };
 
 struct DeviceModel {
     DeviceEffectsModel effects{};
+    LocalTimerModel timer{};
     ScreensaverModel screensaver{};
     WidgetRouteState widgets{};
     WidgetVisibility draft{};
@@ -64,6 +67,10 @@ struct DeviceModel {
 
 // Refreshes the canonical weekly limit and clock shared by all awake screens.
 void update_device_observations(DeviceDashboardData &data);
+
+// data: Historical data admitted for the retained pairing while Codex is unavailable.
+// screen: Current dashboard page, used to select its independent saved source.
+int64_t device_saved_page_epoch(const DeviceDashboardData &data, WidgetScreen screen);
 
 // Ages the battery banner against canonical observations and its display dwell.
 void update_device_battery(DeviceModel &model, int64_t now_us);

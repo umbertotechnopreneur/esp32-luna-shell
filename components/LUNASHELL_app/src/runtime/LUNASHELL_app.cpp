@@ -5141,6 +5141,9 @@ std::expected<void, std::string> App::refresh_battery(AppContext &context)
         case DeviceStateReason::CodexOffline:
             reason = "PC OFFLINE";
             break;
+        case DeviceStateReason::LocalTimer:
+            reason = "LOCAL TIMER";
+            break;
         }
         std::snprintf(
             device_power_value.data(),

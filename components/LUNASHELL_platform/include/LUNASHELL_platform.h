@@ -251,9 +251,17 @@ void LUNASHELL_power_manager_note_power_activity(void);
 // Exception: Returns INVALID_STATE before initialization or NOT_SUPPORTED when excluded.
 esp_err_t LUNASHELL_power_manager_note_codex_notification(void);
 
+// No parameters: requests one local alarm wake through the Cody power owner.
+// Exception: Returns the real profile, startup or shutdown admission error.
+esp_err_t LUNASHELL_power_manager_request_local_timer_wake(void);
+
 // No parameters: queues the already authenticated and explicitly confirmed CCP restart.
 // Exception: Returns INVALID_STATE when the power owner is unavailable or a restart is pending.
 esp_err_t LUNASHELL_power_manager_request_codex_restart(void);
+
+// No parameters: queues a software restart confirmed on the physical device.
+// Exception: Returns the original profile or maintenance admission error.
+esp_err_t LUNASHELL_power_manager_request_restart(void);
 
 // No parameters: queues the explicitly confirmed factory reset on the internal power worker.
 // Exception: Admission errors never clear settings; accepted is not proof of completed erasure.

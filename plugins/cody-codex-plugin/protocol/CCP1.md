@@ -371,8 +371,9 @@ replacement. Cancel closes the attempt and removes Cody pending while retaining
 active storage. Failed reads, writes, validation or deletion remain repair-required;
 Retry alone does not turn them into success.
 
-Confirmed Forget removes only `ccp_pairing` and `ccp_pending` on Cody. Wi-Fi,
-skin, preferences and logs remain, as does the independent PC DPAPI record.
+Confirmed Forget removes `ccp_pairing`, `ccp_pending` and the
+`cody_codex_v1` historical telemetry checkpoint on Cody. Wi-Fi, skin,
+preferences and logs remain, as does the independent PC DPAPI record.
 There is no remote revocation. Explicit Forget may remove a damaged record;
 there is no automatic migration or reset.
 

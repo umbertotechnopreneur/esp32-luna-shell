@@ -213,8 +213,9 @@ input acquired during the farewell cancels the transition before radio shutdown.
 
 After the transaction, radios, voice input and wake-word acquisition are suspended.
 Saved credentials/pairing are retained. Movement, voice and queued network notices
-cannot wake this offline standby; touch or a physical button restores the ordinary
-owners and reconnects. Its first contact does not select a control or start voice
+cannot wake this offline standby. Touch, a physical button or an expired local
+timer restores the ordinary owners and reconnects. A timer wake leaves voice
+input idle. The first touch does not select a control or start voice
 recording. Wake word remains available after wake and in ordinary listening standby.
 If an existing dark standby loses its PC, the same timeout sheds its retained
 services without waking the panel for a farewell. No periodic reconnect wake is armed.
@@ -223,6 +224,19 @@ The power owner reads link and setup state through a canonical projection
 bounded to 64 bytes. Offline standby still requires verification of timeout,
 rollback, sound, touch and wake behavior. Whole-board current, stack headroom
 and wake latency require device measurements.
+
+The local timer uses a monotonic deadline, including elapsed software standby.
+The display worker retains the timer model and can request an alarm wake even
+while panel writes are parked. Playback uses the shared audio owner and honors
+Sounds, volume and quiet hours. The timer remains active across navigation and
+ends on restart or shutdown.
+
+The CCP owner retains the latest authenticated allowance, dated usage and
+credit observations in RAM and checkpoints them through the settings executor.
+The first write is coalesced for two seconds and subsequent writes are spaced
+by at least ten minutes. Observations use the device clock and the provider's
+reported age to retain the original UTC time. Saved data is scoped to the
+retained pairing and removed by Forget, replacement or factory reset.
 
 ### Pending-question sound cadence
 

@@ -20,11 +20,13 @@ public:
     // body_font: Native monospaced font used for the date and labels.
     // content: Receives the borrowed tile renderer between retired frames.
     // reset_local: Optional local projection of the same reset instant from the time owner.
+    // saved: Historical allowance selected explicitly by the offline dashboard.
     // Exception: Returns the original font, layout or frame preparation error.
     esp_err_t prepare(const LUNASHELL::CodexWeeklyLimitSnapshot &allowance,
                       const LUNASHELL::ClockSnapshot &clock, int64_t animation_time_us,
                       const CODY2D::MonoFont &title_font, const CODY2D::MonoFont &body_font,
-                      SceneContent &content, const LUNASHELL::ClockLocalCalendar *reset_local = nullptr);
+                      SceneContent &content, const LUNASHELL::ClockLocalCalendar *reset_local = nullptr,
+                      bool saved = false);
 
     // No parameters. Retires the animation before the route leaves or reopens.
     void reset_animation();

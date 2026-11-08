@@ -129,6 +129,9 @@ std::atomic<uint32_t> s_ui_quiescence_requested_sequence{0};
 std::atomic<uint32_t> s_ui_quiescence_acknowledged_sequence{0};
 std::atomic<int32_t> s_ui_quiescence_result{ESP_ERR_INVALID_STATE};
 std::atomic<uint32_t> s_activity_sequence{0};
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+std::atomic_bool s_local_timer_wake_requested{false};
+#endif
 std::atomic_bool s_leg_mode_enabled{false};
 std::atomic_bool s_leg_wake_enabled{true};
 std::atomic_bool s_shake_wake_enabled{true};
@@ -395,6 +398,8 @@ const char *device_state_reason_name(LUNASHELL::DeviceStateReason reason)
         return "codex-notification";
     case LUNASHELL::DeviceStateReason::CodexOffline:
         return "codex-offline";
+    case LUNASHELL::DeviceStateReason::LocalTimer:
+        return "local-timer";
     }
     return "unknown";
 }
@@ -585,8 +590,10 @@ void publish_inputs()
 
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 enum class MaintenanceCommand : uint8_t { None, Restart, FactoryReset };
+enum class MaintenanceOrigin : uint8_t { Codex, Local };
 struct MaintenanceRequest {
     MaintenanceCommand command = MaintenanceCommand::None;
+    MaintenanceOrigin origin = MaintenanceOrigin::Codex;
     int64_t execute_at_us = 0;
     uint32_t local_request_id = 0;
 };
@@ -595,9 +602,10 @@ LUNASHELL::FactoryResetObservation s_local_factory_reset{};
 std::atomic<esp_err_t> s_factory_reset_error{ESP_OK};
 
 // command: Explicitly confirmed operation, with factory erasure distinct from restart.
+// origin: Authorized entry point, retained for accurate worker logging.
 // request_id: Optional destination for the local factory-reset identity.
 // Exception: Returns INVALID_STATE when unavailable, occupied or out of local identities.
-esp_err_t queue_maintenance(MaintenanceCommand command, uint32_t *request_id = nullptr)
+esp_err_t queue_maintenance(MaintenanceCommand command, MaintenanceOrigin origin, uint32_t *request_id = nullptr)
 {
     if (!s_initialized.load(std::memory_order_acquire)) {
         ESP_LOGE(kTag, "Maintenance rejected before power initialization (%s)",
@@ -617,7 +625,7 @@ esp_err_t queue_maintenance(MaintenanceCommand command, uint32_t *request_id = n
         }
         // Give CCP time to transmit its acknowledgement and the local UI time
         // to show admission before the internal worker erases or restarts.
-        s_maintenance_request = {command, execute_at_us, local_request_id};
+        s_maintenance_request = {command, origin, execute_at_us, local_request_id};
     }
     portEXIT_CRITICAL(&s_shutdown_admission_mux);
     if (occupied || exhausted) {
@@ -629,7 +637,7 @@ esp_err_t queue_maintenance(MaintenanceCommand command, uint32_t *request_id = n
     if (request_id != nullptr) {
         *request_id = local_request_id;
     }
-    ESP_LOGW(kTag, "%s maintenance admitted: %s", request_id != nullptr ? "Local" : "CCP",
+    ESP_LOGW(kTag, "%s maintenance admitted: %s", origin == MaintenanceOrigin::Local ? "Local" : "CCP",
              command == MaintenanceCommand::FactoryReset ? "factory settings reset" : "restart; settings preserved");
     return ESP_OK;
 }
@@ -2980,7 +2988,8 @@ void power_task(void *argument)
         if (maintenance.command != MaintenanceCommand::None &&
             esp_timer_get_time() >= maintenance.execute_at_us) {
             if (maintenance.command == MaintenanceCommand::Restart) {
-                restart_preserving_logs("CCP confirmed restart");
+                restart_preserving_logs(maintenance.origin == MaintenanceOrigin::Local
+                    ? "Local confirmed restart" : "CCP confirmed restart");
             }
             if (maintenance.local_request_id != 0) {
                 publish_power(ESP_OK);
@@ -3292,6 +3301,22 @@ void power_task(void *argument)
                 }
             }
         }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+        if (s_local_timer_wake_requested.exchange(false, std::memory_order_acq_rel) && !s_shutdown_in_progress) {
+            constexpr auto reason = LUNASHELL::DeviceStateReason::LocalTimer;
+            esp_err_t timer_error = ESP_ERR_INVALID_STATE;
+            if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
+                // A local alarm wakes even offline standby, without starting voice capture.
+                timer_error = set_standby(false, reason);
+            } else if (s_state == LUNASHELL::DeviceOperatingState::Active) {
+                reset_codex_offline_grace();
+                timer_error = restore_active_policy(reason, false);
+            }
+            if (timer_error != ESP_OK) {
+                ESP_LOGE(kTag, "Local timer wake failed (%s)", esp_err_to_name(timer_error));
+            }
+        }
+#endif
         // Let the ordinary acquisition path consume a new IRQ before parking it.
         // A raw IRQ never becomes a fabricated touch sample or activity timestamp.
         // Do not enter inactivity standby between the press edge and shutdown.
@@ -3749,14 +3774,46 @@ extern "C" esp_err_t LUNASHELL_power_manager_note_codex_notification(void)
     return ESP_OK;
 }
 
+// No parameters: records the due timer independently of physical and CCP activity.
+// Exception: Returns INVALID_STATE if startup is incomplete or shutdown closed admission.
+extern "C" esp_err_t LUNASHELL_power_manager_request_local_timer_wake(void)
+{
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    if (s_initialized.load(std::memory_order_acquire)) {
+        portENTER_CRITICAL(&s_shutdown_admission_mux);
+        const bool admitted = !s_shutdown_admission_closed;
+        if (admitted) s_local_timer_wake_requested.store(true, std::memory_order_release);
+        portEXIT_CRITICAL(&s_shutdown_admission_mux);
+        if (admitted) return ESP_OK;
+    }
+    constexpr esp_err_t error = ESP_ERR_INVALID_STATE;
+#else
+    constexpr esp_err_t error = ESP_ERR_NOT_SUPPORTED;
+#endif
+    ESP_LOGE(kTag, "Local timer wake rejected (%s)", esp_err_to_name(error));
+    return error;
+}
+
 // No parameters: only the CCP owner calls this after validating the paired sender and literal code.
 // Exception: Returns a real admission failure; no restart is scheduled on rejection.
 extern "C" esp_err_t LUNASHELL_power_manager_request_codex_restart(void)
 {
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
-    return queue_maintenance(MaintenanceCommand::Restart);
+    return queue_maintenance(MaintenanceCommand::Restart, MaintenanceOrigin::Codex);
 #else
     ESP_LOGE(kTag, "CCP restart is unavailable in this profile (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+// No parameters: the local UI calls only after the user confirms a restart.
+// Exception: Returns the real maintenance admission failure without rebooting.
+extern "C" esp_err_t LUNASHELL_power_manager_request_restart(void)
+{
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    return queue_maintenance(MaintenanceCommand::Restart, MaintenanceOrigin::Local);
+#else
+    ESP_LOGE(kTag, "Local restart is unavailable in this profile (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
     return ESP_ERR_NOT_SUPPORTED;
 #endif
 }
@@ -3766,7 +3823,7 @@ extern "C" esp_err_t LUNASHELL_power_manager_request_codex_restart(void)
 extern "C" esp_err_t LUNASHELL_power_manager_request_codex_factory_reset(void)
 {
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
-    return queue_maintenance(MaintenanceCommand::FactoryReset);
+    return queue_maintenance(MaintenanceCommand::FactoryReset, MaintenanceOrigin::Codex);
 #else
     ESP_LOGE(kTag, "CCP factory reset is unavailable in this profile (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
     return ESP_ERR_NOT_SUPPORTED;
@@ -3783,7 +3840,7 @@ extern "C" esp_err_t LUNASHELL_power_manager_request_factory_reset(uint32_t *req
         return ESP_ERR_INVALID_ARG;
     }
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
-    return queue_maintenance(MaintenanceCommand::FactoryReset, request_id);
+    return queue_maintenance(MaintenanceCommand::FactoryReset, MaintenanceOrigin::Local, request_id);
 #else
     ESP_LOGE(kTag, "Local factory reset is unavailable in this profile (%s)",
              esp_err_to_name(ESP_ERR_NOT_SUPPORTED));

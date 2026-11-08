@@ -1066,6 +1066,8 @@ const char *deviceStateReasonName(LUNASHELL::DeviceStateReason reason)
         return "codex-notification";
     case LUNASHELL::DeviceStateReason::CodexOffline:
         return "codex-offline";
+    case LUNASHELL::DeviceStateReason::LocalTimer:
+        return "local-timer";
     }
     return "unknown";
 }

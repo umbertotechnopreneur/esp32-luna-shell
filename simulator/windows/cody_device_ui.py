@@ -16,7 +16,10 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageTk
 
 from cody_ccp_event_view import EventView
 from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
-from cody_device_state import InfoPage, ScreensaverModel, SystemInfoModel, SystemInfoObservation
+from cody_device_state import (
+    InfoPage, LocalTimerModel, LocalTimerPhase, ScreensaverModel, SystemInfoModel, SystemInfoObservation,
+    TIMER_MAX_MINUTES, TIMER_MIN_MINUTES,
+)
 from cody_preview_layout import PreviewLayout, SIZE, enlarge_framebuffer
 from cody_screensaver import render_screensaver
 from cody_ui_theme import install_theme
@@ -39,6 +42,7 @@ OPTIONS_ROW_TOP = 130
 OPTIONS_ROW_STEP = 80
 OPTIONS_ROW_WIDTH = 280
 OPTIONS_ROW_HEIGHT = 72
+OPTIONS_PAGE_COUNT = 3
 NAVIGATION_IDLE_SECONDS = 10
 NAVIGATION_FADE_SECONDS = 0.35
 PAGES = (
@@ -345,6 +349,8 @@ class DeviceStudioWindow:
         self.shake_to_wake = False
         self.info = SystemInfoModel()
         self.screensaver = ScreensaverModel()
+        self.local_timer = LocalTimerModel()
+        self.timer_return = "options"
 
     # self: Preview window playing the standard startup animation.
     def start_boot(self):
@@ -394,6 +400,14 @@ class DeviceStudioWindow:
         self.acknowledged = ()
         self.open("options")
 
+    # self: Studio navigation owner retaining the actual Options or dashboard caller.
+    def open_local_timer(self):
+        self.timer_return = self.route
+        self.touch = None
+        self.targets.clear()
+        self.acknowledged = ()
+        self.open("timer")
+
     # self: Preview power owner; standby cancels screensaver without changing its preference.
     def toggle_standby(self):
         if self.boot is not None:
@@ -434,7 +448,12 @@ class DeviceStudioWindow:
     # self: Active Studio preview returning to the calling route or menu page.
     def back(self):
         if self.boot is None and not self.standby and not self.event_visible:
-            if self.route in ("visibility", "connections", "display", "behavior", "factory_reset"):
+            if self.route == "timer" and self.timer_return == "widgets":
+                self.touch = None
+                self.targets.clear()
+                self.acknowledged = ()
+                self.open("widgets")
+            elif self.route in ("visibility", "connections", "display", "behavior", "restart", "factory_reset", "timer"):
                 self.show_options_page(self.options_page)
             elif self.route == "more_behavior":
                 self.open("behavior")
@@ -446,7 +465,7 @@ class DeviceStudioWindow:
                 self.open(self.pairing_return)
             elif self.route == "options":
                 if self.options_page:
-                    self.show_options_page(0)
+                    self.show_options_page(self.options_page - 1)
                 else:
                     self.open("widgets")
             elif self.route == "widgets" and PAGES[self.page] == "About":
@@ -470,6 +489,26 @@ class DeviceStudioWindow:
         if messagebox.askyesno("Forget SIMULATED pairing", "Forget the saved link?", parent=self.root):
             self.endpoint.act("forget", True)
 
+    # self: Confirmed restart owner for this Studio window and its isolated loopback link.
+    # Raises the original endpoint failure before restarting the preview.
+    def restart_device(self):
+        route = "widgets"
+        pending_pairing = False
+        if self.endpoint is not None:
+            events = EventView()
+            self.endpoint.act("restart", True)
+            self.events = events
+            snapshot, _ = self.endpoint.observe()
+            pending_pairing = snapshot.pending_pairing
+            if pending_pairing or (snapshot.network_ready and not snapshot.retained_pairing):
+                route = "connections"
+            elif not snapshot.network_ready:
+                route = WifiSetupRoute.OFFLINE
+        self.local_timer = LocalTimerModel()
+        self.timer_return = "options"
+        self.info = SystemInfoModel()
+        self.reboot_preview(route, pending_pairing)
+
     # self: The confirmed reset owns only this Studio window and its isolated store.
     # Raises the original endpoint or storage failure before resetting the preview.
     def reset_device(self):
@@ -478,13 +517,23 @@ class DeviceStudioWindow:
             self.endpoint.act("factory_reset", True)
             self.events = events
         self.restore_preview_defaults()
-        self.page = self.settings_page = self.options_page = 0
-        self.pairing_attempted = self.event_visible = False
+        self.page = 0
+        self.reboot_preview(WifiSetupRoute.NOT_CONNECTED)
+
+    # self: Preview boot owner resetting only transient navigation and input state.
+    # route: Startup route selected from the actual post-reset preview state.
+    # pending_pairing: Whether a durable commissioning candidate survived restart.
+    def reboot_preview(self, route, pending_pairing=False):
+        self.settings_page = self.options_page = 0
+        self.pairing_attempted = pending_pairing
+        self.event_visible = self.standby = False
         self.guide_return = WifiSetupRoute.NOT_CONNECTED
         self.pairing_return = WifiSetupRoute.PHONE_GUIDE
+        self.touch = None
+        self.targets.clear()
         self.acknowledged = ()
         self.started_at = time.monotonic()
-        self.open(WifiSetupRoute.NOT_CONNECTED)
+        self.open(route)
         self.start_boot()
 
     # self: Preview owner returning to the first enabled statistics page.
@@ -530,17 +579,18 @@ class DeviceStudioWindow:
     # destructive: Use the confirmation palette for an irreversible local action.
     # icon: Optional outline icon next to the caption.
     # caption_size: Font size chosen for the complete target.
+    # center_x: Horizontal center of this button, including side-by-side actions.
     def button(self, draw, name, top, action, *, width=246, height=38, secondary=False,
-               destructive=False, icon=None, caption_size=17):
-        box = (CENTER - width // 2, top, CENTER + width // 2, top + height)
+               destructive=False, icon=None, caption_size=17, center_x=CENTER):
+        box = (center_x - width // 2, top, center_x + width // 2, top + height)
         palette = DESTRUCTIVE_CONTROL_PALETTE if destructive else (
             SECONDARY_CONTROL_PALETTE if secondary else CONTROL_PALETTE)
         color = FOREGROUND if action else MUTED
         draw_control_pill(draw, box, palette)
-        caption_x = CENTER
+        caption_x = center_x
         if icon:
             text_width = round(draw.textlength(name, font=font(caption_size)))
-            group_left = CENTER - (text_width + 32) // 2
+            group_left = center_x - (text_width + 32) // 2
             trailing = icon == "chevron"
             icon_x = group_left + (text_width + 21 if trailing else 11)
             setup_icon(draw, icon, (icon_x, top + height // 2), 22, palette[3] if action else MUTED)
@@ -654,17 +704,22 @@ class DeviceStudioWindow:
     # draw: Logical canvas before rotation.
     # now: Monotonic frame time for the lateral arrow fade.
     def draw_options(self, draw, now):
-        label(draw, f"Options {self.options_page + 1}/2", OPTIONS_TITLE_TOP, 34)
+        label(draw, f"Options {self.options_page + 1}/{OPTIONS_PAGE_COUNT}", OPTIONS_TITLE_TOP, 34)
         if self.options_page == 0:
             rows = (
                 ("Connections", lambda: self.open("connections")),
                 ("Codex stats", self.open_statistics),
+                ("Timer", self.open_local_timer),
+            )
+        elif self.options_page == 1:
+            rows = (
                 ("Visible screens", lambda: self.open("visibility")),
+                ("Display", lambda: self.open("display")),
+                ("Behavior", lambda: self.open("behavior")),
             )
         else:
             rows = (
-                ("Display", lambda: self.open("display")),
-                ("Behavior", lambda: self.open("behavior")),
+                ("Restart device", lambda: self.open("restart")),
                 ("Factory reset", lambda: self.open("factory_reset")),
             )
         self.draw_option_rows(draw, rows)
@@ -673,9 +728,51 @@ class DeviceStudioWindow:
         opacity = self.navigation_opacity(now)
         if opacity > 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
-            if self.options_page == 0:
-                next_page = (lambda: self.show_options_page(1)) if opacity == 1 else None
+            if self.options_page < OPTIONS_PAGE_COUNT - 1:
+                next_page = (lambda: self.show_options_page(self.options_page + 1)) if opacity == 1 else None
                 self.sidebar(draw, 1, next_page, opacity)
+
+    # self: Studio preview drawing its independently retained timer state.
+    # draw: Logical canvas before rotation.
+    # now: Monotonic frame time used for the timer digits and Back fade.
+    def draw_local_timer(self, draw, now):
+        timer = self.local_timer
+        minutes, seconds = divmod(timer.remaining_seconds(now), 60)
+        label(draw, "Timer", 93, 34, ACCENT)
+        status = {
+            LocalTimerPhase.IDLE: "Set duration",
+            LocalTimerPhase.RUNNING: "Time remaining",
+            LocalTimerPhase.FINISHED: "Time is up",
+        }[timer.phase]
+        finished = timer.phase is LocalTimerPhase.FINISHED
+        label(draw, status, 150, 18, ACCENT if finished else MUTED)
+        label(draw, f"{minutes:02d}:{seconds:02d}", 184, 40, ACCENT if finished else FOREGROUND)
+        if timer.phase is LocalTimerPhase.IDLE:
+            decrease = (lambda: timer.adjust(-1)) if timer.duration_minutes > TIMER_MIN_MINUTES else None
+            increase = (lambda: timer.adjust(1)) if timer.duration_minutes < TIMER_MAX_MINUTES else None
+            self.button(draw, "- 1 min", 247, decrease, width=154, height=60, secondary=True, center_x=150)
+            self.button(draw, "+ 1 min", 247, increase, width=154, height=60, secondary=True, center_x=316)
+            self.button(draw, f"Sound: {timer.sound.value}", 321, timer.cycle_sound,
+                        width=154, height=60, secondary=True, center_x=150, caption_size=18)
+            self.button(draw, "Start", 321, lambda: timer.start(time.monotonic()),
+                        width=154, height=60, center_x=316)
+        elif finished:
+            self.button(draw, "Done", 321, timer.dismiss, width=240, height=60)
+        else:
+            self.button(draw, "Cancel", 321, timer.cancel, width=240, height=60, secondary=True)
+        opacity = self.navigation_opacity(now)
+        if opacity > 0:
+            self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
+
+    # self: Studio preview routing cancellation or confirmed restart to its owner.
+    # draw: Logical canvas before rotation.
+    def draw_restart(self, draw):
+        label(draw, "Restart device", OPTIONS_TITLE_TOP, 34)
+        label(draw, "Keep Wi-Fi and settings", 155, 17, MUTED)
+        label(draw, "Stops any active timer", 184, 17, MUTED)
+        self.button(draw, "Cancel", 270, self.back, width=280, height=64, secondary=True, caption_size=20)
+        self.button(draw, "Restart device", 382, self.restart_device, width=220, height=52, caption_size=20)
+        self.sidebar(draw, -1, self.back)
 
     # self: Studio preview routing cancellation or an explicit reset to its owner.
     # draw: Logical canvas before rotation.
@@ -853,6 +950,10 @@ class DeviceStudioWindow:
                 self.draw_connections(draw, snapshot, code)
             elif self.route == "options":
                 self.draw_options(draw, now)
+            elif self.route == "timer":
+                self.draw_local_timer(draw, now)
+            elif self.route == "restart":
+                self.draw_restart(draw)
             elif self.route == "factory_reset":
                 self.draw_factory_reset(draw)
             elif self.route == "visibility":
@@ -917,6 +1018,8 @@ class DeviceStudioWindow:
     # Original source and drawing failures remain visible in the existing status surface.
     def tick(self):
         now = time.monotonic()
+        if self.local_timer.observe(now) and self.route == "widgets" and not self.event_visible:
+            self.open_local_timer()
         self.info.observation = SystemInfoObservation(studio_uptime_seconds=int(now - self.started_at))
         try:
             snapshot, code = self.observe()

@@ -362,7 +362,9 @@ esp_err_t prepare_metadata(ResetCountdownPresentation &presentation, const Reset
     case ResetCountdownStatus::Unavailable: status = "Codex usage unavailable"; break;
     case ResetCountdownStatus::TimeUnavailable: status = "Device time unavailable"; break;
     case ResetCountdownStatus::Stale: status = "Codex usage stale"; break;
-    case ResetCountdownStatus::Elapsed: status = "Reset time passed"; break;
+    case ResetCountdownStatus::Elapsed:
+        status = view.saved ? "Reset passed - sync Codex" : "Reset time passed";
+        break;
     case ResetCountdownStatus::Active: break;
     }
     if (status != nullptr) {
@@ -391,11 +393,12 @@ esp_err_t prepare_metadata(ResetCountdownPresentation &presentation, const Reset
     if (view.status == ResetCountdownStatus::Elapsed) { return ESP_OK; }
 
     const unsigned basis_points = fields.remaining_basis_points;
+    const char *label = view.saved ? "at last update" : "remaining";
     const int percent = basis_points % 100U == 0
-        ? std::snprintf(line, sizeof(line), "%u%% remaining", basis_points / 100U)
-        : std::snprintf(line, sizeof(line), "%u.%02u%% remaining", basis_points / 100U, basis_points % 100U);
+        ? std::snprintf(line, sizeof(line), "%u%% %s", basis_points / 100U, label)
+        : std::snprintf(line, sizeof(line), "%u.%02u%% %s", basis_points / 100U, basis_points % 100U, label);
     if (percent < 0 || static_cast<size_t>(percent) >= sizeof(line)) { return ESP_ERR_INVALID_SIZE; }
-    return add_caption(presentation, font, line, {73, 346, 320, 26}, kAccent);
+    return add_caption(presentation, font, line, {73, 346, 320, 26}, view.saved ? kMuted : kAccent);
 }
 
 // left: Current prepared screen source and projection.
@@ -407,6 +410,7 @@ bool same_view(const ResetCountdownView &left, const ResetCountdownView &right)
     return left.status == right.status && left.remaining_seconds == right.remaining_seconds &&
         left.previous_seconds == right.previous_seconds && left.flip_progress == right.flip_progress &&
         left.local_time == right.local_time && left.utc_offset_minutes == right.utc_offset_minutes &&
+        left.saved == right.saved &&
         a.year == b.year && a.month == b.month && a.day == b.day && a.hour == b.hour &&
         a.minute == b.minute && a.remaining_basis_points == b.remaining_basis_points;
 }
@@ -468,7 +472,7 @@ esp_err_t prepare_reset_countdown(const ResetCountdownView &view,
 // presentation: Prepared screen, retained until the central and perimeter draws retire.
 bool reset_countdown_ring_visible(const ResetCountdownPresentation &presentation)
 {
-    return presentation.valid && presentation.view.fields.remaining_basis_points != 0 &&
+    return presentation.valid && !presentation.view.saved && presentation.view.fields.remaining_basis_points != 0 &&
         (presentation.view.status == ResetCountdownStatus::Active ||
          presentation.view.status == ResetCountdownStatus::TimeUnavailable);
 }

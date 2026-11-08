@@ -45,6 +45,7 @@ struct QuotaWindow {
     uint16_t remaining;
     uint16_t top;
     uint16_t color;
+    int64_t saved_epoch;
 };
 
 // operation: Failed account layout or raster operation.
@@ -61,6 +62,12 @@ SourceState source_state(const LUNASHELL::ComponentSnapshot &observation)
     if (observation.data_stale) { return SourceState::Stale; }
     return observation.data_valid && observation.health == LUNASHELL::DeviceHealth::Ready &&
         observation.last_error == ESP_OK ? SourceState::Current : SourceState::Unavailable;
+}
+
+// state: Independently admitted live or historical numeric data.
+bool displayable(SourceState state)
+{
+    return state == SourceState::Current || state == SourceState::Saved;
 }
 
 // state: Visible status for an unavailable or expired metric.
@@ -226,14 +233,23 @@ void format_percent(uint16_t basis_points, char (&text)[32])
 // Exception: Preserves any original native formatting or layout failure.
 esp_err_t add_quota(AccountDashboardPresentation &presentation, const QuotaWindow &window)
 {
-    const bool available = window.state == SourceState::Current;
+    const bool available = displayable(window.state);
     char text[32]{};
     if (available) { format_percent(window.remaining, text); }
     esp_err_t error = add_detail(presentation, window.label, window.top, kGold);
     if (error != ESP_OK) { return error; }
     const auto value_top = static_cast<uint16_t>(window.top + 25U);
+    const uint16_t value_height = window.saved_epoch > 0 ? 58 : 80;
     error = add_hero(presentation, available ? text : status_text(window.state),
-        {73, value_top, 320, 80}, available ? 2 : 1, available ? kWhite : kMuted);
+        {73, value_top, 320, value_height}, available ? 2 : 1, available ? kWhite : kMuted);
+    if (error == ESP_OK && window.saved_epoch > 0) {
+        std::tm calendar{};
+        if (!utc_calendar(window.saved_epoch, calendar) ||
+            std::strftime(text, sizeof(text), "Saved %Y-%m-%d %H:%MZ", &calendar) == 0) {
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+        return add_detail(presentation, text, static_cast<uint16_t>(value_top + value_height + 1U));
+    }
     if (error != ESP_OK || !available) { return error; }
 
     const uint16_t y = static_cast<uint16_t>(window.top + 105U);
@@ -247,12 +263,15 @@ esp_err_t add_quota(AccountDashboardPresentation &presentation, const QuotaWindo
 // presentation: Fixed quota page owner.
 // account: Canonical short-window fields and transport state.
 // weekly: Canonical weekly-window fields and transport state.
+// account_epoch: Last update of the saved short window, or zero for live or absent data.
+// weekly_epoch: Last update of the saved weekly window, or zero for live or absent data.
 // Exception: Preserves native rendering or formatting errors.
 esp_err_t prepare_quota(AccountDashboardPresentation &presentation,
-    const LUNASHELL::CodexAccountSnapshot &account, const LUNASHELL::CodexWeeklyLimitSnapshot &weekly)
+    const LUNASHELL::CodexAccountSnapshot &account, const LUNASHELL::CodexWeeklyLimitSnapshot &weekly,
+    int64_t account_epoch, int64_t weekly_epoch)
 {
     char label[32] = "SHORT WINDOW";
-    if (presentation.short_state == SourceState::Current || presentation.short_state == SourceState::Elapsed) {
+    if (displayable(presentation.short_state) || presentation.short_state == SourceState::Elapsed) {
         const unsigned minutes = account.short_window_minutes;
         if (minutes < 60U) { std::snprintf(label, sizeof(label), "%u MINUTE WINDOW", minutes); }
         else if (minutes % 60U == 0) { std::snprintf(label, sizeof(label), "%u HOUR WINDOW", minutes / 60U); }
@@ -261,14 +280,15 @@ esp_err_t prepare_quota(AccountDashboardPresentation &presentation,
     esp_err_t error = add_rule(presentation, 125);
     if (error != ESP_OK) { return error; }
     error = add_quota(presentation, {label, presentation.short_state,
-        account.short_remaining_basis_points, 129, kCyan});
+        account.short_remaining_basis_points, 129, kCyan, account_epoch});
     if (error != ESP_OK) { return error; }
     error = add_rule(presentation, 245);
     if (error != ESP_OK) { return error; }
     error = add_quota(presentation, {"WEEKLY WINDOW", presentation.weekly_state,
-        weekly.remaining_basis_points, 249, kIndigo});
+        weekly.remaining_basis_points, 249, kIndigo, weekly_epoch});
     if (error != ESP_OK) { return error; }
-    return add_detail(presentation, "REMAINING", 366, kCyan);
+    const bool saved = account_epoch > 0 || weekly_epoch > 0;
+    return add_detail(presentation, saved ? "REMAINING AT LAST UPDATE" : "REMAINING", 366, kCyan);
 }
 
 // presentation: Fixed current-day page owner.
@@ -276,26 +296,29 @@ esp_err_t prepare_quota(AccountDashboardPresentation &presentation,
 // Exception: Preserves original native glyph and layout errors.
 esp_err_t prepare_today(AccountDashboardPresentation &presentation, const LUNASHELL::CodexAccountSnapshot &account)
 {
-    const bool current = presentation.account_state == SourceState::Current;
+    const bool available = displayable(presentation.account_state);
+    const bool saved = presentation.account_state == SourceState::Saved;
     esp_err_t error = add_rule(presentation, 128);
     if (error != ESP_OK) { return error; }
 
-    if (!current || presentation.utc_day <= 0) {
-        const char *status = current ? "Device time unavailable" : status_text(presentation.account_state);
+    if (!available || presentation.utc_day <= 0) {
+        const char *status = available ? "Device time unavailable" : status_text(presentation.account_state);
         return add_hero(presentation, status, {73, 175, 320, 144}, 1, kMuted);
     }
 
     char label[32] = "TOKENS TODAY (UTC)";
-    const auto *tokens = account.tokens_for_unix_day(presentation.utc_day);
+    int64_t day = presentation.utc_day;
+    const auto *tokens = account.tokens_for_unix_day(day);
     if (tokens == nullptr) {
-        constexpr char status[] = "TODAY TOTAL NOT REPORTED";
-        int64_t day = 0;
+        const char *status = saved ? "DAILY TOTAL NOT REPORTED" : "TODAY TOTAL NOT REPORTED";
         tokens = account.latest_tokens_before(presentation.utc_day, day);
         if (tokens == nullptr) {
             return add_detail(presentation, status, 234);
         }
         error = add_detail(presentation, status, 151);
         if (error != ESP_OK) { return error; }
+    }
+    if (saved || day != presentation.utc_day) {
         std::tm calendar{};
         char date[12]{};
         if (!utc_calendar(day * kDaySeconds, calendar) ||
@@ -377,7 +400,7 @@ esp_err_t prepare_history(AccountDashboardPresentation &presentation, const LUNA
 {
     esp_err_t error = add_rule(presentation, 126);
     if (error != ESP_OK) { return error; }
-    if (presentation.account_state != SourceState::Current) {
+    if (!displayable(presentation.account_state)) {
         return add_value(presentation, status_text(presentation.account_state), 185, kMuted);
     }
     if (presentation.utc_day <= kHistoryDayCount) {
@@ -472,7 +495,7 @@ esp_err_t add_voucher_label(AccountDashboardPresentation &presentation, uint16_t
 // Exception: Preserves original native label or formatting errors.
 esp_err_t prepare_credits(AccountDashboardPresentation &presentation, const LUNASHELL::CodexAccountSnapshot &account)
 {
-    const bool current = presentation.account_state == SourceState::Current;
+    const bool current = displayable(presentation.account_state);
     const bool finite = current && account.credits_kind == LUNASHELL::CodexCreditKind::Finite;
     const bool unlimited = current && account.credits_kind == LUNASHELL::CodexCreditKind::Unlimited;
     char credits[32]{};
@@ -756,7 +779,7 @@ void attach_content(const AccountDashboardPresentation &presentation, SceneConte
 // now: Current canonical clock seconds or zero when unavailable.
 SourceState quota_state(SourceState source, int64_t reset, int64_t now)
 {
-    return source == SourceState::Current && reset > 0 && now >= reset ? SourceState::Elapsed : source;
+    return displayable(source) && reset > 0 && now >= reset ? SourceState::Elapsed : source;
 }
 
 // metric: Independently projected native counter and original freshness state.
@@ -798,40 +821,51 @@ const char *compaction_text(const LUNASHELL::CodexTechnicalObservation &observat
 } // namespace
 
 // page: Explicit account page independent of device navigation.
-// account: Aged account-level App Server observation with independent optional fields.
-// weekly: Aged weekly allowance, separate from the other observations.
+// live_account: Aged account-level App Server observation with independent optional fields.
+// live_weekly: Aged weekly allowance, separate from the other observations.
 // clock: Aged device clock used for calendar day boundaries and elapsed limits.
 // title_font: Immutable headline and numeric glyphs.
 // body_font: Immutable date and detail glyphs.
 // presentation: Persistent owner, mutated only after the prior frame retires.
 // content: Receives the central draw callback without lateral navigation.
+// saved: Dated historical data for the retained pairing, selected only while disconnected.
 // Exception: Returns the original native preparation failure.
 esp_err_t prepare_account_dashboard(AccountDashboardPage page,
-    const LUNASHELL::CodexAccountSnapshot &account, const LUNASHELL::CodexWeeklyLimitSnapshot &weekly,
+    const LUNASHELL::CodexAccountSnapshot &live_account, const LUNASHELL::CodexWeeklyLimitSnapshot &live_weekly,
     const LUNASHELL::ClockSnapshot &clock, const CODY2D::MonoFont &title_font,
-    const CODY2D::MonoFont &body_font, AccountDashboardPresentation &presentation, SceneContent &content)
+    const CODY2D::MonoFont &body_font, AccountDashboardPresentation &presentation, SceneContent &content,
+    const LUNASHELL::CodexSavedSnapshot *saved)
 {
     if (page > Page::Account) { return result("page identity", ESP_ERR_INVALID_ARG); }
-    const SourceState account_state = source_state(account);
+    const auto &account = saved != nullptr ? saved->account : live_account;
+    const auto &weekly = saved != nullptr ? saved->weekly : live_weekly;
+    const int64_t saved_account_at = saved != nullptr ? saved->account_observed_utc : 0;
+    const int64_t saved_weekly_at = saved != nullptr ? saved->weekly_observed_utc : 0;
+    const SourceState account_state = saved == nullptr ? source_state(account) :
+        (saved_account_at > 0 ? SourceState::Saved : SourceState::Unavailable);
     const int64_t now = source_state(clock) == SourceState::Current && clock.utc_epoch_seconds > 0
         ? clock.utc_epoch_seconds : 0;
     const bool dated_page = page == Page::Today || page == Page::LastSevenDays;
-    const int64_t utc_day = dated_page && now > 0 ? now / kDaySeconds : -1;
+    const int64_t day_reference = saved != nullptr ? saved_account_at : now;
+    const int64_t utc_day = dated_page && day_reference > 0 ? day_reference / kDaySeconds : -1;
     SourceState weekly_state = SourceState::Unavailable;
     SourceState short_state = SourceState::Unavailable;
     if (page == Page::QuotaWindows) {
-        weekly_state = quota_state(source_state(weekly), weekly.reset_unix_seconds, now);
+        const auto weekly_source = saved == nullptr ? source_state(weekly) :
+            (saved_weekly_at > 0 ? SourceState::Saved : SourceState::Unavailable);
+        weekly_state = quota_state(weekly_source, weekly.reset_unix_seconds, now);
         short_state = quota_state(account_state, account.short_reset_unix_seconds, now);
-        if (weekly_state == SourceState::Current && weekly.remaining_basis_points > 10000U) {
+        if (displayable(weekly_state) && weekly.remaining_basis_points > 10000U) {
             weekly_state = SourceState::Unavailable;
         }
-        if (short_state == SourceState::Current &&
+        if (displayable(short_state) &&
             (account.short_window_minutes == 0 || account.short_remaining_basis_points > 10000U)) {
             short_state = SourceState::Unavailable;
         }
     }
-    const int64_t account_at_us = account_state == SourceState::Current ? account.last_success_at_us : 0;
-    const int64_t weekly_at_us = page == Page::QuotaWindows ? weekly.last_success_at_us : 0;
+    const int64_t account_at_us = saved != nullptr ? saved_account_at : account.last_success_at_us;
+    const int64_t weekly_at_us = page == Page::QuotaWindows
+        ? (saved != nullptr ? saved_weekly_at : weekly.last_success_at_us) : 0;
     if (presentation.valid && !presentation.context_page && presentation.page == page && presentation.account_state == account_state &&
         presentation.weekly_state == weekly_state && presentation.short_state == short_state &&
         presentation.account_at_us == account_at_us && presentation.weekly_at_us == weekly_at_us &&
@@ -863,15 +897,18 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     uint16_t headline_color = kWhite;
     switch (page) {
     case Page::QuotaWindows: headline = "CODEX LIMITS"; break;
-    case Page::Today: headline = "TODAY"; headline_color = kCyan; break;
-    case Page::LastSevenDays: headline = "LAST 7 DAYS"; break;
+    case Page::Today: headline = saved != nullptr ? "SAVED DAY" : "TODAY"; headline_color = kCyan; break;
+    case Page::LastSevenDays: headline = saved != nullptr ? "SAVED 7 DAYS" : "LAST 7 DAYS"; break;
     case Page::Credits: headline = "CREDITS"; headline_color = kCyan; break;
     case Page::Account: headline = "CODEX ACCOUNT"; headline_color = kCyan; break;
     }
     esp_err_t error = add_caption(presentation, title_font, headline, kHeadline, headline_color);
     if (error != ESP_OK) { return result("page headline", error); }
     switch (page) {
-    case Page::QuotaWindows: error = prepare_quota(presentation, account, weekly); break;
+    case Page::QuotaWindows:
+        error = prepare_quota(presentation, account, weekly,
+            account.short_window_minutes != 0 ? saved_account_at : 0, saved_weekly_at);
+        break;
     case Page::Today: error = prepare_today(presentation, account); break;
     case Page::LastSevenDays: error = prepare_history(presentation, account); break;
     case Page::Credits: error = prepare_credits(presentation, account); break;

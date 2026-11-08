@@ -433,6 +433,16 @@ struct CodexAccountSnapshot : ComponentSnapshot {
 static_assert(sizeof(CodexAccountSnapshot) <= 256,
     "Account reads must remain bounded independently of the full hardware snapshot");
 
+// Explicit historical projection. Neither saved sample carries a live transport lease.
+struct CodexSavedSnapshot {
+    CodexWeeklyLimitSnapshot weekly{};
+    CodexAccountSnapshot account{};
+    int64_t weekly_observed_utc = 0;
+    int64_t account_observed_utc = 0;
+    esp_err_t storage_error = ESP_OK;
+};
+static_assert(sizeof(CodexSavedSnapshot) <= 336, "Saved Codex values stay outside full snapshot copies");
+
 // History is memory-only. UTC quarter numbers identify slots, even when no
 // delta was observed. The component flags describe the latest source lease.
 struct CodexTokenIntervalsSnapshot : ComponentSnapshot {
@@ -877,6 +887,7 @@ enum class DeviceStateReason : uint8_t {
     Inactivity,
     CodexNotification,
     CodexOffline,
+    LocalTimer,
 };
 
 // A local reset request stays pending until reboot or a terminal failure.
@@ -1263,6 +1274,10 @@ public:
     // account: Current authenticated App Server projection, with missing fields explicit.
     // Exception: Returns the original canonical lock or release error.
     esp_err_t readCodexAccount(CodexAccountSnapshot &account) const;
+
+    // saved: Receives only historical data admitted for the retained PC pairing.
+    // Exception: Returns the original snapshot lock or release error.
+    esp_err_t readCodexSaved(CodexSavedSnapshot &saved) const;
     // history: Persistent caller-owned history; unavailable bins have unset mask bits.
     // Exception: Returns the original lock or release error; output is unusable on failure.
     esp_err_t readCodexTokenIntervals(CodexTokenIntervalsSnapshot &history) const;

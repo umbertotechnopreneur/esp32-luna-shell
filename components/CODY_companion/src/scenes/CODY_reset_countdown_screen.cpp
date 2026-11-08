@@ -19,15 +19,16 @@ bool current(const LUNASHELL::ComponentSnapshot &sample)
 
 // allowance: Aged authenticated account limit observation.
 // clock: Aged device-clock observation. Animation never extrapolates UTC.
+// saved: The allowance is a historical record from the current retained pairing.
 ResetCountdownView project_view(const LUNASHELL::CodexWeeklyLimitSnapshot &allowance,
-                                const LUNASHELL::ClockSnapshot &clock)
+                                const LUNASHELL::ClockSnapshot &clock, bool saved)
 {
     ResetCountdownView view{};
-    if (allowance.data_stale) {
+    if (allowance.data_stale && !saved) {
         view.status = ResetCountdownStatus::Stale;
         return view;
     }
-    if (!current(allowance) || allowance.reset_unix_seconds <= 0 ||
+    if ((!saved && !current(allowance)) || allowance.reset_unix_seconds <= 0 ||
         allowance.remaining_basis_points > 10000U) {
         return view;
     }
@@ -43,6 +44,7 @@ ResetCountdownView project_view(const LUNASHELL::CodexWeeklyLimitSnapshot &allow
     view.fields.hour = static_cast<uint8_t>(calendar.tm_hour);
     view.fields.minute = static_cast<uint8_t>(calendar.tm_min);
     view.fields.remaining_basis_points = allowance.remaining_basis_points;
+    view.saved = saved;
     if (!current(clock) || clock.utc_epoch_seconds <= 0) {
         view.status = ResetCountdownStatus::TimeUnavailable;
     } else if (clock.utc_epoch_seconds >= allowance.reset_unix_seconds) {
@@ -63,13 +65,15 @@ ResetCountdownView project_view(const LUNASHELL::CodexWeeklyLimitSnapshot &allow
 // body_font: Native monospaced font for the date and labels.
 // content: Receives the next borrowed draw callback and content revision.
 // reset_local: Matching configured-zone projection from the canonical time owner, if available.
+// saved: Historical allowance selected explicitly by the offline dashboard.
 // Exception: Returns the real presentation preparation error.
 esp_err_t ResetCountdownScreen::prepare(
     const LUNASHELL::CodexWeeklyLimitSnapshot &allowance, const LUNASHELL::ClockSnapshot &clock,
     int64_t animation_time_us, const CODY2D::MonoFont &title_font,
-    const CODY2D::MonoFont &body_font, SceneContent &content, const LUNASHELL::ClockLocalCalendar *reset_local)
+    const CODY2D::MonoFont &body_font, SceneContent &content, const LUNASHELL::ClockLocalCalendar *reset_local,
+    bool saved)
 {
-    auto view = project_view(allowance, clock);
+    auto view = project_view(allowance, clock, saved);
     if (view.status == ResetCountdownStatus::Unavailable || view.status == ResetCountdownStatus::Stale) {
         date_started_us_ = -1;
         date_epoch_seconds_ = 0;

@@ -38,6 +38,7 @@
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_snapshot_cadence.hpp"
 #include "LUNASHELL_task_affinity.hpp"
+#include "../network/LUNASHELL_codex_saved.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -3007,6 +3008,24 @@ esp_err_t DeviceSnapshotService::reportCodexWeeklyLimit(const CodexWeeklyLimitSn
 esp_err_t DeviceSnapshotService::readCodexAccount(CodexAccountSnapshot &account) const
 {
     return read_codex_account_sample(s_codex_account, account, "Codex account read");
+}
+
+// saved: Caller-owned historical telemetry, scoped to the currently retained pairing.
+// Exception: Returns the original snapshot lock or release error.
+esp_err_t DeviceSnapshotService::readCodexSaved(CodexSavedSnapshot &saved) const
+{
+    constexpr char operation[] = "Saved Codex data read";
+    const esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, operation);
+    if (error != ESP_OK) return error;
+    const auto &link = s_snapshot.radios.codex_link;
+    char peer[sizeof(link.paired_pc_id)]{};
+    if (link.retained_link_present && !link.pending_pairing_present && !link.command_pending) {
+        std::memcpy(peer, link.paired_pc_id, sizeof(peer));
+    }
+    const esp_err_t release_error = give_snapshot_mutex(operation);
+    if (release_error != ESP_OK) return release_error;
+    codex_saved::read(peer, saved);
+    return ESP_OK;
 }
 
 // history: Persistent caller storage; the canonical 96-slot buffer is copied directly.

@@ -8,6 +8,7 @@
 namespace LUNASHELL {
 struct ClockSnapshot;
 struct CodexAccountSnapshot;
+struct CodexSavedSnapshot;
 struct CodexTechnicalObservation;
 struct CodexWeeklyLimitSnapshot;
 }
@@ -28,7 +29,7 @@ struct AccountDashboardPresentation {
         uint16_t top_color = 0;
         uint16_t bottom_color = 0;
     };
-    enum class SourceState : uint8_t { Current, Unavailable, Stale, Elapsed, Invalid, OverLimit };
+    enum class SourceState : uint8_t { Current, Saved, Unavailable, Stale, Elapsed, Invalid, OverLimit };
 
     std::array<Caption, 20> captions{};
     std::array<Bar, 12> bars{};
@@ -66,11 +67,13 @@ static_assert(sizeof(AccountDashboardPresentation) <= 2048,
 // body_font: Immutable native text for chart dates and detail labels.
 // presentation: Persistent display-owned storage, updated after the prior frame retires.
 // content: Receives the central native content without lateral navigation controls.
+// saved: Explicit historical source for a disconnected device, or null for live data.
 // Exception: Returns the original native text or drawing preparation error.
 esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     const LUNASHELL::CodexAccountSnapshot &account, const LUNASHELL::CodexWeeklyLimitSnapshot &weekly,
     const LUNASHELL::ClockSnapshot &clock, const CODY2D::MonoFont &title_font,
-    const CODY2D::MonoFont &body_font, AccountDashboardPresentation &presentation, SceneContent &content);
+    const CODY2D::MonoFont &body_font, AccountDashboardPresentation &presentation, SceneContent &content,
+    const LUNASHELL::CodexSavedSnapshot *saved = nullptr);
 
 // observation: Canonical chat/turn-coherent technical data with independent measurement validity.
 // title_font: Immutable native headline and numeric glyphs.

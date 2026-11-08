@@ -56,17 +56,26 @@ record is not remotely revoked by this local action.
 ## Dashboard and Options
 
 PWR toggles software standby. BOOT opens Options. Page 1 has Connections,
-Codex stats and Visible screens. The right arrow opens page 2 with Display,
-Behavior and Factory reset. The left arrow returns to page 1. Both pages offer **Go home** to
-return to the first enabled statistics screen, or Device if all are hidden.
+Codex stats and Timer. Page 2 has Visible screens, Display and Behavior.
+Page 3 has Restart device and Factory reset. The lateral arrows move between pages. Each page
+offers **Go home** to return to the first enabled statistics screen, or Device
+if all are hidden.
 The title sits above a grid of up to three 72-pixel-high rows. A house glyph
 identifies the larger **Go home** footer.
 Display holds brightness, rotation and orientation. Behavior holds sound,
 shake-to-wake and, in the voice-enabled profile, Dictation. **More behavior**
 contains **Screensaver**, disabled by default.
 
+**Timer** sets a duration from 1 to 120 minutes and selects Bell or Chime.
+**Start** begins the countdown. Back returns to the previous screen while the
+timer continues. Reopen Timer to cancel it. At expiry the device can wake from
+software standby, and **Done** clears the finished timer.
+
+**Restart device** opens a confirmation and reboots Cody with Wi-Fi credentials,
+pairing, preferences and saved statistics intact. Any running local timer ends.
+
 **Factory reset** opens a confirmation with **Cancel** and **Reset device**.
-Confirming clears the device's Wi-Fi credentials, Codex pairing and preferences.
+Confirming clears Wi-Fi credentials, Codex pairing, saved statistics and preferences.
 Cody restarts into first setup after the platform verifies the reset and loads
 the running firmware's defaults. The action is available offline.
 
@@ -140,6 +149,11 @@ The default build omits microphone acquisition and its audio front end.
 When online, Cody asks its configured SNTP servers for time after Wi-Fi obtains
 an IP. Once synchronized, the clock continues to run offline. A cold boot
 without an available RTC and network reports time unavailable.
+
+With the paired PC unavailable, Reset, Limits, Today, Last 7 Days and Credits
+use saved observations and show their UTC update times. The Codex reset countdown uses Cody's
+clock and the saved reset instant. Once the instant passes, a fresh Codex
+observation is required to show the next reset and its allowance.
 
 Battery notices appear while the screen is awake at 50%, 20%, 10% and 5%, with
 one threshold-specific sound request under Sounds and quiet-hours policy.

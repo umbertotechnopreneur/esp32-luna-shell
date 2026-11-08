@@ -161,12 +161,13 @@ enum class OnboardingAction : uint8_t {
     AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later, Options, KeepPairing, ReplacePairing,
     ForgetPairing, ConfirmForget, KeepSaved, DisplayOptions, BehaviorOptions, MoreBehavior,
     Connections, CodexStatistics, VisibleScreens, OpenPairingGuide, GoHome,
-    FactoryReset, ConfirmFactoryReset,
+    FactoryReset, ConfirmFactoryReset, LocalTimer, RestartDevice, ConfirmRestart,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
 enum class OptionsPage : uint8_t {
-    Menu, MenuMore, Display, Behavior, BehaviorMore, ResetConfirm, ResetPending, ResetFailed
+    Menu, MenuMore, MenuMaintenance, Display, Behavior, BehaviorMore,
+    RestartConfirm, RestartPending, ResetConfirm, ResetPending, ResetFailed
 };
 
 struct ScreenInactivityPolicy {
@@ -304,6 +305,7 @@ OptionsPage s_options_page = OptionsPage::Menu;
 esp_err_t s_preference_error = ESP_OK;
 uint32_t s_factory_reset_request_id = 0;
 esp_err_t s_factory_reset_error = ESP_OK;
+esp_err_t s_restart_error = ESP_OK;
 PreferenceId s_requested_preference = PreferenceId::ShakeWake;
 uint32_t s_requested_preference_value = 0;
 LUNASHELL::CodyOptionsObservation s_presented_options{};
@@ -935,30 +937,46 @@ CODY2D::Rect single_action_bounds()
         kFooterBounds : kSingleActionBounds;
 }
 
+// No parameters: a confirmed reboot or reset owns the route until the power owner finishes.
+bool maintenance_pending()
+{
+    return s_options_page == OptionsPage::RestartPending || s_options_page == OptionsPage::ResetPending;
+}
+
 // No parameters: Back returns from a category to Options, or from Options to Setup.
 bool options_back_available()
 {
-    return s_route == Route::MakeItYours10 && s_options_page != OptionsPage::ResetPending &&
+    return s_route == Route::MakeItYours10 && !maintenance_pending() &&
         (s_options_page != OptionsPage::Menu || s_options_from_setup);
 }
 
-// No parameters: both menu pages use static navigation rows and the same exit action.
+// No parameters: all menu pages use static navigation rows and the same exit action.
 bool on_options_menu()
 {
-    return s_options_page == OptionsPage::Menu || s_options_page == OptionsPage::MenuMore;
+    return s_options_page == OptionsPage::Menu || s_options_page == OptionsPage::MenuMore ||
+        s_options_page == OptionsPage::MenuMaintenance;
 }
 
 // No parameters: keep maintenance pages independent of the preference reader.
-bool on_factory_reset_page()
+bool on_maintenance_page()
 {
-    return s_route == Route::MakeItYours10 && (s_options_page == OptionsPage::ResetConfirm ||
-        s_options_page == OptionsPage::ResetPending || s_options_page == OptionsPage::ResetFailed);
+    return s_route == Route::MakeItYours10 && (maintenance_pending() ||
+        s_options_page == OptionsPage::RestartConfirm || s_options_page == OptionsPage::ResetConfirm ||
+        s_options_page == OptionsPage::ResetFailed);
 }
 
-// No parameters: the first menu page has one forward destination independent of its footer.
+// action: Footer identity that requires a complete, released Options gesture.
+bool released_options_confirmation(OnboardingAction action)
+{
+    return action == OnboardingAction::Retry || action == OnboardingAction::ConfirmFactoryReset ||
+        action == OnboardingAction::ConfirmRestart;
+}
+
+// No parameters: menu paging has its own destination, independent of the footer.
 bool options_next_page_available()
 {
-    return s_route == Route::MakeItYours10 && s_options_page == OptionsPage::Menu && s_preference_error == ESP_OK;
+    return s_route == Route::MakeItYours10 && s_preference_error == ESP_OK &&
+        (s_options_page == OptionsPage::Menu || (kDeviceFirstSetup && s_options_page == OptionsPage::MenuMore));
 }
 
 // action: Stable action identity; the returned English label has flash lifetime.
@@ -1002,6 +1020,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         break;
     case OnboardingAction::CodexStatistics:
         label = "Codex stats";
+        break;
+    case OnboardingAction::LocalTimer:
+        label = "Timer";
         break;
     case OnboardingAction::VisibleScreens:
         label = "Visible screens";
@@ -1051,6 +1072,10 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         break;
     case OnboardingAction::FactoryReset:
         label = "Factory reset";
+        break;
+    case OnboardingAction::RestartDevice:
+    case OnboardingAction::ConfirmRestart:
+        label = "Restart device";
         break;
     case OnboardingAction::ConfirmFactoryReset:
         label = "Reset device";
@@ -1534,7 +1559,7 @@ esp_err_t attach_content(SceneFrame &scene)
     if (s_route == Route::MakeItYours10) {
         content.bounds.left = kPreferenceLeft;
         content.bounds.right = kPreferenceLeft + kPreferenceWidth;
-        if (on_factory_reset_page()) {
+        if (on_maintenance_page()) {
             content.bounds.bottom = kOptionsFooterBounds.y;
         }
     }
@@ -1578,7 +1603,7 @@ esp_err_t attach_content(SceneFrame &scene)
         content.control_bounds[0] = {10, 203, 70, 263};
         content.control_bounds[1] = {396, 203, 456, 263};
     }
-    if (on_factory_reset_page() && s_options_page == OptionsPage::ResetPending) {
+    if (on_maintenance_page() && maintenance_pending()) {
         content.control_bounds[0] = {};
         content.control_bounds[1] = {};
     }
@@ -1838,11 +1863,14 @@ const char *options_title()
         return "Save failed";
     }
     switch (s_options_page) {
-    case OptionsPage::Menu: return "Options 1/2";
-    case OptionsPage::MenuMore: return "Options 2/2";
+    case OptionsPage::Menu: return kDeviceFirstSetup ? "Options 1/3" : "Options 1/2";
+    case OptionsPage::MenuMore: return kDeviceFirstSetup ? "Options 2/3" : "Options 2/2";
+    case OptionsPage::MenuMaintenance: return "Options 3/3";
     case OptionsPage::Display: return "Display";
     case OptionsPage::Behavior: return "Behavior";
     case OptionsPage::BehaviorMore: return "More behavior";
+    case OptionsPage::RestartConfirm: return s_restart_error == ESP_OK ? "Restart device" : "Restart failed";
+    case OptionsPage::RestartPending: return "Restarting...";
     case OptionsPage::ResetConfirm: return "Factory reset";
     case OptionsPage::ResetPending: return "Resetting...";
     case OptionsPage::ResetFailed: return "Reset failed";
@@ -1850,17 +1878,27 @@ const char *options_title()
     return "Options";
 }
 
-// No parameters: prepare the requested reset page for the display owner.
+// No parameters: prepare the requested restart or factory-reset page for the display owner.
 // Exception: Returns the original native caption or action layout error.
-esp_err_t prepare_factory_reset_content()
+esp_err_t prepare_maintenance_content()
 {
-    if (s_options_page == OptionsPage::ResetConfirm) {
-        constexpr const char *instructions[] = {
-            "Clear Wi-Fi, Codex", "link and preferences.", "Restart with defaults"
+    const bool restart = s_options_page == OptionsPage::RestartConfirm;
+    if (restart || s_options_page == OptionsPage::ResetConfirm) {
+        const char *detail = restart ? nullptr : "Restart with defaults";
+        if (restart && s_restart_error != ESP_OK) {
+            std::snprintf(s_view.error_text, sizeof(s_view.error_text), "Error: 0x%lx",
+                static_cast<unsigned long>(s_restart_error));
+            detail = s_view.error_text;
+        }
+        const char *instructions[] = {
+            restart ? "Keep Wi-Fi and settings" : "Clear Wi-Fi, Codex",
+            restart ? "Stops any active timer" : "link and preferences.",
+            detail,
         };
         for (const char *line : instructions) {
+            if (line == nullptr) continue;
             const uint16_t top = 155 + 29 * s_view.line_count;
-            const esp_err_t error = prepare_caption(line, top, s_view.lines[s_view.line_count]);
+            const auto error = prepare_caption(line, top, s_view.lines[s_view.line_count]);
             if (error != ESP_OK) {
                 return error;
             }
@@ -1876,11 +1914,12 @@ esp_err_t prepare_factory_reset_content()
             return error;
         }
         s_view.preference_count = 1;
-        return prepare_action(OnboardingAction::ConfirmFactoryReset, true);
+        return prepare_action(restart ? OnboardingAction::ConfirmRestart : OnboardingAction::ConfirmFactoryReset, true);
     }
-    const bool pending = s_options_page == OptionsPage::ResetPending;
+    const bool pending = maintenance_pending();
+    const auto error_status = s_options_page == OptionsPage::RestartPending ? ESP_OK : s_factory_reset_error;
     const char *message = pending ? "Please wait" : "Restart did not occur";
-    if (pending && s_factory_reset_error != ESP_OK) {
+    if (pending && error_status != ESP_OK) {
         message = "Status unavailable";
     }
     esp_err_t error = prepare_caption(message, 155, s_view.lines[0]);
@@ -1888,9 +1927,9 @@ esp_err_t prepare_factory_reset_content()
         return error;
     }
     s_view.line_count = 1;
-    if (s_factory_reset_error != ESP_OK) {
+    if (error_status != ESP_OK) {
         std::snprintf(s_view.error_text, sizeof(s_view.error_text), "Error: 0x%lx",
-            static_cast<unsigned long>(s_factory_reset_error));
+            static_cast<unsigned long>(error_status));
         error = prepare_caption(s_view.error_text, 184, s_view.lines[1]);
         if (error != ESP_OK) {
             return error;
@@ -1996,8 +2035,8 @@ esp_err_t prepare_options_content(SceneFrame &scene,
     if (error != ESP_OK) {
         return error;
     }
-    if (on_factory_reset_page()) {
-        return prepare_factory_reset_content();
+    if (on_maintenance_page()) {
+        return prepare_maintenance_content();
     }
     if (s_preference_error != ESP_OK) {
         std::snprintf(s_view.error_text, sizeof(s_view.error_text), "Error: 0x%lx",
@@ -2007,18 +2046,24 @@ esp_err_t prepare_options_content(SceneFrame &scene,
         return error == ESP_OK ? prepare_action(OnboardingAction::Retry, !s_command_pending) : error;
     }
     if (on_options_menu()) {
-        constexpr OnboardingAction actions[] = {
+        constexpr OnboardingAction legacy_actions[] = {
             OnboardingAction::Connections, OnboardingAction::CodexStatistics, OnboardingAction::VisibleScreens,
-            OnboardingAction::DisplayOptions, OnboardingAction::BehaviorOptions, OnboardingAction::FactoryReset,
+            OnboardingAction::DisplayOptions, OnboardingAction::BehaviorOptions,
         };
-        static_assert(std::size(actions) > kPreferencesPerPage && std::size(actions) <= 2U * kPreferencesPerPage);
-        const size_t first = s_options_page == OptionsPage::Menu ? 0U : kPreferencesPerPage;
-        const size_t end = std::min(first + kPreferencesPerPage, std::size(actions));
+        constexpr OnboardingAction device_actions[] = {
+            OnboardingAction::Connections, OnboardingAction::CodexStatistics, OnboardingAction::LocalTimer,
+            OnboardingAction::VisibleScreens, OnboardingAction::DisplayOptions, OnboardingAction::BehaviorOptions,
+            OnboardingAction::RestartDevice, OnboardingAction::FactoryReset,
+        };
+        static_assert(std::size(device_actions) <= 3U * kPreferencesPerPage);
+        const auto *actions = kDeviceFirstSetup ? device_actions : legacy_actions;
+        const size_t count = kDeviceFirstSetup ? std::size(device_actions) : std::size(legacy_actions);
+        size_t first = 0;
+        if (s_options_page == OptionsPage::MenuMore) first = kPreferencesPerPage;
+        if (s_options_page == OptionsPage::MenuMaintenance) first = 2U * kPreferencesPerPage;
+        const size_t end = std::min(first + kPreferencesPerPage, count);
         for (size_t index = first; index < end; ++index) {
             const auto action = actions[index];
-            if (action == OnboardingAction::FactoryReset && !kDeviceFirstSetup) {
-                continue;
-            }
             auto &target = s_view.preferences[s_view.preference_count];
             target = {};
             target.action = action;
@@ -4173,7 +4218,7 @@ esp_err_t open_setup_menu(SceneFrame &scene)
 // Exception: Returns the original preparation failure from the existing routes.
 esp_err_t open_companion_options(SceneFrame &scene)
 {
-    if (s_options_page == OptionsPage::ResetPending || s_command_pending ||
+    if (maintenance_pending() || s_command_pending ||
         s_work_busy.load(std::memory_order_acquire)) {
         return ESP_OK;
     }
@@ -4196,7 +4241,7 @@ esp_err_t open_companion_options(SceneFrame &scene)
 // scene: Options has admitted a deliberate return to the dashboard.
 esp_err_t open_device_dashboard(SceneFrame &scene)
 {
-    if (s_route != Route::MakeItYours10 || s_options_page == OptionsPage::ResetPending ||
+    if (s_route != Route::MakeItYours10 || maintenance_pending() ||
         s_command_pending || s_work_busy.load(std::memory_order_acquire)) {
         return ESP_ERR_NOT_FINISHED;
     }
@@ -4221,7 +4266,7 @@ esp_err_t request_widget_visibility_save(const WidgetVisibility &visibility)
             esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    if (s_route != Route::MakeItYours10 || s_options_page != OptionsPage::Menu || s_command_pending ||
+    if (s_route != Route::MakeItYours10 || !on_options_menu() || s_command_pending ||
         s_worker == nullptr || s_work_busy.load(std::memory_order_acquire)) {
         ESP_LOGE(kTag, "Widget visibility save admission rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
@@ -4395,6 +4440,9 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
     if (s_route == Route::MakeItYours10 && s_options_page == OptionsPage::ResetPending) {
         return update_factory_reset(scene, changed);
     }
+    if (s_route == Route::MakeItYours10 && s_options_page == OptionsPage::RestartPending) {
+        return ESP_OK;
+    }
     Result result;
     bool have_result = s_result_ready.load(std::memory_order_acquire) &&
         s_result.command.work != Work::SaveWidgetVisibility;
@@ -4490,7 +4538,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         }
         changed = true;
     }
-    if (s_route == Route::MakeItYours10 && !on_options_menu() && !on_factory_reset_page() &&
+    if (s_route == Route::MakeItYours10 && !on_options_menu() && !on_maintenance_page() &&
         !s_command_pending && !have_result && s_preference_error == ESP_OK) {
         LUNASHELL::CodyOptionsObservation options;
         const esp_err_t options_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(options);
@@ -5100,8 +5148,10 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     if (back_hit && s_route == Route::MakeItYours10) {
         if (s_options_page != OptionsPage::Menu) {
             s_preference_error = ESP_OK;
-            const auto parent = s_options_page == OptionsPage::MenuMore ? OptionsPage::Menu :
-                s_options_page == OptionsPage::BehaviorMore ? OptionsPage::Behavior : OptionsPage::MenuMore;
+            auto parent = OptionsPage::MenuMore;
+            if (s_options_page == OptionsPage::MenuMore) parent = OptionsPage::Menu;
+            if (s_options_page == OptionsPage::BehaviorMore) parent = OptionsPage::Behavior;
+            if (on_maintenance_page()) parent = OptionsPage::MenuMaintenance;
             return show_options_page(scene, parent);
         }
         return enter_route(Route::SetupMenu, scene);
@@ -5127,13 +5177,19 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return finish_wifi_setup(scene, changed);
     }
     if (action_hit && s_route == Route::MakeItYours10) {
-        if (on_factory_reset_page()) {
+        if (on_maintenance_page()) {
             if (!from_footer) {
                 return ESP_OK;
             }
             if (s_options_page == OptionsPage::ResetConfirm &&
                 s_view.action_id == OnboardingAction::ConfirmFactoryReset) {
                 return confirm_factory_reset(scene);
+            }
+            if (s_options_page == OptionsPage::RestartConfirm &&
+                s_view.action_id == OnboardingAction::ConfirmRestart) {
+                s_restart_error = LUNASHELL_power_manager_request_restart();
+                return show_options_page(scene, s_restart_error == ESP_OK
+                    ? OptionsPage::RestartPending : OptionsPage::RestartConfirm);
             }
             if (s_options_page == OptionsPage::ResetFailed && s_view.action_id == OnboardingAction::Retry) {
                 s_factory_reset_error = ESP_OK;
@@ -5150,7 +5206,9 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
             return error == ESP_OK ? attach_content(scene) : error;
         }
         if (on_options_menu() && !from_footer) {
-            return options_next_page_available() ? show_options_page(scene, OptionsPage::MenuMore) : ESP_OK;
+            if (!options_next_page_available()) return ESP_OK;
+            const auto next = s_options_page == OptionsPage::Menu ? OptionsPage::MenuMore : OptionsPage::MenuMaintenance;
+            return show_options_page(scene, next);
         }
         if (s_view.action_id == OnboardingAction::GoHome) {
             s_widget_open_request = WidgetOpenRequest::Statistics;
@@ -5507,9 +5565,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         }
         const bool footer_hit = uses_footer_action() && s_view.actions_visible && s_view.action_visible &&
             CODY2D::capsule_contains(s_view.action, point);
-        if (footer_hit && s_route == Route::MakeItYours10 &&
-            (s_view.action_id == OnboardingAction::Retry ||
-             s_view.action_id == OnboardingAction::ConfirmFactoryReset)) {
+        if (footer_hit && s_route == Route::MakeItYours10 && released_options_confirmation(s_view.action_id)) {
             s_options_tap_admitted = true;
         } else if (footer_hit) {
             consumed = true;
@@ -5577,8 +5633,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                 return ESP_OK;
             }
             // The BSP must observe the release before the worker may rotate panel and touch.
-            if ((s_view.action_id == OnboardingAction::Retry ||
-                 s_view.action_id == OnboardingAction::ConfirmFactoryReset) &&
+            if (released_options_confirmation(s_view.action_id) &&
                 CODY2D::capsule_contains(s_view.action, s_swipe_start) &&
                 CODY2D::capsule_contains(s_view.action, s_swipe_last)) {
                 return activate_onboarding_navigation(scene, NavigationDirection::Next, true);
@@ -5599,10 +5654,16 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                 case OnboardingAction::FactoryReset:
                     s_factory_reset_error = ESP_OK;
                     return show_options_page(scene, OptionsPage::ResetConfirm);
+                case OnboardingAction::RestartDevice:
+                    s_restart_error = ESP_OK;
+                    return show_options_page(scene, OptionsPage::RestartConfirm);
                 case OnboardingAction::Cancel:
-                    return show_options_page(scene, OptionsPage::MenuMore);
+                    return show_options_page(scene, OptionsPage::MenuMaintenance);
                 case OnboardingAction::CodexStatistics:
                     s_widget_open_request = WidgetOpenRequest::Statistics;
+                    return ESP_OK;
+                case OnboardingAction::LocalTimer:
+                    s_widget_open_request = WidgetOpenRequest::Timer;
                     return ESP_OK;
                 case OnboardingAction::VisibleScreens:
                     s_widget_open_request = WidgetOpenRequest::Visibility;

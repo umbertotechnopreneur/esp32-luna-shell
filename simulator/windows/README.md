@@ -36,11 +36,12 @@ opens **Device**. **BOOT / Options** opens the device menu. **PWR / Standby** to
 the simulated display, and **Simulate shake** returns to the first enabled
 statistics page, with Device as the fallback.
 The dashboard and Options page arrows fade after ten seconds. A touch reveals
-them again. **Options 1/2** contains **Connections**, **Codex stats** and
-**Visible screens**. The right arrow opens **Options 2/2** with **Display**,
-**Behavior** and **Factory reset**. Back from either category returns to the
-second Options page.
-**Go home** on either page opens Reset countdown or the first enabled statistics
+them again. **Options 1/3** contains **Connections**, **Codex stats** and **Timer**.
+Page 2 contains **Visible screens**, **Display** and **Behavior**. Page 3 holds
+**Restart device** and **Factory reset**. Restart replays the boot and preserves
+settings and the simulator association. Timer previews duration and sound selection, a running countdown
+and the finished state. Audible playback and hardware wake belong to the device.
+**Go home** on any page opens Reset countdown or the first enabled statistics
 screen, with Device as the fallback. Brightness, orientation and visibility
 choices affect this preview session. **About** contains **System**, **Memory**
 and **Firmware**, followed by a scannable project QR code and an explicit

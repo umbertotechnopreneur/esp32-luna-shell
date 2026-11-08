@@ -3,6 +3,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <limits>
 
 #include "esp_log.h"
@@ -178,20 +179,32 @@ esp_err_t prepare_device_home(DeviceView &view, DeviceFrameContent &frame, const
 // data: Canonical connection state.
 // show_connection: Show connection problems; a healthy connected badge is omitted.
 // battery: Exact notice admitted by the model, or an empty notice.
+// saved_epoch: The last observed UTC timestamp of this disconnected page's saved data.
 // Exception: Returns original glyph preparation error.
 esp_err_t prepare_device_chrome(DeviceChrome &chrome, const DeviceDashboardData &data,
-    bool show_connection, const BatteryAlertNotice &battery)
+    bool show_connection, const BatteryAlertNotice &battery, int64_t saved_epoch)
 {
     const bool show_problem = show_connection && (!data.connection_valid || !data.connection.codex_app_open);
-    const char *connection = show_problem ? connection_caption(data) : nullptr;
-    if (connection != chrome.connection_text) {
+    const char *connection = show_problem && saved_epoch == 0 ? connection_caption(data) : nullptr;
+    if (connection != chrome.connection_text || saved_epoch != chrome.saved_epoch) {
         chrome.connection = {};
-        if (connection != nullptr) {
-            const auto error = prepare_line(connection, SceneData::body_font, {105, 37, 256, 27},
-                data.connection.codex_app_open ? 0x67F2 : kMuted, chrome.connection);
+        const char *caption = connection;
+        if (saved_epoch > 0) {
+            const auto time = static_cast<std::time_t>(saved_epoch);
+            std::tm calendar{};
+            if (static_cast<int64_t>(time) != saved_epoch || gmtime_r(&time, &calendar) == nullptr ||
+                std::strftime(chrome.saved_text.data(), chrome.saved_text.size(),
+                    "Saved %Y-%m-%d %H:%MZ", &calendar) == 0) return ESP_ERR_INVALID_RESPONSE;
+            caption = chrome.saved_text.data();
+        }
+        if (caption != nullptr) {
+            const auto error = prepare_line(caption, SceneData::body_font, {105, 37, 256, 27},
+                saved_epoch > 0 ? 0xFE27 : kMuted, chrome.connection);
             if (error != ESP_OK) return error;
         }
         chrome.connection_text = connection;
+        chrome.saved_epoch = saved_epoch;
+        ++chrome.connection_revision;
     }
     if (chrome.battery_sequence == battery.sequence) return ESP_OK;
     chrome.battery = {};
@@ -334,8 +347,9 @@ esp_err_t prepare_device_dashboard(DeviceView &view, DeviceFrameContent &frame,
         return prepare_token_history(interval, data.intervals, title_font, body_font, view.history, frame.content, &data.history_local);
     }
     if (screen == WidgetScreen::Reset) {
-        return view.countdown.prepare(data.weekly, data.clock, now_us, title_font, body_font,
-            frame.content, &data.reset_local);
+        const bool saved = data.saved.weekly_observed_utc > 0;
+        return view.countdown.prepare(saved ? data.saved.weekly : data.weekly, data.clock, now_us,
+            title_font, body_font, frame.content, &data.reset_local, saved);
     }
 
     if (screen == WidgetScreen::Context) {
@@ -353,7 +367,7 @@ esp_err_t prepare_device_dashboard(DeviceView &view, DeviceFrameContent &frame,
     default: return ESP_ERR_INVALID_ARG;
     }
     return prepare_account_dashboard(page, data.details, data.weekly, data.clock, title_font, body_font,
-        view.account, frame.content);
+        view.account, frame.content, device_saved_page_epoch(data, screen) > 0 ? &data.saved : nullptr);
 }
 
 // view: Persistent information presentation, changed after the previous frame retires.

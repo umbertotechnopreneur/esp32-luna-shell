@@ -58,7 +58,7 @@ esp_err_t open_companion_options(SceneFrame &scene);
 // scene: Options frame to return to ordinary dashboard and authenticated event routing.
 esp_err_t open_device_dashboard(SceneFrame &scene);
 
-enum class WidgetOpenRequest : uint8_t { None, Statistics, Visibility };
+enum class WidgetOpenRequest : uint8_t { None, Statistics, Visibility, Timer };
 
 // No parameters: consumes one released Options selection owned by the display task.
 WidgetOpenRequest take_widget_open_request();

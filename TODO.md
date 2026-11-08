@@ -1,5 +1,16 @@
 # Active work
 
+## Offline statistics and local timer
+
+- Verify the saved snapshot, UTC timestamp and countdown with the paired PC off,
+  then reconnect and confirm fresh data supersedes the saved observation.
+- Verify cold startup with and without valid device time, saved-window expiry,
+  pairing changes, factory reset and storage failures.
+- Exercise Timer controls, background countdown, software standby wake and both
+  alarm sounds. Check quiet hours, Sounds Off and overlapping voice/audio.
+- Verify local Restart preserves pairing, preferences and saved statistics, and
+  that Factory reset still requires its own confirmation.
+
 ## Device information, effects and idle presentation
 
 - Execute the focused host checks when authorized.

@@ -1,5 +1,7 @@
 #include "CODY_device_model.hpp"
 
+#include <algorithm>
+
 #include "esp_app_desc.h"
 #include "esp_attr.h"
 #include "esp_log.h"
@@ -67,10 +69,40 @@ void update_device_observations(DeviceDashboardData &data)
     data.connection_valid = snapshots.readDeviceStatusObservation(data.connection) == ESP_OK;
     if (!data.connection_valid) data.connection = {};
     data.clock = data.connection.clock;
+    if (data.connection_valid && !data.connection.codex_app_open) {
+        const auto error = snapshots.readCodexSaved(data.saved);
+        if (error != ESP_OK) {
+            data.saved = {};
+            data.saved.storage_error = error;
+        }
+    } else {
+        data.saved = {};
+    }
     data.voice_ready = false;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     data.voice_ready = data.connection_valid && record_voice_available(snapshots);
 #endif
+}
+
+// data: Historical telemetry scoped to the retained pairing and current connection.
+// screen: Dashboard page whose values can be read independently from the live link.
+int64_t device_saved_page_epoch(const DeviceDashboardData &data, WidgetScreen screen)
+{
+    switch (screen) {
+    case WidgetScreen::Reset:
+        return data.saved.weekly_observed_utc;
+    case WidgetScreen::Limits:
+        return std::max(data.saved.weekly_observed_utc,
+            data.saved.account.short_window_minutes != 0 ? data.saved.account_observed_utc : int64_t{0});
+    case WidgetScreen::Today:
+    case WidgetScreen::LastSevenDays:
+        return data.saved.account.daily_valid_mask != 0 ? data.saved.account_observed_utc : 0;
+    case WidgetScreen::Credits:
+        return data.saved.account.credits_kind != LUNASHELL::CodexCreditKind::Unavailable ||
+            data.saved.account.reset_vouchers_valid ? data.saved.account_observed_utc : 0;
+    default:
+        return 0;
+    }
 }
 
 // model: Battery threshold state and last banner awaiting or confirmed by the display.
@@ -156,9 +188,12 @@ esp_err_t read_device_dashboard(DeviceDashboardData &data, WidgetScreen screen, 
         return first_error;
     }
     if (screen == WidgetScreen::Reset) {
-        project_local(data.clock, data.weekly.reset_unix_seconds, data.reset_local);
+        const auto &weekly = data.saved.weekly_observed_utc > 0 ? data.saved.weekly : data.weekly;
+        project_local(data.clock, weekly.reset_unix_seconds, data.reset_local);
     } else {
-        observe(snapshots.readCodexAccount(data.details), data.details);
+        if (device_saved_page_epoch(data, screen) == 0) {
+            observe(snapshots.readCodexAccount(data.details), data.details);
+        }
     }
     return first_error;
 }
