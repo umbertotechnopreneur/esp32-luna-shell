@@ -229,7 +229,7 @@ commands, tool inputs and chat text are never included in this trace.
 ## Account dashboard on Cody
 
 On a paired physical Cody, open **Codex Usage** to view the account allowance
-and reset countdown, service-reported daily tokens, streaks, credits, reset
+and reset countdown, service-reported daily tokens, credits, reset
 vouchers and the current ChatGPT plan when available. Cody uses the existing
 authenticated pairing. The plugin resolves the installed native Codex
 executable from its search path and uses its existing ChatGPT sign-in. The

@@ -84,8 +84,7 @@ additional date needed when the service already includes today's partial count.
 
 **Today** uses the current UTC date. When Codex omits today's total, the page
 identifies the latest earlier reported total by its actual date, if available.
-Current streak and record are independent counts of consecutive activity days
-from Codex. **Token Activity** explains when today's total is missing and
+**Token Activity** explains when today's total is missing and
 preserves any intervals already measured in the selected window.
 
 **Codex account** shows the current ChatGPT plan with a standalone icon and
