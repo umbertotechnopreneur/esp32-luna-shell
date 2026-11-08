@@ -44,6 +44,8 @@ param(
     # A reviewed board YAML selects its compiler profile before ESP-IDF runs.
     [string]$BoardConfig,
 
+    [string]$RelayHost,
+
     [int]$WaitSeconds = 30,
 
     [ValidateRange(1, 86400)]
@@ -392,6 +394,18 @@ if ($Board -ceq 'waveshare-esp32s3-touch-amoled-1.75c') {
     $SelectedProfileVariant.generated_sdkconfig += '-1.75c'
     $SelectedProfileVariant.default_build_dir += '-1.75c'
 }
+if ($RelayHost) {
+    if ($Profile -ne 'cody-companion') {
+        throw '-RelayHost requires the Cody Companion profile selected by the board configuration.'
+    }
+    $RelayHost = $RelayHost.ToLowerInvariant()
+    $SelectedProfileVariant = $SelectedProfileVariant |
+        ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20
+    $ProfileBuildKey += '-relay'
+    $SelectedProfileVariant.generated_sdkconfig += '-relay'
+    $SelectedProfileVariant.default_build_dir += '-relay'
+    $SelectedProfileVariant.component_roots = @($SelectedProfileVariant.component_roots) + @('esp_http_client')
+}
 $hostArtifactSuffix = if ($IsLinux) { '-linux' } else { '' }
 $profileArtifactKey = "$ProfileBuildKey$hostArtifactSuffix"
 $FeaturePartitionPath = Get-FirmwareFeaturePartitionPath -ProjectRoot $FirmwareRoot -Feature $Feature -Board $Board
@@ -451,6 +465,16 @@ $featureOverlay = @(
     'CONFIG_PARTITION_TABLE_CUSTOM=y'
     ('CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="{0}"' -f $featurePartitionRelativePath)
 )
+if ($RelayHost) {
+    $featureOverlay += @(
+        'CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=y'
+        'CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y'
+        'CONFIG_MBEDTLS_HAVE_TIME=y'
+        'CONFIG_MBEDTLS_HAVE_TIME_DATE=y'
+        'CONFIG_LUNASHELL_CODY_RELAY_PROBE=y'
+        ('CONFIG_LUNASHELL_CODY_RELAY_HOST="{0}"' -f $RelayHost)
+    )
+}
 if ($Feature -eq "wake-word") {
     # ESP-SR's packer resolves this string from its own working directory.
     # Generate an absolute, portable-to-this-checkout path rather than hardcode E:.
@@ -514,6 +538,14 @@ $ProfileSdkconfigPath = Resolve-ArtifactPath(
 # Throws before build/size/flash if the selected graph or generated settings disagree.
 function Assert-BoardSdkconfig {
     $activityConfigText = Get-Content -Raw -LiteralPath $ProfileSdkconfigPath
+    $relayEnabled = [regex]::IsMatch($activityConfigText, '(?m)^CONFIG_LUNASHELL_CODY_RELAY_PROBE=y\r?$')
+    if ($relayEnabled -ne [bool]$RelayHost) {
+        throw 'Generated relay configuration disagrees with -RelayHost.'
+    }
+    if ($relayEnabled -and -not [regex]::IsMatch($activityConfigText,
+            '(?m)^CONFIG_LUNASHELL_CODY_RELAY_HOST="' + [regex]::Escape($RelayHost) + '"\r?$')) {
+        throw 'Generated relay hostname disagrees with -RelayHost. Reconfigure the selected build.'
+    }
     $isCBoard = $Board -ceq 'waveshare-esp32s3-touch-amoled-1.75c'
     $boardSymbol = 'LUNASHELL_BUILD_BOARD_PROFILE_WAVESHARE_ESP32S3_TOUCH_AMOLED_1_75'
     if ($isCBoard) { $boardSymbol += 'C' }
@@ -1191,6 +1223,7 @@ function Get-DependencyLockUpdateCommand([string]$RequestedBuildDir) {
     $selector += " -Board $Board"
     if ($ActivityClassifier) { $selector += ' -ActivityClassifier' }
     if ($ActivityCapture) { $selector += ' -ActivityCapture' }
+    if ($RelayHost) { $selector += " -RelayHost $RelayHost" }
     return (
         "pwsh -NoProfile -File ./scripts/device.ps1 update-lock " +
         $selector +
@@ -1481,6 +1514,7 @@ function Get-SetTargetRecoveryCommand([string]$RequestedBuildDir) {
     $selector += " -Board $Board"
     if ($ActivityClassifier) { $selector += ' -ActivityClassifier' }
     if ($ActivityCapture) { $selector += ' -ActivityCapture' }
+    if ($RelayHost) { $selector += " -RelayHost $RelayHost" }
     return (
         "pwsh -NoProfile -File ./scripts/device.ps1 set-target " +
         "$selector -BuildMode $BuildMode -BuildDir '" + $RequestedBuildDir.Replace("'", "''") + "'"

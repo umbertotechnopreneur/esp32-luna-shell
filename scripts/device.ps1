@@ -42,6 +42,7 @@ param(
     [switch]$ActivityClassifier,
     [switch]$ActivityCapture,
     [string]$BoardConfig,
+    [string]$RelayHost,
     [ValidateRange(1,86400)][int]$WaitSeconds = 30,
     [ValidateRange(1,86400)][int]$DurationSeconds = 30,
     [string]$OutputPath,

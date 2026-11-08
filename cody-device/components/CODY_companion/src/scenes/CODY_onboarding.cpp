@@ -51,6 +51,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#if CONFIG_LUNASHELL_CODY_RELAY_PROBE
+#include "CODY_relay_probe.hpp"
+#include "esp_heap_caps.h"
+#include "freertos/idf_additions.h"
+#endif
+
 namespace CODY {
 // scene: Worker-owned setup destination selected from canonical radio state.
 // changed: Receives whether the startup decision requires a new frame.
@@ -91,6 +97,12 @@ constexpr CODY2D::Rect kSetupWifiBounds = kDeviceFirstSetup
 constexpr uint16_t kConnectionIconSize = 54;
 constexpr int16_t kConnectionIconY = 219;
 constexpr uint16_t kConnectionsHintTop = 136;
+#if CONFIG_LUNASHELL_CODY_RELAY_PROBE
+constexpr CODY2D::Rect kRelayCheckBounds{123, 366, 220, 52};
+// Start with the ESP-IDF HTTPS example's budget on a separate internal stack.
+// Handshake high-water and minimum free internal heap remain board checks.
+constexpr uint32_t kRelayStackBytes = 8192;
+#endif
 constexpr CODY2D::Rect kSetupOptionsBounds{153, 382, 160, 52};
 constexpr uint16_t kPairingBackground = 0x0842;
 constexpr uint16_t kPairingAccent = 0x953F;
@@ -180,6 +192,9 @@ enum class Work : uint8_t {
     CodexForget,
     SavePreference,
     SaveWidgetVisibility,
+#if CONFIG_LUNASHELL_CODY_RELAY_PROBE
+    CheckRelay,
+#endif
 };
 enum class NavigationDirection : uint8_t { Previous, Next };
 enum class CodexConnectionIntent : uint8_t { Setup, Retry, ConfirmReplacement };
@@ -190,6 +205,7 @@ enum class OnboardingAction : uint8_t {
     ForgetPairing, ConfirmForget, KeepSaved, DisplayOptions, BehaviorOptions, MoreBehavior,
     Connections, CodexStatistics, VisibleScreens, OpenPairingGuide, GoHome,
     FactoryReset, ConfirmFactoryReset, LocalTimer, RestartDevice, ConfirmRestart, QuickGuide,
+    CheckRelay,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
@@ -248,6 +264,9 @@ struct Result {
     esp_err_t error = ESP_OK;
     QrModules qr{};
     char codex_code[7]{};
+#if CONFIG_LUNASHELL_CODY_RELAY_PROBE
+    RelayProbeResult relay{};
+#endif
 };
 struct PreferenceControl {
     OnboardingAction action = OnboardingAction::None;
@@ -472,6 +491,11 @@ auto &s_action_connectivity = *new (s_action_connectivity_storage) LUNASHELL::Co
 Result s_result{};
 LUNASHELL::ConnectivityObservation s_action_connectivity{};
 #endif
+#if CONFIG_LUNASHELL_CODY_RELAY_PROBE
+// Display-owned receipt for the current Connections visit.
+RelayProbeResult s_relay_result{};
+bool s_relay_attempted = false;
+#endif
 // Startup encodes the static About link before the action worker owns the library.
 QrModules *s_encoding_target = nullptr;
 #if defined(CODY_DEVICE_UI_ONLY)
@@ -679,6 +703,22 @@ esp_err_t encode_qr(const char *payload, QrModules &qr)
 void execute_command(const Command &command, Result &result)
 {
     result.command = command;
+#if CONFIG_LUNASHELL_CODY_RELAY_PROBE
+    if (command.work == Work::CheckRelay) {
+        if (command.generation != s_presentation_generation.load(std::memory_order_acquire)) {
+            result.relay.error = ESP_ERR_INVALID_STATE;
+        } else {
+            result.relay = check_relay_liveness();
+        }
+        result.error = result.relay.error;
+        if (result.error != ESP_OK) {
+            ESP_LOGE(kTag, "Relay check failed: stage=%u http=%d (%s)",
+                static_cast<unsigned>(result.relay.stage), result.relay.http_status,
+                esp_err_to_name(result.error));
+        }
+        return;
+    }
+#endif
     if (command.work == Work::UseCompanion) {
         // An explicit local choice uses the same internal-stack persistence owner
         // as commissioning; connectivity is not a requirement for a companion.
@@ -807,7 +847,34 @@ void execute_command(const Command &command, Result &result)
     result.error = LUNASHELL_pairing_request(action, command.attempt);
 }
 
-// context: Unused; one worker owns blocking radio, QR and preference operations.
+// No parameters: The admitted worker publishes the single command receipt.
+void complete_action()
+{
+    // The worker owns the mailbox until ready is published. The consumer
+    // copies and clears the result before releasing the next command.
+    Result &completed = *new (&s_result) Result{};
+    execute_command(s_command, completed);
+    if (completed.error != ESP_OK) {
+        ESP_LOGE(kTag, "Action %u attempt=%lu session=%lu failed (%s)",
+            to_index(completed.command.work), static_cast<unsigned long>(completed.command.attempt),
+            static_cast<unsigned long>(completed.command.session), esp_err_to_name(completed.error));
+    }
+    s_result_ready.store(true, std::memory_order_release);
+}
+
+#if CONFIG_LUNASHELL_CODY_RELAY_PROBE
+// Unnamed context: No borrowed UI pointers cross to the relay worker.
+void relay_worker(void *)
+{
+    // Task creation follows mailbox publication. Acquire before reading it.
+    if (s_work_busy.load(std::memory_order_acquire)) {
+        complete_action();
+    }
+    vTaskDeleteWithCaps(nullptr);
+}
+#endif
+
+// context: Unused; the persistent worker owns radio, QR and preference actions.
 void action_worker(void *context)
 {
     (void)context;
@@ -817,22 +884,14 @@ void action_worker(void *context)
         if (!s_work_busy.load(std::memory_order_acquire)) {
             continue;
         }
-        // The worker owns the mailbox until ready is published. The consumer
-        // copies and clears the result before releasing the next command.
-        Result &completed = *new (&s_result) Result{};
-        execute_command(s_command, completed);
-        if (completed.error != ESP_OK) {
-            ESP_LOGE(kTag, "Action %u attempt=%lu session=%lu failed (%s)",
-                to_index(completed.command.work), static_cast<unsigned long>(completed.command.attempt),
-                static_cast<unsigned long>(completed.command.session), esp_err_to_name(completed.error));
-        }
-        s_result_ready.store(true, std::memory_order_release);
+        complete_action();
     }
 }
 
 // work: Explicit radio, Codex-link or QR preparation action.
 // attempt: Current canonical attempt identity; never an inferred UI list position.
 // session: Current canonical provisioning-session identity, or zero for other actions.
+// Exception: Rejects a busy mailbox or a relay worker that could not be allocated.
 esp_err_t enqueue(Work work, uint32_t attempt, uint32_t session = 0)
 {
     if (s_worker == nullptr || s_work_busy.load(std::memory_order_acquire)) {
@@ -843,6 +902,19 @@ esp_err_t enqueue(Work work, uint32_t attempt, uint32_t session = 0)
     s_command_pending = true;
     ++s_navigation_revision;
     s_work_busy.store(true, std::memory_order_release);
+#if CONFIG_LUNASHELL_CODY_RELAY_PROBE
+    if (work == Work::CheckRelay) {
+        const auto created = xTaskCreateWithCaps(relay_worker, "CODY_relay", kRelayStackBytes,
+            nullptr, 3, nullptr, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (created != pdPASS) {
+            s_work_busy.store(false, std::memory_order_release);
+            s_command_pending = false;
+            ESP_LOGE(kTag, "Relay worker allocation failed (%s)", esp_err_to_name(ESP_ERR_NO_MEM));
+            return ESP_ERR_NO_MEM;
+        }
+        return ESP_OK;
+    }
+#endif
     xTaskNotifyGive(s_worker);
     return ESP_OK;
 }
@@ -1174,6 +1246,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
     case OnboardingAction::Options:
         label = "Options";
         break;
+    case OnboardingAction::CheckRelay:
+        label = "Check relay";
+        break;
     case OnboardingAction::KeepPairing:
         label = "Keep link";
         break;
@@ -1248,6 +1323,7 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
     case OnboardingAction::Options:
     case OnboardingAction::GoHome:
     case OnboardingAction::MoreBehavior:
+    case OnboardingAction::CheckRelay:
         control.top_color = 0x18E5;
         control.bottom_color = 0x10A3;
         control.border_color = 0x4A8C;
@@ -1385,6 +1461,51 @@ esp_err_t prepare_connection_action(OnboardingAction action, bool enabled,
     const auto error = prepare_line(label, 264, color, control.caption);
     return error == ESP_OK ? prepare_line(hint, 296, kPairingCaption, second) : error;
 }
+
+#if CONFIG_LUNASHELL_CODY_RELAY_PROBE
+// No parameters: Uses the receipt and admission state owned by Connections.
+// Exception: Returns the original caption or action layout error.
+esp_err_t prepare_relay_footer()
+{
+    const char *status = "Choose what to connect";
+    uint16_t color = kPairingCaption;
+    if (s_command_pending) {
+        status = "Checking HTTPS...";
+    } else if (s_relay_attempted) {
+        if (s_relay_result.error == ESP_OK) {
+            status = "Relay reachable";
+            color = kWifiReadyMint;
+        } else {
+            color = kOfflineAmber;
+            switch (s_relay_result.stage) {
+            case RelayProbeStage::Start: status = "Check could not start"; break;
+            case RelayProbeStage::Wifi: status = "Wi-Fi not ready"; break;
+            case RelayProbeStage::Clock: status = "Device time unavailable"; break;
+            case RelayProbeStage::Https:
+                status = s_relay_result.error == ESP_ERR_TIMEOUT ? "HTTPS timed out" : "HTTPS check failed";
+                break;
+            case RelayProbeStage::Http:
+                std::snprintf(s_view.error_text, sizeof(s_view.error_text), "Relay HTTP %d",
+                    s_relay_result.http_status);
+                status = s_view.error_text;
+                break;
+            case RelayProbeStage::Response: status = "Unexpected relay response"; break;
+            }
+        }
+    }
+    const auto error = prepare_caption(status, kConnectionsHintTop, s_view.lines[0], 300);
+    if (error != ESP_OK) { return error; }
+    s_view.lines[0].color = color;
+    s_view.line_count = 1;
+    s_view.instant_lines[0] = s_relay_attempted;
+    s_view.action.enabled = !s_command_pending;
+    s_view.alternative.enabled = !s_command_pending && kCodexIntegrationEnabled;
+    s_view.options_id = OnboardingAction::CheckRelay;
+    CODY2D::TextLine unused;
+    return prepare_button(s_view.options_id, "Check relay", kRelayCheckBounds,
+        !s_command_pending, false, s_view.options, unused);
+}
+#endif
 
 // action: Semantic pairing command or Options home navigation.
 // label: Prepared single-line English caption.
@@ -1722,7 +1843,8 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
         }
     }
     if (error == ESP_OK && view.actions_visible && view.options.caption.valid) {
-        error = draw_action_visual(view.options, view.action_icon_size, strip, first_row, first_column);
+        const auto icon_size = view.options_id == OnboardingAction::CheckRelay ? 0 : view.action_icon_size;
+        error = draw_action_visual(view.options, icon_size, strip, first_row, first_column);
         if (error == ESP_OK) {
             error = CODY2D::draw_text_rows(view.options.caption, view.options_visible_characters,
                 strip, first_row, first_column);
@@ -1855,6 +1977,15 @@ esp_err_t attach_content(SceneFrame &scene)
         if (kDeviceFirstSetup) {
             content.bounds.top = kConnectionsHintTop;
             content.bottom_action_visible = false;
+#if CONFIG_LUNASHELL_CODY_RELAY_PROBE
+            if (s_view.options_id == OnboardingAction::CheckRelay) {
+                content.bottom_action_visible = true;
+                const auto &bounds = s_view.options.bounds;
+                content.bottom_action_bounds = {bounds.x, bounds.y,
+                    static_cast<uint16_t>(bounds.x + bounds.width),
+                    static_cast<uint16_t>(bounds.y + bounds.height)};
+            }
+#endif
         } else {
             content.bottom_action_bounds = {kSetupOptionsBounds.x, kSetupOptionsBounds.y,
                 static_cast<uint16_t>(kSetupOptionsBounds.x + kSetupOptionsBounds.width),
@@ -3261,6 +3392,13 @@ esp_err_t enter_route(Route route, SceneFrame &scene, const LUNASHELL::WifiSnaps
             error = prepare_button(OnboardingAction::Options, "Options", kSetupOptionsBounds,
                 true, false, s_view.options, unused);
         }
+#if CONFIG_LUNASHELL_CODY_RELAY_PROBE
+        if (error == ESP_OK && route == Route::SetupMenu && kDeviceFirstSetup) {
+            s_relay_attempted = false;
+            s_relay_result = {};
+            error = prepare_relay_footer();
+        }
+#endif
     } else if (route == Route::ConnectCodex12) {
         static constexpr char title[] = "Pair Codex";
         error = set_scene_title(prepared, {title, sizeof(title) - 1U});
@@ -5107,6 +5245,19 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         s_result_ready.store(false, std::memory_order_release);
         s_work_busy.store(false, std::memory_order_release);
     }
+#if CONFIG_LUNASHELL_CODY_RELAY_PROBE
+    if (have_result && result.command.work == Work::CheckRelay) {
+        if (result.command.generation == s_generation && s_route == Route::SetupMenu) {
+            s_command_pending = false;
+            s_relay_result = result.relay;
+            ++s_navigation_revision;
+            changed = true;
+            const auto error = prepare_relay_footer();
+            return error == ESP_OK ? attach_content(scene) : error;
+        }
+        have_result = false;
+    }
+#endif
     if (s_timeout_cleanup.pending) {
         LUNASHELL::ConnectivityObservation observation{};
         const esp_err_t observation_error = LUNASHELL::DeviceSnapshotService::instance()
@@ -5722,6 +5873,9 @@ bool next_navigation_available()
 // No parameters: hidden lateral arrows do not retain invisible touch targets.
 bool previous_control_visible()
 {
+#if CONFIG_LUNASHELL_CODY_RELAY_PROBE
+    if (s_route == Route::SetupMenu && s_command_pending && s_relay_attempted) { return false; }
+#endif
     if (on_quick_guide()) return s_view.actions_visible && options_back_available();
     if (is_codex_event_route(s_route)) {
         return s_view.actions_visible && previous_navigation_available();
@@ -6048,6 +6202,15 @@ esp_err_t activate_setup_choice(SceneFrame &scene, OnboardingAction action)
         return error;
     }
     ESP_LOGI(kTag, "Setup choice activated: %s", label != nullptr ? label : "None");
+#if CONFIG_LUNASHELL_CODY_RELAY_PROBE
+    if (s_route == Route::SetupMenu && action == OnboardingAction::CheckRelay) {
+        s_relay_attempted = true;
+        const auto admission_error = enqueue(Work::CheckRelay, 0);
+        s_relay_result = {RelayProbeStage::Start, admission_error};
+        const auto error = prepare_relay_footer();
+        return error == ESP_OK ? attach_content(scene) : error;
+    }
+#endif
     if (kDeviceFirstSetup && s_route == Route::Invitation05) {
         if (action == OnboardingAction::ShowQr) {
             error = open_installation_qr(scene);
@@ -6236,7 +6399,9 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
             const bool primary_hit = s_view.action_visible && action_hit(s_view.action);
             const bool alternative_hit = s_view.alternative_id != OnboardingAction::None &&
                 action_hit(s_view.alternative);
-            const bool options_hit = s_view.options.caption.valid && action_hit(s_view.options);
+            const bool options_hit = s_view.options.caption.valid &&
+                (s_view.options_id == OnboardingAction::CheckRelay ?
+                    CODY2D::capsule_contains(s_view.options, point) : action_hit(s_view.options));
             if (primary_hit || alternative_hit || options_hit) {
                 consumed = true;
                 const CODY2D::CapsuleControl *control = &s_view.options;

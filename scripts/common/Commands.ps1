@@ -25,6 +25,7 @@ function Get-FirmwareActions {
 # No parameters: describe public options once for CLI rejection and menu forwarding.
 function Get-DeviceActionParameters {
     $idf = @('Board','Profile','Feature','BoardConfig','BuildMode','BuildDir','IdfPath','ToolsPath','PythonExe','ActivityClassifier','ActivityCapture')
+    $relay = @('RelayHost')
     $serial = @('Port','Baud','WaitSeconds')
     $inventory = @(if (-not $IsLinux) { $idf })
     $preview = @('Screen','Rotation','AtMs','SafeGuide','CloudMaterialStudy','CloudPngMeshStudy','CloudJellyStudy','MeshOverlay','PythonExecutable','Skin')
@@ -40,14 +41,15 @@ function Get-DeviceActionParameters {
         check = @('Check','PythonExecutable','ToolArguments')
         generate = @('Generator','PythonExecutable','ToolArguments')
         banner = @('ToolArguments')
-        build = $idf + @('Jobs'); clean = $idf; fullclean = $idf
-        flash = $idf + $serial + @('Jobs'); reset = $idf + $serial
-        monitor = $idf + $serial + @('ResetBeforeMonitor'); capture = $idf + $serial + @('DurationSeconds','OutputPath','ResetBeforeCapture')
+        build = $idf + $relay + @('Jobs'); clean = $idf + $relay; fullclean = $idf + $relay
+        flash = $idf + $relay + $serial + @('Jobs'); reset = $idf + $serial
+        monitor = $idf + $relay + $serial + @('ResetBeforeMonitor')
+        capture = $idf + $relay + $serial + @('DurationSeconds','OutputPath','ResetBeforeCapture')
         'sd-log' = $serial + @('StoredLog','OutputPath')
         'endurance-read' = $serial + @('OutputPath')
-        erase = $idf + $serial; reconfigure = $idf; 'set-target' = $idf; 'update-lock' = $idf
-        size = $idf + @('SizeOutputFormat','SizeOutputFile')
-        combo = $idf + $serial + @('Jobs','ResetBeforeMonitor'); recover = $idf + $serial + @('Jobs')
+        erase = $idf + $serial; reconfigure = $idf + $relay; 'set-target' = $idf + $relay; 'update-lock' = $idf + $relay
+        size = $idf + $relay + @('SizeOutputFormat','SizeOutputFile')
+        combo = $idf + $relay + $serial + @('Jobs','ResetBeforeMonitor'); recover = $idf + $relay + $serial + @('Jobs')
         ports = $inventory; discovery = @(); 'port-status' = $inventory + @('Port')
     }
 }
@@ -68,6 +70,16 @@ function Assert-DeviceActionParameters($RequestedAction, $BoundParameters, $Cont
     if ($BoundParameters.ContainsKey('BoardConfig') -and
         ($BoundParameters.ContainsKey('Profile') -or $BoundParameters.ContainsKey('Feature'))) {
         throw 'BoardConfig selects its own Profile and Feature; do not combine these options.'
+    }
+    if ($BoundParameters.ContainsKey('RelayHost')) {
+        $relayHost = $BoundParameters.RelayHost
+        $label = '[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?'
+        if ($relayHost.Length -gt 253 -or $relayHost -cnotmatch "\A$label(?:\.$label)+\z") {
+            throw '-RelayHost requires a DNS hostname without a scheme, port, path or credentials.'
+        }
+        if ($BoundParameters.ContainsKey('Profile') -and $BoundParameters.Profile -ne 'cody-companion') {
+            throw '-RelayHost requires the Cody Companion profile.'
+        }
     }
     if ($BoundParameters.Ccp -and ($BoundParameters.OutputPath -or
             ($BoundParameters.ContainsKey('Screen') -and $BoundParameters.Screen -ne 'rig') -or

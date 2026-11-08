@@ -77,6 +77,11 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION AND CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPA
     idf_component_optional_requires(PRIVATE espressif__qrcode)
 endif()
 
+if(NOT CMAKE_BUILD_EARLY_EXPANSION AND CONFIG_LUNASHELL_CODY_RELAY_PROBE)
+    idf_component_optional_requires(PRIVATE esp_http_client mbedtls)
+    target_sources(${COMPONENT_LIB} PRIVATE "src/runtime/CODY_relay_probe.cpp")
+endif()
+
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
 target_compile_definitions(${COMPONENT_LIB} PUBLIC
     CODY_DEVICE_UI_ONLY=1

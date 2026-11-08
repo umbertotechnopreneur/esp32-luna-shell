@@ -31,6 +31,13 @@ separate. Device shows Wi-Fi status, measured battery and the current chat
 title when fresh. Statistics show a compact Codex status at the top. PC linked
 means the device authenticated the bridge and is waiting for app presence.
 
+An opt-in Cody Companion build with `-RelayHost <dns-name>` adds **Check relay**
+to Connections. Supply the same deployed HTTPS hostname for build and flash.
+Cody checks Wi-Fi and device time, verifies the certificate and hostname, and
+checks the relay's liveness response on a separate worker. **Relay reachable**
+reports that one request. Enrollment and notification delivery are separate
+capabilities and remain pending.
+
 ## Manage the retained PC
 
 Open BOOT, Options, Connections and Codex. The saved link is

@@ -32,9 +32,10 @@
 
 ## CLOUD-02 - Device relay integration
 
-- The private relay checkout owns the API contract. Obtain its deployed HTTPS
-  origin and trust configuration from that work. A bounded liveness request
-  over verified TLS is the first device transport acceptance gate.
+- Obtain the deployed relay hostname. Validate the opt-in `-RelayHost` build
+  and Connections liveness action on the board. Cover absent Wi-Fi, invalid
+  time, certificate rejection, non-200 HTTP, unexpected response and success.
+  Measure the separate TLS worker's stack headroom and free internal heap.
 - Reuse the canonical clock observation for device proof time. Wait for valid
   UTC and surface time errors. Select protected device key and token storage
   for the target board before enrollment.

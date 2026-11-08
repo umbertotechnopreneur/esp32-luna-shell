@@ -34,6 +34,7 @@ no typewriter timing or character audio.
 | Two cards | (73,260,154,104) and (239,260,154,104), 28-pixel corners |
 | Saved PC management | Three standalone 36-pixel icons, with 90 x 90 touch areas at x=83/188/293, y=302 |
 | Connections actions | 54-pixel glyphs at (148,219) and (318,219), with 140 × 168 touch areas |
+| Check relay, when configured | Text-only footer at (123,366,220,52). The latest check replaces the Connections hint at y=136. |
 | Options and category rows | Up to three open rows at x=93, width 280, height 72, y=130/210/290; 30-pixel colored icons, label and secondary line |
 | Visible screens | Three Options-sized rows, name on the left and visibility on the right, with page and save status below |
 | Options footer | (123,382,220,52), with an outline home glyph next to Go home |
