@@ -22,11 +22,12 @@ The native style is subdued graphite with a light chevron.
 Actions use semantic colors and restrained gradients. Standard buttons center a
 text-only caption in the complete control. Device-first pairing adds outline
 glyphs to identify the Wi-Fi, QR and Bluetooth actions. The Connections page
-uses the Options heading position and two standalone glyphs side by side.
-Connect Codex has a violet link and Set up Wi-Fi has a mint Wi-Fi symbol. Each
-label sits below its icon in the same touch area. The lateral chevron handles
-Back. Complete controls appear after any title and main body line, with touch
-admitted at the same time. Captions have no typewriter timing or character audio.
+uses the Options heading position, a short instruction, and two standalone
+glyphs side by side. Codex has a violet link and Wi-Fi has a mint signal icon.
+The labels and their PC link and Join network hints share the glyphs' touch
+areas. The lateral chevron handles Back. Complete controls appear after the
+title and main body lines, with touch admitted at the same time. Captions have
+no typewriter timing or character audio.
 
 | Control | Logical rectangle |
 | --- | --- |
@@ -112,11 +113,19 @@ Both QR screens keep their white area within the square code tile.
 | 05 | Phone download glyph, Wi-Fi setup title, and two instructions with App download QR at (93,274,280,62) and Show pairing QR at (93,348,280,64) |
 | 06 | Phone download glyph, app name at y=139, installation QR 192 x 192 at (137,165), App Store caption at y=360, and Show pairing QR footer |
 | 07 | Bluetooth glyph, title at y=115, and session QR 204 x 204 at (131,182) while ReadyToScan |
+| 09 / Wi-Fi result | Mint Wi-Fi glyph for a usable connection, amber offline glyph otherwise. Title at y=200, status detail at y=248, and up to two SSID rows from y=280. Continue at (113,352,240,72). |
 | 10 / Options | Title at y=82, up to three enlarged rows, lateral paging arrows, and the Go home footer at y=382 |
 | 12 / Pair Codex | Title at y=88, link glyph at (205,148,56,56), and the six-character code at y=236 when ready |
 | 14 / Waiting for PC | Same heading and glyph slot as Pair Codex, with two status lines and Later |
 | 11 / Skin | Preview (233,172,44), title y=78, viewport (117,226,232,126), Done (123,386,220,48) |
 | 42 / Wi-Fi offline | Amber offline glyph, title at y=180, Set up Wi-Fi at (93,272,280,58), and Later at (153,350,160,50) |
+
+During passive reconnect, the 72-pixel signal glyph animates above Wi-Fi
+connecting. Its lower rows light up in mint while the device waits for
+association and an IP. The caption names the configured network using the same
+canonical observation. The waiting page has no touch action. A usable Wi-Fi
+connection describes local network access. Codex link and relay availability
+are independent.
 
 Skin rows are 220 x 38 with 44-pixel steps. Only complete rows are drawn and
 interactive; scrolling admits three visible rows. Stable look IDs and save gates

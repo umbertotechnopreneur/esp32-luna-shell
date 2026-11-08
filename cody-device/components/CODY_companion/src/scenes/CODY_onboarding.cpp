@@ -90,6 +90,7 @@ constexpr CODY2D::Rect kSetupWifiBounds = kDeviceFirstSetup
     ? CODY2D::Rect{248, 170, 140, 168} : CODY2D::Rect{93, 298, 280, 56};
 constexpr uint16_t kConnectionIconSize = 54;
 constexpr int16_t kConnectionIconY = 219;
+constexpr uint16_t kConnectionsHintTop = 136;
 constexpr CODY2D::Rect kSetupOptionsBounds{153, 382, 160, 52};
 constexpr uint16_t kPairingBackground = 0x0842;
 constexpr uint16_t kPairingAccent = 0x953F;
@@ -101,6 +102,10 @@ constexpr int64_t kWifiConnectingStepUs = 200000;
 constexpr uint16_t kWifiConnectingHighlightTop[]{172, 158, 144, 130};
 constexpr uint16_t kWifiConnectingMuted = 0x39AB;
 constexpr CODY2D::Rect kWifiConnectingGlyph{197, 116, 72, 72};
+constexpr uint16_t kWifiStatusTitleTop = 200;
+constexpr uint16_t kWifiStatusDetailTop = 248;
+constexpr uint16_t kWifiStatusNetworkTop = 280;
+constexpr uint16_t kWifiReadyMint = 0x7759;
 constexpr CODY2D::Rect kCodexPairingGlyph{205, 148, 56, 56};
 constexpr int64_t kCodexWaitingStepUs = 400000;
 constexpr uint16_t kCodexWaitingColors[]{0x634D, 0x8CB4, 0xB5BB, 0x8CB4};
@@ -306,15 +311,16 @@ ContentView &s_view = *new (s_view_storage) ContentView{};
 #else
 ContentView s_view;
 #endif
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
 #ifdef ESP_PLATFORM
-// Display-owned scratch, refreshed from the canonical owner for each connection page.
-// Keep the projection off the nested onboarding stack; no independent sampling or cache.
+// Debug exit needs one canonical read without a snapshot copy on the touch stack.
 alignas(LUNASHELL::DeviceStatusObservation) EXT_RAM_BSS_ATTR
     uint8_t s_connection_status_storage[sizeof(LUNASHELL::DeviceStatusObservation)]{};
 LUNASHELL::DeviceStatusObservation &s_connection_status =
     *new (s_connection_status_storage) LUNASHELL::DeviceStatusObservation{};
 #else
 LUNASHELL::DeviceStatusObservation s_connection_status{};
+#endif
 #endif
 #ifdef ESP_PLATFORM
 // One canonical observation stays outside the nested display worker call chain.
@@ -888,15 +894,12 @@ esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line
         {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(top)}, 0xFFFF, line);
 }
 
+// wifi: Canonical snapshot already read by the route caller.
 // top: First name row; a full 32-byte printable SSID uses two rows.
 // first_line: First available narrative slot, with two reserved backing buffers.
-// Exception: Returns the canonical read or caption error, never a fabricated network name.
-esp_err_t prepare_network_name(uint16_t top, uint8_t first_line)
+// Exception: Returns a caption error if the available rows cannot hold the name.
+esp_err_t prepare_network_name(const LUNASHELL::WifiSnapshot &wifi, uint16_t top, uint8_t first_line)
 {
-    const auto read_error = LUNASHELL::DeviceSnapshotService::instance()
-        .readDeviceStatusObservation(s_connection_status);
-    if (read_error != ESP_OK) { return read_error; }
-    const auto &wifi = s_connection_status.wifi;
     const char *name = wifi.ssid;
     const auto *end = std::find(name, name + sizeof(wifi.ssid), '\0');
     const bool printable = end != name + sizeof(wifi.ssid) &&
@@ -1337,34 +1340,37 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
 }
 
 // action: Codex pairing or Wi-Fi setup identity.
-// label: Action caption, split at its final space.
 // enabled: True when the corresponding connection action is available.
 // control: Receives the glyph, first caption line and full touch rectangle.
 // second: Receives the second centered caption line.
 // Exception: Returns the original caption error or rejects an unknown action.
-esp_err_t prepare_connection_action(OnboardingAction action, const char *label, bool enabled,
+esp_err_t prepare_connection_action(OnboardingAction action, bool enabled,
     CODY2D::CapsuleControl &control, CODY2D::TextLine &second)
 {
     const bool codex = action == OnboardingAction::ConnectCodex;
     if (!codex && action != OnboardingAction::NetworkSetup) {
         return ESP_ERR_INVALID_ARG;
     }
-    const char *separator = std::strrchr(label, ' ');
-    if (separator == nullptr) {
-        return ESP_ERR_INVALID_ARG;
-    }
+    const char *label = codex ? "Codex" : "Wi-Fi";
+    const char *hint = codex ? "PC link" : "Join network";
     const auto bounds = codex ? kSetupCodexBounds : kSetupWifiBounds;
     const auto center_x = static_cast<int16_t>(bounds.x + bounds.width / 2);
     control = {};
     control.bounds = bounds;
     control.enabled = enabled;
     control.icon = codex ? CODY2D::ActionIcon::Link : CODY2D::ActionIcon::Wifi;
-    control.icon_color = enabled ? (codex ? 0xBD9F : 0x7759) : kPairingCaption;
+    control.icon_color = enabled ? (codex ? 0xBD9F : kWifiReadyMint) : kPairingCaption;
     control.icon_center = {center_x, kConnectionIconY};
 
     const auto &font = SceneData::body_font;
     const uint16_t color = enabled ? kPairingTitle : kPairingCaption;
-    const auto prepare_line = [&](CODY2D::TextSpan text, int16_t top, CODY2D::TextLine &line) {
+    // caption: Complete caption for this column.
+    // top: Logical row inside the touch area.
+    // caption_color: Main caption or subordinate hint color.
+    // line: Receives the centered text.
+    // Exception: Preserves the native layout error or rejects a wide caption.
+    const auto prepare_line = [&](const char *caption, int16_t top, uint16_t caption_color, CODY2D::TextLine &line) {
+        const CODY2D::TextSpan text{caption, static_cast<uint16_t>(std::strlen(caption))};
         uint32_t width = 0;
         const auto error = CODY2D::measure_text_width(font, text, width);
         if (error != ESP_OK) {
@@ -1374,12 +1380,10 @@ esp_err_t prepare_connection_action(OnboardingAction action, const char *label, 
             return ESP_ERR_INVALID_SIZE;
         }
         return CODY2D::prepare_text_line(font, text,
-            {static_cast<int16_t>(center_x - static_cast<int16_t>(width / 2)), top}, color, line);
+            {static_cast<int16_t>(center_x - static_cast<int16_t>(width / 2)), top}, caption_color, line);
     };
-    const auto error = prepare_line({label, static_cast<uint16_t>(separator - label)}, 264, control.caption);
-    return error == ESP_OK
-        ? prepare_line({separator + 1, static_cast<uint16_t>(std::strlen(separator + 1))}, 296, second)
-        : error;
+    const auto error = prepare_line(label, 264, color, control.caption);
+    return error == ESP_OK ? prepare_line(hint, 296, kPairingCaption, second) : error;
 }
 
 // action: Semantic pairing command or Options home navigation.
@@ -1496,7 +1500,7 @@ esp_err_t prepare_action(OnboardingAction action, bool enabled)
     }
     if (s_route == Route::SetupMenu) {
         if (kDeviceFirstSetup) {
-            return prepare_connection_action(action, label, enabled, s_view.action, s_view.action_second_line);
+            return prepare_connection_action(action, enabled, s_view.action, s_view.action_second_line);
         }
         return prepare_button(action, label, kSetupWifiBounds, enabled, false,
             s_view.action, s_view.action_second_line, CODY2D::ActionIcon::Wifi);
@@ -1537,7 +1541,7 @@ esp_err_t prepare_alternative(OnboardingAction action, bool enabled)
     }
     if (s_route == Route::SetupMenu) {
         if (kDeviceFirstSetup) {
-            return prepare_connection_action(action, label, enabled, s_view.alternative, s_view.alternative_second_line);
+            return prepare_connection_action(action, enabled, s_view.alternative, s_view.alternative_second_line);
         }
         return prepare_button(action, label, kSetupCodexBounds, enabled, false,
             s_view.alternative, s_view.alternative_second_line, CODY2D::ActionIcon::Link);
@@ -1849,6 +1853,7 @@ esp_err_t attach_content(SceneFrame &scene)
             static_cast<uint16_t>(kSetupWifiBounds.x + kSetupWifiBounds.width),
             static_cast<uint16_t>(kSetupWifiBounds.y + kSetupWifiBounds.height)};
         if (kDeviceFirstSetup) {
+            content.bounds.top = kConnectionsHintTop;
             content.bottom_action_visible = false;
         } else {
             content.bottom_action_bounds = {kSetupOptionsBounds.x, kSetupOptionsBounds.y,
@@ -1924,6 +1929,15 @@ esp_err_t attach_content(SceneFrame &scene)
             content.control_bounds[0] = {10, 203, 70, 263};
         } else if (s_route == Route::Hello04) {
             content.bounds.top = 223;
+        }
+    }
+    if (kDeviceFirstSetup && (s_route == Route::Online09 ||
+        (s_route == Route::NetworkWait && s_startup_network_passive))) {
+        // The two SSID rows fit above Continue or in the passive status body.
+        content.bounds = {83, kWifiStatusDetailTop, 383, 340};
+        if (s_route == Route::NetworkWait) {
+            content.control_bounds[0] = {};
+            content.control_bounds[1] = {};
         }
     }
     if (kDeviceFirstSetup && s_route == Route::CodexReplace) {
@@ -2853,6 +2867,10 @@ const SceneDefinition &device_scene_definition(Route route, const SceneDefinitio
         static const auto definition = with_pairing_theme(base, 126);
         return definition;
     }
+    case Route::Online09: {
+        static const auto definition = with_pairing_theme(base, kWifiStatusTitleTop);
+        return definition;
+    }
     case Route::Invitation05: {
         static const auto definition = with_pairing_theme(base, kGuideTitleTop);
         return definition;
@@ -2887,22 +2905,59 @@ const SceneDefinition &device_scene_definition(Route route, const SceneDefinitio
         }();
         return definition;
     }
-    case Route::NetworkWait:
+    case Route::NetworkWait: {
         if (base.id == SceneId::NetworkWait) {
             static const auto definition = with_pairing_theme(base, 180);
             return definition;
         }
-        return base;
+        static const auto passive_definition = with_pairing_theme(base, kWifiStatusTitleTop);
+        return passive_definition;
+    }
     default:
         return base;
     }
 }
 
+// wifi: Canonical radio state for the provisioning result.
+bool wifi_online_for_pairing(const LUNASHELL::WifiSnapshot &wifi)
+{
+    return wifi.data_valid && !wifi.data_stale && wifi.health == LUNASHELL::DeviceHealth::Ready &&
+        wifi.last_error == ESP_OK && wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0';
+}
+
+// wifi: Canonical observation used for status and network identity.
+// scene: Prepared route receiving the provisioning result.
+// Exception: Returns the original native title, caption or action preparation error.
+esp_err_t prepare_wifi_result(const LUNASHELL::WifiSnapshot &wifi, SceneFrame &scene)
+{
+    const bool observed = wifi.data_valid && !wifi.data_stale && wifi.connection_state_valid;
+    const bool online = wifi_online_for_pairing(wifi);
+    const char *title = online ? "Wi-Fi connected" : observed ? "Wi-Fi offline" : "Wi-Fi unavailable";
+    auto error = set_scene_title(scene, {title, static_cast<uint16_t>(std::strlen(title))});
+    if (error != ESP_OK) { return error; }
+    s_view.header_icon = online ? CODY2D::ActionIcon::Wifi : CODY2D::ActionIcon::WifiOff;
+    s_view.header_icon_bounds = online ? kWifiConnectingGlyph : kOfflineGlyph;
+    s_view.header_icon_color = online ? kWifiReadyMint : kOfflineAmber;
+    const char *detail = online ? "Ready for the next step" : "Check Wi-Fi setup";
+    error = prepare_caption(detail, kWifiStatusDetailTop, s_view.lines[0], 300);
+    if (error != ESP_OK) { return error; }
+    s_view.lines[0].color = kPairingCaption;
+    error = prepare_network_name(wifi, kWifiStatusNetworkTop, 1);
+    return error == ESP_OK ? prepare_action(OnboardingAction::Continue, true) : error;
+}
+
 // route: Explicit atlas identity; no navigation is inferred from array position.
 // scene: Receives a fully validated immutable layout and caller-owned content.
+// wifi: Coherent radio observation required by the device-first connection status pages.
 // Exception: Returns the real scene, catalog, text or content preparation error.
-esp_err_t enter_route(Route route, SceneFrame &scene)
+esp_err_t enter_route(Route route, SceneFrame &scene, const LUNASHELL::WifiSnapshot *wifi = nullptr)
 {
+    const bool needs_wifi = route == Route::Online09 || route == Route::CodexReplace ||
+        (route == Route::NetworkWait && s_startup_network_passive);
+    if (kDeviceFirstSetup && needs_wifi && wifi == nullptr) {
+        ESP_LOGE(kTag, "Connection route %u requires a Wi-Fi observation", to_index(route));
+        return ESP_ERR_INVALID_ARG;
+    }
     SceneId identity;
     switch (route) {
     case Route::Hello04:
@@ -3105,10 +3160,14 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         // Returning from a child must re-evaluate the canonical connection,
         // even if it was already offline before the child was opened.
         s_online_presentation_current = false;
-        error = prepare_caption("Wi-Fi connected", 300, s_view.lines[0]);
-        s_view.line_count = 1;
-        if (error == ESP_OK) {
-            error = prepare_action(OnboardingAction::Continue, true);
+        if (kDeviceFirstSetup) {
+            error = prepare_wifi_result(*wifi, prepared);
+        } else {
+            error = prepare_caption("Wi-Fi connected", 300, s_view.lines[0]);
+            s_view.line_count = 1;
+            if (error == ESP_OK) {
+                error = prepare_action(OnboardingAction::Continue, true);
+            }
         }
     } else if (route == Route::MakeItYours10) {
         s_preference_error = ESP_OK;
@@ -3130,7 +3189,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
                 error = prepare_caption("Wi-Fi network", 205, s_view.lines[1], 300);
                 s_view.lines[1].color = kPairingCaption;
             }
-            if (error == ESP_OK) { error = prepare_network_name(235, 2); }
+            if (error == ESP_OK) { error = prepare_network_name(*wifi, 235, 2); }
         }
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::ReplacePairing, !s_codex_manage_repair);
@@ -3164,15 +3223,25 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         static constexpr char title[] = "Wi-Fi connecting";
         error = set_scene_title(prepared, {title, sizeof(title) - 1U});
         if (error == ESP_OK) {
-            error = prepare_caption("Joining saved network", 300, s_view.lines[0]);
-            s_view.line_count = 1;
+            if (kDeviceFirstSetup) {
+                error = prepare_caption("Joining network", kWifiStatusDetailTop, s_view.lines[0], 300);
+                s_view.lines[0].color = kPairingCaption;
+                if (error == ESP_OK) { error = prepare_network_name(*wifi, kWifiStatusNetworkTop, 1); }
+            } else {
+                error = prepare_caption("Joining saved network", 300, s_view.lines[0]);
+                s_view.line_count = 1;
+            }
         }
     } else if (route == Route::CodexChoice || route == Route::SetupMenu || route == Route::NetworkWait) {
         const auto primary = route == Route::CodexChoice ? OnboardingAction::DeclineCodex :
             route == Route::SetupMenu ? OnboardingAction::NetworkSetup : OnboardingAction::Later;
         const auto alternative = route == Route::CodexChoice ? OnboardingAction::AcceptCodex :
             route == Route::SetupMenu ? OnboardingAction::ConnectCodex : OnboardingAction::NetworkSetup;
-        if (kDeviceFirstSetup && route == Route::NetworkWait) {
+        if (kDeviceFirstSetup && route == Route::SetupMenu) {
+            error = prepare_caption("Choose what to connect", kConnectionsHintTop, s_view.lines[0], 300);
+            s_view.lines[0].color = kPairingCaption;
+            s_view.line_count = 1;
+        } else if (kDeviceFirstSetup && route == Route::NetworkWait) {
             s_view.header_icon = CODY2D::ActionIcon::WifiOff;
             s_view.header_icon_bounds = kOfflineGlyph;
             error = prepare_caption("Connect Cody to Wi-Fi", 223, s_view.lines[0]);
@@ -4203,7 +4272,7 @@ esp_err_t begin_codex_connection(SceneFrame &scene, CodexConnectionIntent intent
         s_codex_manage_pending = codex_link.pending_pairing_present;
         s_codex_manage_repair = codex_link.pairing_repair_required;
         wipe(s_codex_code, sizeof(s_codex_code));
-        return enter_route(Route::CodexReplace, scene);
+        return enter_route(Route::CodexReplace, scene, &observation.radios.wifi);
     }
     s_codex_error_visible = false;
     s_codex_error_allows_setup = false;
@@ -4753,7 +4822,7 @@ esp_err_t draw_connection_activity_rows(uint8_t phase, CODY2D::Surface strip,
         strip.height -= muted_rows;
     }
     return CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::Wifi, kWifiConnectingGlyph,
-        kPairingAccent, strip, static_cast<uint16_t>(first_row + muted_rows), first_column);
+        kWifiReadyMint, strip, static_cast<uint16_t>(first_row + muted_rows), first_column);
 }
 
 // No parameters: keep paging controls easy to find while reading the guide.
@@ -4882,11 +4951,13 @@ bool take_widget_visibility_save_result(esp_err_t &error)
 }
 
 // scene: Visible reconnect page, without interpreting unavailable data as missing credentials.
+// wifi: Coherent observation used for the network name during passive reconnect.
 // error: Actual canonical Wi-Fi observation failure, or ESP_OK for a known disconnected state.
 // changed: Receives whether presentation changed since the previous observation.
 // passive: Hide all recovery actions while the saved-network grace is pending.
 // Exception: Returns presentation failures; the optional radio observation error stays canonical.
-esp_err_t present_network_wait(SceneFrame &scene, esp_err_t error, bool &changed, bool passive)
+esp_err_t present_network_wait(SceneFrame &scene, const LUNASHELL::WifiSnapshot &wifi,
+    esp_err_t error, bool &changed, bool passive)
 {
     const bool same_view = s_startup_network_presented && s_route == Route::NetworkWait &&
         s_startup_network_passive == passive &&
@@ -4901,7 +4972,7 @@ esp_err_t present_network_wait(SceneFrame &scene, esp_err_t error, bool &changed
     s_startup_network_presented = false;
     s_startup_network_passive = passive;
     changed = true;
-    esp_err_t presentation_error = enter_route(Route::NetworkWait, scene);
+    esp_err_t presentation_error = enter_route(Route::NetworkWait, scene, &wifi);
     if (presentation_error == ESP_OK && !passive) {
         static constexpr char title[] = "Wi-Fi offline";
         presentation_error = set_scene_title(scene, {title, sizeof(title) - 1U});
@@ -4939,7 +5010,7 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
         error = wifi.last_error != ESP_OK ? wifi.last_error :
             !wifi.data_valid || wifi.data_stale ? ESP_ERR_INVALID_STATE : ESP_OK;
         if (saved_wifi_startup_grace(wifi, esp_timer_get_time())) {
-            return present_network_wait(scene, error, changed, true);
+            return present_network_wait(scene, wifi, error, changed, true);
         }
         if (pair_missing) {
             if (wifi.data_valid && !wifi.data_stale && wifi.connection_state_valid &&
@@ -4950,7 +5021,7 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
                 return kDeviceFirstSetup ? enter_route(Route::Hello04, scene) :
                     start_wifi_pairing(scene, observation.radios.pairing);
             }
-            return present_network_wait(scene, error, changed, false);
+            return present_network_wait(scene, wifi, error, changed, false);
         }
         if (error != ESP_OK) {
             ESP_LOGE(kTag, "Companion startup retains Wi-Fi failure (%s)", esp_err_to_name(error));
@@ -5533,8 +5604,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
     }
     if (pairing.state == PairState::Online) {
         const auto &wifi = observation.radios.wifi;
-        const bool online = wifi.data_valid && !wifi.data_stale && wifi.health == LUNASHELL::DeviceHealth::Ready &&
-            wifi.last_error == ESP_OK && wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0';
+        const bool online = wifi_online_for_pairing(wifi);
         const auto &ble = observation.radios.ble;
         const bool ble_restarted = ble.data_valid && !ble.data_stale &&
             ble.health == LUNASHELL::DeviceHealth::Ready && ble.last_error == ESP_OK &&
@@ -5592,10 +5662,8 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         } else if (s_pairing_debug_dismissed &&
                    (s_route != Route::Online09 || !s_online_presentation_current || online != s_online_link)) {
             changed = true;
-            error = enter_route(Route::Online09, scene);
-            s_online_link = online;
-            s_online_presentation_current = true;
-            if (error == ESP_OK && !online) {
+            error = enter_route(Route::Online09, scene, &wifi);
+            if (error == ESP_OK && !kDeviceFirstSetup && !online) {
                 // TextSpan is borrowed by later frames, not copied by set_scene_title.
                 static constexpr char title[] = "No connection";
                 error = set_scene_title(scene, {title, sizeof(title) - 1U});
@@ -5604,8 +5672,12 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                         300, s_view.lines[0]);
                 }
             }
-            if (error == ESP_OK) {
+            if (error == ESP_OK && !kDeviceFirstSetup) {
                 error = attach_content(scene);
+            }
+            if (error == ESP_OK) {
+                s_online_link = online;
+                s_online_presentation_current = true;
             }
         }
     }
@@ -6105,8 +6177,16 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         if (!pressed_edge) {
             return ESP_OK;
         }
-        s_pairing_debug_dismissed = true;
-        return enter_route(Route::Online09, scene);
+        const LUNASHELL::WifiSnapshot *wifi = nullptr;
+        if (kDeviceFirstSetup) {
+            const auto error = LUNASHELL::DeviceSnapshotService::instance()
+                .readDeviceStatusObservation(s_connection_status);
+            if (error != ESP_OK) { return error; }
+            wifi = &s_connection_status.wifi;
+        }
+        const auto error = enter_route(Route::Online09, scene, wifi);
+        if (error == ESP_OK) { s_pairing_debug_dismissed = true; }
+        return error;
     }
 #endif
     if (s_swipe_route != s_route || (s_swipe_active && s_swipe_rotation != rotation_degrees)) {

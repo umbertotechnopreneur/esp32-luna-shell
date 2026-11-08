@@ -10,7 +10,7 @@ The first device route starts with the saved network and pairing state.
 | Current state | Device route |
 | --- | --- |
 | No saved Wi-Fi | Not connected with Tap to pair |
-| Saved Wi-Fi, association or IP pending | Connecting to Wi-Fi, then a recovery menu if the attempt does not finish |
+| Saved Wi-Fi, association or IP pending | Wi-Fi connecting with the configured network name, then recovery if the attempt does not finish |
 | Wi-Fi ready, no retained pairing | Prepare the Codex pairing code |
 | Valid retained pairing | Search for the remembered PC until authenticated presence arrives |
 | Storage or service error | Show the original failure and an available recovery action |
@@ -24,8 +24,8 @@ On the **Wi-Fi offline** recovery screen, **Later** opens **Not connected**.
 The saved network can still reconnect in the background. **Set up Wi-Fi** opens
 **Wi-Fi setup** directly.
 
-In Options, Connections opens two side-by-side icons, Connect Codex and Set up
-Wi-Fi. The lateral Back chevron returns to Options and preserves an already
+In Options, Connections opens the Codex and Wi-Fi icons with PC link and Join
+network hints. The lateral Back chevron returns to Options and preserves an already
 valid discovery or connection. Wi-Fi and authenticated Codex presence are
 separate. Device shows Wi-Fi status, measured battery and the current chat
 title when fresh. Statistics show a compact Codex status at the top. PC linked
@@ -33,7 +33,7 @@ means the device authenticated the bridge and is waiting for app presence.
 
 ## Manage the retained PC
 
-Open BOOT, Options, Connections and Connect Codex. The saved link is
+Open BOOT, Options, Connections and Codex. The saved link is
 reused when available. Replacing or forgetting it requires the corresponding
 explicit confirmation.
 

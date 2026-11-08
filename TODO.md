@@ -6,11 +6,8 @@
   display at all rotations, with missing/stale and unsupported network names.
 - Verify Account and Token activity empty states and Dictation failure layout;
   the underlying audio failure still requires diagnosis from current observations.
-- Complete the remaining Connections and Wi-Fi connecting/connected polish.
-- Run no build, simulator, host suite or physical check without its required
-  explicit authorization. This checkpoint has static source review only.
-- Coordinate the relay integration contract with the existing cloud chat after
-  the requested layout stopping point; no firmware-to-cloud integration is claimed.
+- Verify Connections action admission, passive Wi-Fi animation and the
+  provisioning result at all rotations, including a 32-byte SSID and a lost IP.
 
 ## CLOUD-01 - Private relay acceptance
 
@@ -22,18 +19,33 @@
 - Verify Windows and Linux separately against the actual SMB/Samba mount,
   including cross-host exclusion, interrupted writes, disconnect/reconnect,
   restrictive permissions and power-loss durability limits.
-- Configure the real identity provider and connect the remote MCP plugin to Dot.
-  Verify actual notification calls and acknowledgements; do not infer a complete
-  internal Dot event stream.
+- Verify the operator portal and connect the remote MCP plugin to Dot through a
+  supported client authentication route. Verify actual notification calls and
+  acknowledgements.
 - Provision standard OS-mounted SMB storage with one relay instance, private
   mount credentials, share identity, cookie keys, bounded logs and explicit
   initialization. Keep runtime persistence on the share. Verify server
   locks, flush and atomic replacement before deployment; no Azure APIs are used.
 - Verify the normal Aspire dashboard, HTTPS, operator-only console access and
-  authenticated OTLP. Aspire's own local working files are allowed; service
-  state and durable logs remain on SMB. No VM or deployment is created here.
-- Firmware integration is a later explicitly requested phase. No device cloud
-  pairing or delivery behavior is established by the server implementation.
+  authenticated OTLP after relay publication. Aspire's own local working files
+  are allowed. Service state and durable logs remain on SMB.
+
+## CLOUD-02 - Device relay integration
+
+- The private relay checkout owns the API contract. Obtain its deployed HTTPS
+  origin and trust configuration from that work. A bounded liveness request
+  over verified TLS is the first device transport acceptance gate.
+- Reuse the canonical clock observation for device proof time. Wait for valid
+  UTC and surface time errors. Select protected device key and token storage
+  for the target board before enrollment.
+- Run enrollment as an explicit Connections action. Use a device-owned P-256
+  key, short-lived proof per request, a code for portal claim, and physical
+  confirmation of the claimed owner. Commit the key-bound token durably before
+  showing a completed link. Agent and administrator keys remain off-device.
+- Keep networking and token rotation with the relay owner and project its
+  state through DeviceSnapshotService. Validate bounded polling, retries and
+  credential recovery before admitting notifications. Acknowledge reception
+  after owner admission and display after the corresponding frame retires.
 
 ## Offline statistics and local timer
 
