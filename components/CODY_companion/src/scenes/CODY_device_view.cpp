@@ -1,6 +1,7 @@
 #include "CODY_device_view.hpp"
 #include "CODY_home_dashboard.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -24,6 +25,23 @@ constexpr CODY2D::Rect kSecondAction{103, 322, 260, 50};
 constexpr uint16_t kWhite = 0xF7BE;
 constexpr uint16_t kAccent = 0x6F9E;
 constexpr uint16_t kMuted = 0x9CF3;
+constexpr uint16_t kOnline = 0x4EE8;
+constexpr uint16_t kAttention = 0xFE27;
+constexpr uint16_t kDivider = 0x2127;
+constexpr DamageRect kOverviewBounds{73, 79, 393, 380};
+constexpr CODY2D::Rect kOverviewHeading{73, 79, 320, 58};
+constexpr CODY2D::Rect kOverviewChat{73, 291, 320, 28};
+constexpr CODY2D::Rect kOverviewRecord{103, 330, 260, 50};
+
+struct OverviewRowLayout {
+    const char *label;
+    uint16_t center_y;
+};
+constexpr std::array<OverviewRowLayout, 3> kOverviewRows{{
+    {"Codex", 164}, {"Wi-Fi", 216}, {"Battery", 268},
+}};
+
+enum class TextAlignment : uint8_t { Center, Left, Right };
 
 bool current(const LUNASHELL::ComponentSnapshot &observation)
 {
@@ -36,9 +54,10 @@ bool current(const LUNASHELL::ComponentSnapshot &observation)
 // bounds: Full admitted logical text slot.
 // color: Native foreground color.
 // line: Receives prepared text backed by the caller's buffer.
+// alignment: Alignment within the admitted caption slot.
 // Exception: Returns the original glyph error or a layout overflow.
 esp_err_t prepare_line(const char *text, const CODY2D::MonoFont &font, CODY2D::Rect bounds,
-    uint16_t color, CODY2D::TextLine &line)
+    uint16_t color, CODY2D::TextLine &line, TextAlignment alignment = TextAlignment::Center)
 {
     if (text[0] == '\0') {
         return ESP_OK;
@@ -60,8 +79,11 @@ esp_err_t prepare_line(const char *text, const CODY2D::MonoFont &font, CODY2D::R
     if (width > bounds.width || selected->height > bounds.height) {
         return ESP_ERR_INVALID_SIZE;
     }
+    uint32_t x = bounds.x;
+    if (alignment == TextAlignment::Center) x += (bounds.width - width) / 2U;
+    if (alignment == TextAlignment::Right) x += bounds.width - width;
     return CODY2D::prepare_text_line(*selected, span,
-        {static_cast<int16_t>(bounds.x + (bounds.width - width) / 2U),
+        {static_cast<int16_t>(x),
          static_cast<int16_t>(bounds.y + (bounds.height - selected->height) / 2U)}, color, line);
 }
 
@@ -141,36 +163,210 @@ const char *connection_caption(const DeviceDashboardData &data)
     return "Codex disconnected";
 }
 
+struct OverviewStatus {
+    const char *text;
+    CODY2D::ActionIcon icon;
+    uint16_t color;
+};
+
+// data: Canonical authenticated app presence and separate PC-link observation.
+OverviewStatus overview_codex_status(const DeviceDashboardData &data)
+{
+    using Icon = CODY2D::ActionIcon;
+    using Link = LUNASHELL::CodexLinkState;
+    const auto &status = data.connection;
+    if (!data.connection_valid || status.codex_link.data_stale ||
+        (!status.codex_link.data_valid && status.codex_link.last_attempt_at_us <= 0)) {
+        return {"Unavailable", Icon::Link, kMuted};
+    }
+    if (status.codex_app_open) return {"Connected", Icon::Link, kOnline};
+    switch (status.codex_link_state) {
+    case Link::Connected:
+        return current(status.codex_link) ? OverviewStatus{"PC linked", Icon::Link, kAttention} :
+            OverviewStatus{"Unavailable", Icon::Link, kMuted};
+    case Link::Discovering: return {"Connecting", Icon::Link, kAttention};
+    case Link::StartingPairing:
+    case Link::Pairing:
+    case Link::AwaitingConfirmation: return {"Pairing", Icon::Link, kAttention};
+    default: return {"Not connected", Icon::Link, kAttention};
+    }
+}
+
+// data: Canonical station association, IP acquisition and saved credential state.
+OverviewStatus overview_wifi_status(const DeviceDashboardData &data)
+{
+    using Icon = CODY2D::ActionIcon;
+    const auto &wifi = data.connection.wifi;
+    if (!data.connection_valid || !wifi.connection_state_valid || wifi.data_stale) {
+        return {"Unavailable", Icon::Wifi, kMuted};
+    }
+    if (wifi.started && wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0') {
+        return {"Connected", Icon::Wifi, kOnline};
+    }
+    if (!wifi.credentials_configured) return {"Not set up", Icon::WifiOff, kMuted};
+    if (wifi.started && (wifi.connected || (wifi.connect_requested && wifi.last_error == ESP_OK))) {
+        return {"Connecting", Icon::Wifi, kAttention};
+    }
+    return {"Offline", Icon::WifiOff, kAttention};
+}
+
+// strip: Borrowed display tile, with its absolute origin supplied separately.
+// first_row: Tile's first logical y coordinate.
+// first_column: Tile's first logical x coordinate.
+// bounds: Rectangle in the complete display's logical coordinates.
+// color: Native RGB565 fill color.
+// Exception: Preserves the native fill error if the clipped rectangle intersects the tile.
+esp_err_t fill_overview_rows(CODY2D::Surface strip, uint16_t first_row, uint16_t first_column,
+    CODY2D::Rect bounds, uint16_t color)
+{
+    const int left = std::max<int>(bounds.x, first_column);
+    const int right = std::min<int>(bounds.x + bounds.width, first_column + strip.width);
+    const int top = std::max<int>(bounds.y, first_row);
+    const int bottom = std::min<int>(bounds.y + bounds.height, first_row + strip.height);
+    if (left >= right || top >= bottom) return ESP_OK;
+    return CODY2D::fill_rect(strip, {static_cast<uint16_t>(left - first_column),
+        static_cast<uint16_t>(top - first_row), static_cast<uint16_t>(right - left),
+        static_cast<uint16_t>(bottom - top)}, color);
+}
+
+// state: Persistent overview preparation, borrowed until the completed frame retires.
+// strip: Borrowed display tile retaining its native storage order.
+// first_row: Tile's first logical y coordinate.
+// first_column: Tile's first logical x coordinate.
+// Exception: Returns the first original caption, outline or action draw error.
+esp_err_t draw_overview_rows(const void *state, CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+{
+    const auto *overview = static_cast<const DeviceOverviewView *>(state);
+    if (overview == nullptr || !overview->valid) return ESP_ERR_INVALID_STATE;
+    const auto draw_line = [&](const CODY2D::TextLine &line) {
+        return line.valid ? CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column) : ESP_OK;
+    };
+    const auto fill = [&](CODY2D::Rect bounds, uint16_t color) {
+        return fill_overview_rows(strip, first_row, first_column, bounds, color);
+    };
+    auto error = draw_line(overview->heading);
+    if (error == ESP_OK) error = fill({95, 190, 277, 1}, kDivider);
+    if (error == ESP_OK) error = fill({95, 242, 277, 1}, kDivider);
+    for (size_t index = 0; error == ESP_OK && index < overview->rows.size(); ++index) {
+        const auto &row = overview->rows[index];
+        if (row.icon != CODY2D::ActionIcon::None) {
+            error = CODY2D::draw_action_icon_rows(row.icon,
+                {98, static_cast<uint16_t>(kOverviewRows[index].center_y - 14U), 28, 28},
+                row.color, strip, first_row, first_column);
+        }
+        if (error == ESP_OK) error = draw_line(row.label);
+        if (error == ESP_OK) error = draw_line(row.status);
+    }
+    // Thin outline and terminal remain meaningful even without an admitted level.
+    constexpr CODY2D::Rect battery_outline[]{{99, 261, 24, 2}, {99, 273, 24, 2},
+        {99, 263, 2, 10}, {121, 263, 2, 10}, {123, 265, 4, 6}};
+    const uint16_t battery_color = overview->rows.back().color;
+    for (const auto &stroke : battery_outline) {
+        if (error != ESP_OK) break;
+        error = fill(stroke, battery_color);
+    }
+    if (error == ESP_OK && overview->battery_level > 0) {
+        const auto width = static_cast<uint16_t>(16U * overview->battery_level / 100U);
+        if (width != 0) error = fill({103, 265, width, 6}, battery_color);
+    }
+    if (error == ESP_OK) error = draw_line(overview->chat_line);
+    if (error == ESP_OK && overview->record.enabled) {
+        error = CODY2D::draw_capsule_rows(overview->record, strip, first_row, first_column);
+    }
+    return error;
+}
+
+// overview: Fully prepared display-owned glyphs, held until frame retirement.
+// frame: Receives the flat dashboard renderer and its stable damage envelope.
+void attach_overview(const DeviceOverviewView &overview, DeviceFrameContent &frame)
+{
+    frame.content.bounds = kOverviewBounds;
+    frame.content.revision = overview.revision;
+    frame.content.state = &overview;
+    frame.content.draw_rows = draw_overview_rows;
+}
+
 // view: Display-owned native text and button layouts.
 // frame: Receives the prepared status page.
 // data: Current canonical connection, power and voice admission.
 // now_us: Monotonic time used to expire received chat metadata.
+// Exception: Returns the first original formatting or native geometry failure.
 esp_err_t prepare_device_home(DeviceView &view, DeviceFrameContent &frame, const DeviceDashboardData &data,
     int64_t now_us)
 {
-    const auto &status = data.connection;
-    const bool wifi = status.wifi.connection_state_valid && status.wifi.connected && status.wifi.ip_acquired;
-    char detail[32]{};
-    const char *network = !status.wifi.connection_state_valid ? "Wi-Fi unknown" :
-        wifi ? "Wi-Fi ready" : "Wi-Fi offline";
-    if (current(status.battery) && status.battery.level_percent_valid &&
-        status.battery.level_percent >= 0 && status.battery.level_percent <= 100) {
-        std::snprintf(detail, sizeof(detail), "%s / Battery %d%%", network, status.battery.level_percent);
-    } else {
-        std::snprintf(detail, sizeof(detail), "%s", network);
-    }
-    char chat[30]{};
+    view.plain.valid = false;
+    auto &overview = view.overview;
+    const auto &battery = data.connection.battery;
+    const bool battery_current = data.connection_valid && current(battery);
+    const bool level_valid = battery_current && battery.level_percent_valid &&
+        battery.level_percent >= 0 && battery.level_percent <= 100;
+    const int16_t level = level_valid ? static_cast<int16_t>(battery.level_percent) : -1;
+    char battery_value[16] = "Unavailable";
+    if (level_valid) std::snprintf(battery_value, sizeof(battery_value), "%d%%", static_cast<int>(level));
+    else if (battery_current && !battery.battery_present) std::snprintf(battery_value, sizeof(battery_value), "Not detected");
+
+    const std::array<OverviewStatus, 3> statuses{{overview_codex_status(data), overview_wifi_status(data),
+        {battery_value, CODY2D::ActionIcon::None, !level_valid ? kMuted : level <= 20 ? kAttention : kAccent}}};
+    decltype(overview.chat) chat{};
     const auto &activity = data.context.link.activity;
-    if (current(activity)) {
+    if (data.connection_valid && data.connection.codex_app_open && current(activity)) {
         const char *title = codex_chat_title_caption(activity, now_us);
-        if (std::strlen(title) < sizeof(chat)) {
-            std::snprintf(chat, sizeof(chat), "%s", title);
-        } else {
-            std::snprintf(chat, sizeof(chat), "%.26s...", title);
+        // The existing freshness helper returns the actual buffer only for a current title.
+        if (title == activity.title) {
+            if (std::strlen(title) < chat.size()) std::snprintf(chat.data(), chat.size(), "%s", title);
+            else std::snprintf(chat.data(), chat.size(), "%.26s...", title);
         }
     }
-    return prepare_device_message(view, frame, "Device", connection_caption(data), detail,
-        data.voice_ready ? "Record voice" : nullptr, nullptr, chat);
+
+    bool same = overview.valid && overview.battery_level == level && overview.chat == chat &&
+        overview.record.enabled == data.voice_ready;
+    for (size_t index = 0; same && index < overview.rows.size(); ++index) {
+        const auto &row = overview.rows[index];
+        same = row.icon == statuses[index].icon && row.color == statuses[index].color &&
+            std::strcmp(row.value.data(), statuses[index].text) == 0;
+    }
+    if (same) {
+        attach_overview(overview, frame);
+        return ESP_OK;
+    }
+    if (overview.revision == std::numeric_limits<uint32_t>::max()) return ESP_ERR_INVALID_STATE;
+    overview.valid = false;
+    overview.battery_level = level;
+    overview.chat = chat;
+    overview.chat_line = {};
+    overview.record = {};
+    auto error = prepare_line("Device", SceneData::title_font, kOverviewHeading, kWhite, overview.heading);
+    for (size_t index = 0; error == ESP_OK && index < overview.rows.size(); ++index) {
+        auto &row = overview.rows[index];
+        const auto &status = statuses[index];
+        const auto &layout = kOverviewRows[index];
+        const int written = std::snprintf(row.value.data(), row.value.size(), "%s", status.text);
+        if (written < 0 || static_cast<size_t>(written) >= row.value.size()) {
+            error = ESP_ERR_INVALID_SIZE;
+            break;
+        }
+        row.icon = status.icon;
+        row.color = status.color;
+        const auto top = static_cast<uint16_t>(layout.center_y - 20U);
+        error = prepare_line(layout.label, SceneData::body_font, {140, top, 80, 40},
+            kWhite, row.label, TextAlignment::Left);
+        if (error == ESP_OK) {
+            error = prepare_line(row.value.data(), SceneData::body_font, {221, top, 151, 40},
+                row.color, row.status, TextAlignment::Right);
+        }
+    }
+    if (error == ESP_OK) error = prepare_line(overview.chat.data(), SceneData::body_font,
+        kOverviewChat, kMuted, overview.chat_line);
+    if (error == ESP_OK) error = prepare_action(data.voice_ready ? "Record voice" : "",
+        kOverviewRecord, true, overview.record);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Device overview layout failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    ++overview.revision;
+    overview.valid = true;
+    attach_overview(overview, frame);
+    return ESP_OK;
 }
 
 } // namespace
@@ -259,6 +455,7 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     const char *extra)
 {
     frame = {};
+    view.overview.valid = false;
     auto &plain = view.plain;
     decltype(plain.text) text{};
     const char *const requested[]{heading, status, detail, first, second, extra};
@@ -315,6 +512,7 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
 // point: Logical input position.
 int device_action_at(const DeviceView &view, CODY2D::Point point)
 {
+    if (view.overview.valid) return CODY2D::capsule_contains(view.overview.record, point) ? 1 : 0;
     if (!view.plain.valid) {
         return 0;
     }
@@ -340,6 +538,7 @@ esp_err_t prepare_device_dashboard(DeviceView &view, DeviceFrameContent &frame,
     if (screen == WidgetScreen::Device) {
         return prepare_device_home(view, frame, data, now_us);
     }
+    view.overview.valid = false;
     view.plain.valid = false;
     const auto &title_font = SceneData::title_font;
     const auto &body_font = SceneData::body_font;
@@ -377,6 +576,7 @@ esp_err_t prepare_device_dashboard(DeviceView &view, DeviceFrameContent &frame,
 esp_err_t prepare_device_info(DeviceView &view, DeviceFrameContent &frame, const DeviceModel &model)
 {
     frame = {};
+    view.overview.valid = false;
     view.plain.valid = false;
     SystemInfoInput input{};
     input.page = model.info_page;

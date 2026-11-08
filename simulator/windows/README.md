@@ -44,8 +44,9 @@ settings and the simulator association. Timer previews duration and sound select
 and the finished state. Audible playback and hardware wake belong to the device.
 **Go home** on any page opens Reset countdown or the first enabled statistics
 screen, with Device as the fallback. Brightness, orientation and visibility
-choices affect this preview session. **About** contains **System**, **Memory**
-and **Firmware**, followed by a scannable project QR code and an explicit
+choices affect this preview session. **Visible screens** groups the nine
+configurable pages into three sets of full-width rows. **About** contains
+**System**, **Memory** and **Firmware**, followed by a scannable project QR code and an explicit
 **Open link** action. System identifies its uptime as **Studio uptime**.
 The current loopback source has no physical CPU/RAM or firmware metadata:
 those sections show unavailable states, without host measurements or invented
@@ -55,11 +56,12 @@ Firmware; the QR has no Next control.
 The ten-page carousel has Device, Reset countdown, Context, Codex limits, Today,
 Last 7 days, Token history, Credits, Codex account and About. Info and its QR
 are child pages, not additional items in that cycle. The loopback endpoint supplies authenticated link and Context
-observations. Account usage is physical-device-only, so the usage pages show
-unavailable values and never draw a fabricated countdown, allowance ring or
-history. Firmware version, build date, battery readings and dictation have no
-source in this preview. The device-first window does not duplicate the firmware
-effects controller in Python or establish audible output on the physical device.
+observations. The account usage pages show their empty states, with a clock
+glyph in place of the countdown and token plot. The Device page separates
+Codex, Wi-Fi and battery status. Firmware version, build date, battery readings
+and dictation have no source in this preview. The device-first window does not
+duplicate the firmware effects controller in Python or establish audible output
+on the physical device.
 
 **Behavior > More behavior > Screensaver** enables the optional globe after
 fifteen idle seconds on the dashboard. It is Off by default. This is a small

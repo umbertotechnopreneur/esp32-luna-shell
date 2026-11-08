@@ -94,8 +94,10 @@ and open Codex questions.
 **Last 7 Days** covers the seven calendar days before the current UTC date.
 This is the Windows widget's complete-day cutoff in the time zones Cody
 supports. The date range advances at UTC midnight. Missing daily counts appear
-as gaps, and the total requires all seven counts. CCP 0.6.13 or later can deliver the
-additional date needed when the service already includes today's partial count.
+as gaps. Partial coverage shows how many of the seven dates have reported
+counts, and the total requires all seven. A measured zero has a baseline mark.
+CCP 0.6.13 or later can deliver the additional date needed when the service
+already includes today's partial count.
 
 **Today** uses the current UTC date. When Codex omits today's total, the page
 identifies the latest earlier reported total by its actual date, if available.
@@ -142,9 +144,11 @@ underlying control; shake returns to the first enabled statistics page. Options,
 pairing, the project QR, voice, questions and battery notices keep their own presentation.
 The allowance perimeter returns with the dashboard after dismissal.
 
-Visible screens browses all statistics pages, including hidden entries.
-Device remains available. A visibility change takes effect after confirmed
-storage. A failed save leaves the previous policy in effect.
+Visible screens groups the nine configurable screens into three pages,
+including hidden entries. Tap the full row to change its visibility. The left
+arrow on page 1 returns to Options. Device remains available. A visibility
+change takes effect after confirmed storage. A failed save leaves the previous
+policy in effect.
 
 Double-tap open dashboard space or use Record voice on Device to start
 dictation in a voice-enabled build. Dictation must be on and the paired LAN
@@ -176,8 +180,8 @@ for the exact event mapping and capture/standby admission.
 
 ## Pairing progress and reconnection
 
-Screen 12 shows Preparing secure code / Please wait / About 30 seconds until
-the actual code is available. The estimate is fixed, not measured progress.
+Screen 12 shows a pulsing link and Creating pairing code until the actual code
+is available. The code then appears above the instructions for the Cody plugin.
 The six characters never enter logs, public snapshots, HTTP or datagrams.
 The backend window is five minutes; this screen has a separate 180-second
 standby override anchored once when the prepared code reaches presentation.

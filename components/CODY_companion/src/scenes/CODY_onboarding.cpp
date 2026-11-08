@@ -97,9 +97,15 @@ constexpr uint16_t kOfflineDiscColor = 0x3122;
 constexpr int64_t kWifiConnectingStepUs = 200000;
 constexpr uint16_t kWifiConnectingHighlightTop[]{172, 158, 144, 130};
 constexpr uint16_t kWifiConnectingMuted = 0x39AB;
-constexpr CODY2D::Rect kWifiConnectingGlyph{kWifiConnectingBounds.left, kWifiConnectingBounds.top,
-    kWifiConnectingBounds.right - kWifiConnectingBounds.left,
-    kWifiConnectingBounds.bottom - kWifiConnectingBounds.top};
+constexpr CODY2D::Rect kWifiConnectingGlyph{197, 116, 72, 72};
+constexpr CODY2D::Rect kCodexPairingGlyph{205, 148, 56, 56};
+constexpr int64_t kCodexWaitingStepUs = 400000;
+constexpr uint16_t kCodexWaitingColors[]{0x634D, 0x8CB4, 0xB5BB, 0x8CB4};
+constexpr uint16_t kCodexPairingTitleTop = 88;
+constexpr uint16_t kCodexPairingContentTop = 140;
+constexpr uint16_t kCodexPairingCodeTop = kDeviceFirstSetup ? 236 : 338;
+constexpr uint16_t kPcWaitCaptionTop = kDeviceFirstSetup ? 256 : 300;
+constexpr uint16_t kPcWaitDetailTop = kDeviceFirstSetup ? 284 : 327;
 constexpr CODY2D::Rect kOfflineDisc{191, 76, 84, 84};
 constexpr CODY2D::Rect kOfflineGlyph{203, 88, 60, 60};
 constexpr CODY2D::Rect kGuideGlyph{206, 62, 54, 54};
@@ -120,6 +126,10 @@ constexpr uint16_t kPreferenceTop = kDeviceFirstSetup ? 130 : 194;
 constexpr uint16_t kPreferenceHeight = kDeviceFirstSetup ? 72 : 50;
 constexpr uint16_t kPreferenceStep = kDeviceFirstSetup ? 80 : 60;
 constexpr uint8_t kPreferencesPerPage = 3;
+constexpr CODY2D::Rect kMoreBehaviorGlyph{207, 143, 52, 52};
+constexpr uint16_t kMoreBehaviorHintTop = 208;
+constexpr uint16_t kMoreBehaviorRowsTop = 254;
+constexpr uint16_t kMoreBehaviorSingleRowTop = 273;
 static_assert(kPreferenceTop + (kPreferencesPerPage - 1U) * kPreferenceStep +
     kPreferenceHeight < kOptionsFooterBounds.y);
 constexpr uint16_t kEventCaptionWidth = 300;
@@ -276,6 +286,7 @@ struct ContentView {
     QrModules qr{};
     CODY2D::Rect qr_bounds{};
     CODY2D::Rect header_icon_bounds{};
+    uint16_t header_icon_color = 0;
     CODY2D::ActionIcon header_icon = CODY2D::ActionIcon::None;
     char error_text[32]{};
     char debug_text[kContentLineCapacity][kDebugLineBytes]{};
@@ -876,13 +887,36 @@ esp_err_t prepare_codex_code(CODY2D::TextLine &line)
         return ESP_ERR_INVALID_SIZE;
     }
     const uint32_t width = (length - 1U) * font.advance + font.width;
-    if (width > kCaptionWidth || 338U + font.height > 393U) {
+    if (width > kCaptionWidth || kCodexPairingCodeTop + font.height > 393U) {
         ESP_LOGE(kTag, "CCP display code geometry rejected (%s)",
             esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
     return CODY2D::prepare_text_line(font, {s_codex_code, static_cast<uint16_t>(length)},
-        {static_cast<int16_t>((466U - width) / 2U), 338}, 0x07FF, line);
+        {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(kCodexPairingCodeTop)}, 0x07FF, line);
+}
+
+// code_ready: True only after the pairing owner supplied the display code.
+// Exception: Returns the first native glyph or caption preparation error.
+esp_err_t prepare_device_pairing_content(bool code_ready)
+{
+    if (!code_ready) {
+        s_view.line_count = 1;
+        return prepare_caption("Creating pairing code", kPcWaitCaptionTop, s_view.lines[0]);
+    }
+    s_view.header_icon = CODY2D::ActionIcon::Link;
+    s_view.header_icon_bounds = kCodexPairingGlyph;
+    s_view.instant_lines[0] = true;
+    s_view.line_count = 3;
+    auto error = prepare_codex_code(s_view.lines[0]);
+    if (error == ESP_OK) {
+        error = prepare_caption("Enter this code", 292, s_view.lines[1]);
+    }
+    if (error == ESP_OK) {
+        error = prepare_caption("in the Cody plugin", 320, s_view.lines[2]);
+        s_view.lines[2].color = kPairingCaption;
+    }
+    return error;
 }
 
 // destination: Fixed route-owned buffer retaining the formatted text through frame retirement.
@@ -1504,8 +1538,10 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
             error = CODY2D::draw_capsule_rows(disc, strip, first_row, first_column);
         }
         if (error == ESP_OK) {
+            const uint16_t color = view.header_icon_color != 0 ? view.header_icon_color :
+                offline ? kOfflineAmber : kPairingAccent;
             error = CODY2D::draw_action_icon_rows(view.header_icon, view.header_icon_bounds,
-                offline ? kOfflineAmber : kPairingAccent, strip, first_row, first_column);
+                color, strip, first_row, first_column);
         }
     }
     if (error == ESP_OK && view.approval_notice != nullptr && view.approval_notice_visible) {
@@ -1636,6 +1672,8 @@ esp_err_t attach_content(SceneFrame &scene)
         s_route == Route::MakeItYours10 ? kPreferenceTop :
         s_route == Route::Install06 ? kInstallQrBounds.y :
         s_route == Route::Pairing07 ? kSessionCaptionTop :
+        kDeviceFirstSetup && (s_route == Route::ConnectCodex12 || s_route == Route::LookingForPc14) ?
+            kCodexPairingContentTop :
         s_route == Route::Invitation05 ? 230 : 300;
     SceneContent content;
     content.bottom_action_visible = uses_footer_action() && s_view.action_visible;
@@ -1655,6 +1693,9 @@ esp_err_t attach_content(SceneFrame &scene)
         content.bounds.right = kPreferenceLeft + kPreferenceWidth;
         if (on_maintenance_page() || on_quick_guide()) {
             content.bounds.bottom = kOptionsFooterBounds.y;
+        }
+        if (kDeviceFirstSetup && s_options_page == OptionsPage::BehaviorMore && !content.bottom_action_visible) {
+            content.bounds.bottom = kMoreBehaviorRowsTop + kPreferenceStep + kPreferenceHeight;
         }
     }
     if (s_route == Route::SetupMenu) {
@@ -1708,8 +1749,12 @@ esp_err_t attach_content(SceneFrame &scene)
     if (kDeviceFirstSetup && s_view.header_icon != CODY2D::ActionIcon::None) {
         const auto &icon = s_view.header_icon == CODY2D::ActionIcon::WifiOff ?
             kOfflineDisc : s_view.header_icon_bounds;
-        content.leading_caption_bounds = {icon.x, icon.y, static_cast<uint16_t>(icon.x + icon.width),
-            static_cast<uint16_t>(icon.y + icon.height)};
+        // Connection and More behavior glyphs live under the title in the body slot.
+        if (s_route != Route::ConnectCodex12 && s_route != Route::LookingForPc14 &&
+            s_route != Route::MakeItYours10) {
+            content.leading_caption_bounds = {icon.x, icon.y, static_cast<uint16_t>(icon.x + icon.width),
+                static_cast<uint16_t>(icon.y + icon.height)};
+        }
         if (s_route == Route::NetworkWait) {
             content.bounds = {kOfflineSetupBounds.x, 223,
                 static_cast<uint16_t>(kOfflineSetupBounds.x + kOfflineSetupBounds.width),
@@ -2191,6 +2236,9 @@ esp_err_t prepare_options_content(SceneFrame &scene,
 {
     s_view.line_count = 0;
     s_view.preference_count = 0;
+    s_view.header_icon = CODY2D::ActionIcon::None;
+    s_view.header_icon_bounds = {};
+    s_view.header_icon_color = 0;
     std::fill_n(s_view.instant_lines, kContentLineCapacity, false);
     const char *title = options_title();
     const uint16_t title_length = static_cast<uint16_t>(std::strlen(title));
@@ -2301,6 +2349,18 @@ esp_err_t prepare_options_content(SceneFrame &scene,
         rows = more_behavior_rows;
         row_count = std::size(more_behavior_rows);
     }
+    uint16_t first_row_top = kPreferenceTop;
+    if (kDeviceFirstSetup && s_options_page == OptionsPage::BehaviorMore) {
+        s_view.header_icon = CODY2D::ActionIcon::Motion;
+        s_view.header_icon_bounds = kMoreBehaviorGlyph;
+        error = prepare_caption("Animate while idle", kMoreBehaviorHintTop, s_view.lines[0]);
+        if (error != ESP_OK) {
+            return error;
+        }
+        s_view.lines[0].color = kPairingCaption;
+        s_view.line_count = 1;
+        first_row_top = row_count == 1 ? kMoreBehaviorSingleRowTop : kMoreBehaviorRowsTop;
+    }
     const auto &font = SceneData::body_font;
     s_presented_options = observation;
     for (size_t index = 0; index < row_count; ++index) {
@@ -2308,7 +2368,7 @@ esp_err_t prepare_options_content(SceneFrame &scene,
         auto &target = s_view.preferences[s_view.preference_count];
         target = {};
         target.identity = row.identity;
-        const uint16_t top = kPreferenceTop + s_view.preference_count * kPreferenceStep;
+        const uint16_t top = first_row_top + s_view.preference_count * kPreferenceStep;
         const auto projected = project_preference(row.identity, observation);
         const bool available = projected.available;
         const bool active = projected.active;
@@ -2363,6 +2423,9 @@ esp_err_t prepare_options_content(SceneFrame &scene,
     }
     if (s_options_page == OptionsPage::Behavior) {
         return prepare_action(OnboardingAction::MoreBehavior, !s_command_pending);
+    }
+    if (kDeviceFirstSetup && s_options_page == OptionsPage::BehaviorMore) {
+        return prepare_action(OnboardingAction::None, false);
     }
     return prepare_action(OnboardingAction::Done, !s_command_pending);
 }
@@ -2598,6 +2661,14 @@ const SceneDefinition &device_scene_definition(Route route, const SceneDefinitio
             pairing.standby_override_seconds = LUNASHELL_PAIRING_SESSION_TIMEOUT_SECONDS + 30U;
             return pairing;
         }();
+        return definition;
+    }
+    case Route::ConnectCodex12: {
+        static const auto definition = with_pairing_theme(base, kCodexPairingTitleTop);
+        return definition;
+    }
+    case Route::LookingForPc14: {
+        static const auto definition = with_pairing_theme(base, kCodexPairingTitleTop);
         return definition;
     }
     case Route::MakeItYours10: {
@@ -2899,18 +2970,19 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     } else if (route == Route::ConnectCodex12) {
         static constexpr char title[] = "Pair Codex";
         error = set_scene_title(prepared, {title, sizeof(title) - 1U});
-        const char *message = s_codex_code[0] == '\0'
-            ? "Creating pairing code"
-            : "Share code in Codex";
-        if (error == ESP_OK) {
-            error = prepare_caption(message, 300, s_view.lines[0]);
+        const bool code_ready = s_codex_code[0] != '\0';
+        if (error == ESP_OK && kDeviceFirstSetup) {
+            error = prepare_device_pairing_content(code_ready);
+        } else if (error == ESP_OK) {
+            error = prepare_caption(code_ready ? "Share code in Codex" : "Creating pairing code",
+                300, s_view.lines[0]);
+            s_view.line_count = 1;
         }
-        s_view.line_count = 1;
-        if (error == ESP_OK && s_codex_code[0] != '\0') {
+        if (error == ESP_OK && !kDeviceFirstSetup && code_ready) {
             error = prepare_codex_code(s_view.lines[1]);
             s_view.instant_lines[1] = true;
             s_view.line_count = 2;
-        } else if (error == ESP_OK) {
+        } else if (error == ESP_OK && !kDeviceFirstSetup) {
             error = prepare_caption("One moment", 327, s_view.lines[1]);
             if (error == ESP_OK) {
                 error = prepare_caption("About 30 seconds", 354, s_view.lines[2]);
@@ -2918,8 +2990,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
             s_view.line_count = 3;
         }
         if (error == ESP_OK) {
-            error = prepare_action(s_codex_code[0] != '\0' ? OnboardingAction::Cancel : OnboardingAction::None,
-                                   s_codex_code[0] != '\0');
+            error = prepare_action(code_ready ? OnboardingAction::Cancel : OnboardingAction::None, code_ready);
         }
     } else if (route == Route::CodexCleanup || route == Route::CodexForgotten) {
         const char *title = route == Route::CodexForgotten ? "Link removed" : "One moment";
@@ -2945,10 +3016,13 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         error = set_scene_title(prepared, {title, sizeof(title) - 1U});
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption("Open Codex on your PC", 300, s_view.lines[0]);
+            error = prepare_caption("Open Codex on your PC", kPcWaitCaptionTop, s_view.lines[0]);
         }
         if (error == ESP_OK) {
-            error = prepare_caption("Pairing stays saved", 327, s_view.lines[1]);
+            error = prepare_caption("Pairing stays saved", kPcWaitDetailTop, s_view.lines[1]);
+            if (kDeviceFirstSetup) {
+                s_view.lines[1].color = kPairingCaption;
+            }
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
@@ -3806,8 +3880,9 @@ esp_err_t present_companion_activity(int64_t active_time_us, SceneFrame &scene, 
 
 // scene: Current screen replaced by a truthful retry view on screen 12.
 // error: Original CCP1 operation or canonical-state failure.
+// detail: Optional recovery instruction derived from a known prerequisite failure.
 // Exception: Returns content preparation errors without replacing the real CCP1 error.
-esp_err_t show_codex_error(SceneFrame &scene, esp_err_t error)
+esp_err_t show_codex_error(SceneFrame &scene, esp_err_t error, const char *detail = nullptr)
 {
     s_codex_error_visible = true;
     s_codex_visible_error = error == ESP_OK ? ESP_ERR_INVALID_STATE : error;
@@ -3828,8 +3903,22 @@ esp_err_t show_codex_error(SceneFrame &scene, esp_err_t error)
         "Error: 0x%lx",
         static_cast<unsigned long>(s_codex_visible_error)
     );
-    presentation_error = prepare_caption(s_view.error_text, 300, s_view.lines[0]);
-    s_view.line_count = 1;
+    if (kDeviceFirstSetup) {
+        s_view.header_icon = CODY2D::ActionIcon::Retry;
+        s_view.header_icon_bounds = kCodexPairingGlyph;
+        s_view.header_icon_color = kOfflineAmber;
+    }
+    if (kDeviceFirstSetup && detail != nullptr) {
+        presentation_error = prepare_caption(detail, kPcWaitCaptionTop, s_view.lines[0]);
+        if (presentation_error == ESP_OK) {
+            presentation_error = prepare_caption(s_view.error_text, kPcWaitDetailTop, s_view.lines[1]);
+            s_view.lines[1].color = kPairingCaption;
+        }
+        s_view.line_count = 2;
+    } else {
+        presentation_error = prepare_caption(s_view.error_text, kPcWaitCaptionTop, s_view.lines[0]);
+        s_view.line_count = 1;
+    }
     if (presentation_error == ESP_OK) {
         presentation_error = prepare_action(OnboardingAction::Retry, true);
     }
@@ -3902,7 +3991,8 @@ esp_err_t begin_codex_connection(SceneFrame &scene, CodexConnectionIntent intent
     const auto &wifi = observation.radios.wifi;
     if (!wifi.data_valid || wifi.data_stale || !wifi.connected ||
         !wifi.ip_acquired || wifi.ip_address[0] == '\0') {
-        return show_codex_error(scene, wifi.last_error != ESP_OK ? wifi.last_error : ESP_ERR_INVALID_STATE);
+        const char *detail = wifi.data_valid && !wifi.data_stale ? "Connect Wi-Fi first" : nullptr;
+        return show_codex_error(scene, wifi.last_error != ESP_OK ? wifi.last_error : ESP_ERR_INVALID_STATE, detail);
     }
     error = enter_route(Route::ConnectCodex12, scene);
     if (error == ESP_OK) {
@@ -4381,28 +4471,45 @@ bool onboarding_dashboard_active()
     }
 }
 
-// now_us: Monotonic time compared with the canonical saved-network wait start.
-uint8_t onboarding_wifi_connecting_phase(int64_t now_us)
+// now_us: Monotonic time used for the current connection route's animation.
+uint8_t onboarding_connection_activity_phase(int64_t now_us)
 {
-    if (!kDeviceFirstSetup || s_route != Route::NetworkWait || !s_startup_network_passive) return 0;
-    const int64_t elapsed_us = s_startup_wifi_wait_started_us >= 0 && now_us >= s_startup_wifi_wait_started_us
-        ? now_us - s_startup_wifi_wait_started_us : 0;
-    return static_cast<uint8_t>(elapsed_us / kWifiConnectingStepUs % std::size(kWifiConnectingHighlightTop) + 1U);
+    if (!kDeviceFirstSetup) {
+        return 0;
+    }
+    if (s_route == Route::NetworkWait && s_startup_network_passive) {
+        const int64_t elapsed_us = s_startup_wifi_wait_started_us >= 0 && now_us >= s_startup_wifi_wait_started_us
+            ? now_us - s_startup_wifi_wait_started_us : 0;
+        return static_cast<uint8_t>(elapsed_us / kWifiConnectingStepUs % std::size(kWifiConnectingHighlightTop) + 1U);
+    }
+    const bool preparing_code = s_route == Route::ConnectCodex12 && !s_codex_error_visible && s_codex_code[0] == '\0';
+    const bool waiting_for_pc = s_route == Route::LookingForPc14 && s_view.header_icon == CODY2D::ActionIcon::None;
+    if (preparing_code || waiting_for_pc) {
+        const auto step = std::max<int64_t>(now_us, 0) / kCodexWaitingStepUs % std::size(kCodexWaitingColors);
+        return static_cast<uint8_t>(std::size(kWifiConnectingHighlightTop) + step + 1U);
+    }
+    return 0;
 }
 
-// phase: Zero hides the icon; the four steps raise its highlight through the native arcs.
+// phase: Zero hides the icon, followed by the Wi-Fi steps and then the Codex pulse steps.
 // strip: Renderer-owned RGB565 tile, already cleared to the scene background.
 // first_row: Logical y origin of the tile.
 // first_column: Logical x origin of the tile.
 // Exception: Returns an invalid phase or the first original raster error.
-esp_err_t draw_wifi_connecting_rows(uint8_t phase, CODY2D::Surface strip,
-                                   uint16_t first_row, uint16_t first_column)
+esp_err_t draw_connection_activity_rows(uint8_t phase, CODY2D::Surface strip,
+                                       uint16_t first_row, uint16_t first_column)
 {
     if (phase == 0) return ESP_OK;
-    if (phase > std::size(kWifiConnectingHighlightTop)) return ESP_ERR_INVALID_ARG;
-    if (first_row >= kWifiConnectingBounds.bottom || first_row + strip.height <= kWifiConnectingBounds.top ||
-        first_column >= kWifiConnectingBounds.right || first_column + strip.width <= kWifiConnectingBounds.left) {
+    constexpr auto wifi_steps = std::size(kWifiConnectingHighlightTop);
+    if (phase > wifi_steps + std::size(kCodexWaitingColors)) return ESP_ERR_INVALID_ARG;
+    if (first_row >= kConnectionActivityBounds.bottom || first_row + strip.height <= kConnectionActivityBounds.top ||
+        first_column >= kConnectionActivityBounds.right || first_column + strip.width <= kConnectionActivityBounds.left) {
         return ESP_OK;
+    }
+    if (phase > wifi_steps) {
+        const auto color = kCodexWaitingColors[phase - wifi_steps - 1U];
+        return CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::Link, kCodexPairingGlyph,
+            color, strip, first_row, first_column);
     }
 
     // Paint two disjoint tile segments using the same glyph and coverage mask.
@@ -5051,9 +5158,17 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             const uint16_t length = static_cast<uint16_t>(std::strlen(caption));
             if (s_view.lines[0].text.length != length ||
                 std::memcmp(s_view.lines[0].text.characters, caption, length) != 0) {
-                error = prepare_caption(caption, 300, s_view.lines[0]);
+                if (kDeviceFirstSetup) {
+                    s_view.header_icon = lan_ready ? CODY2D::ActionIcon::None : CODY2D::ActionIcon::Link;
+                    s_view.header_icon_bounds = kCodexPairingGlyph;
+                    s_view.header_icon_color = lan_ready ? 0 : kPairingCaption;
+                }
+                error = prepare_caption(caption, kPcWaitCaptionTop, s_view.lines[0]);
                 if (error == ESP_OK) {
-                    error = prepare_caption(detail, 327, s_view.lines[1]);
+                    error = prepare_caption(detail, kPcWaitDetailTop, s_view.lines[1]);
+                    if (kDeviceFirstSetup) {
+                        s_view.lines[1].color = kPairingCaption;
+                    }
                 }
                 if (error == ESP_OK) {
                     error = attach_content(scene);

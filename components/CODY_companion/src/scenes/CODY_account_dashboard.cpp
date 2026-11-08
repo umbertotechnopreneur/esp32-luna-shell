@@ -41,7 +41,6 @@ constexpr int64_t kDaySeconds = 86400;
 
 struct QuotaWindow {
     const char *label;
-    SourceState state;
     uint16_t remaining;
     uint16_t top;
     uint16_t color;
@@ -68,18 +67,6 @@ SourceState source_state(const LUNASHELL::ComponentSnapshot &observation)
 bool displayable(SourceState state)
 {
     return state == SourceState::Current || state == SourceState::Saved;
-}
-
-// state: Visible status for an unavailable or expired metric.
-const char *status_text(SourceState state)
-{
-    switch (state) {
-    case SourceState::Stale: return "Stale";
-    case SourceState::Elapsed: return "Reset pending";
-    case SourceState::Invalid: return "Invalid data";
-    case SourceState::OverLimit: return "Over limit";
-    default: return "Unavailable";
-    }
 }
 
 // epoch: Positive Unix timestamp supplied by the authenticated source.
@@ -229,19 +216,17 @@ void format_percent(uint16_t basis_points, char (&text)[32])
 }
 
 // presentation: Fixed quota page owner.
-// window: One independently available allowance window.
+// window: One independently observed live or saved allowance window.
 // Exception: Preserves any original native formatting or layout failure.
 esp_err_t add_quota(AccountDashboardPresentation &presentation, const QuotaWindow &window)
 {
-    const bool available = displayable(window.state);
     char text[32]{};
-    if (available) { format_percent(window.remaining, text); }
+    format_percent(window.remaining, text);
     esp_err_t error = add_detail(presentation, window.label, window.top, kGold);
     if (error != ESP_OK) { return error; }
     const auto value_top = static_cast<uint16_t>(window.top + 25U);
     const uint16_t value_height = window.saved_epoch > 0 ? 58 : 80;
-    error = add_hero(presentation, available ? text : status_text(window.state),
-        {73, value_top, 320, value_height}, available ? 2 : 1, available ? kWhite : kMuted);
+    error = add_hero(presentation, text, {73, value_top, 320, value_height}, 2, kWhite);
     if (error == ESP_OK && window.saved_epoch > 0) {
         std::tm calendar{};
         if (!utc_calendar(window.saved_epoch, calendar) ||
@@ -250,7 +235,7 @@ esp_err_t add_quota(AccountDashboardPresentation &presentation, const QuotaWindo
         }
         return add_detail(presentation, text, static_cast<uint16_t>(value_top + value_height + 1U));
     }
-    if (error != ESP_OK || !available) { return error; }
+    if (error != ESP_OK) { return error; }
 
     const uint16_t y = static_cast<uint16_t>(window.top + 105U);
     constexpr uint16_t width = 280;
@@ -270,25 +255,41 @@ esp_err_t prepare_quota(AccountDashboardPresentation &presentation,
     const LUNASHELL::CodexAccountSnapshot &account, const LUNASHELL::CodexWeeklyLimitSnapshot &weekly,
     int64_t account_epoch, int64_t weekly_epoch)
 {
-    char label[32] = "SHORT WINDOW";
-    if (displayable(presentation.short_state) || presentation.short_state == SourceState::Elapsed) {
+    const bool short_available = displayable(presentation.short_state);
+    const bool weekly_available = displayable(presentation.weekly_state);
+    if (!short_available && !weekly_available) {
+        const bool elapsed = presentation.short_state == SourceState::Elapsed ||
+            presentation.weekly_state == SourceState::Elapsed;
+        const bool stale = presentation.short_state == SourceState::Stale ||
+            presentation.weekly_state == SourceState::Stale;
+        const char *message = elapsed ? "Limit reset pending" : stale ? "Limits are stale" :
+            displayable(presentation.account_state) ? "No limits reported" : "Limits unavailable";
+        return add_value(presentation, message, 212, kMuted);
+    }
+
+    char label[32]{};
+    if (short_available) {
         const unsigned minutes = account.short_window_minutes;
         if (minutes < 60U) { std::snprintf(label, sizeof(label), "%u MINUTE WINDOW", minutes); }
         else if (minutes % 60U == 0) { std::snprintf(label, sizeof(label), "%u HOUR WINDOW", minutes / 60U); }
         else { std::snprintf(label, sizeof(label), "%uH %uM WINDOW", minutes / 60U, minutes % 60U); }
     }
+    const bool both = short_available && weekly_available;
+    constexpr uint16_t single_top = 176;
     esp_err_t error = add_rule(presentation, 125);
+    if (error == ESP_OK && short_available) {
+        const uint16_t top = both ? 129 : single_top;
+        error = add_quota(presentation, {label, account.short_remaining_basis_points, top, kCyan, account_epoch});
+    }
+    if (error == ESP_OK && both) { error = add_rule(presentation, 245); }
+    if (error == ESP_OK && weekly_available) {
+        const uint16_t top = both ? 249 : single_top;
+        error = add_quota(presentation,
+            {"WEEKLY WINDOW", weekly.remaining_basis_points, top, kIndigo, weekly_epoch});
+    }
     if (error != ESP_OK) { return error; }
-    error = add_quota(presentation, {label, presentation.short_state,
-        account.short_remaining_basis_points, 129, kCyan, account_epoch});
-    if (error != ESP_OK) { return error; }
-    error = add_rule(presentation, 245);
-    if (error != ESP_OK) { return error; }
-    error = add_quota(presentation, {"WEEKLY WINDOW", presentation.weekly_state,
-        weekly.remaining_basis_points, 249, kIndigo, weekly_epoch});
-    if (error != ESP_OK) { return error; }
-    const bool saved = account_epoch > 0 || weekly_epoch > 0;
-    return add_detail(presentation, saved ? "REMAINING AT LAST UPDATE" : "REMAINING", 366, kCyan);
+    const bool saved = (short_available && account_epoch > 0) || (weekly_available && weekly_epoch > 0);
+    return add_detail(presentation, saved ? "REMAINING AT LAST UPDATE" : "REMAINING", both ? 366 : 313, kCyan);
 }
 
 // presentation: Fixed current-day page owner.
@@ -302,7 +303,8 @@ esp_err_t prepare_today(AccountDashboardPresentation &presentation, const LUNASH
     if (error != ESP_OK) { return error; }
 
     if (!available || presentation.utc_day <= 0) {
-        const char *status = available ? "Device time unavailable" : status_text(presentation.account_state);
+        const char *status = available ? "Device time unavailable" :
+            presentation.account_state == SourceState::Stale ? "Daily data is stale" : "Daily data unavailable";
         return add_hero(presentation, status, {73, 175, 320, 144}, 1, kMuted);
     }
 
@@ -313,7 +315,7 @@ esp_err_t prepare_today(AccountDashboardPresentation &presentation, const LUNASH
         const char *status = saved ? "DAILY TOTAL NOT REPORTED" : "TODAY TOTAL NOT REPORTED";
         tokens = account.latest_tokens_before(presentation.utc_day, day);
         if (tokens == nullptr) {
-            return add_detail(presentation, status, 234);
+            return add_value(presentation, saved ? "No saved daily total" : "No daily total reported", 210, kMuted);
         }
         error = add_detail(presentation, status, 151);
         if (error != ESP_OK) { return error; }
@@ -359,13 +361,11 @@ esp_err_t prepare_chart(AccountDashboardPresentation &presentation, const LUNASH
         const auto x = static_cast<uint16_t>(kChartLeft + index * kChartStep);
         const int64_t day = first_day + index;
         if (const auto *tokens = account.tokens_for_unix_day(day)) {
-            const uint16_t height = chart_height(*tokens, maximum);
-            if (height > 0) {
-                const bool newest = index == kHistoryDayCount - 1;
-                error = add_bar(presentation,
-                    {static_cast<uint16_t>(x + 8U), static_cast<uint16_t>(kChartBaseline - height), 28, height},
-                    newest ? kCyan : kIndigo, newest ? 0x4DF9 : 0x4435);
-            }
+            const uint16_t height = *tokens == 0 ? 2 : chart_height(*tokens, maximum);
+            const bool newest = index == kHistoryDayCount - 1;
+            error = add_bar(presentation,
+                {static_cast<uint16_t>(x + 8U), static_cast<uint16_t>(kChartBaseline - height), 28, height},
+                newest ? kCyan : kIndigo, newest ? 0x4DF9 : 0x4435);
         } else {
             error = add_caption(presentation, *presentation.body_font, "--", {x, 282, kChartStep, 30}, kMuted);
         }
@@ -401,7 +401,9 @@ esp_err_t prepare_history(AccountDashboardPresentation &presentation, const LUNA
     esp_err_t error = add_rule(presentation, 126);
     if (error != ESP_OK) { return error; }
     if (!displayable(presentation.account_state)) {
-        return add_value(presentation, status_text(presentation.account_state), 185, kMuted);
+        const char *status = presentation.account_state == SourceState::Stale
+            ? "Daily data is stale" : "Daily data unavailable";
+        return add_value(presentation, status, 209, kMuted);
     }
     if (presentation.utc_day <= kHistoryDayCount) {
         return add_value(presentation, "Device time unavailable", 185, kMuted);
@@ -410,27 +412,31 @@ esp_err_t prepare_history(AccountDashboardPresentation &presentation, const LUNA
     const int64_t first_day = presentation.utc_day - kHistoryDayCount;
     uint64_t total = 0;
     uint64_t maximum = 0;
-    bool complete = true;
+    uint8_t observed = 0;
+    bool overflow = false;
     for (int64_t day = first_day; day < presentation.utc_day; ++day) {
         const auto *tokens = account.tokens_for_unix_day(day);
-        if (tokens == nullptr) {
-            complete = false;
-            continue;
-        }
+        if (tokens == nullptr) { continue; }
+        ++observed;
         maximum = std::max(maximum, *tokens);
-        if (std::numeric_limits<uint64_t>::max() - total < *tokens) { complete = false; }
-        if (complete) { total += *tokens; }
+        if (std::numeric_limits<uint64_t>::max() - total < *tokens) { overflow = true; }
+        if (!overflow) { total += *tokens; }
     }
-    char count[32]{};
-    if (complete) { format_count(total, count); }
-    if (complete) {
+    if (observed == 0) {
+        return add_value(presentation, "No daily totals reported", 209, kMuted);
+    }
+    if (observed == kHistoryDayCount && !overflow) {
+        char count[32]{};
+        format_count(total, count);
         error = add_hero(presentation, count, {82, 133, 198, 80}, 2, kCyan);
         if (error != ESP_OK) { return error; }
         error = add_caption(presentation, *presentation.body_font, "TOKENS", {280, 133, 104, 80}, kWhite);
+    } else if (observed < kHistoryDayCount) {
+        char coverage[32]{};
+        std::snprintf(coverage, sizeof(coverage), "%u/7 days reported", static_cast<unsigned>(observed));
+        error = add_value(presentation, coverage, 153, kWhite);
     } else {
-        error = add_value(presentation, "Unavailable", 139, kMuted);
-        if (error != ESP_OK) { return error; }
-        error = add_detail(presentation, "Seven-day total", 181);
+        error = add_value(presentation, "Seven-day total unavailable", 153, kMuted);
     }
     if (error != ESP_OK) { return error; }
     return prepare_chart(presentation, account, first_day, maximum);
@@ -462,9 +468,9 @@ void format_credits(uint64_t value, char (&text)[32])
 }
 
 // presentation: Fixed owner of the label and its noninteractive ticket outline.
-// color: Muted when vouchers are unavailable, gold for an observed count.
+// top: Upper edge of the ticket caption's 40-pixel slot.
 // Exception: Preserves original native glyph, geometry or bounded-capacity errors.
-esp_err_t add_voucher_label(AccountDashboardPresentation &presentation, uint16_t color)
+esp_err_t add_voucher_label(AccountDashboardPresentation &presentation, uint16_t top)
 {
     constexpr char label[] = "RESET VOUCHERS";
     uint32_t width = 0;
@@ -473,21 +479,23 @@ esp_err_t add_voucher_label(AccountDashboardPresentation &presentation, uint16_t
     if (error != ESP_OK) { return error; }
     if (width + 32U > 320U) { return ESP_ERR_INVALID_SIZE; }
     const auto left = static_cast<uint16_t>(73U + (320U - width - 32U) / 2U);
+    const auto upper = static_cast<uint16_t>(top + 15U);
     const CODY2D::Rect outline[]{
-        {static_cast<uint16_t>(left + 1U), 289, 22, 2},
-        {static_cast<uint16_t>(left + 1U), 303, 22, 2},
-        {left, 291, 2, 4}, {left, 299, 2, 4},
-        {static_cast<uint16_t>(left + 22U), 291, 2, 4},
-        {static_cast<uint16_t>(left + 22U), 299, 2, 4},
-        {static_cast<uint16_t>(left + 16U), 292, 1, 3},
-        {static_cast<uint16_t>(left + 16U), 299, 1, 3},
+        {static_cast<uint16_t>(left + 1U), upper, 22, 2},
+        {static_cast<uint16_t>(left + 1U), static_cast<uint16_t>(upper + 14U), 22, 2},
+        {left, static_cast<uint16_t>(upper + 2U), 2, 4},
+        {left, static_cast<uint16_t>(upper + 10U), 2, 4},
+        {static_cast<uint16_t>(left + 22U), static_cast<uint16_t>(upper + 2U), 2, 4},
+        {static_cast<uint16_t>(left + 22U), static_cast<uint16_t>(upper + 10U), 2, 4},
+        {static_cast<uint16_t>(left + 16U), static_cast<uint16_t>(upper + 3U), 1, 3},
+        {static_cast<uint16_t>(left + 16U), static_cast<uint16_t>(upper + 10U), 1, 3},
     };
     for (const auto &bounds : outline) {
-        error = add_bar(presentation, bounds, color, color);
+        error = add_bar(presentation, bounds, kGold, kGold);
         if (error != ESP_OK) { return error; }
     }
     return add_caption(presentation, *presentation.title_font, label,
-        {static_cast<uint16_t>(left + 32U), 274, static_cast<uint16_t>(width), 40}, kWhite);
+        {static_cast<uint16_t>(left + 32U), top, static_cast<uint16_t>(width), 40}, kWhite);
 }
 
 // presentation: Fixed credits page owner.
@@ -495,30 +503,40 @@ esp_err_t add_voucher_label(AccountDashboardPresentation &presentation, uint16_t
 // Exception: Preserves original native label or formatting errors.
 esp_err_t prepare_credits(AccountDashboardPresentation &presentation, const LUNASHELL::CodexAccountSnapshot &account)
 {
-    const bool current = displayable(presentation.account_state);
-    const bool finite = current && account.credits_kind == LUNASHELL::CodexCreditKind::Finite;
-    const bool unlimited = current && account.credits_kind == LUNASHELL::CodexCreditKind::Unlimited;
-    char credits[32]{};
-    if (finite) { format_credits(account.credit_milliunits, credits); }
-    const char *balance = unlimited ? "Unlimited" : finite ? credits : status_text(presentation.account_state);
+    const bool observed = displayable(presentation.account_state);
+    const bool finite = observed && account.credits_kind == LUNASHELL::CodexCreditKind::Finite;
+    const bool unlimited = observed && account.credits_kind == LUNASHELL::CodexCreditKind::Unlimited;
+    const bool balance = finite || unlimited;
+    const bool vouchers = observed && account.reset_vouchers_valid;
     esp_err_t error = add_bar(presentation, {99, 102, 44, 2}, kCyan, kCyan);
     if (error != ESP_OK) { return error; }
     error = add_bar(presentation, {323, 102, 44, 2}, kCyan, kCyan);
     if (error != ESP_OK) { return error; }
-    error = add_detail(presentation, "BALANCE", 139, kWhite);
-    if (error != ESP_OK) { return error; }
-    error = add_hero(presentation, balance, {73, 165, 320, 80}, finite ? 2 : 1,
-        finite || unlimited ? kCyan : kMuted);
-    if (error != ESP_OK) { return error; }
-    error = add_rule(presentation, 264);
-    if (error != ESP_OK) { return error; }
-    const bool vouchers = current && account.reset_vouchers_valid;
+    if (!balance && !vouchers) {
+        const char *message = presentation.account_state == SourceState::Stale ? "Credit data is stale" :
+            observed ? "No credit data reported" : "Credit data unavailable";
+        return add_value(presentation, message, 212, kMuted);
+    }
+
+    if (balance) {
+        char credits[32]{};
+        if (finite) { format_credits(account.credit_milliunits, credits); }
+        const uint16_t top = vouchers ? 139 : 175;
+        error = add_detail(presentation, "BALANCE", top, kWhite);
+        if (error != ESP_OK) { return error; }
+        error = add_hero(presentation, unlimited ? "Unlimited" : credits,
+            {73, static_cast<uint16_t>(top + 26), 320, 80}, finite ? 2 : 1, kCyan);
+        if (error != ESP_OK || !vouchers) { return error; }
+        error = add_rule(presentation, 264);
+        if (error != ESP_OK) { return error; }
+    }
+
     char count[32]{};
-    if (vouchers) { format_grouped_count(account.reset_vouchers, count); }
-    error = add_voucher_label(presentation, vouchers ? kGold : kMuted);
+    format_grouped_count(account.reset_vouchers, count);
+    error = add_voucher_label(presentation, balance ? 274 : 170);
     if (error != ESP_OK) { return error; }
-    return add_value(presentation, vouchers ? count : status_text(presentation.account_state), 314,
-        vouchers ? kGold : kMuted);
+    return balance ? add_value(presentation, count, 314, kGold) :
+        add_hero(presentation, count, {73, 212, 320, 80}, 2, kGold);
 }
 
 struct PlanAppearance {
@@ -590,7 +608,7 @@ esp_err_t prepare_account(AccountDashboardPresentation &presentation, const LUNA
     const PlanAppearance plan = account_plan_appearance(account, fallback);
     const char *label = account.plan_label[0] != '\0' ? account.plan_label : plan.label;
     const char *price = account.plan_projection_supported ? account.plan_price : plan.price;
-    uint16_t status_top = 171;
+    uint16_t status_top = account.workspace_messages_valid ? 171 : 212;
     if (label != nullptr) {
         presentation.plan_icon = plan.icon != CODY2D::ActionIcon::None
             ? plan.icon : CODY2D::ActionIcon::PlanAccount;
@@ -795,6 +813,7 @@ SourceState metric_state(const PanelMetric &metric)
 
 // observation: Coherent canonical chat identity and explicit compaction validity.
 // inputs: Existing technical projection, including stale/orphaned lifecycle handling.
+// Returns null when no compaction observation belongs to the followed chat.
 const char *compaction_text(const LUNASHELL::CodexTechnicalObservation &observation, const PanelInputs &inputs)
 {
     using State = LUNASHELL::CodexCompactionState;
@@ -812,7 +831,7 @@ const char *compaction_text(const LUNASHELL::CodexTechnicalObservation &observat
     const bool same_owner = technical.data_valid && activity.data_valid && technical.chat_id[0] != '\0' &&
         inputs.chat_id[0] != '\0' && std::strcmp(technical.chat_id, inputs.chat_id) == 0 &&
         technical.revision == activity.revision;
-    if (!technical.compaction_valid || !same_owner) { return "Unavailable"; }
+    if (!technical.compaction_valid || !same_owner) { return nullptr; }
     if (source_state(technical) != SourceState::Current || inputs.link != PanelValueState::Current ||
         inputs.activity != PanelValueState::Current || !inputs.connected) { return "Stale"; }
     return "Not compacting";
@@ -993,8 +1012,11 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
         const char *message = remaining_state == SourceState::Stale ? "Context data is stale" :
             remaining_state == SourceState::Invalid ? "Invalid context data" :
             remaining_state == SourceState::OverLimit ? "Context over limit" : "Context data unavailable";
-        if (error == ESP_OK) { error = add_detail(presentation, message, 178, kWhite); }
-        if (error == ESP_OK) { error = add_detail(presentation, "For the followed chat", 209, kMuted); }
+        const uint16_t top = capacity_state == SourceState::Current || compaction != nullptr ? 178 : 207;
+        if (error == ESP_OK) { error = add_detail(presentation, message, top, kWhite); }
+        if (error == ESP_OK) {
+            error = add_detail(presentation, "For the followed chat", static_cast<uint16_t>(top + 31U), kMuted);
+        }
     }
     if (capacity_state == SourceState::Current) {
         if (error == ESP_OK) { error = add_rule(presentation, 259); }
@@ -1002,11 +1024,16 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
         format_grouped_count(capacity, count);
         if (error == ESP_OK) { error = add_value(presentation, count, 291, kWhite); }
     }
-    if (error == ESP_OK) { error = add_rule(presentation, 335); }
-    if (error == ESP_OK) { error = add_detail(presentation, "COMPACTION", 338, kMuted); }
-    if (error == ESP_OK) {
-        error = add_detail(presentation, compaction, 365,
-            inputs.compaction == LUNASHELL::CodexCompactionState::Active ? kGold : kCyan);
+    if (error == ESP_OK && compaction != nullptr) {
+        const uint16_t top = capacity_state == SourceState::Current ? 335 : 259;
+        error = add_rule(presentation, top);
+        if (error == ESP_OK) {
+            error = add_detail(presentation, "COMPACTION", static_cast<uint16_t>(top + 3U), kMuted);
+        }
+        if (error == ESP_OK) {
+            error = add_detail(presentation, compaction, static_cast<uint16_t>(top + 30U),
+                inputs.compaction == LUNASHELL::CodexCompactionState::Active ? kGold : kCyan);
+        }
     }
     if (error != ESP_OK) { return result("prepare context", error); }
     ++presentation.revision;

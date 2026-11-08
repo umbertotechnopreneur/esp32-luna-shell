@@ -26,6 +26,7 @@ constexpr uint16_t kFoldBottom = 0x10A3;
 constexpr uint16_t kHinge = 0x4208;
 constexpr uint16_t kHalfFlip = kResetCountdownFlipComplete / 2U;
 constexpr CODY2D::Rect kMain{73, 73, 320, 320};
+constexpr CODY2D::Rect kClockIcon{204, 181, 58, 58};
 constexpr uint16_t kFaceTop = 172;
 constexpr uint16_t kFaceWidth = 74;
 constexpr uint16_t kFaceHeight = 74;
@@ -256,6 +257,10 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     if (!presentation.valid) { return countdown_result("draw state", ESP_ERR_INVALID_STATE); }
     esp_err_t error = CODY2D::validate_surface(strip);
     if (error != ESP_OK) { return countdown_result("draw tile", error); }
+    if (presentation.tile_count == 0) {
+        error = CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::Clock, kClockIcon, kError,
+            strip, first_row, first_column);
+    }
     for (uint8_t index = 0; error == ESP_OK && index < presentation.tile_count; ++index) {
         error = draw_tile(presentation.tiles[index], presentation.view.flip_progress, strip, first_row, first_column);
     }
@@ -302,14 +307,13 @@ void split_duration(uint64_t seconds, std::array<unsigned, 4> &values)
 }
 
 // presentation: Fixed owner of face and glyph storage.
-// view: Active timer, elapsed timer, or a state without admitted remaining time.
+// view: Active timer or elapsed timer with an admitted duration.
 // title_font: Native large digit font for up to three digits.
 // body_font: Native compact fallback for longer day values and unit labels.
 // Exception: Returns original digit or unit-caption preparation error.
 esp_err_t prepare_tiles(ResetCountdownPresentation &presentation, const ResetCountdownView &view,
     const CODY2D::MonoFont &title_font, const CODY2D::MonoFont &body_font)
 {
-    const bool has_duration = view.status == ResetCountdownStatus::Active || view.status == ResetCountdownStatus::Elapsed;
     const bool animate = view.status == ResetCountdownStatus::Active && view.flip_progress < kResetCountdownFlipComplete;
     std::array<unsigned, 4> current{};
     std::array<unsigned, 4> previous{};
@@ -325,10 +329,10 @@ esp_err_t prepare_tiles(ResetCountdownPresentation &presentation, const ResetCou
         tile.face.bottom_color = kTileBottom;
         tile.face.corner_radius = 9;
         tile.previous.line = {};
-        char digits[11] = "--";
-        if (has_duration) { std::snprintf(digits, sizeof(digits), "%02u", current[index]); }
+        char digits[11]{};
+        std::snprintf(digits, sizeof(digits), "%02u", current[index]);
         const auto &font = current[index] > 999 ? body_font : title_font;
-        esp_err_t error = prepare_caption(tile.value, font, digits, bounds, has_duration ? kWhite : kMuted);
+        esp_err_t error = prepare_caption(tile.value, font, digits, bounds, kWhite);
         if (error != ESP_OK) { return error; }
         if (animate && current[index] != previous[index]) {
             std::snprintf(digits, sizeof(digits), "%02u", previous[index]);
@@ -369,7 +373,8 @@ esp_err_t prepare_metadata(ResetCountdownPresentation &presentation, const Reset
     }
     if (status != nullptr) {
         const uint16_t color = has_account_data(view.status) ? kMuted : kError;
-        const esp_err_t error = add_caption(presentation, font, status, {73, 285, 320, 25}, color);
+        const uint16_t top = view.status == ResetCountdownStatus::Elapsed ? 285 : 263;
+        const esp_err_t error = add_caption(presentation, font, status, {73, top, 320, 25}, color);
         if (error != ESP_OK) { return error; }
     }
     if (!has_account_data(view.status)) { return ESP_OK; }
@@ -459,7 +464,8 @@ esp_err_t prepare_reset_countdown(const ResetCountdownView &view,
     }
     esp_err_t error = begin_preparation(presentation, title_font, body_font);
     if (error == ESP_OK) { error = add_caption(presentation, title_font, "Codex reset", {73, 83, 320, 48}, kWhite); }
-    if (error == ESP_OK) { error = prepare_tiles(presentation, view, title_font, body_font); }
+    const bool has_duration = view.status == ResetCountdownStatus::Active || view.status == ResetCountdownStatus::Elapsed;
+    if (error == ESP_OK && has_duration) { error = prepare_tiles(presentation, view, title_font, body_font); }
     if (error == ESP_OK) { error = prepare_metadata(presentation, view, body_font); }
     if (error != ESP_OK) { return countdown_result("prepare countdown", error); }
     presentation.view = view;

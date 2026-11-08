@@ -47,22 +47,22 @@ bool onboarding_dashboard_active();
 // No parameters: the short guide keeps both available navigation arrows visible.
 bool onboarding_quick_guide_active();
 
-// The connecting glyph fits above the passive Wi-Fi startup heading.
-inline constexpr DamageRect kWifiConnectingBounds{197, 116, 269, 188};
+// Bounded repaint for the saved Wi-Fi and Codex waiting glyphs.
+inline constexpr DamageRect kConnectionActivityBounds{197, 116, 269, 204};
 
-// now_us: Current monotonic time. Zero phase means there is no connecting glyph.
-uint8_t onboarding_wifi_connecting_phase(int64_t now_us);
+// now_us: Current monotonic time. Zero phase means no connection animation.
+uint8_t onboarding_connection_activity_phase(int64_t now_us);
 
 // now_us: Monotonic time used to recognize a settled saved-network startup failure.
 bool onboarding_saved_wifi_startup_offline(int64_t now_us);
 
-// phase: Active connecting animation step, or zero when the glyph is absent.
+// phase: Active connection animation step, or zero when the glyph is absent.
 // strip: Borrowed RGB565 tile, including its actual stride and byte order.
 // first_row: Logical y origin of the tile.
 // first_column: Logical x origin of the tile.
 // Exception: Returns the original raster or tile validation failure.
-esp_err_t draw_wifi_connecting_rows(uint8_t phase, CODY2D::Surface strip,
-                                   uint16_t first_row, uint16_t first_column);
+esp_err_t draw_connection_activity_rows(uint8_t phase, CODY2D::Surface strip,
+                                       uint16_t first_row, uint16_t first_column);
 
 // No parameters: only stable routes without pending work admit the setup gesture.
 bool can_open_setup_menu();

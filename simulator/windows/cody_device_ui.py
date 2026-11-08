@@ -62,6 +62,8 @@ PAGES = (
     "Device", "Reset countdown", "Context", "Codex limits", "Today", "Last 7 days",
     "Token history", "Credits", "Codex account", "About",
 )
+VISIBILITY_ROWS = 3
+VISIBILITY_PAGE_COUNT = (len(PAGES) - 1 + VISIBILITY_ROWS - 1) // VISIBILITY_ROWS
 ABOUT_INFO = "Scan for more info"
 ABOUT_URL = "https://umbertogiacobbi.biz/esp32-luna-shell"
 # QR Model 2, error correction M, generated from ABOUT_URL with the atlas encoder.
@@ -137,10 +139,6 @@ INSTALL_APP_QR = (
     "111111101011100111000011101100010",
 )
 HISTORY_WINDOWS = ("1 hour", "5 hours", "24 hours")
-UNAVAILABLE_ROWS = {
-    "Codex limits": ("Short window", "Weekly window"),
-    "Last 7 days": ("Daily tokens",),
-}
 LEFT = (40, CENTER)
 RIGHT = (SIZE - 40, CENTER)
 
@@ -190,10 +188,11 @@ def arrow(draw, center, step, opacity=1):
 # draw: Logical frame receiving the native-style capsule.
 # bounds: Inclusive control rectangle.
 # palette: Top fill, bottom fill, outline and icon RGB colors.
-def draw_control_pill(draw, bounds, palette):
+# corner_radius: Override for a settings row.
+def draw_control_pill(draw, bounds, palette, corner_radius=None):
     left, top, right, bottom = bounds
     top_color, bottom_color, outline, _ = palette
-    radius = (bottom - top) // 2
+    radius = corner_radius if corner_radius is not None else (bottom - top) // 2
     draw.rounded_rectangle(bounds, radius=radius, fill=outline)
     inner_radius = radius - 1
     for y in range(top + 1, bottom):
@@ -231,7 +230,12 @@ def setup_icon(draw, icon, center, size, color):
     x, y = center
     half = size // 2
     stroke = max(2, size // 11)
-    if icon in ("wifi", "offline"):
+    if icon == "clock":
+        edge = half - stroke
+        draw.ellipse((x - edge, y - edge, x + edge, y + edge), outline=color, width=stroke)
+        draw.line(((x, y - edge // 2), (x, y), (x + edge // 2, y + edge // 3)),
+                  fill=color, width=stroke, joint="curve")
+    elif icon in ("wifi", "offline"):
         for radius in (half, half * 2 // 3, half // 3):
             cy = y + half // 2
             draw.arc((x - radius, cy - radius, x + radius, cy + radius),
@@ -251,6 +255,18 @@ def setup_icon(draw, icon, center, size, color):
                       fill=color, width=stroke, joint="curve")
         draw.line((x - 3 * scale, y + 3 * scale, x + 3 * scale, y - 3 * scale),
                   fill=color, width=stroke)
+    elif icon == "motion":
+        gap = size // 5
+        for offset in (-gap, 0, gap):
+            wave = ((x - half + stroke, y + offset), (x - half // 2, y + offset - stroke),
+                    (x, y + offset), (x + half // 2, y + offset + stroke),
+                    (x + half - stroke, y + offset))
+            draw.line(wave, fill=color, width=stroke, joint="curve")
+    elif icon == "retry":
+        edge = half - stroke
+        draw.arc((x - edge, y - edge, x + edge, y + edge), 38, 325, fill=color, width=stroke)
+        draw.line(((x + edge - stroke * 2, y - edge), (x + edge, y - edge + stroke * 2),
+                   (x + edge, y - edge - stroke)), fill=color, width=stroke, joint="curve")
     elif icon == "phone":
         side = half * 2 // 3
         draw.rounded_rectangle((x - side, y - half, x + side, y + half),
@@ -313,7 +329,7 @@ class DeviceStudioWindow:
         self.page = 0
         self.options_page = 0
         self.quick_guide_page = 0
-        self.settings_page = 0
+        self.visibility_page = 0
         self.standby = False
         self.touch = None
         self.event_visible = False
@@ -413,6 +429,11 @@ class DeviceStudioWindow:
         self.connections_return = self.route
         self.open("connections")
 
+    # self: Studio navigation owner opening the first group of visibility rows.
+    def open_visibility(self):
+        self.visibility_page = 0
+        self.open("visibility")
+
     # self: Studio navigation owner.
     # previous: Actual caller when leaving the phone guide with Back.
     def open_phone_guide(self, previous):
@@ -489,7 +510,10 @@ class DeviceStudioWindow:
     # step: Previous (-1) or next (1) action admitted by a visible arrow.
     def move(self, step):
         if self.route == "visibility":
-            self.settings_page = (self.settings_page + step) % len(PAGES)
+            if step < 0 and self.visibility_page == 0:
+                self.back()
+                return
+            self.visibility_page = min(VISIBILITY_PAGE_COUNT - 1, self.visibility_page + step)
         else:
             if PAGES[self.page] == "About":
                 if self.info.move(step):
@@ -551,6 +575,11 @@ class DeviceStudioWindow:
         self.endpoint.act("cancel")
         self.pairing_attempted = False
 
+    # self: Studio navigation owner deferring a saved link without cancelling discovery.
+    def leave_pairing_wait(self):
+        self.pairing_attempted = False
+        self.open("widgets")
+
     # self: Preview host controlling only its isolated loopback endpoint.
     # action: Host-only simulated network toggle or confirmed pairing removal.
     def manage_simulated_link(self, action):
@@ -604,7 +633,7 @@ class DeviceStudioWindow:
     # route: Startup route selected from the actual post-reset preview state.
     # pending_pairing: Whether a durable commissioning candidate survived restart.
     def reboot_preview(self, route, pending_pairing=False):
-        self.settings_page = self.options_page = 0
+        self.visibility_page = self.options_page = 0
         self.pairing_attempted = pending_pairing
         self.event_visible = self.standby = False
         self.connections_return = "widgets"
@@ -626,16 +655,15 @@ class DeviceStudioWindow:
         self.open("widgets")
 
     # self: Preview owner applying visibility while retaining valid top-level and child routes.
-    def change_visibility(self):
-        page = PAGES[self.settings_page]
-        if self.settings_page:
-            if page in self.visible:
-                self.visible.remove(page)
-                if self.page == self.settings_page:
-                    self.page = 0
-                    self.info.page = InfoPage.SYSTEM
-            else:
-                self.visible.add(page)
+    # page: Configurable dashboard identity from the selected row.
+    def change_visibility(self, page):
+        if page in self.visible:
+            self.visible.remove(page)
+            if PAGES[self.page] == page:
+                self.page = 0
+                self.info.page = InfoPage.SYSTEM
+        else:
+            self.visible.add(page)
 
     def change_interval(self):
         self.history_window = (self.history_window + 1) % len(HISTORY_WINDOWS)
@@ -716,15 +744,38 @@ class DeviceStudioWindow:
     # draw: Logical canvas before rotation.
     # snapshot: Current authenticated loopback projection, if available.
     # code: Active simulated Codex pairing code, if any.
-    def draw_connections(self, draw, snapshot, code):
+    # now: Monotonic frame time for the quiet link pulse.
+    def draw_connections(self, draw, snapshot, code, now):
+        colors = ((98, 105, 106), (140, 150, 165), (181, 182, 222), (140, 150, 165))
+        link_pulse = colors[int(now / 0.4) % len(colors)]
         if code or snapshot.pending_pairing:
-            label(draw, "Pair Codex", 109, 32)
-            label(draw, code or "Awaiting confirmation", 163, 40 if code else 22, ACCENT)
-            label(draw, "Share this SIMULATED code in Codex", 224, 15)
-            self.button(draw, "Cancel", 301, self.cancel_pairing)
+            label(draw, "Pair Codex", 88, 34)
+            setup_icon(draw, "link", (CENTER, 176), 56, SETUP_ACCENT if code else link_pulse)
+            if code:
+                label(draw, code, 236, 40, ACCENT)
+                label(draw, "Enter this SIMULATED code", 292, 18)
+                label(draw, "in the Cody plugin", 320, 18, MUTED)
+            else:
+                label(draw, "Awaiting confirmation", 256, 18)
+                label(draw, "Keep Codex open", 284, 18, MUTED)
+            self.button(draw, "Cancel", 390, self.cancel_pairing, width=220, height=44, secondary=True)
+            return
+        connect = (lambda: self.pair(snapshot)) if self.endpoint and snapshot.network_ready else None
+        if self.pairing_attempted and snapshot.state in (LinkState.PAIRED, LinkState.DISCOVERING):
+            label(draw, "Waiting for PC", 88, 34)
+            setup_icon(draw, "link", (CENTER, 176), 56, link_pulse if snapshot.network_ready else MUTED)
+            label(draw, "Open Codex on your PC" if snapshot.network_ready else "Wi-Fi unavailable", 256, 18)
+            label(draw, "Pairing stays saved", 284, 18, MUTED)
+            self.button(draw, "Later", 352, self.leave_pairing_wait, width=240, height=72, secondary=True)
+            return
+        if self.pairing_attempted and snapshot.state is LinkState.TIMED_OUT:
+            label(draw, "Try again", 88, 34)
+            setup_icon(draw, "retry", (CENTER, 176), 56, SETUP_AMBER)
+            label(draw, "Pairing code expired", 256, 18, MUTED)
+            self.button(draw, "Retry", 352, connect, width=240, height=72)
+            self.sidebar(draw, -1, self.back)
             return
         label(draw, "Connections", OPTIONS_TITLE_TOP, 34)
-        connect = (lambda: self.pair(snapshot)) if self.endpoint and snapshot.network_ready else None
         self.draw_connection_action(draw, 148, ("Connect", "Codex"), "link",
                                     CODEX_CONNECTION_COLOR, connect)
         self.draw_connection_action(draw, 318, ("Set up", "Wi-Fi"), "wifi",
@@ -786,6 +837,30 @@ class DeviceStudioWindow:
             self.button(draw, name, OPTIONS_ROW_TOP + index * OPTIONS_ROW_STEP, action,
                         width=OPTIONS_ROW_WIDTH, height=OPTIONS_ROW_HEIGHT, caption_size=20)
 
+    # self: Studio preview of the current group of three configurable screens.
+    # draw: Logical canvas before rotation.
+    # now: Monotonic time for the shared arrow fade.
+    def draw_visibility(self, draw, now):
+        label(draw, "Visible screens", OPTIONS_TITLE_TOP, 34)
+        start = 1 + self.visibility_page * VISIBILITY_ROWS
+        for index, page in enumerate(PAGES[start:start + VISIBILITY_ROWS]):
+            visible = page in self.visible
+            top = OPTIONS_ROW_TOP + index * OPTIONS_ROW_STEP
+            box = (93, top, 373, top + OPTIONS_ROW_HEIGHT)
+            draw_control_pill(draw, box, CONTROL_PALETTE if visible else SECONDARY_CONTROL_PALETTE,
+                              corner_radius=12)
+            face = font(19)
+            draw.text((105, top + OPTIONS_ROW_HEIGHT // 2), page, font=face, fill=FOREGROUND, anchor="lm")
+            draw.text((322, top + OPTIONS_ROW_HEIGHT // 2), "Visible" if visible else "Hidden",
+                      font=face, fill=WIFI_CONNECTION_COLOR if visible else MUTED, anchor="mm")
+            self.targets[page] = (box, lambda selected=page: self.change_visibility(selected))
+        label(draw, f"{self.visibility_page + 1}/{VISIBILITY_PAGE_COUNT}", 375, 19, MUTED)
+        opacity = self.navigation_opacity(now)
+        if opacity > 0:
+            self.sidebar(draw, -1, (lambda: self.move(-1)) if opacity == 1 else None, opacity)
+            if self.visibility_page + 1 < VISIBILITY_PAGE_COUNT:
+                self.sidebar(draw, 1, (lambda: self.move(1)) if opacity == 1 else None, opacity)
+
     # self: Studio preview owning the active menu page and touch targets.
     # draw: Logical canvas before rotation.
     # now: Monotonic frame time for the lateral arrow fade.
@@ -799,7 +874,7 @@ class DeviceStudioWindow:
             )
         elif self.options_page == 1:
             rows = (
-                ("Visible screens", lambda: self.open("visibility")),
+                ("Visible screens", self.open_visibility),
                 ("Display", lambda: self.open("display")),
                 ("Behavior", lambda: self.open("behavior")),
             )
@@ -960,64 +1035,135 @@ class DeviceStudioWindow:
                                             (76, 99, 81, 103), (103, 99, 108, 103)):
                 draw.rectangle((left, top, right, bottom), fill=ACCENT)
 
+    # self: Studio preview of the followed chat's context.
+    # draw: Logical canvas before rotation.
+    # snapshot: Coherence-qualified loopback observation for the followed chat.
+    def draw_context(self, draw, snapshot):
+        technical = snapshot.technical if snapshot.technical_valid else None
+        capacity = technical.context_capacity if technical else None
+        used = technical.context_used if technical else None
+        compaction = None
+        if technical is not None:
+            state = technical.compaction.value
+            if state == "active" and technical.compaction_age_ms is not None:
+                age = technical.compaction_age_ms + (snapshot.technical_age_ms or 0)
+                compaction = "Compacting" if age <= 120000 else "Stale"
+            else:
+                compaction = {
+                    "refreshed": "Context refreshed", "orphaned": "Partially observed",
+                    "interrupted": "Interrupted", "stale": "Stale",
+                }.get(state)
+        if capacity and used is not None and 0 <= used <= capacity:
+            remaining = capacity - used
+            label(draw, "TOKENS REMAINING", 133, 18)
+            label(draw, f"{remaining:,}", 177, 45, ACCENT)
+            draw.rectangle((93, 244, 372, 250), fill=(24, 34, 48))
+            filled = remaining * 280 // capacity
+            if filled:
+                draw.rectangle((93, 244, 92 + filled, 250), fill=ACCENT)
+        else:
+            top = 178 if capacity or compaction else 207
+            label(draw, "Context over limit" if capacity and used is not None and used > capacity
+                  else "Context data unavailable", top, 20)
+            label(draw, "For the followed chat", top + 31, 18, MUTED)
+        if capacity:
+            draw.line((93, 259, 373, 259), fill=CONTROL_PALETTE[2])
+            label(draw, "CONTEXT WINDOW", 266, 18)
+            label(draw, f"{capacity:,}", 291, 28)
+        if compaction:
+            top = 335 if capacity else 259
+            draw.line((93, top, 373, top), fill=CONTROL_PALETTE[2])
+            label(draw, "COMPACTION", top + 3, 18, MUTED)
+            label(draw, compaction, top + 30, 20, ACCENT)
+
+    # self: Studio owns the current loopback endpoint and Options shortcut.
+    # draw: Logical canvas before display rotation.
+    # snapshot: Current SIMULATED connection and authenticated activity projection.
+    def draw_device_summary(self, draw, snapshot):
+        label(draw, "Device", 86, 34)
+        observed = self.endpoint is not None and snapshot.source == "SIMULATED" and snapshot.state is not LinkState.STOPPED
+        linked = (observed and snapshot.network_ready and snapshot.state is LinkState.CONNECTED
+                  and snapshot.ready_age_ms is not None and 0 <= snapshot.ready_age_ms < 8000)
+        presence = snapshot.app_presence
+        codex_open = (linked and presence.valid and presence.error == 0 and presence.state.value == "open"
+                      and 0 <= presence.receipt_age_ms < 8000
+                      and 0 <= presence.source_age_ms + presence.receipt_age_ms < 60000)
+        if not observed:
+            codex, codex_color = "Unavailable", MUTED
+        elif codex_open:
+            codex, codex_color = "Connected", WIFI_CONNECTION_COLOR
+        elif linked:
+            codex, codex_color = "PC linked", SETUP_AMBER
+        elif snapshot.state is LinkState.DISCOVERING:
+            codex, codex_color = "Connecting", SETUP_AMBER
+        elif snapshot.state is LinkState.PAIRING:
+            codex, codex_color = "Pairing", SETUP_AMBER
+        else:
+            codex, codex_color = "Not connected", SETUP_AMBER
+
+        if not observed:
+            wifi, wifi_icon, wifi_color = "Unavailable", "wifi", MUTED
+        elif snapshot.network_ready:
+            wifi, wifi_icon, wifi_color = "Connected", "wifi", WIFI_CONNECTION_COLOR
+        else:
+            wifi, wifi_icon, wifi_color = "Offline", "offline", SETUP_AMBER
+
+        for y in (190, 242):
+            draw.line((95, y, 371, y), fill=(33, 39, 53))
+        setup_icon(draw, "link", (112, 164), 28, codex_color)
+        setup_icon(draw, wifi_icon, (112, 216), 28, wifi_color)
+        draw.rectangle((99, 261, 122, 274), outline=MUTED, width=2)
+        draw.rectangle((123, 265, 126, 270), fill=MUTED)
+        for y, name, value, color in (
+            (164, "Codex", codex, codex_color),
+            (216, "Wi-Fi", wifi, wifi_color),
+            (268, "Battery", "Not simulated", MUTED),
+        ):
+            draw.text((140, y), name, fill=FOREGROUND, font=font(18), anchor="lm")
+            draw.text((371, y), value, fill=color, font=font(18), anchor="rm")
+        if (codex_open and snapshot.activity_valid and snapshot.title_state == "current"
+                and snapshot.title_error == 0 and snapshot.title_age_ms is not None
+                and 0 <= snapshot.title_age_ms < 45000 and snapshot.title):
+            title = snapshot.title if len(snapshot.title) <= 29 else snapshot.title[:26] + "..."
+            label(draw, title, 291, 18, MUTED, width=320)
+        self.button(draw, "Options", 330, self.options, width=260, height=50, caption_size=20)
+
     # self: Studio preview owning the selected dashboard page.
     # draw: Logical canvas before rotation.
     # snapshot: Current loopback projection, if available.
     # now: Monotonic frame time for uptime and arrow fading.
     def draw_widget(self, draw, snapshot, now):
         page = PAGES[self.page]
-        if page in ("Codex account", "Credits"):
+        if page in ("Codex account", "Credits", "Context", "Codex limits", "Last 7 days"):
             label(draw, page.upper(), 82, 33, ACCENT)
-        elif page != "About":
+        elif page == "Reset countdown":
+            label(draw, "Codex reset", 83, 34)
+        elif page == "Token history":
+            label(draw, "TOKEN ACTIVITY", 78, 33, ACCENT)
+        elif page not in ("About", "Device"):
             label(draw, page, 105, 33)
         if page == "Device":
-            label(draw, snapshot.state.value if self.endpoint else "Local mode", 170, 24, ACCENT)
-            label(draw, "SIMULATED Wi-Fi " + ("on" if snapshot.network_ready else "off")
-                  if self.endpoint else "Loopback is off", 216, 17, MUTED)
-            self.button(draw, "Options", 300, self.options)
+            self.draw_device_summary(draw, snapshot)
         elif page == "Context":
-            activity = snapshot.activity_valid and snapshot.phase != "none"
-            label(draw, snapshot.project if activity and snapshot.project else "No current project", 162, 23, ACCENT)
-            label(draw, snapshot.branch if activity and snapshot.branch else "Branch unavailable", 200, 17, MUTED)
-            title = snapshot.title if activity and snapshot.title_state == "current" else ""
-            label(draw, title or "Chat title unavailable", 235, 17)
-            if activity and snapshot.description:
-                label(draw, snapshot.description, 273, 16, MUTED)
+            self.draw_context(draw, snapshot)
         elif page == "About":
             self.draw_system_info(draw)
         elif page == "Reset countdown":
-            for index, unit in enumerate(("DAYS", "HRS", "MIN", "SEC")):
-                x = 113 + index * 80
-                draw.rounded_rectangle((x - 35, 166, x + 35, 253), radius=7, fill=(28, 34, 49))
-                draw.line((x - 35, 211, x + 35, 211), fill=(53, 64, 85))
-                label(draw, "--", 188, 37, x=x, width=70)
-                label(draw, unit, 261, 14, MUTED, x=x, width=70)
-            label(draw, "Reset time unavailable", 306, 17, MUTED)
+            setup_icon(draw, "clock", (CENTER, 210), 58, SETUP_AMBER)
+            label(draw, "Codex usage unavailable", 263, 19, SETUP_AMBER)
         elif page == "Token history":
-            label(draw, "No account samples yet", 201, 20, MUTED)
-            label(draw, "15 MIN ACCOUNT OBSERVATIONS", 239, 16, MUTED)
-            self.button(draw, HISTORY_WINDOWS[self.history_window], 299, self.change_interval)
+            setup_icon(draw, "clock", (CENTER, 192), 56, ACCENT)
+            label(draw, "NO ACCOUNT SAMPLES YET", 241, 19)
+            label(draw, "15 MIN ACCOUNT OBSERVATIONS", 288, 16, MUTED)
+            self.button(draw, HISTORY_WINDOWS[self.history_window], 359, self.change_interval, width=220, height=50)
         elif page == "Credits":
-            label(draw, "BALANCE", 139, 18)
-            label(draw, "Unavailable", 190, 28, MUTED)
-            draw.line((93, 264, 373, 264), fill=(41, 105, 123))
-            caption = "RESET VOUCHERS"
-            caption_width = draw.textlength(caption, font=font(33))
-            left = CENTER - (caption_width + 32) / 2
-            draw.rectangle((left, 289, left + 23, 304), outline=MUTED, width=2)
-            for top in (292, 299):
-                draw.line((left + 16, top, left + 16, top + 3), fill=MUTED)
-            for x in (left, left + 23):
-                draw.ellipse((x - 2, 295, x + 2, 299), fill=BACKGROUND)
-            label(draw, caption, 274, 33, x=left + 32 + caption_width / 2, width=288)
-            label(draw, "Unavailable", 328, 22, MUTED)
+            label(draw, "Credit data unavailable", 212, 20, MUTED)
+        elif page == "Codex limits":
+            label(draw, "Limits unavailable", 212, 20, MUTED)
         elif page in ("Today", "Codex account"):
             label(draw, "Account data unavailable", 213, 20, MUTED)
-        else:
-            for index, name in enumerate(UNAVAILABLE_ROWS[page]):
-                y = 159 + index * 57
-                label(draw, name, y, 18)
-                label(draw, "Unavailable", y + 24, 16, MUTED)
+        elif page == "Last 7 days":
+            label(draw, "Daily data unavailable", 209, 20, MUTED)
         opacity = self.navigation_opacity(now)
         if opacity > 0 and (len(self.visible) > 1 or page == "About"):
             self.sidebar(draw, -1, (lambda: self.move(-1)) if opacity == 1 else None, opacity)
@@ -1052,7 +1198,7 @@ class DeviceStudioWindow:
             if wifi_setup:
                 self.draw_wifi_setup(draw, now)
             elif self.route == "connections":
-                self.draw_connections(draw, snapshot, code)
+                self.draw_connections(draw, snapshot, code, now)
             elif self.route == "options":
                 self.draw_options(draw, now)
             elif self.route == "timer":
@@ -1064,16 +1210,7 @@ class DeviceStudioWindow:
             elif self.route == "quick_guide":
                 self.draw_quick_guide(draw)
             elif self.route == "visibility":
-                label(draw, "Visible screens", 103, 32)
-                name = PAGES[self.settings_page]
-                label(draw, name, 180, 24)
-                if self.settings_page:
-                    self.button(draw, "Visible" if name in self.visible else "Hidden", 275, self.change_visibility)
-                else:
-                    label(draw, "Always visible", 290, 17, ACCENT)
-                self.sidebar(draw, -1, lambda: self.move(-1))
-                self.sidebar(draw, 1, lambda: self.move(1))
-                self.button(draw, "Done", 340, self.back)
+                self.draw_visibility(draw, now)
             elif self.route == "display":
                 label(draw, "Display", OPTIONS_TITLE_TOP, 34)
                 self.draw_option_rows(draw, (
@@ -1091,9 +1228,16 @@ class DeviceStudioWindow:
                 self.sidebar(draw, -1, self.back)
             elif self.route == "more_behavior":
                 label(draw, "More behavior", OPTIONS_TITLE_TOP, 34)
-                self.draw_option_rows(draw, (
-                    ("Screensaver  " + ("On" if self.screensaver.enabled else "Off"), self.screensaver.toggle),
-                ))
+                setup_icon(draw, "motion", (CENTER, 169), 52, SETUP_ACCENT)
+                label(draw, "Animate while idle", 208, 18, MUTED)
+                box = (93, 273, 373, 345)
+                palette = CONTROL_PALETTE if self.screensaver.enabled else SECONDARY_CONTROL_PALETTE
+                draw_control_pill(draw, box, palette, corner_radius=12)
+                face = font(20)
+                draw.text((105, 309), "Screensaver", font=face, fill=FOREGROUND, anchor="lm")
+                draw.text((365, 309), "On" if self.screensaver.enabled else "Off",
+                          font=face, fill=FOREGROUND, anchor="rm")
+                self.targets["Screensaver"] = (box, self.screensaver.toggle)
                 self.sidebar(draw, -1, self.back)
             else:
                 self.draw_widget(draw, snapshot, now)
@@ -1194,7 +1338,7 @@ class DeviceStudioWindow:
             self.events.press(point, self.observe()[0], self.endpoint)
         elif point is not None:
             name, _ = self.action_at(point)
-            self.touch = (self.route, self.page, self.settings_page, point, name)
+            self.touch = (self.route, self.page, self.visibility_page, point, name)
             self.last_navigation = time.monotonic()
 
     def drag(self, event):
@@ -1215,7 +1359,7 @@ class DeviceStudioWindow:
             if self.event_visible:
                 self.events.release(point, self.observe()[0], self.endpoint)
                 return
-            if not touch or touch[:3] != (self.route, self.page, self.settings_page):
+            if not touch or touch[:3] != (self.route, self.page, self.visibility_page):
                 return
             _, _, _, origin, pressed = touch
             if sum((end - start) ** 2 for start, end in zip(origin, point)) >= 144:

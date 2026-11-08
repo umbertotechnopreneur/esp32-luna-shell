@@ -1,6 +1,7 @@
 #include "CODY_companion.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdlib>
 #include <new>
@@ -50,15 +51,19 @@ enum class Command : uint8_t { Ready = 1, Sleep, Wake, Shutdown, ShutdownFailed 
 enum class BrandingPhase : uint8_t { Inactive, AwaitingReady, Playing };
 using Save = CODY::VisibilitySave;
 enum class Target : uint8_t {
-    None, Previous, Next, Toggle, Interval, FirstAction, SecondAction, VoiceGesture,
+    None, Previous, Next, VisibilityFirst, VisibilitySecond, VisibilityThird,
+    Interval, FirstAction, SecondAction, VoiceGesture,
     TimerDecrease, TimerIncrease, TimerSound, TimerStart, TimerCancel, TimerDismiss
+};
+constexpr std::array<Target, CODY::kVisibilityRowsPerPage> kVisibilityTargets{
+    Target::VisibilityFirst, Target::VisibilitySecond, Target::VisibilityThird,
 };
 
 struct FrameView {
     CODY::DeviceFrameContent presentation{};
     Layer layer = Layer::Blank;
     uint8_t navigation_opacity = 0;
-    uint8_t wifi_connecting_phase = 0;
+    uint8_t connection_activity_phase = 0;
     bool arrows = false;
     bool statistics_unavailable = false;
 };
@@ -72,8 +77,9 @@ struct RetiredFrame {
     uint32_t connection_revision = 0;
     uint16_t allowance = 0;
     uint8_t navigation_opacity = 0;
-    uint8_t wifi_connecting_phase = 0;
+    uint8_t connection_activity_phase = 0;
     bool statistics_unavailable = false;
+    bool next_navigation = false;
     bool valid = false;
 };
 
@@ -217,7 +223,7 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
     if (ui.model.editing) {
         frame.layer = Layer::Visibility;
         frame.arrows = true;
-        return CODY::prepare_widget_visibility_view(ui.model.editor_screen, ui.model.widgets.visibility,
+        return CODY::prepare_widget_visibility_view(ui.model.editor_page, ui.model.widgets.visibility,
             ui.model.save == Save::Pending, ui.model.save == Save::Failed, ui.model.settings_error != ESP_OK,
             CODY::SceneData::title_font, CODY::SceneData::body_font, ui.editor, frame.presentation.content);
     }
@@ -253,9 +259,7 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
     }
     if (ui.scene.valid) {
         frame.layer = Layer::Scene;
-        frame.wifi_connecting_phase = CODY::onboarding_wifi_connecting_phase(now_us);
-        // Passive network startup has no lateral actions to animate.
-        if (frame.wifi_connecting_phase != 0) frame.navigation_opacity = 0;
+        frame.connection_activity_phase = CODY::onboarding_connection_activity_phase(now_us);
         if (CODY::onboarding_quick_guide_active()) frame.navigation_opacity = 255;
         return ESP_OK;
     }
@@ -292,13 +296,15 @@ esp_err_t render(const FrameView &frame, bool force = false)
         (frame.layer == Layer::Scene && ui.scene_dirty);
     const bool draws_navigation = frame.arrows || frame.layer == Layer::Scene;
     const uint8_t opacity = draws_navigation ? frame.navigation_opacity : 0;
-    const bool navigation_changed = old.navigation_opacity != opacity;
+    const bool next_navigation = frame.arrows && frame.layer != Layer::AboutLink && frame.layer != Layer::Timer &&
+        (frame.layer != Layer::Visibility || ui.editor.page + 1U < CODY::kVisibilityPageCount);
+    const bool navigation_changed = old.navigation_opacity != opacity || old.next_navigation != next_navigation;
     const bool content_changed = old.content_revision != view.content.revision;
     const bool battery_changed = old.battery_sequence != chrome.battery_sequence;
     const bool connection_changed = old.connection_revision != chrome.connection_revision;
-    const bool wifi_connecting_changed = old.wifi_connecting_phase != frame.wifi_connecting_phase;
+    const bool connection_activity_changed = old.connection_activity_phase != frame.connection_activity_phase;
     if (!full && !content_changed && !navigation_changed && !battery_changed && !connection_changed &&
-        !wifi_connecting_changed) return ESP_OK;
+        !connection_activity_changed) return ESP_OK;
 
     bool parked = false;
     esp_err_t error = LUNASHELL_display_frame_begin(kFrameBudgetMs, &parked);
@@ -325,7 +331,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
         if (navigation_changed) include_damage(navigation_bounds);
         if (battery_changed) include_damage({105, 397, 361, 427});
         if (connection_changed) include_damage({105, 37, 361, 64});
-        if (wifi_connecting_changed) include_damage(CODY::kWifiConnectingBounds);
+        if (connection_activity_changed) include_damage(CODY::kConnectionActivityBounds);
     }
     const uint16_t left = bounds.left & ~1U;
     const uint16_t right = (bounds.right + 1U) & ~1U;
@@ -353,8 +359,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
             error = CODY::BootBranding::draw_rows(ui.branding, ui.branding_scratch, ui.branding_frame, strip, row);
         } else if (error == ESP_OK && frame.layer == Layer::Scene) {
             error = CODY::draw_scene_rows(ui.scene, strip, row, left);
-            if (error == ESP_OK && frame.wifi_connecting_phase != 0) {
-                error = CODY::draw_wifi_connecting_rows(frame.wifi_connecting_phase, strip, row, left);
+            if (error == ESP_OK && frame.connection_activity_phase != 0) {
+                error = CODY::draw_connection_activity_rows(frame.connection_activity_phase, strip, row, left);
             }
             if (error == ESP_OK) error = CODY::draw_onboarding_navigation(strip, row, left, opacity, background);
         } else if (error == ESP_OK && view.content.draw_rows != nullptr) {
@@ -362,8 +368,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
         }
         if (error == ESP_OK && frame.arrows && row < navigation_bounds.bottom &&
             row + rows > navigation_bounds.top) {
-            const bool next = frame.layer != Layer::AboutLink && frame.layer != Layer::Timer;
-            error = CODY::draw_lateral_navigation(next, strip, row, left, opacity);
+            error = CODY::draw_lateral_navigation(next_navigation, strip, row, left, opacity);
         }
         if (error == ESP_OK) error = CODY::draw_device_chrome(chrome, strip, row, left);
         if (error == ESP_OK && allowance != 0) {
@@ -382,7 +387,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     }
     if (!old.valid || old.display_revision != frame_revision || old.layer != frame.layer || old.screen != screen ||
         (old.content_revision != view.content.revision &&
-         (ui.contact == Target::FirstAction || ui.contact == Target::SecondAction))) {
+         (frame.layer == Layer::Visibility || ui.contact == Target::FirstAction || ui.contact == Target::SecondAction))) {
         ui.contact = Target::None;
     }
     if (old.navigation_opacity == 255 && opacity < 255) {
@@ -393,8 +398,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
         (void)CODY::acknowledge_battery_alert(ui.model.battery, ui.model.battery_banner);
     }
     old = {frame.layer, screen, frame_revision, view.content.revision, chrome.battery_sequence,
-        chrome.connection_revision, allowance, opacity, frame.wifi_connecting_phase,
-        frame.statistics_unavailable, true};
+        chrome.connection_revision, allowance, opacity, frame.connection_activity_phase,
+        frame.statistics_unavailable, next_navigation, true};
     if (frame.layer == Layer::Scene) {
         ui.completed_scene = ui.scene;
         ui.scene_dirty = false;
@@ -424,13 +429,13 @@ Target target_at(CODY2D::Point point)
         (layer == Layer::Visibility || layer == Layer::Dashboard || layer == Layer::AboutLink)) {
         switch (CODY::lateral_navigation_at(point)) {
         case CODY::LateralNavigation::Previous: return Target::Previous;
-        case CODY::LateralNavigation::Next: return layer == Layer::AboutLink ? Target::None : Target::Next;
+        case CODY::LateralNavigation::Next: return ui.retired.next_navigation ? Target::Next : Target::None;
         default: break;
         }
     }
     if (layer == Layer::Visibility) {
-        return CODY::widget_visibility_control_at(ui.editor, point) == CODY::WidgetVisibilityControl::Toggle
-            ? Target::Toggle : Target::None;
+        const auto row = CODY::widget_visibility_row_at(ui.editor, point);
+        return row ? kVisibilityTargets[*row] : Target::None;
     }
     if (layer == Layer::Dashboard && ui.retired.statistics_unavailable) return Target::None;
     if (layer == Layer::Dashboard && ui.retired.screen == WidgetScreen::TokenHistory &&
@@ -457,18 +462,20 @@ void edit_visibility(Target target)
 {
     auto &ui = *s_ui;
     if (ui.model.save == Save::Pending) return;
-    if (target == Target::Toggle) {
+    const auto row = std::find(kVisibilityTargets.begin(), kVisibilityTargets.end(), target);
+    if (row != kVisibilityTargets.end()) {
+        const auto screen = ui.editor.rows[row - kVisibilityTargets.begin()].screen;
         ui.model.draft = ui.model.widgets.visibility;
-        if (!CODY::set_widget_visibility(ui.model.draft, ui.model.editor_screen,
-                !CODY::widget_visible(ui.model.draft, ui.model.editor_screen))) return;
+        if (!CODY::set_widget_visibility(ui.model.draft, screen, !CODY::widget_visible(ui.model.draft, screen))) return;
         const auto error = CODY::request_widget_visibility_save(ui.model.draft);
         ui.model.save = error == ESP_OK ? Save::Pending : Save::Failed;
-    } else if (target == Target::Previous && ui.model.editor_screen == WidgetScreen::Reset) {
+    } else if (target == Target::Previous && ui.model.editor_page == 0) {
         ui.model.editing = false;
-    } else {
-        const auto step = target == Target::Previous ? WidgetStep::Previous : WidgetStep::Next;
-        ui.model.editor_screen = CODY::next_visible_widget({}, ui.model.editor_screen, step,
-            CODY::WidgetScope::Statistics).value_or(ui.model.editor_screen);
+    } else if (target == Target::Previous) {
+        --ui.model.editor_page;
+        ui.model.save = Save::Idle;
+    } else if (target == Target::Next && ui.model.editor_page + 1U < CODY::kVisibilityPageCount) {
+        ++ui.model.editor_page;
         ui.model.save = Save::Idle;
     }
     // The visibility presenter revisions its central content; layer changes already
@@ -685,7 +692,7 @@ esp_err_t update_navigation()
         break;
     }
     case CODY::WidgetOpenRequest::Visibility:
-        ui.model.editor_screen = WidgetScreen::Reset;
+        ui.model.editor_page = 0;
         ui.model.save = Save::Idle;
         ui.model.editing = true;
         invalidate();

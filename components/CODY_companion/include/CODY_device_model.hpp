@@ -53,7 +53,7 @@ struct DeviceModel {
     CompanionShakeState shake{};
     LUNASHELL::MotionPowerObservation motion{};
     TokenHistoryInterval interval = TokenHistoryInterval::FiveHours;
-    WidgetScreen editor_screen = WidgetScreen::Reset;
+    uint8_t editor_page = 0;
     VisibilitySave save = VisibilitySave::Idle;
     esp_err_t settings_error = ESP_OK;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT

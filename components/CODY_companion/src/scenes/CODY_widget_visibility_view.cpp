@@ -10,15 +10,22 @@ namespace CODY {
 namespace {
 
 constexpr char kTag[] = "CODY_widget_visibility";
+#if defined(CODY_DEVICE_UI_ONLY)
+constexpr DamageRect kContentBounds{73, 82, 393, 399};
+constexpr CODY2D::Rect kHeadingBounds{73, 82, 320, 40};
+constexpr CODY2D::Rect kStatusBounds{73, 369, 320, 30};
+constexpr uint16_t kRowTop = 130;
+constexpr uint16_t kRowHeight = 72;
+constexpr uint16_t kRowStep = 80;
+#else
 constexpr DamageRect kContentBounds{73, 94, 393, 374};
 constexpr CODY2D::Rect kHeadingBounds{73, 94, 320, 28};
 constexpr CODY2D::Rect kPageBounds{73, 128, 320, 26};
 constexpr CODY2D::Rect kNameBounds{73, 162, 320, 54};
 constexpr CODY2D::Rect kToggleBounds{113, 226, 240, 52};
-#if !defined(CODY_DEVICE_UI_ONLY)
 constexpr CODY2D::Rect kSubscreensBounds{113, 289, 240, 48};
-#endif
 constexpr CODY2D::Rect kStatusBounds{73, 344, 320, 30};
+#endif
 constexpr uint16_t kWhite = 0xF7BE;
 constexpr uint16_t kMuted = 0x9CF3;
 constexpr uint16_t kCyan = 0x6F9E;
@@ -34,6 +41,7 @@ esp_err_t result(const char *operation, esp_err_t error)
     return error;
 }
 
+#if !defined(CODY_DEVICE_UI_ONLY)
 // catalog: Ordered editor descriptors.
 // id: Entry to locate by stable identity.
 template <typename Id, std::size_t Size>
@@ -46,15 +54,17 @@ std::size_t catalog_index(const std::array<WidgetDescriptor<Id>, Size> &catalog,
     }
     return Size;
 }
+#endif
 
 // font: Immutable native glyphs.
 // text: Nonempty ASCII caption retained through frame retirement.
 // bounds: Logical centering area within the circular display.
 // color: Native RGB565 foreground.
 // line: Prepared borrowed text line.
+// left_aligned: Align a row label to the left edge of its slot.
 // Exception: Returns a font or layout error if the full caption cannot fit.
 esp_err_t prepare_line(const CODY2D::MonoFont &font, const char *text, CODY2D::Rect bounds,
-    uint16_t color, CODY2D::TextLine &line)
+    uint16_t color, CODY2D::TextLine &line, bool left_aligned = false)
 {
     const auto length = std::strlen(text);
     if (length == 0 || length > 32 || font.height > bounds.height) {
@@ -70,7 +80,7 @@ esp_err_t prepare_line(const CODY2D::MonoFont &font, const char *text, CODY2D::R
         return ESP_ERR_INVALID_SIZE;
     }
     return CODY2D::prepare_text_line(font, span,
-        {static_cast<int16_t>(bounds.x + (bounds.width - width) / 2U),
+        {static_cast<int16_t>(bounds.x + (left_aligned ? 0U : (bounds.width - width) / 2U)),
          static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2U)}, color, line);
 }
 
@@ -101,8 +111,17 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
             return result("draw caption", error);
         }
     }
+#if defined(CODY_DEVICE_UI_ONLY)
+    for (const auto &row : view.rows) {
+        if (row.screen == WidgetScreen::Device) continue;
+        error = CODY2D::draw_capsule_rows(row.control, strip, first_row, first_column);
+        if (error == ESP_OK) {
+            error = CODY2D::draw_text_rows(row.status, row.status.text.length, strip, first_row, first_column);
+        }
+        if (error != ESP_OK) break;
+    }
+#else
     error = CODY2D::draw_capsule_rows(view.toggle, strip, first_row, first_column);
-#if !defined(CODY_DEVICE_UI_ONLY)
     if (error == ESP_OK && view.subscreens_visible) {
         error = CODY2D::draw_capsule_rows(view.subscreens, strip, first_row, first_column);
     }
@@ -123,7 +142,96 @@ void attach_content(const WidgetVisibilityView &view, SceneContent &content)
 
 } // namespace
 
-// screen: Selected configurable statistics page in firmware, or legacy root entry.
+#if defined(CODY_DEVICE_UI_ONLY)
+// page: Zero-based group of configurable screens.
+// visibility: Last confirmed visibility policy.
+// saving: True while the settings owner persists a change.
+// save_failed: True when the latest save failed.
+// load_failed: True when there is no confirmed policy.
+// title_font: Native heading glyphs.
+// body_font: Native row and status glyphs.
+// view: Display-owned layout retired before the next mutation.
+// content: Receives the editor's central render slot.
+// Exception: Preserves the original policy, layout or caption failure.
+esp_err_t prepare_widget_visibility_view(uint8_t page, const WidgetVisibility &visibility,
+    bool saving, bool save_failed, bool load_failed, const CODY2D::MonoFont &title_font,
+    const CODY2D::MonoFont &body_font, WidgetVisibilityView &view, SceneContent &content)
+{
+    if (page >= kVisibilityPageCount || !valid_widget_visibility(visibility)) {
+        return result("page or settings policy", ESP_ERR_INVALID_ARG);
+    }
+    if (view.valid && view.page == page && view.visibility.screen_mask == visibility.screen_mask &&
+        view.saving == saving && view.save_failed == save_failed && view.load_failed == load_failed &&
+        view.title_font == &title_font && view.body_font == &body_font) {
+        attach_content(view, content);
+        return ESP_OK;
+    }
+    if (view.revision == std::numeric_limits<uint32_t>::max()) {
+        return result("view revision", ESP_ERR_INVALID_STATE);
+    }
+    view.valid = false;
+    view.rows = {};
+    const char *status = load_failed ? "  Settings unavailable" :
+        saving ? "  Saving..." : save_failed ? "  Could not save" : "";
+    const int written = std::snprintf(view.page_index, sizeof(view.page_index), "%u/%u%s",
+        static_cast<unsigned>(page) + 1U, static_cast<unsigned>(kVisibilityPageCount), status);
+    if (written <= 0 || static_cast<size_t>(written) >= sizeof(view.page_index)) {
+        return result("format page index", ESP_ERR_INVALID_SIZE);
+    }
+    auto error = prepare_line(title_font, "Visible screens", kHeadingBounds, kWhite, view.captions[0]);
+    if (error == ESP_OK) {
+        error = prepare_line(body_font, view.page_index, kStatusBounds,
+            load_failed || save_failed ? kAmber : kMuted, view.captions[1]);
+    }
+    const size_t first = 1U + page * kVisibilityRowsPerPage;
+    for (size_t row_index = 0; error == ESP_OK && row_index < view.rows.size() &&
+         first + row_index < kWidgetScreens.size(); ++row_index) {
+        const auto &descriptor = kWidgetScreens[first + row_index];
+        const bool visible = !load_failed && widget_visible(visibility, descriptor.id);
+        const auto top = static_cast<uint16_t>(kRowTop + row_index * kRowStep);
+        auto &row = view.rows[row_index];
+        row.screen = descriptor.id;
+        row.control.bounds = {93, top, 280, kRowHeight};
+        row.control.enabled = !saving && !load_failed;
+        row.control.corner_radius = 12;
+        row.control.top_color = visible ? 0x1147 : 0x18E5;
+        row.control.bottom_color = visible ? 0x08C4 : 0x10A3;
+        row.control.border_color = visible ? 0x2B4F : 0x4A8C;
+        error = prepare_line(body_font, descriptor.label, {105, top, 174, kRowHeight},
+            kWhite, row.control.caption, true);
+        if (error == ESP_OK) {
+            error = prepare_line(body_font, load_failed ? "N/A" : visible ? "Visible" : "Hidden",
+                {279, top, 86, kRowHeight}, visible ? 0x5FF1 : kMuted, row.status);
+        }
+    }
+    if (error != ESP_OK) return result("prepare screen list", error);
+
+    view.page = page;
+    view.visibility = visibility;
+    view.saving = saving;
+    view.save_failed = save_failed;
+    view.load_failed = load_failed;
+    view.title_font = &title_font;
+    view.body_font = &body_font;
+    ++view.revision;
+    view.valid = true;
+    attach_content(view, content);
+    return ESP_OK;
+}
+
+// view: Editor state associated with the fully retired frame.
+// point: Logical touch point in the current display orientation.
+std::optional<size_t> widget_visibility_row_at(const WidgetVisibilityView &view, CODY2D::Point point)
+{
+    if (view.valid) {
+        for (size_t index = 0; index < view.rows.size(); ++index) {
+            if (CODY2D::capsule_contains(view.rows[index].control, point)) return index;
+        }
+    }
+    return std::nullopt;
+}
+#else
+// screen: Selected legacy root entry.
 // panel: Selected legacy Cody child entry.
 // children: True when editing legacy Cody child preferences.
 // visibility: Confirmed settings policy.
@@ -135,10 +243,7 @@ void attach_content(const WidgetVisibilityView &view, SceneContent &content)
 // view: Persistent display-owned editor view.
 // content: Receives the bounded central renderer.
 // Exception: Preserves original validation, layout or native preparation errors.
-esp_err_t prepare_widget_visibility_view(WidgetScreen screen,
-#if !defined(CODY_DEVICE_UI_ONLY)
-    CompanionPanel panel, bool children,
-#endif
+esp_err_t prepare_widget_visibility_view(WidgetScreen screen, CompanionPanel panel, bool children,
     const WidgetVisibility &visibility, bool saving, bool save_failed, bool load_failed,
     const CODY2D::MonoFont &title_font, const CODY2D::MonoFont &body_font,
     WidgetVisibilityView &view, SceneContent &content)
@@ -146,17 +251,6 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen,
     if (!valid_widget_visibility(visibility)) {
         return result("settings policy", ESP_ERR_INVALID_ARG);
     }
-#if defined(CODY_DEVICE_UI_ONLY)
-    const auto index = catalog_index(kWidgetScreens, screen);
-    if (index == 0 || index >= kWidgetScreens.size()) {
-        return result("catalog selection", ESP_ERR_INVALID_ARG);
-    }
-    const auto count = kWidgetScreens.size() - 1U;
-    const auto page = index;
-    const char *const heading = "Visible screens";
-    const char *const label = kWidgetScreens[index].label;
-    const bool same_selection = view.screen == screen;
-#else
     const auto count = children ? kWidgetPanels.size() : kWidgetScreens.size();
     const auto index = children ? catalog_index(kWidgetPanels, panel) : catalog_index(kWidgetScreens, screen);
     if (index >= count) {
@@ -167,7 +261,6 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen,
     const char *const label = children ? kWidgetPanels[index].label : kWidgetScreens[index].label;
     const bool same_selection = view.screen == screen && view.panel == panel && view.children == children &&
         view.visibility.panel_mask == visibility.panel_mask;
-#endif
     if (view.valid && same_selection && view.visibility.screen_mask == visibility.screen_mask &&
         view.saving == saving && view.save_failed == save_failed && view.load_failed == load_failed &&
         view.title_font == &title_font && view.body_font == &body_font) {
@@ -196,14 +289,9 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen,
         return result("prepare heading", error);
     }
 
-#if defined(CODY_DEVICE_UI_ONLY)
-    const bool enabled = widget_visible(visibility, screen);
-    constexpr bool can_toggle = true;
-#else
     const bool enabled = children ? widget_panel_enabled(visibility, panel) : widget_visible(visibility, screen);
     WidgetVisibility candidate = visibility;
     const bool can_toggle = children || set_widget_visibility(candidate, screen, !enabled);
-#endif
     view.toggle = {};
     view.toggle.bounds = kToggleBounds;
     view.toggle.enabled = !saving && !load_failed && can_toggle;
@@ -217,7 +305,6 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen,
         return result("prepare visibility toggle", error);
     }
 
-#if !defined(CODY_DEVICE_UI_ONLY)
     view.subscreens_visible = !children && screen == WidgetScreen::Cody;
     if (view.subscreens_visible) {
         view.subscreens = {};
@@ -231,7 +318,6 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen,
             return result("prepare subscreens control", error);
         }
     }
-#endif
 
     const char *status = nullptr;
     if (load_failed) {
@@ -253,10 +339,8 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen,
 
     view.visibility = visibility;
     view.screen = screen;
-#if !defined(CODY_DEVICE_UI_ONLY)
     view.panel = panel;
     view.children = children;
-#endif
     view.saving = saving;
     view.save_failed = save_failed;
     view.load_failed = load_failed;
@@ -278,12 +362,11 @@ WidgetVisibilityControl widget_visibility_control_at(const WidgetVisibilityView 
     if (CODY2D::capsule_contains(view.toggle, point)) {
         return WidgetVisibilityControl::Toggle;
     }
-#if !defined(CODY_DEVICE_UI_ONLY)
     if (view.subscreens_visible && CODY2D::capsule_contains(view.subscreens, point)) {
         return WidgetVisibilityControl::OpenChildren;
     }
-#endif
     return WidgetVisibilityControl::None;
 }
+#endif
 
 } // namespace CODY

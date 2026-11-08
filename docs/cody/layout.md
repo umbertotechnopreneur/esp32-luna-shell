@@ -34,6 +34,7 @@ admitted at the same time. Captions have no typewriter timing or character audio
 | Third action for PC management | (153,376,160,52) |
 | Connections actions | 54-pixel glyphs at (148,219) and (318,219), with 140 × 168 touch areas |
 | Options and category rows | Up to three at x=93, width 280, height 72, y=130/210/290 |
+| Visible screens | Three Options-sized rows, name on the left and visibility on the right, with page and save status below |
 | Options footer | (123,382,220,52), with an outline home glyph next to Go home |
 | Restart / factory reset confirmation | Cancel at (93,270,280,64), confirmation at (123,382,220,52) |
 | Visibility toggle | (113,226,240,52) |
@@ -98,6 +99,8 @@ Both QR screens keep their white area within the square code tile.
 | 06 | Phone download glyph, app name at y=139, installation QR 192 x 192 at (137,165), App Store caption at y=360, and Show pairing QR footer |
 | 07 | Bluetooth glyph, title at y=115, and session QR 204 x 204 at (131,182) while ReadyToScan |
 | 10 / Options | Title at y=82, up to three enlarged rows, lateral paging arrows, and the Go home footer at y=382 |
+| 12 / Pair Codex | Title at y=88, link glyph at (205,148,56,56), and the six-character code at y=236 when ready |
+| 14 / Waiting for PC | Same heading and glyph slot as Pair Codex, with two status lines and Later |
 | 11 / Skin | Preview (233,172,44), title y=78, viewport (117,226,232,126), Done (123,386,220,48) |
 | 42 / Wi-Fi offline | Amber offline glyph, title at y=180, Set up Wi-Fi at (93,272,280,58), and Later at (153,350,160,50) |
 
@@ -110,6 +113,10 @@ Use integer modules and four white quiet modules. Payload/modules belong to the
 current attempt; stale data cannot authorize presentation.
 The QR journey uses captioned forward actions. Screens 05 and 06 expose lateral
 Back. Screen 06 also accepts a previous-route swipe.
+The Codex link glyph pulses during code preparation and while searching on a
+usable LAN. The pulse repaints only its small display region. A ready code
+stays visible above its instructions. A pairing error replaces the link with
+an amber retry glyph and preserves the reported error.
 
 ## Companion panels, status and Debug
 
@@ -269,6 +276,15 @@ control and uses integer modules with a four-module quiet zone. A shake returns
 to the first enabled statistics screen. Rasterization and touch share the
 current logical rotation.
 
+Device groups the observed Codex, Wi-Fi and battery states into three flat
+icon rows. The followed chat and Record voice appear when their observations
+and controls are current.
+
+Reset uses four flip tiles while it has a valid duration. A clock glyph and a
+single status occupy that area when it has no duration. Limits and Credits
+center the available metric when only one is reported. Last 7 Days labels
+partial coverage and distinguishes a measured zero from a missing day.
+
 Token History uses an ECG-style grid and connects only adjacent measured
 15-minute intervals. Its central control cycles through 1, 5 and 24 hours.
 It starts at 5 hours. Missing intervals are gaps and measured zero is a real
@@ -276,8 +292,9 @@ point at the baseline. The labels use the configured local zone when both
 endpoints can be projected. ACCOUNT identifies changes in the service-reported
 account counter, preferring lifetime tokens to a daily bucket. Provider lag
 can shift when these changes are observed. The grid appears only when the
-selected range contains a real point; otherwise a collection, stale or missing
-state replaces it. Context measurements are separate from the account series.
+selected range contains a real point. In other cases a clock glyph and the
+collection, stale or missing state occupy the plot area. Context measurements
+are separate from the account series.
 
 ## System information
 
@@ -305,7 +322,8 @@ observation. Presentation does not sample hardware or create another collector.
 
 ## Optional screensaver
 
-Options > Behavior > More behavior exposes Screensaver, initially Off. After
+Options > Behavior > More behavior uses an outline motion glyph and a short
+idle animation hint above the Screensaver setting, initially Off. After
 fifteen idle seconds on an unobstructed dashboard, a softly colored globe
 fills the otherwise black display. There is no text, quota perimeter or
 navigation chrome while it is active. The animation runs at eight frames per

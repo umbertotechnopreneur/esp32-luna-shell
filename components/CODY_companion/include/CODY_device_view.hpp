@@ -19,6 +19,26 @@ struct PlainView {
     bool valid = false;
 };
 
+// A flat Device dashboard uses its own prepared glyphs and one optional action.
+struct DeviceOverviewView {
+    struct Row {
+        std::array<char, 16> value{};
+        CODY2D::TextLine label{};
+        CODY2D::TextLine status{};
+        CODY2D::ActionIcon icon = CODY2D::ActionIcon::None;
+        uint16_t color = 0;
+    };
+    std::array<Row, 3> rows{};
+    std::array<char, 30> chat{};
+    CODY2D::TextLine heading{};
+    CODY2D::TextLine chat_line{};
+    CODY2D::CapsuleControl record{};
+    uint32_t revision = 0;
+    int16_t battery_level = -1;
+    bool valid = false;
+};
+static_assert(sizeof(DeviceOverviewView) <= 640, "Keep the flat dashboard preparation bounded");
+
 struct DeviceChrome {
     std::array<char, 32> battery_text{};
     std::array<char, 32> saved_text{};
@@ -33,6 +53,7 @@ struct DeviceChrome {
 struct DeviceView {
     ScreensaverPresentation screensaver{};
     PlainView plain{};
+    DeviceOverviewView overview{};
     DeviceChrome chrome{};
     ResetCountdownScreen countdown{};
     AccountDashboardPresentation account{};

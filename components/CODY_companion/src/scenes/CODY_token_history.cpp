@@ -20,6 +20,7 @@ constexpr DamageRect kContentBounds{73, 73, 393, 348};
 constexpr CODY2D::Rect kControlBounds{123, 359, 220, 50};
 constexpr DamageRect kControlDamage{123, 359, 343, 409};
 constexpr CODY2D::Rect kChart{83, 161, 300, 126};
+constexpr CODY2D::Rect kWaitingIcon{205, 164, 56, 56};
 constexpr uint16_t kBaseline = 279;
 constexpr uint16_t kPlotHeight = 110;
 constexpr int64_t kQuarterSeconds = 900;
@@ -207,6 +208,11 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     esp_err_t error = CODY2D::validate_surface(strip);
     if (error != ESP_OK) { return result("draw tile", error); }
     error = draw_plot(presentation, strip, first_row, first_column);
+    if (error == ESP_OK && presentation.bin_count == 0) {
+        const uint16_t color = presentation.source_state == SourceState::Stale ? kAmber : kCyan;
+        error = CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::Clock, kWaitingIcon, color,
+            strip, first_row, first_column);
+    }
     for (uint8_t index = 0; error == ESP_OK && index < presentation.caption_count; ++index) {
         const auto &line = presentation.captions[index].line;
         error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
@@ -306,9 +312,7 @@ esp_err_t prepare_plot(TokenHistoryPresentation &presentation, const LUNASHELL::
         const bool collecting = known_start && snapshot.anchor_quarter == first_observed;
         const char *status = stale ? "ACCOUNT SAMPLES ARE STALE" :
             collecting ? "COLLECTING ACCOUNT USAGE" : "NO ACCOUNT SAMPLES IN RANGE";
-        esp_err_t error = add_caption(presentation, font, status, {73, 195, 320, 28}, stale ? kAmber : kMuted);
-        if (error != ESP_OK) { return error; }
-        return add_caption(presentation, font, "ONE POINT EVERY 15 MIN", {73, 235, 320, 28}, kMuted);
+        return add_caption(presentation, font, status, {73, 241, 320, 28}, stale ? kAmber : kWhite);
     }
     presentation.bar_width = static_cast<uint8_t>(std::clamp<unsigned>(kChart.width / count / 2U, 1, 18));
     for (uint8_t index = 0; index < count; ++index) {
@@ -413,15 +417,19 @@ esp_err_t prepare_token_history(TokenHistoryInterval interval,
     esp_err_t error = add_caption(presentation, title_font, "TOKEN ACTIVITY", {73, 78, 320, 46}, kCyan);
     if (error != ESP_OK) { return result("prepare title", error); }
     if (!has_range) {
-        error = add_caption(presentation, body_font, "NO ACCOUNT SAMPLES YET", {73, 212, 320, 28}, kMuted);
+        const bool stale = source == SourceState::Stale;
+        const char *status = stale ? "ACCOUNT SAMPLES ARE STALE" : "NO ACCOUNT SAMPLES YET";
+        error = add_caption(presentation, body_font, status, {73, 241, 320, 28}, stale ? kAmber : kWhite);
     } else {
         const auto oldest = static_cast<uint32_t>(first_epoch / kQuarterSeconds);
         error = prepare_plot(presentation, snapshot, oldest, selected.bins, local_time ? local : nullptr);
     }
     if (error != ESP_OK) { return result("prepare chart", error); }
-    const char *legend = presentation.bin_count == 0 ? "15 MIN ACCOUNT OBSERVATIONS" :
+    const bool has_plot = presentation.bin_count != 0;
+    const char *legend = !has_plot ? "15 MIN ACCOUNT OBSERVATIONS" :
         local_time ? "15 MIN LOCAL | GAP: MISSING" : "15 MIN UTC | GAP: MISSING";
-    error = add_caption(presentation, body_font, legend, {73, 321, 320, 25}, kMuted);
+    const uint16_t legend_top = has_plot ? 321 : 288;
+    error = add_caption(presentation, body_font, legend, {73, legend_top, 320, 25}, kMuted);
     if (error != ESP_OK) { return result("prepare legend", error); }
 
     error = prepare_caption(presentation.interval_label, body_font, selected.caption, kControlBounds, kWhite);
