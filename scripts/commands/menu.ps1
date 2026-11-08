@@ -178,7 +178,7 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
             if ($selected -eq 'relay') {
                 $relayChoices = [ordered]@{}
                 $index = 0
-                foreach ($operation in @('configure','status','build','provision','publish','deploy','expose','close','recover','check')) {
+                foreach ($operation in @('configure','status','build','preview','provision','publish','deploy','expose','close','recover','check')) {
                     $index++
                     $relayChoices[[string]$index] = @{ Emoji = '☁️'; Label = $operation; Description = 'Explicit private relay operation'; Value = $operation }
                 }

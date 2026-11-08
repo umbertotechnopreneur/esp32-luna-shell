@@ -44,7 +44,7 @@ param(
     [string]$BoardConfig,
     [string]$RelayHost,
     [string]$RelayRoot,
-    [ValidateSet('configure','status','build','provision','publish','deploy','expose','close','recover','check')]
+    [ValidateSet('configure','status','build','preview','provision','publish','deploy','expose','close','recover','check')]
     [string]$RelayOperation = 'status',
     [string]$RelayConfig,
     [string]$RelayRevision,

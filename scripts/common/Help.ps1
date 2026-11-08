@@ -59,7 +59,7 @@ function Show-DeviceHelp {
 
     Write-DeviceHelpSection -Title 'PRIVATE RELAY' -Icon '☁️' -Width $width
     Write-DeviceHelpEntry -Syntax 'device.ps1 relay -RelayOperation status -RelayConfig <private.json>' -Description 'Inspect the separate private relay deployment. Use RelayRoot for a non-sibling checkout.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'device.ps1 relay -RelayOperation configure|build|provision|publish|deploy -RelayConfig <private.json> -Jobs 8' -Description 'Use the private Aspire AppHost and azd on Windows. Configure selects the azd environment. Deploy provisions, publishes current source, and replaces the stopped writer with ingress closed.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'device.ps1 relay -RelayOperation deploy -RelayConfig <private.json> -Jobs 8' -Description 'Run Aspire CLI from the private solution directory on Windows. Deploy replaces the stopped writer with external ingress closed.' -Width $width
     Write-DeviceHelpEntry -Syntax 'device.ps1 relay -RelayOperation expose|close|check -RelayConfig <private.json>' -Description 'Explicitly open HTTPS, close ingress, or perform one authorized HTTPS check from this host.' -Width $width
     Write-DeviceHelpEntry -Syntax 'device.ps1 relay -RelayOperation recover -RelayConfig <private.json> -RelayRevision <name>' -Description 'Stop all writers before reactivating the selected existing revision. Ingress stays closed.' -Width $width
     Write-DeviceHelpSection -Title 'FIRMWARE' -Icon '🔨' -Width $width -Color Cyan

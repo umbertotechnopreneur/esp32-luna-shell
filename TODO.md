@@ -13,14 +13,11 @@
 
 - Keep the independently versioned proprietary server outside the public Git
   index. Public documentation contains only architecture and integration limits.
-- Validate the unified `device.ps1 relay` workflow against the private Aspire
-  AppHost and azd environment. Use the designated Windows release host, stage new
-  dependencies and verify provisioning reuses the intended shared resources.
-  Cover ingress control, exact HTTPS origin, TCP probes, stopped old replicas,
-  deployed revision identity, failed publication and explicit recovery. AppHost
-  compilation and real Azure/SMB release acceptance remain pending.
-- After explicit authorization, stage and scan new dependencies, compile on the
-  native platform, and exercise account/device isolation, pairing races, DPoP
+- Exercise failed publication and explicit recovery through the unified
+  `device.ps1 relay` workflow while preserving the single writer and SMB state.
+- Exercise the direct Aspire CLI deployment against the existing app during
+  the next release. The AppHost pipeline can be listed from the solution root.
+- After explicit authorization, exercise account/device isolation, pairing races, DPoP
   replay, token rotation, lost responses, revocation, expiry and bounded queues.
 - Verify Windows and Linux separately against the actual SMB/Samba mount,
   including cross-host exclusion, interrupted writes, disconnect/reconnect,
@@ -28,13 +25,8 @@
 - Verify the operator portal and connect the remote MCP plugin to Dot through a
   supported client authentication route. Verify actual notification calls and
   acknowledgements.
-- Verify the first HTTPS liveness request from the selected Dot execution host.
-  Cloud-only acceptance must use Dot's cloud computer and a compatible ingress
-  policy. Record the source host with the result.
-- Provision standard OS-mounted SMB storage with one relay instance, private
-  mount credentials, share identity, bounded logs and explicit
-  initialization. Keep runtime persistence on the share. Verify server
-  locks, flush and atomic replacement before deployment; no Azure APIs are used.
+- Confirm HTTPS liveness from Dot's cloud computer after the DNS failure.
+  Record the source host with the result.
 - Verify the normal Aspire dashboard, HTTPS, operator-only console access and
   authenticated OTLP after relay publication. Aspire's own local working files
   are allowed. Service state and durable logs remain on SMB.

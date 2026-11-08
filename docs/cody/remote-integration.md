@@ -3,7 +3,8 @@
 Cody Companion uses authenticated CCP on the local Wi-Fi network. Luna Shell is
 the separate Brookesia interface on the same hardware platform. The private Cody
 Cloud relay is intended to connect an authorized remote agent to Cody Companion.
-The Azure host is provisioned with a placeholder image and ingress disabled.
+The relay runs on Azure Container Apps. Its HTTPS liveness route is separate
+from the authenticated MCP, device and administrator routes.
 
 ```mermaid
 flowchart LR
@@ -19,11 +20,11 @@ flowchart LR
     dot["Your dot / cloud computer or connected PC"]
 
     subgraph azure["Azure hosting"]
-        relay["Cody Cloud Container App / placeholder"]
+        relay["Cody Cloud Container App"]
         registry["Shared private image registry"]
         smb["Private Azure Files SMB directory"]
         logs["Shared environment logging"]
-        registry -.->|Relay image after publication| relay
+        registry -->|Private relay image| relay
         relay -->|Volume mount configured| smb
         relay -->|Environment logs| logs
     end
@@ -100,12 +101,12 @@ keys. Validate the actual Dot route and tool permissions before enabling writes.
 The first application deployment must supply the image, complete configuration,
 process-environment credentials and provisioned SMB state together. Startup
 validates configuration and acquires the state lock before accepting HTTP
-requests. Use the standard Windows PowerShell, .NET, Aspire and azd tools through
+requests. Use the standard Windows PowerShell, .NET and Aspire tools through
 `scripts/device.ps1 relay`. The private Aspire AppHost describes the existing
-Container App; azd handles packaging, provisioning and publication from current
+Container App. The Aspire CLI handles packaging, provisioning and publication from current
 source. Stage official dependencies under the repository's first-import rules.
 Linux remains the Azure workload target, whose runtime and SMB behavior require
-their own acceptance. See the [release commands](../../scripts/README.md#private-relay-through-aspire-and-azd).
+their own acceptance. See the [release commands](../../scripts/README.md#private-relay-through-aspire).
 
 The publisher needs explicit control over exposure. Prepare the relay with
 external ingress disabled, then activate the approved HTTPS origin after its

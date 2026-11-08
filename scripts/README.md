@@ -217,36 +217,32 @@ for another artifact destination and `-WaitSeconds` for the response deadline.
 The firmware must include the explicit reader; see
 [battery runtime recording](../docs/bsp/services/power-management.md#battery-only-runtime-recording).
 
-## Private relay through Aspire and azd
+## Private relay through Aspire
 
-The `relay` command delegates to the separate private `cody-cloud` checkout.
-Its `azure.yaml` selects the Aspire AppHost. Aspire owns Azure resource
-definitions, and azd performs packaging, provisioning and image publication.
+The `relay` command runs the Aspire CLI from the separate private `cody-cloud`
+solution directory. `aspire.config.json` selects the AppHost, which defines
+the existing Azure target and its service configuration.
 Select **Private relay** in the menu or use the same public CLI.
 
 ```powershell
 ./scripts/device.ps1 relay -RelayOperation status -RelayConfig '<private deployment JSON>'
-./scripts/device.ps1 relay -RelayOperation configure -RelayConfig '<private deployment JSON>'
-./scripts/device.ps1 relay -RelayOperation build -RelayConfig '<private deployment JSON>' -BuildMode Release -Jobs 8
-./scripts/device.ps1 relay -RelayOperation deploy -RelayConfig '<private deployment JSON>' -BuildMode Release -Jobs 8
+./scripts/device.ps1 relay -RelayOperation deploy -RelayConfig '<private deployment JSON>'
 ./scripts/device.ps1 relay -RelayOperation expose -RelayConfig '<private deployment JSON>'
 ./scripts/device.ps1 relay -RelayOperation check -RelayConfig '<private deployment JSON>'
 ```
 
 Use `-RelayRoot` if the private checkout is not a sibling directory. The private
-example config supplies the target fields. `configure` prepares the local azd
-environment. `build` packages current source through azd. `provision` and
-`publish` expose those individual azd stages. `deploy` provisions the Aspire
-model and calls `azd deploy` to package, publish and deploy current source.
-Build operations use Release through the standard Windows .NET, Aspire and azd tools.
+example config supplies the target fields. `deploy` runs `aspire deploy` once
+through the existing AppHost to build and release current source from Windows.
+The separate azd operations remain available for existing operator workflows.
 
 Every Azure transition runs on one configured deployment host under a named
 mutex. The command closes ingress, deactivates old revisions and waits until
-their replica lists are empty before starting a replacement. azd lifecycle
-hooks enforce this precondition. Provisioning may start an infrastructure
-revision, which is stopped before application deployment. Successful deploys
+their replica lists are empty before starting a replacement. The script
+enforces this precondition for Aspire and the separate azd operations. Successful deploys
 leave ingress closed. `expose` selects the healthy revision and enables the
-approved HTTPS hostname. `close` disables ingress. An explicit
+approved HTTPS hostname. `close` restricts ingress to the Azure environment.
+An explicit
 `recover -RelayRevision <existing-name>` stops current writers before activating
 the selected revision and keeps external ingress closed.
 
