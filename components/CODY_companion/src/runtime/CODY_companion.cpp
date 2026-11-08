@@ -3877,7 +3877,8 @@ esp_err_t draw_widget_rows(uint32_t revision, int64_t now_us, bool force_full,
         if (error != ESP_OK) {
             return error;
         }
-        const size_t max_rows = (capacity / (width * sizeof(uint16_t))) & ~size_t{1};
+        // The DMA lease caps transfer height in full panel rows, even for a narrow rectangle.
+        const size_t max_rows = (capacity / (kPanelWidth * sizeof(uint16_t))) & ~size_t{1};
         if (storage == nullptr || max_rows == 0 ||
             reinterpret_cast<uintptr_t>(storage) % alignof(uint16_t) != 0) {
             return ESP_ERR_INVALID_SIZE;
