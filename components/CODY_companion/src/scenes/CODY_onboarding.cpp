@@ -161,13 +161,14 @@ enum class OnboardingAction : uint8_t {
     AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later, Options, KeepPairing, ReplacePairing,
     ForgetPairing, ConfirmForget, KeepSaved, DisplayOptions, BehaviorOptions, MoreBehavior,
     Connections, CodexStatistics, VisibleScreens, OpenPairingGuide, GoHome,
-    FactoryReset, ConfirmFactoryReset, LocalTimer, RestartDevice, ConfirmRestart,
+    FactoryReset, ConfirmFactoryReset, LocalTimer, RestartDevice, ConfirmRestart, QuickGuide,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
 enum class OptionsPage : uint8_t {
     Menu, MenuMore, MenuMaintenance, Display, Behavior, BehaviorMore,
-    RestartConfirm, RestartPending, ResetConfirm, ResetPending, ResetFailed
+    RestartConfirm, RestartPending, ResetConfirm, ResetPending, ResetFailed,
+    GuideButtons, GuideTouch, GuideOffline
 };
 
 struct ScreenInactivityPolicy {
@@ -834,12 +835,14 @@ esp_err_t enqueue_preference(PreferenceId preference, uint32_t value)
 // top: Logical caption baseline container, entirely inside the shared content chord.
 // line: Receives the prepared flash-font layout.
 // Exception: Returns ESP_ERR_INVALID_SIZE for empty, unsupported or out-of-canvas text.
-esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line)
+// max_width: Admitted caption width for this route; ordinary setup keeps its narrow slot.
+esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line,
+                          uint16_t max_width = kCaptionWidth)
 {
     const auto &font = SceneData::body_font;
     const size_t length = std::strlen(text);
     const uint32_t width = length == 0 ? 0 : (length - 1U) * font.advance + font.width;
-    if (length == 0 || length > 31 || width > kCaptionWidth || top + font.height > 466) {
+    if (length == 0 || length > 31 || width > max_width || top + font.height > 466) {
         ESP_LOGE(kTag, "Caption rejected: length=%u width=%lu top=%u (%s)",
                  static_cast<unsigned>(length), static_cast<unsigned long>(width), top,
                  esp_err_to_name(ESP_ERR_INVALID_SIZE));
@@ -965,6 +968,13 @@ bool on_maintenance_page()
         s_options_page == OptionsPage::ResetFailed);
 }
 
+// No parameters: guide pages are static Options content and never read preferences.
+bool on_quick_guide()
+{
+    return s_route == Route::MakeItYours10 && (s_options_page == OptionsPage::GuideButtons ||
+        s_options_page == OptionsPage::GuideTouch || s_options_page == OptionsPage::GuideOffline);
+}
+
 // action: Footer identity that requires a complete, released Options gesture.
 bool released_options_confirmation(OnboardingAction action)
 {
@@ -972,11 +982,12 @@ bool released_options_confirmation(OnboardingAction action)
         action == OnboardingAction::ConfirmRestart;
 }
 
-// No parameters: menu paging has its own destination, independent of the footer.
+// No parameters: Options and guide paging are independent of their footer actions.
 bool options_next_page_available()
 {
     return s_route == Route::MakeItYours10 && s_preference_error == ESP_OK &&
-        (s_options_page == OptionsPage::Menu || (kDeviceFirstSetup && s_options_page == OptionsPage::MenuMore));
+        (s_options_page == OptionsPage::Menu || (kDeviceFirstSetup && s_options_page == OptionsPage::MenuMore) ||
+         s_options_page == OptionsPage::GuideButtons || s_options_page == OptionsPage::GuideTouch);
 }
 
 // action: Stable action identity; the returned English label has flash lifetime.
@@ -1023,6 +1034,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         break;
     case OnboardingAction::LocalTimer:
         label = "Timer";
+        break;
+    case OnboardingAction::QuickGuide:
+        label = "Quick guide";
         break;
     case OnboardingAction::VisibleScreens:
         label = "Visible screens";
@@ -1479,7 +1493,7 @@ bool actions_ready(const SceneFrame &scene)
     if (scene.definition->title_visible && scene.visible_characters < title_length) {
         return false;
     }
-    if (s_view.line_count == 0) {
+    if (s_view.line_count == 0 || on_quick_guide()) {
         return true;
     }
     if (is_codex_event_route(s_route)) {
@@ -1559,7 +1573,7 @@ esp_err_t attach_content(SceneFrame &scene)
     if (s_route == Route::MakeItYours10) {
         content.bounds.left = kPreferenceLeft;
         content.bounds.right = kPreferenceLeft + kPreferenceWidth;
-        if (on_maintenance_page()) {
+        if (on_maintenance_page() || on_quick_guide()) {
             content.bounds.bottom = kOptionsFooterBounds.y;
         }
     }
@@ -1874,8 +1888,50 @@ const char *options_title()
     case OptionsPage::ResetConfirm: return "Factory reset";
     case OptionsPage::ResetPending: return "Resetting...";
     case OptionsPage::ResetFailed: return "Reset failed";
+    case OptionsPage::GuideButtons: return "Buttons 1/3";
+    case OptionsPage::GuideTouch: return "Touch 2/3";
+    case OptionsPage::GuideOffline: return "Offline 3/3";
     }
     return "Options";
+}
+
+// No parameters: prepare the guide page in the Options content slot.
+// Exception: Returns the original caption or footer layout error.
+esp_err_t prepare_quick_guide_content()
+{
+    constexpr const char *buttons[] = {
+        "BOOT opens Options", "PWR toggles standby", "Hold PWR 3s to power off",
+    };
+    constexpr const char *touch[] = {
+        "Tap to reveal arrows", "Shake returns home",
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        "Double tap stats: record", "Dictation On + Codex link",
+#else
+        "Voice not in this build",
+#endif
+    };
+    constexpr const char *offline[] = {
+        "Saved stats work offline", "Timer works offline", "Restart keeps settings",
+    };
+    static_assert(std::size(touch) <= kContentLineCapacity);
+    const char *const *lines = buttons;
+    size_t count = std::size(buttons);
+    if (s_options_page == OptionsPage::GuideTouch) {
+        lines = touch;
+        count = std::size(touch);
+    } else if (s_options_page == OptionsPage::GuideOffline) {
+        lines = offline;
+        count = std::size(offline);
+    }
+    for (size_t index = 0; index < count; ++index) {
+        const auto top = static_cast<uint16_t>(155U + index * 36U);
+        const auto error = prepare_caption(lines[index], top, s_view.lines[index], kPreferenceWidth);
+        if (error != ESP_OK) return error;
+        s_view.instant_lines[index] = true;
+        ++s_view.line_count;
+    }
+    const bool last_page = s_options_page == OptionsPage::GuideOffline;
+    return prepare_action(last_page ? OnboardingAction::Done : OnboardingAction::None, last_page);
 }
 
 // No parameters: prepare the requested restart or factory-reset page for the display owner.
@@ -2024,6 +2080,7 @@ esp_err_t prepare_options_content(SceneFrame &scene,
 {
     s_view.line_count = 0;
     s_view.preference_count = 0;
+    std::fill_n(s_view.instant_lines, kContentLineCapacity, false);
     const char *title = options_title();
     const uint16_t title_length = static_cast<uint16_t>(std::strlen(title));
     esp_err_t error = ESP_OK;
@@ -2037,6 +2094,9 @@ esp_err_t prepare_options_content(SceneFrame &scene,
     }
     if (on_maintenance_page()) {
         return prepare_maintenance_content();
+    }
+    if (on_quick_guide()) {
+        return prepare_quick_guide_content();
     }
     if (s_preference_error != ESP_OK) {
         std::snprintf(s_view.error_text, sizeof(s_view.error_text), "Error: 0x%lx",
@@ -2053,7 +2113,7 @@ esp_err_t prepare_options_content(SceneFrame &scene,
         constexpr OnboardingAction device_actions[] = {
             OnboardingAction::Connections, OnboardingAction::CodexStatistics, OnboardingAction::LocalTimer,
             OnboardingAction::VisibleScreens, OnboardingAction::DisplayOptions, OnboardingAction::BehaviorOptions,
-            OnboardingAction::RestartDevice, OnboardingAction::FactoryReset,
+            OnboardingAction::RestartDevice, OnboardingAction::FactoryReset, OnboardingAction::QuickGuide,
         };
         static_assert(std::size(device_actions) <= 3U * kPreferencesPerPage);
         const auto *actions = kDeviceFirstSetup ? device_actions : legacy_actions;
@@ -4538,7 +4598,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         }
         changed = true;
     }
-    if (s_route == Route::MakeItYours10 && !on_options_menu() && !on_maintenance_page() &&
+    if (s_route == Route::MakeItYours10 && !on_options_menu() && !on_maintenance_page() && !on_quick_guide() &&
         !s_command_pending && !have_result && s_preference_error == ESP_OK) {
         LUNASHELL::CodyOptionsObservation options;
         const esp_err_t options_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(options);
@@ -5058,6 +5118,7 @@ bool next_navigation_available()
 // No parameters: hidden lateral arrows do not retain invisible touch targets.
 bool previous_control_visible()
 {
+    if (on_quick_guide()) return s_view.actions_visible && options_back_available();
     if (is_codex_event_route(s_route)) {
         return s_view.actions_visible && previous_navigation_available();
     }
@@ -5083,8 +5144,10 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     if (s_timeout_cleanup.pending) {
         return ESP_OK;
     }
+    if (on_quick_guide() && !s_view.actions_visible) return ESP_OK;
+    const bool page_forward = direction == NavigationDirection::Next && !from_footer && options_next_page_available();
     const bool back_hit = direction == NavigationDirection::Previous && previous_navigation_available();
-    const bool action_hit = direction == NavigationDirection::Next && next_navigation_available();
+    const bool action_hit = page_forward || (direction == NavigationDirection::Next && next_navigation_available());
     if (!back_hit && !action_hit) {
         return ESP_OK;
     }
@@ -5092,8 +5155,9 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     if ((action_hit || cancel_hit) && !s_view.actions_visible) {
         return ESP_OK;
     }
+    const bool uses_captioned_action = (action_hit && !page_forward) || cancel_hit;
     if (s_command_pending || s_work_busy.load(std::memory_order_acquire) ||
-        ((action_hit || cancel_hit) && !s_view.action.enabled)) {
+        (uses_captioned_action && !s_view.action.enabled)) {
         return ESP_OK;
     }
     ScenePresentation presentation;
@@ -5152,6 +5216,9 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
             if (s_options_page == OptionsPage::MenuMore) parent = OptionsPage::Menu;
             if (s_options_page == OptionsPage::BehaviorMore) parent = OptionsPage::Behavior;
             if (on_maintenance_page()) parent = OptionsPage::MenuMaintenance;
+            if (s_options_page == OptionsPage::GuideButtons) parent = OptionsPage::MenuMaintenance;
+            if (s_options_page == OptionsPage::GuideTouch) parent = OptionsPage::GuideButtons;
+            if (s_options_page == OptionsPage::GuideOffline) parent = OptionsPage::GuideTouch;
             return show_options_page(scene, parent);
         }
         return enter_route(Route::SetupMenu, scene);
@@ -5177,6 +5244,12 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return finish_wifi_setup(scene, changed);
     }
     if (action_hit && s_route == Route::MakeItYours10) {
+        if (on_quick_guide()) {
+            if (from_footer) return show_options_page(scene, OptionsPage::MenuMaintenance);
+            if (!page_forward) return ESP_OK;
+            const auto next = s_options_page == OptionsPage::GuideButtons ? OptionsPage::GuideTouch : OptionsPage::GuideOffline;
+            return show_options_page(scene, next);
+        }
         if (on_maintenance_page()) {
             if (!from_footer) {
                 return ESP_OK;
@@ -5665,6 +5738,8 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                 case OnboardingAction::LocalTimer:
                     s_widget_open_request = WidgetOpenRequest::Timer;
                     return ESP_OK;
+                case OnboardingAction::QuickGuide:
+                    return show_options_page(scene, OptionsPage::GuideButtons);
                 case OnboardingAction::VisibleScreens:
                     s_widget_open_request = WidgetOpenRequest::Visibility;
                     return ESP_OK;
@@ -5739,7 +5814,8 @@ esp_err_t draw_onboarding_navigation(CODY2D::Surface strip, uint16_t first_row,
             opacity, background);
     }
     if (error == ESP_OK && next_control_visible()) {
-        error = draw_navigation_chevron(NavigationDirection::Next, !s_command_pending && s_view.action.enabled,
+        const bool enabled = !s_command_pending && (options_next_page_available() || s_view.action.enabled);
+        error = draw_navigation_chevron(NavigationDirection::Next, enabled,
             strip, first_row, first_column, opacity, background);
     }
     return error;

@@ -43,6 +43,11 @@ OPTIONS_ROW_STEP = 80
 OPTIONS_ROW_WIDTH = 280
 OPTIONS_ROW_HEIGHT = 72
 OPTIONS_PAGE_COUNT = 3
+QUICK_GUIDE = (
+    ("Buttons 1/3", ("BOOT opens Options", "PWR toggles standby", "Hold PWR 3s to power off")),
+    ("Touch 2/3", ("Tap to reveal arrows", "Shake returns home", "Double tap stats: record", "Dictation On + Codex link")),
+    ("Offline 3/3", ("Saved stats work offline", "Timer works offline", "Restart keeps settings")),
+)
 NAVIGATION_IDLE_SECONDS = 10
 NAVIGATION_FADE_SECONDS = 0.35
 PAGES = (
@@ -289,6 +294,7 @@ class DeviceStudioWindow:
         self.pairing_attempted = False
         self.page = 0
         self.options_page = 0
+        self.quick_guide_page = 0
         self.settings_page = 0
         self.standby = False
         self.touch = None
@@ -400,6 +406,27 @@ class DeviceStudioWindow:
         self.acknowledged = ()
         self.open("options")
 
+    # self: Studio navigation owner opening the guide from Options page 3.
+    def open_quick_guide(self):
+        self.quick_guide_page = 0
+        self.touch = None
+        self.targets.clear()
+        self.acknowledged = ()
+        self.open("quick_guide")
+
+    # self: Studio navigation owner retaining the current guide page.
+    # step: Direction selected by a lateral arrow.
+    def move_quick_guide(self, step):
+        page = self.quick_guide_page + step
+        if page < 0:
+            self.show_options_page(OPTIONS_PAGE_COUNT - 1)
+        elif page < len(QUICK_GUIDE):
+            self.quick_guide_page = page
+            self.touch = None
+            self.targets.clear()
+            self.acknowledged = ()
+            self.last_navigation = time.monotonic()
+
     # self: Studio navigation owner retaining the actual Options or dashboard caller.
     def open_local_timer(self):
         self.timer_return = self.route
@@ -455,6 +482,8 @@ class DeviceStudioWindow:
                 self.open("widgets")
             elif self.route in ("visibility", "connections", "display", "behavior", "restart", "factory_reset", "timer"):
                 self.show_options_page(self.options_page)
+            elif self.route == "quick_guide":
+                self.move_quick_guide(-1)
             elif self.route == "more_behavior":
                 self.open("behavior")
             elif self.route is WifiSetupRoute.PHONE_GUIDE:
@@ -721,6 +750,7 @@ class DeviceStudioWindow:
             rows = (
                 ("Restart device", lambda: self.open("restart")),
                 ("Factory reset", lambda: self.open("factory_reset")),
+                ("Quick guide", self.open_quick_guide),
             )
         self.draw_option_rows(draw, rows)
         self.button(draw, "Go home", 382, self.open_statistics, width=220, height=52,
@@ -731,6 +761,25 @@ class DeviceStudioWindow:
             if self.options_page < OPTIONS_PAGE_COUNT - 1:
                 next_page = (lambda: self.show_options_page(self.options_page + 1)) if opacity == 1 else None
                 self.sidebar(draw, 1, next_page, opacity)
+
+    # self: Studio preview of the three fixed guide pages.
+    # draw: Logical canvas before rotation.
+    # now: Monotonic time used for the same arrow fade as Options.
+    def draw_quick_guide(self, draw, now):
+        title, lines = QUICK_GUIDE[self.quick_guide_page]
+        label(draw, title, OPTIONS_TITLE_TOP, 34)
+        for index, line in enumerate(lines):
+            label(draw, line, 155 + index * 36, 19, MUTED)
+        last_page = self.quick_guide_page == len(QUICK_GUIDE) - 1
+        opacity = self.navigation_opacity(now)
+        if opacity > 0:
+            self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
+            if not last_page:
+                next_page = (lambda: self.move_quick_guide(1)) if opacity == 1 else None
+                self.sidebar(draw, 1, next_page, opacity)
+        if last_page:
+            self.button(draw, "Done", 382, lambda: self.show_options_page(OPTIONS_PAGE_COUNT - 1),
+                        width=220, height=52, caption_size=20)
 
     # self: Studio preview drawing its independently retained timer state.
     # draw: Logical canvas before rotation.
@@ -956,6 +1005,8 @@ class DeviceStudioWindow:
                 self.draw_restart(draw)
             elif self.route == "factory_reset":
                 self.draw_factory_reset(draw)
+            elif self.route == "quick_guide":
+                self.draw_quick_guide(draw, now)
             elif self.route == "visibility":
                 label(draw, "Visible screens", 103, 32)
                 name = PAGES[self.settings_page]

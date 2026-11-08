@@ -38,7 +38,8 @@ statistics page, with Device as the fallback.
 The dashboard and Options page arrows fade after ten seconds. A touch reveals
 them again. **Options 1/3** contains **Connections**, **Codex stats** and **Timer**.
 Page 2 contains **Visible screens**, **Display** and **Behavior**. Page 3 holds
-**Restart device** and **Factory reset**. Restart replays the boot and preserves
+**Restart device**, **Factory reset** and **Quick guide**. The guide previews the
+three fixed instruction pages and their lateral arrows. Restart replays the boot and preserves
 settings and the simulator association. Timer previews duration and sound selection, a running countdown
 and the finished state. Audible playback and hardware wake belong to the device.
 **Go home** on any page opens Reset countdown or the first enabled statistics
