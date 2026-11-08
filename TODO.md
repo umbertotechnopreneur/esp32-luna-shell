@@ -2,7 +2,7 @@
 
 ## Device information, effects and idle presentation
 
-- Compile the current firmware and execute the focused host checks when authorized.
+- Execute the focused host checks when authorized.
 - Verify System, Memory and Firmware pages, the terminal project QR, CPU baselines
   after standby, and unavailable/failed observations on the physical round display.
 - Verify event sounds with Sounds off/on, quiet hours, microphone failure, voice
@@ -12,8 +12,8 @@
   interruption, eight-frame-per-second limit and unchanged dim/standby deadlines.
 - Verify Options/Visible screens responsiveness during held touches and actual
   settings writes; compare display work and CPU with the screen resting.
-- Install the updated plugin when authorized and verify context across tool working
-  directories plus consecutive quarter-hour account-counter observations. Confirm
+- Reload the updated plugin and verify context across tool working directories
+  plus consecutive quarter-hour account-counter observations. Confirm
   the boot disk on a real restart; source inspection has not explained its absence.
 
 ## Codex reset countdown
