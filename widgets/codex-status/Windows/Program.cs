@@ -10,7 +10,10 @@ public static class Program
         if (args.FirstOrDefault() == "--memory-guard") return WindowsMemoryGuard.Run(args);
         try
         {
-            SetCurrentProcessExplicitAppUserModelID("biz.umbertogiacobbi.OpenAIUsage");
+            uint packageNameLength = 0;
+            const int noPackage = 15700;
+            if (GetCurrentPackageFullName(ref packageNameLength, 0) == noPackage)
+                SetCurrentProcessExplicitAppUserModelID("biz.umbertogiacobbi.OpenAIUsage");
             using var guard = WindowsMemoryGuard.Start();
             WinRT.ComWrappersSupport.InitializeComWrappers();
             Application.Start(initialization =>
@@ -29,4 +32,7 @@ public static class Program
     }
     [System.Runtime.InteropServices.DllImport("shell32.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
     private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", ExactSpelling = true)]
+    private static extern int GetCurrentPackageFullName(ref uint packageFullNameLength, nint packageFullName);
 }

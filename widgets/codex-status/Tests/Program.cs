@@ -69,13 +69,10 @@ try
     store.SaveSettings(settings);
     Check(store.LoadSettings().TimeZoneId == "UTC", "Settings persist atomically");
     var state = new UsageService(store).Build(parsed, settings, now);
-    Check(state.CreditValueLabel.Contains("Set purchase rate"), "No invented money conversion");
+    Check(state.CreditsLabel == "1,250.25", "Reported credit balance is displayed");
     Check(state.TodayTokensLabel == "—", "Missing current-day bucket is not invented as zero");
     var withToday=parsed with { Tokens=[new TokenDay("2026-11-02",1_000_000)] };
     Check(new UsageService(store).Build(withToday,settings,now).TodayTokensLabel=="1 M", "Today's reported bucket is separate from the completed seven-day average");
-    settings.CreditUnitPrice = .04m;
-    state = new UsageService(store).Build(parsed, settings, now);
-    Check(state.CreditValueLabel.Contains("50.01"), "Explicit purchase-cost estimate");
     settings.TimeZoneId = OperatingSystem.IsWindows() ? "SE Asia Standard Time" : "Asia/Ho_Chi_Minh";
     state = new UsageService(store).Build(parsed, settings, new DateTimeOffset(2026, 11, 1, 21, 0, 0, TimeSpan.Zero));
     Check(state.TokenEndDate == "2026-10-31", "Still-growing current UTC token bucket is excluded even after local midnight");

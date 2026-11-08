@@ -18,22 +18,13 @@ public sealed class WidgetSettings
 {
     public string CodexPath { get; set; } = "codex";
     public string? SelectedWindow { get; set; }
-    public decimal? CreditUnitPrice { get; set; }
-    public string Currency { get; set; } = "USD";
     public string TimeZoneId { get; set; } = TimeZoneInfo.Local.Id;
-    public bool ReduceMotion { get; set; }
     public bool AlwaysOnTop { get; set; }
-    public CodyBridgeSettings CodyBridge { get; set; } = new();
-    // No parameters: validates stored account and companion configuration without contacting either service.
-    // Exception: Throws ArgumentException or time-zone exceptions for invalid persisted values.
+    public bool ShowInTaskbar { get; set; } = true;
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(CodexPath)) throw new ArgumentException("Choose a Codex executable.");
-        if (CreditUnitPrice is < 0) throw new ArgumentException("Purchase price cannot be negative.");
-        if (Currency.Length != 3 || !Currency.All(char.IsAsciiLetter)) throw new ArgumentException("Use a three-letter currency code.");
         _ = TimeZoneInfo.FindSystemTimeZoneById(TimeZoneId);
-        if (CodyBridge is null) throw new ArgumentException("Cody companion settings are invalid.");
-        CodyBridge.Validate();
     }
 }
 
@@ -50,8 +41,6 @@ public sealed class WidgetState
     public long? ResetsAt { get; set; }
     public string ResetLabel { get; set; } = "Reset unavailable";
     public string CreditsLabel { get; set; } = "Unavailable";
-    public string CreditValueLabel { get; set; } = "Set purchase rate in Settings";
-    public string CreditNote { get; set; } = "Purchase-cost estimate, not cash value";
     public string AccessNote { get; set; } = "";
     public string AverageLabel { get; set; } = "Collecting quota history";
     public string ForecastLabel { get; set; } = "Not enough history";

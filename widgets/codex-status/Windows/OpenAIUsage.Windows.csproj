@@ -18,9 +18,12 @@
     <ApplicationIcon>../Branding/app-icon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../Shared/WidgetAbout.cs" Link="WidgetAbout.cs" />
     <Content Remove="mockup-*.png" />
     <Content Include="../Branding/app-icon.ico" Link="Branding/app-icon.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../Branding/app-icon-512.png" Link="Branding/app-icon-512.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../Branding/VibeWare.png" Link="Branding/VibeWare.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../Branding/VibeWare-LICENSE.txt" Link="Branding/VibeWare-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.6.4" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" />
     <ProjectReference Include="../Shared/OpenAIUsage.Core.csproj" />

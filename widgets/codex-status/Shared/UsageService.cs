@@ -46,11 +46,6 @@ public sealed class UsageService(Storage storage)
             TokenEndDate = tokenToday.AddDays(-1).ToString("yyyy-MM-dd"),
             AccessNote = usage.SpendBlocked ? "Account spending control reached." : usage.OrdinaryUsageAllowed == false ? "Included usage is currently blocked by the service." : ""
         };
-        if (!usage.UnlimitedCredits && usage.Credits is { } credits && settings.CreditUnitPrice is { } price)
-        {
-            try { state.CreditValueLabel = $"≈ {(credits * price).ToString("N2", CultureInfo.InvariantCulture)} {settings.Currency.ToUpperInvariant()}"; }
-            catch (OverflowException) { state.CreditValueLabel = "Purchase rate is too large"; }
-        }
         var currentTokens = Analytics.TokenSummary(usage.Tokens, tokenToday.AddDays(-7));
         state.TokensLabel = currentTokens.Total;
         state.TokenAverageLabel = currentTokens.Average;

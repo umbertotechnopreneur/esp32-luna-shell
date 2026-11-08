@@ -12,22 +12,13 @@ public sealed class TrayIcon : IDisposable
     private readonly nint window;
     private readonly nint icon;
     private readonly uint taskbarCreated;
-    private readonly Action show, about, settings, website, manifesto, exit, cody;
+    private readonly Action show, about, settings, website, manifesto, exit;
     private bool disposed;
     public bool IsAvailable { get; private set; }
 
-    // iconPath: Existing application icon for the native notification area.
-    // show: Restores the account strip.
-    // about: Opens application information.
-    // settings: Opens account preferences.
-    // website: Opens the existing personal site link.
-    // manifesto: Opens the existing VibeWare link.
-    // exit: Explicitly closes the widget lifetime.
-    // cody: Opens independent companion controls.
-    // Exception: Throws native registration errors without claiming the tray is available.
-    public TrayIcon(string iconPath, Action show, Action about, Action settings, Action website, Action manifesto, Action exit, Action cody)
+    public TrayIcon(string iconPath, Action show, Action about, Action settings, Action website, Action manifesto, Action exit)
     {
-        this.show=show; this.about=about; this.settings=settings; this.website=website; this.manifesto=manifesto; this.exit=exit; this.cody=cody;
+        this.show=show; this.about=about; this.settings=settings; this.website=website; this.manifesto=manifesto; this.exit=exit;
         procedure = OnMessage;
         var type = new WindowClass { Size=(uint)Marshal.SizeOf<WindowClass>(), Procedure=Marshal.GetFunctionPointerForDelegate(procedure),
             Instance=GetModuleHandle(null), ClassName=className };
@@ -61,8 +52,6 @@ public sealed class TrayIcon : IDisposable
         }
         return DefWindowProc(hwnd,message,wParam,lParam);
     }
-    // No parameters: dispatch only an explicit native menu selection.
-    // No exceptions: Native command failures are reported through the existing diagnostic owner.
     private void Menu()
     {
         nint menu=CreatePopupMenu();
@@ -71,13 +60,12 @@ public sealed class TrayIcon : IDisposable
         {
             AppendMenu(menu,0,1,"Open"); AppendMenu(menu,0x800,0,null);
             AppendMenu(menu,0,3,"About OpenAI Usage"); AppendMenu(menu,0,4,"Settings");
-            AppendMenu(menu,0,8,"Cody companion");
             AppendMenu(menu,0,5,"Website"); AppendMenu(menu,0,6,"VibeWare manifesto");
             AppendMenu(menu,0x800,0,null); AppendMenu(menu,0,7,"Exit");
             GetCursorPos(out var point); SetForegroundWindow(window);
             uint command=TrackPopupMenuEx(menu,0x100|2,point.X,point.Y,window,0);
             PostMessage(window,0,0,0);
-            switch(command) { case 1:show();break; case 3:about();break; case 4:settings();break; case 5:website();break; case 6:manifesto();break; case 7:exit();break; case 8:cody();break; }
+            switch(command) { case 1:show();break; case 3:about();break; case 4:settings();break; case 5:website();break; case 6:manifesto();break; case 7:exit();break; }
         }
         catch(Exception error) { Diagnostics.Record("tray.command.failed",error.GetType().Name+": "+error.Message); }
         finally { DestroyMenu(menu); }

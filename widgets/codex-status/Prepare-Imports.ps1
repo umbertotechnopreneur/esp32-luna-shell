@@ -1,6 +1,6 @@
 # Explicit dependency preparation. Scan status and integrity records exist only in memory.
 [CmdletBinding()]
-param([psobject]$PreviousImports, [switch]$ForPackaging)
+param([psobject]$PreviousImports, [switch]$ForPackaging, [switch]$WindowsOnly)
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $packageRoot = Join-Path $projectRoot '.imports\packages'
@@ -16,10 +16,12 @@ if ($null -ne $PreviousImports) {
 Push-Location $projectRoot
 try {
     $projects = @(
-        @{ project='Windows/OpenAIUsage.Windows.csproj'; rid=if ($ForPackaging) { 'win-x64' } else { $null } },
-        @{ project='Backend/OpenAIUsage.Backend.csproj'; rid=if ($ForPackaging) { 'linux-x64' } else { $null } },
-        @{ project='Tests/OpenAIUsage.Tests.csproj'; rid=$null },
-        @{ project='Shared/OpenAIUsage.Core.csproj'; rid=$null }
+        @{ project='Windows/OpenAIUsage.Windows.csproj'; rid=if ($ForPackaging) { 'win-x64' } }
+        if (-not $WindowsOnly) {
+            @{ project='Backend/OpenAIUsage.Backend.csproj'; rid=if ($ForPackaging) { 'linux-x64' } }
+            @{ project='Tests/OpenAIUsage.Tests.csproj' }
+            @{ project='Shared/OpenAIUsage.Core.csproj' }
+        }
     )
     foreach ($project in $projects) {
         $arguments = @('restore',$project.project,'--packages',$packageRoot,'--source','https://api.nuget.org/v3/index.json','-p:NuGetAudit=false','--disable-parallel')
