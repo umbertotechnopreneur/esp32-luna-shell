@@ -4,6 +4,7 @@
 
 #include "LUNASHELL_platform.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 extern "C" {
 extern const uint8_t boot_rise_start[] asm("_binary_cody_device_boot_rise_start");
@@ -15,11 +16,47 @@ namespace {
 constexpr char kTag[] = "CODY_effects";
 constexpr uint32_t kBootRiseCue = 0x43430000U;
 constexpr size_t kBootRiseSamples = 39690; // 1.8 seconds at the asset's authored 22.05 kHz.
+constexpr uint32_t kTapCue = 0x4343FF01U; // Local feedback within the shared application cue channel.
+constexpr uint32_t kTapRateHz = 16000;
+constexpr size_t kTapSamples = 480;
 constexpr int64_t kDisconnectDwellUs = 3000000;
+constexpr int64_t kWifiReadyDwellUs = 500000;
 constexpr int64_t kQuestionReminderUs = 60000000;
 constexpr int64_t kVoiceStartFreshnessUs = 200000;
 
-enum class SoundPriority : uint8_t { None, Feedback, Connection, Battery, Confirmation, Attention, CriticalBattery };
+// No parameters: build a rounded-noise impulse with a short attack and quadratic decay.
+constexpr std::array<int16_t, kTapSamples> make_tap_cue()
+{
+    std::array<int16_t, kTapSamples> samples{};
+    uint32_t noise_state = 0x4c554e41U;
+    int32_t rounded_noise = 0;
+    int32_t slow_noise = 0;
+    constexpr int32_t attack_samples = 24;
+    constexpr int32_t last_sample = static_cast<int32_t>(kTapSamples - 1);
+    for (int32_t index = 0; index <= last_sample; ++index) {
+        noise_state ^= noise_state << 13U;
+        noise_state ^= noise_state >> 17U;
+        noise_state ^= noise_state << 5U;
+        const auto noise = static_cast<int32_t>(noise_state & 0x7ffU) - 1024;
+        rounded_noise = (2 * rounded_noise + noise) / 3;
+        slow_noise = (7 * slow_noise + rounded_noise) / 8;
+        const int32_t attack = index < attack_samples ? index : attack_samples;
+        const int32_t remaining = last_sample - index;
+        const int64_t shaped = static_cast<int64_t>(rounded_noise - slow_noise) * 10 *
+            attack * remaining * remaining;
+        samples[static_cast<size_t>(index)] = static_cast<int16_t>(
+            shaped / (attack_samples * last_sample * last_sample));
+    }
+    return samples;
+}
+
+constexpr auto kTapPcm = make_tap_cue();
+static_assert(kTapSamples * 1000U / kTapRateHz == 30U && kTapPcm.front() == 0 && kTapPcm.back() == 0,
+    "The tap is 30 ms of mono PCM16 with silent boundaries");
+
+enum class SoundPriority : uint8_t {
+    None, Feedback, Connection, Wifi, Battery, Confirmation, Attention, CriticalBattery
+};
 
 struct SoundRequest {
     CodexAudioCue cue = CodexAudioCue::None;
@@ -159,6 +196,53 @@ void observe_connection(DeviceEffectsModel &model, const LUNASHELL::DeviceStatus
     }
 }
 
+// model: Retains the last announced LAN state and debounces its next genuine edge.
+// wifi: Canonical Wi-Fi association and IP facts, separate from Codex and Internet reachability.
+// status_valid: False when reading the enclosing snapshot failed.
+// now_us: Monotonic time used only for the continuous observation dwell.
+// startup_wifi_offline: The startup owner has finished its passive saved-network grace.
+// request: Receives a local Wi-Fi edge, ahead of a coincident Codex connection cue.
+void observe_wifi(DeviceEffectsModel &model, const LUNASHELL::WifiSnapshot &wifi,
+    bool status_valid, int64_t now_us, bool startup_wifi_offline, SoundRequest &request)
+{
+    if (!status_valid || !wifi.connection_state_valid || wifi.data_stale) {
+        model.wifi_edge_since_us = 0;
+        return;
+    }
+    if (!wifi.started) {
+        // Deliberate radio teardown, including standby, is a silent baseline reset.
+        model.wifi_ready = false;
+        model.wifi_edge_since_us = 0;
+        return;
+    }
+    const bool ready = wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0';
+    if (!model.wifi_result_known && startup_wifi_offline && wifi.credentials_configured &&
+        !wifi.connected && wifi.last_error != ESP_OK) {
+        // The startup grace already elapsed. A known failed saved connection is
+        // a real first result, unlike missing credentials or an in-progress lease.
+        model.wifi_result_known = true;
+        model.wifi_edge_since_us = 0;
+        choose(request, CodexAudioCue::ChecksFailed, SoundPriority::Wifi);
+        return;
+    }
+    if (ready == model.wifi_ready || (wifi.connected && !ready)) {
+        // Association while DHCP is pending is neither a successful connection nor a loss.
+        model.wifi_edge_since_us = 0;
+        return;
+    }
+    if (model.wifi_edge_since_us <= 0 || now_us < model.wifi_edge_since_us) {
+        model.wifi_edge_since_us = now_us;
+        return;
+    }
+    const int64_t dwell_us = ready ? kWifiReadyDwellUs : kDisconnectDwellUs;
+    if (now_us - model.wifi_edge_since_us < dwell_us) return;
+
+    model.wifi_ready = ready;
+    model.wifi_result_known = true;
+    model.wifi_edge_since_us = 0;
+    choose(request, ready ? CodexAudioCue::ChecksPassed : CodexAudioCue::ChecksFailed, SoundPriority::Wifi);
+}
+
 // model: Successfully read provisioning lifecycle and previously observed live session.
 // request: Receives success only for a verified online session, or its real failure.
 void observe_pairing(DeviceEffectsModel &model, SoundRequest &request)
@@ -221,6 +305,27 @@ void observe_battery(DeviceEffectsModel &model, const BatteryAlertNotice &batter
     }
 }
 
+// phase: Canonical input lifecycle phase, independent of AFE heartbeat freshness.
+bool voice_input_stopped(LUNASHELL::VoiceInputPhase phase)
+{
+    using Phase = LUNASHELL::VoiceInputPhase;
+    return phase == Phase::Idle || phase == Phase::Failed || phase == Phase::Cancelled ||
+        phase == Phase::Unconfirmed || phase == Phase::Delivered;
+}
+
+// voice: Canonical input lifecycle and its independently sampled AFE heartbeat.
+// now_us: Monotonic observation time used to reject future input timestamps.
+bool voice_sound_state_known(const LUNASHELL::VoiceSnapshot &voice, int64_t now_us)
+{
+    if (current(voice)) return true;
+    // A published idle/terminal input remains stopped when the AFE heartbeat ages.
+    const bool stopped = voice.state == LUNASHELL::VoiceState::Disabled ||
+        voice.state == LUNASHELL::VoiceState::Failed;
+    const bool published_input = voice.input.changed_at_us > 0 && voice.input.changed_at_us <= now_us;
+    return voice_input_stopped(voice.input.phase) &&
+        (published_input || (stopped && voice.last_attempt_at_us > 0));
+}
+
 // model: Voice session identity and one-shot start/delivery flags.
 // voice: Optional original canonical voice snapshot; absent means no voice feature.
 // now_us: Monotonic time used to admit the start cue only at the beginning of its countdown.
@@ -233,20 +338,9 @@ bool observe_voice(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *vo
     if (voice == nullptr) {
         return false;
     }
-    if (!current(*voice)) {
-        // AFE freshness and input lifecycle have separate owners. A published
-        // idle/terminal input remains stopped when the wake-word heartbeat ages.
-        const auto phase = voice->input.phase;
-        const bool terminal = phase == Phase::Idle || phase == Phase::Failed ||
-            phase == Phase::Cancelled || phase == Phase::Unconfirmed || phase == Phase::Delivered;
-        const bool stopped = voice->state == LUNASHELL::VoiceState::Disabled ||
-            voice->state == LUNASHELL::VoiceState::Failed;
-        const bool published_input = voice->input.changed_at_us > 0 &&
-            voice->input.changed_at_us <= now_us;
-        if (!terminal || (!published_input && !(stopped && voice->last_attempt_at_us > 0))) {
-            request = {};
-            return true;
-        }
+    if (!voice_sound_state_known(*voice, now_us)) {
+        request = {};
+        return true;
     }
     const auto &input = voice->input;
     if (input.started_at_us > 0 && input.started_at_us != model.voice_session_us) {
@@ -327,16 +421,37 @@ esp_err_t play_device_boot_cue(DeviceEffectsModel &model)
     return error;
 }
 
+// model: Retains the optional tap result without delaying touch handling.
+// voice: Latest canonical input observation, or null for builds without voice.
+void play_device_tap_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice)
+{
+    if (!model.prepared || model.preparation_error != ESP_OK) return;
+    if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
+            !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
+
+    // Use the existing short, nonpreemptive mailbox. Its owner applies the saved
+    // volume, Sounds and quiet-hours policy without waiting on this touch path.
+    lunashell_audio_cue_status_t status{};
+    const auto error = LUNASHELL_audio_notify_codex(kTapPcm.data(), kTapPcm.size(), kTapRateHz,
+        kTapCue, LUNASHELL_CODEX_CUE_NOTICE, &status);
+    if (error != ESP_OK && error != model.tap_audio_error) {
+        ESP_LOGW(kTag, "Tap cue admission failed (%s)", esp_err_to_name(error));
+    }
+    model.tap_audio_error = error;
+}
+
 // model: Retained effect identities and canonical projection scratch, never a scene-owned cache.
 // status: Existing canonical status used for source admission and connection edges.
 // status_valid: Read success for status; false never manufactures a disconnection event.
 // battery: Existing warning identity without altering its independent visual acknowledgment.
 // voice: Optional already-read canonical recording observation.
 // now_us: Monotonic time for expiry, debouncing and reminder policy.
+// startup_wifi_offline: The startup owner's saved-network wait has settled offline.
 // Exception: Preserves the first original read or playback error, logging only cause changes.
 esp_err_t update_device_effects(DeviceEffectsModel &model,
     const LUNASHELL::DeviceStatusObservation &status, bool status_valid,
-    const BatteryAlertNotice &battery, const LUNASHELL::VoiceSnapshot *voice, int64_t now_us)
+    const BatteryAlertNotice &battery, const LUNASHELL::VoiceSnapshot *voice, int64_t now_us,
+    bool startup_wifi_offline)
 {
     SoundRequest request{};
     switch (model.feedback) {
@@ -371,9 +486,11 @@ esp_err_t update_device_effects(DeviceEffectsModel &model,
     if (cadence_gap) {
         model.connection_known = false;
         model.connection_lost_at_us = 0;
+        model.wifi_edge_since_us = 0;
     }
     observe_event(model, now_us, request);
     observe_connection(model, status, status_valid, now_us, request);
+    observe_wifi(model, status.wifi, status_valid, now_us, startup_wifi_offline, request);
     if (model.pairing_error == ESP_OK) {
         observe_pairing(model, request);
     }

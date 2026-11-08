@@ -66,9 +66,10 @@ Display holds brightness, rotation and orientation. Behavior holds sound,
 shake-to-wake and, in the voice-enabled profile, Dictation. **More behavior**
 contains **Screensaver**, disabled by default.
 
-**Quick guide** has three pages for the physical buttons, display gestures and
-offline features. The left arrow on the first page and **Done** on the last
-page return to Options page 3. The voice instruction reflects the firmware profile.
+**Quick guide** has three color-coded pages for the physical buttons, display
+gestures and offline features. Available arrows stay visible while reading.
+The left arrow on the first page and **Done** on the last page return to Options
+page 3. The voice instruction reflects the firmware profile.
 
 **Timer** sets a duration from 1 to 120 minutes and selects Bell or Chime.
 **Start** begins the countdown. Back returns to the previous screen while the

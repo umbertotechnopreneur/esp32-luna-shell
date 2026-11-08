@@ -98,6 +98,17 @@ audio worker. A short confirmation also accompanies opening Options with BOOT
 and starting a timer. These cues use the saved Sounds setting, the current
 volume and quiet hours. Audio failure leaves the visible boot sequence usable.
 
+During saved Wi-Fi startup, four highlight steps animate the Wi-Fi arcs in a
+72 x 72 logical area above the connection heading. Once the route is steady,
+each step invalidates only that area. The actual offline route keeps its static
+icon and setup actions.
+
+A new touch contact requests a short click. A confirmed local Wi-Fi lease or
+settled connection failure requests its own rising or falling cue. These
+observations are independent of the Codex link. Repeated retries, held touches
+and pending DHCP do not repeat audio. The shared sound policy also protects
+voice capture and timer alarm playback.
+
 The device-first firmware enters **Not connected** on screen 04 when a saved
 Wi-Fi profile is absent. **Tap to pair** opens **Wi-Fi setup**. **App download
 QR** opens screen 06. **Show pairing QR** admits the Bluetooth session directly

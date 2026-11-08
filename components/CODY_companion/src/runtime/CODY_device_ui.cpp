@@ -58,6 +58,7 @@ struct FrameView {
     CODY::DeviceFrameContent presentation{};
     Layer layer = Layer::Blank;
     uint8_t navigation_opacity = 0;
+    uint8_t wifi_connecting_phase = 0;
     bool arrows = false;
     bool statistics_unavailable = false;
 };
@@ -71,6 +72,7 @@ struct RetiredFrame {
     uint32_t connection_revision = 0;
     uint16_t allowance = 0;
     uint8_t navigation_opacity = 0;
+    uint8_t wifi_connecting_phase = 0;
     bool statistics_unavailable = false;
     bool valid = false;
 };
@@ -181,7 +183,8 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
     if (tracking_alarm) CODY::update_local_timer_alarm(timer, now_us, voice_busy);
     // Optional sound failures remain in the effects model; visual controls keep working.
     (void)CODY::update_device_effects(ui.model.effects, ui.model.dashboard.connection,
-        ui.model.dashboard.connection_valid, ui.model.battery_banner, voice, now_us);
+        ui.model.dashboard.connection_valid, ui.model.battery_banner, voice, now_us,
+        CODY::onboarding_saved_wifi_startup_offline(now_us));
     if (!tracking_alarm) CODY::update_local_timer_alarm(timer, now_us, voice_busy);
     const bool saver_eligible = CODY::onboarding_dashboard_active() && !ui.model.editing && !ui.diagnostics &&
         !ui.timer_open && !voice_busy &&
@@ -250,6 +253,10 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us)
     }
     if (ui.scene.valid) {
         frame.layer = Layer::Scene;
+        frame.wifi_connecting_phase = CODY::onboarding_wifi_connecting_phase(now_us);
+        // Passive network startup has no lateral actions to animate.
+        if (frame.wifi_connecting_phase != 0) frame.navigation_opacity = 0;
+        if (CODY::onboarding_quick_guide_active()) frame.navigation_opacity = 255;
         return ESP_OK;
     }
     frame.layer = Layer::Message;
@@ -289,7 +296,9 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const bool content_changed = old.content_revision != view.content.revision;
     const bool battery_changed = old.battery_sequence != chrome.battery_sequence;
     const bool connection_changed = old.connection_revision != chrome.connection_revision;
-    if (!full && !content_changed && !navigation_changed && !battery_changed && !connection_changed) return ESP_OK;
+    const bool wifi_connecting_changed = old.wifi_connecting_phase != frame.wifi_connecting_phase;
+    if (!full && !content_changed && !navigation_changed && !battery_changed && !connection_changed &&
+        !wifi_connecting_changed) return ESP_OK;
 
     bool parked = false;
     esp_err_t error = LUNASHELL_display_frame_begin(kFrameBudgetMs, &parked);
@@ -316,6 +325,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
         if (navigation_changed) include_damage(navigation_bounds);
         if (battery_changed) include_damage({105, 397, 361, 427});
         if (connection_changed) include_damage({105, 37, 361, 64});
+        if (wifi_connecting_changed) include_damage(CODY::kWifiConnectingBounds);
     }
     const uint16_t left = bounds.left & ~1U;
     const uint16_t right = (bounds.right + 1U) & ~1U;
@@ -343,6 +353,9 @@ esp_err_t render(const FrameView &frame, bool force = false)
             error = CODY::BootBranding::draw_rows(ui.branding, ui.branding_scratch, ui.branding_frame, strip, row);
         } else if (error == ESP_OK && frame.layer == Layer::Scene) {
             error = CODY::draw_scene_rows(ui.scene, strip, row, left);
+            if (error == ESP_OK && frame.wifi_connecting_phase != 0) {
+                error = CODY::draw_wifi_connecting_rows(frame.wifi_connecting_phase, strip, row, left);
+            }
             if (error == ESP_OK) error = CODY::draw_onboarding_navigation(strip, row, left, opacity, background);
         } else if (error == ESP_OK && view.content.draw_rows != nullptr) {
             error = view.content.draw_rows(view.content.state, strip, row, left);
@@ -380,7 +393,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
         (void)CODY::acknowledge_battery_alert(ui.model.battery, ui.model.battery_banner);
     }
     old = {frame.layer, screen, frame_revision, view.content.revision, chrome.battery_sequence,
-        chrome.connection_revision, allowance, opacity, frame.statistics_unavailable, true};
+        chrome.connection_revision, allowance, opacity, frame.wifi_connecting_phase,
+        frame.statistics_unavailable, true};
     if (frame.layer == Layer::Scene) {
         ui.completed_scene = ui.scene;
         ui.scene_dirty = false;
@@ -570,7 +584,17 @@ esp_err_t sample_touch()
     }
     const CODY2D::Point point{static_cast<int16_t>(sample.x), static_cast<int16_t>(sample.y)};
     if (sample.pressed || pressed_edge) ui.model.navigation.interact(esp_timer_get_time());
-    if (pressed_edge) LUNASHELL_power_manager_note_activity();
+    if (pressed_edge) {
+        LUNASHELL_power_manager_note_activity();
+        const auto alarm = ui.model.timer.alarm;
+        if (alarm != CODY::LocalTimerAlarm::Pending && alarm != CODY::LocalTimerAlarm::Playing) {
+            const LUNASHELL::VoiceSnapshot *voice = nullptr;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+            voice = &ui.model.voice;
+#endif
+            CODY::play_device_tap_cue(ui.model.effects, voice);
+        }
+    }
     if (ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible || ui.retired.layer == Layer::Screensaver) {
         CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
         // The wake touch owns no underlying target, including its eventual release.

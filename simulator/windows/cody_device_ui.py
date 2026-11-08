@@ -44,9 +44,15 @@ OPTIONS_ROW_WIDTH = 280
 OPTIONS_ROW_HEIGHT = 72
 OPTIONS_PAGE_COUNT = 3
 QUICK_GUIDE = (
-    ("Buttons 1/3", ("BOOT opens Options", "PWR toggles standby", "Hold PWR 3s to power off")),
-    ("Touch 2/3", ("Tap to reveal arrows", "Shake returns home", "Double tap stats: record", "Dictation On + Codex link")),
-    ("Offline 3/3", ("Saved stats work offline", "Timer works offline", "Restart keeps settings")),
+    ("Buttons 1/3", ACCENT, (
+        ("BOOT", "Open Options"), ("POWER", "Standby or wake"), ("HOLD PWR 3S", "Power off"),
+    ), None),
+    ("Touch 2/3", (188, 164, 255), (
+        ("TAP", "Show arrows"), ("SHAKE", "Return home"), ("DOUBLE TAP", "Record on stats"),
+    ), "Dictation On + Codex link"),
+    ("Offline 3/3", (133, 239, 195), (
+        ("SAVED STATS", "Last update in UTC"), ("TIMER", "Works without PC"), ("RESTART", "Keeps settings"),
+    ), None),
 )
 NAVIGATION_IDLE_SECONDS = 10
 NAVIGATION_FADE_SECONDS = 0.35
@@ -764,20 +770,19 @@ class DeviceStudioWindow:
 
     # self: Studio preview of the three fixed guide pages.
     # draw: Logical canvas before rotation.
-    # now: Monotonic time used for the same arrow fade as Options.
-    def draw_quick_guide(self, draw, now):
-        title, lines = QUICK_GUIDE[self.quick_guide_page]
-        label(draw, title, OPTIONS_TITLE_TOP, 34)
-        for index, line in enumerate(lines):
-            label(draw, line, 155 + index * 36, 19, MUTED)
+    def draw_quick_guide(self, draw):
+        title, accent, rows, note = QUICK_GUIDE[self.quick_guide_page]
+        label(draw, title, OPTIONS_TITLE_TOP, 34, accent)
+        for index, (action, detail) in enumerate(rows):
+            label(draw, action, 132 + index * 76, 36, accent)
+            label(draw, detail, 175 + index * 76, 19, MUTED)
+        if note is not None:
+            label(draw, note, 357, 15, MUTED)
         last_page = self.quick_guide_page == len(QUICK_GUIDE) - 1
-        opacity = self.navigation_opacity(now)
-        if opacity > 0:
-            self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
-            if not last_page:
-                next_page = (lambda: self.move_quick_guide(1)) if opacity == 1 else None
-                self.sidebar(draw, 1, next_page, opacity)
-        if last_page:
+        self.sidebar(draw, -1, self.back)
+        if not last_page:
+            self.sidebar(draw, 1, lambda: self.move_quick_guide(1))
+        else:
             self.button(draw, "Done", 382, lambda: self.show_options_page(OPTIONS_PAGE_COUNT - 1),
                         width=220, height=52, caption_size=20)
 
@@ -1006,7 +1011,7 @@ class DeviceStudioWindow:
             elif self.route == "factory_reset":
                 self.draw_factory_reset(draw)
             elif self.route == "quick_guide":
-                self.draw_quick_guide(draw, now)
+                self.draw_quick_guide(draw)
             elif self.route == "visibility":
                 label(draw, "Visible screens", 103, 32)
                 name = PAGES[self.settings_page]

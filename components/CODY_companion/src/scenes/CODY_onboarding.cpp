@@ -90,6 +90,12 @@ constexpr uint16_t kPairingTitle = 0xF7BF;
 constexpr uint16_t kPairingCaption = 0xADB9;
 constexpr uint16_t kOfflineAmber = 0xFDA9;
 constexpr uint16_t kOfflineDiscColor = 0x3122;
+constexpr int64_t kWifiConnectingStepUs = 200000;
+constexpr uint16_t kWifiConnectingHighlightTop[]{172, 158, 144, 130};
+constexpr uint16_t kWifiConnectingMuted = 0x39AB;
+constexpr CODY2D::Rect kWifiConnectingGlyph{kWifiConnectingBounds.left, kWifiConnectingBounds.top,
+    kWifiConnectingBounds.right - kWifiConnectingBounds.left,
+    kWifiConnectingBounds.bottom - kWifiConnectingBounds.top};
 constexpr CODY2D::Rect kOfflineDisc{191, 76, 84, 84};
 constexpr CODY2D::Rect kOfflineGlyph{203, 88, 60, 60};
 constexpr CODY2D::Rect kGuideGlyph{206, 62, 54, 54};
@@ -834,12 +840,12 @@ esp_err_t enqueue_preference(PreferenceId preference, uint32_t value)
 // text: Bounded immutable English text, retained through frame retirement.
 // top: Logical caption baseline container, entirely inside the shared content chord.
 // line: Receives the prepared flash-font layout.
-// Exception: Returns ESP_ERR_INVALID_SIZE for empty, unsupported or out-of-canvas text.
 // max_width: Admitted caption width for this route; ordinary setup keeps its narrow slot.
+// font: Canonical body or headline font for the selected caption.
+// Exception: Returns ESP_ERR_INVALID_SIZE for empty, unsupported or out-of-canvas text.
 esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line,
-                          uint16_t max_width = kCaptionWidth)
+                          uint16_t max_width = kCaptionWidth, const CODY2D::MonoFont &font = SceneData::body_font)
 {
-    const auto &font = SceneData::body_font;
     const size_t length = std::strlen(text);
     const uint32_t width = length == 0 ? 0 : (length - 1U) * font.advance + font.width;
     if (length == 0 || length > 31 || width > max_width || top + font.height > 466) {
@@ -1895,42 +1901,69 @@ const char *options_title()
     return "Options";
 }
 
-// No parameters: prepare the guide page in the Options content slot.
-// Exception: Returns the original caption or footer layout error.
-esp_err_t prepare_quick_guide_content()
+// text: Permanent command label, explanation or requirement.
+// top: Logical row inside the guide's safe area.
+// font: Headline font for commands, body font for explanations.
+// color: High-contrast page accent or secondary text color.
+// Exception: Returns the original caption layout error.
+esp_err_t append_guide_line(const char *text, uint16_t top, const CODY2D::MonoFont &font, uint16_t color)
 {
-    constexpr const char *buttons[] = {
-        "BOOT opens Options", "PWR toggles standby", "Hold PWR 3s to power off",
-    };
-    constexpr const char *touch[] = {
-        "Tap to reveal arrows", "Shake returns home",
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-        "Double tap stats: record", "Dictation On + Codex link",
-#else
-        "Voice not in this build",
-#endif
-    };
-    constexpr const char *offline[] = {
-        "Saved stats work offline", "Timer works offline", "Restart keeps settings",
-    };
-    static_assert(std::size(touch) <= kContentLineCapacity);
-    const char *const *lines = buttons;
-    size_t count = std::size(buttons);
-    if (s_options_page == OptionsPage::GuideTouch) {
-        lines = touch;
-        count = std::size(touch);
-    } else if (s_options_page == OptionsPage::GuideOffline) {
-        lines = offline;
-        count = std::size(offline);
-    }
-    for (size_t index = 0; index < count; ++index) {
-        const auto top = static_cast<uint16_t>(155U + index * 36U);
-        const auto error = prepare_caption(lines[index], top, s_view.lines[index], kPreferenceWidth);
-        if (error != ESP_OK) return error;
+    const auto index = s_view.line_count;
+    auto &line = s_view.lines[index];
+    const auto error = prepare_caption(text, top, line, kPreferenceWidth, font);
+    if (error == ESP_OK) {
+        line.color = color;
         s_view.instant_lines[index] = true;
         ++s_view.line_count;
     }
+    return error;
+}
+
+// scene: Current Options frame receiving the guide's heading accent.
+// Exception: Returns the original caption or footer layout error.
+esp_err_t prepare_quick_guide_content(SceneFrame &scene)
+{
+    struct GuideCommand { const char *label; const char *detail; };
+    constexpr GuideCommand buttons[] = {
+        {"BOOT", "Open Options"}, {"POWER", "Standby or wake"}, {"HOLD PWR 3S", "Power off"},
+    };
+    constexpr GuideCommand touch[] = {
+        {"TAP", "Show arrows"}, {"SHAKE", "Return home"},
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        {"DOUBLE TAP", "Record on stats"},
+#else
+        {"DOUBLE TAP", "Voice not in this build"},
+#endif
+    };
+    constexpr GuideCommand offline[] = {
+        {"SAVED STATS", "Last update in UTC"}, {"TIMER", "Works without PC"}, {"RESTART", "Keeps settings"},
+    };
+    static_assert(std::size(buttons) == std::size(touch) && std::size(touch) == std::size(offline));
+    static_assert(2U * std::size(touch) + 1U <= kContentLineCapacity);
+    constexpr uint16_t kGuideCyan = 0x6F9E;
+    constexpr uint16_t kGuideViolet = 0xBD1F;
+    constexpr uint16_t kGuideMint = 0x5FF1;
+    constexpr uint16_t kGuideDetail = 0xC65B;
+    const bool touch_page = s_options_page == OptionsPage::GuideTouch;
     const bool last_page = s_options_page == OptionsPage::GuideOffline;
+    const auto *commands = touch_page ? touch : last_page ? offline : buttons;
+    const uint16_t accent = touch_page ? kGuideViolet : last_page ? kGuideMint : kGuideCyan;
+    scene.title.color = accent;
+    for (size_t index = 0; index < std::size(buttons); ++index) {
+        const auto top = static_cast<uint16_t>(132U + index * 76U);
+        auto error = append_guide_line(commands[index].label, top, SceneData::title_font, accent);
+        if (error == ESP_OK) {
+            error = append_guide_line(commands[index].detail, static_cast<uint16_t>(top + 43U),
+                SceneData::body_font, kGuideDetail);
+        }
+        if (error != ESP_OK) return error;
+    }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    if (touch_page) {
+        const auto error = append_guide_line("Dictation On + Codex link", 357, SceneData::body_font, kGuideDetail);
+        if (error != ESP_OK) return error;
+    }
+#endif
     return prepare_action(last_page ? OnboardingAction::Done : OnboardingAction::None, last_page);
 }
 
@@ -2092,11 +2125,12 @@ esp_err_t prepare_options_content(SceneFrame &scene,
     if (error != ESP_OK) {
         return error;
     }
+    scene.title.color = scene.definition->title_color;
     if (on_maintenance_page()) {
         return prepare_maintenance_content();
     }
     if (on_quick_guide()) {
-        return prepare_quick_guide_content();
+        return prepare_quick_guide_content(scene);
     }
     if (s_preference_error != ESP_OK) {
         std::snprintf(s_view.error_text, sizeof(s_view.error_text), "Error: 0x%lx",
@@ -4222,6 +4256,18 @@ bool saved_wifi_startup_grace(const LUNASHELL::WifiSnapshot &wifi, int64_t now_u
     return now_us - s_startup_wifi_wait_started_us < kStartupWifiGraceUs;
 }
 
+// now_us: Monotonic time used to reject a pending or obsolete startup wait.
+bool onboarding_saved_wifi_startup_offline(int64_t now_us)
+{
+    if (!kDeviceFirstSetup || s_startup_wifi_error == ESP_OK || s_startup_wifi_wait_started_us < 0 ||
+        now_us < s_startup_wifi_wait_started_us ||
+        now_us - s_startup_wifi_wait_started_us < kStartupWifiGraceUs) return false;
+
+    const bool recovery = s_route == Route::NetworkWait && s_startup_network_presented && !s_startup_network_passive;
+    const bool local_dashboard = s_route == Route::CompanionIdle16 && !s_startup_pending;
+    return recovery || local_dashboard;
+}
+
 // No parameters: keep setup, connection attempts and attention screens in their own routes.
 bool onboarding_dashboard_active()
 {
@@ -4239,6 +4285,55 @@ bool onboarding_dashboard_active()
     default:
         return false;
     }
+}
+
+// now_us: Monotonic time compared with the canonical saved-network wait start.
+uint8_t onboarding_wifi_connecting_phase(int64_t now_us)
+{
+    if (!kDeviceFirstSetup || s_route != Route::NetworkWait || !s_startup_network_passive) return 0;
+    const int64_t elapsed_us = s_startup_wifi_wait_started_us >= 0 && now_us >= s_startup_wifi_wait_started_us
+        ? now_us - s_startup_wifi_wait_started_us : 0;
+    return static_cast<uint8_t>(elapsed_us / kWifiConnectingStepUs % std::size(kWifiConnectingHighlightTop) + 1U);
+}
+
+// phase: Zero hides the icon; the four steps raise its highlight through the native arcs.
+// strip: Renderer-owned RGB565 tile, already cleared to the scene background.
+// first_row: Logical y origin of the tile.
+// first_column: Logical x origin of the tile.
+// Exception: Returns an invalid phase or the first original raster error.
+esp_err_t draw_wifi_connecting_rows(uint8_t phase, CODY2D::Surface strip,
+                                   uint16_t first_row, uint16_t first_column)
+{
+    if (phase == 0) return ESP_OK;
+    if (phase > std::size(kWifiConnectingHighlightTop)) return ESP_ERR_INVALID_ARG;
+    if (first_row >= kWifiConnectingBounds.bottom || first_row + strip.height <= kWifiConnectingBounds.top ||
+        first_column >= kWifiConnectingBounds.right || first_column + strip.width <= kWifiConnectingBounds.left) {
+        return ESP_OK;
+    }
+
+    // Paint two disjoint tile segments using the same glyph and coverage mask.
+    const auto highlight_top = kWifiConnectingHighlightTop[phase - 1U];
+    const auto muted_rows = static_cast<uint16_t>(std::clamp<int>(highlight_top - first_row, 0, strip.height));
+    if (muted_rows != 0) {
+        auto muted = strip;
+        muted.height = muted_rows;
+        const auto error = CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::Wifi, kWifiConnectingGlyph,
+            kWifiConnectingMuted, muted, first_row, first_column);
+        if (error != ESP_OK || muted_rows == strip.height) return error;
+        const auto offset = static_cast<uint32_t>(muted_rows) * strip.stride;
+        if (offset >= strip.pixel_capacity) return ESP_ERR_INVALID_SIZE;
+        strip.pixels += offset;
+        strip.pixel_capacity -= offset;
+        strip.height -= muted_rows;
+    }
+    return CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::Wifi, kWifiConnectingGlyph,
+        kPairingAccent, strip, static_cast<uint16_t>(first_row + muted_rows), first_column);
+}
+
+// No parameters: keep paging controls easy to find while reading the guide.
+bool onboarding_quick_guide_active()
+{
+    return on_quick_guide();
 }
 
 // No parameters: resting setup pages may reopen choices without retiring live work.
@@ -4436,6 +4531,8 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
         // Returning devices remain usable while the existing radio owners retry.
         // Missing or failed credentials are never repaired or rewritten here.
         s_startup_wifi_error = error;
+    } else {
+        s_startup_wifi_error = ESP_OK;
     }
     s_startup_pending = false;
     s_startup_pair_missing = false;
