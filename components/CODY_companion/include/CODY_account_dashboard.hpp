@@ -33,6 +33,7 @@ struct AccountDashboardPresentation {
 
     std::array<Caption, 20> captions{};
     std::array<Bar, 12> bars{};
+    std::array<uint8_t, 32> plan_mask{};
     CODY2D::CapsuleControl account_status_dot{};
     const CODY2D::MonoFont *title_font = nullptr;
     const CODY2D::MonoFont *body_font = nullptr;
@@ -58,6 +59,7 @@ struct AccountDashboardPresentation {
     bool context_page = false;
     bool about_page = false;
     bool previous_uptime_valid = false;
+    bool plan_mask_valid = false;
     bool valid = false;
 };
 static_assert(sizeof(AccountDashboardPresentation) <= 2048,

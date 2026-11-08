@@ -23,6 +23,8 @@ constexpr char kTag[] = "CODY_account_dashboard";
 constexpr DamageRect kContentBounds{73, 73, 393, 393};
 constexpr CODY2D::Rect kHeadline{73, 79, 320, 46};
 constexpr CODY2D::Rect kPlanIconBounds{205, 134, 56, 56};
+constexpr int kPlanMaskEdge = 16;
+constexpr int kPlanMaskScale = 3;
 constexpr uint16_t kWhite = 0xF7BE;
 constexpr uint16_t kMuted = 0x9CF3;
 constexpr uint16_t kCyan = 0x6F9E;
@@ -519,6 +521,7 @@ struct PlanAppearance {
     const char *label = nullptr;
     CODY2D::ActionIcon icon = CODY2D::ActionIcon::None;
     uint16_t color = kMuted;
+    const char *price = nullptr;
 };
 
 // account: Current authenticated account snapshot with a bounded optional plan token.
@@ -531,14 +534,18 @@ PlanAppearance account_plan_appearance(const LUNASHELL::CodexAccountSnapshot &ac
         std::string_view token;
         PlanAppearance appearance;
     };
+    // Public US list prices are the baseline for bridges predating plan projections.
+    // App Server reports a plan type, which does not establish the user's invoice.
+    static constexpr char pro_price[] = "100/200/500 USD/mo";
     static constexpr PlanEntry plans[] = {
-        {"free", {"Free", Icon::PlanFree, kCyan}},
-        {"go", {"Go", Icon::Arrow, kCyan}},
-        {"plus", {"Plus", Icon::PlanPlus, kCyan}},
-        {"pro", {"ChatGPT Pro", Icon::PlanPro, kIndigo}},
-        {"prolite", {"ChatGPT Pro", Icon::PlanPro, kIndigo}},
-        {"promax", {"ChatGPT Pro", Icon::PlanPro, kIndigo}},
-        {"team", {"Business", Icon::PlanBusiness, kCyan}},
+        {"free", {"Free", Icon::PlanFree, kCyan, "0 USD/mo"}},
+        {"go", {"Go", Icon::Arrow, kCyan, "8 USD/mo"}},
+        {"plus", {"Plus", Icon::PlanPlus, kCyan, "20 USD/mo"}},
+        {"pro", {"ChatGPT Pro", Icon::PlanPro, kIndigo, pro_price}},
+        {"prolite", {"ChatGPT Pro", Icon::PlanPro, kIndigo, pro_price}},
+        {"promax", {"ChatGPT Pro", Icon::PlanPro, kIndigo, pro_price}},
+        {"team", {"Business", Icon::PlanBusiness, kCyan, "25 USD/user/mo"}},
+        // An older bridge could normalize usage-based Business to this same token.
         {"business", {"Business", Icon::PlanBusiness, kCyan}},
         {"ent26", {"Enterprise", Icon::PlanEnterprise, kCyan}},
         {"enterprise", {"Enterprise", Icon::PlanEnterprise, kCyan}},
@@ -577,13 +584,28 @@ esp_err_t prepare_account(AccountDashboardPresentation &presentation, const LUNA
     }
     char fallback[sizeof(account.plan)]{};
     const PlanAppearance plan = account_plan_appearance(account, fallback);
+    const char *label = account.plan_label[0] != '\0' ? account.plan_label : plan.label;
+    const char *price = account.plan_projection_supported ? account.plan_price : plan.price;
     uint16_t status_top = 171;
-    if (plan.label != nullptr) {
-        presentation.plan_icon = plan.icon;
+    if (label != nullptr) {
+        presentation.plan_icon = plan.icon != CODY2D::ActionIcon::None
+            ? plan.icon : CODY2D::ActionIcon::PlanAccount;
         presentation.plan_icon_color = plan.color;
-        const esp_err_t error = add_value(presentation, plan.label, 192);
+        presentation.plan_mask_valid = account.plan_icon_valid;
+        if (presentation.plan_mask_valid) {
+            static_assert(sizeof(account.plan_icon) == kPlanMaskEdge * kPlanMaskEdge / 8);
+            std::copy_n(account.plan_icon, presentation.plan_mask.size(), presentation.plan_mask.begin());
+        }
+        esp_err_t error = add_value(presentation, label, 192);
         if (error != ESP_OK) { return error; }
         status_top = 247;
+        if (price != nullptr && price[0] != '\0') {
+            error = add_detail(presentation, price, 237, kCyan);
+            if (error != ESP_OK) { return error; }
+            error = add_detail(presentation, "US LIST PRICE", 263);
+            if (error != ESP_OK) { return error; }
+            status_top = 291;
+        }
     }
     presentation.account_status_dot.bounds = {117, static_cast<uint16_t>(status_top + 8), 10, 10};
     presentation.account_status_dot.top_color = kGreen;
@@ -591,14 +613,14 @@ esp_err_t prepare_account(AccountDashboardPresentation &presentation, const LUNA
     esp_err_t error = add_detail(presentation, "CHATGPT CONNECTED", status_top, kWhite);
     if (error != ESP_OK) { return error; }
     if (!account.workspace_messages_valid) { return ESP_OK; }
-    error = add_rule(presentation, status_top + 36);
+    error = add_rule(presentation, status_top + 29);
     if (error != ESP_OK) { return error; }
-    error = add_detail(presentation, "WORKSPACE MESSAGES", status_top + 48, kCyan);
+    error = add_detail(presentation, "WORKSPACE MESSAGES", status_top + 33, kCyan);
     if (error != ESP_OK) { return error; }
     char count[32]{};
     format_count(account.workspace_messages, count);
-    const char *label = account.workspace_messages == 0 ? "NO ACTIVE MESSAGES" : count;
-    return add_value(presentation, label, status_top + 74);
+    const char *message_count = account.workspace_messages == 0 ? "NO ACTIVE MESSAGES" : count;
+    return add_value(presentation, message_count, status_top + 59);
 }
 
 // bar: Prepared logical chart or allowance bar.
@@ -673,6 +695,38 @@ esp_err_t draw_scaled_caption(const AccountDashboardPresentation::Caption &capti
     return ESP_OK;
 }
 
+// presentation: Prepared plugin icon mask and display accent.
+// strip: Valid borrowed RGB565 tile.
+// first_row: Logical tile y origin.
+// first_column: Logical tile x origin.
+void draw_plan_mask(const AccountDashboardPresentation &presentation, CODY2D::Surface strip,
+    uint16_t first_row, uint16_t first_column)
+{
+    constexpr int size = kPlanMaskEdge * kPlanMaskScale;
+    constexpr int icon_x = kPlanIconBounds.x + (kPlanIconBounds.width - size) / 2;
+    constexpr int icon_y = kPlanIconBounds.y + (kPlanIconBounds.height - size) / 2;
+    const int left = std::max<int>(first_column, icon_x);
+    const int right = std::min<int>(first_column + strip.width, icon_x + size);
+    const int top = std::max<int>(first_row, icon_y);
+    const int bottom = std::min<int>(first_row + strip.height, icon_y + size);
+    if (left >= right || top >= bottom) { return; }
+
+    const auto color = CODY2D::rgb565_native_to_stored(presentation.plan_icon_color, strip.byte_order);
+    for (int y = top; y < bottom; ++y) {
+        const int row = (y - icon_y) / kPlanMaskScale;
+        const auto *mask = presentation.plan_mask.data() + row * (kPlanMaskEdge / 8);
+        auto *pixels = strip.pixels + (y - first_row) * strip.stride;
+        for (int column = (left - icon_x) / kPlanMaskScale; column < kPlanMaskEdge; ++column) {
+            const int cell_x = icon_x + column * kPlanMaskScale;
+            if (cell_x >= right) { break; }
+            if ((mask[column / 8] & (0x80U >> (column % 8))) == 0) { continue; }
+            const int run_start = std::max(cell_x, left);
+            const int run_end = std::min(cell_x + kPlanMaskScale, right);
+            std::fill_n(pixels + run_start - first_column, run_end - run_start, color);
+        }
+    }
+}
+
 // state: Immutable presentation borrowed until the display frame retires.
 // strip: Borrowed native tile with its original stride and byte order.
 // first_row: Logical tile y origin.
@@ -688,7 +742,9 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     for (uint8_t index = 0; index < presentation.bar_count; ++index) {
         draw_bar(presentation.bars[index], strip, first_row, first_column);
     }
-    if (presentation.plan_icon != CODY2D::ActionIcon::None) {
+    if (presentation.plan_mask_valid) {
+        draw_plan_mask(presentation, strip, first_row, first_column);
+    } else if (presentation.plan_icon != CODY2D::ActionIcon::None) {
         error = CODY2D::draw_action_icon_rows(presentation.plan_icon, kPlanIconBounds,
             presentation.plan_icon_color, strip, first_row, first_column);
     }
@@ -869,6 +925,7 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     presentation.bar_count = 0;
     presentation.account_status_dot = {};
     presentation.plan_icon = CODY2D::ActionIcon::None;
+    presentation.plan_mask_valid = false;
     presentation.page = page;
     presentation.account_state = account_state;
     presentation.weekly_state = weekly_state;
@@ -952,6 +1009,7 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
     presentation.bar_count = 0;
     presentation.account_status_dot = {};
     presentation.plan_icon = CODY2D::ActionIcon::None;
+    presentation.plan_mask_valid = false;
     presentation.title_font = &title_font;
     presentation.body_font = &body_font;
     presentation.account_state = remaining_state;
@@ -1027,6 +1085,7 @@ esp_err_t prepare_about_dashboard(uint64_t uptime_seconds, uint64_t previous_upt
     presentation.bar_count = 0;
     presentation.account_status_dot = {};
     presentation.plan_icon = CODY2D::ActionIcon::None;
+    presentation.plan_mask_valid = false;
     presentation.title_font = &title_font;
     presentation.body_font = &body_font;
     presentation.image_version = image_version;

@@ -32,6 +32,7 @@ from typing import Any
 
 import ccp_server as ccp
 from ccp_pricing import PriceCache
+from ccp_subscription_catalog import SubscriptionCatalog
 from ccp_activity import EVENTS
 from ccp_repository import read_branch
 from ccp_security import RejectionReporter, configure_runtime_logging
@@ -385,7 +386,8 @@ def run_broker() -> int:
         server.secret = control_secret(create=True)
         pricing = PriceCache(runtime_directory() / "artifacts" / "pricing" / "codex-standard.json")
         server.pricing = pricing
-        server.service = ccp.CcpService(pricing)
+        subscriptions = SubscriptionCatalog()
+        server.service = ccp.CcpService(pricing, subscriptions=subscriptions)
         server.lease_lock = threading.Lock()
         server.tool_lock = threading.Lock()
         server.last_hook = time.monotonic()
@@ -414,7 +416,10 @@ def run_broker() -> int:
             try:
                 server.service.close()
             finally:
-                pricing.close()
+                try:
+                    pricing.close()
+                finally:
+                    subscriptions.close()
     return 0
 
 

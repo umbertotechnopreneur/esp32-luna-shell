@@ -679,7 +679,10 @@ class DeviceStudioWindow:
     # now: Monotonic frame time for uptime and arrow fading.
     def draw_widget(self, draw, snapshot, now):
         page = PAGES[self.page] if self.page < len(PAGES) else ABOUT_INFO
-        label(draw, page, 105, 27 if page == ABOUT_INFO else 33)
+        if page == "Codex account":
+            label(draw, "CODEX ACCOUNT", 82, 33, ACCENT)
+        else:
+            label(draw, page, 105, 27 if page == ABOUT_INFO else 33)
         if page == "Device":
             label(draw, snapshot.state.value if self.endpoint else "Local mode", 170, 24, ACCENT)
             label(draw, "SIMULATED Wi-Fi " + ("on" if snapshot.network_ready else "off")
@@ -715,7 +718,7 @@ class DeviceStudioWindow:
             label(draw, "No measured intervals", 201, 20, MUTED)
             self.button(draw, HISTORY_WINDOWS[self.history_window], 299, self.change_interval)
         elif page == "Codex account":
-            label(draw, "Account data unavailable", 211, 20, MUTED)
+            label(draw, "Account data unavailable", 213, 20, MUTED)
         else:
             for index, name in enumerate(UNAVAILABLE_ROWS[page]):
                 y = 159 + index * 57

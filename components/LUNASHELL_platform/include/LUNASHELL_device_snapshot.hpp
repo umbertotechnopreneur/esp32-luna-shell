@@ -374,6 +374,8 @@ enum class CodexCreditKind : uint8_t { Unavailable, Finite, Unlimited };
 // the mask distinguishes missing observations from a measured zero.
 struct CodexAccountSnapshot : ComponentSnapshot {
     static constexpr size_t kDailyBucketCount = 8;
+    static constexpr size_t kPlanIconSide = 16;
+    static constexpr size_t kPlanIconBytes = kPlanIconSide * kPlanIconSide / 8;
     uint64_t daily_tokens[kDailyBucketCount]{};
     uint64_t credit_milliunits = 0;
     int64_t short_reset_unix_seconds = 0;
@@ -392,8 +394,13 @@ struct CodexAccountSnapshot : ComponentSnapshot {
     bool reset_vouchers_valid = false;
     bool workspace_messages_valid = false;
     char plan[25]{};
+    bool plan_projection_supported = false; // The current broker returned ACCOUNT2.
+    bool plan_icon_valid = false;
+    char plan_label[25]{};
+    uint8_t plan_icon[kPlanIconBytes]{}; // Two bytes per row, high bit first.
+    char plan_price[25]{}; // Public monthly list price caption; empty when unavailable.
 };
-static_assert(sizeof(CodexAccountSnapshot) <= 176,
+static_assert(sizeof(CodexAccountSnapshot) <= 256,
     "Account reads must remain bounded independently of the full hardware snapshot");
 
 // History is memory-only. UTC quarter numbers identify slots, even when no

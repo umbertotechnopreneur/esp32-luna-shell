@@ -45,6 +45,7 @@ import ccp_voice_input as voice_input
 from ccp_presence import AppPresence, AppState
 from ccp_pricing import PriceCache
 from ccp_security import DatagramAdmission, RejectionReporter
+from ccp_subscription_catalog import SubscriptionCatalog
 from ccp_windows import configure_exclusive_socket, protect_secret, unprotect_secret, runtime_directory
 
 
@@ -55,12 +56,14 @@ MAX_DATAGRAM_BYTES = 512
 MAX_ACTIVITY_DATAGRAM_BYTES = 2048
 MAX_TECHNICAL_DATAGRAM_BYTES = 1024
 MAX_ACCOUNT_DATAGRAM_BYTES = 672
+MAX_ACCOUNT2_DATAGRAM_BYTES = 800
 TECHNICAL_FIELDS = technical_metadata.FIELDS
 ACCOUNT_DETAILS_FIELDS = ("short_reset", "short_remaining", "short_minutes", "anchor", "days",
                           "streak", "best", "credits", "vouchers", "plan", "messages",
                           "series", "quarter", "tokens15", "age")
+SUBSCRIPTION_FIELDS = ("plan_label", "plan_icon", "plan_price")
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.14"
+SERVER_VERSION = "0.6.15"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 CHALLENGE_TIMEOUT_SECONDS = 2.0
 MAX_DISCOVERY_OFFERS = 16
@@ -166,6 +169,7 @@ def parse_datagram(message: bytes) -> tuple[str, dict[str, str]]:
     limit = (interactions.MAX_EVENT_DATAGRAM_BYTES if message.startswith(b"CCP1|EVENT|") else
              MAX_ACTIVITY_DATAGRAM_BYTES if message.startswith(b"CCP1|ACTIVITY|") else
              MAX_TECHNICAL_DATAGRAM_BYTES if message.startswith(b"CCP1|TECH|") else
+             MAX_ACCOUNT2_DATAGRAM_BYTES if message.startswith(b"CCP1|ACCOUNT2|") else
              MAX_ACCOUNT_DATAGRAM_BYTES if message.startswith(b"CCP1|ACCOUNT|") else MAX_DATAGRAM_BYTES)
     if not message or len(message) > limit:
         raise ValueError("CCP datagram size rejected")
@@ -196,6 +200,7 @@ def encode_datagram(kind: str, fields: list[tuple[str, str]]) -> bytes:
     limit = (interactions.MAX_EVENT_DATAGRAM_BYTES if kind == "EVENT" else
              MAX_ACTIVITY_DATAGRAM_BYTES if kind == "ACTIVITY" else
              MAX_TECHNICAL_DATAGRAM_BYTES if kind == "TECH" else
+             MAX_ACCOUNT2_DATAGRAM_BYTES if kind == "ACCOUNT2" else
              MAX_ACCOUNT_DATAGRAM_BYTES if kind == "ACCOUNT" else MAX_DATAGRAM_BYTES)
     if len(payload) > limit:
         raise ValueError("CCP datagram exceeds its fixed bound")
@@ -205,7 +210,9 @@ def encode_datagram(kind: str, fields: list[tuple[str, str]]) -> bytes:
 # details: A verified optional account projection, or None when it is unavailable.
 # now: Current monotonic time for the age of the current projection.
 # extended_days: True only for a device requesting the eighth calendar bucket.
-def account_details_values(details: AccountDetails | None, now: float, *, extended_days: bool = False) -> list[str]:
+# plan: Optional wire identity for a catalog match whose native token exceeds the legacy field.
+def account_details_values(details: AccountDetails | None, now: float, *, extended_days: bool = False,
+                           plan: str | None = None) -> list[str]:
     if details is None:
         return ["-"] * len(ACCOUNT_DETAILS_FIELDS)
     short = details.short_window
@@ -222,7 +229,7 @@ def account_details_values(details: AccountDetails | None, now: float, *, extend
         details.best_streak,
         details.credits,
         details.vouchers,
-        details.plan,
+        plan if plan is not None else details.plan,
         details.messages,
         quarter.series if quarter is not None else None,
         quarter.quarter if quarter is not None else None,
@@ -593,8 +600,10 @@ class CompanionResponder:
     # listener: Exclusively bound socket transferred by the service after state loads.
     # activity: Volatile user-prompt context owned by this broker.
     # requests: Separate volatile request owner; an activity snapshot cannot answer or replace a question.
+    # subscriptions: Public subscription catalog owned by the exclusive runtime broker.
     def __init__(self, state: StateStore, listener: socket.socket, activity: ActivityStore,
-                 requests: interactions.InteractionStore | None = None) -> None:
+                 requests: interactions.InteractionStore | None = None,
+                 subscriptions: SubscriptionCatalog | None = None) -> None:
         self._state = state
         self._activity = activity
         self._requests = requests if requests is not None else interactions.InteractionStore()
@@ -608,6 +617,7 @@ class CompanionResponder:
         self._event_lock = threading.Lock()
         self.app_presence = AppPresence()
         self._account_usage = AccountUsageReader()
+        self._subscriptions = subscriptions
         self._app_peers: dict[str, EventPeer] = {}
         self._app_sequence = 0
         self._last_app_presence: tuple[str, str] | None = None
@@ -722,8 +732,8 @@ class CompanionResponder:
         if kind == "APPCAP":
             self._accept_app_capability(fields, source)
             return
-        if kind in {"ALLOWANCECAP", "ALLOWANCECAP2"}:
-            self._accept_allowance_capability(fields, source, extended_days=kind == "ALLOWANCECAP2")
+        if kind in {"ALLOWANCECAP", "ALLOWANCECAP2", "ALLOWANCECAP3"}:
+            self._accept_allowance_capability(fields, source, version=kind[-1] if kind != "ALLOWANCECAP" else "1")
             return
         if kind != "FIND":
             return
@@ -905,11 +915,10 @@ class CompanionResponder:
     # self: Existing responder supplying account metadata to authenticated physical Cody devices.
     # fields: Exact signed allowance capability envelope after COMMITTED for the same heartbeat.
     # source: Observed UDP endpoint, required to match the active authenticated peer.
-    # extended_days: True when the capability's message kind selects eight calendar buckets.
+    # version: Negotiated envelope version selected by the datagram kind.
     # Raises ValueError for rejected identity or proof, or RuntimeError/OSError for optional delivery failure.
     def _accept_allowance_capability(self, fields: dict[str, str], source: tuple[str, int],
-                                     *, extended_days: bool = False) -> None:
-        version = "2" if extended_days else "1"
+                                     *, version: str = "1") -> None:
         if set(fields) != {"device", "pc", "nonce", "allowance", "proof"} or fields["allowance"] != version:
             raise ValueError("Weekly allowance capability fields malformed")
         if observation_source(source[0]) != "LAN":
@@ -948,9 +957,28 @@ class CompanionResponder:
                 ("device", "pc", "nonce", "reset", "remaining", "age"), values))
                 + [("proof", make_proof(peer.key, "allowance-v1", *values))])
             self._socket.sendto(payload, source)
-            values = identity + account_details_values(account.details, now, extended_days=extended_days)
-            payload = encode_datagram("ACCOUNT", list(zip(("device", "pc", "nonce", *ACCOUNT_DETAILS_FIELDS), values))
-                                      + [("proof", make_proof(peer.key, "account-v1", *values))])
+            subscription = version == "3"
+            names = ("device", "pc", "nonce", *ACCOUNT_DETAILS_FIELDS)
+            plan_fields = ("-", "-", "-")
+            wire_plan = None
+            if subscription and account.details is not None and self._subscriptions is not None:
+                native_plan = account.details.raw_plan or account.details.plan
+                if native_plan is not None:
+                    try:
+                        self._subscriptions.start_refresh()
+                    except (OSError, RuntimeError, ValueError) as error:
+                        print(f"CCP subscription catalog refresh failed: {error}", file=sys.stderr, flush=True)
+                    plan_fields = self._subscriptions.projection(native_plan)
+                    if plan_fields[0] != "-" and account.details.plan is None:
+                        wire_plan = "other"
+            values = identity + account_details_values(account.details, now, extended_days=version != "1",
+                                                       plan=wire_plan)
+            if subscription:
+                names += SUBSCRIPTION_FIELDS
+                values.extend(plan_fields)
+            kind, domain = ("ACCOUNT2", "account-v2") if subscription else ("ACCOUNT", "account-v1")
+            payload = encode_datagram(kind, list(zip(names, values))
+                                      + [("proof", make_proof(peer.key, domain, *values))])
             self._socket.sendto(payload, source)
 
     # self: Responder holding _event_lock; callers already admitted this active capable peer.
@@ -1242,8 +1270,10 @@ class CompanionResponder:
 class CcpService:
     # self: Loads protected state and starts the local authenticated responder.
     # pricing: Optional portable catalog owned and started by the exclusive runtime broker.
+    # subscriptions: Optional public subscription catalog owned by the same broker.
     # Raises RuntimeError or OSError when state or the fixed UDP listener is unavailable.
-    def __init__(self, pricing: PriceCache | None = None) -> None:
+    def __init__(self, pricing: PriceCache | None = None,
+                 subscriptions: SubscriptionCatalog | None = None) -> None:
         # Acquire ownership first: a second process must fail without creating,
         # reading or overwriting the first process's PC identity and records.
         listener = open_companion_listener()
@@ -1253,7 +1283,7 @@ class CcpService:
             self.interactions = interactions.InteractionStore()
             self.notifications_error: str | None = None
             self._hook_lock = threading.Lock()
-            self.responder = CompanionResponder(self.state, listener, self.activity, self.interactions)
+            self.responder = CompanionResponder(self.state, listener, self.activity, self.interactions, subscriptions)
             self.responder.start()
         except BaseException:
             try:

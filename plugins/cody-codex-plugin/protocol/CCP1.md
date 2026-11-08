@@ -182,21 +182,29 @@ HMAC input: allowance-cap-v1|<device>|<pc>|<nonce>|1
 CCP1|ALLOWANCECAP2|device=<12hex>|pc=<32hex>|nonce=<32hex>|allowance=2|proof=<64hex>
 HMAC input: allowance-cap-v1|<device>|<pc>|<nonce>|2
 
+CCP1|ALLOWANCECAP3|device=<12hex>|pc=<32hex>|nonce=<32hex>|allowance=3|proof=<64hex>
+HMAC input: allowance-cap-v1|<device>|<pc>|<nonce>|3
+
 CCP1|ALLOWANCE|device=<12hex>|pc=<32hex>|nonce=<32hex>|reset=<seconds>|remaining=<basis points>|age=<ms>|proof=<64hex>
 HMAC input: allowance-v1|<device>|<pc>|<nonce>|<reset>|<remaining>|<age>
 
 CCP1|ACCOUNT|device=<12hex>|pc=<32hex>|nonce=<32hex>|short_reset=<seconds>|short_remaining=<basis points>|short_minutes=<minutes>|anchor=<Unix day>|days=<seven or eight comma-separated counts>|streak=<days>|best=<days>|credits=<milli-credits or unlimited>|vouchers=<count>|plan=<token>|messages=<count>|series=<16hex>|quarter=<UTC interval index>|tokens15=<count>|age=<ms>|proof=<64hex>
 HMAC input: account-v1|<device>|<pc>|<nonce>|<short_reset>|<short_remaining>|<short_minutes>|<anchor>|<days>|<streak>|<best>|<credits>|<vouchers>|<plan>|<messages>|<series>|<quarter>|<tokens15>|<age>
+
+CCP1|ACCOUNT2|device=<12hex>|pc=<32hex>|nonce=<32hex>|short_reset=<seconds>|short_remaining=<basis points>|short_minutes=<minutes>|anchor=<Unix day>|days=<eight comma-separated counts>|streak=<days>|best=<days>|credits=<milli-credits or unlimited>|vouchers=<count>|plan=<token>|messages=<count>|series=<16hex>|quarter=<UTC interval index>|tokens15=<count>|age=<ms>|plan_label=<caption>|plan_icon=<64hex>|plan_price=<caption>|proof=<64hex>
+HMAC input: account-v2|<device>|<pc>|<nonce>|<short_reset>|<short_remaining>|<short_minutes>|<anchor>|<days>|<streak>|<best>|<credits>|<vouchers>|<plan>|<messages>|<series>|<quarter>|<tokens15>|<age>|<plan_label>|<plan_icon>|<plan_price>
 ```
 
-The current paired device accepts at most one ALLOWANCE and one ACCOUNT per
-nonce. ALLOWANCECAP2 requests eight days so the same response can carry today's
-bucket and the seven complete days before it. A device that gets no ALLOWANCE
-for that request uses ALLOWANCECAP on the next authenticated heartbeat.
+The current paired device accepts at most one ALLOWANCE and one account summary
+per nonce. ALLOWANCECAP3 requests ACCOUNT2 with plan presentation. ALLOWANCECAP2
+and ALLOWANCECAP3 request eight days so the response can carry today's bucket
+and the seven complete days before it. If a request goes unanswered, Cody tries
+ALLOWANCECAP2 and then ALLOWANCECAP on successive authenticated heartbeats. A
+legacy response is followed by a fresh ALLOWANCECAP3 probe.
 ALLOWANCE contains only the verified `codex` 10,080-minute window.
 Reset instants are Unix seconds in 1–253402300799, and remaining values are
 0–10000 basis points. An unavailable weekly window uses `-` for all three
-fields. ACCOUNT independently uses `-` for each unavailable field. Its short
+fields. Account summaries independently use `-` for each unavailable field. The short
 window fields are all present or all absent, with a duration below 10,080
 minutes. `anchor` and `days` appear together. The Unix-day anchor identifies the
 newest returned date through the UTC date of the App Server read. It ranges from
@@ -208,6 +216,17 @@ lowercase ASCII token, up to 24 characters. When no account details are
 available, age is also `-`.
 Recognized App Server Business and Enterprise plan types that exceed the field
 bound are sent as their bounded plan family.
+
+ACCOUNT2 plan presentation is attached to a known active plan token. A catalog
+match whose native token exceeds the wire bound can use `other` with the full
+display label. The plugin supplies `plan_label` and `plan_icon` together. The icon is a nonempty 16 by 16
+1-bit mask in lowercase hexadecimal, two bytes per row with the most significant
+bit on the left. The optional `plan_price` caption is a public monthly list price
+with its currency and billing unit. Both captions are at most 24 characters and
+admit letters, digits, interior spaces and `.`, `_`, `+`, `/`, `-`. A `-` price
+omits the price. A `-` label requires `-` for both icon and price. The plugin can
+update the active plan presentation without changing firmware. Pricing data does
+not include the user's actual billed amount or any billing identifiers.
 
 The graph fields use a nonzero opaque random `series` and its most recent
 completed UTC `quarter`, or `-` for all three fields when no series record is
@@ -240,7 +259,8 @@ Discovery requires explicit inclusion; this identity is never represented as a
 measured physical-device MAC.
 
 Every datagram is printable ASCII and uses `|` separators. Ordinary packets
-admit 512 bytes; ACTIVITY admits 2048, TECH 1024, EVENT 4096 and ACCOUNT 672.
+admit 512 bytes; ACTIVITY admits 2048, TECH 1024, EVENT 4096, ACCOUNT 672 and
+ACCOUNT2 800.
 Unknown, duplicated or missing fields are rejected. Senders use the canonical
 field order shown below for reproducible proofs and diagnostics.
 

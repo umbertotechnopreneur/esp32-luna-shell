@@ -61,6 +61,9 @@ constexpr uint16_t kDevicePort = 42117;
 constexpr uint16_t kPluginPort = 42118;
 constexpr size_t kMaximumDatagramBytes = 512;
 constexpr size_t kMaximumAccountDatagramBytes = 672;
+constexpr size_t kMaximumAccountSubscriptionDatagramBytes = 800;
+constexpr char kAccountPrefix[] = "CCP1|ACCOUNT|";
+constexpr char kAccountSubscriptionPrefix[] = "CCP1|ACCOUNT2|";
 constexpr size_t kMaximumActivityDatagramBytes = 2048;
 constexpr size_t kMaximumEventDatagramBytes = 4096;
 constexpr uint32_t kPbkdf2Iterations = 50000;
@@ -137,8 +140,9 @@ int64_t s_last_ready_at_us = 0;
 bool s_activity_received_for_nonce = false;
 bool s_technical_received_for_nonce = false;
 enum class WeeklyLimitExchange : uint8_t { Idle, Requested, Received };
+enum class AllowanceCapability : uint8_t { Legacy = 1, ExtendedDays = 2, Subscription = 3 };
 WeeklyLimitExchange s_weekly_limit_exchange = WeeklyLimitExchange::Idle;
-bool s_request_extended_account = true;
+AllowanceCapability s_allowance_capability = AllowanceCapability::Subscription;
 bool s_account_received_for_nonce = false;
 LUNASHELL::CodexAccountSnapshot s_account_candidate{};
 // Serialized network-owner projection; large metadata never enters nested task frames.
@@ -1671,11 +1675,18 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
             std::memcpy(s_find_nonce, nonce, sizeof(nonce));
             s_activity_received_for_nonce = false;
             s_technical_received_for_nonce = false;
-            // Fall back for one heartbeat when the extended capability went unanswered.
-            // A missing READY leaves the same version selected until it can be sent.
+            // An unanswered request descends through the two legacy capabilities.
+            // After a fallback response, probe again so a live broker upgrade is discovered.
             if (s_weekly_limit_exchange != WeeklyLimitExchange::Idle) {
-                s_request_extended_account = !s_request_extended_account ||
-                    s_weekly_limit_exchange == WeeklyLimitExchange::Received;
+                if (s_weekly_limit_exchange == WeeklyLimitExchange::Received || s_account_received_for_nonce) {
+                    s_allowance_capability = AllowanceCapability::Subscription;
+                } else if (s_allowance_capability == AllowanceCapability::Subscription) {
+                    s_allowance_capability = AllowanceCapability::ExtendedDays;
+                } else if (s_allowance_capability == AllowanceCapability::ExtendedDays) {
+                    s_allowance_capability = AllowanceCapability::Legacy;
+                } else {
+                    s_allowance_capability = AllowanceCapability::Subscription;
+                }
             }
             s_weekly_limit_exchange = WeeklyLimitExchange::Idle;
             s_account_received_for_nonce = false;
@@ -1716,7 +1727,7 @@ void startDiscovery()
     s_activity_received_for_nonce = false;
     s_technical_received_for_nonce = false;
     s_weekly_limit_exchange = WeeklyLimitExchange::Idle;
-    s_request_extended_account = true;
+    s_allowance_capability = AllowanceCapability::Subscription;
     s_account_received_for_nonce = false;
     publishLocked(State::Discovering, ESP_OK);
     ESP_LOGI(kTag, "CCP reconnect admitted with retained pairing; code window stays closed");
@@ -1891,8 +1902,7 @@ esp_err_t sendObservationCapabilityLocked(const ReadyResponse &response, const s
     if (weekly && s_weekly_limit_exchange != WeeklyLimitExchange::Idle) {
         return ESP_OK;
     }
-    const bool extended = weekly && s_request_extended_account;
-    const unsigned version = extended ? 2U : 1U;
+    const unsigned version = weekly ? static_cast<unsigned>(s_allowance_capability) : 1U;
     auto &input = s_event_proof_input;
     uint8_t proof[32]{};
     char proof_hex[65]{};
@@ -1906,7 +1916,14 @@ esp_err_t sendObservationCapabilityLocked(const ReadyResponse &response, const s
         error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
     }
     auto &packet = s_event_ack_packet;
-    const char *kind = weekly ? (extended ? "ALLOWANCECAP2" : "ALLOWANCECAP") : "APPCAP";
+    const char *kind = "APPCAP";
+    if (weekly) {
+        switch (s_allowance_capability) {
+        case AllowanceCapability::Legacy: kind = "ALLOWANCECAP"; break;
+        case AllowanceCapability::ExtendedDays: kind = "ALLOWANCECAP2"; break;
+        case AllowanceCapability::Subscription: kind = "ALLOWANCECAP3"; break;
+        }
+    }
     const int packet_length = std::snprintf(packet, sizeof(packet),
         "CCP1|%s|device=%s|pc=%s|nonce=%s|%s=%u|proof=%s",
         kind, response.device_id, response.pc_id, response.nonce, weekly ? "allowance" : "app", version, proof_hex);
@@ -2547,7 +2564,7 @@ bool parseTechnicalCount(const char *value, bool &present, uint64_t &output)
     return true;
 }
 
-enum class AccountPacket : uint8_t { WeeklyLimit, Summary };
+enum class AccountPacket : uint8_t { WeeklyLimit, Summary, Subscription };
 constexpr uint64_t kLastAccountEpoch = 253402300799; // 9999-12-31 23:59:59 UTC
 
 // source: Exact UDP source, checked against the current authenticated READY endpoint.
@@ -2569,11 +2586,20 @@ esp_err_t admitAccountPacketLocked(const sockaddr_in &source, char *const *value
         (weekly ? s_weekly_limit_exchange == WeeklyLimitExchange::Received : s_account_received_for_nonce)) {
         return ESP_ERR_INVALID_STATE;
     }
+    const bool subscription = kind == AccountPacket::Subscription;
+    if (!weekly && subscription != (s_allowance_capability == AllowanceCapability::Subscription)) {
+        return ESP_ERR_INVALID_STATE;
+    }
     if (s_last_ready_at_us <= 0 || received_at_us < s_last_ready_at_us ||
         received_at_us - s_last_ready_at_us >= kReadyExpiryUs) {
         return ESP_ERR_TIMEOUT;
     }
-    const char *domain = weekly ? "allowance-v1" : "account-v1";
+    const char *domain = "account-v1";
+    if (weekly) {
+        domain = "allowance-v1";
+    } else if (subscription) {
+        domain = "account-v2";
+    }
     size_t used = std::strlen(domain);
     std::memcpy(s_event_proof_input, domain, used + 1);
     for (size_t index = 0; index < signed_fields; ++index) {
@@ -2762,6 +2788,44 @@ bool parseAccountPlan(const char *text, char (&plan)[25])
     return true;
 }
 
+// text: Printable subscription caption with no CCP delimiters, or the unavailable sentinel.
+// caption: Bounded display string receiving the complete validated value.
+bool parsePlanCaption(const char *text, char (&caption)[25])
+{
+    if (std::strcmp(text, "-") == 0) {
+        return true;
+    }
+    constexpr char allowed[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ._+/-";
+    const size_t length = std::strlen(text);
+    if (length == 0 || length >= sizeof(caption) || text[0] == ' ' || text[length - 1] == ' ' ||
+        std::strspn(text, allowed) != length) {
+        return false;
+    }
+    std::memcpy(caption, text, length + 1);
+    return true;
+}
+
+// label: Display name for the active plan, or the unavailable sentinel.
+// icon: Exact 16 by 16 1-bit glyph as lowercase hexadecimal, or the unavailable sentinel.
+// price: Optional public monthly list price, or the unavailable sentinel.
+// account: Worker-owned account candidate containing the validated plan identity.
+bool parseAccountSubscription(const char *label, const char *icon, const char *price,
+                              LUNASHELL::CodexAccountSnapshot &account)
+{
+    account.plan_projection_supported = true;
+    if (std::strcmp(label, "-") == 0) {
+        return std::strcmp(icon, "-") == 0 && std::strcmp(price, "-") == 0;
+    }
+    if (account.plan[0] == '\0' || std::strcmp(account.plan, "unknown") == 0 ||
+        !parsePlanCaption(label, account.plan_label) || !parsePlanCaption(price, account.plan_price) ||
+        decodeHex(icon, account.plan_icon, sizeof(account.plan_icon)) != ESP_OK) {
+        return false;
+    }
+    account.plan_icon_valid = std::any_of(account.plan_icon, account.plan_icon + sizeof(account.plan_icon),
+        [](uint8_t bits) { return bits != 0; });
+    return account.plan_icon_valid;
+}
+
 // series_text: Nonzero, sixteen-digit lowercase hexadecimal account generation.
 // quarter_text: Completed interval start as Unix seconds divided by 900.
 // tokens_text: Immutable delta for that quarter or the missing sentinel.
@@ -2781,21 +2845,30 @@ bool parseAccountTokenInterval(const char *series_text, const char *quarter_text
 
 // payload: Exact signed account summary with source age and explicit unavailable fields.
 // source: Current authenticated READY endpoint.
+// kind: Selects the legacy or subscription summary requested for this nonce.
 // Exception: Returns original schema, replay, authentication or publication errors.
-esp_err_t acceptAccount(const char *payload, const sockaddr_in &source)
+esp_err_t acceptAccount(const char *payload, const sockaddr_in &source, AccountPacket kind)
 {
-    constexpr const char *names[] = {"device", "pc", "nonce", "short_reset", "short_remaining", "short_minutes",
-        "anchor", "days", "streak", "best", "credits", "vouchers", "plan", "messages",
+    static constexpr const char *legacy_names[] = {"device", "pc", "nonce", "short_reset", "short_remaining",
+        "short_minutes", "anchor", "days", "streak", "best", "credits", "vouchers", "plan", "messages",
         "series", "quarter", "tokens15", "age", "proof"};
-    constexpr size_t field_count = sizeof(names) / sizeof(names[0]);
-    char *values[field_count]{};
-    if (!parseEventFields(payload, "CCP1|ACCOUNT|", names, field_count, values)) {
+    static constexpr const char *subscription_names[] = {"device", "pc", "nonce", "short_reset",
+        "short_remaining", "short_minutes",
+        "anchor", "days", "streak", "best", "credits", "vouchers", "plan", "messages",
+        "series", "quarter", "tokens15", "age", "plan_label", "plan_icon", "plan_price", "proof"};
+    constexpr size_t legacy_count = sizeof(legacy_names) / sizeof(legacy_names[0]);
+    constexpr size_t subscription_count = sizeof(subscription_names) / sizeof(subscription_names[0]);
+    const bool subscription = kind == AccountPacket::Subscription;
+    const size_t field_count = subscription ? subscription_count : legacy_count;
+    const char *prefix = subscription ? kAccountSubscriptionPrefix : kAccountPrefix;
+    const char *const *names = subscription ? subscription_names : legacy_names;
+    char *values[subscription_count]{};
+    if (!parseEventFields(payload, prefix, names, field_count, values)) {
         return ESP_ERR_INVALID_ARG;
     }
     const int64_t received_at_us = esp_timer_get_time();
     std::lock_guard<std::mutex> guard(s_mutex);
-    esp_err_t error = admitAccountPacketLocked(source, values, field_count - 1, AccountPacket::Summary,
-        received_at_us);
+    esp_err_t error = admitAccountPacketLocked(source, values, field_count - 1, kind, received_at_us);
     if (error != ESP_OK) {
         return error;
     }
@@ -2814,7 +2887,8 @@ esp_err_t acceptAccount(const char *payload, const sockaddr_in &source)
         !parseAccountPlan(values[12], account.plan) ||
         !parseAccountCount(values[13], account.workspace_messages_valid, account.workspace_messages) ||
         !parseAccountTokenInterval(values[14], values[15], values[16], interval) ||
-        !parseTechnicalDuration(values[17], age_present, age_us)) {
+        !parseTechnicalDuration(values[17], age_present, age_us) ||
+        (subscription && !parseAccountSubscription(values[18], values[19], values[20], account))) {
         return ESP_ERR_INVALID_ARG;
     }
     const bool has_data = account.short_window_minutes != 0 || account.daily_valid_mask != 0 ||
@@ -3833,10 +3907,13 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
             }
             return;
         }
-        if (std::strncmp(payload, "CCP1|ACCOUNT|", 13) == 0) {
-            const esp_err_t error = acceptAccount(payload, source);
+        const bool subscription = std::strncmp(payload, kAccountSubscriptionPrefix,
+            sizeof(kAccountSubscriptionPrefix) - 1) == 0;
+        if (subscription || std::strncmp(payload, kAccountPrefix, sizeof(kAccountPrefix) - 1) == 0) {
+            const esp_err_t error = acceptAccount(payload, source,
+                subscription ? AccountPacket::Subscription : AccountPacket::Summary);
             if (error != ESP_OK) {
-                reportDatagramRejection("ACCOUNT", error);
+                reportDatagramRejection(subscription ? "ACCOUNT2" : "ACCOUNT", error);
             }
             return;
         }
@@ -3956,8 +4033,10 @@ void receiveDatagrams()
             received <= static_cast<int>(kMaximumActivityDatagramBytes);
         const bool extended_technical = std::strncmp(payload, "CCP1|TECH|", 10) == 0 &&
             received <= static_cast<int>(kMaximumActivityDatagramBytes);
-        const bool extended_account = std::strncmp(payload, "CCP1|ACCOUNT|", 13) == 0 &&
-            received <= static_cast<int>(kMaximumAccountDatagramBytes);
+        const bool extended_account = (std::strncmp(payload, kAccountPrefix, sizeof(kAccountPrefix) - 1) == 0 &&
+            received <= static_cast<int>(kMaximumAccountDatagramBytes)) ||
+            (std::strncmp(payload, kAccountSubscriptionPrefix, sizeof(kAccountSubscriptionPrefix) - 1) == 0 &&
+             received <= static_cast<int>(kMaximumAccountSubscriptionDatagramBytes));
         if (received > static_cast<int>(kMaximumDatagramBytes) &&
             std::strncmp(payload, "CCP1|EVENT|", 11) != 0 &&
             !extended_activity && !extended_technical && !extended_account) {
@@ -4041,7 +4120,7 @@ void maintainState()
                 s_activity_received_for_nonce = false;
                 s_technical_received_for_nonce = false;
                 s_weekly_limit_exchange = WeeklyLimitExchange::Idle;
-                s_request_extended_account = true;
+                s_allowance_capability = AllowanceCapability::Subscription;
                 s_account_received_for_nonce = false;
                 publishLocked(State::Discovering, ESP_ERR_TIMEOUT);
                 ESP_LOGW(kTag, "CCP code expired with a saved candidate; authenticated recovery continues");

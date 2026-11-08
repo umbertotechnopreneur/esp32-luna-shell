@@ -72,6 +72,7 @@ class AccountDetails:
     plan: str | None = None
     messages: int | None = None
     quarter_tokens: QuarterTokens | None = None
+    raw_plan: str | None = None
 
 
 @dataclass(frozen=True)
@@ -288,16 +289,19 @@ class AccountLimitClient(NativeAppServer):
         weekly, short, short_minutes = read_allowance_windows(bucket, limits_at)
         vouchers = limits.get("rateLimitResetCredits") if limits is not None else None
         voucher_count = unsigned_field(vouchers.get("availableCount"), MAX_UINT32) if isinstance(vouchers, dict) else None
-        plan = read_plan_token(account.get("planType"))
+        plan_type = account.get("planType")
+        raw_plan = (plan_type if isinstance(plan_type, str) and
+                    re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,47}", plan_type) is not None else None)
+        plan = read_plan_token(raw_plan)
         credits = read_credits(bucket)
         details_at = None
-        if plan is not None:
+        if raw_plan is not None:
             details_at = account_at
         elif short is not None or credits is not None or voucher_count is not None:
             details_at = limits_at
         details = AccountDetails(details_at if details_at is not None else limits_at,
                                  short_window=short, short_minutes=short_minutes,
-                                 credits=credits, vouchers=voucher_count, plan=plan)
+                                 credits=credits, vouchers=voucher_count, plan=plan, raw_plan=raw_plan)
         baseline = AccountObservation(weekly, details if details_at is not None else None)
 
         try:

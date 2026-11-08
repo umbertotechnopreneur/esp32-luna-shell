@@ -83,8 +83,10 @@ as gaps, and the total requires all seven counts. CCP 0.6.13 or later can delive
 additional date needed when the service already includes today's partial count.
 
 **Codex account** shows the current ChatGPT plan with a standalone icon and
-label. **Workspace messages** appears only when the current account observation
-contains a count, including a measured zero.
+label. The public US monthly list price appears when available. CCP 0.6.15 or
+later refreshes the public catalog on the computer and supplies the icon, label
+and price through the authenticated link. **Workspace messages** appears only
+when the current account observation contains a count, including a measured zero.
 
 After ten seconds without touch, the lateral arrows fade. Touch or shake
 reveals them. A hidden arrow requires a new touch once it is visible. Token

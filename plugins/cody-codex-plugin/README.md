@@ -4,7 +4,7 @@
 uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
 for pairing; public Internet availability is a separate condition.
 
-CCP **0.6.14** provides one local owner for Codex and the Windows/Linux companion
+CCP **0.6.15** provides one local owner for Codex and the Windows/Linux companion
 control panel. Codex activity and semantic questions retain their own identities.
 The panel reads genuine native MCP presence and original activity freshness.
 These changes are source-only; installation and device validation are pending.
@@ -239,10 +239,19 @@ between adjacent 15-minute UTC sampling slots. Missing intervals remain gaps.
 The existing CCP broker makes bounded reads through a private
 `codex app-server` stdio child only when a native MCP lease is open and an
 authenticated device asks for account data. It attempts at most one refresh per
-minute and forwards only the numeric metrics and plan label. Closing Codex,
+minute and forwards the supported metrics and plan presentation. Closing Codex,
 losing the link, an unsupported account field or an expired sample produces
 the corresponding unavailable or stale state on Cody. Account reads use the
 [public App Server methods](https://learn.chatgpt.com/docs/app-server#auth-endpoints).
+
+**Codex account** shows the active plan's standalone icon, name and public US
+monthly list price when available. The broker checks the official
+[pricing document](https://learn.chatgpt.com/docs/pricing) on the PC and sends the
+selected presentation over the authenticated LAN link. Cody can render new
+icons and prices through the same protocol. Pro shows the published choices
+when the account's price tier cannot be established. Standard Business uses
+the monthly per-seat list price. Unpublished prices and missing counters are
+omitted. These public prices can differ from the signed-in account's billing.
 
 ## Install and review hooks
 
