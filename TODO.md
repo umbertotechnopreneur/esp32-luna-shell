@@ -1,5 +1,17 @@
 # Active work
 
+## Cody layout refinement
+
+- Validate the open Options/Behavior rows, saved-PC icon actions and full SSID
+  display at all rotations, with missing/stale and unsupported network names.
+- Verify Account and Token activity empty states and Dictation failure layout;
+  the underlying audio failure still requires diagnosis from current observations.
+- Complete the remaining Connections and Wi-Fi connecting/connected polish.
+- Run no build, simulator, host suite or physical check without its required
+  explicit authorization. This checkpoint has static source review only.
+- Coordinate the relay integration contract with the existing cloud chat after
+  the requested layout stopping point; no firmware-to-cloud integration is claimed.
+
 ## CLOUD-01 - Private relay acceptance
 
 - Keep the independently versioned proprietary server outside the public Git

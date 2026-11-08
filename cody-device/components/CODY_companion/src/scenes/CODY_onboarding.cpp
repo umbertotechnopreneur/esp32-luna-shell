@@ -81,6 +81,9 @@ constexpr CODY2D::Rect kSingleActionBounds{113, 352, 240, 72};
 constexpr CODY2D::Rect kLeftCardBounds{73, 260, 154, 104};
 constexpr CODY2D::Rect kRightCardBounds{239, 260, 154, 104};
 constexpr CODY2D::Rect kOptionsBounds{153, 376, 160, 52};
+constexpr CODY2D::Rect kKeepPcBounds{83, 302, 90, 90};
+constexpr CODY2D::Rect kPairPcBounds{188, 302, 90, 90};
+constexpr CODY2D::Rect kForgetPcBounds{293, 302, 90, 90};
 constexpr CODY2D::Rect kSetupCodexBounds = kDeviceFirstSetup
     ? CODY2D::Rect{78, 170, 140, 168} : CODY2D::Rect{93, 230, 280, 56};
 constexpr CODY2D::Rect kSetupWifiBounds = kDeviceFirstSetup
@@ -302,6 +305,16 @@ alignas(ContentView) EXT_RAM_BSS_ATTR uint8_t s_view_storage[sizeof(ContentView)
 ContentView &s_view = *new (s_view_storage) ContentView{};
 #else
 ContentView s_view;
+#endif
+#ifdef ESP_PLATFORM
+// Display-owned scratch, refreshed from the canonical owner for each connection page.
+// Keep the projection off the nested onboarding stack; no independent sampling or cache.
+alignas(LUNASHELL::DeviceStatusObservation) EXT_RAM_BSS_ATTR
+    uint8_t s_connection_status_storage[sizeof(LUNASHELL::DeviceStatusObservation)]{};
+LUNASHELL::DeviceStatusObservation &s_connection_status =
+    *new (s_connection_status_storage) LUNASHELL::DeviceStatusObservation{};
+#else
+LUNASHELL::DeviceStatusObservation s_connection_status{};
 #endif
 #ifdef ESP_PLATFORM
 // One canonical observation stays outside the nested display worker call chain.
@@ -875,6 +888,47 @@ esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line
         {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(top)}, 0xFFFF, line);
 }
 
+// top: First name row; a full 32-byte printable SSID uses two rows.
+// first_line: First available narrative slot, with two reserved backing buffers.
+// Exception: Returns the canonical read or caption error, never a fabricated network name.
+esp_err_t prepare_network_name(uint16_t top, uint8_t first_line)
+{
+    const auto read_error = LUNASHELL::DeviceSnapshotService::instance()
+        .readDeviceStatusObservation(s_connection_status);
+    if (read_error != ESP_OK) { return read_error; }
+    const auto &wifi = s_connection_status.wifi;
+    const char *name = wifi.ssid;
+    const auto *end = std::find(name, name + sizeof(wifi.ssid), '\0');
+    const bool printable = end != name + sizeof(wifi.ssid) &&
+        std::all_of(name, end, [](char ch) { return ch >= 32 && ch <= 126; });
+    if (!wifi.data_valid || wifi.data_stale) {
+        name = wifi.data_stale ? "Network name stale" : "Network unavailable";
+    } else if (!wifi.credentials_configured) {
+        name = "No configured Wi-Fi";
+    } else if (!printable) {
+        name = "Name cannot be displayed";
+    } else if (end == name) {
+        name = "Network name unavailable";
+    }
+    const auto length = std::strlen(name);
+    // TextLine borrows route storage, never the mutable canonical-read scratch.
+    constexpr size_t columns = 26;
+    const auto row_count = (length + columns - 1U) / columns;
+    if (first_line + row_count > kContentLineCapacity) { return ESP_ERR_INVALID_SIZE; }
+    for (size_t row = 0; row < row_count; ++row) {
+        const auto count = std::min(columns, length - row * columns);
+        auto *text = s_view.debug_text[first_line + row];
+        std::memcpy(text, name + row * columns, count);
+        text[count] = '\0';
+        const auto error = prepare_caption(text, top + row * 26U,
+            s_view.lines[first_line + row], 300);
+        if (error != ESP_OK) { return error; }
+        s_view.lines[first_line + row].color = kPairingTitle;
+    }
+    s_view.line_count = first_line + row_count;
+    return ESP_OK;
+}
+
 // line: Receives the complete six-character code in the existing larger title font.
 // Exception: Returns the real code-length, font or layout error without logging the code.
 esp_err_t prepare_codex_code(CODY2D::TextLine &line)
@@ -1166,7 +1220,6 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
     case OnboardingAction::KeepPairing:
     case OnboardingAction::KeepSaved:
     case OnboardingAction::Done:
-    case OnboardingAction::GoHome:
     case OnboardingAction::DismissEvent:
         break;
     case OnboardingAction::ConnectCodex:
@@ -1190,6 +1243,8 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
     case OnboardingAction::DeclineCodex:
     case OnboardingAction::Later:
     case OnboardingAction::Options:
+    case OnboardingAction::GoHome:
+    case OnboardingAction::MoreBehavior:
         control.top_color = 0x18E5;
         control.bottom_color = 0x10A3;
         control.border_color = 0x4A8C;
@@ -1354,6 +1409,50 @@ esp_err_t prepare_icon_pill(OnboardingAction action, const char *label, CODY2D::
         {caption_x, control.caption.origin.y}, control.caption.color, control.caption);
 }
 
+// action: Keep, replace or forget the retained PC association.
+// enabled: Canonical admission for the selected operation.
+// control: Receives a standalone icon, caption and complete touch bounds.
+// second: Cleared because these short captions occupy one line.
+// Exception: Rejects an unknown identity or returns the native caption error.
+esp_err_t prepare_saved_pc_action(OnboardingAction action, bool enabled,
+    CODY2D::CapsuleControl &control, CODY2D::TextLine &second)
+{
+    using Icon = CODY2D::ActionIcon;
+    control = {};
+    second = {};
+    const char *label = nullptr;
+    switch (action) {
+    case OnboardingAction::KeepPairing:
+        control.bounds = kKeepPcBounds;
+        control.icon = Icon::Check;
+        control.icon_color = 0x7759;
+        label = "Keep";
+        break;
+    case OnboardingAction::ReplacePairing:
+        control.bounds = kPairPcBounds;
+        control.icon = Icon::Retry;
+        control.icon_color = 0xBD9F;
+        label = "Re-pair";
+        break;
+    case OnboardingAction::ForgetPairing:
+        control.bounds = kForgetPcBounds;
+        control.icon = Icon::Close;
+        control.icon_color = 0xED53;
+        label = "Forget";
+        break;
+    default: return ESP_ERR_INVALID_ARG;
+    }
+    control.enabled = enabled;
+    const auto center = static_cast<int16_t>(control.bounds.x + control.bounds.width / 2U);
+    control.icon_center = {center, 329};
+    const auto length = static_cast<uint16_t>(std::strlen(label));
+    const auto &font = SceneData::body_font;
+    const uint16_t width = (length - 1U) * font.advance + font.width;
+    return CODY2D::prepare_text_line(font, {label, length},
+        {static_cast<int16_t>(center - width / 2U), 361},
+        enabled ? kPairingTitle : kPairingCaption, control.caption);
+}
+
 // action: Explicit route action; never inferred from an English label.
 // enabled: True only when the route has an admissible backend or navigation action.
 // Exception: Rejects an unknown action identity without changing the view.
@@ -1372,6 +1471,9 @@ esp_err_t prepare_action(OnboardingAction action, bool enabled)
     }
     s_view.action_id = action;
     s_view.action_visible = action != OnboardingAction::None;
+    if (kDeviceFirstSetup && s_route == Route::CodexReplace) {
+        return prepare_saved_pc_action(action, enabled, s_view.action, s_view.action_second_line);
+    }
     if (kDeviceFirstSetup) {
         using Icon = CODY2D::ActionIcon;
         if (s_route == Route::MakeItYours10 && action == OnboardingAction::GoHome) {
@@ -1422,6 +1524,9 @@ esp_err_t prepare_alternative(OnboardingAction action, bool enabled)
         return error;
     }
     s_view.alternative_id = action;
+    if (kDeviceFirstSetup && s_route == Route::CodexReplace) {
+        return prepare_saved_pc_action(action, enabled, s_view.alternative, s_view.alternative_second_line);
+    }
     if (kDeviceFirstSetup && s_route == Route::Invitation05 && action == OnboardingAction::ShowQr) {
         return prepare_icon_pill(action, label, kGuideDownloadBounds, enabled, CODY2D::ActionIcon::Qr,
             s_view.alternative, s_view.alternative_second_line);
@@ -1501,7 +1606,10 @@ esp_err_t draw_about_project_rows(const void *state, CODY2D::Surface strip,
 
 // control: Prepared action geometry and glyph.
 // icon_size: Standalone glyph size, or zero for a capsule.
-// strip: Caller-owned content tile and logical row and column origin.
+// strip: Caller-owned content tile.
+// first_row: Logical tile y origin.
+// first_column: Logical tile x origin.
+// Exception: Returns the original native glyph or capsule drawing error.
 esp_err_t draw_action_visual(const CODY2D::CapsuleControl &control, uint16_t icon_size,
     CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
 {
@@ -1511,12 +1619,47 @@ esp_err_t draw_action_visual(const CODY2D::CapsuleControl &control, uint16_t ico
             static_cast<uint16_t>(control.icon_center.y - icon_size / 2),
             icon_size, icon_size,
         };
-        return CODY2D::draw_action_icon_rows(control.icon, icon_bounds, control.icon_color,
+        const auto color = control.enabled ? control.icon_color : kPairingCaption;
+        return CODY2D::draw_action_icon_rows(control.icon, icon_bounds, color,
             strip, first_row, first_column);
     }
     auto capsule = control;
     capsule.caption = {};
     return CODY2D::draw_capsule_rows(capsule, strip, first_row, first_column);
+}
+
+// preference: Prepared menu or setting row, sharing its existing touch rectangle.
+// strip: Caller-owned content tile.
+// first_row: Logical tile y origin.
+// first_column: Logical tile x origin.
+// Exception: Returns the first native glyph, divider or text error.
+esp_err_t draw_preference_row(const PreferenceControl &preference, CODY2D::Surface strip,
+    uint16_t first_row, uint16_t first_column)
+{
+    const auto &control = preference.control;
+    if (!kDeviceFirstSetup) {
+        return CODY2D::draw_capsule_rows(control, strip, first_row, first_column);
+    }
+    // Open rows keep color in the semantic glyph, with no filled card or border.
+    auto error = draw_action_visual(control, 30, strip, first_row, first_column);
+    if (error == ESP_OK) {
+        error = CODY2D::draw_text_rows(control.caption, control.caption.text.length,
+            strip, first_row, first_column);
+    }
+    const auto &bounds = control.bounds;
+    if (error == ESP_OK && preference.action != OnboardingAction::None) {
+        error = CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::ChevronRight,
+            {static_cast<uint16_t>(bounds.x + bounds.width - 20U),
+             static_cast<uint16_t>(bounds.y + 26U), 16, 16}, kPairingCaption,
+            strip, first_row, first_column);
+    }
+    if (error == ESP_OK) {
+        const CODY2D::CapsuleControl divider{
+            {static_cast<uint16_t>(bounds.x + 48U), static_cast<uint16_t>(bounds.y + bounds.height - 2U),
+             static_cast<uint16_t>(bounds.width - 48U), 2}, {}, 0x2106, 0x2106, true};
+        error = CODY2D::draw_capsule_rows(divider, strip, first_row, first_column);
+    }
+    return error;
 }
 
 // state: Immutable content owned by this route through frame retirement.
@@ -1575,9 +1718,7 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
         }
     }
     if (error == ESP_OK && view.actions_visible && view.options.caption.valid) {
-        CODY2D::CapsuleControl control = view.options;
-        control.caption = {};
-        error = CODY2D::draw_capsule_rows(control, strip, first_row, first_column);
+        error = draw_action_visual(view.options, view.action_icon_size, strip, first_row, first_column);
         if (error == ESP_OK) {
             error = CODY2D::draw_text_rows(view.options.caption, view.options_visible_characters,
                 strip, first_row, first_column);
@@ -1585,7 +1726,7 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
     }
     for (uint8_t index = 0; error == ESP_OK && view.actions_visible && index < view.preference_count; ++index) {
         const auto &preference = view.preferences[index];
-        error = CODY2D::draw_capsule_rows(preference.control, strip, first_row, first_column);
+        error = draw_preference_row(preference, strip, first_row, first_column);
         if (error == ESP_OK && preference.value.valid) {
             error = CODY2D::draw_text_rows(preference.value, preference.value.text.length,
                 strip, first_row, first_column);
@@ -1622,7 +1763,12 @@ bool actions_ready(const SceneFrame &scene)
         return event_presentation::controls_ready(s_event_plan,
             scene_content_characters(scene, narrative, 0), title_length);
     }
-    const uint16_t length = s_view.lines[0].text.length;
+    uint16_t length = 0;
+    for (uint8_t index = 0; index < s_view.line_count; ++index) {
+        if (!s_view.instant_lines[index]) {
+            length += s_view.lines[index].text.length;
+        }
+    }
     return scene_content_characters(scene, length, title_length) == length;
 }
 
@@ -1779,6 +1925,14 @@ esp_err_t attach_content(SceneFrame &scene)
         } else if (s_route == Route::Hello04) {
             content.bounds.top = 223;
         }
+    }
+    if (kDeviceFirstSetup && s_route == Route::CodexReplace) {
+        // All three open actions belong to the body; the lateral Back remains separate.
+        content.bounds = {83, 174, 383, 392};
+        content.bottom_action_visible = false;
+        content.bottom_action_bounds = {};
+        content.control_bounds[0] = {10, 203, 70, 263};
+        content.control_bounds[1] = {83, 302, 383, 392};
     }
     content.draw_rows = draw_content;
     if (is_codex_event_route(s_route)) {
@@ -2006,9 +2160,9 @@ const char *options_title()
         return "Save failed";
     }
     switch (s_options_page) {
-    case OptionsPage::Menu: return kDeviceFirstSetup ? "Options 1/3" : "Options 1/2";
-    case OptionsPage::MenuMore: return kDeviceFirstSetup ? "Options 2/3" : "Options 2/2";
-    case OptionsPage::MenuMaintenance: return "Options 3/3";
+    case OptionsPage::Menu: return kDeviceFirstSetup ? "Tools 1/3" : "Options 1/2";
+    case OptionsPage::MenuMore: return kDeviceFirstSetup ? "Preferences 2/3" : "Options 2/2";
+    case OptionsPage::MenuMaintenance: return "Device 3/3";
     case OptionsPage::Display: return "Display";
     case OptionsPage::Behavior: return "Behavior";
     case OptionsPage::BehaviorMore: return "More behavior";
@@ -2228,6 +2382,30 @@ bool options_presentation_changed(const LUNASHELL::CodyOptionsObservation &obser
     return false;
 }
 
+struct MenuAppearance {
+    CODY2D::ActionIcon icon;
+    uint16_t color;
+    const char *hint;
+};
+
+// action: Stable Options destination, independent of its current page or label.
+MenuAppearance menu_appearance(OnboardingAction action)
+{
+    using Icon = CODY2D::ActionIcon;
+    switch (action) {
+    case OnboardingAction::Connections: return {Icon::Link, 0xBD9F, "Wi-Fi and PC"};
+    case OnboardingAction::CodexStatistics: return {Icon::PlanAccount, 0x7759, "Usage and limits"};
+    case OnboardingAction::LocalTimer: return {Icon::Clock, 0xFDA9, "A moment to focus"};
+    case OnboardingAction::VisibleScreens: return {Icon::PlanBusiness, 0x6F9E, "Choose your pages"};
+    case OnboardingAction::DisplayOptions: return {Icon::Orientation, 0xFDA9, "Light and rotation"};
+    case OnboardingAction::BehaviorOptions: return {Icon::Motion, 0xBD9F, "Make Cody yours"};
+    case OnboardingAction::RestartDevice: return {Icon::Retry, 0x6F9E, "Start fresh"};
+    case OnboardingAction::FactoryReset: return {Icon::Close, 0xED53, "Erase settings"};
+    case OnboardingAction::QuickGuide: return {Icon::PlanEducation, 0x7759, "Learn the controls"};
+    default: return {Icon::None, kPairingCaption, ""};
+    }
+}
+
 // scene: Screen 10 receiving actual canonical values or a visible write failure.
 // captured: Optional observation already read by this update; avoids a second snapshot lock/copy.
 // Exception: Returns the original snapshot or text preparation failure.
@@ -2294,6 +2472,23 @@ esp_err_t prepare_options_content(SceneFrame &scene,
                 CODY2D::TextLine unused;
                 error = prepare_button(action, label, {kPreferenceLeft, top, kPreferenceWidth, kPreferenceHeight},
                     true, false, target.control, unused);
+                if (error == ESP_OK && kDeviceFirstSetup) {
+                    const auto appearance = menu_appearance(action);
+                    target.control.icon = appearance.icon;
+                    target.control.icon_color = appearance.color;
+                    target.control.icon_center = {static_cast<int16_t>(kPreferenceLeft + 18U),
+                        static_cast<int16_t>(top + 34U)};
+                    error = CODY2D::prepare_text_line(SceneData::body_font,
+                        {label, static_cast<uint16_t>(std::strlen(label))},
+                        {static_cast<int16_t>(kPreferenceLeft + 48U), static_cast<int16_t>(top + 5U)},
+                        kPairingTitle, target.control.caption);
+                    if (error == ESP_OK) {
+                        error = CODY2D::prepare_text_line(SceneData::body_font,
+                            {appearance.hint, static_cast<uint16_t>(std::strlen(appearance.hint))},
+                            {static_cast<int16_t>(kPreferenceLeft + 48U), static_cast<int16_t>(top + 35U)},
+                            kPairingCaption, target.value);
+                    }
+                }
             }
             if (error != ESP_OK) {
                 return error;
@@ -2314,25 +2509,28 @@ esp_err_t prepare_options_content(SceneFrame &scene,
     struct Row {
         PreferenceId identity;
         const char *label;
+        CODY2D::ActionIcon icon;
+        uint16_t color;
     };
+    using Icon = CODY2D::ActionIcon;
     static constexpr Row display_rows[] = {
-        {PreferenceId::Brightness, "Brightness"},
-        {PreferenceId::AutoRotate, "Auto-rotate"},
-        {PreferenceId::Orientation, "Orientation"},
+        {PreferenceId::Brightness, "Brightness", Icon::PlanPro, 0xFDA9},
+        {PreferenceId::AutoRotate, "Auto-rotate", Icon::Rotate, 0x7759},
+        {PreferenceId::Orientation, "Orientation", Icon::Orientation, 0x6F9E},
     };
-    static constexpr Row usage_row{PreferenceId::UsageMode, "Usage"};
+    static constexpr Row usage_row{PreferenceId::UsageMode, "Usage", Icon::Home, 0x6F9E};
     static constexpr Row more_behavior_rows[] = {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
         usage_row,
 #endif
-        {PreferenceId::Screensaver, "Screensaver"},
+        {PreferenceId::Screensaver, "Screensaver", Icon::Motion, 0xBD9F},
     };
     static constexpr Row behavior_rows[] = {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-        {PreferenceId::Dictation, "Dictation"},
+        {PreferenceId::Dictation, "Dictation", Icon::Microphone, 0xBD9F},
 #endif
-        {PreferenceId::ShakeWake, "Shake to wake"},
-        {PreferenceId::Sounds, "Sounds"},
+        {PreferenceId::ShakeWake, "Shake to wake", Icon::Motion, 0x7759},
+        {PreferenceId::Sounds, "Sounds", Icon::Sound, 0xFDA9},
 #if !CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
         usage_row,
 #endif
@@ -2404,17 +2602,23 @@ esp_err_t prepare_options_content(SceneFrame &scene,
             available && !manual_locked && !s_command_pending};
         target.control.corner_radius = 12;
         target.control.border_color = active && available ? 0x2B4F : 0x4A8C;
-        target.control.icon = CODY2D::ActionIcon::None;
-        target.control.icon_color = active && available ? 0x8F1D : 0xBDF7;
-        const int16_t text_top = static_cast<int16_t>(top + (kPreferenceHeight - font.height) / 2U);
+        target.control.icon = kDeviceFirstSetup ? row.icon : Icon::None;
+        target.control.icon_color = available ? row.color : kPairingCaption;
+        target.control.icon_center = {static_cast<int16_t>(kPreferenceLeft + 18U),
+            static_cast<int16_t>(top + 34U)};
+        const int16_t text_top = static_cast<int16_t>(top +
+            (kDeviceFirstSetup ? 5U : (kPreferenceHeight - font.height) / 2U));
         error = CODY2D::prepare_text_line(font, {row.label, static_cast<uint16_t>(std::strlen(row.label))},
-            {static_cast<int16_t>(kPreferenceLeft + 12U), text_top}, 0xFFFF, target.control.caption);
+            {static_cast<int16_t>(kPreferenceLeft + (kDeviceFirstSetup ? 48U : 12U)), text_top},
+            kPairingTitle, target.control.caption);
         const uint16_t count = static_cast<uint16_t>(std::strlen(value));
         const uint16_t value_width = (count - 1U) * font.advance + font.width;
         if (error == ESP_OK) {
             error = CODY2D::prepare_text_line(font, {value, count},
-                {static_cast<int16_t>(kPreferenceLeft + kPreferenceWidth - 8U - value_width), text_top},
-                available ? 0xFFFF : 0xBDF7, target.value);
+                {static_cast<int16_t>(kDeviceFirstSetup ? kPreferenceLeft + 48U :
+                    kPreferenceLeft + kPreferenceWidth - 8U - value_width),
+                 static_cast<int16_t>(kDeviceFirstSetup ? top + 35U : text_top)},
+                available && active ? 0x7759 : kPairingCaption, target.value);
         }
         if (error != ESP_OK) {
             return error;
@@ -2643,6 +2847,10 @@ const SceneDefinition &device_scene_definition(Route route, const SceneDefinitio
     }
     case Route::Hello04: {
         static const auto definition = with_pairing_theme(base, 180);
+        return definition;
+    }
+    case Route::CodexReplace: {
+        static const auto definition = with_pairing_theme(base, 126);
         return definition;
     }
     case Route::Invitation05: {
@@ -2907,8 +3115,23 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         error = prepare_options_content(prepared);
     } else if (route == Route::CodexReplace) {
         const char *title = s_codex_manage_repair ? "Pairing error" :
-            s_codex_manage_pending ? "Pairing pending" : "PC remembered";
+            s_codex_manage_pending ? "Pairing pending" : "Saved PC";
         error = set_scene_title(prepared, {title, static_cast<uint16_t>(std::strlen(title))});
+        if (error == ESP_OK && kDeviceFirstSetup) {
+            s_view.header_icon = CODY2D::ActionIcon::Link;
+            s_view.header_icon_bounds = {209, 62, 48, 48};
+            s_view.header_icon_color = s_codex_manage_repair ? kOfflineAmber : 0xBD9F;
+            s_view.action_icon_size = 36;
+            const char *detail = s_codex_manage_repair ? "Forget to repair pairing" :
+                s_codex_manage_pending ? "Finish pairing or re-pair" : "PC name unavailable";
+            error = prepare_caption(detail, 174, s_view.lines[0], 300);
+            if (error == ESP_OK) {
+                s_view.lines[0].color = kPairingCaption;
+                error = prepare_caption("Wi-Fi network", 205, s_view.lines[1], 300);
+                s_view.lines[1].color = kPairingCaption;
+            }
+            if (error == ESP_OK) { error = prepare_network_name(235, 2); }
+        }
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::ReplacePairing, !s_codex_manage_repair);
         }
@@ -2918,7 +3141,9 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         if (error == ESP_OK) {
             CODY2D::TextLine unused;
             s_view.options_id = OnboardingAction::ForgetPairing;
-            error = prepare_button(s_view.options_id, "Forget", kOptionsBounds, true, false, s_view.options, unused);
+            error = kDeviceFirstSetup
+                ? prepare_saved_pc_action(s_view.options_id, true, s_view.options, unused)
+                : prepare_button(s_view.options_id, "Forget", kOptionsBounds, true, false, s_view.options, unused);
         }
     } else if (route == Route::CodexForget) {
         static constexpr char title[] = "Forget this PC?";
@@ -5931,7 +6156,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
             const bool primary_hit = s_view.action_visible && action_hit(s_view.action);
             const bool alternative_hit = s_view.alternative_id != OnboardingAction::None &&
                 action_hit(s_view.alternative);
-            const bool options_hit = s_view.options.caption.valid && CODY2D::capsule_contains(s_view.options, point);
+            const bool options_hit = s_view.options.caption.valid && action_hit(s_view.options);
             if (primary_hit || alternative_hit || options_hit) {
                 consumed = true;
                 const CODY2D::CapsuleControl *control = &s_view.options;

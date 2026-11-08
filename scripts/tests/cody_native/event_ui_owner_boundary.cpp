@@ -211,6 +211,13 @@ esp_err_t DeviceSnapshotService::readCodyOptionsObservation(CodyOptionsObservati
     unexpected_owner(__func__);
 }
 
+// Unnamed observation: Saved-network identity belongs to setup, outside this fixture.
+// Exception: Aborts instead of manufacturing device or Wi-Fi observations.
+esp_err_t DeviceSnapshotService::readDeviceStatusObservation(DeviceStatusObservation &) const
+{
+    unexpected_owner(__func__);
+}
+
 // Unnamed power: The event fixture cannot observe a physical reset.
 // Exception: Aborts on a cross-feature read.
 esp_err_t DeviceSnapshotService::readPowerState(PowerManagementSnapshot &) const

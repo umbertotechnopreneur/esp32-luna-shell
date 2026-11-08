@@ -39,9 +39,9 @@ explicit confirmation.
 
 | Retained state/action | Behavior |
 | --- | --- |
-| Valid saved record, including temporary LAN loss | PC remembered |
-| Keep link | Reuse valid Connected/Discovering or resume retained-PC discovery |
-| Pair again | Explicitly authorize replacement, then require usable network |
+| Valid saved record, including temporary LAN loss | Saved PC, with configured Wi-Fi identity shown separately |
+| Keep | Reuse valid Connected/Discovering or resume retained-PC discovery |
+| Re-pair | Explicitly authorize replacement, then require usable network |
 | Forget | Open a separate confirmation |
 | Incomplete candidate | Pairing pending |
 | Read/CRC/storage failure | Pairing error; explicit removal only |
@@ -60,8 +60,9 @@ Codex stats and Timer. Page 2 has Visible screens, Display and Behavior.
 Page 3 has Restart device, Factory reset and Quick guide. The lateral arrows move between pages. Each page
 offers **Go home** to return to the first enabled statistics screen, or Device
 if all are hidden.
-The title sits above a grid of up to three 72-pixel-high rows. A house glyph
-identifies the larger **Go home** footer.
+The Tools, Preferences and Device titles include the page fraction. Up to three
+72-pixel-high open rows show colored icons, labels and short descriptions.
+A house glyph identifies the graphite **Go home** footer.
 Display holds brightness, rotation and orientation. Behavior holds sound,
 shake-to-wake and, in the voice-enabled profile, Dictation. **More behavior**
 contains **Screensaver**, disabled by default.

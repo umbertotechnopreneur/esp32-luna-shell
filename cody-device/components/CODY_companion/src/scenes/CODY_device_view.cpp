@@ -23,6 +23,9 @@ constexpr CODY2D::Rect kDetail{73, 202, 320, 28};
 constexpr CODY2D::Rect kVoiceHeading{73, 84, 320, 42};
 constexpr CODY2D::Rect kVoiceStatus{73, 127, 320, 25};
 constexpr CODY2D::Rect kVoiceDetail{73, 152, 320, 25};
+constexpr CODY2D::Rect kVoiceFailureIcon{201, 142, 64, 64};
+constexpr CODY2D::Rect kVoiceFailureStatus{73, 220, 320, 40};
+constexpr CODY2D::Rect kVoiceFailureDetail{73, 270, 320, 28};
 static_assert(kVoiceDetail.y + kVoiceDetail.height <= kVoiceRibbonDamageTop,
     "Dictation captions must stay above the animation band");
 constexpr CODY2D::Rect kSingleAction{103, 269, 260, 50};
@@ -127,6 +130,11 @@ esp_err_t draw_message_rows(const void *state, CODY2D::Surface strip, uint16_t f
         return ESP_ERR_INVALID_STATE;
     }
     const auto &plain = *static_cast<const PlainView *>(state);
+    if (plain.layout == DeviceMessageLayout::VoiceFailure) {
+        const auto error = CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::Microphone,
+            kVoiceFailureIcon, kAttention, strip, first_row, first_column);
+        if (error != ESP_OK) { return error; }
+    }
     for (const auto &line : plain.captions) {
         if (line.valid) {
             const esp_err_t error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
@@ -459,7 +467,7 @@ esp_err_t draw_device_chrome(const DeviceChrome &chrome, CODY2D::Surface strip,
 // first: Optional primary action.
 // second: Optional secondary action.
 // extra: Optional third status line.
-// layout: Dashboard uses the approved cards; Voice keeps captions above its animation.
+// layout: Dashboard uses cards; Voice reserves the ribbon; VoiceFailure uses an icon and status.
 // Exception: Returns the original bounded text or preparation error.
 esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     const char *heading, const char *status, const char *detail, const char *first, const char *second,
@@ -494,19 +502,23 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     plain.actions = {};
 
     const bool voice_layout = layout == DeviceMessageLayout::Voice;
+    const bool voice_failure = layout == DeviceMessageLayout::VoiceFailure;
     esp_err_t error = prepare_line(plain.text[0].data(), SceneData::title_font,
-        voice_layout ? kVoiceHeading : kHeading, kWhite, plain.captions[0]);
+        voice_layout || voice_failure ? kVoiceHeading : kHeading, kWhite, plain.captions[0]);
     if (error == ESP_OK) {
         error = prepare_line(plain.text[1].data(), SceneData::body_font,
-            voice_layout ? kVoiceStatus : kStatus, kAccent, plain.captions[1]);
+            voice_failure ? kVoiceFailureStatus : voice_layout ? kVoiceStatus : kStatus,
+            voice_failure ? kAttention : kAccent, plain.captions[1]);
     }
     if (error == ESP_OK) {
         error = prepare_line(plain.text[2].data(), SceneData::body_font,
-            voice_layout ? kVoiceDetail : kDetail, kMuted, plain.captions[2]);
+            voice_failure ? kVoiceFailureDetail : voice_layout ? kVoiceDetail : kDetail,
+            kMuted, plain.captions[2]);
     }
     if (error == ESP_OK) {
-        const uint16_t top = layout == DeviceMessageLayout::Dashboard ? 230 : 234;
-        error = prepare_line(plain.text[5].data(), SceneData::body_font, {73, top, 320, 27}, kWhite, plain.captions[3]);
+        const uint16_t top = voice_failure ? 312 : layout == DeviceMessageLayout::Dashboard ? 230 : 234;
+        error = prepare_line(plain.text[5].data(), SceneData::body_font, {73, top, 320, 27},
+            voice_failure ? kMuted : kWhite, plain.captions[3]);
     }
     const bool two_actions = plain.text[3][0] != '\0' && plain.text[4][0] != '\0';
     const bool dashboard_actions = layout == DeviceMessageLayout::Dashboard;
@@ -724,7 +736,10 @@ esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
         return prepare("Delivery unconfirmed", "Check on your PC");
     case Phase::Failed:
         std::snprintf(detail, sizeof(detail), "Error 0x%lx", static_cast<unsigned long>(voice.error));
-        return prepare("Audio failed", detail);
+        // The owner already returns after three seconds. A terminal failure has
+        // no retry/dismiss capability; do not expose a button that cancels again.
+        return prepare_device_message(view, frame, "Dictation", "Audio failed",
+            "Returning to your screen", nullptr, nullptr, detail, DeviceMessageLayout::VoiceFailure);
     }
     return ESP_ERR_INVALID_ARG;
 }

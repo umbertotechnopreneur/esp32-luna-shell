@@ -603,8 +603,18 @@ PlanAppearance account_plan_appearance(const LUNASHELL::CodexAccountSnapshot &ac
 esp_err_t prepare_account(AccountDashboardPresentation &presentation, const LUNASHELL::CodexAccountSnapshot &account)
 {
     if (presentation.account_state != SourceState::Current) {
-        return add_detail(presentation, presentation.account_state == SourceState::Stale ?
-            "Account data stale" : "Account data unavailable", 213);
+        const bool stale = presentation.account_state == SourceState::Stale;
+        const bool saved = presentation.account_state == SourceState::Saved;
+        presentation.plan_icon = CODY2D::ActionIcon::PlanAccount;
+        presentation.plan_icon_color = stale || saved ? kGold : kIndigo;
+        const char *status = stale ? "Account data stale" :
+            saved ? "Saved account data" : "Account unavailable";
+        auto error = add_value(presentation, status, 210, stale || saved ? kGold : kWhite);
+        if (error != ESP_OK) { return error; }
+        error = add_detail(presentation,
+            stale || saved ? "Live details unavailable" : "No account details received", 270);
+        if (error != ESP_OK) { return error; }
+        return add_detail(presentation, "Check Codex on your PC", 301);
     }
     char fallback[sizeof(account.plan)]{};
     const PlanAppearance plan = account_plan_appearance(account, fallback);
@@ -922,7 +932,7 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     case Page::Today: headline = saved != nullptr ? "SAVED DAY" : "TODAY"; headline_color = kCyan; break;
     case Page::LastSevenDays: headline = saved != nullptr ? "SAVED 7 DAYS" : "LAST 7 DAYS"; break;
     case Page::Credits: headline = "CREDITS"; headline_color = kCyan; break;
-    case Page::Account: headline = "CODEX ACCOUNT"; headline_color = kCyan; break;
+    case Page::Account: headline = "Codex account"; headline_color = kWhite; break;
     }
     esp_err_t error = add_caption(presentation, title_font, headline, kHeadline, headline_color);
     if (error != ESP_OK) { return result("page headline", error); }

@@ -20,7 +20,7 @@ constexpr DamageRect kContentBounds{73, 73, 393, 348};
 constexpr CODY2D::Rect kControlBounds{123, 359, 220, 50};
 constexpr DamageRect kControlDamage{123, 359, 343, 409};
 constexpr CODY2D::Rect kChart{83, 161, 300, 126};
-constexpr CODY2D::Rect kWaitingIcon{205, 164, 56, 56};
+constexpr CODY2D::Rect kWaitingIcon{201, 157, 64, 64};
 constexpr uint16_t kBaseline = 279;
 constexpr uint16_t kPlotHeight = 110;
 constexpr int64_t kQuarterSeconds = 900;
@@ -45,9 +45,9 @@ struct Extent {
 Extent extent(TokenHistoryInterval interval)
 {
     switch (interval) {
-    case TokenHistoryInterval::OneHour: return {4, "1 HOUR"};
-    case TokenHistoryInterval::FiveHours: return {20, "5 HOURS"};
-    case TokenHistoryInterval::TwentyFourHours: return {96, "24 HOURS"};
+    case TokenHistoryInterval::OneHour: return {4, "Show 1 hour"};
+    case TokenHistoryInterval::FiveHours: return {20, "Show 5 hours"};
+    case TokenHistoryInterval::TwentyFourHours: return {96, "Show 24 hours"};
     }
     return {0, nullptr};
 }
@@ -106,6 +106,22 @@ esp_err_t add_caption(TokenHistoryPresentation &presentation, const CODY2D::Mono
     const esp_err_t error = prepare_caption(caption, font, text, bounds, color);
     if (error == ESP_OK) { ++presentation.caption_count; }
     return error;
+}
+
+// presentation: Fixed page owner, with no plotted or invented values.
+// status: Explicit missing, collecting or stale observation state.
+// guidance: Short next step appropriate to the canonical source state.
+// Exception: Returns the original caption or capacity error.
+esp_err_t prepare_empty_history(TokenHistoryPresentation &presentation,
+    const char *status, const char *guidance)
+{
+    const auto &font = *presentation.body_font;
+    const bool stale = presentation.source_state == SourceState::Stale;
+    auto error = add_caption(presentation, font, status, {73, 238, 320, 28}, stale ? kAmber : kWhite);
+    if (error != ESP_OK) { return error; }
+    error = add_caption(presentation, font, guidance, {73, 279, 320, 25}, kMuted);
+    if (error != ESP_OK) { return error; }
+    return add_caption(presentation, font, "15-minute observations", {73, 310, 320, 25}, kMuted);
 }
 
 // strip: Valid borrowed native RGB565 tile.
@@ -310,9 +326,11 @@ esp_err_t prepare_plot(TokenHistoryPresentation &presentation, const LUNASHELL::
     if (!measured) {
         // Without a genuine observation there is no plot, including no synthetic zero line.
         const bool collecting = known_start && snapshot.anchor_quarter == first_observed;
-        const char *status = stale ? "ACCOUNT SAMPLES ARE STALE" :
-            collecting ? "COLLECTING ACCOUNT USAGE" : "NO ACCOUNT SAMPLES IN RANGE";
-        return add_caption(presentation, font, status, {73, 241, 320, 28}, stale ? kAmber : kWhite);
+        const char *status = stale ? "History is stale" :
+            collecting ? "Collecting usage" : "No samples in this range";
+        const char *guidance = stale ? "Check Codex on your PC" :
+            collecting ? "Waiting for first interval" : "Try a wider time range";
+        return prepare_empty_history(presentation, status, guidance);
     }
     presentation.bar_width = static_cast<uint8_t>(std::clamp<unsigned>(kChart.width / count / 2U, 1, 18));
     for (uint8_t index = 0; index < count; ++index) {
@@ -414,23 +432,26 @@ esp_err_t prepare_token_history(TokenHistoryInterval interval,
     presentation.body_font = &body_font;
     presentation.caption_count = 0;
     presentation.bin_count = 0;
-    esp_err_t error = add_caption(presentation, title_font, "TOKEN ACTIVITY", {73, 78, 320, 46}, kCyan);
+    esp_err_t error = add_caption(presentation, title_font, "Token activity", {73, 78, 320, 46}, kWhite);
     if (error != ESP_OK) { return result("prepare title", error); }
     if (!has_range) {
         const bool stale = source == SourceState::Stale;
-        const char *status = stale ? "ACCOUNT SAMPLES ARE STALE" : "NO ACCOUNT SAMPLES YET";
-        error = add_caption(presentation, body_font, status, {73, 241, 320, 28}, stale ? kAmber : kWhite);
+        const bool unavailable = source == SourceState::Unavailable;
+        const char *status = stale ? "History is stale" :
+            unavailable ? "History unavailable" : "No samples yet";
+        const char *guidance = stale || unavailable ? "Check Codex on your PC" : "Keep Codex connected";
+        error = prepare_empty_history(presentation, status, guidance);
     } else {
         const auto oldest = static_cast<uint32_t>(first_epoch / kQuarterSeconds);
         error = prepare_plot(presentation, snapshot, oldest, selected.bins, local_time ? local : nullptr);
     }
     if (error != ESP_OK) { return result("prepare chart", error); }
     const bool has_plot = presentation.bin_count != 0;
-    const char *legend = !has_plot ? "15 MIN ACCOUNT OBSERVATIONS" :
-        local_time ? "15 MIN LOCAL | GAP: MISSING" : "15 MIN UTC | GAP: MISSING";
-    const uint16_t legend_top = has_plot ? 321 : 288;
-    error = add_caption(presentation, body_font, legend, {73, legend_top, 320, 25}, kMuted);
-    if (error != ESP_OK) { return result("prepare legend", error); }
+    if (has_plot) {
+        const char *legend = local_time ? "15 MIN LOCAL | GAP: MISSING" : "15 MIN UTC | GAP: MISSING";
+        error = add_caption(presentation, body_font, legend, {73, 321, 320, 25}, kMuted);
+        if (error != ESP_OK) { return result("prepare legend", error); }
+    }
 
     error = prepare_caption(presentation.interval_label, body_font, selected.caption, kControlBounds, kWhite);
     if (error != ESP_OK) { return result("prepare interval control", error); }
@@ -438,9 +459,9 @@ esp_err_t prepare_token_history(TokenHistoryInterval interval,
     control = {};
     control.bounds = kControlBounds;
     control.caption = presentation.interval_label.line;
-    control.top_color = 0x226B;
-    control.bottom_color = 0x10C6;
-    control.border_color = 0x4B9B;
+    control.top_color = 0x18E5;
+    control.bottom_color = 0x10A3;
+    control.border_color = 0x4A8C;
     ++presentation.revision;
     presentation.valid = true;
     attach_content(presentation, content);

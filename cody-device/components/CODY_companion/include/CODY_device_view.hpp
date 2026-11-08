@@ -10,7 +10,7 @@
 
 namespace CODY {
 
-enum class DeviceMessageLayout : uint8_t { Compact, Dashboard, Voice };
+enum class DeviceMessageLayout : uint8_t { Compact, Dashboard, Voice, VoiceFailure };
 
 // The display owner retains prepared text and controls until its frame retires.
 struct PlainView {

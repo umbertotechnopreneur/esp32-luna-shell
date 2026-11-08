@@ -31,9 +31,9 @@ admitted at the same time. Captions have no typewriter timing or character audio
 | Control | Logical rectangle |
 | --- | --- |
 | Two cards | (73,260,154,104) and (239,260,154,104), 28-pixel corners |
-| Third action for PC management | (153,376,160,52) |
+| Saved PC management | Three standalone 36-pixel icons, with 90 x 90 touch areas at x=83/188/293, y=302 |
 | Connections actions | 54-pixel glyphs at (148,219) and (318,219), with 140 × 168 touch areas |
-| Options and category rows | Up to three at x=93, width 280, height 72, y=130/210/290 |
+| Options and category rows | Up to three open rows at x=93, width 280, height 72, y=130/210/290; 30-pixel colored icons, label and secondary line |
 | Visible screens | Three Options-sized rows, name on the left and visibility on the right, with page and save status below |
 | Options footer | (123,382,220,52), with an outline home glyph next to Go home |
 | Restart / factory reset confirmation | Cancel at (93,270,280,64), confirmation at (123,382,220,52) |
@@ -45,6 +45,20 @@ admitted at the same time. Captions have no typewriter timing or character audio
 
 The outer corners of each control fit within the circular chord at its row.
 Coverage is clipped to the rounded control; complete hit bounds remain admitted.
+
+Device-first Options uses named Tools, Preferences and Device pages with their
+page fraction. Open rows have a colored semantic icon and a short description;
+Behavior and Display use the second line for the canonical setting value.
+Subtle dividers separate rows without filled cards. Go home and More options
+use the subdued graphite footer palette.
+
+Saved PC uses a link glyph above the title, an explicit PC-name-unavailable
+caption, and the canonical configured Wi-Fi name. The current link projection has no
+human-readable PC name. Printable SSIDs occupy up to two complete rows; stale,
+missing or unsupported names are explicit. Keep, Re-pair and Forget use three
+standalone icons with captions below, and Forget retains its separate confirmation.
+The network label does not infer persistent storage from configured credentials.
+These layouts have been prepared in source; visual and physical acceptance remain pending.
 
 Reply rows contain one numbered line, with at most two visible rows. A vertical
 swipe opens the page containing the third reply. Long row captions show an
@@ -281,6 +295,11 @@ Device groups the observed Codex, Wi-Fi and battery states into three flat
 icon rows. The followed chat and Record voice appear when their observations
 and controls are current.
 
+Account and Token activity empty states use a colored icon, a mixed-case status
+and short guidance. Stale, saved, unavailable and collecting observations remain
+distinct. The history range control says Show 1 hour, Show 5 hours or Show 24 hours
+and retains the same cycling action. Missing intervals remain gaps.
+
 Reset uses four flip tiles while it has a valid duration. A clock glyph and a
 single status occupy that area when it has no duration. Limits and Credits
 center the available metric when only one is reported. Last 7 Days labels
@@ -336,6 +355,11 @@ Codex questions and battery notices preempt the screensaver. Dimming and standby
 remain owned by the existing power policy.
 
 ## Voice recording
+
+Failed dictation uses an amber microphone above Audio failed, a short automatic
+return message, and the original hexadecimal error in muted text. The existing
+three-second return policy remains unchanged; presentation does not resolve the
+underlying audio failure or offer an unsupported Retry operation.
 
 The native recording route uses centered captions and explicit Send and Cancel
 controls. Only a completely retired Preparing frame admits the owner's start
