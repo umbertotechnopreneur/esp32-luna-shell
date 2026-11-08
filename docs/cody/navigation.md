@@ -1,6 +1,6 @@
 # Cody navigation and recovery
 
-[One-page navigation map](device-navigation-map-a4.pdf)
+[Dashboard and Options map](device-navigation-map-a4.pdf)
 
 ## Start and connect
 
@@ -9,11 +9,17 @@ The first device route starts with the saved network and pairing state.
 
 | Current state | Device route |
 | --- | --- |
-| No saved Wi-Fi | Start Bluetooth provisioning and show its QR once the session is ready |
+| No saved Wi-Fi | Not connected with Tap to pair |
 | Saved Wi-Fi, association or IP pending | Connecting to Wi-Fi, then a recovery menu if the attempt does not finish |
 | Wi-Fi ready, no retained pairing | Prepare the Codex pairing code |
 | Valid retained pairing | Search for the remembered PC until authenticated presence arrives |
 | Storage or service error | Show the original failure and an available recovery action |
+
+Tap to pair opens **Get your phone**, which explains the two QR codes. **Show
+QR** opens the installation screen. Its QR links to Google Play and the caption
+names **ESP BLE Provisioning** for users of the App Store. **Pair Cody** starts
+Bluetooth provisioning. Scan the session QR from inside the Espressif app on
+the phone once Cody displays **Scan to pair**.
 
 In Options, Connections opens the vertical Connect Codex and Set up Wi-Fi
 entries. Back preserves an already valid discovery or connection. Wi-Fi and
@@ -46,10 +52,12 @@ record is not remotely revoked by this local action.
 
 ## Dashboard and Options
 
-PWR toggles software standby. BOOT opens Options, with Connections, Codex
-stats, Visible screens, Display and Behavior. Display holds brightness,
-rotation and orientation. Behavior holds sound, shake-to-wake and, in the
-voice-enabled profile, Dictation.
+PWR toggles software standby. BOOT opens Options. Page 1 has Connections,
+Codex stats and Visible screens. The right arrow opens page 2 with Display and
+Behavior. The left arrow returns to page 1. Both pages offer **Go home** to
+return to the first enabled statistics screen, or Device if all are hidden.
+Display holds brightness, rotation and orientation. Behavior holds sound,
+shake-to-wake and, in the voice-enabled profile, Dictation.
 
 The carousel order is Device, Codex reset, Codex limits, Today, Last 7 days,
 Token history, Credits, Codex account, Context and About. The arrows move
@@ -146,8 +154,8 @@ More than six failures or a name over 48 characters returns detail to the PC.
 Local route timeouts are 30 awake seconds for 05/06 and 90 for 07. Pause does not
 stop these route clocks; standby does. Real touch or changed canonical attempt
 progress renews them. Animation and unchanged snapshots do not.
-Timeout retires the view/QR, returns to Welcome and finishes cleanup; late results
-cannot restore the old route. Backend deadlines and screen standby overrides
+Timeout retires the view/QR, returns to Not connected and finishes cleanup. Late
+results cannot restore the old route. Backend deadlines and screen standby overrides
 remain separate. QR copying requires current ReadyToScan and attempt ID;
 ownership and DMA handoff are in [provisioning](../bsp/services/connectivity-pairing.md).
 

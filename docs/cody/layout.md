@@ -33,7 +33,7 @@ timing or character audio.
 | Third action for PC management | (153,376,160,52) |
 | Setup menu rows | (93,230,280,56) and (93,298,280,56), 16-pixel corners |
 | Setup menu Options | (153,382,160,52) |
-| Options menu rows | x=113, width 240, height 34, y=194/233/272/311/350 |
+| Options menu rows | Up to three at x=113, width 240, height 50, y=194/254/314 |
 | Visibility toggle | (113,226,240,52) |
 | Ordinary single action | (113,352,240,72) |
 | Compact QR/skin footer | (123,390,220,44) |
@@ -85,10 +85,11 @@ retain their own expired, cancelled or rejected captions.
 
 | Screen | Artwork/content |
 | --- | --- |
-| 05 | Cody moves from (233,225,130) to (233,105,65) over 1000 ms; wait 300 ms before text and action admission |
-| 06 | White background, Cody (233,94,58), installation QR 240 x 240 at (113,140) |
-| 07 | Cody (233,80,46), title y=131, session QR 204 x 204 at (131,182), only while ReadyToScan |
-| 10 / Make it yours | Three 240 x 50 option rows per page at y=194/254/314. Compact footer at y=390. |
+| 04 | Amber Not connected title at y=210 and blue Tap to pair action at (113,352,240,72) |
+| 05 | Get your phone title, two-QR instructions at y=242/268/294, and Show QR action |
+| 06 | White background, installation QR 192 x 192 at (137,140), App Store captions at y=338 and y=364, Pair Cody footer |
+| 07 | Title y=131, session QR 204 x 204 at (131,182), only while ReadyToScan |
+| 10 / Options | Up to three 240 x 50 rows at y=194/254/314. Lateral arrows page the menu. Go home footer at y=390. |
 | 11 / Skin | Preview (233,172,44), title y=78, viewport (117,226,232,126), Done (123,386,220,48) |
 
 Skin rows are 220 x 38 with 44-pixel steps. Only complete rows are drawn and
@@ -98,8 +99,8 @@ are described in [navigation](navigation.md).
 Session QR storage supports version 10: at most 57 x 57 modules, 407 bytes.
 Use integer modules and four white quiet modules. Payload/modules belong to the
 current attempt; stale data cannot authorize presentation.
-The current 05/06/07 QR journey uses compact footer actions and suppresses lateral
-chevrons; 06 retains previous-route swipe. Its previous-route Back behavior still
+The QR journey uses captioned forward actions. Screen 05 exposes lateral Back
+and 06 retains previous-route swipe. The previous-route Back behavior on 06 still
 needs reconciliation with the repository's lateral-Back contract in [TODO.md](../../TODO.md).
 
 ## Companion panels, status and Debug

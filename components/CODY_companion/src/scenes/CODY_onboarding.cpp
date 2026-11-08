@@ -63,7 +63,9 @@ constexpr char kInstallUrl[] = "https://play.google.com/store/apps/details?id=co
 constexpr uint16_t kQrModulesMax = 57; // Version 10; bounded independently of the framebuffer.
 constexpr uint16_t kQrBytes = (kQrModulesMax * kQrModulesMax + 7U) / 8U;
 constexpr uint16_t kQrQuietModules = 4;
-constexpr CODY2D::Rect kInstallQrBounds{113, 140, 240, 240};
+constexpr CODY2D::Rect kInstallQrBounds{137, 140, 192, 192};
+constexpr uint16_t kInstallAppCaptionTop = 338;
+constexpr uint16_t kInstallStoreCaptionTop = 364;
 constexpr CODY2D::Rect kSessionQrBounds{131, 182, 204, 204};
 constexpr uint16_t kSessionCaptionTop = 156;
 constexpr CODY2D::Rect kFooterBounds{123, 390, 220, 44};
@@ -79,11 +81,8 @@ constexpr uint16_t kPreferenceTop = 194;
 constexpr uint16_t kPreferenceHeight = 50;
 constexpr uint16_t kPreferenceStep = 60;
 constexpr uint8_t kPreferencesPerPage = 3;
-constexpr uint8_t kOptionsMenuRows = 5;
-constexpr uint16_t kOptionsMenuRowHeight = 34;
-constexpr uint16_t kOptionsMenuRowStep = 39;
-static_assert(kPreferenceTop + (kOptionsMenuRows - 1U) * kOptionsMenuRowStep +
-    kOptionsMenuRowHeight < kFooterBounds.y);
+static_assert(kPreferenceTop + (kPreferencesPerPage - 1U) * kPreferenceStep +
+    kPreferenceHeight < kFooterBounds.y);
 constexpr uint16_t kEventCaptionWidth = 300;
 constexpr uint16_t kCaptionWidth = 232;
 // Authenticated PC presence does not imply a selected chat.
@@ -101,6 +100,11 @@ constexpr int64_t kHelloReadableHoldUs = 1000000;
 constexpr int64_t kStartupWifiGraceUs = 15LL * 1000000LL;
 constexpr bool kPairingDebugEnabled = LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled;
 constexpr bool kCodexIntegrationEnabled = CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX;
+#if defined(CODY_DEVICE_UI_ONLY)
+constexpr bool kDeviceFirstSetup = true;
+#else
+constexpr bool kDeviceFirstSetup = false;
+#endif
 using PairState = LUNASHELL::PairingSessionState;
 using CodexState = LUNASHELL::CodexLinkState;
 
@@ -132,11 +136,11 @@ enum class OnboardingAction : uint8_t {
     None, ShowQr, PairCody, Cancel, Retry, Continue, Next, Done, LetsGo,
     AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later, Options, KeepPairing, ReplacePairing,
     ForgetPairing, ConfirmForget, KeepSaved, DisplayOptions, BehaviorOptions, MoreBehavior,
-    Connections, CodexStatistics, VisibleScreens,
+    Connections, CodexStatistics, VisibleScreens, OpenPairingGuide, GoHome,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
-enum class OptionsPage : uint8_t { Menu, Display, Behavior, BehaviorMore };
+enum class OptionsPage : uint8_t { Menu, MenuMore, Display, Behavior, BehaviorMore };
 
 struct ScreenInactivityPolicy {
     Route route;
@@ -225,7 +229,7 @@ struct ContentView {
     CODY2D::CapsuleControl options{};
     OnboardingAction options_id = OnboardingAction::None;
     uint16_t options_visible_characters = 0;
-    PreferenceControl preferences[kOptionsMenuRows]{};
+    PreferenceControl preferences[kPreferencesPerPage]{};
     uint8_t preference_count = 0;
     EventChoiceControl event_choices[3]{};
     uint8_t event_choice_count = 0;
@@ -272,7 +276,8 @@ esp_err_t s_preference_error = ESP_OK;
 PreferenceId s_requested_preference = PreferenceId::ShakeWake;
 uint32_t s_requested_preference_value = 0;
 LUNASHELL::CodyOptionsObservation s_presented_options{};
-bool s_setup_returns_to_companion = false;
+Route s_setup_return = Route::None;
+Route s_pairing_guide_return = Route::Hello04;
 bool s_companion_seen_selection = false;
 int64_t s_session_ended_at_us = -1;
 LUNASHELL::CodexActivitySnapshot s_presented_activity{};
@@ -869,7 +874,8 @@ esp_err_t prepare_debug_caption(const char *text, uint16_t top, CODY2D::TextLine
 // No parameters: primary setup actions use a captioned footer, not lateral arrows.
 bool uses_footer_action()
 {
-    return s_route == Route::Invitation05 || s_route == Route::Install06 ||
+    return (kDeviceFirstSetup && s_route == Route::Hello04) ||
+        s_route == Route::Invitation05 || s_route == Route::Install06 ||
         s_route == Route::Pairing07 || s_route == Route::Failed08 || s_route == Route::Online09 ||
         s_route == Route::MakeItYours10 ||
         s_route == Route::ConnectCodex12 || s_route == Route::SetupComplete13 || s_route == Route::LookingForPc14 ||
@@ -893,6 +899,18 @@ bool options_back_available()
     return s_route == Route::MakeItYours10 && (s_options_page != OptionsPage::Menu || s_options_from_setup);
 }
 
+// No parameters: both menu pages use static navigation rows and the same exit action.
+bool on_options_menu()
+{
+    return s_options_page == OptionsPage::Menu || s_options_page == OptionsPage::MenuMore;
+}
+
+// No parameters: the first menu page has one forward destination independent of its footer.
+bool options_next_page_available()
+{
+    return s_route == Route::MakeItYours10 && s_options_page == OptionsPage::Menu && s_preference_error == ESP_OK;
+}
+
 // action: Stable action identity; the returned English label has flash lifetime.
 // label: Receives the primary capsule caption, or null for no action.
 // Exception: Unknown identities are rejected rather than inferred from route order.
@@ -904,6 +922,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         break;
     case OnboardingAction::ShowQr:
         label = "Show QR";
+        break;
+    case OnboardingAction::OpenPairingGuide:
+        label = "Tap to pair";
         break;
     case OnboardingAction::PairCody:
         label = "Pair Cody";
@@ -940,6 +961,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         break;
     case OnboardingAction::Done:
         label = "Done";
+        break;
+    case OnboardingAction::GoHome:
+        label = "Go home";
         break;
     case OnboardingAction::LetsGo:
         label = "Let's go";
@@ -1001,11 +1025,17 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
     case OnboardingAction::KeepPairing:
     case OnboardingAction::KeepSaved:
     case OnboardingAction::Done:
+    case OnboardingAction::GoHome:
     case OnboardingAction::DismissEvent:
         break;
     case OnboardingAction::ConnectCodex:
     case OnboardingAction::PairCody:
     case OnboardingAction::SendReply:
+        break;
+    case OnboardingAction::OpenPairingGuide:
+        control.top_color = 0x2B9D;
+        control.bottom_color = 0x128E;
+        control.border_color = 0x64DF;
         break;
     case OnboardingAction::NetworkSetup:
     case OnboardingAction::ShowQr:
@@ -1404,11 +1434,12 @@ esp_err_t attach_content(SceneFrame &scene)
             content.control_bounds[0] = {73, 260, 227, 364};
         }
         if (s_route == Route::SetupMenu || s_route == Route::CodexReplace || s_route == Route::CodexForget ||
+            (kDeviceFirstSetup && s_route == Route::Invitation05) ||
             options_back_available()) {
             content.control_bounds[0] = {10, 203, 70, 263};
         }
-        content.control_bounds[1] = choice && s_route != Route::SetupMenu
-            ? DamageRect{239, 260, 393, 364} : content.bottom_action_bounds;
+        content.control_bounds[1] = options_next_page_available() ? DamageRect{396, 203, 456, 263} :
+            choice && s_route != Route::SetupMenu ? DamageRect{239, 260, 393, 364} : content.bottom_action_bounds;
     } else {
         content.control_bounds[0] = {10, 203, 70, 263};
         content.control_bounds[1] = {396, 203, 456, 263};
@@ -1628,7 +1659,8 @@ esp_err_t prepare_options_content(SceneFrame &scene)
     const char *title = s_preference_error != ESP_OK ? "Save failed" :
         s_options_page == OptionsPage::Display ? "Display" :
         s_options_page == OptionsPage::BehaviorMore ? "More behavior" :
-        s_options_page == OptionsPage::Behavior ? "Behavior" : "Options";
+        s_options_page == OptionsPage::Behavior ? "Behavior" :
+        s_options_page == OptionsPage::MenuMore ? "Options 2/2" : "Options 1/2";
     const uint16_t title_length = static_cast<uint16_t>(std::strlen(title));
     esp_err_t error = ESP_OK;
     if (scene.title.text.length != title_length ||
@@ -1646,22 +1678,25 @@ esp_err_t prepare_options_content(SceneFrame &scene)
         s_view.line_count = 1;
         return error == ESP_OK ? prepare_action(OnboardingAction::Retry, !s_command_pending) : error;
     }
-    if (s_options_page == OptionsPage::Menu) {
+    if (on_options_menu()) {
         constexpr OnboardingAction actions[] = {
             OnboardingAction::Connections, OnboardingAction::CodexStatistics, OnboardingAction::VisibleScreens,
             OnboardingAction::DisplayOptions, OnboardingAction::BehaviorOptions,
         };
-        static_assert(std::size(actions) == kOptionsMenuRows);
-        for (const auto action : actions) {
+        static_assert(std::size(actions) > kPreferencesPerPage && std::size(actions) <= 2U * kPreferencesPerPage);
+        const size_t first = s_options_page == OptionsPage::Menu ? 0U : kPreferencesPerPage;
+        const size_t end = std::min(first + kPreferencesPerPage, std::size(actions));
+        for (size_t index = first; index < end; ++index) {
+            const auto action = actions[index];
             auto &target = s_view.preferences[s_view.preference_count];
             target = {};
             target.action = action;
-            const uint16_t top = kPreferenceTop + s_view.preference_count * kOptionsMenuRowStep;
+            const uint16_t top = kPreferenceTop + s_view.preference_count * kPreferenceStep;
             const char *label = nullptr;
             error = action_label(action, label);
             if (error == ESP_OK) {
                 CODY2D::TextLine unused;
-                error = prepare_button(action, label, {113, top, 240, kOptionsMenuRowHeight},
+                error = prepare_button(action, label, {113, top, 240, kPreferenceHeight},
                     true, false, target.control, unused);
             }
             if (error != ESP_OK) {
@@ -1669,7 +1704,7 @@ esp_err_t prepare_options_content(SceneFrame &scene)
             }
             ++s_view.preference_count;
         }
-        return prepare_action(OnboardingAction::Done, true);
+        return prepare_action(kDeviceFirstSetup ? OnboardingAction::GoHome : OnboardingAction::Done, true);
     }
     LUNASHELL::CodyOptionsObservation observation;
     error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(observation);
@@ -1961,7 +1996,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     SceneId identity;
     switch (route) {
     case Route::Hello04:
-        identity = SceneId::Greeting;
+        identity = kDeviceFirstSetup ? SceneId::ConnectionLost : SceneId::Greeting;
         break;
     case Route::Invitation05:
         identity = SceneId::PairInvitation;
@@ -2054,17 +2089,28 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     if (route == Route::SetupMenu) {
         s_options_from_setup = false;
     }
-    if (route == Route::Hello04) {
+    if (route == Route::Hello04 && !kDeviceFirstSetup) {
         s_hello_completed_at_us = -1;
         scene = prepared;
         ESP_LOGI(kTag, "Atlas route entered: %s", definition->name);
         return ESP_OK;
     }
     s_hello_waits_for_touch = false;
-    if (is_codex_event_route(route)) {
+    if (route == Route::Hello04) {
+        static constexpr char title[] = "Not connected";
+        error = set_scene_title(prepared, {title, sizeof(title) - 1U});
+        if (error == ESP_OK) {
+            error = prepare_action(OnboardingAction::OpenPairingGuide, true);
+        }
+    } else if (is_codex_event_route(route)) {
         error = prepare_event_content(prepared);
     } else if (route == Route::Invitation05) {
-        constexpr const char *captions[] = {"Let's get connected.", "Scan the QR to get", "the setup app."};
+        static constexpr char title[] = "Get your phone";
+        error = set_scene_title(prepared, {title, sizeof(title) - 1U});
+        if (error != ESP_OK) {
+            return error;
+        }
+        constexpr const char *captions[] = {"Scan next QR for app.", "Then scan pairing QR", "in the Espressif app."};
         for (const char *text : captions) {
             error = prepare_caption(text, 242 + s_view.line_count * 26U, s_view.lines[s_view.line_count]);
             if (error != ESP_OK) {
@@ -2075,7 +2121,19 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         error = prepare_action(OnboardingAction::ShowQr, true);
     } else if (route == Route::Install06) {
         s_view.qr_bounds = kInstallQrBounds;
-        error = prepare_action(OnboardingAction::PairCody, !s_command_pending);
+        error = prepare_caption("ESP BLE Provisioning", kInstallAppCaptionTop, s_view.lines[0]);
+        if (error == ESP_OK) {
+            error = prepare_caption("Find on the App Store", kInstallStoreCaptionTop, s_view.lines[1]);
+        }
+        if (error == ESP_OK) {
+            s_view.line_count = 2;
+            for (uint8_t index = 0; index < s_view.line_count; ++index) {
+                s_view.lines[index].color = prepared.definition->title_color;
+                s_view.instant_lines[index] = true;
+            }
+            // The action worker enables Pair Cody after the installation QR is ready.
+            error = prepare_action(OnboardingAction::PairCody, false);
+        }
     } else if (route == Route::Pairing07) {
         s_view.qr_bounds = kSessionQrBounds;
         error = prepare_caption("Starting Bluetooth", 222, s_view.lines[0]);
@@ -2237,6 +2295,14 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     scene = prepared;
     ESP_LOGI(kTag, "Atlas route entered: %s", definition->name);
     return ESP_OK;
+}
+
+// scene: Receives the installation page while the action worker prepares its public QR.
+// Exception: Returns the original scene or QR work admission error.
+esp_err_t open_installation_qr(SceneFrame &scene)
+{
+    const auto error = enter_route(Route::Install06, scene);
+    return error == ESP_OK ? enqueue(Work::InstallQr, 0) : error;
 }
 
 // route: Semantic route whose content follows the selected chat or its connection.
@@ -3300,7 +3366,7 @@ esp_err_t begin_inactivity_return(const ScreenInactivityPolicy &policy, SceneFra
     if (error != ESP_OK) {
         return error;
     }
-    ESP_LOGI(kTag, "Screen inactivity returned to Welcome; pairing cleanup pending=%u",
+    ESP_LOGI(kTag, "Screen inactivity returned to the setup entry; pairing cleanup pending=%u",
         s_timeout_cleanup.pending);
     return ESP_OK;
 }
@@ -3479,7 +3545,8 @@ void reset_onboarding()
     s_widget_open_request = WidgetOpenRequest::None;
     s_options_page = OptionsPage::Menu;
     s_preference_error = ESP_OK;
-    s_setup_returns_to_companion = false;
+    s_setup_return = Route::None;
+    s_pairing_guide_return = Route::Hello04;
     s_companion_seen_selection = false;
     s_session_ended_at_us = -1;
     s_presented_activity = {};
@@ -3614,7 +3681,7 @@ bool can_open_setup_menu()
     return (!s_startup_pending || offline_recovery) && !s_timeout_cleanup.pending && !s_command_pending &&
         !s_work_busy.load(std::memory_order_acquire) && !s_pairing_owned &&
         (offline_recovery || s_route == Route::None || s_route == Route::LookingForPc14 || s_route == Route::Failed08 ||
-         (s_route == Route::Hello04 && s_hello_waits_for_touch) ||
+         (s_route == Route::Hello04 && (kDeviceFirstSetup || s_hello_waits_for_touch)) ||
          s_route == Route::Invitation05 || s_route == Route::Install06 ||
          is_companion_route(s_route) ||
          (s_route == Route::ConnectCodex12 && s_codex_error_visible && s_codex_error_allows_setup));
@@ -3629,7 +3696,7 @@ esp_err_t open_setup_menu(SceneFrame &scene)
         return ESP_ERR_INVALID_STATE;
     }
     // The backend keeps its retained association; opening this view starts no radio work.
-    s_setup_returns_to_companion = is_companion_route(s_route) || s_route == Route::LookingForPc14;
+    s_setup_return = s_route;
     s_startup_pending = false;
     s_startup_pair_missing = false;
     set_companion_audio_visible(false);
@@ -3783,7 +3850,8 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
                 s_startup_pending = false;
                 s_startup_pair_missing = false;
                 changed = true;
-                return start_wifi_pairing(scene, observation.radios.pairing);
+                return kDeviceFirstSetup ? enter_route(Route::Hello04, scene) :
+                    start_wifi_pairing(scene, observation.radios.pairing);
             }
             return present_network_wait(scene, error, changed, false);
         }
@@ -3890,7 +3958,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         wipe(&result, sizeof(result));
         return ESP_OK;
     }
-    if (s_route == Route::Hello04) {
+    if (s_route == Route::Hello04 && !kDeviceFirstSetup) {
         wipe(&result, sizeof(result));
         if (s_hello_waits_for_touch) {
             return ESP_OK;
@@ -3949,7 +4017,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         }
         changed = true;
     }
-    if (s_route == Route::MakeItYours10 && s_options_page != OptionsPage::Menu &&
+    if (s_route == Route::MakeItYours10 && !on_options_menu() &&
         !s_command_pending && !have_result && s_preference_error == ESP_OK) {
         LUNASHELL::CodyOptionsObservation options;
         const esp_err_t options_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(options);
@@ -4270,10 +4338,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             s_pairing_owned = false;
             s_cancel_to_install = false;
             s_retry_to_invitation = false;
-            error = enter_route(return_to_invitation ? Route::Invitation05 : Route::Install06, scene);
-            if (error == ESP_OK && !return_to_invitation) {
-                error = enqueue(Work::InstallQr, 0);
-            }
+            error = return_to_invitation ? enter_route(Route::Invitation05, scene) : open_installation_qr(scene);
         } else if ((pairing.state == PairState::Failed || pairing.state == PairState::TimedOut) &&
                    !s_command_pending) {
             s_retry_to_invitation = false;
@@ -4328,10 +4393,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             } else {
                 s_pairing_owned = false;
                 s_cancel_to_install = false;
-                error = enter_route(Route::Install06, scene);
-                if (error == ESP_OK) {
-                    error = enqueue(Work::InstallQr, 0);
-                }
+                error = open_installation_qr(scene);
             }
         }
         if (error != ESP_OK) {
@@ -4454,6 +4516,7 @@ bool previous_navigation_available()
         return s_event_plan.back;
     }
     return s_route == Route::SetupMenu || s_route == Route::CodexReplace || s_route == Route::CodexForget ||
+        (kDeviceFirstSetup && s_route == Route::Invitation05) ||
         s_route == Route::Install06 ||
         options_back_available() ||
         (s_view.action_visible && s_view.action_id == OnboardingAction::Cancel);
@@ -4479,6 +4542,7 @@ bool previous_control_visible()
         return s_view.actions_visible && previous_navigation_available();
     }
     return s_route == Route::SetupMenu || s_route == Route::CodexReplace || s_route == Route::CodexForget ||
+        (kDeviceFirstSetup && s_route == Route::Invitation05) ||
         options_back_available() ||
         (previous_navigation_available() && s_route != Route::Install06 && !uses_footer_action());
 }
@@ -4486,13 +4550,15 @@ bool previous_control_visible()
 // No parameters: a captioned footer replaces the setup journey's right chevron.
 bool next_control_visible()
 {
-    return next_navigation_available() && !uses_footer_action();
+    return (options_next_page_available() && s_view.actions_visible) ||
+        (next_navigation_available() && !uses_footer_action());
 }
 
 // scene: Current route, never advanced on unconfirmed cancellation/cleanup.
 // direction: Explicit previous/next intent, shared by tap and released swipe.
+// from_footer: True for the captioned action, distinct from Options pagination.
 // Exception: Returns the real persistence, snapshot, command or route error.
-esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection direction)
+esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection direction, bool from_footer = false)
 {
     if (s_timeout_cleanup.pending) {
         return ESP_OK;
@@ -4527,8 +4593,19 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     if (back_hit && s_route == Route::Install06) {
         return enter_route(Route::Invitation05, scene);
     }
+    if (back_hit && kDeviceFirstSetup && s_route == Route::Invitation05) {
+        return enter_route(s_pairing_guide_return, scene);
+    }
     if (back_hit && s_route == Route::SetupMenu) {
-        const bool return_to_companion = s_setup_returns_to_companion;
+        if (kDeviceFirstSetup && (s_setup_return == Route::Hello04 || s_setup_return == Route::Invitation05)) {
+            return enter_route(s_setup_return, scene);
+        }
+        if (kDeviceFirstSetup && s_setup_return == Route::Install06) {
+            const auto error = open_installation_qr(scene);
+            return error == ESP_OK ? ESP_OK : show_error(scene, error);
+        }
+        const bool return_to_companion = is_companion_route(s_setup_return) ||
+            s_setup_return == Route::LookingForPc14;
         scene = {};
         reset_onboarding();
         if (return_to_companion) {
@@ -4551,16 +4628,18 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     if (back_hit && s_route == Route::MakeItYours10) {
         if (s_options_page != OptionsPage::Menu) {
             s_preference_error = ESP_OK;
-            return show_options_page(scene, s_options_page == OptionsPage::BehaviorMore
-                ? OptionsPage::Behavior : OptionsPage::Menu);
+            const auto parent = s_options_page == OptionsPage::MenuMore ? OptionsPage::Menu :
+                s_options_page == OptionsPage::BehaviorMore ? OptionsPage::Behavior : OptionsPage::MenuMore;
+            return show_options_page(scene, parent);
         }
         return enter_route(Route::SetupMenu, scene);
     }
+    if (action_hit && kDeviceFirstSetup && s_route == Route::Hello04) {
+        s_pairing_guide_return = Route::Hello04;
+        return enter_route(Route::Invitation05, scene);
+    }
     if (action_hit && s_route == Route::Invitation05) {
-        esp_err_t error = enter_route(Route::Install06, scene);
-        if (error == ESP_OK) {
-            error = enqueue(Work::InstallQr, 0);
-        }
+        const auto error = open_installation_qr(scene);
         if (error != ESP_OK) {
             return show_error(scene, error);
         }
@@ -4579,11 +4658,18 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
             }
             return error == ESP_OK ? attach_content(scene) : error;
         }
+        if (on_options_menu() && !from_footer) {
+            return options_next_page_available() ? show_options_page(scene, OptionsPage::MenuMore) : ESP_OK;
+        }
+        if (s_view.action_id == OnboardingAction::GoHome) {
+            s_widget_open_request = WidgetOpenRequest::Statistics;
+            return ESP_OK;
+        }
         if (s_options_page == OptionsPage::Behavior && s_view.action_id == OnboardingAction::MoreBehavior) {
             return show_options_page(scene, OptionsPage::BehaviorMore);
         }
-        if (s_options_page != OptionsPage::Menu) {
-            return show_options_page(scene, OptionsPage::Menu);
+        if (!on_options_menu()) {
+            return show_options_page(scene, OptionsPage::MenuMore);
         }
         if (s_options_from_setup) {
             return enter_route(Route::SetupMenu, scene);
@@ -4758,6 +4844,13 @@ esp_err_t activate_setup_choice(SceneFrame &scene, OnboardingAction action)
     if (action == OnboardingAction::NetworkSetup) {
         s_startup_pending = false;
         s_codex_owned = false;
+        if (kDeviceFirstSetup) {
+            if (s_route == Route::NetworkWait) {
+                return enter_route(Route::Hello04, scene);
+            }
+            s_pairing_guide_return = Route::SetupMenu;
+            return enter_route(Route::Invitation05, scene);
+        }
         LUNASHELL::ConnectivityObservation observation{};
         error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
         return error == ESP_OK ? start_wifi_pairing(scene, observation.radios.pairing) : show_error(scene, error);
@@ -4805,7 +4898,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
     if (s_route == Route::None) {
         return ESP_OK;
     }
-    if (s_route == Route::Hello04) {
+    if (s_route == Route::Hello04 && !kDeviceFirstSetup) {
         if (!s_hello_waits_for_touch) {
             return ESP_OK;
         }
@@ -4906,7 +4999,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         } else if (footer_hit) {
             consumed = true;
             return activate_onboarding_navigation(scene, s_view.action_id == OnboardingAction::Cancel ?
-                NavigationDirection::Previous : NavigationDirection::Next);
+                NavigationDirection::Previous : NavigationDirection::Next, true);
         }
         const bool back_hit = previous_control_visible() && CODY2D::capsule_contains(back, point);
         const bool next_hit = next_control_visible() && CODY2D::capsule_contains(next, point);

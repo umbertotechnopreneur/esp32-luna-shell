@@ -102,12 +102,11 @@ next phase's active duration. The VibeWare introduction precedes Cody, with no
 Debug HUD or numeric progress invented from animation time. Actual deep-sleep
 and ordinary standby wake keep their existing lifecycle and omit the logo.
 
-First setup selected by an absent saved Wi-Fi profile enters Hello 04 with Happy and `Hi, I'm Cody!` at
-`(233,225,130)`. Its 13 characters use 70 ms each; after the complete text has
-actually retired to the panel it remains readable for one active second before
-05. There is no second bitmap intro. Normal startup now selects network setup,
-the optional Codex choice (40), reconnect waiting (42), or authenticated PC search
-from the canonical saved-profile/link state; see [onboarding](navigation.md).
+The device-first firmware enters **Not connected** on screen 04 when a saved
+Wi-Fi profile is absent. **Tap to pair** opens the phone instructions. The
+installation QR opens on screen 06 and **Pair Cody** admits the Bluetooth
+session. The retained-profile startup choices come from the canonical network
+and link state. See [navigation](navigation.md).
 An existing saved Wi-Fi profile receives a passive `Connecting to Wi-Fi` /
 `Please wait` presentation for up to 15 seconds before recovery choices appear.
 Valid association and IP advance immediately; the interval adds no polling task
