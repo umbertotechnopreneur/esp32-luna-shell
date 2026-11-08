@@ -46,9 +46,10 @@ mode. The shared BSP supports the Waveshare 1.75 GPS (16 MB) and 1.75C
 | --- | --- |
 | [Navigation Atlas](cody/cody-navigation-atlas-v1.pdf) | Routes, returns, questions and read-only PR updates |
 | [Planning Atlas](cody/cody-planning-atlas-v1.pdf) | Screen inventory, layout and product boundaries |
-| [Pairing Quickstart](cody/cody-ccp-pairing-quickstart-a5-v1.pdf) | A5 guide: cover, contents and four practical pages for nontechnical users |
-| [CCP Communication Atlas](cody/cody-ccp-connection-atlas-v1.pdf) | One canonical pairing, plugin and voice reference: plain-English flow first, detailed source/security reference after |
-| [Manga Status Atlas](cody/cody-manga-status-atlas-v1.pdf) | Expressive cues, artwork and boot identity |
+| [Pairing Quickstart](cody/cody-ccp-pairing-quickstart-a5-v1.pdf) | Exactly four A5 instructional pages for local pairing; no added cover, contents or appendix |
+| [CCP Communication Atlas](cody/cody-ccp-connection-atlas-v1.pdf) | Current local pairing and events, private relay with mounted SMB/Samba storage, and explicit integration limits |
+| [Manga Status Atlas](cody/cody-manga-status-atlas-v1.pdf) | Preserved expressive artwork and current Studio/design boundaries |
+| [A4 navigation map](cody/device-navigation-map-a4.pdf) | One-page device-first dashboard, Options and event routes |
 
 Use screen IDs to match atlas pages to the firmware. The console guide covers
 PDF generation, front matter and the Obsidian mirror. [Console guide](../scripts/README.md)

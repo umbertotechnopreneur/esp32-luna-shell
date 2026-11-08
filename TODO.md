@@ -1,5 +1,24 @@
 # Active work
 
+## CLOUD-01 - Private relay acceptance
+
+- Keep the independently versioned proprietary server outside the public Git
+  index. Public documentation contains only architecture and integration limits.
+- After explicit authorization, stage and scan new dependencies, compile on the
+  native platform, and exercise account/device isolation, pairing races, DPoP
+  replay, token rotation, lost responses, revocation, expiry and bounded queues.
+- Verify Windows and Linux separately against the actual SMB/Samba mount,
+  including cross-host exclusion, interrupted writes, disconnect/reconnect,
+  restrictive permissions and power-loss durability limits.
+- Configure the real identity provider and connect the remote MCP plugin to Dot.
+  Verify actual notification calls and acknowledgements; do not infer a complete
+  internal Dot event stream.
+- Provision standard OS-mounted SMB storage with one relay instance, private
+  mount credentials, share identity and explicit initialization. Verify server
+  locks, flush and atomic replacement before deployment; no Azure APIs are used.
+- Firmware integration is a later explicitly requested phase. No device cloud
+  pairing or delivery behavior is established by the server implementation.
+
 ## Offline statistics and local timer
 
 - Verify the saved snapshot, UTC timestamp and countdown with the paired PC off,

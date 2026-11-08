@@ -223,27 +223,31 @@ The documentation index links published PDF artifacts; authoring operations
 remain explicit generators through this console:
 
 ```powershell
-.\scripts\device.ps1 generate -Generator cody-connection-atlas
-.\scripts\device.ps1 generate -Generator cody-pairing-flyer
-.\scripts\device.ps1 generate -Generator cody-planning-atlas
-.\scripts\device.ps1 generate -Generator cody-navigation-atlas
+.\scripts\device.ps1 generate -Generator cody-current-docs -PythonExecutable '<installed-python>' -ToolArguments @('--pdftoppm', '<installed-pdftoppm>')
 ```
 
-`cody-connection-atlas` authors the single CCP Communication Atlas, including
-server/client ownership, pairing, protocol messages, native audio and its final
-retained Security corrections. The A5 flyer remains a separate four-page guide.
-Historical flow/setup/screen/security/translation generators retain reproduction
-safeguards and are not the current authoring path for these documents.
+`cody-current-docs` authors all six maintained Cody PDFs from the current
+reference content, including the one-page navigation map and four-page A5
+quickstart. It copies each final PDF byte for byte to the configured Obsidian
+atlas directory and renders pages with the selected existing Poppler executable.
+Review images stay temporarily under `artifacts/docs/current/`; remove them after
+handoff. Existing embedded concept artwork is retained as documentation source
+assets under `assets/cody/docs/studio/`. The earlier appendix/restoration and
+individual atlas generators are not the current authoring path.
 
 Maintain the current behavior in the PDF body and keep code history in Git.
 When needed, the final register preserves the dates, page and screen IDs, and
 evidence for errata, addenda and security corrections. See [AGENTS.md](../AGENTS.md).
 The pairing flyer remains exactly four A5 pages with current instructions;
-it has no appended register or technical appendix. English conversion uses
-the mappings in `assets/cody/docs/translations/`, preserves originals under
-`artifacts/docs/`, skips unchanged output and rejects unexpected source edits.
-It does not invent translations beyond those mappings. Documentation moves
-do not revise existing PDF contents.
+it has no appended register or technical appendix. Current source references,
+retained correction evidence and design artwork have separate roles. Private
+cloud implementation belongs in a separate private service repository. Its PDF
+overview describes one ASP.NET Core service instance with Aspire/OpenTelemetry
+and bounded JSON snapshots on an OS-mounted SMB/Samba share. The OS handles mount
+authentication outside the repository; storage uses no Azure SDK or provider API.
+Locking, flush, atomic replacement and disconnect behavior on actual Windows and
+Linux mounts remain acceptance gates. This overview does not establish deployment,
+Dot integration or firmware support.
 
 ## Host tools and output ownership
 

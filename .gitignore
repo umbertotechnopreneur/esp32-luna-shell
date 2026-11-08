@@ -30,6 +30,9 @@ runtime-logs/
 .idea/
 *.user
 
+# Independently versioned proprietary cloud service; never add as a submodule.
+/server-private/
+
 # Windows folder metadata at any directory depth
 **/desktop.ini
 

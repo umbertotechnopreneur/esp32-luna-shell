@@ -250,7 +250,7 @@ The four-panel Home contract is in [Cody layout](docs/cody/layout.md).
 | Area | Possible next work and limits |
 | --- | --- |
 | Other PC platforms | Implement Linux/macOS credential and launcher owners before claiming support. Keep Python additions neutral; no new Windows service/general PC observer. |
-| Remote connection | Explore genuine host events -> ASP.NET Core/Azure relay -> outbound TLS from Cody, with user/device identity, ordering, expiry and recovery. Aspire implementation/deployment remain deferred. |
+| Remote connection | Private ASP.NET Core/Aspire/OpenTelemetry relay source is developed separately from this public repository, using standard OS-mounted SMB/Samba storage without Azure APIs. Firmware integration remains deferred: key-bound account pairing, outbound HTTPS polling, exact event identity, expiry, receipts and revocation. Native-platform SMB validation, Dot connection and deployment remain acceptance gates; no live cloud support is claimed. |
 | Built-in assistant audio | Recheck supported App Server audio access, formats, account availability and existing-chat attachment. No separate paid transcription. |
 | Other assistants | Explore explicit adapters for Codex, Claude, Hermes, OpenClaw and possibly Your Dot; verify each public integration and real acknowledgements rather than assume a universal API. |
 | Offline outbox | Explicit SD recording with original timestamp/clock validity, destination, bounded buffers, interrupted-write recovery, retention/deletion and uncertain-delivery reconciliation. No formatting/fallback; review stale actions before replay. |

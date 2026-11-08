@@ -181,7 +181,7 @@ def render_revision_register(records, page_size, document_title, start_page=1, s
         canvas.drawString(margin, height - 64, section_title)
         canvas.setFillColor(MUTED)
         canvas.setFont("CodyDoc", 9)
-        canvas.drawString(margin, height - 81, "Dated decisions, corrections and evidence. Historical entries retain their original scope.")
+        canvas.drawString(margin, height - 81, "Retained corrections and evidence; original dates, page references and screen IDs remain explicit.")
         canvas.setStrokeColor(LINE)
         canvas.line(margin, 35, width - margin, 35)
         canvas.setFont("CodyDoc", 8)
