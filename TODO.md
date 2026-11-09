@@ -1,5 +1,21 @@
 # Active work
 
+## Cody optional synthesized voice
+
+- Select and integrate an English speech engine and voice data in an optional
+  Cody build. Evaluate Ito's main int8 voice, its terms, IDF 6.0.2 compatibility,
+  dependency import scan, and measured resource budget. Keep disabled builds
+  free of the engine and its data.
+- Support the optional wake-word and speech features together. Review shared
+  codec ownership, microphone capture, AEC reference timing, power transitions,
+  and memory and partition budgets before admitting the combined composition.
+- Connect the prepared Synth Voice page to persisted Enable Synth Voice, volume
+  and voice-selection settings supported by the chosen integration; enforce
+  the enable preference on speech requests. Provide a deliberate playback path.
+- With separate authorization, validate the selected builds and measure real
+  playback, pronunciation, microphone/wake behavior, CPU and memory headroom on
+  each supported board; compilation alone cannot establish audible behavior.
+
 ## Cody layout refinement
 
 - Validate the Options destination cards, Behavior rows, saved-PC icon actions and full SSID

@@ -23,6 +23,28 @@ Use the [A4 navigation map](device-navigation-map-a4.pdf) for the device-first
 firmware. The [illustrated atlases](../README.md) also include character design
 material used in Studio.
 
+## Reference projects
+
+- Use Agent Buddy as a reference for host event adapters, session priority and
+  source badges. [Agent Buddy](https://github.com/DanWahlin/agent-buddy)
+- Use Muse as the reference for procedural avatar drawing and motion with
+  Cody's original artwork. Its board adapters and audio ownership are also
+  useful references. [Muse Gadget SDK for ESP32](https://github.com/facebookincubator/muse-gadget-sdk/tree/main/esp32)
+
+## Multi-agent direction
+
+Keep one Cody avatar. Normalize events at the host bridge or relay, where each
+integration can declare its supported events and actions. Identify events by
+source, session and event identity. Show the source badge on the existing home
+surface, with actionable attention ahead of work in progress and completed
+work. Clear a request only when its own source reports the matching outcome or
+expiry. Offer semantic replies only when an authorized route can deliver them
+to the exact session. Native tool approvals stay on their originating host.
+
+Include Dot as a planned connection alongside local Codex. The supported Dot
+surface, authentication and delivery receipts are acceptance gates for the
+existing [remote relay design](remote-integration.md).
+
 ## Native updates
 
 The device renderer groups damage from the old and new content, controls, and
