@@ -35,6 +35,7 @@ class Recording:
     source: tuple[str, int]
     thread_id: str
     turn_id: str
+    queue_executable: str = ""
     expected: int = 0
     counter: int = 0
     touched: float = field(default_factory=time.monotonic)
@@ -63,15 +64,10 @@ class VoiceInputServer:
         self.lock = threading.Lock()
         self.stop = threading.Event()
         self.jobs = queue.Queue(maxsize=MAX_ACTIVE)
-        self.configuration_error = ""
-        try:
-            configuration = audio_config.load_config()
-        except (OSError, ValueError) as error:
-            configuration = audio_config.NativeAudioConfig(source="invalid")
-            self.configuration_error = f"Codex audio configuration failed: {error}"
-        self.executable = configuration.executable
+        self.executable = ""
         self.queue_client = None
-        self.configuration_source = configuration.source
+        self.queue_executable = ""
+        self.configuration_source = "unconfigured"
         self.ready_thread = ""
         self.ready_at = 0.0
         self.native_error = "Native audio readiness has not been checked"
@@ -179,12 +175,14 @@ class VoiceInputServer:
                 followed = [item for item in self.responder._activity.list_sessions() if item["followed"]]
                 recording = Recording(device, session, presence, key, source,
                     followed[0]["session_id"] if len(followed) == 1 else "",
-                    followed[0]["turn_id"] if len(followed) == 1 else "")
+                    followed[0]["turn_id"] if len(followed) == 1 else "", self.executable)
                 self.records[identity] = recording
                 if not recording.thread_id:
                     recording.status, recording.error = 5, "No genuine followed Codex chat"
                 elif self.ready_thread != recording.thread_id or not 0 <= now - self.ready_at <= 10:
                     recording.status, recording.error = 5, self.native_error or "Native audio readiness expired"
+                if recording.status == 5:
+                    print(f"CCP audio START rejected: {recording.error}", file=sys.stderr, flush=True)
             if recording.source != source or not hmac.compare_digest(key, recording.key):
                 raise ValueError("Audio input endpoint or retained key changed")
             if flag == 4 and size == 0:
@@ -259,16 +257,28 @@ class VoiceInputServer:
         followed = [item for item in self.responder._activity.list_sessions() if item["followed"]]
         thread_id = followed[0]["session_id"] if len(followed) == 1 else ""
         error = ""
+        configuration = audio_config.NativeAudioConfig(source="invalid")
         try:
-            if self.configuration_error:
-                raise RuntimeError(self.configuration_error)
+            configuration = audio_config.load_config()
+        except (OSError, ValueError) as failure:
+            error = f"Codex audio configuration failed: {failure}"
+        if error or configuration.executable != self.executable:
+            # Revoke the old readiness before closing or probing a different executable.
+            with self.lock:
+                self.ready_thread = ""
+                self.ready_at = 0.0
+        try:
+            if error:
+                raise RuntimeError(error)
+            if self.queue_client is not None and self.queue_executable != configuration.executable:
+                self.close_queue()
             if not thread_id:
                 raise RuntimeError("No genuine followed Codex chat")
-            if not self.executable:
+            if not configuration.executable:
                 raise RuntimeError("Codex audio queue is not configured; run codex-audio setup")
-            audio_config.validate_executable(self.executable)
             if self.queue_client is None:
-                self.queue_client = PublicAudioQueue(self.executable, self.stop)
+                self.queue_client = PublicAudioQueue(configuration.executable, self.stop)
+                self.queue_executable = configuration.executable
             self.queue_client.probe(thread_id)
         except Exception as failure:
             error = str(failure)
@@ -280,6 +290,8 @@ class VoiceInputServer:
             if error and error != self.native_error:
                 print(f"CCP native audio unavailable: {error}", file=sys.stderr, flush=True)
             self.native_error = error
+            self.executable = configuration.executable
+            self.configuration_source = configuration.source
             self.ready_thread = thread_id if not error else ""
             self.ready_at = time.monotonic() if not error else 0.0
             self.next_probe = time.monotonic() + 5
@@ -290,6 +302,7 @@ class VoiceInputServer:
         if self.queue_client is not None:
             self.queue_client.close()
             self.queue_client = None
+            self.queue_executable = ""
 
     # self: Delivery worker owns its queue process for its entire lifetime.
     # Exceptions: Cleanup failures remain visible in the optional audio state and log.
@@ -347,8 +360,10 @@ class VoiceInputServer:
                             raise RuntimeError("Audio cancelled or followed chat changed before native submission")
                         recording.submitting = True
 
-                if self.queue_client is None:
+                if self.queue_client is None or self.native_error:
                     raise RuntimeError("Codex audio queue is unavailable; WAV retained on PC")
+                if recording.queue_executable != self.queue_executable:
+                    raise RuntimeError("Codex audio executable changed during recording; WAV retained on PC")
                 recording.native_queue_id = self.queue_client.submit(
                     recording.thread_id, recording.session.hex(), path, before_submit)
                 with self.lock:

@@ -133,6 +133,10 @@ CCP disconnect.
 Opt in with `scripts/device.ps1 codex-audio -EnableAudioQueue`. Setup selects the
 installed native Codex executable and verifies public queue access to the genuine
 followed chat before saving `%LOCALAPPDATA%\CodyCodexPlugin\audio-config.json`.
+The audio receiver re-reads this configuration during readiness checks and
+probes the explicitly selected executable before admitting a new recording.
+If the executable changes during a recording, the completed WAV stays on the PC
+and is not submitted through the replacement executable.
 There is no separate OpenAI API key, transcription service or model session.
 
 The receiver owns one standard stdio app-server client, restricted to initialize,
