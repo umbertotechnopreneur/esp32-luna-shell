@@ -276,9 +276,11 @@ folds its old upper half toward the hinge for 100 ms, then unfolds its new
 lower half for 100 ms, matching the timing of the Windows widget. The reset
 date in monospace alternates between UTC and the configured local offset.
 The remaining percentage sits below it. Awake informational and action pages
-share the five-pixel gradient perimeter when the weekly sample is valid. The
-optional globe screensaver temporarily hides this chrome. A full allowance
-fills the circumference.
+share the outer gradient perimeter when the weekly sample is valid. An inner
+battery ring uses a green-to-yellow fill over a graphite track while a valid
+charge reading is available. A one-pixel radial gap separates the rings, and
+navigation draws above them. The optional globe screensaver hides both rings.
+A full allowance or charge fills its circumference.
 
 The reset instant and percentage come from the Codex App Server through the
 paired companion link. The countdown uses valid clock observations from
@@ -329,10 +331,10 @@ row uses the configured timezone at the actual expiry instant, with a caption
 such as `11 March 2027`. Equal dates retain separate rows. Unavailable local
 dates, missing expiry details and explicit non-expiring vouchers are distinct.
 
-Token History uses an ECG-style grid and connects only adjacent measured
-15-minute intervals. Its central control cycles through 1, 5 and 24 hours.
-It starts at 5 hours. Missing intervals are gaps and measured zero is a real
-point at the baseline. The labels use the configured local zone when both
+Token History uses a linear scale with labels at zero, the midpoint and the
+rounded upper bound. The trace connects only adjacent measured 15-minute
+intervals. Its central control cycles through 1, 5 and 24 hours and starts at
+5 hours. Missing intervals are gaps and measured zero is a point at the baseline. The labels use the configured local zone when both
 endpoints can be projected. ACCOUNT identifies changes in the service-reported
 account counter, preferring lifetime tokens to a daily bucket. Provider lag
 can shift when these changes are observed. The grid appears only when the

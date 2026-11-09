@@ -36,7 +36,7 @@ struct TokenHistoryPresentation {
     enum class SourceState : uint8_t { Current, Stale, Unavailable };
 
     std::array<Bin, 96> bins{};
-    std::array<Caption, 6> captions{};
+    std::array<Caption, 8> captions{};
     Caption interval_label{};
     CODY2D::CapsuleControl interval_control{};
     const CODY2D::MonoFont *title_font = nullptr;

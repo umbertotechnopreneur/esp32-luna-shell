@@ -79,6 +79,7 @@ struct RetiredFrame {
     uint32_t battery_sequence = 0;
     uint32_t connection_revision = 0;
     uint16_t allowance = 0;
+    int8_t battery_percent = -1;
     uint8_t navigation_opacity = 0;
     uint8_t connection_activity_phase = 0;
     bool statistics_unavailable = false;
@@ -376,12 +377,16 @@ esp_err_t render(const FrameView &frame, bool force = false)
         show_battery ? ui.model.battery_banner : CODY::BatteryAlertNotice{}, saved_epoch);
     if (chrome_error != ESP_OK) return chrome_error;
     const auto &chrome = ui.view.chrome;
-    const uint16_t allowance = frame.layer == Layer::Blank || frame.layer == Layer::Branding ||
-        frame.layer == Layer::Screensaver
-        ? 0 : CODY::device_allowance_ring(ui.model.dashboard);
+    const uint16_t allowance = show_battery ? CODY::device_allowance_ring(ui.model.dashboard) : 0;
+    const auto &battery = ui.model.dashboard.connection.battery;
+    const bool battery_current = show_battery && ui.model.dashboard.connection_valid &&
+        battery.data_valid && !battery.data_stale && battery.last_error == ESP_OK &&
+        battery.level_percent_valid && battery.level_percent >= 0 && battery.level_percent <= 100;
+    const int8_t battery_percent = battery_current ? static_cast<int8_t>(battery.level_percent) : -1;
     const bool full = force || !old.valid || old.display_revision != revision ||
         old.layer != frame.layer || old.screen != screen ||
-        old.allowance != allowance || old.statistics_unavailable != frame.statistics_unavailable ||
+        old.allowance != allowance || old.battery_percent != battery_percent ||
+        old.statistics_unavailable != frame.statistics_unavailable ||
         (frame.layer == Layer::Scene && ui.scene_dirty);
     const bool draws_navigation = frame.arrows || frame.layer == Layer::Scene;
     const uint8_t opacity = draws_navigation ? frame.navigation_opacity : 0;
@@ -472,7 +477,6 @@ esp_err_t render(const FrameView &frame, bool force = false)
             if (error == ESP_OK && frame.connection_activity_phase != 0) {
                 error = CODY::draw_connection_activity_rows(frame.connection_activity_phase, strip, row, left);
             }
-            if (error == ESP_OK) error = CODY::draw_onboarding_navigation(strip, row, left, opacity, background);
         } else if (error == ESP_OK && view.content.draw_rows != nullptr) {
             error = view.content.draw_rows(view.content.state, strip, row, left);
         }
@@ -481,14 +485,17 @@ esp_err_t render(const FrameView &frame, bool force = false)
             error = CODY::draw_voice_ribbon_rows(strip, row, left, ui.voice_ribbon);
         }
 #endif
+        if (error == ESP_OK && (allowance != 0 || battery_percent >= 0)) {
+            error = CODY::draw_device_perimeter_rows(allowance, battery_percent, strip, row, left);
+        }
+        if (error == ESP_OK && frame.layer == Layer::Scene) {
+            error = CODY::draw_onboarding_navigation(strip, row, left, opacity, background);
+        }
         if (error == ESP_OK && frame.arrows && row < navigation_bounds.bottom &&
             row + rows > navigation_bounds.top) {
             error = CODY::draw_lateral_navigation(next_navigation, strip, row, left, opacity);
         }
         if (error == ESP_OK) error = CODY::draw_device_chrome(chrome, strip, row, left);
-        if (error == ESP_OK && allowance != 0) {
-            error = CODY::draw_reset_countdown_ring_rows(allowance, strip, row, left);
-        }
         if (error == ESP_OK) {
             error = LUNASHELL_display_frame_submit_rgb565(left, row, right, row + rows, pixels);
         }
@@ -514,7 +521,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
         (void)CODY::acknowledge_battery_alert(ui.model.battery, ui.model.battery_banner);
     }
     old = {frame.layer, screen, frame_revision, view.content.revision, chrome.battery_sequence,
-        chrome.connection_revision, allowance, opacity, frame.connection_activity_phase,
+        chrome.connection_revision, allowance, battery_percent, opacity, frame.connection_activity_phase,
         frame.statistics_unavailable, next_navigation, true};
     old.voucher_bounds = frame.layer == Layer::Dashboard && screen == WidgetScreen::Credits &&
         !frame.statistics_unavailable ? ui.view.account.voucher_bounds : CODY2D::Rect{};

@@ -19,10 +19,12 @@ constexpr char kTag[] = "CODY_token_history";
 constexpr DamageRect kContentBounds{73, 73, 393, 348};
 constexpr CODY2D::Rect kControlBounds{123, 359, 220, 50};
 constexpr DamageRect kControlDamage{123, 359, 343, 409};
-constexpr CODY2D::Rect kChart{83, 161, 300, 126};
+constexpr CODY2D::Rect kChart{139, 161, 244, 126};
 constexpr CODY2D::Rect kWaitingIcon{201, 157, 64, 64};
 constexpr uint16_t kBaseline = 279;
 constexpr uint16_t kPlotHeight = 110;
+constexpr std::array<uint16_t, 3> kAxisRows{kBaseline - kPlotHeight,
+    kBaseline - kPlotHeight / 2U, kBaseline};
 constexpr int64_t kQuarterSeconds = 900;
 constexpr uint16_t kWhite = 0xF7BE;
 constexpr uint16_t kMuted = 0x9CF3;
@@ -150,13 +152,9 @@ void fill_clipped(CODY2D::Surface strip, uint16_t first_row, uint16_t first_colu
 void draw_grid(CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
 {
     fill_clipped(strip, first_row, first_column, kChart, kChartBackground);
-    for (uint16_t y = 169; y < kBaseline; y = static_cast<uint16_t>(y + 11U)) {
+    for (const uint16_t y : kAxisRows) {
         fill_clipped(strip, first_row, first_column, {kChart.x, y, kChart.width, 1}, kGrid);
     }
-    for (uint16_t x = 98; x < kChart.x + kChart.width; x = static_cast<uint16_t>(x + 15U)) {
-        fill_clipped(strip, first_row, first_column, {x, kChart.y, 1, kChart.height}, kGrid);
-    }
-    fill_clipped(strip, first_row, first_column, {kChart.x, kBaseline, kChart.width, 1}, kGrid);
 }
 
 // presentation: Immutable per-bin validity and prepared plot geometry.
@@ -252,7 +250,20 @@ void attach_content(const TokenHistoryPresentation &presentation, SceneContent &
     content.draw_rows = draw_rows;
 }
 
-// value: Actual maximum measured 15-minute token count.
+// peak: Largest observed value in the selected window, including a real zero.
+uint64_t axis_ceiling(uint64_t peak)
+{
+    if (peak <= 10U) return 10U;
+    uint64_t magnitude = 1;
+    while (peak / magnitude >= 100U) magnitude *= 10U;
+    // Round up to an even increment so the midpoint also has a readable label.
+    const uint64_t step = 2U * magnitude;
+    const uint64_t steps = peak / step + (peak % step != 0);
+    return steps <= std::numeric_limits<uint64_t>::max() / step
+        ? steps * step : std::numeric_limits<uint64_t>::max();
+}
+
+// value: Token count represented by an axis tick.
 // text: Bounded compact number with a decimal magnitude suffix.
 void format_count(uint64_t value, char (&text)[24])
 {
@@ -264,8 +275,10 @@ void format_count(uint64_t value, char (&text)[24])
         ++unit;
     }
     const auto whole = static_cast<unsigned long long>(value / scale);
+    const unsigned decimal = unit == 0 ? 0 : static_cast<unsigned>(value % scale / (scale / 10U));
     if (unit == 0) { std::snprintf(text, sizeof(text), "%llu", whole); }
-    else { std::snprintf(text, sizeof(text), "%llu%c", whole, units[unit]); }
+    else if (decimal == 0) { std::snprintf(text, sizeof(text), "%llu%c", whole, units[unit]); }
+    else { std::snprintf(text, sizeof(text), "%llu.%u%c", whole, decimal, units[unit]); }
 }
 
 // quarter: Real Unix 15-minute index identifying the start of a source slot.
@@ -332,28 +345,34 @@ esp_err_t prepare_plot(TokenHistoryPresentation &presentation, const LUNASHELL::
             collecting ? "Waiting for first interval" : "Try a wider time range";
         return prepare_empty_history(presentation, status, guidance);
     }
-    presentation.bar_width = static_cast<uint8_t>(std::clamp<unsigned>(kChart.width / count / 2U, 1, 18));
+    const uint64_t ceiling = axis_ceiling(peak);
+    presentation.bar_width = static_cast<uint8_t>(std::clamp<unsigned>(kChart.width / count / 2U, 1, 24));
     for (uint8_t index = 0; index < count; ++index) {
         const uint32_t quarter = oldest + index;
         uint64_t value = 0;
         const bool valid = snapshot.read_token_delta(quarter, value);
         const bool gap = !valid && (!known_start || quarter > first_observed);
         uint16_t height = 0;
-        if (valid && value > 0 && peak > 0) {
+        if (valid && value > 0) {
             height = std::max<uint16_t>(1,
-                static_cast<uint16_t>(static_cast<double>(value) / static_cast<double>(peak) * kPlotHeight));
+                static_cast<uint16_t>(static_cast<double>(value) / static_cast<double>(ceiling) * kPlotHeight));
         }
         const auto x = static_cast<uint16_t>(kChart.x + (2U * index + 1U) * kChart.width / (2U * count));
         presentation.bins[index] = {x, static_cast<uint16_t>(kBaseline - height), valid, gap};
     }
     presentation.bin_count = count;
 
-    char message[32]{};
-    char number[24]{};
-    format_count(peak, number);
-    std::snprintf(message, sizeof(message), stale ? "STALE ACCOUNT PEAK %.8s" : "ACCOUNT PEAK %.8s TOKENS", number);
-    esp_err_t error = add_caption(presentation, font, message, {73, 130, 320, 25}, stale ? kAmber : kMuted);
+    const char *units = stale ? "STALE ACCOUNT TOKENS" : "ACCOUNT TOKENS / 15 MIN";
+    esp_err_t error = add_caption(presentation, font, units, {73, 130, 320, 25}, stale ? kAmber : kMuted);
     if (error != ESP_OK) { return error; }
+    const std::array<uint64_t, 3> ticks{ceiling, ceiling / 2U, 0};
+    for (size_t index = 0; index < ticks.size(); ++index) {
+        char number[24]{};
+        format_count(ticks[index], number);
+        const auto top = static_cast<int16_t>(kAxisRows[index] - font.height / 2U);
+        error = add_caption(presentation, font, number, {73, top, 63, 25}, kMuted);
+        if (error != ESP_OK) { return error; }
+    }
     char first[16]{};
     char last[16]{};
     const bool dates_ready = local != nullptr

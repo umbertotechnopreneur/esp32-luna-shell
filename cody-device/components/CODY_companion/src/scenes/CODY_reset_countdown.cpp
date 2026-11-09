@@ -37,6 +37,12 @@ constexpr uint16_t kCanvasSize = 466;
 constexpr float kCenter = kCanvasSize / 2.f;
 constexpr float kInnerEdge = 223.5f;
 constexpr float kOuterEdge = 229.5f;
+constexpr float kBatteryOuterEdge = kInnerEdge - 1.f;
+constexpr float kBatteryInnerEdge = kBatteryOuterEdge - (kOuterEdge - kInnerEdge);
+constexpr uint16_t kBatteryTrack = 0x18C3;
+constexpr uint16_t kBatteryGreen = 0x366A;
+constexpr uint16_t kBatteryYellow = 0xCF25;
+static_assert(kInnerEdge - kBatteryOuterEdge == 1.f, "Perimeter rings require a one-pixel radial gap");
 constexpr float kTau = 6.28318530718f;
 
 // operation: Exact failed preparation or draw operation.
@@ -516,16 +522,20 @@ bool reset_countdown_ring_visible(const ResetCountdownPresentation &presentation
          presentation.view.status == ResetCountdownStatus::TimeUnavailable);
 }
 
-// remaining: Canonical remaining allowance in basis points.
+// remaining: Canonical remaining allowance in basis points, or zero to omit its arc.
+// battery_percent: Canonical charge from zero to 100, or -1 to omit its ring.
 // strip: Borrowed RGB565 tile carrying original stride and storage byte order.
 // first_row: Logical y of the tile.
 // first_column: Logical x of the tile.
 // Exception: Returns the original surface or argument error.
-esp_err_t draw_reset_countdown_ring_rows(uint16_t remaining,
+esp_err_t draw_device_perimeter_rows(uint16_t remaining, int8_t battery_percent,
     CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
 {
-    if (remaining == 0) { return ESP_OK; }
-    if (remaining > 10000) { return ESP_ERR_INVALID_ARG; }
+    if (remaining > 10000 || battery_percent < -1 || battery_percent > 100) {
+        return countdown_result("draw perimeter values", ESP_ERR_INVALID_ARG);
+    }
+    const bool show_battery = battery_percent >= 0;
+    if (remaining == 0 && !show_battery) { return ESP_OK; }
     const esp_err_t error = CODY2D::validate_surface(strip);
     if (error != ESP_OK) { return countdown_result("draw perimeter tile", error); }
     const int bottom = first_row + strip.height;
@@ -533,42 +543,72 @@ esp_err_t draw_reset_countdown_ring_rows(uint16_t remaining,
     if (bottom > kCanvasSize || right > kCanvasSize) {
         return countdown_result("draw perimeter bounds", ESP_ERR_INVALID_SIZE);
     }
-    const float gap_end = kTau * (10000U - remaining) / 10000.f;
+    const float quota_start = kTau * (10000U - remaining) / 10000.f;
+    const float battery_end = kTau * battery_percent / 100.f;
+    const float outer_edge = remaining > 0 ? kOuterEdge : kBatteryOuterEdge;
+    const float inner_edge = show_battery ? kBatteryInnerEdge : kInnerEdge;
     for (int y = first_row; y < bottom; ++y) {
         const float dy = y + .5f - kCenter;
-        const float outer_square = kOuterEdge * kOuterEdge - dy * dy;
+        const float outer_square = outer_edge * outer_edge - dy * dy;
         if (outer_square <= 0.f) { continue; }
         const float outer_extent = std::sqrt(outer_square);
-        const float inner_square = kInnerEdge * kInnerEdge - dy * dy;
+        const float inner_square = inner_edge * inner_edge - dy * dy;
         const float inner_extent = inner_square > 0.f ? std::sqrt(inner_square) : 0.f;
         const int row_left = std::max<int>(first_column, static_cast<int>(std::ceil(kCenter - .5f - outer_extent)));
         const int row_right = std::min(right, static_cast<int>(std::floor(kCenter - .5f + outer_extent)) + 1);
         const int skip_left = static_cast<int>(std::floor(kCenter - .5f - inner_extent)) + 1;
         const int skip_right = static_cast<int>(std::ceil(kCenter - .5f + inner_extent));
         for (int x = row_left; x < row_right; ++x) {
-            // Skip the entire interior chord and shade only the five-pixel perimeter.
+            // Skip the entire interior chord and shade only the perimeter bands.
             if (x >= skip_left && x < skip_right) {
                 x = skip_right - 1;
                 continue;
             }
             const float dx = x + .5f - kCenter;
             const float radius = std::sqrt(dx * dx + dy * dy);
-            const float coverage = std::min(radius - kInnerEdge, kOuterEdge - radius);
+            const bool battery_pixel = show_battery && radius <= kBatteryOuterEdge;
+            const float coverage = battery_pixel
+                ? std::min(radius - kBatteryInnerEdge, kBatteryOuterEdge - radius)
+                : std::min(radius - kInnerEdge, kOuterEdge - radius);
             if (coverage <= 0.f) { continue; }
             float angle = std::atan2(dx, -dy);
             if (angle < 0.f) { angle += kTau; }
-            // The erased arc grows clockwise from twelve as allowance is consumed.
-            const float end_coverage = remaining == 10000 ? 1.f : (angle - gap_end) * radius + .5f;
-            const float alpha = std::clamp(std::min(coverage, end_coverage), 0.f, 1.f);
-            if (alpha <= 0.f) { continue; }
+            float alpha = std::min(coverage, 1.f);
+            uint16_t foreground = kBatteryTrack;
+            if (battery_pixel && battery_percent > 0) {
+                const float fill = battery_percent == 100 ? 1.f :
+                    std::clamp((battery_end - angle) * radius + .5f, 0.f, 1.f);
+                if (fill > 0.f) {
+                    const auto gradient = static_cast<uint8_t>(std::min(angle / battery_end, 1.f) * 255.f);
+                    const auto color = CODY2D::blend_rgb565(kBatteryYellow, kBatteryGreen, gradient);
+                    foreground = CODY2D::blend_rgb565(color, kBatteryTrack, static_cast<uint8_t>(fill * 255.f));
+                }
+            } else if (!battery_pixel) {
+                // The erased arc grows clockwise from twelve as allowance is consumed.
+                const float fill = remaining == 10000 ? 1.f : (angle - quota_start) * radius + .5f;
+                alpha = std::min(alpha, fill);
+                if (alpha <= 0.f) { continue; }
+                foreground = perimeter_color(angle);
+            }
             auto &pixel = strip.pixels[(y - first_row) * strip.stride + x - first_column];
             const uint16_t background = CODY2D::rgb565_stored_to_native(pixel, strip.byte_order);
-            const uint16_t color = CODY2D::blend_rgb565(perimeter_color(angle), background,
+            const uint16_t color = CODY2D::blend_rgb565(foreground, background,
                 static_cast<uint8_t>(alpha * 255.f + .5f));
             pixel = CODY2D::rgb565_native_to_stored(color, strip.byte_order);
         }
     }
     return ESP_OK;
+}
+
+// remaining: Canonical remaining allowance in basis points.
+// strip: Borrowed RGB565 tile carrying original stride and storage byte order.
+// first_row: Logical y of the tile.
+// first_column: Logical x of the tile.
+// Exception: Returns the original perimeter drawing error.
+esp_err_t draw_reset_countdown_ring_rows(uint16_t remaining,
+    CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+{
+    return draw_device_perimeter_rows(remaining, -1, strip, first_row, first_column);
 }
 
 // presentation: Immutable legacy screen and exact remaining basis points.

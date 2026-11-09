@@ -101,6 +101,15 @@ bool reset_countdown_ring_visible(const ResetCountdownPresentation &presentation
 esp_err_t draw_reset_countdown_ring_rows(uint16_t remaining,
     CODY2D::Surface strip, uint16_t first_row, uint16_t first_column = 0);
 
+// remaining: Canonical remaining allowance in basis points, or zero to omit its arc.
+// battery_percent: Canonical charge from zero to 100, or -1 to omit its ring.
+// strip: Borrowed RGB565 tile carrying original stride and storage byte order.
+// first_row: Logical y of the tile.
+// first_column: Logical x of the tile.
+// Exception: Returns the original surface error or rejects invalid values and canvas bounds.
+esp_err_t draw_device_perimeter_rows(uint16_t remaining, int8_t battery_percent,
+    CODY2D::Surface strip, uint16_t first_row, uint16_t first_column);
+
 // presentation: Immutable screen and exact remaining basis points.
 // strip: Borrowed RGB565 tile carrying original stride and storage byte order.
 // first_row: Logical y of the tile.
